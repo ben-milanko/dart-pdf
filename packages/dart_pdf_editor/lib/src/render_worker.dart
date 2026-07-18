@@ -120,14 +120,21 @@ const int pdfRenderWorkerPoolMinPages = 12;
 /// backend when the document is long enough and [workerCount] (or the global
 /// [pdfRenderWorkerPoolSize] fallback) asks for parallelism, otherwise a single
 /// platform worker.
+/// [copySource] is forwarded to [PdfPooledRenderWorker]; it defaults to false
+/// here because every caller of this entry point starts the worker over a
+/// document image whose bytes don't change under it (the read-only reader, or
+/// the edit session's grow-only buffer, which is replaced rather than mutated).
+/// Skipping the pool's defensive snapshot saves a full-document allocation per
+/// worker generation - the single-worker branch never copied either.
 PdfRenderWorker startPdfRenderWorker(
   Uint8List bytes, {
   required int pageCount,
   int? workerCount,
+  bool copySource = false,
 }) {
   final count = math.max(1, workerCount ?? pdfRenderWorkerPoolSize);
   final backend = count > 1 && pageCount >= pdfRenderWorkerPoolMinPages
-      ? PdfPooledRenderWorker(bytes, count)
+      ? PdfPooledRenderWorker(bytes, count, copySource: copySource)
       : startRenderWorker(bytes);
   return PdfCachingRenderWorker(backend);
 }
@@ -176,9 +183,16 @@ abstract class PdfRenderWorker {
 
   /// Builds the uncached backend: a single platform worker, or - when
   /// [pdfRenderWorkerPoolSize] asks for more than one - a pool of them.
+  ///
+  /// Seeds without the pool's defensive copy ([copySource] false): [start]'s
+  /// document image is read-only by contract (the reader, or a progressive
+  /// first paint's sparse buffer - both immutable under the worker), so a
+  /// full-document snapshot here is pure waste on the big files #359 makes
+  /// common.
   static PdfRenderWorker _backend(Uint8List bytes) =>
       pdfRenderWorkerPoolSize > 1
-          ? PdfPooledRenderWorker(bytes, pdfRenderWorkerPoolSize)
+          ? PdfPooledRenderWorker(bytes, pdfRenderWorkerPoolSize,
+              copySource: false)
           : startRenderWorker(bytes);
 
   /// The raw platform worker, NOT wrapped in [PdfCachingRenderWorker]. Test-
@@ -411,7 +425,11 @@ abstract class PdfRenderWorker {
 /// snapshot is safe. That drops the pool's own source-byte footprint from N+1
 /// copies (a private per-worker copy plus the urgent copy) to exactly one; each
 /// worker's materialized copy inside its own isolate is unavoidable and
-/// unchanged. Size the pool to the platform via [pdfRenderWorkerPoolSize].
+/// unchanged. A caller whose buffer contents never change under the worker can
+/// drop even that one copy with `copySource: false` (see the factory), which
+/// [startPdfRenderWorker] does - so the pool then adds zero source-byte copies
+/// of its own beyond what each isolate must materialize. Size the pool to the
+/// platform via [pdfRenderWorkerPoolSize].
 ///
 /// Normally wrapped in a [PdfCachingRenderWorker] (see [PdfRenderWorker.start]),
 /// which dedups concurrent requests for one page - so the cache, not the pool,
@@ -427,9 +445,19 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   /// keeps just this single source-byte copy instead of one per worker). [size]
   /// is clamped to at least 1; a pool of 1 is just a single worker with this
   /// routing wrapper.
-  factory PdfPooledRenderWorker(Uint8List bytes, int size) =>
+  ///
+  /// [copySource] defaults to true: the pool takes its own `Uint8List.fromList`
+  /// snapshot so it is decoupled from a caller that may mutate its buffer. Pass
+  /// false when the caller guarantees the buffer's *contents* never change under
+  /// the worker (the edit session's grow-only buffer is only ever replaced, not
+  /// mutated in place - see [startPdfRenderWorker]); the pool then seeds directly
+  /// from [bytes], saving a full-document-sized allocation on every (re)start -
+  /// worth ~one document copy per worker generation on the big files #359 makes
+  /// common.
+  factory PdfPooledRenderWorker(Uint8List bytes, int size,
+          {bool copySource = true}) =>
       PdfPooledRenderWorker._shared(
-        Uint8List.fromList(bytes),
+        copySource ? Uint8List.fromList(bytes) : bytes,
         size,
         startRenderWorker,
       );
@@ -442,9 +470,11 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   factory PdfPooledRenderWorker.withSpawner(
     Uint8List bytes,
     int size,
-    PdfRenderWorker Function(Uint8List) spawn,
-  ) =>
-      PdfPooledRenderWorker._shared(Uint8List.fromList(bytes), size, spawn);
+    PdfRenderWorker Function(Uint8List) spawn, {
+    bool copySource = true,
+  }) =>
+      PdfPooledRenderWorker._shared(
+          copySource ? Uint8List.fromList(bytes) : bytes, size, spawn);
 
   /// Seeds every worker and the urgent lane from the already-owned [shared]
   /// snapshot (the factories above copy the caller's bytes once into it).

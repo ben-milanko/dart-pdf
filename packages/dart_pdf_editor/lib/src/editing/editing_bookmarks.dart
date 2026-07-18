@@ -17,7 +17,7 @@ class PdfBookmarkSidebar extends StatefulWidget {
     required this.controller,
     required this.viewerController,
     this.editable = true,
-    this.side = PdfSidebarSide.left,
+    this.dock = PdfPanelDock.left,
     this.bottomSheet = false,
     this.width = 260,
     this.minWidth = 200,
@@ -29,7 +29,7 @@ class PdfBookmarkSidebar extends StatefulWidget {
   final PdfEditingController controller;
   final PdfViewerController viewerController;
   final bool editable;
-  final PdfSidebarSide side;
+  final PdfPanelDock dock;
   final bool bottomSheet;
   final double width;
   final double minWidth;
@@ -136,6 +136,9 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
     final closeButton = geometry.closeButton(
       key: const ValueKey('pdf-bookmark-panel-close'),
     );
+    final moveHandle = geometry.moveHandle(
+      key: const ValueKey('pdf-bookmark-panel-move'),
+    );
     final showTitle = !widget.bottomSheet;
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -157,6 +160,7 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
             icon: const Icon(Icons.add),
             onPressed: () => _addBookmark(context),
           ),
+        if (moveHandle != null) moveHandle,
         if (closeButton != null) closeButton,
       ]),
     );
@@ -349,7 +353,8 @@ class _PdfBookmarkSidebarState extends State<PdfBookmarkSidebar> {
       persistedWidth: controller.preferences.bookmarkSidebarWidth,
       onPersistWidth: (width) =>
           controller.preferences.bookmarkSidebarWidth = width,
-      side: widget.side,
+      dock: widget.dock,
+      panel: PdfDockablePanel.bookmarks,
       resizable: widget.resizable,
       bottomSheet: widget.bottomSheet,
       gripKey: const ValueKey('pdf-bookmark-resize-grip'),

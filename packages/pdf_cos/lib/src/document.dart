@@ -468,9 +468,26 @@ class CosDocument {
           }
         case CosXrefEntryType.compressed:
           // objects inside an object stream were decrypted wholesale with
-          // the stream itself - never again individually (§7.6.3)
-          result = _objectStream(entry.streamObjectNumber)
-              .objectByNumber(objectNumber, entry.indexInStream);
+          // the stream itself - never again individually (§7.6.3). An object
+          // stream that can't be loaded - a broken file, or a range not yet
+          // fetched in a progressive/page-scoped open - leaves the object
+          // dangling (CosNull) rather than throwing, mirroring the in-use path
+          // above so callers that already tolerate dangling references (forms,
+          // annotations) don't fault on a partial buffer.
+          CosObject compressed;
+          try {
+            compressed = _objectStream(entry.streamObjectNumber)
+                .objectByNumber(objectNumber, entry.indexInStream);
+          } on Exception {
+            // A malformed or not-yet-fetched object stream throws various
+            // exception types - CosParseException, a filter's FormatException /
+            // UnsupportedFilterException, etc. Treat them all as a dangling
+            // reference, like the in-use path's parse fallback above.
+            compressed = CosNull.instance;
+          } on RangeError {
+            compressed = CosNull.instance;
+          }
+          result = compressed;
       }
     } finally {
       _loadingObjects.remove(objectNumber);

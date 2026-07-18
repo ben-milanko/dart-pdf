@@ -7,6 +7,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'editing/editing_bookmarks.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_menu.dart';
+import 'editing/editing_panel.dart';
 import 'editing/editing_pencil.dart';
 import 'editing/editing_preferences.dart';
 import 'editing/editing_properties.dart';
@@ -570,6 +571,23 @@ class _PdfEditorViewState extends State<PdfEditorView> {
     session.preferences.author = name.trim().isEmpty ? null : name.trim();
   }
 
+  /// Redocks [panel] standalone onto [dock] (an edge drop zone): writes its
+  /// dock and splits it out of any tab group. The pref change notifies and
+  /// rebuilds, re-routing the panel. Wired to
+  /// [PdfShellPanelLayout.onPanelDock].
+  void _setPanelDock(PdfDockablePanel panel, PdfPanelDock dock) {
+    _prefs.setPanelDock(panel, dock);
+    _prefs.setPanelGroup(panel, _prefs.standalonePanelGroup(panel));
+  }
+
+  /// Tabs [panel] into the group at [dock]/[group] (a drop onto another
+  /// panel): matches its dock and group id so the two render as one tabbed
+  /// panel. Wired to [PdfPanelTabDropRegion.onJoin].
+  void _joinPanel(PdfDockablePanel panel, PdfPanelDock dock, int group) {
+    _prefs.setPanelDock(panel, dock);
+    _prefs.setPanelGroup(panel, group);
+  }
+
   @override
   Widget build(BuildContext context) {
     final features = widget.features;
@@ -610,6 +628,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 pageColor: pageColor,
                 showAnnotations: prefs.showAnnotations,
                 allowPageEditing: features.pageEditing,
+                dock: prefs.thumbnailSidebarDock,
                 bottomSheet: bottomSheet,
                 // the sheet chrome carries its own close button
                 onClose: bottomSheet
@@ -629,6 +648,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     'pdf-shell-search-panel-${bottomSheet ? 'sheet' : 'docked'}'),
                 controller: _viewer,
                 preferences: prefs,
+                dock: prefs.searchPanelDock,
                 bottomSheet: bottomSheet,
                 onClose: bottomSheet
                     ? null
@@ -641,6 +661,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 controller: session,
                 viewerController: _viewer,
                 editable: true,
+                dock: prefs.bookmarkSidebarDock,
                 bottomSheet: bottomSheet,
                 onClose: bottomSheet
                     ? null
@@ -652,6 +673,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     'pdf-shell-annotations-${bottomSheet ? 'sheet' : 'docked'}'),
                 controller: session,
                 viewerController: _viewer,
+                dock: prefs.annotationSidebarDock,
                 bottomSheet: bottomSheet,
                 onClose: bottomSheet
                     ? null
@@ -664,6 +686,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     'pdf-shell-properties-${bottomSheet ? 'sheet' : 'docked'}'),
                 controller: session,
                 showAuthor: features.authorEditable,
+                dock: prefs.propertiesPanelDock,
                 bottomSheet: bottomSheet,
                 onClose: bottomSheet
                     ? null
@@ -710,6 +733,102 @@ class _PdfEditorViewState extends State<PdfEditorView> {
               !altView;
           final showPropertiesPanel =
               features.propertiesPanel && prefs.showPropertiesPanel && !altView;
+
+          // The visible docked panels, in canonical order. Each is placed on
+          // its persisted edge ([PdfEditingPreferences.panelDock]) and, within
+          // that edge, its persisted tab group ([panelGroup]): panels sharing
+          // an edge and a group id render as one tabbed panel, otherwise as
+          // side-by-side panels. Dragging a panel's handle onto an edge zone
+          // redocks it standalone; dragging it onto another panel tabs them.
+          final visiblePanels = <PdfDockablePanel>[
+            if (showThumbnailsPanel && !useSheets) PdfDockablePanel.thumbnails,
+            if (showSearchPanel && !useSheets) PdfDockablePanel.search,
+            if (showBookmarksPanel && !useSheets) PdfDockablePanel.bookmarks,
+            if (showAnnotationsPanel && !useSheets)
+              PdfDockablePanel.annotations,
+            if (showPropertiesPanel && !useSheets) PdfDockablePanel.properties,
+          ];
+          Widget standalonePanel(PdfDockablePanel p) => switch (p) {
+                PdfDockablePanel.thumbnails => thumbnails(bottomSheet: false),
+                PdfDockablePanel.search => searchResults(bottomSheet: false),
+                PdfDockablePanel.bookmarks => bookmarks(bottomSheet: false),
+                PdfDockablePanel.annotations => annotations(bottomSheet: false),
+                PdfDockablePanel.properties => properties(bottomSheet: false),
+              };
+          // a chromeless body for use inside a tab group (the group supplies
+          // the frame, tab strip, and close buttons); reuses the panels'
+          // bottom-sheet content mode
+          Widget tabBody(PdfDockablePanel p) => switch (p) {
+                PdfDockablePanel.thumbnails => thumbnails(bottomSheet: true),
+                PdfDockablePanel.search => searchResults(bottomSheet: true),
+                PdfDockablePanel.bookmarks => bookmarks(bottomSheet: true),
+                PdfDockablePanel.annotations => annotations(bottomSheet: true),
+                PdfDockablePanel.properties => properties(bottomSheet: true),
+              };
+          VoidCallback closePanel(PdfDockablePanel p) => switch (p) {
+                PdfDockablePanel.thumbnails => () =>
+                    prefs.showThumbnailSidebar = false,
+                PdfDockablePanel.search => () =>
+                    prefs.showSearchResultsPanel = false,
+                PdfDockablePanel.bookmarks => () =>
+                    prefs.showBookmarkSidebar = false,
+                PdfDockablePanel.annotations => () =>
+                    prefs.showAnnotationSidebar = false,
+                PdfDockablePanel.properties => () =>
+                    prefs.showPropertiesPanel = false,
+              };
+          List<Widget> dockedPanels(PdfPanelDock dock) {
+            final onDock = [
+              for (final p in visiblePanels)
+                if (prefs.panelDock(p) == dock) p
+            ];
+            // partition into tab groups by group id, preserving the order in
+            // which each group first appears
+            final order = <int>[];
+            final byGroup = <int, List<PdfDockablePanel>>{};
+            for (final p in onDock) {
+              final g = prefs.panelGroup(p);
+              if (!byGroup.containsKey(g)) {
+                byGroup[g] = [];
+                order.add(g);
+              }
+              byGroup[g]!.add(p);
+            }
+            final children = <Widget>[];
+            for (final g in order) {
+              final members = byGroup[g]!;
+              final Widget child;
+              if (members.length == 1) {
+                child = standalonePanel(members.first);
+              } else {
+                child = PdfPanelTabGroup(
+                  key: ValueKey('pdf-panel-tabgroup-${dock.name}-$g'),
+                  dock: dock,
+                  width: 300,
+                  minWidth: 200,
+                  maxWidth: 560,
+                  persistedWidth: prefs.panelGroupWidth(dock),
+                  onPersistWidth: (w) => prefs.setPanelGroupWidth(dock, w),
+                  gripKey: ValueKey('pdf-panel-tabgroup-grip-${dock.name}-$g'),
+                  entries: [
+                    for (final m in members)
+                      PdfPanelTabEntry(
+                        panel: m,
+                        body: tabBody(m),
+                        onClose: closePanel(m),
+                      ),
+                  ],
+                );
+              }
+              // dropping another panel onto this one tabs it into this group
+              children.add(PdfPanelTabDropRegion(
+                members: members.toSet(),
+                onJoin: (dragged) => _joinPanel(dragged, dock, g),
+                child: child,
+              ));
+            }
+            return children;
+          }
 
           final sheets = !useSheets
               ? const <Widget>[]
@@ -959,14 +1078,10 @@ class _PdfEditorViewState extends State<PdfEditorView> {
               ),
             Expanded(
               child: PdfShellPanelLayout(
-                leadingPanels: [
-                  if (showThumbnailsPanel && !useSheets)
-                    thumbnails(bottomSheet: false),
-                  if (showSearchPanel && !useSheets)
-                    searchResults(bottomSheet: false),
-                  if (showBookmarksPanel && !useSheets)
-                    bookmarks(bottomSheet: false),
-                ],
+                leadingPanels: dockedPanels(PdfPanelDock.left),
+                topPanels: dockedPanels(PdfPanelDock.top),
+                bottomPanels: dockedPanels(PdfPanelDock.bottom),
+                onPanelDock: _setPanelDock,
                 viewer: reflowActive
                     ? PdfReflowView(
                         document: session.document,
@@ -1019,12 +1134,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         // page still scrolls it before the grid closes.
                         active: !gridActive,
                       ),
-                trailingPanels: [
-                  if (showAnnotationsPanel && !useSheets)
-                    annotations(bottomSheet: false),
-                  if (showPropertiesPanel && !useSheets)
-                    properties(bottomSheet: false),
-                ],
+                trailingPanels: dockedPanels(PdfPanelDock.right),
                 bottomSheets: sheets,
                 overlays: [
                   // the page grid covers the (still-mounted) viewer: a tap can

@@ -5,6 +5,17 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 void main() {
+  // This suite exercises the legacy base-raster + single detail-patch path.
+  // The deep-zoom tile pyramid - on by default on every platform now
+  // (issues #314/#360) - composites through a CustomPaint layer that replaces
+  // the patch, so a deep-zoom view shows one RawImage (the base) plus tiles
+  // rather than base + patch. Pin the pyramid off here to test the patch path
+  // deterministically; it has its own suites (tile_store_page_view_test.dart,
+  // tile_layer_test.dart).
+  final tilesDefault = PdfPageView.tileStoreDetail;
+  setUp(() => PdfPageView.tileStoreDetail = false);
+  tearDown(() => PdfPageView.tileStoreDetail = tilesDefault);
+
   testWidgets('PdfPageView reserves the page aspect ratio', (tester) async {
     final doc = PdfDocument.open(buildClassicPdf());
     await tester.pumpWidget(

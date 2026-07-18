@@ -173,6 +173,11 @@ class _EditorScreenState extends State<EditorScreen>
   /// before [_restoreSession] has had a chance to re-open it.
   bool _sessionLoaded = false;
 
+  /// True while [_restoreSession] is re-adding the last session's tabs, so a
+  /// restored path-only tab that is briefly active mid-restore does not start
+  /// opening. Only the tab active when restore finishes materializes.
+  bool _restoringSession = false;
+
   /// The update checker, owned here unless the host injected one.
   late final UpdateService _updates =
       widget.updateService ?? UpdateService(currentVersion: AppInfo.version);
@@ -340,16 +345,27 @@ class _EditorScreenState extends State<EditorScreen>
   Future<void> _restoreSession() async {
     final documents = await _session.load();
     if (mounted && !_hasExplicitLaunchTarget) {
-      for (final doc in documents) {
-        // Skip anything already open (e.g. an OS file-open that arrived first).
-        final key = doc.readPath;
-        if (key != null &&
-            _tabs.any((t) => t.originPath == key || t.cachePath == key)) {
-          continue;
+      // Suppress lazy materialization while restoring: each tab is briefly the
+      // active one as it is added, and we don't want every restored file to
+      // start opening. Only the tab left active when restore finishes should
+      // materialize (see _buildBody / _materializeDeferredPath).
+      _restoringSession = true;
+      try {
+        for (final doc in documents) {
+          // Skip anything already open (e.g. an OS file-open that arrived first).
+          final key = doc.readPath;
+          if (key != null &&
+              _tabs.any((t) => t.originPath == key || t.cachePath == key)) {
+            continue;
+          }
+          await _reopenSessionDocument(doc);
+          if (!mounted) return;
         }
-        await _reopenSessionDocument(doc);
-        if (!mounted) return;
+      } finally {
+        _restoringSession = false;
       }
+      // Let the tab left active materialize now that restore is done.
+      if (mounted) setState(() {});
     }
     _sessionLoaded = true;
     unawaited(_persistSession());
@@ -361,6 +377,42 @@ class _EditorScreenState extends State<EditorScreen>
     // Desktop restores by its writable origin; a mobile pick has none and
     // restores from its private snapshot instead.
     final originPath = doc.path.isNotEmpty ? doc.path : null;
+
+    // Desktop origin: restore lazily and progressively. Probe the file length
+    // first - cheap metadata, no content read or cloud hydration - so a moved
+    // or deleted file is still dropped silently, then add a path-only tab that
+    // reads nothing until it is shown, when it opens progressively. This keeps
+    // launch cheap even when the last session held several big files: only the
+    // active tab pulls bytes, and it first-paints from ranges.
+    if (progressiveOpenSupported(originPath)) {
+      final source =
+          pdfByteSourceForPath(originPath!, bookmark: doc.bookmark);
+      int? length;
+      try {
+        length = await source.length;
+      } catch (_) {
+        length = null;
+      } finally {
+        await source.close();
+      }
+      if (!mounted) return;
+      if (length == null || length <= 0) return; // gone: drop silently
+      _addTab(DocumentTab.deferredPath(
+        title: doc.title,
+        originPath: originPath,
+        originBookmark: doc.bookmark,
+        cachePath: doc.cachePath,
+      ));
+      _recents.add(
+          title: doc.title,
+          path: originPath,
+          cachePath: doc.cachePath,
+          bookmark: doc.bookmark);
+      return;
+    }
+
+    // Snapshot-only restore (mobile private cache, or a platform without
+    // progressive open): read the bytes and defer only the parse.
     final loading = _openLoading(
       doc.title,
       originPath: originPath,
@@ -465,11 +517,15 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   DocumentTab _openLoading(String title,
-      {String? originPath, String? originBookmark, String? cachePath}) {
+      {String? originPath,
+      String? originBookmark,
+      String? originToken,
+      String? cachePath}) {
     final tab = DocumentTab.loading(
         title: title,
         originPath: originPath,
         originBookmark: originBookmark,
+        originToken: originToken,
         cachePath: cachePath);
     _addTab(tab);
     return tab;
@@ -598,7 +654,339 @@ class _EditorScreenState extends State<EditorScreen>
     });
   }
 
+  /// Opens a [DocumentTab.deferredPath] (a session-restored file known only by
+  /// its path) the first time it is shown, progressively and in place. The read
+  /// starts after the placeholder paints, so landing on a restored tab feels
+  /// like a fresh progressive open - and restored tabs the user never visits
+  /// never read a byte.
+  void _materializeDeferredPath(DocumentTab tab) {
+    if (tab.materializing) return;
+    tab.materializing = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted || !_tabs.contains(tab) || tab.originPath == null) return;
+      await _openProgressive(
+        title: tab.title,
+        path: tab.originPath!,
+        bookmark: tab.originBookmark,
+        cachePath: tab.cachePath,
+        into: tab,
+      );
+    });
+  }
+
+  /// Builds the ranged byte source for a progressive open from whichever origin
+  /// the tab has: a desktop file [path] (optionally security-scoped by
+  /// [bookmark]) or a mobile reference [token] (#364).
+  PdfByteSource _progressiveSource({
+    String? path,
+    String? bookmark,
+    String? token,
+    PdfCancelToken? cancel,
+    void Function(int received, int? total)? onProgress,
+  }) {
+    if (token != null && token.isNotEmpty) {
+      return pdfByteSourceForMobileToken(token,
+          cancelToken: cancel, onProgress: onProgress);
+    }
+    return pdfByteSourceForPath(path!,
+        bookmark: bookmark, cancelToken: cancel, onProgress: onProgress);
+  }
+
+  /// Reads an origin whole (the fallback behind a progressive open): a desktop
+  /// [path] through the normal path read, or a mobile [token] by draining its
+  /// ranged source. Both yield the complete bytes the edit session needs.
+  Future<Uint8List> _readOriginFully({
+    String? path,
+    String? bookmark,
+    String? token,
+  }) async {
+    if (token != null && token.isNotEmpty) {
+      final source = pdfByteSourceForMobileToken(token);
+      try {
+        return await readSourceFully(source);
+      } finally {
+        await source.close();
+      }
+    }
+    return readPdfAtPath(path!, bookmark: bookmark);
+  }
+
+  /// Opens a file-backed document progressively: the ranged loader assembles
+  /// just the header/xref/live-object bytes needed to render, so the viewer
+  /// paints read-only in ~1-2 s even from a slow cloud-synced file, then the
+  /// complete bytes stream in behind that first paint and the tab swaps to a
+  /// full edit session. Save / Digitally sign light up only after the swap
+  /// (a preview tab has no session, so those actions stay disabled meanwhile).
+  ///
+  /// Returns once the first paint (or a fallback full read) is on screen; the
+  /// background read finishes later. Falls back to the plain full read the rest
+  /// of the app uses if the progressive first paint can't be assembled, so
+  /// nothing a normal open handles regresses. Opened from a desktop file [path]
+  /// (see [progressiveOpenSupported]) or a mobile reference [token] (#364, see
+  /// [supportsMobileProgressiveOpen]); [onOpenFailed] lets recents drop a stale
+  /// entry.
+  ///
+  /// Pass [into] to reuse an existing placeholder tab (a lazily-materialized
+  /// [DocumentTab.deferredPath] from session restore) instead of adding a fresh
+  /// loading tab.
+  Future<void> _openProgressive({
+    required String title,
+    String? path,
+    String? bookmark,
+    String? token,
+    String? cachePath,
+    void Function(Object error)? onOpenFailed,
+    DocumentTab? into,
+  }) async {
+    assert((path != null) != (token != null),
+        'a progressive open needs exactly one of path/token');
+    final loading = into ??
+        _openLoading(
+          title,
+          originPath: path,
+          originBookmark: bookmark,
+          originToken: token,
+          cachePath: cachePath,
+        );
+    final cancel = PdfCancelToken();
+    final progress = ValueNotifier<double>(0);
+    final source = _progressiveSource(
+        path: path, bookmark: bookmark, token: token, cancel: cancel);
+
+    PdfDocument doc;
+    try {
+      // Fetch just the first page's worth of bytes for the read-only first
+      // paint - for an image-heavy scan/CAD file the live objects are the page
+      // images, so fetching every object would be the whole file (tens of
+      // seconds). The background read behind the preview then completes the
+      // buffer for the full edit session.
+      doc = await PdfDocument.openSource(source,
+          options: const PdfSourceLoadOptions(firstPaintPages: 1));
+    } on PdfHttpCancelledException {
+      progress.dispose();
+      await source.close();
+      return;
+    } catch (error) {
+      // The progressive first paint could not be assembled (IO error, or a
+      // shape the ranged loader gives up on). Fall back to the plain read the
+      // rest of the app uses, reusing the same loading placeholder.
+      progress.dispose();
+      await source.close();
+      if (!mounted) return;
+      await _fallbackFullOpen(loading,
+          title: title,
+          path: path,
+          bookmark: bookmark,
+          token: token,
+          cachePath: cachePath,
+          onOpenFailed: onOpenFailed);
+      return;
+    }
+
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) {
+      progress.dispose();
+      cancel.cancel();
+      await source.close();
+      return;
+    }
+
+    final preview = DocumentTab.preview(
+      title: title,
+      document: doc,
+      previewBytes: doc.cos.bytes,
+      progress: progress,
+      cancel: cancel,
+      originPath: path,
+      originBookmark: bookmark,
+      originToken: token,
+      cachePath: cachePath,
+    );
+    if (!_replaceLoadingTab(loading, preview)) {
+      // The loading tab was closed while opening; preview.dispose() cancels the
+      // load and frees the progress notifier.
+      await source.close();
+      return;
+    }
+    // Record the recent on first paint, so a briefly-opened document still
+    // lands in the list even if it's closed before the full read completes.
+    // A mobile pick has no reopenable origin yet (path/cachePath both null - it
+    // snapshots on the full-read swap); skip it here so it doesn't briefly show
+    // a non-reopenable recent, and let the swap add it once the snapshot lands.
+    if (path != null || cachePath != null) {
+      _recents.add(
+          title: title, path: path, cachePath: cachePath, bookmark: bookmark);
+    }
+    AppDevTools.instance.addLog(
+        'progressive open: "$title" first paint — ${doc.pageCount} pages; '
+        'reading full file…');
+
+    // Stream the rest in behind the first paint, then swap to a full session.
+    unawaited(_finishProgressive(preview, source));
+  }
+
+  /// The background half of [_openProgressive]: reads the whole file (reporting
+  /// progress on the preview's [DocumentTab.progress]) and swaps the read-only
+  /// [preview] for a full edit session once the complete bytes land.
+  Future<void> _finishProgressive(
+      DocumentTab preview, PdfByteSource source) async {
+    final progress = preview.progress!;
+    final cancel = preview.cancel!;
+    try {
+      final full = await readSourceFully(
+        source,
+        cancelToken: cancel,
+        onProgress: (received, total) {
+          if (total != null && total > 0) {
+            progress.value = (received / total).clamp(0.0, 1.0);
+          }
+        },
+      );
+      await source.close();
+      if (!mounted) return;
+      if (_swapPreviewToDocument(preview, full)) {
+        AppDevTools.instance.addLog(
+            'progressive open: "${preview.title}" full read complete — '
+            '${full.length} bytes');
+      }
+    } on PdfHttpCancelledException {
+      // The tab was closed mid-read (its dispose fired the token); the preview
+      // is already gone, so there is nothing to swap.
+      await source.close();
+    } catch (error) {
+      await source.close();
+      if (!mounted || !_tabs.contains(preview)) return;
+      // First paint worked but the full read failed. Try the plain read so the
+      // user still gets a fully-editable document where possible; otherwise
+      // surface the error in place of the preview.
+      try {
+        final full = await _readOriginFully(
+          path: preview.originPath,
+          bookmark: preview.originBookmark,
+          token: preview.originToken,
+        );
+        if (!mounted) return;
+        _swapPreviewToDocument(preview, full);
+      } catch (error2) {
+        if (!mounted) return;
+        final index = _tabs.indexOf(preview);
+        if (index == -1) return;
+        setState(() => _tabs[index] = DocumentTab.error(
+              title: preview.title,
+              error: 'Could not open ${preview.title}\n$error2',
+            ));
+        preview.dispose();
+      }
+    }
+  }
+
+  /// Replaces the read-only [preview] with a full [DocumentTab.document] built
+  /// from the complete [bytes], in place (keeping the tab's position and, if it
+  /// is active, focus). Returns false if the tab was closed meanwhile.
+  bool _swapPreviewToDocument(DocumentTab preview, Uint8List bytes) {
+    final index = _tabs.indexOf(preview);
+    if (index == -1) return false;
+    final built = DocumentTab.document(
+      title: preview.title,
+      bytes: bytes,
+      preferences: _prefs,
+      originPath: preview.originPath,
+      originBookmark: preview.originBookmark,
+      cachePath: preview.cachePath,
+    );
+    setState(() => _tabs[index] = built);
+    // A mobile progressive open (#364) has no reopenable origin - the reference
+    // token dies with the pick - so snapshot the now-complete bytes into the
+    // app's private store, behind the first paint, so Recent/restore reopen
+    // from the local copy instead of re-picking. Desktop keeps its path/bookmark
+    // origin and needs no snapshot.
+    if (preview.originToken != null &&
+        preview.originPath == null &&
+        preview.cachePath == null &&
+        canCacheRecentPdfs) {
+      unawaited(_snapshotOpenedDocument(built, bytes));
+    }
+    // Dispose the preview's live viewer only after this frame swaps the
+    // read-only PdfReader out of the tree - disposing its controller while the
+    // widget is still mounted would fault its in-flight render.
+    WidgetsBinding.instance.addPostFrameCallback((_) => preview.dispose());
+    unawaited(_persistSession());
+    return true;
+  }
+
+  /// Reads the origin whole (the app's normal open path) into the [loading]
+  /// tab - the fallback when a progressive first paint can't be assembled.
+  /// Reads from a desktop [path] or a mobile reference [token] (#364).
+  Future<void> _fallbackFullOpen(
+    DocumentTab loading, {
+    required String title,
+    String? path,
+    String? bookmark,
+    String? token,
+    String? cachePath,
+    void Function(Object error)? onOpenFailed,
+  }) async {
+    try {
+      final bytes =
+          await _readOriginFully(path: path, bookmark: bookmark, token: token);
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      final built = DocumentTab.document(
+        title: title,
+        bytes: bytes,
+        preferences: _prefs,
+        originPath: path,
+        originBookmark: bookmark,
+        cachePath: cachePath,
+      );
+      final opened = _replaceLoadingTab(loading, built);
+      if (opened) {
+        // With a reusable file origin (desktop) record the recent directly;
+        // a mobile pick (no path) snapshots the bytes so Recent/restore reopen
+        // from the local copy - the same reopen path a plain mobile open takes.
+        if (path != null || !canCacheRecentPdfs) {
+          _recents.add(
+              title: title,
+              path: path,
+              cachePath: cachePath,
+              bookmark: bookmark);
+        } else {
+          unawaited(_snapshotOpenedDocument(built, bytes));
+        }
+      }
+    } catch (error) {
+      onOpenFailed?.call(error);
+      if (!mounted) return;
+      _replaceLoadingTab(
+        loading,
+        DocumentTab.error(
+          title: title,
+          error: 'Could not open $title\n$error',
+        ),
+      );
+    }
+  }
+
   Future<void> _pickAndOpen() async {
+    // On phones/tablets the OS picker copies the whole file into the sandbox
+    // before the app sees a byte, paying the full cloud transport up front
+    // (#364). Prefer the reference picker there: it keeps the original file so
+    // a cloud pick can first-paint from ranged reads. Falls back to the plain
+    // copy-based picker on a runner without the channel, or a non-seekable
+    // provider.
+    if (supportsMobileProgressiveOpen) {
+      try {
+        await _pickAndOpenMobile();
+        return;
+      } on MissingPluginException {
+        // Older runner without the mobile_file channel - fall through to the
+        // copy-based picker below.
+      } catch (e) {
+        _openError('Open failed', 'Could not open the selected file\n$e');
+        return;
+      }
+    }
     try {
       final files = await pickPdfFiles();
       if (files.isEmpty) return;
@@ -609,16 +997,54 @@ class _EditorScreenState extends State<EditorScreen>
         if (!mounted) return;
         final path = originPathForPickedFile(file);
         final bookmark = await securityBookmarkForPath(path);
-        await _openLoadedBytes(
-          file.readAsBytes(),
-          title: file.name,
-          originPath: path,
-          originBookmark: bookmark,
-          defer: defer,
-        );
+        // A single desktop pick opens progressively (first paint from ranged
+        // reads, full bytes behind it). A batch keeps the deferred whole-file
+        // path so the picker doesn't fan out many concurrent streams.
+        if (!defer && progressiveOpenSupported(path)) {
+          await _openProgressive(
+              title: file.name, path: path!, bookmark: bookmark);
+        } else {
+          await _openLoadedBytes(
+            file.readAsBytes(),
+            title: file.name,
+            originPath: path,
+            originBookmark: bookmark,
+            defer: defer,
+          );
+        }
       }
     } catch (e) {
       _openError('Open failed', 'Could not open the selected file\n$e');
+    }
+  }
+
+  /// Opens phone/tablet picks through the reference picker (#364): the runner
+  /// hands back a token to the *original* file (not a sandbox copy) plus a
+  /// seekability probe. A single seekable pick opens progressively (first paint
+  /// from native ranged reads, full bytes streamed in behind it, then a private
+  /// snapshot for reopen). A non-seekable provider - many cloud providers hand
+  /// SAF a pipe - streams the reference whole instead, the same cost as the old
+  /// picker copy. A batch defers parsing every tab but the active one, as the
+  /// desktop path does. Throws [MissingPluginException] up to [_pickAndOpen] on
+  /// a runner without the channel.
+  Future<void> _pickAndOpenMobile() async {
+    final picks = await pickPdfMobileReferences();
+    if (picks.isEmpty) return;
+    final defer = picks.length > 1;
+    for (final pick in picks) {
+      if (!mounted) return;
+      if (!defer && pick.seekable) {
+        await _openProgressive(title: pick.name, token: pick.token);
+      } else {
+        // Non-seekable, or a batch we won't fan out into concurrent streams:
+        // drain the reference whole (still one read of the original, no OS
+        // copy) and open it like any other loaded document.
+        await _openLoadedBytes(
+          _readOriginFully(token: pick.token),
+          title: pick.name,
+          defer: defer,
+        );
+      }
     }
   }
 
@@ -669,6 +1095,13 @@ class _EditorScreenState extends State<EditorScreen>
         return;
       }
     }
+    // An OS-handed file with a real path opens progressively; one delivered as
+    // raw bytes (Android content://, web handle) is already fully in memory.
+    if (file.bytes == null && progressiveOpenSupported(file.path)) {
+      await _openProgressive(
+          title: file.name, path: file.path!, bookmark: file.bookmark);
+      return;
+    }
     await _openLoadedBytes(
       file.bytes == null
           ? readPdfAtPath(file.path!, bookmark: file.bookmark)
@@ -714,13 +1147,18 @@ class _EditorScreenState extends State<EditorScreen>
       // we don't treat as a writable origin.
       final path = (!kIsWeb && item.path.isNotEmpty) ? item.path : null;
       final bookmark = await securityBookmarkForPath(path);
-      await _openLoadedBytes(
-        item.readAsBytes(),
-        title: item.name,
-        originPath: path,
-        originBookmark: bookmark,
-        defer: defer,
-      );
+      if (!defer && progressiveOpenSupported(path)) {
+        await _openProgressive(
+            title: item.name, path: path!, bookmark: bookmark);
+      } else {
+        await _openLoadedBytes(
+          item.readAsBytes(),
+          title: item.name,
+          originPath: path,
+          originBookmark: bookmark,
+          defer: defer,
+        );
+      }
     }
   }
 
@@ -798,6 +1236,22 @@ class _EditorScreenState extends State<EditorScreen>
     // Desktop reopens by its writable origin; a mobile entry reads back its
     // private snapshot but has no origin, so saves there still go save-as.
     final originPath = entry.path;
+    // A desktop origin reopens progressively - the whole point of #359 is the
+    // big cloud-synced file that took tens of seconds to reopen whole.
+    if (progressiveOpenSupported(originPath)) {
+      await _openProgressive(
+        title: entry.title,
+        path: originPath!,
+        bookmark: entry.bookmark,
+        cachePath: entry.cachePath,
+        onOpenFailed: (_) {
+          unawaited(_recents.remove(entry.id));
+          _pruneRecentCache();
+          _toast('Could not reopen ${entry.title}');
+        },
+      );
+      return;
+    }
     final loading = _openLoading(
       entry.title,
       originPath: originPath,
@@ -1809,6 +2263,13 @@ class _EditorScreenState extends State<EditorScreen>
         onOpenRecent: _openRecent,
       );
     }
+    if (tab.isDeferredPath) {
+      // First time we show a restored path-only tab: open it progressively
+      // (after this frame), showing the placeholder meanwhile. Held off while
+      // the session is still restoring, so only the finally-active tab opens.
+      if (!_restoringSession) _materializeDeferredPath(tab);
+      return _OpeningDocument(title: tab.title);
+    }
     if (tab.isDeferred) {
       // First time we show a deferred tab: parse it (after this frame) and
       // show the same placeholder a fresh open uses meanwhile.
@@ -1826,6 +2287,16 @@ class _EditorScreenState extends State<EditorScreen>
         key: ValueKey(tab),
         before: tab.compareBefore!,
         after: tab.compareAfter!,
+      );
+    }
+    if (tab.isPreview) {
+      // A progressive first paint: render the read-only sparse document while
+      // the complete bytes stream in, with a slim progress bar for that read.
+      return _ProgressivePreview(
+        key: ValueKey(tab),
+        tab: tab,
+        preferences: _prefs,
+        onAction: _onAction,
       );
     }
     if (_readOnly) {
@@ -2310,6 +2781,63 @@ class _OpeningDocument extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The read-only first paint of a progressive open: a [PdfReader] over the
+/// sparse document the ranged loader assembled, with a slim top progress bar
+/// tracking the background full read. When that read lands the host swaps this
+/// for a full [PdfEditorView] (see [EditorScreen._swapPreviewToDocument]), so
+/// Save / Digitally sign appear only once the whole file is in hand.
+class _ProgressivePreview extends StatelessWidget {
+  const _ProgressivePreview({
+    super.key,
+    required this.tab,
+    required this.preferences,
+    required this.onAction,
+  });
+
+  final DocumentTab tab;
+  final PdfEditingPreferences preferences;
+  final PdfActionHandler onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: PdfReader(
+            bytes: tab.previewBytes!,
+            documentId: tab.documentId,
+            controller: tab.viewer,
+            preferences: preferences,
+            onAction: onAction,
+          ),
+        ),
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: ValueListenableBuilder<double>(
+            valueListenable: tab.progress!,
+            builder: (context, value, _) {
+              // Hide the bar once the full read is essentially done - the swap
+              // to the edit session is imminent.
+              if (value >= 0.999) return const SizedBox.shrink();
+              return Semantics(
+                label: 'Loading full document',
+                value: '${(value * 100).round()}%',
+                liveRegion: true,
+                child: LinearProgressIndicator(
+                  value: value == 0 ? null : value,
+                  minHeight: 3,
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }

@@ -8,6 +8,7 @@ import 'objects.dart';
 import 'parser.dart';
 import 'perf/perf.dart';
 import 'token.dart';
+import 'xref.dart';
 
 /// A random-access, possibly asynchronous source of PDF bytes.
 ///
@@ -75,12 +76,14 @@ class PdfSourceLoadOptions {
     this.xrefWindow = 65536,
     this.coalesceGap = 65536,
     this.downloadChunk = 1 << 20,
+    this.firstPaintPages,
     this.onProgress,
   })  : assert(headWindow > 0),
         assert(tailWindow > 0),
         assert(xrefWindow > 0),
         assert(coalesceGap >= 0),
-        assert(downloadChunk > 0);
+        assert(downloadChunk > 0),
+        assert(firstPaintPages == null || firstPaintPages > 0);
 
   /// Bytes fetched from the start of the file to locate the `%PDF-` header.
   final int headWindow;
@@ -100,6 +103,21 @@ class PdfSourceLoadOptions {
   /// Chunk size used by the sequential-download fallback (unknown length or
   /// a source that cannot serve useful ranges).
   final int downloadChunk;
+
+  /// When set, fetch only the bytes needed to render the first [firstPaintPages]
+  /// page(s) - the whole page tree (so page navigation and count work) plus
+  /// those pages' content streams, resources, fonts and image XObjects - instead
+  /// of every live object. For an image-heavy document (a scan, a CAD sheet) the
+  /// live objects *are* the page images, so the default whole-object fetch is
+  /// essentially the whole file; this makes first paint a few pages' worth of
+  /// bytes. The returned buffer is deliberately incomplete (later pages' bytes
+  /// are still zero), so it is only good for rendering the covered pages - do
+  /// NOT edit or sign from it; complete the buffer first (e.g. a background
+  /// sequential read). Null keeps the original fetch-every-object behaviour.
+  ///
+  /// Falls back to fetching every object if the page tree can't be walked from
+  /// ranged reads, so a first-paint open never fails where a full one would.
+  final int? firstPaintPages;
 
   /// Optional progress callback, invoked after each fetch.
   final PdfSourceProgress? onProgress;
@@ -212,6 +230,15 @@ class _ProgressiveLoader {
 
     final offsets = await _walkXref(startXref + shift, shift);
     if (offsets.isEmpty) throw const _FallbackToFullDownload();
+
+    // Page-scoped first paint: fetch just the page tree + the first few pages'
+    // render closure. Falls through to fetching every object when the page tree
+    // can't be walked from ranged reads - so a first-paint open never fails
+    // where a whole-object open would.
+    if (options.firstPaintPages != null &&
+        await _fetchFirstPaintClosure(startXref, shift, offsets)) {
+      return _buffer;
+    }
 
     await _fetchObjects(offsets);
     return _buffer;
@@ -478,6 +505,249 @@ class _ProgressiveLoader {
     _present
       ..clear()
       ..addAll(merged);
+  }
+
+  // --- page-scoped first paint --------------------------------------------
+
+  /// Object-number → cross-reference entry, built (via [CosXrefReader]) once the
+  /// xref sections are fetched. Drives the targeted object fetches below.
+  Map<int, CosXrefEntry> _entries = const {};
+
+  /// Absolute (post-shift) offsets of every in-use object, sorted - the upper
+  /// bound for a single object's byte range is the next one.
+  List<int> _sortedInUseOffsets = const [];
+
+  /// Objects parsed during the closure walk, so a shared font/resource is
+  /// fetched and parsed once.
+  final Map<int, CosObject> _loaded = {};
+
+  /// Decoded object streams, so a /ObjStm holding several page dicts is fetched
+  /// and inflated once.
+  final Map<int, _DecodedObjStm> _objStmCache = {};
+
+  /// Fetches only the bytes needed to render the first [PdfSourceLoadOptions.
+  /// firstPaintPages] pages: the whole page tree (so navigation and page count
+  /// work) plus those pages' content, resources, fonts and image XObjects.
+  /// Returns true on success, false to fall back to fetching every object.
+  Future<bool> _fetchFirstPaintClosure(
+      int rawStartXref, int shift, List<int> sortedOffsets) async {
+    try {
+      _sortedInUseOffsets = sortedOffsets;
+      final chain = CosXrefReader(_buffer, shift: shift).walkFrom(rawStartXref);
+      _entries = chain.entries;
+
+      // CosDocument.open validates /Root (and /Encrypt) resolve, so fetch them
+      // up front or the open would trip the whole-file recovery scan.
+      final rootRef = chain.trailer['Root'];
+      if (rootRef is! CosReference) return false;
+      final catalog = await _loadObject(rootRef.objectNumber, shift);
+      if (catalog is! CosDictionary) return false;
+      final encrypt = chain.trailer['Encrypt'];
+      if (encrypt is CosReference) {
+        await _loadObject(encrypt.objectNumber, shift);
+      }
+
+      final pagesRef = catalog['Pages'];
+      if (pagesRef is! CosReference) return false;
+      final leaves = <CosDictionary>[];
+      if (!await _walkPageTree(pagesRef.objectNumber, shift, leaves, <int>{})) {
+        return false;
+      }
+      if (leaves.isEmpty) return false;
+
+      final wanted = options.firstPaintPages!;
+      final visited = <int>{};
+      for (var i = 0; i < leaves.length && i < wanted; i++) {
+        await _fetchLeafRenderClosure(leaves[i], shift, visited);
+      }
+      return true;
+    } on _FallbackToFullDownload {
+      return false;
+    } on Object {
+      // Any surprise (odd tree, malformed object, filter error on a partial
+      // stream) just means we fetch everything instead - still correct.
+      return false;
+    }
+  }
+
+  /// Walks the page tree depth-first in reading order, fetching every node and
+  /// leaf dictionary (small) and collecting the page leaves into [leaves].
+  /// Returns false on a shape it can't follow, so the caller falls back.
+  Future<bool> _walkPageTree(int nodeNumber, int shift,
+      List<CosDictionary> leaves, Set<int> visited) async {
+    if (!visited.add(nodeNumber)) return true;
+    if (visited.length > 1000000) return false;
+    final node = await _loadObject(nodeNumber, shift);
+    if (node is! CosDictionary) return false;
+    final kids = node['Kids'];
+    if (node.typeName == 'Page' || kids is! CosArray) {
+      leaves.add(node);
+      return true;
+    }
+    for (final kid in kids.items) {
+      if (kid is! CosReference) return false; // inline kid: bail to fetch-all
+      if (!await _walkPageTree(kid.objectNumber, shift, leaves, visited)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /// Fetches a page leaf's render dependencies: its content stream(s), its own
+  /// /Resources graph (fonts, image XObjects, and everything they reference),
+  /// and the /Resources inherited from ancestor page-tree nodes (followed via
+  /// /Parent, never /Kids - so it never pulls other pages' content).
+  Future<void> _fetchLeafRenderClosure(
+      CosDictionary leaf, int shift, Set<int> visited) async {
+    await _fetchGraph(leaf['Contents'], shift, visited);
+    var node = leaf;
+    final seenNodes = <int>{};
+    while (true) {
+      await _fetchGraph(node['Resources'], shift, visited);
+      final parent = node['Parent'];
+      if (parent is! CosReference || !seenNodes.add(parent.objectNumber)) break;
+      final p = await _loadObject(parent.objectNumber, shift);
+      if (p is! CosDictionary) break;
+      node = p;
+    }
+  }
+
+  /// Fetches the transitive closure of indirect objects reachable from [root]
+  /// (a resources dict, a /Contents ref/array, ...). Bounded: a page's resource
+  /// graph never reaches other pages.
+  Future<void> _fetchGraph(
+      CosObject? root, int shift, Set<int> visited) async {
+    if (root == null) return;
+    final queue = <CosReference>[..._enumerateRefs(root)];
+    while (queue.isNotEmpty) {
+      final ref = queue.removeLast();
+      if (!visited.add(ref.objectNumber)) continue;
+      final obj = await _loadObject(ref.objectNumber, shift);
+      if (obj != null) queue.addAll(_enumerateRefs(obj));
+    }
+  }
+
+  /// Every indirect reference contained (recursively) in [object].
+  Iterable<CosReference> _enumerateRefs(CosObject object) sync* {
+    if (object is CosReference) {
+      yield object;
+    } else if (object is CosArray) {
+      for (final item in object.items) {
+        yield* _enumerateRefs(item);
+      }
+    } else if (object is CosDictionary) {
+      for (final value in object.entries.values) {
+        yield* _enumerateRefs(value);
+      }
+    } else if (object is CosStream) {
+      yield* _enumerateRefs(object.dictionary);
+    }
+  }
+
+  /// Fetches and parses the object numbered [objectNumber] (following an
+  /// /ObjStm for a compressed object), memoized in [_loaded]. Returns null when
+  /// the object is free, missing, or can't be parsed from the fetched bytes.
+  Future<CosObject?> _loadObject(int objectNumber, int shift) async {
+    final cached = _loaded[objectNumber];
+    if (cached != null) return cached;
+    final entry = _entries[objectNumber];
+    if (entry == null) return null;
+    CosObject? result;
+    switch (entry.type) {
+      case CosXrefEntryType.inUse:
+        final start = entry.offset + shift;
+        if (start < 0 || start >= _length) return null;
+        await _fetch(start, _boundedEnd(start));
+        try {
+          final indirect = CosParser(_buffer, offset: start).parseIndirectObject();
+          if (indirect.objectNumber == objectNumber) result = indirect.object;
+        } on Object {
+          result = null;
+        }
+      case CosXrefEntryType.compressed:
+        final stream = await _loadObjStm(entry.streamObjectNumber, shift);
+        result = stream?.object(objectNumber);
+      case CosXrefEntryType.free:
+        result = null;
+    }
+    if (result != null) _loaded[objectNumber] = result;
+    return result;
+  }
+
+  /// Fetches, parses and inflates the object stream numbered [streamNumber],
+  /// memoized in [_objStmCache].
+  Future<_DecodedObjStm?> _loadObjStm(int streamNumber, int shift) async {
+    final cached = _objStmCache[streamNumber];
+    if (cached != null) return cached;
+    final entry = _entries[streamNumber];
+    if (entry == null || entry.type != CosXrefEntryType.inUse) return null;
+    final start = entry.offset + shift;
+    if (start < 0 || start >= _length) return null;
+    await _fetch(start, _boundedEnd(start));
+    try {
+      final indirect = CosParser(_buffer, offset: start).parseIndirectObject();
+      final object = indirect.object;
+      if (object is! CosStream) return null;
+      final data = decodeStream(object);
+      final n = object.dictionary['N'];
+      final first = object.dictionary['First'];
+      if (n is! CosInteger || first is! CosInteger) return null;
+      final decoded = _DecodedObjStm(data, n.value, first.value);
+      _objStmCache[streamNumber] = decoded;
+      return decoded;
+    } on Object {
+      return null;
+    }
+  }
+
+  /// The end of the object at absolute offset [start]: the next in-use object,
+  /// the next xref section, or end of file - a safe upper bound to fetch, since
+  /// the exact end is unknown until the bytes (with `endstream`/`endobj`) are
+  /// present. Mirrors [_objectEnd] but keyed by offset (binary search).
+  int _boundedEnd(int start) {
+    var end = _length;
+    final offsets = _sortedInUseOffsets;
+    var lo = 0, hi = offsets.length;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      if (offsets[mid] <= start) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    if (lo < offsets.length) end = offsets[lo];
+    for (final xref in _xrefOffsets) {
+      if (xref > start && xref < end) end = xref;
+    }
+    return end;
+  }
+}
+
+/// A decoded /ObjStm: the inflated body plus the object-number → in-body offset
+/// index, so a compressed object can be parsed on demand.
+class _DecodedObjStm {
+  _DecodedObjStm(this._data, int count, this._first) {
+    final parser = CosParser(_data);
+    for (var i = 0; i < count; i++) {
+      final number = parser.expectInteger();
+      final offset = parser.expectInteger();
+      _index[number] = offset;
+    }
+  }
+
+  final Uint8List _data;
+  final int _first;
+  final Map<int, int> _index = {};
+
+  CosObject? object(int objectNumber) {
+    final offset = _index[objectNumber];
+    if (offset == null) return null;
+    try {
+      return CosParser(_data, offset: _first + offset).parseObject();
+    } on Object {
+      return null;
+    }
   }
 }
 

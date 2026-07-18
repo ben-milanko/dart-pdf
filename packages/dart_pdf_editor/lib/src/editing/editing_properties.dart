@@ -41,7 +41,7 @@ class PdfAnnotationPropertiesPanel extends StatefulWidget {
     super.key,
     required this.controller,
     this.width = 260,
-    this.side = PdfSidebarSide.right,
+    this.dock = PdfPanelDock.right,
     this.resizable = true,
     this.minWidth = 200,
     this.maxWidth = 420,
@@ -61,9 +61,9 @@ class PdfAnnotationPropertiesPanel extends StatefulWidget {
   /// [PdfEditingPreferences.propertiesPanelWidth], wins over it.
   final double width;
 
-  /// Which side of the viewer the panel sits on; the resize grip rides
+  /// Which edge of the viewer the panel docks on; the resize grip rides
   /// the opposite (inner) edge.
-  final PdfSidebarSide side;
+  final PdfPanelDock dock;
 
   /// Whether the inner edge can be dragged to resize the panel.
   final bool resizable;
@@ -332,7 +332,8 @@ class _PdfAnnotationPropertiesPanelState
         initial: current ?? const Color(0xFF000000));
     if (picked != null) {
       _controller.restyleSelectedText(
-          border: (_rgb(picked),), borderWidth: _controller.preferences.strokeWidth);
+          border: (_rgb(picked),),
+          borderWidth: _controller.preferences.strokeWidth);
     }
   }
 
@@ -1027,64 +1028,73 @@ class _PdfAnnotationPropertiesPanelState
       maxWidth: widget.maxWidth,
       persistedWidth: _preferences.propertiesPanelWidth,
       onPersistWidth: (width) => _preferences.propertiesPanelWidth = width,
-      side: widget.side,
+      dock: widget.dock,
+      panel: PdfDockablePanel.properties,
       resizable: widget.resizable,
       bottomSheet: widget.bottomSheet,
       gripKey: const ValueKey('pdf-properties-resize-grip'),
       onClose: widget.onClose,
-      builder: (context, geometry) => Material(
-        color: Theme.of(context).colorScheme.surfaceContainerLow,
-        child: Column(children: [
-          if (geometry.closeButton(
-            key: const ValueKey('pdf-properties-panel-close'),
-          )
-              case final closeButton?)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 4, 0),
-              child: Row(children: [
-                Expanded(
-                  child: Text('Properties',
-                      style: Theme.of(context).textTheme.titleSmall),
-                ),
-                closeButton,
-              ]),
-            ),
-          Expanded(
-            child: ListenableBuilder(
-              listenable: _controller,
-              builder: (context, _) {
-                final annotation = _controller.selectedAnnotation;
-                _syncFields(annotation);
-                if (annotation == null) {
-                  return const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Text('Select an annotation to see its properties',
-                          textAlign: TextAlign.center),
+      builder: (context, geometry) {
+        final moveHandle = geometry.moveHandle(
+          key: const ValueKey('pdf-properties-panel-move'),
+        );
+        final closeButton = geometry.closeButton(
+          key: const ValueKey('pdf-properties-panel-close'),
+        );
+        return Material(
+          color: Theme.of(context).colorScheme.surfaceContainerLow,
+          child: Column(children: [
+            if (moveHandle != null || closeButton != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 4, 0),
+                child: Row(children: [
+                  Expanded(
+                    child: Text('Properties',
+                        style: Theme.of(context).textTheme.titleSmall),
+                  ),
+                  if (moveHandle != null) moveHandle,
+                  if (closeButton != null) closeButton,
+                ]),
+              ),
+            Expanded(
+              child: ListenableBuilder(
+                listenable: _controller,
+                builder: (context, _) {
+                  final annotation = _controller.selectedAnnotation;
+                  _syncFields(annotation);
+                  if (annotation == null) {
+                    return const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text(
+                            'Select an annotation to see its properties',
+                            textAlign: TextAlign.center),
+                      ),
+                    );
+                  }
+                  final count = _controller.selectedAnnotationSlots.length;
+                  final children = count == 1
+                      ? _buildSingle(annotation)
+                      : _buildMulti(count);
+                  return geometry.withScrollbar(
+                    scroll: _scroll,
+                    thumbKey: const ValueKey('pdf-properties-scrollbar-thumb'),
+                    child: ScrollConfiguration(
+                      behavior: ScrollConfiguration.of(context)
+                          .copyWith(scrollbars: false),
+                      child: ListView(
+                          controller: _scroll,
+                          padding: EdgeInsets.only(
+                              right: geometry.scrollbarClearance),
+                          children: children),
                     ),
                   );
-                }
-                final count = _controller.selectedAnnotationSlots.length;
-                final children =
-                    count == 1 ? _buildSingle(annotation) : _buildMulti(count);
-                return geometry.withScrollbar(
-                  scroll: _scroll,
-                  thumbKey: const ValueKey('pdf-properties-scrollbar-thumb'),
-                  child: ScrollConfiguration(
-                    behavior: ScrollConfiguration.of(context)
-                        .copyWith(scrollbars: false),
-                    child: ListView(
-                        controller: _scroll,
-                        padding:
-                            EdgeInsets.only(right: geometry.scrollbarClearance),
-                        children: children),
-                  ),
-                );
-              },
+                },
+              ),
             ),
-          ),
-        ]),
-      ),
+          ]),
+        );
+      },
     );
   }
 }

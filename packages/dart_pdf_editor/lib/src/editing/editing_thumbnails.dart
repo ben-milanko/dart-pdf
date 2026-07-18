@@ -67,7 +67,7 @@ class PdfThumbnailSidebar extends StatefulWidget {
     this.width = 160,
     this.pageColor = const Color(0xFFFFFFFF),
     this.showAnnotations = true,
-    this.side = PdfSidebarSide.left,
+    this.dock = PdfPanelDock.left,
     this.resizable = true,
     this.minWidth = 100,
     this.maxWidth = 400,
@@ -109,9 +109,9 @@ class PdfThumbnailSidebar extends StatefulWidget {
   /// [PdfViewer.showAnnotations] so they match the pages.
   final bool showAnnotations;
 
-  /// Which side of the viewer the panel sits on; the resize grip rides
+  /// Which edge of the viewer the panel docks on; the resize grip rides
   /// the opposite (inner) edge.
-  final PdfSidebarSide side;
+  final PdfPanelDock dock;
 
   /// Whether the inner edge can be dragged to resize the panel.
   final bool resizable;
@@ -288,7 +288,8 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
         const SingleActivator(LogicalKeyboardKey.arrowRight, shift: true): () =>
             _moveKeyboardSelection(1),
         if (widget.allowPageEditing) ...{
-          const SingleActivator(LogicalKeyboardKey.keyC, meta: true): _copyPages,
+          const SingleActivator(LogicalKeyboardKey.keyC, meta: true):
+              _copyPages,
           const SingleActivator(LogicalKeyboardKey.keyC, control: true):
               _copyPages,
           const SingleActivator(LogicalKeyboardKey.keyX, meta: true): _cutPages,
@@ -315,7 +316,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
       PdfScrollbar.hitExtent +
           (widget.resizable &&
                   !widget.bottomSheet &&
-                  widget.side == PdfSidebarSide.left
+                  widget.dock == PdfPanelDock.left
               ? PdfSidebarResizeGrip.width
               : 0);
 
@@ -473,7 +474,8 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
       maxWidth: widget.maxWidth,
       persistedWidth: _preferences.thumbnailSidebarWidth,
       onPersistWidth: (width) => _preferences.thumbnailSidebarWidth = width,
-      side: widget.side,
+      dock: widget.dock,
+      panel: PdfDockablePanel.thumbnails,
       resizable: widget.resizable,
       bottomSheet: widget.bottomSheet,
       gripKey: const ValueKey('pdf-thumbnail-resize-grip'),
@@ -580,8 +582,14 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                                       ],
                                     ),
                             ),
-                            // the docked strip's close button; a bottom sheet
-                            // supplies its own in its sheet chrome
+                            // the drag-to-redock handle and the docked
+                            // strip's close button; a bottom sheet supplies
+                            // its own close in its sheet chrome
+                            if (geometry.moveHandle(
+                              key: const ValueKey('pdf-thumbnail-panel-move'),
+                            )
+                                case final moveHandle?)
+                              moveHandle,
                             if (geometry.closeButton(
                               key: const ValueKey('pdf-thumbnail-panel-close'),
                             )
@@ -1207,7 +1215,8 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
         SingleActivator(LogicalKeyboardKey.arrowDown, shift: true): () =>
             _moveKeyboardSelection(columns),
         if (widget.allowPageEditing) ...{
-          const SingleActivator(LogicalKeyboardKey.keyC, meta: true): _copyPages,
+          const SingleActivator(LogicalKeyboardKey.keyC, meta: true):
+              _copyPages,
           const SingleActivator(LogicalKeyboardKey.keyC, control: true):
               _copyPages,
           const SingleActivator(LogicalKeyboardKey.keyX, meta: true): _cutPages,
@@ -2575,8 +2584,7 @@ class _DetailBoundsPainter extends CustomPainter {
     Rect scale(Rect f) => Rect.fromLTRB(f.left * size.width,
         f.top * size.height, f.right * size.width, f.bottom * size.height);
     if (tiles.isNotEmpty) {
-      final sharpest =
-          tiles.map((t) => t.rung).reduce((a, b) => a > b ? a : b);
+      final sharpest = tiles.map((t) => t.rung).reduce((a, b) => a > b ? a : b);
       for (final tile in tiles) {
         final paint = Paint()
           ..style = PaintingStyle.stroke

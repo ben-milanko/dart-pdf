@@ -33,6 +33,7 @@ is exactly the kind of diff to review deliberately.
 | `scan-book-12p.pdf` | scanned circuit book (A3) | memory workload: 3.7 MB decoded grayscale per page (~45 MB/set) behind ~40 KB streams, trivial content ops - the image-cache/OOM class |
 | `text-report-40p.pdf` | office text | page tree walk, base-14 text runs, extraction |
 | `image-scan-4p.pdf` | scan-like images | full-page RGB decode (Flate), image cache |
+| `cmyk-jpeg-1p.pdf` | print-image color edge (#370) | Adobe YCCK (transform=2) and plain CMYK (transform=0) DCTDecode twins of the same swatches - polarity must render both rows identically |
 | `annotated-10p.pdf` | markup revision | annotation appearances (highlight/underline/strikeout/ink/square/circle/line/free text/note), incremental-update parsing |
 | `broken-startxref.pdf` | recovery | xref rebuild via the `N G obj` scan (recovery timing class) |
 | `junk-prefix.pdf` | leniency | junk before `%PDF-`, header-relative offsets |

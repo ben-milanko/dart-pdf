@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
@@ -353,6 +354,109 @@ void main() {
       final doc =
           await CosDocument.openSource(PdfBytesByteSource(buildClassicPdf()));
       expect(doc.catalog.typeName, 'Catalog');
+    });
+  });
+
+  group('page-scoped first paint', () {
+    // Small windows so the head/tail/xref fetches don't blanket these tiny
+    // fixtures - then a deferred page's bytes are genuinely never requested.
+
+    // Byte offset of the first occurrence of [needle] in [bytes] (the fixtures
+    // are ASCII, so a latin1 char index is the byte offset).
+    int offsetOf(Uint8List bytes, String needle) {
+      final at = latin1.decode(bytes, allowInvalid: true).indexOf(needle);
+      expect(at, greaterThanOrEqualTo(0), reason: 'missing "$needle"');
+      return at;
+    }
+
+    test('fetches only the first page, not later pages', () async {
+      final bytes = buildMultiPagePdf(8);
+      final source = RecordingSource(bytes);
+      final doc = await CosDocument.openSource(source,
+          options: const PdfSourceLoadOptions(
+              firstPaintPages: 1,
+              headWindow: 64,
+              tailWindow: 200,
+              xrefWindow: 4096));
+
+      // Page 1's content is fetched and the document opens...
+      expect(doc.catalog.typeName, 'Catalog');
+      expect(source.covers(offsetOf(bytes, '(Page 1)')), isTrue);
+      // ...but the later pages' content streams are left unfetched.
+      expect(source.covers(offsetOf(bytes, '(Page 2)')), isFalse);
+      expect(source.covers(offsetOf(bytes, '(Page 8)')), isFalse);
+
+      // The whole page tree is still fetched, so navigation and page count work
+      // (every /Type /Page dictionary is present) - the pages just render blank
+      // until their content arrives.
+      var from = 0;
+      final text = latin1.decode(bytes, allowInvalid: true);
+      while (true) {
+        final at = text.indexOf('/Type /Page /Parent', from);
+        if (at < 0) break;
+        expect(source.covers(at), isTrue, reason: 'page dict at $at unfetched');
+        from = at + 1;
+      }
+
+      // And it read far less than fetching every object.
+      final full = RecordingSource(bytes);
+      await CosDocument.openSource(full,
+          options: const PdfSourceLoadOptions(
+              headWindow: 64,
+              tailWindow: 200,
+              xrefWindow: 4096));
+      expect(source.bytesFetched, lessThan(full.bytesFetched));
+    });
+
+    test('firstPaintPages: 3 covers the first three pages only', () async {
+      final bytes = buildMultiPagePdf(8);
+      final source = RecordingSource(bytes);
+      await CosDocument.openSource(source,
+          options: const PdfSourceLoadOptions(
+              firstPaintPages: 3,
+              headWindow: 64,
+              tailWindow: 200,
+              xrefWindow: 4096));
+      expect(source.covers(offsetOf(bytes, '(Page 3)')), isTrue);
+      expect(source.covers(offsetOf(bytes, '(Page 4)')), isFalse);
+    });
+
+    test('page 1 is fully resolvable from the partial buffer', () async {
+      final bytes = buildMultiPagePdf(5);
+      final doc = await CosDocument.openSource(RecordingSource(bytes),
+          options: const PdfSourceLoadOptions(
+              firstPaintPages: 1,
+              headWindow: 64,
+              tailWindow: 200,
+              xrefWindow: 4096));
+      // catalog → pages → first kid → its content stream decodes to page 1.
+      final pages = doc.resolve(doc.catalog['Pages']) as CosDictionary;
+      final firstKid =
+          doc.resolve((pages['Kids'] as CosArray).items.first) as CosDictionary;
+      final content = doc.resolve(firstKid['Contents']) as CosStream;
+      expect(latin1.decode(doc.decodeStreamData(content)), contains('(Page 1)'));
+    });
+
+    test('handles a compressed (object-stream) page dictionary', () async {
+      // The single page's dict lives inside an /ObjStm, exercising the
+      // compressed-object fetch/decode path of the page walk.
+      final doc = await CosDocument.openSource(
+          RecordingSource(buildXrefStreamPdf()),
+          options: const PdfSourceLoadOptions(firstPaintPages: 1));
+      final pages = doc.resolve(doc.catalog['Pages']) as CosDictionary;
+      expect(pages.typeName, 'Pages');
+      final firstKid =
+          doc.resolve((pages['Kids'] as CosArray).items.first) as CosDictionary;
+      expect(firstKid.typeName, 'Page');
+    });
+
+    test('falls back to fetching everything when firstPaintPages is null',
+        () async {
+      final bytes = buildMultiPagePdf(4);
+      final source = RecordingSource(bytes);
+      await CosDocument.openSource(source);
+      // The default path still fetches every page's content.
+      expect(source.covers(offsetOf(bytes, '(Page 4)')), isTrue);
     });
   });
 }

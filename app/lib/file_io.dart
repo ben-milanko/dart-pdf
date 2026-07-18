@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:file_selector/file_selector.dart';
@@ -7,6 +8,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+import 'pdf_bookmark_source.dart';
+import 'pdf_file_source.dart';
+import 'pdf_mobile_source.dart';
 
 const _macosFileAccessChannel =
     MethodChannel('dev.milanko.dartpdf/file_access');
@@ -54,6 +59,79 @@ class PickedPdf {
   /// recents/session entries so sandboxed folders can be reopened later.
   final String? bookmark;
 }
+
+/// A file the mobile reference picker handed back: a native [token] pointing at
+/// the *original* file (not a sandbox copy), its display [name], the [length]
+/// when the provider reports it, and whether the runner's up-front probe found
+/// the reference [seekable] (so ranged reads are worth attempting - see #364).
+class MobilePickedPdf {
+  const MobilePickedPdf({
+    required this.token,
+    required this.name,
+    this.length,
+    required this.seekable,
+  });
+
+  /// Opaque native reference (Android persisted `content://` Uri; iOS
+  /// security-scoped bookmark). Passed back to [pdfByteSourceForMobileToken].
+  final String token;
+  final String name;
+  final int? length;
+
+  /// Whether native ranged reads over [token] are random-access. False for a
+  /// non-seekable pipe (many cloud providers), where the caller streams whole
+  /// instead of opening progressively.
+  final bool seekable;
+}
+
+/// Whether this platform can pick a mobile file *by reference* (Android/iOS,
+/// off-web) and read ranges from it natively - the mobile counterpart of
+/// [progressiveOpenSupported]. The OS pickers otherwise copy the whole file
+/// into the sandbox before the app sees a byte, paying the full cloud transport
+/// up front (#364); the reference picker keeps the original so ranged reads can
+/// first-paint from a few MB. Whether ranged reads actually help depends on the
+/// provider (a non-seekable SAF pipe streams whole) - probed per pick.
+bool get supportsMobileProgressiveOpen =>
+    !kIsWeb &&
+    (defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS);
+
+/// Opens the reference-based mobile document picker and returns one entry per
+/// chosen PDF (empty when cancelled). Each entry carries a native [token] to
+/// the original file plus a seekability probe result. Throws
+/// [MissingPluginException] on a runner without the channel, so callers can
+/// fall back to the copy-based [pickPdfFiles].
+Future<List<MobilePickedPdf>> pickPdfMobileReferences() async {
+  final picked = await mobileFileChannel
+      .invokeListMethod<Map<Object?, Object?>>('pickDocuments');
+  if (picked == null) return const [];
+  final out = <MobilePickedPdf>[];
+  for (final entry in picked) {
+    final token = entry['token'] as String?;
+    if (token == null || token.isEmpty) continue;
+    out.add(MobilePickedPdf(
+      token: token,
+      name: (entry['name'] as String?) ?? 'document.pdf',
+      length: (entry['length'] as num?)?.toInt(),
+      seekable: entry['seekable'] == true,
+    ));
+  }
+  return out;
+}
+
+/// A ranged [PdfByteSource] over a mobile pick's native [token], so the app can
+/// open it progressively via [PdfDocument.openSource] and stream the rest in
+/// behind the first paint - the mobile counterpart of [pdfByteSourceForPath].
+PdfByteSource pdfByteSourceForMobileToken(
+  String token, {
+  PdfCancelToken? cancelToken,
+  void Function(int received, int? total)? onProgress,
+}) =>
+    PdfMobileByteSource(
+      token,
+      cancelToken: cancelToken,
+      onProgress: onProgress,
+    );
 
 /// Opens the system file picker for a PDF. Returns null when the user cancels.
 Future<XFile?> pickPdfFile() =>
@@ -231,6 +309,85 @@ Future<Uint8List> readPdfAtPath(String path, {String? bookmark}) async {
     }
   }
   return XFile(path).readAsBytes();
+}
+
+/// Whether opening [path] progressively (first paint from ranged reads, full
+/// bytes streamed in behind it) is worthwhile on this platform. Desktop only:
+/// the big cloud-synced documents this pays off for live behind a real file
+/// path, and web/mobile picks hand back bytes (or a throwaway sandbox copy)
+/// that are already fully in memory.
+bool progressiveOpenSupported(String? path) =>
+    supportsInPlaceSave && path != null && path.isNotEmpty;
+
+/// A ranged [PdfByteSource] for a local file, so the app can open it
+/// progressively via [PdfDocument.openSource] and stream the rest in behind the
+/// first paint. On sandboxed macOS a bookmarked reopen must reactivate its
+/// security scope, so it reads through the native runner
+/// ([PdfBookmarkFileByteSource]); every other desktop path reads directly with
+/// a `RandomAccessFile` ([PdfFileByteSource]).
+PdfByteSource pdfByteSourceForPath(
+  String path, {
+  String? bookmark,
+  PdfCancelToken? cancelToken,
+  void Function(int received, int? total)? onProgress,
+}) {
+  if (_isMacOSDesktop && bookmark != null && bookmark.isNotEmpty) {
+    return PdfBookmarkFileByteSource(
+      bookmark: bookmark,
+      cancelToken: cancelToken,
+      onProgress: onProgress,
+    );
+  }
+  return PdfFileByteSource(
+    path,
+    cancelToken: cancelToken,
+    onProgress: onProgress,
+  );
+}
+
+/// Reads a whole [source] into one contiguous buffer, reporting progress as it
+/// goes. Unlike the sparse buffer [PdfDocument.openSource] assembles (zeros in
+/// the free space the parser never reads), this is the complete file - what the
+/// edit session, signing, and the render workers need. Used for the background
+/// full read behind a progressive first paint.
+Future<Uint8List> readSourceFully(
+  PdfByteSource source, {
+  void Function(int received, int? total)? onProgress,
+  int chunk = 8 << 20,
+  PdfCancelToken? cancelToken,
+}) async {
+  final len = await source.length;
+  if (len != null && len >= 0) {
+    final out = Uint8List(len);
+    var pos = 0;
+    while (pos < len) {
+      cancelToken?.throwIfCancelled();
+      final end = pos + chunk < len ? pos + chunk : len;
+      final data = await source.readRange(pos, end);
+      if (data.isEmpty) break;
+      // Never trust a source to honour the requested length: a misbehaving one
+      // can answer with more bytes than asked for (a 200-style full body).
+      // Clamp so setRange can't run past the buffer.
+      final count = data.length < len - pos ? data.length : len - pos;
+      out.setRange(pos, pos + count, data);
+      pos += count;
+      onProgress?.call(pos, len);
+    }
+    return pos == len ? out : Uint8List.sublistView(out, 0, pos);
+  }
+  // Unknown length: chunk until a short read signals EOF.
+  final builder = BytesBuilder(copy: false);
+  var pos = 0;
+  while (true) {
+    cancelToken?.throwIfCancelled();
+    final data = await source.readRange(pos, pos + chunk);
+    if (data.isEmpty) break;
+    builder.add(data);
+    pos += data.length;
+    onProgress?.call(pos, null);
+    if (data.length < chunk) break;
+  }
+  return builder.toBytes();
 }
 
 /// Whether the current platform can open a local file's containing folder in
