@@ -819,7 +819,7 @@ class _AppearancePreview extends StatelessWidget {
                 ? null
                 : DecorationImage(
                     image: MemoryImage(logoBytes!),
-                    fit: BoxFit.cover,
+                    fit: BoxFit.contain,
                     opacity: _signatureLogoOpacity),
           ),
           child: Row(children: [

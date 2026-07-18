@@ -42,10 +42,10 @@ class PdfSignatureAppearance {
   /// panel in place of the large name text.
   final PdfEmbeddableImage? graphic;
 
-  /// An optional image drawn across the whole box, behind the border,
-  /// divider, text and [graphic] - a company logo or letterhead backdrop.
-  /// Scaled to cover the box (aspect fill, clipped to the /Rect) and drawn at
-  /// [backgroundImageOpacity] so text stays readable over it.
+  /// An optional image drawn behind the border, divider, text and [graphic] -
+  /// a company logo or letterhead backdrop. Scaled to fit inside the box
+  /// (aspect fit, centered) and drawn at [backgroundImageOpacity] so text
+  /// stays readable over it.
   final PdfEmbeddableImage? backgroundImage;
 
   /// How opaque [backgroundImage] is drawn, 0 (invisible) to 1 (solid).
@@ -620,8 +620,9 @@ extension PdfSigning on PdfEditor {
             _updater.addObject(image.toXObject((s) => _updater.addObject(s)));
         // Cover the box (aspect fill), clipped to the /Rect so overflow of
         // the larger dimension is trimmed rather than drawn outside the box.
+        // fit the whole logo inside the box (contain), centered
         final scale =
-            math.max(w / image.width, h / image.height);
+            math.min(w / image.width, h / image.height);
         final dw = image.width * scale, dh = image.height * scale;
         writer
           ..save()
