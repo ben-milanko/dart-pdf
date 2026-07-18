@@ -5,6 +5,7 @@
 library;
 
 import 'dart:async';
+import 'dart:ui' show Rect;
 
 import 'package:flutter/foundation.dart';
 
@@ -62,6 +63,44 @@ class PdfLivePageRegistry extends ChangeNotifier {
   /// a synchronous [notifyListeners] is a build-phase violation for any
   /// listening overlay. Defer to a microtask (coalescing a burst of page
   /// lifecycles into one tick), which runs after the frame's synchronous work.
+  void _scheduleNotify() {
+    if (_notifyScheduled) return;
+    _notifyScheduled = true;
+    scheduleMicrotask(() {
+      _notifyScheduled = false;
+      notifyListeners();
+    });
+  }
+}
+
+/// Debug registry of each page's current legacy detail-patch bounds, as
+/// fractions (0..1) of the page. Page views report on build (only while
+/// [pdfDebugPaintDetailBounds] is on); the thumbnail overlay draws them so
+/// the strip shows where each page's patch sits. Same microtask coalescing
+/// as [PdfLivePageRegistry] - reports arrive mid-build.
+class PdfDebugDetailRegions extends ChangeNotifier {
+  PdfDebugDetailRegions._();
+
+  static final PdfDebugDetailRegions instance = PdfDebugDetailRegions._();
+
+  final Map<int, Rect> _patchFraction = {};
+
+  /// The page's current detail-patch bounds (page fractions), or null.
+  Rect? patchFractionOf(int pageIndex) => _patchFraction[pageIndex];
+
+  /// Records (or clears, with null) a page's patch bounds.
+  void report(int pageIndex, Rect? fraction) {
+    if (_patchFraction[pageIndex] == fraction) return;
+    if (fraction == null) {
+      _patchFraction.remove(pageIndex);
+    } else {
+      _patchFraction[pageIndex] = fraction;
+    }
+    _scheduleNotify();
+  }
+
+  bool _notifyScheduled = false;
+
   void _scheduleNotify() {
     if (_notifyScheduled) return;
     _notifyScheduled = true;

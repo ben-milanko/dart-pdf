@@ -28,6 +28,7 @@ class PdfTileLayer extends StatelessWidget {
     required this.desiredRatio,
     required this.visibleFraction,
     required this.rasterize,
+    this.canRasterize,
     this.filterQuality = FilterQuality.medium,
   });
 
@@ -49,6 +50,10 @@ class PdfTileLayer extends StatelessWidget {
   /// Rasterizes one tile from the page's retained scene.
   final PdfTileRasterizer rasterize;
 
+  /// Optional per-tile veto (see [PdfTileStore.viewFor]): a region this
+  /// returns false for is left to the fallback/base raster.
+  final bool Function(Rect region)? canRasterize;
+
   final FilterQuality filterQuality;
 
   @override
@@ -61,6 +66,7 @@ class PdfTileLayer extends StatelessWidget {
           desiredRatio: desiredRatio,
           visibleFraction: visibleFraction,
           rasterize: rasterize,
+          canRasterize: canRasterize,
           filterQuality: filterQuality,
         ),
       );
@@ -74,6 +80,7 @@ class _TilePagePainter extends CustomPainter {
     required this.desiredRatio,
     required this.visibleFraction,
     required this.rasterize,
+    required this.canRasterize,
     required this.filterQuality,
   }) : super(
             // tick as sharper tiles land, and repaint on debug-border toggles
@@ -85,6 +92,7 @@ class _TilePagePainter extends CustomPainter {
   final double desiredRatio;
   final Rect visibleFraction;
   final PdfTileRasterizer rasterize;
+  final bool Function(Rect region)? canRasterize;
   final FilterQuality filterQuality;
 
   @override
@@ -104,6 +112,7 @@ class _TilePagePainter extends CustomPainter {
       desiredRatio: desiredRatio,
       visiblePageRect: visiblePageRect,
       rasterize: rasterize,
+      canRasterize: canRasterize,
     );
     if (view.isEmpty) return;
     final paint = Paint()..filterQuality = filterQuality;
@@ -143,5 +152,6 @@ class _TilePagePainter extends CustomPainter {
       old.desiredRatio != desiredRatio ||
       old.visibleFraction != visibleFraction ||
       !identical(old.rasterize, rasterize) ||
+      !identical(old.canRasterize, canRasterize) ||
       old.filterQuality != filterQuality;
 }

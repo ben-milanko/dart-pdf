@@ -133,13 +133,18 @@ class PdfTileKey {
 /// A retained tile image plus the page-point region it covers and the bucket it
 /// belongs to. Owned by the store's cache; disposed on eviction.
 class PdfTile {
-  PdfTile(this.image, this.region, this.rung);
+  PdfTile(this.image, this.region, this.rung, this.pageFraction);
 
   final ui.Image image;
 
   /// The tile's bounds in page points (clamped to the page at the edges).
   final Rect region;
   final int rung;
+
+  /// [region] as fractions (0..1) of the page - recorded at raster time so
+  /// diagnostics (the thumbnail debug overlay) can place the tile without
+  /// knowing the page size.
+  final Rect pageFraction;
 
   int get bytes => image.width * image.height * 4;
 }
@@ -229,6 +234,10 @@ class PdfTileStore extends ChangeNotifier {
   /// (or registered for memory pressure) unless the tile path is exercised.
   static PdfTileStore get instance => _instance ??= PdfTileStore();
 
+  /// The shared store if one was ever created, without creating it -
+  /// diagnostics must not allocate a pyramid just by looking.
+  static PdfTileStore? get instanceOrNull => _instance;
+
   /// Physical pixels per tile side. A tile at bucket ratio r covers
   /// `tilePixels / r` page points per side.
   final int tilePixels;
@@ -301,11 +310,28 @@ class PdfTileStore extends ChangeNotifier {
   /// Whether a tile for [key] is retained (test/diagnostic; no LRU touch).
   bool containsTile(PdfTileKey key) => _cache.containsKey(key);
 
+  /// Diagnostic snapshot of the retained tiles for [pageIndex] (any identity
+  /// generation), as page fractions + rung. Pure peek - no LRU touches. The
+  /// thumbnail debug overlay draws these.
+  List<({Rect fraction, int rung})> debugTileFractionsForPage(int pageIndex) =>
+      [
+        for (final key in _cache.keys.toList())
+          if (key.id.pageIndex == pageIndex)
+            if (_cache.peek(key) case final tile?)
+              (fraction: tile.pageFraction, rung: tile.rung),
+      ];
+
   /// The best-available composite for [id] over [visiblePageRect] (page points)
   /// at [desiredRatio], scheduling the missing exact-bucket tiles (center-out)
   /// plus a one-tile prefetch ring. Missing tiles fall back per-tile to the
   /// nearest coarser cached bucket, upscaled; anything still uncovered leaves
   /// the base raster showing through.
+  ///
+  /// [canRasterize], when given, vetoes scheduling per tile region: a vetoed
+  /// tile is never rastered or cached (its area keeps the fallback/base),
+  /// and is re-consulted on every pass so it heals once the veto lifts. The
+  /// page view uses this to tile a vector-only progressive scene everywhere
+  /// except the regions its absent image pixels would corrupt.
   ///
   /// Synchronous and side-effecting: every tile it *places* is touched to
   /// most-recently-used, so a concurrent completion's eviction can only drop
@@ -319,6 +345,7 @@ class PdfTileStore extends ChangeNotifier {
     required double desiredRatio,
     required Rect visiblePageRect,
     required PdfTileRasterizer rasterize,
+    bool Function(Rect region)? canRasterize,
   }) {
     if (_disposed ||
         pageSize.width <= 0 ||
@@ -375,7 +402,8 @@ class PdfTileStore extends ChangeNotifier {
         ));
       } else {
         complete = false;
-        _schedule(key, id, pageSize, span, ratio, rasterize, pending);
+        _schedule(key, id, pageSize, span, ratio, rasterize, pending,
+            canRasterize);
         final fallback = _coarserFallback(id, rung, tx, ty, span, pageSize);
         if (fallback != null) placements.add(fallback);
       }
@@ -393,7 +421,7 @@ class PdfTileStore extends ChangeNotifier {
         for (var tx = rx0; tx <= rx1; tx++) {
           if (tx >= tx0 && tx <= tx1 && ty >= ty0 && ty <= ty1) continue;
           _schedule(PdfTileKey(id, rung, tx, ty), id, pageSize, span, ratio,
-              rasterize, pending);
+              rasterize, pending, canRasterize);
         }
       }
     }
@@ -466,11 +494,15 @@ class PdfTileStore extends ChangeNotifier {
     double ratio,
     PdfTileRasterizer rasterize,
     List<PdfTileKey>? pending,
+    bool Function(Rect region)? canRasterize,
   ) {
     if (_disposed || _cache.containsKey(key) || _inFlight.contains(key)) return;
     final region = _clampToPage(
         Rect.fromLTWH(key.tx * span, key.ty * span, span, span), pageSize);
     if (region.width <= 0 || region.height <= 0) return;
+    // Vetoed tiles are neither in-flight nor cached, so every pass re-asks -
+    // the veto lifting (a scene upgrade) heals them without invalidation.
+    if (canRasterize != null && !canRasterize(region)) return;
 
     _inFlight.add(key);
     debugTilesScheduled++;
@@ -486,7 +518,8 @@ class PdfTileStore extends ChangeNotifier {
         debugTilesDiscarded++;
         return;
       }
-      _cache.put(key, PdfTile(image, region, key.rung));
+      _cache.put(
+          key, PdfTile(image, region, key.rung, _fractionOf(region, pageSize)));
       debugTilesLanded++;
       _scheduleTick();
     }, onError: (Object _, StackTrace __) {
@@ -579,7 +612,7 @@ class PdfTileStore extends ChangeNotifier {
           _cache.put(
               key,
               PdfTile(_sliceTile(slab, batchRegion, region, ratio), region,
-                  key.rung));
+                  key.rung, _fractionOf(region, pageSize)));
           debugTilesLanded++;
         }
       } finally {

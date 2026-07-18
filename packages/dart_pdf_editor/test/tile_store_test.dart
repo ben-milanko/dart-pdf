@@ -558,6 +558,50 @@ void main() {
       });
     });
 
+    testWidgets('canRasterize vetoes tiles per region and heals when lifted',
+        (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer(sizeFromRegion: true);
+        const pageSize = Size(64, 64); // 4×4 grid
+
+        // Veto the left half of the page (a vector-only scene's image area).
+        store.viewFor(
+          id: _id(0),
+          pageSize: pageSize,
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 64, 64),
+          rasterize: raster.call,
+          canRasterize: (region) => region.left >= 32,
+        );
+        // Only the right half scheduled - and as one batch of that half.
+        expect(store.inFlightCount, 8);
+        expect(raster.calls.length, 1);
+        expect(raster.calls.single.region, const Rect.fromLTWH(32, 0, 32, 64));
+        await raster.flush();
+        expect(store.tileCount, 8);
+
+        // The veto lifting (scene upgraded to the full record) heals the rest
+        // on the next pass without any invalidation.
+        store.viewFor(
+          id: _id(0),
+          pageSize: pageSize,
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 64, 64),
+          rasterize: raster.call,
+        );
+        expect(store.inFlightCount, 8);
+        await raster.flush();
+        expect(store.tileCount, 16);
+        store.dispose();
+      });
+    });
+
     testWidgets('a sparse missing set never re-rasters the cached area between',
         (tester) async {
       await tester.runAsync(() async {
