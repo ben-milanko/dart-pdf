@@ -234,6 +234,11 @@ void main() {
       expect(content, contains('/SigBg Do'));
       expect(content.indexOf('/SigBg Do'), lessThan(content.indexOf('S\n')));
       expect(shownText(content), contains('Digitally signed by'));
+      // drawn semi-transparently via an alpha ExtGState (readable over it)
+      expect(content, contains('/SigBgGs gs'));
+      final ext = doc.cos.resolve(resources['ExtGState']) as CosDictionary;
+      final gs = doc.cos.resolve(ext['SigBgGs']) as CosDictionary;
+      expect((gs['ca'] as CosReal).value, closeTo(0.2, 1e-6));
     });
 
     test('a details-only box (no name/graphic) omits the left panel', () {

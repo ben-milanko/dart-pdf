@@ -17,6 +17,7 @@ class PdfSignatureAppearance {
     this.rect,
     this.graphic,
     this.backgroundImage,
+    this.backgroundImageOpacity = 0.2,
     this.showName = true,
     this.showDate = true,
     this.showReason = true,
@@ -40,10 +41,16 @@ class PdfSignatureAppearance {
   /// panel in place of the large name text.
   final PdfEmbeddableImage? graphic;
 
-  /// An optional image drawn opaquely across the whole box, behind the
-  /// border, divider, text and [graphic] - a company logo or letterhead
-  /// backdrop. Scaled to cover the box (aspect fill, clipped to the /Rect).
+  /// An optional image drawn across the whole box, behind the border,
+  /// divider, text and [graphic] - a company logo or letterhead backdrop.
+  /// Scaled to cover the box (aspect fill, clipped to the /Rect) and drawn at
+  /// [backgroundImageOpacity] so text stays readable over it.
   final PdfEmbeddableImage? backgroundImage;
+
+  /// How opaque [backgroundImage] is drawn, 0 (invisible) to 1 (solid).
+  /// Defaults to a light, watermark-like 0.2 so the signer name and details
+  /// remain legible on top. Ignored when [backgroundImage] is null.
+  final double backgroundImageOpacity;
 
   /// Draws the large signer name in the left panel and the
   /// "Digitally signed by …" line on the right.
@@ -549,6 +556,7 @@ extension PdfSigning on PdfEditor {
     final writer = ContentWriter();
     final fonts = CosDictionary({});
     final xObjects = CosDictionary({});
+    final extGStates = CosDictionary({});
     const pad = 4.0;
 
     if (config.backgroundColor != null) {
@@ -570,7 +578,17 @@ extension PdfSigning on PdfEditor {
         writer
           ..save()
           ..rect(0, 0, w, h)
-          ..clip()
+          ..clip();
+        final opacity = config.backgroundImageOpacity.clamp(0.0, 1.0);
+        if (opacity < 1) {
+          extGStates['SigBgGs'] = CosDictionary({
+            'Type': const CosName('ExtGState'),
+            'ca': CosReal(opacity),
+            'CA': CosReal(opacity),
+          });
+          writer.extGState('SigBgGs');
+        }
+        writer
           ..concatMatrix(dw, 0, 0, dh, (w - dw) / 2, (h - dh) / 2)
           ..drawXObject('SigBg')
           ..restore();
@@ -674,6 +692,7 @@ extension PdfSigning on PdfEditor {
     final resources = CosDictionary({
       if (fonts.entries.isNotEmpty) 'Font': fonts,
       if (xObjects.entries.isNotEmpty) 'XObject': xObjects,
+      if (extGStates.entries.isNotEmpty) 'ExtGState': extGStates,
     });
     final form = _widgetForm(w, h, writer, resources: resources);
     _setNormalAppearance(widget, form);

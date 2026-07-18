@@ -7,6 +7,11 @@ import 'package:pdf_document/pdf_document.dart';
 
 import 'signature_raster.dart';
 
+/// How opaque the logo backdrop is drawn - a light watermark so the signer
+/// name and details stay readable. Kept in sync between the live preview and
+/// the signed box ([PdfSignatureAppearance.backgroundImageOpacity]).
+const double _signatureLogoOpacity = 0.2;
+
 const digitalSignatureKeyTypeGroup = XTypeGroup(
   label: 'RSA private keys',
   extensions: ['pem', 'key', 'der'],
@@ -397,6 +402,7 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
           _signaturePng != null ? PdfEmbeddableImage.png(_signaturePng!) : null,
       backgroundImage:
           _logoBytes != null ? PdfEmbeddableImage.decode(_logoBytes!) : null,
+      backgroundImageOpacity: _signatureLogoOpacity,
     );
   }
 
@@ -668,23 +674,21 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                     ),
                   ],
                 ]),
-                if (_signaturePng != null || _logoBytes != null) ...[
-                  const SizedBox(height: 10),
-                  _AppearancePreview(
-                    signaturePng: _signaturePng,
-                    logoBytes: _logoBytes,
-                    signerName: identity?.signerName ??
-                        selfSigned?.name ??
-                        keyless?.name,
-                    reason: _value(_reason),
-                    onClearSignature: _signaturePng == null
-                        ? null
-                        : () => setState(() => _signaturePng = null),
-                    onClearLogo: _logoBytes == null
-                        ? null
-                        : () => setState(() => _logoBytes = null),
-                  ),
-                ],
+                const SizedBox(height: 10),
+                _AppearancePreview(
+                  signaturePng: _signaturePng,
+                  logoBytes: _logoBytes,
+                  signerName: identity?.signerName ??
+                      selfSigned?.name ??
+                      keyless?.name,
+                  reason: _value(_reason),
+                  onClearSignature: _signaturePng == null
+                      ? null
+                      : () => setState(() => _signaturePng = null),
+                  onClearLogo: _logoBytes == null
+                      ? null
+                      : () => setState(() => _logoBytes = null),
+                ),
                 if (_appearanceError != null) ...[
                   const SizedBox(height: 8),
                   Text(
@@ -754,7 +758,9 @@ class _AppearancePreview extends StatelessWidget {
             image: logoBytes == null
                 ? null
                 : DecorationImage(
-                    image: MemoryImage(logoBytes!), fit: BoxFit.cover),
+                    image: MemoryImage(logoBytes!),
+                    fit: BoxFit.cover,
+                    opacity: _signatureLogoOpacity),
           ),
           child: Row(children: [
             Expanded(
