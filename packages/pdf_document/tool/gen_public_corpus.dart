@@ -13,11 +13,14 @@
 // orchestrated by tool/gen_corpus.sh):
 //   text-report-40p.pdf    office-style text: paragraphs, bold headings
 //   image-scan-4p.pdf      scan-like full-page RGB images (gradient+noise)
+//   cmyk-jpeg-1p.pdf       print-image color edge (#370): Adobe YCCK and
+//                          plain CMYK DCTDecode twins of the same swatches
 //   annotated-10p.pdf      markup on a text base via PdfEditor (highlight/
 //                          ink/shapes/free text/note/underline/strikeout,
 //                          generated appearances, incremental revision)
 //   broken-startxref.pdf   recovery class: smashed startxref keyword
 //   junk-prefix.pdf        leniency class: junk bytes before %PDF- header
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -135,6 +138,98 @@ Uint8List buildTextReport(int pageCount, {int seed = 20260718}) {
       'Contents': contentRef,
     }));
   }
+  return builder.build(root: const CosReference(1, 0));
+}
+
+/// Print-image color edge (#370): one page painting the same two swatches
+/// twice - once through an Adobe YCCK JPEG (APP14 transform=2, Y'CbCr of
+/// the inverted CMY, K as ink) and once through a plain CMYK JPEG
+/// (transform=0). Both 16x8 files are hand-built baseline JPEGs (constant
+/// 8x8 blocks, custom Huffman tables), so the stored samples are exact by
+/// construction: left half cyan ink (255,0,0,0), right half magenta + half
+/// K (0,255,0,128). A conforming render shows two identical swatch pairs;
+/// a decoder that skips the YCCK inversion shows red/green complements.
+/// pdf.js renders of the same XObjects are the ground truth pinned in
+/// pdf_graphics/test/image_pixels_test.dart.
+Uint8List buildCmykJpeg() {
+  const ycckJpeg =
+      '/9j/7gAOQWRvYmUAZAAAAAAC/9sAQwAQCwoQGCgzPQwMDhMaOjw3Dg0QGCg5RTgOERYdM1dQPhIWJThEbWdNGCM3QFFocVwxQE5XZ3l4ZUhcX2JwZGdj/9sAQwEREhgvY2NjYxIVGkJjY2NjGBo4Y2NjY2MvQmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2Nj/8AAFAgACAAQBAERAAIRAQMRAQQRAP/EABYAAQEBAAAAAAAAAAAAAAAAAAUGB//EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAOBAEAAgADAAQAAD8AaKINn6ZKNuaA/9k=';
+  const cmykJpeg =
+      '/9j/7gAOQWRvYmUAZAAAAAAA/9sAQwAQCwoQGCgzPQwMDhMaOjw3Dg0QGCg5RTgOERYdM1dQPhIWJThEbWdNGCM3QFFocVwxQE5XZ3l4ZUhcX2JwZGdj/9sAQwEREhgvY2NjYxIVGkJjY2NjGBo4Y2NjY2MvQmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2Nj/8AAFAgACAAQBAERAAIRAQMRAQQRAP/EABcAAQEBAQAAAAAAAAAAAAAAAAAGBwj/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADgQBAAIAAwAEAAA/ANAQaDZ+5/bwNAf/2Q==';
+
+  const pageW = 612.0, pageH = 792.0;
+  final builder = CosDocumentBuilder();
+  const treeRef = CosReference(2, 0);
+  const fontRef = CosReference(3, 0);
+  const ycckRef = CosReference(4, 0);
+  const cmykRef = CosReference(5, 0);
+  const contentRef = CosReference(6, 0);
+  const pageRef = CosReference(7, 0);
+
+  builder.add(CosDictionary(
+      {'Type': const CosName('Catalog'), 'Pages': treeRef})); // 1
+  builder.add(CosDictionary({
+    'Type': const CosName('Pages'),
+    'Kids': CosArray([pageRef]),
+    'Count': const CosInteger(1),
+  })); // 2
+  builder.add(CosDictionary({
+    'Type': const CosName('Font'),
+    'Subtype': const CosName('Type1'),
+    'BaseFont': const CosName('Helvetica'),
+  })); // 3
+
+  void jpegImage(String b64) {
+    final bytes = base64Decode(b64);
+    builder.add(CosStream(
+      CosDictionary({
+        'Type': const CosName('XObject'),
+        'Subtype': const CosName('Image'),
+        'Width': const CosInteger(16),
+        'Height': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceCMYK'),
+        'BitsPerComponent': const CosInteger(8),
+        'Filter': const CosName('DCTDecode'),
+        'Length': CosInteger(bytes.length),
+      }),
+      bytes,
+    ));
+  }
+
+  jpegImage(ycckJpeg); // 4
+  jpegImage(cmykJpeg); // 5
+
+  final content = StringBuffer()
+    ..writeln('q 480 0 0 240 66 462 cm /ImYcck Do Q')
+    ..writeln('q 480 0 0 240 66 192 cm /ImCmyk Do Q')
+    ..writeln('BT /F1 10 Tf 66 440 Td (Adobe YCCK (transform=2)) Tj ET')
+    ..writeln('BT /F1 10 Tf 66 170 Td (plain CMYK (transform=0)) Tj ET')
+    ..writeln('BT /F1 8 Tf 66 140 Td (Both rows must match: cyan swatch '
+        'left, magenta+half-K swatch right - #370.) Tj ET');
+  final deflated = _deflate(content.toString());
+  builder.add(CosStream(
+    CosDictionary({
+      'Filter': const CosName('FlateDecode'),
+      'Length': CosInteger(deflated.length),
+    }),
+    deflated,
+  )); // 6
+
+  builder.add(CosDictionary({
+    'Type': const CosName('Page'),
+    'Parent': treeRef,
+    'MediaBox': CosArray([
+      const CosInteger(0),
+      const CosInteger(0),
+      const CosReal(pageW),
+      const CosReal(pageH),
+    ]),
+    'Resources': CosDictionary({
+      'Font': CosDictionary({'F1': fontRef}),
+      'XObject': CosDictionary({'ImYcck': ycckRef, 'ImCmyk': cmykRef}),
+    }),
+    'Contents': contentRef,
+  })); // 7
   return builder.build(root: const CosReference(1, 0));
 }
 
@@ -613,6 +708,7 @@ void main(List<String> argv) {
   final textReport = buildTextReport(40);
   write('text-report-40p.pdf', textReport);
   write('image-scan-4p.pdf', buildImageScan(4));
+  write('cmyk-jpeg-1p.pdf', buildCmykJpeg());
   write('annotated-10p.pdf', buildAnnotated());
   write('styled-booklet-24p.pdf', buildStyledBooklet(24));
   write('scan-book-12p.pdf', buildScanBook(12));
