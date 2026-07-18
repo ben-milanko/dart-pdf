@@ -18,6 +18,7 @@ class PdfSignatureAppearance {
     this.graphic,
     this.backgroundImage,
     this.backgroundImageOpacity = 0.2,
+    this.repeatPages = const [],
     this.showName = true,
     this.showDate = true,
     this.showReason = true,
@@ -51,6 +52,14 @@ class PdfSignatureAppearance {
   /// Defaults to a light, watermark-like 0.2 so the signer name and details
   /// remain legible on top. Ignored when [backgroundImage] is null.
   final double backgroundImageOpacity;
+
+  /// Additional 0-based pages to also show the same box on ("apply to pages").
+  /// The cryptographic signature stays singular - its field widget lives on
+  /// [page]; each of these pages gets a matching, static appearance copy that
+  /// shares the one appearance stream, all inside the signed revision. The
+  /// primary [page] and out-of-range indices are ignored. Only honored for a
+  /// freshly created visible field (needs [rect]).
+  final List<int> repeatPages;
 
   /// Draws the large signer name in the left panel and the
   /// "Digitally signed by …" line on the right.
@@ -480,13 +489,21 @@ extension PdfSigning on PdfEditor {
       'F': const CosInteger(132), // print + locked
       if (pageRef != null) 'P': pageRef,
     });
+    CosReference? formRef;
     if (visible != null) {
-      _installSignatureAppearance(fieldDict, visible, appearance!, text);
+      formRef = _installSignatureAppearance(fieldDict, visible, appearance!, text);
     }
     final fieldRef = _updater.addObject(fieldDict);
 
     // page /Annots
     _PdfPageAnnotationList(this, pageIndex).append(fieldRef);
+
+    // "apply to pages": repeat the same box on the other pages as static
+    // appearance copies sharing the one appearance stream (all covered by
+    // this same signed revision).
+    if (visible != null && formRef != null) {
+      _repeatSignatureBox(visible, formRef, appearance!.repeatPages, pageIndex);
+    }
 
     // AcroForm /Fields
     final acroForm = cos.resolve(document.catalog['AcroForm']);
@@ -510,6 +527,35 @@ extension PdfSigning on PdfEditor {
         'SigFlags': const CosInteger(3),
       }));
       _updater.markChanged(document.catalog);
+    }
+  }
+
+  /// Draws a static copy of the signature box (sharing [formRef], the one
+  /// appearance stream) at [rect] on each of [pages] except [primaryPage] and
+  /// out-of-range indices - the "apply to pages" visuals. They are plain,
+  /// locked /Stamp annotations, not extra signature widgets, so the signature
+  /// stays a single field; they ride the same signed revision.
+  void _repeatSignatureBox(PdfRect rect, CosReference formRef,
+      List<int> pages, int primaryPage) {
+    final cos = document.cos;
+    final seen = <int>{primaryPage};
+    for (final p in pages) {
+      if (!seen.add(p) || p < 0 || p >= document.pageCount) continue;
+      final pageRef = cos.referenceTo(document.page(p).dict);
+      final annot = CosDictionary({
+        'Type': const CosName('Annot'),
+        'Subtype': const CosName('Stamp'),
+        'Rect': CosArray([
+          CosReal(rect.left),
+          CosReal(rect.bottom),
+          CosReal(rect.right),
+          CosReal(rect.top),
+        ]),
+        'F': const CosInteger(132), // print + locked
+        'AP': CosDictionary({'N': formRef}),
+        if (pageRef != null) 'P': pageRef,
+      });
+      _PdfPageAnnotationList(this, p).append(_updater.addObject(annot));
     }
   }
 
@@ -549,7 +595,9 @@ extension PdfSigning on PdfEditor {
   /// background and border, a left panel holding the signer's name (or a
   /// handwritten-signature image), and a right panel listing the signing
   /// details. Mirrors the two-column layout Acrobat and Bluebeam draw.
-  void _installSignatureAppearance(CosDictionary widget, PdfRect rect,
+  /// Returns the appearance stream's reference so it can be reused when the
+  /// same box is repeated on other pages.
+  CosReference _installSignatureAppearance(CosDictionary widget, PdfRect rect,
       PdfSignatureAppearance config, _SignatureText? text) {
     final w = rect.width, h = rect.height;
     final info = text ?? const _SignatureText();
@@ -695,7 +743,7 @@ extension PdfSigning on PdfEditor {
       if (extGStates.entries.isNotEmpty) 'ExtGState': extGStates,
     });
     final form = _widgetForm(w, h, writer, resources: resources);
-    _setNormalAppearance(widget, form);
+    return _setNormalAppearance(widget, form);
   }
 
   /// A base-14 font dict (with /Widths) for the appearance's /Font resource.

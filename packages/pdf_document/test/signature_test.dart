@@ -241,6 +241,49 @@ void main() {
       expect((gs['ca'] as CosReal).value, closeTo(0.2, 1e-6));
     });
 
+    test('repeatPages stamps the same box on the other pages, one signature',
+        () {
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(3)));
+      final signed = editor.saveSigned(
+        privateKey: key,
+        certificates: [cert],
+        signingTime: signedAt,
+        appearance: const PdfSignatureAppearance(
+          page: 0,
+          rect: PdfRect(72, 640, 320, 720),
+          repeatPages: [1, 2],
+        ),
+      );
+      final doc = PdfDocument.open(signed);
+
+      // still exactly one cryptographic signature, valid over the whole file
+      final signatures = PdfSignature.of(doc);
+      expect(signatures, hasLength(1));
+      expect(signatures.single.validate().intact, isTrue);
+
+      // the field widget is on page 0; pages 1 and 2 carry a matching stamp
+      // that reuses the very same appearance stream object
+      final widget = signatures.single.field.widgets.first;
+      final formRef = widget['AP'] is CosDictionary
+          ? (widget['AP'] as CosDictionary)['N']
+          : null;
+      CosObject? apnOf(PdfAnnotation a) {
+        final ap = doc.cos.resolve(a.dict['AP']);
+        return ap is CosDictionary ? ap['N'] : null;
+      }
+
+      for (final page in [1, 2]) {
+        final stamps = doc.page(page).annotations.where((a) =>
+            a.subtype == 'Stamp' &&
+            apnOf(a).toString() == formRef.toString());
+        expect(stamps, hasLength(1), reason: 'page $page');
+        expect(stamps.single.rect.left, closeTo(72, 0.5));
+      }
+      // page 0 has only the signature widget, no extra stamp
+      expect(
+          doc.page(0).annotations.where((a) => a.subtype == 'Stamp'), isEmpty);
+    });
+
     test('a details-only box (no name/graphic) omits the left panel', () {
       final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
       final signed = editor.saveSigned(

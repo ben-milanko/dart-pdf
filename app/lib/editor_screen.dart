@@ -1024,6 +1024,7 @@ class _EditorScreenState extends State<EditorScreen>
                 keylessUnavailable: kIsWeb,
                 placement: placement,
                 logoPicker: placement == null ? null : pickImageBytes,
+                pageCount: session.document.pageCount,
               ))(context);
       if (!mounted || options == null || !_tabs.contains(tab)) return;
       final keyless = options.keylessIdentity;

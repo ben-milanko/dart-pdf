@@ -326,6 +326,7 @@ void main() {
                     PdfSigningIdentity.generate(name: 'Ada Lovelace'),
                 placement: (page: 0, rect: const PdfRect(72, 640, 320, 720)),
                 logoPicker: () async => logo,
+                pageCount: 4,
               );
             },
             child: const Text('Open'),
@@ -348,6 +349,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Logo added ✓'), findsOneWidget);
 
+    // apply the box to pages 1–3 (of the 4-page document, 0-based 0..2)
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('digital-signature-apply-pages')));
+    await tester.tap(find.byKey(const ValueKey('digital-signature-apply-pages')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('pdf-page-range-to')), '3');
+    await tester.tap(find.byKey(const ValueKey('pdf-page-range-confirm')));
+    await tester.pumpAndSettle();
+
     // choose an identity, then sign
     await tester.ensureVisible(
         find.byKey(const ValueKey('digital-signature-create-identity')));
@@ -365,6 +375,8 @@ void main() {
     expect(appearance!.page, 0);
     expect(appearance.rect, const PdfRect(72, 640, 320, 720));
     expect(appearance.backgroundImage, isNotNull);
+    // "apply to pages" 1–3 repeats the box on the other pages (0-based 1, 2)
+    expect(appearance.repeatPages, [1, 2]);
   });
 
   testWidgets('on web, a note points to the desktop/mobile app for keyless',

@@ -129,6 +129,7 @@ Future<DigitalSignatureOptions?> showDigitalSigningDialog(
   bool keylessUnavailable = false,
   SignaturePlacement? placement,
   SignatureLogoPicker? logoPicker,
+  int pageCount = 1,
 }) =>
     showDialog<DigitalSignatureOptions>(
       context: context,
@@ -144,6 +145,7 @@ Future<DigitalSignatureOptions?> showDigitalSigningDialog(
         keylessUnavailable: keylessUnavailable,
         placement: placement,
         logoPicker: logoPicker,
+        pageCount: pageCount,
       ),
     );
 
@@ -167,6 +169,7 @@ class DigitalSignatureDialog extends StatefulWidget {
     this.keylessUnavailable = false,
     this.placement,
     this.logoPicker,
+    this.pageCount = 1,
   });
 
   final DigitalSignaturePrivateKeyPicker privateKeyPicker;
@@ -194,6 +197,9 @@ class DigitalSignatureDialog extends StatefulWidget {
   /// Supplies the logo backdrop image; only used when [placement] is set.
   final SignatureLogoPicker? logoPicker;
 
+  /// Total pages in the document, bounding the "Apply to pages" range.
+  final int pageCount;
+
   @override
   State<DigitalSignatureDialog> createState() => _DigitalSignatureDialogState();
 }
@@ -218,6 +224,9 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
   Uint8List? _signaturePng; // rasterized hand-drawn mark
   Uint8List? _logoBytes; // logo backdrop (PNG/JPEG)
   String? _appearanceError;
+  // The 0-based inclusive page span the box is shown on; null = this page
+  // only. The signature stays a single cryptographic signature either way.
+  ({int start, int end})? _applyRange;
 
   @override
   void initState() {
@@ -390,6 +399,41 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
     });
   }
 
+  Future<void> _chooseApplyPages() async {
+    final placement = widget.placement;
+    if (placement == null) return;
+    final range = await showPdfPageRangeDialog(
+      context,
+      pageCount: widget.pageCount,
+      initialStart: _applyRange?.start ?? placement.page,
+      initialEnd: _applyRange?.end ?? placement.page,
+      title: 'Show the signature on pages',
+      confirmLabel: 'Apply',
+    );
+    if (range == null || !mounted) return;
+    setState(() => _applyRange = range);
+  }
+
+  /// The 0-based pages, besides the placed page, the box is also shown on.
+  List<int> _repeatPages() {
+    final range = _applyRange;
+    final placement = widget.placement;
+    if (range == null || placement == null) return const [];
+    return [
+      for (var p = range.start; p <= range.end; p++)
+        if (p != placement.page) p,
+    ];
+  }
+
+  String _applyPagesLabel() {
+    final range = _applyRange;
+    if (range == null || (range.start == range.end)) return 'This page only';
+    if (range.start == 0 && range.end == widget.pageCount - 1) {
+      return 'All ${widget.pageCount} pages';
+    }
+    return 'Pages ${range.start + 1}–${range.end + 1}';
+  }
+
   /// The visible-box appearance for the placed rectangle, or null when there
   /// is no placement (an invisible signature).
   PdfSignatureAppearance? _buildAppearance() {
@@ -403,6 +447,7 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
       backgroundImage:
           _logoBytes != null ? PdfEmbeddableImage.decode(_logoBytes!) : null,
       backgroundImageOpacity: _signatureLogoOpacity,
+      repeatPages: _repeatPages(),
     );
   }
 
@@ -674,6 +719,21 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                     ),
                   ],
                 ]),
+                if (widget.pageCount > 1) ...[
+                  const SizedBox(height: 4),
+                  Row(children: [
+                    Expanded(
+                      child: Text('Apply to: ${_applyPagesLabel()}',
+                          style: theme.textTheme.bodyMedium),
+                    ),
+                    TextButton.icon(
+                      key: const ValueKey('digital-signature-apply-pages'),
+                      onPressed: _chooseApplyPages,
+                      icon: const Icon(Icons.copy_all_outlined, size: 18),
+                      label: const Text('Apply to pages…'),
+                    ),
+                  ]),
+                ],
                 const SizedBox(height: 10),
                 _AppearancePreview(
                   signaturePng: _signaturePng,
