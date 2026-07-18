@@ -15,6 +15,15 @@ import 'signature_raster.dart';
 /// the signed box ([PdfSignatureAppearance.backgroundImageOpacity]).
 const double _signatureLogoOpacity = 0.2;
 
+/// The Acrobat-style signing date the signed box renders, so the preview
+/// matches it: `2026.07.18 05:40:17 +00'00'`, in UTC.
+String _acrobatSignDate(DateTime time) {
+  final utc = time.toUtc();
+  String two(int v) => v.toString().padLeft(2, '0');
+  return '${utc.year}.${two(utc.month)}.${two(utc.day)} '
+      "${two(utc.hour)}:${two(utc.minute)}:${two(utc.second)} +00'00'";
+}
+
 const digitalSignatureKeyTypeGroup = XTypeGroup(
   label: 'RSA private keys',
   extensions: ['pem', 'key', 'der'],
@@ -941,7 +950,7 @@ class _AppearancePreview extends StatelessWidget {
     final details = <String>[
       if (signerName != null && signerName!.isNotEmpty)
         'Digitally signed by $signerName',
-      'Date: ${MaterialLocalizations.of(context).formatFullDate(DateTime.now())}',
+      'Date: ${_acrobatSignDate(DateTime.now())}',
       if (reason != null && reason!.isNotEmpty) 'Reason: $reason',
     ];
     // Wraps [child] to the panel width, then scales the whole block down to
