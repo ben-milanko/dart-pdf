@@ -155,24 +155,28 @@ crypto. See `fulcioSigningIdentity`, `buildFulcioSigningRequest`,
 
 ### In the DartPDF app
 
-The example app wires keyless signing into the **Digitally sign** dialog. It
-ships the network transports (`keyless_signing.dart`: `fulcioHttpTransport` to
-Fulcio and `defaultTimestampClient` to DigiCert) and the `addKeylessSignature`
-editor path (PAdES B-T). The one thing it can't ship is an OAuth client, since
-registration is deployment-specific — so keyless is off until a deployment
-supplies one:
+The app wires keyless signing into the **Digitally sign** dialog, and it is
+**on by default on desktop/mobile** — no configuration. The trick is that
+Sigstore runs a *public* interactive OAuth broker (`oauth2.sigstore.dev`, a Dex
+instance), so DartPDF needs no OAuth client of its own: `oidc_signin.dart` uses
+the public `sigstore` client with PKCE and a loopback redirect — exactly how
+`cosign` signs — brokering Google/GitHub/Microsoft sign-in. `keyless_signing.dart`
+ships the network transports (`fulcioHttpTransport`, DigiCert
+`defaultTimestampClient`) and `PdfEditingController.addKeylessSignature` is the
+PAdES B-T editor path.
 
-```dart
-EditorScreen(
-  // ...,
-  oidcTokenProvider: (context) async => mySignIn(context), // returns an id_token
-);
-```
+So the flow is: **DartPDF menu → Digitally sign → "Sign in with your email
+(keyless)…"** → the system browser opens, you sign in, and DartPDF mints a
+short-lived certificate and signs B-T with a DigiCert timestamp.
 
-With a provider wired, the dialog shows **"Sign in with your email
-(keyless)…"**, mints a short-lived identity, and signs B-T with a DigiCert
-timestamp. Without one, the option is hidden and the file/self-signed paths are
-unchanged.
+Two knobs:
+
+- **Web:** the loopback redirect can't be captured in a browser tab, so keyless
+  is hidden on web (`app.dart` passes `oidcTokenProvider` only off-web).
+- **Custom identity provider:** to use your own OAuth/OIDC instead of the
+  Sigstore broker, pass your own `EditorScreen.oidcTokenProvider` returning an
+  `id_token`. Passing `null` hides the option entirely; the file/self-signed
+  paths are unchanged either way.
 
 ## Tier 4 — importing a free CA-issued certificate (Actalis)
 

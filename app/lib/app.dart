@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'editor_screen.dart';
+import 'oidc_signin.dart';
 import 'platform_fonts.dart';
 
 /// The DartPDF application. Owns the device-local UI preferences so
@@ -75,6 +76,9 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
           prefs: _prefs,
           launchArgs: widget.launchArgs,
           autoCheckUpdates: true,
+          // Keyless signing via Sigstore's public OAuth broker. Loopback
+          // capture needs a local server, so it's offered off the web only.
+          oidcTokenProvider: kIsWeb ? null : sigstoreOidcTokenProvider,
         ),
       ),
     );
