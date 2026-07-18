@@ -618,8 +618,6 @@ extension PdfSigning on PdfEditor {
       if (image.width > 0 && image.height > 0) {
         final imageRef =
             _updater.addObject(image.toXObject((s) => _updater.addObject(s)));
-        // Cover the box (aspect fill), clipped to the /Rect so overflow of
-        // the larger dimension is trimmed rather than drawn outside the box.
         // fit the whole logo inside the box (contain), centered
         final scale =
             math.min(w / image.width, h / image.height);
@@ -670,16 +668,11 @@ extension PdfSigning on PdfEditor {
         'Location: ${info.location}',
     ];
 
-    // Column split: a divider only when both panels carry content.
+    // Column split coordinate (no drawn divider line): left panel when both
+    // panels carry content, else the whole width or details-only.
     double divider;
     if (hasLeft && details.isNotEmpty) {
       divider = w * 0.42;
-      writer
-        ..strokeColor(config.borderColor)
-        ..lineWidth(0.5)
-        ..moveTo(divider, pad)
-        ..lineTo(divider, h - pad)
-        ..stroke();
     } else if (hasLeft) {
       divider = w; // left content only
     } else {

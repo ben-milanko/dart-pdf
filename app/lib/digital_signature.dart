@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -5,6 +6,7 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import 'signature_appearance_store.dart';
 import 'signature_raster.dart';
 
 /// How opaque the logo backdrop is drawn - a light watermark so the signer
@@ -130,6 +132,7 @@ Future<DigitalSignatureOptions?> showDigitalSigningDialog(
   SignaturePlacement? placement,
   SignatureLogoPicker? logoPicker,
   int pageCount = 1,
+  SignatureAppearanceStore? appearanceStore,
 }) =>
     showDialog<DigitalSignatureOptions>(
       context: context,
@@ -146,6 +149,7 @@ Future<DigitalSignatureOptions?> showDigitalSigningDialog(
         placement: placement,
         logoPicker: logoPicker,
         pageCount: pageCount,
+        appearanceStore: appearanceStore ?? PrefsSignatureAppearanceStore(),
       ),
     );
 
@@ -170,6 +174,7 @@ class DigitalSignatureDialog extends StatefulWidget {
     this.placement,
     this.logoPicker,
     this.pageCount = 1,
+    this.appearanceStore,
   });
 
   final DigitalSignaturePrivateKeyPicker privateKeyPicker;
@@ -199,6 +204,10 @@ class DigitalSignatureDialog extends StatefulWidget {
 
   /// Total pages in the document, bounding the "Apply to pages" range.
   final int pageCount;
+
+  /// Remembers the drawn mark and logo on the device between signatures.
+  /// Only used when [placement] is set. Null disables persistence.
+  final SignatureAppearanceStore? appearanceStore;
 
   @override
   State<DigitalSignatureDialog> createState() => _DigitalSignatureDialogState();
@@ -232,6 +241,34 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
   void initState() {
     super.initState();
     _loadRememberedIdentity();
+    if (widget.placement != null) _loadRememberedAppearance();
+  }
+
+  /// Pre-fills the drawn mark and logo from the device so a placed signature
+  /// reuses the last one. Any storage error just leaves them unset.
+  Future<void> _loadRememberedAppearance() async {
+    final store = widget.appearanceStore;
+    if (store == null) return;
+    try {
+      final config = await store.load();
+      if (!mounted || config.isEmpty) return;
+      setState(() {
+        _signaturePng ??= config.signaturePng;
+        _logoBytes ??= config.logoBytes;
+      });
+    } catch (_) {
+      // no storage here - the pickers still work
+    }
+  }
+
+  /// Saves the current drawn mark + logo to the device.
+  void _persistAppearance() {
+    final store = widget.appearanceStore;
+    if (store == null || widget.placement == null) return;
+    unawaited(store.save(SignatureAppearanceConfig(
+      signaturePng: _signaturePng,
+      logoBytes: _logoBytes,
+    )));
   }
 
   /// Surfaces a previously created self-signed identity from the keychain, so
@@ -379,6 +416,7 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
       _signaturePng = png;
       _appearanceError = png == null ? 'Could not capture the signature.' : null;
     });
+    _persistAppearance();
   }
 
   Future<void> _pickLogo() async {
@@ -397,6 +435,7 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
       _logoBytes = bytes;
       _appearanceError = null;
     });
+    _persistAppearance();
   }
 
   Future<void> _chooseApplyPages() async {
@@ -744,10 +783,16 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                   reason: _value(_reason),
                   onClearSignature: _signaturePng == null
                       ? null
-                      : () => setState(() => _signaturePng = null),
+                      : () {
+                          setState(() => _signaturePng = null);
+                          _persistAppearance();
+                        },
                   onClearLogo: _logoBytes == null
                       ? null
-                      : () => setState(() => _logoBytes = null),
+                      : () {
+                          setState(() => _logoBytes = null);
+                          _persistAppearance();
+                        },
                 ),
                 if (_appearanceError != null) ...[
                   const SizedBox(height: 8),
@@ -839,7 +884,6 @@ class _AppearancePreview extends StatelessWidget {
                       ),
               ),
             ),
-            const VerticalDivider(color: Color(0xFF2E5E86), width: 1),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(6),

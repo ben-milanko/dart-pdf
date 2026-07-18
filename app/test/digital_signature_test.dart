@@ -13,6 +13,7 @@ import 'package:dart_pdf_editor_app/digital_signature.dart';
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/file_io.dart';
 import 'package:dart_pdf_editor_app/keyless_signing.dart';
+import 'package:dart_pdf_editor_app/signature_appearance_store.dart';
 
 /// An unsigned OIDC token carrying [claims], enough for the keyless flow.
 String _jwt(Map<String, Object?> claims) {
@@ -377,6 +378,50 @@ void main() {
     expect(appearance.backgroundImage, isNotNull);
     // "apply to pages" 1–3 repeats the box on the other pages (0-based 1, 2)
     expect(appearance.repeatPages, [1, 2]);
+  });
+
+  testWidgets('saves the drawn mark/logo and pre-fills them next time',
+      (tester) async {
+    final logo = base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==');
+    final store = InMemorySignatureAppearanceStore();
+
+    Future<void> open() async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => FilledButton(
+              onPressed: () => showDigitalSigningDialog(
+                context,
+                createSelfSignedIdentity: (context, s) async =>
+                    PdfSigningIdentity.generate(name: 'Ada Lovelace'),
+                placement: (page: 0, rect: const PdfRect(72, 640, 320, 720)),
+                logoPicker: () async => logo,
+                appearanceStore: store,
+              ),
+              child: const Text('Open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+    }
+
+    // First session: add a logo - it is written to the device store.
+    await open();
+    expect(find.text('Logo added ✓'), findsNothing);
+    await tester.ensureVisible(find.byKey(const ValueKey('digital-signature-logo')));
+    await tester.tap(find.byKey(const ValueKey('digital-signature-logo')));
+    await tester.pumpAndSettle();
+    expect(find.text('Logo added ✓'), findsOneWidget);
+    expect((await store.load()).logoBytes, isNotNull);
+
+    // Dismiss, then reopen: the remembered logo is pre-filled.
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    await open();
+    expect(find.text('Logo added ✓'), findsOneWidget);
   });
 
   testWidgets('on web, a note points to the desktop/mobile app for keyless',
