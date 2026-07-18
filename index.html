@@ -58,14 +58,62 @@
   th { color: var(--text-secondary); font-weight: 500; }
   td.pass { color: var(--pass); } td.fail { color: var(--fail); }
   code { font-size: 12px; }
+  .tiles { display: flex; flex-wrap: wrap; gap: 12px; margin: 18px 0 6px; }
+  .tile { background: var(--card); border-radius: 8px; padding: 12px 16px;
+    min-width: 150px; }
+  .tile-label { font-size: 12px; color: var(--text-secondary); }
+  .tile-value { font-size: 26px; font-weight: 650; line-height: 1.25;
+    font-variant-numeric: tabular-nums; }
+  .tile-value.all-pass { color: var(--pass); }
+  .tile-unit { font-size: 12px; font-weight: 400;
+    color: var(--text-secondary); margin-left: 4px; }
+  .tile-delta { font-size: 11.5px; color: var(--text-secondary); }
+  .tile-delta.good { color: var(--pass); }
+  .tile-delta.bad { color: var(--fail); }
+  .tile-note { font-size: 11px; color: var(--text-secondary); }
 </style>
 </head>
 <body>
 <div class="viz-root">
   <h1>dart-pdf perf trends</h1>
-  <p class="meta">Generated 2026-07-18 02:27 UTC ·
+  <p class="meta">Generated 2026-07-18 02:33 UTC ·
     9 runs on record · budgets from tool/perf/targets.json
     (aspirational Bluebeam-level marks, never PR gates)</p>
+  <div class="tiles"><div class="tile">
+    <div class="tile-label">Open p50</div>
+    <div class="tile-value">0.60<span class="tile-unit">ms</span></div>
+    <div class="tile-delta flat">≈ prev run</div>
+    <div class="tile-note">dartpdf-corpus</div>
+  </div>
+<div class="tile">
+    <div class="tile-label">Interpret p50</div>
+    <div class="tile-value">0.62<span class="tile-unit">ms/pg</span></div>
+    <div class="tile-delta good">▼ 37% vs prev run</div>
+    <div class="tile-note">dartpdf-corpus, per page</div>
+  </div>
+<div class="tile">
+    <div class="tile-label">Peak RSS</div>
+    <div class="tile-value">560.28<span class="tile-unit">MB</span></div>
+    <div class="tile-delta flat">≈ prev run</div>
+    <div class="tile-note">dartpdf-corpus, worst file</div>
+  </div>
+<div class="tile">
+    <div class="tile-label">Save p50</div>
+    <div class="tile-value">0.38<span class="tile-unit">ms</span></div>
+    <div class="tile-delta good">▼ 11% vs prev run</div>
+    <div class="tile-note">incremental, ghent</div>
+  </div>
+<div class="tile">
+    <div class="tile-label">Open vs PDFium</div>
+    <div class="tile-value">2.6<span class="tile-unit">x faster</span></div>
+    <div class="tile-delta flat">ghent, p50, higher is better</div>
+    
+  </div>
+<div class="tile">
+      <div class="tile-label">Bluebeam budgets</div>
+      <div class="tile-value all-pass">4<span class="tile-unit">/ 4 green</span></div>
+      <div class="tile-note">targets.json, aspirational</div>
+    </div></div>
   <section>
   <h2>pdfium</h2>
   <p class="meta">3 runs · latest 2026-07-18 02:14
