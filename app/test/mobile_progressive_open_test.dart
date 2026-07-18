@@ -45,8 +45,9 @@ void main() {
     await tester.pump();
   }
 
-  // Mocks the native reference picker: one seekable PDF served by range.
-  void mockSeekablePick() {
+  // Mocks the native reference picker: one PDF served by range, marked
+  // [seekable] or not.
+  void mockPick({required bool seekable}) {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(mobileFileChannel, (call) async {
       switch (call.method) {
@@ -56,7 +57,7 @@ void main() {
               'token': 'cloud-token',
               'name': 'cloud.pdf',
               'length': pdfBytes.length,
-              'seekable': true,
+              'seekable': seekable,
             }
           ];
         case 'fileLength':
@@ -78,7 +79,7 @@ void main() {
       (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     try {
-      mockSeekablePick();
+      mockPick(seekable: true);
 
       await pump(tester, () async {
         await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
@@ -95,6 +96,33 @@ void main() {
       final log = AppDevTools.instance.log.map((e) => e.message).join('\n');
       expect(log, contains('progressive open: "cloud.pdf" first paint'));
       expect(log, contains('full read complete'));
+      expect(find.byType(PdfEditorView), findsOneWidget);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets(
+      'streams a non-seekable mobile pick whole into a full edit session',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    try {
+      // A non-seekable provider (a SAF pipe) can't be read by range, so the
+      // pick is drained whole over the reference - one read of the original,
+      // no OS copy - and opened like any loaded document, not progressively.
+      mockPick(seekable: false);
+
+      await pump(tester, () async {
+        await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+      });
+      await pump(tester, () async {
+        await tester.tap(find.text('Open a PDF'));
+      });
+
+      // It opened as a full edit session, without going through the progressive
+      // first-paint path.
+      final log = AppDevTools.instance.log.map((e) => e.message).join('\n');
+      expect(log, isNot(contains('progressive open')));
       expect(find.byType(PdfEditorView), findsOneWidget);
     } finally {
       debugDefaultTargetPlatformOverride = null;

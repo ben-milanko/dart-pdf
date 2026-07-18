@@ -79,6 +79,14 @@ void main() {
     messenger.setMockMethodCallHandler(channel, null);
   });
 
+  test('a null native response reads as empty', () async {
+    const channel = MethodChannel('test/mobile_file_null');
+    messenger.setMockMethodCallHandler(channel, (call) async => null);
+    final source = PdfMobileByteSource('tok', channel: channel);
+    expect(await source.readRange(0, 10), isEmpty);
+    messenger.setMockMethodCallHandler(channel, null);
+  });
+
   test('reports cumulative progress across reads', () async {
     const channel = MethodChannel('test/mobile_file_progress');
     mockFile(channel, pdfBytes);
