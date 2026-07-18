@@ -342,12 +342,15 @@ class _EditorScreenState extends State<EditorScreen>
       final bytes = await readPdfAtPath(readPath, bookmark: doc.bookmark);
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return;
+      // Reading the bytes already confirmed the file is still there (a gone
+      // file threw and dropped its placeholder above); defer the parse so a
+      // multi-document session doesn't open every file at once on launch. The
+      // active tab materializes as soon as it's shown (see _buildBody).
       final opened = _replaceLoadingTab(
         loading,
-        DocumentTab.document(
+        DocumentTab.deferred(
           title: doc.title,
           bytes: bytes,
-          preferences: _prefs,
           originPath: originPath,
           originBookmark: doc.bookmark,
           cachePath: doc.cachePath,
@@ -460,6 +463,7 @@ class _EditorScreenState extends State<EditorScreen>
     String? originPath,
     String? originBookmark,
     String? errorTitle,
+    bool defer = false,
   }) async {
     final loading = _openLoading(
       title,
@@ -472,13 +476,23 @@ class _EditorScreenState extends State<EditorScreen>
       // synchronously opens the PDF and can be noticeable for large files.
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return;
-      final tab = DocumentTab.document(
-        title: title,
-        bytes: bytes,
-        preferences: _prefs,
-        originPath: originPath,
-        originBookmark: originBookmark,
-      );
+      // A batch open ([defer]) parses only the tab the user lands on; the
+      // rest stay unparsed until first activated (see _materializeDeferred),
+      // so opening many large files no longer stalls on every one at once.
+      final tab = defer
+          ? DocumentTab.deferred(
+              title: title,
+              bytes: bytes,
+              originPath: originPath,
+              originBookmark: originBookmark,
+            )
+          : DocumentTab.document(
+              title: title,
+              bytes: bytes,
+              preferences: _prefs,
+              originPath: originPath,
+              originBookmark: originBookmark,
+            );
       final opened = _replaceLoadingTab(loading, tab);
       if (opened) {
         // With a reusable file origin (desktop) or no writable store (web),
@@ -523,10 +537,41 @@ class _EditorScreenState extends State<EditorScreen>
     unawaited(_persistSession());
   }
 
+  /// Builds the edit session for a [DocumentTab.deferred] tab the first time
+  /// it is shown, swapping it for a real document tab in place. The heavy
+  /// parse runs after the current frame paints the placeholder, so landing on
+  /// a deferred tab feels the same as opening a fresh document - and the tabs
+  /// the user never visits are never parsed.
+  void _materializeDeferred(DocumentTab tab) {
+    if (tab.materializing) return;
+    tab.materializing = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      final index = _tabs.indexOf(tab);
+      final bytes = tab.deferredBytes;
+      if (index == -1 || bytes == null) return;
+      final built = DocumentTab.document(
+        title: tab.title,
+        bytes: bytes,
+        preferences: _prefs,
+        originPath: tab.originPath,
+        originBookmark: tab.originBookmark,
+        cachePath: tab.cachePath,
+      );
+      setState(() => _tabs[index] = built);
+      tab.dispose();
+      unawaited(_persistSession());
+    });
+  }
+
   Future<void> _pickAndOpen() async {
     try {
       final files = await pickPdfFiles();
       if (files.isEmpty) return;
+      // Opening a batch: defer parsing every file but the one that ends up
+      // active, so the picker doesn't freeze while it opens all of them.
+      final defer = files.length > 1;
       for (final file in files) {
         if (!mounted) return;
         final path = originPathForPickedFile(file);
@@ -536,6 +581,7 @@ class _EditorScreenState extends State<EditorScreen>
           title: file.name,
           originPath: path,
           originBookmark: bookmark,
+          defer: defer,
         );
       }
     } catch (e) {
@@ -621,6 +667,9 @@ class _EditorScreenState extends State<EditorScreen>
 
   /// Opens each dropped [pdfs] item in its own tab.
   Future<void> _openDropped(List<DropItem> pdfs) async {
+    // Dropping a batch: parse only the tab that ends up active, deferring the
+    // rest until they're visited (see _materializeDeferred).
+    final defer = pdfs.length > 1;
     for (final item in pdfs) {
       // desktop_drop exposes a real path on desktop; on web it's a blob ref
       // we don't treat as a writable origin.
@@ -631,6 +680,7 @@ class _EditorScreenState extends State<EditorScreen>
         title: item.name,
         originPath: path,
         originBookmark: bookmark,
+        defer: defer,
       );
     }
   }
@@ -1475,7 +1525,7 @@ class _EditorScreenState extends State<EditorScreen>
           // padding so this row's icon/label line up with the plain items
           // above it (New, Open…), which sit inside that default padding.
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
             child: _appMenuTile(
               icon: Icons.history,
               title: 'Open Recent',
@@ -1663,6 +1713,12 @@ class _EditorScreenState extends State<EditorScreen>
         onOpen: _pickAndOpen,
         onOpenRecent: _openRecent,
       );
+    }
+    if (tab.isDeferred) {
+      // First time we show a deferred tab: parse it (after this frame) and
+      // show the same placeholder a fresh open uses meanwhile.
+      _materializeDeferred(tab);
+      return _OpeningDocument(title: tab.title);
     }
     if (tab.isLoading) {
       return _OpeningDocument(title: tab.title);
@@ -2221,14 +2277,18 @@ class _TabHoverPreviewState extends State<_TabHoverPreview> {
 
     final origin = target.localToGlobal(Offset.zero, ancestor: overlayBox);
     final overlaySize = overlayBox.size;
-    final width = math.min(
-      _tabHoverPreviewWidth,
-      math.max(0.0, overlaySize.width - 16),
-    ).toDouble();
-    final height = math.min(
-      _tabHoverPreviewHeight,
-      math.max(0.0, overlaySize.height - 16),
-    ).toDouble();
+    final width = math
+        .min(
+          _tabHoverPreviewWidth,
+          math.max(0.0, overlaySize.width - 16),
+        )
+        .toDouble();
+    final height = math
+        .min(
+          _tabHoverPreviewHeight,
+          math.max(0.0, overlaySize.height - 16),
+        )
+        .toDouble();
     if (width <= 0 || height <= 0) return;
 
     final maxLeft = math.max(8.0, overlaySize.width - width - 8);

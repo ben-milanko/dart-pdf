@@ -209,4 +209,32 @@ void main() {
     expect(tabTitle('picker-a.pdf'), findsOneWidget);
     expect(tabTitle('picker-b.pdf'), findsOneWidget);
   });
+
+  testWidgets('a restored tab left unparsed opens when it is activated',
+      (tester) async {
+    // Two-document session: the last restored tab is active and parsed; the
+    // first is deferred (its bytes held, not yet opened). Activating it must
+    // materialize a working editor - proving deferral doesn't strand a tab.
+    final a = seedFile('a.pdf');
+    final b = seedFile('b.pdf');
+    seedSession([(title: 'a.pdf', path: a), (title: 'b.pdf', path: b)]);
+
+    await pumpEditor(tester);
+    expect(tabTitle('a.pdf'), findsOneWidget);
+    expect(tabTitle('b.pdf'), findsOneWidget);
+
+    // Switch to the deferred tab; it should parse on demand, not error out.
+    await tester.runAsync(() async {
+      await tester.tap(tabTitle('a.pdf'));
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    });
+    await tester.pump();
+
+    expect(find.textContaining('Could not open'), findsNothing);
+    expect(tabTitle('a.pdf'), findsOneWidget);
+    expect(find.byType(PdfEditorView), findsOneWidget);
+  });
 }
