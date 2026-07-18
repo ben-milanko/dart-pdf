@@ -345,4 +345,76 @@ void main() {
       expect(c.length, 1, reason: 'pressure does not touch an unregistered cache');
     });
   });
+
+  group('coordinated ceiling (maxTotalWeight)', () {
+    tearDown(() => PdfCacheRegistry.instance.maxTotalWeight = 0);
+
+    PdfBudgetedCache<int, _Res> registered({List<int>? dropped}) {
+      final cache = PdfBudgetedCache<int, _Res>(
+        weigher: (r) => r.weight,
+        maxWeight: 1000,
+        clearsUnderMemoryPressure: true,
+        disposer: dropped == null ? null : (r) => dropped.add(r.id),
+      );
+      addTearDown(cache.dispose);
+      return cache;
+    }
+
+    test('trimToWeight evicts LRU-first and protects the MRU entry', () {
+      final dropped = <int>[];
+      final cache = registered(dropped: dropped);
+      for (var i = 0; i < 5; i++) {
+        cache.put(i, _Res(i, weight: 10));
+      }
+      cache.trimToWeight(25);
+      expect(cache.weight, 20);
+      expect(dropped, [0, 1, 2]);
+
+      cache.trimToWeight(0);
+      expect(cache.length, 1, reason: 'the MRU entry is never evicted');
+      expect(cache.containsKey(4), isTrue);
+    });
+
+    test('setting the ceiling trims registered caches proportionally', () {
+      final registry = PdfCacheRegistry.instance;
+      final a = registered();
+      final b = registered();
+      for (var i = 0; i < 30; i++) {
+        a.put(i, _Res(i, weight: 10)); // 300
+      }
+      for (var i = 0; i < 10; i++) {
+        b.put(i, _Res(i, weight: 10)); // 100
+      }
+      expect(registry.totalWeight, 400,
+          reason: 'no other weight-bearing cache should be live in this test');
+
+      registry.maxTotalWeight = 200;
+      expect(registry.totalWeight, lessThanOrEqualTo(200));
+      // Proportional: both keep ~half, so the hot cache is not wiped to
+      // protect the small one.
+      expect(a.weight, 150);
+      expect(b.weight, 50);
+    });
+
+    test('a put on a registered cache enforces the ceiling proactively', () {
+      final registry = PdfCacheRegistry.instance;
+      final cache = registered();
+      registry.maxTotalWeight = registry.totalWeight + 100;
+
+      for (var i = 0; i < 30; i++) {
+        cache.put(i, _Res(i, weight: 10)); // would retain 300 unchecked
+      }
+      expect(cache.weight, lessThanOrEqualTo(100),
+          reason: 'growth is trimmed as it happens, not on a later signal');
+    });
+
+    test('ceiling 0 (the default) never trims', () {
+      final cache = registered();
+      expect(PdfCacheRegistry.instance.maxTotalWeight, 0);
+      for (var i = 0; i < 30; i++) {
+        cache.put(i, _Res(i, weight: 10));
+      }
+      expect(cache.weight, 300, reason: 'only the per-cache budget applies');
+    });
+  });
 }
