@@ -72,10 +72,21 @@ notifier and a `PdfCancelToken`. `EditorScreen`:
 Wired into the single-file desktop paths: `_pickAndOpen` (1 file),
 `_openIncoming` (path), `_openDropped` (1 file), `_openRecent` (desktop
 origin). Batch opens keep the deferred whole-file path so the picker doesn't
-fan out many concurrent streams. Session restore stays on its existing deferred
-path for now (making it progressive means first-painting every restored tab at
-launch; a "deferred progressive" that only first-paints the active tab is the
-follow-up).
+fan out many concurrent streams.
+
+**Session restore is lazy *and* progressive.** A new `DocumentTab.deferredPath`
+holds only a path - no bytes read at launch. Restore probes each desktop file's
+length (cheap metadata, no content read / cloud hydration) so a moved/deleted
+file is still dropped silently, then adds a path-only tab. When a
+`deferredPath` tab is first shown it opens progressively in place
+(`_materializeDeferredPath` → `_openProgressive(into:)`). A `_restoringSession`
+flag suppresses materialization while the tabs are being re-added (each is
+briefly the active one mid-loop), so only the tab left active when restore
+finishes opens - the rest read nothing until visited. This kills the old
+"every restored tab reads its whole file at launch" cost (`_reopenSessionDocument`
+used to `await readPdfAtPath` the full bytes for each). Mobile/snapshot restore
+keeps the existing read-bytes-then-defer-parse path (`progressiveOpenSupported`
+is false there).
 
 Milestones are logged to the **F12 devtools** log
 (`AppDevTools.instance.addLog`), and the whole ranged fetch is already timed by

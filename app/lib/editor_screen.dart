@@ -157,6 +157,11 @@ class _EditorScreenState extends State<EditorScreen>
   /// before [_restoreSession] has had a chance to re-open it.
   bool _sessionLoaded = false;
 
+  /// True while [_restoreSession] is re-adding the last session's tabs, so a
+  /// restored path-only tab that is briefly active mid-restore does not start
+  /// opening. Only the tab active when restore finishes materializes.
+  bool _restoringSession = false;
+
   /// The update checker, owned here unless the host injected one.
   late final UpdateService _updates =
       widget.updateService ?? UpdateService(currentVersion: AppInfo.version);
@@ -322,16 +327,27 @@ class _EditorScreenState extends State<EditorScreen>
   Future<void> _restoreSession() async {
     final documents = await _session.load();
     if (mounted && !_hasExplicitLaunchTarget) {
-      for (final doc in documents) {
-        // Skip anything already open (e.g. an OS file-open that arrived first).
-        final key = doc.readPath;
-        if (key != null &&
-            _tabs.any((t) => t.originPath == key || t.cachePath == key)) {
-          continue;
+      // Suppress lazy materialization while restoring: each tab is briefly the
+      // active one as it is added, and we don't want every restored file to
+      // start opening. Only the tab left active when restore finishes should
+      // materialize (see _buildBody / _materializeDeferredPath).
+      _restoringSession = true;
+      try {
+        for (final doc in documents) {
+          // Skip anything already open (e.g. an OS file-open that arrived first).
+          final key = doc.readPath;
+          if (key != null &&
+              _tabs.any((t) => t.originPath == key || t.cachePath == key)) {
+            continue;
+          }
+          await _reopenSessionDocument(doc);
+          if (!mounted) return;
         }
-        await _reopenSessionDocument(doc);
-        if (!mounted) return;
+      } finally {
+        _restoringSession = false;
       }
+      // Let the tab left active materialize now that restore is done.
+      if (mounted) setState(() {});
     }
     _sessionLoaded = true;
     unawaited(_persistSession());
@@ -343,6 +359,42 @@ class _EditorScreenState extends State<EditorScreen>
     // Desktop restores by its writable origin; a mobile pick has none and
     // restores from its private snapshot instead.
     final originPath = doc.path.isNotEmpty ? doc.path : null;
+
+    // Desktop origin: restore lazily and progressively. Probe the file length
+    // first - cheap metadata, no content read or cloud hydration - so a moved
+    // or deleted file is still dropped silently, then add a path-only tab that
+    // reads nothing until it is shown, when it opens progressively. This keeps
+    // launch cheap even when the last session held several big files: only the
+    // active tab pulls bytes, and it first-paints from ranges.
+    if (progressiveOpenSupported(originPath)) {
+      final source =
+          pdfByteSourceForPath(originPath!, bookmark: doc.bookmark);
+      int? length;
+      try {
+        length = await source.length;
+      } catch (_) {
+        length = null;
+      } finally {
+        await source.close();
+      }
+      if (!mounted) return;
+      if (length == null || length <= 0) return; // gone: drop silently
+      _addTab(DocumentTab.deferredPath(
+        title: doc.title,
+        originPath: originPath,
+        originBookmark: doc.bookmark,
+        cachePath: doc.cachePath,
+      ));
+      _recents.add(
+          title: doc.title,
+          path: originPath,
+          cachePath: doc.cachePath,
+          bookmark: doc.bookmark);
+      return;
+    }
+
+    // Snapshot-only restore (mobile private cache, or a platform without
+    // progressive open): read the bytes and defer only the parse.
     final loading = _openLoading(
       doc.title,
       originPath: originPath,
@@ -580,6 +632,27 @@ class _EditorScreenState extends State<EditorScreen>
     });
   }
 
+  /// Opens a [DocumentTab.deferredPath] (a session-restored file known only by
+  /// its path) the first time it is shown, progressively and in place. The read
+  /// starts after the placeholder paints, so landing on a restored tab feels
+  /// like a fresh progressive open - and restored tabs the user never visits
+  /// never read a byte.
+  void _materializeDeferredPath(DocumentTab tab) {
+    if (tab.materializing) return;
+    tab.materializing = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted || !_tabs.contains(tab) || tab.originPath == null) return;
+      await _openProgressive(
+        title: tab.title,
+        path: tab.originPath!,
+        bookmark: tab.originBookmark,
+        cachePath: tab.cachePath,
+        into: tab,
+      );
+    });
+  }
+
   /// Opens a file-backed document progressively: the ranged loader assembles
   /// just the header/xref/live-object bytes needed to render, so the viewer
   /// paints read-only in ~1-2 s even from a slow cloud-synced file, then the
@@ -592,19 +665,25 @@ class _EditorScreenState extends State<EditorScreen>
   /// of the app uses if the progressive first paint can't be assembled, so
   /// nothing a normal open handles regresses. Desktop only (see
   /// [progressiveOpenSupported]); [onOpenFailed] lets recents drop a stale entry.
+  ///
+  /// Pass [into] to reuse an existing placeholder tab (a lazily-materialized
+  /// [DocumentTab.deferredPath] from session restore) instead of adding a fresh
+  /// loading tab.
   Future<void> _openProgressive({
     required String title,
     required String path,
     String? bookmark,
     String? cachePath,
     void Function(Object error)? onOpenFailed,
+    DocumentTab? into,
   }) async {
-    final loading = _openLoading(
-      title,
-      originPath: path,
-      originBookmark: bookmark,
-      cachePath: cachePath,
-    );
+    final loading = into ??
+        _openLoading(
+          title,
+          originPath: path,
+          originBookmark: bookmark,
+          cachePath: cachePath,
+        );
     final cancel = PdfCancelToken();
     final progress = ValueNotifier<double>(0);
     final source = pdfByteSourceForPath(path, bookmark: bookmark, cancelToken: cancel);
@@ -2007,6 +2086,13 @@ class _EditorScreenState extends State<EditorScreen>
         onOpen: _pickAndOpen,
         onOpenRecent: _openRecent,
       );
+    }
+    if (tab.isDeferredPath) {
+      // First time we show a restored path-only tab: open it progressively
+      // (after this frame), showing the placeholder meanwhile. Held off while
+      // the session is still restoring, so only the finally-active tab opens.
+      if (!_restoringSession) _materializeDeferredPath(tab);
+      return _OpeningDocument(title: tab.title);
     }
     if (tab.isDeferred) {
       // First time we show a deferred tab: parse it (after this frame) and

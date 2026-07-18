@@ -2,6 +2,7 @@
 // first paint renders the sparse document, then the complete bytes stream in
 // behind it and the tab swaps to a full edit session. Driven on Linux so the
 // source is a plain RandomAccessFile (no macOS security-scoped channel).
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -88,6 +89,55 @@ void main() {
       expect(log, contains('full read complete'));
       // ...and ended on a real edit session, not a read-only preview.
       expect(find.byType(PdfEditorView), findsOneWidget);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('restores a desktop session tab lazily, opening it progressively',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    try {
+      final path = seedFile('restored.pdf');
+      SharedPreferences.setMockInitialValues({
+        'dart_pdf_editor_app.session': jsonEncode([
+          {'t': 'restored.pdf', 'p': path}
+        ]),
+      });
+
+      await pump(tester, () async {
+        await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+      });
+
+      // The restored tab opened via the progressive path and became a full
+      // edit session - it read no bytes until it was the active tab.
+      expect(tabTitle('restored.pdf'), findsOneWidget);
+      final log = AppDevTools.instance.log.map((e) => e.message).join('\n');
+      expect(log, contains('progressive open: "restored.pdf" first paint'));
+      expect(find.byType(PdfEditorView), findsOneWidget);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('drops a restored desktop file that has gone missing',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    try {
+      SharedPreferences.setMockInitialValues({
+        'dart_pdf_editor_app.session': jsonEncode([
+          {'t': 'gone.pdf', 'p': '${tempDir.path}/gone.pdf'}
+        ]),
+      });
+
+      await pump(tester, () async {
+        await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+      });
+
+      // The length probe fails for a missing file, so it is dropped silently -
+      // no tab, no error placeholder.
+      expect(tabTitle('gone.pdf'), findsNothing);
+      expect(find.byType(PdfEditorView), findsNothing);
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }

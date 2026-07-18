@@ -60,6 +60,27 @@ class DocumentTab {
         isLoading = false,
         deferredBytes = bytes;
 
+  /// A file-backed document known only by its path (session restore), with no
+  /// bytes read yet: reading and rendering are postponed until the tab is first
+  /// shown, when it opens *progressively* (see [EditorScreen] materialization).
+  /// This keeps launch cheap even when the last session held several big
+  /// cloud-synced files - only the active tab pulls any bytes, and it first-
+  /// paints from ranges rather than waiting on a whole-file read.
+  DocumentTab.deferredPath({
+    required this.title,
+    this.originPath,
+    this.originBookmark,
+    this.cachePath,
+  })  : session = null,
+        viewer = null,
+        savedLength = 0,
+        error = null,
+        compareBefore = null,
+        compareAfter = null,
+        isLoading = false {
+    _deferredPath = true;
+  }
+
   /// A read-only first paint from a progressive open: the ranged loader has
   /// assembled just enough of the file to render (a sparse buffer - live
   /// objects present, free space still zero), so the viewer paints in ~1-2 s
@@ -127,6 +148,12 @@ class DocumentTab {
 
   /// True while this tab holds bytes it has not yet parsed into a session.
   bool get isDeferred => deferredBytes != null;
+
+  bool _deferredPath = false;
+
+  /// True while this tab knows only its path and has read no bytes yet - it
+  /// opens progressively the first time it is shown (see [DocumentTab.deferredPath]).
+  bool get isDeferredPath => _deferredPath;
 
   /// The read-only document rendered during a progressive first paint (see
   /// [DocumentTab.preview]); null on every other kind.
