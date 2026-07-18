@@ -149,28 +149,16 @@ void main() {
     expect(controller.beginWorkerGeneration(), 1);
   });
 
-  group('pdfDefaultTileStoreDetail (issue #314 rollout)', () {
+  group('pdfDefaultTileStoreDetail (issue #314/#360 rollout)', () {
     tearDown(() => debugDefaultTargetPlatformOverride = null);
 
-    test('on for desktop platforms', () {
-      for (final platform in [
-        TargetPlatform.macOS,
-        TargetPlatform.windows,
-        TargetPlatform.linux,
-      ]) {
+    test('on for every platform once the budget-vs-demand guard landed', () {
+      // The guard falls back to the single detail patch for views too dense to
+      // tile within budget, so the pyramid no longer thrashes on HiDPI/web -
+      // it is the default everywhere (mobile included, memory permitting).
+      for (final platform in TargetPlatform.values) {
         debugDefaultTargetPlatformOverride = platform;
         expect(pdfDefaultTileStoreDetail(), isTrue, reason: '$platform');
-      }
-    });
-
-    test('off for mobile platforms pending their own validation', () {
-      for (final platform in [
-        TargetPlatform.iOS,
-        TargetPlatform.android,
-        TargetPlatform.fuchsia,
-      ]) {
-        debugDefaultTargetPlatformOverride = platform;
-        expect(pdfDefaultTileStoreDetail(), isFalse, reason: '$platform');
       }
     });
   });

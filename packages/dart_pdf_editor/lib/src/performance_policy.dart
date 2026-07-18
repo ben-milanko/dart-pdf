@@ -23,20 +23,23 @@ PdfPerformancePlatform get detectedPdfPerformancePlatform => kIsWeb
       };
 
 /// Whether the deep-zoom tile pyramid ([PdfPageView.tileStoreDetail], issue
-/// #314) is on by default for this platform.
+/// #314) is on by default. On for **every platform** since the budget-vs-demand
+/// guard (issues #314/#360) removed the eviction thrash a HiDPI/web view could
+/// hit: a view too dense to tile within budget now falls back to the single
+/// detail patch instead of re-rastering evicted tiles on every repaint
+/// ([PdfTileStore.viewFitsBudget]).
 ///
-/// - **Desktop**: on. Validated interactively on dense CAD sheets and 198-page
-///   scan books (2026-07-18 dev-log: batched slab rasters, per-tile veto for
-///   vector-only scenes, the pyramid pinned at its 96 MB budget with healthy
-///   RSS), where panning at deep zoom reuses cached tiles instead of
-///   re-rastering.
-/// - **Web**: off pending its own validation pass - the tile layer must
-///   coexist with the Slug vector layer, `toImageSync` behaves differently on
-///   CanvasKit, and web-only breakage has slipped through CI before.
-/// - **Mobile**: off - untested there, and the 96 MB pyramid budget is a
-///   meaningful slice of a jetsam-limited process.
-bool pdfDefaultTileStoreDetail() =>
-    detectedPdfPerformancePlatform == PdfPerformancePlatform.desktop;
+/// - **Desktop**: validated interactively on dense CAD sheets and 198-page scan
+///   books (see doc/dev-log).
+/// - **Web**: on-device release traces show the pyramid settling *under* budget
+///   (no longer pinned/evicting), panning at deep zoom reusing cached tiles
+///   with no green-grid flicker (2026-07-19 dev-log).
+/// - **Mobile**: on for parity, but the least-exercised path - and the 96 MB
+///   pyramid budget is a meaningful slice of a jetsam-limited process. A
+///   memory-pressure regression here surfaces as tile eviction, not a crash;
+///   [PdfTileStore.maxBytes] is live-adjustable if a lower mobile budget proves
+///   necessary.
+bool pdfDefaultTileStoreDetail() => true;
 
 /// The default byte budget for the process-wide decoded-image cache
 /// ([PdfImageCache]) on this platform.

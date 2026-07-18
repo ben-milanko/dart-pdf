@@ -313,9 +313,9 @@ class PdfPageView extends StatefulWidget {
   /// Additive to the existing pipeline: the tile layer sits ABOVE the base
   /// raster, so a gap not yet tiled shows the (capped) base image through it,
   /// and pages the region index cannot cull (soft-mask/group spans) keep the
-  /// legacy single-patch path. Defaults per platform
-  /// ([pdfDefaultTileStoreDetail], issue #314): on for desktop, off for
-  /// web/mobile pending their own validation passes.
+  /// legacy single-patch path. On by default on every platform
+  /// ([pdfDefaultTileStoreDetail], issues #314/#360) now the budget-vs-demand
+  /// guard keeps a dense view from thrashing the shared pyramid.
   static bool tileStoreDetail = pdfDefaultTileStoreDetail();
 
   /// Test seam: the store the tile layer draws from. Null uses the shared
