@@ -424,7 +424,7 @@ void main() {
     expect(find.text('Logo added ✓'), findsOneWidget);
   });
 
-  testWidgets('autoKeyless pre-selects the keyless identity on open',
+  testWidgets('a silent login pre-selects the keyless identity on open',
       (tester) async {
     final keyless = await mintKeyless();
     DigitalSignatureOptions? result;
@@ -437,7 +437,8 @@ void main() {
                 context,
                 createKeylessIdentity: (context) async => keyless,
                 timestampClient: fakeTsa,
-                autoKeyless: true, // a still-valid login is cached
+                // the silent creator succeeds (a cached/refreshable login)
+                autoCreateKeylessIdentity: (context) async => keyless,
               );
             },
             child: const Text('Open'),
@@ -464,6 +465,41 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('digital-signature-sign')));
     await tester.pumpAndSettle();
     expect(result!.keylessIdentity, isNotNull);
+  });
+
+  testWidgets('no silent login: nothing is pre-selected on open (no browser)',
+      (tester) async {
+    var interactiveCalls = 0;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => FilledButton(
+            onPressed: () => showDigitalSigningDialog(
+              context,
+              createKeylessIdentity: (context) async {
+                interactiveCalls++; // stands in for the browser sign-in
+                return await mintKeyless();
+              },
+              timestampClient: fakeTsa,
+              // the silent creator declines (a browser would be needed)
+              autoCreateKeylessIdentity: (context) async => null,
+            ),
+            child: const Text('Open'),
+          ),
+        ),
+      ),
+    ));
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    // opening the dialog did not run the interactive (browser) sign-in
+    expect(interactiveCalls, 0);
+    // and nothing keyless is pre-selected; the button is still offered
+    expect(find.byKey(const ValueKey('digital-signature-keyless-identity')),
+        findsNothing);
+    expect(
+        find.byKey(const ValueKey('digital-signature-keyless')), findsOneWidget);
   });
 
   testWidgets('on web, a note points to the desktop/mobile app for keyless',

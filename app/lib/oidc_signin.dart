@@ -43,6 +43,18 @@ class SigstoreSignInManager {
   /// Returns a valid `id_token`, reusing/refreshing silently where possible
   /// and signing in interactively otherwise. Null if sign-in was cancelled.
   Future<String?> call([BuildContext? context]) async {
+    final silent = await silentToken();
+    if (silent != null) return silent;
+    _store(await _signIn());
+    return _idToken;
+  }
+
+  /// A valid `id_token` obtained **without any browser interaction** - the
+  /// cached one while it's valid, or a fresh one minted from the refresh
+  /// token. Null when getting one would require an interactive sign-in. Used
+  /// to pre-select the keyless identity when the dialog opens without ever
+  /// popping the browser as a side effect.
+  Future<String?> silentToken() async {
     if (_idValid()) return _idToken;
     final refreshToken = _refreshToken;
     if (refreshToken != null) {
@@ -51,10 +63,9 @@ class SigstoreSignInManager {
         _store(refreshed);
         if (_idValid()) return _idToken;
       }
-      _refreshToken = null; // stale refresh token; fall back to the browser
+      _refreshToken = null; // stale refresh token; an interactive sign-in
     }
-    _store(await _signIn());
-    return _idToken;
+    return null;
   }
 
   /// Forgets the cached login (e.g. on explicit sign-out).

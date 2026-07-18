@@ -130,7 +130,7 @@ Future<DigitalSignatureOptions?> showDigitalSigningDialog(
   KeylessIdentityCreator? createKeylessIdentity,
   PdfTimestampClient? timestampClient,
   bool keylessUnavailable = false,
-  bool autoKeyless = false,
+  KeylessIdentityCreator? autoCreateKeylessIdentity,
   SignaturePlacement? placement,
   SignatureLogoPicker? logoPicker,
   int pageCount = 1,
@@ -148,7 +148,7 @@ Future<DigitalSignatureOptions?> showDigitalSigningDialog(
         createKeylessIdentity: createKeylessIdentity,
         timestampClient: timestampClient,
         keylessUnavailable: keylessUnavailable,
-        autoKeyless: autoKeyless,
+        autoCreateKeylessIdentity: autoCreateKeylessIdentity,
         placement: placement,
         logoPicker: logoPicker,
         pageCount: pageCount,
@@ -174,7 +174,7 @@ class DigitalSignatureDialog extends StatefulWidget {
     this.createKeylessIdentity,
     this.timestampClient,
     this.keylessUnavailable = false,
-    this.autoKeyless = false,
+    this.autoCreateKeylessIdentity,
     this.placement,
     this.logoPicker,
     this.pageCount = 1,
@@ -198,10 +198,11 @@ class DigitalSignatureDialog extends StatefulWidget {
   /// web, where the OAuth broker's loopback/CORS constraints preclude it.
   final bool keylessUnavailable;
 
-  /// When true, a still-valid keyless login is already available, so the
-  /// dialog mints and pre-selects the keyless identity on open (no browser
-  /// sign-in). Only acts when [createKeylessIdentity] is also wired.
-  final bool autoKeyless;
+  /// A **silent** keyless creator run when the dialog opens to pre-select the
+  /// identity: it reuses a cached/refreshable Sigstore login and returns null
+  /// (selecting nothing) when a token could only be obtained by opening the
+  /// browser - so drawing a box never launches sign-in as a side effect.
+  final KeylessIdentityCreator? autoCreateKeylessIdentity;
 
   /// When set, the signature is drawn into this page/rectangle (the
   /// signature-box tool placed it) and the dialog shows an Appearance section
@@ -256,12 +257,14 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
     super.initState();
     _loadRememberedIdentity();
     if (widget.placement != null) _loadRememberedAppearance();
-    // A still-valid keyless login: mint and pre-select it on open, so the
-    // user doesn't have to click "Sign in with your email" again. Silent -
-    // any failure just leaves keyless unselected (the button still works).
-    if (widget.autoKeyless && widget.createKeylessIdentity != null) {
+    // Pre-select a keyless identity on open only when it can be obtained
+    // silently (a cached or refreshable login). The creator returns null
+    // rather than opening the browser, so drawing a box never triggers
+    // sign-in - the user does that explicitly with the button.
+    final autoCreate = widget.autoCreateKeylessIdentity;
+    if (autoCreate != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _createKeylessIdentity(silent: true);
+        if (mounted) _runKeylessCreator(autoCreate, silent: true);
       });
     }
   }
@@ -335,9 +338,16 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
     });
   }
 
-  Future<void> _createKeylessIdentity({bool silent = false}) async {
+  /// The keyless button: runs the interactive creator (browser allowed).
+  Future<void> _createKeylessIdentity() async {
     final creator = widget.createKeylessIdentity;
-    if (creator == null || _keylessBusy || _keyless != null) return;
+    if (creator == null) return;
+    await _runKeylessCreator(creator);
+  }
+
+  Future<void> _runKeylessCreator(KeylessIdentityCreator creator,
+      {bool silent = false}) async {
+    if (_keylessBusy || _keyless != null) return;
     setState(() {
       _keylessBusy = true;
       _error = null;

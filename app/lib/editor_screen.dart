@@ -58,7 +58,7 @@ class EditorScreen extends StatefulWidget {
     this.printDocument,
     this.digitalSignatureOptionsProvider,
     this.oidcTokenProvider,
-    this.keylessLoginAvailable,
+    this.oidcSilentTokenProvider,
     this.saveDocumentAs,
     this.saveDocumentToPath,
     this.imageClipboardWriter,
@@ -103,10 +103,11 @@ class EditorScreen extends StatefulWidget {
   /// option, since no OAuth client ships with the app.
   final OidcTokenProvider? oidcTokenProvider;
 
-  /// Whether a still-valid keyless (Sigstore) login is already available, so
-  /// the Digitally sign dialog can pre-select the keyless identity on open
-  /// without a browser sign-in. Wired to the cached OIDC token's validity.
-  final bool Function()? keylessLoginAvailable;
+  /// A **silent** OIDC token source (returns a cached/refreshable token, or
+  /// null when a browser sign-in would be needed). When wired, the Digitally
+  /// sign dialog uses it to pre-select the keyless identity on open without
+  /// ever launching sign-in as a side effect of opening.
+  final OidcTokenProvider? oidcSilentTokenProvider;
 
   /// Overrides the Save As backend. Tests use this seam to assert that the
   /// active tab adopts the chosen file without opening platform dialogs.
@@ -1028,7 +1029,13 @@ class _EditorScreenState extends State<EditorScreen>
                 // On the web the OAuth broker can't complete in a browser tab,
                 // so keyless is native-only; tell the user where to find it.
                 keylessUnavailable: kIsWeb,
-                autoKeyless: widget.keylessLoginAvailable?.call() ?? false,
+                // Pre-select keyless on open only via the silent provider, so
+                // opening the dialog never launches the browser.
+                autoCreateKeylessIdentity: (tokenProvider == null ||
+                        widget.oidcSilentTokenProvider == null)
+                    ? null
+                    : (context) => keylessSigningIdentity(context,
+                        tokenProvider: widget.oidcSilentTokenProvider!),
                 placement: placement,
                 logoPicker: placement == null ? null : pickImageBytes,
                 pageCount: session.document.pageCount,

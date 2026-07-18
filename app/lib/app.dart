@@ -83,11 +83,13 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
           autoCheckUpdates: true,
           // Keyless signing via Sigstore's public OAuth broker. Loopback
           // capture needs a local server, so it's offered off the web only.
-          // A still-valid login is reused rather than re-prompting each time,
-          // and pre-selects the keyless identity when the dialog opens.
+          // A still-valid login is reused rather than re-prompting each time.
           oidcTokenProvider: _oidcTokenProvider?.call,
-          keylessLoginAvailable: () =>
-              _oidcTokenProvider?.hasValidToken ?? false,
+          // Silent source for pre-selecting keyless on open: it never opens
+          // the browser (returns null when interactive sign-in would be needed).
+          oidcSilentTokenProvider: _oidcTokenProvider == null
+              ? null
+              : (context) => _oidcTokenProvider.silentToken(),
         ),
       ),
     );
