@@ -101,8 +101,14 @@ class PdfPerfLog {
 
   /// ` rss=NNNMB` for the current process, or `''` where RSS is unavailable
   /// (web) - a suffix any log line can append so the memory climb shows on the
-  /// same timeline. Reads [currentProcessRssBytes] (cheap; a syscall).
+  /// same timeline.
+  ///
+  /// Returns `''` when the log is off *before* reading [currentProcessRssBytes]:
+  /// call sites interpolate this into a message argument, which Dart evaluates
+  /// before [log] can check [enabled], so without this guard every one of them
+  /// would pay a `ProcessInfo.currentRss` syscall on an ordinary run.
   static String rssSuffix() {
+    if (!enabled) return '';
     final rss = currentProcessRssBytes;
     return rss == null ? '' : ' rss=${(rss / (1 << 20)).round()}MB';
   }

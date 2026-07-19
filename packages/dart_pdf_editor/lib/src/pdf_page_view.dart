@@ -1122,17 +1122,18 @@ class _PdfPageViewState extends State<PdfPageView> {
       picture.dispose();
       return;
     }
+    final vectorRatio = _vectorFirstRatio();
     final image = await PdfPageRenderer.rasterize(
       picture,
       PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation),
-      _vectorFirstRatio(),
+      vectorRatio,
     );
     PdfPerfLog.raster(
       'vector-first-full',
       page: pageIndex,
       imageWidth: image.width,
       imageHeight: image.height,
-      ratio: _vectorFirstRatio(),
+      ratio: vectorRatio,
     );
     picture.dispose();
     // Adopt the vector raster only if the full pass hasn't already landed (a
