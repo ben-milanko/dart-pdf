@@ -1077,7 +1077,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       'vector-first detail page=$pageIndex '
       'scale=${widget.scale.toStringAsFixed(2)} eligible=$needsDetail '
       'retained=$retainScene '
-      'commands=${commands.length}',
+      'commands=${commands.length}${PdfPerfLog.rssSuffix()}',
     );
     if (needsDetail && retainScene) {
       final scene = await PdfRetainedScene.fromCommands(
@@ -1127,6 +1127,13 @@ class _PdfPageViewState extends State<PdfPageView> {
       PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation),
       _vectorFirstRatio(),
     );
+    PdfPerfLog.raster(
+      'vector-first-full',
+      page: pageIndex,
+      imageWidth: image.width,
+      imageHeight: image.height,
+      ratio: _vectorFirstRatio(),
+    );
     picture.dispose();
     // Adopt the vector raster only if the full pass hasn't already landed (a
     // landed full raster has a non-null _rasteredRatio). Deliberately leave
@@ -1142,7 +1149,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       _preview?.dispose();
       _preview = null;
     });
-    PdfPerfLog.log('vector-first page=$pageIndex');
+    PdfPerfLog.log('vector-first page=$pageIndex${PdfPerfLog.rssSuffix()}');
   }
 
   /// Reports, when the perf log is on, how many images a worker buffer carries
@@ -1409,6 +1416,13 @@ class _PdfPageViewState extends State<PdfPageView> {
           effective,
         );
       }
+      PdfPerfLog.raster(
+        'base-full',
+        page: pageIndex,
+        imageWidth: image.width,
+        imageHeight: image.height,
+        ratio: effective,
+      );
       if (_superseded(generation, pageIndex)) {
         image.dispose();
         return;
@@ -1543,6 +1557,14 @@ class _PdfPageViewState extends State<PdfPageView> {
         region,
         pixelRatio: ratio,
       );
+      PdfPerfLog.raster(
+        'detail-vector',
+        page: widget.previewIndex,
+        imageWidth: vectorImage.width,
+        imageHeight: vectorImage.height,
+        ratio: ratio,
+        region: (width: region.width, height: region.height),
+      );
       if (mounted &&
           _renderSession.acceptsDetail(generation) &&
           !_renderPaused) {
@@ -1596,6 +1618,14 @@ class _PdfPageViewState extends State<PdfPageView> {
         workerPicture,
         region,
         ratio,
+      );
+      PdfPerfLog.raster(
+        'detail-worker-picture',
+        page: widget.previewIndex,
+        imageWidth: image.width,
+        imageHeight: image.height,
+        ratio: ratio,
+        region: (width: region.width, height: region.height),
       );
       workerPicture.dispose();
       if (!mounted ||
@@ -1651,6 +1681,7 @@ class _PdfPageViewState extends State<PdfPageView> {
     // region's still-queued bin inside _workerStripPlan).
     final scene = PdfPageView.retainedZoomReplay ? _scene : null;
     final ui.Image image;
+    final String detailKind;
     if (scene != null && _stripReplayScene(scene)) {
       final stripPlan = await _workerStripPlan(
         scene,
@@ -1667,11 +1698,25 @@ class _PdfPageViewState extends State<PdfPageView> {
         pixelRatio: ratio,
         stripPlan: stripPlan,
       );
+      detailKind = 'detail-strip';
     } else if (scene != null) {
       image = await scene.rasterizeRegion(region, pixelRatio: ratio);
+      detailKind = 'detail-region';
     } else {
+      // Classic cached-picture path: replays the WHOLE page picture clipped to
+      // [region] at [ratio]. On a huge (unretained) transcript this is where a
+      // deep-zoom raster gets expensive - the raster instrumentation flags it.
       image = await PdfPageRenderer.rasterizeRegion(picture, region, ratio);
+      detailKind = 'detail-picture';
     }
+    PdfPerfLog.raster(
+      detailKind,
+      page: widget.previewIndex,
+      imageWidth: image.width,
+      imageHeight: image.height,
+      ratio: ratio,
+      region: (width: region.width, height: region.height),
+    );
     if (!mounted ||
         !_renderSession.acceptsDetail(generation) ||
         _renderPaused) {

@@ -1536,7 +1536,8 @@ class _PdfViewerState extends State<PdfViewer>
   void didHaveMemoryPressure() {
     final freed = PdfCacheRegistry.instance.handleMemoryPressure();
     PdfPerfLog.log('memory-pressure cleared ${freed >> 20}MB across '
-        '${PdfCacheRegistry.instance.registrationCount} caches');
+        '${PdfCacheRegistry.instance.registrationCount} caches'
+        '${PdfPerfLog.rssSuffix()}');
     _previews.clear();
   }
 

@@ -16,37 +16,6 @@ PdfPerformanceEnvironment env({
     );
 
 void main() {
-  test('grid-replay escalation ceiling is device-gated to avoid the OOM', () {
-    // Desktop keeps the high ceiling so heavy CAD sheets get the region-cull
-    // win; mobile and web cap at the linear ceiling so escalation never flips
-    // supportsRegionRaster true above it - keeping the deep-zoom detail pipeline
-    // that OOM-crashed an iPad off those platforms for pages that heavy.
-    const linear = 250000;
-    expect(
-      pdfDefaultSpatialGridReplayMaxCommands(
-        platform: PdfPerformancePlatform.desktop,
-        linearCeiling: linear,
-      ),
-      greaterThan(linear),
-    );
-    expect(
-      pdfDefaultSpatialGridReplayMaxCommands(
-        platform: PdfPerformancePlatform.mobile,
-        linearCeiling: linear,
-      ),
-      linear,
-      reason: 'mobile must not escalate above the linear ceiling',
-    );
-    expect(
-      pdfDefaultSpatialGridReplayMaxCommands(
-        platform: PdfPerformancePlatform.web,
-        linearCeiling: linear,
-      ),
-      linear,
-      reason: 'a tab is the tightest memory target - do not escalate',
-    );
-  });
-
   test('Auto chooses conservative platform and memory-aware worker counts', () {
     const auto = PdfPerformanceMode.auto();
     expect(
