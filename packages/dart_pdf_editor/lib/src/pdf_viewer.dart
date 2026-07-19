@@ -240,8 +240,38 @@ class PdfScrollMetrics {
 
 /// Drives a [PdfViewer] and reports its state: current page, zoom, and
 /// search results. Listeners fire on any change.
+/// The subset of viewer navigation a text reading view ([PdfReflowView])
+/// implements so the shared [PdfViewerController] can drive it - page jumps,
+/// the visible-region indicator, and saved-position capture/restore - while
+/// no page [PdfViewer] is mounted.
+///
+/// Internal wiring: a mounted [PdfViewer] always takes precedence, so the
+/// controller only consults a reflow backend in the text reflow view where
+/// there is no page canvas. Not part of the stable public API.
+abstract class PdfReflowBackend {
+  /// Scrolls the reading view so page [index] is at the top.
+  void reflowJumpToPage(int index);
+
+  /// The reading view's scroll position as a resolution-independent snapshot
+  /// (page at the top plus the fraction scrolled into it), or null before it
+  /// has laid out.
+  PdfViewport? reflowCaptureViewport();
+
+  /// Restores a [reflowCaptureViewport] snapshot (applied once laid out).
+  void reflowRestoreViewport(PdfViewport viewport);
+
+  /// The visible part of page [index] as page-area fractions (0–1, y-down),
+  /// or null when the page is off-screen - feeds the thumbnail strip's
+  /// viewport indicator.
+  Rect? reflowVisibleFraction(int index);
+}
+
 class PdfViewerController extends ChangeNotifier {
   _PdfViewerState? _state;
+
+  /// Set while a text reflow view drives navigation in place of a mounted
+  /// page viewer; a mounted [PdfViewer] ([_state]) always wins.
+  PdfReflowBackend? _reflow;
 
   int _pageCount = 0;
   int _currentPage = 0;
@@ -370,7 +400,10 @@ class PdfViewerController extends ChangeNotifier {
   /// Zero-based index into the matches, or -1 with no active match.
   int get currentMatch => _currentMatch;
 
-  Future<void> jumpToPage(int index) async => _state?._jumpToPage(index);
+  Future<void> jumpToPage(int index) async {
+    if (_state != null) return _state!._jumpToPage(index);
+    _reflow?.reflowJumpToPage(index);
+  }
 
   /// Scrolls to [index] with a smooth animation. Unlike [jumpToPage] (which
   /// snaps when the target is far away, to avoid animating every intervening
@@ -381,8 +414,12 @@ class PdfViewerController extends ChangeNotifier {
     int index, {
     Duration duration = const Duration(milliseconds: 250),
     Curve curve = Curves.easeInOut,
-  }) async =>
-      _state?._jumpToPage(index, duration: duration, curve: curve);
+  }) async {
+    if (_state != null) {
+      return _state!._jumpToPage(index, duration: duration, curve: curve);
+    }
+    _reflow?.reflowJumpToPage(index);
+  }
 
   /// A read-only snapshot of the viewer's vertical scroll state - page,
   /// normalized position/extent, pixel offsets, and zoom - for building a
@@ -402,9 +439,16 @@ class PdfViewerController extends ChangeNotifier {
       _state?._scrollToNormalized(position);
 
   /// Scrolls to a PDF destination, using the same `/Fit`, `/FitH`, and
-  /// `/XYZ` handling as in-document GoTo links.
-  void showDestination(PdfDestination destination) =>
-      _state?._scrollToDestination(destination);
+  /// `/XYZ` handling as in-document GoTo links. In the text reflow view,
+  /// where there is no page canvas to fit, it jumps to the destination's
+  /// page.
+  void showDestination(PdfDestination destination) {
+    if (_state != null) {
+      _state!._scrollToDestination(destination);
+    } else {
+      _reflow?.reflowJumpToPage(destination.pageIndex);
+    }
+  }
 
   /// Sets the viewer zoom around the center of the viewport.
   ///
@@ -431,12 +475,18 @@ class PdfViewerController extends ChangeNotifier {
   /// user where they left off. Null while no viewer is attached or it has
   /// not laid out yet. Restore it with [restoreViewport] or
   /// [PdfViewer.initialViewport].
-  PdfViewport? captureViewport() => _state?._captureViewport();
+  PdfViewport? captureViewport() =>
+      _state?._captureViewport() ?? _reflow?.reflowCaptureViewport();
 
   /// Scrolls and zooms to a [captureViewport] snapshot. A no-op while no
   /// viewer is attached; it applies once the viewer has laid out.
-  void restoreViewport(PdfViewport viewport) =>
-      _state?._restoreViewport(viewport);
+  void restoreViewport(PdfViewport viewport) {
+    if (_state != null) {
+      _state!._restoreViewport(viewport);
+    } else {
+      _reflow?.reflowRestoreViewport(viewport);
+    }
+  }
 
   final _viewport = _ViewportNotifier();
 
@@ -450,7 +500,8 @@ class PdfViewerController extends ChangeNotifier {
   /// displayed area (0–1 both axes, y-down from the page's top-left), or
   /// null while the page is entirely off-screen.
   Rect? visiblePageRegion(int pageIndex) =>
-      _state?._visibleFractionOf(pageIndex);
+      _state?._visibleFractionOf(pageIndex) ??
+      _reflow?.reflowVisibleFraction(pageIndex);
 
   /// A snapshot of the viewer's scroll position and zoom, for mirroring it
   /// onto another viewer (the comparison view's synchronized panes). Null
@@ -464,11 +515,33 @@ class PdfViewerController extends ChangeNotifier {
   /// geometry). Guard against feedback loops at the call site.
   void applyViewSync(PdfViewSync sync) => _state?._applyViewSync(sync);
 
+  /// Registers [backend] as the navigation target while the text reflow view
+  /// shows in place of the page viewer, so the thumbnail strip, bookmarks,
+  /// and saved-position memory keep working there. Internal - a mounted
+  /// [PdfViewer] takes precedence. See [PdfReflowBackend].
+  void attachReflowBackend(PdfReflowBackend backend) => _reflow = backend;
+
+  /// Detaches [backend] if it is the current reflow backend.
+  void detachReflowBackend(PdfReflowBackend backend) {
+    if (identical(_reflow, backend)) _reflow = null;
+  }
+
+  /// The reflow backend calls this once it knows the document's page count.
+  void reflowReportPageCount(int count) => _setPageCount(count);
+
+  /// The reflow backend calls this as the reading view scrolls, so
+  /// [currentPage] tracks the top page and [viewportChanges] fires for the
+  /// thumbnail strip's indicator.
+  void reflowReportPage(int page) {
+    _setCurrentPage(page);
+    _bumpViewport();
+  }
+
   void _bumpViewport() {
     if (SchedulerBinding.instance.schedulerPhase ==
         SchedulerPhase.persistentCallbacks) {
       SchedulerBinding.instance.addPostFrameCallback((_) {
-        if (_state != null) _viewport.notify();
+        if (_state != null || _reflow != null) _viewport.notify();
       });
     } else {
       _viewport.notify();
@@ -571,7 +644,7 @@ class PdfViewerController extends ChangeNotifier {
     if (SchedulerBinding.instance.schedulerPhase ==
         SchedulerPhase.persistentCallbacks) {
       SchedulerBinding.instance.addPostFrameCallback((_) {
-        if (_state != null) notifyListeners();
+        if (_state != null || _reflow != null) notifyListeners();
       });
     } else {
       notifyListeners();

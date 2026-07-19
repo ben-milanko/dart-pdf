@@ -112,6 +112,7 @@ class PdfReader extends StatefulWidget {
     this.onAction,
     this.onAnnotationTap,
     this.onLaunchUrl,
+    this.onShareReflowImage,
     this.pageOverlayBuilder,
     this.pageLayout = const PdfPageLayout.verticalContinuous(),
     this.initialFit = PdfViewerFit.page,
@@ -165,6 +166,11 @@ class PdfReader extends StatefulWidget {
 
   /// See [PdfViewer.onLaunchUrl].
   final PdfUrlLauncher? onLaunchUrl;
+
+  /// Saves or shares a figure the reader taps to open fullscreen in the text
+  /// reflow view (see [PdfReflowView.onShareImage]). Null still allows
+  /// fullscreen pan/pinch-zoom viewing; it just hides the share action.
+  final PdfReflowImageShareHandler? onShareReflowImage;
 
   /// See [PdfViewer.pageOverlayBuilder].
   final PdfPageOverlayBuilder? pageOverlayBuilder;
@@ -247,11 +253,12 @@ class _PdfReaderState extends State<PdfReader> {
           // on a narrow screen the strip floats up from the bottom as a
           // sheet instead of docking to the side and crowding the page
           final useSheets = pdfShellUseBottomSheets(constraints);
-          final showThumbnailsPanel =
-              features.thumbnails && showThumbnails && !prefs.showReflowView;
-          final showBookmarksPanel = features.bookmarks &&
-              prefs.showBookmarkSidebar &&
-              !prefs.showReflowView;
+          // Pages and Bookmarks stay available in the reflow reading view -
+          // they drive it through the shared controller (page taps scroll the
+          // reader, the strip tracks the reading position).
+          final showThumbnailsPanel = features.thumbnails && showThumbnails;
+          final showBookmarksPanel =
+              features.bookmarks && prefs.showBookmarkSidebar;
 
           // Distinct keys for docked vs sheet so the strip is remounted, not
           // reparented, when the breakpoint flips - reparenting reactivates
@@ -364,6 +371,16 @@ class _PdfReaderState extends State<PdfReader> {
                         );
                       },
                     ),
+                  // A direct Reflow toggle for phone readers, who reach for the
+                  // reading view most - no need to dig into Settings.
+                  PdfShellControlItem(
+                    key: const ValueKey('pdf-shell-reflow-toggle'),
+                    icon: Icons.article_outlined,
+                    label: 'Reflow',
+                    selected: prefs.showReflowView,
+                    onPressed: () =>
+                        prefs.showReflowView = !prefs.showReflowView,
+                  ),
                   if (features.thumbnails)
                     PdfShellControlItem(
                       key: const ValueKey('pdf-shell-thumbnails-toggle'),
@@ -400,6 +417,8 @@ class _PdfReaderState extends State<PdfReader> {
                   builder: (context, _) => prefs.showReflowView
                       ? PdfReflowView(
                           document: _session.document,
+                          controller: _viewer,
+                          onShareImage: widget.onShareReflowImage,
                           backgroundColor: widget.backgroundColor,
                         )
                       : PdfViewer(

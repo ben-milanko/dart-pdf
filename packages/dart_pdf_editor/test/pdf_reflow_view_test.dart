@@ -84,12 +84,27 @@ Uint8List _imagePdf() => _doc('${_text(100, 700, 'Above the figure')}\n'
     '${_text(100, 360, 'Below the figure')}');
 
 /// Pumps frames (driving real async for image decoding) until the
-/// FutureBuilder resolves and the loading spinner disappears.
+/// FutureBuilder resolves and the loading spinner disappears, then a few
+/// extra frames so the visible pages' lazily-decoded images land.
 Future<void> _settle(WidgetTester tester) async {
-  for (var i = 0; i < 60; i++) {
+  var clearedAt = -1;
+  for (var i = 0; i < 80; i++) {
     await tester.pump(const Duration(milliseconds: 16));
     await Future<void>.delayed(const Duration(milliseconds: 5));
-    if (find.byType(CircularProgressIndicator).evaluate().isEmpty) return;
+    if (find.byType(CircularProgressIndicator).evaluate().isEmpty) {
+      if (clearedAt < 0) clearedAt = i;
+      // Give per-page image decoding a handful of frames to complete.
+      if (i - clearedAt >= 12) return;
+    }
+  }
+}
+
+/// Pumps a handful of frames so the reflow view's post-frame jump/restore
+/// corrections (estimate → build → align) run to completion.
+Future<void> _pumpFrames(WidgetTester tester, [int frames = 10]) async {
+  for (var i = 0; i < frames; i++) {
+    await tester.pump(const Duration(milliseconds: 16));
+    await Future<void>.delayed(const Duration(milliseconds: 5));
   }
 }
 
@@ -177,39 +192,147 @@ void main() {
     });
   });
 
-  testWidgets('scroll extent stays stable across scrolling', (tester) async {
+  testWidgets('lazily builds only the pages near the viewport', (tester) async {
     await tester.runAsync(() async {
-      // Alternate tall image pages with short text pages: a lazy ListView's
-      // extent estimate would drift as the differing heights build, jumping
-      // the scrollbar. The non-lazy scroll keeps it exact.
+      // A long document: a non-lazy layout would build every page's
+      // SelectableText up front (the old, slow behaviour). The lazy list
+      // builds only the pages near the viewport, so a far page is absent.
       final doc = PdfDocument.open(_multiPageDoc([
-        for (var i = 0; i < 6; i++)
-          i.isEven
-              ? '$_imageContent\n${_text(100, 440, 'Image page $i')}'
-              : _text(100, 700, 'Text page $i'),
+        for (var i = 0; i < 40; i++) _text(100, 700, 'Text page $i'),
       ]));
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: PdfReflowView(document: doc, showImages: false)),
+      ));
+      await _settle(tester);
+
+      expect(find.text('Text page 0'), findsOneWidget);
+      expect(find.text('Text page 39'), findsNothing,
+          reason: 'a far page is not built until it scrolls near the viewport');
+    });
+  });
+
+  testWidgets('a controller jumps the reading view to a page and tracks it',
+      (tester) async {
+    await tester.runAsync(() async {
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      final doc = PdfDocument.open(_multiPageDoc([
+        for (var i = 0; i < 40; i++) _text(100, 700, 'Text page $i'),
+      ]));
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfReflowView(
+              document: doc, controller: controller, showImages: false),
+        ),
+      ));
+      await _settle(tester);
+
+      // The reading view reports the document's page count to the controller.
+      expect(controller.pageCount, 40);
+
+      await controller.jumpToPage(30);
+      await _pumpFrames(tester);
+
+      expect(find.text('Text page 30'), findsOneWidget,
+          reason: 'jumpToPage scrolls the reading view to the target page');
+      expect(controller.currentPage, 30,
+          reason: 'the reading view reports its current page back');
+    });
+  });
+
+  testWidgets('captures and restores the reading position', (tester) async {
+    await tester.runAsync(() async {
+      final contents = [
+        for (var i = 0; i < 40; i++) _text(100, 700, 'Text page $i'),
+      ];
+      final first = PdfViewerController();
+      addTearDown(first.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfReflowView(
+              document: PdfDocument.open(_multiPageDoc(contents)),
+              controller: first,
+              showImages: false),
+        ),
+      ));
+      await _settle(tester);
+
+      await first.jumpToPage(20);
+      await _pumpFrames(tester);
+      final saved = first.captureViewport();
+      expect(saved, isNotNull);
+      expect(saved!.page, 20);
+
+      // Reopen the document in a fresh reading view and restore the snapshot -
+      // the reader lands back on the saved page.
+      final second = PdfViewerController();
+      addTearDown(second.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfReflowView(
+              document: PdfDocument.open(_multiPageDoc(contents)),
+              controller: second,
+              showImages: false),
+        ),
+      ));
+      await _settle(tester);
+      second.restoreViewport(saved);
+      await _pumpFrames(tester);
+
+      expect(find.text('Text page 20'), findsOneWidget);
+    });
+  });
+
+  testWidgets('tapping a figure opens it fullscreen with zoom and share',
+      (tester) async {
+    await tester.runAsync(() async {
+      Uint8List? shared;
+      final doc = PdfDocument.open(_imagePdf());
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfReflowView(
+            document: doc,
+            onShareImage: (context, png) async => shared = png,
+          ),
+        ),
+      ));
+      await _settle(tester);
+      expect(find.byType(RawImage), findsOneWidget);
+
+      await tester.tap(find.byType(RawImage));
+      await tester.pumpAndSettle();
+
+      // The fullscreen viewer is an InteractiveViewer (pan / pinch-zoom).
+      expect(find.byType(InteractiveViewer), findsOneWidget);
+      final shareButton =
+          find.byKey(const ValueKey('pdf-reflow-image-share'));
+      expect(shareButton, findsOneWidget);
+
+      await tester.tap(shareButton);
+      await _pumpFrames(tester);
+      expect(shared, isNotNull, reason: 'the share handler receives PNG bytes');
+
+      await tester.tap(find.byKey(const ValueKey('pdf-reflow-image-close')));
+      await tester.pumpAndSettle();
+      expect(find.byType(InteractiveViewer), findsNothing);
+    });
+  });
+
+  testWidgets('the fullscreen figure hides share when no handler is given',
+      (tester) async {
+    await tester.runAsync(() async {
+      final doc = PdfDocument.open(_imagePdf());
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(body: PdfReflowView(document: doc)),
       ));
       await _settle(tester);
 
-      // The outer scroll view's Scrollable is the first descendant of the
-      // keyed widget (the SelectableTexts add their own deeper ones).
-      final position = tester
-          .state<ScrollableState>(find
-              .descendant(
-                of: find.byKey(const ValueKey('pdf-reflow-view')),
-                matching: find.byType(Scrollable),
-              )
-              .first)
-          .position;
-      final before = position.maxScrollExtent;
-      expect(before, greaterThan(0));
+      await tester.tap(find.byType(RawImage));
+      await tester.pumpAndSettle();
 
-      position.jumpTo(position.maxScrollExtent);
-      await tester.pump();
-      // Exact extent: jumping to the end does not revise it.
-      expect(position.maxScrollExtent, before);
+      expect(find.byType(InteractiveViewer), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-reflow-image-share')), findsNothing,
+          reason: 'no share handler → no share action, viewing still works');
     });
   });
 

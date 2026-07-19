@@ -239,7 +239,10 @@ void main() {
 
       expect(prefs.showReflowView, isTrue);
       expect(find.byType(PdfViewer), findsNothing);
-      expect(find.byType(PdfThumbnailSidebar), findsNothing);
+      // The Pages strip stays available in reflow - it drives the reading view
+      // (page taps scroll it) - while the canvas-bound search and page-number
+      // controls, which have no page to act on, drop away.
+      expect(find.byType(PdfThumbnailSidebar), findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-search-field')), findsNothing);
       expect(find.byKey(const ValueKey('pdf-page-number-field')), findsNothing);
       expect(find.byType(PdfReflowView), findsOneWidget);

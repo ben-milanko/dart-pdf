@@ -1429,6 +1429,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                 imagePicker: _pickImage,
                                 fontPicker: _pickFont,
                                 onSnapshot: _saveSnapshot,
+                                onShareReflowImage: (context, png) =>
+                                    _saveImageBytes(
+                                        png, 'figure.png', 'image/png'),
                               ),
       ),
     );
