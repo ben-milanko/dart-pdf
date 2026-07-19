@@ -41,6 +41,43 @@ PdfPerformancePlatform get detectedPdfPerformancePlatform => kIsWeb
 ///   necessary.
 bool pdfDefaultTileStoreDetail() => true;
 
+/// The device-aware ceiling on transcript size for escalating retained region
+/// replay to the grid spatial index ([PdfRetainedScene.spatialGridReplayMaxCommands]).
+///
+/// Escalation is what flips [PdfRetainedScene.supportsRegionRaster] true for a
+/// transcript *above* the linear ceiling, which in turn switches on the whole
+/// deep-zoom detail pipeline (tile pyramid + per-region strip rasters +
+/// worker-binned command buffers). The grid cull itself is cheap and bounded
+/// (~112 B/unit); the danger is that pipeline. A deep-zoom pan across a
+/// ~286k-command ultra-wide CAD strip drove an iPad's process to its 5 GB high-
+/// water limit and killed it (the fatal allocation landed in a GC compaction on
+/// a worker thread), where the same page on the pre-grid build stayed alive -
+/// janky, but bounded, because it never left the full-transcript-replay path.
+///
+/// - **Desktop** keeps the high ceiling: the pipeline is validated interactively
+///   on dense CAD sheets and there is RAM to spare, so heavy pages get the
+///   region-cull win.
+/// - **Mobile / web** cap at the linear ceiling, i.e. *do not escalate*: above
+///   it, the page stays on the bounded full-replay path rather than risk the
+///   pipeline's unbounded growth under a jetsam / tab memory limit. Those pages
+///   lose deep-zoom sharpening on these platforms until the transcript can live
+///   off the UI/worker heap (issue #384); staying alive comes first.
+///
+/// The default is a coarse platform tier, not a RAM-proportional budget,
+/// deliberately: the crash reproduced on a *high*-memory iPad, so the pipeline's
+/// risk tracks the platform's memory *model* (a hard per-process ceiling), not
+/// its byte count.
+int pdfDefaultSpatialGridReplayMaxCommands({
+  PdfPerformancePlatform? platform,
+  int linearCeiling = 250000,
+}) {
+  final family = platform ?? detectedPdfPerformancePlatform;
+  return switch (family) {
+    PdfPerformancePlatform.desktop || PdfPerformancePlatform.other => 4000000,
+    PdfPerformancePlatform.mobile || PdfPerformancePlatform.web => linearCeiling,
+  };
+}
+
 /// The default byte budget for the process-wide decoded-image cache
 /// ([PdfImageCache]) on this platform.
 ///

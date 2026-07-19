@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+export 'src/cad_strip.dart';
 export 'src/encrypted.dart';
 export 'src/icc_profiles.dart';
 export 'src/pkix_ltv.dart';

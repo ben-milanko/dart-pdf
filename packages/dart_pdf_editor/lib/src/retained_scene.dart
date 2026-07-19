@@ -22,6 +22,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'canvas_device.dart';
 import 'image_decoder.dart';
+import 'performance_policy.dart';
 import 'renderer.dart';
 import 'render_worker.dart';
 import 'region_replay_index.dart';
@@ -78,7 +79,17 @@ class PdfRetainedScene {
   /// pages become pannable. On by default because it only ever REPLACES the
   /// full-transcript fallback — it never changes a page that already culled.
   static bool spatialGridReplay = true;
-  static int spatialGridReplayMaxCommands = 4000000;
+
+  /// The transcript size above which escalation stops and the page keeps the
+  /// bounded full-transcript-replay fallback. Device-aware by default
+  /// ([pdfDefaultSpatialGridReplayMaxCommands]): escalating flips
+  /// [supportsRegionRaster] on, which switches on the deep-zoom detail pipeline,
+  /// and on a memory-limited device that pipeline OOM-crashed on a huge CAD
+  /// sheet — so mobile/web cap at the linear ceiling (no escalation) while
+  /// desktop keeps the win. Overridable for tests and for a host that knows its
+  /// own memory headroom.
+  static int spatialGridReplayMaxCommands =
+      pdfDefaultSpatialGridReplayMaxCommands();
 
   PdfRegionReplayIndex? _regionIndex;
 

@@ -16,32 +16,55 @@
 //   CAD_TILE       tile size in device px (default 256)
 //   CAD_PAN_TILES  number of tiles sampled across the pan (default 16)
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
+import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 
 import 'render_smoke_test.dart' show loadSystemFonts;
 
 void main() {
-  final path = Platform.environment['CAD_PDF'] ?? '../../corpus/cathodic-cad.pdf';
+  // This is a heavy, unasserted diagnostic (records ~850k commands, ~700 MB
+  // RSS), so it stays opt-in rather than running on every CI invocation:
+  //   CAD_PDF=path/to.pdf   probe that real file, or
+  //   CAD_SYNTHETIC=1       probe the deterministic synthetic strip
+  //                         (`buildSyntheticCadStrip`) that reproduces the same
+  //                         shape without the confidential drawing.
+  // CAD_OPS sizes the synthetic transcript (default ~850k, matching the file).
+  final path = Platform.environment['CAD_PDF'];
+  final synthetic = Platform.environment['CAD_SYNTHETIC'] == '1';
+  final syntheticOps =
+      int.tryParse(Platform.environment['CAD_OPS'] ?? '') ?? 850000;
   final ratio = double.tryParse(Platform.environment['CAD_RATIO'] ?? '') ?? 2.0;
   final tilePx = double.tryParse(Platform.environment['CAD_TILE'] ?? '') ?? 256;
   final panTiles = int.tryParse(Platform.environment['CAD_PAN_TILES'] ?? '') ?? 16;
 
   testWidgets('CAD jank baseline probe', (tester) async {
-    final file = File(path);
-    if (!file.existsSync()) {
-      markTestSkipped('set CAD_PDF to a real file (missing: $path)');
+    final Uint8List bytes;
+    final String source;
+    if (path != null) {
+      final file = File(path);
+      if (!file.existsSync()) {
+        markTestSkipped('CAD_PDF set but missing: $path');
+        return;
+      }
+      bytes = file.readAsBytesSync();
+      source = path;
+    } else if (synthetic) {
+      bytes = buildSyntheticCadStrip(ops: syntheticOps);
+      source = 'synthetic strip (ops=$syntheticOps)';
+    } else {
+      markTestSkipped('heavy diagnostic - set CAD_SYNTHETIC=1 (or CAD_PDF)');
       return;
     }
 
     await tester.runAsync(() async {
       await loadSystemFonts();
-      final bytes = file.readAsBytesSync();
       final doc = PdfDocument.open(bytes);
-      _line('opened ${_mb(bytes.length)} - ${doc.pageCount} pages');
+      _line('opened ${_mb(bytes.length)} [$source] - ${doc.pageCount} pages');
 
       final rss0 = ProcessInfo.currentRss;
       _line('RSS at open: ${_mb(rss0)}');
