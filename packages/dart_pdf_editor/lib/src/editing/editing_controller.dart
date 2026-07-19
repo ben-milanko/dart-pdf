@@ -536,16 +536,64 @@ class PdfEditingController extends ChangeNotifier {
             newLength: _revisions[_cursor],
             changedPages: impact.visualPages,
           );
-    _reopen();
+    // redo re-extends to a revision already in the buffer: an append
+    _reopen(grew: true);
     _emitAnnotationChanges(beforeLength, impact.annotationPages);
   }
 
-  void _reopen() {
-    _document = PdfDocument.open(bytes, password: _password);
+  void _reopen({bool grew = false}) {
+    _reloadDocument(grew: grew);
     // the same /Annots slot may hold a different annotation now
     _selected.clear();
     _invalidateElements();
     notifyListeners();
+  }
+
+  /// Points [_document] at the current [bytes].
+  ///
+  /// Every edit is an incremental save, so a commit - and a redo, which
+  /// re-extends to a revision already sitting in the buffer - only ever
+  /// *appends* to what the open document already holds. Reopening from
+  /// scratch there re-walks the whole `/Prev` chain, so a session of N
+  /// revisions costs O(N^2) xref work and gets visibly slower the longer you
+  /// edit. [CosDocument.applyIncrementalUpdate] instead stops the walk at the
+  /// previous startxref and evicts only the objects the revision redefined.
+  ///
+  /// [grew] must be true only when [bytes] extends the currently open
+  /// document. Undo shrinks the buffer and [_resetTo] replaces it outright,
+  /// and neither is an append - those reopen.
+  void _reloadDocument({required bool grew}) {
+    if (grew && _tryApplyIncrementalUpdate()) return;
+    _document = PdfDocument.open(bytes, password: _password);
+  }
+
+  /// Folds the appended revision into the open document. False when it can't
+  /// be done incrementally (the document was opened through xref recovery,
+  /// or the appended xref chain is malformed), leaving [_document] untouched
+  /// for the caller to reopen from scratch.
+  bool _tryApplyIncrementalUpdate() {
+    assert(() {
+      // The updater builds each revision as "whole current file, then the
+      // appended objects", so the prefix is identical by construction. Verify
+      // it in debug builds only - a mismatch here would silently graft one
+      // document's xref onto another's bytes.
+      final next = bytes;
+      final current = _document.cos.bytes;
+      if (next.length <= current.length) return false;
+      for (var i = 0; i < current.length; i++) {
+        if (next[i] != current[i]) return false;
+      }
+      return true;
+    }(), 'incremental revision is not an append of the open document');
+    try {
+      // A *new* wrapper over the same updated COS layer: editing widgets read
+      // `identical(document, before)` as "the commit produced no revision",
+      // so the instance has to change even though the parse does not repeat.
+      _document = _document.withIncrementalUpdate(bytes);
+      return true;
+    } on CosParseException {
+      return false;
+    }
   }
 
   /// Runs [edit] against the current document and commits the result as a
@@ -606,7 +654,8 @@ class PdfEditingController extends ChangeNotifier {
           );
     if (_committingRemoteRevision) _undoFloor = _cursor;
     final selected = List.of(_selected);
-    _document = PdfDocument.open(bytes, password: _password);
+    // the incremental save appended to the previous revision
+    _reloadDocument(grew: true);
     // Existing controller mutations remap slots before committing when an
     // /Annots edit shifts them. The transaction validates that post-mutation
     // selection against the reopened revision in one place.

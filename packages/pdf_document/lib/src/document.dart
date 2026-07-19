@@ -118,6 +118,25 @@ class PdfDocument {
     return changed;
   }
 
+  /// Folds an append-only revision into the COS layer (see
+  /// [applyIncrementalUpdate]) and returns a *fresh* [PdfDocument] over it.
+  ///
+  /// Prefer this over [applyIncrementalUpdate] when the result is handed back
+  /// to UI code. Editing widgets across `dart_pdf_editor` use
+  /// `identical(document, previousDocument)` to mean "no new revision landed"
+  /// - an in-place update keeps the same wrapper and silently reads as "the
+  /// edit did nothing". The new wrapper restores that signal while still
+  /// skipping the full re-parse: the COS object cache is shared and only the
+  /// objects this revision redefined were evicted, and the new wrapper starts
+  /// with an empty page-tree cache.
+  ///
+  /// The previous wrapper must be discarded: it shares the now-updated
+  /// [CosDocument], so its cached page tree no longer matches.
+  PdfDocument withIncrementalUpdate(Uint8List newBytes) {
+    cos.applyIncrementalUpdate(newBytes);
+    return PdfDocument._(cos);
+  }
+
   /// Zero-based index of a page dictionary, or -1 if it isn't a leaf of
   /// this document's page tree. Resolved objects are cached by reference,
   /// so identity comparison is sound. Used to resolve link destinations.
