@@ -1928,7 +1928,42 @@ class _PdfPageViewState extends State<PdfPageView> {
   bool get _useTilePath {
     if (!PdfPageView.tileStoreDetail) return false;
     final scene = PdfPageView.retainedZoomReplay ? _scene : null;
-    return scene != null && scene.supportsRegionRaster;
+    if (scene == null) return false;
+    // A dense (grid-escalated) page's region index is a ~O(commands) build
+    // (~210ms on the CAD probe, issue #384). Never pay it synchronously on the
+    // UI isolate: defer the tile path until the warmed index is resident (built
+    // on the render worker when eligible - see [_warmRegionIndexIfNeeded]).
+    // Until then the base raster / single detail patch covers the view. Pages
+    // below the grid ceiling keep the cheap synchronous linear build.
+    if (scene.regionIndexBuildIsHeavy && !scene.debugHasRegionReplayIndex) {
+      return false;
+    }
+    return scene.supportsRegionRaster;
+  }
+
+  /// Kicks the region-replay index build onto the render worker when the page
+  /// is dense enough that the build would otherwise stall the UI isolate (issue
+  /// #384). Idempotent and cheap when the index is already resident, the build
+  /// is light, or a warm is already in flight; re-runs [_refreshTileGeometry]
+  /// once the index lands so the tile path can engage. Only a worker-recorded
+  /// scene may take a worker-built index (its transcript must match the
+  /// worker's re-record); other scenes warm in-isolate.
+  void _warmRegionIndexIfNeeded() {
+    final scene = PdfPageView.retainedZoomReplay ? _scene : null;
+    if (scene == null ||
+        scene.debugHasRegionReplayIndex ||
+        !scene.regionIndexBuildIsHeavy) {
+      return;
+    }
+    final worker = _sceneFromWorker ? widget.renderWorker : null;
+    final warming = scene;
+    scene
+        .warmRegionIndex(worker, pageIndex: widget.previewIndex)
+        .then((_) {
+      // Only refresh if this is still the adopted scene and we're mounted; a
+      // document swap or scroll-away may have replaced it while the worker ran.
+      if (mounted && identical(_scene, warming)) _refreshTileGeometry();
+    });
   }
 
   /// Per-tile veto for the tile store while the scene is vector-only: a tile
@@ -1955,6 +1990,9 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// ([PdfTileStore.viewFitsBudget]), where tiling would thrash the shared LRU.
   bool _refreshTileGeometry() {
     if (!mounted) return false;
+    // Ahead of the tile path engaging, warm a dense page's region index on the
+    // worker so its build never lands on the UI isolate (issue #384).
+    _warmRegionIndexIfNeeded();
     Rect? fraction;
     double? desired;
     var tiling = false;

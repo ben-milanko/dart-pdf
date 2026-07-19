@@ -1,9 +1,12 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
+
+/// Serialized-index format version. Producer and consumer are the same build,
+/// shipped together, so a mismatch is a programming error (asserted on read).
+const int _regionIndexFormatVersion = 1;
 
 /// Bounded, painter-order-preserving index for retained region replay.
 ///
@@ -175,20 +178,23 @@ class PdfRegionReplayIndex {
 
   /// Replays intersecting units in their original painter order. Uses the
   /// spatial [grid] when present (candidate units only), else a linear scan.
+  ///
+  /// Save/restore route through [device] (which forwards to its canvas) rather
+  /// than a `dart:ui` [Canvas] directly, so this whole file stays Flutter-free
+  /// and the render worker isolate can build and serialize the index.
   int replay(
     PdfRect region,
     List<PdfRenderCommand> commands,
     PdfDevice device,
-    Canvas canvas,
   ) {
     final grid = this.grid;
     if (grid != null) {
-      return grid.replay(region, units, commands, device, canvas);
+      return grid.replay(region, units, commands, device);
     }
     var replayed = 0;
     for (final unit in units) {
       if (!_intersects(unit.bounds, region)) continue;
-      canvas.save();
+      device.save();
       device.setBlendMode(unit.blendMode);
       unit.clips?.replay(device);
       replayCommands(
@@ -197,7 +203,7 @@ class PdfRegionReplayIndex {
         start: unit.commandIndex,
         end: unit.commandIndex + 1,
       );
-      canvas.restore();
+      device.restore();
       replayed++;
     }
     return replayed;
@@ -342,7 +348,6 @@ class PdfRegionReplayGrid {
     List<PdfRegionReplayUnit> units,
     List<PdfRenderCommand> commands,
     PdfDevice device,
-    Canvas canvas,
   ) {
     final gen = ++_generation;
     // Gather candidate unit indices (deduped) from the touched cells + broad.
@@ -374,7 +379,7 @@ class PdfRegionReplayGrid {
     var replayed = 0;
     for (final idx in candidates) {
       final unit = units[idx];
-      canvas.save();
+      device.save();
       device.setBlendMode(unit.blendMode);
       unit.clips?.replay(device);
       replayCommands(
@@ -383,7 +388,7 @@ class PdfRegionReplayGrid {
         start: unit.commandIndex,
         end: unit.commandIndex + 1,
       );
-      canvas.restore();
+      device.restore();
       replayed++;
     }
     return replayed;
@@ -598,3 +603,304 @@ bool pdfRenderRectsIntersect(PdfRect a, PdfRect b) =>
     a.left <= b.right &&
     a.top >= b.bottom &&
     a.bottom <= b.top;
+
+// --- isolate-boundary (de)serialization ---
+//
+// The grid arrays (`_cellStart`, `_cellUnits`, `_broad`) and the per-unit
+// bounds/commandIndex/blendMode are trivially sendable typed data. The only
+// live object graph is the clip-state tree: each [PdfRegionClipState] holds a
+// [PdfClipPathCommand] (a [PdfPath] + rule) plus a parent pointer, aggregate
+// bounds and an empty flag. The paths ride the existing [serializeCommands]
+// codec (float32 path coordinates, exactly what the scene transcript already
+// carries), and the tree structure is flattened to parent-index references.
+//
+// This lets a render worker build the whole index off the UI isolate — the
+// ~210ms grid build on a dense CAD page is pure command-bounds arithmetic — and
+// ship it back as one [Uint8List]. Reconstructed, the index replays
+// byte-identically to one built in the UI isolate (the codec truncation is
+// idempotent and the unit order — painter order — is preserved).
+
+/// Serializes [index] to a portable byte buffer, or returns null when it holds
+/// content the codec declines (a clip path that fails to serialize — never in
+/// practice, clip paths carry no images). An unsupported index (a
+/// transparency/soft-mask group spanned the page, or the build hit its bounds)
+/// serializes to a tiny "unsupported" marker so the consumer learns the worker
+/// examined the page and it is not region-cullable.
+Uint8List? serializeRegionReplayIndex(PdfRegionReplayIndex index) {
+  final w = _IdxWriter();
+  w.u8(_regionIndexFormatVersion);
+  w.boolean(index.supported);
+  w.u32(index.clipNodeCount);
+  if (!index.supported) return w.takeBytes();
+
+  // Flatten the clip-state forest reachable from the units into a list ordered
+  // so every parent precedes its children (register the parent first), which
+  // lets the reader rebuild each node once its parent already exists.
+  final nodeIndex = <PdfRegionClipState, int>{};
+  final ordered = <PdfRegionClipState>[];
+  int register(PdfRegionClipState? node) {
+    if (node == null) return -1;
+    final existing = nodeIndex[node];
+    if (existing != null) return existing;
+    register(node.parent); // parent gets a smaller index
+    final id = ordered.length;
+    nodeIndex[node] = id;
+    ordered.add(node);
+    return id;
+  }
+
+  final unitClipIndices = Int32List(index.units.length);
+  for (var i = 0; i < index.units.length; i++) {
+    unitClipIndices[i] = register(index.units[i].clips);
+  }
+
+  w.u32(ordered.length);
+  for (final node in ordered) {
+    w.i32(node.parent == null ? -1 : nodeIndex[node.parent]!);
+    _idxWriteOptRect(w, node.aggregateBounds);
+    w.boolean(node.empty);
+  }
+  // The clip PATH commands ride the shared command codec (float32 coordinates).
+  final clipCommands = <PdfRenderCommand>[for (final n in ordered) n.command];
+  final clipBytes = serializeCommands(clipCommands);
+  if (clipBytes == null) return null; // clip paths never carry images
+  w.bytes(clipBytes);
+
+  w.u32(index.units.length);
+  for (var i = 0; i < index.units.length; i++) {
+    final unit = index.units[i];
+    w.u32(unit.commandIndex);
+    _idxWriteRect(w, unit.bounds);
+    w.i32(unitClipIndices[i]);
+    w.u8(unit.blendMode.index);
+  }
+
+  final grid = index.grid;
+  w.boolean(grid != null);
+  if (grid != null) {
+    w.i32(grid._cols);
+    w.i32(grid._rows);
+    w.f64(grid._originX);
+    w.f64(grid._originY);
+    w.f64(grid._cellW);
+    w.f64(grid._cellH);
+    w.i32List(grid._cellStart);
+    w.i32List(grid._cellUnits);
+    w.i32List(grid._broad);
+  }
+  return w.takeBytes();
+}
+
+/// Reconstructs a [PdfRegionReplayIndex] written by
+/// [serializeRegionReplayIndex]. Throws on a malformed buffer; callers wrap the
+/// call and fall back to an in-isolate build on any failure.
+PdfRegionReplayIndex deserializeRegionReplayIndex(Uint8List bytes) {
+  final r = _IdxReader(bytes);
+  final version = r.u8();
+  assert(version == _regionIndexFormatVersion,
+      'region index format version mismatch');
+  final supported = r.boolean();
+  final clipNodeCount = r.u32();
+  if (!supported) {
+    return PdfRegionReplayIndex._(
+      supported: false,
+      units: const [],
+      clipNodeCount: clipNodeCount,
+    );
+  }
+
+  final nodeCount = r.u32();
+  final parents = Int32List(nodeCount);
+  final nodeBounds = List<PdfRect?>.filled(nodeCount, null);
+  final nodeEmpty = List<bool>.filled(nodeCount, false);
+  for (var i = 0; i < nodeCount; i++) {
+    parents[i] = r.i32();
+    nodeBounds[i] = _idxReadOptRect(r);
+    nodeEmpty[i] = r.boolean();
+  }
+  final clipCommands = deserializeCommands(r.bytes());
+  final nodes = List<PdfRegionClipState?>.filled(nodeCount, null);
+  for (var i = 0; i < nodeCount; i++) {
+    nodes[i] = PdfRegionClipState(
+      parent: parents[i] < 0 ? null : nodes[parents[i]],
+      command: clipCommands[i] as PdfClipPathCommand,
+      aggregateBounds: nodeBounds[i],
+      empty: nodeEmpty[i],
+    );
+  }
+
+  final unitCount = r.u32();
+  final units = List<PdfRegionReplayUnit>.generate(unitCount, (_) {
+    final commandIndex = r.u32();
+    final bounds = _idxReadRect(r);
+    final clipIndex = r.i32();
+    final blendMode = PdfBlendMode.values[r.u8()];
+    return PdfRegionReplayUnit(
+      commandIndex: commandIndex,
+      bounds: bounds,
+      clips: clipIndex < 0 ? null : nodes[clipIndex],
+      blendMode: blendMode,
+    );
+  }, growable: false);
+
+  PdfRegionReplayGrid? grid;
+  if (r.boolean()) {
+    final cols = r.i32();
+    final rows = r.i32();
+    final originX = r.f64();
+    final originY = r.f64();
+    final cellW = r.f64();
+    final cellH = r.f64();
+    final cellStart = r.i32List();
+    final cellUnits = r.i32List();
+    final broad = r.i32List();
+    grid = PdfRegionReplayGrid._(
+      cols,
+      rows,
+      originX,
+      originY,
+      cellW,
+      cellH,
+      cellStart,
+      cellUnits,
+      broad,
+      Int32List(unitCount),
+    );
+  }
+
+  return PdfRegionReplayIndex._(
+    supported: true,
+    units: List<PdfRegionReplayUnit>.unmodifiable(units),
+    clipNodeCount: clipNodeCount,
+    grid: grid,
+  );
+}
+
+void _idxWriteRect(_IdxWriter w, PdfRect rect) {
+  w.f64(rect.left);
+  w.f64(rect.bottom);
+  w.f64(rect.right);
+  w.f64(rect.top);
+}
+
+PdfRect _idxReadRect(_IdxReader r) => PdfRect(r.f64(), r.f64(), r.f64(), r.f64());
+
+void _idxWriteOptRect(_IdxWriter w, PdfRect? rect) {
+  w.boolean(rect != null);
+  if (rect != null) _idxWriteRect(w, rect);
+}
+
+PdfRect? _idxReadOptRect(_IdxReader r) => r.boolean() ? _idxReadRect(r) : null;
+
+/// A minimal big-endian byte writer for the region index. Mirrors the
+/// render-command codec's writer (grow one backing buffer, write scalars into a
+/// [ByteData] view at a running offset) so the two behave identically on the
+/// web, where 64-bit ints are encoded as float64.
+class _IdxWriter {
+  Uint8List _buf = Uint8List(1 << 12);
+  late ByteData _view = ByteData.view(_buf.buffer);
+  int _len = 0;
+
+  void _ensure(int extra) {
+    final need = _len + extra;
+    if (need <= _buf.length) return;
+    var cap = _buf.length * 2;
+    while (cap < need) {
+      cap *= 2;
+    }
+    final grown = Uint8List(cap)..setRange(0, _len, _buf);
+    _buf = grown;
+    _view = ByteData.view(grown.buffer);
+  }
+
+  void u8(int v) {
+    _ensure(1);
+    _buf[_len++] = v & 0xff;
+  }
+
+  void boolean(bool v) => u8(v ? 1 : 0);
+
+  void u32(int v) {
+    _ensure(4);
+    _view.setUint32(_len, v);
+    _len += 4;
+  }
+
+  void i32(int v) {
+    _ensure(4);
+    _view.setInt32(_len, v);
+    _len += 4;
+  }
+
+  void f64(double v) {
+    _ensure(8);
+    _view.setFloat64(_len, v);
+    _len += 8;
+  }
+
+  void bytes(Uint8List xs) {
+    u32(xs.length);
+    _ensure(xs.length);
+    _buf.setRange(_len, _len + xs.length, xs);
+    _len += xs.length;
+  }
+
+  void i32List(Int32List xs) {
+    u32(xs.length);
+    _ensure(xs.length * 4);
+    for (final x in xs) {
+      _view.setInt32(_len, x);
+      _len += 4;
+    }
+  }
+
+  Uint8List takeBytes() =>
+      Uint8List.fromList(Uint8List.sublistView(_buf, 0, _len));
+}
+
+class _IdxReader {
+  _IdxReader(this._bytes) : _data = ByteData.sublistView(_bytes);
+
+  final Uint8List _bytes;
+  final ByteData _data;
+  int _o = 0;
+
+  int u8() => _data.getUint8(_o++);
+
+  bool boolean() => u8() == 1;
+
+  int u32() {
+    final v = _data.getUint32(_o);
+    _o += 4;
+    return v;
+  }
+
+  int i32() {
+    final v = _data.getInt32(_o);
+    _o += 4;
+    return v;
+  }
+
+  double f64() {
+    final v = _data.getFloat64(_o);
+    _o += 8;
+    return v;
+  }
+
+  Uint8List bytes() {
+    final n = u32();
+    final out = Uint8List.fromList(Uint8List.sublistView(_bytes, _o, _o + n));
+    _o += n;
+    return out;
+  }
+
+  Int32List i32List() {
+    final n = u32();
+    final out = Int32List(n);
+    for (var i = 0; i < n; i++) {
+      out[i] = _data.getInt32(_o);
+      _o += 4;
+    }
+    return out;
+  }
+}

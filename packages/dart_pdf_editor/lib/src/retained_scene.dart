@@ -339,7 +339,7 @@ class PdfRetainedScene {
       if (index.supported && pageRegion != null) {
         debugLastRegionReplayWasSelective = true;
         debugLastRegionReplayCommandCount =
-            index.replay(pageRegion, commands, device, canvas);
+            index.replay(pageRegion, commands, device);
         return;
       }
     }
@@ -351,16 +351,117 @@ class PdfRetainedScene {
   PdfRegionReplayIndex _ensureRegionIndex() {
     _register();
     if (_regionIndex != null) return _regionIndex!;
-    // Below the linear ceiling: the flat per-op scan (unchanged). Above it:
-    // escalate to the grid rather than falling back to full-transcript replay.
-    final overLinear = commands.length > spatialRegionReplayMaxCommands;
-    final useGrid = spatialGridReplay && overLinear;
+    final params = _regionIndexBuildParams;
     return _regionIndex = PdfRegionReplayIndex.build(
       commands,
-      maxCommands:
-          useGrid ? spatialGridReplayMaxCommands : spatialRegionReplayMaxCommands,
+      maxCommands: params.maxCommands,
+      buildGrid: params.buildGrid,
+    );
+  }
+
+  /// The `(maxCommands, buildGrid)` the region index builds under for this
+  /// transcript, given the current escalation policy. Below the linear ceiling:
+  /// the flat per-op scan (unchanged). Above it: escalate to the grid rather
+  /// than falling back to full-transcript replay. Shared by the in-isolate
+  /// build ([_ensureRegionIndex]) and the worker request ([warmRegionIndex]) so
+  /// both bin the transcript identically — the worker re-records a byte-for-byte
+  /// identical transcript, so the same parameters produce an index whose unit
+  /// indices line up with this scene's [commands].
+  ({int maxCommands, bool buildGrid}) get _regionIndexBuildParams {
+    final overLinear = commands.length > spatialRegionReplayMaxCommands;
+    final useGrid = spatialGridReplay && overLinear;
+    return (
+      maxCommands: useGrid
+          ? spatialGridReplayMaxCommands
+          : spatialRegionReplayMaxCommands,
       buildGrid: useGrid,
     );
+  }
+
+  Future<PdfRegionReplayIndex>? _regionIndexWarming;
+
+  /// Whether the transcript is heavy enough that building the region index is
+  /// worth offloading to a worker — the grid-escalation case, which is the
+  /// ~O(commands) build (~210ms on the dense CAD probe) issue #384 targets. A
+  /// small page's linear index builds in microseconds; warming it on a worker
+  /// would only add a round trip.
+  bool get regionIndexBuildIsHeavy => _regionIndexBuildParams.buildGrid;
+
+  /// Builds the region-replay index off the UI isolate on [worker] when it can,
+  /// so the first deep-zoom on a dense page does not pay the grid build (pure
+  /// command-bounds arithmetic — no `dart:ui`) synchronously on the UI isolate.
+  ///
+  /// [worker] must be the worker this scene was recorded from (its re-record is
+  /// deterministic, so the index it ships lines up with this scene's
+  /// [commands]); [pageIndex] is that page's index in the worker's document.
+  /// Falls back to an in-isolate build when the worker is null/inactive/declines
+  /// or ships a buffer that fails to reconstruct, and to nothing extra when the
+  /// index is already resident. Idempotent: concurrent calls share one build.
+  Future<PdfRegionReplayIndex> warmRegionIndex(
+    PdfRenderWorker? worker, {
+    int pageIndex = -1,
+    int priority = 0,
+  }) {
+    final resident = _regionIndex;
+    if (resident != null) return Future.value(resident);
+    final inFlight = _regionIndexWarming;
+    if (inFlight != null) return inFlight;
+    final future = _warmRegionIndex(worker, pageIndex, priority);
+    _regionIndexWarming = future;
+    // Clear the memo on completion, but only if it still points to THIS build.
+    // The worker-less path completes _warmRegionIndex synchronously (no await),
+    // so a `finally` inside it would null the field before the assignment above
+    // even ran, leaving a stale completed future memoized - which a later
+    // dropRegionIndex would then hand back instead of rebuilding. whenComplete
+    // with an identity guard nulls exactly the right one, whenever it finishes.
+    future.whenComplete(() {
+      if (identical(_regionIndexWarming, future)) _regionIndexWarming = null;
+    });
+    return future;
+  }
+
+  Future<PdfRegionReplayIndex> _warmRegionIndex(
+    PdfRenderWorker? worker,
+    int pageIndex,
+    int priority,
+  ) async {
+    final params = _regionIndexBuildParams;
+    PdfRegionReplayIndex? fromWorker;
+    if (worker != null && worker.isActive && pageIndex >= 0) {
+      try {
+        fromWorker = await worker.buildRegionIndex(
+          pageIndex,
+          annotations: plan.annotations,
+          maxCommands: params.maxCommands,
+          buildGrid: params.buildGrid,
+          priority: priority,
+        );
+      } catch (_) {
+        // worker failure → local build below
+      }
+    }
+    // A synchronous access (supportsRegionRaster) may have built the index
+    // while the worker ran; prefer the resident one to keep a single instance.
+    final resident = _regionIndex;
+    if (resident != null) return resident;
+    final index = fromWorker ??
+        PdfRegionReplayIndex.build(
+          commands,
+          maxCommands: params.maxCommands,
+          buildGrid: params.buildGrid,
+        );
+    // Don't repopulate a disposed scene's field; the caller ignores the
+    // result once disposed, but a rebuilt index would leak past dispose.
+    if (!_disposed) _regionIndex = index;
+    return index;
+  }
+
+  /// Releases the retained region-replay index (a memory-pressure primitive on
+  /// the extreme pages that carry a large index). The next region raster or
+  /// [warmRegionIndex] rebuilds it. A no-op when none is held; an in-flight warm
+  /// simply repopulates it.
+  void dropRegionIndex() {
+    _regionIndex = null;
   }
 
   PdfRect? _pageSpaceRegion(Rect region) {
