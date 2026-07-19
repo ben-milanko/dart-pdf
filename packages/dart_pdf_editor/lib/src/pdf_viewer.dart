@@ -770,6 +770,14 @@ typedef PdfScrollIndicatorBuilder = Widget Function(
 /// search with highlights. Pages re-rasterize at the settled zoom; past the
 /// full-page raster caps a detail patch keeps the visible region sharp.
 class PdfViewer extends StatefulWidget {
+  /// Raw content size above which a page is treated as "heavy" and its text is
+  /// NOT extracted synchronously just to pick a hover cursor. A normal page is
+  /// a few KB; a dense CAD sheet is megabytes and its extraction (a full
+  /// content-stream interpret) costs hundreds of ms - freezing a frame the
+  /// instant the pointer crosses it. 512KB of encoded content is comfortably
+  /// above any ordinary text page and well below a heavy vector drawing.
+  static int hoverTextExtractMaxRawContentBytes = 512 * 1024;
+
   const PdfViewer({
     super.key,
     this.document,
@@ -3091,12 +3099,43 @@ class _PdfViewerState extends State<PdfViewer>
 
   /// Maps a pointer position to a text position. [tolerance] is in page
   /// units; pass infinity to snap to the nearest text while dragging.
+  ///
+  /// This forces a synchronous extraction on a cache miss (hundreds of ms on
+  /// a dense page) - acceptable on an explicit selection/click where the user
+  /// initiated the action, but NOT for the hover cursor: use
+  /// [_hoverTextCursorAt] there.
   (int, int)? _textPositionAt(Offset local, {required double tolerance}) {
     final point = _pagePointAt(local);
     if (point == null) return null;
     final (i, x, y) = point;
     final offset = _pageText(i).positionNear(x, y, tolerance: tolerance);
     return offset < 0 ? null : (i, offset);
+  }
+
+  /// Whether the hover cursor over [local] should be the text I-beam.
+  ///
+  /// For an ordinary page this extracts synchronously (fast) so the I-beam
+  /// appears immediately, as it always has. For a HEAVY page (see
+  /// [hoverTextExtractMaxRawContentBytes]) it never triggers the multi-hundred-
+  /// ms extraction from a mere mouse-move: it uses the text only if already
+  /// resident (warmed by a real selection/search), else returns false and the
+  /// cursor stays grab. Touch (iPad) never hovers, so a finger pan never
+  /// reaches this at all.
+  bool _hoverTextCursorAt(Offset local) {
+    final point = _pagePointAt(local);
+    if (point == null) return false;
+    final (i, x, y) = point;
+    final PdfPageText text;
+    if (i < _pages.length &&
+        _pages[i].rawContentLength >
+            PdfViewer.hoverTextExtractMaxRawContentBytes) {
+      final ready = _textCache[i];
+      if (ready == null) return false; // heavy page: don't extract on hover
+      text = ready;
+    } else {
+      text = _pageText(i);
+    }
+    return text.positionNear(x, y, tolerance: 8) >= 0;
   }
 
   /// Visible annotations with an action on a page, cached.
@@ -3620,7 +3659,7 @@ class _PdfViewerState extends State<PdfViewer>
                 null) ||
         _selectableAnnotationAt(event.localPosition)) {
       cursor = SystemMouseCursors.click;
-    } else if (_textPositionAt(event.localPosition, tolerance: 8) != null) {
+    } else if (_hoverTextCursorAt(event.localPosition)) {
       cursor = SystemMouseCursors.text;
     } else {
       // empty page or canvas: a mouse drag grab-pans the document
