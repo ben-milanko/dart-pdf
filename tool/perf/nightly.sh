@@ -13,7 +13,8 @@ mkdir -p "$HISTORY"
 HISTORY="$(cd "$HISTORY" && pwd)"
 
 DART=dart
-if command -v fvm >/dev/null 2>&1; then DART="fvm dart"; fi
+FLUTTER=flutter
+if command -v fvm >/dev/null 2>&1; then DART="fvm dart"; FLUTTER="fvm flutter"; fi
 
 sweep() { # sweep <scenario>
   echo "── vm-sweep: $1"
@@ -24,11 +25,41 @@ sweep() { # sweep <scenario>
       --append-history "$HISTORY/vm-sweep.ndjson" --out /dev/null)
 }
 
+# Generate the heavy synthetic docs the image-heavy scenarios render/sweep.
+"$(dirname "$0")/gen_perf_docs.sh"
+
 sweep dartpdf-corpus
 sweep ghent-suite-open
 sweep pdfjs-hostile
 sweep save-incremental
 sweep cad-138p-sweep
+sweep image-heavy
+
+# Render trend (Flutter rasterization: interpret + paint + toImage). Captures
+# the paint- and image-decode-path gains the NullDevice vm-sweep can't see.
+# Rides `flutter test`'s headless engine; appends one flutter-render line.
+render_bench() { # render_bench <scenario> <corpus-rel-to-dart_pdf_editor> <scale> <maxPages>
+  echo "── render: $1 ($2)"
+  (cd "$ROOT/packages/dart_pdf_editor" &&
+    PDF_BENCHMARK_DIR="$2" \
+    PDF_BENCHMARK_SCALE="$3" PDF_BENCHMARK_MAX_PAGES="$4" PDF_BENCHMARK_REPEAT=2 \
+    PDF_BENCHMARK_SCENARIO="$1" \
+    PDF_BENCHMARK_APPEND_HISTORY="$HISTORY/flutter-render.ndjson" \
+    $FLUTTER test test/benchmark_render_test.dart)
+}
+render_bench ghent-render "../../test_corpora/ghent" 2 3
+render_bench image-render "../../tool/perf/cache/image-heavy" 1.5 4
+render_bench devicen-render "../../tool/perf/cache/devicen" 1 2
+
+# Progressive first-paint: bytes a remote reader pulls to paint page 1 through
+# the ranged PdfByteSource vs a full read (#328/#359). PdfDocument.openSource is
+# 2.0.0-era, so this is HEAD-only (never backfilled).
+echo "── progressive-open: cad-138p"
+(cd "$ROOT/packages/pdf_graphics" &&
+  PDF_PROGRESSIVE_SCENARIO=progressive-cad \
+  PDF_PROGRESSIVE_APPEND_HISTORY="$HISTORY/progressive-open.ndjson" \
+  $DART run tool/bench_progressive_open.dart \
+    ../../tool/perf/cache/cad-138-6000-20260718.pdf 3)
 
 # Competitive column: PDFium over the same Ghent corpus, when pypdfium2 is
 # importable (the workflow pip-installs it; locally it is optional).

@@ -14,6 +14,41 @@
     "repeat": 3,
     "ciSafe": true
   },
+  "ghent-render": {
+    "suite": "flutter-render",
+    "note": "Full page rasterization (interpret + paint + toImage) via benchmark_render_test on the headless Flutter engine; captures paint + image-decode gains the NullDevice vm-sweep can't. Driven by env vars, not perf_sweep.",
+    "corpus": "test_corpora/ghent",
+    "scale": 2,
+    "maxPages": 3,
+    "repeat": 2,
+    "ciSafe": true
+  },
+  "image-heavy": {
+    "suite": "vm-sweep",
+    "note": "Heavy per-page RGB images (~8 MB decoded RGBA each, ~196 MB total) - the #283 scanned/photo memory shape. Exercises image decode + peak RSS / the decoded-image-cache budget work (#307/#314). Generated once + pre-seeded into tool/perf/cache/image-heavy so every version measures identical input.",
+    "corpus": "tool/perf/cache/image-heavy",
+    "maxPages": 0,
+    "repeat": 2,
+    "ciSafe": true
+  },
+  "image-render": {
+    "suite": "flutter-render",
+    "note": "Rasterizes the image-heavy doc (image decode + paint). Same generated corpus as image-heavy.",
+    "corpus": "tool/perf/cache/image-heavy",
+    "scale": 1.5,
+    "maxPages": 4,
+    "repeat": 2,
+    "ciSafe": true
+  },
+  "devicen-render": {
+    "suite": "flutter-render",
+    "note": "Rasterizes a DeviceN-image doc (3-colorant /DeviceN + type-4 tint -> CMYK, banded samples). The tint transform runs at decode, so this isolates the #282 memoisation: renderMs collapses ~2530 ms/page (1.4.6) -> ~98 ms/page (1.4.7). Generated + pre-seeded.",
+    "corpus": "tool/perf/cache/devicen",
+    "scale": 1,
+    "maxPages": 2,
+    "repeat": 2,
+    "ciSafe": true
+  },
   "pdfjs-hostile": {
     "suite": "vm-sweep",
     "corpus": "test_corpora/pdfjs",
