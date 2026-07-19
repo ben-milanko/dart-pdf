@@ -6,3 +6,11 @@
 # not code).
 doc/dev-log.md     merge=union
 **/CHANGELOG.md     merge=union
+
+# Generated dart2js bundle: a textual 3-way merge of two compiler outputs is
+# meaningless - it can produce a bundle matching neither source tree. Never
+# merge it; resolve by regenerating (see tool/build_web.sh). CI regenerates and
+# pushes it automatically on same-repo PRs (tool/ci/regen_web_worker.sh).
+# -merge keeps our side and flags a conflict instead of interleaving hunks;
+# -diff keeps ~970 KB of minified JS out of diffs and PR views.
+packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js -merge -diff
