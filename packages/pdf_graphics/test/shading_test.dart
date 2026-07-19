@@ -75,6 +75,55 @@ void main() {
       expect(fn.evaluate(0.25).single, closeTo(0.25, 1e-9));
     });
 
+    test('type 0 evaluates every input of a multi-dimensional sampler', () {
+      // A 2x2x2 identity tint transform: 3 inputs -> 3 outputs, sampled at
+      // the cube corners. This is the shape of devicen.pdf's transform, and
+      // regressed to black-on-non-first-input before multilinear support.
+      // Sample point (i0, i1, i2) with the first dimension varying fastest;
+      // the RGB value stored at each corner is the corner coordinate itself.
+      final samples = <int>[];
+      for (var i2 = 0; i2 < 2; i2++) {
+        for (var i1 = 0; i1 < 2; i1++) {
+          for (var i0 = 0; i0 < 2; i0++) {
+            samples.addAll([i0 * 255, i1 * 255, i2 * 255]);
+          }
+        }
+      }
+      final fn = PdfFunction.parse(
+        cos,
+        CosStream(
+          CosDictionary({
+            'FunctionType': const CosInteger(0),
+            'Domain': CosArray([
+              for (var i = 0; i < 3; i++) ...const [CosInteger(0), CosInteger(1)]
+            ]),
+            'Range': CosArray([
+              for (var i = 0; i < 3; i++) ...const [CosInteger(0), CosInteger(1)]
+            ]),
+            'Size': CosArray(
+                [const CosInteger(2), const CosInteger(2), const CosInteger(2)]),
+            'BitsPerSample': const CosInteger(8),
+          }),
+          Uint8List.fromList(samples),
+        ),
+      )!;
+
+      void expectClose(List<double> actual, List<double> expected) {
+        expect(actual.length, expected.length);
+        for (var i = 0; i < expected.length; i++) {
+          expect(actual[i], closeTo(expected[i], 1e-9));
+        }
+      }
+
+      // Red, green and blue must each survive - not just the first input.
+      expectClose(fn.evaluateAt([1, 0, 0]), [1, 0, 0]);
+      expectClose(fn.evaluateAt([0, 1, 0]), [0, 1, 0]);
+      expectClose(fn.evaluateAt([0, 0, 1]), [0, 0, 1]);
+      expectClose(fn.evaluateAt([1, 1, 0]), [1, 1, 0]);
+      // Interior point exercises the trilinear blend across all 8 corners.
+      expectClose(fn.evaluateAt([0.5, 0.25, 0.75]), [0.5, 0.25, 0.75]);
+    });
+
     CosStream calculator(String program, {List<CosObject>? range}) =>
         CosStream(
           CosDictionary({
