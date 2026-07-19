@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Speed up CCITT G3/G4 decoding by ~4x on dense scanned pages: a monotonic
+  cursor for the 2-D reference-row scan (was O(transitions^2) per row),
+  peek-once prefix tables for run and mode codes, byte-run span fills, and
+  a byte-at-a-time bit reader. The JBIG2 MMR path, which reuses the same
+  decoder, gains a byte-at-a-time bitmap unpack. Output is byte-identical
+  on well-formed, malformed, and truncated input, locked by golden digests
+  captured from the previous implementation (#398).
+
 ## 2.0.0
 
 - Major version bump for the 2.0.0 package suite. A breaking API change in

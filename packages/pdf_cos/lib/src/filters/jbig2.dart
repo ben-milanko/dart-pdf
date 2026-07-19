@@ -401,10 +401,20 @@ class Jbig2Decoder {
     ).decode();
     final bitmap = _Bitmap(w, h, fill: 0);
     final rowBytes = (w + 7) >> 3;
+    final out = bitmap.data;
+    // Unpack a byte at a time: the bitmap starts all-zero, so an all-white
+    // byte (the common case on a scanned page) is skipped outright instead
+    // of costing eight bounds-checked writes.
     for (var y = 0; y < h; y++) {
-      for (var x = 0; x < w; x++) {
-        if ((packed[y * rowBytes + (x >> 3)] >> (7 - (x & 7))) & 1 != 0) {
-          bitmap.set(x, y, 1);
+      final rowStart = y * rowBytes;
+      final base = y * w;
+      for (var byte = 0; byte < rowBytes; byte++) {
+        final value = packed[rowStart + byte];
+        if (value == 0) continue;
+        final x0 = byte << 3;
+        final last = x0 + 8 <= w ? 8 : w - x0;
+        for (var bit = 0; bit < last; bit++) {
+          if ((value >> (7 - bit)) & 1 != 0) out[base + x0 + bit] = 1;
         }
       }
     }
