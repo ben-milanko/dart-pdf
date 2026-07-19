@@ -223,6 +223,46 @@ void main() {
     });
   });
 
+  testWidgets('evictAll frees every strip; estimated bytes fall to zero',
+      (tester) async {
+    final bands = PdfBandedTranscript.build(_wideTranscript(), bandCount: 8)!;
+    expect(bands.residentBandCount, 8);
+    expect(bands.estimatedResidentBytes, greaterThan(0));
+    bands.evictAll();
+    expect(bands.residentBandCount, 0);
+    expect(bands.estimatedResidentBytes, 0);
+    // Every strip the page covers is now missing.
+    expect(bands.missingBandsForRegion(PdfRect(bands.xMin, 0, bands.xMax, 1000)),
+        isNotEmpty);
+  });
+
+  testWidgets('scene.reband re-materializes evicted strips via one re-record',
+      (tester) async {
+    await tester.runAsync(() async {
+      // A recorded scene (commands == record(page, plan)), so reband's
+      // re-record reproduces the identical transcript.
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.record(page);
+      addTearDown(scene.dispose);
+
+      final bands = scene.bandTranscript(bandCount: 6);
+      expect(bands, isNotNull,
+          reason: 'the classic page must be spatially indexable');
+      expect(bands!.residentBandCount, 6);
+
+      // No-op while every strip is resident.
+      expect(await scene.reband(), isEmpty);
+
+      bands.evictAll();
+      expect(bands.residentBandCount, 0);
+
+      final restored = await scene.reband();
+      expect(restored, isNotEmpty);
+      expect(bands.residentBandCount, 6,
+          reason: 'reband restores every evicted strip');
+    });
+  });
+
   testWidgets('scene exposes the histogram, drop, and banding primitives',
       (tester) async {
     await tester.runAsync(() async {
