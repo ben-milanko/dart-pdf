@@ -1389,6 +1389,45 @@ class _PdfViewerState extends State<PdfViewer>
   FrictionSimulation? _flingSimY;
   Offset _flingLast = Offset.zero;
 
+  /// Raw-pointer velocity for the active touch drag, tracked independently of
+  /// the drag recognizer.
+  ///
+  /// [DragGestureRecognizer] reports `Velocity.zero` - a hard zero, not a small
+  /// number - whenever its own `isFlingGesture` check fails, which needs both a
+  /// velocity estimate and enough travel inside the tracker's ~100 ms horizon.
+  /// While zoomed into a dense sheet the UI thread runs 40-165 ms frames, so
+  /// that estimate keeps failing and EVERY lift-off arrives as v=0: the fling is
+  /// skipped and momentum dies. Fit-scale scrolling is unaffected because the
+  /// ListView's own physics handle it, which is exactly the "flings zoomed out
+  /// but not zoomed in" split.
+  ///
+  /// Feeding a tracker straight from the [Listener]'s pointer stream keeps a
+  /// usable estimate regardless of how the recognizer's own window fared.
+  VelocityTracker? _touchVelocityTracker;
+
+  void _trackTouchVelocity(PointerMoveEvent event) {
+    if (event.kind != PointerDeviceKind.touch &&
+        event.kind != PointerDeviceKind.stylus) {
+      return;
+    }
+    (_touchVelocityTracker ??= VelocityTracker.withKind(event.kind))
+        .addPosition(event.timeStamp, event.position);
+  }
+
+  /// The recognizer's velocity, or the raw-pointer estimate when it reported a
+  /// hard zero (see [_touchVelocityTracker]).
+  Velocity _flingVelocityFrom(DragEndDetails details) {
+    final reported = details.velocity;
+    if (reported.pixelsPerSecond.distance >= kMinFlingVelocity) return reported;
+    final tracked = _touchVelocityTracker?.getVelocity();
+    if (tracked == null) return reported;
+    if (tracked.pixelsPerSecond.distance < kMinFlingVelocity) return reported;
+    PdfPerfLog.log('fling velocity recovered from raw pointers '
+        'reported=${reported.pixelsPerSecond.distance.round()} '
+        'tracked=${tracked.pixelsPerSecond.distance.round()}px/s');
+    return tracked;
+  }
+
   /// Springs the horizontal translation back to bounds after a touch
   /// gesture overshoots the content edge (rubber-band release).
   late final AnimationController _hBounceController =
@@ -3859,6 +3898,8 @@ class _PdfViewerState extends State<PdfViewer>
     _suppressTap = false;
     _lastPointerKind = event.kind;
     _lastPointerLocal = event.localPosition;
+    // A fresh drag starts a fresh velocity window (see _touchVelocityTracker).
+    _touchVelocityTracker = null;
     _panFlinger.stop();
     _touchFlinger.stop();
     _hBounceController.stop();
@@ -4607,7 +4648,8 @@ class _PdfViewerState extends State<PdfViewer>
     // so a console trace of a fling would otherwise show nothing at all.
     PdfPerfLog.log('zoomed-touch-pan END '
         'v=${details.velocity.pixelsPerSecond.distance.round()}px/s');
-    _flingViewport(details.velocity);
+    _flingViewport(_flingVelocityFrom(details));
+    _touchVelocityTracker = null;
   }
 
   void _onZoomedTouchPanCancel() {
@@ -5326,6 +5368,7 @@ class _PdfViewerState extends State<PdfViewer>
                         },
                         child: Listener(
                           onPointerDown: _onPointerDown,
+                          onPointerMove: _trackTouchVelocity,
                           onPointerUp: _onPointerUp,
                           child: GestureDetector(
                             onTapUp: _onTapUp,
