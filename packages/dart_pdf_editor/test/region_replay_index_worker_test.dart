@@ -248,7 +248,13 @@ void main() {
       expect(scene.debugHasRegionReplayIndex, isTrue);
       scene.dropRegionIndex();
       expect(scene.debugHasRegionReplayIndex, isFalse);
-      // The next region raster silently rebuilds it.
+      // A re-warm after a drop must actually rebuild, not hand back a stale
+      // completed future memoized from the first (synchronous) warm.
+      await scene.warmRegionIndex(null, pageIndex: 0);
+      expect(scene.debugHasRegionReplayIndex, isTrue,
+          reason: 'warm after drop rebuilds the index');
+      scene.dropRegionIndex();
+      // The next region raster silently rebuilds it too.
       final image = await scene.rasterizeRegion(
           const Rect.fromLTWH(0, 0, 100, 100),
           pixelRatio: 1);

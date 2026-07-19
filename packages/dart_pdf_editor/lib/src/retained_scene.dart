@@ -315,6 +315,15 @@ class PdfRetainedScene {
     if (inFlight != null) return inFlight;
     final future = _warmRegionIndex(worker, pageIndex, priority);
     _regionIndexWarming = future;
+    // Clear the memo on completion, but only if it still points to THIS build.
+    // The worker-less path completes _warmRegionIndex synchronously (no await),
+    // so a `finally` inside it would null the field before the assignment above
+    // even ran, leaving a stale completed future memoized - which a later
+    // dropRegionIndex would then hand back instead of rebuilding. whenComplete
+    // with an identity guard nulls exactly the right one, whenever it finishes.
+    future.whenComplete(() {
+      if (identical(_regionIndexWarming, future)) _regionIndexWarming = null;
+    });
     return future;
   }
 
@@ -323,39 +332,35 @@ class PdfRetainedScene {
     int pageIndex,
     int priority,
   ) async {
-    try {
-      final params = _regionIndexBuildParams;
-      PdfRegionReplayIndex? fromWorker;
-      if (worker != null && worker.isActive && pageIndex >= 0) {
-        try {
-          fromWorker = await worker.buildRegionIndex(
-            pageIndex,
-            annotations: plan.annotations,
-            maxCommands: params.maxCommands,
-            buildGrid: params.buildGrid,
-            priority: priority,
-          );
-        } catch (_) {
-          // worker failure → local build below
-        }
+    final params = _regionIndexBuildParams;
+    PdfRegionReplayIndex? fromWorker;
+    if (worker != null && worker.isActive && pageIndex >= 0) {
+      try {
+        fromWorker = await worker.buildRegionIndex(
+          pageIndex,
+          annotations: plan.annotations,
+          maxCommands: params.maxCommands,
+          buildGrid: params.buildGrid,
+          priority: priority,
+        );
+      } catch (_) {
+        // worker failure → local build below
       }
-      // A synchronous access (supportsRegionRaster) may have built the index
-      // while the worker ran; prefer the resident one to keep a single instance.
-      final resident = _regionIndex;
-      if (resident != null) return resident;
-      final index = fromWorker ??
-          PdfRegionReplayIndex.build(
-            commands,
-            maxCommands: params.maxCommands,
-            buildGrid: params.buildGrid,
-          );
-      // Don't repopulate a disposed scene's field; the caller ignores the
-      // result once disposed, but a rebuilt index would leak past dispose.
-      if (!_disposed) _regionIndex = index;
-      return index;
-    } finally {
-      _regionIndexWarming = null;
     }
+    // A synchronous access (supportsRegionRaster) may have built the index
+    // while the worker ran; prefer the resident one to keep a single instance.
+    final resident = _regionIndex;
+    if (resident != null) return resident;
+    final index = fromWorker ??
+        PdfRegionReplayIndex.build(
+          commands,
+          maxCommands: params.maxCommands,
+          buildGrid: params.buildGrid,
+        );
+    // Don't repopulate a disposed scene's field; the caller ignores the
+    // result once disposed, but a rebuilt index would leak past dispose.
+    if (!_disposed) _regionIndex = index;
+    return index;
   }
 
   /// Releases the retained region-replay index (a memory-pressure primitive on
