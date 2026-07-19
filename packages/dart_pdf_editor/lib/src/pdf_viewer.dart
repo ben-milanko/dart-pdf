@@ -1410,8 +1410,13 @@ class _PdfViewerState extends State<PdfViewer>
         event.kind != PointerDeviceKind.stylus) {
       return;
     }
+    // localPosition, NOT position: the recognizer's own tracker runs on local
+    // positions, so the zoom transform is already divided out and the estimate
+    // comes back in the list-space px/s [_flingViewport] expects. Feeding
+    // global (screen) positions instead overstates a zoomed fling by the zoom
+    // factor - at ~41x that flings the page clear off screen.
     (_touchVelocityTracker ??= VelocityTracker.withKind(event.kind))
-        .addPosition(event.timeStamp, event.position);
+        .addPosition(event.timeStamp, event.localPosition);
   }
 
   /// The recognizer's velocity, or the raw-pointer estimate when it reported a
@@ -1422,10 +1427,14 @@ class _PdfViewerState extends State<PdfViewer>
     final tracked = _touchVelocityTracker?.getVelocity();
     if (tracked == null) return reported;
     if (tracked.pixelsPerSecond.distance < kMinFlingVelocity) return reported;
+    // Same ceiling the platform recognizers apply, so a fast flick can't launch
+    // the page an unrecoverable distance.
+    final clamped =
+        tracked.clampMagnitude(kMinFlingVelocity, kMaxFlingVelocity);
     PdfPerfLog.log('fling velocity recovered from raw pointers '
         'reported=${reported.pixelsPerSecond.distance.round()} '
-        'tracked=${tracked.pixelsPerSecond.distance.round()}px/s');
-    return tracked;
+        'tracked=${clamped.pixelsPerSecond.distance.round()}px/s');
+    return clamped;
   }
 
   /// Springs the horizontal translation back to bounds after a touch
