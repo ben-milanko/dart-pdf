@@ -51,6 +51,16 @@ render_bench ghent-render "../../test_corpora/ghent" 2 3
 render_bench image-render "../../tool/perf/cache/image-heavy" 1.5 4
 render_bench devicen-render "../../tool/perf/cache/devicen" 1 2
 
+# Progressive first-paint: bytes a remote reader pulls to paint page 1 through
+# the ranged PdfByteSource vs a full read (#328/#359). PdfDocument.openSource is
+# 2.0.0-era, so this is HEAD-only (never backfilled).
+echo "── progressive-open: cad-138p"
+(cd "$ROOT/packages/pdf_graphics" &&
+  PDF_PROGRESSIVE_SCENARIO=progressive-cad \
+  PDF_PROGRESSIVE_APPEND_HISTORY="$HISTORY/progressive-open.ndjson" \
+  $DART run tool/bench_progressive_open.dart \
+    ../../tool/perf/cache/cad-138-6000-20260718.pdf 3)
+
 # Competitive column: PDFium over the same Ghent corpus, when pypdfium2 is
 # importable (the workflow pip-installs it; locally it is optional).
 if python3 -c 'import pypdfium2' 2>/dev/null; then
