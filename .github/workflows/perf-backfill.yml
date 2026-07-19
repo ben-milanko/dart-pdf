@@ -43,8 +43,11 @@ jobs:
       - name: Fetch perf-data history branch
         run: git fetch origin perf-data:perf-data 2>/dev/null || echo "no perf-data branch yet"
 
-      - name: Graft harness onto each ref and sweep
+      - name: VM-sweep backfill (parse/interpret + peak RSS)
         run: tool/perf/backfill.sh out/perf-history ${{ github.event.inputs.refs }}
+
+      - name: Render backfill (rasterize - paint + image decode)
+        run: tool/perf/render_backfill.sh out/perf-history ${{ github.event.inputs.refs }}
 
       - name: Append (deduped) + rebuild dashboard on perf-data
         run: |

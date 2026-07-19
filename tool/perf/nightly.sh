@@ -13,7 +13,8 @@ mkdir -p "$HISTORY"
 HISTORY="$(cd "$HISTORY" && pwd)"
 
 DART=dart
-if command -v fvm >/dev/null 2>&1; then DART="fvm dart"; fi
+FLUTTER=flutter
+if command -v fvm >/dev/null 2>&1; then DART="fvm dart"; FLUTTER="fvm flutter"; fi
 
 sweep() { # sweep <scenario>
   echo "── vm-sweep: $1"
@@ -29,6 +30,17 @@ sweep ghent-suite-open
 sweep pdfjs-hostile
 sweep save-incremental
 sweep cad-138p-sweep
+
+# Render trend (Flutter rasterization: interpret + paint + toImage). Captures
+# the paint- and image-decode-path gains the NullDevice vm-sweep can't see.
+# Rides `flutter test`'s headless engine; appends one flutter-render line.
+echo "── render: ghent-render (test_corpora/ghent)"
+(cd "$ROOT/packages/dart_pdf_editor" &&
+  PDF_BENCHMARK_DIR="../../test_corpora/ghent" \
+  PDF_BENCHMARK_SCALE=2 PDF_BENCHMARK_MAX_PAGES=3 PDF_BENCHMARK_REPEAT=2 \
+  PDF_BENCHMARK_SCENARIO=ghent-render \
+  PDF_BENCHMARK_APPEND_HISTORY="$HISTORY/flutter-render.ndjson" \
+  $FLUTTER test test/benchmark_render_test.dart)
 
 # Competitive column: PDFium over the same Ghent corpus, when pypdfium2 is
 # importable (the workflow pip-installs it; locally it is optional).

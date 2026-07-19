@@ -14,6 +14,15 @@
     "repeat": 3,
     "ciSafe": true
   },
+  "ghent-render": {
+    "suite": "flutter-render",
+    "note": "Full page rasterization (interpret + paint + toImage) via benchmark_render_test on the headless Flutter engine; captures paint + image-decode gains the NullDevice vm-sweep can't. Driven by env vars, not perf_sweep.",
+    "corpus": "test_corpora/ghent",
+    "scale": 2,
+    "maxPages": 3,
+    "repeat": 2,
+    "ciSafe": true
+  },
   "pdfjs-hostile": {
     "suite": "vm-sweep",
     "corpus": "test_corpora/pdfjs",
