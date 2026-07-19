@@ -38,14 +38,27 @@ import 'strips/strip_device.dart';
 /// the cache window (outstanding pictures keep painting - `ui.Image.dispose`
 /// on a picture-referenced image is safe, the picture holds its own ref).
 class PdfRetainedScene {
-  PdfRetainedScene._(this.page, this.plan, this.commands, this._images) {
-    _liveScenes.add(WeakReference(this));
-  }
+  PdfRetainedScene._(this.page, this.plan, this.commands, this._images);
 
-  /// Live scenes, weakly held, so a coordinated memory-pressure sweep can shed
-  /// their retained spatial metadata without keeping any scene alive. Pruned
-  /// lazily on [handleMemoryPressure].
+  /// Scenes holding sheddable spatial metadata (a region index or banded
+  /// transcript), weakly held so a coordinated memory-pressure sweep can drop
+  /// it without keeping any scene alive. Registration is lazy - a scene that
+  /// never region-replays never joins - and the list self-prunes past a
+  /// growing threshold so dead refs cannot accumulate unbounded.
   static final List<WeakReference<PdfRetainedScene>> _liveScenes = [];
+  static int _livePruneThreshold = 64;
+  bool _registered = false;
+
+  void _register() {
+    if (_registered) return;
+    _registered = true;
+    _liveScenes.add(WeakReference(this));
+    if (_liveScenes.length > _livePruneThreshold) {
+      _liveScenes
+          .removeWhere((ref) => ref.target == null || ref.target!._disposed);
+      _livePruneThreshold = math.max(64, _liveScenes.length * 2);
+    }
+  }
 
   /// Sheds the spatial retention metadata (region index + any X-strip banded
   /// transcript) of every live scene under platform memory pressure - the
@@ -320,11 +333,13 @@ class PdfRetainedScene {
     replayCommands(commands, device);
   }
 
-  PdfRegionReplayIndex _ensureRegionIndex() =>
-      _regionIndex ??= PdfRegionReplayIndex.build(
-        commands,
-        maxCommands: spatialRegionReplayMaxCommands,
-      );
+  PdfRegionReplayIndex _ensureRegionIndex() {
+    _register();
+    return _regionIndex ??= PdfRegionReplayIndex.build(
+      commands,
+      maxCommands: spatialRegionReplayMaxCommands,
+    );
+  }
 
   PdfRect? _pageSpaceRegion(Rect region) {
     final inverse = PdfPageRenderer.pageToDeviceMatrix(

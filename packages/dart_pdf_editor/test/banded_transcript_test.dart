@@ -223,6 +223,24 @@ void main() {
     });
   });
 
+  testWidgets('restoring a subset does not double-count a spanning paint',
+      (tester) async {
+    final bands = PdfBandedTranscript.build(_wideTranscript(), bandCount: 5)!;
+    final full = bands.estimatedFullBytes;
+
+    // Evict the middle strips only, so the wide stroke stays resident in the
+    // outer strips while its restored copies land as fresh instances.
+    bands.evict(2);
+    bands.evict(3);
+    expect(bands.estimatedResidentBytes, lessThan(full));
+
+    bands.restore(_wideTranscript());
+    expect(bands.residentBandCount, 5);
+    expect(bands.estimatedResidentBytes, full,
+        reason: 'a strip-spanning paint is one command across resident and '
+            'restored strips - dedup is by painter order, not instance');
+  });
+
   testWidgets('evictAll frees every strip; estimated bytes fall to zero',
       (tester) async {
     final bands = PdfBandedTranscript.build(_wideTranscript(), bandCount: 8)!;

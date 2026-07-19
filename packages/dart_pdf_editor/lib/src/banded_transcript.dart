@@ -128,11 +128,16 @@ class PdfBandedTranscript {
   /// snapshot chain is charged whole while any strip is resident and released
   /// only when every strip is evicted - it is a shared spine, not per-strip.
   int get estimatedResidentBytes {
-    final seen = <_BandUnit>{};
+    // Dedupe by painter order, not object identity: a strip-spanning paint is
+    // one command however many strips hold it, and after a restore the resident
+    // and rebuilt strips carry distinct instances of the same paint.
+    final seen = <int>{};
     for (final band in bands) {
       final units = band._units;
       if (units == null) continue;
-      seen.addAll(units);
+      for (final unit in units) {
+        seen.add(unit.order);
+      }
     }
     if (seen.isEmpty) return 0;
     return seen.length * _perUnitBytes + _clipNodeCount * 40;
@@ -141,10 +146,11 @@ class PdfBandedTranscript {
   /// Retained-transcript estimate had no strip been evicted - the whole-page
   /// floor this decomposition trades against.
   int get estimatedFullBytes {
-    final seen = <_BandUnit>{};
+    final seen = <int>{};
     for (final band in bands) {
-      final units = band._retained;
-      seen.addAll(units);
+      for (final unit in band._retained) {
+        seen.add(unit.order);
+      }
     }
     if (seen.isEmpty) return 0;
     return seen.length * _perUnitBytes + _clipNodeCount * 40;
@@ -156,7 +162,7 @@ class PdfBandedTranscript {
   List<int> missingBandsForRegion(PdfRect region) {
     final missing = <int>[];
     for (final band in bands) {
-      if (band.resident) continue;
+      if (band.resident || band.unitCount == 0) continue;
       if (band._overlapsX(region)) missing.add(band.index);
     }
     return missing;
