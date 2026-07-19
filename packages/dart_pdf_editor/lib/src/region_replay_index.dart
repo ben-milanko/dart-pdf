@@ -123,6 +123,44 @@ class PdfRegionReplayIndex {
   /// borrowed from the scene and is not counted twice.
   int get estimatedBytes => units.length * 48 + clipNodeCount * 40;
 
+  /// Page-space X span [min, max] covered by the indexed paint units, or null
+  /// when nothing is drawable. This is the axis an X-strip band decomposition
+  /// partitions (extreme-aspect CAD sheets pan along it).
+  (double, double)? get xExtent {
+    if (units.isEmpty) return null;
+    var min = units.first.bounds.left;
+    var max = units.first.bounds.right;
+    for (final unit in units.skip(1)) {
+      if (unit.bounds.left < min) min = unit.bounds.left;
+      if (unit.bounds.right > max) max = unit.bounds.right;
+    }
+    return (min, max);
+  }
+
+  /// Per-band unit distribution across [bands] equal-width X strips over
+  /// [xExtent]. Each unit is counted once, by the band its horizontal centre
+  /// falls in - so the counts sum to [units].length and expose how unevenly
+  /// paint work spreads along the pan axis (the CAD probe's densest 3 of 10
+  /// strips carried ~54% of the units). Diagnostic only; the retention model
+  /// in [PdfBandedTranscript] assigns a spanning unit to every band it
+  /// overlaps, not just its centre band.
+  List<int> unitBandHistogram(int bands) {
+    final counts = List<int>.filled(bands < 1 ? 0 : bands, 0);
+    if (bands < 1 || units.isEmpty) return counts;
+    final extent = xExtent;
+    if (extent == null) return counts;
+    final (min, max) = extent;
+    final span = max - min;
+    for (final unit in units) {
+      final centre = (unit.bounds.left + unit.bounds.right) / 2;
+      var band = span <= 0 ? 0 : ((centre - min) / span * bands).floor();
+      if (band < 0) band = 0;
+      if (band >= bands) band = bands - 1;
+      counts[band]++;
+    }
+    return counts;
+  }
+
   /// Replays intersecting units in their original painter order.
   int replay(
     PdfRect region,
@@ -348,7 +386,11 @@ PdfRect _union(PdfRect a, PdfRect b) => PdfRect(
       math.max(a.top, b.top),
     );
 
-bool _intersects(PdfRect a, PdfRect b) =>
+bool _intersects(PdfRect a, PdfRect b) => pdfRenderRectsIntersect(a, b);
+
+/// Closed-interval rectangle overlap in page space, shared by the region index
+/// and the X-strip banded transcript.
+bool pdfRenderRectsIntersect(PdfRect a, PdfRect b) =>
     a.right >= b.left &&
     a.left <= b.right &&
     a.top >= b.bottom &&

@@ -20,6 +20,7 @@ import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import 'banded_transcript.dart';
 import 'canvas_device.dart';
 import 'image_decoder.dart';
 import 'renderer.dart';
@@ -37,7 +38,37 @@ import 'strips/strip_device.dart';
 /// the cache window (outstanding pictures keep painting - `ui.Image.dispose`
 /// on a picture-referenced image is safe, the picture holds its own ref).
 class PdfRetainedScene {
-  PdfRetainedScene._(this.page, this.plan, this.commands, this._images);
+  PdfRetainedScene._(this.page, this.plan, this.commands, this._images) {
+    _liveScenes.add(WeakReference(this));
+  }
+
+  /// Live scenes, weakly held, so a coordinated memory-pressure sweep can shed
+  /// their retained spatial metadata without keeping any scene alive. Pruned
+  /// lazily on [handleMemoryPressure].
+  static final List<WeakReference<PdfRetainedScene>> _liveScenes = [];
+
+  /// Sheds the spatial retention metadata (region index + any X-strip banded
+  /// transcript) of every live scene under platform memory pressure - the
+  /// viewer's `didHaveMemoryPressure` drives this alongside the cache registry.
+  /// The authoritative [commands] transcript is untouched; a dropped index
+  /// rebuilds identically on the next region replay, and evicted strips
+  /// re-materialize on demand. Returns the number of scenes touched.
+  static int handleMemoryPressure() {
+    var touched = 0;
+    for (final ref in _liveScenes.toList()) {
+      final scene = ref.target;
+      if (scene == null || scene._disposed) continue;
+      if (scene._regionIndex != null || scene._bands != null) {
+        // Drops the index and the whole banded transcript (all retained
+        // strips), the strongest shed short of the authoritative commands.
+        scene.dropRegionIndex();
+        touched++;
+      }
+    }
+    _liveScenes
+        .removeWhere((ref) => ref.target == null || ref.target!._disposed);
+    return touched;
+  }
 
   /// The page this scene replays. Must stay open (the scene borrows nothing
   /// from it after [record], but callers naturally keep both together).
@@ -66,10 +97,58 @@ class PdfRetainedScene {
   static int spatialRegionReplayMaxCommands = 250000;
 
   PdfRegionReplayIndex? _regionIndex;
+  PdfBandedTranscript? _bands;
 
   /// Test/diagnostic counters for the most recent [replayRegion].
   bool debugLastRegionReplayWasSelective = false;
   int debugLastRegionReplayCommandCount = 0;
+
+  /// Per-band unit distribution across [bands] equal-width X strips, the
+  /// diagnostic that quantifies how unevenly paint work spreads along the pan
+  /// axis (input to sizing an X-strip band decomposition). Empty when the
+  /// transcript is outside the spatially-indexable subset.
+  List<int> debugUnitBandHistogram(int bands) =>
+      _ensureRegionIndex().unitBandHistogram(bands);
+
+  /// Partitions this scene's transcript into [bandCount] X strips for lazy
+  /// per-strip retention/eviction (see [PdfBandedTranscript]). Built once and
+  /// reused; null when the transcript is not spatially indexable. Callers evict
+  /// offscreen strips against the viewport and [reband] to re-materialize.
+  PdfBandedTranscript? bandTranscript({required int bandCount}) {
+    assert(!_disposed, 'bandTranscript after dispose');
+    return _bands ??= PdfBandedTranscript.build(
+      commands,
+      bandCount: bandCount,
+      index: _ensureRegionIndex(),
+    );
+  }
+
+  /// The banded transcript built by [bandTranscript], if any.
+  PdfBandedTranscript? get bands => _bands;
+
+  /// Re-materializes any evicted strips of the banded transcript by
+  /// re-interpreting the page once (the ~full-page record the strip dec
+  /// omposition trades against) and re-partitioning it. No-op without a banded
+  /// transcript or with every strip resident. Returns the strips restored.
+  Future<List<int>> reband() async {
+    final banded = _bands;
+    if (banded == null) return const [];
+    if (banded.bands.every((b) => b.resident)) return const [];
+    final rebuilt = await record(page, plan: plan);
+    try {
+      return banded.restore(rebuilt.commands);
+    } finally {
+      rebuilt.dispose();
+    }
+  }
+
+  /// Frees the retained spatial index (and banded transcript); both rebuild
+  /// identically on next use. A component of strip eviction and the
+  /// memory-pressure response - the transcript itself stays intact.
+  void dropRegionIndex() {
+    _regionIndex = null;
+    _bands = null;
+  }
 
   /// Whether region rasters ([rasterizeRegion]) can be spatially culled to the
   /// requested bounds rather than replaying the whole transcript. False when a
@@ -467,6 +546,7 @@ class PdfRetainedScene {
     if (_disposed) return;
     _disposed = true;
     _regionIndex = null;
+    _bands = null;
     for (final image in _images.values) {
       image.dispose();
     }

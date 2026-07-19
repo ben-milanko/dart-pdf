@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Add X-strip transcript banding to bound retained memory on extreme-aspect
+  pages (`PdfBandedTranscript`): partition a page's `PdfRenderCommand`
+  transcript into N vertical strips along the horizontal pan axis, retain only
+  the strips overlapping the viewport, and re-materialize an evicted strip on
+  demand. `PdfRetainedScene` gains `bandTranscript`/`bands`/`reband`,
+  `dropRegionIndex`, and `debugUnitBandHistogram`; the viewer's memory-pressure
+  path now sheds retained-scene spatial metadata via
+  `PdfRetainedScene.handleMemoryPressure` (dropped indices rebuild identically,
+  evicted strips re-materialize, so there is no visual regression) (#385).
+
 ## 2.0.0
 
 - **Breaking:** remove the pure style forwarders from `PdfEditingController`.

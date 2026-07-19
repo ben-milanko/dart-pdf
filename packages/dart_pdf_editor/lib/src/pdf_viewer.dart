@@ -36,6 +36,7 @@ import 'raster_cache.dart';
 import 'render_scheduler.dart';
 import 'render_worker.dart';
 import 'renderer.dart';
+import 'retained_scene.dart';
 import 'scrollbar.dart';
 import 'theme.dart';
 import 'toast.dart';
@@ -1527,8 +1528,13 @@ class _PdfViewerState extends State<PdfViewer>
   @override
   void didHaveMemoryPressure() {
     final freed = PdfCacheRegistry.instance.handleMemoryPressure();
+    // Also shed retained-scene spatial metadata (region indices + X-strip
+    // banded transcripts): dropped indices rebuild identically, evicted strips
+    // re-materialize on demand, so this is free of any visual regression.
+    final scenes = PdfRetainedScene.handleMemoryPressure();
     PdfPerfLog.log('memory-pressure cleared ${freed >> 20}MB across '
-        '${PdfCacheRegistry.instance.registrationCount} caches');
+        '${PdfCacheRegistry.instance.registrationCount} caches, '
+        'shed spatial metadata on $scenes scene(s)');
     _previews.clear();
   }
 
