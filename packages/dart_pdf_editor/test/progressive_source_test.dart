@@ -159,17 +159,105 @@ void main() {
   });
 
   group('PdfEditorView.source', () {
-    testWidgets('opens progressively with editing gated until complete',
+    testWidgets('gates the editing toolbar until the full read completes',
         (tester) async {
       final source = _RecordingSource(buildMultiPagePdf(3));
+      // Freeze the background full read the moment the first paint lands, so we
+      // can observe the gated (preview) state before the swap.
       await pump(
         tester,
-        PdfEditorView.source(source, documentId: 'edit-1'),
+        PdfEditorView.source(
+          source,
+          documentId: 'edit-1',
+          onFirstPaint: () => source.gate = Completer<void>(),
+        ),
       );
-      await tester.pumpAndSettle();
-      // Full bytes have landed: the editing toolbar is present.
+      // First paint is up but the full read is held: page shows, toolbar gated.
+      await tester.pump();
+      await tester.pump();
       expect(find.byType(PdfViewer), findsOneWidget);
+      expect(find.byType(PdfEditingToolbar), findsNothing);
+
+      // Release the full read: the buffer swaps and editing comes alive.
+      source.gate!.complete();
+      source.gate = null;
+      await tester.pumpAndSettle();
       expect(find.byType(PdfEditingToolbar), findsOneWidget);
     });
   });
+
+  group('PdfProgressiveSourceBuilder', () {
+    testWidgets('uses a custom loadingBuilder before any bytes land',
+        (tester) async {
+      final source = _RecordingSource(buildMultiPagePdf(1));
+      source.gate = Completer<void>();
+      await pump(
+        tester,
+        PdfProgressiveSourceBuilder(
+          source: source,
+          loadingBuilder: (_) => const Text('loading-pdf'),
+          builder: (_, __, ___) => const Text('viewer'),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('loading-pdf'), findsOneWidget);
+      source.gate!.complete();
+      source.gate = null;
+      await tester.pumpAndSettle();
+      expect(find.text('viewer'), findsOneWidget);
+    });
+
+    testWidgets('surfaces an errorBuilder when the open fails outright',
+        (tester) async {
+      final source = _ThrowingSource(24);
+      await pump(
+        tester,
+        PdfProgressiveSourceBuilder(
+          source: source,
+          errorBuilder: (_, error) => Text('failed: $error'),
+          builder: (_, __, ___) => const Text('viewer'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('failed:'), findsOneWidget);
+      expect(find.text('viewer'), findsNothing);
+    });
+
+    testWidgets('restarts when the source is swapped', (tester) async {
+      final first = _RecordingSource(buildMultiPagePdf(2));
+      final second = _RecordingSource(buildMultiPagePdf(2));
+      final swaps = <int>[];
+      Widget host(PdfByteSource source) => PdfProgressiveSourceBuilder(
+            source: source,
+            builder: (_, bytes, __) {
+              swaps.add(bytes.length);
+              return const Text('viewer');
+            },
+          );
+      await pump(tester, host(first));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(MaterialApp(home: Scaffold(body: host(second))));
+      await tester.pumpAndSettle();
+      // Both sources drove the builder; the second one was actually read.
+      expect(second.reads, isNotEmpty);
+      expect(find.text('viewer'), findsOneWidget);
+    });
+  });
+}
+
+/// A source that reports a length but throws on every read, so both the
+/// first-paint open and the background full read fail.
+class _ThrowingSource implements PdfByteSource {
+  _ThrowingSource(this._length);
+  final int _length;
+
+  @override
+  Future<int?> get length async => _length;
+
+  @override
+  Future<Uint8List> readRange(int start, int endExclusive) async =>
+      throw StateError('read failed');
+
+  @override
+  Future<void> close() async {}
 }

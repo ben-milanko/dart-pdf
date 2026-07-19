@@ -705,8 +705,13 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         backgroundColor: widget.backgroundColor,
         pageColor: widget.pageColor,
         viewerTheme: widget.viewerTheme,
-        rasterCache: widget.rasterCache,
-        textCache: widget.textCache,
+        // The first-paint buffer only holds the first page(s); its later pages
+        // render blank (and its text extracts empty). Keep the persistent
+        // content-keyed caches off until the full buffer lands so those blanks
+        // aren't written under the document's stable id and served back after
+        // the swap (and across app restarts).
+        rasterCache: complete ? widget.rasterCache : null,
+        textCache: complete ? widget.textCache : null,
       ),
     );
   }
