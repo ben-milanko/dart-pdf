@@ -93,30 +93,6 @@ class _PdfReflowViewState extends State<PdfReflowView>
   /// A page to jump to once the list has laid out (a tap before first layout).
   int? _pendingJump;
 
-  /// Running average height of resolved page items, used to size the
-  /// placeholders of not-yet-resolved pages and to estimate jump offsets. A
-  /// placeholder that matches its eventual height keeps the list from
-  /// reflowing (and the scroll from drifting) as pages resolve.
-  double _resolvedExtentSum = 0;
-  int _resolvedExtentCount = 0;
-
-  double get _typicalExtent => _resolvedExtentCount == 0
-      ? 360.0
-      : _resolvedExtentSum / _resolvedExtentCount;
-
-  void _noteResolvedExtent(double extent) {
-    if (extent <= 0) return;
-    _resolvedExtentSum += extent;
-    _resolvedExtentCount++;
-  }
-
-  /// The page a jump is currently settling on. Because pages resolve their
-  /// text asynchronously (so a heavy page can't freeze the UI), items above
-  /// the target grow from placeholder to full height and push it around; the
-  /// jump keeps re-pinning this page to the top across a few frames until the
-  /// neighbourhood settles. A newer jump supersedes it.
-  int? _jumpTarget;
-
   @override
   void initState() {
     super.initState();
@@ -136,11 +112,8 @@ class _PdfReflowViewState extends State<PdfReflowView>
         widget.showImages != oldWidget.showImages) {
       _reflowed.clear();
       _itemKeys.clear();
-      _resolvedExtentSum = 0;
-      _resolvedExtentCount = 0;
       _pendingRestore = null;
       _pendingJump = null;
-      _jumpTarget = null;
       _hasContent = _probeContent();
       widget.controller?.reflowReportPageCount(widget.document.pageCount);
       if (_scroll.hasClients) _scroll.jumpTo(0);
@@ -250,31 +223,50 @@ class _PdfReflowViewState extends State<PdfReflowView>
       _pendingJump = index;
       return;
     }
-    _jumpTarget = index;
-    _pinToTarget(framesLeft: 16);
-  }
-
-  /// Aligns [_jumpTarget]'s top to the viewport top, then repeats over the
-  /// next several frames so the target stays put as nearby pages finish
-  /// resolving (and growing from their placeholders). Estimates the offset for
-  /// a target that is not built yet, to bring it into the build window.
-  void _pinToTarget({required int framesLeft}) {
-    final index = _jumpTarget;
-    if (index == null || !mounted || !_scroll.hasClients) return;
-    if (!_alignTop(index)) {
-      final estimate = widget.padding.resolve(TextDirection.ltr).top +
-          _typicalExtent * index;
-      _scroll.jumpTo(estimate.clamp(0.0, _scroll.position.maxScrollExtent));
-    }
-    widget.controller?.reflowReportPage(index);
-    if (framesLeft <= 0) {
-      _jumpTarget = null;
+    // Already built: align it precisely. Otherwise estimate from the average
+    // built-item height, jump, and correct once the frame builds the target
+    // into view. Page heights are final on build (text extracts synchronously),
+    // so the estimate is stable and a couple of corrections converge.
+    if (_alignTop(index)) {
+      widget.controller?.reflowReportPage(index);
       return;
     }
+    _scroll.jumpTo(_estimateOffset(index));
+    _correctTo(index, triesLeft: 4);
+  }
+
+  double _estimateOffset(int index) {
+    final offset = widget.padding.resolve(TextDirection.ltr).top +
+        _averageExtent() * index;
+    return offset.clamp(0.0, _scroll.position.maxScrollExtent);
+  }
+
+  void _correctTo(int index, {required int triesLeft}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_jumpTarget != index) return; // superseded by a newer jump
-      _pinToTarget(framesLeft: framesLeft - 1);
+      if (!mounted || !_scroll.hasClients) return;
+      if (_alignTop(index)) {
+        widget.controller?.reflowReportPage(index);
+      } else if (triesLeft > 0) {
+        _scroll.jumpTo(_estimateOffset(index));
+        _correctTo(index, triesLeft: triesLeft - 1);
+      }
     });
+  }
+
+  /// Average height of the currently built page items - the estimate for
+  /// pages not yet laid out. Text extracts synchronously so these heights are
+  /// final, not placeholders.
+  double _averageExtent() {
+    var sum = 0.0;
+    var n = 0;
+    for (final index in _itemKeys.keys) {
+      final box =
+          _keyFor(index).currentContext?.findRenderObject() as RenderBox?;
+      if (box == null || !box.attached) continue;
+      sum += box.size.height;
+      n++;
+    }
+    return n == 0 ? 640.0 : sum / n;
   }
 
   /// Jumps so item [index]'s top aligns with the viewport top; returns false
@@ -392,11 +384,8 @@ class _PdfReflowViewState extends State<PdfReflowView>
                     child: RepaintBoundary(
                       child: _ReflowPageItem(
                         key: _keyFor(index),
-                        pageIndex: index,
                         document: widget.document,
-                        resolvePage: () => _pageAt(index),
-                        placeholderExtent: () => _typicalExtent,
-                        onResolvedExtent: _noteResolvedExtent,
+                        page: _pageAt(index),
                         showImages: widget.showImages,
                         onShareImage: widget.onShareImage,
                       ),
@@ -412,41 +401,24 @@ class _PdfReflowViewState extends State<PdfReflowView>
   }
 }
 
-/// One page of the reading view. Extracts its reflow and decodes its images
-/// lazily - and *off* the layout pass: the page text is resolved on a
-/// microtask after the frame, not synchronously in the item builder, so
-/// scrolling a run of heavy pages into view never blocks the UI thread for
-/// their combined extraction cost. A short placeholder holds the slot until
-/// the text is ready; decoded image clones are disposed when the page scrolls
-/// out, so only the pages near the viewport hold pixels.
+/// One page of the reading view. The page's text is laid out from the
+/// [page] reflow synchronously, so the item's height is final the moment it
+/// builds - the list never resizes a laid-out page under the viewport, which
+/// is what would make the scroll jump. Images decode lazily (their slot keeps
+/// a fixed aspect-ratio box either way, so that stays height-stable) and their
+/// clones are disposed when the page scrolls out, so only the pages near the
+/// viewport hold pixels.
 class _ReflowPageItem extends StatefulWidget {
   const _ReflowPageItem({
     super.key,
-    required this.pageIndex,
     required this.document,
-    required this.resolvePage,
-    required this.placeholderExtent,
-    required this.onResolvedExtent,
+    required this.page,
     required this.showImages,
     this.onShareImage,
   });
 
-  final int pageIndex;
   final PdfDocument document;
-
-  /// Extracts (or returns the cached) reflow for this page. Called off the
-  /// build/layout pass so its cost never janks a frame.
-  final PdfReflowPage Function() resolvePage;
-
-  /// The height to give this page's placeholder before it resolves - the
-  /// running typical page height, so the slot barely changes size when the
-  /// real content lands (no scroll drift).
-  final double Function() placeholderExtent;
-
-  /// Reports this page's laid-out height once resolved, feeding
-  /// [placeholderExtent] for the pages still to come.
-  final void Function(double extent) onResolvedExtent;
-
+  final PdfReflowPage page;
   final bool showImages;
   final PdfReflowImageShareHandler? onShareImage;
 
@@ -455,26 +427,20 @@ class _ReflowPageItem extends StatefulWidget {
 }
 
 class _ReflowPageItemState extends State<_ReflowPageItem> {
-  /// The resolved reflow, or null while it is still being extracted.
-  PdfReflowPage? _page;
-
   /// Decoded images keyed by [pdfImageKey]; the clones are ours to dispose.
   Map<Object, ui.Image> _images = const {};
 
   @override
   void initState() {
     super.initState();
-    _resolve();
+    _decode();
   }
 
   @override
   void didUpdateWidget(_ReflowPageItem oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.pageIndex != oldWidget.pageIndex ||
-        !identical(widget.document, oldWidget.document)) {
-      _page = null;
-      _resolve();
-    } else if (widget.showImages != oldWidget.showImages) {
+    if (!identical(widget.page, oldWidget.page) ||
+        widget.showImages != oldWidget.showImages) {
       _decode();
     }
   }
@@ -492,32 +458,12 @@ class _ReflowPageItemState extends State<_ReflowPageItem> {
     _images = const {};
   }
 
-  /// Extracts the page reflow after yielding, so the frame that mounted this
-  /// item completes first (one heavy page can't stall layout, and a viewport
-  /// full of them extract one after another with the UI live between).
-  Future<void> _resolve() async {
-    await Future<void>.delayed(Duration.zero);
-    if (!mounted) return;
-    final page = widget.resolvePage();
-    if (!mounted) return;
-    setState(() => _page = page);
-    _decode();
-    // Feed the laid-out height back so later pages' placeholders match.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final height = context.size?.height;
-      if (height != null) widget.onResolvedExtent(height);
-    });
-  }
-
   Future<void> _decode() async {
-    final page = _page;
-    if (page == null) return;
     if (!widget.showImages) {
       if (_images.isNotEmpty) setState(_disposeImages);
       return;
     }
-    final requests = [for (final image in page.images) image.request];
+    final requests = [for (final image in widget.page.images) image.request];
     if (requests.isEmpty) {
       if (_images.isNotEmpty) setState(_disposeImages);
       return;
@@ -551,29 +497,12 @@ class _ReflowPageItemState extends State<_ReflowPageItem> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final page = _page;
-    if (page == null) {
-      // A placeholder sized to the typical page holds the slot (and gives the
-      // list a stable extent) until this page's text is extracted.
-      return SizedBox(
-        height: widget.placeholderExtent(),
-        child: const Center(
-          child: SizedBox(
-            width: 20,
-            height: 20,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-        ),
+  Widget build(BuildContext context) => _ReflowPage(
+        page: widget.page,
+        images: _images,
+        showImages: widget.showImages,
+        onTapImage: _openImage,
       );
-    }
-    return _ReflowPage(
-      page: page,
-      images: _images,
-      showImages: widget.showImages,
-      onTapImage: _openImage,
-    );
-  }
 }
 
 class _ReflowPage extends StatelessWidget {
