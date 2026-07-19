@@ -223,6 +223,30 @@ class PdfPageView extends StatefulWidget {
   /// retained replay costs about one frame.
   static int retainedZoomReplayMaxCommands = 20000;
 
+  /// Command-count ceiling for retaining a scene *solely to drive the deep-zoom
+  /// tile path* ([tileStoreDetail]), above [retainedZoomReplayMaxCommands].
+  ///
+  /// [retainedZoomReplayMaxCommands] is about *flat replay* cost: a retained
+  /// scene makes the full-page base raster a UI-thread replay, linear in the
+  /// command count, so a dense sheet must not take that route. Tiling is a
+  /// different consumer - each tile replays only the commands its region
+  /// intersects (a few thousand, via the region/grid cull), never the whole
+  /// transcript - so that argument does not bound it. Pages retained under this
+  /// ceiling therefore keep the cached picture for the base raster
+  /// ([_sceneIsTileOnly]) and use the scene only for region rasters.
+  ///
+  /// Why it matters: without this, a dense single-sheet drawing drops its scene,
+  /// which disables tiling, which makes every pan step re-render the entire
+  /// visible viewport - a measured ~235 ms worker round trip plus a 16.8 MP
+  /// (67 MB) raster, per step, with nothing reused. Tiling turns that into a
+  /// first fill plus an edge strip of new tiles.
+  ///
+  /// The default bounds the retained transcript to roughly 100 MB (~260 bytes
+  /// per command, measured on a production CAD sheet: 850k commands retained
+  /// 221 MB). Sheets past it keep today's behaviour rather than trade an
+  /// unbounded retention for the win.
+  static int retainedZoomReplayTileMaxCommands = 400000;
+
   /// Maximum estimated atlas batches allowed on the dense-page strip route.
   ///
   /// Command count alone does not predict strip performance. Some Visio/CAD
@@ -937,7 +961,29 @@ class _PdfPageViewState extends State<PdfPageView> {
   static bool _retainScene(List<PdfRenderCommand> commands) =>
       PdfPageView.retainedZoomReplay &&
       (commands.length <= PdfPageView.retainedZoomReplayMaxCommands ||
-          _stripReplayCommands(commands));
+          _stripReplayCommands(commands) ||
+          _retainForTiles(commands));
+
+  /// Whether a page too dense for flat replay is still worth retaining to feed
+  /// the tile path (see [PdfPageView.retainedZoomReplayTileMaxCommands]).
+  ///
+  /// Region-cull support is deliberately NOT checked here: proving it means
+  /// building the spatial index, an O(commands) walk that would become a
+  /// UI-thread hitch at exactly the sizes this admits. The index is built lazily
+  /// on the first region raster instead; if the page turns out not to be
+  /// cullable, [_useTilePath] simply stays false and the retention is wasted -
+  /// bounded, by the ceiling, to the memory the ceiling allows.
+  static bool _retainForTiles(List<PdfRenderCommand> commands) =>
+      PdfPageView.tileStoreDetail &&
+      commands.length <= PdfPageView.retainedZoomReplayTileMaxCommands;
+
+  /// Whether [scene] is retained purely to feed tiles - dense enough that a
+  /// full-page flat replay would be a UI-thread hitch, and not on the strip
+  /// route. The full-page base raster keeps the cached picture for these; only
+  /// region rasters (which cull) go through the scene.
+  static bool _sceneIsTileOnly(PdfRetainedScene scene) =>
+      scene.commands.length > PdfPageView.retainedZoomReplayMaxCommands &&
+      !_stripReplayCommands(scene.commands);
 
   static bool _stripReplayCommands(List<PdfRenderCommand> commands) =>
       PdfPageView.stripZoomReplay &&
@@ -1408,9 +1454,12 @@ class _PdfPageViewState extends State<PdfPageView> {
           pixelRatio: effective,
           stripPlan: stripPlan,
         );
-      } else if (scene != null) {
+      } else if (scene != null && !_sceneIsTileOnly(scene)) {
         image = await scene.rasterize(pixelRatio: effective);
       } else {
+        // No scene, or one retained only to feed tiles: a flat replay of a
+        // dense transcript would be a UI-thread hitch, so the cached picture
+        // stays the full-page base raster.
         image = await PdfPageRenderer.rasterize(
           picture,
           _renderPlan.pageSize(widget.page),
@@ -1521,7 +1570,10 @@ class _PdfPageViewState extends State<PdfPageView> {
     final detailClock = Stopwatch()..start();
     PdfPerfLog.log(
       'detail request page=${widget.previewIndex} '
-      'strip=$stripDetail vectorOnly=$_sceneIsVectorOnly',
+      'strip=$stripDetail vectorOnly=$_sceneIsVectorOnly '
+      // scene/tiles: why this page does or does not get reusable tiles instead
+      // of a fresh full-viewport raster on every pan step.
+      'scene=${heldScene != null} tiles=$_useTilePath',
     );
     final workerStripFuture = stripDetail
         ? _detailStripImageFromWorker(
