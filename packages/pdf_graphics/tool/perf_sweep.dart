@@ -253,9 +253,33 @@ Future<String?> _resolveScenario(_Args args, String repoRoot) async {
 
   final generate = s['generate'];
   if (generate is Map) {
+    final seed = generate['seed'] as int? ?? 20260718;
+    // "wide" shape: one ultra-wide single-page strip drawing (the janky-CAD
+    // shape) instead of the multi-page A1 set - a different generator and a
+    // different cache name, so the two never collide.
+    if (generate['shape'] == 'wide') {
+      final ops = generate['ops'] as int? ?? 850000;
+      final streams = generate['streams'] as int? ?? 8;
+      final cache =
+          File('$repoRoot/tool/perf/cache/cad-wide-$ops-$streams-$seed.pdf');
+      if (!cache.existsSync()) {
+        stderr.writeln('generating ${cache.path}...');
+        final r = await Process.run(Platform.resolvedExecutable, [
+          '$repoRoot/packages/pdf_test_fixtures/tool/gen_cad_wide_pdf.dart',
+          cache.path,
+          '$ops',
+          '$streams',
+          '$seed',
+        ], workingDirectory: repoRoot);
+        if (r.exitCode != 0) {
+          stderr.writeln('generator failed: ${r.stderr}');
+          exit(1);
+        }
+      }
+      return cache.path;
+    }
     final pagesN = generate['pages'] as int? ?? 138;
     final ops = generate['opsPerPage'] as int? ?? 6000;
-    final seed = generate['seed'] as int? ?? 20260718;
     final cache =
         File('$repoRoot/tool/perf/cache/cad-$pagesN-$ops-$seed.pdf');
     if (!cache.existsSync()) {

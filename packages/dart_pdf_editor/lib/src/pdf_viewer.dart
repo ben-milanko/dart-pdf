@@ -36,6 +36,7 @@ import 'raster_cache.dart';
 import 'render_scheduler.dart';
 import 'render_worker.dart';
 import 'renderer.dart';
+import 'retained_scene.dart';
 import 'scrollbar.dart';
 import 'theme.dart';
 import 'toast.dart';
@@ -770,6 +771,14 @@ typedef PdfScrollIndicatorBuilder = Widget Function(
 /// search with highlights. Pages re-rasterize at the settled zoom; past the
 /// full-page raster caps a detail patch keeps the visible region sharp.
 class PdfViewer extends StatefulWidget {
+  /// Raw content size above which a page is treated as "heavy" and its text is
+  /// NOT extracted synchronously just to pick a hover cursor. A normal page is
+  /// a few KB; a dense CAD sheet is megabytes and its extraction (a full
+  /// content-stream interpret) costs hundreds of ms - freezing a frame the
+  /// instant the pointer crosses it. 512KB of encoded content is comfortably
+  /// above any ordinary text page and well below a heavy vector drawing.
+  static int hoverTextExtractMaxRawContentBytes = 512 * 1024;
+
   const PdfViewer({
     super.key,
     this.document,
@@ -1381,6 +1390,54 @@ class _PdfViewerState extends State<PdfViewer>
   FrictionSimulation? _flingSimY;
   Offset _flingLast = Offset.zero;
 
+  /// Raw-pointer velocity for the active touch drag, tracked independently of
+  /// the drag recognizer.
+  ///
+  /// [DragGestureRecognizer] reports `Velocity.zero` - a hard zero, not a small
+  /// number - whenever its own `isFlingGesture` check fails, which needs both a
+  /// velocity estimate and enough travel inside the tracker's ~100 ms horizon.
+  /// While zoomed into a dense sheet the UI thread runs 40-165 ms frames, so
+  /// that estimate keeps failing and EVERY lift-off arrives as v=0: the fling is
+  /// skipped and momentum dies. Fit-scale scrolling is unaffected because the
+  /// ListView's own physics handle it, which is exactly the "flings zoomed out
+  /// but not zoomed in" split.
+  ///
+  /// Feeding a tracker straight from the [Listener]'s pointer stream keeps a
+  /// usable estimate regardless of how the recognizer's own window fared.
+  VelocityTracker? _touchVelocityTracker;
+
+  void _trackTouchVelocity(PointerMoveEvent event) {
+    if (event.kind != PointerDeviceKind.touch &&
+        event.kind != PointerDeviceKind.stylus) {
+      return;
+    }
+    // localPosition, NOT position: the recognizer's own tracker runs on local
+    // positions, so the zoom transform is already divided out and the estimate
+    // comes back in the list-space px/s [_flingViewport] expects. Feeding
+    // global (screen) positions instead overstates a zoomed fling by the zoom
+    // factor - at ~41x that flings the page clear off screen.
+    (_touchVelocityTracker ??= VelocityTracker.withKind(event.kind))
+        .addPosition(event.timeStamp, event.localPosition);
+  }
+
+  /// The recognizer's velocity, or the raw-pointer estimate when it reported a
+  /// hard zero (see [_touchVelocityTracker]).
+  Velocity _flingVelocityFrom(DragEndDetails details) {
+    final reported = details.velocity;
+    if (reported.pixelsPerSecond.distance >= kMinFlingVelocity) return reported;
+    final tracked = _touchVelocityTracker?.getVelocity();
+    if (tracked == null) return reported;
+    if (tracked.pixelsPerSecond.distance < kMinFlingVelocity) return reported;
+    // Same ceiling the platform recognizers apply, so a fast flick can't launch
+    // the page an unrecoverable distance.
+    final clamped =
+        tracked.clampMagnitude(kMinFlingVelocity, kMaxFlingVelocity);
+    PdfPerfLog.log('fling velocity recovered from raw pointers '
+        'reported=${reported.pixelsPerSecond.distance.round()} '
+        'tracked=${clamped.pixelsPerSecond.distance.round()}px/s');
+    return clamped;
+  }
+
   /// Springs the horizontal translation back to bounds after a touch
   /// gesture overshoots the content edge (rubber-band release).
   late final AnimationController _hBounceController =
@@ -1527,8 +1584,14 @@ class _PdfViewerState extends State<PdfViewer>
   @override
   void didHaveMemoryPressure() {
     final freed = PdfCacheRegistry.instance.handleMemoryPressure();
+    // Also shed retained-scene spatial metadata (region indices + X-strip
+    // banded transcripts): dropped indices rebuild identically, evicted strips
+    // re-materialize on demand, so this is free of any visual regression.
+    final scenes = PdfRetainedScene.handleMemoryPressure();
     PdfPerfLog.log('memory-pressure cleared ${freed >> 20}MB across '
-        '${PdfCacheRegistry.instance.registrationCount} caches');
+        '${PdfCacheRegistry.instance.registrationCount} caches, '
+        'shed spatial metadata on $scenes scene(s)'
+        '${PdfPerfLog.rssSuffix()}');
     _previews.clear();
   }
 
@@ -3091,12 +3154,43 @@ class _PdfViewerState extends State<PdfViewer>
 
   /// Maps a pointer position to a text position. [tolerance] is in page
   /// units; pass infinity to snap to the nearest text while dragging.
+  ///
+  /// This forces a synchronous extraction on a cache miss (hundreds of ms on
+  /// a dense page) - acceptable on an explicit selection/click where the user
+  /// initiated the action, but NOT for the hover cursor: use
+  /// [_hoverTextCursorAt] there.
   (int, int)? _textPositionAt(Offset local, {required double tolerance}) {
     final point = _pagePointAt(local);
     if (point == null) return null;
     final (i, x, y) = point;
     final offset = _pageText(i).positionNear(x, y, tolerance: tolerance);
     return offset < 0 ? null : (i, offset);
+  }
+
+  /// Whether the hover cursor over [local] should be the text I-beam.
+  ///
+  /// For an ordinary page this extracts synchronously (fast) so the I-beam
+  /// appears immediately, as it always has. For a HEAVY page (see
+  /// [hoverTextExtractMaxRawContentBytes]) it never triggers the multi-hundred-
+  /// ms extraction from a mere mouse-move: it uses the text only if already
+  /// resident (warmed by a real selection/search), else returns false and the
+  /// cursor stays grab. Touch (iPad) never hovers, so a finger pan never
+  /// reaches this at all.
+  bool _hoverTextCursorAt(Offset local) {
+    final point = _pagePointAt(local);
+    if (point == null) return false;
+    final (i, x, y) = point;
+    final PdfPageText text;
+    if (i < _pages.length &&
+        _pages[i].rawContentLength >
+            PdfViewer.hoverTextExtractMaxRawContentBytes) {
+      final ready = _textCache[i];
+      if (ready == null) return false; // heavy page: don't extract on hover
+      text = ready;
+    } else {
+      text = _pageText(i);
+    }
+    return text.positionNear(x, y, tolerance: 8) >= 0;
   }
 
   /// Visible annotations with an action on a page, cached.
@@ -3620,7 +3714,7 @@ class _PdfViewerState extends State<PdfViewer>
                 null) ||
         _selectableAnnotationAt(event.localPosition)) {
       cursor = SystemMouseCursors.click;
-    } else if (_textPositionAt(event.localPosition, tolerance: 8) != null) {
+    } else if (_hoverTextCursorAt(event.localPosition)) {
       cursor = SystemMouseCursors.text;
     } else {
       // empty page or canvas: a mouse drag grab-pans the document
@@ -3819,6 +3913,8 @@ class _PdfViewerState extends State<PdfViewer>
     _suppressTap = false;
     _lastPointerKind = event.kind;
     _lastPointerLocal = event.localPosition;
+    // A fresh drag starts a fresh velocity window (see _touchVelocityTracker).
+    _touchVelocityTracker = null;
     _panFlinger.stop();
     _touchFlinger.stop();
     _hBounceController.stop();
@@ -4293,9 +4389,13 @@ class _PdfViewerState extends State<PdfViewer>
     _hBounceController.stop();
     final v = velocity.pixelsPerSecond;
     if (v.distance < kMinFlingVelocity) {
+      PdfPerfLog.log('viewport fling SKIPPED (below min velocity) '
+          'v=${v.distance.round()} min=${kMinFlingVelocity.round()}px/s');
       _springBackCross();
       return;
     }
+    PdfPerfLog.log(
+        'viewport fling START v=${v.distance.round()}px/s zoomed=$_zoomed');
     _flingSimX =
         FrictionSimulation(_flingFriction, 0, v.dx, tolerance: _flingTolerance);
     _flingSimY =
@@ -4324,6 +4424,12 @@ class _PdfViewerState extends State<PdfViewer>
         (!_scroll.hasClients || _scroll.position.pixels == scrollBefore) &&
         _transform.value.storage[12] == txBefore &&
         _transform.value.storage[13] == tyBefore) {
+      // Every absorber pinned - but if this fires on the FIRST tick of a fling
+      // the momentum dies on lift-off, which is indistinguishable from "fling
+      // does nothing". Log which it was.
+      PdfPerfLog.log('viewport fling STOPPED (nothing absorbed the delta) '
+          't=${t.toStringAsFixed(3)}s '
+          'delta=${delta.dx.toStringAsFixed(2)},${delta.dy.toStringAsFixed(2)}');
       _touchFlinger.stop();
     }
   }
@@ -4550,8 +4656,15 @@ class _PdfViewerState extends State<PdfViewer>
   }
 
   void _onZoomedTouchPanEnd(DragEndDetails details) {
-    pdfLogGesture('viewer zoomed-touch-pan END');
-    _flingViewport(details.velocity);
+    pdfLogGesture('viewer zoomed-touch-pan END',
+        () => 'v=${details.velocity.pixelsPerSecond.distance.round()}px/s');
+    // Also on the perf-log channel: the gesture channel needs a host sink
+    // (DevTools' touch-input toggle) and lands in the panel, not the console,
+    // so a console trace of a fling would otherwise show nothing at all.
+    PdfPerfLog.log('zoomed-touch-pan END '
+        'v=${details.velocity.pixelsPerSecond.distance.round()}px/s');
+    _flingViewport(_flingVelocityFrom(details));
+    _touchVelocityTracker = null;
   }
 
   void _onZoomedTouchPanCancel() {
@@ -4580,6 +4693,13 @@ class _PdfViewerState extends State<PdfViewer>
     pdfLogGesture(
         'zoomed-pan gate: ${overPage ? 'DISABLED (overlay owns page)' : 'ENABLED (canvas gap)'}',
         () => 'tool=${editing.tool?.name ?? 'selection/eyedropper'}');
+    if (overPage) {
+      // On the console channel too: when the overlay owns the page the viewer
+      // never sees the drag, so no fling line is emitted at all - without this
+      // an absent fling is indistinguishable from a broken one.
+      PdfPerfLog.log('zoomed-pan gate DISABLED (overlay owns page) '
+          'tool=${editing.tool?.name ?? 'selection/eyedropper'}');
+    }
     return !overPage;
   }
 
@@ -5263,6 +5383,7 @@ class _PdfViewerState extends State<PdfViewer>
                         },
                         child: Listener(
                           onPointerDown: _onPointerDown,
+                          onPointerMove: _trackTouchVelocity,
                           onPointerUp: _onPointerUp,
                           child: GestureDetector(
                             onTapUp: _onTapUp,

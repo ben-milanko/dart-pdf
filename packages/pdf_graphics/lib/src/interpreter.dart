@@ -1972,7 +1972,8 @@ class PdfInterpreter {
     if (shading == null) return null;
     return shading.toGradient(PdfMatrix.identity)?.averageColor ??
         shading.toMesh(PdfMatrix.identity)?.averageColor ??
-        shading.toFunctionMesh(PdfMatrix.identity)?.averageColor;
+        shading.toFunctionMesh(PdfMatrix.identity)?.averageColor ??
+        shading.toRadialConeMesh(PdfMatrix.identity)?.averageColor;
   }
 
   /// A representative solid colour for a tiling pattern, used where the cell
@@ -2054,8 +2055,10 @@ class PdfInterpreter {
         device.fillPathGradient(path, rule, gradient, _state.fillAlpha);
         return;
       }
-      final mesh = shading?.toMesh(_patternMatrix(dict)) ??
-          shading?.toFunctionMesh(_patternMatrix(dict));
+      final patternMatrix = _patternMatrix(dict);
+      final mesh = shading?.toMesh(patternMatrix) ??
+          shading?.toFunctionMesh(patternMatrix) ??
+          shading?.toRadialConeMesh(patternMatrix, clip: _pathBounds(path));
       if (mesh != null) {
         device.save();
         device.clipPath(path, rule);
@@ -2187,8 +2190,10 @@ class PdfInterpreter {
     if (gradient == null) {
       // mesh and function-based shadings paint their own geometry; the
       // clip bounds them
-      final mesh =
-          shading?.toMesh(_state.ctm) ?? shading?.toFunctionMesh(_state.ctm);
+      final mesh = shading?.toMesh(_state.ctm) ??
+          shading?.toFunctionMesh(_state.ctm) ??
+          shading?.toRadialConeMesh(_state.ctm,
+              clip: _pageBox ?? const PdfRect(-1e5, -1e5, 1e5, 1e5));
       if (mesh != null) device.fillMesh(mesh, _state.fillAlpha);
       return;
     }
@@ -2209,6 +2214,23 @@ class PdfInterpreter {
     final v = cos.resolve(object);
     if (v is! CosArray) return const [];
     return [for (final item in v.items) _numOf(cos.resolve(item))];
+  }
+
+  /// Axis-aligned bounds of a path's control points, in user space - a
+  /// conservative superset of the fill area, enough to size a shading mesh.
+  static PdfRect? _pathBounds(PdfPath path) {
+    var minX = double.infinity, minY = double.infinity;
+    var maxX = -double.infinity, maxY = -double.infinity;
+    for (final segment in path.segments) {
+      for (final (x, y) in _segmentPoints(segment)) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+    if (minX > maxX) return null;
+    return PdfRect(minX, minY, maxX, maxY);
   }
 
   static Iterable<(double, double)> _segmentPoints(

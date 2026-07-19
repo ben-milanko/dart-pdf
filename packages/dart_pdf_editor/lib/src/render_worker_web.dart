@@ -12,6 +12,7 @@ import 'package:pdf_graphics/raster.dart' show StripPlan, decodeStripPlan;
 import 'package:web/web.dart' as web;
 
 import 'perf_log.dart';
+import 'region_replay_index.dart';
 import 'render_trace.dart';
 import 'render_worker.dart';
 
@@ -403,6 +404,35 @@ class _WebRenderWorker extends PdfRenderWorker {
     }
   }
 
+  @override
+  Future<PdfRegionReplayIndex?> buildRegionIndex(
+    int pageIndex, {
+    required bool annotations,
+    required int maxCommands,
+    required bool buildGrid,
+    int priority = 0,
+  }) async {
+    if (_disposed || _failed) return null;
+    final request = _WebPending.regionIndex(
+      priority,
+      _seq++,
+      pageIndex,
+      annotations,
+      maxCommands,
+      buildGrid,
+    );
+    _trace(request);
+    _queue.add(request);
+    _pump();
+    final buffers = await request.completer.future;
+    if (buffers == null || buffers.length != 1) return null;
+    try {
+      return deserializeRegionReplayIndex(buffers.single);
+    } catch (_) {
+      return null; // corrupt buffer → build in-isolate rather than crash
+    }
+  }
+
   void _trace(_WebPending request) {
     final clock = _perfClock;
     if (clock == null) return;
@@ -485,7 +515,8 @@ class _WebRenderWorker extends PdfRenderWorker {
           ..setProperty('regionRight'.toJS, region.right.toJS)
           ..setProperty('regionTop'.toJS, region.top.toJS);
       }
-    } else {
+    } else if (request.kind == _WebRequestKind.bin ||
+        request.kind == _WebRequestKind.detail) {
       final matrix = request.pageToDevice!;
       for (var i = 0; i < 6; i++) {
         message.setProperty('m$i'.toJS, matrix[i].toJS);
@@ -503,6 +534,11 @@ class _WebRenderWorker extends PdfRenderWorker {
           ..setProperty('regionRight'.toJS, region.right.toJS)
           ..setProperty('regionTop'.toJS, region.top.toJS);
       }
+    }
+    if (request.kind == _WebRequestKind.regionIndex) {
+      message
+        ..setProperty('maxCommands'.toJS, request.regionMaxCommands.toJS)
+        ..setProperty('buildGrid'.toJS, request.regionBuildGrid.toJS);
     }
     worker.postMessage(message);
 
@@ -629,7 +665,7 @@ class _WebRenderWorker extends PdfRenderWorker {
   }
 }
 
-enum _WebRequestKind { record, bin, detail }
+enum _WebRequestKind { record, bin, detail, regionIndex }
 
 /// One queued record or strip-bin request (mirrors the isolate backend's
 /// `_PendingRequest`).
@@ -648,7 +684,9 @@ class _WebPending {
       deviceWidth = 0,
       deviceHeight = 0,
       binPixelRatio = 0,
-      slugGlyphs = false;
+      slugGlyphs = false,
+      regionMaxCommands = 0,
+      regionBuildGrid = false;
 
   _WebPending.bin(
     this.priority,
@@ -664,7 +702,9 @@ class _WebPending {
       imagePixelRatio = null,
       decodeImages = false,
       commandLimit = null,
-      imageDecodeRegion = null;
+      imageDecodeRegion = null,
+      regionMaxCommands = 0,
+      regionBuildGrid = false;
 
   _WebPending.detail(
     this.priority,
@@ -680,6 +720,26 @@ class _WebPending {
       imagePixelRatio = null,
       decodeImages = true,
       commandLimit = null,
+      slugGlyphs = false,
+      regionMaxCommands = 0,
+      regionBuildGrid = false;
+
+  _WebPending.regionIndex(
+    this.priority,
+    this.seq,
+    this.pageIndex,
+    this.annotations,
+    this.regionMaxCommands,
+    this.regionBuildGrid,
+  ) : kind = _WebRequestKind.regionIndex,
+      imagePixelRatio = null,
+      decodeImages = false,
+      commandLimit = null,
+      imageDecodeRegion = null,
+      pageToDevice = null,
+      deviceWidth = 0,
+      deviceHeight = 0,
+      binPixelRatio = 0,
       slugGlyphs = false;
 
   final _WebRequestKind kind;
@@ -696,6 +756,8 @@ class _WebPending {
   final int deviceHeight;
   final double binPixelRatio;
   final bool slugGlyphs;
+  final int regionMaxCommands;
+  final bool regionBuildGrid;
   final completer = Completer<List<Uint8List>?>();
   bool requeueAfterPreemption = false;
   int id = -1;

@@ -170,6 +170,12 @@ void main() {
     });
     final info = PdfFontInfo.load(cos, font);
     expect(info.charFor(0x21), String.fromCharCode(0x2701));
+    // Ornamental parentheses/brackets (codes 0x80–0x8D) map to the real
+    // Dingbats U+2768–U+2775, not the AGL private-use area, so they render
+    // instead of falling through to unassigned C1 control chars (tofu).
+    expect(info.charFor(0x80), String.fromCharCode(0x2768)); // a89
+    expect(info.charFor(0x87), String.fromCharCode(0x276F)); // a85
+    expect(info.charFor(0x8D), String.fromCharCode(0x2775)); // a96
   });
 
   test('malformed GBK simple Chinese fonts decode byte pairs', () {

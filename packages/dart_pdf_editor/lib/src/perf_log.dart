@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:pdf_cos/perf.dart';
 
+import 'performance_memory.dart';
+
 /// Lightweight, frame-gated performance log for diagnosing scroll/render
 /// hangs on heavy documents.
 ///
@@ -97,6 +99,52 @@ class PdfPerfLog {
 
   static String _ms(double v) => '${v.toStringAsFixed(1)}ms';
 
+  /// ` rss=NNNMB` for the current process, or `''` where RSS is unavailable
+  /// (web) - a suffix any log line can append so the memory climb shows on the
+  /// same timeline.
+  ///
+  /// Returns `''` when the log is off *before* reading [currentProcessRssBytes]:
+  /// call sites interpolate this into a message argument, which Dart evaluates
+  /// before [log] can check [enabled], so without this guard every one of them
+  /// would pay a `ProcessInfo.currentRss` syscall on an ordinary run.
+  static String rssSuffix() {
+    if (!enabled) return '';
+    final rss = currentProcessRssBytes;
+    return rss == null ? '' : ' rss=${(rss / (1 << 20)).round()}MB';
+  }
+
+  static int _rasterSeq = 0;
+
+  /// Logs one raster allocation, the number that matters when diagnosing a
+  /// native-memory (GPU/Impeller) climb the Dart-side cache clears can't touch:
+  /// each line carries the raster's output size in megapixels, a monotonic
+  /// sequence number (so a per-frame *loop* is obvious - `n` racing up), and the
+  /// process RSS *after* the allocation (so the climb toward the OS high-water
+  /// limit is visible against the same timeline as the JANK/`vector-first`
+  /// lines). Read in the DevTools console (the `[perf … raster …]` lines) or in
+  /// an exported trace.
+  ///
+  /// [kind] is the raster path (e.g. 'detail', 'vector-first', 'base'). [region]
+  /// is null for a full-page raster. Off unless the perf log is [enabled].
+  static void raster(
+    String kind, {
+    required int page,
+    required int imageWidth,
+    required int imageHeight,
+    double? ratio,
+    ({double width, double height})? region,
+  }) {
+    if (!enabled) return;
+    final mp = (imageWidth * imageHeight) / 1e6;
+    final ratioStr = ratio == null ? '' : ' ratio=${ratio.toStringAsFixed(1)}';
+    final regionStr = region == null
+        ? ' full'
+        : ' region=${region.width.toStringAsFixed(0)}x'
+            '${region.height.toStringAsFixed(0)}pt';
+    log('raster kind=$kind page=$page n=${++_rasterSeq}$regionStr$ratioStr '
+        'img=${imageWidth}x$imageHeight (${mp.toStringAsFixed(1)}MP)${rssSuffix()}');
+  }
+
   static void _onTimings(List<FrameTiming> timings) {
     if (!enabled) {
       _flush();
@@ -108,7 +156,7 @@ class PdfPerfLog {
       if (build > 16.0 || raster > 16.0) {
         _buf.add('[perf ${_nowMs.toStringAsFixed(0)}] JANK '
             'build=${_ms(build)} raster=${_ms(raster)} '
-            'total=${_ms(t.totalSpan.inMicroseconds / 1000.0)}');
+            'total=${_ms(t.totalSpan.inMicroseconds / 1000.0)}${rssSuffix()}');
       }
     }
     _flush();

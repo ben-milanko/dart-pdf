@@ -65,6 +65,15 @@
     "timeoutS": 600,
     "ciSafe": true
   },
+  "cad-wide-1p-sweep": {
+    "suite": "vm-sweep",
+    "note": "the pathological single-sheet strip drawing behind the iPad-jank report: one ~8504x842pt page, ~850k paint commands in 8 /Contents streams. Exercises interpret + peak RSS + text-extract on a transcript that overflows the region-replay linear ceiling. HEAD-only (new generator), never backfilled.",
+    "generate": { "shape": "wide", "ops": 850000, "streams": 8, "seed": 20260718 },
+    "maxPages": 0,
+    "repeat": 3,
+    "timeoutS": 600,
+    "ciSafe": true
+  },
   "save-incremental": {
     "suite": "vm-sweep",
     "corpus": "test_corpora/ghent",

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:test/test.dart';
@@ -72,6 +73,55 @@ void main() {
       expect(fn.evaluate(1).single, 1);
       expect(fn.evaluate(0.5).single, closeTo(0.5, 1e-9));
       expect(fn.evaluate(0.25).single, closeTo(0.25, 1e-9));
+    });
+
+    test('type 0 evaluates every input of a multi-dimensional sampler', () {
+      // A 2x2x2 identity tint transform: 3 inputs -> 3 outputs, sampled at
+      // the cube corners. This is the shape of devicen.pdf's transform, and
+      // regressed to black-on-non-first-input before multilinear support.
+      // Sample point (i0, i1, i2) with the first dimension varying fastest;
+      // the RGB value stored at each corner is the corner coordinate itself.
+      final samples = <int>[];
+      for (var i2 = 0; i2 < 2; i2++) {
+        for (var i1 = 0; i1 < 2; i1++) {
+          for (var i0 = 0; i0 < 2; i0++) {
+            samples.addAll([i0 * 255, i1 * 255, i2 * 255]);
+          }
+        }
+      }
+      final fn = PdfFunction.parse(
+        cos,
+        CosStream(
+          CosDictionary({
+            'FunctionType': const CosInteger(0),
+            'Domain': CosArray([
+              for (var i = 0; i < 3; i++) ...const [CosInteger(0), CosInteger(1)]
+            ]),
+            'Range': CosArray([
+              for (var i = 0; i < 3; i++) ...const [CosInteger(0), CosInteger(1)]
+            ]),
+            'Size': CosArray(
+                [const CosInteger(2), const CosInteger(2), const CosInteger(2)]),
+            'BitsPerSample': const CosInteger(8),
+          }),
+          Uint8List.fromList(samples),
+        ),
+      )!;
+
+      void expectClose(List<double> actual, List<double> expected) {
+        expect(actual.length, expected.length);
+        for (var i = 0; i < expected.length; i++) {
+          expect(actual[i], closeTo(expected[i], 1e-9));
+        }
+      }
+
+      // Red, green and blue must each survive - not just the first input.
+      expectClose(fn.evaluateAt([1, 0, 0]), [1, 0, 0]);
+      expectClose(fn.evaluateAt([0, 1, 0]), [0, 1, 0]);
+      expectClose(fn.evaluateAt([0, 0, 1]), [0, 0, 1]);
+      expectClose(fn.evaluateAt([1, 1, 0]), [1, 1, 0]);
+      // Interior point exercises the trilinear blend across all 8 corners.
+      expectClose(fn.evaluateAt([0.5, 0.25, 0.75]), [0.5, 0.25, 0.75]);
     });
 
     CosStream calculator(String program, {List<CosObject>? range}) =>
@@ -211,6 +261,71 @@ void main() {
         }),
       )!;
       expect(shading.toGradient(PdfMatrix.identity), isNull);
+    });
+
+    PdfShading radial(List<num> coords, {List<bool>? extend}) => PdfShading.parse(
+          cos,
+          CosDictionary({
+            'ShadingType': const CosInteger(3),
+            'ColorSpace': const CosName('DeviceRGB'),
+            'Coords': CosArray([for (final v in coords) CosReal(v.toDouble())]),
+            'Function': exponential(),
+            if (extend != null)
+              'Extend': CosArray([for (final e in extend) CosBoolean(e)]),
+          }),
+        )!;
+
+    test('nested radial circles sample into a radial gradient', () {
+      // circle 0 sits inside circle 1 (concentric-ish): a clean two-point
+      // conical gradient the device renders directly.
+      final shading = radial([50, 50, 10, 55, 50, 60]);
+      final gradient = shading.toGradient(PdfMatrix.identity)!;
+      expect(gradient.isRadial, isTrue);
+      expect(shading.toRadialConeMesh(PdfMatrix.identity), isNull);
+    });
+
+    test('non-nested radial circles decode into a cone mesh, not a gradient',
+        () {
+      // r0=0 point outside the r1=60 circle (d=90): the swept cone case that
+      // a device radial gradient can't express.
+      final shading = radial([521, 289, 0, 431, 289, 60], extend: [false, true]);
+      expect(shading.toGradient(PdfMatrix.identity), isNull);
+
+      final mesh = shading.toRadialConeMesh(
+        PdfMatrix.identity,
+        clip: const PdfRect(0, 0, 595, 842),
+      )!;
+      expect(mesh.vertices, isNotEmpty);
+      expect(mesh.triangles.length % 3, 0);
+
+      // Every vertex lies on some swept circle centred between the two
+      // endpoints, so the whole mesh stays within the union of those circles'
+      // bounding span - never on the far (empty) side of the point.
+      for (final v in mesh.vertices) {
+        expect(v.x, lessThanOrEqualTo(521 + 1e-6));
+      }
+      // The colour field spans the function: red (s→0, at the point) through
+      // to blue (s→1, the large circle).
+      final reds = mesh.vertices.where((v) => v.color.red > 0.9);
+      final blues = mesh.vertices.where((v) => v.color.blue > 0.9);
+      expect(reds, isNotEmpty);
+      expect(blues, isNotEmpty);
+    });
+
+    test('an unextended radial end stops the sweep at its circle', () {
+      // extend [true false]: the sweep must not run past s=1 (the large
+      // circle), so no vertex sits beyond it on the growing side.
+      final shading =
+          radial([521, 289, 0, 431, 289, 60], extend: [true, false]);
+      final mesh = shading.toRadialConeMesh(
+        PdfMatrix.identity,
+        clip: const PdfRect(0, 0, 595, 842),
+      )!;
+      // s ≤ 1 keeps radii ≤ 60 and centres between the endpoints: the left
+      // edge can reach at most x1 - r1 = 431 - 60 = 371.
+      for (final v in mesh.vertices) {
+        expect(v.x, greaterThanOrEqualTo(371 - 1e-6));
+      }
     });
   });
 
