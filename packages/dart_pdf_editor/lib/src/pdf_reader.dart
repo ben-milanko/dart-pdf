@@ -171,6 +171,7 @@ class PdfReader extends StatefulWidget {
     this.onAction,
     this.onAnnotationTap,
     this.onLaunchUrl,
+    this.onShareReflowImage,
     this.pageOverlayBuilder,
     this.pageLayout = const PdfPageLayout.verticalContinuous(),
     this.initialFit = PdfViewerFit.page,

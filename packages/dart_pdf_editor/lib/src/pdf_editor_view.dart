@@ -309,6 +309,7 @@ class PdfEditorView extends StatefulWidget {
     this.fontPicker,
     this.onSnapshot,
     this.onPlaceSignature,
+    this.onShareReflowImage,
     this.textPrompt,
     this.styledTextPrompt,
     this.palette = PdfEditingToolbar.defaultPalette,
