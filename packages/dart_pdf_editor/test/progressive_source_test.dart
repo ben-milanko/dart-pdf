@@ -66,11 +66,15 @@ void main() {
       expect(events.last, (bytes.length, bytes.length));
     });
 
-    test('reassembles over an unknown-length source', () async {
+    test('reassembles over an unknown-length source with progress', () async {
       final bytes = buildMultiPagePdf(2);
       final source = _RecordingSource(bytes, reportLength: false);
-      final full = await readSourceFully(source, chunk: 50);
+      final events = <(int, int?)>[];
+      final full = await readSourceFully(source,
+          chunk: 50, onProgress: (r, t) => events.add((r, t)));
       expect(full, bytes);
+      // Unknown length: total stays null, received climbs to the full size.
+      expect(events.last, (bytes.length, null));
     });
 
     test('a fired cancel token aborts before reading', () async {
@@ -221,6 +225,19 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('failed:'), findsOneWidget);
       expect(find.text('viewer'), findsNothing);
+    });
+
+    testWidgets('shows the default error UI when no errorBuilder is given',
+        (tester) async {
+      await pump(
+        tester,
+        PdfProgressiveSourceBuilder(
+          source: _ThrowingSource(24),
+          builder: (_, __, ___) => const Text('viewer'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Could not open document'), findsOneWidget);
     });
 
     testWidgets('restarts when the source is swapped', (tester) async {
