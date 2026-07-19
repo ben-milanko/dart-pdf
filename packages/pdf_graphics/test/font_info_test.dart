@@ -230,4 +230,118 @@ void main() {
     expect(withOutline, greaterThanOrEqualTo(12));
     expect(signatures.length, greaterThan(1));
   });
+
+  group('Symbol built-in encoding', () {
+    CosDictionary symbolFont({CosObject? encoding}) => CosDictionary({
+          'Subtype': const CosName('Type1'),
+          'BaseFont': const CosName('Symbol'),
+          if (encoding != null) 'Encoding': encoding,
+        });
+
+    test('maps the Greek run, not Latin look-alikes', () {
+      final info = PdfFontInfo.load(cos, symbolFont());
+      // Lower case alpha..omega and the capitals share the Greek block, so a
+      // reader searching for a typed Greek letter matches the extracted text.
+      expect(info.charFor(0x61), 'α'); // alpha, was 'a'
+      expect(info.charFor(0x62), 'β'); // beta
+      expect(info.charFor(0x70), 'π'); // pi
+      expect(info.charFor(0x41), 'Α'); // Alpha
+      expect(info.charFor(0x44), 'Δ'); // Delta, not U+2206 increment
+      expect(info.charFor(0x57), 'Ω'); // Omega, not U+2126 ohm sign
+      expect(info.charFor(0x6D), 'μ'); // mu, not U+00B5 micro sign
+    });
+
+    test('maps math operators above 0x7F', () {
+      final info = PdfFontInfo.load(cos, symbolFont());
+      expect(info.charFor(0xA5), '∞'); // infinity, was '¥'
+      expect(info.charFor(0xD6), '√'); // radical, was 'Ö'
+      expect(info.charFor(0xF2), '∫'); // integral, was 'ò'
+      expect(info.charFor(0x22), '∀'); // universal
+      expect(info.charFor(0x24), '∃'); // existential
+      expect(info.charFor(0x40), '≅'); // congruent
+    });
+
+    test('prefers real characters over Adobe private-use code points', () {
+      final info = PdfFontInfo.load(cos, symbolFont());
+      // AGL puts these in the corporate-use subarea, where no substituted
+      // font carries a glyph - the same tofu trap as the dingbat ornaments.
+      expect(info.charFor(0xE2), '®'); // registersans
+      expect(info.charFor(0xE3), '©'); // copyrightsans
+      expect(info.charFor(0xE4), '™'); // trademarksans
+      expect(info.charFor(0xE6), '⎛'); // parenlefttp
+      expect(info.charFor(0xEF), '⎪'); // braceex
+      expect(info.charFor(0xF4), '⎮'); // integralex
+    });
+
+    test('ASCII codes that Symbol shares with Latin are unchanged', () {
+      final info = PdfFontInfo.load(cos, symbolFont());
+      expect(info.charFor(0x20), ' ');
+      expect(info.charFor(0x31), '1');
+      expect(info.charFor(0x3D), '=');
+      expect(info.charFor(0x25), '%');
+    });
+
+    test('a base encoding does not override the built-in one', () {
+      // Producers routinely tag a Symbol font /WinAnsiEncoding while meaning
+      // the Greek glyphs; honouring WinAnsi there would render Latin letters.
+      final info = PdfFontInfo.load(
+          cos, symbolFont(encoding: const CosName('WinAnsiEncoding')));
+      expect(info.charFor(0x61), 'α');
+    });
+
+    test('/Differences outranks the built-in encoding', () {
+      final info = PdfFontInfo.load(
+        cos,
+        symbolFont(
+          encoding: CosDictionary({
+            'Differences': CosArray([
+              const CosInteger(0x61),
+              const CosName('bullet'),
+            ]),
+          }),
+        ),
+      );
+      expect(info.charFor(0x61), '•'); // the document's explicit name wins
+      expect(info.charFor(0x62), 'β'); // untouched codes stay Greek
+    });
+
+    test('only the Symbol base font gets the table', () {
+      final helvetica = CosDictionary({
+        'Subtype': const CosName('Type1'),
+        'BaseFont': const CosName('Helvetica'),
+      });
+      expect(PdfFontInfo.load(cos, helvetica).charFor(0x61), 'a');
+    });
+
+    test('a subset prefix still resolves to Symbol', () {
+      final font = CosDictionary({
+        'Subtype': const CosName('Type1'),
+        'BaseFont': const CosName('ABCDEF+Symbol'),
+      });
+      expect(PdfFontInfo.load(cos, font).charFor(0x61), 'α');
+    });
+  });
+
+  test('Symbol glyph names resolve for any font, not just Symbol', () {
+    // A /Differences array naming Greek or math glyphs is unambiguous, and
+    // nothing confines those names to the Symbol base font.
+    final font = CosDictionary({
+      'Subtype': const CosName('TrueType'),
+      'BaseFont': const CosName('Helvetica'),
+      'Encoding': CosDictionary({
+        'Differences': CosArray([
+          const CosInteger(97),
+          const CosName('alpha'),
+          const CosName('summation'),
+          const CosName('infinity'),
+          const CosName('arrowright'),
+        ]),
+      }),
+    });
+    final info = PdfFontInfo.load(cos, font);
+    expect(info.charFor(97), 'α');
+    expect(info.charFor(98), '∑');
+    expect(info.charFor(99), '∞');
+    expect(info.charFor(100), '→');
+  });
 }
