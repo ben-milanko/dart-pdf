@@ -43,18 +43,18 @@ Future<String?> cacheOpenedPdf(Uint8List bytes) async {
   }
 }
 
-/// Reads a snapshot back by its content-hash [cacheKey], or null when it's gone
-/// or the store is unavailable (the caller drops the stale Recent entry).
+/// Reads a snapshot back by its content-hash [cacheKey]. Throws when it's gone
+/// or IndexedDB is unavailable - the web has no filesystem to fall back to, so
+/// `readPdfAtPath` must not treat a miss as "read it off disk instead"; the
+/// throw drops the stale Recent entry, exactly as a gone file does on native.
 Future<Uint8List?> readCachedPdf(String cacheKey) async {
-  try {
-    final store = await _store('readonly');
-    return await _run<Uint8List?>(store.get(cacheKey.toJS), (result) {
-      if (result == null) return null;
-      return (result as JSUint8Array).toDart;
-    });
-  } catch (_) {
-    return null;
-  }
+  final store = await _store('readonly');
+  final bytes = await _run<Uint8List?>(store.get(cacheKey.toJS), (result) {
+    if (result == null) return null;
+    return (result as JSUint8Array).toDart;
+  });
+  if (bytes == null) throw StateError('No cached PDF for $cacheKey');
+  return bytes;
 }
 
 /// Deletes snapshots no longer referenced by [keep] (the cache keys still held

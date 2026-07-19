@@ -306,14 +306,13 @@ class SaveResult {
 /// before reading. This is required for sandboxed locations such as OneDrive's
 /// CloudStorage folder after an app restart.
 Future<Uint8List> readPdfAtPath(String path, {String? bookmark}) async {
-  // Web has no filesystem: a reopenable recent/session entry is backed by an
-  // IndexedDB byte snapshot keyed under [path] (see pdf_cache.dart), so read it
-  // back from there.
-  if (kIsWeb) {
-    final cached = await readCachedPdf(path);
-    if (cached != null) return cached;
-    throw StateError('No cached bytes for $path');
-  }
+  // The byte-snapshot store gets first refusal. On the web a recent/session
+  // entry is an IndexedDB blob keyed under [path] and there's no filesystem to
+  // fall back to, so the web store returns the bytes (or throws on a miss, which
+  // drops the stale entry). Native keeps its snapshot as a real file, so its
+  // store declines here (returns null) and we read [path] off disk below.
+  final cached = await readCachedPdf(path);
+  if (cached != null) return cached;
   if (_isMacOSDesktop && bookmark != null && bookmark.isNotEmpty) {
     try {
       final bytes = await _macosFileAccessChannel.invokeMethod<Uint8List>(
