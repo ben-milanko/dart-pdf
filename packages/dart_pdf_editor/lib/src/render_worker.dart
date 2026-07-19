@@ -6,6 +6,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart' show StripPlan;
 
 import 'budgeted_cache.dart';
+import 'region_replay_index.dart';
 import 'render_trace.dart';
 import 'render_worker_stub.dart'
     if (dart.library.io) 'render_worker_isolate.dart'
@@ -330,6 +331,35 @@ abstract class PdfRenderWorker {
     required int deviceHeight,
     required double pixelRatio,
     required PdfRect imageDecodeRegion,
+    int priority = 0,
+  }) async =>
+      null;
+
+  /// Builds page [pageIndex]'s region-replay spatial index off-thread and ships
+  /// it back reconstructed, or null when the page can't be offloaded (this
+  /// platform has no worker, the worker failed/declined, or the page's content
+  /// can't round-trip through the command codec).
+  ///
+  /// The worker re-records the page in its own isolate through the same
+  /// deterministic transcript the retained scene was built from (like
+  /// [binStrips]), builds [PdfRegionReplayIndex.build] against it with the
+  /// caller-supplied [maxCommands]/[buildGrid] (the caller's escalation policy),
+  /// and serializes the result across the seam. Because the transcript matches
+  /// byte-for-byte, the index's unit indices line up with the caller's scene.
+  /// The point (issue #384): that grid build is ~O(commands) of pure command-
+  /// bounds arithmetic — no `dart:ui` — so it belongs off the UI isolate, which
+  /// is where the last ~210 ms first-deep-zoom freeze on a dense CAD page lived.
+  ///
+  /// [annotations] must match the recording the scene was built from.
+  /// [priority] shares the queue ordering with [record]/[binStrips].
+  ///
+  /// The base implementation declines. Native isolates and Web Workers override
+  /// it; unsupported platforms keep the caller's in-isolate build.
+  Future<PdfRegionReplayIndex?> buildRegionIndex(
+    int pageIndex, {
+    required bool annotations,
+    required int maxCommands,
+    required bool buildGrid,
     int priority = 0,
   }) async =>
       null;
@@ -712,6 +742,25 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
         priority: priority,
       );
 
+  /// Region-index builds follow the page's stable worker affinity like
+  /// [binStrips]: both re-record the page, so the second request hits the same
+  /// worker's warm command cache instead of re-recording on a different one.
+  @override
+  Future<PdfRegionReplayIndex?> buildRegionIndex(
+    int pageIndex, {
+    required bool annotations,
+    required int maxCommands,
+    required bool buildGrid,
+    int priority = 0,
+  }) =>
+      _workers[_workerForPage(pageIndex)].buildRegionIndex(
+        pageIndex,
+        annotations: annotations,
+        maxCommands: maxCommands,
+        buildGrid: buildGrid,
+        priority: priority,
+      );
+
   @override
   bool get supportsRevisionUpdate =>
       _workers.every((worker) => worker.supportsRevisionUpdate);
@@ -1074,6 +1123,26 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
   @override
   void cancelBinStrips(int pageIndex, {int priority = 0}) =>
       _inner.cancelBinStrips(pageIndex, priority: priority);
+
+  /// Pure passthrough. The retained scene memoizes the index it receives for
+  /// its whole life, so a second identical build never reaches the worker;
+  /// caching the (multi-MB on a dense page) index in the record LRU would only
+  /// evict reusable page buffers for data the scene already holds.
+  @override
+  Future<PdfRegionReplayIndex?> buildRegionIndex(
+    int pageIndex, {
+    required bool annotations,
+    required int maxCommands,
+    required bool buildGrid,
+    int priority = 0,
+  }) =>
+      _inner.buildRegionIndex(
+        pageIndex,
+        annotations: annotations,
+        maxCommands: maxCommands,
+        buildGrid: buildGrid,
+        priority: priority,
+      );
 
   @override
   void dispose() {
