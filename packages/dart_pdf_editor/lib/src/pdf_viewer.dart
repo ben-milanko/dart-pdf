@@ -4333,9 +4333,13 @@ class _PdfViewerState extends State<PdfViewer>
     _hBounceController.stop();
     final v = velocity.pixelsPerSecond;
     if (v.distance < kMinFlingVelocity) {
+      pdfLogGesture('viewport fling SKIPPED (below min velocity)',
+          () => 'v=${v.distance.round()} min=${kMinFlingVelocity.round()}px/s');
       _springBackCross();
       return;
     }
+    pdfLogGesture('viewport fling START',
+        () => 'v=${v.distance.round()}px/s zoomed=$_zoomed');
     _flingSimX =
         FrictionSimulation(_flingFriction, 0, v.dx, tolerance: _flingTolerance);
     _flingSimY =
@@ -4364,6 +4368,12 @@ class _PdfViewerState extends State<PdfViewer>
         (!_scroll.hasClients || _scroll.position.pixels == scrollBefore) &&
         _transform.value.storage[12] == txBefore &&
         _transform.value.storage[13] == tyBefore) {
+      // Every absorber pinned - but if this fires on the FIRST tick of a fling
+      // the momentum dies on lift-off, which is indistinguishable from "fling
+      // does nothing". Log which it was.
+      pdfLogGesture('viewport fling STOPPED (nothing absorbed the delta)',
+          () => 't=${t.toStringAsFixed(3)}s '
+              'delta=${delta.dx.toStringAsFixed(2)},${delta.dy.toStringAsFixed(2)}');
       _touchFlinger.stop();
     }
   }
@@ -4590,7 +4600,8 @@ class _PdfViewerState extends State<PdfViewer>
   }
 
   void _onZoomedTouchPanEnd(DragEndDetails details) {
-    pdfLogGesture('viewer zoomed-touch-pan END');
+    pdfLogGesture('viewer zoomed-touch-pan END',
+        () => 'v=${details.velocity.pixelsPerSecond.distance.round()}px/s');
     _flingViewport(details.velocity);
   }
 
