@@ -4333,13 +4333,13 @@ class _PdfViewerState extends State<PdfViewer>
     _hBounceController.stop();
     final v = velocity.pixelsPerSecond;
     if (v.distance < kMinFlingVelocity) {
-      pdfLogGesture('viewport fling SKIPPED (below min velocity)',
-          () => 'v=${v.distance.round()} min=${kMinFlingVelocity.round()}px/s');
+      PdfPerfLog.log('viewport fling SKIPPED (below min velocity) '
+          'v=${v.distance.round()} min=${kMinFlingVelocity.round()}px/s');
       _springBackCross();
       return;
     }
-    pdfLogGesture('viewport fling START',
-        () => 'v=${v.distance.round()}px/s zoomed=$_zoomed');
+    PdfPerfLog.log(
+        'viewport fling START v=${v.distance.round()}px/s zoomed=$_zoomed');
     _flingSimX =
         FrictionSimulation(_flingFriction, 0, v.dx, tolerance: _flingTolerance);
     _flingSimY =
@@ -4371,9 +4371,9 @@ class _PdfViewerState extends State<PdfViewer>
       // Every absorber pinned - but if this fires on the FIRST tick of a fling
       // the momentum dies on lift-off, which is indistinguishable from "fling
       // does nothing". Log which it was.
-      pdfLogGesture('viewport fling STOPPED (nothing absorbed the delta)',
-          () => 't=${t.toStringAsFixed(3)}s '
-              'delta=${delta.dx.toStringAsFixed(2)},${delta.dy.toStringAsFixed(2)}');
+      PdfPerfLog.log('viewport fling STOPPED (nothing absorbed the delta) '
+          't=${t.toStringAsFixed(3)}s '
+          'delta=${delta.dx.toStringAsFixed(2)},${delta.dy.toStringAsFixed(2)}');
       _touchFlinger.stop();
     }
   }
@@ -4602,6 +4602,11 @@ class _PdfViewerState extends State<PdfViewer>
   void _onZoomedTouchPanEnd(DragEndDetails details) {
     pdfLogGesture('viewer zoomed-touch-pan END',
         () => 'v=${details.velocity.pixelsPerSecond.distance.round()}px/s');
+    // Also on the perf-log channel: the gesture channel needs a host sink
+    // (DevTools' touch-input toggle) and lands in the panel, not the console,
+    // so a console trace of a fling would otherwise show nothing at all.
+    PdfPerfLog.log('zoomed-touch-pan END '
+        'v=${details.velocity.pixelsPerSecond.distance.round()}px/s');
     _flingViewport(details.velocity);
   }
 
@@ -4631,6 +4636,13 @@ class _PdfViewerState extends State<PdfViewer>
     pdfLogGesture(
         'zoomed-pan gate: ${overPage ? 'DISABLED (overlay owns page)' : 'ENABLED (canvas gap)'}',
         () => 'tool=${editing.tool?.name ?? 'selection/eyedropper'}');
+    if (overPage) {
+      // On the console channel too: when the overlay owns the page the viewer
+      // never sees the drag, so no fling line is emitted at all - without this
+      // an absent fling is indistinguishable from a broken one.
+      PdfPerfLog.log('zoomed-pan gate DISABLED (overlay owns page) '
+          'tool=${editing.tool?.name ?? 'selection/eyedropper'}');
+    }
     return !overPage;
   }
 
