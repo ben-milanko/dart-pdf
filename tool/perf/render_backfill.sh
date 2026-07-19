@@ -26,6 +26,16 @@ REPEAT="${PDF_BENCHMARK_REPEAT:-2}"
 # The only graft the render benchmark needs is the test file itself (the render
 # API + render_smoke_test.dart's loadSystemFonts already exist back to 1.3.0).
 BENCH="packages/dart_pdf_editor/test/benchmark_render_test.dart"
+IMG_CACHE_DIR="tool/perf/cache/image-heavy"
+
+# Ensure the generated heavy docs exist (image-heavy is a flutter-render corpus).
+"$(dirname "$0")/gen_perf_docs.sh"
+
+# Render scenarios: "name|corpus-relative-to-dart_pdf_editor|scale|maxPages".
+RENDER_SCENARIOS=(
+  "ghent-render|../../test_corpora/ghent|2|3"
+  "image-render|../../$IMG_CACHE_DIR|1.5|4"
+)
 
 ok=0; skipped=""
 for ref in "$@"; do
@@ -38,21 +48,30 @@ for ref in "$@"; do
     echo "  worktree add failed; skip"; skipped="$skipped $ref"; continue
   fi
   cp "$ROOT/$BENCH" "$wt/$BENCH"
+  # Pre-seed the generated image-heavy doc so every version renders identical input.
+  if [ -d "$ROOT/$IMG_CACHE_DIR" ]; then
+    mkdir -p "$wt/$IMG_CACHE_DIR"; cp "$ROOT/$IMG_CACHE_DIR"/*.pdf "$wt/$IMG_CACHE_DIR/" 2>/dev/null || true
+  fi
   if ! ( cd "$wt" && $FLUTTER pub get ) >/dev/null 2>&1; then
     echo "  pub get failed; skip"; skipped="$skipped $ref"
     git -C "$ROOT" worktree remove --force "$wt" >/dev/null 2>&1 || true; continue
   fi
-  if ( cd "$wt/packages/dart_pdf_editor" &&
-        PDF_BENCHMARK_DIR="../../test_corpora/ghent" \
-        PDF_BENCHMARK_SCALE="$SCALE" PDF_BENCHMARK_MAX_PAGES="$MAXPAGES" \
-        PDF_BENCHMARK_REPEAT="$REPEAT" PDF_BENCHMARK_SCENARIO=ghent-render \
-        PDF_BENCHMARK_APPEND_HISTORY="$HIST/flutter-render.ndjson" \
-        $FLUTTER test test/benchmark_render_test.dart ); then
-    echo "  rendered ok -> $HIST/flutter-render.ndjson"; ok=$((ok+1))
-  else
-    echo "  render bench failed; skip"; skipped="$skipped $ref"
-  fi
+  measured=0
+  for entry in "${RENDER_SCENARIOS[@]}"; do
+    IFS='|' read -r name corpus scn_scale scn_max <<<"$entry"
+    if ( cd "$wt/packages/dart_pdf_editor" &&
+          PDF_BENCHMARK_DIR="$corpus" \
+          PDF_BENCHMARK_SCALE="$scn_scale" PDF_BENCHMARK_MAX_PAGES="$scn_max" \
+          PDF_BENCHMARK_REPEAT="$REPEAT" PDF_BENCHMARK_SCENARIO="$name" \
+          PDF_BENCHMARK_APPEND_HISTORY="$HIST/flutter-render.ndjson" \
+          $FLUTTER test test/benchmark_render_test.dart ); then
+      echo "  $name ok"; measured=$((measured+1))
+    else
+      echo "  $name failed; skip"; skipped="$skipped $ref/$name"
+    fi
+  done
+  [ "$measured" -gt 0 ] && ok=$((ok+1))
   git -C "$ROOT" worktree remove --force "$wt" >/dev/null 2>&1 || true
 done
 
-echo "render backfill done: $ok measured;${skipped:- none skipped}"
+echo "render backfill done: $ok refs measured;${skipped:- none skipped}"

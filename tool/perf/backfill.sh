@@ -28,7 +28,7 @@ mkdir -p "$HIST"; HIST="$(cd "$HIST" && pwd)"
 DART=dart; FLUTTER=flutter
 if command -v fvm >/dev/null 2>&1; then DART="fvm dart"; FLUTTER="fvm flutter"; fi
 
-SCENARIOS="${SCENARIOS:-ghent-suite-open cad-138p-sweep}"
+SCENARIOS="${SCENARIOS:-ghent-suite-open cad-138p-sweep image-heavy}"
 
 # Harness files grafted onto each old commit (additive; from the current tree).
 GRAFT=(
@@ -39,17 +39,13 @@ GRAFT=(
   tool/perf/scenarios.json
 )
 
-# The deterministic synthetic doc for cad-138p-sweep (pages/ops/seed match
-# scenarios.json). Generate it once here with current code.
+# Deterministic heavy synthetic docs (cad-138p, image-heavy) too big to commit.
+# Generate once here with current code, then pre-seed the SAME bytes into every
+# worktree so all versions measure identical input and old commits need no
+# generator. These live under tool/perf/cache/ (git-ignored).
+"$(dirname "$0")/gen_perf_docs.sh"
 CAD_CACHE="tool/perf/cache/cad-138-6000-20260718.pdf"
-if [[ " $SCENARIOS " == *" cad-138p-sweep "* ]]; then
-  if [ ! -f "$ROOT/$CAD_CACHE" ]; then
-    echo "generating $CAD_CACHE (once, current code)..."
-    mkdir -p "$ROOT/tool/perf/cache"
-    ( cd "$ROOT" && $DART run packages/pdf_cos/tool/gen_cad_pdf.dart \
-        "$CAD_CACHE" 138 6000 20260718 )
-  fi
-fi
+IMG_CACHE_DIR="tool/perf/cache/image-heavy"
 
 ok=0; skipped=""
 for ref in "$@"; do
@@ -65,9 +61,12 @@ for ref in "$@"; do
     mkdir -p "$wt/$(dirname "$f")"
     cp -R "$ROOT/$f" "$wt/$f"
   done
-  # Pre-seed the identical synthetic doc so old commits skip generation.
+  # Pre-seed the identical synthetic docs so old commits skip generation.
   if [ -f "$ROOT/$CAD_CACHE" ]; then
     mkdir -p "$wt/$(dirname "$CAD_CACHE")"; cp "$ROOT/$CAD_CACHE" "$wt/$CAD_CACHE"
+  fi
+  if [ -d "$ROOT/$IMG_CACHE_DIR" ]; then
+    mkdir -p "$wt/$IMG_CACHE_DIR"; cp "$ROOT/$IMG_CACHE_DIR"/*.pdf "$wt/$IMG_CACHE_DIR/" 2>/dev/null || true
   fi
   if ! ( cd "$wt" && $FLUTTER pub get ) >/dev/null 2>&1; then
     echo "  pub get failed (dep drift); skip"; skipped="$skipped $ref"

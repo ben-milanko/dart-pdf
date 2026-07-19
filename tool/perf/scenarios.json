@@ -23,6 +23,23 @@
     "repeat": 2,
     "ciSafe": true
   },
+  "image-heavy": {
+    "suite": "vm-sweep",
+    "note": "Heavy per-page RGB images (~8 MB decoded RGBA each, ~196 MB total) - the #283 scanned/photo memory shape. Exercises image decode + peak RSS / the decoded-image-cache budget work (#307/#314). Generated once + pre-seeded into tool/perf/cache/image-heavy so every version measures identical input.",
+    "corpus": "tool/perf/cache/image-heavy",
+    "maxPages": 0,
+    "repeat": 2,
+    "ciSafe": true
+  },
+  "image-render": {
+    "suite": "flutter-render",
+    "note": "Rasterizes the image-heavy doc (image decode + paint). Same generated corpus as image-heavy.",
+    "corpus": "tool/perf/cache/image-heavy",
+    "scale": 1.5,
+    "maxPages": 4,
+    "repeat": 2,
+    "ciSafe": true
+  },
   "pdfjs-hostile": {
     "suite": "vm-sweep",
     "corpus": "test_corpora/pdfjs",
