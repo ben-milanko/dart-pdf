@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'pdf_bookmark_source.dart';
+import 'pdf_cache.dart';
 import 'pdf_file_source.dart';
 import 'pdf_mobile_source.dart';
 import 'web_file_picker_stub.dart'
@@ -305,6 +306,14 @@ class SaveResult {
 /// before reading. This is required for sandboxed locations such as OneDrive's
 /// CloudStorage folder after an app restart.
 Future<Uint8List> readPdfAtPath(String path, {String? bookmark}) async {
+  // Web has no filesystem: a reopenable recent/session entry is backed by an
+  // IndexedDB byte snapshot keyed under [path] (see pdf_cache.dart), so read it
+  // back from there.
+  if (kIsWeb) {
+    final cached = await readCachedPdf(path);
+    if (cached != null) return cached;
+    throw StateError('No cached bytes for $path');
+  }
   if (_isMacOSDesktop && bookmark != null && bookmark.isNotEmpty) {
     try {
       final bytes = await _macosFileAccessChannel.invokeMethod<Uint8List>(

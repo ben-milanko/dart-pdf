@@ -57,11 +57,12 @@ class SessionDocument {
 /// editor can re-open them the next time it launches ("restore last session").
 ///
 /// Documents are tracked by a reusable read source - the on-disk path on
-/// desktop, or the app-private byte snapshot on mobile (see pdf_cache.dart).
-/// Web picks have neither, so the session there is always empty and restore is
-/// a no-op. Backed by `shared_preferences`; when storage is
-/// unavailable (widget tests) it degrades to the in-memory list, mirroring how
-/// [RecentsStore] and [PdfEditingPreferences] handle the same case.
+/// desktop, or the app-private byte snapshot on mobile (private file) and web
+/// (IndexedDB), see pdf_cache.dart. A derived tab (comparison, or a pick whose
+/// snapshot failed) has neither and is skipped. Backed by `shared_preferences`;
+/// when storage is unavailable (widget tests) it degrades to the in-memory
+/// list, mirroring how [RecentsStore] and [PdfEditingPreferences] handle the
+/// same case.
 class SessionStore {
   static const _key = 'dart_pdf_editor_app.session';
 

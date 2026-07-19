@@ -41,6 +41,11 @@ Future<String?> cacheOpenedPdf(Uint8List bytes) async {
   }
 }
 
+/// Native reopens a snapshot straight from its filesystem [cacheKey] (a real
+/// path) via `readPdfAtPath`, so there's nothing to read back through the store
+/// here. Only the web store, whose keys aren't filesystem paths, needs this.
+Future<Uint8List?> readCachedPdf(String cacheKey) async => null;
+
 /// Deletes cached copies no longer referenced by [keep] (the cache paths still
 /// held by Recent entries), so the store can't grow without bound as entries
 /// roll off the capped list.

@@ -24,9 +24,10 @@ class RecentFile {
   /// only a genuine picked path belongs here - never a [cachePath].
   final String? path;
 
-  /// The app-private snapshot of a mobile pick's bytes (see pdf_cache.dart).
-  /// Lets the entry reopen without a fresh pick when there is no reusable
-  /// [path]; not a writable origin, so saves still go through save-as.
+  /// The app-private snapshot of a pick's bytes (a private file on mobile, an
+  /// IndexedDB blob on web - see pdf_cache.dart). Lets the entry reopen without
+  /// a fresh pick when there is no reusable [path]; not a writable origin, so
+  /// saves still go through save-as.
   final String? cachePath;
 
   /// macOS security-scoped bookmark for [path], when available.
