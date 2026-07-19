@@ -1,6 +1,5 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/services.dart';
-import 'package:pdf_document/pdf_document.dart';
 
 /// The platform channel every native runner registers (see
 /// `windows/runner/native_print.cpp`, the macOS/iOS Swift handlers, the Android

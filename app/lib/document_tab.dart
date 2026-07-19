@@ -1,6 +1,5 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
-import 'package:pdf_document/pdf_document.dart';
 
 /// One open document. Holds its own edit session and viewer controller so
 /// switching tabs preserves edits, undo history, and scroll position.
