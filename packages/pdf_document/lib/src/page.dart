@@ -85,6 +85,24 @@ class PdfPage {
   }
 
   /// The page's content streams, decoded and concatenated.
+  /// Total raw (still-encoded) size of the page's content streams, summed
+  /// without decoding them. A cheap O(streams) proxy for how expensive
+  /// interpreting/extracting this page will be - a normal page is a few KB, a
+  /// dense CAD sheet is megabytes - so callers can gate synchronous work
+  /// (e.g. hover-cursor text extraction) on it without paying a decode.
+  int get rawContentLength {
+    final contents = document.cos.resolve(dict['Contents']);
+    if (contents is CosStream) return contents.rawBytes.length;
+    var total = 0;
+    if (contents is CosArray) {
+      for (final item in contents.items) {
+        final stream = document.cos.resolve(item);
+        if (stream is CosStream) total += stream.rawBytes.length;
+      }
+    }
+    return total;
+  }
+
   Uint8List contentBytes() {
     final contents = document.cos.resolve(dict['Contents']);
     final streams = <CosStream>[];

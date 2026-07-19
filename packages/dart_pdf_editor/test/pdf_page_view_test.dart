@@ -54,13 +54,18 @@ void main() {
   testWidgets(
       'pages denser than retainedZoomReplayMaxCommands zoom via the '
       'cached-picture fallback', (tester) async {
-    // Force every page over the density ceiling: no scene is retained and
-    // the zoom re-raster must take the classic nested-picture path (the
-    // same code retainedZoomReplay=false uses). Same assertions as the
-    // retained-path test above - the two paths are byte-identical, so only
-    // the raster geometry is observable.
+    // Force every page over BOTH density ceilings: no scene is retained at all
+    // (the tile ceiling would otherwise still retain one to feed tiles), so the
+    // zoom re-raster must take the classic nested-picture path - the same code
+    // retainedZoomReplay=false uses. Same assertions as the retained-path test
+    // above: the two paths are byte-identical, so only the raster geometry is
+    // observable.
     PdfPageView.retainedZoomReplayMaxCommands = 0;
-    addTearDown(() => PdfPageView.retainedZoomReplayMaxCommands = 20000);
+    PdfPageView.retainedZoomReplayTileMaxCommands = 0;
+    addTearDown(() {
+      PdfPageView.retainedZoomReplayMaxCommands = 20000;
+      PdfPageView.retainedZoomReplayTileMaxCommands = 400000;
+    });
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetDevicePixelRatio);
     final doc = PdfDocument.open(buildClassicPdf());
@@ -80,6 +85,43 @@ void main() {
     await tester.pump();
     final zoomed = tester.widget<RawImage>(find.byType(RawImage)).image!;
     expect(zoomed.width, 612 * 3);
+  });
+
+  testWidgets(
+      'a page too dense for flat replay still retains a scene to feed tiles',
+      (tester) async {
+    // The gap this closes: a dense single-sheet drawing used to drop its scene
+    // entirely, which disabled tiling, which made every pan step re-render the
+    // whole viewport. Over the flat-replay ceiling but under the tile ceiling
+    // the scene must be retained (so tiles can cull per region) while the
+    // full-page base raster still comes from the cached picture - retaining
+    // must not turn the base raster into a UI-thread flat replay.
+    PdfPageView.retainedZoomReplayMaxCommands = 0; // "too dense to flat-replay"
+    PdfPageView.retainedZoomReplayTileMaxCommands = 400000;
+    addTearDown(() {
+      PdfPageView.retainedZoomReplayMaxCommands = 20000;
+      PdfPageView.retainedZoomReplayTileMaxCommands = 400000;
+    });
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final doc = PdfDocument.open(buildClassicPdf());
+    final page = doc.page(0);
+    Widget at(double scale) => Center(
+        child:
+            SizedBox(width: 612, child: PdfPageView(page: page, scale: scale)));
+
+    await tester.pumpWidget(at(1));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    expect(tester.widget<RawImage>(find.byType(RawImage)).image!.width, 612);
+
+    // Same observable geometry as the fallback path - the point is that the
+    // raster stays correct while the scene is now available for tiling.
+    await tester.pumpWidget(at(3));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    expect(tester.widget<RawImage>(find.byType(RawImage)).image!.width, 612 * 3);
   });
 
   testWidgets('raster resolution follows the on-screen width', (tester) async {

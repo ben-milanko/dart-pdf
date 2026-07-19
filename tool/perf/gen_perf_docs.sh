@@ -10,6 +10,7 @@ DART=dart
 command -v fvm >/dev/null 2>&1 && DART="fvm dart"
 
 CAD="$ROOT/tool/perf/cache/cad-138-6000-20260718.pdf"
+CADWIDE="$ROOT/tool/perf/cache/cad-wide-850000-8-20260718.pdf"
 IMG="$ROOT/tool/perf/cache/image-heavy/image-heavy-24p.pdf"
 DN="$ROOT/tool/perf/cache/devicen/devicen-8p.pdf"
 
@@ -17,6 +18,12 @@ if [ ! -f "$CAD" ]; then
   echo "gen cad-138p -> $CAD"
   mkdir -p "$(dirname "$CAD")"
   ( cd "$ROOT" && $DART run packages/pdf_cos/tool/gen_cad_pdf.dart "$CAD" 138 6000 20260718 )
+fi
+
+if [ ! -f "$CADWIDE" ]; then
+  echo "gen cad-wide-1p (single ultra-wide strip) -> $CADWIDE"
+  mkdir -p "$(dirname "$CADWIDE")"
+  ( cd "$ROOT" && $DART run packages/pdf_test_fixtures/tool/gen_cad_wide_pdf.dart "$CADWIDE" 850000 8 20260718 )
 fi
 
 if [ ! -f "$IMG" ]; then

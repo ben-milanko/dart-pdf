@@ -105,9 +105,24 @@ class PdfRetainedScene {
   /// Unsupported command groups conservatively use the full transcript.
   static bool spatialRegionReplay = true;
 
-  /// Hard construction bound for the spatial index. Larger transcripts keep
-  /// the historical full replay rather than retaining unbounded metadata.
+  /// Hard construction bound for the linear spatial index. Larger transcripts
+  /// keep the historical full replay rather than retaining unbounded metadata
+  /// — because the linear index is scanned in full on every region raster, so
+  /// a huge unit count would cost O(N) per tile.
   static int spatialRegionReplayMaxCommands = 250000;
+
+  /// Escalate to a uniform-grid spatial index for transcripts ABOVE the linear
+  /// [spatialRegionReplayMaxCommands] ceiling, up to [spatialGridReplayMaxCommands].
+  ///
+  /// Below the linear ceiling nothing changes: the flat per-op scan is cheap
+  /// enough. Above it, the historical behaviour was to give up on culling and
+  /// full-replay the whole transcript into every tile — catastrophic on a dense
+  /// CAD page (a 256px tile replaying ~850k commands, ~260ms, on the UI
+  /// isolate). The grid makes region replay O(candidates) instead, so those
+  /// pages become pannable. On by default because it only ever REPLACES the
+  /// full-transcript fallback — it never changes a page that already culled.
+  static bool spatialGridReplay = true;
+  static int spatialGridReplayMaxCommands = 4000000;
 
   PdfRegionReplayIndex? _regionIndex;
   PdfBandedTranscript? _bands;
@@ -335,9 +350,16 @@ class PdfRetainedScene {
 
   PdfRegionReplayIndex _ensureRegionIndex() {
     _register();
-    return _regionIndex ??= PdfRegionReplayIndex.build(
+    if (_regionIndex != null) return _regionIndex!;
+    // Below the linear ceiling: the flat per-op scan (unchanged). Above it:
+    // escalate to the grid rather than falling back to full-transcript replay.
+    final overLinear = commands.length > spatialRegionReplayMaxCommands;
+    final useGrid = spatialGridReplay && overLinear;
+    return _regionIndex = PdfRegionReplayIndex.build(
       commands,
-      maxCommands: spatialRegionReplayMaxCommands,
+      maxCommands:
+          useGrid ? spatialGridReplayMaxCommands : spatialRegionReplayMaxCommands,
+      buildGrid: useGrid,
     );
   }
 

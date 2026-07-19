@@ -33,6 +33,7 @@ sweep ghent-suite-open
 sweep pdfjs-hostile
 sweep save-incremental
 sweep cad-138p-sweep
+sweep cad-wide-1p-sweep
 sweep image-heavy
 
 # Render trend (Flutter rasterization: interpret + paint + toImage). Captures

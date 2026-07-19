@@ -389,6 +389,9 @@ void main() {
 
     await gesture.moveTo(view(100, 720)); // over 'Page 1'
     await tester.pump();
+    // An ordinary (small) page still extracts synchronously on hover, so the
+    // I-beam appears immediately. Only heavy pages defer (see
+    // hover_text_warm_test).
     expect(region().cursor, SystemMouseCursors.text);
 
     await gesture.moveTo(view(300, 500));
