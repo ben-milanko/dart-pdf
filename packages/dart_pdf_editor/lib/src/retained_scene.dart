@@ -170,9 +170,11 @@ class PdfRetainedScene {
     }
   }
 
-  /// Frees the retained spatial index (and banded transcript); both rebuild
-  /// identically on next use. A component of strip eviction and the
-  /// memory-pressure response - the transcript itself stays intact.
+  /// Frees the retained spatial index (and any banded transcript); both rebuild
+  /// identically on next use. A memory-pressure primitive on the extreme pages
+  /// that carry a large index, and a component of strip eviction - the
+  /// authoritative [commands] transcript stays intact. A no-op when none is
+  /// held; an in-flight [warmRegionIndex] simply repopulates the index.
   void dropRegionIndex() {
     _regionIndex = null;
     _bands = null;
@@ -402,6 +404,10 @@ class PdfRetainedScene {
     int pageIndex = -1,
     int priority = 0,
   }) {
+    // A warmed index (worker-built grid on a dense CAD page) is exactly the
+    // heavy retention the pressure sweep must be able to shed, so register even
+    // though this path bypasses _ensureRegionIndex.
+    _register();
     final resident = _regionIndex;
     if (resident != null) return Future.value(resident);
     final inFlight = _regionIndexWarming;
@@ -454,14 +460,6 @@ class PdfRetainedScene {
     // result once disposed, but a rebuilt index would leak past dispose.
     if (!_disposed) _regionIndex = index;
     return index;
-  }
-
-  /// Releases the retained region-replay index (a memory-pressure primitive on
-  /// the extreme pages that carry a large index). The next region raster or
-  /// [warmRegionIndex] rebuilds it. A no-op when none is held; an in-flight warm
-  /// simply repopulates it.
-  void dropRegionIndex() {
-    _regionIndex = null;
   }
 
   PdfRect? _pageSpaceRegion(Rect region) {
