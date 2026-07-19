@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'pdf_bookmark_source.dart';
+import 'pdf_cache.dart';
 import 'pdf_file_source.dart';
 import 'pdf_mobile_source.dart';
 import 'web_file_picker_stub.dart'
@@ -305,6 +306,13 @@ class SaveResult {
 /// before reading. This is required for sandboxed locations such as OneDrive's
 /// CloudStorage folder after an app restart.
 Future<Uint8List> readPdfAtPath(String path, {String? bookmark}) async {
+  // The byte-snapshot store gets first refusal. On the web a recent/session
+  // entry is an IndexedDB blob keyed under [path] and there's no filesystem to
+  // fall back to, so the web store returns the bytes (or throws on a miss, which
+  // drops the stale entry). Native keeps its snapshot as a real file, so its
+  // store declines here (returns null) and we read [path] off disk below.
+  final cached = await readCachedPdf(path);
+  if (cached != null) return cached;
   if (_isMacOSDesktop && bookmark != null && bookmark.isNotEmpty) {
     try {
       final bytes = await _macosFileAccessChannel.invokeMethod<Uint8List>(

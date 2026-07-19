@@ -541,6 +541,26 @@ const _zapfDingbats = <int, int>{
   0x7C: 0x275C,
   0x7D: 0x275D,
   0x7E: 0x275E,
+  // Ornamental parentheses/brackets (glyph names a89, a90, a93, a94, a91,
+  // a92, a205, a85, a206, a86, a87, a88, a95, a96). The Adobe Glyph List
+  // maps these to the private-use area (U+F8D7–U+F8E4), but they were later
+  // encoded as real Dingbats (U+2768–U+2775), which is what conforming
+  // viewers render; without these the codes fall through to unassigned C1
+  // control chars and render as tofu.
+  0x80: 0x2768,
+  0x81: 0x2769,
+  0x82: 0x276A,
+  0x83: 0x276B,
+  0x84: 0x276C,
+  0x85: 0x276D,
+  0x86: 0x276E,
+  0x87: 0x276F,
+  0x88: 0x2770,
+  0x89: 0x2771,
+  0x8A: 0x2772,
+  0x8B: 0x2773,
+  0x8C: 0x2774,
+  0x8D: 0x2775,
   0xA1: 0x2761,
   0xA2: 0x2762,
   0xA3: 0x2763,

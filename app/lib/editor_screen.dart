@@ -445,8 +445,9 @@ class _EditorScreenState extends State<EditorScreen>
       final path = tab.originPath;
       final cachePath = tab.cachePath;
       // Track by the writable origin (desktop) or the private snapshot
-      // (mobile); tabs with neither (web, or a derived/comparison tab) can't
-      // be read back and are skipped.
+      // (mobile file cache / web IndexedDB); tabs with neither (a derived or
+      // comparison tab, or a web pick whose snapshot failed) can't be read back
+      // and are skipped.
       final key = (path != null && path.isNotEmpty) ? path : cachePath;
       if (key == null || key.isEmpty || !seen.add(key)) continue;
       documents.add(SessionDocument(

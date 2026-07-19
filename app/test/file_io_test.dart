@@ -113,6 +113,25 @@ void main() {
     expect(await File(path).readAsBytes(), [9, 9]);
   });
 
+  test('readPdfAtPath reads a snapshot back off disk on native', () async {
+    // Native's byte-snapshot store (readCachedPdf) declines, so readPdfAtPath
+    // reads the recent/session file straight off its filesystem path.
+    final dir = await Directory.systemTemp.createTemp('dartpdf_read');
+    addTearDown(() => dir.delete(recursive: true));
+    final path = '${dir.path}/recent.pdf';
+    await File(path).writeAsBytes([37, 80, 68, 70]); // %PDF
+
+    expect(await readPdfAtPath(path), [37, 80, 68, 70]);
+  });
+
+  test('readPdfAtPath throws for a missing file so the caller drops it',
+      () async {
+    await expectLater(
+      readPdfAtPath('/no/such/dir/gone.pdf'),
+      throwsA(anything),
+    );
+  });
+
   test('saveBytesToPath reports failure for an unwritable path', () async {
     final result = await saveBytesToPath(Uint8List(1), '/no/such/dir/out.pdf');
     expect(result.succeeded, isFalse);
