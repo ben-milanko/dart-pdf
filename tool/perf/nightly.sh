@@ -49,6 +49,7 @@ render_bench() { # render_bench <scenario> <corpus-rel-to-dart_pdf_editor> <scal
 }
 render_bench ghent-render "../../test_corpora/ghent" 2 3
 render_bench image-render "../../tool/perf/cache/image-heavy" 1.5 4
+render_bench devicen-render "../../tool/perf/cache/devicen" 1 2
 
 # Competitive column: PDFium over the same Ghent corpus, when pypdfium2 is
 # importable (the workflow pip-installs it; locally it is optional).

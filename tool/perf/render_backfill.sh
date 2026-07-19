@@ -26,15 +26,17 @@ REPEAT="${PDF_BENCHMARK_REPEAT:-2}"
 # The only graft the render benchmark needs is the test file itself (the render
 # API + render_smoke_test.dart's loadSystemFonts already exist back to 1.3.0).
 BENCH="packages/dart_pdf_editor/test/benchmark_render_test.dart"
-IMG_CACHE_DIR="tool/perf/cache/image-heavy"
+# Generated corpora (git-ignored) pre-seeded into every worktree.
+GEN_CORPORA=(tool/perf/cache/image-heavy tool/perf/cache/devicen)
 
-# Ensure the generated heavy docs exist (image-heavy is a flutter-render corpus).
+# Ensure the generated heavy docs exist (used as flutter-render corpora).
 "$(dirname "$0")/gen_perf_docs.sh"
 
 # Render scenarios: "name|corpus-relative-to-dart_pdf_editor|scale|maxPages".
 RENDER_SCENARIOS=(
   "ghent-render|../../test_corpora/ghent|2|3"
-  "image-render|../../$IMG_CACHE_DIR|1.5|4"
+  "image-render|../../tool/perf/cache/image-heavy|1.5|4"
+  "devicen-render|../../tool/perf/cache/devicen|1|2"
 )
 
 ok=0; skipped=""
@@ -48,10 +50,12 @@ for ref in "$@"; do
     echo "  worktree add failed; skip"; skipped="$skipped $ref"; continue
   fi
   cp "$ROOT/$BENCH" "$wt/$BENCH"
-  # Pre-seed the generated image-heavy doc so every version renders identical input.
-  if [ -d "$ROOT/$IMG_CACHE_DIR" ]; then
-    mkdir -p "$wt/$IMG_CACHE_DIR"; cp "$ROOT/$IMG_CACHE_DIR"/*.pdf "$wt/$IMG_CACHE_DIR/" 2>/dev/null || true
-  fi
+  # Pre-seed the generated docs so every version renders identical input.
+  for d in "${GEN_CORPORA[@]}"; do
+    if [ -d "$ROOT/$d" ]; then
+      mkdir -p "$wt/$d"; cp "$ROOT/$d"/*.pdf "$wt/$d/" 2>/dev/null || true
+    fi
+  done
   if ! ( cd "$wt" && $FLUTTER pub get ) >/dev/null 2>&1; then
     echo "  pub get failed; skip"; skipped="$skipped $ref"
     git -C "$ROOT" worktree remove --force "$wt" >/dev/null 2>&1 || true; continue

@@ -11,6 +11,7 @@ command -v fvm >/dev/null 2>&1 && DART="fvm dart"
 
 CAD="$ROOT/tool/perf/cache/cad-138-6000-20260718.pdf"
 IMG="$ROOT/tool/perf/cache/image-heavy/image-heavy-24p.pdf"
+DN="$ROOT/tool/perf/cache/devicen/devicen-8p.pdf"
 
 if [ ! -f "$CAD" ]; then
   echo "gen cad-138p -> $CAD"
@@ -22,6 +23,12 @@ if [ ! -f "$IMG" ]; then
   echo "gen image-heavy -> $IMG"
   mkdir -p "$(dirname "$IMG")"
   ( cd "$ROOT" && $DART run packages/pdf_cos/tool/gen_image_pdf.dart "$IMG" 24 1240 1650 )
+fi
+
+if [ ! -f "$DN" ]; then
+  echo "gen devicen -> $DN"
+  mkdir -p "$(dirname "$DN")"
+  ( cd "$ROOT" && $DART run packages/pdf_cos/tool/gen_devicen_pdf.dart "$DN" 8 1240 1650 )
 fi
 
 echo "perf docs ready under $ROOT/tool/perf/cache"
