@@ -100,7 +100,7 @@ Future<void> _settle(WidgetTester tester) async {
 
 /// Pumps a handful of frames so the reflow view's post-frame jump/restore
 /// corrections (estimate → build → align) run to completion.
-Future<void> _pumpFrames(WidgetTester tester, [int frames = 10]) async {
+Future<void> _pumpFrames(WidgetTester tester, [int frames = 30]) async {
   for (var i = 0; i < frames; i++) {
     await tester.pump(const Duration(milliseconds: 16));
     await Future<void>.delayed(const Duration(milliseconds: 5));
@@ -303,6 +303,15 @@ void main() {
 
       // The fullscreen viewer is an InteractiveViewer (pan / pinch-zoom).
       expect(find.byType(InteractiveViewer), findsOneWidget);
+      // The image fills the viewport (BoxFit.contain, centred) rather than
+      // sitting at its intrinsic pixel size in the top-left corner.
+      final fsImage = find.descendant(
+        of: find.byType(InteractiveViewer),
+        matching: find.byType(RawImage),
+      );
+      expect(fsImage, findsOneWidget);
+      expect(tester.getSize(fsImage),
+          tester.getSize(find.byType(InteractiveViewer)));
       final shareButton =
           find.byKey(const ValueKey('pdf-reflow-image-share'));
       expect(shareButton, findsOneWidget);
