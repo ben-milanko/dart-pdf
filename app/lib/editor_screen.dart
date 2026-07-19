@@ -541,12 +541,20 @@ class _EditorScreenState extends State<EditorScreen>
       originPath: originPath,
       originBookmark: originBookmark,
     );
+    AppDevTools.instance.addLog(
+        'open-trace: "$title" placeholder shown, awaiting bytes '
+        '(defer=$defer, path=${originPath ?? "-"})');
     try {
       final bytes = await bytesFuture;
+      AppDevTools.instance.addLog(
+          'open-trace: "$title" bytes ready — ${bytes.length} B; '
+          'waiting for end of frame');
       // Let the loading tab paint before constructing the edit session, which
       // synchronously opens the PDF and can be noticeable for large files.
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return;
+      AppDevTools.instance.addLog(
+          'open-trace: "$title" building ${defer ? "deferred tab" : "session"}');
       // A batch open ([defer]) parses only the tab the user lands on; the
       // rest stay unparsed until first activated (see _materializeDeferred),
       // so opening many large files no longer stalls on every one at once.
@@ -565,6 +573,8 @@ class _EditorScreenState extends State<EditorScreen>
               originBookmark: originBookmark,
             );
       final opened = _replaceLoadingTab(loading, tab);
+      AppDevTools.instance.addLog(
+          'open-trace: "$title" tab ${opened ? "shown" : "replace-skipped"}');
       if (opened) {
         // With a reusable file origin (desktop) or no writable store (web),
         // record the recent right away. Without one (mobile), snapshot the
@@ -622,6 +632,9 @@ class _EditorScreenState extends State<EditorScreen>
       final index = _tabs.indexOf(tab);
       final bytes = tab.deferredBytes;
       if (index == -1 || bytes == null) return;
+      AppDevTools.instance.addLog(
+          'open-trace: materializing deferred "${tab.title}" '
+          '— building session over ${bytes.length} B');
       final built = DocumentTab.document(
         title: tab.title,
         bytes: bytes,
@@ -631,6 +644,8 @@ class _EditorScreenState extends State<EditorScreen>
         cachePath: tab.cachePath,
       );
       setState(() => _tabs[index] = built);
+      AppDevTools.instance.addLog(
+          'open-trace: materialized deferred "${tab.title}" — session ready');
       tab.dispose();
       unawaited(_persistSession());
     });
@@ -986,6 +1001,16 @@ class _EditorScreenState extends State<EditorScreen>
           await _openProgressive(
               title: file.name, path: path!, bookmark: bookmark);
         } else {
+          // Probe the pick's declared size before the read, so a stalled
+          // readAsBytes shows up as "size known, bytes never ready".
+          int? pickLength;
+          try {
+            pickLength = await file.length();
+          } catch (_) {}
+          AppDevTools.instance.addLog(
+              'open-trace: picked "${file.name}" '
+              '(declared ${pickLength ?? "?"} B, path=${path ?? "-"}); '
+              'starting readAsBytes');
           await _openLoadedBytes(
             file.readAsBytes(),
             title: file.name,

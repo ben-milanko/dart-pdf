@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show defaultTargetPlatform, mapEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
@@ -22,6 +23,7 @@ import 'page_number_field.dart';
 import 'performance_policy.dart';
 import 'pdf_reflow_view.dart';
 import 'pdf_viewer.dart';
+import 'progressive_source.dart';
 import 'raster_cache.dart';
 import 'search_panel.dart';
 import 'shell_chrome.dart';
@@ -247,14 +249,107 @@ class PdfEditorView extends StatefulWidget {
     this.viewerTheme,
     this.rasterCache,
     this.textCache,
-  })  : assert((bytes == null) != (controller == null),
+  })  : source = null,
+        options = const PdfSourceLoadOptions(firstPaintPages: 1),
+        onProgress = null,
+        onFirstPaint = null,
+        loadingBuilder = null,
+        errorBuilder = null,
+        assert((bytes == null) != (controller == null),
             'Provide bytes or a controller, not both.'),
         assert(controller == null || preferences == null,
             'With an external controller, preferences come from it.');
 
+  /// An editor that opens progressively from a [PdfByteSource].
+  ///
+  /// Page one paints from a sparse first-paint open ([options],
+  /// defaulting to the first page) while the rest of the file downloads in the
+  /// background; when it lands the full buffer swaps in place. Editing stays
+  /// disabled until the whole file is present - the first-paint buffer is
+  /// deliberately incomplete, so it must not be edited or saved - then the full
+  /// toolbar and [onSave]/[onSaveAs]/[onDocumentChanged] callbacks come alive.
+  ///
+  /// Pass a stable [documentId] (the URL or path) so remembered scroll/zoom
+  /// survive the swap. [onProgress] reports the background read;
+  /// [onFirstPaint] fires when the first page is ready. Falls back to a plain
+  /// full read (no early paint) when the source can't serve useful ranges. The
+  /// in-flight load is cancelled when the widget is disposed; the [source] is
+  /// host-owned and not closed.
+  const PdfEditorView.source(
+    PdfByteSource this.source, {
+    super.key,
+    this.options = const PdfSourceLoadOptions(firstPaintPages: 1),
+    this.documentId,
+    this.onProgress,
+    this.onFirstPaint,
+    this.loadingBuilder,
+    this.errorBuilder,
+    this.viewerController,
+    this.preferences,
+    this.performance,
+    this.features = const PdfEditorFeatures(),
+    this.onSave,
+    this.onSaveAs,
+    this.showSaveButton = true,
+    this.alwaysAllowSave = false,
+    this.onDocumentChanged,
+    this.onPickPdfToInsert,
+    this.onExportPages,
+    this.onAction,
+    this.onAnnotationTap,
+    this.pageOverlayBuilder,
+    this.annotationMenuBuilder,
+    this.formImagePicker,
+    this.imagePicker,
+    this.systemImagePasteProvider,
+    this.onExportSelectedContentImage,
+    this.onExportCustomStamps,
+    this.onImportCustomStamps,
+    this.customStamps = const [],
+    this.fontPicker,
+    this.onSnapshot,
+    this.onPlaceSignature,
+    this.textPrompt,
+    this.styledTextPrompt,
+    this.palette = PdfEditingToolbar.defaultPalette,
+    this.toolShortcuts = pdfEditToolShortcuts,
+    this.toolbarLeading = const [],
+    this.toolbarTrailing = const [],
+    this.toolbarBuilder,
+    this.pageLayout = const PdfPageLayout.verticalContinuous(),
+    this.initialFit = PdfViewerFit.page,
+    this.backgroundColor,
+    this.pageColor,
+    this.viewerTheme,
+    this.rasterCache,
+    this.textCache,
+  })  : bytes = null,
+        controller = null;
+
   /// The PDF to edit. The widget owns the session; replacing the bytes
-  /// (by identity) opens a fresh session in place.
+  /// (by identity) opens a fresh session in place. Null when opened from a
+  /// [source] or an external [controller].
   final Uint8List? bytes;
+
+  /// The source to open progressively (via [PdfEditorView.source]); null
+  /// otherwise.
+  final PdfByteSource? source;
+
+  /// First-paint tuning for the [source] open. See
+  /// [PdfProgressiveSourceBuilder.options].
+  final PdfSourceLoadOptions options;
+
+  /// Background full-read progress for the [source] open, `(received, total)`.
+  final void Function(int received, int? total)? onProgress;
+
+  /// Fires when the first page painted from the [source].
+  final VoidCallback? onFirstPaint;
+
+  /// Shown while the first-paint bytes are still loading (source mode only).
+  final WidgetBuilder? loadingBuilder;
+
+  /// Shown when a [source] open fails before any page could paint.
+  final Widget Function(BuildContext context, Object error)? errorBuilder;
 
   /// Optional persistent on-disk preview cache (see [PdfRasterCache]).
   /// Keyed by [documentId] (or, with [bytes], their [pdfContentKey]), so
@@ -475,11 +570,16 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   /// [documentId]. With [bytes] one is derived from the content.
   String? get _documentKey => _shell.documentKey;
 
+  bool get _isSource => widget.source != null;
+
   @override
   void initState() {
     super.initState();
     _toolShortcuts =
         Map<PdfEditTool, LogicalKeyboardKey>.of(widget.toolShortcuts);
+    // In source mode the shell is owned by the inner byte-based PdfEditorView
+    // the progressive builder mounts once the first-paint bytes arrive.
+    if (_isSource) return;
     _shell = PdfShellSessionLifecycle(
       bytes: widget.bytes,
       controller: widget.controller,
@@ -524,6 +624,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
       _toolShortcuts =
           Map<PdfEditTool, LogicalKeyboardKey>.of(widget.toolShortcuts);
     }
+    if (_isSource) return;
     final sourceChanging = widget.controller != oldWidget.controller ||
         !identical(widget.bytes, oldWidget.bytes) ||
         (widget.controller == null &&
@@ -551,9 +652,107 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   @override
   void dispose() {
     _pencil?.dispose();
-    _shell.dispose();
+    if (!_isSource) _shell.dispose();
     super.dispose();
   }
+
+  /// The progressive-open path: paint page one from the sparse first-paint
+  /// buffer, then swap the full buffer in place. The inner byte-based
+  /// [PdfEditorView] owns the session/worker, so it reopens in place across the
+  /// swap. Editing is gated off until the full file lands - the first-paint
+  /// buffer is deliberately incomplete, so it must not be edited or saved.
+  Widget _buildFromSource() {
+    return PdfProgressiveSourceBuilder(
+      source: widget.source!,
+      options: widget.options,
+      onProgress: widget.onProgress,
+      onFirstPaint: widget.onFirstPaint,
+      loadingBuilder: widget.loadingBuilder,
+      errorBuilder: widget.errorBuilder,
+      builder: (context, bytes, complete) => PdfEditorView(
+        bytes: bytes,
+        documentId: widget.documentId,
+        viewerController: widget.viewerController,
+        preferences: widget.preferences,
+        performance: widget.performance,
+        features: complete ? widget.features : _gatedFeatures(widget.features),
+        // The first-paint buffer is incomplete: no save/change/insert/export
+        // until the whole file is present.
+        onSave: complete ? widget.onSave : null,
+        onSaveAs: complete ? widget.onSaveAs : null,
+        showSaveButton: widget.showSaveButton,
+        alwaysAllowSave: complete && widget.alwaysAllowSave,
+        onDocumentChanged: complete ? widget.onDocumentChanged : null,
+        onPickPdfToInsert: complete ? widget.onPickPdfToInsert : null,
+        onExportPages: complete ? widget.onExportPages : null,
+        onAction: widget.onAction,
+        onAnnotationTap: widget.onAnnotationTap,
+        pageOverlayBuilder: widget.pageOverlayBuilder,
+        annotationMenuBuilder: widget.annotationMenuBuilder,
+        formImagePicker: widget.formImagePicker,
+        imagePicker: widget.imagePicker,
+        systemImagePasteProvider: widget.systemImagePasteProvider,
+        onExportSelectedContentImage: widget.onExportSelectedContentImage,
+        onExportCustomStamps: widget.onExportCustomStamps,
+        onImportCustomStamps: widget.onImportCustomStamps,
+        customStamps: widget.customStamps,
+        fontPicker: widget.fontPicker,
+        onSnapshot: widget.onSnapshot,
+        onPlaceSignature: widget.onPlaceSignature,
+        textPrompt: widget.textPrompt,
+        styledTextPrompt: widget.styledTextPrompt,
+        palette: widget.palette,
+        toolShortcuts: widget.toolShortcuts,
+        toolbarLeading: widget.toolbarLeading,
+        toolbarTrailing: widget.toolbarTrailing,
+        toolbarBuilder: widget.toolbarBuilder,
+        pageLayout: widget.pageLayout,
+        initialFit: widget.initialFit,
+        backgroundColor: widget.backgroundColor,
+        pageColor: widget.pageColor,
+        viewerTheme: widget.viewerTheme,
+        // The first-paint buffer only holds the first page(s); its later pages
+        // render blank (and its text extracts empty). Keep the persistent
+        // content-keyed caches off until the full buffer lands so those blanks
+        // aren't written under the document's stable id and served back after
+        // the swap (and across app restarts).
+        rasterCache: complete ? widget.rasterCache : null,
+        textCache: complete ? widget.textCache : null,
+      ),
+    );
+  }
+
+  /// A read-only projection of [features] for the incomplete first-paint view:
+  /// the viewer, search, and navigation panels stay, but every editing
+  /// surface - the toolbar, page editing, markup, undo/redo, the
+  /// annotation/properties panels - is off until the full buffer lands.
+  static PdfEditorFeatures _gatedFeatures(PdfEditorFeatures f) =>
+      PdfEditorFeatures(
+        headerBar: f.headerBar,
+        search: f.search,
+        searchResultsPanel: f.searchResultsPanel,
+        pageNumber: f.pageNumber,
+        author: false,
+        authorEditable: false,
+        viewOptions: f.viewOptions,
+        reflowView: f.reflowView,
+        pageColorEditable: f.pageColorEditable,
+        thumbnails: f.thumbnails,
+        bookmarks: f.bookmarks,
+        pageEditing: false,
+        annotationSidebar: false,
+        propertiesPanel: false,
+        toolbar: false,
+        markup: false,
+        undoRedo: false,
+        colorControls: f.colorControls,
+        styleControls: f.styleControls,
+        flatten: false,
+        colorProcessing: false,
+        pencilEraserToggle: false,
+        tools: f.tools,
+        toolGroups: f.toolGroups,
+      );
 
   /// Whether there's anything to save: false while the document still
   /// matches what was opened, which disables the Save button (and makes
@@ -596,6 +795,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isSource) return _buildFromSource();
     final features = widget.features;
     Widget body = LayoutBuilder(builder: (context, constraints) {
       return ListenableBuilder(

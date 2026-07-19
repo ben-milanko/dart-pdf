@@ -3,6 +3,7 @@ library;
 
 export 'package:pdf_document/pdf_document.dart'
     show
+        PdfDocument,
         PdfStampTemplate,
         PdfStampTemplateComponent,
         PdfStampTemplateComponentType,
@@ -54,6 +55,7 @@ export 'src/image_decoder.dart' show PdfImageCache;
 export 'src/ocr.dart';
 export 'src/page_export.dart';
 export 'src/print_rasterize.dart';
+export 'src/progressive_source.dart';
 export 'src/vector_print_ui.dart';
 export 'src/page_geometry.dart';
 export 'src/page_object_cache.dart';

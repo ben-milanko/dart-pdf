@@ -32,7 +32,6 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:pdf_document/pdf_document.dart';
 
 // ---------------------------------------------------------------------------
 // Tunables - read from the URL query string at runtime (so the driver can vary

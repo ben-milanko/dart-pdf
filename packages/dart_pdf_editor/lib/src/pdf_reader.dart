@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
@@ -12,6 +13,7 @@ import 'page_number_field.dart';
 import 'performance_policy.dart';
 import 'pdf_reflow_view.dart';
 import 'pdf_viewer.dart';
+import 'progressive_source.dart';
 import 'raster_cache.dart';
 import 'search_panel.dart';
 import 'shell_chrome.dart';
@@ -100,10 +102,25 @@ class PdfReaderFeatures {
 /// The widget is a plain body: give it bounded space (a [Scaffold]
 /// body, an [Expanded]...). Swapping [bytes] for a different document
 /// reopens in place.
+///
+/// ## Progressive open from a source
+///
+/// [PdfReader.source] points the reader at a [PdfByteSource] (an HTTP URL via
+/// [PdfHttpByteSource], a host's own file or cloud source) and paints page one
+/// from ranged reads before the whole file has downloaded, then swaps the
+/// complete buffer in behind the scenes:
+///
+/// ```dart
+/// PdfReader.source(
+///   PdfHttpByteSource(Uri.parse(url)),
+///   documentId: url,
+///   onProgress: (received, total) => setDownloadFraction(received, total),
+/// )
+/// ```
 class PdfReader extends StatefulWidget {
   const PdfReader({
     super.key,
-    required this.bytes,
+    required Uint8List this.bytes,
     this.documentId,
     this.controller,
     this.preferences,
@@ -121,11 +138,72 @@ class PdfReader extends StatefulWidget {
     this.viewerTheme,
     this.rasterCache,
     this.textCache,
-  });
+  })  : source = null,
+        options = const PdfSourceLoadOptions(firstPaintPages: 1),
+        onProgress = null,
+        onFirstPaint = null,
+        loadingBuilder = null,
+        errorBuilder = null;
+
+  /// A view-only reader that opens progressively from a [PdfByteSource].
+  ///
+  /// Page one paints from a sparse first-paint open ([options],
+  /// defaulting to the first page) while the rest of the file downloads in the
+  /// background; when it lands the full buffer swaps in place. Pass a stable
+  /// [documentId] (the URL or path) so remembered scroll/zoom survive the swap.
+  /// [onProgress] reports the background read; [onFirstPaint] fires when
+  /// the first page is ready. Falls back to a plain full read (no early paint)
+  /// when the source can't serve useful ranges. The in-flight load is cancelled
+  /// when the widget is disposed; the [source] is host-owned and not closed.
+  const PdfReader.source(
+    PdfByteSource this.source, {
+    super.key,
+    this.options = const PdfSourceLoadOptions(firstPaintPages: 1),
+    this.documentId,
+    this.onProgress,
+    this.onFirstPaint,
+    this.loadingBuilder,
+    this.errorBuilder,
+    this.controller,
+    this.preferences,
+    this.performance,
+    this.features = const PdfReaderFeatures(),
+    this.onAction,
+    this.onAnnotationTap,
+    this.onLaunchUrl,
+    this.pageOverlayBuilder,
+    this.pageLayout = const PdfPageLayout.verticalContinuous(),
+    this.initialFit = PdfViewerFit.page,
+    this.backgroundColor,
+    this.pageColor,
+    this.viewerTheme,
+    this.rasterCache,
+    this.textCache,
+  }) : bytes = null;
 
   /// The PDF to show. Replacing it (by identity) opens the new
-  /// document in place.
-  final Uint8List bytes;
+  /// document in place. Null when opened from a [source].
+  final Uint8List? bytes;
+
+  /// The source to open progressively (via [PdfReader.source]); null for the
+  /// byte-based reader.
+  final PdfByteSource? source;
+
+  /// First-paint tuning for the [source] open. See
+  /// [PdfProgressiveSourceBuilder.options].
+  final PdfSourceLoadOptions options;
+
+  /// Background full-read progress for the [source] open, `(received, total)`.
+  final void Function(int received, int? total)? onProgress;
+
+  /// Fires when the first page painted from the [source].
+  final VoidCallback? onFirstPaint;
+
+  /// Shown while the first-paint bytes are still loading (source mode only).
+  final WidgetBuilder? loadingBuilder;
+
+  /// Shown when a [source] open fails before any page could paint.
+  final Widget Function(BuildContext context, Object error)? errorBuilder;
 
   /// Optional persistent on-disk preview cache (see [PdfRasterCache]).
   /// Keyed by [documentId] (or the bytes' [pdfContentKey]), so reopening
@@ -207,9 +285,14 @@ class _PdfReaderState extends State<PdfReader> {
   TextEditingController get _searchField => _shell.searchController;
   FocusNode get _searchFocus => _shell.searchFocus;
 
+  bool get _isSource => widget.source != null;
+
   @override
   void initState() {
     super.initState();
+    // In source mode the shell is owned by the inner byte-based PdfReader the
+    // progressive builder mounts once the first-paint bytes arrive.
+    if (_isSource) return;
     _shell = PdfShellSessionLifecycle(
       bytes: widget.bytes,
       controller: null,
@@ -223,6 +306,7 @@ class _PdfReaderState extends State<PdfReader> {
   @override
   void didUpdateWidget(PdfReader oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (_isSource) return;
     _shell.update(
       bytes: widget.bytes,
       controller: null,
@@ -235,12 +319,13 @@ class _PdfReaderState extends State<PdfReader> {
 
   @override
   void dispose() {
-    _shell.dispose();
+    if (!_isSource) _shell.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isSource) return _buildFromSource();
     final features = widget.features;
     Widget body = LayoutBuilder(builder: (context, constraints) {
       return ListenableBuilder(
@@ -478,5 +563,44 @@ class _PdfReaderState extends State<PdfReader> {
       );
     }
     return body;
+  }
+
+  /// The progressive-open path: paint page one from the sparse first-paint
+  /// buffer, then swap the full buffer in place. The inner byte-based
+  /// [PdfReader] owns the session/worker, so it reopens in place across the
+  /// swap and (with a stable [PdfReader.documentId]) keeps its scroll position.
+  Widget _buildFromSource() {
+    return PdfProgressiveSourceBuilder(
+      source: widget.source!,
+      options: widget.options,
+      onProgress: widget.onProgress,
+      onFirstPaint: widget.onFirstPaint,
+      loadingBuilder: widget.loadingBuilder,
+      errorBuilder: widget.errorBuilder,
+      builder: (context, bytes, complete) => PdfReader(
+        bytes: bytes,
+        documentId: widget.documentId,
+        controller: widget.controller,
+        preferences: widget.preferences,
+        performance: widget.performance,
+        features: widget.features,
+        onAction: widget.onAction,
+        onAnnotationTap: widget.onAnnotationTap,
+        onLaunchUrl: widget.onLaunchUrl,
+        pageOverlayBuilder: widget.pageOverlayBuilder,
+        pageLayout: widget.pageLayout,
+        initialFit: widget.initialFit,
+        backgroundColor: widget.backgroundColor,
+        pageColor: widget.pageColor,
+        viewerTheme: widget.viewerTheme,
+        // The first-paint buffer only holds the first page(s); its later pages
+        // render blank (and its text extracts empty). Keep the persistent
+        // content-keyed caches off until the full buffer lands so those blanks
+        // aren't written under the document's stable id and served back after
+        // the swap (and across app restarts).
+        rasterCache: complete ? widget.rasterCache : null,
+        textCache: complete ? widget.textCache : null,
+      ),
+    );
   }
 }
