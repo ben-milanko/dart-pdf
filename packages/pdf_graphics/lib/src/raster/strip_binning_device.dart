@@ -225,16 +225,20 @@ abstract class StripBinningDevice implements PdfDevice {
       return;
     }
     if (!binningEnabled) return;
-    // Skia renders strokes thinner than one device pixel as a 1-px hairline
-    // with the alpha modulated by the width (not a true sub-pixel band);
-    // match it so thin CAD/print linework is parity-identical.
+    // A stroke thinner than one device pixel is painted as a solid one-pixel
+    // line, matching the canvas device (see CanvasPdfDevice's stroke floor)
+    // and every reference viewer.
+    //
+    // This used to also scale alpha down by the sub-pixel width, reproducing
+    // Skia's own behaviour for a thin stroke. That is faithful to Skia but not
+    // to the page: a 0.06 pt CAD hairline came out at ~6% opacity, which is
+    // the washed-out thin linework this fixes. Both paths now paint it solid.
     var deviceStroke = stroke;
-    var a = alpha;
+    final a = alpha;
     final sf = pageToDevice.scaleFactor;
     final hairWidth = stroke.width * sf;
     if (hairWidth < 1 && sf > 0) {
       deviceStroke = stroke.copyWith(width: 1 / sf);
-      if (hairWidth > 0) a *= hairWidth;
     }
     generator.strokePath(
         path, pageToDevice, deviceStroke, stripArgbColor(color, a),
