@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Make the viewer scroll-indicator API axis-aware: `PdfScrollMetrics` now
+  describes the viewer's **main layout axis** and carries an `Axis scrollAxis`
+  saying which. In `PdfPageLayout.horizontalContinuous`,
+  `PdfViewer.scrollIndicatorBuilder` replaces the stock bottom bar (not just
+  the right-edge bar in vertical layout), the metrics report the horizontal
+  position/extent/pixels, and `jumpToNormalized` moves along the horizontal
+  axis; the cross-axis (zoom-window) scrollbar is unchanged. Vertical behavior
+  is source-compatible (`scrollAxis` defaults to `Axis.vertical`) (#428).
 - Add X-strip transcript banding to bound retained memory on extreme-aspect
   pages (`PdfBandedTranscript`): partition a page's `PdfRenderCommand`
   transcript into N vertical strips along the horizontal pan axis, retain only
