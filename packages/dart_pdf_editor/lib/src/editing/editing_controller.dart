@@ -567,24 +567,52 @@ class PdfEditingController extends ChangeNotifier {
     _document = PdfDocument.open(bytes, password: _password);
   }
 
+  /// Debug-only sanity check behind the assert in [_tryApplyIncrementalUpdate].
+  ///
+  /// Every revision reaching that method is an append *by construction*: the
+  /// updater writes "whole current file, then the appended objects" and the
+  /// editor that produced it was built from [_document], while redo just
+  /// lengthens a view over the same buffer. This guards against a *future*
+  /// call site breaking that, which would silently graft one document's xref
+  /// onto another's bytes ([CosDocument.applyIncrementalUpdate] only checks
+  /// the length, not the content).
+  ///
+  /// It deliberately samples rather than comparing the whole prefix: this runs
+  /// on every commit in debug builds - which is how the app is developed - and
+  /// a full memcmp of a 40 MB drawing per ink stroke is exactly the cost this
+  /// change set out to remove. A wrong-document mix-up differs in the header
+  /// and around the previous revision's tail; a byte-identical head, tail and
+  /// length is not a case any realistic bug produces.
+  bool _looksLikeAppend() {
+    final next = bytes;
+    final current = _document.cos.bytes;
+    if (next.length <= current.length) return false;
+    // Views over one buffer (the redo path) are provably a prefix - no compare.
+    if (identical(next.buffer, current.buffer) &&
+        next.offsetInBytes == current.offsetInBytes) {
+      return true;
+    }
+    const window = 4096;
+    bool sameRange(int from, int to) {
+      for (var i = from; i < to; i++) {
+        if (next[i] != current[i]) return false;
+      }
+      return true;
+    }
+
+    final headEnd = current.length < window ? current.length : window;
+    final tailStart =
+        current.length - window < headEnd ? headEnd : current.length - window;
+    return sameRange(0, headEnd) && sameRange(tailStart, current.length);
+  }
+
   /// Folds the appended revision into the open document. False when it can't
   /// be done incrementally (the document was opened through xref recovery,
   /// or the appended xref chain is malformed), leaving [_document] untouched
   /// for the caller to reopen from scratch.
   bool _tryApplyIncrementalUpdate() {
-    assert(() {
-      // The updater builds each revision as "whole current file, then the
-      // appended objects", so the prefix is identical by construction. Verify
-      // it in debug builds only - a mismatch here would silently graft one
-      // document's xref onto another's bytes.
-      final next = bytes;
-      final current = _document.cos.bytes;
-      if (next.length <= current.length) return false;
-      for (var i = 0; i < current.length; i++) {
-        if (next[i] != current[i]) return false;
-      }
-      return true;
-    }(), 'incremental revision is not an append of the open document');
+    assert(_looksLikeAppend(),
+        'incremental revision is not an append of the open document');
     try {
       // A *new* wrapper over the same updated COS layer: editing widgets read
       // `identical(document, before)` as "the commit produced no revision",

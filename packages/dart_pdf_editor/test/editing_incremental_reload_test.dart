@@ -44,10 +44,12 @@ void main() {
   }
 
   /// The controller's live document vs. a cold open of the same bytes.
-  void expectMatchesColdOpen(PdfEditingController editing, String reason) {
-    final cold = PdfDocument.open(editing.bytes);
-    expect(snapshot(editing.document).toString(), snapshot(cold).toString(),
-        reason: reason);
+  void expectMatchesColdOpen(PdfEditingController editing, String reason,
+      {String password = ''}) {
+    final cold = PdfDocument.open(editing.bytes, password: password);
+    // Deep map/list equality, not `.toString()` - the matcher reports which
+    // key diverged instead of dumping two multi-KB strings side by side.
+    expect(snapshot(editing.document), snapshot(cold), reason: reason);
   }
 
   test('a long session stays identical to a cold open at every revision', () {
@@ -136,6 +138,47 @@ void main() {
 
     editing.addRectangle(0, const PdfRect(140, 220, 200, 280));
     expectMatchesColdOpen(editing, 'after editing a reordered document');
+  });
+
+  test('an encrypted document survives a session on the incremental path', () {
+    // The two paths differ here in a way nothing else in this file exercises:
+    // the reopen fallback re-derives the security handler from the password,
+    // while the incremental path keeps the handler already on the shared
+    // CosDocument. If an in-place update ever dropped or re-derived it wrongly,
+    // strings and streams would decrypt to garbage from the second revision on.
+    final editing = PdfEditingController(buildEncryptedPdf(revision: 4));
+    addTearDown(editing.dispose);
+
+    for (var i = 0; i < 10; i++) {
+      editing.addRectangle(
+          0, PdfRect(100, 200 + i.toDouble() * 5, 180, 250));
+      expectMatchesColdOpen(editing, 'encrypted revision ${i + 1}');
+    }
+    expect(editing.document.page(0).annotations, hasLength(10));
+
+    // the decrypted content stream still reads as plaintext operators, so the
+    // file key survived the in-place updates rather than silently going stale
+    expect(String.fromCharCodes(editing.document.page(0).contentBytes()),
+        contains('Hello, world!'));
+
+    editing.undo();
+    expectMatchesColdOpen(editing, 'encrypted undo (reopen fallback)');
+    editing.redo();
+    expectMatchesColdOpen(editing, 'encrypted redo (incremental path)');
+  });
+
+  test('an AES-256 (R6) document survives the incremental path', () {
+    // R6 uses the file key directly rather than per-object keys, so it walks a
+    // different branch of the handler than the R4 case above.
+    final editing = PdfEditingController(buildEncryptedPdf(revision: 6));
+    addTearDown(editing.dispose);
+
+    for (var i = 0; i < 5; i++) {
+      editing.addRectangle(0, PdfRect(100, 200 + i.toDouble() * 5, 180, 250));
+      expectMatchesColdOpen(editing, 'R6 revision ${i + 1}');
+    }
+    expect(String.fromCharCodes(editing.document.page(0).contentBytes()),
+        contains('Hello, world!'));
   });
 
   test('the revision buffer stays a prefix chain (saves are still appends)',
