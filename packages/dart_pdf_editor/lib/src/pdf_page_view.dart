@@ -1151,9 +1151,22 @@ class _PdfPageViewState extends State<PdfPageView> {
       );
       _progressiveDetailFuture = paintReady.future;
       unawaited(
-        detailFuture.then((ready) {
-          if (!paintReady.isCompleted) paintReady.complete(ready);
-        }),
+        detailFuture.then(
+          (ready) {
+            if (!paintReady.isCompleted) paintReady.complete(ready);
+          },
+          // A detail render that throws (worker error, region raster failure,
+          // web OOM) must still complete this completer. deferFullRenderUntil-
+          // DetailPaint has _renderNow await paintReady before it interprets
+          // the full image record; a swallowed error here would leave that
+          // await hanging forever, so the page's blurry base raster never
+          // sharpens until an unrelated relayout (opening devtools, a window
+          // resize) fires a fresh _render. Treat a failed detail as "not
+          // ready" and let the full pass proceed.
+          onError: (Object _, StackTrace __) {
+            if (!paintReady.isCompleted) paintReady.complete(false);
+          },
+        ),
       );
       return;
     }
@@ -1269,9 +1282,13 @@ class _PdfPageViewState extends State<PdfPageView> {
         (widget.renderWorker?.isActive ?? false);
     if (firstInterpret && (!previewFresh || needsRegionBootstrap)) {
       await _paintVectorFirst(generation, pageIndex);
-      if (_superseded(generation, pageIndex)) return;
+      // Read and clear before the supersession check: whenever _paintVectorFirst
+      // armed a progressive-detail future, this render must consume it so a
+      // newer generation can never inherit a stale future belonging to an
+      // already-abandoned paint.
       final progressiveDetail = _progressiveDetailFuture;
       _progressiveDetailFuture = null;
+      if (_superseded(generation, pageIndex)) return;
       if (PdfPageView.deferFullRenderUntilDetailPaint &&
           progressiveDetail != null) {
         final detailReady = await progressiveDetail;
