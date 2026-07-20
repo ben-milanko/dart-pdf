@@ -97,14 +97,13 @@ class PdfDocument {
   /// Identity map from page dictionary to index, built alongside [_leaves].
   ///
   /// [CosDictionary] does not override `==`, so a plain map is identity-keyed
-  /// - the same comparison the old linear scan made, at O(1).
+  /// - the same comparison the linear scan this replaces made, at O(1).
   ///
-  /// Built back-to-front on purpose: a broken file can reach the same page
-  /// dictionary from two places in the tree, and the linear scan this replaces
-  /// returned the *first* match. Descending means the lowest index is written
-  /// last and wins, preserving that.
+  /// Iteration order is immaterial because [_leaves] cannot hold the same
+  /// dictionary twice: [_collectLeaves] guards on a `visited` set, so a node a
+  /// broken file reaches from two places in the tree is collected once.
   Map<CosDictionary, int> get _leafIndex => _leafIndexCache ??= {
-        for (var i = _leaves.length - 1; i >= 0; i--) _leaves[i]: i,
+        for (var i = 0; i < _leaves.length; i++) _leaves[i]: i,
       };
 
   List<CosDictionary> get _leaves => _leafCache ??= () {
