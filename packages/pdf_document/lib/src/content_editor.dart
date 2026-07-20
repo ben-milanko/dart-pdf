@@ -220,6 +220,11 @@ extension PdfContentEditing on PdfEditor {
       fallbackFonts: fallbackFonts,
       style: style,
       operationRange: (element.start, element.end),
+      // The caller already parsed the page to obtain [element]; reusing that
+      // snapshot saves a second decode + full tokenization of the content
+      // stream, which on a dense CAD page is the dominant cost of a
+      // single-word correction (#402).
+      snapshot: elements,
     );
   }
 
@@ -230,6 +235,7 @@ extension PdfContentEditing on PdfEditor {
     required List<PdfEmbeddedFont> fallbackFonts,
     required PdfTextStyle? style,
     (int start, int end)? operationRange,
+    PdfPageElements? snapshot,
   }) {
     if (find.isEmpty) throw ArgumentError.value(find, 'find', 'is empty');
     // the simple-font path is byte-encoded; non-Latin-1 strings can only be
@@ -238,7 +244,17 @@ extension PdfContentEditing on PdfEditor {
     final replaceBytes = _tryLatin1(replace);
 
     final page = document.page(index);
-    final elements = PdfPageElements.of(document, index);
+    // Reuse the caller's snapshot only while this session has not already
+    // rewritten this page's content. A second targeted edit against a
+    // pre-first-edit snapshot would serialize stale operations and silently
+    // drop the earlier one - the identity check in replaceElementText proves
+    // the element belongs to the snapshot, not that the snapshot is current.
+    // A null contentPages means "every page" (a structural edit), so it
+    // invalidates too.
+    final contentPages = _impact.contentPages;
+    final stale = contentPages == null || contentPages.contains(index);
+    final elements =
+        (stale ? null : snapshot) ?? PdfPageElements.of(document, index);
     final cos = document.cos;
     final fonts = cos.resolve(page.resources['Font']);
 
