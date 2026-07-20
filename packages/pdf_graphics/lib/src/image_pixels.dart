@@ -1503,7 +1503,8 @@ Uint8List _lutFor(List<(double, double)>? ranges, int component) =>
 
 /// Indexed images: samples are palette indices at 1/2/4/8 bits per pixel;
 /// the palette lives in any base space we can map to RGB (DeviceRGB and
-/// -Gray and -CMYK, directly or behind ICCBased/CalRGB/CalGray).
+/// -Gray and -CMYK, directly or behind ICCBased/CalRGB/CalGray, the /Lab CIE
+/// space, or a Separation/DeviceN tint transform).
 Uint8List? _indexedToRgba(CosDocument cos, CosDictionary dict, Uint8List data,
     int width, int height, int bits, Uint8List out,
     {List<(int, int)>? colorKey}) {
@@ -1551,7 +1552,19 @@ Uint8List? _indexedToRgba(CosDocument cos, CosDictionary dict, Uint8List data,
   final labBase = baseFamily is CosName && baseFamily.value == 'Lab'
       ? PdfCalibratedColorSpace.parse(cos, baseObj)
       : null;
+  // A Separation/DeviceN base reaches its alternate space through a tint
+  // transform (§8.6.6.4): each palette entry runs through it exactly as
+  // _alternateToRgba does for a non-indexed Separation/DeviceN image. Without
+  // this the base fell to the device switch's `_ => 0` and the whole image was
+  // dropped - both images on the Ghent DeviceN page are this shape (issue
+  // #430). PdfColorSpace already covers the /Lab alternate these files use.
+  final tintBase = labBase == null &&
+          baseFamily is CosName &&
+          (baseFamily.value == 'Separation' || baseFamily.value == 'DeviceN')
+      ? PdfColorSpace.parse(cos, baseObj)
+      : null;
   final components = labBase?.components ??
+      tintBase?.channels ??
       switch (_familyOf(cos, space[1])) {
         'DeviceRGB' => 3,
         'DeviceGray' => 1,
@@ -1576,6 +1589,14 @@ Uint8List? _indexedToRgba(CosDocument cos, CosDictionary dict, Uint8List data,
     final src = p * components;
     if (labBase != null) {
       final color = labBase.toSrgbFromSamples(
+          [for (var c = 0; c < components; c++) lookup[src + c]]);
+      palette[p * 3] = (color.red * 255).round().clamp(0, 255);
+      palette[p * 3 + 1] = (color.green * 255).round().clamp(0, 255);
+      palette[p * 3 + 2] = (color.blue * 255).round().clamp(0, 255);
+      continue;
+    }
+    if (tintBase != null) {
+      final color = tintBase.toSrgbFromSamples(
           [for (var c = 0; c < components; c++) lookup[src + c]]);
       palette[p * 3] = (color.red * 255).round().clamp(0, 255);
       palette[p * 3 + 1] = (color.green * 255).round().clamp(0, 255);
