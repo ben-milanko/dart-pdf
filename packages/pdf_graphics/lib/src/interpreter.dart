@@ -979,45 +979,12 @@ class PdfInterpreter {
   void _execOp(ContentOperation op, CosDictionary resources, int formDepth) {
     final o = op.operands;
     switch (op.operator) {
-      // --- graphics state ---
-      case 'q':
-        _stateStack.add(_GraphicsState.from(_state));
-        device.save();
-      case 'Q':
-        if (_stateStack.isNotEmpty) {
-          final restored = _stateStack.removeLast();
-          final mask = _state.softMask;
-          if (mask != null && !identical(mask, restored.softMask)) {
-            _finalizeSoftMask(mask);
-          }
-          if (_state.blendMode != restored.blendMode) {
-            device.setBlendMode(restored.blendMode);
-          }
-          _state = restored;
-          device.restore();
-        }
-      case 'cm':
-        _state.ctm = _matrixFrom(o).concat(_state.ctm);
-      case 'w':
-        _state.stroke = _state.stroke.copyWith(width: _num(o, 0));
-      case 'J':
-        _state.stroke = _state.stroke.copyWith(cap: _num(o, 0).toInt());
-      case 'j':
-        _state.stroke = _state.stroke.copyWith(join: _num(o, 0).toInt());
-      case 'M':
-        _state.stroke = _state.stroke.copyWith(miterLimit: _num(o, 0));
-      case 'd':
-        _state.stroke = _state.stroke.copyWith(
-          dashArray: o.isNotEmpty && o[0] is CosArray
-              ? [for (final v in (o[0] as CosArray).items) _numOf(v)]
-              : const [],
-          dashPhase: _num(o, 1),
-        );
-      case 'gs':
-        _applyExtGState(_dictResource(resources, 'ExtGState', o));
-      case 'ri' || 'i':
-        break;
-
+      // Ordering here is deliberate and load-bearing: Dart lowers this
+      // String switch to a linear chain of comparisons, not a jump table
+      // (measured: one hot case moved ~36 positions later cost 5.9x).
+      // Vector-dense pages are overwhelmingly path ops - l, m and S are 75%
+      // of all operations on the CAD probe - so the path/painting group
+      // leads and the rarer state/text groups follow (#401).
       // --- path construction ---
       case 'm':
         _moveTo(_num(o, 0), _num(o, 1));
@@ -1069,6 +1036,45 @@ class PdfInterpreter {
         _pendingClip = PdfFillRule.nonzero;
       case 'W*':
         _pendingClip = PdfFillRule.evenOdd;
+
+      // --- graphics state ---
+      case 'q':
+        _stateStack.add(_GraphicsState.from(_state));
+        device.save();
+      case 'Q':
+        if (_stateStack.isNotEmpty) {
+          final restored = _stateStack.removeLast();
+          final mask = _state.softMask;
+          if (mask != null && !identical(mask, restored.softMask)) {
+            _finalizeSoftMask(mask);
+          }
+          if (_state.blendMode != restored.blendMode) {
+            device.setBlendMode(restored.blendMode);
+          }
+          _state = restored;
+          device.restore();
+        }
+      case 'cm':
+        _state.ctm = _matrixFrom(o).concat(_state.ctm);
+      case 'w':
+        _state.stroke = _state.stroke.copyWith(width: _num(o, 0));
+      case 'J':
+        _state.stroke = _state.stroke.copyWith(cap: _num(o, 0).toInt());
+      case 'j':
+        _state.stroke = _state.stroke.copyWith(join: _num(o, 0).toInt());
+      case 'M':
+        _state.stroke = _state.stroke.copyWith(miterLimit: _num(o, 0));
+      case 'd':
+        _state.stroke = _state.stroke.copyWith(
+          dashArray: o.isNotEmpty && o[0] is CosArray
+              ? [for (final v in (o[0] as CosArray).items) _numOf(v)]
+              : const [],
+          dashPhase: _num(o, 1),
+        );
+      case 'gs':
+        _applyExtGState(_dictResource(resources, 'ExtGState', o));
+      case 'ri' || 'i':
+        break;
 
       // --- color ---
       case 'g':
