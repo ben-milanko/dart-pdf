@@ -50,6 +50,19 @@ const _pixelRatio = 2.0;
 /// (issue #430 - the pages self-grade with a ✗ that the missing images left
 /// exposed). Pixel-enforcing them against fresh baselines catches a future
 /// total image-loss instead of tolerating it as a colour deviation.
+///
+/// `GWG170_JPEG2000...DeviceCMYK` likewise stays OUT: its JPEG2000 image is
+/// /Indexed over DeviceCMYK with a single-entry palette (hival 0), and once
+/// that palette is honoured (issue #431) the image and the page's fail-marker
+/// "X" are the same DeviceCMYK colour, so the X vanishes and the page grades
+/// itself as passing - it is pixel-enforced to keep it that way. Its ICC
+/// sibling `GWG172_JPEG2000...ICCBasedRGB` below stays IN the set: the same
+/// fix makes its image draw (it was solid black), but the square is DeviceCMYK
+/// green while the image is ICCBased-RGB green, and those two greens are not
+/// colour-managed to match here, so a faint X remains as a genuine colour
+/// deviation. The dedicated JPX decode guard (pdf_graphics
+/// ghent_jpx_indexed_test.dart) pins both images to their palette colour so a
+/// regression back to the black square cannot hide behind this tolerance.
 const _knownBaselineDeviations = <String>{
   '1-CMYK/Ghent_PDF-Output-Test-V50_CMYK_X4.pdf',
   '1-CMYK/GWG190_DeviceN_Overprint_Black_X1a.pdf',
@@ -58,6 +71,7 @@ const _knownBaselineDeviations = <String>{
   '2-SPOT/Ghent_PDF-Output-Test-V50_SPOT_X4.pdf',
   '2-SPOT/GWG020_CMYKSpot_OP_x1a.pdf',
   '3-ICC-CMS/Ghent_PDF-Output-Test-V50_ICC-CMS_X4.pdf',
+  '3-ICC-CMS/GWG172_JPEG2000_compression_ICCBasedRGB_x4.pdf',
   '3-ICC-CMS/GWG182_16Bit_Images_ICCbasedGray_x4.pdf',
   '3-ICC-CMS/GWG184_16Bit_Images_ICCbasedCMYK_x4.pdf',
   '3-ICC-CMS/GWG205_ICC-V4-CMYK-Image_x4.pdf',

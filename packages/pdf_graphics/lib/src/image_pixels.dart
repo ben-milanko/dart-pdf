@@ -107,9 +107,17 @@ PdfImageBase? decodePdfImageBase(CosDocument cos, CosStream stream) {
     final jpx = JpxDecoder.decode(
         cos.decodeStreamData(stream, stopBeforeFilter: 'JPXDecode'));
     if (jpx == null) return null;
-    final rgba = _jpxToRgba(jpx);
+    // An /Indexed JPX carries palette indices in its single component, not
+    // colour: the samples must run through the lookup table, exactly as a raw
+    // /Indexed image does. Treating them as gray paints the raw index value -
+    // for a single-entry palette (hival 0) that is index 0 → solid black,
+    // which is how GWG170/GWG172 rendered a black square over the "no X must
+    // be visible" marker (issue #431).
+    final rgba = pdfImageColorFamily(cos, dict) == 'Indexed'
+        ? _jpxIndexedToRgba(cos, dict, jpx)
+        : _jpxToRgba(jpx);
     if (rgba == null) return null;
-    // _jpxToRgba writes alpha 255 throughout (JPX carries no color key).
+    // The mappers write alpha 255 throughout (JPX carries no color key).
     return PdfImageBase(rgba, jpx.width, jpx.height, opaque: true);
   }
 
@@ -931,6 +939,33 @@ Uint8List? _jpxToRgba(JpxImage jpx) {
       }
     default:
       return null;
+  }
+  return out;
+}
+
+/// Maps an /Indexed JPX image's index samples through its palette. JPX stores
+/// the indices in a single component (§7.4.9 / the /Indexed base governs the
+/// colour), so `jpx.samples` are palette indices, not colour. Out-of-range
+/// indices clamp to 0, matching [_indexedToRgba]. Returns null when the
+/// palette can't be resolved.
+Uint8List? _jpxIndexedToRgba(CosDocument cos, CosDictionary dict, JpxImage jpx) {
+  if (jpx.components != 1) return null;
+  final paletteInfo = _indexedPalette(cos, dict);
+  if (paletteInfo == null) return null;
+  final palette = paletteInfo.$1;
+  final paletteCount = paletteInfo.$2;
+  final count = jpx.width * jpx.height;
+  final samples = jpx.samples;
+  if (samples.length < count) return null;
+  final out = Uint8List(count * 4);
+  for (var i = 0; i < count; i++) {
+    final raw = samples[i];
+    final index = raw >= paletteCount ? 0 : raw;
+    final o = i * 4;
+    out[o] = palette[index * 3];
+    out[o + 1] = palette[index * 3 + 1];
+    out[o + 2] = palette[index * 3 + 2];
+    out[o + 3] = 255;
   }
   return out;
 }
