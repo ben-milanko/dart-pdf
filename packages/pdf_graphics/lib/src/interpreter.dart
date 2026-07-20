@@ -1507,9 +1507,12 @@ class PdfInterpreter {
       if (stroke) {
         final k = _state.ctm.scaleFactor;
         final scaled = _state.stroke.copyWith(
-            width: _state.stroke.width <= 0
-                ? k // zero width = thinnest line
-                : _state.stroke.width * k,
+            // A zero width stays zero: PDF 32000-1 8.4.3.2 defines it as "the
+            // thinnest line that can be rendered at device resolution: 1
+            // device pixel", which is a device-space rule. Resolving it here
+            // to one *user*-space unit made it correct only at pixel ratio 1
+            // and three pixels wide at ratio 3. Devices apply the floor.
+            width: _state.stroke.width * k,
             // dash lengths live in user space too (§8.4.3.6)
             dashArray: [for (final d in _state.stroke.dashArray) d * k],
             dashPhase: _state.stroke.dashPhase * k);
@@ -1854,7 +1857,7 @@ class PdfInterpreter {
               : textFill,
           fill: embedded ? true : doFill,
           strokeColor: !embedded && strokeText ? _state.strokeColor : null,
-          strokeWidth: _state.stroke.width <= 0 ? k : _state.stroke.width * k,
+          strokeWidth: _state.stroke.width * k, // see strokePath: 0 stays 0
           gradient: (embedded ? fillText : doFill)
               ? _gradientOfPattern(pattern)
               : null,
