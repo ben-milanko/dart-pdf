@@ -472,9 +472,37 @@ class StandardSecurityHandler {
     }
   }
 
+  // Memo for the most recent [_objectKey] derivation.
+  //
+  // One entry is enough because the access pattern is strictly per-object:
+  // decryptObjectGraph / encryptObjectGraph walk one indirect object's whole
+  // graph under a fixed (objectNumber, generation), so every string in that
+  // object asks for the same key. A 50-string object cost 50 MD5s over the
+  // file key; it now costs one. A wider cache would grow with the object
+  // count for no additional hit rate.
+  int? _memoObject;
+  int? _memoGeneration;
+  bool? _memoAes;
+  Uint8List? _memoKey;
+
   /// Algorithm 1: file key + object number and generation (+ the AES salt).
   /// AES-256 (R5/R6) uses the file key directly.
   Uint8List _objectKey(int objectNumber, int generation,
+      {required bool aes}) {
+    if (_memoObject == objectNumber &&
+        _memoGeneration == generation &&
+        _memoAes == aes) {
+      return _memoKey!;
+    }
+    final key = _deriveObjectKey(objectNumber, generation, aes: aes);
+    _memoObject = objectNumber;
+    _memoGeneration = generation;
+    _memoAes = aes;
+    _memoKey = key;
+    return key;
+  }
+
+  Uint8List _deriveObjectKey(int objectNumber, int generation,
       {required bool aes}) {
     final input = BytesBuilder()
       ..add(_fileKey)
