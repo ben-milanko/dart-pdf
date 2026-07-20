@@ -1,8 +1,9 @@
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
+
+import 'pdf_cache_key.dart';
 
 /// Whether opened PDFs should be snapshotted for later reopening on this
 /// platform. Only mobile needs it: desktop keeps the picked file's real path,
@@ -30,7 +31,7 @@ Future<String?> cacheOpenedPdf(Uint8List bytes) async {
   if (!canCacheRecentPdfs) return null;
   try {
     final dir = await _cacheDir();
-    final digest = sha1.convert(bytes).toString();
+    final digest = pdfContentKey(bytes);
     final file = File('${dir.path}/$digest.pdf');
     if (!await file.exists()) {
       await file.writeAsBytes(bytes, flush: true);

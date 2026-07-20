@@ -2,9 +2,10 @@ import 'dart:async';
 import 'dart:js_interop';
 import 'dart:typed_data';
 
-import 'package:crypto/crypto.dart';
 
 import 'package:web/web.dart' as web;
+
+import 'pdf_cache_key.dart';
 
 /// Web byte-snapshot store for opened PDFs, backed by IndexedDB.
 ///
@@ -29,12 +30,21 @@ const String _storeName = 'pdfs';
 /// Snapshots [bytes] into IndexedDB and returns the content-hash key, or null
 /// when the store is unavailable or the write fails.
 ///
-/// The key is a content hash, so reopening or re-picking the same document
-/// reuses one entry instead of piling up copies - and the same bytes always map
-/// to the same Recent identity, matching the native filesystem store.
+/// The key is a content key ([pdfContentKey]), so reopening or re-picking the
+/// same document reuses one entry instead of piling up copies - and the same
+/// bytes always map to the same Recent identity, matching the native
+/// filesystem store.
+///
+/// The first `await` is load-bearing and must stay first. An `async` body runs
+/// synchronously up to its initial await, so computing the key before one
+/// would run it inside the caller's frame - and `unawaited(...)` at the call
+/// site would not help, because that defers only the *future*, never the
+/// synchronous prefix. Yielding first pushes the whole snapshot off the frame
+/// that opened the document, which is the one the user is waiting on.
 Future<String?> cacheOpenedPdf(Uint8List bytes) async {
   try {
-    final key = sha1.convert(bytes).toString();
+    await null;
+    final key = pdfContentKey(bytes);
     final store = await _store('readwrite');
     await _run<void>(store.put(bytes.toJS, key.toJS), (_) {});
     return key;
