@@ -1219,12 +1219,24 @@ void pdfApplyImageDecodeAndColorKey(Uint8List rgba, int components,
 /// engine supports its shape; null falls back to the device family. Gated on
 /// the family name so a non-ICCBased image never parses its (potentially
 /// expensive) colour space just to discover there is no profile.
+/// Parsed ICC profiles, scoped to the document that owns their streams.
+///
+/// [PdfColorSpace.parse] takes an `iccCache` for exactly this and the
+/// interpreter keeps one, but the image path had no way to pass one through
+/// its public entry points, so every image re-parsed its profile stream - and
+/// a page of tiles shares one profile across all of them. An Expando keeps the
+/// cache document-scoped (and collectable with the document) without widening
+/// the public signatures.
+final Expando<Map<CosStream, IccProfile?>> _iccProfileCache =
+    Expando<Map<CosStream, IccProfile?>>('pdfIccProfiles');
+
 IccProfile? _iccProfileFor(CosDocument cos, CosDictionary dict) {
   final space = cos.resolve(dict['ColorSpace']);
   if (space is! CosArray || space.length < 1) return null;
   final family = cos.resolve(space[0]);
   if (family is! CosName || family.value != 'ICCBased') return null;
-  return PdfColorSpace.parse(cos, space).iccProfile;
+  final cache = _iccProfileCache[cos] ??= <CosStream, IccProfile?>{};
+  return PdfColorSpace.parse(cos, space, iccCache: cache).iccProfile;
 }
 
 Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
