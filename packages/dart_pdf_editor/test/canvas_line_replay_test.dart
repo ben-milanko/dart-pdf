@@ -188,7 +188,13 @@ Future<Uint8List> _render({required bool optimized}) async {
             green: color.green,
             blue: color.blue,
           )
-          ..strokeWidth = stroke.width
+          // The one-device-pixel floor is device *policy*, not part of the
+          // fast-path optimisation this test guards, so the reference draw
+          // applies it too - via the device's own helper, so there is a
+          // single source of truth. Without this the test would be asserting
+          // the pre-floor behaviour rather than that strokePath and drawPath
+          // agree.
+          ..strokeWidth = device.strokeWidthFor(stroke.width)
           ..strokeCap = switch (stroke.cap) {
             1 => StrokeCap.round,
             2 => StrokeCap.square,

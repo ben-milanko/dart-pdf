@@ -42,7 +42,8 @@ class CanvasPdfDevice implements PdfDevice {
   /// the same way, which is PDF 32000-1 8.4.3.2's "thinnest line that can be
   /// rendered at device resolution: 1 device pixel" - and, unlike the old
   /// user-space resolution, it stays one pixel at every zoom.
-  double _strokeWidthFor(double width) {
+  @visibleForTesting
+  double strokeWidthFor(double width) {
     if (pixelRatio <= 0) return width;
     // 0 is Skia's hairline: exactly one device pixel at *any* canvas
     // transform, at full alpha. That matters because a recorded picture is
@@ -389,7 +390,7 @@ class CanvasPdfDevice implements PdfDevice {
       return Paint()
         ..style = PaintingStyle.stroke
         ..color = _toColor(color, alpha)
-        ..strokeWidth = _strokeWidthFor(stroke.width)
+        ..strokeWidth = strokeWidthFor(stroke.width)
         ..strokeCap = switch (stroke.cap) {
           1 => StrokeCap.round,
           2 => StrokeCap.square,
@@ -423,7 +424,7 @@ class CanvasPdfDevice implements PdfDevice {
     return _strokePaint = Paint()
       ..style = PaintingStyle.stroke
       ..color = _toColor(color, alpha)
-      ..strokeWidth = _strokeWidthFor(stroke.width)
+      ..strokeWidth = strokeWidthFor(stroke.width)
       ..strokeCap = switch (stroke.cap) {
         1 => StrokeCap.round,
         2 => StrokeCap.square,
