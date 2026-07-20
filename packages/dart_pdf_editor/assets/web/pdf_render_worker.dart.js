@@ -20184,25 +20184,23 @@ c2(){var s=this
 B.a.i(s.ch,B.p)
 s.CW=s.cy
 s.cx=s.db},
-bk(a,b){var s,r,q,p,o,n,m,l,k=this,j=k.ch,i=new A.am(j)
-if(j.length!==0&&k.gbD()){if(a!=null){j=k.e
-s=j.x
-if(s!=null)k.eQ(i,a,s)
-else{r=j.b
-j=j.d
-B.a.i(k.b.gG(),new A.bs(i,r,a,j))}}if(b){q=k.e.a.gbT()
-j=k.e.f
-r=j.a
-r=r<=0?q:r*q
-p=A.b([],t.n)
-for(o=k.e.f.e,n=o.length,m=0;m<o.length;o.length===n||(0,A.k)(o),++m)p.push(o[m]*q)
-o=k.e
-l=j.kF(p,o.f.f*q,r)
-r=o.c
-o=o.e
-B.a.i(k.b.gG(),new A.b9(i,r,l,o))}j=k.dx
-if(j!=null)B.a.i(k.b.gG(),new A.aZ(i,j))}k.dx=null
-k.ch=A.b([],t.g)},
+bk(a,b){var s,r,q,p,o,n,m,l=this,k=l.ch,j=new A.am(k)
+if(k.length!==0&&l.gbD()){if(a!=null){k=l.e
+s=k.x
+if(s!=null)l.eQ(j,a,s)
+else{r=k.b
+k=k.d
+B.a.i(l.b.gG(),new A.bs(j,r,a,k))}}if(b){q=l.e.a.gbT()
+k=l.e.f
+r=A.b([],t.n)
+for(p=l.e.f.e,o=p.length,n=0;n<p.length;p.length===o||(0,A.k)(p),++n)r.push(p[n]*q)
+p=l.e
+m=k.kF(r,p.f.f*q,k.a*q)
+k=p.c
+p=p.e
+B.a.i(l.b.gG(),new A.b9(j,k,m,p))}k=l.dx
+if(k!=null)B.a.i(l.b.gG(),new A.aZ(j,k))}l.dx=null
+l.ch=A.b([],t.g)},
 f9(a){return this.bk(null,a)},
 f8(a){return this.bk(a,!1)},
 jh(){return this.bk(null,!1)},
@@ -20409,14 +20407,13 @@ else c0=!1
 c0=c0?b8.e.c:b5
 l=i?!0:b4
 k=j&&b0?b8.e.c:b9
-j=b8.e.f.a
-j=j<=0?b7:j*b7
+j=b8.e.f
 i=(i?a9:b4)?b8.j1(b1):b9
 h=h?0:c/p
 g=c1.a
 f=a6===3||a6===7||b3
 b8.gia()
-B.a.i(b8.b.gG(),new A.c9(new A.f1(l,k,j,f,a0,a5,c0,i,h,g,c2,o)))}}c0=n?A.l6(0,c):A.l6(c,0)
+B.a.i(b8.b.gG(),new A.c9(new A.f1(l,k,j.a*b7,f,a0,a5,c0,i,h,g,c2,o)))}}c0=n?A.l6(0,c):A.l6(c,0)
 b8.go=c0.a7(b8.go)
 b8.k4=r},
 iG(a,b,c){var s=this
@@ -21335,14 +21332,12 @@ a.$0()},
 kV(a,b,c,d){var s=this,r=s.gcp()
 if(!r){s.bE(new A.lI(s,a,b,c,d))
 return}s.y.kW(a,s.a,c,A.on(b,d),0.02)},
-hq(a,b,c,d){var s,r,q,p,o=this,n=o.gcp()
-if(!n){o.bE(new A.lJ(o,a,b,c,d))
-return}n=o.a
-s=n.gbT()
-r=c.a*s
-if(r<1&&s>0){q=c.ce(1/s)
-p=r>0?d*r:d}else{p=d
-q=c}o.y.hr(a,n,q,A.on(b,p),0.02)},
+hq(a,b,c,d){var s,r,q=this,p=q.gcp()
+if(!p){q.bE(new A.lJ(q,a,b,c,d))
+return}p=q.a
+s=p.gbT()
+r=c.a*s<1&&s>0?c.ce(1/s):c
+q.y.hr(a,p,r,A.on(b,d),0.02)},
 kX(a,b,c,d){this.bE(new A.lH(this,a,b,c,d))},
 kT(a,b){this.bE(new A.lG(this,a,b))},
 dZ(a){var s,r,q,p,o,n,m,l,k,j,i,h,g,f=this
