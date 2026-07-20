@@ -13,6 +13,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+
+import 'app_info.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show debugRepaintRainbowEnabled;
@@ -220,6 +222,11 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
     final snapshot = <String, Object?>{
       'tool': 'dartpdf-devtools',
       'exportedAt': DateTime.now().toIso8601String(),
+      // Which build produced this export. Without it a report cannot be tied
+      // to a revision - "slow on 2.0.0" is unactionable when several builds
+      // share that version.
+      'appVersion': AppInfo.version,
+      'appBuild': AppInfo.buildNumber,
       'platform': kIsWeb ? 'web' : defaultTargetPlatform.name,
       'buildMode': kDebugMode
           ? 'debug'
