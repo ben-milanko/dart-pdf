@@ -3212,8 +3212,8 @@ class _PdfViewerState extends State<PdfViewer>
   /// resident (warmed by a real selection/search), else returns false and the
   /// cursor stays grab. Touch (iPad) never hovers, so a finger pan never
   /// reaches this at all.
-  bool _hoverTextCursorAt(Offset local) {
-    final point = _pagePointAt(local);
+  bool _hoverTextCursorAt(Offset local, {(int, double, double)? at}) {
+    final point = at ?? _pagePointAt(local);
     if (point == null) return false;
     final (i, x, y) = point;
     final PdfPageText text;
@@ -3258,11 +3258,12 @@ class _PdfViewerState extends State<PdfViewer>
     PdfAnnotation annotation,
     Offset pagePoint,
     Offset pageViewPosition,
-  })? _annotationHitAt(Offset local, {required bool actionsOnly}) {
+  })? _annotationHitAt(Offset local,
+      {required bool actionsOnly, (int, double, double)? at}) {
     // hidden annotations don't render, so they don't take taps either -
     // an invisible link navigating would be baffling
     if (!widget.showAnnotations) return null;
-    final point = _pagePointAt(local);
+    final point = at ?? _pagePointAt(local);
     if (point == null) return null;
     final (i, x, y) = point;
     final pageViewPosition = _toPageView(i, local);
@@ -3281,8 +3282,8 @@ class _PdfViewerState extends State<PdfViewer>
     return null;
   }
 
-  PdfAnnotation? _annotationAt(Offset local) =>
-      _annotationHitAt(local, actionsOnly: true)?.annotation;
+  PdfAnnotation? _annotationAt(Offset local, {(int, double, double)? at}) =>
+      _annotationHitAt(local, actionsOnly: true, at: at)?.annotation;
 
   void _notifyAnnotationTap(
       ({
@@ -3724,10 +3725,10 @@ class _PdfViewerState extends State<PdfViewer>
 
   /// Whether the point sits over an annotation a default-mode mouse
   /// click would select.
-  bool _selectableAnnotationAt(Offset local) {
+  bool _selectableAnnotationAt(Offset local, {(int, double, double)? at}) {
     final editing = widget.editing;
     if (editing == null || editing.tool != null) return false;
-    final point = _pagePointAt(local);
+    final point = at ?? _pagePointAt(local);
     return point != null &&
         editing.selectableAnnotationAt(point.$1, point.$2, point.$3) != null;
   }
@@ -3744,16 +3745,26 @@ class _PdfViewerState extends State<PdfViewer>
         HardwareKeyboard.instance.isShiftPressed) {
       // Shift held in default editing mode: a drag rubber-bands a marquee
       cursor = SystemMouseCursors.precise;
-    } else if (_annotationAt(event.localPosition) != null ||
-        (widget.onAnnotationTap != null &&
-            _annotationHitAt(event.localPosition, actionsOnly: false) !=
-                null) ||
-        _selectableAnnotationAt(event.localPosition)) {
-      cursor = SystemMouseCursors.click;
-    } else if (_hoverTextCursorAt(event.localPosition)) {
-      cursor = SystemMouseCursors.text;
+    } else if (_pagePointAt(event.localPosition) case final at?) {
+      // One page resolution per event, shared by every probe below. Each of
+      // these used to call _pagePointAt itself - a linear page scan plus a
+      // fresh PdfPageGeometry - so a single mouse-move paid it up to four
+      // times (#403).
+      if (_annotationAt(event.localPosition, at: at) != null ||
+          (widget.onAnnotationTap != null &&
+              _annotationHitAt(event.localPosition,
+                      actionsOnly: false, at: at) !=
+                  null) ||
+          _selectableAnnotationAt(event.localPosition, at: at)) {
+        cursor = SystemMouseCursors.click;
+      } else if (_hoverTextCursorAt(event.localPosition, at: at)) {
+        cursor = SystemMouseCursors.text;
+      } else {
+        cursor = SystemMouseCursors.grab;
+      }
     } else {
-      // empty page or canvas: a mouse drag grab-pans the document
+      // Off any page. Every probe above resolves through _pagePointAt, so
+      // none of them could have matched: a mouse drag here grab-pans.
       cursor = SystemMouseCursors.grab;
     }
     if (cursor != _hoverCursor) setState(() => _hoverCursor = cursor);
