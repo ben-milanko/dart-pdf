@@ -74,12 +74,14 @@ class PdfDocument {
     if (index < 0) {
       throw RangeError.range(index, 0, null, 'index');
     }
+    final cached = _pageCache[index];
+    if (cached != null) return cached;
     // The fast walk trusts /Count on intermediate nodes to skip whole
     // subtrees. Real-world files lie about /Count, so a miss falls back
     // to walking every leaf before giving up.
     final fast = _findPage(_pagesRoot, _Counter(index), const _Inherited(),
         <CosDictionary>{});
-    if (fast != null) return fast;
+    if (fast != null) return _pageCache[index] = fast;
     final counter = _Counter(index);
     final found = _findPage(
         _pagesRoot, counter, const _Inherited(), <CosDictionary>{},
@@ -88,8 +90,21 @@ class PdfDocument {
       throw RangeError('page index $index out of range: document has only '
           '${index - counter.value} reachable pages');
     }
-    return found;
+    return _pageCache[index] = found;
   }
+
+  /// Page objects by index, so repeat access reuses one instance.
+  ///
+  /// Safe because [PdfPage] resolves its inheritable attributes from its live
+  /// dictionary rather than snapshotting them, so an in-place [PdfEditor]
+  /// mutation is visible through a cached page (#418). Only the page TREE
+  /// shape is snapshotted here, and that is dropped by
+  /// [invalidatePageCache] alongside the leaf index.
+  ///
+  /// Reusing instances is what makes [PdfPage.annotations]' cache reachable:
+  /// building a fresh page per call meant every annotation read re-parsed
+  /// /Annots and rebuilt every PdfAnnotation.
+  final Map<int, PdfPage> _pageCache = {};
 
   List<CosDictionary>? _leafCache;
   Map<CosDictionary, int>? _leafIndexCache;
@@ -119,6 +134,7 @@ class PdfDocument {
   void invalidatePageCache() {
     _leafCache = null;
     _leafIndexCache = null;
+    _pageCache.clear();
   }
 
   /// Feeds an append-only incremental revision into this open document in
@@ -183,13 +199,16 @@ class PdfDocument {
     final merged = inherited.mergedWith(node, cos);
     if (_isLeaf(node)) {
       if (remaining.value == 0) {
+        // Pass what the ANCESTORS supply, not the merge including this leaf:
+        // PdfPage reads its own entries from `node` live, so snapshotting the
+        // merged values here would reintroduce the staleness it avoids.
         return PdfPage(
           document: this,
           dict: node,
-          resources: merged.resources,
-          mediaBoxArray: merged.mediaBox,
-          cropBoxArray: merged.cropBox,
-          rotate: merged.rotate,
+          inheritedResources: inherited.resources,
+          inheritedMediaBox: inherited.mediaBox,
+          inheritedCropBox: inherited.cropBox,
+          inheritedRotate: inherited.rotate,
         );
       }
       remaining.value--;
