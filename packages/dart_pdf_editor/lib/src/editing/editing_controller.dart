@@ -332,6 +332,7 @@ class PdfEditingController extends ChangeNotifier {
     PdfEditingPreferences? preferences,
     PdfPageClipboard? pageClipboard,
   })  : _bytes = bytes,
+        _used = bytes.length,
         _password = password,
         _revisions = [bytes.length],
         _document = PdfDocument.open(bytes, password: password),
@@ -382,6 +383,11 @@ class PdfEditingController extends ChangeNotifier {
 
   /// The full byte buffer; revisions are prefixes of it.
   Uint8List _bytes;
+
+  /// Bytes of [_bytes] that hold document data. The buffer may be larger:
+  /// [_commitSavedTail] over-allocates so appends amortise, so `_bytes.length`
+  /// is capacity, not content.
+  int _used;
 
   /// Byte length of each revision, oldest first. `_revisions[_cursor]`
   /// is the current one; entries past the cursor are redoable.
@@ -498,7 +504,7 @@ class PdfEditingController extends ChangeNotifier {
   /// the whole edit history, of which [bytes] is the current revision's
   /// prefix view. This only ever grows within a session (see the memory
   /// audit notes); watch it when chasing memory growth during editing.
-  int get sessionBufferBytes => _bytes.length;
+  int get sessionBufferBytes => _used;
 
   void undo() {
     if (!canUndo) return;
@@ -645,25 +651,71 @@ class PdfEditingController extends ChangeNotifier {
     final impact = pages != null || contentPages != null
         ? PdfEditImpact.legacy(pages: pages, contentPages: contentPages)
         : editor.impact;
-    final saved = editor.save();
     final beforeLength = _revisions[_cursor];
-    _commitSavedRevision(
-      saved,
+    // Append-only: the editor hands back just the incremental update and it
+    // lands in the session buffer we already own. `save()` would rebuild the
+    // whole file here, so a long session re-copied O(file x revisions) bytes
+    // into short-lived garbage - and `file` grows with every revision (#413).
+    final tail = editor.saveTail();
+    _commitSavedTail(
+      tail,
       beforeLength: beforeLength,
       impact: impact,
     );
     return true;
   }
 
+  /// Commits a revision delivered as the appended tail only, growing the
+  /// session buffer in place.
+  void _commitSavedTail(
+    Uint8List tail, {
+    required int beforeLength,
+    required PdfEditImpact impact,
+  }) {
+    final newLength = beforeLength + tail.length;
+    if (newLength > _bytes.length) {
+      // Amortised doubling: a realloc every ~log(n) revisions instead of one
+      // whole-file copy per revision.
+      var capacity = _bytes.isEmpty ? newLength : _bytes.length;
+      while (capacity < newLength) {
+        capacity *= 2;
+      }
+      final grown = Uint8List(capacity)..setRange(0, beforeLength, _bytes);
+      _bytes = grown;
+    }
+    _bytes.setRange(beforeLength, newLength, tail);
+    _used = newLength;
+    _finishRevision(
+      newLength: newLength,
+      beforeLength: beforeLength,
+      impact: impact,
+    );
+  }
+
+  /// Commits a revision delivered as a complete file (signing, and the worker
+  /// batch paths, which build their own buffer).
   void _commitSavedRevision(
     Uint8List saved, {
     required int beforeLength,
     required PdfEditImpact impact,
   }) {
+    _bytes = saved;
+    _used = saved.length;
+    _finishRevision(
+      newLength: saved.length,
+      beforeLength: beforeLength,
+      impact: impact,
+    );
+  }
+
+  void _finishRevision({
+    required int newLength,
+    required int beforeLength,
+    required PdfEditImpact impact,
+  }) {
     _revisions.removeRange(_cursor + 1, _revisions.length);
     _revisionImpacts.removeRange(_cursor + 1, _revisionImpacts.length);
-    _bytes = saved;
-    _revisions.add(saved.length);
+    _revisions.add(newLength);
     _revisionImpacts.add(impact);
     _bumpRenderStamps(impact.visualPages);
     _bumpContentRenderStamps(impact.contentPages);
@@ -677,7 +729,7 @@ class PdfEditingController extends ChangeNotifier {
         ? null
         : PdfWorkerRevisionDelta(
             baseLength: beforeLength,
-            newLength: saved.length,
+            newLength: newLength,
             changedPages: impact.visualPages,
           );
     if (_committingRemoteRevision) _undoFloor = _cursor;
@@ -1931,6 +1983,7 @@ class PdfEditingController extends ChangeNotifier {
   /// is not a prefix of the prior buffer).
   void _resetTo(Uint8List bytes, {required PdfEditImpact impact}) {
     _bytes = bytes;
+    _used = bytes.length;
     _revisions
       ..clear()
       ..add(bytes.length);
