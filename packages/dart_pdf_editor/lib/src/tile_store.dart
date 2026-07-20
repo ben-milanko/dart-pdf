@@ -279,9 +279,17 @@ class PdfTileStore extends ChangeNotifier {
 
   /// Invalidation epochs: a tile whose page was invalidated after its raster
   /// was dispatched is discarded on completion (mirrors the render worker's
-  /// stale-inflight guard). [_globalEpoch] rises on every invalidation;
-  /// [_pageEpoch] records the epoch at which each page was last invalidated.
-  int _globalEpoch = 0;
+  /// stale-inflight guard).
+  ///
+  /// [_epochCounter] only stamps dispatches and invalidations in order - it is
+  /// deliberately NOT the staleness test. Only [_allPagesEpoch] (raised by a
+  /// full [invalidate]) and [_pageEpoch] (per page slot) make a tile stale, so
+  /// a targeted invalidation cannot reach across pages. That distinction is
+  /// load-bearing: the page view invalidates its own slot on every live
+  /// transform tick, and a shared counter would make each of those ticks throw
+  /// away every other live page's in-flight rasters (issue #374).
+  int _epochCounter = 0;
+  int _allPagesEpoch = -1;
   final Map<int, int> _pageEpoch = {};
 
   bool _tickScheduled = false;
@@ -595,7 +603,7 @@ class PdfTileStore extends ChangeNotifier {
       pending.add(key);
       return;
     }
-    final dispatchEpoch = _globalEpoch;
+    final dispatchEpoch = _epochCounter;
     rasterize(region, ratio).then((image) {
       _inFlight.remove(key);
       if (_disposed || _isStale(id.pageIndex, dispatchEpoch)) {
@@ -680,7 +688,7 @@ class PdfTileStore extends ChangeNotifier {
             (tyMax - tyMin + 1) * span),
         pageSize);
 
-    final dispatchEpoch = _globalEpoch;
+    final dispatchEpoch = _epochCounter;
     debugBatchesDispatched++;
     rasterize(batchRegion, ratio).then((slab) {
       for (final key in batch) {
@@ -745,7 +753,7 @@ class PdfTileStore extends ChangeNotifier {
   }
 
   bool _isStale(int pageIndex, int dispatchEpoch) =>
-      _globalEpoch > dispatchEpoch ||
+      _allPagesEpoch > dispatchEpoch ||
       (_pageEpoch[pageIndex] ?? -1) > dispatchEpoch;
 
   /// Drops retained (and in-flight) tiles. With [pages] null every tile is
@@ -754,12 +762,13 @@ class PdfTileStore extends ChangeNotifier {
   /// rasters for the affected pages are discarded on completion.
   void invalidate({Set<int>? pages}) {
     if (_disposed) return;
-    _globalEpoch++;
+    final epoch = ++_epochCounter;
     if (pages == null) {
+      _allPagesEpoch = epoch;
       _cache.clear();
     } else {
       for (final page in pages) {
-        _pageEpoch[page] = _globalEpoch;
+        _pageEpoch[page] = epoch;
       }
       _cache.evictWhere((key) => pages.contains(key.id.pageIndex));
     }
