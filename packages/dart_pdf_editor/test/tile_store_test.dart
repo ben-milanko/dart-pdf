@@ -340,9 +340,9 @@ void main() {
         expect(store.inFlightCount, 8);
 
         // A targeted invalidation must not reach across pages. The page view
-        // fires this on every live transform tick, so a global stale check
-        // throws away the neighbouring page's in-flight work during the very
-        // pan that scheduled it (issue #374's discard rate).
+        // invalidates its own slot whenever its detail geometry resolves to
+        // null, so a global stale check throws away the neighbouring page's
+        // in-flight work during the very pan that scheduled it (#374).
         store.invalidate(pages: {0});
         await raster.flush();
 
@@ -407,6 +407,42 @@ void main() {
         await raster.flush();
         expect(store.tileCount, greaterThan(0));
         store.invalidate();
+        expect(store.tileCount, 0);
+        store.dispose();
+      });
+    });
+
+    testWidgets('null discards in-flight rasters on every page',
+        (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer();
+        for (var page = 0; page < 2; page++) {
+          store.viewFor(
+            id: _id(page),
+            pageSize: const Size(32, 32),
+            desiredRatio: 1.0,
+            visiblePageRect: const Rect.fromLTWH(0, 0, 32, 32),
+            rasterize: raster.call,
+          );
+        }
+        expect(store.inFlightCount, 8);
+
+        // The counterpart to the targeted cases above: a full invalidation
+        // reaches every page, including slots _pageEpoch has never seen. This
+        // is the only cover for the _allPagesEpoch arm of _isStale - the
+        // 'null clears every page' test flushes before invalidating, so it
+        // exercises cache clearing and never the in-flight guard.
+        store.invalidate();
+        await raster.flush();
+
+        expect(store.debugTilesDiscarded, 8);
+        expect(store.debugTilesLanded, 0);
         expect(store.tileCount, 0);
         store.dispose();
       });

@@ -284,10 +284,14 @@ class PdfTileStore extends ChangeNotifier {
   /// [_epochCounter] only stamps dispatches and invalidations in order - it is
   /// deliberately NOT the staleness test. Only [_allPagesEpoch] (raised by a
   /// full [invalidate]) and [_pageEpoch] (per page slot) make a tile stale, so
-  /// a targeted invalidation cannot reach across pages. That distinction is
-  /// load-bearing: the page view invalidates its own slot on every live
-  /// transform tick, and a shared counter would make each of those ticks throw
-  /// away every other live page's in-flight rasters (issue #374).
+  /// a targeted invalidation cannot reach across pages.
+  ///
+  /// That distinction is load-bearing. `_PdfPageViewState._updateDetail` drops
+  /// its detail - and so invalidates its own slot - whenever
+  /// `_detailGeometryAt` returns null, which includes every page scrolled off
+  /// screen. With a shared counter, each settle of an off-screen page threw
+  /// away the in-flight tiles of the page actually being panned (issue #374;
+  /// measured at a 55% discard rate in issue #427).
   int _epochCounter = 0;
   int _allPagesEpoch = -1;
   final Map<int, int> _pageEpoch = {};
