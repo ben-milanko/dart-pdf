@@ -102,24 +102,43 @@ class PdfAcroForm {
         for (var i = 0; i < document.pageCount; i++) document.page(i).dict,
       ];
 
+  /// Widget dictionary → the first page whose /Annots lists it, built by one
+  /// walk of every page's /Annots instead of one walk per widget.
+  ///
+  /// Batch form work resolves a page for every widget of every field, so the
+  /// old per-widget scan was O(fields x widgets x pages x annots) for a single
+  /// operation (#406). Resolved objects are cached by reference, so keying on
+  /// the dictionary is identity-keyed as intended.
+  Map<CosDictionary, int>? _widgetPageCache;
+
+  Map<CosDictionary, int> get _widgetPages => _widgetPageCache ??= () {
+        final cos = document.cos;
+        final out = <CosDictionary, int>{};
+        for (var i = 0; i < _pages.length; i++) {
+          final annots = cos.resolve(_pages[i]['Annots']);
+          if (annots is! CosArray) continue;
+          for (final item in annots.items) {
+            final annot = cos.resolve(item);
+            // putIfAbsent keeps "the FIRST page whose /Annots lists it",
+            // matching the scan this replaces.
+            if (annot is CosDictionary) out.putIfAbsent(annot, () => i);
+          }
+        }
+        return out;
+      }();
+
   /// The page index of [widget]: its /P entry when present, otherwise
   /// the first page whose /Annots lists it. −1 when no page claims it.
   int _pageIndexOf(CosDictionary widget) {
-    final cos = document.cos;
-    final p = cos.resolve(widget['P']);
+    final p = document.cos.resolve(widget['P']);
     if (p is CosDictionary) {
-      for (var i = 0; i < _pages.length; i++) {
-        if (identical(_pages[i], p)) return i;
-      }
+      // pageIndexOf is an identity map lookup (#397/#417) and returns -1 for
+      // a /P that is not a leaf of this tree, which falls through exactly as
+      // the old linear scan over _pages did.
+      final byP = document.pageIndexOf(p);
+      if (byP >= 0) return byP;
     }
-    for (var i = 0; i < _pages.length; i++) {
-      final annots = cos.resolve(_pages[i]['Annots']);
-      if (annots is! CosArray) continue;
-      for (final item in annots.items) {
-        if (identical(cos.resolve(item), widget)) return i;
-      }
-    }
-    return -1;
+    return _widgetPages[widget] ?? -1;
   }
 
   /// A node with /T-carrying kids is an internal node; a node whose kids
@@ -300,7 +319,18 @@ class PdfFormField {
   /// [PdfAcroForm._reconcileOrphanWidgets], or null for a normally
   /// structured field. When set, [widgets] returns these (they are what
   /// the page actually shows) and [value]/[isChecked] consult them first.
-  List<CosDictionary>? _reconciled;
+  ///
+  /// Assigned after construction, so it must drop [_widgets]: a field whose
+  /// widgets were read before reconciliation would otherwise keep serving the
+  /// pre-adoption list for the rest of its life.
+  List<CosDictionary>? get _reconciled => _reconciledValue;
+
+  set _reconciled(List<CosDictionary>? value) {
+    _reconciledValue = value;
+    _widgets = null;
+  }
+
+  List<CosDictionary>? _reconciledValue;
 
   /// The widgets this field adopted from outside /Fields during
   /// reconciliation (empty for well-formed fields). The field dictionary
@@ -460,7 +490,14 @@ class PdfFormField {
   /// The widget annotations displaying this field: the on-page copies
   /// adopted by reconciliation when present, otherwise its /Kids without a
   /// /T of their own, or the field dictionary itself when merged.
-  List<CosDictionary> get widgets {
+  List<CosDictionary> get widgets => _widgets ??= _resolveWidgets();
+
+  /// Resolved once per field instance: [widgets] is read repeatedly per fill
+  /// (appearance regeneration, rect lookups, page resolution) and re-walked
+  /// /Kids every time.
+  List<CosDictionary>? _widgets;
+
+  List<CosDictionary> _resolveWidgets() {
     if (_reconciled != null) return _reconciled!;
     final kids = _cos.resolve(dict['Kids']);
     if (kids is CosArray) {

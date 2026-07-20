@@ -462,6 +462,10 @@ extension PdfFormFilling on PdfEditor {
     // its program so the appearance can encode and measure with it. A
     // base-14 /DR entry stays on the simple byte path. Text past Latin-1 is
     // only sanitized for the simple fonts - an embedded font can show it.
+    // /Widths resolved once for this regeneration. The auto-size loop
+    // re-measures the same text up to ~16 times while shrinking, and each
+    // measure used to `cos.resolve` one array entry PER CHARACTER (#406).
+    final fontWidths = fontDict == null ? null : _fieldWidthMetrics(fontDict);
     final embedded = fontDict == null
         ? null
         : PdfEmbeddedFont.fromFontDict(cos, fontDict, da.fontName);
@@ -480,7 +484,7 @@ extension PdfFormFilling on PdfEditor {
 
       double measure(String s, double size) => embedded != null
           ? embedded.measure(s, size)
-          : _measureFieldText(fontDict, s, size);
+          : _measureFieldText(fontDict, s, size, widths: fontWidths);
 
       final multiline = field.isMultiline;
       // Line boxes are laid out and clipped in the field's own /Widths (or the
@@ -746,22 +750,39 @@ extension PdfFormFilling on PdfEditor {
 
   /// Text width in user units: explicit /Widths when the font has them,
   /// otherwise Helvetica metrics (the dominant /DR font family).
-  double _measureFieldText(CosDictionary? font, String text, double size) {
+  /// A font's /FirstChar plus its /Widths flattened to plain doubles, or null
+  /// when the font carries no usable metrics.
+  (int, List<double>)? _fieldWidthMetrics(CosDictionary font) {
+    final cos = document.cos;
+    final widths = cos.resolve(font['Widths']);
+    final first = cos.resolve(font['FirstChar']);
+    if (widths is! CosArray || first is! CosInteger) return null;
+    return (
+      first.value,
+      <double>[
+        for (final item in widths.items)
+          switch (cos.resolve(item)) {
+            CosInteger(:final value) => value.toDouble(),
+            CosReal(:final value) => value,
+            // Matches the per-character fallback this replaces: a missing or
+            // non-numeric entry measures as 500.
+            _ => 500.0,
+          },
+      ],
+    );
+  }
+
+  double _measureFieldText(CosDictionary? font, String text, double size,
+      {(int, List<double>)? widths}) {
     final cos = document.cos;
     if (font != null) {
-      final widths = cos.resolve(font['Widths']);
-      final first = cos.resolve(font['FirstChar']);
-      if (widths is CosArray && first is CosInteger) {
+      final metrics = widths ?? _fieldWidthMetrics(font);
+      if (metrics != null) {
+        final (first, table) = metrics;
         var total = 0.0;
         for (final code in text.codeUnits) {
-          final index = code - first.value;
-          double? width;
-          if (index >= 0 && index < widths.length) {
-            final n = cos.resolve(widths[index]);
-            if (n is CosInteger) width = n.value.toDouble();
-            if (n is CosReal) width = n.value;
-          }
-          total += width ?? 500;
+          final index = code - first;
+          total += index >= 0 && index < table.length ? table[index] : 500;
         }
         return total * size / 1000;
       }
