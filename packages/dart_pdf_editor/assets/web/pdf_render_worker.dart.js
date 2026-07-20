@@ -17514,7 +17514,7 @@ if(p==null)throw A.d(A.w2("page index "+a+" out of range: document has only "+(a
 return p},
 gj7(){var s,r=this,q=r.c
 if(q==null){q=A.x(t.C,t.S)
-for(s=0;s<J.a5(r.gcD());++s)q.k(0,J.a2(r.gcD(),s),s)
+for(s=J.a5(r.gcD())-1;s>=0;--s)q.k(0,J.a2(r.gcD(),s),s)
 r.c=q}return q},
 gcD(){var s=this.b
 return s==null?this.b=new A.kM(this).$0():s},
