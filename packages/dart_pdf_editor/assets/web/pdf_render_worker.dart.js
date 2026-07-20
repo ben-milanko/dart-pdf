@@ -3693,7 +3693,8 @@ lw:function lw(a,b,c,d){var _=this
 _.b=a
 _.c=b
 _.d=c
-_.e=d},
+_.e=d
+_.x=_.w=_.r=_.f=null},
 lz:function lz(a,b){this.a=a
 this.b=b},
 lx:function lx(a,b){this.a=a
@@ -14926,11 +14927,19 @@ df(a,b,c,d){switch(a.a){case 0:return b
 case 1:return A.h_(this.f4(c,d,!1),b)
 case 2:return A.pU(this.f4(c,d,!0),b)
 case 3:return A.pU(this.b,b)}},
-f4(a,b,c){var s=new A.ba($.b3()),r=this.b
-s.i(0,r)
-s.i(0,A.b([a&255,B.b.q(a,8)&255,B.b.q(a,16)&255,b&255,B.b.q(b,8)&255],t.t))
-if(c)s.i(0,B.dI)
-return new Uint8Array(A.H(B.d.a2(B.H.ac(s.aN()).a,0,Math.min(r.length+5,16))))}}
+f4(a,b,c){var s,r,q,p=this
+if(p.f===a&&p.r===b&&p.w===c){s=p.x
+s.toString
+return s}r=new A.ba($.b3())
+s=p.b
+r.i(0,s)
+r.i(0,A.b([a&255,B.b.q(a,8)&255,B.b.q(a,16)&255,b&255,B.b.q(b,8)&255],t.t))
+if(c)r.i(0,B.dI)
+q=new Uint8Array(A.H(B.d.a2(B.H.ac(r.aN()).a,0,Math.min(s.length+5,16))))
+p.f=a
+p.r=b
+p.w=c
+return p.x=q}}
 A.lz.prototype={
 $2(a,b){var s=this.a.$1(this.b.a.h(0,a))
 return s instanceof A.m?s.a:b},
