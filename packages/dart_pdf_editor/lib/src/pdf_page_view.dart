@@ -415,7 +415,6 @@ class _PdfPageViewState extends State<PdfPageView> {
 
   ui.Image? _detailImage;
   Rect? _detailFraction; // patch placement as fractions of the page
-  Future<bool>? _progressiveDetailFuture;
 
   /// Visible slice (fraction of the page) and desired ratio for the
   /// [PdfPageView.tileStoreDetail] tile layer, recomputed on each settle in
@@ -1056,9 +1055,10 @@ class _PdfPageViewState extends State<PdfPageView> {
   ///
   /// When the page draws no images the fast buffer is the whole page, so it is
   /// cached as [_picture] for the full pass to reuse - no second record.
-  Future<void> _paintVectorFirst(int generation, int pageIndex) async {
+  Future<Completer<bool>?> _paintVectorFirst(
+      int generation, int pageIndex) async {
     final worker = widget.renderWorker;
-    if (worker == null || !worker.isActive) return;
+    if (worker == null || !worker.isActive) return null;
     // A zoomed, visible page's lightweight transcript is the prerequisite for
     // its sharp region. Give it a clear lead over ordinary neighbouring-page
     // work so it preempts the pool instead of being cancelled and requeued as
@@ -1076,7 +1076,7 @@ class _PdfPageViewState extends State<PdfPageView> {
     if (_superseded(generation, pageIndex) ||
         _renderPaused ||
         commands == null) {
-      return;
+      return null;
     }
 
     final retainScene = _retainScene(commands);
@@ -1095,7 +1095,7 @@ class _PdfPageViewState extends State<PdfPageView> {
         );
         if (_superseded(generation, pageIndex)) {
           scene.dispose();
-          return;
+          return null;
         }
         _setScene(scene, fromWorker: true);
         _picture = Future.value(scene.replay(pixelRatio: 1));
@@ -1106,7 +1106,7 @@ class _PdfPageViewState extends State<PdfPageView> {
           _renderPlan,
         );
       }
-      return;
+      return null;
     }
 
     // In a zoomed view the visible region can sharpen without waiting
@@ -1134,7 +1134,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       );
       if (_superseded(generation, pageIndex) || _renderPaused) {
         scene.dispose();
-        return;
+        return null;
       }
       _setScene(scene, fromWorker: true, vectorOnly: true);
       // Keep the already-painted soft preview as the base and sharpen the
@@ -1149,7 +1149,6 @@ class _PdfPageViewState extends State<PdfPageView> {
           if (!paintReady.isCompleted) paintReady.complete(true);
         },
       );
-      _progressiveDetailFuture = paintReady.future;
       unawaited(
         detailFuture.then(
           (ready) {
@@ -1168,7 +1167,7 @@ class _PdfPageViewState extends State<PdfPageView> {
           },
         ),
       );
-      return;
+      return paintReady;
     }
 
     final picture = await PdfPageRenderer.pictureFromCommandsWithPlan(
@@ -1179,7 +1178,7 @@ class _PdfPageViewState extends State<PdfPageView> {
     );
     if (_superseded(generation, pageIndex) || _renderPaused) {
       picture.dispose();
-      return;
+      return null;
     }
     final vectorRatio = _vectorFirstRatio();
     final image = await PdfPageRenderer.rasterize(
@@ -1201,7 +1200,7 @@ class _PdfPageViewState extends State<PdfPageView> {
     // resolution-unchanged guard - it must re-raster to bring the images in.
     if (_superseded(generation, pageIndex) || _rasteredRatio != null) {
       image.dispose();
-      return;
+      return null;
     }
     setState(() {
       _image?.dispose();
@@ -1210,6 +1209,9 @@ class _PdfPageViewState extends State<PdfPageView> {
       _preview = null;
     });
     PdfPerfLog.log('vector-first page=$pageIndex${PdfPerfLog.rssSuffix()}');
+    // This path rasterized a full-page vector preview instead of arming a
+    // region detail, so there is nothing for the caller to wait on.
+    return null;
   }
 
   /// Reports, when the perf log is on, how many images a worker buffer carries
@@ -1281,17 +1283,19 @@ class _PdfPageViewState extends State<PdfPageView> {
         _scene == null &&
         (widget.renderWorker?.isActive ?? false);
     if (firstInterpret && (!previewFresh || needsRegionBootstrap)) {
-      await _paintVectorFirst(generation, pageIndex);
-      // Read and clear before the supersession check: whenever _paintVectorFirst
-      // armed a progressive-detail future, this render must consume it so a
-      // newer generation can never inherit a stale future belonging to an
-      // already-abandoned paint.
-      final progressiveDetail = _progressiveDetailFuture;
-      _progressiveDetailFuture = null;
+      // The armed detail completer is returned, not parked in a field. Renders
+      // are not serialized - PdfPageRenderScheduler invokes render() without
+      // awaiting it (render_scheduler.dart, "starts one page render this
+      // frame") and only de-duplicates *pending* requests, so two _renderNow
+      // passes for one page can interleave. With shared state, whichever pass
+      // read the field last either inherited a future belonging to an
+      // abandoned paint or stole the live pass's own. A local keeps each pass
+      // with exactly the completer it armed.
+      final progressiveDetail = await _paintVectorFirst(generation, pageIndex);
       if (_superseded(generation, pageIndex)) return;
       if (PdfPageView.deferFullRenderUntilDetailPaint &&
           progressiveDetail != null) {
-        final detailReady = await progressiveDetail;
+        final detailReady = await progressiveDetail.future;
         if (_superseded(generation, pageIndex)) return;
         if (detailReady) {
           PdfPerfLog.log('full refine waits for detail paint page=$pageIndex');
