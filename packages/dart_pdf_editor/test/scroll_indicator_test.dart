@@ -92,6 +92,12 @@ void main() {
       expect(a, isNot(d));
       expect(a.scrollAxis, Axis.vertical);
       expect(a.hasOverflow, isTrue);
+      // toString surfaces the page, position/extent/zoom, and the axis
+      expect(
+          a.toString(),
+          allOf(contains('page 2/5'), contains('position: 0.500'),
+              contains('axis: vertical')));
+      expect(d.toString(), contains('axis: horizontal'));
     });
   });
 
