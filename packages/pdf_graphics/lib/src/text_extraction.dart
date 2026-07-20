@@ -919,43 +919,52 @@ class PdfTextReflower {
       return y != 0 ? y : a.bounds.left.compareTo(b.bounds.left);
     });
 
-    final bands = <List<_LinePiece>>[];
+    // Each band keeps a running centre sum and its font sizes in ascending
+    // order, so the two per-candidate questions below - "what is the median
+    // font size including this piece?" and "where is this band centred?" -
+    // are answered without building or sorting a list. Previously both were
+    // recomputed from scratch for every (piece, candidate) pair, which made
+    // this O(pieces x bands x bandSize) with an allocation and a sort inside
+    // the innermost loop.
+    //
+    // The scan itself still walks bands in creation order and takes the FIRST
+    // match, which is load-bearing: band centres are running means, so an
+    // earlier band can drift back within tolerance of a later piece. Taking
+    // the most recent band instead - tempting, since pieces arrive sorted by
+    // descending centreY - is not equivalent.
+    final bands = <_LineBand>[];
     for (final piece in pieces) {
-      List<_LinePiece>? band;
+      _LineBand? band;
       for (final candidate in bands) {
         final tolerance = math.max(
-            2.0,
-            0.55 *
-                _median([
-                  piece.fontSize,
-                  ...candidate.map((p) => p.fontSize),
-                ]));
-        final center = candidate.map((p) => p.centerY).reduce((a, b) => a + b) /
-            candidate.length;
-        if ((piece.centerY - center).abs() <= tolerance) {
+            2.0, 0.55 * _medianWith(candidate.fontSizes, piece.fontSize));
+        if ((piece.centerY - candidate.center).abs() <= tolerance) {
           band = candidate;
           break;
         }
       }
-      (band ?? (bands..add(<_LinePiece>[])).last).add(piece);
+      (band ?? (bands..add(_LineBand())).last).add(piece);
     }
 
     final out = <PdfReflowLine>[];
     for (final band in bands) {
-      band.sort((a, b) => a.bounds.left.compareTo(b.bounds.left));
+      final pieces = band.pieces
+        ..sort((a, b) => a.bounds.left.compareTo(b.bounds.left));
       var current = <_LinePiece>[];
-      for (final piece in band) {
+      var currentFonts = <double>[];
+      for (final piece in pieces) {
         if (current.isNotEmpty) {
           final previous = current.last;
           final gap = piece.bounds.left - previous.bounds.right;
-          final font =
-              _median([...current.map((p) => p.fontSize), piece.fontSize]);
+          final font = _medianWith(currentFonts, piece.fontSize);
           if (gap > math.max(36.0, font * 4.0)) {
             out.add(_lineFrom(current));
             current = <_LinePiece>[];
+            currentFonts = <double>[];
           }
         }
         current.add(piece);
+        _insertSorted(currentFonts, piece.fontSize);
       }
       if (current.isNotEmpty) out.add(_lineFrom(current));
     }
@@ -1329,6 +1338,61 @@ double _overlapFraction(PdfRect a, PdfRect b) {
   if (overlap <= 0) return 0;
   final smaller = math.min(a.width * a.height, b.width * b.height);
   return smaller <= 0 ? 0 : overlap / smaller;
+}
+
+/// Index where [value] would be inserted to keep [sorted] ascending.
+int _lowerBound(List<double> sorted, double value) {
+  var lo = 0;
+  var hi = sorted.length;
+  while (lo < hi) {
+    final mid = (lo + hi) >> 1;
+    if (sorted[mid] < value) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo;
+}
+
+void _insertSorted(List<double> sorted, double value) =>
+    sorted.insert(_lowerBound(sorted, value), value);
+
+/// Median of [sorted] (ascending) with [extra] merged in, without building
+/// the merged list.
+///
+/// Equivalent to `_median([...sorted, extra])`, but the line-banding loop asks
+/// this once per piece per candidate band, where materialising and sorting a
+/// fresh list dominated the cost of [_visualLines] on a text-heavy page.
+double _medianWith(List<double> sorted, double extra) {
+  final length = sorted.length + 1;
+  final pos = _lowerBound(sorted, extra);
+  // the merged sequence is sorted[0..pos) + [extra] + sorted[pos..)
+  double at(int rank) => rank < pos
+      ? sorted[rank]
+      : (rank == pos ? extra : sorted[rank - 1]);
+  final middle = length ~/ 2;
+  if (length.isOdd) return at(middle);
+  return (at(middle - 1) + at(middle)) / 2;
+}
+
+/// A run of pieces sharing a visual line, with the aggregates the banding
+/// scan needs kept incrementally rather than recomputed per comparison.
+class _LineBand {
+  final List<_LinePiece> pieces = [];
+
+  /// Ascending, so [_medianWith] can merge one more value in O(log n).
+  final List<double> fontSizes = [];
+
+  double _sumCenterY = 0;
+
+  double get center => _sumCenterY / pieces.length;
+
+  void add(_LinePiece piece) {
+    pieces.add(piece);
+    _insertSorted(fontSizes, piece.fontSize);
+    _sumCenterY += piece.centerY;
+  }
 }
 
 double _median(Iterable<double> values) {
