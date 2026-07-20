@@ -5692,6 +5692,25 @@ class _AnnotationAppearanceLayerState
   List<ui.Picture> _pictures = const [];
   Size? _picturePageSize;
 
+  /// Rendered appearances keyed on the appearance stream itself.
+  ///
+  /// An incremental revision keeps the COS object cache (the byte prefix is
+  /// unchanged, so `CosDocument` hands back the same instances), which means
+  /// an untouched annotation's appearance stream is *identical* across
+  /// revisions. Every commit used to re-render every appearance on the page -
+  /// each one an ImageCollector scan, an image decode, and an interpreter
+  /// walk - so a page of 50 highlights paid 50 renders per stroke (#404).
+  ///
+  /// Only the entries whose stream changed are re-rendered. The cache owns
+  /// every picture in it; [_pictures] is an ordered view and never disposes.
+  ///
+  /// Keyed as `Object` because `CosStream` is not exported into this library.
+  /// `CosStream` uses identity equality, so this is keyed on the stream
+  /// instance - which is exactly the intent.
+  final Map<Object, ui.Picture> _cache = {};
+  int? _cacheRotation;
+  Size? _cacheSize;
+
   @override
   void initState() {
     super.initState();
@@ -5719,15 +5738,29 @@ class _AnnotationAppearanceLayerState
   void dispose() {
     _generation++;
     _disposePictures();
+    _disposeCache();
     super.dispose();
   }
 
+  /// Drops the ordered view. Pictures belong to [_cache], so this never
+  /// disposes - doing so would hand the painter freed handles on the next
+  /// frame that reuses a cached appearance.
   void _disposePictures() {
-    for (final picture in _pictures) {
-      picture.dispose();
-    }
     _pictures = const [];
     _picturePageSize = null;
+  }
+
+  void _disposeCache() {
+    for (final picture in _cache.values) {
+      picture.dispose();
+    }
+    _cache.clear();
+    _cacheRotation = null;
+    _cacheSize = null;
+    for (final picture in _retired) {
+      if (!picture.debugDisposed) picture.dispose();
+    }
+    _retired.clear();
   }
 
   void _notifyReady(int generation) {
@@ -5743,6 +5776,16 @@ class _AnnotationAppearanceLayerState
     final page = widget.page;
     final pageSize =
         PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation);
+    // Pictures bake in the page transform, so a rotation or size change
+    // invalidates every one of them. Retire rather than dispose: _pictures
+    // still references these until the next publish, and a frame can paint
+    // in between.
+    if (_cacheRotation != widget.rotation || _cacheSize != pageSize) {
+      _retire(_cache.values);
+      _cache.clear();
+      _cacheRotation = widget.rotation;
+      _cacheSize = pageSize;
+    }
     final annotations = [
       for (final annotation in page.annotations)
         if (!annotation.isHidden &&
@@ -5751,31 +5794,89 @@ class _AnnotationAppearanceLayerState
           annotation,
     ];
     if (annotations.isEmpty) {
-      _disposePictures();
-      _notifyReady(generation);
+      _publish(generation, const [], pageSize);
+      return;
+    }
+
+    // Retire appearances no longer on the page, so a page whose annotations
+    // are repeatedly replaced cannot accumulate pictures. Disposal waits for
+    // the publish below (see [_retire]).
+    final live = {
+      for (final annotation in annotations) annotation.normalAppearance!,
+    };
+    for (final source in _cache.keys.toList()) {
+      if (!live.contains(source)) _retire([_cache.remove(source)!]);
+    }
+
+    final missing = [
+      for (final annotation in annotations)
+        if (!_cache.containsKey(annotation.normalAppearance)) annotation,
+    ];
+    if (missing.isEmpty) {
+      _publish(generation, annotations, pageSize);
       return;
     }
     unawaited(Future.wait([
-      for (final annotation in annotations)
-        _renderAnnotation(page, annotation, widget.rotation),
-    ]).then((pictures) {
-      final next = [
-        for (final picture in pictures)
-          if (picture != null) picture,
-      ];
+      for (final annotation in missing)
+        _renderAnnotation(page, annotation, widget.rotation)
+            .then((picture) => (annotation.normalAppearance!, picture)),
+    ]).then((rendered) {
       if (!mounted || generation != _generation) {
-        for (final picture in next) {
-          picture.dispose();
+        for (final (_, picture) in rendered) {
+          picture?.dispose();
         }
         return;
       }
-      setState(() {
-        _disposePictures();
-        _pictures = next;
-        _picturePageSize = pageSize;
-      });
-      _notifyReady(generation);
+      for (final (source, picture) in rendered) {
+        if (picture == null) continue;
+        // A concurrent render may have filled this slot; keep one owner.
+        final existing = _cache[source];
+        if (existing != null) {
+          picture.dispose();
+          continue;
+        }
+        _cache[source] = picture;
+      }
+      _publish(generation, annotations, pageSize);
     }));
+  }
+
+  /// Rebuilds the ordered picture list from [_cache] and repaints, then frees
+  /// anything retired by the render that produced it.
+  void _publish(
+      int generation, List<PdfAnnotation> annotations, Size pageSize) {
+    if (!mounted || generation != _generation) return;
+    final next = [
+      for (final annotation in annotations)
+        if (_cache[annotation.normalAppearance] case final picture?) picture,
+    ];
+    setState(() {
+      _pictures = next;
+      _picturePageSize = pageSize;
+    });
+    _flushRetired();
+    _notifyReady(generation);
+  }
+
+  /// Pictures dropped from [_cache] but possibly still referenced by the
+  /// [_pictures] the painter is holding.
+  ///
+  /// Disposing one on the spot crashes the next paint that touches it -
+  /// `Canvas.drawPicture` asserts on a disposed picture - and there is a real
+  /// window for that, because a render awaits its missing appearances and a
+  /// frame can paint in between. They are freed once [_pictures] has been
+  /// replaced and no longer names them.
+  final List<ui.Picture> _retired = [];
+
+  void _retire(Iterable<ui.Picture> pictures) => _retired.addAll(pictures);
+
+  void _flushRetired() {
+    if (_retired.isEmpty) return;
+    final live = Set<ui.Picture>.identity()..addAll(_pictures);
+    for (final picture in _retired) {
+      if (!live.contains(picture)) picture.dispose();
+    }
+    _retired.clear();
   }
 
   Future<ui.Picture?> _renderAnnotation(
