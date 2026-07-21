@@ -226,12 +226,22 @@ class AppDevTools extends ChangeNotifier {
     // raster - and this log is a ring of only maxLogEntries, so a sustained
     // trace WILL evict the earlier entries (the open-trace: lines included).
     // Reproduce the problem, then export promptly; don't leave it running.
-    PdfPerfLog.sink = value ? (m) => addLog('perf: $m') : null;
+    PdfPerfLog.sink =
+        value ? (m) => _record(DevLogLevel.info, 'perf: $m', notify: false) : null;
     addLog('devtools: perf trace logging ${value ? 'on' : 'off'}');
     _scheduleNotify();
   }
 
-  void _record(DevLogLevel level, String message) {
+  /// Appends one entry to the ring.
+  ///
+  /// [notify] false is for high-volume lines - the [PdfPerfLog] trace, which
+  /// emits a JANK line per janky frame. Notifying there would schedule a panel
+  /// rebuild, which is itself a frame, which can produce the next JANK line:
+  /// the measurement driving the thing it measures. Those lines still appear,
+  /// because the panel refreshes anyway (the 250 ms throttle from [_onTimings]
+  /// while frames are produced, and its own 1 s poll while open) - they simply
+  /// stop being a rebuild trigger of their own.
+  void _record(DevLogLevel level, String message, {bool notify = true}) {
     // debugPrint re-entrance guard: recording must never print.
     if (_capturing) return;
     _capturing = true;
@@ -240,7 +250,7 @@ class AppDevTools extends ChangeNotifier {
       _log.removeFirst();
     }
     _capturing = false;
-    _scheduleNotify();
+    if (notify) _scheduleNotify();
   }
 
   void _onTimings(List<FrameTiming> timings) {
@@ -386,6 +396,11 @@ class AppDevTools extends ChangeNotifier {
   /// Timer on this process-wide singleton would leak across widget tests);
   /// the panel's own 1 s poll picks up whatever the throttle dropped.
   void _scheduleNotify() {
+    // Nothing listening (panel closed): rebuilds would be pure waste, and a
+    // panel rebuild is itself a frame that feeds back into the frame timings
+    // being measured. Recording above is unaffected - entries and timings
+    // still accumulate so the history is there when the panel opens.
+    if (!hasListeners) return;
     if (_notifyScheduled) return;
     if (DateTime.now().difference(_lastNotify) <
         const Duration(milliseconds: 250)) {
