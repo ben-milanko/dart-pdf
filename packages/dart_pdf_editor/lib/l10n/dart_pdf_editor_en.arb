@@ -1,0 +1,11 @@
+{
+  "@@locale": "en",
+  "cancel": "Cancel",
+  "@cancel": {
+    "description": "Button that dismisses a dialog without applying."
+  },
+  "ok": "OK",
+  "@ok": {
+    "description": "Button that confirms a dialog."
+  }
+}

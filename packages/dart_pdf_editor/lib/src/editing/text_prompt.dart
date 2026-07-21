@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart'
     show PdfFormField, PdfRect, PdfVectorSnapshot;
 
+import '../l10n/pdf_l10n.dart';
+
 /// Supplies the image a tapped push-button field should be filled with
 /// - typically a file picker. Return null to leave the button alone.
 /// PNG and JPEG bytes are accepted
@@ -132,11 +134,11 @@ Future<String?> showPdfTextPrompt(
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(pdfL10n(context).cancel),
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(field.text),
-          child: const Text('OK'),
+          child: Text(pdfL10n(context).ok),
         ),
       ],
     ),

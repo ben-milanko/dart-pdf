@@ -51,6 +51,8 @@ export 'src/editing/tool_shortcuts.dart';
 export 'package:pdf_cos/pdf_cos.dart'
     show PdfByteSource, PdfBytesByteSource, PdfSourceLoadOptions, PdfSourceProgress;
 export 'src/http_byte_source.dart';
+export 'l10n/dart_pdf_editor_localizations.dart';
+export 'src/l10n/pdf_l10n.dart';
 export 'src/image_decoder.dart' show PdfImageCache;
 export 'src/ocr.dart';
 export 'src/page_export.dart';

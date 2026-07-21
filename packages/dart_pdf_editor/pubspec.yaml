@@ -20,6 +20,11 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  # ICU message formatting (plurals/select/dates) for the shipped
+  # localizations; see lib/l10n/.
+  intl: ^0.20.2
   # Keychain/Keystore-backed persistence for signing identities
   # (SecureIdentityStore); the private key never touches shared_preferences.
   flutter_secure_storage: ^10.3.1
@@ -50,6 +55,7 @@ dev_dependencies:
   url_launcher_platform_interface: ^2.3.2
 
 flutter:
+  generate: true
   # Bundled fonts offered by the font menu. DejaVu is a permissive
   # Bitstream Vera / Arev licence; Fira Sans, Spectral and Lobster are
   # SIL Open Font Licence - see the *-LICENSE.txt files in assets/fonts/.
