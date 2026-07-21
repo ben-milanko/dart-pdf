@@ -112,6 +112,7 @@ class AppDevTools extends ChangeNotifier {
   bool _capturing = false;
   bool _notifyScheduled = false;
   bool _logTouchInput = false;
+  bool _logPerfTrace = false;
   final Map<int, _TouchTrack> _touchTracks = {};
   DateTime _lastNotify = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -206,6 +207,29 @@ class AppDevTools extends ChangeNotifier {
 
   static String _fmt(Offset o) =>
       '(${o.dx.toStringAsFixed(0)},${o.dy.toStringAsFixed(0)})';
+
+  // --- perf trace forwarding --------------------------------------------------
+
+  /// Whether [PdfPerfLog] runs AND its lines are forwarded into this log,
+  /// tagged `perf:`. Off by default. The export's pdfPerf block only covers
+  /// the document-open path; this is how the render path (worker traffic,
+  /// interprets, rasters, jank) gets into the same exported trace. Toggling
+  /// installs/removes the package's sink - the package never imports the app,
+  /// so the sink is the seam.
+  bool get logPerfTrace => _logPerfTrace;
+
+  set logPerfTrace(bool value) {
+    if (_logPerfTrace == value) return;
+    _logPerfTrace = value;
+    PdfPerfLog.enabled = value;
+    // The trace is verbose - a line per worker request/reply, interpret, and
+    // raster - and this log is a ring of only maxLogEntries, so a sustained
+    // trace WILL evict the earlier entries (the open-trace: lines included).
+    // Reproduce the problem, then export promptly; don't leave it running.
+    PdfPerfLog.sink = value ? (m) => addLog('perf: $m') : null;
+    addLog('devtools: perf trace logging ${value ? 'on' : 'off'}');
+    _scheduleNotify();
+  }
 
   void _record(DevLogLevel level, String message) {
     // debugPrint re-entrance guard: recording must never print.
@@ -322,7 +346,7 @@ class AppDevTools extends ChangeNotifier {
       if (map['perfOverlay'] case final bool v) {
         showPerformanceOverlay.value = v;
       }
-      if (map['perfLog'] case final bool v) PdfPerfLog.enabled = v;
+      if (map['perfLog'] case final bool v) logPerfTrace = v;
       if (map['logTouchInput'] case final bool v) logTouchInput = v;
       if (map['workers'] case final int v) {
         pdfRenderWorkerPoolSize = v.clamp(1, 8);
@@ -343,7 +367,7 @@ class AppDevTools extends ChangeNotifier {
           'tileBorders': pdfDebugPaintDetailBounds.value,
           'renderWindow': pdfDebugShowRenderWindow.value,
           'perfOverlay': showPerformanceOverlay.value,
-          'perfLog': PdfPerfLog.enabled,
+          'perfLog': _logPerfTrace,
           'logTouchInput': _logTouchInput,
           'workers': pdfRenderWorkerPoolSize,
         }),

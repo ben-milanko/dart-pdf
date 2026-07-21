@@ -58,6 +58,13 @@ class PdfPerfLog {
     if (on) PdfPerf.sink = log;
   }
 
+  /// Optional host sink that receives every flushed line IN ADDITION to the
+  /// console. This is the seam by which a host app (whose devtools export
+  /// must never depend on a console the user can't reach) mirrors the trace
+  /// into its own log - the package must not import the host, so the host
+  /// hands us a closure instead. Not consulted at all while the log is off.
+  static void Function(String line)? sink;
+
   static final Stopwatch _clock = Stopwatch()..start();
   static final List<String> _buf = <String>[];
   static bool _hooked = false;
@@ -172,6 +179,11 @@ class PdfPerfLog {
       // extra cost is irrelevant, and it's still Timer-free, so it can't
       // trip widget tests' `!timersPending` (which stay off anyway).
       debugPrintSynchronously(line);
+      // A host's sink is foreign code: a throwing one must never break the
+      // render path this log is diagnosing, so its failures are swallowed.
+      try {
+        sink?.call(line);
+      } catch (_) {}
     }
     _buf.clear();
   }

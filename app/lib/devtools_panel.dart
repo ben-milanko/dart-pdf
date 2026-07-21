@@ -817,14 +817,15 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
           theme,
           key: const ValueKey('devtools-perf-log'),
           title: 'Verbose render log (PdfPerfLog)',
-          help: 'Streams the render stack\'s diagnostic log lines '
-              '(vector-first routing, worker requests, detail settles, '
-              'jank markers) through debugPrint into this log. Also lights '
-              'up the PdfPerf accumulators. Chatty - enable to diagnose, '
+          help: 'Streams the render stack\'s diagnostic trace '
+              '(worker requests/replies, interprets, rasters, jank markers) '
+              'into this log as "perf:" lines, so the exported JSON carries '
+              'the render path too. Chatty - the 500-entry ring evicts older '
+              'lines quickly, so reproduce the problem and export promptly, '
               'then turn it off.',
-          value: PdfPerfLog.enabled,
+          value: _tools.logPerfTrace,
           onChanged: (v) => setState(() {
-            PdfPerfLog.enabled = v;
+            _tools.logPerfTrace = v;
             _persist();
           }),
         ),

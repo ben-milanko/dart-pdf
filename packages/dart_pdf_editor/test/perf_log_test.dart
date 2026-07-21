@@ -18,7 +18,10 @@ void main() {
     return lines;
   }
 
-  tearDown(() => PdfPerfLog.enabled = false);
+  tearDown(() {
+    PdfPerfLog.enabled = false;
+    PdfPerfLog.sink = null;
+  });
 
   test('disabled - log emits nothing', () {
     PdfPerfLog.enabled = false;
@@ -99,5 +102,41 @@ void main() {
     int seq(String line) =>
         int.parse(RegExp(r'n=(\d+)').firstMatch(line)!.group(1)!);
     expect(seq(lines[1]), seq(lines[0]) + 1);
+  });
+
+  test('sink receives every line while enabled, in addition to the console',
+      () {
+    final forwarded = <String>[];
+    final lines = capturePrints(() {
+      PdfPerfLog.sink = forwarded.add;
+      PdfPerfLog.enabled = true;
+      PdfPerfLog.log('alpha');
+      PdfPerfLog.log('beta');
+    });
+    // The console path must survive the sink being attached - hosts mirror,
+    // they don't redirect.
+    expect(lines, hasLength(2));
+    expect(forwarded, hasLength(2));
+    expect(forwarded[0], startsWith('[perf '));
+    expect(forwarded[0], contains('alpha'));
+    expect(forwarded[1], contains('beta'));
+  });
+
+  test('sink is not consulted while disabled', () {
+    var calls = 0;
+    PdfPerfLog.sink = (_) => calls++;
+    PdfPerfLog.enabled = false;
+    PdfPerfLog.log('nope');
+    expect(calls, 0);
+  });
+
+  test('a throwing sink does not propagate to the caller', () {
+    capturePrints(() {
+      PdfPerfLog.sink = (_) => throw StateError('host bug');
+      PdfPerfLog.enabled = true;
+      // Rendering must never break because a host's forwarding closure is
+      // broken - the log call itself must complete cleanly.
+      expect(() => PdfPerfLog.log('alpha'), returnsNormally);
+    });
   });
 }
