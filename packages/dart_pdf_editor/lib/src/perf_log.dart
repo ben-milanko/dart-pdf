@@ -98,11 +98,20 @@ class PdfPerfLog {
   /// them a trace shows one multi-second interpret that is indistinguishable
   /// from scheduler/hold queuing. [interpretMs] is still printed unchanged so
   /// older traces stay comparable.
+  ///
+  /// [decodeMs]/[replayMs] split the build phase one level deeper - image
+  /// decode vs the canvas-call picture construction - because a cold-open
+  /// trace showed build dominating the whole open while saying nothing about
+  /// which half costs it. Printed only when BOTH are non-null: the split is
+  /// meaningless as a lone number, and call sites where decode and
+  /// construction are fused pass neither.
   static void interpret(int page,
       {required String path,
       required double interpretMs,
       double? waitMs,
       double? buildMs,
+      double? decodeMs,
+      double? replayMs,
       double? rasterMs,
       bool first = true,
       String note = ''}) {
@@ -111,9 +120,12 @@ class PdfPerfLog {
     final phases = (waitMs == null || buildMs == null)
         ? ''
         : ' wait=${_ms(waitMs)} build=${_ms(buildMs)}';
+    final buildSplit = (decodeMs == null || replayMs == null)
+        ? ''
+        : ' decode=${_ms(decodeMs)} replay=${_ms(replayMs)}';
     final kind = first ? 'FIRST' : 're-raster';
     log('interpret page=$page path=$path $kind '
-        'interpret=${_ms(interpretMs)}$phases$raster$note');
+        'interpret=${_ms(interpretMs)}$phases$buildSplit$raster$note');
   }
 
   static String _ms(double v) => '${v.toStringAsFixed(1)}ms';

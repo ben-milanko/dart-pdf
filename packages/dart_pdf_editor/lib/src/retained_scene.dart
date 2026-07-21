@@ -28,6 +28,17 @@ import 'render_worker.dart';
 import 'region_replay_index.dart';
 import 'strips/strip_device.dart';
 
+/// Mutable carrier for the image-decode half of a [PdfRetainedScene.fromCommands]
+/// build, so the perf log can split the render 'build' phase into decode vs
+/// canvas-call construction without [PdfRetainedScene.fromCommands] growing a
+/// second return channel. The caller allocates one only while
+/// [PdfPerfLog.enabled] - an ordinary render never pays for it.
+class PdfSceneBuildTiming {
+  /// Wall time of the `decodeImages` await, in milliseconds. Stays 0 when
+  /// the buffer carried no images (or `includeImages` was false).
+  double decodeMs = 0;
+}
+
 /// A page retained as a replayable scene: the recorded interpreter command
 /// buffer plus its decoded images, both produced exactly once in [record].
 ///
@@ -254,18 +265,30 @@ class PdfRetainedScene {
   /// must have been recorded for [page] under [plan]. Set [includeImages] to
   /// false for a deliberate vector-only progressive buffer; image draws then
   /// stay transparent until a complete scene replaces it.
+  ///
+  /// [timing], when non-null, receives the duration of the decode pass - the
+  /// perf log's way of splitting the render 'build' phase into image decode
+  /// vs the canvas-call construction that follows. Null (the default)
+  /// measures nothing.
   static Future<PdfRetainedScene> fromCommands(
     PdfPage page,
     List<PdfRenderCommand> commands, {
     PdfPageRenderPlan plan = const PdfPageRenderPlan(),
     bool includeImages = true,
+    PdfSceneBuildTiming? timing,
   }) async {
     final images = <Object, ui.Image>{};
     if (includeImages) {
       final requests = <PdfImageRequest>[];
       PdfPageRenderer.collectImageRequests(commands, requests);
+      // The clock exists only when a caller asked for the split; an ordinary
+      // render never pays for it.
+      final clock = timing == null ? null : (Stopwatch()..start());
       images.addAll(await decodeImages(page.document.cos, requests,
           cache: PdfImageCache.instance));
+      if (clock != null) {
+        timing!.decodeMs = clock.elapsedMicroseconds / 1000.0;
+      }
     }
     return PdfRetainedScene._(page, plan, commands, images);
   }

@@ -1053,22 +1053,41 @@ class _PdfPageViewState extends State<PdfPageView> {
   Future<(ui.Picture, PdfRetainedScene?)> _replayableFromCommands(
     List<PdfRenderCommand> commands,
   ) async {
+    // The build-split instrumentation exists only while the perf log is on
+    // (the phase-clock pattern in _interpretPicture): the carrier and the
+    // replay clock stay off the ordinary path. 'build' is the dominant
+    // opaque figure in a cold-open trace, and whether it is the image decode
+    // or the canvas calls is exactly what these two numbers answer.
+    final timing = PdfPerfLog.enabled ? PdfSceneBuildTiming() : null;
     if (!_retainScene(commands)) {
-      return (
-        await PdfPageRenderer.pictureFromCommandsWithPlan(
-          widget.page,
-          commands,
-          _renderPlan,
-        ),
-        null,
+      final picture = await PdfPageRenderer.pictureFromCommandsWithPlan(
+        widget.page,
+        commands,
+        _renderPlan,
       );
+      // Deliberately unmeasured: this branch decodes INSIDE
+      // pictureFromCommandsWithPlan and constructs the picture in the same
+      // call, so a replayMs to pair with a decodeMs doesn't exist here -
+      // and PdfPerfLog.interpret prints the split only as a pair, so a lone
+      // decode would never surface anyway. Threading a carrier into the
+      // public renderer API to collect an unprintable number is cost without
+      // signal; both fields stay null and the line omits them.
+      _lastInterpretDecodeMs = null;
+      _lastInterpretReplayMs = null;
+      return (picture, null);
     }
     final scene = await PdfRetainedScene.fromCommands(
       widget.page,
       commands,
       plan: _renderPlan,
+      timing: timing,
     );
-    return (scene.replay(pixelRatio: 1), scene);
+    final replayClock = timing == null ? null : (Stopwatch()..start());
+    final picture = scene.replay(pixelRatio: 1);
+    _lastInterpretDecodeMs = timing?.decodeMs;
+    _lastInterpretReplayMs =
+        replayClock == null ? null : replayClock.elapsedMicroseconds / 1000.0;
+    return (picture, scene);
   }
 
   /// Progressive rendering's fast first pass: records the page WITHOUT decoding
@@ -1291,6 +1310,14 @@ class _PdfPageViewState extends State<PdfPageView> {
   double? _lastInterpretWaitMs;
   double? _lastInterpretBuildMs;
 
+  /// The last interpret's build-phase split (image decode vs picture
+  /// construction), for the perf log. Null while the log is off - the
+  /// Stopwatch and timing carrier that produce them are never allocated then.
+  /// Also null on the local 'recorded' path, where decode and construction
+  /// are fused into one walk and no split exists to report.
+  double? _lastInterpretDecodeMs;
+  double? _lastInterpretReplayMs;
+
   /// The actual interpret + rasterize, run once the first render is no
   /// longer gated (or directly for re-rasters of a cached picture).
   Future<void> _renderNow() async {
@@ -1301,6 +1328,8 @@ class _PdfPageViewState extends State<PdfPageView> {
       _lastInterpretResultBytes = null;
       _lastInterpretWaitMs = null;
       _lastInterpretBuildMs = null;
+      _lastInterpretDecodeMs = null;
+      _lastInterpretReplayMs = null;
     }
     final sw = Stopwatch()..start();
     if (_renderPaused) {
@@ -1377,6 +1406,8 @@ class _PdfPageViewState extends State<PdfPageView> {
         interpretMs: sw.elapsedMicroseconds / 1000.0,
         waitMs: _lastInterpretWaitMs,
         buildMs: _lastInterpretBuildMs,
+        decodeMs: _lastInterpretDecodeMs,
+        replayMs: _lastInterpretReplayMs,
         first: true,
       );
       widget.performance?.observe(

@@ -165,4 +165,35 @@ void main() {
     expect(lines[1], isNot(contains('build=')));
   });
 
+  test('interpret splits the build phase into decode and construction', () {
+    final lines = capturePrints(() {
+      PdfPerfLog.enabled = true;
+      PdfPerfLog.interpret(0,
+          path: 'worker',
+          interpretMs: 1652.3,
+          waitMs: 36.3,
+          buildMs: 1055.8,
+          decodeMs: 1021.4,
+          replayMs: 32.9);
+      // Fused call sites (the local 'recorded' path decodes and constructs in
+      // one walk) pass neither, and a lone half is meaningless - so the pair
+      // is all-or-nothing.
+      PdfPerfLog.interpret(1,
+          path: 'recorded', interpretMs: 42.0, waitMs: 0, buildMs: 42.0);
+      PdfPerfLog.interpret(2,
+          path: 'worker', interpretMs: 10.0, decodeMs: 5.0);
+    });
+
+    expect(lines[0], contains('build=1055.8ms'));
+    expect(lines[0], contains('decode=1021.4ms'));
+    expect(lines[0], contains('replay=32.9ms'));
+
+    expect(lines[1], contains('build=42.0ms'));
+    expect(lines[1], isNot(contains('decode=')));
+    expect(lines[1], isNot(contains('replay=')));
+
+    expect(lines[2], isNot(contains('decode=')),
+        reason: 'a decode without a replay must not print half a split');
+  });
+
 }
