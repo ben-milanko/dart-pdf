@@ -79,6 +79,7 @@ void main() {
           imageWidth: 4730,
           imageHeight: 3548,
           ratio: 41.2,
+          elapsedMs: 912.34,
           region: (width: 115, height: 86));
       PdfPerfLog.raster('base-full',
           page: 2, imageWidth: 8192, imageHeight: 812, ratio: 1);
@@ -91,13 +92,19 @@ void main() {
     expect(lines[0], contains('region=115x86pt'));
     expect(lines[0], contains('ratio=41.2'));
     expect(lines[0], contains('img=4730x3548 (16.8MP)'));
+    // The measured duration of the rasterize call itself - the figure that
+    // used to require inferring gaps between log timestamps.
+    expect(lines[0], contains('ms=912.3'));
     expect(lines[0], matches(RegExp(r'rss=\d+MB')));
 
     // A full-page raster carries no region, and the sequence number advances so
-    // a per-frame raster loop is visible as `n` racing up.
+    // a per-frame raster loop is visible as `n` racing up. Without a measured
+    // duration the ms field stays off the line, keeping older call sites'
+    // output unchanged.
     expect(lines[1], contains('raster kind=base-full page=2'));
     expect(lines[1], contains(' full '));
     expect(lines[1], isNot(contains('region=')));
+    expect(lines[1], isNot(contains('ms=')));
 
     int seq(String line) =>
         int.parse(RegExp(r'n=(\d+)').firstMatch(line)!.group(1)!);
@@ -139,4 +146,23 @@ void main() {
       expect(() => PdfPerfLog.log('alpha'), returnsNormally);
     });
   });
+  test('interpret splits the worker wait from the picture build', () {
+    final lines = capturePrints(() {
+      PdfPerfLog.enabled = true;
+      PdfPerfLog.interpret(0,
+          path: 'worker', interpretMs: 2588.9, waitMs: 934.2, buildMs: 1228.7);
+      // Older call sites pass neither; the line must stay as it was so
+      // existing traces remain comparable.
+      PdfPerfLog.interpret(1, path: 'recorded', interpretMs: 42.0);
+    });
+
+    expect(lines[0], contains('interpret=2588.9ms'));
+    expect(lines[0], contains('wait=934.2ms'));
+    expect(lines[0], contains('build=1228.7ms'));
+
+    expect(lines[1], contains('interpret=42.0ms'));
+    expect(lines[1], isNot(contains('wait=')));
+    expect(lines[1], isNot(contains('build=')));
+  });
+
 }

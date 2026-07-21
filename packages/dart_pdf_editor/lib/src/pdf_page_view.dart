@@ -890,6 +890,10 @@ class _PdfPageViewState extends State<PdfPageView> {
   Future<(ui.Picture, PdfRetainedScene?, bool)?> _interpretPicture() async {
     final pageIndex = widget.previewIndex;
     final worker = widget.renderWorker;
+    // Phase clocks exist only while the perf log is on (the render_worker_web
+    // _perfClock pattern): this runs per page render, so even a cheap
+    // Stopwatch allocation stays off the ordinary path.
+    final waitClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
     if (worker != null && worker.isActive) {
       // priority 0: the on-screen page preempts background prefetch.
       // imagePixelRatio caps embedded images to ~2x the page's on-screen
@@ -905,6 +909,13 @@ class _PdfPageViewState extends State<PdfPageView> {
           widget.workerImagePixelRatioCap ?? double.infinity,
         ),
       );
+      // The wait phase ends when the record reply lands; the build phase is
+      // everything after - decoding images that shipped un-decoded and
+      // turning the command buffer into the picture.
+      final waitMs = waitClock == null
+          ? null
+          : waitClock.elapsedMicroseconds / 1000.0;
+      final buildClock = waitClock == null ? null : (Stopwatch()..start());
       // Abandoned while the worker ran - the State was disposed or the lazy
       // list recycled it onto another page (this is the cancel() path: a
       // cancelled request returns null). Skip the local fallback: the page is
@@ -918,6 +929,9 @@ class _PdfPageViewState extends State<PdfPageView> {
         _lastInterpretPath = 'worker';
         _lastInterpretResultBytes = _logImageStats(pageIndex, commands);
         final (picture, scene) = await _replayableFromCommands(commands);
+        _lastInterpretWaitMs = waitMs;
+        _lastInterpretBuildMs =
+            buildClock == null ? null : buildClock.elapsedMicroseconds / 1000.0;
         return (picture, scene, true);
       }
     }
@@ -926,15 +940,22 @@ class _PdfPageViewState extends State<PdfPageView> {
     // The worker may be active yet decline this page (it returns null), in
     // which case the interpret runs here - the log must say so, not 'worker'.
     _lastInterpretPath = 'recorded';
+    // The local path has no worker wait: record + decode + picture build are
+    // one UI-thread phase, reported entirely as build.
+    final buildClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
+    void stampLocalPhases() {
+      _lastInterpretWaitMs = buildClock == null ? null : 0;
+      _lastInterpretBuildMs =
+          buildClock == null ? null : buildClock.elapsedMicroseconds / 1000.0;
+    }
+
     if (!PdfPageView.retainedZoomReplay) {
-      return (
-        await PdfPageRenderer.renderPictureRecordedWithPlan(
-          widget.page,
-          _renderPlan,
-        ),
-        null,
-        false,
+      final result = await PdfPageRenderer.renderPictureRecordedWithPlan(
+        widget.page,
+        _renderPlan,
       );
+      stampLocalPhases();
+      return (result, null, false);
     }
     // Same record + decode renderPictureRecordedWithPlan runs internally,
     // but the command buffer and decoded images are kept for zoom replays
@@ -947,9 +968,12 @@ class _PdfPageViewState extends State<PdfPageView> {
       // cached-picture path serves this page's zooms.
       final picture = scene.replay(pixelRatio: 1);
       scene.dispose();
+      stampLocalPhases();
       return (picture, null, false);
     }
-    return (scene.replay(pixelRatio: 1), scene, false);
+    final picture = scene.replay(pixelRatio: 1);
+    stampLocalPhases();
+    return (picture, scene, false);
   }
 
   /// Whether a page's recorded commands should retain their scene - the
@@ -1181,6 +1205,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       return null;
     }
     final vectorRatio = _vectorFirstRatio();
+    final rasterClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
     final image = await PdfPageRenderer.rasterize(
       picture,
       PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation),
@@ -1192,6 +1217,9 @@ class _PdfPageViewState extends State<PdfPageView> {
       imageWidth: image.width,
       imageHeight: image.height,
       ratio: vectorRatio,
+      elapsedMs: rasterClock == null
+          ? null
+          : rasterClock.elapsedMicroseconds / 1000.0,
     );
     picture.dispose();
     // Adopt the vector raster only if the full pass hasn't already landed (a
@@ -1257,13 +1285,23 @@ class _PdfPageViewState extends State<PdfPageView> {
   String _lastInterpretPath = 'recorded';
   int? _lastInterpretResultBytes;
 
+  /// The last interpret's phase split (worker-reply wait vs picture build),
+  /// for the perf log. Null while the log is off - the Stopwatches that
+  /// produce them are never allocated then.
+  double? _lastInterpretWaitMs;
+  double? _lastInterpretBuildMs;
+
   /// The actual interpret + rasterize, run once the first render is no
   /// longer gated (or directly for re-rasters of a cached picture).
   Future<void> _renderNow() async {
     final generation = _renderSession.beginFull();
     final pageIndex = widget.previewIndex;
     final firstInterpret = _picture == null;
-    if (firstInterpret) _lastInterpretResultBytes = null;
+    if (firstInterpret) {
+      _lastInterpretResultBytes = null;
+      _lastInterpretWaitMs = null;
+      _lastInterpretBuildMs = null;
+    }
     final sw = Stopwatch()..start();
     if (_renderPaused) {
       _render();
@@ -1337,6 +1375,8 @@ class _PdfPageViewState extends State<PdfPageView> {
         pageIndex,
         path: _lastInterpretPath,
         interpretMs: sw.elapsedMicroseconds / 1000.0,
+        waitMs: _lastInterpretWaitMs,
+        buildMs: _lastInterpretBuildMs,
         first: true,
       );
       widget.performance?.observe(
@@ -1468,19 +1508,26 @@ class _PdfPageViewState extends State<PdfPageView> {
       // or the kill switch) re-raster the cached picture.
       final scene = retainedScene;
       final ui.Image image;
+      // The clock starts at each rasterize, not above the branch: the strip
+      // path awaits a worker bin first, and attributing that queue wait to
+      // the raster itself would corrupt the number this log exists to read.
+      Stopwatch? rasterClock;
       if (scene != null && _stripReplayScene(scene)) {
         final stripPlan = await _workerStripPlan(scene, pixelRatio: effective);
         if (_superseded(generation, pageIndex)) return;
+        rasterClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
         image = await scene.rasterizeStrips(
           pixelRatio: effective,
           stripPlan: stripPlan,
         );
       } else if (scene != null && !_sceneIsTileOnly(scene)) {
+        rasterClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
         image = await scene.rasterize(pixelRatio: effective);
       } else {
         // No scene, or one retained only to feed tiles: a flat replay of a
         // dense transcript would be a UI-thread hitch, so the cached picture
         // stays the full-page base raster.
+        rasterClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
         image = await PdfPageRenderer.rasterize(
           picture,
           _renderPlan.pageSize(widget.page),
@@ -1493,6 +1540,9 @@ class _PdfPageViewState extends State<PdfPageView> {
         imageWidth: image.width,
         imageHeight: image.height,
         ratio: effective,
+        elapsedMs: rasterClock == null
+            ? null
+            : rasterClock.elapsedMicroseconds / 1000.0,
       );
       if (_superseded(generation, pageIndex)) {
         image.dispose();
@@ -1627,6 +1677,7 @@ class _PdfPageViewState extends State<PdfPageView> {
     if (_sceneIsVectorOnly &&
         heldScene != null &&
         !_imagesIntersectRegion(heldScene.commands, region)) {
+      final vectorClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
       final vectorImage = await heldScene.rasterizeRegion(
         region,
         pixelRatio: ratio,
@@ -1637,6 +1688,9 @@ class _PdfPageViewState extends State<PdfPageView> {
         imageWidth: vectorImage.width,
         imageHeight: vectorImage.height,
         ratio: ratio,
+        elapsedMs: vectorClock == null
+            ? null
+            : vectorClock.elapsedMicroseconds / 1000.0,
         region: (width: region.width, height: region.height),
       );
       if (mounted &&
@@ -1688,6 +1742,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       return true;
     }
     if (workerPicture != null) {
+      final rasterClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
       final image = await PdfPageRenderer.rasterizeRegion(
         workerPicture,
         region,
@@ -1699,6 +1754,9 @@ class _PdfPageViewState extends State<PdfPageView> {
         imageWidth: image.width,
         imageHeight: image.height,
         ratio: ratio,
+        elapsedMs: rasterClock == null
+            ? null
+            : rasterClock.elapsedMicroseconds / 1000.0,
         region: (width: region.width, height: region.height),
       );
       workerPicture.dispose();
@@ -1756,6 +1814,10 @@ class _PdfPageViewState extends State<PdfPageView> {
     final scene = PdfPageView.retainedZoomReplay ? _scene : null;
     final ui.Image image;
     final String detailKind;
+    // Same per-branch clock placement as the base raster: the strip branch
+    // awaits a worker bin before rasterizing, and that wait must not read
+    // as raster time.
+    Stopwatch? rasterClock;
     if (scene != null && _stripReplayScene(scene)) {
       final stripPlan = await _workerStripPlan(
         scene,
@@ -1767,6 +1829,7 @@ class _PdfPageViewState extends State<PdfPageView> {
           _renderPaused) {
         return false;
       }
+      rasterClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
       image = await scene.rasterizeRegionStrips(
         region,
         pixelRatio: ratio,
@@ -1774,12 +1837,14 @@ class _PdfPageViewState extends State<PdfPageView> {
       );
       detailKind = 'detail-strip';
     } else if (scene != null) {
+      rasterClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
       image = await scene.rasterizeRegion(region, pixelRatio: ratio);
       detailKind = 'detail-region';
     } else {
       // Classic cached-picture path: replays the WHOLE page picture clipped to
       // [region] at [ratio]. On a huge (unretained) transcript this is where a
       // deep-zoom raster gets expensive - the raster instrumentation flags it.
+      rasterClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
       image = await PdfPageRenderer.rasterizeRegion(picture, region, ratio);
       detailKind = 'detail-picture';
     }
@@ -1789,6 +1854,9 @@ class _PdfPageViewState extends State<PdfPageView> {
       imageWidth: image.width,
       imageHeight: image.height,
       ratio: ratio,
+      elapsedMs: rasterClock == null
+          ? null
+          : rasterClock.elapsedMicroseconds / 1000.0,
       region: (width: region.width, height: region.height),
     );
     if (!mounted ||

@@ -91,17 +91,29 @@ class PdfPerfLog {
 
   /// Logs a UI-thread interpret. [first] marks a page's first-ever interpret
   /// (the expensive content-stream walk), vs a cheap re-raster.
+  ///
+  /// [waitMs]/[buildMs] split [interpretMs] into its two real phases on the
+  /// worker path - waiting for the worker's record reply vs turning the
+  /// returned command buffer into a picture (image decode + build). Without
+  /// them a trace shows one multi-second interpret that is indistinguishable
+  /// from scheduler/hold queuing. [interpretMs] is still printed unchanged so
+  /// older traces stay comparable.
   static void interpret(int page,
       {required String path,
       required double interpretMs,
+      double? waitMs,
+      double? buildMs,
       double? rasterMs,
       bool first = true,
       String note = ''}) {
     if (!enabled) return;
     final raster = rasterMs == null ? '' : ' raster=${_ms(rasterMs)}';
+    final phases = (waitMs == null || buildMs == null)
+        ? ''
+        : ' wait=${_ms(waitMs)} build=${_ms(buildMs)}';
     final kind = first ? 'FIRST' : 're-raster';
     log('interpret page=$page path=$path $kind '
-        'interpret=${_ms(interpretMs)}$raster$note');
+        'interpret=${_ms(interpretMs)}$phases$raster$note');
   }
 
   static String _ms(double v) => '${v.toStringAsFixed(1)}ms';
@@ -132,24 +144,31 @@ class PdfPerfLog {
   /// an exported trace.
   ///
   /// [kind] is the raster path (e.g. 'detail', 'vector-first', 'base'). [region]
-  /// is null for a full-page raster. Off unless the perf log is [enabled].
+  /// is null for a full-page raster. [elapsedMs] is the measured duration of the
+  /// rasterize call itself - without it the cost of a 1.5MP readback can only
+  /// be inferred from the gap between log timestamps, which is unmeasurable
+  /// during the hangs this log exists to diagnose. Off unless the perf log is
+  /// [enabled].
   static void raster(
     String kind, {
     required int page,
     required int imageWidth,
     required int imageHeight,
     double? ratio,
+    double? elapsedMs,
     ({double width, double height})? region,
   }) {
     if (!enabled) return;
     final mp = (imageWidth * imageHeight) / 1e6;
     final ratioStr = ratio == null ? '' : ' ratio=${ratio.toStringAsFixed(1)}';
+    final msStr = elapsedMs == null ? '' : ' ms=${elapsedMs.toStringAsFixed(1)}';
     final regionStr = region == null
         ? ' full'
         : ' region=${region.width.toStringAsFixed(0)}x'
             '${region.height.toStringAsFixed(0)}pt';
     log('raster kind=$kind page=$page n=${++_rasterSeq}$regionStr$ratioStr '
-        'img=${imageWidth}x$imageHeight (${mp.toStringAsFixed(1)}MP)${rssSuffix()}');
+        'img=${imageWidth}x$imageHeight '
+        '(${mp.toStringAsFixed(1)}MP)$msStr${rssSuffix()}');
   }
 
   static void _onTimings(List<FrameTiming> timings) {
