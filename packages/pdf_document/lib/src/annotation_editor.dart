@@ -3946,12 +3946,36 @@ extension PdfAnnotationEditing on PdfEditor {
     if (rect.width <= 0 || rect.height <= 0) {
       throw ArgumentError('rotateAnnotation needs a non-degenerate rect');
     }
+    if (!_foldRotationInto(annotation.dict, form, rect, degrees)) return;
+    final formRef = document.cos.referenceTo(form);
+    if (formRef != null) _updater.replaceObject(formRef.objectNumber, form);
+    _markAnnotationChanged(pageIndex, annotation.dict);
+  }
+
+  /// Folds a counterclockwise rotation of [degrees] about the centre of
+  /// [rect] into [form]'s /Matrix, resets [annotDict]'s /Rect to the
+  /// rotated artwork's bounds, and rotates the absolute-coordinate point
+  /// arrays (/QuadPoints, /L, /Vertices, /CL, /InkList) the same way -
+  /// the geometry mutation shared by [rotateAnnotation] and the
+  /// paste-onto-a-rotated-page re-orientation
+  /// ([PdfAnnotationClipboard.pasteAnnotation]).
+  ///
+  /// The BBox→Rect fit is baked in first, so artwork whose BBox aspect
+  /// differs from /Rect rotates without shearing. Returns false without
+  /// touching anything when [form] has no usable BBox (§12.5.5 has nothing
+  /// to map), leaving the caller to skip staging.
+  bool _foldRotationInto(
+    CosDictionary annotDict,
+    CosStream form,
+    PdfRect rect,
+    double degrees,
+  ) {
     final cos = document.cos;
     final bbox = pdfRectFrom(cos, form.dictionary['BBox']);
-    if (bbox == null) return; // no BBox: §12.5.5 has nothing to map
+    if (bbox == null) return false; // no BBox: §12.5.5 has nothing to map
     // the current BBox→Rect fit (the same bounds walk as the renderer)
     final baked = _bakedFormMatrix(form, rect);
-    if (baked == null) return;
+    if (baked == null) return false;
 
     final theta = degrees * math.pi / 180;
     final cosT = math.cos(theta), sinT = math.sin(theta);
@@ -3973,27 +3997,24 @@ extension PdfAnnotationEditing on PdfEditor {
     // carries the whole rotation history, so this stays the tightest box
     // around the rotated artwork - two 45° turns land exactly where one
     // 90° turn does, instead of compounding loose bounding boxes.
-    annotation.dict['Rect'] = _rectArray(boundsUnderMatrix(matrix, bbox));
+    annotDict['Rect'] = _rectArray(boundsUnderMatrix(matrix, bbox));
 
     (double, double) rotate(double x, double y) => (
           cx + (x - cx) * cosT - (y - cy) * sinT,
           cy + (x - cx) * sinT + (y - cy) * cosT,
         );
     for (final key in const ['QuadPoints', 'L', 'Vertices', 'CL']) {
-      final rotated = _mapPointPairs(annotation.dict[key], rotate);
-      if (rotated != null) annotation.dict[key] = rotated;
+      final rotated = _mapPointPairs(annotDict[key], rotate);
+      if (rotated != null) annotDict[key] = rotated;
     }
-    final ink = cos.resolve(annotation.dict['InkList']);
+    final ink = cos.resolve(annotDict['InkList']);
     if (ink is CosArray) {
-      annotation.dict['InkList'] = CosArray([
+      annotDict['InkList'] = CosArray([
         for (final stroke in ink.items)
           _mapPointPairs(stroke, rotate) ?? stroke,
       ]);
     }
-
-    final formRef = cos.referenceTo(form);
-    if (formRef != null) _updater.replaceObject(formRef.objectNumber, form);
-    _markAnnotationChanged(pageIndex, annotation.dict);
+    return true;
   }
 
   /// Resizes a possibly-rotated annotation in its own (unrotated) frame.

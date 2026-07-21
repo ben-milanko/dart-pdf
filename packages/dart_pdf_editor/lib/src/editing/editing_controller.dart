@@ -1182,6 +1182,7 @@ class PdfEditingController extends ChangeNotifier {
           _document,
           annotation,
           keepName: true,
+          sourcePageRotation: _page(pageIndex).rotation,
         );
         if (snapshot == null) continue;
         changes.add(
@@ -4348,7 +4349,8 @@ class PdfEditingController extends ChangeNotifier {
     for (final slot in _selected) {
       final annotation = _annotationAt(slot);
       if (annotation == null) continue;
-      final snapshot = PdfAnnotationSnapshot.capture(_document, annotation);
+      final snapshot = PdfAnnotationSnapshot.capture(_document, annotation,
+          sourcePageRotation: _page(slot.$1).rotation);
       if (snapshot != null) snapshots.add(snapshot);
     }
     if (snapshots.isEmpty) return 0;
@@ -4436,7 +4438,8 @@ class PdfEditingController extends ChangeNotifier {
     for (final slot in _selected) {
       final annotation = _annotationAt(slot);
       if (annotation == null) continue;
-      final snapshot = PdfAnnotationSnapshot.capture(_document, annotation);
+      final snapshot = PdfAnnotationSnapshot.capture(_document, annotation,
+          sourcePageRotation: _page(slot.$1).rotation);
       if (snapshot != null) snapshots.add((page: slot.$1, snapshot: snapshot));
     }
     if (snapshots.isEmpty) return 0;
@@ -4929,6 +4932,7 @@ class PdfEditingController extends ChangeNotifier {
       _document,
       annotation,
       keepName: true,
+      sourcePageRotation: _page(slot.$1).rotation,
     );
     if (snapshot == null) return false; // links/widgets/popups don't move
     final source = slot.$1;
