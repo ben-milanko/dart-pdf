@@ -611,7 +611,29 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
 
   int _workerForPage(int pageIndex) {
     final existing = _pageWorkers[pageIndex];
-    if (existing != null && _workers[existing].isActive) return existing;
+    if (existing != null && _workers[existing].isActive) {
+      // Stickiness buys a transcript hit: the sticky worker holds this page's
+      // warm caches, so a repeat record on it is near-free, while a cold
+      // worker re-records the page. Abandon that only when the page would
+      // otherwise queue behind unrelated work - i.e. another active worker
+      // has strictly lower load. Equal load keeps the sticky worker: a
+      // transcript miss is never worth paying to break a tie.
+      var alternative = -1;
+      var alternativeLoad = 1 << 62;
+      for (var i = 0; i < _workers.length; i++) {
+        if (i == existing || !_workers[i].isActive) continue;
+        final load = _loads[i];
+        if (load < alternativeLoad) {
+          alternative = i;
+          alternativeLoad = load;
+        }
+      }
+      if (alternative >= 0 && alternativeLoad < _loads[existing]) {
+        _pageWorkers[pageIndex] = alternative;
+        return alternative;
+      }
+      return existing;
+    }
     final worker = _leastLoadedWorker(pageIndex);
     _pageWorkers[pageIndex] = worker;
     return worker;
