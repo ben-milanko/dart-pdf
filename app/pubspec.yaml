@@ -27,7 +27,7 @@ dependencies:
 
   # Cross-platform file I/O and OS integration.
   file_selector: ^1.0.3
-  share_plus: ^13.2.0
+  share_plus: ^13.2.1
   url_launcher: ^6.3.0
   # Printing has no third-party PDF engine. Where the OS can print a PDF
   # natively (iOS/macOS via CoreGraphics, Android via PrintManager, the browser
@@ -49,7 +49,7 @@ dependencies:
   http: ^1.2.0
   # Reads the version stamped into the build artifact (derived from the
   # pubspec version above), so the About box can't drift from the release.
-  package_info_plus: ^10.2.0
+  package_info_plus: ^10.2.1
   web: ^1.1.1
 
 dev_dependencies:

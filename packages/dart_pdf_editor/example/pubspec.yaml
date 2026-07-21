@@ -16,7 +16,7 @@ dependencies:
   pdf_graphics: ^2.0.0
   dart_pdf_editor: ^2.0.0
   pdf_ocr_vlm: ^2.0.0
-  share_plus: ^13.2.0
+  share_plus: ^13.2.1
   url_launcher: ^6.3.0
   web: ^1.1.0
 
