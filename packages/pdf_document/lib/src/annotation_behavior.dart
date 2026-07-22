@@ -171,9 +171,8 @@ class PdfAnnotationBehavior {
     if (res is! CosDictionary) return false;
     final fonts = cos.resolve(res['Font']);
     if (fonts is! CosDictionary) return false;
-    final name = RegExp(r'/(\S+)\s+[\d.]+\s+Tf')
-        .firstMatch(annotation.defaultAppearance ?? '')
-        ?.group(1);
+    final name =
+        _daTfRe.firstMatch(annotation.defaultAppearance ?? '')?.group(1);
     final dict = name != null ? cos.resolve(fonts[name]) : null;
     if (dict is! CosDictionary) return false;
     final sub = cos.resolve(dict['Subtype']);

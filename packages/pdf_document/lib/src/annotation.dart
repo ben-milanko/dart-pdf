@@ -573,15 +573,12 @@ class PdfAnnotation {
   PdfFreeTextStyle? get freeTextStyle {
     if (subtype != 'FreeText') return null;
     final da = defaultAppearance;
-    final tf =
-        da == null ? null : RegExp(r'/(\S+)\s+([\d.]+)\s+Tf').firstMatch(da);
+    final tf = da == null ? null : _daTfRe.firstMatch(da);
     final size = double.tryParse(tf?.group(2) ?? '');
     if (tf == null || size == null) return null;
 
     int? lastColor(String op) {
-      final m = RegExp('([\\d.]+)\\s+([\\d.]+)\\s+([\\d.]+)\\s+$op\\b')
-          .allMatches(da!)
-          .lastOrNull;
+      final m = (op == 'RG' ? _daUpperRgRe : _daRgRe).allMatches(da!).lastOrNull;
       if (m == null) return null;
       int byte(String s) =>
           ((double.tryParse(s) ?? 0).clamp(0.0, 1.0) * 255).round();
@@ -591,7 +588,7 @@ class PdfAnnotation {
     }
 
     int? gray() {
-      final m = RegExp(r'([\d.]+)\s+g\b').allMatches(da!).lastOrNull;
+      final m = _daGrayRe.allMatches(da!).lastOrNull;
       if (m == null) return null;
       final v =
           ((double.tryParse(m.group(1)!) ?? 0).clamp(0.0, 1.0) * 255).round();
@@ -762,15 +759,21 @@ class PdfAnnotation {
   }
 }
 
+// /DA parsing patterns, compiled once (these getters run per sidebar tile).
+final RegExp _daTfRe = RegExp(r'/(\S+)\s+([\d.]+)\s+Tf');
+final RegExp _daRgRe = RegExp(r'([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+rg\b');
+final RegExp _daUpperRgRe = RegExp(r'([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+RG\b');
+final RegExp _daGrayRe = RegExp(r'([\d.]+)\s+g\b');
+final RegExp _pdfDateRe = RegExp(
+    r"D:(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?(?:([+\-Z])(\d{2})?'?(\d{2})?)?");
+
 /// Parses a PDF date string (§7.9.4, `D:YYYYMMDDHHmmSSOHH'mm'`) to a
 /// [DateTime] in UTC, leniently: every field past the year is optional and
 /// a missing or malformed string returns null. Shared by the annotation
 /// timestamp getters; the same shape is produced by [pdfFormatDate].
 DateTime? _parsePdfDate(String? value) {
   if (value == null) return null;
-  final match = RegExp(
-          r"D:(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?(?:([+\-Z])(\d{2})?'?(\d{2})?)?")
-      .firstMatch(value);
+  final match = _pdfDateRe.firstMatch(value);
   if (match == null) return null;
   int part(int i, [int fallback = 0]) =>
       match.group(i) == null ? fallback : int.parse(match.group(i)!);

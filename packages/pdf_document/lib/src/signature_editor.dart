@@ -141,7 +141,7 @@ extension PdfSigning on PdfEditor {
       appearance: appearance,
     );
     final cms = cmsSignDetached(
-      contentDigest: crypto.sha256.convert(revision.signedData).bytes,
+      contentDigest: revision.digestSha256(),
       privateKey: privateKey,
       certificates: certificates,
       signingTime: time,
@@ -183,7 +183,7 @@ extension PdfSigning on PdfEditor {
       appearance: appearance,
     );
     final cms = cmsSignDetachedEcdsa(
-      contentDigest: crypto.sha256.convert(revision.signedData).bytes,
+      contentDigest: revision.digestSha256(),
       privateKey: privateKey,
       certificates: certificates,
       signingTime: time,
@@ -346,11 +346,7 @@ extension PdfSigning on PdfEditor {
     saved.setRange(rangeStart, rangeStart + byteRange.length, byteRange);
     PdfPerf.end(PdfPerfPhase.byteRangePatch, tPatch);
 
-    final signedBytes = BytesBuilder(copy: false)
-      ..add(Uint8List.sublistView(saved, 0, contentsStart))
-      ..add(Uint8List.sublistView(saved, contentsEnd));
-    return _SignatureRevision(
-        saved, contentsStart, contentsEnd, signedBytes.takeBytes());
+    return _SignatureRevision(saved, contentsStart, contentsEnd);
   }
 
   /// Fills a revision's /Contents placeholder with [blob] (a CMS container
@@ -508,9 +504,19 @@ extension PdfSigning on PdfEditor {
     // AcroForm /Fields
     final acroForm = cos.resolve(document.catalog['AcroForm']);
     if (acroForm is CosDictionary) {
-      final fields = cos.resolve(acroForm['Fields']);
+      final fieldsRaw = acroForm['Fields'];
+      final fields = cos.resolve(fieldsRaw);
       if (fields is CosArray) {
-        fields.items.add(fieldRef);
+        // When /Fields is an *indirect* array, mutating the resolved array in
+        // place leaves the array object unstaged, so the incremental updater
+        // writes the old bytes and the new signature field is lost. Rebuild
+        // and re-stage whichever object owns the array (the /Annots rule).
+        final rebuilt = CosArray([...fields.items, fieldRef]);
+        if (fieldsRaw is CosReference) {
+          _updater.replaceObject(fieldsRaw.objectNumber, rebuilt);
+        } else {
+          acroForm['Fields'] = rebuilt;
+        }
       } else {
         acroForm['Fields'] = CosArray([fieldRef]);
       }
@@ -854,14 +860,28 @@ extension PdfSigning on PdfEditor {
   }
 }
 
-/// A written-but-unsigned revision: the buffer with patched /ByteRange, the
-/// /Contents hex span to fill, and the signed byte ranges to digest.
+/// A written-but-unsigned revision: the buffer with patched /ByteRange and
+/// the /Contents hex span to fill. The signed content is the two /ByteRange
+/// spans (everything either side of the /Contents hex).
 class _SignatureRevision {
-  _SignatureRevision(
-      this.saved, this.contentsStart, this.contentsEnd, this.signedData);
+  _SignatureRevision(this.saved, this.contentsStart, this.contentsEnd);
 
   final Uint8List saved;
   final int contentsStart;
   final int contentsEnd;
-  final Uint8List signedData;
+
+  /// SHA-256 of the signed byte ranges, digested over sublist views of
+  /// [saved] without materialising the concatenation (which would double
+  /// peak memory and memcpy the whole document per sign).
+  List<int> digestSha256() {
+    crypto.Digest? digest;
+    final sink = crypto.sha256.startChunkedConversion(
+        ChunkedConversionSink<crypto.Digest>.withCallback((d) {
+      digest = d.single;
+    }));
+    sink.add(Uint8List.sublistView(saved, 0, contentsStart));
+    sink.add(Uint8List.sublistView(saved, contentsEnd));
+    sink.close();
+    return digest!.bytes;
+  }
 }

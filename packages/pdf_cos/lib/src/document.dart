@@ -34,6 +34,11 @@ class CosDocument {
   int startXref;
 
   final Map<CosReference, CosObject> _cache = {};
+  // Identity-keyed reverse index of [_cache]: object -> the ref it loaded
+  // under. Keeps [referenceTo] O(1) instead of a linear scan of the cache on
+  // every call (editing code maps a mutated object back to its number per
+  // mutation). Kept in lockstep with [_cache] at every insert/remove site.
+  final Map<CosObject, CosReference> _reverseCache = Map.identity();
   final Map<int, _ObjectStream> _objectStreams = {};
 
   StandardSecurityHandler? _encryption;
@@ -140,7 +145,11 @@ class CosDocument {
 
     // Drop cached state for every redefined object so the next resolve re-reads
     // it from the appended bytes; untouched objects keep their warm cache.
-    _cache.removeWhere((ref, _) => changed.contains(ref.objectNumber));
+    _cache.removeWhere((ref, obj) {
+      if (!changed.contains(ref.objectNumber)) return false;
+      if (identical(_reverseCache[obj], ref)) _reverseCache.remove(obj);
+      return true;
+    });
     _objectStreams.removeWhere((number, _) => changed.contains(number));
     _scannedHeaders = null;
     return changed;
@@ -239,6 +248,7 @@ class CosDocument {
       }
     }
     document._cache.clear();
+    document._reverseCache.clear();
     document._objectStreams.clear();
 
     document._initEncryption(password);
@@ -412,12 +422,7 @@ class CosDocument {
   /// Finds the reference under which [object] was loaded, or null if it is
   /// not an already-loaded indirect object. Identity-based; used by editing
   /// code to map a mutated object back to its number.
-  CosReference? referenceTo(CosObject object) {
-    for (final entry in _cache.entries) {
-      if (identical(entry.value, object)) return entry.key;
-    }
-    return null;
-  }
+  CosReference? referenceTo(CosObject object) => _reverseCache[object];
 
   /// Registers an in-memory [object] under [ref] as if it had been loaded
   /// from the file, so it resolves (and [referenceTo] finds it) before the
@@ -425,6 +430,7 @@ class CosDocument {
   /// for every object it allocates.
   void adoptObject(CosReference ref, CosObject object) {
     _cache[ref] = object;
+    _reverseCache[object] = ref;
   }
 
   /// Loads an object by number, parsing it on first access.
@@ -497,6 +503,7 @@ class CosDocument {
     // file's original bytes (see [CosStream.sourceRef]).
     if (result is CosStream) result.sourceRef = ref;
     _cache[ref] = result;
+    _reverseCache[result] = ref;
     return result;
   }
 
