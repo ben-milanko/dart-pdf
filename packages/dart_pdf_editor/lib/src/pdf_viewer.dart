@@ -310,6 +310,11 @@ class PdfViewerController extends ChangeNotifier {
   int _currentMatch = -1;
 
   /// Assigns [_matches] and rebuilds the by-page index in one pass.
+  ///
+  /// The per-page lists are handed out by [_matchesOn] (unlike the old filter,
+  /// which returned a fresh list per call), so they are frozen unmodifiable -
+  /// the index stays the single source of truth even if a caller tries to
+  /// mutate what it gets back.
   void _setMatches(List<PdfTextMatch> matches) {
     _matches = matches;
     if (matches.isEmpty) {
@@ -320,7 +325,10 @@ class PdfViewerController extends ChangeNotifier {
     for (final match in matches) {
       (byPage[match.pageIndex] ??= <PdfTextMatch>[]).add(match);
     }
-    _matchesByPage = byPage;
+    _matchesByPage = {
+      for (final entry in byPage.entries)
+        entry.key: List<PdfTextMatch>.unmodifiable(entry.value),
+    };
   }
 
   int get pageCount => _pageCount;
