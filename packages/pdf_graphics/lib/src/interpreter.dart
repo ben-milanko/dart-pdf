@@ -2302,10 +2302,11 @@ class PdfInterpreter {
     }
     if (name != 'Form' || formDepth >= _maxFormDepth) return;
 
-    // a transparency group composites as one object: the alpha in effect
-    // at Do applies to the group's result, and resets inside (§11.6.6) -
-    // otherwise an inner `gs` back to ca 1.0 would erase the group alpha
+    // a transparency group composites as one object: the alpha AND blend mode
+    // in effect at Do apply to the group's result, and reset inside (§11.6.6) -
+    // otherwise an inner `gs` back to ca 1.0 / BM Normal would erase them
     final groupAlpha = _state.fillAlpha;
+    final groupBlend = _state.blendMode;
     final groupDict = cos.resolve(xobject.dictionary['Group']);
     final isGroup = groupDict is CosDictionary;
     // A knockout group (/K true, §11.4.5) needs its own layer so each
@@ -2313,15 +2314,29 @@ class PdfInterpreter {
     // the group itself paints at full alpha.
     final knockout =
         isGroup && cos.resolve(groupDict['K']) == const CosBoolean(true);
-    final groupLayer = isGroup && (groupAlpha < 1 || knockout);
+    // A non-Normal blend mode applies to the group's *composite* result, not
+    // element-by-element - so the group must render into its own layer that
+    // then blends onto the backdrop as one object. Without a layer the inner
+    // content's own `gs` (typically /BM Normal) overwrites the blend mode and
+    // the outer blend is lost: an opaque white flourish drawn under /Multiply
+    // then paints as a solid white box instead of multiplying into the page.
+    final blended = groupBlend != PdfBlendMode.normal;
+    final groupLayer = isGroup && (groupAlpha < 1 || knockout || blended);
 
     final outerMask = _state.softMask;
     _stateStack.add(_GraphicsState.from(_state));
     device.save();
     if (groupLayer) {
+      // device.beginGroup snapshots the current blend mode into the layer's
+      // compositing paint, so the blend must already be set (the `gs` that
+      // selected it ran before this Do).
       device.beginGroup(groupAlpha, knockout: knockout);
       _state.fillAlpha = 1;
       _state.strokeAlpha = 1;
+      if (blended) {
+        _state.blendMode = PdfBlendMode.normal;
+        device.setBlendMode(PdfBlendMode.normal);
+      }
     }
     try {
       final matrix = cos.resolve(xobject.dictionary['Matrix']);
@@ -2347,7 +2362,14 @@ class PdfInterpreter {
         _finalizeSoftMask(mask);
       }
       if (groupLayer) device.endGroup();
-      _state = _stateStack.removeLast();
+      final restored = _stateStack.removeLast();
+      // The device blend mode is not part of canvas save/restore state, and the
+      // group's inner content may have changed it (or we reset it to Normal for
+      // a blended group above); re-sync it to the state we are restoring.
+      if (_state.blendMode != restored.blendMode) {
+        device.setBlendMode(restored.blendMode);
+      }
+      _state = restored;
       device.restore();
     }
   }
