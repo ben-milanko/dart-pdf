@@ -3410,36 +3410,71 @@ extension PdfAnnotationEditing on PdfEditor {
     final imageRef = _updater.addObject(
       image.toXObject((smask) => _updater.addObject(smask)),
     );
+    final (w, resources) = _imageStampContent(
+      rect,
+      imageRef,
+      opacity,
+      pageRotation: effectivePageRotation,
+    );
+    _addAnnotation(
+      pageIndex,
+      _markupDict('Stamp', rect, 0xC03030, null, author),
+      _form(rect, w, resources: resources),
+      name: name,
+    );
+  }
+
+  /// Builds an image stamp's appearance: a unit image (1×1 at the origin)
+  /// mapped onto [rect]'s oriented visual box, gated by [opacity]'s alpha.
+  /// The form's BBox stays the page-space rect, so unrotated appearances fit
+  /// as an identity mapping. Shared by [addImageStamp] and the opacity
+  /// restyle path so a pasted picture keeps its image when its transparency
+  /// changes.
+  (ContentWriter, CosDictionary?) _imageStampContent(
+    PdfRect rect,
+    CosObject imageRef,
+    double opacity, {
+    int pageRotation = 0,
+  }) {
     final w = ContentWriter();
     final gs = _alphaState(opacity);
     if (gs != null) w.extGState('GS0');
-    final vr = _orientedVisualRect(rect, effectivePageRotation);
-    if (effectivePageRotation != 0) {
+    final vr = _orientedVisualRect(rect, pageRotation);
+    if (pageRotation != 0) {
       w.save();
-      _orientedCounterRotation(w, rect, effectivePageRotation);
+      _orientedCounterRotation(w, rect, pageRotation);
     }
-    // A unit image (1×1 at the origin) mapped onto the visual rect. The form's
-    // BBox remains the page-space rect, so unrotated appearances still fit as
-    // an identity mapping.
     w
       ..save()
       ..concatMatrix(vr.width, 0, 0, vr.height, vr.left, vr.bottom)
       ..drawXObject('Img0')
       ..restore();
-    if (effectivePageRotation != 0) w.restore();
-    _addAnnotation(
-      pageIndex,
-      _markupDict('Stamp', rect, 0xC03030, null, author),
-      _form(
-        rect,
-        w,
-        resources: _resources(
-          extGState: gs,
-          xObject: CosDictionary({'Img0': imageRef}),
-        ),
+    if (pageRotation != 0) w.restore();
+    return (
+      w,
+      _resources(
+        extGState: gs,
+        xObject: CosDictionary({'Img0': imageRef}),
       ),
-      name: name,
     );
+  }
+
+  /// The indirect image XObject an image stamp's appearance draws, or null
+  /// when [form] isn't a single-image stamp appearance. Reused verbatim so a
+  /// restyle re-references the existing picture rather than re-embedding it.
+  CosObject? _stampImageRef(CosStream form) {
+    final cos = document.cos;
+    final resources = cos.resolve(form.dictionary['Resources']);
+    if (resources is! CosDictionary) return null;
+    final xobjects = cos.resolve(resources['XObject']);
+    if (xobjects is! CosDictionary) return null;
+    for (final entry in xobjects.entries.values) {
+      final xobj = cos.resolve(entry);
+      if (xobj is! CosStream) continue;
+      final subtype = cos.resolve(xobj.dictionary['Subtype']);
+      if (subtype is CosName && subtype.value == 'Image') return entry;
+    }
+    return null;
   }
 
   /// Removes [annotation] from the page, along with its popup, if any.
@@ -4757,6 +4792,19 @@ extension PdfAnnotationEditing on PdfEditor {
       case 'Stamp':
         final form = annotation.normalAppearance;
         if (form == null) return false;
+        // An image stamp re-bakes its alpha over the same picture; a text
+        // check-mark stamp redraws from its /Contents.
+        final imageRef = _stampImageRef(form);
+        if (imageRef != null) {
+          final (w, resources) = _imageStampContent(
+            to,
+            imageRef,
+            opacity ?? _appearanceOpacity(form),
+            pageRotation: pageRotation,
+          );
+          _replaceAppearance(annotation.dict, form, to, w, resources: resources);
+          return true;
+        }
         final color = annotation.color ?? 0xC03030;
         final (w, gs) = _stampContent(
           to,

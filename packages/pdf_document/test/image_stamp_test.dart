@@ -1,7 +1,7 @@
 // Inserting a raster image as a /Stamp annotation (PdfEditor.addImageStamp):
 // the picture rides an appearance XObject so it inherits move/resize/rotate
-// for free, and carries no /Contents so the text-stamp restyle never
-// regenerates over it.
+// for free. It carries no /Contents, so an opacity restyle re-bakes only its
+// alpha over the same picture instead of redrawing a text check-mark.
 import 'dart:convert';
 
 import 'package:pdf_cos/pdf_cos.dart';
@@ -47,13 +47,62 @@ void main() {
     expect((doc.cos.resolve(img.dictionary['Height']) as CosInteger).value, 2);
   });
 
-  test('an image stamp is not restyleable (text-stamp regen would wipe it)',
+  test('an image stamp is restyleable for opacity but reads as an image stamp',
       () {
     final image = PdfEmbeddableImage.decode(_png);
     final doc = roundTrip(
         (e) => e.addImageStamp(0, const PdfRect(0, 0, 100, 100), image));
     final stamp = doc.page(0).annotations.single;
-    expect(pdfCanRestyleAnnotation(stamp), isFalse);
+    expect(pdfCanRestyleAnnotation(stamp), isTrue);
+    expect(stamp.behavior.isImageStamp, isTrue);
+    // it is a picture, not a colour swatch, so no tint control applies
+    expect(stamp.behavior.supportsColor, isFalse);
+    expect(stamp.behavior.supportsOpacity, isTrue);
+  });
+
+  test('restyling an image stamp changes its alpha but keeps the picture', () {
+    final image = PdfEmbeddableImage.decode(_png);
+    final doc = PdfDocument.open(buildClassicPdf());
+    final editor = PdfEditor(doc)
+      ..addImageStamp(0, const PdfRect(0, 0, 100, 100), image);
+    final reopened = PdfDocument.open(editor.save());
+    final stamp = reopened.page(0).annotations.single;
+    expect(stamp.appearanceOpacity, closeTo(1, 1e-9));
+
+    final restyle = PdfEditor(reopened)
+      ..restyleAnnotation(0, stamp, opacity: 0.3);
+    final after = PdfDocument.open(restyle.save());
+    final restyled = after.page(0).annotations.single;
+    expect(restyled.subtype, 'Stamp');
+    expect(restyled.appearanceOpacity, closeTo(0.3, 1e-9));
+
+    // the picture survives - the appearance still draws the same image
+    final form = restyled.normalAppearance!;
+    final content = latin1.decode(after.cos.decodeStreamData(form));
+    expect(content, contains('/Img0 Do'));
+    final resources =
+        after.cos.resolve(form.dictionary['Resources']) as CosDictionary;
+    final xobjects = after.cos.resolve(resources['XObject']) as CosDictionary;
+    final img = after.cos.resolve(xobjects['Img0']) as CosStream;
+    expect((after.cos.resolve(img.dictionary['Subtype']) as CosName).value,
+        'Image');
+  });
+
+  test('restyling an image stamp preserves its bumped alpha across a save', () {
+    // a second restyle reads the current alpha back (not a reset to opaque)
+    final image = PdfEmbeddableImage.decode(_png);
+    final doc = PdfDocument.open(buildClassicPdf());
+    final editor = PdfEditor(doc)
+      ..addImageStamp(0, const PdfRect(0, 0, 100, 100), image, opacity: 0.5);
+    final reopened = PdfDocument.open(editor.save());
+    final stamp = reopened.page(0).annotations.single;
+
+    // restyle with no opacity: the existing 0.5 alpha must be preserved
+    final restyle = PdfEditor(reopened)
+      ..restyleAnnotation(0, stamp, opacity: 0.5);
+    final after = PdfDocument.open(restyle.save());
+    expect(after.page(0).annotations.single.appearanceOpacity,
+        closeTo(0.5, 1e-9));
   });
 
   test('an image stamp resizes by stretching its appearance', () {

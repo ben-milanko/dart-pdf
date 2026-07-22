@@ -533,14 +533,18 @@ class _PdfAnnotationPropertiesPanelState
     final style = _controller.selectedAnnotationStyle;
     if (style == null) return children;
     children.add(_section('Appearance'));
-    final colors = _common<int?>([for (final style in styles) style.color]);
-    children.add(_swatchRow(
-      'Color',
-      Color(0xFF000000 | (colors.value ?? 0)),
-      key: const ValueKey('pdf-prop-color'),
-      onTap: _pickColor,
-      varies: colors.varies,
-    ));
+    // An image stamp (a pasted picture) has no tintable colour - only its
+    // opacity applies - so the swatch is hidden for it while opacity stays.
+    if (_allSelected((behavior) => behavior.supportsColor)) {
+      final colors = _common<int?>([for (final style in styles) style.color]);
+      children.add(_swatchRow(
+        'Color',
+        Color(0xFF000000 | (colors.value ?? 0)),
+        key: const ValueKey('pdf-prop-color'),
+        onTap: _pickColor,
+        varies: colors.varies,
+      ));
+    }
     if (_allSelected((behavior) => behavior.supportsFill)) {
       final fills = _common<int?>([
         for (final style in styles) style.fillColor,

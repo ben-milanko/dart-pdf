@@ -148,6 +148,34 @@ class PdfAnnotationBehavior {
         _ => false,
       };
 
+  /// Whether a stroke/tint colour control applies. False for image stamps -
+  /// a pasted picture has no colour a /C would tint, so the swatch is hidden
+  /// while opacity stays editable.
+  bool get supportsColor => canRestyle && !isImageStamp;
+
+  /// Whether this /Stamp's normal appearance is a single embedded image (a
+  /// pasted or placed picture) rather than a drawn text check-mark. Such a
+  /// stamp carries no drawable /Contents but references an image XObject,
+  /// so the restyle path re-bakes only its alpha and keeps the picture.
+  late final bool isImageStamp = subtype == 'Stamp' && _hasStampImage();
+
+  bool _hasStampImage() {
+    final form = annotation.normalAppearance;
+    if (form == null) return false;
+    final cos = annotation.document.cos;
+    final resources = cos.resolve(form.dictionary['Resources']);
+    if (resources is! CosDictionary) return false;
+    final xobjects = cos.resolve(resources['XObject']);
+    if (xobjects is! CosDictionary) return false;
+    for (final entry in xobjects.entries.values) {
+      final xobj = cos.resolve(entry);
+      if (xobj is! CosStream) continue;
+      final subtype = cos.resolve(xobj.dictionary['Subtype']);
+      if (subtype is CosName && subtype.value == 'Image') return true;
+    }
+    return false;
+  }
+
   late final PdfFreeTextStyle? _freeTextStyle =
       subtype == 'FreeText' ? annotation.freeTextStyle : null;
 
@@ -210,8 +238,10 @@ class PdfAnnotationBehavior {
     'Squiggly' =>
       markupQuads != null,
     'Text' => annotation.normalAppearance != null,
+    // A text check-mark stamp restyles by redrawing from its /Contents; an
+    // image stamp restyles by re-baking its alpha over the same picture.
     'Stamp' => annotation.normalAppearance != null &&
-        (annotation.contents?.isNotEmpty ?? false),
+        ((annotation.contents?.isNotEmpty ?? false) || isImageStamp),
     _ => false,
   };
 
