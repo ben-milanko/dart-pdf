@@ -14,7 +14,9 @@ void main() {
   testWidgets('boots into the empty state with an Open button',
       (WidgetTester tester) async {
     await tester.pumpWidget(const DartPdfEditorApp());
-    await tester.pump();
+    // use-deferred-loading makes the localizations delegate load
+    // asynchronously; settle so the localized empty state builds.
+    await tester.pumpAndSettle();
 
     // No document open yet: the empty state offers a way in.
     expect(find.widgetWithText(FilledButton, 'Open a PDF'), findsOneWidget);

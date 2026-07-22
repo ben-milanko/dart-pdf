@@ -1,11 +1,11 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart' as intl;
 
-import 'dart_pdf_editor_localizations_en.dart';
+import 'dart_pdf_editor_localizations_en.dart'
+    deferred as dart_pdf_editor_localizations_en;
 
 // ignore_for_file: type=lint
 
@@ -2760,8 +2760,7 @@ class _DartPdfEditorLocalizationsDelegate
 
   @override
   Future<DartPdfEditorLocalizations> load(Locale locale) {
-    return SynchronousFuture<DartPdfEditorLocalizations>(
-        lookupDartPdfEditorLocalizations(locale));
+    return lookupDartPdfEditorLocalizations(locale);
   }
 
   @override
@@ -2772,11 +2771,13 @@ class _DartPdfEditorLocalizationsDelegate
   bool shouldReload(_DartPdfEditorLocalizationsDelegate old) => false;
 }
 
-DartPdfEditorLocalizations lookupDartPdfEditorLocalizations(Locale locale) {
+Future<DartPdfEditorLocalizations> lookupDartPdfEditorLocalizations(
+    Locale locale) {
   // Lookup logic when only language code is specified.
   switch (locale.languageCode) {
     case 'en':
-      return DartPdfEditorLocalizationsEn();
+      return dart_pdf_editor_localizations_en.loadLibrary().then((dynamic _) =>
+          dart_pdf_editor_localizations_en.DartPdfEditorLocalizationsEn());
   }
 
   throw FlutterError(
