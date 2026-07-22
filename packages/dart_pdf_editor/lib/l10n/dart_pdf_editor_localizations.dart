@@ -1397,6 +1397,60 @@ abstract class DartPdfEditorLocalizations {
   /// **'Keyboard shortcuts'**
   String get shellKeyboardShortcutsTitle;
 
+  /// Placeholder text in the search field of the keyboard shortcuts editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Search shortcuts'**
+  String get shellShortcutsSearchHint;
+
+  /// Message shown when a keyboard-shortcuts search matches no tools.
+  ///
+  /// In en, this message translates to:
+  /// **'No shortcuts match “{query}”'**
+  String shellShortcutsNoMatches(String query);
+
+  /// Section header for the Select tool group in the keyboard shortcuts editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Select'**
+  String get shellShortcutGroupSelect;
+
+  /// Section header for the Markup tool group in the keyboard shortcuts editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Markup'**
+  String get shellShortcutGroupMarkup;
+
+  /// Section header for the Draw tool group in the keyboard shortcuts editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Draw'**
+  String get shellShortcutGroupDraw;
+
+  /// Section header for the Shapes tool group in the keyboard shortcuts editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Shapes'**
+  String get shellShortcutGroupShapes;
+
+  /// Section header for the Insert tool group in the keyboard shortcuts editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Insert'**
+  String get shellShortcutGroupInsert;
+
+  /// Section header for the Measure tool group in the keyboard shortcuts editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Measure'**
+  String get shellShortcutGroupMeasure;
+
+  /// Section header for the Edit tool group in the keyboard shortcuts editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit'**
+  String get shellShortcutGroupEdit;
+
   /// Subtitle shown for the default author when no author name is configured.
   ///
   /// In en, this message translates to:

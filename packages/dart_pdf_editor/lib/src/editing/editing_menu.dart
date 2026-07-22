@@ -105,7 +105,12 @@ Future<void> showPdfAnnotationMenu({
   final canPaste = canPasteSnapshot || controller.hasAnnotationClipboard;
   final hasSelection = request.annotations.isNotEmpty;
   if (!hasSelection && !canPaste) return;
-  final stock = <PdfAnnotationMenuItem>[
+
+  // The stock entries are grouped so [_menuRowsWithDividers] can rule off
+  // each cluster: clipboard, z-order arrange, node editing, recolour, then
+  // the destructive delete. Empty groups drop out and no divider is drawn
+  // for them, so a small selection still reads as a tight menu.
+  final clipboard = <PdfAnnotationMenuItem>[
     if (hasSelection) ...[
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-copy'),
@@ -151,6 +156,8 @@ Future<void> showPdfAnnotationMenu({
           ? request.controller.pasteSnapshot(pageIndex, at: pagePoint)
           : request.controller.pasteAnnotations(pageIndex, at: pagePoint),
     ),
+  ];
+  final arrange = <PdfAnnotationMenuItem>[
     if (hasSelection) ...[
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-front'),
@@ -166,52 +173,62 @@ Future<void> showPdfAnnotationMenu({
         enabled: controller.canSendSelectedToBack,
         onSelected: (request) => request.controller.sendSelectedToBack(),
       ),
-      // A right-click on a /PolyLine or /Polygon can grow or drop a vertex
-      // at the click point. Needs the page point the menu opened on; the
-      // selection-chip "More" path (no point) hides these.
-      if (pagePoint != null && controller.canAddSelectedVertex) ...[
-        PdfAnnotationMenuItem(
-          key: const ValueKey('pdf-annot-menu-add-node'),
-          label: pdfL10n(context).menuAddNode,
-          icon: Icons.add_location_alt_outlined,
-          onSelected: (request) =>
-              request.controller.addSelectedVertexAt(pagePoint),
-        ),
-        PdfAnnotationMenuItem(
-          key: const ValueKey('pdf-annot-menu-remove-node'),
-          label: pdfL10n(context).menuRemoveNode,
-          icon: Icons.wrong_location_outlined,
-          enabled: controller.canRemoveSelectedVertex,
-          onSelected: (request) =>
-              request.controller.removeSelectedVertexNear(pagePoint),
-        ),
-      ],
-      if (controller.canRecolorSnapshotSelected)
-        PdfAnnotationMenuItem(
-          key: const ValueKey('pdf-annot-menu-recolor-snapshot'),
-          label: pdfL10n(context).menuRecolour,
-          icon: Icons.palette_outlined,
-          onSelected: (request) async {
-            final picked = await showPdfColorPicker(
-              context,
-              initial: request.controller.color,
-              initialFormat: request.controller.preferences.colorPickerFormat,
-              onFormatChanged: (format) =>
-                  request.controller.preferences.colorPickerFormat = format,
-            );
-            if (picked != null) {
-              request.controller.recolorSnapshotSelected(picked);
-            }
-          },
-        ),
-      if (controller.canApplySelectedStyleAsDefault)
-        PdfAnnotationMenuItem(
-          key: const ValueKey('pdf-annot-menu-set-default'),
-          label: pdfL10n(context).menuSetAsDefaultStyle,
-          icon: Icons.brush_outlined,
-          onSelected: (request) =>
-              request.controller.applySelectedStyleAsDefault(),
-        ),
+    ],
+  ];
+  final nodes = <PdfAnnotationMenuItem>[
+    // A right-click on a /PolyLine or /Polygon can grow or drop a vertex
+    // at the click point. Needs the page point the menu opened on; the
+    // selection-chip "More" path (no point) hides these.
+    if (hasSelection &&
+        pagePoint != null &&
+        controller.canAddSelectedVertex) ...[
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-add-node'),
+        label: pdfL10n(context).menuAddNode,
+        icon: Icons.add_location_alt_outlined,
+        onSelected: (request) =>
+            request.controller.addSelectedVertexAt(pagePoint),
+      ),
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-remove-node'),
+        label: pdfL10n(context).menuRemoveNode,
+        icon: Icons.wrong_location_outlined,
+        enabled: controller.canRemoveSelectedVertex,
+        onSelected: (request) =>
+            request.controller.removeSelectedVertexNear(pagePoint),
+      ),
+    ],
+  ];
+  final recolor = <PdfAnnotationMenuItem>[
+    if (hasSelection && controller.canRecolorSnapshotSelected)
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-recolor-snapshot'),
+        label: pdfL10n(context).menuRecolour,
+        icon: Icons.palette_outlined,
+        onSelected: (request) async {
+          final picked = await showPdfColorPicker(
+            context,
+            initial: request.controller.color,
+            initialFormat: request.controller.preferences.colorPickerFormat,
+            onFormatChanged: (format) =>
+                request.controller.preferences.colorPickerFormat = format,
+          );
+          if (picked != null) {
+            request.controller.recolorSnapshotSelected(picked);
+          }
+        },
+      ),
+    if (hasSelection && controller.canApplySelectedStyleAsDefault)
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-set-default'),
+        label: pdfL10n(context).menuSetAsDefaultStyle,
+        icon: Icons.brush_outlined,
+        onSelected: (request) =>
+            request.controller.applySelectedStyleAsDefault(),
+      ),
+  ];
+  final destructive = <PdfAnnotationMenuItem>[
+    if (hasSelection)
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-delete'),
         label: pdfL10n(context).delete,
@@ -219,7 +236,6 @@ Future<void> showPdfAnnotationMenu({
         enabled: true,
         onSelected: (request) => request.controller.deleteSelected(),
       ),
-    ],
   ];
   final custom =
       customActions?.call(context, request) ?? const <PdfAnnotationMenuItem>[];
@@ -229,11 +245,8 @@ Future<void> showPdfAnnotationMenu({
     context: context,
     position:
         RelativeRect.fromRect(position & Size.zero, Offset.zero & overlay.size),
-    items: [
-      for (final item in stock) _menuRow(item),
-      if (custom.isNotEmpty) const PopupMenuDivider(),
-      for (final item in custom) _menuRow(item),
-    ],
+    items: _menuRowsWithDividers(
+        [clipboard, arrange, nodes, recolor, destructive, custom]),
   );
   await picked?.onSelected(request);
 }
@@ -272,7 +285,8 @@ Future<void> showPdfFormFieldMenu({
           enabled: enabled,
           onSelected: (_) async {
             final value = await textPrompt(context,
-                title: pdfL10n(context).menuFieldValue, initial: field.value ?? '');
+                title: pdfL10n(context).menuFieldValue,
+                initial: field.value ?? '');
             if (value != null) controller.setFormFieldText(fieldName, value);
           },
         );
@@ -350,7 +364,9 @@ Future<void> showPdfFormFieldMenu({
     }
   }
 
-  final items = <PdfAnnotationMenuItem>[
+  // Grouped so [_menuRowsWithDividers] rules off value edits, the
+  // rename/convert structure changes, and the destructive delete/flatten.
+  final edit = <PdfAnnotationMenuItem>[
     if (editItem() case final item?) item,
     if (type == PdfFieldType.text)
       PdfAnnotationMenuItem(
@@ -368,6 +384,8 @@ Future<void> showPdfFormFieldMenu({
           );
         },
       ),
+  ];
+  final structure = <PdfAnnotationMenuItem>[
     PdfAnnotationMenuItem(
       key: const ValueKey('pdf-form-menu-rename'),
       label: pdfL10n(context).menuRename,
@@ -405,6 +423,8 @@ Future<void> showPdfFormFieldMenu({
       onSelected: (_) => controller.changeFormFieldKind(
           fieldName, PdfFormFieldKind.pushButton),
     ),
+  ];
+  final destructive = <PdfAnnotationMenuItem>[
     PdfAnnotationMenuItem(
       key: const ValueKey('pdf-form-menu-delete'),
       label: pdfL10n(context).menuDeleteField,
@@ -424,11 +444,28 @@ Future<void> showPdfFormFieldMenu({
     context: context,
     position:
         RelativeRect.fromRect(position & Size.zero, Offset.zero & overlay.size),
-    items: [for (final item in items) _menuRow(item)],
+    items: _menuRowsWithDividers([edit, structure, destructive]),
   );
   // the request param is unused by these closures; reuse the row type
   // so the menu plumbing stays shared with the annotation menu
   await picked?.onSelected(PdfAnnotationMenuRequest._(controller, -1));
+}
+
+/// Flattens [groups] of menu items into popup entries, dropping empty
+/// groups and ruling a [PopupMenuDivider] between the ones that survive.
+/// Large menus read as labelled clusters; a menu that collapses to a
+/// single group draws no divider at all.
+List<PopupMenuEntry<PdfAnnotationMenuItem>> _menuRowsWithDividers(
+    List<List<PdfAnnotationMenuItem>> groups) {
+  final entries = <PopupMenuEntry<PdfAnnotationMenuItem>>[];
+  for (final group in groups) {
+    if (group.isEmpty) continue;
+    if (entries.isNotEmpty) entries.add(const PopupMenuDivider());
+    for (final item in group) {
+      entries.add(_menuRow(item));
+    }
+  }
+  return entries;
 }
 
 PopupMenuItem<PdfAnnotationMenuItem> _menuRow(PdfAnnotationMenuItem item) =>

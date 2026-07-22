@@ -2752,7 +2752,7 @@ class PdfEditingController extends ChangeNotifier {
       pressures: signature.pressures,
       // follow the selected toolbar colour, like every other tool
       color: _colorValue,
-      strokeWidth: w / 75, // pen-like: ~2pt at the default width
+      strokeWidth: w / 60, // pen-like: ~2.7pt at the default width
     );
   }
 

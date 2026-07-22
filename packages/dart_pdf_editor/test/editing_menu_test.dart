@@ -321,8 +321,7 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('pdf-annot-menu-add-node')));
       await tester.pumpAndSettle();
-      expect(
-          editing.document.page(0).annotations.last.vertices, hasLength(5));
+      expect(editing.document.page(0).annotations.last.vertices, hasLength(5));
     });
 
     testWidgets('Remove node from the menu drops the nearest vertex',
@@ -347,8 +346,8 @@ void main() {
       await pumpViewer(tester);
 
       await rightClick(tester, viewPoint(110, 725)); // rectangle A
-      expect(find.byKey(const ValueKey('pdf-annot-menu-add-node')),
-          findsNothing);
+      expect(
+          find.byKey(const ValueKey('pdf-annot-menu-add-node')), findsNothing);
       expect(find.byKey(const ValueKey('pdf-annot-menu-remove-node')),
           findsNothing);
     });
@@ -369,7 +368,9 @@ void main() {
       );
 
       await rightClick(tester, viewPoint(110, 725));
-      expect(find.byType(PopupMenuDivider), findsOneWidget);
+      // stock entries are grouped (clipboard | arrange | set-default | delete)
+      // and the host action rides in its own group below the last divider
+      expect(find.byType(PopupMenuDivider), findsNWidgets(4));
       expect(find.text('Bring to front'), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('host-copy-comment')));
@@ -388,6 +389,73 @@ void main() {
       await rightClick(tester, viewPoint(450, 400));
       expect(find.text('Bring to front'), findsNothing);
       expect(editing.hasAnnotationSelection, isFalse);
+    });
+
+    testWidgets(
+        'a plain rectangle menu rules off clipboard, arrange, set-default, '
+        'delete', (tester) async {
+      await pumpViewer(tester);
+
+      await rightClick(tester, viewPoint(110, 725)); // rectangle A
+      // clipboard (copy/cut/apply/paste) | arrange (front/back) |
+      // set-default (style capture) | delete
+      expect(find.byType(PopupMenuDivider), findsNWidgets(3));
+      expect(find.byKey(const ValueKey('pdf-annot-menu-set-default')),
+          findsOneWidget);
+    });
+
+    testWidgets('a paste-only menu draws no dividers', (tester) async {
+      final editing = await pumpViewer(tester);
+      editing
+        ..selectAnnotation(0, 0)
+        ..copySelectedAnnotations()
+        ..clearAnnotationSelection();
+      await tester.pump();
+
+      // empty-area right-click with a clipboard: the lone Paste group has
+      // nothing to be ruled off from
+      await rightClick(tester, viewPoint(450, 400));
+      expect(
+          find.byKey(const ValueKey('pdf-annot-menu-paste')), findsOneWidget);
+      expect(find.byType(PopupMenuDivider), findsNothing);
+    });
+  });
+
+  group('form field menu', () {
+    Future<PdfEditingController> openMenu(
+        WidgetTester tester, String fieldName) async {
+      final editing = PdfEditingController(buildAcroFormPdf());
+      addTearDown(editing.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => Center(
+              child: ElevatedButton(
+                onPressed: () => showPdfFormFieldMenu(
+                  context: context,
+                  position: const Offset(200, 200),
+                  controller: editing,
+                  fieldName: fieldName,
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      return editing;
+    }
+
+    testWidgets('a text field rules off edit, structure, and delete',
+        (tester) async {
+      await openMenu(tester, 'name');
+      expect(find.byKey(const ValueKey('pdf-form-menu-rename')), findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-form-menu-flatten')), findsOneWidget);
+      // edit (value + style) | rename/convert | delete/flatten
+      expect(find.byType(PopupMenuDivider), findsNWidgets(2));
     });
   });
 
