@@ -163,20 +163,6 @@ class _PdfAnnotationPropertiesPanelState
     if (mounted) setState(() {});
   }
 
-  String _endingLabel(PdfLineEnding ending) => switch (ending) {
-        PdfLineEnding.none => pdfL10n(context).none,
-        PdfLineEnding.square => pdfL10n(context).propLineEndingSquare,
-        PdfLineEnding.circle => pdfL10n(context).propLineEndingCircle,
-        PdfLineEnding.diamond => pdfL10n(context).propLineEndingDiamond,
-        PdfLineEnding.openArrow => pdfL10n(context).propLineEndingOpenArrow,
-        PdfLineEnding.closedArrow => pdfL10n(context).propLineEndingClosedArrow,
-        PdfLineEnding.butt => pdfL10n(context).propLineEndingButt,
-        PdfLineEnding.rOpenArrow => pdfL10n(context).propLineEndingOpenArrowRev,
-        PdfLineEnding.rClosedArrow =>
-          pdfL10n(context).propLineEndingClosedArrowRev,
-        PdfLineEnding.slash => pdfL10n(context).propLineEndingSlash,
-      };
-
   Widget _lineEndingRow({
     required String label,
     required Key key,
@@ -198,7 +184,7 @@ class _PdfAnnotationPropertiesPanelState
               for (final ending in PdfLineEnding.values)
                 DropdownMenuItem(
                   value: ending,
-                  child: Text(_endingLabel(ending),
+                  child: Text(pdfLineEndingLabel(context, ending),
                       overflow: TextOverflow.ellipsis),
                 ),
             ],
