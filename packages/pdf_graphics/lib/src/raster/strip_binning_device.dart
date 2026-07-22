@@ -294,6 +294,14 @@ abstract class StripBinningDevice implements PdfDevice {
   }
 
   @override
+  void setOverprint(
+      {required bool fill, required bool stroke, required int mode}) {
+    // Overprint (§8.6.7) has no visual effect in this RGB compositor yet
+    // (issue #502), so the binning path drops it rather than threading a new
+    // delegate through every subclass.
+  }
+
+  @override
   void beginGroup(double alpha, {bool knockout = false}) {
     flushPending(); // the group's layer must not capture earlier strips
     _groupKnockout.add(knockout);

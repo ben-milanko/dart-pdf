@@ -210,6 +210,19 @@ abstract interface class PdfDevice {
   /// devices can ignore it.
   void setBlendMode(PdfBlendMode mode);
 
+  /// Sets the overprint state for subsequent painting (gs /OP, /op, /OPM;
+  /// PDF §8.6.7). [fill] is nonstroking overprint (/op), [stroke] is stroking
+  /// overprint (/OP), and [mode] is the overprint mode (/OPM, 0 or 1).
+  ///
+  /// Overprint is a subtractive (CMYK/spot colorant) operation: an
+  /// overprinting colorant that is not written leaves the underlying colorant
+  /// untouched instead of knocking it out. This RGB compositor cannot
+  /// reproduce that faithfully, so painting devices currently record the state
+  /// but do not change compositing (issue #502). The state is threaded here so
+  /// a future colorant-buffer path can consume it; non-compositing devices can
+  /// ignore it.
+  void setOverprint({required bool fill, required bool stroke, required int mode});
+
   /// Brackets a transparency-group form (§11.6.6) whose composite result
   /// paints at [alpha]. Inside the group, alpha starts over at 1.0; the
   /// group then blends as one object. Non-compositing devices can treat

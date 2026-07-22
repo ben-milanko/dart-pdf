@@ -37,7 +37,10 @@ class _GraphicsState {
         horizontalScale = 1,
         leading = 0,
         rise = 0,
-        renderMode = 0;
+        renderMode = 0,
+        fillOverprint = false,
+        strokeOverprint = false,
+        overprintMode = 0;
 
   _GraphicsState.from(_GraphicsState other)
       : ctm = other.ctm,
@@ -60,7 +63,10 @@ class _GraphicsState {
         horizontalScale = other.horizontalScale,
         leading = other.leading,
         rise = other.rise,
-        renderMode = other.renderMode;
+        renderMode = other.renderMode,
+        fillOverprint = other.fillOverprint,
+        strokeOverprint = other.strokeOverprint,
+        overprintMode = other.overprintMode;
 
   PdfMatrix ctm;
   PdfColor fillColor;
@@ -93,6 +99,13 @@ class _GraphicsState {
   double leading;
   double rise;
   int renderMode;
+
+  /// Overprint state (gs /op, /OP, /OPM; PDF §8.6.7). [fillOverprint] is the
+  /// nonstroking flag (/op), [strokeOverprint] the stroking flag (/OP), and
+  /// [overprintMode] the overprint mode (/OPM, 0 or 1).
+  bool fillOverprint;
+  bool strokeOverprint;
+  int overprintMode;
 }
 
 /// Reads `sc`/`scn` numeric operands as a plain device colour by count -
@@ -1068,6 +1081,14 @@ class PdfInterpreter {
           if (_state.blendMode != restored.blendMode) {
             device.setBlendMode(restored.blendMode);
           }
+          if (_state.fillOverprint != restored.fillOverprint ||
+              _state.strokeOverprint != restored.strokeOverprint ||
+              _state.overprintMode != restored.overprintMode) {
+            device.setOverprint(
+                fill: restored.fillOverprint,
+                stroke: restored.strokeOverprint,
+                mode: restored.overprintMode);
+          }
           _state = restored;
           device.restore();
         }
@@ -1564,7 +1585,38 @@ class PdfInterpreter {
       _state.stroke = _state.stroke.copyWith(width: _numOf(lw));
     }
     _applyBlendMode(cos.resolve(gs['BM']));
+    _applyOverprint(gs);
     _applySoftMask(cos.resolve(gs['SMask']));
+  }
+
+  /// Parses the overprint keys (/OP, /op, /OPM; PDF §8.6.7) into the graphics
+  /// state and, when the effective state changes, delivers it to the device.
+  /// Each key updates its flag only when present, mirroring ca/CA/LW.
+  ///
+  /// /OP is the stroking flag; /op the nonstroking flag. When /op is absent,
+  /// /OP applies to nonstroking too (backward compatibility, §8.6.7 note).
+  void _applyOverprint(CosDictionary gs) {
+    final beforeFill = _state.fillOverprint;
+    final beforeStroke = _state.strokeOverprint;
+    final beforeMode = _state.overprintMode;
+    final hasLower = gs.containsKey('op');
+    final op = cos.resolve(gs['OP']);
+    if (op is CosBoolean) {
+      _state.strokeOverprint = op.value;
+      if (!hasLower) _state.fillOverprint = op.value;
+    }
+    final opLower = cos.resolve(gs['op']);
+    if (opLower is CosBoolean) _state.fillOverprint = opLower.value;
+    final opm = cos.resolve(gs['OPM']);
+    if (opm is CosInteger) _state.overprintMode = opm.value == 0 ? 0 : 1;
+    if (_state.fillOverprint != beforeFill ||
+        _state.strokeOverprint != beforeStroke ||
+        _state.overprintMode != beforeMode) {
+      device.setOverprint(
+          fill: _state.fillOverprint,
+          stroke: _state.strokeOverprint,
+          mode: _state.overprintMode);
+    }
   }
 
   void _applyBlendMode(CosObject? bm) {
