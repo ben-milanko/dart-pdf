@@ -721,6 +721,34 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   void _bumpActiveStroke() => _activeStrokeRepaint.value++;
 
+  /// Extends the in-progress ink stroke to the view-space [localPosition].
+  /// Normally each sample appends, tracing the freehand path; while Shift is
+  /// held the stroke collapses to a single straight segment from where it
+  /// began to the pointer, rubber-banding as the pointer moves - so releasing
+  /// with Shift down commits a ruler-straight line. Shared by the raw-pointer
+  /// and gesture-arena draw paths.
+  void _extendActiveStroke(Offset localPosition) {
+    _penCursor = localPosition;
+    final page = _geometry.toPagePoint(localPosition);
+    final pressures = _activeStrokePressures;
+    final pressure = _pointerPressure ?? pressures?.last;
+    if (HardwareKeyboard.instance.isShiftPressed) {
+      _activeStroke!
+        ..length = 1 // keep the origin, drop the freehand tail
+        ..add(page);
+      if (pressures != null) {
+        final first = pressures.first;
+        pressures
+          ..length = 1
+          ..add(pressure ?? first);
+      }
+    } else {
+      _activeStroke!.add(page);
+      if (pressures != null) pressures.add(pressure ?? pressures.last);
+    }
+    _bumpActiveStroke();
+  }
+
   /// The latest normalized pressure of the pointer being tracked, or null
   /// for devices that don't report pressure (finger, mouse).
   double? _pointerPressure;
@@ -1117,6 +1145,38 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// distance/slope measurement).
   bool get _lineDragTool => _behavior?.isLineDrag ?? false;
 
+  /// Constrains [point] to the nearest 45° direction from [anchor] while
+  /// Shift is held, so the line / polyline / polygon tools lay down
+  /// axis-aligned or diagonal straight segments. The pointer's reach along
+  /// the chosen direction is preserved by projecting the delta onto it.
+  /// Returns [point] unchanged when Shift is up (or the delta is zero).
+  Offset _straightSnap(Offset anchor, Offset point) {
+    if (!HardwareKeyboard.instance.isShiftPressed) return point;
+    final delta = point - anchor;
+    if (delta == Offset.zero) return point;
+    const step = math.pi / 4; // 45° increments (8 directions)
+    final angle = (delta.direction / step).roundToDouble() * step;
+    final dir = Offset(math.cos(angle), math.sin(angle));
+    // project onto the snapped axis; the rounded angle is within 22.5° of the
+    // pointer, so the projection is always forward (non-negative)
+    final reach = delta.dx * dir.dx + delta.dy * dir.dy;
+    return anchor + dir * reach;
+  }
+
+  /// Snaps a raw vertex chain so that, while Shift is held, every edge runs
+  /// along a straight 45° axis off the previous (already-snapped) vertex.
+  /// Returns [raw] untouched when Shift is up, so [_polyPoints] can stay the
+  /// raw tapped points (keeping the double-tap-to-finish dedup exact) and the
+  /// snap is applied only where the chain is drawn or committed.
+  List<Offset> _straightChain(List<Offset> raw) {
+    if (!HardwareKeyboard.instance.isShiftPressed || raw.length < 2) return raw;
+    final out = <Offset>[raw.first];
+    for (var i = 1; i < raw.length; i++) {
+      out.add(_straightSnap(out.last, raw[i]));
+    }
+    return out;
+  }
+
   /// The measurement kind the armed tool creates, or null for a
   /// non-measurement tool.
   PdfMeasurementKind? get _measureKind => _behavior?.measureKind;
@@ -1274,11 +1334,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _eraseAt(event.localPosition);
     } else if (_activeStroke != null) {
       // hot path: append + repaint the stroke layer only, no rebuild
-      _penCursor = event.localPosition;
-      _activeStroke!.add(_geometry.toPagePoint(event.localPosition));
-      _activeStrokePressures
-          ?.add(_pointerPressure ?? _activeStrokePressures!.last);
-      _bumpActiveStroke();
+      _extendActiveStroke(event.localPosition);
     }
   }
 
@@ -3195,11 +3251,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
     if (_activeStroke != null) {
       // hot path: append + repaint the stroke layer only, no rebuild
-      _penCursor = position;
-      _activeStroke!.add(_geometry.toPagePoint(position));
-      _activeStrokePressures
-          ?.add(_pointerPressure ?? _activeStrokePressures!.last);
-      _bumpActiveStroke();
+      _extendActiveStroke(position);
       return;
     }
     // region/selection drags (marquee, move, resize, vertex, shape/snapshot
@@ -3261,7 +3313,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       // over a sibling list item)
       _reportMovePreview();
     } else if (_dragStart != null) {
-      setState(() => _dragCurrent = position);
+      // holding Shift snaps a line/arrow/measure drag to a straight 45° axis
+      setState(() => _dragCurrent =
+          _lineDragTool ? _straightSnap(_dragStart!, position) : position);
     }
   }
 
@@ -3686,6 +3740,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     var reachedFixed = false;
     setState(() {
       final points = _polyPoints ?? <Offset>[];
+      // store the raw tapped point; Shift-snapping is applied to the whole
+      // chain at preview/commit time (see [_straightChain])
       if (points.isEmpty || (point - points.last).distance >= 2) {
         _polyPoints = [...points, point];
       }
@@ -3711,8 +3767,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _tool == PdfEditTool.measureVolume;
     final minPoints = _fixedPolyCount ?? (closed ? 3 : 2);
     if (points.length < minPoints) return;
+    // holding Shift snaps every edge to a straight 45° axis before commit
+    final snapped = _straightChain(points);
     final simplified = <Offset>[];
-    for (final point in points) {
+    for (final point in snapped) {
       if (simplified.isEmpty || (point - simplified.last).distance >= 2) {
         simplified.add(point);
       }
@@ -4220,7 +4278,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       cursor = SystemMouseCursors.precise;
     } else if (_polyTool || _tool == PdfEditTool.cloudPolygon) {
       // once a cloud vertex is down, the hover rubber-bands the next edge;
-      // before that the cloud tool still rubber-bands a rectangle on drag
+      // before that the cloud tool still rubber-bands a rectangle on drag.
+      // the raw hover is stored; Shift-snapping is applied in the preview
+      // builder (see [_straightChain]) so the rubber band tracks the snap
       if (_polyPoints != null && event.localPosition != _polyHover) {
         setState(() => _polyHover = event.localPosition);
       }
@@ -4949,12 +5009,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final preview = _controller.isPickingColor ? _pickPosition : null;
     final polyPreview = _polyPoints == null
         ? null
-        : [
+        : _straightChain([
             ..._polyPoints!,
             if (_polyHover != null &&
                 (_polyHover! - _polyPoints!.last).distance >= 2)
               _polyHover!,
-          ];
+          ]);
     final vertexHandles = _vertexPoints ?? _selectedVertexPoints;
     final vertexPreview =
         _vertexPoints == null ? null : _linePreviewPath(_vertexPoints!);
