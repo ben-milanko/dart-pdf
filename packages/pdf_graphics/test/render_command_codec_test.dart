@@ -117,6 +117,10 @@ class _TranscriptDevice implements PdfDevice {
 
   @override
   void setBlendMode(PdfBlendMode mode) => log.add('blend ${mode.name}');
+  @override
+  void setOverprint(
+          {required bool fill, required bool stroke, required int mode}) =>
+      log.add('overprint $fill $stroke $mode');
 
   @override
   void beginGroup(double alpha, {bool knockout = false}) =>
@@ -254,6 +258,20 @@ void main() {
       expect(restored[0], isA<PdfSetBlendModeCommand>());
       expect(restored[1], isA<PdfFillPathCommand>());
       expect(restored[2], isA<PdfSetBlendModeCommand>());
+    });
+
+    test('round-trips overprint state (fill/stroke/mode) through the codec', () {
+      final commands = <PdfRenderCommand>[
+        const PdfSetOverprintCommand(fill: true, stroke: false, mode: 1),
+        const PdfSetOverprintCommand(fill: false, stroke: true, mode: 0),
+      ];
+      final restored = deserializeCommands(serializeCommands(commands)!);
+      expect(restored, hasLength(2));
+      expect(restored[0], isA<PdfSetOverprintCommand>());
+      final first = restored[0] as PdfSetOverprintCommand;
+      expect((first.fill, first.stroke, first.mode), (true, false, 1));
+      final second = restored[1] as PdfSetOverprintCommand;
+      expect((second.fill, second.stroke, second.mode), (false, true, 0));
     });
 
     test('compacts soft-mask callback commands recursively', () {

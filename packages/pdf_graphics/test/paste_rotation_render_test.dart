@@ -24,6 +24,9 @@ class _TextCapture implements PdfDevice {
   @override
   void setBlendMode(PdfBlendMode m) {}
   @override
+  void setOverprint(
+      {required bool fill, required bool stroke, required int mode}) {}
+  @override
   void save() {}
   @override
   void restore() {}

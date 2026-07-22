@@ -71,6 +71,7 @@ const int _tBeginGroup = 10;
 const int _tEndGroup = 11;
 const int _tBeginSoftMasked = 12;
 const int _tEndSoftMasked = 13;
+const int _tSetOverprint = 14;
 
 /// Thrown internally when an image cannot be serialized (an inline image, or
 /// no [CosDocument] to resolve against); [serializeCommands] catches it and
@@ -488,6 +489,11 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
     case PdfSetBlendModeCommand(:final mode):
       w.u8(_tSetBlendMode);
       w.u8(mode.index);
+    case PdfSetOverprintCommand(:final fill, :final stroke, :final mode):
+      w.u8(_tSetOverprint);
+      w.boolean(fill);
+      w.boolean(stroke);
+      w.u8(mode);
     case PdfBeginGroupCommand(:final alpha, :final knockout):
       w.u8(_tBeginGroup);
       w.f64(alpha);
@@ -885,6 +891,11 @@ PdfRenderCommand _readCommand(_Reader r) {
       ));
     case _tSetBlendMode:
       return PdfSetBlendModeCommand(PdfBlendMode.values[r.u8()]);
+    case _tSetOverprint:
+      final fill = r.boolean();
+      final stroke = r.boolean();
+      final mode = r.u8();
+      return PdfSetOverprintCommand(fill: fill, stroke: stroke, mode: mode);
     case _tBeginGroup:
       final alpha = r.f64();
       final knockout = r.boolean();

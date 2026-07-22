@@ -383,6 +383,13 @@ class _EncodingDevice implements PdfDevice {
   }
 
   @override
+  void setOverprint(
+      {required bool fill, required bool stroke, required int mode}) {
+    // Overprint (§8.6.7) is a subtractive colorant operation with no
+    // equivalent in this print device's op set yet (issue #502).
+  }
+
+  @override
   void beginGroup(double alpha, {bool knockout = false}) {
     // Group alpha is dropped (approximated as opaque); the group's own content
     // still flows through the normal callbacks.

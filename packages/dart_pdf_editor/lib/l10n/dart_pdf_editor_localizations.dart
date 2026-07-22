@@ -101,6 +101,114 @@ abstract class DartPdfEditorLocalizations {
   /// **'Add'**
   String get add;
 
+  /// Annotation type name: a caret marking an insertion point.
+  ///
+  /// In en, this message translates to:
+  /// **'Caret'**
+  String get annotCaret;
+
+  /// Annotation type name: a circle/ellipse shape.
+  ///
+  /// In en, this message translates to:
+  /// **'Circle'**
+  String get annotCircle;
+
+  /// Annotation type name: an embedded file attachment.
+  ///
+  /// In en, this message translates to:
+  /// **'File attachment'**
+  String get annotFileAttachment;
+
+  /// Annotation type name: a free-text box drawn on the page.
+  ///
+  /// In en, this message translates to:
+  /// **'Text box'**
+  String get annotFreeText;
+
+  /// Annotation type name: a text highlight.
+  ///
+  /// In en, this message translates to:
+  /// **'Highlight'**
+  String get annotHighlight;
+
+  /// Annotation type name: a freehand ink drawing.
+  ///
+  /// In en, this message translates to:
+  /// **'Ink'**
+  String get annotInk;
+
+  /// Annotation type name: a straight line.
+  ///
+  /// In en, this message translates to:
+  /// **'Line'**
+  String get annotLine;
+
+  /// Annotation type name: a hyperlink.
+  ///
+  /// In en, this message translates to:
+  /// **'Link'**
+  String get annotLink;
+
+  /// Annotation type name: a closed polygon shape.
+  ///
+  /// In en, this message translates to:
+  /// **'Polygon'**
+  String get annotPolygon;
+
+  /// Annotation type name: an open multi-segment line.
+  ///
+  /// In en, this message translates to:
+  /// **'Polyline'**
+  String get annotPolyline;
+
+  /// Annotation type name: a redaction region.
+  ///
+  /// In en, this message translates to:
+  /// **'Redaction'**
+  String get annotRedact;
+
+  /// Annotation type name: a rectangle/square shape.
+  ///
+  /// In en, this message translates to:
+  /// **'Square'**
+  String get annotSquare;
+
+  /// Annotation type name: a squiggly (wavy) underline.
+  ///
+  /// In en, this message translates to:
+  /// **'Squiggly'**
+  String get annotSquiggly;
+
+  /// Annotation type name: a rubber stamp.
+  ///
+  /// In en, this message translates to:
+  /// **'Stamp'**
+  String get annotStamp;
+
+  /// Annotation type name: a strike-through over text.
+  ///
+  /// In en, this message translates to:
+  /// **'Strike-out'**
+  String get annotStrikeOut;
+
+  /// Annotation type name: a sticky note / text comment.
+  ///
+  /// In en, this message translates to:
+  /// **'Note'**
+  String get annotText;
+
+  /// Annotation type name: a text underline.
+  ///
+  /// In en, this message translates to:
+  /// **'Underline'**
+  String get annotUnderline;
+
+  /// Annotation type name: an interactive form field widget.
+  ///
+  /// In en, this message translates to:
+  /// **'Form field'**
+  String get annotWidget;
+
   /// Generic button that applies pending changes.
   ///
   /// In en, this message translates to:
@@ -461,6 +569,30 @@ abstract class DartPdfEditorLocalizations {
   /// **'Author name'**
   String get editorViewAuthorNameTitle;
 
+  /// Border line style: an alternating dash-dot line.
+  ///
+  /// In en, this message translates to:
+  /// **'Dash-dot'**
+  String get lineStyleDashDot;
+
+  /// Border line style: a dashed line.
+  ///
+  /// In en, this message translates to:
+  /// **'Dashed'**
+  String get lineStyleDashed;
+
+  /// Border line style: a dotted line.
+  ///
+  /// In en, this message translates to:
+  /// **'Dotted'**
+  String get lineStyleDotted;
+
+  /// Border line style: an unbroken solid line.
+  ///
+  /// In en, this message translates to:
+  /// **'Solid'**
+  String get lineStyleSolid;
+
   /// Button that switches from typing a scale to calibrating by drawing a reference segment.
   ///
   /// In en, this message translates to:
@@ -478,6 +610,60 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Depth: '**
   String get measDepthLabel;
+
+  /// Measurement kind: an angle measurement.
+  ///
+  /// In en, this message translates to:
+  /// **'Angle'**
+  String get measKindAngle;
+
+  /// Measurement kind: an arc-length measurement.
+  ///
+  /// In en, this message translates to:
+  /// **'Arc'**
+  String get measKindArc;
+
+  /// Measurement kind: an area measurement.
+  ///
+  /// In en, this message translates to:
+  /// **'Area'**
+  String get measKindArea;
+
+  /// Measurement kind: a running count of tally marks.
+  ///
+  /// In en, this message translates to:
+  /// **'Count'**
+  String get measKindCount;
+
+  /// Measurement kind: a distance/length measurement.
+  ///
+  /// In en, this message translates to:
+  /// **'Length'**
+  String get measKindLength;
+
+  /// Measurement kind: an area with cut-outs subtracted.
+  ///
+  /// In en, this message translates to:
+  /// **'Net area'**
+  String get measKindNetArea;
+
+  /// Measurement kind: the perimeter of a shape.
+  ///
+  /// In en, this message translates to:
+  /// **'Perimeter'**
+  String get measKindPerimeter;
+
+  /// Measurement kind: a slope (rise over run).
+  ///
+  /// In en, this message translates to:
+  /// **'Slope'**
+  String get measKindSlope;
+
+  /// Measurement kind: a volume (area times depth).
+  ///
+  /// In en, this message translates to:
+  /// **'Volume'**
+  String get measKindVolume;
 
   /// Prompt above the length input in the calibration dialog, asking what real-world length the drawn line represents.
   ///
@@ -1301,6 +1487,90 @@ abstract class DartPdfEditorLocalizations {
   /// **'Save'**
   String get save;
 
+  /// Link target subtitle: runs a JavaScript action.
+  ///
+  /// In en, this message translates to:
+  /// **'JavaScript'**
+  String get sbarActionJavaScript;
+
+  /// Link target subtitle: jumps to the given 1-based page number.
+  ///
+  /// In en, this message translates to:
+  /// **'Page {page}'**
+  String sbarActionPage(int page);
+
+  /// Annotation title for a callout (a text box with a leader line).
+  ///
+  /// In en, this message translates to:
+  /// **'Callout'**
+  String get sbarCallout;
+
+  /// Form-field type shown as an annotation title: a button (push/check/radio).
+  ///
+  /// In en, this message translates to:
+  /// **'Button field'**
+  String get sbarFieldButton;
+
+  /// Form-field type shown as an annotation title: a list/combo choice field.
+  ///
+  /// In en, this message translates to:
+  /// **'Choice field'**
+  String get sbarFieldChoice;
+
+  /// Fallback form-field type shown as an annotation title.
+  ///
+  /// In en, this message translates to:
+  /// **'Form field'**
+  String get sbarFieldGeneric;
+
+  /// Form-field type shown as an annotation title: a digital-signature field.
+  ///
+  /// In en, this message translates to:
+  /// **'Signature field'**
+  String get sbarFieldSignature;
+
+  /// Form-field type shown as an annotation title: a text input field.
+  ///
+  /// In en, this message translates to:
+  /// **'Text field'**
+  String get sbarFieldText;
+
+  /// Review-state chip: the markup was accepted.
+  ///
+  /// In en, this message translates to:
+  /// **'Accepted'**
+  String get sbarStateAccepted;
+
+  /// Review-state chip: the markup was cancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled'**
+  String get sbarStateCancelled;
+
+  /// Review-state chip: the markup is flagged/marked.
+  ///
+  /// In en, this message translates to:
+  /// **'Marked'**
+  String get sbarStateMarked;
+
+  /// Review-state chip: the markup was rejected.
+  ///
+  /// In en, this message translates to:
+  /// **'Rejected'**
+  String get sbarStateRejected;
+
+  /// Review-state chip: the comment thread is resolved/completed.
+  ///
+  /// In en, this message translates to:
+  /// **'Resolved'**
+  String get sbarStateResolved;
+
+  /// Review-state chip: the markup's mark was cleared.
+  ///
+  /// In en, this message translates to:
+  /// **'Unmarked'**
+  String get sbarStateUnmarked;
+
   /// Tooltip on the button that clears the document search field.
   ///
   /// In en, this message translates to:
@@ -1751,6 +2021,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Circle'**
   String get stampCircle;
 
+  /// Default display name for a custom stamp that has no text component.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom stamp'**
+  String get stampCustomCaption;
+
   /// Label for the dropdown selecting the date format used by stamp {{date}} fields.
   ///
   /// In en, this message translates to:
@@ -1781,11 +2057,47 @@ abstract class DartPdfEditorLocalizations {
   /// **'Export…'**
   String get stampExport;
 
+  /// Insertable stamp template field: the current date.
+  ///
+  /// In en, this message translates to:
+  /// **'Date'**
+  String get stampFieldDate;
+
+  /// Insertable stamp template field: the current date and time.
+  ///
+  /// In en, this message translates to:
+  /// **'Date & time'**
+  String get stampFieldDateTime;
+
+  /// Insertable stamp template field: the current time.
+  ///
+  /// In en, this message translates to:
+  /// **'Time'**
+  String get stampFieldTime;
+
+  /// Insertable stamp template field: the current user's name.
+  ///
+  /// In en, this message translates to:
+  /// **'Username'**
+  String get stampFieldUsername;
+
   /// Tooltip on the button that chooses the font of the selected stamp text component.
   ///
   /// In en, this message translates to:
   /// **'Font'**
   String get stampFont;
+
+  /// Font-style modifier shown after a font family name in the stamp font menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Bold'**
+  String get stampFontBold;
+
+  /// Font-style modifier shown after a font family name in the stamp font menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Italic'**
+  String get stampFontItalic;
 
   /// Label for the stamp template height input field.
   ///
@@ -1858,6 +2170,18 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Text'**
   String get stampText;
+
+  /// Suffix in the stamp time-format preview marking a 12-hour (AM/PM) clock format.
+  ///
+  /// In en, this message translates to:
+  /// **'12 hr'**
+  String get stampTime12Hour;
+
+  /// Suffix in the stamp time-format preview marking a 24-hour clock format.
+  ///
+  /// In en, this message translates to:
+  /// **'24 hr'**
+  String get stampTime24Hour;
 
   /// Label for the dropdown selecting the time format used by stamp {{time}} fields.
   ///
@@ -2213,6 +2537,48 @@ abstract class DartPdfEditorLocalizations {
   /// **'Form fields flattened into the pages'**
   String get tbFormFieldsFlattened;
 
+  /// Toolbar dock group label: freehand drawing tools.
+  ///
+  /// In en, this message translates to:
+  /// **'Draw'**
+  String get tbGroupDraw;
+
+  /// Toolbar dock group label: document-editing tools (content/form/redact/…).
+  ///
+  /// In en, this message translates to:
+  /// **'Edit'**
+  String get tbGroupEdit;
+
+  /// Toolbar dock group label: insert tools (text box/note/stamp/…).
+  ///
+  /// In en, this message translates to:
+  /// **'Insert'**
+  String get tbGroupInsert;
+
+  /// Toolbar dock group label: text-markup tools (highlight/underline/…).
+  ///
+  /// In en, this message translates to:
+  /// **'Markup'**
+  String get tbGroupMarkup;
+
+  /// Toolbar dock group label: measurement tools.
+  ///
+  /// In en, this message translates to:
+  /// **'Measure'**
+  String get tbGroupMeasure;
+
+  /// Toolbar dock group label: the selection tools.
+  ///
+  /// In en, this message translates to:
+  /// **'Select'**
+  String get tbGroupSelect;
+
+  /// Toolbar dock group label: shape tools (rectangle/line/…).
+  ///
+  /// In en, this message translates to:
+  /// **'Shapes'**
+  String get tbGroupShapes;
+
   /// Menu option: create an image push-button form field.
   ///
   /// In en, this message translates to:
@@ -2249,11 +2615,215 @@ abstract class DartPdfEditorLocalizations {
   /// **'Manage stamps…'**
   String get tbManageStamps;
 
+  /// Text-markup action name: highlight the text selection.
+  ///
+  /// In en, this message translates to:
+  /// **'Highlight'**
+  String get tbMarkupHighlight;
+
+  /// Tooltip: highlight the current text selection.
+  ///
+  /// In en, this message translates to:
+  /// **'Highlight selection'**
+  String get tbMarkupHighlightTip;
+
+  /// Text-markup action name: squiggly-underline the text selection.
+  ///
+  /// In en, this message translates to:
+  /// **'Squiggly-underline'**
+  String get tbMarkupSquiggly;
+
+  /// Tooltip: squiggly-underline the current text selection.
+  ///
+  /// In en, this message translates to:
+  /// **'Squiggly-underline selection'**
+  String get tbMarkupSquigglyTip;
+
+  /// Text-markup action name: strike out the text selection.
+  ///
+  /// In en, this message translates to:
+  /// **'Strike out'**
+  String get tbMarkupStrikeOut;
+
+  /// Tooltip: strike out the current text selection.
+  ///
+  /// In en, this message translates to:
+  /// **'Strike out selection'**
+  String get tbMarkupStrikeOutTip;
+
+  /// Text-markup action name: underline the text selection.
+  ///
+  /// In en, this message translates to:
+  /// **'Underline'**
+  String get tbMarkupUnderline;
+
+  /// Tooltip: underline the current text selection.
+  ///
+  /// In en, this message translates to:
+  /// **'Underline selection'**
+  String get tbMarkupUnderlineTip;
+
   /// Tooltip for the button opening the full color picker.
   ///
   /// In en, this message translates to:
   /// **'More colors…'**
   String get tbMoreColors;
+
+  /// Tool name: draw an arrow.
+  ///
+  /// In en, this message translates to:
+  /// **'Arrow'**
+  String get tbNameArrow;
+
+  /// Tool name: insert a callout (text box with a leader line).
+  ///
+  /// In en, this message translates to:
+  /// **'Callout'**
+  String get tbNameCallout;
+
+  /// Tool name: draw a cloud-outline polygon.
+  ///
+  /// In en, this message translates to:
+  /// **'Cloud polygon'**
+  String get tbNameCloudPolygon;
+
+  /// Tool name: drop tally check-marks.
+  ///
+  /// In en, this message translates to:
+  /// **'Count'**
+  String get tbNameCount;
+
+  /// Tool name: place and cryptographically sign a signature box.
+  ///
+  /// In en, this message translates to:
+  /// **'Digital signature'**
+  String get tbNameDigitalSignature;
+
+  /// Tool name: freehand ink drawing.
+  ///
+  /// In en, this message translates to:
+  /// **'Draw'**
+  String get tbNameDraw;
+
+  /// Tool name: draw an ellipse shape.
+  ///
+  /// In en, this message translates to:
+  /// **'Ellipse'**
+  String get tbNameEllipse;
+
+  /// Tool name: erases ink strokes.
+  ///
+  /// In en, this message translates to:
+  /// **'Erase ink strokes'**
+  String get tbNameEraser;
+
+  /// Tool name: freehand highlighter.
+  ///
+  /// In en, this message translates to:
+  /// **'Highlight'**
+  String get tbNameHighlight;
+
+  /// Tool name: insert a raster image.
+  ///
+  /// In en, this message translates to:
+  /// **'Image'**
+  String get tbNameImage;
+
+  /// Tool name: draw a straight line.
+  ///
+  /// In en, this message translates to:
+  /// **'Line'**
+  String get tbNameLine;
+
+  /// Tool name: measure an interior angle.
+  ///
+  /// In en, this message translates to:
+  /// **'Measure angle'**
+  String get tbNameMeasureAngle;
+
+  /// Tool name: measure an arc length.
+  ///
+  /// In en, this message translates to:
+  /// **'Measure arc length'**
+  String get tbNameMeasureArc;
+
+  /// Tool name: measure an area.
+  ///
+  /// In en, this message translates to:
+  /// **'Measure area'**
+  String get tbNameMeasureArea;
+
+  /// Tool name: measure a straight-line distance.
+  ///
+  /// In en, this message translates to:
+  /// **'Measure distance'**
+  String get tbNameMeasureDistance;
+
+  /// Tool name: measure a perimeter.
+  ///
+  /// In en, this message translates to:
+  /// **'Measure perimeter'**
+  String get tbNameMeasurePerimeter;
+
+  /// Tool name: measure a slope as rise over run.
+  ///
+  /// In en, this message translates to:
+  /// **'Measure slope (rise/run)'**
+  String get tbNameMeasureSlope;
+
+  /// Tool name: measure a volume as area times depth.
+  ///
+  /// In en, this message translates to:
+  /// **'Measure volume (area × depth)'**
+  String get tbNameMeasureVolume;
+
+  /// Tool name: insert a sticky note.
+  ///
+  /// In en, this message translates to:
+  /// **'Note'**
+  String get tbNameNote;
+
+  /// Tool name: draw a closed polygon.
+  ///
+  /// In en, this message translates to:
+  /// **'Polygon'**
+  String get tbNamePolygon;
+
+  /// Tool name: draw an open multi-segment line.
+  ///
+  /// In en, this message translates to:
+  /// **'Polyline'**
+  String get tbNamePolyline;
+
+  /// Tool name: draw a rectangle shape.
+  ///
+  /// In en, this message translates to:
+  /// **'Rectangle'**
+  String get tbNameRectangle;
+
+  /// Tool name: the select/move tool.
+  ///
+  /// In en, this message translates to:
+  /// **'Select'**
+  String get tbNameSelect;
+
+  /// Tool name: place a saved handwritten signature.
+  ///
+  /// In en, this message translates to:
+  /// **'Signature'**
+  String get tbNameSignature;
+
+  /// Tool name: insert a rubber stamp.
+  ///
+  /// In en, this message translates to:
+  /// **'Stamp'**
+  String get tbNameStamp;
+
+  /// Tool name: insert a free-text box.
+  ///
+  /// In en, this message translates to:
+  /// **'Text box'**
+  String get tbNameTextBox;
 
   /// Tooltip for the menu selecting which type of form field a drag will create.
   ///
@@ -2482,6 +3052,78 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Text'**
   String get tbTextTitle;
+
+  /// Tooltip for the callout tool, explaining the drag gesture.
+  ///
+  /// In en, this message translates to:
+  /// **'Callout - drag from the point to where the box goes'**
+  String get tbTipCallout;
+
+  /// Tooltip for the page-content editing tool.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit page content'**
+  String get tbTipContent;
+
+  /// Tooltip for the count tool.
+  ///
+  /// In en, this message translates to:
+  /// **'Count - tap to drop check-marks and tally them'**
+  String get tbTipCount;
+
+  /// Tooltip for the digital-signature box tool.
+  ///
+  /// In en, this message translates to:
+  /// **'Digital signature - drag a box to place and sign'**
+  String get tbTipDigitalSignature;
+
+  /// Tooltip for the form-fields tool.
+  ///
+  /// In en, this message translates to:
+  /// **'Form fields - tap to select, double-tap to fill, drag to add'**
+  String get tbTipForm;
+
+  /// Tooltip for the freehand highlighter tool.
+  ///
+  /// In en, this message translates to:
+  /// **'Highlight - draw freehand'**
+  String get tbTipHighlightDraw;
+
+  /// Tooltip for the insert-image tool.
+  ///
+  /// In en, this message translates to:
+  /// **'Image - tap to place, or drag out a box'**
+  String get tbTipImage;
+
+  /// Tooltip for the angle-measurement tool.
+  ///
+  /// In en, this message translates to:
+  /// **'Measure angle - click three points'**
+  String get tbTipMeasureAngle;
+
+  /// Tooltip for the arc-length-measurement tool.
+  ///
+  /// In en, this message translates to:
+  /// **'Measure arc length - click three points'**
+  String get tbTipMeasureArc;
+
+  /// Tooltip for the redaction tool.
+  ///
+  /// In en, this message translates to:
+  /// **'Redact - drag a region, then apply'**
+  String get tbTipRedact;
+
+  /// Tooltip for placing a saved handwritten signature.
+  ///
+  /// In en, this message translates to:
+  /// **'Signature - tap a page to place it'**
+  String get tbTipSignature;
+
+  /// Tooltip for the snapshot capture tool.
+  ///
+  /// In en, this message translates to:
+  /// **'Snapshot - drag a region to capture it (paste back as vector)'**
+  String get tbTipSnapshot;
 
   /// Label for the page-content editing tool.
   ///

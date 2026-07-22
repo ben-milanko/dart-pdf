@@ -70,12 +70,20 @@ class RecordingDevice implements PdfDevice {
   }
 
   final blendModes = <PdfBlendMode>[];
+  final overprints = <(bool, bool, int)>[];
   final softMaskEnds = <(bool, void Function())>[];
 
   @override
   void setBlendMode(PdfBlendMode mode) {
     calls.add('blend:${mode.name}');
     blendModes.add(mode);
+  }
+
+  @override
+  void setOverprint(
+      {required bool fill, required bool stroke, required int mode}) {
+    calls.add('overprint:$fill,$stroke,$mode');
+    overprints.add((fill, stroke, mode));
   }
 
   @override

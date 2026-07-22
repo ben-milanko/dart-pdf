@@ -163,20 +163,6 @@ class _PdfAnnotationPropertiesPanelState
     if (mounted) setState(() {});
   }
 
-  String _endingLabel(PdfLineEnding ending) => switch (ending) {
-        PdfLineEnding.none => pdfL10n(context).none,
-        PdfLineEnding.square => pdfL10n(context).propLineEndingSquare,
-        PdfLineEnding.circle => pdfL10n(context).propLineEndingCircle,
-        PdfLineEnding.diamond => pdfL10n(context).propLineEndingDiamond,
-        PdfLineEnding.openArrow => pdfL10n(context).propLineEndingOpenArrow,
-        PdfLineEnding.closedArrow => pdfL10n(context).propLineEndingClosedArrow,
-        PdfLineEnding.butt => pdfL10n(context).propLineEndingButt,
-        PdfLineEnding.rOpenArrow => pdfL10n(context).propLineEndingOpenArrowRev,
-        PdfLineEnding.rClosedArrow =>
-          pdfL10n(context).propLineEndingClosedArrowRev,
-        PdfLineEnding.slash => pdfL10n(context).propLineEndingSlash,
-      };
-
   Widget _lineEndingRow({
     required String label,
     required Key key,
@@ -198,7 +184,7 @@ class _PdfAnnotationPropertiesPanelState
               for (final ending in PdfLineEnding.values)
                 DropdownMenuItem(
                   value: ending,
-                  child: Text(_endingLabel(ending),
+                  child: Text(pdfLineEndingLabel(context, ending),
                       overflow: TextOverflow.ellipsis),
                 ),
             ],
@@ -599,7 +585,7 @@ class _PdfAnnotationPropertiesPanelState
                 DropdownMenuItem(
                     value: style,
                     key: ValueKey('pdf-prop-line-type-${style.name}'),
-                    child: Text(style.label)),
+                    child: Text(pdfLineStyleLabel(context, style))),
             ],
             onChanged: (style) {
               if (style != null) _controller.restyleSelected(lineStyle: style);
@@ -909,7 +895,7 @@ class _PdfAnnotationPropertiesPanelState
             : pdfAnnotationIcon(annotation.subtype)),
         title: Text(annotation.isCallout
             ? pdfL10n(context).propCallout
-            : pdfAnnotationLabel(annotation.subtype)),
+            : pdfAnnotationLabel(context, annotation.subtype)),
         subtitle: Text(pdfL10n(context).propPageNumber(slot.$1 + 1)),
       ),
       ..._styleControls(),
@@ -983,7 +969,7 @@ class _PdfAnnotationPropertiesPanelState
       for (final annotation in annotations)
         annotation.isCallout
             ? pdfL10n(context).propCallout
-            : pdfAnnotationLabel(annotation.subtype),
+            : pdfAnnotationLabel(context, annotation.subtype),
     ]);
     final page = _common<int>([
       for (final (page, _) in _controller.selectedAnnotationSlots) page + 1,
