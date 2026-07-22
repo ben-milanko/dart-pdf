@@ -5,6 +5,7 @@ import 'dart:js_interop';
 import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
 import 'package:flutter/material.dart';
 import 'package:web/web.dart' as web;
 
@@ -18,7 +19,10 @@ final _minSpeedup = double.tryParse(
     ) ??
     1.10;
 
-void main() => runApp(const _BenchmarkApp());
+void main() {
+  registerBundledEditorAssets();
+  runApp(const _BenchmarkApp());
+}
 
 class _BenchmarkApp extends StatefulWidget {
   const _BenchmarkApp();

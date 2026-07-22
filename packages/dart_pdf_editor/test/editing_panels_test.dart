@@ -537,7 +537,7 @@ void main() {
             PdfAnnotationSidebar(
               controller: editing,
               viewerController: viewer,
-              side: PdfSidebarSide.left,
+              dock: PdfPanelDock.left,
             ),
             const Expanded(child: SizedBox()),
           ]),

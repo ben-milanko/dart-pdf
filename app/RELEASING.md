@@ -18,10 +18,28 @@ so platform build files don't hardcode versions.
 1. Bump `version:` in `app/pubspec.yaml`.
 2. Tag and push: `git tag app-v0.1.0 && git push origin app-v0.1.0`.
 3. `.github/workflows/release-app.yml` builds every platform and attaches the
-   artifacts to a **draft** GitHub Release. Review, then publish.
+   artifacts to a **draft** GitHub Release. Review, then publish - the in-app
+   update checker cannot see a draft.
+4. Write the store "What's New" text into
+   [`release-notes/`](release-notes/) (`<version>-stores.txt` for Play,
+   `<version>-appstore.txt` for both App Store platforms). See that
+   directory's README for the length caps and the Guideline 2.3.10 rule.
 
 You can also run the workflow manually (Actions → Release app → Run workflow)
 with a version input; that builds artifacts but only creates a Release on a tag.
+
+> **The CI artifacts are not store-uploadable.** The Android bundle is
+> debug-signed and the iOS build is unsigned; store builds are made locally
+> (`flutter build appbundle --release`, `flutter build ipa`, and an
+> `xcodebuild archive` + `-exportArchive` for macOS) and staged into
+> `app/build/releases/<version>/`.
+>
+> A local `flutter build appbundle --release` currently **fails** on
+> `:onnxruntime:checkReleaseAarMetadata` - the plugin pins
+> `compileSdkVersion 33` while a transitive `androidx.fragment` needs 34+.
+> CI works around this in `release-app.yml`'s `patch_gradle()` step, which
+> rewrites the hosted plugin Gradle files in `~/.pub-cache`; apply the same
+> patch locally before building.
 
 ## In-app update checker
 

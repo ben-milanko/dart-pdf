@@ -2,15 +2,207 @@
 
 ## Unreleased
 
+- The keyboard-shortcuts editor (Settings → Keyboard shortcuts…) now groups
+  tools under tool-category headers (Select, Draw, Shapes, Insert, Measure,
+  Edit) and adds a search box that filters by tool name or bound key. New
+  public `pdfEditToolGroupOf(PdfEditTool)`; `PdfEditToolGroup` moved to the
+  `tool_shortcuts` library (still exported, so no import change for callers).
+
+- **Breaking:** the six bundled editor fonts and the web render worker moved out
+  of this package into the optional
+  [`dart_pdf_editor_assets`](../dart_pdf_editor_assets) package, so viewer-only
+  apps no longer bundle their ~1.7 MB on every platform (#459). To keep the
+  historical full-featured behaviour, add that package and call
+  `registerBundledEditorAssets()` once at startup. Missing assets degrade
+  gracefully: the font menu drops its "bundled" group, composite-text fallback
+  is skipped, and web rendering falls back to the main thread.
+  `pdfBundledFonts` is now a mutable, empty-by-default registry (a
+  `PdfBundledFont` can also carry a `loadBytes` byte loader for
+  application-provided fonts), and `pdfRenderWorkerScriptUrl` defaults to null.
+- On web, if page rendering falls back to the main thread because no
+  render-worker script is configured, a one-time **debug-only** warning is now
+  logged pointing at `registerBundledEditorAssets()`, so an app that forgot to
+  opt into the worker asset notices the silent performance cliff. Release and
+  profile builds stay silent.
+
+## 2.1.0
+
+- Add a reflow reading view: lazy scrolling over the extracted text, in-view
+  navigation, a saved reading position, and a figure viewer (#380).
+- Expose progressive open on the reusable viewer widgets, so a host can render
+  a document as its bytes arrive rather than after the last one (#378).
+- Grid-cull region replay and size-gate hover hit-testing on dense pages, so a
+  CAD sheet's replay touches only the commands overlapping the region (#383),
+  and build the region-replay grid index on the render-worker isolate to keep
+  it off the UI thread (#389).
+- Scope tile invalidation to the pages it names: the ordering counter is now
+  separate from the staleness test, so invalidating one page no longer discards
+  in-flight tiles for every other page (#374).
+- Apply incremental revisions in place on the commit path instead of reopening
+  the document (#395).
+- Resolve the hovered page once per pointer event rather than once per hit-test
+  candidate (#403).
+- Let a page leave its sticky render worker when that worker is busier than
+  another active one, so a queued page is not held behind an unrelated backlog
+  (#456).
+- Fix a failed deep-zoom detail render stranding the full-image refinement, and
+  give each render its own vector-first detail completer so concurrent renders
+  cannot complete each other's futures (#420).
+- Add an unstable render-trace diagnostics entry point,
+  `package:dart_pdf_editor/perf_log.dart` (deliberately not exported from the
+  package entry, mirroring `package:pdf_cos/perf.dart`). `PdfPerfLog` gains a
+  `sink` so a host can route the trace into its own log, and the interpret
+  trace splits into wait/build and decode/replay phases (#454).
+
+- Make the viewer scroll-indicator API axis-aware: `PdfScrollMetrics` now
+  describes the viewer's **main layout axis** and carries an `Axis scrollAxis`
+  saying which. In `PdfPageLayout.horizontalContinuous`,
+  `PdfViewer.scrollIndicatorBuilder` replaces the stock bottom bar (not just
+  the right-edge bar in vertical layout), the metrics report the horizontal
+  position/extent/pixels, and `jumpToNormalized` moves along the horizontal
+  axis; the cross-axis (zoom-window) scrollbar is unchanged. Vertical behavior
+  is source-compatible (`scrollAxis` defaults to `Axis.vertical`) (#428).
+- Add X-strip transcript banding to bound retained memory on extreme-aspect
+  pages (`PdfBandedTranscript`): partition a page's `PdfRenderCommand`
+  transcript into N vertical strips along the horizontal pan axis, retain only
+  the strips overlapping the viewport, and re-materialize an evicted strip on
+  demand. `PdfRetainedScene` gains `bandTranscript`/`bands`/`reband`,
+  `dropRegionIndex`, and `debugUnitBandHistogram`; the viewer's memory-pressure
+  path now sheds retained-scene spatial metadata via
+  `PdfRetainedScene.handleMemoryPressure` (dropped indices rebuild identically,
+  evicted strips re-materialize, so there is no visual regression) (#385).
+
+## 2.0.0
+
+- **Breaking:** remove the pure style forwarders from `PdfEditingController`.
+  The ~19 tool-style properties that only mirrored `preferences`
+  (`strokeWidth`, `cornerRadius`, `eraserRadius`, `fontSize`, `textAlign`,
+  `opacity`, `lineStyle`, `lineScale`, `lineStartEnding`, `lineEndEnding`,
+  `textFillColor`, `textBorderColor`, `shapeFillColor`, `author`,
+  `stampDateFormat`, `stampTimeFormat`, `fingerDrawsInk`, `measurementScale`,
+  `signature`) are gone; read and write them through
+  `controller.preferences.<name>` instead. The setters that carried editing
+  side effects stay on the controller (`color` still recolours the active
+  stamp and honours the colour lock; `fontFamily` still clears the embedded
+  `activeFont`), as do the computed helpers (`dashedStroke`,
+  `hasMeasurementScale`) and every signature/measurement behaviour method
+  (`placeSignature`, `calibrateScale`, `measuredDistance`, …) (#317).
+- Expose a customizable viewer scroll indicator / page-scrubber API: a
+  read-only `PdfScrollMetrics` snapshot (page count, current page,
+  normalized position/extent, pixel offsets, zoom) via
+  `PdfViewerController.scrollMetrics`, page-aware commands
+  `jumpToNormalized` and `animateToPage` alongside the existing
+  `jumpToPage`, and a `PdfViewer.scrollIndicatorBuilder` that replaces the
+  built-in vertical scrollbar with a host widget (#326).
+- Add configurable page layouts to `PdfViewer`: the new `pageLayout`
+  parameter takes a `PdfPageLayout` - `verticalContinuous()` (the default,
+  top-to-bottom) or `horizontalContinuous()` (left-to-right, book-like
+  reading and wide documents). The horizontal layout keeps every viewer
+  behaviour along the new axis - virtualization, zoom/pan, current-page
+  tracking, search and destination navigation, text selection, overlays,
+  links, forms/annotation hit-testing, keyboard navigation, and mixed page
+  sizes (pages fit the viewport height and centre on the cross axis).
+  `PdfPageLayout` is a value type with named constructors so further layouts
+  (facing/two-page) can be added without changing the viewer's API.
+  `PdfReader` and `PdfEditorView` forward the option (#324).
+- Deep-zoom detail via a budgeted zoom-bucket tile pyramid (`PdfTileStore`),
+  now enabled by default on every platform: past the raster caps the viewer
+  renders and caches the visible slice at native resolution instead of
+  upscaling, with a budget-vs-demand guard against eviction thrash (#314).
+- Open local and remote files through the ranged `PdfByteSource` so the first
+  page paints before the whole file is read/downloaded (#359, #328).
+- Wire Sigstore/Fulcio keyless and one-tap self-signed signing into the editor,
+  including the "Create signing identity" UI and secure key storage (#322).
+- Introduce `PdfEditToolBehavior` as the single source of tool identity, and
+  collapse `PdfViewer`'s separate `document` + editing inputs into one revision
+  source (#311, #319).
+- Draggable, dockable side panels (any edge, side-by-side or tab groups, with a
+  saved layout) and an F12 developer-tools overlay (#362, #360).
+- Annotation list gains a hover more-menu and ctrl/shift multi-select (#350),
+  and the toolbar font chip shows the real embedded face (#348).
+
+## 1.4.7
+
+- Print through each platform's native print system: the Dart engine
+  renders every page itself and streams it to the OS (Windows, macOS,
+  iOS, Android, Linux) or the browser, replacing the `printing` plugin
+  and its bundled PDFium so broken-but-renderable documents no longer
+  crash on print. `rasterizePdfForPrinting` and `printPdfBytes` back the
+  path (#291).
+- Add page copy/cut/paste to the thumbnail strip and grid, shared across
+  document tabs via a process-wide `PdfPageClipboard`: controller gains
+  `copyPages`/`cutPages`/`pastePages` (and the `*SelectedPages` variants),
+  wired into the context menu, bulk-selection bar, header menu, and
+  Cmd/Ctrl+C/X/V (#299).
+- Round the corners of rectangle (/Square) shapes: a rectangle-only
+  "Corner radius" slider in the tune popup, applied at creation and
+  restylable on a selected rectangle (`restyleSelected(cornerRadius:)`,
+  `canRoundSelectedCorners`, `selectedCornerRadius`) (#297).
+- Separate line thickness from pattern scale: a "Pattern scale" slider
+  (0.5x–4x) sizes dash lengths and cloud scallops independently of the
+  pen width (`restyleSelected(scale:)`, `selectedLineScale`), so a thin
+  outline can carry big puffs or a heavy line tight dashes (#300).
+- Add and remove /PolyLine and /Polygon vertices from the context menu
+  (Add node / Remove node), splicing into the nearest edge or dropping
+  the nearest vertex — `addSelectedVertexAt`, `removeSelectedVertexNear`,
+  `canAddSelectedVertex`, `canRemoveSelectedVertex` (#288).
+- Recolour pasted vector snapshots from the annotation context menu
+  ("Recolour…"): retints the captured Form XObject to a single ink
+  without touching geometry — `recolorSnapshotSelected`,
+  `canRecolorSnapshotSelected` (#301).
+- Add a swatch grid to the annotation colour picker below the value row:
+  a fixed palette plus recently-chosen colours (persisted, capped at 18)
+  and the colours already used in the open document
+  (`documentAnnotationColors`), via `pickEditingColor` (#292).
 - Shapes and revision clouds: add an "Outline" colour row to the tune popup,
   next to "Fill", so a cloud's stroke colour can be picked from the tune menu
   (not just the toolbar swatches) — armed or with the shape selected.
+- Curl revision-cloud scallops inward with a trailing-foot lean so each
+  puff rolls one way into the hand-drawn Bluebeam/Acrobat look, matched in
+  the live editor preview (#295).
+- Fill cloudy /Polygon annotations to the scalloped cloud edges instead
+  of only to the straight vertex polygon, mirrored in the live preview so
+  no unfilled crescent shows under each row of puffs (#287).
+- Preview a 'TEXT' placeholder while hovering the text-stamp tool so the
+  click target is visible even when no custom stamp is active (#293).
+- Make the custom-stamp template composer use the on-page overlay's
+  touch interaction: a GestureDetector with touch slop and eight
+  corner/edge handles, so tap-to-select no longer nudges the component
+  and resizing grabs a forgiving target (#304).
+- Let the style sliders' numeric readouts accept a wider typed range than
+  the slider scale can reach (`PdfSliderValueField` fieldMin/fieldMax;
+  point/size values up to `kPdfTypedSizeMax` = 1000, opacity a true
+  0–100%, line spacing 0.1–100x) (#302).
+- Fix Ctrl/⌘+S doing nothing on a brand-new untitled document with no
+  edits yet: `PdfEditorView.alwaysAllowSave` keeps Save enabled so the
+  first save routes to Save As (#294).
+- Nudge the selected annotation(s) with the arrow keys — 1 pt per press,
+  10 pt with Shift — translating the move through the page's /Rotate so a
+  key always slides the annotation the way it points on screen. A bare
+  arrow still scrolls the page when nothing is selected.
 - Bound the render worker's page-record cache by entry count, not only by
   decoded-image bytes: image-free and vector-first records weigh zero, so on a
   long scroll they used to accumulate one (or more) per page for the life of
   the worker with no limit (issue #283). The cache now caps retained records
   (`pdfRenderWorkerCacheMaxEntries`, default 64), so a long document's memory
   no longer grows unbounded in the page count.
+- Bound the viewer's four per-page maps (text, annotations, visible
+  annotations, form-field rects) by entry count via the new LRU
+  `PdfPageObjectCache` (`pdfViewerPageObjectCacheMaxEntries`, default
+  128), so revisiting pages still hits but retention no longer grows one
+  entry per page visited for the life of the viewer (issue #283).
+- Size the decoded-image cache budget per platform (`PdfImageCache`
+  default 256 MB desktop, 128 MB mobile/web, 64 MB on a ≤2 GB browser
+  device), measured against the corpus, and clear the image + preview
+  caches on `didHaveMemoryPressure` (#284, issue #281).
+- Unify per-page render timings into one `PdfRenderTrace` value type that
+  both isolates fill (worker parse/interpret/serialize; main isolate
+  transfer/deserialize/replay/rasterize), surfaced via
+  `PdfRenderTrace.captureOffThread` and `PdfRenderWorker.lastRenderTrace`
+  (free unless `PdfPerfLog` is on). Adds `PdfRenderPhaseBudget` and a
+  default-on render-trace gate test guarding against per-phase
+  regressions; `PdfWorkerPhaseTimings` is now an alias of the new type
+  (#321).
 - Free-text boxes: add line spacing, character spacing, font width
   (horizontal scaling), and underline controls (tune popup + properties
   panel), with an inline underline toggle and Cmd/Ctrl+U shortcut.

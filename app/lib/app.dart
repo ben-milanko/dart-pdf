@@ -1,10 +1,14 @@
 import 'dart:async';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import 'devtools.dart';
 import 'editor_screen.dart';
+import 'l10n/app_localizations.dart';
+import 'oidc_signin.dart';
 import 'platform_fonts.dart';
 
 /// The DartPDF application. Owns the device-local UI preferences so
@@ -24,9 +28,20 @@ class DartPdfEditorApp extends StatefulWidget {
 class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
   final _prefs = PdfEditingPreferences();
 
+  // Reuse a Sigstore login across Digitally sign dialogs: cache the id_token,
+  // refresh it silently when it expires, and only sign in via the browser when
+  // there's nothing to reuse. Off the web only (loopback needs a local server).
+  final _oidcTokenProvider = kIsWeb ? null : SigstoreSignInManager();
+
   @override
   void initState() {
     super.initState();
+    // Register the optional bundled editor fonts + web render worker so the app
+    // keeps the full-featured editor. A viewer-only app would drop the
+    // dart_pdf_editor_assets dependency and this call to save the ~1.7 MB.
+    registerBundledEditorAssets();
+    // Log/frame-timing capture for the F12 developer tools.
+    if (kDevToolsEnabled) AppDevTools.instance.install();
     // A small pool gives heavy CAD/image pages real overlap without multiplying
     // document memory too far. Mobile-class targets get a lower default; the
     // perf harness is allowed to be more aggressive.
@@ -37,6 +52,34 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
         2,
       _ => 3,
     };
+    // Warm the render worker now, before any document is opened: on the web this
+    // fetches, compiles, and boots the ~1 MB worker script (~1.45 s on a phone,
+    // #450) so that cost overlaps the user choosing a file instead of blocking
+    // the first render. A later open adopts the pre-booted worker and only hands
+    // off the document. No-op off-web (isolate spawn is cheap).
+    PdfRenderWorker.prewarm(count: pdfRenderWorkerPoolSize);
+    // Proactive process-level ceiling across the viewer's budgeted caches
+    // (decoded images 256 MB + render records + previews + thumbnails + tiles
+    // can sum past 600 MB, and desktop OSes deliver the memory-pressure signal
+    // that used to be the only trim too late, if at all - see the 2026-07-18
+    // memory audit). The split between the ceiling and the per-cache budgets
+    // is heuristic pending a re-run of benchmark_image_cache_budget_test.
+    PdfCacheRegistry.instance.maxTotalWeight = switch (defaultTargetPlatform) {
+      TargetPlatform.android ||
+      TargetPlatform.iOS ||
+      TargetPlatform.fuchsia =>
+        192 << 20,
+      _ => 384 << 20,
+    };
+    // Cross-page ceiling over the base rasters, detail patches, and retained-
+    // scene images the live pages in the scroll cacheExtent hold at once - the
+    // additive-per-page memory #405 measured. Farther-from-viewport pages are
+    // reclaimed first when the sum exceeds this; the on-screen page and its
+    // neighbours always fit.
+    PdfLiveRasterBudget.instance.maxBytes = pdfDefaultLiveRasterBudgetBytes();
+    // Persisted devtools options (deep-zoom mode, overlays, worker count)
+    // override the defaults above once loaded.
+    if (kDevToolsEnabled) unawaited(AppDevTools.instance.restoreOptions());
     // Offer the host's installed fonts in the editor's font menu by default.
     // Fire-and-forget: the registry is read when a font menu opens, and an
     // empty result (web, or a locked-down platform) just leaves the base-14,
@@ -47,8 +90,10 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
   Future<void> _loadPlatformFonts() async {
     try {
       pdfPlatformFonts = await loadPlatformFonts();
-    } catch (_) {
+    } catch (e) {
       // Font discovery is best-effort; the menu degrades to its other choices.
+      AppDevTools.instance
+          .addLog('platform font discovery failed: $e', level: DevLogLevel.error);
     }
   }
 
@@ -61,9 +106,17 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: _prefs,
+      listenable: Listenable.merge(
+          [_prefs, AppDevTools.instance.showPerformanceOverlay]),
       builder: (context, _) => MaterialApp(
         title: 'DartPDF',
+        localizationsDelegates: const [
+          ...AppLocalizations.localizationsDelegates,
+          DartPdfEditorLocalizations.delegate,
+        ],
+        supportedLocales: AppLocalizations.supportedLocales,
+        showPerformanceOverlay:
+            AppDevTools.instance.showPerformanceOverlay.value,
         theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
         darkTheme: ThemeData(
           colorSchemeSeed: Colors.indigo,
@@ -75,6 +128,15 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
           prefs: _prefs,
           launchArgs: widget.launchArgs,
           autoCheckUpdates: true,
+          // Keyless signing via Sigstore's public OAuth broker. Loopback
+          // capture needs a local server, so it's offered off the web only.
+          // A still-valid login is reused rather than re-prompting each time.
+          oidcTokenProvider: _oidcTokenProvider?.call,
+          // Silent source for pre-selecting keyless on open: it never opens
+          // the browser (returns null when interactive sign-in would be needed).
+          oidcSilentTokenProvider: _oidcTokenProvider == null
+              ? null
+              : (context) => _oidcTokenProvider.silentToken(),
         ),
       ),
     );

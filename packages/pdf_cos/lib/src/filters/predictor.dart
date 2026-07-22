@@ -35,34 +35,45 @@ Uint8List applyPredictor(Uint8List data, CosDictionary? params) {
   }
 
   // PNG predictors (10..15): every row is prefixed with a filter-type byte.
+  // The filter type is constant across a row, so dispatch once per row into a
+  // specialised loop rather than branching per byte. Filter 0 (None) is a
+  // straight copy.
   final rowCount = data.length ~/ (bytesPerRow + 1);
   final out = Uint8List(rowCount * bytesPerRow);
   final prior = Uint8List(bytesPerRow);
   var inPos = 0;
   var outPos = 0;
+  final bpp = bytesPerPixel;
   for (var r = 0; r < rowCount; r++) {
     final filter = data[inPos++];
-    for (var i = 0; i < bytesPerRow; i++) {
-      final raw = data[inPos + i];
-      final left = i >= bytesPerPixel ? out[outPos + i - bytesPerPixel] : 0;
-      final up = prior[i];
-      final upLeft = i >= bytesPerPixel ? prior[i - bytesPerPixel] : 0;
-      final int value;
-      switch (filter) {
-        case 0:
-          value = raw;
-        case 1:
-          value = raw + left;
-        case 2:
-          value = raw + up;
-        case 3:
-          value = raw + ((left + up) >> 1);
-        case 4:
-          value = raw + _paeth(left, up, upLeft);
-        default:
-          throw CosParseException('invalid PNG predictor filter byte $filter');
-      }
-      out[outPos + i] = value & 0xFF;
+    switch (filter) {
+      case 0: // None
+        out.setRange(outPos, outPos + bytesPerRow, data, inPos);
+      case 1: // Sub
+        for (var i = 0; i < bpp; i++) {
+          out[outPos + i] = data[inPos + i] & 0xFF;
+        }
+        for (var i = bpp; i < bytesPerRow; i++) {
+          out[outPos + i] = (data[inPos + i] + out[outPos + i - bpp]) & 0xFF;
+        }
+      case 2: // Up
+        for (var i = 0; i < bytesPerRow; i++) {
+          out[outPos + i] = (data[inPos + i] + prior[i]) & 0xFF;
+        }
+      case 3: // Average
+        for (var i = 0; i < bytesPerRow; i++) {
+          final left = i >= bpp ? out[outPos + i - bpp] : 0;
+          out[outPos + i] = (data[inPos + i] + ((left + prior[i]) >> 1)) & 0xFF;
+        }
+      case 4: // Paeth
+        for (var i = 0; i < bytesPerRow; i++) {
+          final left = i >= bpp ? out[outPos + i - bpp] : 0;
+          final upLeft = i >= bpp ? prior[i - bpp] : 0;
+          out[outPos + i] =
+              (data[inPos + i] + _paeth(left, prior[i], upLeft)) & 0xFF;
+        }
+      default:
+        throw CosParseException('invalid PNG predictor filter byte $filter');
     }
     inPos += bytesPerRow;
     prior.setRange(0, bytesPerRow, out, outPos);

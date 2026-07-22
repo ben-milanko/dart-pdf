@@ -6,6 +6,7 @@ import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import 'budgeted_cache.dart';
 import 'image_decoder.dart';
 
 /// Paints interpreter callbacks onto a Flutter [Canvas].
@@ -16,9 +17,42 @@ import 'image_decoder.dart';
 /// engine produces real glyph outlines. Images must be pre-decoded into
 /// [images] (painting is synchronous).
 class CanvasPdfDevice implements PdfDevice {
-  CanvasPdfDevice(this.canvas, {this.images = const {}});
+  CanvasPdfDevice(this.canvas,
+      {this.images = const {}, this.pixelRatio = 1});
 
   final Canvas canvas;
+
+  /// Device pixels per page unit at the scale this device is painting for.
+  ///
+  /// Only used to floor stroke widths at one device pixel (see
+  /// [_strokeWidthFor]). 1 is the identity assumption for a picture recorded
+  /// without a known target scale.
+  final double pixelRatio;
+
+  /// Stroke width to paint, never thinner than one device pixel.
+  ///
+  /// Skia paints a stroke narrower than a pixel as a one-pixel line with its
+  /// **alpha scaled down** by the sub-pixel width, rather than as a true
+  /// sub-pixel band. Faithful to Skia, but not to the page: CAD and schematic
+  /// producers emit 0.06 pt / 0.12 pt lines meaning "hairline", and those came
+  /// out at ~6% and ~12% opacity - the pale, washed-out linework this floor
+  /// fixes. Reference viewers paint them as solid one-pixel lines.
+  ///
+  /// A width of 0 arrives here unchanged from the interpreter and is floored
+  /// the same way, which is PDF 32000-1 8.4.3.2's "thinnest line that can be
+  /// rendered at device resolution: 1 device pixel" - and, unlike the old
+  /// user-space resolution, it stays one pixel at every zoom.
+  @visibleForTesting
+  double strokeWidthFor(double width) {
+    if (pixelRatio <= 0) return width;
+    // 0 is Skia's hairline: exactly one device pixel at *any* canvas
+    // transform, at full alpha. That matters because a recorded picture is
+    // replayed at several ratios (base raster, deep-zoom detail patch,
+    // retained scene), so a page-space floor baked at record time would be
+    // right for one of them and too thick for the rest. A hairline is correct
+    // for all of them.
+    return width * pixelRatio < 1 ? 0 : width;
+  }
 
   /// Decoded images keyed by [pdfImageKey] — stream identity for XObjects,
   /// value identity for inline images.
@@ -27,8 +61,17 @@ class CanvasPdfDevice implements PdfDevice {
   /// Process-wide cache of laid-out substituted-text painters. Shaping is the
   /// dominant paint-pass cost and the same runs recur across pages and
   /// re-renders, so this is shared by every render (like the decoded-image
-  /// cache). Clear it under memory pressure with [clearTextLayoutCache].
-  static final _textCache = _TextLayoutCache();
+  /// cache). Keyed by (text, font, colour); bounded by entry count, evicting
+  /// the least-recently-used layout and disposing its painter. Registered with
+  /// [PdfCacheRegistry] so a memory-pressure signal reaches it too (it used to
+  /// be deaf to pressure); [clearTextLayoutCache] drops it on demand.
+  static final PdfBudgetedCache<String, _TextLayout> _textCache =
+      PdfBudgetedCache<String, _TextLayout>(
+    maxEntries: 2048,
+    disposer: (layout) => layout.painter.dispose(),
+    clearsUnderMemoryPressure: true,
+    debugLabel: 'text-layout',
+  );
 
   /// Em-space [ui.Path] per embedded-glyph outline, keyed by outline identity.
   /// An [Expando] ties each entry to its [PdfPath]'s lifetime (the font's own
@@ -347,7 +390,7 @@ class CanvasPdfDevice implements PdfDevice {
       return Paint()
         ..style = PaintingStyle.stroke
         ..color = _toColor(color, alpha)
-        ..strokeWidth = stroke.width
+        ..strokeWidth = strokeWidthFor(stroke.width)
         ..strokeCap = switch (stroke.cap) {
           1 => StrokeCap.round,
           2 => StrokeCap.square,
@@ -381,7 +424,7 @@ class CanvasPdfDevice implements PdfDevice {
     return _strokePaint = Paint()
       ..style = PaintingStyle.stroke
       ..color = _toColor(color, alpha)
-      ..strokeWidth = stroke.width
+      ..strokeWidth = strokeWidthFor(stroke.width)
       ..strokeCap = switch (stroke.cap) {
         1 => StrokeCap.round,
         2 => StrokeCap.square,
@@ -599,7 +642,7 @@ class CanvasPdfDevice implements PdfDevice {
     final c = run.color;
     final key = '${run.text} ${run.fontName ?? ''} '
         '${c.red},${c.green},${c.blue}';
-    return _textCache.get(key, () {
+    return _textCache.getOrAdd(key, () {
       final painter = TextPainter(
         text: TextSpan(text: run.text, style: _styleFor(run, foreground: null)),
         textDirection: TextDirection.ltr,
@@ -747,10 +790,13 @@ class CanvasPdfDevice implements PdfDevice {
   ];
 
   static const _defaultFontFallbacks = [
-    // Shipped with dart_pdf_editor, so Arabic (including presentation forms
+    // Shipped in the optional dart_pdf_editor_assets package (registered by
+    // registerBundledEditorAssets), so Arabic (including presentation forms
     // copied from shaped PDFs), Hebrew, Greek and Cyrillic render consistently
-    // even when the host's Helvetica substitute has no suitable fallback.
-    'packages/dart_pdf_editor/DejaVu Sans',
+    // even when the host's Helvetica substitute has no suitable fallback. When
+    // that package isn't present this family simply isn't registered and the
+    // later candidates apply.
+    'packages/dart_pdf_editor_assets/DejaVu Sans',
     // The unprefixed family is used when this package itself is the Flutter
     // application under test, and by hosts that register DejaVu system-wide.
     'DejaVu Sans',
@@ -875,34 +921,3 @@ class _TextLayout {
   final double baseline;
 }
 
-/// Bounded LRU over [_TextLayout], keyed by a (text, font, colour) string.
-/// Insertion order is the LRU order; a hit re-inserts to mark it most-recent.
-class _TextLayoutCache {
-  static const _maxEntries = 2048;
-  final _entries = <String, _TextLayout>{};
-
-  /// Returns the cached layout for [key], building (and caching) it with
-  /// [build] on a miss. Evicts the least-recently-used entries past the cap.
-  _TextLayout get(String key, _TextLayout Function() build) {
-    final hit = _entries.remove(key);
-    if (hit != null) {
-      _entries[key] = hit; // touch → most-recently-used
-      return hit;
-    }
-    final created = build();
-    _entries[key] = created;
-    while (_entries.length > _maxEntries) {
-      _entries.remove(_entries.keys.first)!.painter.dispose();
-    }
-    return created;
-  }
-
-  void clear() {
-    for (final entry in _entries.values) {
-      entry.painter.dispose();
-    }
-    _entries.clear();
-  }
-
-  int get length => _entries.length;
-}

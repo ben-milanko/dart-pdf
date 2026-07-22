@@ -24,20 +24,18 @@ jobs:
       # header and dart.dev/go/downgrade-testing.
       - name: Check lockstep dependency lower bounds
         run: dart run tool/check_lockstep_constraints.dart
-      # Compile the web render worker. `dart analyze` does NOT catch
-      # `.toJS`-conversion errors (e.g. an async/Future-returning message
-      # handler), which only surface at `dart compile js` - the step the deploy
-      # workflows run. Also require the checked-in package asset to match the
-      # current source so pub.dev cannot ship a stale worker.
-      - name: Verify bundled web render worker
-        run: |
-          dart run dart_pdf_editor:build_web_worker \
-            --out /tmp/pdf_render_worker.dart.js
-          cmp -s /tmp/pdf_render_worker.dart.js \
-            packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js || {
-              echo "::error::Bundled web worker is stale; run app/tool/build_web.sh."
-              exit 1
-            }
+      # Deterministic perf counter gate: structural work counters (objects
+      # loaded, bytes decoded, content ops, ...) over fixed inputs vs the
+      # committed baseline. No wall time, so a noisy shared runner cannot
+      # flake it. Re-baseline deliberately with
+      # `tool/perf.sh gate --update-baseline`.
+      - name: Perf counter gate
+        working-directory: packages/pdf_graphics
+        run: dart run tool/perf_count_gate.dart
+      # Prove the PdfPerf facade's kill switch still dead-code-eliminates:
+      # -DPDF_PERF=false must strip the marker from compiled JS.
+      - name: Perf facade DCE check
+        run: tool/check_perf_dce.sh
       - name: Activate coverage tool
         run: dart pub global activate coverage
 
@@ -118,3 +116,35 @@ jobs:
           flags: app
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+
+  # Keep the checked-in web render worker bundle in sync with source. The bundle
+  # (`packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js`) is a
+  # `dart compile js` output that links most of the stack, so almost any change
+  # can make it stale - and it must stay in git because it ships in the pub.dev
+  # package and a fresh clone-and-run needs it. This job compiles it (which also
+  # catches `.toJS`-conversion errors `dart analyze` misses) and, on a same-repo
+  # PR, regenerates and pushes it instead of failing; forks and push events fall
+  # back to verify-and-fail. See issue #411 and tool/ci/regen_web_worker.sh.
+  worker-bundle:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history + credentials so the script can move onto the PR head
+          # branch and push the regenerated bundle.
+          fetch-depth: 0
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.4
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Regenerate bundled web render worker
+        env:
+          ASSET: packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
+          EVENT_NAME: ${{ github.event_name }}
+          IS_SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: bash tool/ci/regen_web_worker.sh

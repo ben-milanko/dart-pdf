@@ -57,7 +57,13 @@ void main() {
 
     await tester.tap(find.byTooltip('DartPDF menu'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('menu-export-image')));
+    // With a document open the menu is tall; on the default 600px-high test
+    // window the Export item lands at/below the fold, so a plain tap misses it
+    // (hits the scrim) and onSelected never fires. Scroll it into view first.
+    final exportItem = find.byKey(const ValueKey('menu-export-image'));
+    await tester.ensureVisible(exportItem);
+    await tester.pumpAndSettle();
+    await tester.tap(exportItem);
     await tester.pumpAndSettle();
 
     expect(find.text('Export page as image'), findsOneWidget);

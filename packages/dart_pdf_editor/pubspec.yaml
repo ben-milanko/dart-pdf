@@ -2,7 +2,7 @@ name: dart_pdf_editor
 description: >-
   Flutter PDF viewer and editor for Dart: native rendering, text selection,
   search, annotations, forms, signatures, page editing, and document comparison.
-version: 1.4.6
+version: 2.1.0
 repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/dart_pdf_editor
 issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
 topics:
@@ -20,10 +20,22 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  # ICU message formatting (plurals/select/dates) for the shipped
+  # localizations; see lib/l10n/.
+  intl: ^0.20.2
+  # Keychain/Keystore-backed persistence for signing identities
+  # (SecureIdentityStore); the private key never touches shared_preferences.
+  flutter_secure_storage: ^10.3.1
+  # Cross-platform HTTP client (VM + web via fetch) for the progressive remote
+  # PDF byte source (PdfHttpByteSource); uses Range requests, no dart:io in our
+  # code. See src/http_byte_source.dart.
+  http: ^1.2.0
   image: ^4.9.1
-  pdf_cos: ^1.4.6
-  pdf_document: ^1.4.6
-  pdf_graphics: ^1.4.6
+  pdf_cos: ^2.1.0
+  pdf_document: ^2.1.0
+  pdf_graphics: ^2.1.0
   shared_preferences: ^2.3.0
   # Opens hyperlink (/URI) actions the viewer follows itself; see
   # PdfViewer.onLaunchUrl. Web-safe, no dart:io.
@@ -33,7 +45,7 @@ dependencies:
   web: ^1.1.0
 
 dev_dependencies:
-  pdf_test_fixtures: ^1.4.0
+  pdf_test_fixtures: '>=1.4.0 <3.0.0'
   flutter_lints: ^6.0.0
   flutter_test:
     sdk: flutter
@@ -43,41 +55,20 @@ dev_dependencies:
   url_launcher_platform_interface: ^2.3.2
 
 flutter:
-  # Bundled fonts offered by the font menu. DejaVu is a permissive
-  # Bitstream Vera / Arev licence; Fira Sans, Spectral and Lobster are
-  # SIL Open Font Licence - see the *-LICENSE.txt files in assets/fonts/.
+  generate: true
+  # The editor fonts and the prebuilt web render worker are NOT declared here.
+  # They live in the optional companion package `dart_pdf_editor_assets`, so a
+  # viewer-only app never bundles their ~1.7 MB: Flutter includes a package's
+  # declared assets on every build target, so keeping them in a separate
+  # package is the only way to make them opt-in. Depend on that package and call
+  # `registerBundledEditorAssets()` to restore the full-featured defaults.
+  #
   # Runtime fragment shaders for the sparse-strip render device (see
-  # doc/dev-log). flutter_tools compiles these per target; keep them
-  # inside the SkSL-safe subset (no dynamic loop bounds, bit ops,
+  # doc/dev-log) stay here - they are core to rendering, tiny, and not part of
+  # the optional editor asset story. flutter_tools compiles these per target;
+  # keep them inside the SkSL-safe subset (no dynamic loop bounds, bit ops,
   # texelFetch).
   shaders:
     - shaders/pdf_probe.frag
     - shaders/pdf_strips.frag
     - shaders/pdf_slug.frag
-  assets:
-    - assets/web/pdf_render_worker.dart.js
-    - assets/fonts/DejaVuSans.ttf
-    - assets/fonts/DejaVuSerif.ttf
-    - assets/fonts/DejaVuSansMono.ttf
-    - assets/fonts/FiraSans-Regular.ttf
-    - assets/fonts/Spectral-Regular.ttf
-    - assets/fonts/Lobster-Regular.ttf
-  fonts:
-    - family: DejaVu Sans
-      fonts:
-        - asset: assets/fonts/DejaVuSans.ttf
-    - family: DejaVu Serif
-      fonts:
-        - asset: assets/fonts/DejaVuSerif.ttf
-    - family: DejaVu Sans Mono
-      fonts:
-        - asset: assets/fonts/DejaVuSansMono.ttf
-    - family: Fira Sans
-      fonts:
-        - asset: assets/fonts/FiraSans-Regular.ttf
-    - family: Spectral
-      fonts:
-        - asset: assets/fonts/Spectral-Regular.ttf
-    - family: Lobster
-      fonts:
-        - asset: assets/fonts/Lobster-Regular.ttf

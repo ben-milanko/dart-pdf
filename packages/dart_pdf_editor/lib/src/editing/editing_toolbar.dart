@@ -6,6 +6,7 @@ import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:pdf_document/pdf_document.dart'
     show
         PdfAlignment,
+        PdfEmbeddedFont,
         PdfFieldType,
         PdfFormField,
         PdfLineEnding,
@@ -13,9 +14,10 @@ import 'package:pdf_document/pdf_document.dart'
         PdfTextAlign,
         PdfTextFont;
 
+import '../l10n/pdf_l10n.dart';
 import '../pdf_viewer.dart';
 import '../toast.dart';
-import 'editing_color_picker.dart';
+import 'editing_color_pick.dart';
 import 'editing_color_processing.dart';
 import 'editing_controller.dart';
 import 'editing_font_controls.dart';
@@ -27,6 +29,7 @@ import 'editing_takeoff.dart';
 import 'line_style.dart';
 import 'editing_signature.dart';
 import 'editing_stamps.dart';
+import 'editing_tool_behavior.dart';
 import 'text_prompt.dart';
 import 'text_style_prompt.dart';
 import 'tool_shortcuts.dart';
@@ -37,36 +40,6 @@ typedef PdfEditingToolbarWidgetBuilder = Widget Function(
   PdfEditingController controller,
   PdfViewerController viewerController,
 );
-
-/// A tool *type* - one dock group in [PdfEditingToolbar]. Pass a subset
-/// to [PdfEditingToolbar.groups] (or [PdfEditorFeatures.toolGroups]) to
-/// hide whole groups: e.g. `{PdfEditToolGroup.select,
-/// PdfEditToolGroup.markup}` shows only the Select and Markup groups.
-///
-/// This is the coarse axis. The finer [PdfEditingToolbar.tools] hides
-/// individual tools *within* the groups that survive this filter.
-enum PdfEditToolGroup {
-  /// Select / move / resize existing annotations.
-  select,
-
-  /// Text-markup actions (highlight, underline, strike out, squiggly).
-  markup,
-
-  /// Freehand drawing, freehand highlight, and the ink eraser.
-  draw,
-
-  /// Rectangle, ellipse, line, arrow, polyline, polygon.
-  shapes,
-
-  /// Text box, note, stamp, image, signature.
-  insert,
-
-  /// Distance, perimeter and area measurement.
-  measure,
-
-  /// Page content, form fields and redaction.
-  edit,
-}
 
 /// A ready-made toolbar for [PdfEditingController].
 ///
@@ -375,6 +348,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
               'Image - tap to place, or drag out a box'),
           _GroupTool.tool(PdfEditTool.signature, Icons.history_edu,
               'Signature - tap a page to place it'),
+          _GroupTool.tool(PdfEditTool.signatureBox, Icons.draw_outlined,
+              'Digital signature - drag a box to place and sign'),
         ],
         defaultTool: PdfEditTool.freeText),
     _ToolGroup('measure', 'Measure', Icons.straighten, [
@@ -543,15 +518,15 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final messenger = ScaffoldMessenger.maybeOf(context);
     final scale = await showPdfScaleDialog(
       context,
-      initial: controller.measurementScale,
+      initial: controller.preferences.measurementScale,
       onCalibrate: () {
         controller.tool = PdfEditTool.calibrate;
-        messenger?.showSnackBar(const SnackBar(
-          content: Text('Draw a line of known length to calibrate the scale.'),
+        messenger?.showSnackBar(SnackBar(
+          content: Text(pdfL10n(context).tbCalibrateScaleHint),
         ));
       },
     );
-    if (scale != null) controller.measurementScale = scale;
+    if (scale != null) controller.preferences.measurementScale = scale;
   }
 
   Future<void> _armMeasureTool(BuildContext context, PdfEditTool tool) async {
@@ -571,7 +546,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       controller.tool = PdfEditTool.select;
       return;
     }
-    if (controller.signature == null && !await _drawSignature(context)) {
+    if (controller.preferences.signature == null && !await _drawSignature(context)) {
       return;
     }
     _toggleTool(PdfEditTool.signature);
@@ -580,7 +555,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   Future<bool> _drawSignature(BuildContext context) async {
     final signature = await showPdfSignatureDialog(context);
     if (signature == null) return false;
-    controller.signature = signature;
+    controller.preferences.signature = signature;
     // the signature follows the selected colour, so seed it with the ink
     // the user just drew in - they can recolour it from the toolbar after
     controller.color = Color(0xFF000000 | signature.color);
@@ -606,7 +581,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     if (element == null) return;
     final text = await widget.textPrompt(
       context,
-      title: 'Replace text',
+      title: pdfL10n(context).tbReplaceText,
       initial: element.text ?? '',
       multiline: false,
     );
@@ -657,7 +632,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     if (element == null) return;
     final text = await widget.textPrompt(
       context,
-      title: 'Reflow paragraph',
+      title: pdfL10n(context).tbReflowParagraph,
       initial: element.text ?? '',
       multiline: true,
     );
@@ -667,9 +642,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       ScaffoldMessenger.maybeOf(context)
         ?..clearSnackBars()
         ..showSnackBar(SnackBar(
-          content: const Text(
-              "Couldn't reflow - this isn't a single-column paragraph this "
-              'tool can re-wrap. Try Replace text instead.'),
+          content: Text(pdfL10n(context).tbReflowFailed),
           behavior: SnackBarBehavior.floating,
           margin: pdfFloatingToastMargin(context),
         ));
@@ -688,7 +661,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         ScaffoldMessenger.maybeOf(context)
           ?..clearSnackBars()
           ..showSnackBar(SnackBar(
-            content: const Text("Couldn't replace image"),
+            content: Text(pdfL10n(context).tbReplaceImageFailed),
             behavior: SnackBarBehavior.floating,
             margin: pdfFloatingToastMargin(context),
           ));
@@ -716,8 +689,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     _flattenToast(
       context,
       flattened
-          ? 'Annotations flattened into the pages'
-          : 'No annotations to flatten',
+          ? pdfL10n(context).tbAnnotationsFlattened
+          : pdfL10n(context).tbNoAnnotationsToFlatten,
       undoable: flattened,
     );
   }
@@ -727,8 +700,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     _flattenToast(
       context,
       flattened
-          ? 'Form fields flattened into the pages'
-          : 'No form fields to flatten',
+          ? pdfL10n(context).tbFormFieldsFlattened
+          : pdfL10n(context).tbNoFormFieldsToFlatten,
       undoable: flattened,
     );
   }
@@ -759,7 +732,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       case PdfFieldType.text:
         final value = await widget.textPrompt(
           context,
-          title: 'Field value',
+          title: pdfL10n(context).tbFieldValue,
           initial: field.value ?? '',
           multiline: field.isMultiline,
         );
@@ -810,7 +783,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     if (name == null) return;
     final renamed = await widget.textPrompt(
       context,
-      title: 'Field name',
+      title: pdfL10n(context).tbFieldName,
       initial: name,
     );
     if (renamed == null || renamed.isEmpty || renamed == name) return;
@@ -873,7 +846,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       IconButton(
         key: const ValueKey('pdf-selected-form-rename'),
         icon: const Icon(Icons.drive_file_rename_outline),
-        tooltip: 'Rename field',
+        tooltip: pdfL10n(context).tbRenameField,
         onPressed: () => _renameSelectedFormField(context),
       ),
       PdfSelectedFormFieldTypeMenu(
@@ -884,14 +857,14 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       IconButton(
         key: const ValueKey('pdf-selected-form-delete'),
         icon: const Icon(Icons.delete_outline),
-        tooltip: 'Delete field',
+        tooltip: pdfL10n(context).tbDeleteField,
         onPressed: controller.deleteSelected,
       ),
       if (widget.showFlatten)
         IconButton(
           key: const ValueKey('pdf-selected-form-flatten'),
           icon: const Icon(Icons.layers_clear_outlined),
-          tooltip: 'Flatten form - bake values into the pages',
+          tooltip: pdfL10n(context).tbFlattenFormBakeValues,
           onPressed: () => _flattenForm(context),
         ),
     ];
@@ -908,7 +881,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     return [
       PopupMenuButton<_SelectedFormOverflowAction>(
         key: const ValueKey('pdf-selected-form-more'),
-        tooltip: 'Field actions',
+        tooltip: pdfL10n(context).tbFieldActions,
         icon: const Icon(Icons.dynamic_form_outlined),
         onSelected: (action) async {
           switch (action) {
@@ -953,72 +926,72 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
               title: Text(edit.tooltip),
             ),
           ),
-          const PopupMenuItem(
-            key: ValueKey('pdf-selected-form-rename'),
+          PopupMenuItem(
+            key: const ValueKey('pdf-selected-form-rename'),
             value: _SelectedFormOverflowAction.rename,
             child: ListTile(
               dense: true,
-              leading: Icon(Icons.drive_file_rename_outline),
-              title: Text('Rename field…'),
+              leading: const Icon(Icons.drive_file_rename_outline),
+              title: Text(pdfL10n(context).tbRenameFieldEllipsis),
             ),
           ),
           if (controller.canStyleSelectedFormField)
-            const PopupMenuItem(
-              key: ValueKey('pdf-selected-form-style'),
+            PopupMenuItem(
+              key: const ValueKey('pdf-selected-form-style'),
               value: _SelectedFormOverflowAction.style,
               child: ListTile(
                 dense: true,
-                leading: Icon(Icons.text_format),
-                title: Text('Text style…'),
+                leading: const Icon(Icons.text_format),
+                title: Text(pdfL10n(context).tbTextStyleEllipsis),
               ),
             ),
           PopupMenuItem(
             key: const ValueKey('pdf-selected-form-type-text'),
             value: _SelectedFormOverflowAction.typeText,
             enabled: field.type != PdfFieldType.text,
-            child: const ListTile(
+            child: ListTile(
               dense: true,
-              leading: Icon(Icons.text_fields),
-              title: Text('Convert to text field'),
+              leading: const Icon(Icons.text_fields),
+              title: Text(pdfL10n(context).tbConvertToTextField),
             ),
           ),
           PopupMenuItem(
             key: const ValueKey('pdf-selected-form-type-checkbox'),
             value: _SelectedFormOverflowAction.typeCheckBox,
             enabled: field.type != PdfFieldType.checkBox,
-            child: const ListTile(
+            child: ListTile(
               dense: true,
-              leading: Icon(Icons.check_box_outlined),
-              title: Text('Convert to check box'),
+              leading: const Icon(Icons.check_box_outlined),
+              title: Text(pdfL10n(context).tbConvertToCheckBox),
             ),
           ),
           PopupMenuItem(
             key: const ValueKey('pdf-selected-form-type-button'),
             value: _SelectedFormOverflowAction.typeButton,
             enabled: field.type != PdfFieldType.pushButton,
-            child: const ListTile(
+            child: ListTile(
               dense: true,
-              leading: Icon(Icons.smart_button),
-              title: Text('Convert to image button'),
+              leading: const Icon(Icons.smart_button),
+              title: Text(pdfL10n(context).tbConvertToImageButton),
             ),
           ),
-          const PopupMenuItem(
-            key: ValueKey('pdf-selected-form-delete'),
+          PopupMenuItem(
+            key: const ValueKey('pdf-selected-form-delete'),
             value: _SelectedFormOverflowAction.delete,
             child: ListTile(
               dense: true,
-              leading: Icon(Icons.delete_outline),
-              title: Text('Delete field'),
+              leading: const Icon(Icons.delete_outline),
+              title: Text(pdfL10n(context).tbDeleteField),
             ),
           ),
           if (widget.showFlatten)
-            const PopupMenuItem(
-              key: ValueKey('pdf-selected-form-flatten'),
+            PopupMenuItem(
+              key: const ValueKey('pdf-selected-form-flatten'),
               value: _SelectedFormOverflowAction.flatten,
               child: ListTile(
                 dense: true,
-                leading: Icon(Icons.layers_clear_outlined),
-                title: Text('Flatten form'),
+                leading: const Icon(Icons.layers_clear_outlined),
+                title: Text(pdfL10n(context).tbFlattenForm),
               ),
             ),
         ],
@@ -1038,7 +1011,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         margin: pdfFloatingToastMargin(context),
         duration: const Duration(seconds: 4),
         action: undoable && controller.canUndo
-            ? SnackBarAction(label: 'Undo', onPressed: controller.undo)
+            ? SnackBarAction(
+                label: pdfL10n(context).undo, onPressed: controller.undo)
             : null,
       ));
   }
@@ -1050,11 +1024,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       preferences: controller.preferences,
     );
     if (count == null || !context.mounted) return;
-    final message = switch (count) {
-      0 => 'No matching colors found',
-      1 => 'Replaced 1 color',
-      _ => 'Replaced $count colors',
-    };
+    final message = pdfL10n(context).tbColorsReplaced(count);
     ScaffoldMessenger.maybeOf(context)
       ?..clearSnackBars()
       ..showSnackBar(SnackBar(
@@ -1069,19 +1039,17 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       context: context,
       builder: (context) => AlertDialog(
         key: const ValueKey('pdf-redaction-confirm'),
-        title: const Text('Apply redactions?'),
-        content: const Text(
-            'The marked content will be permanently removed from the '
-            'document. This cannot be undone.'),
+        title: Text(pdfL10n(context).tbApplyRedactionsTitle),
+        content: Text(pdfL10n(context).tbApplyRedactionsMessage),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+            child: Text(pdfL10n(context).cancel),
           ),
           FilledButton(
             key: const ValueKey('pdf-redaction-confirm-apply'),
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Apply'),
+            child: Text(pdfL10n(context).apply),
           ),
         ],
       ),
@@ -1090,7 +1058,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final burned = controller.applyRedactions();
     _flattenToast(
       context,
-      burned ? 'Redactions applied' : 'No redactions to apply',
+      burned
+          ? pdfL10n(context).tbRedactionsApplied
+          : pdfL10n(context).tbNoRedactionsToApply,
       undoable: false,
     );
   }
@@ -1105,9 +1075,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final text = await widget.textPrompt(
       context,
       title: switch (annotation.subtype) {
-        'FreeText' => 'Text',
-        'Stamp' => 'Stamp text',
-        _ => 'Note',
+        'FreeText' => pdfL10n(context).tbTextTitle,
+        'Stamp' => pdfL10n(context).tbStampText,
+        _ => pdfL10n(context).tbNoteTitle,
       },
       initial: controller.selectedText ?? '',
       multiline: annotation.subtype != 'Stamp',
@@ -1239,12 +1209,12 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         if (widget.showUndoRedo) ...[
           IconButton(
             icon: const Icon(Icons.undo),
-            tooltip: 'Undo (⌘Z)',
+            tooltip: pdfL10n(context).tbUndoShortcut,
             onPressed: controller.canUndo ? controller.undo : null,
           ),
           IconButton(
             icon: const Icon(Icons.redo),
-            tooltip: 'Redo (⇧⌘Z)',
+            tooltip: pdfL10n(context).tbRedoShortcut,
             onPressed: controller.canRedo ? controller.redo : null,
           ),
           const _DockDivider(),
@@ -1263,7 +1233,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           const _DockDivider(),
           IconButton(
             icon: const Icon(Icons.save_alt),
-            tooltip: 'Save… (⌘S / Ctrl+S)',
+            tooltip: pdfL10n(context).tbSaveShortcut,
             // disabled while the document matches what was opened - there's
             // nothing to write until an edit bumps the revision cursor
             onPressed: controller.isModified
@@ -1304,11 +1274,12 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         toolButtons.add(_LabeledToolButton(
           icon: entry.icon,
           label: switch (tool) {
-            PdfEditTool.content => 'Content',
+            PdfEditTool.content => pdfL10n(context).tbToolContent,
+            // TODO(i18n): add tbToolContentDelete
             PdfEditTool.contentDelete => 'Delete',
-            PdfEditTool.form => 'Form',
-            PdfEditTool.redact => 'Redact',
-            PdfEditTool.snapshot => 'Snapshot',
+            PdfEditTool.form => pdfL10n(context).tbToolForm,
+            PdfEditTool.redact => pdfL10n(context).tbToolRedact,
+            PdfEditTool.snapshot => pdfL10n(context).tbToolSnapshot,
             _ => _entryLabel(entry),
           },
           tooltip: _entryTip(entry),
@@ -1339,8 +1310,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       toolButtons.add(_LabeledToolButton(
         key: const ValueKey('pdf-toolbar-color-processing'),
         icon: Icons.palette_outlined,
-        label: 'Color',
-        tooltip: 'Color processing - find and replace page-content colors',
+        label: pdfL10n(context).tbColorLabel,
+        tooltip: pdfL10n(context).tbColorProcessingTooltip,
         active: false,
         onTap: () => _showColorProcessing(context),
       ));
@@ -1360,7 +1331,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
               _StripLabel(
                 group.label,
                 hint: group.id == 'markup' && !hasTextSelection
-                    ? 'Select text to use markup'
+                    ? pdfL10n(context).tbSelectTextForMarkup
                     : null,
               ),
               ...toolButtons,
@@ -1459,22 +1430,22 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           controller.hasTouchInput)
         IconButton(
           icon: const Icon(Icons.touch_app),
-          tooltip: controller.fingerDrawsInk
-              ? 'Finger draws - tap so it scrolls instead'
-              : 'Finger scrolls (pen draws) - tap so it draws',
-          isSelected: controller.fingerDrawsInk,
+          tooltip: controller.preferences.fingerDrawsInk
+              ? pdfL10n(context).tbFingerDraws
+              : pdfL10n(context).tbFingerScrolls,
+          isSelected: controller.preferences.fingerDrawsInk,
           onPressed: () =>
-              controller.fingerDrawsInk = !controller.fingerDrawsInk,
+              controller.preferences.fingerDrawsInk = !controller.preferences.fingerDrawsInk,
         ),
       if (controller.hasPendingInk && !controller.inkAutoCommits) ...[
         IconButton(
           icon: const Icon(Icons.check),
-          tooltip: 'Add ink annotation',
+          tooltip: pdfL10n(context).tbAddInkAnnotation,
           onPressed: controller.finishInk,
         ),
         IconButton(
           icon: const Icon(Icons.close),
-          tooltip: 'Discard drawing',
+          tooltip: pdfL10n(context).tbDiscardDrawing,
           onPressed: controller.discardInk,
         ),
       ],
@@ -1487,12 +1458,12 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       if (controller.tool == PdfEditTool.signature)
         IconButton(
           icon: const Icon(Icons.restart_alt),
-          tooltip: 'Draw a new signature…',
+          tooltip: pdfL10n(context).tbDrawNewSignature,
           onPressed: () => _drawSignature(context),
         ),
       if (controller.tool == PdfEditTool.count)
         Tooltip(
-          message: 'Check-marks on the document',
+          message: pdfL10n(context).tbCheckMarksOnDocument,
           child: Chip(
             key: const ValueKey('pdf-count-tally'),
             avatar: const Icon(Icons.task_alt, size: 18),
@@ -1512,8 +1483,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final flatten = widget.showFlatten
         ? _LabeledToolButton(
             icon: Icons.layers_outlined,
-            label: 'Flatten',
-            tooltip: 'Flatten annotations into the pages',
+            label: pdfL10n(context).tbFlattenLabel,
+            tooltip: pdfL10n(context).tbFlattenAnnotationsTooltip,
             active: false,
             onTap: () => _flatten(context),
           )
@@ -1523,7 +1494,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         if (flatten != null) ...[flatten, const _MiniDivider()],
         PopupMenuButton<PdfFormFieldKind>(
           key: const ValueKey('pdf-form-field-type'),
-          tooltip: 'New field type - drag on a page to add one',
+          tooltip: pdfL10n(context).tbNewFieldType,
           icon: Icon(switch (controller.newFormFieldKind) {
             PdfFormFieldKind.text => Icons.text_fields,
             PdfFormFieldKind.checkBox => Icons.check_box_outlined,
@@ -1531,30 +1502,30 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           }),
           initialValue: controller.newFormFieldKind,
           onSelected: (kind) => controller.newFormFieldKind = kind,
-          itemBuilder: (context) => const [
+          itemBuilder: (context) => [
             PopupMenuItem(
-              key: ValueKey('pdf-form-type-text'),
+              key: const ValueKey('pdf-form-type-text'),
               value: PdfFormFieldKind.text,
               height: 34,
-              child: Text('Text field'),
+              child: Text(pdfL10n(context).tbTextFieldOption),
             ),
             PopupMenuItem(
-              key: ValueKey('pdf-form-type-checkbox'),
+              key: const ValueKey('pdf-form-type-checkbox'),
               value: PdfFormFieldKind.checkBox,
               height: 34,
-              child: Text('Check box'),
+              child: Text(pdfL10n(context).tbCheckBoxOption),
             ),
             PopupMenuItem(
-              key: ValueKey('pdf-form-type-button'),
+              key: const ValueKey('pdf-form-type-button'),
               value: PdfFormFieldKind.pushButton,
               height: 34,
-              child: Text('Image button'),
+              child: Text(pdfL10n(context).tbImageButtonOption),
             ),
           ],
         ),
         IconButton(
           icon: const Icon(Icons.layers_clear_outlined),
-          tooltip: 'Flatten form - bake values into the pages',
+          tooltip: pdfL10n(context).tbFlattenFormBakeValues,
           onPressed:
               controller.acroForm == null ? null : () => _flattenForm(context),
         ),
@@ -1566,7 +1537,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         IconButton(
           key: const ValueKey('pdf-apply-redactions'),
           icon: const Icon(Icons.check),
-          tooltip: 'Apply redactions (irreversible)',
+          tooltip: pdfL10n(context).tbApplyRedactionsTooltip,
           onPressed: controller.hasRedactionMarks
               ? () => _applyRedactions(context)
               : null,
@@ -1597,33 +1568,29 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             padding: const EdgeInsets.fromLTRB(12, 7, 10, 7),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               _StripLabel(selectedFieldName == null
-                  ? switch (controller.selectedAnnotationSlots.length) {
-                      1 => 'Selection',
-                      final n => '$n selected',
-                    }
-                  : 'Field: $selectedFieldName'),
+                  ? pdfL10n(context).tbSelectionCount(
+                      controller.selectedAnnotationSlots.length)
+                  : pdfL10n(context).tbFieldNamed(selectedFieldName)),
               if (selectedFieldName != null)
                 ..._selectedFormFieldActions(context)
               else
                 IconButton(
                   icon: const Icon(Icons.delete_outline),
-                  tooltip: switch (controller.selectedAnnotationSlots.length) {
-                    1 => 'Delete annotation',
-                    final n => 'Delete $n annotations',
-                  },
+                  tooltip: pdfL10n(context).tbDeleteAnnotations(
+                      controller.selectedAnnotationSlots.length),
                   onPressed: controller.deleteSelected,
                 ),
               if (controller.canEditSelectedText)
                 IconButton(
                   key: const ValueKey('pdf-edit-selected-text'),
                   icon: const Icon(Icons.edit),
-                  tooltip: 'Edit annotation text',
+                  tooltip: pdfL10n(context).tbEditAnnotationText,
                   onPressed: () => _editSelectedText(context),
                 ),
               if (controller.canRestyleSelectedText)
                 IconButton(
                   icon: const Icon(Icons.fit_screen),
-                  tooltip: 'Autosize text box (Alt+Z)',
+                  tooltip: pdfL10n(context).tbAutosizeTextBox,
                   onPressed: controller.autosizeSelectedTextBox,
                 ),
             ]),
@@ -1655,24 +1622,25 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   Widget _alignmentCluster(BuildContext context) {
     final canDistribute = controller.canDistributeSelected;
     return Row(mainAxisSize: MainAxisSize.min, children: [
-      _alignButton(
-          PdfAlignment.left, Icons.align_horizontal_left, 'Align left'),
+      _alignButton(PdfAlignment.left, Icons.align_horizontal_left,
+          pdfL10n(context).tbAlignLeft),
       _alignButton(PdfAlignment.horizontalCenter, Icons.align_horizontal_center,
-          'Align horizontal centers'),
-      _alignButton(
-          PdfAlignment.right, Icons.align_horizontal_right, 'Align right'),
+          pdfL10n(context).tbAlignHorizontalCenters),
+      _alignButton(PdfAlignment.right, Icons.align_horizontal_right,
+          pdfL10n(context).tbAlignRight),
       const _MiniDivider(),
-      _alignButton(PdfAlignment.top, Icons.align_vertical_top, 'Align top'),
+      _alignButton(PdfAlignment.top, Icons.align_vertical_top,
+          pdfL10n(context).tbAlignTop),
       _alignButton(PdfAlignment.verticalCenter, Icons.align_vertical_center,
-          'Align vertical centers'),
-      _alignButton(
-          PdfAlignment.bottom, Icons.align_vertical_bottom, 'Align bottom'),
+          pdfL10n(context).tbAlignVerticalCenters),
+      _alignButton(PdfAlignment.bottom, Icons.align_vertical_bottom,
+          pdfL10n(context).tbAlignBottom),
       const _MiniDivider(),
       _alignButton(PdfAlignment.distributeHorizontal,
-          Icons.horizontal_distribute, 'Distribute horizontally',
+          Icons.horizontal_distribute, pdfL10n(context).tbDistributeHorizontally,
           enabled: canDistribute),
       _alignButton(PdfAlignment.distributeVertical, Icons.vertical_distribute,
-          'Distribute vertically',
+          pdfL10n(context).tbDistributeVertically,
           enabled: canDistribute),
     ]);
   }
@@ -1693,29 +1661,29 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// The strip shown while a page-content element is selected.
   Widget _elementStrip(BuildContext context) {
     final row = Row(mainAxisSize: MainAxisSize.min, children: [
-      const _StripLabel('Element'),
+      _StripLabel(pdfL10n(context).tbElement),
       IconButton(
         icon: const Icon(Icons.delete_outline),
-        tooltip: 'Delete element',
+        tooltip: pdfL10n(context).tbDeleteElement,
         onPressed: controller.deleteSelectedElement,
       ),
       if (controller.canEditSelectedElementText) ...[
         IconButton(
           key: const ValueKey('pdf-replace-element-text'),
           icon: const Icon(Icons.edit),
-          tooltip: 'Replace text',
+          tooltip: pdfL10n(context).tbReplaceText,
           onPressed: () => _editElementText(context),
         ),
         IconButton(
           key: const ValueKey('pdf-style-element-text'),
           icon: const Icon(Icons.format_color_text),
-          tooltip: 'Edit text & style',
+          tooltip: pdfL10n(context).tbEditTextStyle,
           onPressed: () => _editElementTextStyle(context),
         ),
         IconButton(
           key: const ValueKey('pdf-reflow-element-text'),
           icon: const Icon(Icons.wrap_text),
-          tooltip: 'Reflow paragraph',
+          tooltip: pdfL10n(context).tbReflowParagraph,
           onPressed: () => _reflowElementText(context),
         ),
       ],
@@ -1729,7 +1697,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Icon(Icons.download_outlined),
-          tooltip: 'Save image',
+          tooltip: pdfL10n(context).tbSaveImage,
           onPressed: _exportingElementImage
               ? null
               : () => _exportElementImage(context),
@@ -1744,7 +1712,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Icon(Icons.image_outlined),
-          tooltip: 'Replace image',
+          tooltip: pdfL10n(context).tbReplaceImage,
           onPressed: _replacingElementImage
               ? null
               : () => _replaceElementImage(context),
@@ -1790,7 +1758,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 2),
         child: Tooltip(
-          message: 'More colors…',
+          message: pdfL10n(context).tbMoreColors,
           child: Material(
             key: const ValueKey('pdf-more-colors'),
             color: Colors.transparent,
@@ -1798,11 +1766,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             child: InkWell(
               customBorder: const CircleBorder(),
               onTap: () async {
-                final picked = await showPdfColorPicker(context,
-                    initial: controller.color,
-                    initialFormat: controller.preferences.colorPickerFormat,
-                    onFormatChanged: (format) =>
-                        controller.preferences.colorPickerFormat = format);
+                final picked = await pickEditingColor(context, controller,
+                    initial: controller.color);
                 if (picked != null) _applyColor(picked);
               },
               child: SizedBox(
@@ -1819,7 +1784,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       ),
       IconButton(
         icon: const Icon(Icons.colorize),
-        tooltip: 'Pick a color from the page',
+        tooltip: pdfL10n(context).tbPickColorFromPage,
         isSelected: controller.isPickingColor,
         onPressed: () => controller.isPickingColor
             ? controller.cancelColorPick()
@@ -1836,18 +1801,18 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final restyling = controller.canRestyleSelected;
     final current = restyling
         ? (controller.selectedAnnotationStyle?.strokeWidth ??
-            controller.strokeWidth)
-        : controller.strokeWidth;
+            controller.preferences.strokeWidth)
+        : controller.preferences.strokeWidth;
     void set(double w) {
-      controller.strokeWidth = w;
+      controller.preferences.strokeWidth = w;
       if (restyling) controller.restyleSelected(strokeWidth: w);
     }
 
     return Row(mainAxisSize: MainAxisSize.min, children: [
       for (final w in presets)
         Tooltip(
-          message:
-              'Stroke ${w.toStringAsFixed(w == w.roundToDouble() ? 0 : 1)}',
+          message: pdfL10n(context).tbStrokeWidthPreset(
+              w.toStringAsFixed(w == w.roundToDouble() ? 0 : 1)),
           child: InkWell(
             onTap: () => set(w),
             borderRadius: BorderRadius.circular(8),
@@ -1884,7 +1849,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final restyling = controller.canRestyleSelected;
     final value = _dragOpacity ??
         (restyling ? controller.selectedAnnotationStyle?.opacity : null) ??
-        controller.opacity;
+        controller.preferences.opacity;
     return Row(mainAxisSize: MainAxisSize.min, children: [
       const Padding(
         padding: EdgeInsets.only(right: 2),
@@ -1903,10 +1868,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             max: 1,
             onChanged: (v) {
               setState(() => _dragOpacity = v);
-              if (!restyling) controller.opacity = v;
+              if (!restyling) controller.preferences.opacity = v;
             },
             onChangeEnd: (v) {
-              controller.opacity = v;
+              controller.preferences.opacity = v;
               if (restyling) controller.restyleSelected(opacity: v);
               setState(() => _dragOpacity = null);
             },
@@ -1917,11 +1882,14 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         value: value,
         min: 0.1,
         max: 1,
+        // a true ratio: typeable down to 0%, never past 100%
+        fieldMin: 0,
+        fieldMax: 1,
         width: 40,
         display: (v) => '${(v * 100).round()}%',
         parse: _parsePercent,
         onSubmit: (v) {
-          controller.opacity = v;
+          controller.preferences.opacity = v;
           if (restyling) controller.restyleSelected(opacity: v);
           setState(() => _dragOpacity = null);
         },
@@ -1934,8 +1902,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   Widget _scaleChip(BuildContext context) {
     return _SettingChip(
       key: const ValueKey('pdf-measure-scale'),
-      leading: 'Scale',
-      value: controller.measurementScale?.ratioLabel ?? 'Set…',
+      leading: pdfL10n(context).tbScale,
+      value: controller.preferences.measurementScale?.ratioLabel ??
+          pdfL10n(context).tbSetEllipsis,
       onTap: () => _setScale(context),
     );
   }
@@ -1944,8 +1913,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     return _LabeledToolButton(
       key: const ValueKey('pdf-takeoff-totals'),
       icon: Icons.functions,
-      label: 'Totals',
-      tooltip: 'Takeoff totals',
+      label: pdfL10n(context).tbTotals,
+      tooltip: pdfL10n(context).tbTakeoffTotals,
       active: false,
       onTap: () => _showTakeoffPanel(context),
     );
@@ -1987,41 +1956,32 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// font picker, ink never offers line endings, and so on.
   _StyleFields _groupStyleFields(_ToolGroup group) {
     final tool = controller.tool;
+    // An armed tool owns exactly which controls it exposes - the per-tool
+    // capability booleans that used to live here now live in the tool's
+    // [PdfEditToolBehavior].
+    if (tool != null && _groupForTool(tool)?.id == group.id) {
+      return PdfEditToolBehavior.of(tool).styleFields;
+    }
+    // No in-group armed tool: the strip is open on its own (Select or Markup,
+    // a Draw strip over a selection, or a group opened before its default
+    // tool armed). Fall back to the group's resting controls.
     switch (group.id) {
       case 'draw':
-        if (tool == null && viewerController.hasSelection) {
-          return const _StyleFields(opacity: true);
-        }
-        if (tool == PdfEditTool.eraser) return const _StyleFields(eraser: true);
-        return const _StyleFields(stroke: true, opacity: true);
+        return viewerController.hasSelection
+            ? const _StyleFields(opacity: true)
+            : const _StyleFields(stroke: true, opacity: true);
       case 'shapes':
-        return _StyleFields(
+        return const _StyleFields(
           stroke: true,
           strokeColor: true,
           opacity: true,
           lineType: true,
           lineScale: true,
-          lineEndings: tool == PdfEditTool.line || tool == PdfEditTool.polyline,
-          shapeFill: tool == PdfEditTool.rectangle ||
-              tool == PdfEditTool.ellipse ||
-              tool == PdfEditTool.polygon ||
-              tool == PdfEditTool.cloudPolygon,
         );
       case 'insert':
         return const _StyleFields(opacity: true, font: true, boxColors: true);
       case 'measure':
-        return _StyleFields(
-          stroke: true,
-          opacity: true,
-          font: true,
-          // open measurements (distance/slope lines, perimeter/angle/arc
-          // polylines) carry endings; closed area/volume polygons don't
-          lineEndings: tool == PdfEditTool.measureDistance ||
-              tool == PdfEditTool.measureSlope ||
-              tool == PdfEditTool.measurePerimeter ||
-              tool == PdfEditTool.measureAngle ||
-              tool == PdfEditTool.measureArc,
-        );
+        return const _StyleFields(stroke: true, opacity: true, font: true);
       case 'markup':
         return const _StyleFields(opacity: true);
       default:
@@ -2052,6 +2012,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             // the outline colour of shapes and revision clouds
             strokeColor: canStroke && behavior.supportsStrokeWidth,
             opacity: behavior.supportsOpacity,
+            // only a rectangle rounds its corners
+            cornerRadius: controller.canRoundSelectedCorners,
             // a /Polygon area measurement carries a caption font
             font: controller.canRestyleMeasurementCaption,
             lineType: controller.canSetLineStyleSelected,
@@ -2098,13 +2060,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           if (widget.showUndoRedo) ...[
             IconButton(
               icon: const Icon(Icons.undo),
-              tooltip: 'Undo (⌘Z)',
+              tooltip: pdfL10n(context).tbUndoShortcut,
               visualDensity: VisualDensity.compact,
               onPressed: controller.canUndo ? controller.undo : null,
             ),
             IconButton(
               icon: const Icon(Icons.redo),
-              tooltip: 'Redo (⇧⌘Z)',
+              tooltip: pdfL10n(context).tbRedoShortcut,
               visualDensity: VisualDensity.compact,
               onPressed: controller.canRedo ? controller.redo : null,
             ),
@@ -2156,10 +2118,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       return [
         IconButton(
           icon: const Icon(Icons.delete_outline),
-          tooltip: switch (controller.selectedAnnotationSlots.length) {
-            1 => 'Delete annotation',
-            final n => 'Delete $n annotations',
-          },
+          tooltip: pdfL10n(context).tbDeleteAnnotations(
+              controller.selectedAnnotationSlots.length),
           visualDensity: VisualDensity.compact,
           onPressed: controller.deleteSelected,
         ),
@@ -2167,7 +2127,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           IconButton(
             key: const ValueKey('pdf-edit-selected-text'),
             icon: const Icon(Icons.edit),
-            tooltip: 'Edit annotation text',
+            tooltip: pdfL10n(context).tbEditAnnotationText,
             visualDensity: VisualDensity.compact,
             onPressed: () => _editSelectedText(context),
           ),
@@ -2178,7 +2138,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         IconButton(
           key: const ValueKey('pdf-mobile-delete-element'),
           icon: const Icon(Icons.delete_outline),
-          tooltip: 'Delete element',
+          tooltip: pdfL10n(context).tbDeleteElement,
           visualDensity: VisualDensity.compact,
           onPressed: controller.deleteSelectedElement,
         ),
@@ -2189,14 +2149,14 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           IconButton(
             key: const ValueKey('pdf-replace-element-text'),
             icon: const Icon(Icons.format_color_text),
-            tooltip: 'Edit text & style',
+            tooltip: pdfL10n(context).tbEditTextStyle,
             visualDensity: VisualDensity.compact,
             onPressed: () => _editElementTextStyle(context),
           ),
           IconButton(
             key: const ValueKey('pdf-reflow-element-text'),
             icon: const Icon(Icons.wrap_text),
-            tooltip: 'Reflow paragraph',
+            tooltip: pdfL10n(context).tbReflowParagraph,
             visualDensity: VisualDensity.compact,
             onPressed: () => _reflowElementText(context),
           ),
@@ -2211,7 +2171,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.download_outlined),
-            tooltip: 'Save image',
+            tooltip: pdfL10n(context).tbSaveImage,
             visualDensity: VisualDensity.compact,
             onPressed: _exportingElementImage
                 ? null
@@ -2227,7 +2187,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.image_outlined),
-            tooltip: 'Replace image',
+            tooltip: pdfL10n(context).tbReplaceImage,
             visualDensity: VisualDensity.compact,
             onPressed: _replacingElementImage
                 ? null
@@ -2360,7 +2320,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                       group.label,
                       hint:
                           group.id == 'markup' && !viewerController.hasSelection
-                              ? 'Select text to use markup'
+                              ? pdfL10n(context).tbSelectTextForMarkup
                               : null,
                     ),
                     const SizedBox(height: 10),
@@ -2417,7 +2377,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           _SheetToolTile(
             key: const ValueKey('pdf-takeoff-totals'),
             icon: Icons.functions,
-            label: 'Totals',
+            label: pdfL10n(context).tbTotals,
             active: false,
             enabled: true,
             onTap: () {
@@ -2429,7 +2389,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           _SheetToolTile(
             key: const ValueKey('pdf-toolbar-color-processing'),
             icon: Icons.palette_outlined,
-            label: 'Color',
+            label: pdfL10n(context).tbColorLabel,
             active: false,
             enabled: true,
             onTap: () {
@@ -2626,7 +2586,7 @@ class _GroupChip extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final on = active;
     final fg = on ? scheme.primary : scheme.onSurfaceVariant;
-    final label = _toolsHandle ? 'Tools' : group!.label;
+    final label = _toolsHandle ? pdfL10n(context).tbTools : group!.label;
     final icon = _toolsHandle ? Icons.keyboard_arrow_up : group!.icon;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 3),
@@ -2799,7 +2759,7 @@ class _StampSheetToolTile extends StatelessWidget {
       builder: (context, menuController, child) => _SheetToolTile(
         key: const ValueKey('pdf-stamp-sheet-tool-popup'),
         icon: Icons.approval,
-        label: 'Stamp',
+        label: pdfL10n(context).tbStamp,
         active: active,
         enabled: true,
         onTap: () {
@@ -2867,7 +2827,7 @@ class _StampMenuPanel extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        'Stamp',
+                        pdfL10n(context).tbStamp,
                         style: Theme.of(context).textTheme.labelLarge,
                       ),
                       const SizedBox(height: 8),
@@ -2905,7 +2865,7 @@ class _StampMenuPanel extends StatelessWidget {
                               ? const Icon(Icons.check)
                               : const SizedBox(width: 24),
                           onPressed: () => _select(menuController, null),
-                          child: const Text('Type text each time'),
+                          child: Text(pdfL10n(context).tbTypeTextEachTime),
                         ),
                         for (var i = 0; i < stamps.length; i++)
                           _StampMenuItem(
@@ -2923,7 +2883,7 @@ class _StampMenuPanel extends StatelessWidget {
                             child: Align(
                               alignment: Alignment.centerLeft,
                               child: Text(
-                                'No custom stamps',
+                                pdfL10n(context).tbNoCustomStamps,
                                 style: TextStyle(
                                   color: Theme.of(context)
                                       .colorScheme
@@ -2945,7 +2905,7 @@ class _StampMenuPanel extends StatelessWidget {
                     menuController.close();
                     if (dialogContext.mounted) onManage(dialogContext);
                   },
-                  child: const Text('Manage stamps…'),
+                  child: Text(pdfL10n(context).tbManageStamps),
                 ),
               ],
             ),
@@ -3156,67 +3116,10 @@ double? _parsePercent(String s) {
   return n == null ? null : n / 100;
 }
 
-class _StyleFields {
-  const _StyleFields({
-    this.stroke = false,
-    this.strokeColor = false,
-    this.opacity = false,
-    this.lineType = false,
-    this.lineScale = false,
-    this.lineEndings = false,
-    this.font = false,
-    this.boxColors = false,
-    this.shapeFill = false,
-    this.eraser = false,
-    this.formField = false,
-  });
-
-  final bool stroke;
-
-  /// The stroke/outline colour row - shapes (including revision clouds) and
-  /// the line family. Distinct from [shapeFill], the interior fill.
-  final bool strokeColor;
-
-  final bool opacity;
-
-  /// The line-type dropdown (solid / dashed / dotted / dash-dot) - shapes
-  /// and the line family.
-  final bool lineType;
-
-  /// The pattern-scale slider - sizes dash patterns and cloudy scallops
-  /// apart from the pen width. Shown alongside [lineType].
-  final bool lineScale;
-  final bool lineEndings;
-
-  /// Font size + family (free text).
-  final bool font;
-
-  /// The text-box fill + border colour rows (free text).
-  final bool boxColors;
-
-  /// The shape interior-fill colour row (rectangle / ellipse).
-  final bool shapeFill;
-
-  /// Eraser radius - replaces every other control while the eraser is armed.
-  final bool eraser;
-
-  /// The form text field style block (font, alignment, auto-size, size,
-  /// multiline, colour) - a single text-field widget is selected.
-  final bool formField;
-
-  bool get isEmpty =>
-      !stroke &&
-      !strokeColor &&
-      !opacity &&
-      !lineType &&
-      !lineScale &&
-      !lineEndings &&
-      !font &&
-      !boxColors &&
-      !shapeFill &&
-      !eraser &&
-      !formField;
-}
+/// The tune popup's control set. The tool-armed case is owned by
+/// [PdfEditToolBehavior.styleFields]; the toolbar still builds one directly
+/// from a selected annotation's subtype (see [_selectionStyleFields]).
+typedef _StyleFields = PdfToolStyleFields;
 
 /// The style popup: sliders for stroke width, opacity, and font size,
 /// the font family for free text, and the text box's fill and border
@@ -3269,6 +3172,7 @@ class _StyleMenuState extends State<_StyleMenu> {
   /// Same, for the stroke-width and opacity sliders restyling a
   /// selected annotation.
   double? _draggingStroke;
+  double? _draggingCornerRadius;
   double? _draggingScale;
   double? _draggingOpacity;
   double? _draggingLineSpacing;
@@ -3311,7 +3215,7 @@ class _StyleMenuState extends State<_StyleMenu> {
       color == null ? null : color.toARGB32() & 0xFFFFFF;
 
   void _setTextFill(Color? color) {
-    controller.textFillColor = color; // the new default either way
+    controller.preferences.textFillColor = color; // the new default either way
     if (controller.canRestyleSelectedText) {
       controller.restyleSelectedText(fill: (_rgb(color),));
     }
@@ -3327,7 +3231,7 @@ class _StyleMenuState extends State<_StyleMenu> {
   }
 
   void _setShapeFill(Color? color) {
-    controller.shapeFillColor = color; // the new default either way
+    controller.preferences.shapeFillColor = color; // the new default either way
     if (controller.canFillSelected) {
       controller.restyleSelected(fill: (color,));
     }
@@ -3344,13 +3248,13 @@ class _StyleMenuState extends State<_StyleMenu> {
   }
 
   void _setTextBorder(Color? color) {
-    controller.textBorderColor = color;
+    controller.preferences.textBorderColor = color;
     if (controller.canRestyleSelectedText) {
       controller.restyleSelectedText(
           border: (_rgb(color),),
           // setting a border gives it the current stroke width; clearing
           // one leaves the width field alone
-          borderWidth: color == null ? null : controller.strokeWidth);
+          borderWidth: color == null ? null : controller.preferences.strokeWidth);
     }
   }
 
@@ -3372,6 +3276,8 @@ class _StyleMenuState extends State<_StyleMenu> {
         palette: widget.palette,
         onChanged: onChanged,
         allowNone: allowNone,
+        pickColor: (context, initial) =>
+            pickEditingColor(context, controller, initial: initial),
       );
 
   /// A short human label for a line ending in the picker.
@@ -3467,10 +3373,10 @@ class _StyleMenuState extends State<_StyleMenu> {
                 restylingAnnotation ? controller.selectedAnnotationStyle : null;
             final strokeValue = _draggingStroke ??
                 annotationStyle?.strokeWidth ??
-                controller.strokeWidth;
+                controller.preferences.strokeWidth;
             final opacityValue = _draggingOpacity ??
                 annotationStyle?.opacity ??
-                controller.opacity;
+                controller.preferences.opacity;
             // with a free text selected the rows show its own box style;
             // otherwise the creation defaults
             // line endings: edit a selected /Line or /PolyLine in place,
@@ -3478,7 +3384,7 @@ class _StyleMenuState extends State<_StyleMenu> {
             final lineEndingTarget = controller.canSetLineEndings;
             final lineEndings = lineEndingTarget
                 ? controller.selectedLineEndings!
-                : (controller.lineStartEnding, controller.lineEndEnding);
+                : (controller.preferences.lineStartEnding, controller.preferences.lineEndEnding);
             final restyling = controller.canRestyleSelectedText;
             final boxStyle =
                 restyling ? controller.selectedAnnotation?.freeTextStyle : null;
@@ -3492,18 +3398,18 @@ class _StyleMenuState extends State<_StyleMenu> {
                 ? (boxStyle?.fillColor != null
                     ? Color(0xFF000000 | boxStyle!.fillColor!)
                     : null)
-                : controller.textFillColor;
+                : controller.preferences.textFillColor;
             final borderValue = restyling
                 ? (boxStyle?.borderColor != null &&
                         (boxStyle?.borderWidth ?? 0) > 0
                     ? Color(0xFF000000 | boxStyle!.borderColor!)
                     : null)
-                : controller.textBorderColor;
+                : controller.preferences.textBorderColor;
             // shape interior fill: a selected shape shows its own /IC,
             // else the creation default
             final shapeFillValue = controller.canFillSelected
                 ? controller.selectedShapeFill
-                : controller.shapeFillColor;
+                : controller.preferences.shapeFillColor;
             // shape/cloud/line outline: a selected shape shows its own /C,
             // else the creation default
             final strokeColorValue = restylingAnnotation
@@ -3524,49 +3430,87 @@ class _StyleMenuState extends State<_StyleMenu> {
                   if (isEraser)
                     _slider(
                       key: const ValueKey('pdf-eraser-size'),
-                      label: 'Eraser size',
-                      value: controller.eraserRadius,
+                      label: pdfL10n(context).tbEraserSize,
+                      value: controller.preferences.eraserRadius,
                       min: 2,
                       max: 40,
+                      fieldMin: 1,
+                      fieldMax: kPdfTypedSizeMax,
                       display: (v) => '${v.round()} pt',
                       parse: _parsePoints,
                       onChanged: (v) =>
-                          controller.eraserRadius = v.roundToDouble(),
+                          controller.preferences.eraserRadius = v.roundToDouble(),
                     ),
                   if (fields.stroke)
                     _slider(
-                      label: 'Stroke width',
+                      label: pdfL10n(context).tbStrokeWidthLabel,
                       value: strokeValue,
                       min: 0.5,
                       max: 12,
+                      fieldMin: 0,
+                      fieldMax: kPdfTypedSizeMax,
                       display: (v) => '${v.toStringAsFixed(1)} pt',
                       parse: _parsePoints,
                       onChanged: (v) {
                         setState(() => _draggingStroke = v);
-                        if (!restylingAnnotation) controller.strokeWidth = v;
+                        if (!restylingAnnotation) controller.preferences.strokeWidth = v;
                       },
                       onChangeEnd: (v) {
-                        controller.strokeWidth = v;
+                        controller.preferences.strokeWidth = v;
                         if (restylingAnnotation) {
                           controller.restyleSelected(strokeWidth: v);
                         }
                         setState(() => _draggingStroke = null);
                       },
                     ),
+                  if (fields.cornerRadius)
+                    _slider(
+                      key: const ValueKey('pdf-corner-radius'),
+                      label: pdfL10n(context).tbCornerRadius,
+                      // a selected rectangle shows its own radius; otherwise
+                      // the creation default while the rectangle tool is armed
+                      value: _draggingCornerRadius ??
+                          (restylingAnnotation
+                              ? controller.selectedCornerRadius
+                              : null) ??
+                          controller.preferences.cornerRadius,
+                      min: 0,
+                      max: 40,
+                      display: (v) => '${v.round()} pt',
+                      parse: _parsePoints,
+                      onChanged: (v) {
+                        setState(() => _draggingCornerRadius = v);
+                        if (!restylingAnnotation) {
+                          controller.preferences.cornerRadius = v.roundToDouble();
+                        }
+                      },
+                      onChangeEnd: (v) {
+                        controller.preferences.cornerRadius = v.roundToDouble();
+                        if (restylingAnnotation) {
+                          controller.restyleSelected(
+                              cornerRadius: v.roundToDouble());
+                        }
+                        setState(() => _draggingCornerRadius = null);
+                      },
+                    ),
                   if (fields.opacity)
                     _slider(
-                      label: 'Opacity',
+                      label: pdfL10n(context).tbOpacity,
                       value: opacityValue,
                       min: 0.1,
                       max: 1,
+                      // opacity is a true ratio: let the field reach 0% but
+                      // never past 100%
+                      fieldMin: 0,
+                      fieldMax: 1,
                       display: (v) => '${(v * 100).round()}%',
                       parse: _parsePercent,
                       onChanged: (v) {
                         setState(() => _draggingOpacity = v);
-                        if (!restylingAnnotation) controller.opacity = v;
+                        if (!restylingAnnotation) controller.preferences.opacity = v;
                       },
                       onChangeEnd: (v) {
-                        controller.opacity = v;
+                        controller.preferences.opacity = v;
                         if (restylingAnnotation) {
                           controller.restyleSelected(opacity: v);
                         }
@@ -3578,14 +3522,14 @@ class _StyleMenuState extends State<_StyleMenu> {
                       padding: const EdgeInsets.symmetric(vertical: 4),
                       child: Row(
                         children: [
-                          const Expanded(child: Text('Line type')),
+                          Expanded(child: Text(pdfL10n(context).tbLineType)),
                           DropdownButton<PdfLineStyle>(
                             key: const ValueKey('pdf-line-type'),
                             isDense: true,
                             value: restylingAnnotation
                                 ? (controller.selectedLineStyle ??
-                                    controller.lineStyle)
-                                : controller.lineStyle,
+                                    controller.preferences.lineStyle)
+                                : controller.preferences.lineStyle,
                             underline: const SizedBox.shrink(),
                             items: [
                               for (final style in PdfLineStyle.values)
@@ -3597,7 +3541,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                             ],
                             onChanged: (value) {
                               if (value == null) return;
-                              controller.lineStyle = value;
+                              controller.preferences.lineStyle = value;
                               if (restylingAnnotation &&
                                   controller.canSetLineStyleSelected) {
                                 controller.restyleSelected(lineStyle: value);
@@ -3610,21 +3554,21 @@ class _StyleMenuState extends State<_StyleMenu> {
                   if (fields.lineScale)
                     _slider(
                       key: const ValueKey('pdf-line-scale'),
-                      label: 'Pattern scale',
+                      label: pdfL10n(context).tbPatternScale,
                       value: _draggingScale ??
                           (restylingAnnotation
                               ? (controller.selectedLineScale ??
-                                  controller.lineScale)
-                              : controller.lineScale),
+                                  controller.preferences.lineScale)
+                              : controller.preferences.lineScale),
                       min: 0.5,
                       max: 4,
                       display: (v) => '${v.toStringAsFixed(1)}×',
                       onChanged: (v) {
                         setState(() => _draggingScale = v);
-                        if (!restylingAnnotation) controller.lineScale = v;
+                        if (!restylingAnnotation) controller.preferences.lineScale = v;
                       },
                       onChangeEnd: (v) {
-                        controller.lineScale = v;
+                        controller.preferences.lineScale = v;
                         if (restylingAnnotation &&
                             controller.canSetLineStyleSelected) {
                           controller.restyleSelected(scale: v);
@@ -3635,12 +3579,12 @@ class _StyleMenuState extends State<_StyleMenu> {
                   if (fields.lineEndings) ...[
                     _lineEndingRow(
                       context: context,
-                      label: 'Line start',
+                      label: pdfL10n(context).tbLineStart,
                       keyValue: 'pdf-line-start-ending',
                       atEnd: false,
                       value: lineEndings.$1,
                       onChanged: (ending) {
-                        controller.lineStartEnding = ending;
+                        controller.preferences.lineStartEnding = ending;
                         if (controller.canSetLineEndings) {
                           controller.setSelectedLineEndings(start: ending);
                         }
@@ -3648,12 +3592,12 @@ class _StyleMenuState extends State<_StyleMenu> {
                     ),
                     _lineEndingRow(
                       context: context,
-                      label: 'Line end',
+                      label: pdfL10n(context).tbLineEnd,
                       keyValue: 'pdf-line-end-ending',
                       atEnd: true,
                       value: lineEndings.$2,
                       onChanged: (ending) {
-                        controller.lineEndEnding = ending;
+                        controller.preferences.lineEndEnding = ending;
                         if (controller.canSetLineEndings) {
                           controller.setSelectedLineEndings(end: ending);
                         }
@@ -3663,7 +3607,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                   if (fields.strokeColor && widget.showColor)
                     _boxColorRow(
                       context: context,
-                      label: 'Outline',
+                      label: pdfL10n(context).tbOutline,
                       keyPrefix: 'pdf-shape-outline',
                       value: strokeColorValue,
                       onChanged: _setStrokeColor,
@@ -3672,45 +3616,47 @@ class _StyleMenuState extends State<_StyleMenu> {
                   if (fields.shapeFill && widget.showColor)
                     _boxColorRow(
                       context: context,
-                      label: 'Fill',
+                      label: pdfL10n(context).tbFill,
                       keyPrefix: 'pdf-shape-fill',
                       value: shapeFillValue,
                       onChanged: _setShapeFill,
                     ),
                   if (fields.font)
                     _slider(
-                      label: 'Font size',
+                      label: pdfL10n(context).tbFontSize,
                       value: _draggingFontSize ??
                           selectedStyle?.size ??
                           captionStyle?.size ??
-                          controller.fontSize,
+                          controller.preferences.fontSize,
                       min: 8,
                       max: 48,
+                      fieldMin: 1,
+                      fieldMax: kPdfTypedSizeMax,
                       display: (v) => '${v.round()} pt',
                       parse: _parsePoints,
                       onChanged: (v) {
                         setState(() => _draggingFontSize = v.roundToDouble());
                         if (selectedStyle == null && captionStyle == null) {
-                          controller.fontSize = v.roundToDouble();
+                          controller.preferences.fontSize = v.roundToDouble();
                         }
                       },
                       onChangeEnd: (v) {
                         final size = v.roundToDouble();
                         if (controller.restyleEditingTextSelection(
                             size: size)) {
-                          controller.fontSize = size;
+                          controller.preferences.fontSize = size;
                           setState(() => _draggingFontSize = null);
                           return;
                         }
                         if (controller.canRestyleSelectedText) {
-                          controller.fontSize = size;
+                          controller.preferences.fontSize = size;
                           controller.restyleSelectedText(size: size);
                         } else if (controller.canRestyleMeasurementCaption) {
                           // a selected measurement keeps its own caption size;
                           // don't disturb the creation default
                           controller.setSelectedMeasurementCaption(size: size);
                         } else {
-                          controller.fontSize = size;
+                          controller.preferences.fontSize = size;
                         }
                         setState(() => _draggingFontSize = null);
                       },
@@ -3719,7 +3665,8 @@ class _StyleMenuState extends State<_StyleMenu> {
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: Row(children: [
-                        const SizedBox(width: 86, child: Text('Font')),
+                        SizedBox(
+                            width: 86, child: Text(pdfL10n(context).tbFont)),
                         Expanded(
                           child: Align(
                             alignment: Alignment.centerLeft,
@@ -3740,7 +3687,8 @@ class _StyleMenuState extends State<_StyleMenu> {
                     Padding(
                       padding: const EdgeInsets.only(top: 6),
                       child: Row(children: [
-                        const SizedBox(width: 86, child: Text('Style')),
+                        SizedBox(
+                            width: 86, child: Text(pdfL10n(context).tbStyle)),
                         FontStyleToggles(
                           font: selectedStyle?.font ??
                               captionStyle?.font ??
@@ -3752,10 +3700,11 @@ class _StyleMenuState extends State<_StyleMenu> {
                     Padding(
                       padding: const EdgeInsets.only(top: 6),
                       child: Row(children: [
-                        const SizedBox(width: 86, child: Text('Align')),
+                        SizedBox(
+                            width: 86, child: Text(pdfL10n(context).tbAlign)),
                         TextAlignToggles(
                           align: controller.selectedTextAlign ??
-                              controller.textAlign ??
+                              controller.preferences.textAlign ??
                               PdfTextAlign.left,
                           onChanged: _setTextAlign,
                         ),
@@ -3765,7 +3714,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                         IconButton(
                           key: const ValueKey('pdf-text-underline'),
                           icon: const Icon(Icons.format_underlined, size: 18),
-                          tooltip: 'Underline',
+                          tooltip: pdfL10n(context).tbUnderline,
                           isSelected:
                               controller.selectedFreeTextStyle?.underline ??
                                   controller.textUnderline,
@@ -3779,12 +3728,14 @@ class _StyleMenuState extends State<_StyleMenu> {
                     if (captionStyle == null) ...[
                       _slider(
                         key: const ValueKey('pdf-text-line-spacing'),
-                        label: 'Line spacing',
+                        label: pdfL10n(context).tbLineSpacing,
                         value: _draggingLineSpacing ??
                             controller.selectedFreeTextStyle?.lineSpacing ??
                             controller.lineSpacing,
                         min: 0.8,
                         max: 3,
+                        fieldMin: 0.1,
+                        fieldMax: 100,
                         display: (v) => '${v.toStringAsFixed(1)}×',
                         onChanged: (v) =>
                             setState(() => _draggingLineSpacing = v),
@@ -3795,12 +3746,14 @@ class _StyleMenuState extends State<_StyleMenu> {
                       ),
                       _slider(
                         key: const ValueKey('pdf-text-char-spacing'),
-                        label: 'Char spacing',
+                        label: pdfL10n(context).tbCharSpacing,
                         value: _draggingCharSpacing ??
                             controller.selectedFreeTextStyle?.charSpacing ??
                             controller.charSpacing,
                         min: -2,
                         max: 10,
+                        fieldMin: -kPdfTypedSizeMax,
+                        fieldMax: kPdfTypedSizeMax,
                         display: (v) => '${v.toStringAsFixed(1)} pt',
                         parse: _parsePoints,
                         onChanged: (v) =>
@@ -3812,12 +3765,14 @@ class _StyleMenuState extends State<_StyleMenu> {
                       ),
                       _slider(
                         key: const ValueKey('pdf-text-font-width'),
-                        label: 'Font width',
+                        label: pdfL10n(context).tbFontWidth,
                         value: _draggingFontWidth ??
                             controller.selectedFreeTextStyle?.horizontalScale ??
                             controller.fontWidth,
                         min: 50,
                         max: 200,
+                        fieldMin: 1,
+                        fieldMax: kPdfTypedSizeMax,
                         display: (v) => '${v.round()}%',
                         parse: _parsePoints,
                         onChanged: (v) =>
@@ -3832,7 +3787,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                   if (fields.boxColors && widget.showColor) ...[
                     _boxColorRow(
                       context: context,
-                      label: 'Text colour',
+                      label: pdfL10n(context).tbTextColour,
                       keyPrefix: 'pdf-text-color',
                       value: textValue,
                       onChanged: _setTextColor,
@@ -3840,14 +3795,14 @@ class _StyleMenuState extends State<_StyleMenu> {
                     ),
                     _boxColorRow(
                       context: context,
-                      label: 'Text fill',
+                      label: pdfL10n(context).tbTextFill,
                       keyPrefix: 'pdf-text-fill',
                       value: fillValue,
                       onChanged: _setTextFill,
                     ),
                     _boxColorRow(
                       context: context,
-                      label: 'Text border',
+                      label: pdfL10n(context).tbTextBorder,
                       keyPrefix: 'pdf-text-border',
                       value: borderValue,
                       onChanged: _setTextBorder,
@@ -3871,8 +3826,9 @@ class _StyleMenuState extends State<_StyleMenu> {
             menu.open();
           }
 
-          final tip =
-              widget.fields.eraser ? 'Eraser size' : 'Stroke, opacity, font';
+          final tip = widget.fields.eraser
+              ? pdfL10n(context).tbEraserSize
+              : pdfL10n(context).tbStrokeOpacityFont;
           Widget holdOnPointerDown(Widget child) => Listener(
                 onPointerDown: (_) => _beginTextEditFocusHold(),
                 child: Focus(
@@ -3912,6 +3868,8 @@ class _StyleMenuState extends State<_StyleMenu> {
     double? Function(String)? parse,
     required ValueChanged<double> onChanged,
     ValueChanged<double>? onChangeEnd,
+    double? fieldMin,
+    double? fieldMax,
   }) {
     return Row(key: key, children: [
       SizedBox(width: 86, child: Text(label)),
@@ -3926,12 +3884,15 @@ class _StyleMenuState extends State<_StyleMenu> {
       ),
       // the readout is editable: type an exact value (general rule across
       // the editing UI) - committing routes through the change-end callback,
-      // or onChanged for sliders that have none (live-only)
+      // or onChanged for sliders that have none (live-only). The typed value
+      // may run past the slider's scale (fieldMin/fieldMax) within reason.
       PdfSliderValueField(
         key: key is ValueKey ? ValueKey('${key.value}-input') : null,
         value: value,
         min: min,
         max: max,
+        fieldMin: fieldMin,
+        fieldMax: fieldMax,
         width: 56,
         display: display,
         parse: parse,
@@ -3955,7 +3916,12 @@ class _FontChip extends StatelessWidget {
   final String tooltip;
   final VoidCallback onTap;
 
-  static String _familyLabel(PdfStandardFont font) {
+  static String _familyLabel(PdfTextFont font) {
+    // an embedded/bundled/custom face shows its own name, not the base-14
+    // family "Sans" - matching the style popup's font button
+    if (font is! PdfStandardFont) {
+      return font is PdfEmbeddedFont ? font.displayName : font.resourceName;
+    }
     final base = font.family.label;
     final suffix = switch ((font.isBold, font.isItalic)) {
       (true, true) => ' BI',
@@ -3970,8 +3936,14 @@ class _FontChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final style = controller.selectedTextStyle;
-    final font = style?.font ?? controller.fontFamily;
-    final size = (style?.size ?? controller.fontSize).round();
+    // reflect the box's real face (an embedded/bundled font shows its own
+    // name) the same way the style popup's font button does, so the chip
+    // and popup never disagree
+    final font = controller.selectedTextFont ??
+        controller.activeFont ??
+        style?.font ??
+        controller.fontFamily;
+    final size = (style?.size ?? controller.preferences.fontSize).round();
     return Tooltip(
       message: tooltip,
       child: Material(

@@ -1,13 +1,16 @@
+import 'dart:convert';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart';
 import 'package:web/web.dart' as web;
 
+import 'region_replay_index.dart';
 import 'render_worker_transcript_cache.dart';
 
 /// Runs the render worker inside a dedicated Web Worker.
@@ -77,6 +80,9 @@ void runPdfRenderWorker() {
             true;
         collectTimings =
             (data.getProperty('timings'.toJS) as JSBoolean?)?.toDart ?? false;
+        // Light up the COS-layer facade alongside the trace timings; each
+        // result attaches (and resets) its per-job snapshot.
+        PdfPerf.enabled = collectTimings;
         if (collectTimings) openClock = Stopwatch()..start();
         final buffer = data.getProperty('bytes'.toJS) as JSObject;
         final bytes = shared
@@ -217,6 +223,60 @@ void runPdfRenderWorker() {
       return;
     }
 
+    if (kind == 'regionIndex') {
+      final id = (data.getProperty('id'.toJS) as JSNumber).toDartInt;
+      final page = (data.getProperty('page'.toJS) as JSNumber).toDartInt;
+      final annotations =
+          (data.getProperty('annotations'.toJS) as JSBoolean).toDart;
+      final maxCommands =
+          (data.getProperty('maxCommands'.toJS) as JSNumber).toDartInt;
+      final buildGrid =
+          (data.getProperty('buildGrid'.toJS) as JSBoolean?)?.toDart ?? false;
+      final token = PdfCancellationToken();
+      activeToken = token;
+      activeRequestId = id;
+      () async {
+        final timings = collectTimings ? PdfWorkerPhaseTimings() : null;
+        final workerClock = collectTimings ? (Stopwatch()..start()) : null;
+        Uint8List? out;
+        String? error;
+        final doc = document;
+        try {
+          if (doc != null) {
+            out = await _buildRegionIndexAsync(
+              doc,
+              transcriptCache,
+              page,
+              annotations,
+              maxCommands,
+              buildGrid,
+              token,
+              timings: timings,
+            );
+          }
+        } on PdfCancelledException {
+          out = null;
+        } catch (e, st) {
+          out = null;
+          error = '$e\n$st';
+        }
+        if (identical(activeToken, token)) {
+          activeToken = null;
+          activeRequestId = null;
+        }
+        workerClock?.stop();
+        _postResult(
+          scope,
+          id,
+          out,
+          error,
+          timings,
+          workerClock?.elapsedMicroseconds,
+        );
+      }();
+      return;
+    }
+
     if (kind != 'record') return;
     final id = (data.getProperty('id'.toJS) as JSNumber).toDartInt;
     final page = (data.getProperty('page'.toJS) as JSNumber).toDartInt;
@@ -348,6 +408,13 @@ void _attachTimings(
   int? workerUs,
 ) {
   if (timings == null || workerUs == null) return;
+  if (PdfPerf.enabled) {
+    // Per-job COS-layer delta (reset after attach). The very first job also
+    // carries the document-open phases - fine for a diagnostics surface.
+    result.setProperty(
+        'cosStats'.toJS, jsonEncode(PdfPerf.snapshot().toJson()).toJS);
+    PdfPerf.reset();
+  }
   result
     ..setProperty('workerUs'.toJS, workerUs.toJS)
     ..setProperty('parseUs'.toJS, timings.parseUs.toJS)
@@ -585,6 +652,38 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
     timings!.binUs += binClock.elapsedMicroseconds;
   }
   return (commandBuffer, encodeStripPlan(binner.finish()));
+}
+
+/// Builds the region-replay spatial index from the page's cached wire
+/// transcript and serializes it, or null when the page can't be offloaded.
+/// Mirrors the isolate backend's `_buildRegionIndexAsync`; duplicated because
+/// this entry can't import `dart:isolate`.
+Future<Uint8List?> _buildRegionIndexAsync(
+  PdfDocument document,
+  PdfWorkerTranscriptCache cache,
+  int pageIndex,
+  bool annotations,
+  int maxCommands,
+  bool buildGrid,
+  PdfCancellationToken token, {
+  PdfWorkerPhaseTimings? timings,
+}) async {
+  final transcript = await cache.transcriptFor(
+    document,
+    pageIndex,
+    annotations,
+    token,
+    yieldInterval: 4096,
+    timings: timings,
+  );
+  if (transcript == null) return null;
+  if (token.cancelled) throw const PdfCancelledException();
+  final index = PdfRegionReplayIndex.build(
+    transcript.wireCommands,
+    maxCommands: maxCommands,
+    buildGrid: buildGrid,
+  );
+  return serializeRegionReplayIndex(index);
 }
 
 Future<List<PdfRenderCommand>> _withBrowserDecodedImages(

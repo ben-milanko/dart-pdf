@@ -1,0 +1,9 @@
+arb-dir: lib/l10n
+template-arb-file: app_en.arb
+output-localization-file: app_localizations.dart
+output-class: AppLocalizations
+# On Flutter web, load each locale as a deferred import so only the active
+# locale's JS chunk is downloaded (no effect on mobile/desktop AOT; see
+# doc/i18n.md). The English fallback wrapper imports the _en class directly,
+# so English stays eager.
+use-deferred-loading: true

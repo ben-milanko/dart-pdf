@@ -8,6 +8,13 @@ import 'package:flutter/widgets.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'pdf_bookmark_source.dart';
+import 'pdf_cache.dart';
+import 'pdf_file_source.dart';
+import 'pdf_mobile_source.dart';
+import 'web_file_picker_stub.dart'
+    if (dart.library.js_interop) 'web_file_picker.dart';
+
 const _macosFileAccessChannel =
     MethodChannel('dev.milanko.dartpdf/file_access');
 
@@ -55,14 +62,94 @@ class PickedPdf {
   final String? bookmark;
 }
 
+/// A file the mobile reference picker handed back: a native [token] pointing at
+/// the *original* file (not a sandbox copy), its display [name], the [length]
+/// when the provider reports it, and whether the runner's up-front probe found
+/// the reference [seekable] (so ranged reads are worth attempting - see #364).
+class MobilePickedPdf {
+  const MobilePickedPdf({
+    required this.token,
+    required this.name,
+    this.length,
+    required this.seekable,
+  });
+
+  /// Opaque native reference (Android persisted `content://` Uri; iOS
+  /// security-scoped bookmark). Passed back to [pdfByteSourceForMobileToken].
+  final String token;
+  final String name;
+  final int? length;
+
+  /// Whether native ranged reads over [token] are random-access. False for a
+  /// non-seekable pipe (many cloud providers), where the caller streams whole
+  /// instead of opening progressively.
+  final bool seekable;
+}
+
+/// Whether this platform can pick a mobile file *by reference* (Android/iOS,
+/// off-web) and read ranges from it natively - the mobile counterpart of
+/// [progressiveOpenSupported]. The OS pickers otherwise copy the whole file
+/// into the sandbox before the app sees a byte, paying the full cloud transport
+/// up front (#364); the reference picker keeps the original so ranged reads can
+/// first-paint from a few MB. Whether ranged reads actually help depends on the
+/// provider (a non-seekable SAF pipe streams whole) - probed per pick.
+bool get supportsMobileProgressiveOpen =>
+    !kIsWeb &&
+    (defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS);
+
+/// Opens the reference-based mobile document picker and returns one entry per
+/// chosen PDF (empty when cancelled). Each entry carries a native [token] to
+/// the original file plus a seekability probe result. Throws
+/// [MissingPluginException] on a runner without the channel, so callers can
+/// fall back to the copy-based [pickPdfFiles].
+Future<List<MobilePickedPdf>> pickPdfMobileReferences() async {
+  final picked = await mobileFileChannel
+      .invokeListMethod<Map<Object?, Object?>>('pickDocuments');
+  if (picked == null) return const [];
+  final out = <MobilePickedPdf>[];
+  for (final entry in picked) {
+    final token = entry['token'] as String?;
+    if (token == null || token.isEmpty) continue;
+    out.add(MobilePickedPdf(
+      token: token,
+      name: (entry['name'] as String?) ?? 'document.pdf',
+      length: (entry['length'] as num?)?.toInt(),
+      seekable: entry['seekable'] == true,
+    ));
+  }
+  return out;
+}
+
+/// A ranged [PdfByteSource] over a mobile pick's native [token], so the app can
+/// open it progressively via [PdfDocument.openSource] and stream the rest in
+/// behind the first paint - the mobile counterpart of [pdfByteSourceForPath].
+PdfByteSource pdfByteSourceForMobileToken(
+  String token, {
+  PdfCancelToken? cancelToken,
+  void Function(int received, int? total)? onProgress,
+}) =>
+    PdfMobileByteSource(
+      token,
+      cancelToken: cancelToken,
+      onProgress: onProgress,
+    );
+
 /// Opens the system file picker for a PDF. Returns null when the user cancels.
-Future<XFile?> pickPdfFile() =>
-    openFile(acceptedTypeGroups: const [pdfTypeGroup]);
+///
+/// On the web this reads the picked file's bytes directly (see [pickPdfFileWeb])
+/// instead of going through `file_selector`, whose blob-URL XFiles hang on
+/// `readAsBytes()` under the deployed site's cross-origin isolation.
+Future<XFile?> pickPdfFile() => kIsWeb
+    ? pickPdfFileWeb()
+    : openFile(acceptedTypeGroups: const [pdfTypeGroup]);
 
 /// Opens the system file picker for one or more PDFs. Returns an empty list
-/// when the user cancels.
-Future<List<XFile>> pickPdfFiles() =>
-    openFiles(acceptedTypeGroups: const [pdfTypeGroup]);
+/// when the user cancels. On the web, reads the bytes eagerly (see
+/// [pickPdfFilesWeb]) for the same reason as [pickPdfFile].
+Future<List<XFile>> pickPdfFiles() => kIsWeb
+    ? pickPdfFilesWeb()
+    : openFiles(acceptedTypeGroups: const [pdfTypeGroup]);
 
 /// Opens the system file picker and reads the chosen PDF. Returns null when
 /// the user cancels. Throws if the file can't be read - callers surface that.
@@ -219,6 +306,13 @@ class SaveResult {
 /// before reading. This is required for sandboxed locations such as OneDrive's
 /// CloudStorage folder after an app restart.
 Future<Uint8List> readPdfAtPath(String path, {String? bookmark}) async {
+  // The byte-snapshot store gets first refusal. On the web a recent/session
+  // entry is an IndexedDB blob keyed under [path] and there's no filesystem to
+  // fall back to, so the web store returns the bytes (or throws on a miss, which
+  // drops the stale entry). Native keeps its snapshot as a real file, so its
+  // store declines here (returns null) and we read [path] off disk below.
+  final cached = await readCachedPdf(path);
+  if (cached != null) return cached;
   if (_isMacOSDesktop && bookmark != null && bookmark.isNotEmpty) {
     try {
       final bytes = await _macosFileAccessChannel.invokeMethod<Uint8List>(
@@ -231,6 +325,40 @@ Future<Uint8List> readPdfAtPath(String path, {String? bookmark}) async {
     }
   }
   return XFile(path).readAsBytes();
+}
+
+/// Whether opening [path] progressively (first paint from ranged reads, full
+/// bytes streamed in behind it) is worthwhile on this platform. Desktop only:
+/// the big cloud-synced documents this pays off for live behind a real file
+/// path, and web/mobile picks hand back bytes (or a throwaway sandbox copy)
+/// that are already fully in memory.
+bool progressiveOpenSupported(String? path) =>
+    supportsInPlaceSave && path != null && path.isNotEmpty;
+
+/// A ranged [PdfByteSource] for a local file, so the app can open it
+/// progressively via [PdfDocument.openSource] and stream the rest in behind the
+/// first paint. On sandboxed macOS a bookmarked reopen must reactivate its
+/// security scope, so it reads through the native runner
+/// ([PdfBookmarkFileByteSource]); every other desktop path reads directly with
+/// a `RandomAccessFile` ([PdfFileByteSource]).
+PdfByteSource pdfByteSourceForPath(
+  String path, {
+  String? bookmark,
+  PdfCancelToken? cancelToken,
+  void Function(int received, int? total)? onProgress,
+}) {
+  if (_isMacOSDesktop && bookmark != null && bookmark.isNotEmpty) {
+    return PdfBookmarkFileByteSource(
+      bookmark: bookmark,
+      cancelToken: cancelToken,
+      onProgress: onProgress,
+    );
+  }
+  return PdfFileByteSource(
+    path,
+    cancelToken: cancelToken,
+    onProgress: onProgress,
+  );
 }
 
 /// Whether the current platform can open a local file's containing folder in
@@ -369,10 +497,18 @@ Future<SaveResult> saveBytesAs(
 Future<SaveResult> exportCustomStampsAs(
   BuildContext context,
   List<PdfCustomStamp> stamps,
+) =>
+    saveJsonAs(context, encodeCustomStampBundle(stamps), 'dartpdf-stamps.json');
+
+/// Save-as for a JSON document, with the same platform behaviour as
+/// [saveBytesAs]: a save dialog on desktop, a browser download on the web,
+/// the share sheet on phones. [name] should carry `.json`.
+Future<SaveResult> saveJsonAs(
+  BuildContext context,
+  String json,
+  String name,
 ) async {
-  final name = 'dartpdf-stamps.json';
-  final bytes =
-      Uint8List.fromList(utf8.encode(encodeCustomStampBundle(stamps)));
+  final bytes = Uint8List.fromList(utf8.encode(json));
   final file = XFile.fromData(
     bytes,
     mimeType: 'application/json',

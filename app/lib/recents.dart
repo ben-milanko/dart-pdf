@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'devtools.dart';
+
 /// One entry in the "recent documents" list shown on the welcome screen.
 @immutable
 class RecentFile {
@@ -22,9 +24,10 @@ class RecentFile {
   /// only a genuine picked path belongs here - never a [cachePath].
   final String? path;
 
-  /// The app-private snapshot of a mobile pick's bytes (see pdf_cache.dart).
-  /// Lets the entry reopen without a fresh pick when there is no reusable
-  /// [path]; not a writable origin, so saves still go through save-as.
+  /// The app-private snapshot of a pick's bytes (a private file on mobile, an
+  /// IndexedDB blob on web - see pdf_cache.dart). Lets the entry reopen without
+  /// a fresh pick when there is no reusable [path]; not a writable origin, so
+  /// saves still go through save-as.
   final String? cachePath;
 
   /// macOS security-scoped bookmark for [path], when available.
@@ -98,8 +101,10 @@ class RecentsStore extends ChangeNotifier {
             .map((m) => RecentFile.fromJson(m.cast<String, dynamic>())));
       _sort();
       notifyListeners();
-    } catch (_) {
+    } catch (e) {
       // No storage (tests) - keep the in-memory list.
+      AppDevTools.instance
+          .addLog('recents load failed: $e', level: DevLogLevel.error);
     }
   }
 
@@ -142,8 +147,10 @@ class RecentsStore extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
           _key, jsonEncode(_items.map((e) => e.toJson()).toList()));
-    } catch (_) {
+    } catch (e) {
       // No storage - nothing to persist.
+      AppDevTools.instance
+          .addLog('recents persist failed: $e', level: DevLogLevel.error);
     }
   }
 }

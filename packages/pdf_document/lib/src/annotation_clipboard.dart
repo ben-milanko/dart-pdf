@@ -14,6 +14,7 @@ class PdfAnnotationSnapshot {
     this.subtype,
     this.rect, {
     this.inReplyTo,
+    this.sourceRotation = 0,
   });
 
   /// Fully detached: no [CosReference]s, streams held inline. Pastes
@@ -37,6 +38,16 @@ class PdfAnnotationSnapshot {
   /// and clipboard captures (which mint a fresh, parentless annotation).
   final String? inReplyTo;
 
+  /// The clockwise /Rotate (0/90/180/270) of the page the annotation was
+  /// captured from. An oriented appearance (FreeText and the like) is
+  /// authored to read upright *after* the renderer applies its page's
+  /// display rotation, so a copy pasted onto a page whose /Rotate differs
+  /// would render spun. [PdfAnnotationClipboard.pasteAnnotation] uses this
+  /// to counter-rotate by the source→destination delta. 0 (the default)
+  /// means "captured from an unrotated page", which is also the safe
+  /// fallback for payloads that predate this field.
+  final int sourceRotation;
+
   /// Entries that don't travel: the page link (/P), reply threads and
   /// popups (whose /Parent points back into the source document),
   /// struct-tree and optional-content wiring. /NM drops too unless
@@ -56,10 +67,16 @@ class PdfAnnotationSnapshot {
   /// mints its own name. Sync payloads set it true: the name *is* the
   /// identity the snapshot travels under (see
   /// [PdfAnnotationSyncEditing.upsertAnnotation]).
+  ///
+  /// [sourcePageRotation] is the /Rotate of the page [annotation] lives on
+  /// (read it from [PdfPage.rotation], which resolves inheritance); it is
+  /// recorded as [sourceRotation] so a paste onto a differently rotated
+  /// page can re-orient the appearance. Leave it 0 for unrotated pages.
   static PdfAnnotationSnapshot? capture(
     PdfDocument document,
     PdfAnnotation annotation, {
     bool keepName = false,
+    int sourcePageRotation = 0,
   }) {
     if (const {'Popup', 'Widget', 'Link'}.contains(annotation.subtype)) {
       return null;
@@ -80,7 +97,15 @@ class PdfAnnotationSnapshot {
       annotation.subtype,
       annotation.rect,
       inReplyTo: keepName ? annotation.inReplyTo : null,
+      sourceRotation: _normalizeRotation(sourcePageRotation),
     );
+  }
+
+  /// Clamps any /Rotate to the {0, 90, 180, 270} the PDF spec allows.
+  static int _normalizeRotation(int rotation) {
+    final r = rotation % 360;
+    final positive = r < 0 ? r + 360 : r;
+    return positive - positive % 90;
   }
 
   /// The /NM identity captured with `keepName: true`, if any.
@@ -97,6 +122,9 @@ class PdfAnnotationSnapshot {
         'subtype': subtype,
         'rect': [rect.left, rect.bottom, rect.right, rect.top],
         if (inReplyTo != null) 'irt': inReplyTo,
+        // additive and omitted when 0, so unrotated-page payloads (the
+        // common case) stay byte-identical to pre-field ones
+        if (sourceRotation != 0) 'rot': sourceRotation,
         'dict': _encodeCos(_dict),
       };
 
@@ -109,12 +137,14 @@ class PdfAnnotationSnapshot {
     final subtype = json['subtype'];
     final rect = json['rect'];
     final irt = json['irt'];
+    final rot = json['rot'];
     final dict = _decodeCos(json['dict']);
     if (subtype is! String ||
         rect is! List ||
         rect.length != 4 ||
         rect.any((v) => v is! num) ||
         (irt != null && irt is! String) ||
+        (rot != null && rot is! int) ||
         dict is! CosDictionary) {
       throw const FormatException('malformed annotation snapshot');
     }
@@ -128,6 +158,7 @@ class PdfAnnotationSnapshot {
         (rect[3] as num).toDouble(),
       ),
       inReplyTo: irt as String?,
+      sourceRotation: rot == null ? 0 : _normalizeRotation(rot as int),
     );
   }
 
@@ -319,6 +350,7 @@ extension PdfAnnotationClipboard on PdfEditor {
         for (final stroke in ink.items) _shiftPoints(stroke, dx, dy) ?? stroke,
       ]);
     }
+    _reorientPastedAppearance(dict, pageIndex, snapshot.sourceRotation);
     // re-establish a reply's /IRT link by the parent's /NM: the reference
     // could not travel detached, so it arrives as snapshot.inReplyTo and is
     // resolved against the receiving document (orphaned when the parent
@@ -341,6 +373,38 @@ extension PdfAnnotationClipboard on PdfEditor {
       annotRef,
       visual: !const {'Popup'}.contains(snapshot.subtype),
     );
+  }
+
+  /// Counter-rotates a pasted annotation's appearance when the destination
+  /// page's /Rotate differs from the page it was captured on
+  /// ([PdfAnnotationSnapshot.sourceRotation]), so oriented artwork
+  /// (FreeText and the like) reads upright instead of spun by the page's
+  /// display rotation.
+  ///
+  /// The renderer maps an appearance through the page's rotation just like
+  /// the rest of the page, so a copy authored for a page rotated by
+  /// `sourceRotation` needs `dstRotation - sourceRotation` degrees folded
+  /// into its /Matrix to stay upright at `dstRotation` - the same
+  /// centre-preserving fold [PdfAnnotationEditing.rotateAnnotation]
+  /// applies. A no-op when the rotations match (the overwhelming common
+  /// case) or the appearance can't be re-oriented (no single-stream /N,
+  /// missing or degenerate BBox/Rect). Called before [_hoistStreams] while
+  /// the appearance is still inline in [dict].
+  void _reorientPastedAppearance(
+    CosDictionary dict,
+    int pageIndex,
+    int sourceRotation,
+  ) {
+    final delta = PdfAnnotationEditing._normalizePageRotation(
+        document.page(pageIndex).rotation - sourceRotation);
+    if (delta == 0) return;
+    final ap = document.cos.resolve(dict['AP']);
+    if (ap is! CosDictionary) return;
+    final form = document.cos.resolve(ap['N']);
+    if (form is! CosStream) return; // multi-state /N (widgets) never paste here
+    final rect = pdfRectFrom(document.cos, dict['Rect']);
+    if (rect == null || rect.width <= 0 || rect.height <= 0) return;
+    _foldRotationInto(dict, form, rect, delta.toDouble());
   }
 
   /// Replaces every inline [CosStream] in the tree with a reference to a

@@ -78,6 +78,17 @@ Uint8List pemBytes(String pem) {
   return Uint8List.fromList(base64.decode(body));
 }
 
+/// Wraps [der] in a PEM `-----BEGIN [label]-----` block, the base64 body
+/// hard-wrapped at 64 columns (RFC 7468). The inverse of [pemBytes].
+String pemEncode(String label, List<int> der) {
+  final body = base64.encode(der);
+  final lines = [
+    for (var i = 0; i < body.length; i += 64)
+      body.substring(i, i + 64 > body.length ? body.length : i + 64),
+  ];
+  return '-----BEGIN $label-----\n${lines.join('\n')}\n-----END $label-----\n';
+}
+
 /// DigestInfo ::= SEQUENCE { AlgorithmIdentifier, OCTET STRING digest }
 Uint8List _digestInfo(String digestOid, List<int> digest) => derSequence([
       derSequence([derOid(digestOid), derNull()]),

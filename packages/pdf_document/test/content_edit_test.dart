@@ -332,6 +332,69 @@ void main() {
       expect(text, ['Sheet 1', 'Page 2']);
     });
 
+    test('repeated edits through one snapshot compose', () {
+      // replaceElementText reuses the caller's PdfPageElements to skip a
+      // second decode + tokenization (#402). Edits mutate that snapshot's
+      // operation list in place, so successive edits through the SAME
+      // snapshot stay consistent - this pins that contract.
+      final doc = PdfDocument.open(buildContentPdf(
+          'BT /F1 12 Tf 72 700 Td (Page 1) Tj 0 -20 Td (Page 2) Tj ET'));
+      final elements = PdfPageElements.of(doc, 0);
+      final texts = elements.elements
+          .where((element) => element.kind == PdfElementKind.text)
+          .toList();
+      final editor = PdfEditor(doc);
+
+      expect(
+          editor.replaceElementText(elements, texts.first, 'Page', 'Sheet'), 1);
+      expect(
+          editor.replaceElementText(elements, texts[1], 'Page', 'Folio'), 1);
+
+      final reopened = PdfDocument.open(editor.save());
+      final text = PdfPageElements.of(reopened, 0)
+          .elements
+          .where((element) => element.kind == PdfElementKind.text)
+          .map((element) => element.text)
+          .toList();
+      expect(text, ['Sheet 1', 'Folio 2'],
+          reason: 'the first edit must survive the second');
+    });
+
+    test('an edit made through another snapshot is not clobbered', () {
+      // The hazard the snapshot reuse actually introduces: a DIFFERENT
+      // snapshot rewrites the page in between, so the held one no longer
+      // describes the document. Reusing it there would serialize operations
+      // that predate the other edit and silently undo it.
+      final doc = PdfDocument.open(buildContentPdf('BT /F1 12 Tf 72 700 Td '
+          '(Page 1) Tj 0 -20 Td (Page 2) Tj 0 -20 Td (Page 3) Tj ET'));
+      final held = PdfPageElements.of(doc, 0);
+      final texts = held.elements
+          .where((element) => element.kind == PdfElementKind.text)
+          .toList();
+      final editor = PdfEditor(doc);
+
+      expect(editor.replaceElementText(held, texts.first, 'Page', 'Sheet'), 1);
+
+      // A separate snapshot deletes the third run.
+      final fresh = PdfPageElements.of(doc, 0);
+      final freshTexts = fresh.elements
+          .where((element) => element.kind == PdfElementKind.text)
+          .toList();
+      editor.deleteElements(fresh, [freshTexts.last.id]);
+
+      // Back to the held snapshot, which knows nothing of that delete.
+      expect(editor.replaceElementText(held, texts[1], 'Page', 'Folio'), 1);
+
+      final reopened = PdfDocument.open(editor.save());
+      final text = PdfPageElements.of(reopened, 0)
+          .elements
+          .where((element) => element.kind == PdfElementKind.text)
+          .map((element) => element.text)
+          .toList();
+      expect(text, ['Sheet 1', 'Folio 2'],
+          reason: 'the delete made through the other snapshot must survive');
+    });
+
     test('a miss returns zero and queues nothing', () {
       final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
       expect(editor.replaceText(0, 'absent text', 'x'), 0);

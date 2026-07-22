@@ -1,12 +1,15 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'editing/editing_color_picker.dart';
 import 'editing/editing_controller.dart';
+import 'editing/editing_panel.dart';
 import 'editing/editing_preferences.dart';
 import 'editing/tool_shortcuts.dart';
+import 'l10n/pdf_l10n.dart';
 import 'pdf_viewer.dart';
 
 /// Shared header chrome for the drop-in shells (PdfReader and
@@ -38,28 +41,44 @@ const double _pdfShellSheetMaxFactor = 0.9;
 Widget pdfShellBottomSheets(List<Widget> sheets) =>
     _PdfShellBottomSheetArea(sheets: sheets);
 
-/// Shared shell topology: side panels dock around a stable viewer element on
-/// wide layouts, while compact layouts pass panel widgets as [bottomSheets].
-class PdfShellPanelLayout extends StatelessWidget {
+/// Shared shell topology: panels dock around a stable viewer element on wide
+/// layouts - a column of [topPanels], a row of [leadingPanels] · viewer ·
+/// [trailingPanels], then a column of [bottomPanels] - while compact layouts
+/// pass panel widgets as [bottomSheets].
+///
+/// When [onPanelDock] is wired, a panel's move handle can be dragged onto one
+/// of four edge drop zones to redock it; the shell reports the new dock
+/// through the callback and reveals the zones only while a drag is underway.
+class PdfShellPanelLayout extends StatefulWidget {
   const PdfShellPanelLayout({
     super.key,
     required this.viewer,
     this.leadingPanels = const [],
     this.trailingPanels = const [],
+    this.topPanels = const [],
+    this.bottomPanels = const [],
     this.bottomSheets = const [],
     this.overlays = const [],
     this.floatingToolbar,
     this.dockedToolbar,
+    this.onPanelDock,
   });
 
   /// The page viewer, reflow view, or other primary document surface.
   final Widget viewer;
 
-  /// Docked panels before the viewer in the horizontal row.
+  /// Docked panels before the viewer in the horizontal row (left edge).
   final List<Widget> leadingPanels;
 
-  /// Docked panels after the viewer in the horizontal row.
+  /// Docked panels after the viewer in the horizontal row (right edge).
   final List<Widget> trailingPanels;
+
+  /// Docked panels stacked above the viewer row, spanning the width (top edge).
+  final List<Widget> topPanels;
+
+  /// Docked panels stacked below the viewer row, spanning the width
+  /// (bottom edge).
+  final List<Widget> bottomPanels;
 
   /// Compact panels presented through [pdfShellBottomSheets].
   final List<Widget> bottomSheets;
@@ -73,34 +92,427 @@ class PdfShellPanelLayout extends StatelessWidget {
   /// A toolbar that consumes layout space below the content area.
   final Widget? dockedToolbar;
 
+  /// Redocks the given panel to the dropped-on edge. Null disables the
+  /// drag-to-redock affordance (panels then show no move handle).
+  final void Function(PdfDockablePanel panel, PdfPanelDock dock)? onPanelDock;
+
+  @override
+  State<PdfShellPanelLayout> createState() => _PdfShellPanelLayoutState();
+}
+
+class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
+  bool _dragging = false;
+
+  void _setDragging(bool value) {
+    if (_dragging == value) return;
+    setState(() => _dragging = value);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final content = Stack(children: [
-      Positioned.fill(
-        child: Row(children: [
-          ...leadingPanels,
-          Expanded(
-            key: const ValueKey('pdf-shell-viewer'),
-            child: viewer,
-          ),
-          ...trailingPanels,
-        ]),
+    final row = Row(children: [
+      ...widget.leadingPanels,
+      Expanded(
+        key: const ValueKey('pdf-shell-viewer'),
+        child: widget.viewer,
       ),
-      ...overlays,
-      if (floatingToolbar != null)
+      ...widget.trailingPanels,
+    ]);
+    final stacked = Column(children: [
+      ...widget.topPanels,
+      Expanded(child: row),
+      ...widget.bottomPanels,
+    ]);
+    final content = Stack(children: [
+      Positioned.fill(child: stacked),
+      ...widget.overlays,
+      if (widget.floatingToolbar != null)
         Positioned(
           left: 0,
           right: 0,
           bottom: 0,
-          child: floatingToolbar!,
+          child: widget.floatingToolbar!,
         ),
-      if (bottomSheets.isNotEmpty) pdfShellBottomSheets(bottomSheets),
+      if (widget.bottomSheets.isNotEmpty)
+        pdfShellBottomSheets(widget.bottomSheets),
+      // the redock drop zones sit above everything while a panel is being
+      // dragged, so a panel can be dropped onto any edge - even over the
+      // toolbar or another panel
+      if (widget.onPanelDock != null && _dragging)
+        Positioned.fill(
+          child: _PanelDropZones(onPanelDock: widget.onPanelDock!),
+        ),
     ]);
 
-    return Column(children: [
+    Widget result = Column(children: [
       Expanded(child: content),
-      if (dockedToolbar != null) dockedToolbar!,
+      if (widget.dockedToolbar != null) widget.dockedToolbar!,
     ]);
+    if (widget.onPanelDock != null) {
+      // the panels below read this to drive the drag: their move handles
+      // toggle the drop zones on and off.
+      result = PdfPanelDragScope(
+        onDragStarted: () => _setDragging(true),
+        onDragEnded: () => _setDragging(false),
+        child: result,
+      );
+    }
+    return result;
+  }
+}
+
+/// The four edge drop targets shown while a panel is being dragged. Dropping
+/// the panel onto one redocks it to that edge.
+class _PanelDropZones extends StatelessWidget {
+  const _PanelDropZones({required this.onPanelDock});
+
+  final void Function(PdfDockablePanel panel, PdfPanelDock dock) onPanelDock;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, constraints) {
+      // Thin edge bands hug the very edge: docking a panel to an edge is
+      // dropping in its band, while dropping on a panel's body (inward of
+      // the band) tabs the two together. Kept narrow so an already-docked
+      // panel stays a reachable tab target.
+      final bandW = (constraints.maxWidth * 0.1).clamp(56.0, 96.0).toDouble();
+      final bandH = (constraints.maxHeight * 0.1).clamp(48.0, 84.0).toDouble();
+      return Stack(children: [
+        Positioned(
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: bandW,
+          child: _DropTarget(dock: PdfPanelDock.left, onPanelDock: onPanelDock),
+        ),
+        Positioned(
+          right: 0,
+          top: 0,
+          bottom: 0,
+          width: bandW,
+          child:
+              _DropTarget(dock: PdfPanelDock.right, onPanelDock: onPanelDock),
+        ),
+        // top/bottom bands inset horizontally so they never overlap the
+        // left/right bands at the corners
+        Positioned(
+          left: bandW,
+          right: bandW,
+          top: 0,
+          height: bandH,
+          child: _DropTarget(dock: PdfPanelDock.top, onPanelDock: onPanelDock),
+        ),
+        Positioned(
+          left: bandW,
+          right: bandW,
+          bottom: 0,
+          height: bandH,
+          child:
+              _DropTarget(dock: PdfPanelDock.bottom, onPanelDock: onPanelDock),
+        ),
+      ]);
+    });
+  }
+}
+
+class _DropTarget extends StatelessWidget {
+  const _DropTarget({required this.dock, required this.onPanelDock});
+
+  final PdfPanelDock dock;
+  final void Function(PdfDockablePanel panel, PdfPanelDock dock) onPanelDock;
+
+  IconData get _icon => switch (dock) {
+        PdfPanelDock.left => Icons.west,
+        PdfPanelDock.right => Icons.east,
+        PdfPanelDock.top => Icons.north,
+        PdfPanelDock.bottom => Icons.south,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DragTarget<PdfDockablePanel>(
+      onWillAcceptWithDetails: (_) => true,
+      onAcceptWithDetails: (details) => onPanelDock(details.data, dock),
+      builder: (context, candidate, rejected) {
+        final active = candidate.isNotEmpty;
+        return AnimatedContainer(
+          key: ValueKey('pdf-shell-dropzone-${dock.name}'),
+          duration: const Duration(milliseconds: 120),
+          margin: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: (active ? scheme.primary : scheme.primaryContainer)
+                .withValues(alpha: active ? 0.35 : 0.18),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: active
+                  ? scheme.primary
+                  : scheme.primary.withValues(
+                      alpha: 0.4,
+                    ),
+              width: active ? 2 : 1,
+            ),
+          ),
+          child: Center(
+            child: Icon(_icon,
+                color: active ? scheme.primary : scheme.onPrimaryContainer,
+                size: active ? 32 : 26),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// One panel in a [PdfPanelTabGroup].
+class PdfPanelTabEntry {
+  const PdfPanelTabEntry({
+    required this.panel,
+    required this.body,
+    this.onClose,
+  });
+
+  /// The panel's identity (its label + icon name the tab).
+  final PdfDockablePanel panel;
+
+  /// The panel's content, built chromeless (it fills the tab body).
+  final Widget body;
+
+  /// Hides this panel - the shell turns its visibility preference off.
+  final VoidCallback? onClose;
+}
+
+/// Several panels docked on the same edge and grouped into one tabbed panel:
+/// a tab strip selects which body shows, and the rest stay mounted (their
+/// state survives tab switches). Each tab is draggable - onto an edge zone to
+/// split it back out, or onto another panel to move it - and closable. Shares
+/// the docked-panel frame (fixed extent + resize grip) with standalone panels.
+class PdfPanelTabGroup extends StatefulWidget {
+  const PdfPanelTabGroup({
+    super.key,
+    required this.dock,
+    required this.entries,
+    required this.width,
+    required this.minWidth,
+    required this.maxWidth,
+    required this.gripKey,
+    this.persistedWidth,
+    this.onPersistWidth,
+  });
+
+  final PdfPanelDock dock;
+  final List<PdfPanelTabEntry> entries;
+  final double width;
+  final double minWidth;
+  final double maxWidth;
+  final double? persistedWidth;
+  final ValueChanged<double>? onPersistWidth;
+  final Key gripKey;
+
+  @override
+  State<PdfPanelTabGroup> createState() => _PdfPanelTabGroupState();
+}
+
+class _PdfPanelTabGroupState extends State<PdfPanelTabGroup> {
+  int _selected = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = widget.entries;
+    final selected = _selected.clamp(0, entries.length - 1);
+    return PdfSidebarPanelFrame(
+      width: widget.width,
+      minWidth: widget.minWidth,
+      maxWidth: widget.maxWidth,
+      persistedWidth: widget.persistedWidth,
+      onPersistWidth: widget.onPersistWidth,
+      dock: widget.dock,
+      // no single move handle: each tab is dragged individually
+      resizable: true,
+      bottomSheet: false,
+      gripKey: widget.gripKey,
+      builder: (context, geometry) => Material(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        child: Column(children: [
+          _tabStrip(context, geometry, entries, selected),
+          const Divider(height: 1),
+          Expanded(
+            child: IndexedStack(
+              index: selected,
+              sizing: StackFit.expand,
+              children: [for (final e in entries) e.body],
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _tabStrip(
+    BuildContext context,
+    PdfSidebarPanelGeometry geometry,
+    List<PdfPanelTabEntry> entries,
+    int selected,
+  ) {
+    return Padding(
+      // keep the strip clear of the inner resize grip
+      padding: EdgeInsets.only(
+        left: geometry.contentStartInset,
+        right: geometry.contentEndInset,
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (var i = 0; i < entries.length; i++)
+              _PanelTab(
+                entry: entries[i],
+                selected: i == selected,
+                onSelect: () => setState(() => _selected = i),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A single tab chip: selects its panel on tap, drags to redock/split, and
+/// carries a close button.
+class _PanelTab extends StatelessWidget {
+  const _PanelTab({
+    required this.entry,
+    required this.selected,
+    required this.onSelect,
+  });
+
+  final PdfPanelTabEntry entry;
+  final bool selected;
+  final VoidCallback onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final panel = entry.panel;
+    final chip = InkWell(
+      key: ValueKey('pdf-panel-tab-${panel.name}'),
+      onTap: onSelect,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(10, 8, 6, 8),
+        decoration: BoxDecoration(
+          color: selected ? scheme.surfaceContainerHighest : null,
+          border: Border(
+            bottom: BorderSide(
+              color: selected ? scheme.primary : Colors.transparent,
+              width: 2,
+            ),
+          ),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(panel.icon,
+              size: 16,
+              color: selected ? scheme.primary : scheme.onSurfaceVariant),
+          const SizedBox(width: 6),
+          Text(panel.label,
+              style: TextStyle(
+                color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                fontSize: 13,
+              )),
+          if (entry.onClose != null) ...[
+            const SizedBox(width: 4),
+            InkWell(
+              key: ValueKey('pdf-panel-tab-close-${panel.name}'),
+              onTap: entry.onClose,
+              customBorder: const CircleBorder(),
+              child: Padding(
+                padding: const EdgeInsets.all(2),
+                child:
+                    Icon(Icons.close, size: 14, color: scheme.onSurfaceVariant),
+              ),
+            ),
+          ],
+        ]),
+      ),
+    );
+    final scope = PdfPanelDragScope.maybeOf(context);
+    if (scope == null) return chip;
+    return Draggable<PdfDockablePanel>(
+      data: panel,
+      dragAnchorStrategy: pointerDragAnchorStrategy,
+      onDragStarted: scope.onDragStarted,
+      onDragEnd: (_) => scope.onDragEnded(),
+      onDraggableCanceled: (_, __) => scope.onDragEnded(),
+      feedback: PdfPanelDragFeedback(panel: panel),
+      child: MouseRegion(cursor: SystemMouseCursors.move, child: chip),
+    );
+  }
+}
+
+/// Wraps a docked panel (standalone or a tab group) so that dragging another
+/// panel onto it joins that panel into this one's tab group. Passive - and
+/// pointer-transparent - until a droppable panel that is not already a
+/// [members] of this group hovers it.
+class PdfPanelTabDropRegion extends StatelessWidget {
+  const PdfPanelTabDropRegion({
+    super.key,
+    required this.members,
+    required this.onJoin,
+    required this.child,
+  });
+
+  /// The panels already in this target group - a drag of one of them is
+  /// rejected (dropping onto its own group is a no-op).
+  final Set<PdfDockablePanel> members;
+
+  /// Joins the dragged panel into this group.
+  final ValueChanged<PdfDockablePanel> onJoin;
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DragTarget<PdfDockablePanel>(
+      onWillAcceptWithDetails: (details) => !members.contains(details.data),
+      onAcceptWithDetails: (details) => onJoin(details.data),
+      builder: (context, candidate, rejected) {
+        final active = candidate.isNotEmpty;
+        return Stack(children: [
+          child,
+          if (active)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Container(
+                  margin: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: scheme.primary.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: scheme.primary, width: 2),
+                  ),
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: scheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.tab,
+                            size: 18, color: scheme.onPrimaryContainer),
+                        const SizedBox(width: 6),
+                        Text(pdfL10n(context).shellTabHere,
+                            style: TextStyle(color: scheme.onPrimaryContainer)),
+                      ]),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ]);
+      },
+    );
   }
 }
 
@@ -255,7 +667,7 @@ class PdfPanelBottomSheet extends StatelessWidget {
                       IconButton(
                         key: closeKey,
                         icon: const Icon(Icons.close),
-                        tooltip: 'Close',
+                        tooltip: pdfL10n(context).close,
                         visualDensity: VisualDensity.compact,
                         onPressed: onClose,
                       ),
@@ -387,6 +799,24 @@ class PdfShellControlItem {
 /// and a trailing group (panel toggles), pushed apart when there is room.
 /// On compact screens the trailing group becomes a single Controls button
 /// that opens a large-button bottom sheet.
+/// Scroll behavior for the shell header's horizontal overflow scroller.
+///
+/// The header only needs to scroll (via the wheel or a trackpad scroll
+/// gesture - both pointer *signals*) when its controls overflow a narrow
+/// window. It must never scroll on a pointer *drag*: Flutter's default
+/// [dragDevices] include the trackpad, and on macOS a trackpad click carries
+/// enough motion that the drag-to-scroll recognizer claims the gesture and
+/// swallows the tap on the button underneath - leaving the whole bar
+/// hover-only (search, save, panel toggles all dead) while every other bar
+/// works. Dropping every drag device keeps the controls tappable; wheel and
+/// trackpad *scrolling* are unaffected.
+class _HeaderScrollBehavior extends MaterialScrollBehavior {
+  const _HeaderScrollBehavior();
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => const <PointerDeviceKind>{};
+}
+
 class PdfShellBar extends StatelessWidget {
   const PdfShellBar({
     super.key,
@@ -429,20 +859,20 @@ class PdfShellBar extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(
-                      child: Text('Controls',
+                      child: Text(pdfL10n(context).shellControls,
                           style: Theme.of(context).textTheme.titleMedium),
                     ),
                   ],
                 ),
                 const SizedBox(height: 14),
                 if (children.isNotEmpty) ...[
-                  const _ShellSheetSectionLabel('View'),
+                  _ShellSheetSectionLabel(pdfL10n(context).shellSectionView),
                   const SizedBox(height: 10),
                   for (final child in children) child,
                   const SizedBox(height: 14),
                 ],
                 if (controls.isNotEmpty) ...[
-                  const _ShellSheetSectionLabel('Shell'),
+                  _ShellSheetSectionLabel(pdfL10n(context).shellSectionShell),
                   const SizedBox(height: 10),
                   GridView.count(
                     crossAxisCount: 4,
@@ -500,13 +930,16 @@ class PdfShellBar extends StatelessWidget {
                 return Row(
                   children: [
                     Expanded(
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(children: [
-                          const SizedBox(width: 8),
-                          ...compactHeader,
-                          const SizedBox(width: 4),
-                        ]),
+                      child: ScrollConfiguration(
+                        behavior: const _HeaderScrollBehavior(),
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(children: [
+                            const SizedBox(width: 8),
+                            ...compactHeader,
+                            const SizedBox(width: 4),
+                          ]),
+                        ),
                       ),
                     ),
                     if (compactControls.isNotEmpty ||
@@ -515,27 +948,30 @@ class PdfShellBar extends StatelessWidget {
                         key: const ValueKey('pdf-shell-controls'),
                         visualDensity: VisualDensity.compact,
                         icon: const Icon(Icons.more_horiz),
-                        tooltip: 'Controls',
+                        tooltip: pdfL10n(context).shellControls,
                         onPressed: () => unawaited(_showControls(context)),
                       ),
                     const SizedBox(width: 8),
                   ],
                 );
               }
-              return SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(minWidth: constraints.maxWidth),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [const SizedBox(width: 8), ...leading],
-                      ),
-                      Row(
-                        children: [...trailing, const SizedBox(width: 8)],
-                      ),
-                    ],
+              return ScrollConfiguration(
+                behavior: const _HeaderScrollBehavior(),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [const SizedBox(width: 8), ...leading],
+                        ),
+                        Row(
+                          children: [...trailing, const SizedBox(width: 8)],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               );
@@ -592,7 +1028,7 @@ class _PdfShellZoomControlState extends State<PdfShellZoomControl> {
       children: [
         PopupMenuButton<double>(
           key: const ValueKey('pdf-shell-zoom-menu'),
-          tooltip: 'Zoom',
+          tooltip: pdfL10n(context).shellZoom,
           initialValue: _nearestPreset(zoom),
           onSelected: widget.controller.setZoom,
           itemBuilder: (context) => [
@@ -622,7 +1058,7 @@ class _PdfShellZoomControlState extends State<PdfShellZoomControl> {
           key: const ValueKey('pdf-shell-zoom-reset'),
           visualDensity: VisualDensity.compact,
           icon: const Icon(Icons.fit_screen),
-          tooltip: 'Reset zoom',
+          tooltip: pdfL10n(context).shellResetZoom,
           onPressed:
               (zoom - 1).abs() < 0.005 ? null : widget.controller.resetZoom,
         ),
@@ -787,8 +1223,12 @@ Future<void> _selectViewOption(
         initial: preferences.pageColor,
         initialFormat: preferences.colorPickerFormat,
         onFormatChanged: (format) => preferences.colorPickerFormat = format,
+        recentColors: preferences.recentColors,
       );
-      if (color != null) preferences.pageColor = color;
+      if (color != null) {
+        preferences.noteRecentColor(color);
+        preferences.pageColor = color;
+      }
     case _ViewOption.author:
       onAuthorPressed?.call();
     case _ViewOption.shortcuts:
@@ -813,6 +1253,7 @@ Future<Map<PdfEditTool, LogicalKeyboardKey>?> showPdfShellShortcutsSheet(
       if (tools == null || tools.contains(entry.key)) entry.key,
   ];
   var draft = Map<PdfEditTool, LogicalKeyboardKey>.of(shortcuts);
+  var searchQuery = '';
 
   Future<LogicalKeyboardKey?> captureKey(BuildContext context) {
     return showDialog<LogicalKeyboardKey>(
@@ -823,7 +1264,7 @@ Future<Map<PdfEditTool, LogicalKeyboardKey>?> showPdfShellShortcutsSheet(
           if (focusNode.canRequestFocus) focusNode.requestFocus();
         });
         return AlertDialog(
-          title: const Text('Press a key'),
+          title: Text(pdfL10n(context).shellPressAKey),
           content: KeyboardListener(
             focusNode: focusNode,
             autofocus: true,
@@ -843,12 +1284,12 @@ Future<Map<PdfEditTool, LogicalKeyboardKey>?> showPdfShellShortcutsSheet(
                 Navigator.of(context).pop(key);
               }
             },
-            child: const Text('Press a letter key, or Delete to clear.'),
+            child: Text(pdfL10n(context).shellPressLetterKeyHint),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).maybePop(),
-              child: const Text('Cancel'),
+              child: Text(pdfL10n(context).cancel),
             ),
           ],
         );
@@ -875,7 +1316,7 @@ Future<Map<PdfEditTool, LogicalKeyboardKey>?> showPdfShellShortcutsSheet(
                 child: Row(
                   children: [
                     Expanded(
-                      child: Text('Keyboard shortcuts',
+                      child: Text(pdfL10n(context).shellKeyboardShortcutsTitle,
                           style: Theme.of(context).textTheme.titleMedium),
                     ),
                     TextButton(
@@ -883,29 +1324,72 @@ Future<Map<PdfEditTool, LogicalKeyboardKey>?> showPdfShellShortcutsSheet(
                       onPressed: () => setSheetState(() => draft =
                           Map<PdfEditTool, LogicalKeyboardKey>.of(
                               pdfEditToolShortcuts)),
-                      child: const Text('Reset'),
+                      child: Text(pdfL10n(context).reset),
                     ),
                     IconButton(
                       icon: const Icon(Icons.close),
-                      tooltip: 'Close',
+                      tooltip: pdfL10n(context).close,
                       onPressed: () => Navigator.of(context).maybePop(),
                     ),
                   ],
                 ),
               ),
               const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: TextField(
+                  key: const ValueKey('pdf-shell-shortcuts-search'),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    prefixIcon: const Icon(Icons.search),
+                    hintText: pdfL10n(context).shellShortcutsSearchHint,
+                    border: const OutlineInputBorder(),
+                  ),
+                  onChanged: (value) =>
+                      setSheetState(() => searchQuery = value),
+                ),
+              ),
               Flexible(
-                child: ListView(
-                  shrinkWrap: true,
-                  children: [
-                    for (final tool in visibleTools)
-                      ListTile(
+                child: Builder(builder: (context) {
+                  final l10n = pdfL10n(context);
+                  final query = searchQuery.trim().toLowerCase();
+                  bool matches(PdfEditTool tool) {
+                    if (query.isEmpty) return true;
+                    final label =
+                        pdfEditToolShortcutLabel(tool, shortcuts: draft) ?? '';
+                    return _toolName(tool).toLowerCase().contains(query) ||
+                        label.toLowerCase().contains(query);
+                  }
+
+                  final byGroup = <PdfEditToolGroup, List<PdfEditTool>>{};
+                  for (final tool in visibleTools.where(matches)) {
+                    byGroup
+                        .putIfAbsent(pdfEditToolGroupOf(tool), () => [])
+                        .add(tool);
+                  }
+
+                  if (byGroup.isEmpty) {
+                    return Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
+                      child: Text(
+                        l10n.shellShortcutsNoMatches(searchQuery.trim()),
+                        key: const ValueKey('pdf-shell-shortcuts-no-matches'),
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodyMedium
+                            ?.copyWith(color: Theme.of(context).hintColor),
+                      ),
+                    );
+                  }
+
+                  Widget tile(PdfEditTool tool) => ListTile(
                         key: ValueKey('pdf-shell-shortcut-${tool.name}'),
                         leading: const Icon(Icons.keyboard_outlined),
                         title: Text(_toolName(tool)),
                         trailing: Text(
                             pdfEditToolShortcutLabel(tool, shortcuts: draft) ??
-                                'Unbound'),
+                                l10n.shellUnbound),
                         onTap: () async {
                           final key = await captureKey(context);
                           if (key == null) return;
@@ -918,9 +1402,34 @@ Future<Map<PdfEditTool, LogicalKeyboardKey>?> showPdfShellShortcutsSheet(
                             }
                           });
                         },
-                      ),
-                  ],
-                ),
+                      );
+
+                  return ListView(
+                    shrinkWrap: true,
+                    children: [
+                      for (final group in PdfEditToolGroup.values)
+                        if (byGroup[group] case final groupTools?) ...[
+                          Padding(
+                            key: ValueKey(
+                                'pdf-shell-shortcut-group-${group.name}'),
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                            child: Text(
+                              _shortcutGroupLabel(context, group),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelMedium
+                                  ?.copyWith(
+                                    color:
+                                        Theme.of(context).colorScheme.primary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          ),
+                          for (final tool in groupTools) tile(tool),
+                        ],
+                    ],
+                  );
+                }),
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
@@ -929,13 +1438,13 @@ Future<Map<PdfEditTool, LogicalKeyboardKey>?> showPdfShellShortcutsSheet(
                   children: [
                     TextButton(
                       onPressed: () => Navigator.of(context).maybePop(),
-                      child: const Text('Cancel'),
+                      child: Text(pdfL10n(context).cancel),
                     ),
                     const SizedBox(width: 8),
                     FilledButton(
                       key: const ValueKey('pdf-shell-shortcuts-done'),
                       onPressed: () => Navigator.of(context).pop(draft),
-                      child: const Text('Done'),
+                      child: Text(pdfL10n(context).done),
                     ),
                   ],
                 ),
@@ -952,6 +1461,27 @@ String _toolName(PdfEditTool tool) {
   final words = tool.name.replaceAllMapped(
       RegExp(r'([A-Z])'), (match) => ' ${match.group(1)!.toLowerCase()}');
   return words[0].toUpperCase() + words.substring(1);
+}
+
+/// The localized section header for [group] in the keyboard-shortcuts editor.
+String _shortcutGroupLabel(BuildContext context, PdfEditToolGroup group) {
+  final l10n = pdfL10n(context);
+  switch (group) {
+    case PdfEditToolGroup.select:
+      return l10n.shellShortcutGroupSelect;
+    case PdfEditToolGroup.markup:
+      return l10n.shellShortcutGroupMarkup;
+    case PdfEditToolGroup.draw:
+      return l10n.shellShortcutGroupDraw;
+    case PdfEditToolGroup.shapes:
+      return l10n.shellShortcutGroupShapes;
+    case PdfEditToolGroup.insert:
+      return l10n.shellShortcutGroupInsert;
+    case PdfEditToolGroup.measure:
+      return l10n.shellShortcutGroupMeasure;
+    case PdfEditToolGroup.edit:
+      return l10n.shellShortcutGroupEdit;
+  }
 }
 
 Future<void> showPdfShellViewOptionsSheet(
@@ -987,12 +1517,12 @@ Future<void> showPdfShellViewOptionsSheet(
               Row(
                 children: [
                   Expanded(
-                    child: Text('Settings',
+                    child: Text(pdfL10n(context).shellSettings,
                         style: Theme.of(context).textTheme.titleMedium),
                   ),
                   IconButton(
                     icon: const Icon(Icons.close),
-                    tooltip: 'Close',
+                    tooltip: pdfL10n(context).close,
                     onPressed: () => Navigator.of(context).maybePop(),
                   ),
                 ],
@@ -1000,7 +1530,7 @@ Future<void> showPdfShellViewOptionsSheet(
               SwitchListTile(
                 key: const ValueKey('pdf-shell-show-annotations'),
                 secondary: const Icon(Icons.comment_outlined),
-                title: const Text('Show annotations'),
+                title: Text(pdfL10n(context).shellShowAnnotations),
                 value: preferences.showAnnotations,
                 onChanged: (_) async {
                   await _selectViewOption(
@@ -1019,7 +1549,7 @@ Future<void> showPdfShellViewOptionsSheet(
               SwitchListTile(
                 key: const ValueKey('pdf-shell-highlight-forms'),
                 secondary: const Icon(Icons.dynamic_form_outlined),
-                title: const Text('Highlight form fields'),
+                title: Text(pdfL10n(context).shellHighlightFormFields),
                 value: preferences.highlightFormFields,
                 onChanged: (_) async {
                   await _selectViewOption(
@@ -1039,7 +1569,7 @@ Future<void> showPdfShellViewOptionsSheet(
                 SwitchListTile(
                   key: const ValueKey('pdf-shell-reflow-view'),
                   secondary: const Icon(Icons.article_outlined),
-                  title: const Text('Reflow text'),
+                  title: Text(pdfL10n(context).shellReflowText),
                   value: preferences.showReflowView,
                   onChanged: (_) async {
                     await _selectViewOption(
@@ -1056,7 +1586,7 @@ Future<void> showPdfShellViewOptionsSheet(
                 SwitchListTile(
                   key: const ValueKey('pdf-shell-page-grid'),
                   secondary: const Icon(Icons.view_module_outlined),
-                  title: const Text('Page grid'),
+                  title: Text(pdfL10n(context).shellPageGrid),
                   value: preferences.showThumbnailView,
                   onChanged: (_) async {
                     await _selectViewOption(
@@ -1082,7 +1612,7 @@ Future<void> showPdfShellViewOptionsSheet(
                       borderRadius: BorderRadius.circular(6),
                     ),
                   ),
-                  title: const Text('Page color…'),
+                  title: Text(pdfL10n(context).shellPageColor),
                   trailing: Text(hex(preferences.pageColor)),
                   onTap: () async {
                     await _selectViewOption(
@@ -1099,10 +1629,10 @@ Future<void> showPdfShellViewOptionsSheet(
                 ListTile(
                   key: const ValueKey('pdf-shell-author'),
                   leading: const Icon(Icons.person_outline),
-                  title: const Text('Default author…'),
+                  title: Text(pdfL10n(context).shellDefaultAuthor),
                   subtitle: Text(
                     authorName == null || authorName.trim().isEmpty
-                        ? 'Not set'
+                        ? pdfL10n(context).shellNotSet
                         : authorName,
                   ),
                   onTap: onAuthorPressed,
@@ -1111,7 +1641,7 @@ Future<void> showPdfShellViewOptionsSheet(
                 ListTile(
                   key: const ValueKey('pdf-shell-shortcuts'),
                   leading: const Icon(Icons.keyboard_outlined),
-                  title: const Text('Keyboard shortcuts…'),
+                  title: Text(pdfL10n(context).shellKeyboardShortcutsMenu),
                   onTap: () => _selectViewOption(
                     context,
                     _ViewOption.shortcuts,
@@ -1186,7 +1716,7 @@ class PdfShellViewOptionsButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return PopupMenuButton<_ViewOption>(
       key: const ValueKey('pdf-shell-view-options'),
-      tooltip: 'Settings',
+      tooltip: pdfL10n(context).shellSettings,
       icon: const Icon(Icons.display_settings_outlined),
       // match the bar's IconButtons; a PopupMenuButton icon otherwise
       // defaults to black87 instead of onSurfaceVariant
@@ -1209,27 +1739,27 @@ class PdfShellViewOptionsButton extends StatelessWidget {
           key: const ValueKey('pdf-shell-show-annotations'),
           value: _ViewOption.annotations,
           checked: preferences.showAnnotations,
-          child: const Text('Show annotations'),
+          child: Text(pdfL10n(context).shellShowAnnotations),
         ),
         CheckedPopupMenuItem(
           key: const ValueKey('pdf-shell-highlight-forms'),
           value: _ViewOption.formHighlight,
           checked: preferences.highlightFormFields,
-          child: const Text('Highlight form fields'),
+          child: Text(pdfL10n(context).shellHighlightFormFields),
         ),
         if (reflow)
           CheckedPopupMenuItem(
             key: const ValueKey('pdf-shell-reflow-view'),
             value: _ViewOption.reflow,
             checked: preferences.showReflowView,
-            child: const Text('Reflow text'),
+            child: Text(pdfL10n(context).shellReflowText),
           ),
         if (pageGrid)
           CheckedPopupMenuItem(
             key: const ValueKey('pdf-shell-page-grid'),
             value: _ViewOption.pageGrid,
             checked: preferences.showThumbnailView,
-            child: const Text('Page grid'),
+            child: Text(pdfL10n(context).shellPageGrid),
           ),
         if (pageColor)
           PopupMenuItem(
@@ -1246,7 +1776,7 @@ class PdfShellViewOptionsButton extends StatelessWidget {
                   borderRadius: BorderRadius.circular(6),
                 ),
               ),
-              title: const Text('Page color…'),
+              title: Text(pdfL10n(context).shellPageColor),
               trailing: Text(_hex(preferences.pageColor)),
               contentPadding: EdgeInsets.zero,
             ),
@@ -1257,22 +1787,22 @@ class PdfShellViewOptionsButton extends StatelessWidget {
             value: _ViewOption.author,
             child: ListTile(
               leading: const Icon(Icons.person_outline),
-              title: const Text('Default author…'),
+              title: Text(pdfL10n(context).shellDefaultAuthor),
               subtitle: Text(
                 authorName == null || authorName!.trim().isEmpty
-                    ? 'Not set'
+                    ? pdfL10n(context).shellNotSet
                     : authorName!,
               ),
               contentPadding: EdgeInsets.zero,
             ),
           ),
         if (toolShortcuts != null && onToolShortcutsChanged != null)
-          const PopupMenuItem(
-            key: ValueKey('pdf-shell-shortcuts'),
+          PopupMenuItem(
+            key: const ValueKey('pdf-shell-shortcuts'),
             value: _ViewOption.shortcuts,
             child: ListTile(
-              leading: Icon(Icons.keyboard_outlined),
-              title: Text('Keyboard shortcuts…'),
+              leading: const Icon(Icons.keyboard_outlined),
+              title: Text(pdfL10n(context).shellKeyboardShortcutsMenu),
               contentPadding: EdgeInsets.zero,
             ),
           ),
@@ -1319,7 +1849,7 @@ class PdfShellPanelSwitch extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(left: 4, right: 6),
             child: Text(
-              'Panels',
+              pdfL10n(context).shellPanels,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
                     color: scheme.onSurfaceVariant,
                     letterSpacing: 0.5,

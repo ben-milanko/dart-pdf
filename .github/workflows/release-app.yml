@@ -145,7 +145,7 @@ jobs:
         working-directory: app
         run: |
           dart run dart_pdf_editor:build_web_worker \
-            --out ../packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js
+            --out ../packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
           flutter build web --release
       - name: Cache-bust web build
         working-directory: app
@@ -165,7 +165,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - run: sudo apt-get update && sudo apt-get install -y ninja-build libgtk-3-dev
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build libgtk-3-dev libsecret-1-dev libjsoncpp-dev
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -375,6 +375,18 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      - name: Neutralize code signing for the unsigned CI build (runner-only)
+        working-directory: app
+        # The committed pbxproj carries Automatic signing + the RES team so the
+        # local App Store archive can distribution-sign. CI has no Apple account
+        # and only produces an ad-hoc DMG, so patch the runner's copy back to
+        # ad-hoc (matching how the Android job patches hosted plugins on-runner).
+        run: |
+          sed -i '' \
+            -e 's/"Apple Development"/"-"/g' \
+            -e 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' \
+            -e 's/DEVELOPMENT_TEAM = N5K9GK8B27;/DEVELOPMENT_TEAM = "";/g' \
+            macos/Runner.xcodeproj/project.pbxproj
       - name: Build macOS
         working-directory: app
         run: flutter build macos --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}

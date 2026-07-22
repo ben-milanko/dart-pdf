@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   Widget host({
-    required PdfSidebarSide side,
+    required PdfPanelDock dock,
     bool bottomSheet = false,
     ValueChanged<double>? onPersistWidth,
     VoidCallback? onClose,
@@ -23,7 +23,7 @@ void main() {
                 maxWidth: 320,
                 persistedWidth: null,
                 onPersistWidth: onPersistWidth,
-                side: side,
+                dock: dock,
                 resizable: true,
                 bottomSheet: bottomSheet,
                 gripKey: const ValueKey('frame-grip'),
@@ -50,7 +50,7 @@ void main() {
     addTearDown(scroll.dispose);
 
     await tester.pumpWidget(host(
-      side: PdfSidebarSide.left,
+      dock: PdfPanelDock.left,
       builder: (context, value) {
         geometry = value;
         return value.withScrollbar(
@@ -69,7 +69,7 @@ void main() {
     expect(leftGrip.dx, closeTo(236, 0.1));
 
     await tester.pumpWidget(host(
-      side: PdfSidebarSide.right,
+      dock: PdfPanelDock.right,
       builder: (context, value) {
         geometry = value;
         return const SizedBox.expand();
@@ -87,7 +87,7 @@ void main() {
     var writes = 0;
     double? persisted;
     await tester.pumpWidget(host(
-      side: PdfSidebarSide.left,
+      dock: PdfPanelDock.left,
       onPersistWidth: (value) {
         writes++;
         persisted = value;
@@ -112,7 +112,7 @@ void main() {
       (tester) async {
     var closes = 0;
     await tester.pumpWidget(host(
-      side: PdfSidebarSide.left,
+      dock: PdfPanelDock.left,
       onClose: () => closes++,
     ));
     await tester.tap(find.byKey(const ValueKey('frame-close')));
@@ -120,7 +120,7 @@ void main() {
     expect(find.byKey(const ValueKey('frame-grip')), findsOneWidget);
 
     await tester.pumpWidget(host(
-      side: PdfSidebarSide.left,
+      dock: PdfPanelDock.left,
       bottomSheet: true,
       onClose: () => closes++,
     ));

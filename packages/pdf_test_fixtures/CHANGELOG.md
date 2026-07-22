@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.1.0
+
+- Add an image-heavy wide CAD sheet fixture in two profiles, for exercising
+  extreme-aspect page handling and region-replay culling (#419).
+- Add a dense-page fixture profile used by the region-replay grid tests (#383).
+
+## 2.0.0
+
+- Major version bump to keep the dart-pdf package suite aligned at 2.0.0.
+- Add an in-process fake Fulcio authority (`test_fulcio.dart`) that verifies
+  the proof of possession and issues a short-lived certificate from a test CA,
+  for exercising Sigstore/Fulcio keyless signing without a network (#322).
+
+## 1.4.7
+
+- Version bump to keep the dart-pdf package suite aligned at 1.4.7. No fixture
+  changes since 1.4.6.
+
 ## 1.4.6
 
 - Add a positioned-tashkil Arabic fixture that mirrors Skia's output shape

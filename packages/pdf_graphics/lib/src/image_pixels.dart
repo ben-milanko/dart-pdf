@@ -21,7 +21,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 
 import 'calibrated_color.dart';
 import 'color.dart';
-import 'function.dart';
+import 'color_space.dart';
 import 'icc.dart';
 
 /// A fully decoded image: premultiplied RGBA8888, ready to hand straight to
@@ -107,9 +107,17 @@ PdfImageBase? decodePdfImageBase(CosDocument cos, CosStream stream) {
     final jpx = JpxDecoder.decode(
         cos.decodeStreamData(stream, stopBeforeFilter: 'JPXDecode'));
     if (jpx == null) return null;
-    final rgba = _jpxToRgba(jpx);
+    // An /Indexed JPX carries palette indices in its single component, not
+    // colour: the samples must run through the lookup table, exactly as a raw
+    // /Indexed image does. Treating them as gray paints the raw index value -
+    // for a single-entry palette (hival 0) that is index 0 → solid black,
+    // which is how GWG170/GWG172 rendered a black square over the "no X must
+    // be visible" marker (issue #431).
+    final rgba = pdfImageColorFamily(cos, dict) == 'Indexed'
+        ? _jpxIndexedToRgba(cos, dict, jpx)
+        : _jpxToRgba(jpx);
     if (rgba == null) return null;
-    // _jpxToRgba writes alpha 255 throughout (JPX carries no color key).
+    // The mappers write alpha 255 throughout (JPX carries no color key).
     return PdfImageBase(rgba, jpx.width, jpx.height, opaque: true);
   }
 
@@ -170,6 +178,117 @@ PdfDecodedPixels? decodePdfImagePixels(CosDocument cos, CosStream stream) {
   }
   final m = pdfApplyImageAlpha(base.rgba, base.width, base.height, mask);
   return _finish(m.$1, m.$2, m.$3, hasAlpha: true);
+}
+
+/// A rectangular source-pixel region of an image, in the top-left origin of
+/// decoded samples (the same coordinates a decode produces). Hand one to
+/// [decodePdfImage] to decode only the visible slice of a large raster.
+class PdfImageRegion {
+  const PdfImageRegion(
+      this.sourceX, this.sourceY, this.sourceWidth, this.sourceHeight);
+
+  final int sourceX;
+  final int sourceY;
+  final int sourceWidth;
+  final int sourceHeight;
+}
+
+/// Decodes image XObject [stream] to premultiplied, codec-ready RGBA by
+/// stating *what pixels you want*, not which decoder can produce them:
+///
+///  * [region] - decode only this source-pixel rectangle (deep-zoom detail
+///    renders that must not ship the whole raster underlay).
+///  * [targetWidth]/[targetHeight] - the display size to decode to; a target
+///    smaller than the source (or region) avoids expanding a huge native
+///    raster only to downsample it. Omit both to decode at native size.
+///
+/// The façade picks the narrowest fast path that fits - region-scaled,
+/// whole-image scaled, or a plain full decode - and, when that fast path
+/// can't handle the stream (a stacked filter, an Indexed-8/ICC/Lab space, a
+/// 16-bit or /SMask'd image; the fast paths only cover single-filter Flate/
+/// raw/CCITT), transparently falls back to a full decode cropped and
+/// downsampled to the request. That fall-back-and-downscale policy used to be
+/// copied into each caller.
+///
+/// Returns null only when even the full pure-Dart decode can't produce pixels
+/// - a non-CMYK DCTDecode base, or an image under a DCT-encoded /SMask, needs
+/// the platform JPEG codec. Those callers decode the base via
+/// [decodePdfImageBase] and pair it with the platform codec one layer up.
+PdfDecodedPixels? decodePdfImage(
+  CosDocument cos,
+  CosStream stream, {
+  PdfImageRegion? region,
+  int? targetWidth,
+  int? targetHeight,
+}) {
+  if (region != null) {
+    final tw = targetWidth ?? region.sourceWidth;
+    final th = targetHeight ?? region.sourceHeight;
+    final fast = decodePdfImagePixelsRegionScaled(
+      cos,
+      stream,
+      region.sourceX,
+      region.sourceY,
+      region.sourceWidth,
+      region.sourceHeight,
+      tw,
+      th,
+    );
+    if (fast != null) return fast;
+    final full = decodePdfImagePixels(cos, stream);
+    if (full == null) return null;
+    return cropDownsamplePdfDecodedPixels(
+      full,
+      region.sourceX,
+      region.sourceY,
+      region.sourceWidth,
+      region.sourceHeight,
+      tw,
+      th,
+    );
+  }
+
+  if (targetWidth != null && targetHeight != null) {
+    final fast = decodePdfImagePixelsScaled(cos, stream, targetWidth, targetHeight);
+    if (fast != null) return fast;
+    final full = decodePdfImagePixels(cos, stream);
+    if (full == null) return null;
+    return downsamplePdfDecodedPixels(full, targetWidth, targetHeight);
+  }
+
+  return decodePdfImagePixels(cos, stream);
+}
+
+/// Crops premultiplied [decoded] to the source rectangle and downsamples it to
+/// [targetWidth]×[targetHeight]. Returns null when the rectangle falls outside
+/// [decoded]. Shared by [decodePdfImage]'s full-decode fallback and callers
+/// that already hold a decoded image to slice (a cached whole-image raster).
+PdfDecodedPixels? cropDownsamplePdfDecodedPixels(
+  PdfDecodedPixels decoded,
+  int sourceX,
+  int sourceY,
+  int sourceWidth,
+  int sourceHeight,
+  int targetWidth,
+  int targetHeight,
+) {
+  if (sourceX < 0 ||
+      sourceY < 0 ||
+      sourceWidth <= 0 ||
+      sourceHeight <= 0 ||
+      sourceX + sourceWidth > decoded.width ||
+      sourceY + sourceHeight > decoded.height) {
+    return null;
+  }
+  final cropped = Uint8List(sourceWidth * sourceHeight * 4);
+  for (var y = 0; y < sourceHeight; y++) {
+    final srcOffset = ((sourceY + y) * decoded.width + sourceX) * 4;
+    final dstOffset = y * sourceWidth * 4;
+    cropped.setRange(
+        dstOffset, dstOffset + sourceWidth * 4, decoded.rgba, srcOffset);
+  }
+  final pixels = PdfDecodedPixels(cropped, sourceWidth, sourceHeight);
+  return downsamplePdfDecodedPixels(pixels, targetWidth, targetHeight);
 }
 
 /// Decodes a simple Flate/raw or CCITT image directly to
@@ -764,10 +883,15 @@ _DctCmykImage? _decodeDctCmyk(Uint8List jpegBytes) {
         final cr = yy - 128;
         final cb = m - 128;
         final yScaled = c << 8;
-        c = _shiftR(yScaled + 359 * cr, 8).clamp(0, 255);
-        m = _shiftR(yScaled - 88 * cb - 183 * cr, 8).clamp(0, 255);
-        yy = _shiftR(yScaled + 454 * cb, 8).clamp(0, 255);
-        k = 255 - k;
+        // YCCK -> CMYK per pdf.js's _convertYcckToCmyk: Adobe stores the
+        // chroma/luma of the inverted CMY, so the converted channels are
+        // inverted back to PDF ink polarity (0 = no ink). K passes through
+        // unchanged - pdf.js leaves it to a /Decode array, and matching the
+        // reference renderer matters more than MuPDF's all-four-inverted
+        // convention, which disagrees on K.
+        c = 255 - _shiftR(yScaled + 359 * cr, 8).clamp(0, 255);
+        m = 255 - _shiftR(yScaled - 88 * cb - 183 * cr, 8).clamp(0, 255);
+        yy = 255 - _shiftR(yScaled + 454 * cb, 8).clamp(0, 255);
       }
 
       final i = (y * width + x) * 4;
@@ -815,6 +939,33 @@ Uint8List? _jpxToRgba(JpxImage jpx) {
       }
     default:
       return null;
+  }
+  return out;
+}
+
+/// Maps an /Indexed JPX image's index samples through its palette. JPX stores
+/// the indices in a single component (§7.4.9 / the /Indexed base governs the
+/// colour), so `jpx.samples` are palette indices, not colour. Out-of-range
+/// indices clamp to 0, matching [_indexedToRgba]. Returns null when the
+/// palette can't be resolved.
+Uint8List? _jpxIndexedToRgba(CosDocument cos, CosDictionary dict, JpxImage jpx) {
+  if (jpx.components != 1) return null;
+  final paletteInfo = _indexedPalette(cos, dict);
+  if (paletteInfo == null) return null;
+  final palette = paletteInfo.$1;
+  final paletteCount = paletteInfo.$2;
+  final count = jpx.width * jpx.height;
+  final samples = jpx.samples;
+  if (samples.length < count) return null;
+  final out = Uint8List(count * 4);
+  for (var i = 0; i < count; i++) {
+    final raw = samples[i];
+    final index = raw >= paletteCount ? 0 : raw;
+    final o = i * 4;
+    out[o] = palette[index * 3];
+    out[o + 1] = palette[index * 3 + 1];
+    out[o + 2] = palette[index * 3 + 2];
+    out[o + 3] = 255;
   }
   return out;
 }
@@ -1100,19 +1251,27 @@ void pdfApplyImageDecodeAndColorKey(Uint8List rgba, int components,
 }
 
 /// The parsed ICC profile of an ICCBased image color space, when the
-/// engine supports its shape; null falls back to the device family.
+/// engine supports its shape; null falls back to the device family. Gated on
+/// the family name so a non-ICCBased image never parses its (potentially
+/// expensive) colour space just to discover there is no profile.
+/// Parsed ICC profiles, scoped to the document that owns their streams.
+///
+/// [PdfColorSpace.parse] takes an `iccCache` for exactly this and the
+/// interpreter keeps one, but the image path had no way to pass one through
+/// its public entry points, so every image re-parsed its profile stream - and
+/// a page of tiles shares one profile across all of them. An Expando keeps the
+/// cache document-scoped (and collectable with the document) without widening
+/// the public signatures.
+final Expando<Map<CosStream, IccProfile?>> _iccProfileCache =
+    Expando<Map<CosStream, IccProfile?>>('pdfIccProfiles');
+
 IccProfile? _iccProfileFor(CosDocument cos, CosDictionary dict) {
   final space = cos.resolve(dict['ColorSpace']);
-  if (space is! CosArray || space.length < 2) return null;
+  if (space is! CosArray || space.length < 1) return null;
   final family = cos.resolve(space[0]);
   if (family is! CosName || family.value != 'ICCBased') return null;
-  final stream = cos.resolve(space[1]);
-  if (stream is! CosStream) return null;
-  try {
-    return IccProfile.parse(cos.decodeStreamData(stream));
-  } on Exception {
-    return null;
-  }
+  final cache = _iccProfileCache[cos] ??= <CosStream, IccProfile?>{};
+  return PdfColorSpace.parse(cos, space, iccCache: cache).iccProfile;
 }
 
 Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
@@ -1123,7 +1282,7 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
 
   final space = pdfImageColorFamily(cos, dict);
   final alternate = _alternateColorSpaceFor(cos, dict);
-  final components = alternate?.components ??
+  final components = alternate?.channels ??
       switch (space) {
         'DeviceRGB' => 3,
         'DeviceGray' => 1,
@@ -1320,12 +1479,12 @@ Uint8List? _alternateToRgba(
   int width,
   int height,
   Uint8List out,
-  _AlternateColorSpace alternate,
+  PdfColorSpace alternate,
   List<(double, double)>? ranges,
   List<(int, int)>? colorKey,
 ) {
   final count = width * height;
-  final components = alternate.components;
+  final components = alternate.channels;
   if (data.length < count * components) return null;
   final luts = [for (var c = 0; c < components; c++) _lutFor(ranges, c)];
   final memo = components <= _tintMemoMaxComponents ? <int, int>{} : null;
@@ -1346,7 +1505,7 @@ Uint8List? _alternateToRgba(
       for (var c = 0; c < components; c++) {
         values[c] = luts[c][data[base + c]] / 255;
       }
-      final color = alternate.colorFor(values);
+      final color = alternate.toSrgb(values);
       rgb = ((color.red * 255).round().clamp(0, 255) << 16) |
           ((color.green * 255).round().clamp(0, 255) << 8) |
           ((color.blue * 255).round().clamp(0, 255));
@@ -1379,7 +1538,8 @@ Uint8List _lutFor(List<(double, double)>? ranges, int component) =>
 
 /// Indexed images: samples are palette indices at 1/2/4/8 bits per pixel;
 /// the palette lives in any base space we can map to RGB (DeviceRGB and
-/// -Gray and -CMYK, directly or behind ICCBased/CalRGB/CalGray).
+/// -Gray and -CMYK, directly or behind ICCBased/CalRGB/CalGray, the /Lab CIE
+/// space, or a Separation/DeviceN tint transform).
 Uint8List? _indexedToRgba(CosDocument cos, CosDictionary dict, Uint8List data,
     int width, int height, int bits, Uint8List out,
     {List<(int, int)>? colorKey}) {
@@ -1427,7 +1587,19 @@ Uint8List? _indexedToRgba(CosDocument cos, CosDictionary dict, Uint8List data,
   final labBase = baseFamily is CosName && baseFamily.value == 'Lab'
       ? PdfCalibratedColorSpace.parse(cos, baseObj)
       : null;
+  // A Separation/DeviceN base reaches its alternate space through a tint
+  // transform (§8.6.6.4): each palette entry runs through it exactly as
+  // _alternateToRgba does for a non-indexed Separation/DeviceN image. Without
+  // this the base fell to the device switch's `_ => 0` and the whole image was
+  // dropped - both images on the Ghent DeviceN page are this shape (issue
+  // #430). PdfColorSpace already covers the /Lab alternate these files use.
+  final tintBase = labBase == null &&
+          baseFamily is CosName &&
+          (baseFamily.value == 'Separation' || baseFamily.value == 'DeviceN')
+      ? PdfColorSpace.parse(cos, baseObj)
+      : null;
   final components = labBase?.components ??
+      tintBase?.channels ??
       switch (_familyOf(cos, space[1])) {
         'DeviceRGB' => 3,
         'DeviceGray' => 1,
@@ -1452,6 +1624,14 @@ Uint8List? _indexedToRgba(CosDocument cos, CosDictionary dict, Uint8List data,
     final src = p * components;
     if (labBase != null) {
       final color = labBase.toSrgbFromSamples(
+          [for (var c = 0; c < components; c++) lookup[src + c]]);
+      palette[p * 3] = (color.red * 255).round().clamp(0, 255);
+      palette[p * 3 + 1] = (color.green * 255).round().clamp(0, 255);
+      palette[p * 3 + 2] = (color.blue * 255).round().clamp(0, 255);
+      continue;
+    }
+    if (tintBase != null) {
+      final color = tintBase.toSrgbFromSamples(
           [for (var c = 0; c < components; c++) lookup[src + c]]);
       palette[p * 3] = (color.red * 255).round().clamp(0, 255);
       palette[p * 3 + 1] = (color.green * 255).round().clamp(0, 255);
@@ -1526,98 +1706,24 @@ String _familyOf(CosDocument cos, CosObject? raw) {
   return 'DeviceGray';
 }
 
-class _AlternateColorSpace {
-  const _AlternateColorSpace({
-    required this.components,
-    required this.baseComponents,
-    required this.function,
-    this.calibrated,
-  });
-
-  final int components;
-  final int baseComponents;
-  final PdfFunction function;
-  final PdfCalibratedColorSpace? calibrated;
-
-  PdfColor colorFor(List<double> values) {
-    final transformed = function.evaluateAt(values);
-    return calibrated?.toSrgb(transformed) ??
-        colorFromComponents(transformed, baseComponents);
-  }
-}
-
-_AlternateColorSpace? _alternateColorSpaceFor(
-    CosDocument cos, CosDictionary dict) {
+/// The Separation/DeviceN space of an image whose samples reach an alternate
+/// space through a tint transform (§8.6.6.4), or null when the /ColorSpace is
+/// not one of those (device, Indexed, and CIE spaces decode directly). The
+/// returned space's [PdfColorSpace.channels] is the colorant count of the
+/// samples and [PdfColorSpace.toSrgb] runs the tint transform into the
+/// alternate space.
+PdfColorSpace? _alternateColorSpaceFor(CosDocument cos, CosDictionary dict) {
+  // Gate on the family name before the full parse: only Separation/DeviceN
+  // need the tint transform decoded here, so device/Indexed/ICCBased images
+  // must not pay to parse (and re-parse) their colour space.
   final space = cos.resolve(dict['ColorSpace']);
-  if (space is! CosArray || space.length < 4) return null;
+  if (space is! CosArray || space.length < 1) return null;
   final family = cos.resolve(space[0]);
-  if (family is! CosName) return null;
-
-  final int components;
-  final CosObject alternateSpace;
-  final CosObject functionObject;
-  switch (family.value) {
-    case 'Separation':
-      components = 1;
-      alternateSpace = space[2];
-      functionObject = space[3];
-    case 'DeviceN':
-      final names = cos.resolve(space[1]);
-      if (names is! CosArray || names.length == 0) return null;
-      components = names.length;
-      alternateSpace = space[2];
-      functionObject = space[3];
-    default:
-      return null;
+  if (family is! CosName ||
+      (family.value != 'Separation' && family.value != 'DeviceN')) {
+    return null;
   }
-
-  final function = PdfFunction.parse(cos, functionObject);
-  if (function == null) return null;
-  final baseComponents = _alternateComponents(cos, alternateSpace);
-  if (baseComponents == 0) return null;
-  return _AlternateColorSpace(
-    components: components,
-    baseComponents: baseComponents,
-    function: function,
-    calibrated: PdfCalibratedColorSpace.parse(cos, alternateSpace),
-  );
-}
-
-int _alternateComponents(CosDocument cos, CosObject object) {
-  final space = cos.resolve(object);
-  if (space is CosName) {
-    return switch (space.value) {
-      'DeviceGray' || 'CalGray' || 'G' => 1,
-      'DeviceRGB' || 'CalRGB' || 'Lab' || 'RGB' => 3,
-      'DeviceCMYK' || 'CMYK' => 4,
-      _ => 0,
-    };
-  }
-  if (space is CosArray && space.length > 0) {
-    final family = cos.resolve(space[0]);
-    if (family is CosName) {
-      switch (family.value) {
-        case 'CalGray':
-          return 1;
-        case 'CalRGB':
-        case 'Lab':
-          return 3;
-        case 'ICCBased':
-          if (space.length > 1) {
-            final profile = cos.resolve(space[1]);
-            if (profile is CosStream) {
-              return switch (_intOf(cos.resolve(profile.dictionary['N']))) {
-                1 => 1,
-                4 => 4,
-                _ => 3,
-              };
-            }
-          }
-          return 3;
-      }
-    }
-  }
-  return 0;
+  return PdfColorSpace.parse(cos, space);
 }
 
 /// The image's /Filter names in order (resolving the dict and array forms).

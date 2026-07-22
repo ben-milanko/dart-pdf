@@ -95,6 +95,7 @@ class PdfDigitalSignatureIdentity {
     String? location,
     String? contactInfo,
     DateTime? signingTime,
+    PdfSignatureAppearance? appearance,
   }) {
     final editor = PdfEditor(PdfDocument.open(bytes, password: password));
     return editor.saveSignedPades(
@@ -107,6 +108,7 @@ class PdfDigitalSignatureIdentity {
       location: _nonEmpty(location),
       contactInfo: _nonEmpty(contactInfo),
       signingTime: signingTime,
+      appearance: appearance,
     );
   }
 }

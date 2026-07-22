@@ -188,4 +188,93 @@ void main() {
     expect(style.borderColor, 0x1E88E5);
     expect(style.borderWidth, 2);
   });
+
+  group('pasting across a page-rotation difference', () {
+    // Source FreeText on an unrotated page: wide artwork, upright.
+    const sourceRect = PdfRect(100, 600, 460, 680); // 360 x 80, centre 280,640
+
+    PdfDocument buildSourceAndRotatedDest() => edited(
+          PdfDocument.open(buildMultiPagePdf(2)),
+          (e) {
+            e.rotatePage(1, 90); // destination page reads sideways
+            e.addFreeText(0, sourceRect, 'sideways?');
+          },
+        );
+
+    test('re-orients a FreeText so it reads upright on a 90° page', () {
+      final doc = buildSourceAndRotatedDest();
+      final original = doc.page(0).annotations.single;
+      final snapshot = PdfAnnotationSnapshot.capture(doc, original,
+          sourcePageRotation: doc.page(0).rotation)!;
+      expect(snapshot.sourceRotation, 0);
+
+      final out =
+          edited(doc, (e) => e.pasteAnnotation(1, snapshot, dx: 0, dy: 0));
+      final pasted = out.page(1).annotations.single;
+
+      // A 90° page turn spins the copy, so the artwork is counter-rotated:
+      // its /Rect aspect flips (wide -> tall) about the same centre, and
+      // the appearance /Matrix now carries a quarter turn.
+      expect(pasted.rect.width, closeTo(sourceRect.height, 1e-3));
+      expect(pasted.rect.height, closeTo(sourceRect.width, 1e-3));
+      expect((pasted.rect.left + pasted.rect.right) / 2,
+          closeTo((sourceRect.left + sourceRect.right) / 2, 1e-3));
+      expect((pasted.rect.bottom + pasted.rect.top) / 2,
+          closeTo((sourceRect.bottom + sourceRect.top) / 2, 1e-3));
+
+      final matrix = numbers(out, pasted.normalAppearance!.dictionary['Matrix']);
+      // quarter turn: the x-axis maps onto ±y (a ~= d ~= 0, b/c non-zero)
+      expect(matrix[0].abs(), lessThan(1e-6));
+      expect(matrix[3].abs(), lessThan(1e-6));
+      expect(matrix[1].abs(), greaterThan(1e-6));
+      expect(matrix[2].abs(), greaterThan(1e-6));
+    });
+
+    test('leaves the appearance untouched when rotations match', () {
+      final doc = buildSourceAndRotatedDest();
+      final original = doc.page(0).annotations.single;
+      final snapshot = PdfAnnotationSnapshot.capture(doc, original,
+          sourcePageRotation: doc.page(0).rotation)!;
+
+      // page 0 is unrotated like the source: no re-orientation, geometry
+      // and appearance travel verbatim (§12.5.5 just re-fits the BBox).
+      final out =
+          edited(doc, (e) => e.pasteAnnotation(0, snapshot, dx: 0, dy: 0));
+      final pasted = out.page(0).annotations[1];
+      expect(pasted.rect.width, closeTo(sourceRect.width, 1e-3));
+      expect(pasted.rect.height, closeTo(sourceRect.height, 1e-3));
+      expect(
+        latin1.decode(out.cos.decodeStreamData(pasted.normalAppearance!)),
+        latin1.decode(doc.cos.decodeStreamData(original.normalAppearance!)),
+      );
+    });
+
+    test('sourceRotation survives a JSON round-trip and drives the paste', () {
+      final doc = buildSourceAndRotatedDest();
+      // capture as if the source lived on the rotated page (rotation 90)
+      final snapshot = PdfAnnotationSnapshot.capture(
+          doc, doc.page(0).annotations.single,
+          sourcePageRotation: 90)!;
+      final json = snapshot.toJson();
+      expect(json['rot'], 90);
+
+      final restored = PdfAnnotationSnapshot.fromJson(
+          jsonDecode(jsonEncode(json)) as Map<String, dynamic>);
+      expect(restored.sourceRotation, 90);
+
+      // source 90 -> dest 90 is a zero delta: pasting keeps the wide aspect
+      final out = edited(doc, (e) => e.pasteAnnotation(1, restored));
+      final pasted = out.page(1).annotations.single;
+      expect(pasted.rect.width, closeTo(sourceRect.width, 1e-3));
+      expect(pasted.rect.height, closeTo(sourceRect.height, 1e-3));
+    });
+
+    test('an unrotated capture omits the rot key (payload stays compact)', () {
+      final doc = buildSourceAndRotatedDest();
+      final snapshot = PdfAnnotationSnapshot.capture(
+          doc, doc.page(0).annotations.single)!;
+      expect(snapshot.sourceRotation, 0);
+      expect(snapshot.toJson().containsKey('rot'), isFalse);
+    });
+  });
 }

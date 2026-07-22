@@ -82,6 +82,54 @@ Built on the pure-Dart
 (file syntax) ← `pdf_document` (document semantics + editing) ←
 `pdf_graphics` (interpreter + fonts) ← `dart_pdf_editor` (Flutter widgets).
 
+## Optional bundled assets
+
+The editor's six bundled fonts and its web render worker (~1.7 MB together)
+ship in a separate opt-in package,
+[`dart_pdf_editor_assets`](../dart_pdf_editor_assets), rather than in
+`dart_pdf_editor` itself. Flutter bundles a package's declared assets on every
+build target, so keeping them out of the always-depended-on package is the only
+way to let a viewer-only app avoid downloading and installing them.
+
+To get the historical full-featured editor, add the package and register it once
+at startup, before opening a viewer:
+
+```sh
+flutter pub add dart_pdf_editor dart_pdf_editor_assets
+```
+
+```dart
+import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
+
+void main() {
+  registerBundledEditorAssets(); // bundled fonts + web worker
+  runApp(const MyApp());
+}
+```
+
+Pick the tier that fits your build:
+
+| Tier | Depend on | Register | Bundled fonts + web worker |
+| --- | --- | --- | --- |
+| Viewer / editor, size-minimal | `dart_pdf_editor` | – | not shipped |
+| + Off-main-thread web rendering | both | `registerBundledEditorAssets(fonts: false)` | worker only |
+| Full editor, app-provided fonts | `dart_pdf_editor` | assign `pdfBundledFonts` yourself | your fonts |
+| Full editor (historical default) | both | `registerBundledEditorAssets()` | both |
+
+What each optional group powers - everything else works without them:
+
+| Capability | Needs |
+| --- | --- |
+| Font menu's "bundled" group (DejaVu, Fira Sans, Spectral, Lobster) | bundled fonts |
+| Fallback glyphs when editing composite (/Type0) text a subset font can't draw | bundled fonts (DejaVu trio) |
+| Off-main-thread page rendering on **web** | web worker |
+
+Missing assets degrade gracefully: the font menu simply drops the bundled group
+(base-14, document, platform and custom fonts still work), composite-text
+fallback is skipped, and web rendering falls back to the main thread. An app can
+also supply its own catalogue - set `pdfBundledFonts` to your own
+`PdfBundledFont`s (each backed by an asset key or a `loadBytes` byte loader).
+
 ## Performance
 
 Pure Dart, and fast: on a real-world corpus (49 files / 255 pages of
@@ -181,23 +229,21 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 // Just the viewer
 PdfViewer(document: PdfDocument.open(bytes));
 
-// Your own editor layout
+// Your own editor layout. The controller owns the document revisions, and
+// the viewer reads the current one from it and follows its edits itself -
+// no need to pass `document` or rebuild the viewer as revisions land.
 final editing = PdfEditingController(bytes);
 final viewer = PdfViewerController();
 
-ListenableBuilder(
-  listenable: editing,
-  builder: (context, _) => Column(children: [
-    Expanded(
-      child: PdfViewer(
-        document: editing.document, // rebuild with each revision
-        controller: viewer,
-        editing: editing,
-      ),
+Column(children: [
+  Expanded(
+    child: PdfViewer(
+      controller: viewer,
+      editing: editing,
     ),
-    PdfEditingToolbar(controller: editing, viewerController: viewer),
-  ]),
-);
+  ),
+  PdfEditingToolbar(controller: editing, viewerController: viewer),
+]);
 
 // Saving
 final Uint8List saved = editing.bytes;
@@ -301,10 +347,14 @@ same, but text selection, search, copy, and extraction work. Pass
 
 ## Web rendering
 
-On the web, `PdfReader`/`PdfEditorView` use a bundled **Web Worker** package
-asset by default, so page interpretation and image decode can run off the
-browser main thread without app setup. If the worker cannot be loaded, rendering
-degrades to the main thread.
+On the web, `PdfReader`/`PdfEditorView` can run page interpretation and image
+decode off the browser main thread in a **Web Worker**. The worker script ships
+in the optional [`dart_pdf_editor_assets`](../dart_pdf_editor_assets) package;
+depend on it and call `registerBundledEditorAssets()` once at startup to enable
+off-main-thread rendering with no further setup (see
+[Optional bundled assets](#optional-bundled-assets)). Without it, web rendering
+runs on the main thread. If the worker URL is set but the script cannot be
+loaded, rendering degrades to the main thread too.
 
 Apps that want to self-host the worker under their own URL can build a custom
 bundle from the app root and override the URL before opening a viewer:

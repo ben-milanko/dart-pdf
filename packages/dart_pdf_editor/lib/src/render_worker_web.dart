@@ -1,15 +1,20 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart' show StripPlan, decodeStripPlan;
 import 'package:web/web.dart' as web;
 
 import 'perf_log.dart';
+import 'region_replay_index.dart';
+import 'render_trace.dart';
 import 'render_worker.dart';
 
 // Worker lifecycle diagnostics, routed through PdfPerfLog so they ride the same
@@ -69,7 +74,10 @@ bool pdfRenderWorkerUseSharedArrayBuffer = true;
 PdfRenderWorker startRenderWorker(Uint8List bytes) {
   final url = pdfRenderWorkerScriptUrl;
   _wlog('startRenderWorker url=$url bytes=${bytes.length}');
-  if (url == null) return _WebRenderWorker.disabled();
+  if (url == null) {
+    _warnMainThreadRendering();
+    return _WebRenderWorker.disabled();
+  }
   try {
     return _WebRenderWorker(bytes, url);
   } catch (e) {
@@ -79,9 +87,89 @@ PdfRenderWorker startRenderWorker(Uint8List bytes) {
   }
 }
 
+/// Whether the one-time main-thread-rendering advisory has already fired.
+bool _warnedMainThreadRendering = false;
+
+/// Warns once, in debug builds only, that web page rendering is falling back to
+/// the main thread because no render-worker script is configured
+/// ([pdfRenderWorkerScriptUrl] is null) - the silent performance cliff an app
+/// hits after upgrading if it never opted into the worker asset. Points at the
+/// one-line fix.
+///
+/// The whole body runs inside an `assert`, so release and profile builds strip
+/// it and stay silent; it is emitted once per session to avoid spamming the
+/// console on every document open. A host that deliberately forces main-thread
+/// rendering can ignore it.
+void _warnMainThreadRendering() {
+  assert(() {
+    if (_warnedMainThreadRendering) return true;
+    _warnedMainThreadRendering = true;
+    developer.log(
+      'Web page rendering is running on the MAIN THREAD: no render-worker '
+      'script is configured (pdfRenderWorkerScriptUrl is null), so scrolling '
+      'and page decode will jank on large documents. For off-main-thread '
+      'rendering, depend on the dart_pdf_editor_assets package and call '
+      'registerBundledEditorAssets() once at startup, or set '
+      'pdfRenderWorkerScriptUrl to your own compiled worker URL. (Debug-only '
+      'notice, shown once; ignore it if main-thread rendering is intentional.)',
+      name: 'dart_pdf_editor.render_worker',
+      level: 900, // WARNING
+    );
+    return true;
+  }());
+}
+
+/// Pre-booted Web Workers waiting for their first `init`. The expensive part of
+/// web worker startup is fetching + compiling the ~1 MB dart2js worker script
+/// and booting its runtime (#450: ~1.45 s on a phone), and none of it depends on
+/// the document. Constructing the Web Worker at app boot lets that happen while
+/// the user is still choosing a file; the real worker then adopts a pre-booted
+/// instance and only posts `init` (the document hand-off, a few tens of ms). The
+/// worker is silent until it receives `init`, so nothing is lost before adoption.
+final _prewarmedWorkers = <web.Worker>[];
+
+/// Constructs up to [count] Web Workers now (fetch + compile + boot the worker
+/// script) so a later [startRenderWorker] adopts a pre-booted one instead of
+/// paying the full startup on the critical path. Tops the pool up to [count]
+/// rather than doubling it, so repeated calls are safe. No-op when no worker
+/// script is configured ([pdfRenderWorkerScriptUrl] null) or construction throws
+/// (bad URL / CSP) - the normal path then just constructs on demand as before.
+void prewarmRenderWorkers(int count) {
+  final url = pdfRenderWorkerScriptUrl;
+  if (url == null) return;
+  while (_prewarmedWorkers.length < count) {
+    try {
+      final worker = web.Worker(url.toJS);
+      // Swallow a boot-time error rather than leave it unhandled; the adopter
+      // installs the real handler, and its ready-watchdog falls back to local
+      // if a broken worker never opens the document.
+      worker.onerror = ((web.Event _) {}).toJS;
+      _prewarmedWorkers.add(worker);
+      _wlog('prewarmed worker ${_prewarmedWorkers.length}/$count from $url');
+    } catch (e) {
+      _wlog('prewarm construction threw: $e - skipping');
+      return;
+    }
+  }
+}
+
+/// Terminates any prewarmed workers not yet adopted (host teardown, or a host
+/// opting out of worker rendering after prewarming). Adopted workers are owned
+/// by their [_WebRenderWorker] and unaffected.
+void disposePrewarmedRenderWorkers() {
+  for (final worker in _prewarmedWorkers) {
+    worker.terminate();
+  }
+  _prewarmedWorkers.clear();
+}
+
 class _WebRenderWorker extends PdfRenderWorker {
   _WebRenderWorker(Uint8List bytes, String scriptUrl) {
-    final worker = web.Worker(scriptUrl.toJS);
+    // Adopt a pre-booted worker (its fetch/compile/boot already overlapped the
+    // file pick) when one is available, else construct on demand as before.
+    final worker = _prewarmedWorkers.isNotEmpty
+        ? _prewarmedWorkers.removeAt(0)
+        : web.Worker(scriptUrl.toJS);
     _worker = worker;
     worker.onmessage = ((web.MessageEvent event) => _onMessage(event)).toJS;
     // A worker-level error (script failed to load/parse) is terminal: behave
@@ -162,6 +250,11 @@ class _WebRenderWorker extends PdfRenderWorker {
 
   @override
   bool get isActive => !_disposed && !_failed;
+
+  PdfRenderTrace? _lastRenderTrace;
+
+  @override
+  PdfRenderTrace? get lastRenderTrace => _lastRenderTrace;
 
   void _onMessage(web.MessageEvent event) {
     final data = event.data as JSObject?;
@@ -280,6 +373,7 @@ class _WebRenderWorker extends PdfRenderWorker {
         request.trace!.deserializeUs = deserializeClock.elapsedMicroseconds;
       }
       request.trace?.log(_workerNumber, request, outcome: 'ok');
+      _recordTrace(request);
       return commands;
     } catch (_) {
       request.trace?.log(_workerNumber, request, outcome: 'corrupt');
@@ -328,6 +422,7 @@ class _WebRenderWorker extends PdfRenderWorker {
         request.trace!.deserializeUs = deserializeClock.elapsedMicroseconds;
       }
       request.trace?.log(_workerNumber, request, outcome: 'ok');
+      _recordTrace(request);
       return plan;
     } catch (_) {
       request.trace?.log(_workerNumber, request, outcome: 'corrupt');
@@ -385,6 +480,7 @@ class _WebRenderWorker extends PdfRenderWorker {
         request.trace!.deserializeUs = deserializeClock.elapsedMicroseconds;
       }
       request.trace?.log(_workerNumber, request, outcome: 'ok');
+      _recordTrace(request);
       return detail;
     } catch (_) {
       request.trace?.log(_workerNumber, request, outcome: 'corrupt');
@@ -392,10 +488,48 @@ class _WebRenderWorker extends PdfRenderWorker {
     }
   }
 
+  @override
+  Future<PdfRegionReplayIndex?> buildRegionIndex(
+    int pageIndex, {
+    required bool annotations,
+    required int maxCommands,
+    required bool buildGrid,
+    int priority = 0,
+  }) async {
+    if (_disposed || _failed) return null;
+    final request = _WebPending.regionIndex(
+      priority,
+      _seq++,
+      pageIndex,
+      annotations,
+      maxCommands,
+      buildGrid,
+    );
+    _trace(request);
+    _queue.add(request);
+    _pump();
+    final buffers = await request.completer.future;
+    if (buffers == null || buffers.length != 1) return null;
+    try {
+      return deserializeRegionReplayIndex(buffers.single);
+    } catch (_) {
+      return null; // corrupt buffer → build in-isolate rather than crash
+    }
+  }
+
   void _trace(_WebPending request) {
     final clock = _perfClock;
     if (clock == null) return;
     request.trace = _WebRequestTrace(clock.elapsedMicroseconds);
+  }
+
+  /// Snapshots the just-completed request's trace onto [lastRenderTrace] so a
+  /// caller can read the end-to-end per-phase breakdown of the last job through
+  /// one worker call (in addition to the string line [_WebRequestTrace.log]
+  /// prints to the perf console).
+  void _recordTrace(_WebPending request) {
+    final trace = request.trace;
+    if (trace != null) _lastRenderTrace = trace.toRenderTrace(request.pageIndex);
   }
 
   /// Sends the highest-priority queued request to the worker when it is idle
@@ -465,7 +599,8 @@ class _WebRenderWorker extends PdfRenderWorker {
           ..setProperty('regionRight'.toJS, region.right.toJS)
           ..setProperty('regionTop'.toJS, region.top.toJS);
       }
-    } else {
+    } else if (request.kind == _WebRequestKind.bin ||
+        request.kind == _WebRequestKind.detail) {
       final matrix = request.pageToDevice!;
       for (var i = 0; i < 6; i++) {
         message.setProperty('m$i'.toJS, matrix[i].toJS);
@@ -483,6 +618,11 @@ class _WebRenderWorker extends PdfRenderWorker {
           ..setProperty('regionRight'.toJS, region.right.toJS)
           ..setProperty('regionTop'.toJS, region.top.toJS);
       }
+    }
+    if (request.kind == _WebRequestKind.regionIndex) {
+      message
+        ..setProperty('maxCommands'.toJS, request.regionMaxCommands.toJS)
+        ..setProperty('buildGrid'.toJS, request.regionBuildGrid.toJS);
     }
     worker.postMessage(message);
 
@@ -609,7 +749,7 @@ class _WebRenderWorker extends PdfRenderWorker {
   }
 }
 
-enum _WebRequestKind { record, bin, detail }
+enum _WebRequestKind { record, bin, detail, regionIndex }
 
 /// One queued record or strip-bin request (mirrors the isolate backend's
 /// `_PendingRequest`).
@@ -628,7 +768,9 @@ class _WebPending {
       deviceWidth = 0,
       deviceHeight = 0,
       binPixelRatio = 0,
-      slugGlyphs = false;
+      slugGlyphs = false,
+      regionMaxCommands = 0,
+      regionBuildGrid = false;
 
   _WebPending.bin(
     this.priority,
@@ -644,7 +786,9 @@ class _WebPending {
       imagePixelRatio = null,
       decodeImages = false,
       commandLimit = null,
-      imageDecodeRegion = null;
+      imageDecodeRegion = null,
+      regionMaxCommands = 0,
+      regionBuildGrid = false;
 
   _WebPending.detail(
     this.priority,
@@ -660,6 +804,26 @@ class _WebPending {
       imagePixelRatio = null,
       decodeImages = true,
       commandLimit = null,
+      slugGlyphs = false,
+      regionMaxCommands = 0,
+      regionBuildGrid = false;
+
+  _WebPending.regionIndex(
+    this.priority,
+    this.seq,
+    this.pageIndex,
+    this.annotations,
+    this.regionMaxCommands,
+    this.regionBuildGrid,
+  ) : kind = _WebRequestKind.regionIndex,
+      imagePixelRatio = null,
+      decodeImages = false,
+      commandLimit = null,
+      imageDecodeRegion = null,
+      pageToDevice = null,
+      deviceWidth = 0,
+      deviceHeight = 0,
+      binPixelRatio = 0,
       slugGlyphs = false;
 
   final _WebRequestKind kind;
@@ -676,6 +840,8 @@ class _WebPending {
   final int deviceHeight;
   final double binPixelRatio;
   final bool slugGlyphs;
+  final int regionMaxCommands;
+  final bool regionBuildGrid;
   final completer = Completer<List<Uint8List>?>();
   bool requeueAfterPreemption = false;
   int id = -1;
@@ -697,6 +863,7 @@ class _WebRequestTrace {
   int binUs = 0;
   int deserializeUs = 0;
   bool transcriptHit = false;
+  String? cosStatsJson;
 
   void receive(JSObject data, int nowUs) {
     receivedUs = nowUs;
@@ -709,6 +876,30 @@ class _WebRequestTrace {
     binUs = _intProperty(data, 'binUs');
     transcriptHit =
         (data.getProperty('transcriptHit'.toJS) as JSBoolean?)?.toDart ?? false;
+    cosStatsJson = (data.getProperty('cosStats'.toJS) as JSString?)?.toDart;
+  }
+
+  /// Assembles this request's collected halves into one unified [PdfRenderTrace]
+  /// - the worker phases it reported plus the queue/transfer/deserialize the
+  /// main isolate measured.
+  PdfRenderTrace toRenderTrace(int pageIndex) {
+    final roundTripUs = receivedUs > 0 && sentUs > 0 ? receivedUs - sentUs : 0;
+    return PdfRenderTrace(pageIndex: pageIndex)
+      ..queueUs = sentUs > 0 ? sentUs - queuedUs : 0
+      ..workerUs = workerUs
+      ..parseUs = parseUs
+      ..interpretUs = interpretUs
+      ..streamUs = streamUs
+      ..serializeUs = serializeUs
+      ..decodeUs = decodeUs
+      ..binUs = binUs
+      ..transferUs = math.max(0, roundTripUs - workerUs)
+      ..deserializeUs = deserializeUs
+      ..transcriptHit = transcriptHit
+      ..cosStats = cosStatsJson == null
+          ? null
+          : PdfPerfStats.fromJson(
+              jsonDecode(cosStatsJson!) as Map<String, Object?>);
   }
 
   void log(int workerNumber, _WebPending request, {required String outcome}) {

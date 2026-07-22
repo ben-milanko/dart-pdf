@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -54,6 +55,30 @@ void main() {
 
     final pixels = decodePdfImagePixels(cos, stream)!;
     expect(pixels.rgba, [100, 100, 100, 255, 200, 200, 200, 255]);
+  });
+
+  test('ICCBased 8-bit RGB decodes through the embedded profile', () {
+    // The profile stream's /N picks the device family; the parsed AdobeRGB
+    // profile is applied per pixel (littleCMS reference in icc_test:
+    // AdobeRGB (128,64,200) -> sRGB (146,62,205)).
+    final profile =
+        CosStream(CosDictionary({'N': const CosInteger(3)}), adobeRgb1998Icc());
+    final stream = image({
+      'Width': const CosInteger(1),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': CosArray([const CosName('ICCBased'), profile]),
+    }, [
+      128,
+      64,
+      200,
+    ]);
+
+    final pixels = decodePdfImagePixels(cos, stream)!;
+    expect(pixels.rgba[0], closeTo(146, 3));
+    expect(pixels.rgba[1], closeTo(62, 3));
+    expect(pixels.rgba[2], closeTo(205, 3));
+    expect(pixels.rgba[3], 255);
   });
 
   test('/ImageMask stencil decodes to 0/255 alpha', () {
@@ -140,6 +165,55 @@ void main() {
     }, List.filled(16, 0));
     expect(decodePdfImagePixels(cos, stream), isNull);
     expect(decodePdfImageBase(cos, stream), isNull);
+  });
+
+  group('CMYK JPEG polarity (#370)', () {
+    // Two 16x8 baseline JPEGs, hand-built with constant 8x8 blocks and custom
+    // Huffman tables so the stored samples are exact by construction. The
+    // YCCK file carries an Adobe APP14 marker with transform=2 and stores
+    // Y'CbCr of the inverted CMY (K stored as ink); the CMYK file carries
+    // transform=0 and stores plain ink values. Both paint the same content:
+    // left half cyan ink (255,0,0,0), right half magenta + half K
+    // (0,255,0,128) in PDF ink polarity.
+    //
+    // Ground truth: pdf.js renders of each file embedded as a DeviceCMYK
+    // image XObject (its _convertYcckToCmyk inverts the converted CMY and
+    // leaves K unchanged; the plain CMYK path is untouched).
+    const ycckJpeg =
+        '/9j/7gAOQWRvYmUAZAAAAAAC/9sAQwAQCwoQGCgzPQwMDhMaOjw3Dg0QGCg5RTgOERYdM1dQPhIWJThEbWdNGCM3QFFocVwxQE5XZ3l4ZUhcX2JwZGdj/9sAQwEREhgvY2NjYxIVGkJjY2NjGBo4Y2NjY2MvQmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2Nj/8AAFAgACAAQBAERAAIRAQMRAQQRAP/EABYAAQEBAAAAAAAAAAAAAAAAAAUGB//EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAOBAEAAgADAAQAAD8AaKINoCLS7eGfv//Z';
+    const cmykJpeg =
+        '/9j/7gAOQWRvYmUAZAAAAAAA/9sAQwAQCwoQGCgzPQwMDhMaOjw3Dg0QGCg5RTgOERYdM1dQPhIWJThEbWdNGCM3QFFocVwxQE5XZ3l4ZUhcX2JwZGdj/9sAQwEREhgvY2NjYxIVGkJjY2NjGBo4Y2NjY2MvQmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2Nj/8AAFAgACAAQBAERAAIRAQMRAQQRAP/EABcAAQEBAQAAAAAAAAAAAAAAAAAGBwj/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADgQBAAIAAwAEAAA/ANAQaDZ+5/bwNAf/2Q==';
+
+    CosStream cmykDct(String b64) => image({
+          'Width': const CosInteger(16),
+          'Height': const CosInteger(8),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceCMYK'),
+          'Filter': const CosName('DCTDecode'),
+        }, base64Decode(b64));
+
+    void expectPixel(Uint8List rgba, int x, List<int> expected) {
+      final i = (4 * 16 + x) * 4; // middle row
+      for (var ch = 0; ch < 3; ch++) {
+        expect((rgba[i + ch] - expected[ch]).abs(), lessThanOrEqualTo(3),
+            reason: 'x=$x channel=$ch');
+      }
+      expect(rgba[i + 3], 255);
+    }
+
+    test('YCCK (Adobe transform=2) inverts CMY and keeps K', () {
+      final pixels = decodePdfImagePixels(cos, cmykDct(ycckJpeg))!;
+      expect(pixels.width, 16);
+      expectPixel(pixels.rgba, 2, [0, 7, 39]); // cyan + full K
+      expectPixel(pixels.rgba, 12, [140, 17, 11]); // M+Y + half K
+    });
+
+    test('plain CMYK (Adobe transform=0) passes samples through', () {
+      final pixels = decodePdfImagePixels(cos, cmykDct(cmykJpeg))!;
+      expect(pixels.width, 16);
+      expectPixel(pixels.rgba, 2, [0, 184, 241]); // pure cyan
+      expectPixel(pixels.rgba, 12, [142, 15, 82]); // magenta + half K
+    });
   });
 
   test('scaled DeviceRGB Flate decodes directly to target size', () {
@@ -648,6 +722,214 @@ void main() {
       List<int> pixelAt(int i) => pixels.rgba.sublist(i * 4, i * 4 + 4);
       expect(pixelAt(0), pixelAt(1)); // InkB is dropped by the transform
       expect(pixelAt(0), isNot(pixelAt(2))); // InkA drives the colour
+    });
+  });
+
+  // An /Indexed palette over a Separation/DeviceN base once returned null and
+  // dropped the whole image (issue #430 - both images on the Ghent DeviceN
+  // page are this shape). Each palette entry runs through the base's tint
+  // transform, exactly as the non-indexed Separation/DeviceN path does.
+  group('indexed over a tint base', () {
+    /// `[/Indexed [/Separation Spot DeviceCMYK { dup 0.5 mul exch 0.25 mul 0 0 }]
+    /// hival lookup]`: one ink per palette entry into DeviceCMYK.
+    CosStream indexedSeparation(List<int> lookup, List<int> indices) => image({
+          'Width': CosInteger(indices.length),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': CosArray([
+            const CosName('Indexed'),
+            CosArray([
+              const CosName('Separation'),
+              const CosName('Spot'),
+              const CosName('DeviceCMYK'),
+              CosStream(
+                  CosDictionary({
+                    'FunctionType': const CosInteger(4),
+                    'Domain': CosArray([const CosReal(0), const CosReal(1)]),
+                    'Range': CosArray([
+                      for (var i = 0; i < 4; i++) ...[
+                        const CosReal(0),
+                        const CosReal(1)
+                      ]
+                    ]),
+                  }),
+                  Uint8List.fromList(
+                      '{ dup 0.5 mul exch 0.25 mul 0.0 0.0 }'.codeUnits)),
+            ]),
+            CosInteger(lookup.length - 1),
+            CosString(Uint8List.fromList(lookup)),
+          ]),
+        }, indices);
+
+    test('decodes instead of dropping the image', () {
+      // The regression: this whole image used to decode to null.
+      final pixels = decodePdfImagePixels(cos, indexedSeparation([0, 255], [0, 1]));
+      expect(pixels, isNotNull);
+      expect(pixels!.width, 2);
+      expect(pixels.height, 1);
+    });
+
+    test('each palette entry maps through the tint transform', () {
+      // Two colorant tints (0 and 1) selected by index; the decoded colour must
+      // match the transform's CMYK converted the way the decoder does.
+      final pixels = decodePdfImagePixels(cos, indexedSeparation([0, 255], [0, 1]))!;
+      for (final (i, tint) in [(0, 0.0), (1, 1.0)]) {
+        final expected =
+            colorFromComponents([tint * 0.5, tint * 0.25, 0.0, 0.0], 4);
+        expect(pixels.rgba[i * 4], (expected.red * 255).round().clamp(0, 255),
+            reason: 'red for tint $tint');
+        expect(pixels.rgba[i * 4 + 1],
+            (expected.green * 255).round().clamp(0, 255),
+            reason: 'green for tint $tint');
+        expect(pixels.rgba[i * 4 + 2],
+            (expected.blue * 255).round().clamp(0, 255),
+            reason: 'blue for tint $tint');
+        expect(pixels.rgba[i * 4 + 3], 255);
+      }
+    });
+
+    test('DeviceN base sizes each palette entry by its colorant count', () {
+      // `{ pop dup 0.0 0.0 }` paints with InkA and drops InkB, so a two-colorant
+      // palette entry [InkA, InkB] must consume two lookup bytes: entries
+      // [200, 0] and [200, 255] share InkA and must decode identically, while
+      // [0, 0] must differ. A base mis-sized to one byte would misalign the
+      // whole table.
+      final stream = image({
+        'Width': const CosInteger(3),
+        'Height': const CosInteger(1),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': CosArray([
+          const CosName('Indexed'),
+          CosArray([
+            const CosName('DeviceN'),
+            CosArray([const CosName('InkA'), const CosName('InkB')]),
+            const CosName('DeviceCMYK'),
+            CosStream(
+                CosDictionary({
+                  'FunctionType': const CosInteger(4),
+                  'Domain': CosArray([
+                    const CosReal(0),
+                    const CosReal(1),
+                    const CosReal(0),
+                    const CosReal(1)
+                  ]),
+                  'Range': CosArray([
+                    for (var i = 0; i < 4; i++) ...[
+                      const CosReal(0),
+                      const CosReal(1)
+                    ]
+                  ]),
+                }),
+                Uint8List.fromList('{ pop dup 0.0 0.0 }'.codeUnits)),
+          ]),
+          const CosInteger(2),
+          CosString(Uint8List.fromList([200, 0, 200, 255, 0, 0])),
+        ]),
+      }, [
+        0, 1, 2, //
+      ]);
+
+      final pixels = decodePdfImagePixels(cos, stream)!;
+      List<int> pixelAt(int i) => pixels.rgba.sublist(i * 4, i * 4 + 4);
+      expect(pixelAt(0), pixelAt(1)); // same InkA, InkB ignored
+      expect(pixelAt(0), isNot(pixelAt(2))); // InkA drives the colour
+    });
+  });
+
+  group('decodePdfImage façade', () {
+    // A 4x1 Flate DeviceRGB image the region/scaled fast paths support.
+    CosStream rgbStrip() => flateImage({
+          'Width': const CosInteger(4),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+        }, [
+          10, 11, 12, //
+          20, 21, 22, //
+          30, 31, 32, //
+          40, 41, 42,
+        ]);
+
+    test('no region or target decodes at native size, like decodePdfImagePixels',
+        () {
+      final stream = rgbStrip();
+      final facade = decodePdfImage(cos, stream)!;
+      final direct = decodePdfImagePixels(cos, stream)!;
+      expect(facade.width, direct.width);
+      expect(facade.height, direct.height);
+      expect(facade.rgba, direct.rgba);
+    });
+
+    test('a region crops to the requested slice', () {
+      final stream = rgbStrip();
+      final slice =
+          decodePdfImage(cos, stream, region: const PdfImageRegion(1, 0, 2, 1))!;
+      expect(slice.width, 2);
+      expect(slice.height, 1);
+      // premultiplied but fully opaque, so RGB is unchanged: pixels 1 and 2.
+      expect(slice.rgba, [20, 21, 22, 255, 30, 31, 32, 255]);
+    });
+
+    test('the fast region path and the full-decode fallback agree pixel-exactly',
+        () {
+      // The façade must return identical pixels whether the region fast path
+      // handled the stream or it fell back to a full decode + crop. Adding a
+      // Flate /SMask makes the region fast path bail (it only does
+      // single-filter, mask-free streams) while the full decoder still copes -
+      // so this compares the two façade paths for the same slice.
+      const region = PdfImageRegion(1, 0, 2, 1);
+      final plain = rgbStrip(); // fast region path
+      final masked = flateImage({
+        'Width': const CosInteger(4),
+        'Height': const CosInteger(1),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceRGB'),
+        'SMask': flateImage({
+          'Width': const CosInteger(4),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceGray'),
+        }, [255, 255, 255, 255]), // fully opaque mask: pixels are unchanged
+      }, [
+        10, 11, 12, //
+        20, 21, 22, //
+        30, 31, 32, //
+        40, 41, 42,
+      ]);
+      final fast = decodePdfImage(cos, plain, region: region)!;
+      final fallback = decodePdfImage(cos, masked, region: region)!;
+      expect(fallback.width, fast.width);
+      expect(fallback.height, fast.height);
+      expect(fallback.rgba, fast.rgba);
+    });
+
+    test('a smaller target downsamples to that size', () {
+      final stream = rgbStrip();
+      final scaled = decodePdfImage(cos, stream, targetWidth: 2, targetHeight: 1)!;
+      expect(scaled.width, 2);
+      expect(scaled.height, 1);
+    });
+  });
+
+  group('cropDownsamplePdfDecodedPixels', () {
+    test('crops an in-bounds rectangle', () {
+      final full = PdfDecodedPixels(
+        Uint8List.fromList([
+          1, 1, 1, 255, 2, 2, 2, 255, //
+          3, 3, 3, 255, 4, 4, 4, 255,
+        ]),
+        2,
+        2,
+      );
+      final crop = cropDownsamplePdfDecodedPixels(full, 1, 0, 1, 2, 1, 2)!;
+      expect(crop.width, 1);
+      expect(crop.height, 2);
+      expect(crop.rgba, [2, 2, 2, 255, 4, 4, 4, 255]);
+    });
+
+    test('returns null when the rectangle falls outside the image', () {
+      final full = PdfDecodedPixels(Uint8List(16), 2, 2);
+      expect(cropDownsamplePdfDecodedPixels(full, 1, 1, 2, 2, 2, 2), isNull);
     });
   });
 }

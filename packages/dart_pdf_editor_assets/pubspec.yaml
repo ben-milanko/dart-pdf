@@ -1,0 +1,63 @@
+name: dart_pdf_editor_assets
+description: >-
+  Optional bundled assets for dart_pdf_editor - the six editor fonts and the
+  prebuilt web render worker. Depend on it (and call
+  registerBundledEditorAssets) for the full-featured editor; omit it for a
+  size-minimal viewer that ships neither.
+version: 2.1.0
+repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/dart_pdf_editor_assets
+issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
+topics:
+  - pdf
+  - pdf-editor
+  - fonts
+  - assets
+resolution: workspace
+
+environment:
+  sdk: ^3.5.0
+  flutter: '>=3.24.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # The registration API and the PdfBundledFont / global-config symbols it
+  # populates live in the editor package; this package supplies the bytes.
+  dart_pdf_editor: ^2.1.0
+
+flutter:
+  # The optional editor assets. These are declared here, not in
+  # dart_pdf_editor, so an app that only views PDFs never bundles them: Flutter
+  # includes a package's declared assets on every build target, so the only way
+  # to make them opt-in is to keep them out of the always-depended-on package.
+  #
+  # Fonts offered by the editor font menu. DejaVu is a permissive Bitstream
+  # Vera / Arev licence; Fira Sans, Spectral and Lobster are SIL Open Font
+  # Licence - see the *-LICENSE.txt files in assets/fonts/.
+  assets:
+    - assets/web/pdf_render_worker.dart.js
+    - assets/fonts/DejaVuSans.ttf
+    - assets/fonts/DejaVuSerif.ttf
+    - assets/fonts/DejaVuSansMono.ttf
+    - assets/fonts/FiraSans-Regular.ttf
+    - assets/fonts/Spectral-Regular.ttf
+    - assets/fonts/Lobster-Regular.ttf
+  fonts:
+    - family: DejaVu Sans
+      fonts:
+        - asset: assets/fonts/DejaVuSans.ttf
+    - family: DejaVu Serif
+      fonts:
+        - asset: assets/fonts/DejaVuSerif.ttf
+    - family: DejaVu Sans Mono
+      fonts:
+        - asset: assets/fonts/DejaVuSansMono.ttf
+    - family: Fira Sans
+      fonts:
+        - asset: assets/fonts/FiraSans-Regular.ttf
+    - family: Spectral
+      fonts:
+        - asset: assets/fonts/Spectral-Regular.ttf
+    - family: Lobster
+      fonts:
+        - asset: assets/fonts/Lobster-Regular.ttf

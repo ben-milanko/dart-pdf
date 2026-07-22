@@ -10,14 +10,18 @@ import 'package:flutter/services.dart';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../debug_overlays.dart';
+import '../l10n/pdf_l10n.dart';
 import '../page_geometry.dart';
 import '../renderer.dart';
 import '../theme.dart';
-import 'editing_color_picker.dart';
+import 'editing_color_pick.dart';
 import 'editing_controller.dart';
 import 'editing_fonts.dart';
 import 'editing_interaction.dart';
 import 'editing_measure.dart';
+import 'editing_tool_behavior.dart';
+import 'handle_layout.dart';
 import 'stroke_prediction.dart';
 import 'text_prompt.dart';
 
@@ -493,11 +497,13 @@ class EditingPageOverlay extends StatefulWidget {
     this.formImagePicker,
     this.imagePicker,
     this.onSnapshot,
+    this.onPlaceSignature,
     this.onShowAnnotationMenu,
     this.onShowFormFieldMenu,
     this.onResolvePagePoint,
     this.onMoveDragPreview,
     this.onTextEditClosed,
+    this.contextMenuEnabled = true,
   });
 
   final PdfEditingController controller;
@@ -516,6 +522,11 @@ class EditingPageOverlay extends StatefulWidget {
   /// Receives a region captured by the snapshot tool
   /// ([PdfEditTool.snapshot]). With none, the snapshot tool does nothing.
   final PdfSnapshotHandler? onSnapshot;
+
+  /// Receives the box drawn by the signature-box tool
+  /// ([PdfEditTool.signatureBox]) so the host can sign into it. With none,
+  /// the signature-box tool does nothing.
+  final PdfSignaturePlacer? onPlaceSignature;
 
   /// The paper color the page is displayed with - the eyedropper's
   /// raster must match what's on screen.
@@ -546,6 +557,12 @@ class EditingPageOverlay extends StatefulWidget {
       onResolvePagePoint;
   final PdfMoveDragPreviewCallback? onMoveDragPreview;
   final VoidCallback? onTextEditClosed;
+
+  /// Whether the touch long-press annotation menu and the floating selection
+  /// chip's "More" button are allowed to show. Mirrors [PdfViewer.contextMenuEnabled];
+  /// see that property for the semantics. Has no effect without an editing
+  /// controller (the menu path is reader-mode only). Defaults to true.
+  final bool contextMenuEnabled;
 
   /// Whether the page raster on screen already shows the controller's
   /// current revision. While false (an edit just committed and the
@@ -623,25 +640,18 @@ typedef _ShapeResize = ({
 
 /// Which sides of the selection a resize handle moves: -1 left/top edge,
 /// +1 right/bottom edge, 0 leaves that axis alone. (View space, y down.)
-typedef _Handle = ({int dx, int dy});
+// Resize-handle geometry lives in handle_layout.dart as a pure, unit-testable
+// value type ([HandleLayout]); these aliases keep the overlay's existing names.
+typedef _Handle = SelectionHandle;
 
-const List<_Handle> _handles = [
-  (dx: -1, dy: -1),
-  (dx: 0, dy: -1),
-  (dx: 1, dy: -1),
-  (dx: -1, dy: 0),
-  (dx: 1, dy: 0),
-  (dx: -1, dy: 1),
-  (dx: 0, dy: 1),
-  (dx: 1, dy: 1),
-];
+const List<_Handle> _handles = selectionHandles;
 
 const double _handleSize = 8;
-const double _handleHitRadius = 12;
+const double _handleHitRadius = HandleLayout.defaultHitRadius;
 const double _minSizeView = 12;
 
 /// How far the rotation knob floats above the selection's top edge.
-const double _rotateHandleDistance = 22;
+const double _rotateHandleDistance = HandleLayout.defaultRotateHandleDistance;
 
 /// Rotation drags snap to 45° multiples when within this margin.
 const double _rotateSnapRadians = 3 * math.pi / 180;
@@ -680,6 +690,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   Offset? _dragStart;
   Offset? _dragCurrent;
   List<Offset>? _polyPoints;
+  // the raw (un-snapped) view position of the last placed vertex. Vertices in
+  // [_polyPoints] may be Shift-snapped away from where they were tapped, so
+  // the near-duplicate dedup (which rejects the second tap of a finishing
+  // double-tap) must measure against this raw point, not the snapped vertex.
+  Offset? _polyLastRaw;
   Offset? _polyHover;
   Offset? _polyDoubleTapPosition;
   // the form tool's double-tap fills the field under the down position
@@ -687,7 +702,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   // eyedropper: one page raster serves every preview sample
   PdfPageColorSampler? _sampler;
-  PdfDocument? _samplerDocument;
+  int? _samplerRevisionId;
   Color? _samplerPageColor;
   bool? _samplerAnnotations;
   Future<PdfPageColorSampler>? _samplerFuture;
@@ -710,6 +725,34 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   final ValueNotifier<int> _activeStrokeRepaint = ValueNotifier<int>(0);
 
   void _bumpActiveStroke() => _activeStrokeRepaint.value++;
+
+  /// Extends the in-progress ink stroke to the view-space [localPosition].
+  /// Normally each sample appends, tracing the freehand path; while Shift is
+  /// held the stroke collapses to a single straight segment from where it
+  /// began to the pointer, rubber-banding as the pointer moves - so releasing
+  /// with Shift down commits a ruler-straight line. Shared by the raw-pointer
+  /// and gesture-arena draw paths.
+  void _extendActiveStroke(Offset localPosition) {
+    _penCursor = localPosition;
+    final page = _geometry.toPagePoint(localPosition);
+    final pressures = _activeStrokePressures;
+    final pressure = _pointerPressure ?? pressures?.last;
+    if (HardwareKeyboard.instance.isShiftPressed) {
+      _activeStroke!
+        ..length = 1 // keep the origin, drop the freehand tail
+        ..add(page);
+      if (pressures != null) {
+        final first = pressures.first;
+        pressures
+          ..length = 1
+          ..add(pressure ?? first);
+      }
+    } else {
+      _activeStroke!.add(page);
+      if (pressures != null) pressures.add(pressure ?? pressures.last);
+    }
+    _bumpActiveStroke();
+  }
 
   /// The latest normalized pressure of the pointer being tracked, or null
   /// for devices that don't report pressure (finger, mouse).
@@ -873,6 +916,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   ui.Picture? _resizeCleanPicture;
   Object? _resizeCleanFor;
 
+  // The embedded/bundled face a free-text resize preview re-wraps with,
+  // reparsed from the box's appearance program once per selection. Recovering
+  // the program isn't free, so it's cached against the annotation instance
+  // (stable within a revision) rather than decoded on every drag frame.
+  PdfEmbeddedFont? _resizeEmbeddedFont;
+  PdfAnnotation? _resizeEmbeddedFontFor;
+
   // Clean page for a selected annotation's original footprint. Move commits
   // clip this into the source rect so the annotation disappears without
   // covering underlying page content with a paper-colored box.
@@ -903,7 +953,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   // afterimage of the last commit, painted until the new revision's
   // raster lands ([widget.rasterCurrent]) - without it the preview
   // clears frames before the page re-renders and the edit blinks out
-  PdfDocument? _afterDocument;
+  int? _afterRevisionId;
   ui.Picture? _afterGhost;
   Rect? _afterGhostFrom;
   Rect? _afterGhostTo;
@@ -929,7 +979,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   ({
     Rect rect,
     String text,
-    PdfStandardFont font,
+    PdfTextFont font,
     double size,
     Color color,
     Color? fill,
@@ -1069,24 +1119,20 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
               .clamp(0.0, 1.0)
           : null;
 
-  bool get _inkTool =>
-      _tool == PdfEditTool.ink || _tool == PdfEditTool.highlight;
-  bool get _drawTool => _inkTool || _tool == PdfEditTool.eraser;
+  /// The armed tool's behaviour - the single source of tool identity the
+  /// gesture phases dispatch on - or null when nothing is armed.
+  PdfEditToolBehavior? get _behavior => PdfEditToolBehavior.maybeOf(_tool);
+
+  bool get _inkTool => _behavior?.isInk ?? false;
+  bool get _drawTool => _behavior?.isDraw ?? false;
 
   /// A finger should pan the viewer (not draw): the draw tool is armed
   /// but finger-drawing is off, so touch is reserved for scrolling.
   bool get _fingerPansViewport =>
       _drawTool &&
-      !_controller.fingerDrawsInk &&
+      !_controller.preferences.fingerDrawsInk &&
       _host.panViewport != null;
-  bool get _polyTool =>
-      _tool == PdfEditTool.polyline ||
-      _tool == PdfEditTool.polygon ||
-      _tool == PdfEditTool.measurePerimeter ||
-      _tool == PdfEditTool.measureArea ||
-      _tool == PdfEditTool.measureAngle ||
-      _tool == PdfEditTool.measureArc ||
-      _tool == PdfEditTool.measureVolume;
+  bool get _polyTool => _behavior?.isPoly ?? false;
 
   /// The tools that are hybrids: a drag rubber-bands a rectangle, but a tap
   /// starts (and each further tap extends) a free-form vertex list, finished
@@ -1103,32 +1149,33 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// The number of clicks a fixed-arity poly tool takes before it
   /// auto-finishes - three for the angle and arc takeoffs - or null for an
   /// open-ended poly tool (finished by a double-tap).
-  int? get _fixedPolyCount => switch (_tool) {
-        PdfEditTool.measureAngle || PdfEditTool.measureArc => 3,
-        _ => null,
-      };
+  int? get _fixedPolyCount => _behavior?.fixedPolyCount;
 
   /// A tool placed by dragging a single straight segment (a /Line or a
   /// distance/slope measurement).
-  bool get _lineDragTool =>
-      _tool == PdfEditTool.line ||
-      _tool == PdfEditTool.arrow ||
-      _tool == PdfEditTool.measureDistance ||
-      _tool == PdfEditTool.measureSlope ||
-      _tool == PdfEditTool.calibrate;
+  bool get _lineDragTool => _behavior?.isLineDrag ?? false;
+
+  /// Constrains [point] to the nearest 45° direction from [anchor] while
+  /// Shift is held, so the line / polyline / polygon tools lay down
+  /// axis-aligned or diagonal straight segments. The pointer's reach along
+  /// the chosen direction is preserved by projecting the delta onto it.
+  /// Returns [point] unchanged when Shift is up (or the delta is zero).
+  Offset _straightSnap(Offset anchor, Offset point) {
+    if (!HardwareKeyboard.instance.isShiftPressed) return point;
+    final delta = point - anchor;
+    if (delta == Offset.zero) return point;
+    const step = math.pi / 4; // 45° increments (8 directions)
+    final angle = (delta.direction / step).roundToDouble() * step;
+    final dir = Offset(math.cos(angle), math.sin(angle));
+    // project onto the snapped axis; the rounded angle is within 22.5° of the
+    // pointer, so the projection is always forward (non-negative)
+    final reach = delta.dx * dir.dx + delta.dy * dir.dy;
+    return anchor + dir * reach;
+  }
 
   /// The measurement kind the armed tool creates, or null for a
   /// non-measurement tool.
-  PdfMeasurementKind? get _measureKind => switch (_tool) {
-        PdfEditTool.measureDistance => PdfMeasurementKind.distance,
-        PdfEditTool.measurePerimeter => PdfMeasurementKind.perimeter,
-        PdfEditTool.measureArea => PdfMeasurementKind.area,
-        PdfEditTool.measureSlope => PdfMeasurementKind.slope,
-        PdfEditTool.measureAngle => PdfMeasurementKind.angle,
-        PdfEditTool.measureArc => PdfMeasurementKind.arc,
-        PdfEditTool.measureVolume => PdfMeasurementKind.volume,
-        _ => null,
-      };
+  PdfMeasurementKind? get _measureKind => _behavior?.measureKind;
 
   /// Whether a pointer of [kind] draws (or erases) through the raw
   /// event stream instead of the gesture arena. Pan recognizers only
@@ -1141,7 +1188,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (!_drawTool) return false;
     return switch (kind) {
       PointerDeviceKind.stylus || PointerDeviceKind.invertedStylus => true,
-      PointerDeviceKind.touch => _controller.fingerDrawsInk,
+      PointerDeviceKind.touch => _controller.preferences.fingerDrawsInk,
       _ => false,
     };
   }
@@ -1152,7 +1199,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         pageIndex: widget.pageIndex, pointerKind: pointerKind);
   }
 
-  void _finishInteraction(PdfDocument before, int transition,
+  void _finishInteraction(int beforeRevision, int transition,
       {bool canceled = false}) {
     final state = _interaction.state;
     // The completed gesture may have opened a new interaction (a dragged
@@ -1160,7 +1207,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (state.transition != transition || !_interaction.isActive) return;
     if (canceled) {
       _interaction.cancel();
-    } else if (!identical(before, _controller.document)) {
+    } else if (beforeRevision != _controller.revisionId) {
       _interaction.commit();
     } else {
       _interaction.complete();
@@ -1214,12 +1261,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       return;
     }
     if (_drawTool &&
-        _controller.fingerDrawsInk &&
+        _controller.preferences.fingerDrawsInk &&
         (event.kind == PointerDeviceKind.stylus ||
             event.kind == PointerDeviceKind.invertedStylus)) {
       // an Apple Pencil (or other stylus) is in play: from now on the
       // pen draws and fingers scroll, until the user toggles it back
-      _controller.fingerDrawsInk = false;
+      _controller.preferences.fingerDrawsInk = false;
     }
     if (_pointers.rawPointer == null && _rawDrives(event.kind)) {
       _pointers.rawPointer = event.pointer;
@@ -1283,11 +1330,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _eraseAt(event.localPosition);
     } else if (_activeStroke != null) {
       // hot path: append + repaint the stroke layer only, no rebuild
-      _penCursor = event.localPosition;
-      _activeStroke!.add(_geometry.toPagePoint(event.localPosition));
-      _activeStrokePressures
-          ?.add(_pointerPressure ?? _activeStrokePressures!.last);
-      _bumpActiveStroke();
+      _extendActiveStroke(event.localPosition);
     }
   }
 
@@ -1340,7 +1383,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   void _endRawPointer(PointerEvent event, {required bool canceled}) {
     final tracked = event.pointer == _pointers.rawPointer ||
         event.pointer == _pointers.panPointer;
-    final before = _controller.document;
+    final before = _controller.revisionId;
     final transition = _interaction.state.transition;
     _finishRawPointer(event, canceled: canceled);
     if (tracked) {
@@ -1408,7 +1451,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// deletes them.
   void _eraseAt(Offset position) {
     final point = _geometry.toPagePoint(position);
-    final radius = _controller.eraserRadius;
+    final radius = _controller.preferences.eraserRadius;
     final from = _erasePath.isEmpty ? point : _erasePath.last;
     setState(() {
       _eraserCursor = position;
@@ -1482,14 +1525,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final touched = _eraseSliced.isNotEmpty || _eraseWholeSlots.isNotEmpty;
     setState(_resetErase);
     if (path.isEmpty || !touched) return;
-    final before = _controller.document;
+    final before = _controller.revisionId;
     _controller.sliceErase(widget.pageIndex, path);
-    if (identical(before, _controller.document)) return;
+    if (before == _controller.revisionId) return;
     _clearAfterimage();
     _afterEraseRects = rects;
     _afterEraseFade = fade;
     _afterEraseInk = ink;
-    _afterDocument = _controller.document;
+    _afterRevisionId = _controller.revisionId;
   }
 
   /// The primary selected annotation's view rect when it lives on this
@@ -1621,11 +1664,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     );
   }
 
-  static Offset _rotatePoint(Offset p, Offset center, double angle) {
-    final d = p - center;
-    final c = math.cos(angle), s = math.sin(angle);
-    return center + Offset(d.dx * c - d.dy * s, d.dx * s + d.dy * c);
-  }
+  static Offset _rotatePoint(Offset p, Offset center, double angle) =>
+      HandleLayout.rotatePoint(p, center, angle);
 
   /// Drops the afterimage (and its ghost picture, which the state owns).
   void _clearAfterimage() {
@@ -1653,7 +1693,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _afterEraseRects = null;
     _afterEraseFade = null;
     _afterEraseInk = null;
-    _afterDocument = null;
+    _afterRevisionId = null;
   }
 
   /// Runs [commit] and, when it produced a new revision, keeps the
@@ -1683,11 +1723,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final source = _selectedViewRect;
     final ghost = _ghost;
     final sourceAnnotation = washSource ? _controller.selectedAnnotation : null;
-    final before = _controller.document;
+    final beforeDoc = _controller.document;
+    final before = _controller.revisionId;
     commit();
-    if (identical(before, _controller.document)) return;
+    if (before == _controller.revisionId) return;
     if (ghost == null || from == null || to == null) return;
-    final afterDocument = _controller.document;
+    final afterRevisionId = _controller.revisionId;
     _clearAfterimage();
     _ghost = null;
     _ghostKey = null;
@@ -1697,7 +1738,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _afterGhostSourceRect = washSource ? source : null;
     final sourceCleanKey = washSource && sourceAnnotation != null
         ? (
-            document: before,
+            document: beforeDoc,
             page: widget.pageIndex,
             annotation: sourceAnnotation.dict,
             color: widget.pageColor,
@@ -1720,11 +1761,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           sourceAnnotation != null &&
           sourceAnnotation.subtype != 'Stamp') {
         unawaited(_renderAfterGhostSourceClean(
-          document: before,
+          document: beforeDoc,
           pageIndex: widget.pageIndex,
           annotation: sourceAnnotation,
           ghost: ghost,
-          afterDocument: afterDocument,
+          afterRevisionId: afterRevisionId,
         ));
       }
     }
@@ -1732,7 +1773,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _afterGhostLocalAngle = localAngle;
     _afterGhostFlipX = flipX;
     _afterGhostFlipY = flipY;
-    _afterDocument = afterDocument;
+    _afterRevisionId = afterRevisionId;
   }
 
   Future<void> _renderAfterGhostSourceClean({
@@ -1740,7 +1781,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     required int pageIndex,
     required PdfAnnotation annotation,
     required ui.Picture ghost,
-    required PdfDocument afterDocument,
+    required int afterRevisionId,
   }) async {
     // The drag/release feedback must hit the screen first. Rendering a clean
     // page can parse and interpret a large CAD page synchronously before its
@@ -1748,7 +1789,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     await SchedulerBinding.instance.endOfFrame;
     if (!mounted ||
         _afterGhost != ghost ||
-        !identical(_afterDocument, afterDocument)) {
+        _afterRevisionId != afterRevisionId) {
       return;
     }
     final name = annotation.name;
@@ -1763,7 +1804,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       );
       if (!mounted ||
           _afterGhost != ghost ||
-          !identical(_afterDocument, afterDocument)) {
+          _afterRevisionId != afterRevisionId) {
         picture.dispose();
         return;
       }
@@ -1777,9 +1818,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
   }
 
-  void _captureLastStampAfterimage(PdfDocument before,
+  void _captureLastStampAfterimage(int before,
       {required bool check, required String? text, required Color color}) {
-    if (identical(before, _controller.document)) return;
+    if (before == _controller.revisionId) return;
     final annotations = _controller.document.page(widget.pageIndex).annotations;
     if (annotations.isEmpty) return;
     _setStampAfterimage(
@@ -1789,16 +1830,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         template: null,
         check: check,
         color: color,
-        opacity: _controller.opacity.clamp(0.0, 1.0).toDouble(),
+        opacity: _controller.preferences.opacity.clamp(0.0, 1.0).toDouble(),
       ),
-      document: _controller.document,
+      revisionId: _controller.revisionId,
     );
   }
 
-  void _setStampAfterimage(_StampAfterimage stamp, {PdfDocument? document}) {
+  void _setStampAfterimage(_StampAfterimage stamp, {int? revisionId}) {
     _clearAfterimage();
     _afterStamp = stamp;
-    _afterDocument = document;
+    _afterRevisionId = revisionId;
     if (mounted) setState(() {});
   }
 
@@ -1810,10 +1851,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _setStampAfterimage(preview);
     await SchedulerBinding.instance.endOfFrame;
     if (!mounted) return;
-    final before = _controller.document;
+    final before = _controller.revisionId;
     commit();
     if (!mounted) return;
-    if (identical(before, _controller.document)) {
+    if (before == _controller.revisionId) {
       _clearAfterimage();
       setState(() {});
       return;
@@ -1829,7 +1870,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             color: preview.color,
             opacity: preview.opacity,
           );
-    _afterDocument = _controller.document;
+    _afterRevisionId = _controller.revisionId;
     setState(() {});
   }
 
@@ -1844,7 +1885,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         template: template,
         check: check,
         color: color,
-        opacity: _controller.opacity.clamp(0.0, 1.0).toDouble(),
+        opacity: _controller.preferences.opacity.clamp(0.0, 1.0).toDouble(),
       );
 
   _StampAfterimage? _activeStampAfterimageAt(Offset position) {
@@ -1907,17 +1948,32 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       template: null,
       check: true,
       color: _controller.color,
-      opacity: _controller.opacity.clamp(0.0, 1.0).toDouble(),
+      opacity: _controller.preferences.opacity.clamp(0.0, 1.0).toDouble(),
     );
+  }
+
+  /// The embedded (Type0-with-program) face a free-text [annotation] names in
+  /// its /DA, reparsed from its appearance program so a resize preview can
+  /// re-wrap in the real font. Cached against the annotation instance (stable
+  /// within a revision) because decoding the program isn't cheap. Null when
+  /// the box has no embedded program or it can't be recovered.
+  PdfEmbeddedFont? _resizeEmbeddedFontOf(PdfAnnotation annotation) {
+    if (!identical(annotation, _resizeEmbeddedFontFor)) {
+      _resizeEmbeddedFontFor = annotation;
+      _resizeEmbeddedFont = annotation.behavior.hasEmbeddedTextFont
+          ? PdfEmbeddedFont.fromFreeText(annotation)
+          : null;
+    }
+    return _resizeEmbeddedFont;
   }
 
   /// The selection's text style when a resize commit will RE-WRAP it at
   /// a constant font size - the editor's FreeText regenerate path:
-  /// an /AP to replace and a /DA naming a standard font. Null means the
+  /// an /AP to replace and a /DA naming the box's font. Null means the
   /// commit stretches the appearance and the ghost previews faithfully.
   ({
     String text,
-    PdfStandardFont font,
+    PdfTextFont font,
     double size,
     Color color,
     Color? fill,
@@ -1931,10 +1987,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             PdfAnnotationResizeBehavior.reflowText) {
       return null;
     }
-    // an embedded-font box reflows too, but the lightweight preview can only
-    // draw base-14 faces - fall back to the stretch ghost during the drag
-    // (the commit still re-wraps correctly)
-    final font = annotation.behavior.standardTextFont;
+    // Base-14 boxes preview in the matching platform face; an embedded/bundled
+    // box previews in its own outline bytes, registered with the engine under
+    // a synthetic family ([_wrappedTextBox] kicks that off) exactly like the
+    // inline editor - so the drag wraps in the real font instead of stretching
+    // baked glyphs. Only when neither is recoverable does the stretch ghost
+    // still stand in (the commit re-wraps correctly regardless).
+    final PdfTextFont? font = annotation.behavior.standardTextFont ??
+        _resizeEmbeddedFontOf(annotation);
     if (font == null) return null;
     final parsed = annotation.behavior.style.freeText!;
     return (
@@ -2094,7 +2154,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final key = annotation.dict; // stable CosDictionary identity this revision
     final name = annotation.name;
     _resizeCleanFor = key;
-    final document = _controller.document;
+    final revisionAtStart = _controller.revisionId;
     try {
       final picture = await PdfPageRenderer.renderPicture(
         _controller.pageAt(widget.pageIndex),
@@ -2107,7 +2167,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       // moved under us - a stale clean page would hide the wrong thing
       if (!mounted ||
           !identical(_resizeCleanFor, key) ||
-          !identical(_controller.document, document)) {
+          revisionAtStart != _controller.revisionId) {
         picture.dispose();
         return;
       }
@@ -2261,7 +2321,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // a new box in flight follows the tune popup's box-level defaults live
     // (alignment, spacing, underline) instead of only picking them up on open
     if (!_textEditExisting && _textEditFieldName == null) {
-      final align = _controller.textAlign;
+      final align = _controller.preferences.textAlign;
       final ls = _controller.lineSpacing;
       final cs = _controller.charSpacing;
       final ul = _controller.textUnderline;
@@ -2299,9 +2359,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         underline: request.underline);
   }
 
-  Offset _handleCenter(Rect rect, _Handle handle) => Offset(
-        rect.center.dx + handle.dx * rect.width / 2,
-        rect.center.dy + handle.dy * rect.height / 2,
+  /// The chrome-handle geometry for a selection [rect] at the current
+  /// [_chromeScale], carrying the resting [rotation] for the rotate knob.
+  HandleLayout _handleLayout(Rect rect, [double rotation = 0]) => HandleLayout(
+        rect: rect,
+        rotation: rotation,
+        chromeScale: _chromeScale,
+        hitRadius: _handleHitRadius,
+        rotateHandleDistance: _rotateHandleDistance,
       );
 
   /// The resize cursor for a handle by its corner/edge: orthogonal edges
@@ -2316,13 +2381,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   _Handle? _handleAt(Rect rect, Offset position) {
     if (!_controller.canResizeSelected) return null;
-    for (final handle in _handles) {
-      if ((position - _handleCenter(rect, handle)).distance <=
-          _handleHitRadius * _chromeScale) {
-        return handle;
-      }
-    }
-    return null;
+    return _handleLayout(rect).handleAt(position);
   }
 
   int? _vertexHandleAt(List<Offset> points, Offset position) {
@@ -2335,20 +2394,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     return null;
   }
 
-  /// The rotate knob's view position: above the chrome box's top edge,
-  /// riding the annotation's resting [rotation] about the box center.
-  Offset _rotateHandleCenter(Rect rect, double rotation) => _rotatePoint(
-        Offset(rect.center.dx, rect.top - _rotateHandleDistance * _chromeScale),
-        rect.center,
-        rotation,
-      );
-
   /// Resize handles get first claim (the top-center knob sits close),
   /// so this is only consulted after [_handleAt] misses.
   bool _hitsRotateHandle(Rect rect, double rotation, Offset position) =>
       _controller.canRotateSelected &&
-      (position - _rotateHandleCenter(rect, rotation)).distance <=
-          _handleHitRadius * _chromeScale;
+      _handleLayout(rect, rotation).hitsRotateHandle(position);
 
   /// The drag's rotation delta for the pointer at [position]: the angle
   /// swept about the selection center. The *total* rotation (resting +
@@ -2509,7 +2559,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   Rect _defaultPlacementRect(Offset tap) {
     final scale = _geometry.scale;
     final w = 200.0 * scale;
-    final h = (_controller.fontSize * 1.6 + 8) * scale;
+    final h = (_controller.preferences.fontSize * 1.6 + 8) * scale;
     final size = _geometry.viewSize;
     final left = tap.dx.clamp(0.0, math.max(0.0, size.width - w)).toDouble();
     final top = tap.dy.clamp(0.0, math.max(0.0, size.height - h)).toDouble();
@@ -2541,7 +2591,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final defaultFont = existing
         ? (style?.font ?? _controller.fontFamily)
         : (_controller.activeFont ?? _controller.fontFamily);
-    final defaultSize = style?.size ?? _controller.fontSize;
+    final defaultSize = style?.size ?? _controller.preferences.fontSize;
     final defaultColor = annotationColor != null
         ? Color(0xFF000000 | annotationColor)
         : _controller.color;
@@ -2571,7 +2621,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           defaultFont is PdfStandardFont ? defaultFont : _controller.fontFamily;
       _textEditSize = defaultSize;
       _textEditColor = defaultColor;
-      _textEditAlign = existing ? parsed?.alignment : _controller.textAlign;
+      _textEditAlign = existing ? parsed?.alignment : _controller.preferences.textAlign;
       _textEditLineSpacing = existing
           ? (parsed?.lineSpacing ?? kPdfFreeTextDefaultLineSpacing)
           : _controller.lineSpacing;
@@ -2581,7 +2631,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           ? (parsed?.fillColor != null
               ? Color(0xFF000000 | parsed!.fillColor!)
               : null)
-          : _controller.textFillColor;
+          : _controller.preferences.textFillColor;
     });
     _beginInteraction(PdfEditingInteractionIntent.text, _lastPointerKind);
     _controller.setEditingText(true);
@@ -2650,8 +2700,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       return (
         terminus,
         _nearestBoxEdge(_textEditRect!, terminus),
-        _controller.textBorderColor ?? _controller.color,
-        _controller.strokeWidth * _geometry.scale,
+        _controller.preferences.textBorderColor ?? _controller.color,
+        _controller.preferences.strokeWidth * _geometry.scale,
       );
     }
     return null;
@@ -2700,7 +2750,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// value. Empty text adds nothing / changes nothing.
   void _commitTextEdit() {
     if (_textEditRect == null) return;
-    final before = _controller.document;
+    final before = _controller.revisionId;
     final transition = _interaction.state.transition;
     _finishTextEdit();
     _finishInteraction(before, transition);
@@ -2716,9 +2766,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       final font = _textEditFont;
       final size = _textEditSize;
       _closeTextEditor();
-      final before = _controller.document;
+      final before = _controller.revisionId;
       _controller.setFormFieldText(fieldName, value);
-      if (identical(before, _controller.document)) return;
+      if (before == _controller.revisionId) return;
       _clearAfterimage();
       _afterText = (
         rect: rect,
@@ -2733,7 +2783,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         underline: false,
         lineSpacing: kPdfFreeTextDefaultLineSpacing,
       );
-      _afterDocument = _controller.document;
+      _afterRevisionId = _controller.revisionId;
       return;
     }
     final text = _textEditText.text.trimRight();
@@ -2747,7 +2797,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final rotation = _textEditRotation;
     final calloutTarget = _textEditCalloutTarget;
     _closeTextEditor();
-    final before = _controller.document;
+    final before = _controller.revisionId;
     if (existing) {
       if (text.isNotEmpty && richRuns != null) {
         _controller.setSelectedRichText(richRuns);
@@ -2766,7 +2816,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             widget.pageIndex, _geometry.toPageRect(rect), text);
       }
     }
-    if (identical(before, _controller.document)) return;
+    if (before == _controller.revisionId) return;
     // the editor's rendering, frozen until the new revision's raster
     // lands - otherwise the text vanishes for the render's duration
     _clearAfterimage();
@@ -2783,7 +2833,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       underline: _textEditText.defaultStyle.underline,
       lineSpacing: _textEditLineSpacing,
     );
-    _afterDocument = _controller.document;
+    _afterRevisionId = _controller.revisionId;
   }
 
   void _cancelTextEdit() {
@@ -2960,6 +3010,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             PdfEditTool.image ||
             PdfEditTool.redact ||
             PdfEditTool.snapshot ||
+            PdfEditTool.signatureBox ||
             PdfEditTool.contentDelete:
         _beginInteraction(PdfEditingInteractionIntent.create, details.kind);
         setState(() {
@@ -3001,7 +3052,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       case PdfEditTool.signature:
         // press-drag-release placement: the preview rides the pointer
         // (touch has no hover), release commits where it landed
-        if (_controller.signature != null) {
+        if (_controller.preferences.signature != null) {
           _beginInteraction(
               PdfEditingInteractionIntent.signature, details.kind);
           setState(() {
@@ -3124,6 +3175,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _marqueeAdd = _additiveModifier;
       });
     } else if (_host.panViewport != null) {
+      pdfLogGesture('overlay viewport-pan START',
+          () => 'page=${widget.pageIndex} kind=${details.kind?.name}');
       _beginInteraction(
           PdfEditingInteractionIntent.viewportPan, details.kind);
       _viewportPanning = true;
@@ -3135,6 +3188,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// joins the arena when this is true), so a long-press that has nothing to
   /// offer never steals the gesture from text selection or the viewer. Form
   /// fields use selection + toolbar controls instead of a long-press menu.
+  ///
+  /// Note: the host's [contextMenuEnabled] gate lives in [_onMenuLongPress]
+  /// itself, not here - this predicate decides *gesture ownership*, so it
+  /// must mirror the no-op case (nothing to select, no clipboard) regardless
+  /// of the menu toggle, otherwise long-press selection silently dies when
+  /// the menu is suppressed.
   bool _menuLongPressClaims(Offset position) {
     if (_pointers.gestureBailed) return false;
     final (x, y) = _geometry.toPagePoint(position);
@@ -3150,6 +3209,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// right-clicking. A pressed annotation joins the selection first
   /// (an already-selected one keeps a multi-selection intact); empty
   /// page area opens the paste menu when the clipboard has content.
+  ///
+  /// When [contextMenuEnabled] is false the press still selects the
+  /// annotation (or, with a clipboard, still bails out the same way) -
+  /// only the popup is suppressed.
   void _onMenuLongPress(LongPressStartDetails details) {
     final position = details.localPosition;
     final (x, y) = _geometry.toPagePoint(position);
@@ -3162,6 +3225,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       return;
     }
     HapticFeedback.selectionClick();
+    if (!widget.contextMenuEnabled) return;
     _host.showAnnotationMenu
         ?.call(details.globalPosition, widget.pageIndex, pagePoint: (x, y));
   }
@@ -3184,11 +3248,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
     if (_activeStroke != null) {
       // hot path: append + repaint the stroke layer only, no rebuild
-      _penCursor = position;
-      _activeStroke!.add(_geometry.toPagePoint(position));
-      _activeStrokePressures
-          ?.add(_pointerPressure ?? _activeStrokePressures!.last);
-      _bumpActiveStroke();
+      _extendActiveStroke(position);
       return;
     }
     // region/selection drags (marquee, move, resize, vertex, shape/snapshot
@@ -3250,7 +3310,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       // over a sibling list item)
       _reportMovePreview();
     } else if (_dragStart != null) {
-      setState(() => _dragCurrent = position);
+      // holding Shift snaps a line/arrow/measure drag to a straight 45° axis
+      setState(() => _dragCurrent =
+          _lineDragTool ? _straightSnap(_dragStart!, position) : position);
     }
   }
 
@@ -3307,7 +3369,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   void _panEnd(DragEndDetails details) {
     if (_pointers.rawPointer != null) return; // the raw pointer-up commits
-    final before = _controller.document;
+    final before = _controller.revisionId;
     final transition = _interaction.state.transition;
     _finishPan(details);
     _finishInteraction(before, transition);
@@ -3429,9 +3491,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // the commit re-wraps the text at constant size - a stretched
         // ghost afterimage would show scaled glyphs, so freeze the same
         // wrapped-text preview the drag showed instead
-        final before = _controller.document;
+        final before = _controller.revisionId;
         commit();
-        if (!identical(before, _controller.document)) {
+        if (before != _controller.revisionId) {
           _clearAfterimage();
           _afterText = (
             rect: resizeRect,
@@ -3452,19 +3514,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           _afterTextClean = liftClean;
           _afterTextHideRect = liftHideRect;
           _afterTextHideAngle = liftHideAngle;
-          _afterDocument = _controller.document;
+          _afterRevisionId = _controller.revisionId;
         } else {
           liftClean?.dispose(); // no commit: don't leak the detached lift
         }
       } else if (shapeStyle != null) {
         // the commit regenerates the shape at a constant stroke width -
         // freeze the same constant-width preview the drag showed
-        final before = _controller.document;
+        final before = _controller.revisionId;
         commit();
-        if (!identical(before, _controller.document)) {
+        if (before != _controller.revisionId) {
           _clearAfterimage();
           _afterShapeResize = shapeStyle;
-          _afterDocument = _controller.document;
+          _afterRevisionId = _controller.revisionId;
         }
       } else if (resizeAngle == 0) {
         _commitWithGhost(commit,
@@ -3534,9 +3596,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final (x, y) = _geometry.toPagePoint(position);
     final placement = _controller.signaturePlacement(widget.pageIndex, x, y);
     if (placement == null) return;
-    final before = _controller.document;
+    final before = _controller.revisionId;
     _controller.placeSignature(widget.pageIndex, x, y);
-    if (identical(before, _controller.document)) return;
+    if (before == _controller.revisionId) return;
     _clearAfterimage();
     _afterSignature = (
       strokes: placement.strokes,
@@ -3544,7 +3606,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       color: Color(0xFF000000 | placement.color),
       strokeWidth: placement.strokeWidth * _geometry.scale,
     );
-    _afterDocument = _controller.document;
+    _afterRevisionId = _controller.revisionId;
     // the next hover re-arms the preview; touch shouldn't keep a stale one
     _signaturePreview = null;
   }
@@ -3554,35 +3616,28 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       unawaited(_commitCalibration(start, end));
       return;
     }
-    final before = _controller.document;
-    final lineKind = _measureKind; // distance or slope for a measure tool
-    if (lineKind != null) {
-      _controller.addMeasurement(widget.pageIndex, lineKind,
-          [_geometry.toPagePoint(start), _geometry.toPagePoint(end)]);
-    } else {
-      _controller.addLine(widget.pageIndex, _geometry.toPagePoint(start),
-          _geometry.toPagePoint(end),
-          arrow: _tool == PdfEditTool.arrow);
-    }
-    if (identical(before, _controller.document)) return;
+    final before = _controller.revisionId;
+    _behavior!.commitLineDrag(_controller, widget.pageIndex,
+        _geometry.toPagePoint(start), _geometry.toPagePoint(end));
+    if (before == _controller.revisionId) return;
     _clearAfterimage();
     _afterPath = (
       points: [start, end],
       tool: _tool!,
       color: _controller.color
-          .withValues(alpha: _controller.opacity.clamp(0.0, 1.0)),
+          .withValues(alpha: _controller.preferences.opacity.clamp(0.0, 1.0)),
       fillColor: null,
-      strokeWidth: _controller.strokeWidth * _geometry.scale,
+      strokeWidth: _controller.preferences.strokeWidth * _geometry.scale,
       dashed: _controller.dashedStroke,
     );
-    _afterDocument = _controller.document;
+    _afterRevisionId = _controller.revisionId;
   }
 
   /// Finishes the calibration drag: asks how long the drawn segment is in
   /// the real world, then derives [PdfEditingController.measurementScale]
   /// from it and disarms the tool. Nothing is stamped on the page.
   Future<void> _commitCalibration(Offset start, Offset end) async {
-    final existing = _controller.measurementScale;
+    final existing = _controller.preferences.measurementScale;
     final result = await showPdfCalibrationLengthDialog(
       context,
       initialUnit: existing?.unitLabel,
@@ -3605,7 +3660,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   Future<void> _commitVolume(List<(double, double)> pagePoints) async {
     final depth = await showPdfDepthDialog(
       context,
-      unitLabel: _controller.measurementScale?.unitLabel,
+      unitLabel: _controller.preferences.measurementScale?.unitLabel,
     );
     if (!mounted || depth == null) return;
     _controller.addMeasurement(
@@ -3631,10 +3686,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (tool == null) return;
     final style = _controller.selectedAnnotationStyle;
     final opacity = style?.opacity ?? 1;
-    final before = _controller.document;
+    final before = _controller.revisionId;
     _controller.reshapeSelectedLine(
         [for (final point in points) _geometry.toPagePoint(point)]);
-    if (identical(before, _controller.document)) return;
+    if (before == _controller.revisionId) return;
     _clearAfterimage();
     _afterPath = (
       points: points,
@@ -3645,10 +3700,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           : Color(0xFF000000 | annotation!.behavior.style.fillColor!)
               .withValues(alpha: opacity),
       strokeWidth:
-          (style?.strokeWidth ?? _controller.strokeWidth) * _geometry.scale,
+          (style?.strokeWidth ?? _controller.preferences.strokeWidth) * _geometry.scale,
       dashed: annotation?.borderDash != null,
     );
-    _afterDocument = _controller.document;
+    _afterRevisionId = _controller.revisionId;
   }
 
   ({
@@ -3673,7 +3728,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           : Color(0xFF000000 | annotation.behavior.style.fillColor!)
               .withValues(alpha: opacity),
       strokeWidth:
-          (style.strokeWidth ?? _controller.strokeWidth) * _geometry.scale,
+          (style.strokeWidth ?? _controller.preferences.strokeWidth) * _geometry.scale,
       dashed: annotation.borderDash != null,
     );
   }
@@ -3682,8 +3737,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     var reachedFixed = false;
     setState(() {
       final points = _polyPoints ?? <Offset>[];
-      if (points.isEmpty || (point - points.last).distance >= 2) {
-        _polyPoints = [...points, point];
+      // only the segment being drawn snaps: holding Shift straightens this
+      // new vertex against the previous one, leaving already-placed vertices
+      // exactly where they landed. Dedup against the raw tap so a snapped
+      // vertex doesn't make the finishing double-tap add a stray segment.
+      if (points.isEmpty) {
+        _polyPoints = [point];
+        _polyLastRaw = point;
+      } else if ((point - _polyLastRaw!).distance >= 2) {
+        _polyPoints = [...points, _straightSnap(points.last, point)];
+        _polyLastRaw = point;
       }
       _polyHover = null;
       final fixed = _fixedPolyCount;
@@ -3697,9 +3760,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final existing = _polyPoints;
     if (existing == null) return;
     final points = List<Offset>.of(existing);
-    if (finalPoint != null &&
-        (points.isEmpty || (finalPoint - points.last).distance >= 2)) {
-      points.add(finalPoint);
+    if (finalPoint != null) {
+      // the closing double-tap only adds a vertex if it moved off the last
+      // one (raw dedup); when it does, that final segment snaps like any other
+      if (points.isEmpty) {
+        points.add(finalPoint);
+      } else if (_polyLastRaw == null ||
+          (finalPoint - _polyLastRaw!).distance >= 2) {
+        points.add(_straightSnap(points.last, finalPoint));
+      }
     }
     final closed = _tool == PdfEditTool.polygon ||
         _tool == PdfEditTool.cloudPolygon ||
@@ -3708,6 +3777,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _tool == PdfEditTool.measureVolume;
     final minPoints = _fixedPolyCount ?? (closed ? 3 : 2);
     if (points.length < minPoints) return;
+    // vertices are already snapped per-segment as they were placed
     final simplified = <Offset>[];
     for (final point in points) {
       if (simplified.isEmpty || (point - simplified.last).distance >= 2) {
@@ -3716,59 +3786,49 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
     if (simplified.length < minPoints) return;
     final pagePoints = [for (final p in simplified) _geometry.toPagePoint(p)];
-    final before = _controller.document;
-    switch (_measureKind) {
-      case PdfMeasurementKind.perimeter:
-        _controller.addMeasurement(
-            widget.pageIndex, PdfMeasurementKind.perimeter, pagePoints);
-      case PdfMeasurementKind.area:
-        _controller.addMeasurement(
-            widget.pageIndex, PdfMeasurementKind.area, pagePoints);
-      case PdfMeasurementKind.angle:
-        _controller.addMeasurement(
-            widget.pageIndex, PdfMeasurementKind.angle, pagePoints);
-      case PdfMeasurementKind.arc:
-        _controller.addMeasurement(
-            widget.pageIndex, PdfMeasurementKind.arc, pagePoints);
-      case PdfMeasurementKind.volume:
-        // volume needs a depth: prompt for it, then commit asynchronously.
-        unawaited(_commitVolume(pagePoints));
-        _clearAfterimage();
-        setState(() {
-          _polyPoints = null;
-          _polyHover = null;
-        });
-        return;
-      default:
-        // distance/slope are drag tools (handled elsewhere); a poly gesture
-        // with no measure kind active is a plain poly annotation.
-        if (_tool == PdfEditTool.contentDelete) {
-          // the lasso erases page content; there is no shape to leave behind,
-          // so clear the vertices and let the new revision render (no
-          // afterimage, unlike the shape tools below)
-          _controller.deleteElementsInPolygon(widget.pageIndex, pagePoints);
-          _clearAfterimage();
-          setState(() {
-            _polyPoints = null;
-            _polyHover = null;
-          });
-          return;
-        } else if (_tool == PdfEditTool.cloudPolygon) {
-          _controller.addCloudPolygonPoints(widget.pageIndex, pagePoints);
-        } else if (_tool == PdfEditTool.polygon) {
-          _controller.addPolygon(widget.pageIndex, pagePoints);
-        } else {
-          _controller.addPolyLine(widget.pageIndex, pagePoints);
-        }
+    final before = _controller.revisionId;
+    // Volume needs a depth: its behaviour declines the synchronous commit,
+    // so prompt for the depth and commit asynchronously here.
+    if (_measureKind == PdfMeasurementKind.volume) {
+      unawaited(_commitVolume(pagePoints));
+      _clearAfterimage();
+      setState(() {
+        _polyPoints = null;
+        _polyLastRaw = null;
+        _polyHover = null;
+      });
+      return;
     }
-    if (identical(before, _controller.document)) return;
+    if (_tool == PdfEditTool.contentDelete) {
+      // the lasso erases page content; there is no shape to leave behind,
+      // so clear the vertices and let the new revision render (no afterimage,
+      // unlike the shape tools below)
+      _controller.deleteElementsInPolygon(widget.pageIndex, pagePoints);
+      _clearAfterimage();
+      setState(() {
+        _polyPoints = null;
+        _polyLastRaw = null;
+        _polyHover = null;
+      });
+      return;
+    }
+    // The cloud tool's click path builds a free-form footprint (its drag
+    // path rubber-bands a rectangle instead), so it isn't a poly behaviour;
+    // every other poly/measure-poly tool commits through its behaviour.
+    if (_tool == PdfEditTool.cloudPolygon) {
+      _controller.addCloudPolygonPoints(widget.pageIndex, pagePoints);
+    } else {
+      _behavior!.commitPoly(_controller, widget.pageIndex, pagePoints);
+    }
+    if (before == _controller.revisionId) return;
     _clearAfterimage();
     setState(() {
       _polyPoints = null;
+      _polyLastRaw = null;
       _polyHover = null;
     });
-    final opacity = _controller.opacity.clamp(0.0, 1.0);
-    final fill = _controller.shapeFillColor;
+    final opacity = _controller.preferences.opacity.clamp(0.0, 1.0);
+    final fill = _controller.preferences.shapeFillColor;
     _afterPath = (
       points: simplified,
       tool: _tool!,
@@ -3781,10 +3841,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
               fill != null
           ? fill.withValues(alpha: opacity)
           : null,
-      strokeWidth: _controller.strokeWidth * _geometry.scale,
+      strokeWidth: _controller.preferences.strokeWidth * _geometry.scale,
       dashed: _controller.dashedStroke,
     );
-    _afterDocument = _controller.document;
+    _afterRevisionId = _controller.revisionId;
   }
 
   Future<void> _commitRect(Rect viewRect) async {
@@ -3794,25 +3854,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             PdfEditTool.ellipse ||
             PdfEditTool.cloudPolygon:
         final tool = _tool!;
-        final before = _controller.document;
-        if (tool == PdfEditTool.rectangle) {
-          _controller.addRectangle(widget.pageIndex, rect);
-        } else if (tool == PdfEditTool.cloudPolygon) {
-          _controller.addCloudPolygon(widget.pageIndex, rect);
-        } else {
-          _controller.addEllipse(widget.pageIndex, rect);
-        }
-        if (identical(before, _controller.document)) return;
+        final before = _controller.revisionId;
+        _behavior!.commitShapeRect(_controller, widget.pageIndex, rect);
+        if (before == _controller.revisionId) return;
         // the drag preview, frozen until the new revision renders
         _clearAfterimage();
         _afterShape = (
           rect: viewRect,
           tool: tool,
           color: _controller.color
-              .withValues(alpha: _controller.opacity.clamp(0.0, 1.0)),
-          strokeWidth: _controller.strokeWidth * _geometry.scale,
+              .withValues(alpha: _controller.preferences.opacity.clamp(0.0, 1.0)),
+          strokeWidth: _controller.preferences.strokeWidth * _geometry.scale,
         );
-        _afterDocument = _controller.document;
+        _afterRevisionId = _controller.revisionId;
       case PdfEditTool.stamp:
         final stamp = _controller.activeStamp;
         if (stamp != null) {
@@ -3826,7 +3880,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           return;
         }
         final text = await widget.textPrompt(context,
-            title: 'Stamp text', initial: 'APPROVED');
+            title: pdfL10n(context).overlayStampText, initial: 'APPROVED');
         if (text == null || text.isEmpty) return;
         await _commitStampWithAfterimage(
             _stampAfterimage(viewRect, text: text, color: _controller.color),
@@ -3844,6 +3898,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _controller.addRedaction(widget.pageIndex, rect);
       case PdfEditTool.contentDelete:
         _controller.deleteElementsInRect(widget.pageIndex, rect);
+      case PdfEditTool.signatureBox:
+        final placer = widget.onPlaceSignature;
+        if (placer == null) return;
+        await placer(context, pageIndex: widget.pageIndex, pageRect: rect);
       case PdfEditTool.snapshot:
         // always keep a vector copy on the clipboard so it can paste back
         // into the PDF (⌘V / the paste menu), Bluebeam-style; the host
@@ -3934,18 +3992,18 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (picked != null) _controller.setFormChoiceValue(name, picked);
   }
 
-  /// Rasterizes this page once for the eyedropper, keyed on document
-  /// identity (it changes every revision). The page raster at scale 1
-  /// shares the view's orientation, so view → raster is just the
-  /// geometry scale.
+  /// Rasterizes this page once for the eyedropper, keyed on the revision id
+  /// (it changes every revision). The page raster at scale 1 shares the
+  /// view's orientation, so view → raster is just the geometry scale.
   Future<PdfPageColorSampler> _ensureSampler() {
     final document = _controller.document;
+    final revisionId = _controller.revisionId;
     final pageColor = widget.pageColor;
     final annotations = widget.showAnnotations;
-    if (!identical(document, _samplerDocument) ||
+    if (revisionId != _samplerRevisionId ||
         pageColor != _samplerPageColor ||
         annotations != _samplerAnnotations) {
-      _samplerDocument = document;
+      _samplerRevisionId = revisionId;
       _samplerPageColor = pageColor;
       _samplerAnnotations = annotations;
       _sampler = null;
@@ -3956,7 +4014,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           .then((s) {
         // resolve the preview that was waiting on the raster
         if (mounted &&
-            identical(_samplerDocument, document) &&
+            _samplerRevisionId == revisionId &&
             _samplerPageColor == pageColor &&
             _samplerAnnotations == annotations) {
           setState(() {
@@ -3988,9 +4046,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   Future<void> _onPointerUp(PointerUpEvent event) async {
     _endRawPointer(event, canceled: false);
     if (!_controller.isPickingColor) return;
-    final document = _controller.document;
+    final revisionAtStart = _controller.revisionId;
     final sampler = await _ensureSampler();
-    if (!mounted || !identical(document, _controller.document)) return;
+    if (!mounted || revisionAtStart != _controller.revisionId) return;
     setState(() {
       _pickPosition = null;
       _pickPreview = null;
@@ -4010,7 +4068,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       // a mouse/trackpad click erases what's under it; raw-driven
       // pointers already handled theirs on the way down
       if (!_rawDrives(details.kind)) {
-        final before = _controller.document;
+        final before = _controller.revisionId;
         _beginInteraction(PdfEditingInteractionIntent.erase, details.kind);
         final transition = _interaction.state.transition;
         _eraseAt(details.localPosition);
@@ -4060,7 +4118,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         PdfEditingInteractionIntent.create,
       _ => PdfEditingInteractionIntent.none,
     };
-    final before = _controller.document;
+    final before = _controller.revisionId;
     if (tapIntent != PdfEditingInteractionIntent.none) {
       _beginInteraction(tapIntent, details.kind);
     }
@@ -4075,12 +4133,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _controller.selectElementAt(widget.pageIndex, x, y);
       case PdfEditTool.note:
         final text =
-            await widget.textPrompt(context, title: 'Note', multiline: true);
+            await widget.textPrompt(context,
+                title: pdfL10n(context).overlayNote, multiline: true);
         if (text == null || text.isEmpty) return;
         _controller.addNote(widget.pageIndex, x, y, text);
       case PdfEditTool.count:
         // each tap drops a check-mark and bumps the running tally
-        final before = _controller.document;
+        final before = _controller.revisionId;
         _controller.placeCheckMark(widget.pageIndex, x, y);
         _captureLastStampAfterimage(before,
             check: true, text: null, color: _controller.color);
@@ -4110,7 +4169,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           // the classic flow normally drags out a box; a plain tap places
           // a default-sized stamp after prompting for its caption
           final text = await widget.textPrompt(context,
-              title: 'Stamp text', initial: 'APPROVED');
+              title: pdfL10n(context).overlayStampText, initial: 'APPROVED');
           if (text == null || text.isEmpty) return;
           await _commitStampWithAfterimage(
               _textStampAfterimageAt(
@@ -4238,14 +4297,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       cursor = SystemMouseCursors.precise;
     } else if (_tool == PdfEditTool.signature) {
       // the live preview rides the mouse; a click commits it
-      if (_controller.signature != null &&
+      if (_controller.preferences.signature != null &&
           event.localPosition != _signaturePreview) {
         setState(() => _signaturePreview = event.localPosition);
       }
       cursor = SystemMouseCursors.precise;
     } else if (_polyTool || _hybridPolyTool) {
-      // once a vertex is down, the hover rubber-bands the next edge; before
-      // that a hybrid tool still rubber-bands a rectangle on drag
+      // once a hybrid vertex is down, the hover rubber-bands the next edge;
+      // before that a hybrid tool still rubber-bands a rectangle on drag.
+      // the raw hover is stored; Shift-snapping is applied in the preview
+      // builder (see [_straightChain]) so the rubber band tracks the snap
       if (_polyPoints != null && event.localPosition != _polyHover) {
         setState(() => _polyHover = event.localPosition);
       }
@@ -4328,24 +4389,24 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
               IconButton(
                 key: const ValueKey('pdf-selection-chip-delete'),
                 icon: const Icon(Icons.delete_outline),
-                tooltip: 'Delete',
+                tooltip: pdfL10n(context).delete,
                 onPressed: _controller.deleteSelected,
               ),
               if (_controller.canEditSelectedText)
                 IconButton(
                   key: const ValueKey('pdf-selection-chip-edit'),
                   icon: const Icon(Icons.edit_outlined),
-                  tooltip: 'Edit text',
+                  tooltip: pdfL10n(context).overlayEditText,
                   onPressed: () {
                     final rect = _selectedViewRect;
                     if (rect != null) _openTextEditor(rect, existing: true);
                   },
                 ),
-              if (_host.showAnnotationMenu != null)
+              if (_host.showAnnotationMenu != null && widget.contextMenuEnabled)
                 IconButton(
                   key: const ValueKey('pdf-selection-chip-menu'),
                   icon: const Icon(Icons.more_horiz),
-                  tooltip: 'More',
+                  tooltip: pdfL10n(context).overlayMore,
                   onPressed: () {
                     final box = context.findRenderObject() as RenderBox?;
                     if (box == null) return;
@@ -4382,7 +4443,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     } else if (font is PdfEmbeddedFont) {
       _controller.activeFont = font;
     }
-    if (size != null) _controller.fontSize = size;
+    if (size != null) _controller.preferences.fontSize = size;
     if (color != null) _controller.color = Color(0xFF000000 | rgb!);
     if (underline != null) _controller.textUnderline = underline;
     _controller.setEditingTextSelection(_textEditText.selection);
@@ -4500,7 +4561,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (!_canStyleInlineTextSelection) return;
     _textEditStyleMenuOpen = true;
     _textEditFocus.requestFocus();
-    final picked = await showPdfColorPicker(context, initial: initial);
+    final picked =
+        await pickEditingColor(context, _controller, initial: initial);
     _textEditStyleMenuOpen = false;
     if (mounted && _textEditRect != null) _textEditFocus.requestFocus();
     if (picked != null && mounted) _applyInlineTextStyle(color: picked);
@@ -4549,7 +4611,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   return IconButton(
                     key: const ValueKey('pdf-inline-text-font'),
                     icon: const Icon(Icons.font_download_outlined),
-                    tooltip: 'Font',
+                    tooltip: pdfL10n(context).overlayFont,
                     onPressed: enabled
                         ? () => _showInlineTextFontMenu(buttonContext)
                         : null,
@@ -4558,7 +4620,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                 IconButton(
                   key: const ValueKey('pdf-inline-text-size-down'),
                   icon: const Icon(Icons.text_decrease),
-                  tooltip: 'Smaller',
+                  tooltip: pdfL10n(context).overlaySmaller,
                   onPressed: enabled
                       ? () => _applyInlineTextStyle(
                           size: (current.size - 1).clamp(8, 48).toDouble())
@@ -4567,7 +4629,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                 IconButton(
                   key: const ValueKey('pdf-inline-text-size-up'),
                   icon: const Icon(Icons.text_increase),
-                  tooltip: 'Larger',
+                  tooltip: pdfL10n(context).overlayLarger,
                   onPressed: enabled
                       ? () => _applyInlineTextStyle(
                           size: (current.size + 1).clamp(8, 48).toDouble())
@@ -4576,7 +4638,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                 IconButton(
                   key: const ValueKey('pdf-inline-text-underline'),
                   icon: const Icon(Icons.format_underlined),
-                  tooltip: 'Underline',
+                  tooltip: pdfL10n(context).overlayUnderline,
                   isSelected: current.underline,
                   // underline works with or without a selection (whole box)
                   onPressed: _textEditFieldName == null
@@ -4587,7 +4649,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   return IconButton(
                     key: const ValueKey('pdf-inline-text-color'),
                     icon: Icon(Icons.format_color_text, color: iconColor),
-                    tooltip: 'Color',
+                    tooltip: pdfL10n(context).overlayColor,
                     onPressed: enabled
                         ? () async {
                             await _pickInlineTextColor(
@@ -4631,8 +4693,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         if (points == null || points.isEmpty) return null;
         final view = [
           ...points,
+          // the live edge to the hover snaps with Shift like the drawn one
           if (_polyHover != null && (_polyHover! - points.last).distance >= 2)
-            _polyHover!,
+            _straightSnap(points.last, _polyHover!),
         ];
         final pagePoints = [for (final p in view) _geometry.toPagePoint(p)];
         // volume's depth isn't known until placement finishes, so the live
@@ -4689,8 +4752,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       } else {
         return null;
       }
-      width = _controller.strokeWidth;
-      opacity = _controller.opacity;
+      width = _controller.preferences.strokeWidth;
+      opacity = _controller.preferences.opacity;
     } else {
       return null;
     }
@@ -4756,7 +4819,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     Key? key,
     required Rect rect,
     required String text,
-    required PdfStandardFont font,
+    required PdfTextFont font,
     required double size,
     required Color color,
     required Color? background,
@@ -4765,6 +4828,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     bool underline = false,
     double lineSpacing = kPdfFreeTextDefaultLineSpacing,
   }) {
+    // An embedded/bundled face has no platform family - register its outline
+    // bytes so Flutter wraps this preview in the real font (until the async
+    // load lands, [_textEditUiFamily] returns null and the fallback face wraps
+    // it, still without stretching). Bold/italic are base-14-only variants.
+    if (font is PdfEmbeddedFont) _ensureEmbeddedFontPreview(font);
+    final isBold = font is PdfStandardFont && font.isBold;
+    final isItalic = font is PdfStandardFont && font.isItalic;
     final direction = _flutterTextDirection(text);
     final columnAlign = switch (align) {
       null => AlignmentDirectional.topStart.resolve(direction),
@@ -4790,9 +4860,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             color: color,
             fontSize: size * _geometry.scale,
             height: lineSpacing,
-            fontFamily: _uiFamily(font),
-            fontWeight: font.isBold ? FontWeight.bold : FontWeight.normal,
-            fontStyle: font.isItalic ? FontStyle.italic : FontStyle.normal,
+            fontFamily: _textEditUiFamily(font),
+            fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+            fontStyle: isItalic ? FontStyle.italic : FontStyle.normal,
             decoration: underline ? TextDecoration.underline : null,
             decorationColor: underline ? color : null,
           ),
@@ -4808,14 +4878,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     );
   }
 
-  /// The Flutter font family that visually matches [font] - the same
-  /// substitution the renderer uses for non-embedded base-14 fonts.
-  static String _uiFamily(PdfStandardFont font) => switch (font.family) {
-        PdfStandardFontFamily.sans => 'Helvetica',
-        PdfStandardFontFamily.serif => 'Times New Roman',
-        PdfStandardFontFamily.mono => 'Courier',
-      };
-
   @override
   Widget build(BuildContext context) {
     _scheduleRasterReady();
@@ -4826,13 +4888,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _ensureSourceClean();
     // the afterimage has served once the committed revision's raster is
     // on screen - or is stale once the document moved past that revision
-    if (_afterDocument != null &&
+    if (_afterRevisionId != null &&
         (widget.rasterCurrent ||
-            !identical(_afterDocument, _controller.document))) {
+            _afterRevisionId != _controller.revisionId)) {
       _clearAfterimage();
     }
     if (_polyPoints != null && !_polyTool && !_hybridPolyTool) {
       _polyPoints = null;
+      _polyLastRaw = null;
       _polyHover = null;
     }
     // re-derive the editor's view rect through the LIVE geometry: a zoom
@@ -4970,13 +5033,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // warm the eyedropper's raster so the first preview is instant-ish
     if (_controller.isPickingColor) unawaited(_ensureSampler());
     final preview = _controller.isPickingColor ? _pickPosition : null;
+    // placed vertices are already snapped; only the live rubber-band edge to
+    // the hover point snaps here (and only while Shift is held)
     final polyPreview = _polyPoints == null
         ? null
         : [
             ..._polyPoints!,
             if (_polyHover != null &&
                 (_polyHover! - _polyPoints!.last).distance >= 2)
-              _polyHover!,
+              _straightSnap(_polyPoints!.last, _polyHover!),
           ];
     final vertexHandles = _vertexPoints ?? _selectedVertexPoints;
     final vertexPreview =
@@ -5004,7 +5069,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         behavior: HitTestBehavior.opaque,
         // with finger drawing off, touch falls through to the scroll
         // view and only pen-like devices reach the ink recognizers
-        supportedDevices: _drawTool && !_controller.fingerDrawsInk
+        supportedDevices: _drawTool && !_controller.preferences.fingerDrawsInk
             ? const {
                 PointerDeviceKind.stylus,
                 PointerDeviceKind.invertedStylus,
@@ -5075,7 +5140,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     chromeScale: _chromeScale,
                     tool: _tool,
                     color: _controller.color,
-                    strokeWidth: _controller.strokeWidth * _geometry.scale,
+                    strokeWidth: _controller.preferences.strokeWidth * _geometry.scale,
                     geometry: _geometry,
                     // the in-progress stroke is NOT here - it rides its own
                     // RepaintBoundary layer below so each appended point is a
@@ -5094,9 +5159,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     dragPath: polyPreview,
                     dragPathFill: (_tool == PdfEditTool.polygon ||
                                 _tool == PdfEditTool.cloudPolygon) &&
-                            _controller.shapeFillColor != null
-                        ? _controller.shapeFillColor!.withValues(
-                            alpha: _controller.opacity.clamp(0.0, 1.0))
+                            _controller.preferences.shapeFillColor != null
+                        ? _controller.preferences.shapeFillColor!.withValues(
+                            alpha: _controller.preferences.opacity.clamp(0.0, 1.0))
                         : null,
                     dashed: _controller.dashedStroke,
                     livePath: vertexPreview,
@@ -5153,12 +5218,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         _tool == PdfEditTool.eraser || _pointers.rawErasing
                             ? _eraserCursor
                             : null,
-                    eraserRadius: _controller.eraserRadius * _geometry.scale,
+                    eraserRadius: _controller.preferences.eraserRadius * _geometry.scale,
                     // the pen-preview dot (ink tool) and the rotation glyph
                     // (rotate knob): painted in place of the system cursor
                     penCursor:
                         _inkTool && _activeStroke == null ? _penCursor : null,
-                    penOpacity: _controller.opacity,
+                    penOpacity: _controller.preferences.opacity,
                     countPreview:
                         _tool == PdfEditTool.count && _countCursor != null
                             ? _countPreviewAt(_countCursor!)
@@ -5383,7 +5448,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                   height: _textEditLineSpacing,
                                   letterSpacing:
                                       _textEditCharSpacing * _geometry.scale,
-                                  fontFamily: _uiFamily(_textEditFont),
+                                  fontFamily: _textEditUiFamily(_textEditFont),
                                   fontWeight: _textEditFont.isBold
                                       ? FontWeight.bold
                                       : FontWeight.normal,
@@ -5511,8 +5576,21 @@ void _paintInkStrokes(
     List<List<double>?> pressures,
     Color color,
     double strokeWidth) {
+  // Per-pressure segments (and crossing strokes) meet at overlapping round
+  // caps; at partial alpha, compositing each on its own double-paints those
+  // overlaps into visible dots. Mirror the committed appearance's
+  // transparency group: fade the whole set as one layer, painting the
+  // strokes opaquely inside so the overlaps composite once.
+  final grouped = color.a < 1;
+  if (grouped) {
+    canvas.saveLayer(
+        null,
+        Paint()
+          ..color = Color.from(alpha: color.a, red: 0, green: 0, blue: 0));
+  }
+  final drawColor = grouped ? color.withValues(alpha: 1) : color;
   final paint = Paint()
-    ..color = color
+    ..color = drawColor
     ..style = PaintingStyle.stroke
     ..strokeWidth = strokeWidth
     ..strokeCap = StrokeCap.round
@@ -5527,7 +5605,7 @@ void _paintInkStrokes(
       final width = pressure == null
           ? strokeWidth
           : pdfInkStrokeWidth(strokeWidth, pressure.first);
-      canvas.drawCircle(p, width / 2, Paint()..color = color);
+      canvas.drawCircle(p, width / 2, Paint()..color = drawColor);
       continue;
     }
     // the same Catmull-Rom smoothing the committed appearance uses
@@ -5537,7 +5615,7 @@ void _paintInkStrokes(
       // point pair at its own pressure-mapped width, round caps as the
       // seams
       final segment = Paint()
-        ..color = color
+        ..color = drawColor
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round;
       for (var i = 0; i < stroke.length - 1; i++) {
@@ -5568,6 +5646,7 @@ void _paintInkStrokes(
     }
     canvas.drawPath(path, paint);
   }
+  if (grouped) canvas.restore();
 }
 
 /// The single in-progress pencil/mouse stroke, on its own RepaintBoundary.
@@ -5613,17 +5692,17 @@ class _ActiveStrokePainter extends CustomPainter {
       [display],
       [pressures],
       _state._controller.color,
-      _state._controller.strokeWidth * geometry.scale,
+      _state._controller.preferences.strokeWidth * geometry.scale,
     );
     final cursor = _state._penCursor;
     if (cursor != null && _state._inkTool) {
       _paintPenCursor(
         canvas,
         cursor,
-        strokeWidth: _state._controller.strokeWidth * geometry.scale,
+        strokeWidth: _state._controller.preferences.strokeWidth * geometry.scale,
         chromeScale: _state._chromeScale,
         color: _state._controller.color,
-        opacity: _state._controller.opacity,
+        opacity: _state._controller.preferences.opacity,
       );
     }
   }
@@ -5943,8 +6022,9 @@ class _EditingPreviewPainter extends CustomPainter {
               ..color = _elementChrome
               ..style = PaintingStyle.stroke
               ..strokeWidth = 1 * chromeScale);
-      case PdfEditTool.snapshot:
-        // a selection marquee, like the region grab in a screenshot tool
+      case PdfEditTool.snapshot || PdfEditTool.signatureBox:
+        // a selection marquee: the region grab in a screenshot tool, and the
+        // "draw where the signature goes" box in Acrobat/Bluebeam
         canvas.drawRect(rect, Paint()..color = _chrome.withAlpha(0x1A));
         canvas.drawRect(
             rect,
@@ -5985,6 +6065,19 @@ class _EditingPreviewPainter extends CustomPainter {
   /// live preview matches the committed appearance stream.
   static const double _cloudBulgeFactor = 1.15;
 
+  /// Fraction of the bulge by which the shared foot between puffs is pulled
+  /// inward, deepening the pinched cusp. Mirrors `_cloudNeckInset` in
+  /// pdf_document's annotation_editor so the preview matches the committed
+  /// appearance.
+  static const double _cloudNeckInset = 0.2;
+
+  /// Tangential forward lean of each puff's trailing (end) foot control handle
+  /// (fraction of the perpendicular foot handle length) - this is what curls
+  /// the scallops into rounder, asymmetric rolled puffs. Mirrors
+  /// `_cloudNeckCurl` in pdf_document's annotation_editor so the preview
+  /// matches the committed appearance.
+  static const double _cloudNeckCurl = 0.75;
+
   Path _cloudPath(List<Offset> points, double strokeWidth) {
     final path = Path();
     if (points.length < 3) return path;
@@ -6010,16 +6103,24 @@ class _EditingPreviewPainter extends CustomPainter {
       final bulge = math.min(r, arc) * _cloudBulgeFactor;
       final ca = r * k; // apex control handle, along the edge
       final cf = bulge * k; // foot control handle, perpendicular (outward)
+      final inset = bulge * _cloudNeckInset; // pull cusp inward
+      final curl = cf * _cloudNeckCurl; // tangential lean that rounds each puff
       for (var j = 0; j < scallops; j++) {
         final t0 = j / scallops;
         final t1 = (j + 1) / scallops;
-        final start = Offset.lerp(a, b, t0)!;
-        final end = Offset.lerp(a, b, t1)!;
-        final apex = Offset.lerp(start, end, 0.5)! + normal * bulge;
+        // Apex height is measured from the edge (before insetting the feet) so
+        // the outward extent matches the committed appearance stream.
+        final mid = Offset.lerp(a, b, (t0 + t1) / 2)!;
+        final start = Offset.lerp(a, b, t0)! - normal * inset;
+        final end = Offset.lerp(a, b, t1)! - normal * inset;
+        final apex = mid + normal * bulge;
         if (first) {
           path.moveTo(start.dx, start.dy);
           first = false;
         }
+        // Only the trailing (end) foot leans forward (+u); the leading foot
+        // stays upright, so each scallop rolls the same way (see annotation
+        // editor's _appendCloudPath).
         path.cubicTo(
           start.dx + normal.dx * cf,
           start.dy + normal.dy * cf,
@@ -6031,8 +6132,8 @@ class _EditingPreviewPainter extends CustomPainter {
         path.cubicTo(
           apex.dx + unit.dx * ca,
           apex.dy + unit.dy * ca,
-          end.dx + normal.dx * cf,
-          end.dy + normal.dy * cf,
+          end.dx + normal.dx * cf + unit.dx * curl,
+          end.dy + normal.dy * cf + unit.dy * curl,
           end.dx,
           end.dy,
         );

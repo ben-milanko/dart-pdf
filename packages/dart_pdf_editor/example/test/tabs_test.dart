@@ -9,7 +9,9 @@ void main() {
     // the mock store is process-global: start every test from defaults
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(const ViewerApp());
-    await tester.pump();
+    // use-deferred-loading makes the localizations delegate load async; settle
+    // so the localized app (and its post-frame demo open) builds.
+    await tester.pumpAndSettle();
   }
 
   // each open document carries one 'Close tab' button in the strip

@@ -1,5 +1,6 @@
 import Cocoa
 import FlutterMacOS
+import PDFKit
 
 class MainFlutterWindow: NSWindow {
   override func awakeFromNib() {
@@ -62,6 +63,29 @@ class MainFlutterWindow: NSWindow {
           return
         }
         self.writeFile(bookmark: bookmark, bytes: typed.data, result: result)
+      case "fileLength":
+        guard let args = call.arguments as? [String: Any],
+              let bookmark = args["bookmark"] as? String else {
+          result(FlutterError(
+            code: "bad_args",
+            message: "fileLength expects a bookmark",
+            details: nil))
+          return
+        }
+        self.fileLength(bookmark: bookmark, result: result)
+      case "readFileRange":
+        guard let args = call.arguments as? [String: Any],
+              let bookmark = args["bookmark"] as? String,
+              let offset = args["offset"] as? Int,
+              let length = args["length"] as? Int else {
+          result(FlutterError(
+            code: "bad_args",
+            message: "readFileRange expects a bookmark, offset and length",
+            details: nil))
+          return
+        }
+        self.readFileRange(
+          bookmark: bookmark, offset: offset, length: length, result: result)
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -91,9 +115,48 @@ class MainFlutterWindow: NSWindow {
       result(pasteboard.setData(typed.data, forType: .png))
     }
 
+    // Print without a bundled PDF engine: the Dart side hands over the whole
+    // PDF and AppKit/PDFKit renders its vector content itself (CoreGraphics),
+    // keeping text selectable.
+    let nativePrintChannel = FlutterMethodChannel(
+      name: "dev.milanko.dartpdf/native_print",
+      binaryMessenger: flutterViewController.engine.binaryMessenger)
+    nativePrintChannel.setMethodCallHandler { (call, result) in
+      switch call.method {
+      case "printPdf":
+        guard let args = call.arguments as? [String: Any],
+              let typed = args["pdf"] as? FlutterStandardTypedData else {
+          result(FlutterError(
+            code: "bad_args", message: "printPdf expects pdf bytes",
+            details: nil))
+          return
+        }
+        result(self.runPrintJob(
+          pdf: typed.data,
+          name: (args["name"] as? String) ?? "Document"))
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+
     RegisterGeneratedPlugins(registry: flutterViewController)
 
     super.awakeFromNib()
+  }
+
+  /// Spools the whole PDF through AppKit's print panel via PDFKit. Returns
+  /// false when the data isn't a readable PDF or the user cancels.
+  private func runPrintJob(pdf: Data, name: String) -> Bool {
+    guard let document = PDFDocument(data: pdf) else { return false }
+
+    let printInfo = (NSPrintInfo.shared.copy() as? NSPrintInfo) ?? NSPrintInfo.shared
+    guard let operation = document.printOperation(
+      for: printInfo, scalingMode: .pageScaleDownToFit, autoRotate: true)
+    else {
+      return false
+    }
+    operation.jobTitle = name
+    return operation.run()
   }
 
   private func readImageFromClipboard() -> FlutterStandardTypedData? {
@@ -155,6 +218,48 @@ class MainFlutterWindow: NSWindow {
       let scoped = url.startAccessingSecurityScopedResource()
       defer { if scoped { url.stopAccessingSecurityScopedResource() } }
       let data = try Data(contentsOf: url)
+      result(FlutterStandardTypedData(bytes: data))
+    } catch {
+      result(FlutterError(
+        code: "read_failed",
+        message: error.localizedDescription,
+        details: nil))
+    }
+  }
+
+  /// The byte length of a bookmarked file, for the progressive/ranged loader.
+  private func fileLength(bookmark: String, result: FlutterResult) {
+    do {
+      let url = try resolveBookmarkedURL(bookmark)
+      let scoped = url.startAccessingSecurityScopedResource()
+      defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+      let values = try url.resourceValues(forKeys: [.fileSizeKey])
+      result(values.fileSize ?? 0)
+    } catch {
+      result(FlutterError(
+        code: "length_failed",
+        message: error.localizedDescription,
+        details: nil))
+    }
+  }
+
+  /// Reads `length` bytes starting at `offset` from a bookmarked file. Lets the
+  /// progressive loader (and the background full read) pull only the ranges it
+  /// needs from a sandboxed / cloud-synced file without slurping the whole
+  /// thing - the security scope is reactivated per call and released right
+  /// after, so no handle or scope leaks between reads. A short read near EOF
+  /// returns fewer bytes; an offset past EOF returns an empty list.
+  private func readFileRange(
+    bookmark: String, offset: Int, length: Int, result: FlutterResult
+  ) {
+    do {
+      let url = try resolveBookmarkedURL(bookmark)
+      let scoped = url.startAccessingSecurityScopedResource()
+      defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+      let handle = try FileHandle(forReadingFrom: url)
+      defer { handle.closeFile() }
+      handle.seek(toFileOffset: UInt64(max(0, offset)))
+      let data = handle.readData(ofLength: max(0, length))
       result(FlutterStandardTypedData(bytes: data))
     } catch {
       result(FlutterError(

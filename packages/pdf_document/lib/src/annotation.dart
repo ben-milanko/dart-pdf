@@ -147,6 +147,20 @@ class PdfAnnotation {
     return value is CosString ? value.text : null;
   }
 
+  /// Whether this /Stamp is a placed raster picture (PdfEditor.addImageStamp)
+  /// rather than a drawn text or template stamp.
+  ///
+  /// The editor writes this private marker when it embeds an image as a
+  /// stamp. It stays in the dictionary across saves, copies, and reopens so
+  /// the restyle path knows it can re-bake the appearance's alpha over the
+  /// same picture - and does not mistake a template stamp that merely
+  /// contains an image component for a bare image.
+  bool get isImageStamp {
+    if (subtype != 'Stamp') return false;
+    final value = document.cos.resolve(dict['DartPdfImageStamp']);
+    return value is CosBoolean && value.value;
+  }
+
   /// App-defined labels attached to a custom stamp annotation.
   ///
   /// These are stored as private annotation metadata beside [stampType].
@@ -268,6 +282,17 @@ class PdfAnnotation {
       values.add(n);
     }
     return values.any((value) => value > 0) ? values : null;
+  }
+
+  /// The corner radius (page points) of a /Square annotation's rounded
+  /// rectangle, from the /Border array's first entry (§12.5.4
+  /// `[hCornerRadius vCornerRadius width]`); 0 for square corners or when
+  /// /Border is absent or malformed.
+  double get cornerRadius {
+    final border = document.cos.resolve(dict['Border']);
+    if (border is! CosArray || border.length < 3) return 0;
+    final r = _number(document.cos.resolve(border[0]));
+    return r != null && r > 0 ? r : 0;
   }
 
   /// Whether the annotation asks conforming viewers to render its border as
@@ -562,15 +587,12 @@ class PdfAnnotation {
   PdfFreeTextStyle? get freeTextStyle {
     if (subtype != 'FreeText') return null;
     final da = defaultAppearance;
-    final tf =
-        da == null ? null : RegExp(r'/(\S+)\s+([\d.]+)\s+Tf').firstMatch(da);
+    final tf = da == null ? null : _daTfRe.firstMatch(da);
     final size = double.tryParse(tf?.group(2) ?? '');
     if (tf == null || size == null) return null;
 
     int? lastColor(String op) {
-      final m = RegExp('([\\d.]+)\\s+([\\d.]+)\\s+([\\d.]+)\\s+$op\\b')
-          .allMatches(da!)
-          .lastOrNull;
+      final m = (op == 'RG' ? _daUpperRgRe : _daRgRe).allMatches(da!).lastOrNull;
       if (m == null) return null;
       int byte(String s) =>
           ((double.tryParse(s) ?? 0).clamp(0.0, 1.0) * 255).round();
@@ -580,7 +602,7 @@ class PdfAnnotation {
     }
 
     int? gray() {
-      final m = RegExp(r'([\d.]+)\s+g\b').allMatches(da!).lastOrNull;
+      final m = _daGrayRe.allMatches(da!).lastOrNull;
       if (m == null) return null;
       final v =
           ((double.tryParse(m.group(1)!) ?? 0).clamp(0.0, 1.0) * 255).round();
@@ -751,15 +773,21 @@ class PdfAnnotation {
   }
 }
 
+// /DA parsing patterns, compiled once (these getters run per sidebar tile).
+final RegExp _daTfRe = RegExp(r'/(\S+)\s+([\d.]+)\s+Tf');
+final RegExp _daRgRe = RegExp(r'([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+rg\b');
+final RegExp _daUpperRgRe = RegExp(r'([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+RG\b');
+final RegExp _daGrayRe = RegExp(r'([\d.]+)\s+g\b');
+final RegExp _pdfDateRe = RegExp(
+    r"D:(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?(?:([+\-Z])(\d{2})?'?(\d{2})?)?");
+
 /// Parses a PDF date string (§7.9.4, `D:YYYYMMDDHHmmSSOHH'mm'`) to a
 /// [DateTime] in UTC, leniently: every field past the year is optional and
 /// a missing or malformed string returns null. Shared by the annotation
 /// timestamp getters; the same shape is produced by [pdfFormatDate].
 DateTime? _parsePdfDate(String? value) {
   if (value == null) return null;
-  final match = RegExp(
-          r"D:(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?(?:([+\-Z])(\d{2})?'?(\d{2})?)?")
-      .firstMatch(value);
+  final match = _pdfDateRe.firstMatch(value);
   if (match == null) return null;
   int part(int i, [int fallback = 0]) =>
       match.group(i) == null ? fallback : int.parse(match.group(i)!);

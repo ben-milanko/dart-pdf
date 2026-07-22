@@ -1,6 +1,6 @@
-import 'dart:typed_data';
-
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -64,10 +64,44 @@ void main() {
     await tester.pump();
   }
 
+  testWidgets('a signed signature is deletable from the sidebar',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(1));
+    final viewer = PdfViewerController();
+    addTearDown(editing.dispose);
+    addTearDown(viewer.dispose);
+
+    final ok = await editing.addSelfSignedSignature(
+      PdfSigningIdentity.generate(name: 'Ada Lovelace'),
+      appearance:
+          const PdfSignatureAppearance(page: 0, rect: PdfRect(72, 640, 320, 720)),
+    );
+    expect(ok, isTrue);
+    expect(editing.signatures, hasLength(1));
+
+    await pumpSidebar(tester, editing, viewer);
+    expect(find.text('Signature field'), findsOneWidget);
+
+    // reveal the row actions (hover) and delete the signature
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.addPointer(location: Offset.zero);
+    addTearDown(gesture.removePointer);
+    await gesture.moveTo(tester.getCenter(find.text('Signature field')));
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('pdf-signature-delete-0-0')));
+    await tester.pumpAndSettle();
+    expect(find.text('Remove signature?'), findsOneWidget);
+    await tester.tap(find.text('Remove'));
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+
+    expect(editing.signatures, isEmpty);
+  });
+
   testWidgets('annotations carry the author and the sidebar shows it',
       (tester) async {
     final editing = PdfEditingController(buildMultiPagePdf(1))
-      ..author = 'Ben'
+      ..preferences.author = 'Ben'
       ..addNote(0, 100, 700, 'first note');
     final viewer = PdfViewerController();
     addTearDown(editing.dispose);
@@ -112,6 +146,61 @@ void main() {
     editing.undo();
     await tester.pump();
     expect(editing.document.page(0).annotations, hasLength(2));
+  });
+
+  testWidgets('ctrl-click toggles rows in and out of the selection',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(1))
+      ..addRectangle(0, const PdfRect(100, 100, 200, 150))
+      ..addEllipse(0, const PdfRect(250, 100, 350, 150))
+      ..addNote(0, 100, 700, 'note');
+    final viewer = PdfViewerController();
+    addTearDown(editing.dispose);
+    addTearDown(viewer.dispose);
+    await pumpSidebar(tester, editing, viewer);
+
+    // ctrl-click selects without navigating (and sets the range anchor)
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.tap(find.text('Square'));
+    await tester.pump();
+    expect(editing.selectedAnnotationSlots, [(0, 0)]);
+
+    // a second ctrl-click adds to the selection
+    await tester.tap(find.text('Circle'));
+    await tester.pump();
+    expect(editing.selectedAnnotationSlots.toSet(), {(0, 0), (0, 1)});
+
+    // ctrl-clicking a selected row removes it again
+    await tester.tap(find.text('Circle'));
+    await tester.pump();
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    expect(editing.selectedAnnotationSlots, [(0, 0)]);
+    // no checkbox mode - this is the desktop modifier path
+    expect(find.byType(Checkbox), findsNothing);
+  });
+
+  testWidgets('shift-click selects the range from the anchor', (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(1))
+      ..addRectangle(0, const PdfRect(100, 100, 200, 150))
+      ..addEllipse(0, const PdfRect(250, 100, 350, 150))
+      ..addNote(0, 100, 700, 'note');
+    final viewer = PdfViewerController();
+    addTearDown(editing.dispose);
+    addTearDown(viewer.dispose);
+    await pumpSidebar(tester, editing, viewer);
+
+    // anchor on the first row
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.tap(find.text('Square'));
+    await tester.pump();
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+
+    // shift-click the last row selects everything between
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.tap(find.text('Note'));
+    await tester.pump();
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    expect(editing.selectedAnnotationSlots.toSet(), {(0, 0), (0, 1), (0, 2)});
   });
 
   testWidgets('locked rows still navigate and flash but expose no edit actions',
@@ -267,7 +356,7 @@ void main() {
   group('search', () {
     testWidgets('filters by type, contents, and author', (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(2))
-        ..author = 'Ben'
+        ..preferences.author = 'Ben'
         ..addNote(0, 100, 700, 'review this paragraph')
         ..addRectangle(0, const PdfRect(100, 100, 200, 150))
         ..addStamp(1, const PdfRect(100, 600, 240, 650), 'DRAFT');

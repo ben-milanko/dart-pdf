@@ -1,5 +1,52 @@
 # Changelog
 
+## 2.1.0
+
+- Paint sub-pixel strokes as solid hairlines instead of fading them: a stroke
+  narrower than a device pixel now draws at full opacity at hairline width,
+  matching Acrobat and pdf.js, so CAD linework stays legible when zoomed out
+  (#426).
+- Honour the `/Indexed` palette when the base is a JPEG2000 image (#431), and
+  decode `/Indexed` images over a `/Separation` or `/DeviceN` base (#430).
+- Render non-nested radial shadings as a Gouraud cone mesh
+  (`PdfShading.toRadialConeMesh`). A radial whose circles are not nested (an
+  `r0=0` focal outside the `r1` circle) cannot be expressed as a Skia two-point
+  conical gradient - the far disk maps to the swapped side of the
+  parametrisation, so an `/Extend=false` end dropped the disk interior and left
+  only a crescent. `toGradient` now returns null for those and the interpreter
+  paints the mesh; nested and concentric radials still use the device gradient
+  (#387).
+- Render ZapfDingbats ornament glyphs (codes 0x80-0x8D) instead of tofu (#386),
+  and map Symbol's built-in encoding along with the Greek and math glyph names
+  (#390).
+- Evaluate every input of a type 0 (sampled) function; multi-input samples
+  previously read only the first (#409).
+- Cache parsed ICC profiles per document rather than re-parsing per image or
+  colour-space use (#399).
+- Lead the content-operator switch with the path group, the hottest operators
+  in a typical page (#401).
+- Keep incremental aggregates in the reflow line-banding loop instead of
+  recomputing them per candidate line (#407).
+
+## 2.0.0
+
+- Major version bump for the 2.0.0 package suite (breaking change in
+  `dart_pdf_editor`; the graphics API is source-compatible with 1.4.7).
+- Invert CMY when decoding YCCK/Adobe-inverted JPEGs so CMYK photos embedded
+  as DCTDecode render with correct colour, matching pdf.js (#370).
+- Support vector printing on Windows and Linux: the page is streamed to the OS
+  print system as vector content rather than a rasterised bitmap (#303).
+- Extract a shared `PdfColorSpace` module so colour-space resolution is unified
+  across the fill/stroke and image-decode paths (internal refactor, #310).
+
+## 1.4.7
+
+- Resolve the Separation/DeviceN tint transform once per distinct sample
+  tuple (memoised, cap-bounded) instead of once per pixel, and stop
+  decoding a non-JPEG image base twice under a DCTDecode /SMask —
+  cutting a 62-page print export's worst DeviceN image from 23.7 s to
+  98 ms with bit-identical output across the corpus (#282).
+
 ## 1.4.6
 
 - Keep Arabic tashkil and other zero-advance marks with their base glyph when

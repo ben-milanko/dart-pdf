@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'editing/editing_panel.dart';
 import 'editing/editing_preferences.dart';
+import 'l10n/pdf_l10n.dart';
 import 'pdf_viewer.dart';
 import 'theme.dart';
 
@@ -137,7 +138,7 @@ class _PdfSearchFieldState extends State<PdfSearchField> {
                         ? IconButton(
                             key: const ValueKey('pdf-search-clear'),
                             icon: const Icon(Icons.close, size: 16),
-                            tooltip: 'Clear search',
+                            tooltip: pdfL10n(context).searchClearSearch,
                             visualDensity: VisualDensity.compact,
                             onPressed: _clear,
                           )
@@ -174,7 +175,7 @@ class _PdfSearchFieldState extends State<PdfSearchField> {
             IconButton(
               key: const ValueKey('pdf-search-prev'),
               icon: const Icon(Icons.keyboard_arrow_up),
-              tooltip: 'Previous match',
+              tooltip: pdfL10n(context).searchPreviousMatch,
               visualDensity: VisualDensity.compact,
               onPressed:
                   controller.matchCount == 0 ? null : controller.previousMatch,
@@ -182,7 +183,7 @@ class _PdfSearchFieldState extends State<PdfSearchField> {
             IconButton(
               key: const ValueKey('pdf-search-next'),
               icon: const Icon(Icons.keyboard_arrow_down),
-              tooltip: 'Next match',
+              tooltip: pdfL10n(context).searchNextMatch,
               visualDensity: VisualDensity.compact,
               onPressed:
                   controller.matchCount == 0 ? null : controller.nextMatch,
@@ -210,7 +211,7 @@ class PdfSearchResultsPanel extends StatefulWidget {
     required this.controller,
     this.preferences,
     this.width = 280,
-    this.side = PdfSidebarSide.left,
+    this.dock = PdfPanelDock.left,
     this.resizable = true,
     this.minWidth = 200,
     this.maxWidth = 480,
@@ -231,9 +232,9 @@ class PdfSearchResultsPanel extends StatefulWidget {
   /// The default width - a persisted user-dragged width wins over it.
   final double width;
 
-  /// Which side of the viewer the panel sits on; the resize grip rides
+  /// Which edge of the viewer the panel docks on; the resize grip rides
   /// the opposite (inner) edge.
-  final PdfSidebarSide side;
+  final PdfPanelDock dock;
 
   /// Whether the inner edge can be dragged to resize the panel.
   final bool resizable;
@@ -330,14 +331,14 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
   }) {
     final controller = widget.controller;
     if (controller.query.isEmpty) {
-      return _hint('Search the document to list every match here');
+      return _hint(pdfL10n(context).searchEmptyHint);
     }
     if (controller.isSearching) {
       return const Center(child: CircularProgressIndicator());
     }
     final results = controller.searchResults;
     if (results.isEmpty) {
-      return _hint('No matches for “${controller.query}”');
+      return _hint(pdfL10n(context).searchNoMatches(controller.query));
     }
     final entries = <_Entry>[];
     int? page;
@@ -358,7 +359,7 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
           child: Row(children: [
             Expanded(
               child: Text(
-                results.length == 1 ? '1 match' : '${results.length} matches',
+                pdfL10n(context).searchMatchCount(results.length),
                 style: textTheme.labelLarge,
               ),
             ),
@@ -379,7 +380,8 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
                 if (entry.header != null) {
                   return Padding(
                     padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
-                    child: Text('Page ${entry.header! + 1}',
+                    child: Text(
+                        pdfL10n(context).searchPageHeader(entry.header! + 1),
                         style: textTheme.labelMedium?.copyWith(
                             color: Theme.of(context).colorScheme.primary)),
                   );
@@ -405,53 +407,61 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
       onPersistWidth: widget.preferences == null
           ? null
           : (width) => widget.preferences!.searchPanelWidth = width,
-      side: widget.side,
+      dock: widget.dock,
+      panel: PdfDockablePanel.search,
       resizable: widget.resizable,
       bottomSheet: widget.bottomSheet,
       gripKey: const ValueKey('pdf-search-resize-grip'),
       onClose: widget.onClose,
-      builder: (context, geometry) => Material(
-        color: Theme.of(context).colorScheme.surfaceContainerLow,
-        child: ListenableBuilder(
-          listenable: controller,
-          builder: (context, _) => Column(children: [
-            // the docked panel's close button; a bottom sheet supplies
-            // its own in its sheet chrome
-            if (geometry.closeButton(
-              key: const ValueKey('pdf-search-panel-close'),
-            )
-                case final closeButton?)
-              Padding(
-                // clear the right-edge resize grip when it rides this side
-                padding:
-                    EdgeInsets.fromLTRB(16, 4, geometry.contentEndInset + 4, 0),
-                child: Row(children: [
-                  Expanded(
-                    child: Text('Search results',
-                        style: Theme.of(context).textTheme.titleSmall),
-                  ),
-                  closeButton,
-                ]),
-              ),
-            if (widget.showOptions) ...[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: _SearchOptionsBar(
-                      controller: controller, preferences: widget.preferences),
+      builder: (context, geometry) {
+        final moveHandle = geometry.moveHandle(
+          key: const ValueKey('pdf-search-panel-move'),
+        );
+        final closeButton = geometry.closeButton(
+          key: const ValueKey('pdf-search-panel-close'),
+        );
+        return Material(
+          color: Theme.of(context).colorScheme.surfaceContainerLow,
+          child: ListenableBuilder(
+            listenable: controller,
+            builder: (context, _) => Column(children: [
+              // the drag-to-redock handle and the docked panel's close
+              // button; a bottom sheet supplies its own in its sheet chrome
+              if (moveHandle != null || closeButton != null)
+                Padding(
+                  // clear the right-edge resize grip when it rides this side
+                  padding: EdgeInsets.fromLTRB(
+                      16, 4, geometry.contentEndInset + 4, 0),
+                  child: Row(children: [
+                    Expanded(
+                      child: Text(pdfL10n(context).searchResultsTitle,
+                          style: Theme.of(context).textTheme.titleSmall),
+                    ),
+                    if (moveHandle != null) moveHandle,
+                    if (closeButton != null) closeButton,
+                  ]),
                 ),
-              ),
-              Divider(
-                height: 1,
-                indent: geometry.contentStartInset,
-                endIndent: geometry.contentEndInset,
-              ),
-            ],
-            Expanded(child: _body(context, geometry: geometry)),
-          ]),
-        ),
-      ),
+              if (widget.showOptions) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: _SearchOptionsBar(
+                        controller: controller,
+                        preferences: widget.preferences),
+                  ),
+                ),
+                Divider(
+                  height: 1,
+                  indent: geometry.contentStartInset,
+                  endIndent: geometry.contentEndInset,
+                ),
+              ],
+              Expanded(child: _body(context, geometry: geometry)),
+            ]),
+          ),
+        );
+      },
     );
   }
 }
@@ -544,21 +554,21 @@ class _SearchOptionsBarState extends State<_SearchOptionsBar> {
       toggle(
         keyName: 'pdf-search-match-case',
         glyph: 'Aa',
-        tooltip: 'Match case',
+        tooltip: pdfL10n(context).searchMatchCase,
         selected: options.matchCase,
         next: options.copyWith(matchCase: !options.matchCase),
       ),
       toggle(
         keyName: 'pdf-search-whole-word',
         glyph: 'W',
-        tooltip: 'Whole word',
+        tooltip: pdfL10n(context).searchWholeWord,
         selected: options.wholeWord,
         next: options.copyWith(wholeWord: !options.wholeWord),
       ),
       toggle(
         keyName: 'pdf-search-regex',
         glyph: '.*',
-        tooltip: 'Regular expression',
+        tooltip: pdfL10n(context).searchRegex,
         selected: options.regex,
         next: options.copyWith(regex: !options.regex),
       ),

@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_cos/perf.dart';
 
 import 'annotation.dart';
 import 'comments.dart';
@@ -14,16 +15,20 @@ import 'document.dart';
 import 'font_embedder.dart';
 import 'form.dart';
 import 'image.dart';
+import 'matrix_geometry.dart';
 import 'measure.dart';
 import 'outline.dart';
 import 'pades.dart';
 import 'page.dart';
 import 'page_labels.dart';
 import 'rect.dart';
+import 'signing_identity.dart';
 import 'stamp_template.dart';
 import 'struct_tree.dart';
 import 'takeoff.dart';
-import 'type0_metrics.dart';
+import 'content_run_rewriter.dart';
+import 'text_box_appearance.dart';
+import 'type0_font.dart';
 import 'xmp.dart';
 
 part 'annotation_clipboard.dart';
@@ -297,4 +302,13 @@ class PdfEditor {
 
   /// The full bytes of the edited file (original + incremental update).
   Uint8List save() => _updater.save();
+
+  /// Only the bytes to append to the source document to form the edited file
+  /// (see [CosIncrementalUpdater.saveTail]).
+  ///
+  /// For a caller that already holds the source bytes and keeps revisions as
+  /// prefixes of one buffer, this avoids re-materialising the whole file per
+  /// save. The bytes are only valid appended directly to the document this
+  /// editor was built over.
+  Uint8List saveTail() => _updater.saveTail();
 }

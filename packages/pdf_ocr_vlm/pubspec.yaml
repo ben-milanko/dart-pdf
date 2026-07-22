@@ -2,7 +2,7 @@ name: pdf_ocr_vlm
 description: >-
   HTTP OCR engine for dart_pdf_editor that adds a selectable, searchable text
   layer to scanned PDFs using a self-hosted VLM or any JSON OCR service.
-version: 1.4.6
+version: 2.1.0
 repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/pdf_ocr_vlm
 issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
 topics:
@@ -19,13 +19,13 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  dart_pdf_editor: ^1.4.6
-  pdf_document: ^1.4.6
+  dart_pdf_editor: ^2.1.0
+  pdf_document: ^2.1.0
   http: ^1.2.0
 
 dev_dependencies:
-  pdf_graphics: ^1.4.0
-  pdf_test_fixtures: ^1.4.0
+  pdf_graphics: '>=1.4.0 <3.0.0'
+  pdf_test_fixtures: '>=1.4.0 <3.0.0'
   flutter_lints: ^6.0.0
   flutter_test:
     sdk: flutter

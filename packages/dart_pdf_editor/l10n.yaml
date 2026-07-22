@@ -1,0 +1,10 @@
+arb-dir: lib/l10n
+template-arb-file: dart_pdf_editor_en.arb
+output-localization-file: dart_pdf_editor_localizations.dart
+output-class: DartPdfEditorLocalizations
+# On Flutter web, load each locale as a deferred import so a host only
+# downloads the JS chunk for the active locale instead of every bundled
+# language (no effect on mobile/desktop AOT - see doc/i18n.md for trimming
+# native builds). The English fallback in src/l10n/pdf_l10n.dart imports the
+# _en class directly, so English stays eager and always available.
+use-deferred-loading: true

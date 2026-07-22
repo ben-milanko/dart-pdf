@@ -162,6 +162,13 @@ void main() {
     expect(device.fills[1].$2, const PdfColor.gray(0.5));
   });
 
+  test('scn with the wrong operand count falls back to a device reading', () {
+    // /DeviceRGB has 3 channels; a single scn operand does not match, so the
+    // interpreter reads it leniently as a 1-component (gray) device colour.
+    final device = interpret('/DeviceRGB cs 0.5 scn 0 0 1 1 re f');
+    expect(device.fills.single.$2, const PdfColor.gray(0.5));
+  });
+
   test('pure process cyan converts through the SWOP polynomial', () {
     final device = interpret('1 0 0 0 k 0 0 1 1 re f');
     final color = device.fills.single.$2;
@@ -432,6 +439,59 @@ void main() {
       expect(inner.text, 'inner');
       expect(outer.text, 'X',
           reason: 'the nested show must not overwrite the outer buffer');
+    });
+
+    test('a Type3 glyph draws through its /FontMatrix at the pen position', () {
+      // A CharProc that fills a 100x100 glyph-space box. With FontMatrix
+      // 0.001 and Tf size 10, glyph space scales to page by 0.001*10 = 0.01,
+      // so the box is 1x1 page units, dropped at the text origin. This
+      // exercises the renderGlyph seam: the font supplies the glyph-space
+      // matrix and CharProc, the interpreter re-enters its run loop.
+      final doc = CosDocument.open(buildClassicPdf());
+      final charProc = CosStream(
+        CosDictionary({'Length': const CosInteger(0)}),
+        Uint8List.fromList('1000 0 d0 0 0 100 100 re f'.codeUnits),
+      );
+      final type3 = CosDictionary({
+        'Type': const CosName('Font'),
+        'Subtype': const CosName('Type3'),
+        'FontBBox': CosArray([
+          const CosInteger(0),
+          const CosInteger(0),
+          const CosInteger(100),
+          const CosInteger(100),
+        ]),
+        'FontMatrix': CosArray([
+          const CosReal(0.001),
+          const CosInteger(0),
+          const CosInteger(0),
+          const CosReal(0.001),
+          const CosInteger(0),
+          const CosInteger(0),
+        ]),
+        'FirstChar': const CosInteger(0x58),
+        'LastChar': const CosInteger(0x58),
+        'Widths': CosArray([const CosInteger(1000)]),
+        'Encoding': CosDictionary({
+          'Differences': CosArray([const CosInteger(0x58), const CosName('X')]),
+        }),
+        'CharProcs': CosDictionary({'X': charProc}),
+      });
+      final device = RecordingDevice();
+      PdfInterpreter(cos: doc, device: device).run(
+        ContentStreamParser.parse(Uint8List.fromList(
+            'BT /T3 10 Tf 100 200 Td (X) Tj ET'.codeUnits)),
+        CosDictionary({
+          'Font': CosDictionary({'T3': type3}),
+        }),
+      );
+      final (path, _, _, _) = device.fills.single;
+      final move = path.segments.first as PdfMoveTo;
+      expect(move.x, closeTo(100, 1e-9)); // glyph (0,0) at the pen origin
+      expect(move.y, closeTo(200, 1e-9));
+      final corner = path.segments[2] as PdfLineTo;
+      expect(corner.x, closeTo(101, 1e-9)); // 100*0.001*10 = 1 page unit wide
+      expect(corner.y, closeTo(201, 1e-9));
     });
 
     test('TJ adjustments shift subsequent runs', () {
@@ -769,6 +829,80 @@ void main() {
         resources,
       );
       expect(device.gradients, hasLength(1));
+    });
+
+    // A radial shading whose circles are not nested (r0=0 focal point d=90
+    // outside the r1=60 circle): a device radial gradient can't express it,
+    // so the interpreter must fall through to a cone mesh instead.
+    CosDictionary radialPatternResources() => CosDictionary({
+          'Pattern': CosDictionary({
+            'P0': CosDictionary({
+              'PatternType': const CosInteger(2),
+              'Shading': CosDictionary({
+                'ShadingType': const CosInteger(3),
+                'ColorSpace': const CosName('DeviceRGB'),
+                'Coords': CosArray([
+                  const CosInteger(521),
+                  const CosInteger(289),
+                  const CosInteger(0),
+                  const CosInteger(431),
+                  const CosInteger(289),
+                  const CosInteger(60),
+                ]),
+                'Extend': CosArray([
+                  const CosBoolean(false),
+                  const CosBoolean(true),
+                ]),
+                'Function': CosDictionary({
+                  'FunctionType': const CosInteger(2),
+                  'C0': CosArray([
+                    const CosInteger(1),
+                    const CosInteger(0),
+                    const CosInteger(0),
+                  ]),
+                  'C1': CosArray([
+                    const CosInteger(0),
+                    const CosInteger(0),
+                    const CosInteger(1),
+                  ]),
+                  'N': const CosInteger(1),
+                }),
+              }),
+            }),
+          }),
+        });
+
+    test('non-nested radial pattern fill clips a cone mesh, not a gradient',
+        () {
+      final doc = CosDocument.open(buildClassicPdf());
+      final device = RecordingDevice();
+      PdfInterpreter(cos: doc, device: device).run(
+        ContentStreamParser.parse(Uint8List.fromList(
+            '/Pattern cs /P0 scn 400 250 130 80 re f'.codeUnits)),
+        radialPatternResources(),
+      );
+      expect(device.gradients, isEmpty);
+      expect(device.meshes, hasLength(1));
+      expect(device.meshes.single.vertices, isNotEmpty);
+      // clipped to the fill path: save/clip/mesh/restore, in that order
+      expect(device.calls, containsAllInOrder(['save', 'clip', 'mesh', 'restore']));
+    });
+
+    test('non-nested radial sh paints a cone mesh', () {
+      final doc = CosDocument.open(buildClassicPdf());
+      final device = RecordingDevice();
+      final pattern =
+          (radialPatternResources()['Pattern'] as CosDictionary)['P0']
+              as CosDictionary;
+      final resources = CosDictionary({
+        'Shading': CosDictionary({'S0': pattern['Shading']!}),
+      });
+      PdfInterpreter(cos: doc, device: device).run(
+        ContentStreamParser.parse(Uint8List.fromList('/S0 sh'.codeUnits)),
+        resources,
+      );
+      expect(device.gradients, isEmpty);
+      expect(device.meshes, hasLength(1));
     });
   });
 

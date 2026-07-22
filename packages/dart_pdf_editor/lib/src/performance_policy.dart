@@ -22,6 +22,25 @@ PdfPerformancePlatform get detectedPdfPerformancePlatform => kIsWeb
           PdfPerformancePlatform.desktop,
       };
 
+/// Whether the deep-zoom tile pyramid ([PdfPageView.tileStoreDetail], issue
+/// #314) is on by default. On for **every platform** since the budget-vs-demand
+/// guard (issues #314/#360) removed the eviction thrash a HiDPI/web view could
+/// hit: a view too dense to tile within budget now falls back to the single
+/// detail patch instead of re-rastering evicted tiles on every repaint
+/// ([PdfTileStore.viewFitsBudget]).
+///
+/// - **Desktop**: validated interactively on dense CAD sheets and 198-page scan
+///   books (see doc/dev-log).
+/// - **Web**: on-device release traces show the pyramid settling *under* budget
+///   (no longer pinned/evicting), panning at deep zoom reusing cached tiles
+///   with no green-grid flicker (2026-07-19 dev-log).
+/// - **Mobile**: on for parity, but the least-exercised path - and the 96 MB
+///   pyramid budget is a meaningful slice of a jetsam-limited process. A
+///   memory-pressure regression here surfaces as tile eviction, not a crash;
+///   [PdfTileStore.maxBytes] is live-adjustable if a lower mobile budget proves
+///   necessary.
+bool pdfDefaultTileStoreDetail() => true;
+
 /// The default byte budget for the process-wide decoded-image cache
 /// ([PdfImageCache]) on this platform.
 ///
@@ -80,6 +99,30 @@ int pdfDefaultImageCacheBytes({
     PdfPerformancePlatform.web =>
       ram != null && ram <= 2 ? 64 * mb : 128 * mb,
     PdfPerformancePlatform.other => 128 * mb,
+  };
+}
+
+/// Platform-aware default for [PdfLiveRasterBudget.maxBytes]: the ceiling over
+/// the base rasters, detail patches, and retained-scene images the live pages
+/// in the scroll cacheExtent hold at once (#405).
+///
+/// Sized so the on-screen page plus its immediate neighbours always fit (they
+/// are never evicted), and only farther cache-window pages are reclaimed under
+/// pressure. Larger than the decoded-image cache because a single large-format
+/// base raster can be tens of MB and a few must coexist for smooth scrolling;
+/// smaller on memory-constrained mobile/web where jetsam bites first.
+int pdfDefaultLiveRasterBudgetBytes({
+  PdfPerformancePlatform? platform,
+  double? deviceMemoryGb,
+}) {
+  const mb = 1024 * 1024;
+  final family = platform ?? detectedPdfPerformancePlatform;
+  final ram = deviceMemoryGb ?? detectedPdfDeviceMemoryGb;
+  return switch (family) {
+    PdfPerformancePlatform.desktop => 384 * mb,
+    PdfPerformancePlatform.mobile => 192 * mb,
+    PdfPerformancePlatform.web => ram != null && ram <= 2 ? 128 * mb : 192 * mb,
+    PdfPerformancePlatform.other => 192 * mb,
   };
 }
 

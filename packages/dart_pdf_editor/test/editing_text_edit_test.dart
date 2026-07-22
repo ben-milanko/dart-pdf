@@ -29,7 +29,7 @@ void main() {
     test('restyleSelectedText changes font and size, keeps text and author',
         () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..author = 'Ben'
+        ..preferences.author = 'Ben'
         ..addFreeText(0, const PdfRect(100, 600, 300, 650), 'Styled');
       expect(editing.selectAnnotation(0, 0), isTrue);
       expect(editing.canRestyleSelectedText, isTrue);
@@ -52,7 +52,7 @@ void main() {
     test('setSelectedText preserves the font family and size', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..fontFamily = PdfStandardFont.courier
-        ..fontSize = 18
+        ..preferences.fontSize = 18
         ..addFreeText(0, const PdfRect(100, 600, 300, 650), 'Original');
       expect(editing.selectAnnotation(0, 0), isTrue);
 
@@ -66,7 +66,7 @@ void main() {
     test('autosizeSelectedTextBox fits the selected box to its contents', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..fontFamily = PdfStandardFont.courier
-        ..fontSize = 18
+        ..preferences.fontSize = 18
         ..addFreeText(0, const PdfRect(100, 600, 500, 720), 'Wide line\nshort');
       expect(editing.selectAnnotation(0, 0), isTrue);
 
@@ -85,7 +85,7 @@ void main() {
 
     test('textAlign preference flows into new free text', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..textAlign = PdfTextAlign.center
+        ..preferences.textAlign = PdfTextAlign.center
         ..addFreeText(0, const PdfRect(100, 600, 360, 650), 'Centered');
 
       final style = editing.document.page(0).annotations.single.freeTextStyle!;
@@ -106,12 +106,12 @@ void main() {
       // the selection survives the rewrite
       expect(editing.selectedTextAlign, PdfTextAlign.right);
       // and right becomes the default for new boxes
-      expect(editing.textAlign, PdfTextAlign.right);
+      expect(editing.preferences.textAlign, PdfTextAlign.right);
     });
 
     test('restyleSelectedText preserves alignment across a size change', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..textAlign = PdfTextAlign.center
+        ..preferences.textAlign = PdfTextAlign.center
         ..addFreeText(0, const PdfRect(100, 600, 360, 650), 'Centered');
       expect(editing.selectAnnotation(0, 0), isTrue);
       expect(editing.selectedTextAlign, PdfTextAlign.center);
@@ -125,7 +125,7 @@ void main() {
 
     test('addFreeTextRich applies the alignment default', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..textAlign = PdfTextAlign.right;
+        ..preferences.textAlign = PdfTextAlign.right;
       editing.addFreeTextRich(
           0, const PdfRect(100, 600, 360, 650), [const PdfFreeTextRun('Rich')]);
 
@@ -135,9 +135,9 @@ void main() {
 
     test('text fill and border preferences flow into new free text', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..strokeWidth = 3
-        ..textFillColor = const Color(0xFFFFF59D)
-        ..textBorderColor = const Color(0xFF1E88E5)
+        ..preferences.strokeWidth = 3
+        ..preferences.textFillColor = const Color(0xFFFFF59D)
+        ..preferences.textBorderColor = const Color(0xFF1E88E5)
         ..addFreeText(0, const PdfRect(100, 600, 300, 660), 'Boxed');
 
       final style = editing.document.page(0).annotations.single.freeTextStyle!;
@@ -308,7 +308,7 @@ void main() {
       final (editing, _) = await pumpEditor(tester);
       editing
         ..fontFamily = PdfStandardFont.courier
-        ..fontSize = 18
+        ..preferences.fontSize = 18
         ..addFreeText(0, const PdfRect(100, 600, 500, 720), 'Wide line')
         ..selectAnnotation(0, 0);
       await tester.pump();
@@ -1052,6 +1052,46 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('the toolbar font chip shows the embedded face, not Sans',
+        (tester) async {
+      // regression: the chip parsed only the base-14 family from /DA and
+      // collapsed an embedded box to "Sans", while the tune popup's font
+      // button reported the real face - so the two disagreed
+      SharedPreferences.setMockInitialValues({});
+      final fontBytes =
+          File('../pdf_document/test/fonts/DejaVuSans.ttf').readAsBytesSync();
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      expect(editing.setCustomFont(fontBytes), isTrue);
+      final embedded = editing.activeFont as PdfEmbeddedFont;
+      editing.addFreeText(0, const PdfRect(100, 600, 360, 660), 'Hello');
+      editing.selectAnnotation(0, 0);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: const SizedBox.expand(),
+          bottomNavigationBar: PdfEditingToolbar(
+            controller: editing,
+            viewerController: viewer,
+          ),
+        ),
+      ));
+
+      final chip = find.byTooltip('Stroke, opacity, font');
+      await tester.scrollUntilVisible(chip, 100,
+          scrollable: find.byType(Scrollable).first);
+      // the chip carries the embedded family name, not the base-14 "Sans"
+      expect(
+          find.descendant(
+              of: chip, matching: find.text(embedded.familyName)),
+          findsOneWidget);
+      expect(find.descendant(of: chip, matching: find.text('Sans')),
+          findsNothing);
+      editing.activeFont = null;
+    });
+
     testWidgets('resizing an embedded-font box reflows instead of stretching',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);
@@ -1204,14 +1244,14 @@ void main() {
       await tester.pumpAndSettle();
 
       // no selection: the buttons set the creation default
-      expect(editing.textAlign, isNull);
+      expect(editing.preferences.textAlign, isNull);
       await tester.tap(find.byKey(const ValueKey('pdf-text-align-center')));
       await tester.pump();
-      expect(editing.textAlign, PdfTextAlign.center);
+      expect(editing.preferences.textAlign, PdfTextAlign.center);
 
       await tester.tap(find.byKey(const ValueKey('pdf-text-align-right')));
       await tester.pump();
-      expect(editing.textAlign, PdfTextAlign.right);
+      expect(editing.preferences.textAlign, PdfTextAlign.right);
     });
 
     testWidgets('the style menu sets text colour, fill, and border defaults',
@@ -1249,22 +1289,22 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('pdf-text-fill-1')));
       await tester.pump();
-      expect(editing.textFillColor, PdfEditingToolbar.defaultPalette[1]);
+      expect(editing.preferences.textFillColor, PdfEditingToolbar.defaultPalette[1]);
 
       await tester.tap(find.byKey(const ValueKey('pdf-text-border-3')));
       await tester.pump();
-      expect(editing.textBorderColor, PdfEditingToolbar.defaultPalette[3]);
+      expect(editing.preferences.textBorderColor, PdfEditingToolbar.defaultPalette[3]);
 
       await tester.tap(find.byKey(const ValueKey('pdf-text-fill-none')));
       await tester.pump();
-      expect(editing.textFillColor, isNull);
-      expect(editing.textBorderColor, PdfEditingToolbar.defaultPalette[3]);
+      expect(editing.preferences.textFillColor, isNull);
+      expect(editing.preferences.textBorderColor, PdfEditingToolbar.defaultPalette[3]);
     });
 
     testWidgets('the style menu restyles the selected text box',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1))
-        ..strokeWidth = 2.5
+        ..preferences.strokeWidth = 2.5
         ..addFreeText(0, const PdfRect(100, 600, 300, 660), 'Boxed');
       final viewer = PdfViewerController();
       addTearDown(editing.dispose);
@@ -1308,7 +1348,7 @@ void main() {
         (tester) async {
       final (editing, _) = await pumpEditor(tester);
       editing
-        ..textFillColor = const Color(0xFFFFF59D)
+        ..preferences.textFillColor = const Color(0xFFFFF59D)
         ..tool = PdfEditTool.freeText;
       await tester.pump();
 
@@ -1378,7 +1418,7 @@ void main() {
       const previewKey = ValueKey('pdf-text-resize-preview');
       final (editing, _) = await pumpEditor(tester);
       editing
-        ..fontSize = 16
+        ..preferences.fontSize = 16
         ..addFreeText(0, const PdfRect(100, 600, 300, 650), 'Wrap me please')
         ..tool = PdfEditTool.select;
       expect(editing.selectAnnotation(0, 0), isTrue);
@@ -1420,12 +1460,49 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('resizing an embedded-font box previews the re-wrap too',
+        (tester) async {
+      const previewKey = ValueKey('pdf-text-resize-preview');
+      final (editing, _) = await pumpEditor(tester);
+      final fontBytes =
+          File('../pdf_document/test/fonts/DejaVuSans.ttf').readAsBytesSync();
+      expect(editing.setCustomFont(fontBytes), isTrue);
+      editing
+        ..preferences.fontSize = 16
+        ..addFreeText(0, const PdfRect(100, 600, 300, 650), 'Wrap me please')
+        ..tool = PdfEditTool.select;
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      await tester.pump();
+      // genuinely the embedded path, not a base-14 fallback
+      expect(editing.selectedTextFont, isA<PdfEmbeddedFont>());
+
+      // grab the bottom-right handle and pull it inward
+      final gesture = await tester.startGesture(view(300, 600));
+      await gesture.moveTo(view(260, 580));
+      await gesture.moveTo(view(220, 560));
+      await tester.pump();
+
+      // an embedded/bundled box re-wraps live just like a base-14 box - the
+      // wrapped-text preview rides the dragged box at the committed size,
+      // rather than falling back to stretched glyphs
+      expect(find.byKey(previewKey), findsOneWidget);
+      final text = tester.widget<Text>(find.descendant(
+          of: find.byKey(previewKey), matching: find.byType(Text)));
+      expect(text.data, 'Wrap me please');
+      expect(text.style!.fontSize, closeTo(16 * scale, 0.01));
+
+      await gesture.up();
+      await tester.pump();
+      editing.activeFont = null;
+      await settle(tester);
+    });
+
     testWidgets('the resize preview lifts the box, transparent over the page',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);
       editing
-        ..fontSize = 16
-        ..textFillColor = const Color(0xFFFFEB3B) // a yellow filled box
+        ..preferences.fontSize = 16
+        ..preferences.textFillColor = const Color(0xFFFFEB3B) // a yellow filled box
         ..addFreeText(0, const PdfRect(100, 600, 300, 650), 'Filled box')
         ..tool = PdfEditTool.select;
       expect(editing.selectAnnotation(0, 0), isTrue);
@@ -1459,10 +1536,10 @@ void main() {
         (tester) async {
       final (editing, _) = await pumpEditor(tester);
       editing
-        ..fontSize = 16
+        ..preferences.fontSize = 16
         // a transparent box (no fill): the one that used to flash opaque
         // white over the page on release
-        ..textFillColor = null
+        ..preferences.textFillColor = null
         ..addFreeText(0, const PdfRect(100, 600, 300, 650), 'Clear box')
         ..tool = PdfEditTool.select;
       expect(editing.selectAnnotation(0, 0), isTrue);

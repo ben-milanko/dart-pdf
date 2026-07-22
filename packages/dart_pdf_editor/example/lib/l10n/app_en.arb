@@ -1,0 +1,627 @@
+{
+  "@@locale": "en",
+  "add": "Add",
+  "@add": {
+    "description": "Generic button that adds a new item."
+  },
+  "apply": "Apply",
+  "@apply": {
+    "description": "Generic button that applies pending changes."
+  },
+  "cancel": "Cancel",
+  "@cancel": {
+    "description": "Button that dismisses a dialog without applying."
+  },
+  "clear": "Clear",
+  "@clear": {
+    "description": "Generic button that clears the current value or selection."
+  },
+  "close": "Close",
+  "@close": {
+    "description": "Generic button/tooltip that closes a panel or dialog."
+  },
+  "copy": "Copy",
+  "@copy": {
+    "description": "Generic button/menu label to copy the current item."
+  },
+  "cut": "Cut",
+  "@cut": {
+    "description": "Generic button/menu label to cut the current item."
+  },
+  "delete": "Delete",
+  "@delete": {
+    "description": "Generic button/menu label to delete the current item."
+  },
+  "done": "Done",
+  "@done": {
+    "description": "Generic button that finishes the current interaction."
+  },
+  "edit": "Edit",
+  "@edit": {
+    "description": "Generic button/menu label to edit the current item."
+  },
+  "exActionJavaScript": "JavaScript surfaced to the app: {script}",
+  "@exActionJavaScript": {
+    "description": "Toast surfacing a PDF JavaScript action's script to the host app.",
+    "placeholders": {
+      "script": {
+        "type": "String"
+      }
+    }
+  },
+  "exActionLink": "Link: {uri}",
+  "@exActionLink": {
+    "description": "Toast describing a URI link action followed by the target URI.",
+    "placeholders": {
+      "uri": {
+        "type": "String"
+      }
+    }
+  },
+  "exActionNamed": "Named action: {name}",
+  "@exActionNamed": {
+    "description": "Toast describing a PDF named action.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "exActionUnhandled": "Unhandled action type: {type}",
+  "@exActionUnhandled": {
+    "description": "Toast describing an unhandled PDF action type.",
+    "placeholders": {
+      "type": {
+        "type": "String"
+      }
+    }
+  },
+  "exAnnotationTextCopied": "Annotation text copied",
+  "@exAnnotationTextCopied": {
+    "description": "Toast confirming an annotation's text was copied to the clipboard."
+  },
+  "exApiKeyHelper": "Sent as Authorization: Bearer …",
+  "@exApiKeyHelper": {
+    "description": "Helper text explaining how the OCR API key is transmitted."
+  },
+  "exApiKeyLabel": "API key / token (optional)",
+  "@exApiKeyLabel": {
+    "description": "Text-field label for the optional OCR API key or token."
+  },
+  "exAppMenuTooltip": "DartPDF menu",
+  "@exAppMenuTooltip": {
+    "description": "Tooltip for the app's main menu button."
+  },
+  "exClearRecentFiles": "Clear recent files",
+  "@exClearRecentFiles": {
+    "description": "Menu action that clears the recent-files list."
+  },
+  "exCloseTab": "Close tab",
+  "@exCloseTab": {
+    "description": "Tooltip for the button that closes a document tab."
+  },
+  "exCompareTabTitle": "Compare: {before} ↔ {after}",
+  "@exCompareTabTitle": {
+    "description": "Title of a document-comparison tab, naming the before and after files.",
+    "placeholders": {
+      "before": {
+        "type": "String"
+      },
+      "after": {
+        "type": "String"
+      }
+    }
+  },
+  "exCompareWithAnother": "Compare with another PDF…",
+  "@exCompareWithAnother": {
+    "description": "App menu item that compares the active document against a second PDF."
+  },
+  "exCopiedToClipboard": "Copied to clipboard",
+  "@exCopiedToClipboard": {
+    "description": "Toast confirming the selected text was copied to the clipboard."
+  },
+  "exCopySelectedText": "Copy selected text (⌘C)",
+  "@exCopySelectedText": {
+    "description": "Tooltip for the app-bar button that copies the current text selection."
+  },
+  "exCopyText": "Copy text",
+  "@exCopyText": {
+    "description": "Annotation right-click menu item that copies the annotation's text."
+  },
+  "exCouldNotOpenFile": "Could not open {name}\n{error}",
+  "@exCouldNotOpenFile": {
+    "description": "Error-tab body when a picked file could not be opened.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "exCouldNotOpenPath": "Could not open {path}\n{error}",
+  "@exCouldNotOpenPath": {
+    "description": "Error-tab body when a file at a given path could not be opened.",
+    "placeholders": {
+      "path": {
+        "type": "String"
+      },
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "exCouldNotOpenUrl": "Could not open {url}",
+  "@exCouldNotOpenUrl": {
+    "description": "Toast when an external link could not be launched.",
+    "placeholders": {
+      "url": {
+        "type": "String"
+      }
+    }
+  },
+  "exCouldNotOpenUrlCors": "Could not open {uri}\n{error}\n\nOn the web this is often a CORS restriction: the server must send Access-Control-Allow-Origin and expose the Range headers.",
+  "@exCouldNotOpenUrlCors": {
+    "description": "Error-tab body when a remote PDF could not be opened, with a CORS hint.",
+    "placeholders": {
+      "uri": {
+        "type": "String"
+      },
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "exCouldNotReopen": "Could not reopen {title}\n{error}",
+  "@exCouldNotReopen": {
+    "description": "Error-tab body when a recent file could not be reopened.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      },
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "exCouldNotReopenGone": "Could not reopen {title} - its saved copy is no longer available.",
+  "@exCouldNotReopenGone": {
+    "description": "Error-tab body when a recent file's cached bytes have aged out.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "exDemoNoteHint": "Type here - this text box floats above the page",
+  "@exDemoNoteHint": {
+    "description": "Hint text in the demo's floating note text box overlaying the page."
+  },
+  "exDiagnosticsCopied": "Diagnostics copied to clipboard",
+  "@exDiagnosticsCopied": {
+    "description": "Toast confirming the feedback diagnostics were copied to the clipboard."
+  },
+  "exDownloaded": "Downloaded {name}",
+  "@exDownloaded": {
+    "description": "Toast confirming a file was downloaded (web/save flow).",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "exDownloadedSnapshotCtrl": "Downloaded {name} - paste back into the PDF with Ctrl+V",
+  "@exDownloadedSnapshotCtrl": {
+    "description": "Toast after downloading a snapshot PNG, with a Ctrl+V paste hint (web/Windows/Linux).",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "exExport": "Export",
+  "@exExport": {
+    "description": "Button that confirms the image export."
+  },
+  "exExportFailed": "Export failed: {error}",
+  "@exExportFailed": {
+    "description": "Toast when exporting a page image failed.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "exExportPageImageMenu": "Export page as image…",
+  "@exExportPageImageMenu": {
+    "description": "App menu item that exports the current page as a raster image."
+  },
+  "exExportPageImageTitle": "Export page as image",
+  "@exExportPageImageTitle": {
+    "description": "Title of the export-page-as-image dialog."
+  },
+  "exFeatureShowcase": "Feature showcase",
+  "@exFeatureShowcase": {
+    "description": "Tab title for the built-in feature-showcase demo document."
+  },
+  "exFormat": "Format",
+  "@exFormat": {
+    "description": "Label for the image-format selector in the export dialog."
+  },
+  "exHide": "Hide",
+  "@exHide": {
+    "description": "Tooltip to obscure the OCR API key field."
+  },
+  "exHorizontalLayout": "Horizontal page layout",
+  "@exHorizontalLayout": {
+    "description": "App menu item that switches the viewer to horizontal continuous layout."
+  },
+  "exHowToSetupOcr": "How to set up an OCR server",
+  "@exHowToSetupOcr": {
+    "description": "Button that opens documentation on setting up an OCR server."
+  },
+  "exModelName": "Model name",
+  "@exModelName": {
+    "description": "Text-field label for the OCR model name."
+  },
+  "exNoMessage": "No message",
+  "@exNoMessage": {
+    "description": "Fallback toast when an app:// message action carries no text."
+  },
+  "exNoRecentFiles": "No recent files",
+  "@exNoRecentFiles": {
+    "description": "Placeholder shown when there are no recently opened files."
+  },
+  "exNotAValidUrl": "Not a valid URL:\n{url}",
+  "@exNotAValidUrl": {
+    "description": "Error-tab body when the entered remote-open text is not a valid URL.",
+    "placeholders": {
+      "url": {
+        "type": "String"
+      }
+    }
+  },
+  "exOcrAddedSpans": "{count, plural, =1{OCR added 1 text span - the page text is now selectable} other{OCR added {count} text spans - the page text is now selectable}}",
+  "@exOcrAddedSpans": {
+    "description": "Toast reporting how many selectable text spans OCR added.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "exOcrDescription": "Adds a selectable, searchable text layer over scanned pages using a vision-language OCR model you host (dots.ocr on vLLM, or any OpenAI-compatible OCR endpoint).",
+  "@exOcrDescription": {
+    "description": "Explanatory text in the OCR settings dialog about what OCR does."
+  },
+  "exOcrDocumentTitle": "{title} (OCR)",
+  "@exOcrDocumentTitle": {
+    "description": "Tab title for the OCR result, suffixing the source document's title.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "exOcrFailed": "OCR failed: {error}",
+  "@exOcrFailed": {
+    "description": "Toast when the OCR run failed.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "exOcrMenu": "OCR…",
+  "@exOcrMenu": {
+    "description": "App menu item that starts the OCR text-layer flow."
+  },
+  "exOpen": "Open",
+  "@exOpen": {
+    "description": "Button that confirms opening the entered remote PDF URL."
+  },
+  "exOpenDocumentBeforeOcr": "Open a document before running OCR",
+  "@exOpenDocumentBeforeOcr": {
+    "description": "Toast prompting the user to open a document before running OCR."
+  },
+  "exOpenDocumentFirst": "Open a document first",
+  "@exOpenDocumentFirst": {
+    "description": "Toast prompting the user to open a document before exporting an image."
+  },
+  "exOpenFromUrl": "Open from a URL…",
+  "@exOpenFromUrl": {
+    "description": "App menu item that opens a PDF from a remote URL."
+  },
+  "exOpenFromUrlTitle": "Open from a URL",
+  "@exOpenFromUrlTitle": {
+    "description": "Title of the open-from-URL dialog."
+  },
+  "exOpenInNewTab": "Open PDF in a new tab",
+  "@exOpenInNewTab": {
+    "description": "Tooltip for the tab-strip button that opens a PDF in a new tab."
+  },
+  "exOpenInteractiveDemo": "Open the interactive demo",
+  "@exOpenInteractiveDemo": {
+    "description": "App menu item that opens the built-in feature-showcase demo document."
+  },
+  "exOpenPdf": "Open a PDF…",
+  "@exOpenPdf": {
+    "description": "App menu item that opens a PDF from the file picker."
+  },
+  "exOpenPdfButton": "Open a PDF",
+  "@exOpenPdfButton": {
+    "description": "Empty-state button that opens a PDF from the file picker."
+  },
+  "exOpenRecent": "Open Recent",
+  "@exOpenRecent": {
+    "description": "App menu row that expands into the list of recently opened files."
+  },
+  "exOpenUrlDescription": "Streams the PDF over HTTP Range requests via PdfHttpByteSource, fetching only what the parser needs and falling back to a full download when the server has no range support.",
+  "@exOpenUrlDescription": {
+    "description": "Explanatory text in the open-from-URL dialog about how remote loading works."
+  },
+  "exOpeningDocument": "Opening document",
+  "@exOpeningDocument": {
+    "description": "Accessibility label for the document-loading progress region."
+  },
+  "exOpeningPdf": "Opening PDF…",
+  "@exOpeningPdf": {
+    "description": "Loading label while an untitled PDF is opening."
+  },
+  "exOpeningTitle": "Opening {title}…",
+  "@exOpeningTitle": {
+    "description": "Loading label while a named document is opening.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "exPdfUrlLabel": "PDF URL",
+  "@exPdfUrlLabel": {
+    "description": "Text-field label for the remote PDF URL in the open-from-URL dialog."
+  },
+  "exPerformanceAuto": "Performance: Auto",
+  "@exPerformanceAuto": {
+    "description": "Worker-pool tooltip when the pool size is chosen automatically."
+  },
+  "exPreparing": "Preparing…",
+  "@exPreparing": {
+    "description": "Initial OCR progress message before page recognition begins."
+  },
+  "exPubDevMenuItem": "dart_pdf_editor on pub.dev",
+  "@exPubDevMenuItem": {
+    "description": "App menu item that opens the dart_pdf_editor package page on pub.dev."
+  },
+  "exRecognisingPage": "Recognising page {current} of {count}…",
+  "@exRecognisingPage": {
+    "description": "OCR progress message naming the page being recognised and the total.",
+    "placeholders": {
+      "current": {
+        "type": "int"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "exResolution": "Resolution",
+  "@exResolution": {
+    "description": "Label for the resolution selector in the export dialog."
+  },
+  "exRunOcr": "Run OCR",
+  "@exRunOcr": {
+    "description": "Title and confirm button of the OCR settings dialog."
+  },
+  "exSaveAs": "Save as…",
+  "@exSaveAs": {
+    "description": "App menu item that saves the active document to a new file."
+  },
+  "exSaveFailed": "Save failed: {error}",
+  "@exSaveFailed": {
+    "description": "Toast when saving a file failed.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "exSavedName": "Saved {name}",
+  "@exSavedName": {
+    "description": "Toast confirming a file with the given name was saved.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "exSavedSnapshotCmd": "Saved {name} - paste back into the PDF with ⌘V",
+  "@exSavedSnapshotCmd": {
+    "description": "Toast after saving a snapshot PNG, with a Command-V paste hint (macOS).",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "exSavedTo": "Saved to {path}",
+  "@exSavedTo": {
+    "description": "Toast confirming the document was saved to a given path.",
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "exScrollIndicatorDemo": "Scroll indicator API demo",
+  "@exScrollIndicatorDemo": {
+    "description": "App menu item that opens the scroll-indicator API demo screen."
+  },
+  "exServiceEndpoint": "Service endpoint",
+  "@exServiceEndpoint": {
+    "description": "Text-field label for the OCR service endpoint URL."
+  },
+  "exShow": "Show",
+  "@exShow": {
+    "description": "Tooltip to reveal the obscured OCR API key field."
+  },
+  "exSingleWorker": "Single worker",
+  "@exSingleWorker": {
+    "description": "Worker-pool menu item that pins the pool to a single background worker."
+  },
+  "exSupplyFeedback": "Supply feedback…",
+  "@exSupplyFeedback": {
+    "description": "App menu item that opens the feedback dialog."
+  },
+  "exSwitchToEdit": "Switch to edit mode",
+  "@exSwitchToEdit": {
+    "description": "App menu item that switches the viewer from read-only to edit mode."
+  },
+  "exSwitchToReadOnly": "Switch to read-only",
+  "@exSwitchToReadOnly": {
+    "description": "App menu item that switches the viewer from edit mode to read-only."
+  },
+  "exThemeDark": "Theme: dark - switch to system",
+  "@exThemeDark": {
+    "description": "Theme-cycle menu label when the current theme is dark (next tap: system)."
+  },
+  "exThemeLight": "Theme: light - switch to dark",
+  "@exThemeLight": {
+    "description": "Theme-cycle menu label when the current theme is light (next tap: dark)."
+  },
+  "exThemeSystem": "Theme: system - switch to light",
+  "@exThemeSystem": {
+    "description": "Theme-cycle menu label when the current theme is system (next tap: light)."
+  },
+  "exTryDemo": "Try the interactive demo",
+  "@exTryDemo": {
+    "description": "Empty-state button that opens the interactive demo document."
+  },
+  "exUntitled": "Untitled",
+  "@exUntitled": {
+    "description": "Fallback title for a document or tab with no name."
+  },
+  "exVerticalLayout": "Vertical page layout",
+  "@exVerticalLayout": {
+    "description": "App menu item that switches the viewer to vertical continuous layout."
+  },
+  "exViewSource": "View source on GitHub",
+  "@exViewSource": {
+    "description": "App menu item that opens the project's GitHub repository."
+  },
+  "exWorkerAuto": "Auto",
+  "@exWorkerAuto": {
+    "description": "Worker-pool menu item that lets the app choose the pool size automatically."
+  },
+  "exWorkerPoolTooltip": "{count, plural, =1{Performance: single worker} other{Performance: {count} workers}}",
+  "@exWorkerPoolTooltip": {
+    "description": "Worker-pool tooltip showing the fixed number of background workers.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "exWorkersCount": "{count} workers",
+  "@exWorkersCount": {
+    "description": "Worker-pool menu item pinning the pool to a fixed number of workers.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "feedbackAttachDiagnostics": "Attach these diagnostics to the report",
+  "@feedbackAttachDiagnostics": {
+    "description": "Checkbox label to attach the captured diagnostics to the feedback report."
+  },
+  "feedbackClearLog": "Clear log",
+  "@feedbackClearLog": {
+    "description": "Button that clears the captured diagnostics log."
+  },
+  "feedbackCopyDiagnostics": "Copy diagnostics",
+  "@feedbackCopyDiagnostics": {
+    "description": "Button that copies the diagnostics report to the clipboard."
+  },
+  "feedbackDiagnosticsNotice": "The feedback form opens in your browser. The diagnostics below are collected on this device only and are attached to help reproduce the problem. Review them first - do not include anything you would rather keep private.",
+  "@feedbackDiagnosticsNotice": {
+    "description": "Notice in the feedback dialog explaining how diagnostics are used and privacy."
+  },
+  "feedbackOpenForm": "Open feedback form",
+  "@feedbackOpenForm": {
+    "description": "Button that opens the GitHub feedback form with the report prefilled."
+  },
+  "feedbackTitle": "Send feedback",
+  "@feedbackTitle": {
+    "description": "Title of the feedback dialog."
+  },
+  "none": "None",
+  "@none": {
+    "description": "Label for the absence of a selection or value."
+  },
+  "ok": "OK",
+  "@ok": {
+    "description": "Button that confirms a dialog."
+  },
+  "paste": "Paste",
+  "@paste": {
+    "description": "Generic button/menu label to paste from the clipboard."
+  },
+  "redo": "Redo",
+  "@redo": {
+    "description": "Generic button/tooltip to redo the last undone change."
+  },
+  "remove": "Remove",
+  "@remove": {
+    "description": "Generic button that removes the current item."
+  },
+  "rename": "Rename",
+  "@rename": {
+    "description": "Generic button/menu label to rename the current item."
+  },
+  "reset": "Reset",
+  "@reset": {
+    "description": "Generic button that resets a value to its default."
+  },
+  "save": "Save",
+  "@save": {
+    "description": "Generic button that saves the document or changes."
+  },
+  "scrollDemoNextPage": "Next page",
+  "@scrollDemoNextPage": {
+    "description": "Tooltip for the next-page button in the scroll-indicator demo."
+  },
+  "scrollDemoPageBubble": "Page {current} / {count}",
+  "@scrollDemoPageBubble": {
+    "description": "Page bubble shown while dragging the demo scrubber (current page of total).",
+    "placeholders": {
+      "current": {
+        "type": "int"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "scrollDemoPreviousPage": "Previous page",
+  "@scrollDemoPreviousPage": {
+    "description": "Tooltip for the previous-page button in the scroll-indicator demo."
+  },
+  "scrollDemoSwitchHorizontal": "Switch to horizontal layout",
+  "@scrollDemoSwitchHorizontal": {
+    "description": "Tooltip toggling the demo viewer to horizontal continuous layout."
+  },
+  "scrollDemoSwitchVertical": "Switch to vertical layout",
+  "@scrollDemoSwitchVertical": {
+    "description": "Tooltip toggling the demo viewer to vertical continuous layout."
+  },
+  "scrollDemoTitle": "Scroll indicator API",
+  "@scrollDemoTitle": {
+    "description": "App-bar title of the scroll-indicator API demo screen."
+  },
+  "undo": "Undo",
+  "@undo": {
+    "description": "Generic button/tooltip to undo the last change."
+  }
+}

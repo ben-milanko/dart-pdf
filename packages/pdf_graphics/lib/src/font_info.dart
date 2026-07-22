@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart'
     show helveticaWidths, helveticaBoldWidths, timesRomanWidths;
 
@@ -29,9 +30,10 @@ class PdfFontInfo {
     bool legacyGbk = false,
     CjkCmap? cjkCmap,
     Map<int, String> encodingNames = const {},
+    Map<int, String> differenceNames = const {},
     Map<int, int>? cffCodeToGid,
     Map<int, CosStream> type3Procs = const {},
-    this.type3Resources,
+    CosDictionary? type3Resources,
     List<double>? type3Matrix,
     this.isVertical = false,
     List<double> dw2 = const [880, -1000],
@@ -49,8 +51,10 @@ class PdfFontInfo {
         _legacyGbk = legacyGbk,
         _cjkCmap = cjkCmap,
         _encodingNames = encodingNames,
+        _differenceNames = differenceNames,
         _cffCodeToGid = cffCodeToGid,
         _type3Procs = type3Procs,
+        _type3Resources = type3Resources,
         _type3Matrix = type3Matrix;
 
   final String? baseFont;
@@ -90,6 +94,12 @@ class PdfFontInfo {
 
   final Map<int, String> _encodingNames;
 
+  /// Just the /Encoding /Differences entries, without the base encoding merged
+  /// in. A Differences entry is the document naming the glyph itself, so it
+  /// outranks a font's built-in encoding (§9.6.6.1) - which [_encodingNames]
+  /// alone can't express, because a base encoding fills the same map.
+  final Map<int, String> _differenceNames;
+
   /// PDF /Encoding (base + Differences) resolved against the CFF charset;
   /// overrides the font's built-in encoding when present.
   final Map<int, int>? _cffCodeToGid;
@@ -99,22 +109,56 @@ class PdfFontInfo {
   /// streams - never by substitution (blank procs are intentional, e.g.
   /// invisible text layers).
   final Map<int, CosStream> _type3Procs;
-  final CosDictionary? type3Resources;
+  final CosDictionary? _type3Resources;
   final List<double>? _type3Matrix;
 
   bool get isType3 => _type3Matrix != null;
 
-  /// Glyph space → text space, for Type3 fonts (§9.6.5).
-  List<double> get type3Matrix =>
-      _type3Matrix ?? const [0.001, 0, 0, 0.001, 0, 0];
-
-  CosStream? type3ProcFor(int code) => _type3Procs[code];
+  /// Renders the Type3 glyph for [code] by handing its glyph description -
+  /// the decoded content-stream operations, the resources they draw against,
+  /// and the glyph-space → text-space /FontMatrix (§9.6.5) - to [execute].
+  ///
+  /// This keeps "a Type3 glyph *is* a content stream" (the CharProc lookup
+  /// and the /FontMatrix) inside the font module, so the interpreter no longer
+  /// reaches into Type3 internals to re-enter its own run loop. The caller
+  /// supplies [decode] (CharProc stream → operations) so the interpreter keeps
+  /// its own parse cache and COS access, and does the actual execution in
+  /// [execute]. A no-op when the font isn't Type3, [code] has no CharProc, or
+  /// the glyph description is empty (an intentionally blank glyph).
+  void renderGlyph(
+    int code, {
+    required List<ContentOperation> Function(CosStream proc) decode,
+    required void Function(
+      List<ContentOperation> ops,
+      CosDictionary resources,
+      PdfMatrix glyphToText,
+    ) execute,
+  }) {
+    final matrix = _type3Matrix;
+    if (matrix == null) return;
+    final proc = _type3Procs[code];
+    if (proc == null) return;
+    final ops = decode(proc);
+    if (ops.isEmpty) return;
+    execute(ops, _type3Resources ?? CosDictionary(), PdfMatrix.row(matrix));
+  }
 
   /// True when embedded glyph outlines are available.
   bool get hasOutlines =>
       _trueType != null || _cff != null || _type1 != null;
 
   static PdfFontInfo load(CosDocument cos, CosDictionary font) {
+    final t0 = PdfPerf.begin();
+    try {
+      final info = _loadTimed(cos, font);
+      PdfPerf.add(PdfPerfCount.fontsParsed);
+      return info;
+    } finally {
+      PdfPerf.end(PdfPerfPhase.fontParse, t0);
+    }
+  }
+
+  static PdfFontInfo _loadTimed(CosDocument cos, CosDictionary font) {
     final subtype = font['Subtype'];
     final subtypeName = subtype is CosName ? subtype.value : '';
     final baseFontObj = cos.resolve(font['BaseFont']);
@@ -155,6 +199,7 @@ class PdfFontInfo {
     var symbolic = false;
     CjkCmap? cjkCmap;
     var encodingNames = const <int, String>{};
+    var differenceNames = const <int, String>{};
 
     if (isCid) {
       // Writing mode: a `…-V` predefined CMap name or an embedded CMap stream
@@ -212,6 +257,7 @@ class PdfFontInfo {
       }
     } else {
       encodingNames = _simpleEncoding(cos, font['Encoding'], baseFont);
+      differenceNames = _parseDifferences(cos, font['Encoding']);
       final firstCharObj = cos.resolve(font['FirstChar']);
       final firstChar = firstCharObj is CosInteger ? firstCharObj.value : 0;
       final w = cos.resolve(font['Widths']);
@@ -262,6 +308,7 @@ class PdfFontInfo {
       legacyGbk: !isCid && toUnicode.isEmpty && _isLegacyGbkFont(baseFont),
       cjkCmap: cjkCmap,
       encodingNames: encodingNames,
+      differenceNames: differenceNames,
       cffCodeToGid: cffCodeToGid,
       type3Procs: type3Procs,
       type3Resources: type3Resources,
@@ -421,6 +468,7 @@ class PdfFontInfo {
         final parsed = TrueTypeFont.parse(cos.decodeStreamData(file));
         if (parsed != null) return parsed;
       } on Exception {
+        PdfPerf.add(PdfPerfCount.fontParseFailed);
         // fall through to substitution
       }
     }
@@ -436,6 +484,7 @@ class PdfFontInfo {
     try {
       return Type1Font.parse(cos.decodeStreamData(file));
     } on Exception {
+      PdfPerf.add(PdfPerfCount.fontParseFailed);
       return null;
     }
   }
@@ -455,6 +504,7 @@ class PdfFontInfo {
         final parsed = CffFont.parse(cos.decodeStreamData(file));
         if (parsed != null) return parsed;
       } on Exception {
+        PdfPerf.add(PdfPerfCount.fontParseFailed);
         // fall through to substitution
       }
     }
@@ -550,6 +600,17 @@ class PdfFontInfo {
       final mapped = glyphNameUnicode(name);
       if (mapped != null) return mapped;
     }
+    // Built-in encodings of the symbolic standard-14 faces, before the Latin-1
+    // guess - otherwise a substituted font is asked for the glyph at U+0061 and
+    // draws 'a' where the document wanted alpha.
+    if (_isSymbol(baseFont)) {
+      final mapped = symbolUnicode(code);
+      if (mapped != null) return mapped;
+    }
+    if (_isZapfDingbats(baseFont)) {
+      final mapped = zapfDingbatsUnicode(code);
+      if (mapped != null) return mapped;
+    }
     // No encoding entry: Standard/WinAnsi ≈ Latin-1 over 0x20–0xFF.
     if (code >= 0x20 && code <= 0xFF) return code;
     return null;
@@ -640,8 +701,26 @@ class PdfFontInfo {
       final mapped = _legacyGbkUnicode[code];
       if (mapped != null) return String.fromCharCode(mapped);
     }
+    if (!isCid) {
+      // An explicit /Differences entry names the glyph outright, so it beats
+      // the built-in encodings below. Without this the Symbol/ZapfDingbats
+      // tables would shadow a document that deliberately remapped a code.
+      final name = _differenceNames[code];
+      if (name != null) {
+        final mapped = glyphNameUnicode(name);
+        if (mapped != null) return String.fromCharCode(mapped);
+      }
+    }
     if (!isCid && _isZapfDingbats(baseFont)) {
       final mapped = zapfDingbatsUnicode(code);
+      if (mapped != null) return String.fromCharCode(mapped);
+    }
+    // Symbol's built-in encoding, like ZapfDingbats', outranks a *base*
+    // encoding: producers routinely tag a Symbol font /WinAnsiEncoding while
+    // meaning the Greek/math glyphs, and honouring WinAnsi there yields Latin
+    // letters. Only /Differences (handled above) overrides it.
+    if (!isCid && _isSymbol(baseFont)) {
+      final mapped = symbolUnicode(code);
       if (mapped != null) return String.fromCharCode(mapped);
     }
     if (!isCid) {
@@ -655,6 +734,14 @@ class PdfFontInfo {
       return String.fromCharCode(code); // Latin-1 ≈ Standard/WinAnsi enough
     }
     return '';
+  }
+
+  static bool _isSymbol(String? baseFont) {
+    if (baseFont == null) return false;
+    final plus = baseFont.indexOf('+');
+    final name =
+        (plus >= 0 ? baseFont.substring(plus + 1) : baseFont).toLowerCase();
+    return name == 'symbol';
   }
 
   static bool _isZapfDingbats(String? baseFont) {

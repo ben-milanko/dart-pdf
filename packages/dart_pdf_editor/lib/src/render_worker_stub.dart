@@ -10,6 +10,12 @@ import 'render_worker.dart';
 /// locally exactly as it did before the worker existed.
 PdfRenderWorker startRenderWorker(Uint8List bytes) => const _NullRenderWorker();
 
+/// No-op: there is no worker to prewarm on this platform (#450 is web-specific).
+void prewarmRenderWorkers(int count) {}
+
+/// No-op counterpart to [prewarmRenderWorkers].
+void disposePrewarmedRenderWorkers() {}
+
 class _NullRenderWorker extends PdfRenderWorker {
   const _NullRenderWorker();
 

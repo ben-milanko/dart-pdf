@@ -1,7 +1,72 @@
 # Changelog
 
-## Unreleased
+## 2.1.0
 
+- Cache `PdfPage` instances instead of rebuilding them per access, resolving
+  inherited attributes live: a page holds only ancestor-derived values and
+  reads its own `/Rotate`, `/MediaBox`, `/CropBox`, and `/Resources` from the
+  dictionary, so the cache cannot serve a stale value after an edit (#418).
+- Resolve `pageIndexOf` in O(1) through an identity map rather than walking the
+  page tree (#397).
+- Resolve a form widget to its page in O(1), cache the widget list, and hoist
+  the `/Widths` lookup out of the per-glyph loop (#406).
+- Reuse the caller's element snapshot on a targeted edit instead of
+  re-enumerating the page's elements (#402).
+- Support the incremental append save path (`CosUpdater.saveTail()`), so an
+  incremental revision costs the size of the change (#413).
+
+## 2.0.0
+
+- Major version bump for the 2.0.0 package suite (breaking change in
+  `dart_pdf_editor`; the document API is source-compatible with 1.4.7).
+- Open documents from an asynchronous `PdfByteSource` so a remote or large
+  local PDF can be rendered progressively as bytes arrive, rather than after
+  the whole file is in memory (#328).
+- One-tap self-signed signing identities: `PdfSigningIdentity.generate`
+  (P-256 keygen + X.509 v3 self-signed cert) with `toPem`/`fromPem`
+  persistence, `PdfEditor.saveSelfSigned` / `saveSignedEcdsa` /
+  `saveSelfSignedPades` (ECDSA CMS), a default TSA
+  (`PdfDefaultTimestampAuthority`) for trusted B-T time, and org-CA mode
+  (`PdfSigningIdentity.generateCa` + `ca.issue(...)`) so members chain to a
+  shared CA (#337).
+- Sigstore/Fulcio keyless signing (Tier 3): `fulcioSigningIdentity` mints an
+  ephemeral P-256 key, proves possession, requests a short-lived certificate
+  from a Fulcio v2 authority (transport injected like the TSA), and wraps the
+  chain in a `PdfSigningIdentity` to sign B-T (#322, #355).
+- Internal refactors with no public API change: consolidate the composite-font
+  path into one `Type0Font` module and one shared `TextRunRewriter`, and route
+  text-box appearance generation through a single shared builder.
+
+## 1.4.7
+
+- Add a visible signature box for `saveSigned`/`saveSignedPades`:
+  `PdfSignatureAppearance` describes the widget's page/rect, optional
+  handwritten-signature or logo graphic, detail-line show flags, and
+  background/border/text colours, rendered into the /AP /N form
+  (name or graphic on the left, "Digitally signed by / Date / Reason /
+  Location" auto-sized on the right). Output is byte-identical when no box
+  is requested; document timestamps never get an appearance (#298).
+- Round the corners of /Square annotations: `ContentWriter.roundedRect`
+  bakes the radius into the /AP, persisted in /Border (§12.5.4) so it
+  survives resize; `restyleAnnotation(cornerRadius:)` rounds or re-squares
+  a placed rectangle in place (#297).
+- Separate cloud/dash pattern scale from stroke width: the multiplier
+  persists on /BE /I (`PdfAnnotation.cloudBorderScale`) and
+  `restyleAnnotation(cloudScale:)` reproduces it across restyle and
+  reshape; a cloud's /Rect is re-derived from the padded footprint so
+  growing scallops no longer clip (#300).
+- Recolour captured vector snapshots: `PdfVectorSnapshotEditing` gains
+  `isVectorSnapshotStamp` and `recolorVectorSnapshot`, which forces every
+  fill/stroke colour operator in the captured Form XObject to a target ink
+  (recursing into nested forms, forking a private /Cap copy so other
+  pastes keep their colours) while leaving geometry and images untouched;
+  paste marks the stamp (DartPdfVectorSnapshot) (#301).
+- Curl revision-cloud scallops inward with a trailing-foot lean for the
+  hand-drawn look, keeping the outward apex extent (and BBox) unchanged
+  (#295).
+- Fill cloudy /Polygon annotations along the scalloped cloud path
+  (fill+stroke in one pass) so the interior colour reaches the cloud edges
+  (#287).
 - Free-text appearances support line spacing, character spacing (Tc),
   horizontal glyph scaling (Tz), and underline (per box and per rich run),
   round-tripping through the annotation dictionary and `/RC`.

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import '../exceptions.dart';
 import '../objects.dart';
 import '../parser.dart';
+import '../perf/perf.dart';
 import 'ascii.dart';
 import 'ccitt.dart';
 import 'flate.dart';
@@ -87,7 +88,36 @@ Uint8List decodeStream(CosStream stream,
     if (names[i] == stopBeforeFilter) break;
     final filter = _filters[names[i]];
     if (filter == null) throw UnsupportedFilterException(names[i]);
+    final t0 = PdfPerf.begin();
     data = filter.decode(data, i < params.length ? params[i] : null);
+    if (PdfPerf.enabled) _recordFilterDecode(names[i], t0, data.length);
   }
+  if (names.isNotEmpty) PdfPerf.add(PdfPerfCount.streamsDecoded);
   return data;
+}
+
+/// Attributes one filter stage's time + decoded bytes; only called while
+/// [PdfPerf.enabled], so name mapping never runs on the normal path.
+void _recordFilterDecode(String name, int t0, int decodedBytes) {
+  final PdfPerfPhase phase;
+  final PdfPerfCount bytes;
+  switch (name) {
+    case 'FlateDecode' || 'Fl':
+      phase = PdfPerfPhase.flate;
+      bytes = PdfPerfCount.bytesDecodedFlate;
+    case 'LZWDecode' || 'LZW':
+      phase = PdfPerfPhase.lzw;
+      bytes = PdfPerfCount.bytesDecodedOther;
+    case 'CCITTFaxDecode' || 'CCF':
+      phase = PdfPerfPhase.ccitt;
+      bytes = PdfPerfCount.bytesDecodedCcitt;
+    case 'RunLengthDecode' || 'RL':
+      phase = PdfPerfPhase.runLength;
+      bytes = PdfPerfCount.bytesDecodedOther;
+    default:
+      phase = PdfPerfPhase.asciiFilter;
+      bytes = PdfPerfCount.bytesDecodedOther;
+  }
+  PdfPerf.end(phase, t0);
+  PdfPerf.add(bytes, decodedBytes);
 }

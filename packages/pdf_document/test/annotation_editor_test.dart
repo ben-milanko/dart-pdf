@@ -150,6 +150,82 @@ void main() {
     expect(pdfInkStrokeWidth(4, 1), closeTo(6.4, 1e-9));
   });
 
+  test('reduced-opacity ink fades as one isolated transparency group', () {
+    // A pressure (trackpad/stylus) stroke paints each segment separately
+    // with round caps that overlap at every join. Compositing them
+    // individually at partial alpha double-paints those overlaps into
+    // visible dots, so the strokes are drawn opaquely inside a
+    // transparency group the /N form fades as a whole.
+    String innerDrawing(PdfDocument d, PdfAnnotation a) {
+      final resources =
+          d.cos.resolve(a.normalAppearance!.dictionary['Resources'])
+              as CosDictionary;
+      final xObjects = d.cos.resolve(resources['XObject']) as CosDictionary;
+      final inner =
+          d.cos.resolve(xObjects.entries.values.single) as CosStream;
+      return latin1.decode(d.cos.decodeStreamData(inner));
+    }
+
+    final doc = roundTrip((e) => e.addInk(
+          0,
+          [
+            [(100, 100), (150, 130), (200, 100)],
+          ],
+          strokeWidth: 4,
+          opacity: 0.5,
+          pressures: [
+            [0.0, 0.5, 1.0],
+          ],
+        ));
+    final ink = doc.page(0).annotations.single;
+    final form = ink.normalAppearance!;
+
+    // the /N form just fades and paints the group - no stroke ops leak
+    // out where the constant alpha would compound them
+    final outer = latin1.decode(doc.cos.decodeStreamData(form));
+    expect(outer, contains('/GS0 gs'));
+    expect(outer, contains('Do'));
+    expect(outer, isNot(contains(' S')));
+
+    // /GS0 carries the constant alpha; the inner form is an isolated
+    // transparency group
+    final resources =
+        doc.cos.resolve(form.dictionary['Resources']) as CosDictionary;
+    final gstates = doc.cos.resolve(resources['ExtGState']) as CosDictionary;
+    final gs0 = doc.cos.resolve(gstates['GS0']) as CosDictionary;
+    expect((doc.cos.resolve(gs0['ca']) as CosReal).value, closeTo(0.5, 1e-9));
+    expect((doc.cos.resolve(gs0['CA']) as CosReal).value, closeTo(0.5, 1e-9));
+
+    final xObjects = doc.cos.resolve(resources['XObject']) as CosDictionary;
+    final inner = doc.cos.resolve(xObjects.entries.values.single) as CosStream;
+    final group = doc.cos.resolve(inner.dictionary['Group']) as CosDictionary;
+    expect((doc.cos.resolve(group['S']) as CosName).value, 'Transparency');
+    expect(doc.cos.resolve(group['I']), const CosBoolean(true));
+
+    // the per-segment stroking lives inside the group, at full alpha
+    final drawing = innerDrawing(doc, ink);
+    expect(drawing, contains('2.8 w'));
+    expect(drawing, contains('5.2 w'));
+    expect('S'.allMatches(drawing).length, greaterThanOrEqualTo(2));
+    expect(drawing, isNot(contains('gs')));
+
+    // restyling recovers the pressures through the group wrapper, so a
+    // recolor stays per-segment instead of collapsing to a uniform pen
+    final editor = PdfEditor(doc)
+      ..restyleAnnotation(0, ink, color: 0x1E88E5);
+    final out = PdfDocument.open(editor.save());
+    final after = out.page(0).annotations.single;
+    expect(after.color, 0x1E88E5);
+    final afterDrawing = innerDrawing(out, after);
+    expect(afterDrawing, contains('RG'), reason: 'recolored');
+    // still per-segment: recovery inverts the group's segment widths back
+    // to pressures (a lossy re-average, 2.8/5.2 → 3.4/4.6) rather than
+    // flattening to a single uniform pen
+    expect(afterDrawing, contains('3.4 w'),
+        reason: 'pressures recovered through the group wrapper');
+    expect(afterDrawing, contains('4.6 w'));
+  });
+
   test('ink appearances smooth the polyline into Bézier curves', () {
     final doc = roundTrip((e) => e.addInk(0, [
           [(100, 100), (150, 130), (200, 100)],
@@ -224,6 +300,60 @@ void main() {
     final circle = appearanceText(doc, annots[1]);
     expect(circle, contains('c')); // Bézier arcs
     expect(circle, contains('S'));
+  });
+
+  test('rounded rectangle curves its corners and records /Border', () {
+    final doc = roundTrip((e) => e.addSquare(
+          0,
+          const PdfRect(100, 100, 300, 200),
+          strokeWidth: 2,
+          cornerRadius: 12,
+        ));
+    final square = doc.page(0).annotations.single;
+    expect(square.subtype, 'Square');
+    expect(square.cornerRadius, 12);
+
+    final content = appearanceText(doc, square);
+    // roundedRect draws corners as Bézier curves rather than a single `re`.
+    expect(content, contains('c'));
+    expect(content, isNot(contains(' re')));
+
+    // §12.5.4 /Border = [hCornerRadius vCornerRadius width].
+    final border = doc.cos.resolve(square.dict['Border']) as CosArray;
+    expect(border.length, 3);
+    expect((doc.cos.resolve(border[0]) as CosReal).value, 12);
+    expect((doc.cos.resolve(border[1]) as CosReal).value, 12);
+  });
+
+  test('a plain rectangle keeps square corners and no /Border radius', () {
+    final doc = roundTrip((e) => e.addSquare(
+          0,
+          const PdfRect(100, 100, 300, 200),
+          strokeWidth: 2,
+        ));
+    final square = doc.page(0).annotations.single;
+    expect(square.cornerRadius, 0);
+    expect(appearanceText(doc, square), contains(' re'));
+  });
+
+  test('resizing a rounded rectangle keeps its corner radius', () {
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+    editor.addSquare(
+      0,
+      const PdfRect(100, 100, 300, 200),
+      strokeWidth: 2,
+      cornerRadius: 12,
+    );
+    final doc = PdfDocument.open(editor.save());
+    final editor2 = PdfEditor(doc);
+    final square = doc.page(0).annotations.single;
+    editor2.resizeAnnotation(0, square, const PdfRect(100, 100, 500, 400));
+    final resized = PdfDocument.open(editor2.save());
+    final annot = resized.page(0).annotations.single;
+    expect(annot.cornerRadius, 12);
+    final content = appearanceText(resized, annot);
+    expect(content, contains('c'));
+    expect(content, isNot(contains(' re')));
   });
 
   test('free text wraps to the rect and records /DA', () {

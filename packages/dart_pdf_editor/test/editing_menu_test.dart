@@ -15,6 +15,9 @@ Offset viewPoint(double x, double y) => Offset(x * scale, (792 - y) * scale);
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    // controllers share the process-wide snapshot clipboard by default; start
+    // each test from empty so one test's capture can't leak into the next.
+    PdfSnapshotClipboard.instance.clear();
   });
 
   group('controller z-order', () {
@@ -75,6 +78,85 @@ void main() {
       ]);
       expect(editing.selectedAnnotationSlots, [(0, 1), (0, 2)]);
       expect(editing.canBringSelectedToFront, isFalse);
+    });
+  });
+
+  group('polyline/polygon nodes', () {
+    test('addSelectedVertexAt splices a node into the nearest edge', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addPolyLine(0, const [(100, 100), (200, 100), (200, 200)])
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      addTearDown(editing.dispose);
+      expect(editing.canAddSelectedVertex, isTrue);
+
+      // a point beside the first edge lands between vertices 0 and 1
+      editing.addSelectedVertexAt((150, 90));
+      final vertices = editing.document.page(0).annotations.single.vertices;
+      expect(vertices, hasLength(4));
+      expect(vertices![1], (150, 90));
+      expect(vertices, const [(100, 100), (150, 90), (200, 100), (200, 200)]);
+    });
+
+    test('addSelectedVertexAt on a polygon can splice the closing edge', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addPolygon(0, const [(100, 100), (200, 100), (150, 200)])
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      addTearDown(editing.dispose);
+
+      // nearest the last→first edge: appended at the end
+      editing.addSelectedVertexAt((120, 150));
+      final vertices = editing.document.page(0).annotations.single.vertices;
+      expect(vertices, hasLength(4));
+      expect(vertices!.last, (120, 150));
+    });
+
+    test('removeSelectedVertexNear drops the closest node', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addPolyLine(0, const [(100, 100), (200, 100), (200, 200)])
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      addTearDown(editing.dispose);
+      expect(editing.canRemoveSelectedVertex, isTrue);
+
+      editing.removeSelectedVertexNear((205, 105)); // nearest (200, 100)
+      final vertices = editing.document.page(0).annotations.single.vertices;
+      expect(vertices, const [(100, 100), (200, 200)]);
+    });
+
+    test('removal stops at the subtype minimum', () {
+      final line = PdfEditingController(buildMultiPagePdf(1))
+        ..addPolyLine(0, const [(100, 100), (200, 100)])
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      addTearDown(line.dispose);
+      expect(line.canRemoveSelectedVertex, isFalse);
+      final before = line.document;
+      line.removeSelectedVertexNear((100, 100));
+      expect(identical(line.document, before), isTrue);
+
+      final polygon = PdfEditingController(buildMultiPagePdf(1))
+        ..addPolygon(0, const [(100, 100), (200, 100), (150, 200)])
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      addTearDown(polygon.dispose);
+      expect(polygon.canRemoveSelectedVertex, isFalse); // 3 is the floor
+    });
+
+    test('node editing is unavailable for a plain /Line or /Square', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addLine(0, const (100, 100), const (200, 200))
+        ..addRectangle(0, const PdfRect(60, 700, 160, 750))
+        ..tool = PdfEditTool.select;
+      addTearDown(editing.dispose);
+
+      editing.selectAnnotation(0, 0); // the /Line
+      expect(editing.canAddSelectedVertex, isFalse);
+      expect(editing.canRemoveSelectedVertex, isFalse);
+
+      editing.selectAnnotation(0, 1); // the /Square
+      expect(editing.canAddSelectedVertex, isFalse);
     });
   });
 
@@ -222,6 +304,54 @@ void main() {
       expect(editing.selectedAnnotationSlots, [(0, 1), (0, 2)]);
     });
 
+    testWidgets('a polygon right-click offers add/remove node, and adds one',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+      editing.addPolygon(
+          0, const [(400, 600), (500, 600), (500, 700), (400, 700)]);
+      await tester.pump();
+
+      await rightClick(tester, viewPoint(450, 650)); // inside the polygon
+      expect(editing.selectedAnnotation?.subtype, 'Polygon');
+      expect(find.byKey(const ValueKey('pdf-annot-menu-add-node')),
+          findsOneWidget);
+      final remove = tester.widget<PopupMenuItem>(
+          find.byKey(const ValueKey('pdf-annot-menu-remove-node')));
+      expect(remove.enabled, isTrue);
+
+      await tester.tap(find.byKey(const ValueKey('pdf-annot-menu-add-node')));
+      await tester.pumpAndSettle();
+      expect(editing.document.page(0).annotations.last.vertices, hasLength(5));
+    });
+
+    testWidgets('Remove node from the menu drops the nearest vertex',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+      editing.addPolygon(
+          0, const [(400, 600), (500, 600), (500, 700), (400, 700)]);
+      await tester.pump();
+
+      await rightClick(tester, viewPoint(405, 605)); // near vertex (400, 600)
+      expect(editing.selectedAnnotation?.subtype, 'Polygon');
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-annot-menu-remove-node')));
+      await tester.pumpAndSettle();
+
+      final vertices = editing.document.page(0).annotations.last.vertices;
+      expect(vertices, hasLength(3));
+      expect(vertices, isNot(contains((400.0, 600.0))));
+    });
+
+    testWidgets('a rectangle right-click has no node entries', (tester) async {
+      await pumpViewer(tester);
+
+      await rightClick(tester, viewPoint(110, 725)); // rectangle A
+      expect(
+          find.byKey(const ValueKey('pdf-annot-menu-add-node')), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-remove-node')),
+          findsNothing);
+    });
+
     testWidgets('host actions ride below a divider and get the request',
         (tester) async {
       PdfAnnotationMenuRequest? received;
@@ -238,7 +368,9 @@ void main() {
       );
 
       await rightClick(tester, viewPoint(110, 725));
-      expect(find.byType(PopupMenuDivider), findsOneWidget);
+      // stock entries are grouped (clipboard | arrange | set-default | delete)
+      // and the host action rides in its own group below the last divider
+      expect(find.byType(PopupMenuDivider), findsNWidgets(4));
       expect(find.text('Bring to front'), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('host-copy-comment')));
@@ -257,6 +389,73 @@ void main() {
       await rightClick(tester, viewPoint(450, 400));
       expect(find.text('Bring to front'), findsNothing);
       expect(editing.hasAnnotationSelection, isFalse);
+    });
+
+    testWidgets(
+        'a plain rectangle menu rules off clipboard, arrange, set-default, '
+        'delete', (tester) async {
+      await pumpViewer(tester);
+
+      await rightClick(tester, viewPoint(110, 725)); // rectangle A
+      // clipboard (copy/cut/apply/paste) | arrange (front/back) |
+      // set-default (style capture) | delete
+      expect(find.byType(PopupMenuDivider), findsNWidgets(3));
+      expect(find.byKey(const ValueKey('pdf-annot-menu-set-default')),
+          findsOneWidget);
+    });
+
+    testWidgets('a paste-only menu draws no dividers', (tester) async {
+      final editing = await pumpViewer(tester);
+      editing
+        ..selectAnnotation(0, 0)
+        ..copySelectedAnnotations()
+        ..clearAnnotationSelection();
+      await tester.pump();
+
+      // empty-area right-click with a clipboard: the lone Paste group has
+      // nothing to be ruled off from
+      await rightClick(tester, viewPoint(450, 400));
+      expect(
+          find.byKey(const ValueKey('pdf-annot-menu-paste')), findsOneWidget);
+      expect(find.byType(PopupMenuDivider), findsNothing);
+    });
+  });
+
+  group('form field menu', () {
+    Future<PdfEditingController> openMenu(
+        WidgetTester tester, String fieldName) async {
+      final editing = PdfEditingController(buildAcroFormPdf());
+      addTearDown(editing.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => Center(
+              child: ElevatedButton(
+                onPressed: () => showPdfFormFieldMenu(
+                  context: context,
+                  position: const Offset(200, 200),
+                  controller: editing,
+                  fieldName: fieldName,
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      return editing;
+    }
+
+    testWidgets('a text field rules off edit, structure, and delete',
+        (tester) async {
+      await openMenu(tester, 'name');
+      expect(find.byKey(const ValueKey('pdf-form-menu-rename')), findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-form-menu-flatten')), findsOneWidget);
+      // edit (value + style) | rename/convert | delete/flatten
+      expect(find.byType(PopupMenuDivider), findsNWidgets(2));
     });
   });
 

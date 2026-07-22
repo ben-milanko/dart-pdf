@@ -1,12 +1,13 @@
 import 'dart:typed_data';
 
+import 'byte_source.dart';
 import 'crypto/standard_security_handler.dart';
 import 'exceptions.dart';
 import 'filters/filters.dart';
 import 'lexer.dart';
 import 'objects.dart';
 import 'parser.dart';
-import 'token.dart';
+import 'perf/perf.dart';
 import 'xref.dart';
 
 /// A parsed PDF file at the COS level: header, cross-reference machinery, and
@@ -15,28 +16,71 @@ class CosDocument {
   CosDocument._(
       this.bytes, this._offsetShift, this._xref, this.trailer, this.startXref);
 
-  final Uint8List bytes;
+  /// The document image the xref offsets refer to. Grows in place when an
+  /// append-only incremental revision is fed through [applyIncrementalUpdate];
+  /// the prefix is always byte-identical, so objects cached against the old
+  /// buffer stay valid.
+  Uint8List bytes;
 
   /// Offset of the `%PDF-` header. Some files carry junk before the header;
   /// xref offsets are then relative to the header, not the file start.
   final int _offsetShift;
 
   final Map<int, CosXrefEntry> _xref;
-  final CosDictionary trailer;
+  CosDictionary trailer;
 
   /// The newest cross-reference section's offset, as declared after the
   /// `startxref` keyword. An incremental update points /Prev here.
-  final int startXref;
+  int startXref;
 
   final Map<CosReference, CosObject> _cache = {};
+  // Identity-keyed reverse index of [_cache]: object -> the ref it loaded
+  // under. Keeps [referenceTo] O(1) instead of a linear scan of the cache on
+  // every call (editing code maps a mutated object back to its number per
+  // mutation). Kept in lockstep with [_cache] at every insert/remove site.
+  final Map<CosObject, CosReference> _reverseCache = Map.identity();
   final Map<int, _ObjectStream> _objectStreams = {};
+
+  // Decoded stream-payload cache (#392). [decodeStreamData] re-runs the whole
+  // filter chain (and the cipher, on encrypted files) on every call, and every
+  // consumer above pdf_cos decodes the same streams repeatedly - a page's
+  // /Contents for render + text-extract + element-enumeration + colour
+  // processing, form XObjects and appearances per use, fonts, cmaps, functions.
+  //
+  // Correct without invalidation: a [CosStream]'s rawBytes and dictionary are
+  // immutable for its lifetime, so its decoded bytes are stable, and an edit
+  // that changes content builds a *new* stream object (new identity, cache
+  // miss). Entries for streams a revision redefined simply become unreachable
+  // and age out under the budget. The returned bytes are treated as read-only
+  // by every caller (the same contract [decodeStream] already relies on when it
+  // returns [CosStream.rawBytes] verbatim for an unfiltered stream) - audited,
+  // no consumer writes into a decode result.
+  //
+  // Insertion-ordered (a plain Map is a LinkedHashMap): a hit reinserts to the
+  // MRU end, eviction drops from the LRU front. Bounded two ways so it never
+  // competes with the decoded-image budget (#405): a result larger than
+  // [_decodedItemCap] is never cached (large image/soft-mask planes are decoded
+  // a bounded number of times and cached as pixels elsewhere), and the total is
+  // capped at [_decodedCacheBudget].
+  final Map<_DecodedKey, Uint8List> _decodedCache = {};
+  int _decodedCacheBytes = 0;
+
+  /// Largest decoded result the cache will hold, in bytes. Bigger results
+  /// (multi-megapixel image / soft-mask planes) are never cached - they are
+  /// decoded a bounded number of times and their pixels live in the
+  /// decoded-image cache, so caching their raw planes here would just crowd out
+  /// the small, hot streams. Tunable by memory-constrained hosts (and tests).
+  static int decodedStreamCacheItemCapBytes = 1 << 20; // 1 MB
+
+  /// Total bytes the decoded-stream cache retains before evicting
+  /// least-recently-used entries. Tunable by memory-constrained hosts.
+  static int decodedStreamCacheBudgetBytes = 16 << 20; // 16 MB
+
+  /// Bytes currently held in the decoded-stream cache - test/diagnostic hook.
+  int get debugDecodedCacheBytes => _decodedCacheBytes;
 
   StandardSecurityHandler? _encryption;
   int? _encryptObjectNumber;
-
-  /// Which indirect object owns each loaded stream - decryption keys are
-  /// derived from the owner's number and generation.
-  final Map<CosStream, CosReference> _streamOwners = {};
 
   /// Object numbers currently mid-parse, guarding against definitions
   /// that reference their own object (fuzzed and corrupt files).
@@ -54,12 +98,6 @@ class CosDocument {
   /// Object number of the /Encrypt dictionary, whose strings stay raw.
   int? get encryptObjectNumber => _encryptObjectNumber;
 
-  /// Whether [stream]'s payload is still the bytes loaded from the file
-  /// (kept encrypted until [decodeStreamData] runs). Encrypt-on-write
-  /// leaves such payloads alone instead of double-encrypting them.
-  bool streamKeepsFileBytes(CosStream stream) =>
-      _streamOwners.containsKey(stream);
-
   /// Opens a document. For encrypted files [password] is tried first as
   /// the user and then as the owner password; the default empty password
   /// is what most "owner-locked" business documents expect. Throws
@@ -69,54 +107,114 @@ class CosDocument {
   /// corrupt offsets, truncated tables), falls back to rebuilding the xref
   /// by scanning the file for object headers - see [_recover].
   static CosDocument open(Uint8List bytes, {String password = ''}) {
-    final shift = _findHeader(bytes);
+    final t0 = PdfPerf.begin();
     try {
-      final document = _openFromXref(bytes, shift);
-      document._initEncryption(password);
-      final root = document.resolve(document.trailer['Root']);
-      if (root is! CosDictionary) {
-        throw CosParseException('trailer /Root does not resolve');
+      final shift = _findHeader(bytes);
+      try {
+        final document = _openFromXref(bytes, shift);
+        document._initEncryption(password);
+        final root = document.resolve(document.trailer['Root']);
+        if (root is! CosDictionary) {
+          throw CosParseException('trailer /Root does not resolve');
+        }
+        return document;
+      } on CosPasswordException {
+        rethrow;
+      } on UnsupportedEncryptionException {
+        rethrow;
+      } on Exception {
+        // broken xref chain or trailer - fall through to recovery
+      } on RangeError {
+        // ditto: an xref offset pointing outside the file
       }
-      return document;
-    } on CosPasswordException {
-      rethrow;
-    } on UnsupportedEncryptionException {
-      rethrow;
-    } on Exception {
-      // broken xref chain or trailer - fall through to recovery
-    } on RangeError {
-      // ditto: an xref offset pointing outside the file
+      return _recover(bytes, shift, password);
+    } finally {
+      PdfPerf.end(PdfPerfPhase.docOpen, t0);
     }
-    return _recover(bytes, shift, password);
   }
 
-  static CosDocument _openFromXref(Uint8List bytes, int shift) {
-    final startXref = _findStartXref(bytes);
-    final entries = <int, CosXrefEntry>{};
-    CosDictionary trailer = CosDictionary();
-    var isNewest = true;
-
-    // Walk the xref chain newest-to-oldest; the first entry seen for an
-    // object number wins. Hybrid files queue /XRefStm before /Prev.
-    final pending = <int>[startXref + shift];
-    final visited = <int>{};
-    while (pending.isNotEmpty) {
-      final offset = pending.removeAt(0);
-      if (!visited.add(offset)) continue;
-      final section = _parseXrefSection(bytes, offset);
-      for (final entry in section.entries.entries) {
-        entries.putIfAbsent(entry.key, () => entry.value);
-      }
-      if (isNewest) {
-        trailer = section.trailer;
-        isNewest = false;
-      }
-      final hybrid = section.trailer['XRefStm'];
-      if (hybrid is CosInteger) pending.add(hybrid.value + shift);
-      final prev = section.trailer['Prev'];
-      if (prev is CosInteger) pending.add(prev.value + shift);
+  /// Feeds an append-only incremental revision into this already-parsed
+  /// document in place, so a caller holding an open document (a render worker)
+  /// need not re-open and re-parse the whole xref chain to see one page's edit.
+  ///
+  /// [newBytes] must begin with this document's current [bytes] (a strict
+  /// prefix) and carry one or more appended incremental-update sections. Only
+  /// the cross-reference sections newer than the current [startXref] are
+  /// parsed; their entries replace the matching ones (newest wins), the trailer
+  /// is refreshed (keeping keys the newest section omits, like /Root), and the
+  /// cached state of every object the update redefined is evicted so the next
+  /// resolve re-reads it from the appended bytes. Returns the set of redefined
+  /// object numbers.
+  ///
+  /// Throws when the update cannot be applied incrementally (this document was
+  /// opened through xref recovery, [newBytes] is not an append, or the appended
+  /// xref chain is malformed); the caller should re-open from scratch instead.
+  Set<int> applyIncrementalUpdate(Uint8List newBytes) {
+    if (startXref <= 0) {
+      // A recovered document has no trustworthy xref chain to hang a /Prev off.
+      throw CosParseException('cannot incrementally update a recovered document');
     }
-    return CosDocument._(bytes, shift, entries, trailer, startXref);
+    if (newBytes.length <= bytes.length) {
+      throw CosParseException('incremental update is not an append');
+    }
+    // Walk only the sections appended past the previous newest one; the
+    // reader stops descending at the old startxref (everything below it is
+    // already loaded). First occurrence among the appended sections wins and
+    // overrides whatever the old chain held for that object.
+    final reader = CosXrefReader(newBytes, shift: _offsetShift);
+    final newStartXref = reader.findStartXref();
+    final appended = reader.walkFrom(newStartXref, stopAt: startXref);
+    final changed = appended.entries.keys.toSet();
+    appended.entries.forEach((number, entry) => _xref[number] = entry);
+
+    bytes = newBytes;
+    startXref = newStartXref;
+    // Only a section the walk actually parsed carries a trailer to refresh the
+    // doc-level one with (a fully pruned walk leaves the base trailer intact).
+    if (appended.parsedSection) {
+      // The newest trailer wins, but an incremental trailer may omit doc-level
+      // keys (/Root, /Encrypt, /ID) that still carry over from the base.
+      final merged = CosDictionary();
+      trailer.entries.forEach((key, value) => merged.entries[key] = value);
+      appended.trailer.entries
+          .forEach((key, value) => merged.entries[key] = value);
+      trailer = merged;
+    }
+
+    // Drop cached state for every redefined object so the next resolve re-reads
+    // it from the appended bytes; untouched objects keep their warm cache.
+    _cache.removeWhere((ref, obj) {
+      if (!changed.contains(ref.objectNumber)) return false;
+      if (identical(_reverseCache[obj], ref)) _reverseCache.remove(obj);
+      return true;
+    });
+    _objectStreams.removeWhere((number, _) => changed.contains(number));
+    _scannedHeaders = null;
+    return changed;
+  }
+
+  /// Opens a document from an asynchronous, random-access [source], fetching
+  /// only the byte ranges it needs (header, cross-reference chain, and the
+  /// live objects) instead of requiring the whole file up front. Falls back
+  /// to a full sequential download when the source cannot serve useful
+  /// ranges or the cross-reference machinery is broken. See [PdfByteSource]
+  /// and [openCosDocumentFromSource].
+  static Future<CosDocument> openSource(
+    PdfByteSource source, {
+    String password = '',
+    PdfSourceLoadOptions options = const PdfSourceLoadOptions(),
+  }) =>
+      openCosDocumentFromSource(source, password: password, options: options);
+
+  static CosDocument _openFromXref(Uint8List bytes, int shift) {
+    final t0 = PdfPerf.begin();
+    try {
+      final xref = CosXrefReader(bytes, shift: shift).read();
+      return CosDocument._(
+          bytes, shift, xref.entries, xref.trailer, xref.startXref);
+    } finally {
+      PdfPerf.end(PdfPerfPhase.xrefParse, t0);
+    }
   }
 
   /// Last-resort open for files whose cross-reference machinery is broken:
@@ -127,6 +225,18 @@ class CosDocument {
   /// object streams so compressed objects stay reachable, and - failing a
   /// recovered /Root - locates the catalog by its /Type.
   static CosDocument _recover(Uint8List bytes, int shift, String password) {
+    final t0 = PdfPerf.begin();
+    PdfPerf.add(PdfPerfCount.xrefRecovered);
+    PdfPerf.event(PdfPerfEvent.xrefRecoveryTriggered, 'bytes=${bytes.length}');
+    try {
+      return _recoverTimed(bytes, shift, password);
+    } finally {
+      PdfPerf.end(PdfPerfPhase.xrefRecovery, t0);
+    }
+  }
+
+  static CosDocument _recoverTimed(
+      Uint8List bytes, int shift, String password) {
     final entries = _scanObjectHeaders(bytes, shift);
     if (entries.isEmpty) {
       throw CosParseException(
@@ -176,13 +286,16 @@ class CosDocument {
       }
     }
     document._cache.clear();
+    document._reverseCache.clear();
     document._objectStreams.clear();
-    document._streamOwners.clear();
 
     document._initEncryption(password);
 
     // Index object streams so compressed objects resolve. Direct
-    // definitions found by the scan win over compressed ones.
+    // definitions found by the scan win over compressed ones. The
+    // "/N pairs, /First offset" wire format is parsed by the object-stream
+    // decoder itself ([_objectStream]) so a lenience fix there reaches
+    // recovery too - recovery only decides which streams to index.
     for (final number in List.of(entries.keys)) {
       final entry = entries[number]!;
       if (entry.type != CosXrefEntryType.inUse) continue;
@@ -191,12 +304,9 @@ class CosDocument {
         if (object is! CosStream) continue;
         final type = object.dictionary['Type'];
         if (type is! CosName || type.value != 'ObjStm') continue;
-        final n = document.resolve(object.dictionary['N']);
-        if (n is! CosInteger) continue;
-        final parser = CosParser(document.decodeStreamData(object));
-        for (var index = 0; index < n.value; index++) {
-          final objectNumber = parser.expectInteger();
-          parser.expectInteger(); // offset within the stream, unused here
+        final stream = document._objectStream(number);
+        for (var index = 0; index < stream.index.length; index++) {
+          final objectNumber = stream.index[index].$1;
           entries.putIfAbsent(
               objectNumber, () => CosXrefEntry.compressed(number, index));
         }
@@ -350,12 +460,7 @@ class CosDocument {
   /// Finds the reference under which [object] was loaded, or null if it is
   /// not an already-loaded indirect object. Identity-based; used by editing
   /// code to map a mutated object back to its number.
-  CosReference? referenceTo(CosObject object) {
-    for (final entry in _cache.entries) {
-      if (identical(entry.value, object)) return entry.key;
-    }
-    return null;
-  }
+  CosReference? referenceTo(CosObject object) => _reverseCache[object];
 
   /// Registers an in-memory [object] under [ref] as if it had been loaded
   /// from the file, so it resolves (and [referenceTo] finds it) before the
@@ -363,6 +468,7 @@ class CosDocument {
   /// for every object it allocates.
   void adoptObject(CosReference ref, CosObject object) {
     _cache[ref] = object;
+    _reverseCache[object] = ref;
   }
 
   /// Loads an object by number, parsing it on first access.
@@ -379,6 +485,8 @@ class CosDocument {
     // null without caching: the parser treats the junk length leniently
     // and scans for "endstream" instead.
     if (!_loadingObjects.add(objectNumber)) return CosNull.instance;
+    // Count only - this is the hottest path in the package; no clock reads.
+    PdfPerf.add(PdfPerfCount.objectsLoaded);
     final CosObject result;
     try {
       switch (entry.type) {
@@ -398,22 +506,42 @@ class CosDocument {
             // strings decrypt with the owning object's key the moment it
             // loads; stream payloads wait for decodeStreamData
             if (_encryption != null && objectNumber != _encryptObjectNumber) {
-              _decryptStringsDeep(result, objectNumber, indirect.generation);
+              _encryption!
+                  .decryptObjectGraph(result, objectNumber, indirect.generation);
             }
           }
         case CosXrefEntryType.compressed:
           // objects inside an object stream were decrypted wholesale with
-          // the stream itself - never again individually (§7.6.3)
-          result = _objectStream(entry.streamObjectNumber)
-              .objectByNumber(objectNumber, entry.indexInStream);
+          // the stream itself - never again individually (§7.6.3). An object
+          // stream that can't be loaded - a broken file, or a range not yet
+          // fetched in a progressive/page-scoped open - leaves the object
+          // dangling (CosNull) rather than throwing, mirroring the in-use path
+          // above so callers that already tolerate dangling references (forms,
+          // annotations) don't fault on a partial buffer.
+          CosObject compressed;
+          try {
+            compressed = _objectStream(entry.streamObjectNumber)
+                .objectByNumber(objectNumber, entry.indexInStream);
+          } on Exception {
+            // A malformed or not-yet-fetched object stream throws various
+            // exception types - CosParseException, a filter's FormatException /
+            // UnsupportedFilterException, etc. Treat them all as a dangling
+            // reference, like the in-use path's parse fallback above.
+            compressed = CosNull.instance;
+          } on RangeError {
+            compressed = CosNull.instance;
+          }
+          result = compressed;
       }
     } finally {
       _loadingObjects.remove(objectNumber);
     }
-    if (_encryption != null && result is CosStream) {
-      _streamOwners[result] = ref;
-    }
+    // Record the ref every loaded stream was parsed from: its encryption
+    // key derives from it, and its presence marks the payload as still the
+    // file's original bytes (see [CosStream.sourceRef]).
+    if (result is CosStream) result.sourceRef = ref;
     _cache[ref] = result;
+    _reverseCache[result] = ref;
     return result;
   }
 
@@ -435,45 +563,16 @@ class CosDocument {
   /// Looks [objectNumber] up in the lazily built header scan (the same
   /// scan full recovery uses) - the rescue for xrefs whose offsets lie.
   CosIndirectObject? _parseScannedHeader(int objectNumber) {
+    if (_scannedHeaders == null) {
+      PdfPerf.event(PdfPerfEvent.objectRescueScanBuilt);
+    }
     final headers =
         _scannedHeaders ??= _scanObjectHeaders(bytes, _offsetShift);
     final entry = headers[objectNumber];
     if (entry == null || entry.type != CosXrefEntryType.inUse) return null;
-    return _parseIndirectAt(entry.offset, objectNumber);
-  }
-
-  /// Replaces every string in [object]'s graph with its decrypted form.
-  /// References are leaves here, so a single object's graph is a tree.
-  void _decryptStringsDeep(CosObject object, int objectNumber, int generation) {
-    final handler = _encryption!;
-    switch (object) {
-      case CosArray():
-        for (var i = 0; i < object.items.length; i++) {
-          final item = object.items[i];
-          if (item is CosString) {
-            object.items[i] = CosString(
-                handler.decryptString(item.bytes, objectNumber, generation),
-                isHex: item.isHex);
-          } else {
-            _decryptStringsDeep(item, objectNumber, generation);
-          }
-        }
-      case CosDictionary():
-        for (final key in object.entries.keys.toList()) {
-          final value = object.entries[key]!;
-          if (value is CosString) {
-            object.entries[key] = CosString(
-                handler.decryptString(value.bytes, objectNumber, generation),
-                isHex: value.isHex);
-          } else {
-            _decryptStringsDeep(value, objectNumber, generation);
-          }
-        }
-      case CosStream():
-        _decryptStringsDeep(object.dictionary, objectNumber, generation);
-      default:
-        break;
-    }
+    final rescued = _parseIndirectAt(entry.offset, objectNumber);
+    if (rescued != null) PdfPerf.add(PdfPerfCount.xrefOffsetRescue);
+    return rescued;
   }
 
   /// Follows references until reaching a direct object. Null input and
@@ -493,59 +592,50 @@ class CosDocument {
   /// owning object's key before the filters run. See [decodeStream] for
   /// [stopBeforeFilter].
   Uint8List decodeStreamData(CosStream stream, {String? stopBeforeFilter}) {
+    final key = _DecodedKey(stream, stopBeforeFilter);
+    final hit = _decodedCache.remove(key);
+    if (hit != null) {
+      _decodedCache[key] = hit; // reinsert as most-recently-used
+      return hit;
+    }
+    final decoded = _decodeStreamUncached(stream, stopBeforeFilter);
+    _cacheDecoded(key, decoded);
+    return decoded;
+  }
+
+  /// The decrypt-then-filter-decode work behind [decodeStreamData], without the
+  /// cache. Used directly for object streams, whose decoded bytes are already
+  /// held (and reused) by [_objectStreams] - caching them again would only pin a
+  /// never-re-hit entry against the budget.
+  Uint8List _decodeStreamUncached(CosStream stream, String? stopBeforeFilter) {
     var source = stream;
     final handler = _encryption;
     if (handler != null) {
-      final owner = _streamOwners[stream];
-      if (owner != null && _streamIsEncrypted(stream)) {
+      final owner = stream.sourceRef;
+      if (owner != null && handler.streamPayloadIsEncrypted(stream, resolve)) {
+        final t0 = PdfPerf.begin();
         source = CosStream(
             stream.dictionary,
             handler.decryptStream(
                 stream.rawBytes, owner.objectNumber, owner.generation));
+        PdfPerf.end(PdfPerfPhase.streamDecrypt, t0);
       }
     }
     return decodeStream(source,
         resolve: _resolveRef, stopBeforeFilter: stopBeforeFilter);
   }
 
-  /// Cross-reference streams are never encrypted (§7.5.8.2), /Metadata is
-  /// exempt under /EncryptMetadata false, and a /Crypt filter whose /Name
-  /// is /Identity (or missing - the default) marks the bytes as plain.
-  bool _streamIsEncrypted(CosStream stream) {
-    final dict = stream.dictionary;
-    final type = resolve(dict['Type']);
-    if (type is CosName && type.value == 'XRef') return false;
-    if (type is CosName &&
-        type.value == 'Metadata' &&
-        !_encryption!.encryptMetadata) {
-      return false;
+  /// Stores [decoded] under [key] when it is small enough to cache, evicting
+  /// least-recently-used entries until the total is back within budget.
+  void _cacheDecoded(_DecodedKey key, Uint8List decoded) {
+    if (decoded.length > decodedStreamCacheItemCapBytes) return;
+    _decodedCache[key] = decoded;
+    _decodedCacheBytes += decoded.length;
+    while (_decodedCacheBytes > decodedStreamCacheBudgetBytes &&
+        _decodedCache.length > 1) {
+      final oldest = _decodedCache.keys.first;
+      _decodedCacheBytes -= _decodedCache.remove(oldest)!.length;
     }
-    final filter = resolve(dict['Filter']);
-    final hasCrypt = filter is CosName && filter.value == 'Crypt' ||
-        filter is CosArray &&
-            filter.items.any((f) {
-              final name = resolve(f);
-              return name is CosName && name.value == 'Crypt';
-            });
-    if (hasCrypt) {
-      var parms = resolve(dict['DecodeParms']);
-      if (parms is CosArray && filter is CosArray) {
-        // aligned with the filter array; find the /Crypt slot
-        final slots = parms;
-        parms = CosNull.instance;
-        for (var i = 0; i < filter.items.length && i < slots.length; i++) {
-          final name = resolve(filter.items[i]);
-          if (name is CosName && name.value == 'Crypt') {
-            parms = resolve(slots[i]);
-            break;
-          }
-        }
-      }
-      if (parms is! CosDictionary) return false;
-      final name = resolve(parms['Name']);
-      return name is CosName && name.value != 'Identity';
-    }
-    return true;
   }
 
   CosObject _resolveRef(CosReference ref) =>
@@ -553,19 +643,25 @@ class CosDocument {
 
   _ObjectStream _objectStream(int streamObjectNumber) {
     return _objectStreams.putIfAbsent(streamObjectNumber, () {
-      final object = getObject(streamObjectNumber, 0);
-      if (object is! CosStream) {
-        throw CosParseException(
-            'object stream $streamObjectNumber is not a stream');
+      final t0 = PdfPerf.begin();
+      try {
+        final object = getObject(streamObjectNumber, 0);
+        if (object is! CosStream) {
+          throw CosParseException(
+              'object stream $streamObjectNumber is not a stream');
+        }
+        final data = _decodeStreamUncached(object, null);
+        final count = resolve(object.dictionary['N']);
+        final first = resolve(object.dictionary['First']);
+        if (count is! CosInteger || first is! CosInteger) {
+          throw CosParseException(
+              'object stream $streamObjectNumber has invalid /N or /First');
+        }
+        PdfPerf.add(PdfPerfCount.objectStreamsLoaded);
+        return _ObjectStream(data, count.value, first.value);
+      } finally {
+        PdfPerf.end(PdfPerfPhase.objectStreamIndex, t0);
       }
-      final data = decodeStreamData(object);
-      final count = resolve(object.dictionary['N']);
-      final first = resolve(object.dictionary['First']);
-      if (count is! CosInteger || first is! CosInteger) {
-        throw CosParseException(
-            'object stream $streamObjectNumber has invalid /N or /First');
-      }
-      return _ObjectStream(data, count.value, first.value);
     });
   }
 
@@ -578,121 +674,25 @@ class CosDocument {
     return index;
   }
 
-  static int _findStartXref(Uint8List bytes) {
-    final from = bytes.length > 2048 ? bytes.length - 2048 : 0;
-    final index = _lastIndexOf(bytes, 'startxref', from);
-    if (index < 0) {
-      // open() catches this and falls back to scan recovery
-      throw CosParseException('missing startxref');
-    }
-    return CosParser(bytes, offset: index + 'startxref'.length)
-        .expectInteger();
-  }
+}
 
-  static CosXrefSection _parseXrefSection(Uint8List bytes, int offset) {
-    if (offset < 0 || offset >= bytes.length) {
-      throw CosParseException('cross-reference offset out of range', offset);
-    }
-    final parser = CosParser(bytes, offset: offset);
-    if (parser.peekToken().isKeyword('xref')) {
-      return _parseXrefTable(parser);
-    }
-    return _parseXrefStream(parser);
-  }
+/// Key for the decoded-stream cache: a [CosStream] by identity plus the
+/// `stopBeforeFilter` argument (the same stream decodes to different bytes when
+/// asked to stop before its final filter - e.g. a DCT image kept JPEG-encoded).
+class _DecodedKey {
+  _DecodedKey(this.stream, this.stopBeforeFilter);
 
-  static CosXrefSection _parseXrefTable(CosParser parser) {
-    parser.expectKeyword('xref');
-    final entries = <int, CosXrefEntry>{};
-    while (parser.peekToken().type == CosTokenType.integer) {
-      final start = parser.expectInteger();
-      final count = parser.expectInteger();
-      for (var i = 0; i < count; i++) {
-        final first = parser.expectInteger();
-        final second = parser.expectInteger();
-        final kind = parser.nextToken();
-        final objectNumber = start + i;
-        if (kind.isKeyword('n')) {
-          entries.putIfAbsent(
-              objectNumber, () => CosXrefEntry.inUse(first, second));
-        } else if (kind.isKeyword('f')) {
-          entries.putIfAbsent(objectNumber, () => const CosXrefEntry.free());
-        } else {
-          throw CosParseException('invalid xref entry type', kind.offset);
-        }
-      }
-    }
-    parser.expectKeyword('trailer');
-    final trailer = parser.parseObject();
-    if (trailer is! CosDictionary) {
-      throw CosParseException('trailer is not a dictionary');
-    }
-    return CosXrefSection(entries, trailer);
-  }
+  final CosStream stream;
+  final String? stopBeforeFilter;
 
-  static CosXrefSection _parseXrefStream(CosParser parser) {
-    final indirect = parser.parseIndirectObject();
-    final object = indirect.object;
-    if (object is! CosStream) {
-      throw CosParseException('expected a cross-reference stream');
-    }
-    final dict = object.dictionary;
-    // xref stream dictionary entries must be direct (no resolver available
-    // before the xref itself is loaded)
-    final data = decodeStream(object);
+  @override
+  bool operator ==(Object other) =>
+      other is _DecodedKey &&
+      identical(other.stream, stream) &&
+      other.stopBeforeFilter == stopBeforeFilter;
 
-    final w = dict['W'];
-    final size = dict['Size'];
-    if (w is! CosArray || w.length < 3 || size is! CosInteger) {
-      throw CosParseException('invalid /W or /Size in cross-reference stream');
-    }
-    final widths = [
-      for (final field in w.items)
-        field is CosInteger
-            ? field.value
-            : throw CosParseException('invalid /W entry'),
-    ];
-    final index = dict['Index'];
-    final ranges = index is CosArray
-        ? [
-            for (final v in index.items)
-              v is CosInteger
-                  ? v.value
-                  : throw CosParseException('invalid /Index entry'),
-          ]
-        : [0, size.value];
-
-    final entries = <int, CosXrefEntry>{};
-    final rowLength = widths.fold(0, (a, b) => a + b);
-    var pos = 0;
-    for (var r = 0; r + 1 < ranges.length; r += 2) {
-      final start = ranges[r];
-      final count = ranges[r + 1];
-      for (var i = 0; i < count && pos + rowLength <= data.length; i++) {
-        final fields = <int>[];
-        for (final width in widths) {
-          var value = 0;
-          for (var k = 0; k < width; k++) {
-            value = (value << 8) | data[pos++];
-          }
-          fields.add(value);
-        }
-        // a zero-width type field defaults to "in use" (§7.5.8.3)
-        final type = widths[0] == 0 ? 1 : fields[0];
-        final objectNumber = start + i;
-        switch (type) {
-          case 0:
-            entries.putIfAbsent(objectNumber, () => const CosXrefEntry.free());
-          case 1:
-            entries.putIfAbsent(objectNumber,
-                () => CosXrefEntry.inUse(fields[1], fields[2]));
-          case 2:
-            entries.putIfAbsent(objectNumber,
-                () => CosXrefEntry.compressed(fields[1], fields[2]));
-        }
-      }
-    }
-    return CosXrefSection(entries, dict);
-  }
+  @override
+  int get hashCode => Object.hash(identityHashCode(stream), stopBeforeFilter);
 }
 
 /// A decoded /Type /ObjStm: many small objects packed into one stream.
@@ -700,7 +700,15 @@ class _ObjectStream {
   _ObjectStream(this.data, int count, this.first) {
     final parser = CosParser(data);
     for (var i = 0; i < count; i++) {
-      _index.add((parser.expectInteger(), parser.expectInteger()));
+      try {
+        _index.add((parser.expectInteger(), parser.expectInteger()));
+      } on CosParseException {
+        // A truncated or malformed header stops the index here; the pairs
+        // parsed so far stay usable (real-world files are lenient on
+        // input). Recovery keeps the leading compressed objects, and
+        // objectByNumber only fails to find the ones that never parsed.
+        break;
+      }
     }
   }
 
@@ -711,6 +719,11 @@ class _ObjectStream {
 
   /// (object number, relative offset) pairs from the stream header.
   final List<(int, int)> _index = [];
+
+  /// The parsed (object number, relative offset) pairs, in stream order.
+  /// Recovery reuses this so the header wire-format is parsed in exactly
+  /// one place (see [CosDocument._recover]).
+  List<(int, int)> get index => List.unmodifiable(_index);
 
   CosObject objectByNumber(int objectNumber, int hintIndex) {
     var entry = hintIndex >= 0 &&
@@ -738,20 +751,6 @@ class _ObjectStream {
 int _indexOf(Uint8List bytes, String pattern, int from, [int? limit]) {
   final end = (limit ?? bytes.length) - pattern.length;
   for (var p = from; p <= end; p++) {
-    var match = true;
-    for (var i = 0; i < pattern.length; i++) {
-      if (bytes[p + i] != pattern.codeUnitAt(i)) {
-        match = false;
-        break;
-      }
-    }
-    if (match) return p;
-  }
-  return -1;
-}
-
-int _lastIndexOf(Uint8List bytes, String pattern, int from) {
-  for (var p = bytes.length - pattern.length; p >= from; p--) {
     var match = true;
     for (var i = 0; i < pattern.length; i++) {
       if (bytes[p + i] != pattern.codeUnitAt(i)) {

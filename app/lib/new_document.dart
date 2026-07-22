@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import 'l10n/app_l10n.dart';
+
 enum _PageSizePreset {
   a4('A4', '210 × 297 mm', PdfPageSize.a4),
   letter('US Letter', '8.5 × 11 in', PdfPageSize.letter),
@@ -25,14 +27,14 @@ Future<PdfPageSize?> showNewDocumentDialog(BuildContext context) {
     builder: (context) => StatefulBuilder(
       builder: (context, setState) => AlertDialog(
         key: const ValueKey('new-document-dialog'),
-        title: const Text('New document'),
+        title: Text(appL10n(context).newDocTitle),
         content: SizedBox(
           width: 360,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('Page size'),
+              Text(appL10n(context).newDocPageSize),
               const SizedBox(height: 8),
               DropdownButton<_PageSizePreset>(
                 key: const ValueKey('new-document-page-size'),
@@ -50,20 +52,20 @@ Future<PdfPageSize?> showNewDocumentDialog(BuildContext context) {
                 },
               ),
               const SizedBox(height: 20),
-              const Text('Orientation'),
+              Text(appL10n(context).newDocOrientation),
               const SizedBox(height: 8),
               SegmentedButton<Orientation>(
                 key: const ValueKey('new-document-orientation'),
-                segments: const [
+                segments: [
                   ButtonSegment(
                     value: Orientation.portrait,
-                    icon: Icon(Icons.stay_current_portrait),
-                    label: Text('Portrait'),
+                    icon: const Icon(Icons.stay_current_portrait),
+                    label: Text(appL10n(context).newDocPortrait),
                   ),
                   ButtonSegment(
                     value: Orientation.landscape,
-                    icon: Icon(Icons.stay_current_landscape),
-                    label: Text('Landscape'),
+                    icon: const Icon(Icons.stay_current_landscape),
+                    label: Text(appL10n(context).newDocLandscape),
                   ),
                 ],
                 selected: {orientation},
@@ -76,7 +78,7 @@ Future<PdfPageSize?> showNewDocumentDialog(BuildContext context) {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
+            child: Text(appL10n(context).cancel),
           ),
           FilledButton(
             key: const ValueKey('new-document-create'),
@@ -85,7 +87,7 @@ Future<PdfPageSize?> showNewDocumentDialog(BuildContext context) {
                   ? preset.size.portrait
                   : preset.size.landscape,
             ),
-            child: const Text('Create'),
+            child: Text(appL10n(context).newDocCreate),
           ),
         ],
       ),

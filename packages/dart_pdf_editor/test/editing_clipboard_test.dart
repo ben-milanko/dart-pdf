@@ -196,8 +196,8 @@ void main() {
     test('selectedAnnotationStyle reads the current style', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..color = const Color(0xFFE53935)
-        ..strokeWidth = 4
-        ..opacity = 0.5
+        ..preferences.strokeWidth = 4
+        ..preferences.opacity = 0.5
         ..addRectangle(0, const PdfRect(100, 650, 250, 750));
       addTearDown(editing.dispose);
       expect(editing.selectedAnnotationStyle, isNull);
@@ -238,7 +238,8 @@ void main() {
         WidgetTester tester,
         {int pages = 2,
         bool toolbar = false,
-        PdfSystemImagePasteProvider? systemImagePasteProvider}) async {
+        PdfSystemImagePasteProvider? systemImagePasteProvider,
+        PdfSystemTextPasteProvider? systemTextPasteProvider}) async {
       final editing = PdfEditingController(buildMultiPagePdf(pages));
       final viewer = PdfViewerController();
       addTearDown(editing.dispose);
@@ -253,6 +254,7 @@ void main() {
               controller: viewer,
               editing: editing,
               systemImagePasteProvider: systemImagePasteProvider,
+              systemTextPasteProvider: systemTextPasteProvider,
             ),
           ),
           bottomNavigationBar: toolbar
@@ -359,6 +361,78 @@ void main() {
       expect(annotation.contents, 'Pasted note');
       expect(annotation.rect, const PdfRect(290, 384.6, 510, 415.4));
       expect(editing.selectedAnnotationSlots, [(0, 0)]);
+      await settle(tester);
+    });
+
+    testWidgets(
+        'Ctrl+V prefers systemTextPasteProvider over Flutter Clipboard',
+        (tester) async {
+      // Flutter's Clipboard.getData is unreliable on the web; the host injects
+      // a provider (browser Async Clipboard API). It must win over the
+      // platform channel and never fall through to it.
+      var channelReads = 0;
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.getData') {
+          channelReads++;
+          return const <String, Object?>{'text': 'From Flutter clipboard'};
+        }
+        return null;
+      });
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+
+      var textReads = 0;
+      final (editing, _) = await pumpEditor(
+        tester,
+        systemTextPasteProvider: (context) async {
+          textReads++;
+          return 'From host provider';
+        },
+      );
+      await tester.tapAt(view(400, 400), kind: PointerDeviceKind.mouse);
+      await tester.pump();
+
+      await sendCtrl(tester, LogicalKeyboardKey.keyV);
+      await tester.pump();
+
+      expect(textReads, 1);
+      expect(channelReads, 0);
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.subtype, 'FreeText');
+      expect(annotation.contents, 'From host provider');
+      await settle(tester);
+    });
+
+    testWidgets(
+        'Ctrl+V falls back to systemTextPasteProvider when no image is present',
+        (tester) async {
+      // The web paste path: the image read finds nothing, so paste must
+      // consult the text provider (rather than giving up).
+      var imageReads = 0;
+      var textReads = 0;
+      final (editing, _) = await pumpEditor(
+        tester,
+        systemImagePasteProvider: (context) async {
+          imageReads++;
+          return null;
+        },
+        systemTextPasteProvider: (context) async {
+          textReads++;
+          return 'Fallback note';
+        },
+      );
+      await tester.tapAt(view(400, 400), kind: PointerDeviceKind.mouse);
+      await tester.pump();
+
+      await sendCtrl(tester, LogicalKeyboardKey.keyV);
+      await tester.pump();
+
+      expect(imageReads, 1);
+      expect(textReads, 1);
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.subtype, 'FreeText');
+      expect(annotation.contents, 'Fallback note');
       await settle(tester);
     });
 
@@ -523,7 +597,7 @@ void main() {
         (tester) async {
       final (editing, _) = await pumpEditor(tester, toolbar: true);
       editing
-        ..strokeWidth = 2
+        ..preferences.strokeWidth = 2
         ..addRectangle(0, const PdfRect(100, 650, 250, 750))
         ..selectAnnotation(0, 0);
       await tester.pump();

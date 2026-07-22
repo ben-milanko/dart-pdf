@@ -26,9 +26,9 @@ void main() {
               alignment: Alignment.topLeft,
               child: PdfSearchResultsPanel(
                 controller: controller,
-                side: generation.isEven
-                    ? PdfSidebarSide.left
-                    : PdfSidebarSide.right,
+                dock: generation.isEven
+                    ? PdfPanelDock.left
+                    : PdfPanelDock.right,
                 bottomSheet: generation % 3 == 0,
               ),
             ),

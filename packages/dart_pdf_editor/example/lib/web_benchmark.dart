@@ -30,7 +30,6 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:web/web.dart' as web;
 
-import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 
 void main() {

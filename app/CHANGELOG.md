@@ -1,5 +1,45 @@
 # Changelog
 
+## 2.0.0
+
+- Deep zoom now shows crisp detail on every platform: zoom past the normal
+  limit and the visible area re-renders at full resolution instead of looking
+  blurry.
+- Large files and cloud documents open much faster — the first page appears
+  while the rest of the file is still loading, instead of waiting for the whole
+  download or read to finish.
+- Digitally sign a document with one tap: create a signing identity in the app
+  (self-signed, or keyless via Sigstore) and sign without setting up
+  certificates by hand.
+- Rearrange the workspace: side panels can be dragged and docked to any edge,
+  placed side by side or grouped into tabs, and the layout is remembered.
+  Press F12 for a developer-tools overlay.
+- The font menu lists the document's own fonts and your recent picks, and the
+  toolbar shows the actual embedded typeface.
+- The annotation list supports multi-select (ctrl/shift) and a hover menu.
+- Better colour accuracy for certain CMYK photos, and assorted mobile polish.
+
+## 1.4.7
+
+- Printing now goes through each platform's own print system, so
+  documents that open here but trip up other engines print reliably —
+  and printing no longer crashes the app on Windows.
+- Scanned and image-heavy pages, especially large print exports, render
+  much faster and use less memory; the app also frees cached images when
+  the system is low on memory.
+- Rectangle shapes can now have rounded corners, and dash and cloud
+  patterns can be scaled independently of line thickness.
+- Copy, cut, and paste whole pages in the page thumbnail view — including
+  between open document tabs — with the usual keyboard shortcuts.
+- The colour picker now shows a swatch grid with the colours you recently
+  used and the colours already in the open document.
+- Nudge a selected annotation with the arrow keys, add or remove points on
+  polyline and polygon shapes, and recolour a pasted vector snapshot.
+- Add a visible signature box when signing, showing the signer's name and
+  details (and an optional handwritten-signature or logo graphic).
+- Free-text boxes gain line spacing, letter spacing, width, and underline
+  controls, and Save now works on a brand-new untitled document.
+
 ## 1.4.6
 
 - Hover a document tab on desktop to preview the page before switching to it,
