@@ -153,28 +153,10 @@ class PdfAnnotationBehavior {
   /// while opacity stays editable.
   bool get supportsColor => canRestyle && !isImageStamp;
 
-  /// Whether this /Stamp's normal appearance is a single embedded image (a
-  /// pasted or placed picture) rather than a drawn text check-mark. Such a
-  /// stamp carries no drawable /Contents but references an image XObject,
-  /// so the restyle path re-bakes only its alpha and keeps the picture.
-  late final bool isImageStamp = subtype == 'Stamp' && _hasStampImage();
-
-  bool _hasStampImage() {
-    final form = annotation.normalAppearance;
-    if (form == null) return false;
-    final cos = annotation.document.cos;
-    final resources = cos.resolve(form.dictionary['Resources']);
-    if (resources is! CosDictionary) return false;
-    final xobjects = cos.resolve(resources['XObject']);
-    if (xobjects is! CosDictionary) return false;
-    for (final entry in xobjects.entries.values) {
-      final xobj = cos.resolve(entry);
-      if (xobj is! CosStream) continue;
-      final subtype = cos.resolve(xobj.dictionary['Subtype']);
-      if (subtype is CosName && subtype.value == 'Image') return true;
-    }
-    return false;
-  }
+  /// Whether this /Stamp is a placed raster picture (see
+  /// [PdfAnnotation.isImageStamp]) rather than a drawn text or template
+  /// stamp, so the restyle path re-bakes only its alpha over the same image.
+  bool get isImageStamp => annotation.isImageStamp;
 
   late final PdfFreeTextStyle? _freeTextStyle =
       subtype == 'FreeText' ? annotation.freeTextStyle : null;

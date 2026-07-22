@@ -27,17 +27,27 @@ nothing.
 **Fix.** Teach the restyle path to re-bake only the alpha over the same
 image instead of excluding image stamps.
 
-- `PdfAnnotationBehavior.isImageStamp` (`annotation_behavior.dart`): a
-  `/Stamp` whose normal appearance references an image XObject. `canRestyle`
-  for `Stamp` now also accepts image stamps.
+- **Detection is a private marker, not XObject sniffing.** `addImageStamp`
+  writes `/DartPdfImageStamp true` on the annotation dict (same
+  `DartPdf*`-private convention as `stampType`/`stampTags`), and
+  `PdfAnnotation.isImageStamp` reads it back. This matters: a
+  `PdfStampTemplate` can carry an **image component** alongside shapes and
+  text (`PdfStampTemplateComponentType.image`), so a "does the appearance
+  contain an image XObject?" heuristic would misclassify a template stamp
+  and the image-restyle path would flatten every other part to a single
+  full-rect picture. The marker names exactly the stamps `addImageStamp`
+  produced. Pre-existing (unmarked) image stamps stay non-restyleable, as
+  before - no regression, no risk. `PdfAnnotationBehavior.isImageStamp`
+  delegates to the annotation; `canRestyle` for `Stamp` now accepts
+  `contents non-empty || isImageStamp`.
 - `annotation_editor.dart`: `addImageStamp`'s appearance build is factored
   into `_imageStampContent(rect, imageRef, opacity, pageRotation:)` (shared
   so creation and restyle stay identical). `_stampImageRef(form)` recovers
   the existing indirect image reference from an appearance so a restyle
   re-references the picture rather than re-embedding it. The `Stamp` branch
-  of `_regenerateStyledAppearance` now forks: image stamp → rebuild via
-  `_imageStampContent` at the new alpha; text stamp → the old
-  `_stampContent` path. This rides the existing rotation-aware
+  of `_regenerateStyledAppearance` forks **only when `annotation.isImageStamp`**:
+  image stamp → rebuild via `_imageStampContent` at the new alpha; otherwise
+  the old `_stampContent` text path. This rides the existing rotation-aware
   `_restyleRegenerate` (local-rect regen + `rotateAnnotation`), so a rotated
   image stamp keeps its angle.
 - `_appearanceOpacity(form)` is the fallback when a restyle passes no
@@ -51,9 +61,12 @@ colour swatch for image stamps: `PdfAnnotationBehavior.supportsColor`
 opacity for the default stamp case, so no change there.
 
 **Tests.** `image_stamp_test.dart` flips the old "not restyleable" assertion
-to "restyleable for opacity, reads as image stamp, no colour", plus a
-round-trip that the alpha changes while `/Img0 Do` (and the image XObject)
-survives, and that a no-opacity restyle preserves a bumped alpha.
-`editing_properties_test.dart` adds a widget test: a placed image shows no
-colour swatch, and dragging the opacity slider lowers `appearanceOpacity`
-while the picture survives.
+to "restyleable for opacity, reads as image stamp, no colour" (marker
+survives save/reopen), plus a round-trip that the alpha changes while
+`/Img0 Do` (and the image XObject) survives, and that a no-opacity restyle
+preserves a bumped alpha. A regression test builds a template stamp
+carrying an image component + rectangle + text and asserts it is **not**
+an image stamp (keeps its colour control, never routes through the
+picture-only path). `editing_properties_test.dart` adds a widget test: a
+placed image shows no colour swatch, and dragging the opacity slider lowers
+`appearanceOpacity` while the picture survives.

@@ -53,11 +53,44 @@ void main() {
     final doc = roundTrip(
         (e) => e.addImageStamp(0, const PdfRect(0, 0, 100, 100), image));
     final stamp = doc.page(0).annotations.single;
+    // the private marker survives the save/reopen round-trip
+    expect(stamp.isImageStamp, isTrue);
     expect(pdfCanRestyleAnnotation(stamp), isTrue);
     expect(stamp.behavior.isImageStamp, isTrue);
     // it is a picture, not a colour swatch, so no tint control applies
     expect(stamp.behavior.supportsColor, isFalse);
     expect(stamp.behavior.supportsOpacity, isTrue);
+  });
+
+  test('a template stamp that contains an image is not an image stamp', () {
+    // A vector/template stamp can carry an image component alongside shapes
+    // and text. It must NOT be mistaken for a bare picture, or its restyle
+    // would flatten every other part away.
+    final template = PdfStampTemplate(
+      width: 200,
+      height: 100,
+      components: [
+        PdfStampTemplateComponent.rectangle(
+            x: 0, y: 0, width: 200, height: 100, color: 0x2E7D32),
+        PdfStampTemplateComponent.image(
+            x: 10, y: 10, width: 40, height: 40, imageBytes: _png),
+        PdfStampTemplateComponent.text(
+            x: 60, y: 30, width: 130, height: 40, text: 'APPROVED', color: 0),
+      ],
+    );
+    final doc = roundTrip((e) => e.addTemplateStamp(
+        0, const PdfRect(100, 500, 300, 600), template,
+        contents: 'APPROVED'));
+    final stamp = doc.page(0).annotations.single;
+    // its appearance really does embed an image...
+    final content =
+        latin1.decode(doc.cos.decodeStreamData(stamp.normalAppearance!));
+    expect(content, contains(' Do'));
+    // ...but it is not marked an image stamp, so it keeps its colour control
+    // and never routes through the picture-only restyle path
+    expect(stamp.isImageStamp, isFalse);
+    expect(stamp.behavior.isImageStamp, isFalse);
+    expect(stamp.behavior.supportsColor, isTrue);
   });
 
   test('restyling an image stamp changes its alpha but keeps the picture', () {

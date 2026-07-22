@@ -147,6 +147,20 @@ class PdfAnnotation {
     return value is CosString ? value.text : null;
   }
 
+  /// Whether this /Stamp is a placed raster picture (PdfEditor.addImageStamp)
+  /// rather than a drawn text or template stamp.
+  ///
+  /// The editor writes this private marker when it embeds an image as a
+  /// stamp. It stays in the dictionary across saves, copies, and reopens so
+  /// the restyle path knows it can re-bake the appearance's alpha over the
+  /// same picture - and does not mistake a template stamp that merely
+  /// contains an image component for a bare image.
+  bool get isImageStamp {
+    if (subtype != 'Stamp') return false;
+    final value = document.cos.resolve(dict['DartPdfImageStamp']);
+    return value is CosBoolean && value.value;
+  }
+
   /// App-defined labels attached to a custom stamp annotation.
   ///
   /// These are stored as private annotation metadata beside [stampType].

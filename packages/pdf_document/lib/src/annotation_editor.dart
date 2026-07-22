@@ -3416,9 +3416,13 @@ extension PdfAnnotationEditing on PdfEditor {
       opacity,
       pageRotation: effectivePageRotation,
     );
+    // Mark it a picture stamp so the restyle path re-bakes only its alpha
+    // over this image, and never mistakes it for a text/template stamp.
+    final dict = _markupDict('Stamp', rect, 0xC03030, null, author)
+      ..['DartPdfImageStamp'] = const CosBoolean(true);
     _addAnnotation(
       pageIndex,
-      _markupDict('Stamp', rect, 0xC03030, null, author),
+      dict,
       _form(rect, w, resources: resources),
       name: name,
     );
@@ -4792,18 +4796,29 @@ extension PdfAnnotationEditing on PdfEditor {
       case 'Stamp':
         final form = annotation.normalAppearance;
         if (form == null) return false;
-        // An image stamp re-bakes its alpha over the same picture; a text
-        // check-mark stamp redraws from its /Contents.
-        final imageRef = _stampImageRef(form);
-        if (imageRef != null) {
-          final (w, resources) = _imageStampContent(
-            to,
-            imageRef,
-            opacity ?? _appearanceOpacity(form),
-            pageRotation: pageRotation,
-          );
-          _replaceAppearance(annotation.dict, form, to, w, resources: resources);
-          return true;
+        // A picture stamp re-bakes its alpha over the same image; a text
+        // check-mark stamp redraws from its /Contents. Only a stamp the
+        // editor marked as an image stamp takes the image path, so a
+        // template stamp that merely contains an image is never flattened
+        // to a single picture.
+        if (annotation.isImageStamp) {
+          final imageRef = _stampImageRef(form);
+          if (imageRef != null) {
+            final (w, resources) = _imageStampContent(
+              to,
+              imageRef,
+              opacity ?? _appearanceOpacity(form),
+              pageRotation: pageRotation,
+            );
+            _replaceAppearance(
+              annotation.dict,
+              form,
+              to,
+              w,
+              resources: resources,
+            );
+            return true;
+          }
         }
         final color = annotation.color ?? 0xC03030;
         final (w, gs) = _stampContent(
