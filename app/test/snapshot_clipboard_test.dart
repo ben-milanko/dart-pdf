@@ -14,6 +14,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dart_pdf_editor_app/image_clipboard.dart';
 
 void main() {
+  setUp(() {
+    // controllers share the process-wide snapshot clipboard by default; start
+    // each test from empty so one test's capture can't leak into the next.
+    PdfSnapshotClipboard.instance.clear();
+  });
+
   // A throwaway PdfSnapshot whose pngBytes are the only field the handler reads.
   PdfSnapshot makeSnapshot(Uint8List png) {
     SharedPreferences.setMockInitialValues({});
