@@ -32,6 +32,7 @@ import 'page_geometry.dart';
 import 'page_object_cache.dart';
 import 'perf_log.dart';
 import 'performance_policy.dart';
+import 'platform_cursors.dart';
 import 'pdf_page_view.dart';
 import 'preview_cache.dart';
 import 'raster_cache.dart';
@@ -3814,12 +3815,12 @@ class _PdfViewerState extends State<PdfViewer>
       } else if (_hoverTextCursorAt(event.localPosition, at: at)) {
         cursor = SystemMouseCursors.text;
       } else {
-        cursor = SystemMouseCursors.grab;
+        cursor = grabCursor;
       }
     } else {
       // Off any page. Every probe above resolves through _pagePointAt, so
       // none of them could have matched: a mouse drag here grab-pans.
-      cursor = SystemMouseCursors.grab;
+      cursor = grabCursor;
     }
     if (cursor != _hoverCursor) setState(() => _hoverCursor = cursor);
   }
@@ -4175,7 +4176,7 @@ class _PdfViewerState extends State<PdfViewer>
       // instead (mouse drags don't reach the list's scrollable)
       _grabPanning = true;
       _beginMotionRenderHold();
-      setState(() => _hoverCursor = SystemMouseCursors.grabbing);
+      setState(() => _hoverCursor = grabbingCursor);
       _controller._setSelection('');
       return;
     }
@@ -4261,7 +4262,7 @@ class _PdfViewerState extends State<PdfViewer>
     if (!_grabPanning) return;
     _grabPanning = false;
     _scheduleMotionRenderHoldRelease();
-    setState(() => _hoverCursor = SystemMouseCursors.grab);
+    setState(() => _hoverCursor = grabCursor);
   }
 
   /// Word granularity: spans from the anchor word through the word
