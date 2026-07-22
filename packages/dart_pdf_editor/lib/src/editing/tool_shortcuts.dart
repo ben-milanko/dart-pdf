@@ -77,6 +77,7 @@ PdfEditToolGroup pdfEditToolGroupOf(PdfEditTool tool) {
     case PdfEditTool.form:
     case PdfEditTool.redact:
     case PdfEditTool.snapshot:
+    case PdfEditTool.link:
       return PdfEditToolGroup.edit;
   }
 }
