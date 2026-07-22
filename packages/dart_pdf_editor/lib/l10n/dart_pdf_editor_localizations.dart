@@ -1508,7 +1508,7 @@ abstract class DartPdfEditorLocalizations {
   /// Instructional text in the keyboard-shortcut capture dialog.
   ///
   /// In en, this message translates to:
-  /// **'Press a letter key, or Delete to clear.'**
+  /// **'Press a letter key, add Shift for a variant, or Delete to clear.'**
   String get shellPressLetterKeyHint;
 
   /// Compact control label that toggles the reflow (text reading) view.

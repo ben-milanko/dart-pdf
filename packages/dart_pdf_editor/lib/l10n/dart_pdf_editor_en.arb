@@ -1042,7 +1042,7 @@
   "@shellPressAKey": {
     "description": "Dialog title shown while capturing a keyboard shortcut for an editing tool."
   },
-  "shellPressLetterKeyHint": "Press a letter key, or Delete to clear.",
+  "shellPressLetterKeyHint": "Press a letter key, add Shift for a variant, or Delete to clear.",
   "@shellPressLetterKeyHint": {
     "description": "Instructional text in the keyboard-shortcut capture dialog."
   },
