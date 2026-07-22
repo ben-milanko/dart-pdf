@@ -303,6 +303,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'Flatten form';
 
   @override
+  String get menuLock => 'Lock';
+
+  @override
   String get menuRecolour => 'Recolour…';
 
   @override
@@ -817,6 +820,12 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => 'Delete signature';
+
+  @override
+  String get sidebarLockAnnotation => 'Lock';
+
+  @override
+  String get sidebarUnlockAnnotation => 'Unlock';
 
   @override
   String get sidebarMore => 'More';

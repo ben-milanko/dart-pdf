@@ -368,7 +368,27 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
     // A signed signature field is deletable even though its widget isn't a
     // normally selectable annotation (undo restores it).
     final signature = _signatureFor(annotation);
-    final actions = <Widget>[
+    // The lock toggle rides every markup row and stays visible even when
+    // the rest of the actions hover-reveal, so a locked annotation reads
+    // as locked at a glance and can always be unlocked from here (the only
+    // reachable path, since a locked annotation can't be selected).
+    final lockButton =
+        widget.controller.isAnnotationLockManageable(annotation)
+            ? IconButton(
+                key: ValueKey('pdf-annotation-lock-$pageIndex-$index'),
+                icon: Icon(
+                    annotation.isLocked
+                        ? Icons.lock
+                        : Icons.lock_open_outlined,
+                    size: 20),
+                tooltip: annotation.isLocked
+                    ? pdfL10n(context).sidebarUnlockAnnotation
+                    : pdfL10n(context).sidebarLockAnnotation,
+                onPressed: () =>
+                    widget.controller.toggleAnnotationLock(pageIndex, index),
+              )
+            : null;
+    final hoverActions = <Widget>[
       if (hostsThread)
         _threadMenu(context, pageIndex, index, annotation, thread),
       if (signature != null)
@@ -387,14 +407,18 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
           onPressed: () => widget.controller.deleteAnnotation(pageIndex, index),
         ),
     ];
-    if (actions.isEmpty) return null;
-    return Visibility(
-      visible: actionsVisible,
-      maintainSize: true,
-      maintainAnimation: true,
-      maintainState: true,
-      child: Row(mainAxisSize: MainAxisSize.min, children: actions),
-    );
+    if (lockButton == null && hoverActions.isEmpty) return null;
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      if (lockButton != null) lockButton,
+      if (hoverActions.isNotEmpty)
+        Visibility(
+          visible: actionsVisible,
+          maintainSize: true,
+          maintainAnimation: true,
+          maintainState: true,
+          child: Row(mainAxisSize: MainAxisSize.min, children: hoverActions),
+        ),
+    ]);
   }
 
   /// The signed [PdfSignature] this tile's widget belongs to, or null when the

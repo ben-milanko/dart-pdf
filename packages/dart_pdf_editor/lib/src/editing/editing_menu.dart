@@ -205,6 +205,13 @@ Future<void> showPdfAnnotationMenu({
           },
         ),
       PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-lock'),
+        label: pdfL10n(context).menuLock,
+        icon: Icons.lock_outline,
+        enabled: controller.canLockSelected,
+        onSelected: (request) => request.controller.lockSelectedAnnotations(),
+      ),
+      PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-delete'),
         label: pdfL10n(context).delete,
         icon: Icons.delete_outline,

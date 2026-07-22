@@ -238,6 +238,29 @@ void main() {
       expect(editing.hasAnnotationSelection, isFalse);
     });
 
+    testWidgets('Lock from the menu locks the annotation and clears selection',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+
+      await rightClick(tester, viewPoint(110, 725)); // A
+      final lock =
+          tester.widget(find.byKey(const ValueKey('pdf-annot-menu-lock')))
+              as PopupMenuItem;
+      expect(lock.enabled, isTrue);
+      await tester.tap(find.byKey(const ValueKey('pdf-annot-menu-lock')));
+      await tester.pumpAndSettle();
+
+      final locked = editing.document.page(0).annotations[0];
+      expect(locked.isLocked, isTrue);
+      expect(locked.isLockedContents, isTrue);
+      expect(editing.hasAnnotationSelection, isFalse);
+
+      // and a conforming right-click can no longer reach the locked one
+      await rightClick(tester, viewPoint(110, 725));
+      expect(editing.hasAnnotationSelection, isFalse);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-lock')), findsNothing);
+    });
+
     testWidgets('Recolour… shows only for a vector snapshot selection',
         (tester) async {
       final editing = await pumpViewer(tester);

@@ -387,6 +387,10 @@
   "@menuFlattenForm": {
     "description": "Form-field context-menu item that flattens all form fields into page content."
   },
+  "menuLock": "Lock",
+  "@menuLock": {
+    "description": "Annotation context-menu item that locks the selected annotation(s) so they can't be moved, resized, deleted, or edited (sets the /F Locked and LockedContents flags)."
+  },
   "menuRecolour": "Recolour…",
   "@menuRecolour": {
     "description": "Annotation context-menu item that opens a color picker to recolour a pasted vector snapshot."
@@ -1069,6 +1073,14 @@
   "sidebarDeleteSignature": "Delete signature",
   "@sidebarDeleteSignature": {
     "description": "Tooltip for the button that removes a digital signature from a signature-field row."
+  },
+  "sidebarLockAnnotation": "Lock",
+  "@sidebarLockAnnotation": {
+    "description": "Tooltip for a sidebar row's button that locks the annotation so it can't be moved, resized, deleted, or edited."
+  },
+  "sidebarUnlockAnnotation": "Unlock",
+  "@sidebarUnlockAnnotation": {
+    "description": "Tooltip for a sidebar row's button that unlocks a locked annotation, making it editable again."
   },
   "sidebarMore": "More",
   "@sidebarMore": {
