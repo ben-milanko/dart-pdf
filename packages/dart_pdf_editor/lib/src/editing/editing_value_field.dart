@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/pdf_l10n.dart';
+
 /// A generous ceiling for the typed readout of an open-ended point/size
 /// slider (stroke width, font size, eraser radius, char spacing, font
 /// width…). The slider's own scale stays fixed; typing an exact value can
@@ -126,7 +128,7 @@ class _PdfSliderValueFieldState extends State<PdfSliderValueField> {
         decoration: InputDecoration(
           isDense: true,
           contentPadding: const EdgeInsets.symmetric(vertical: 4),
-          hintText: widget.varies ? 'Varies' : null,
+          hintText: widget.varies ? pdfL10n(context).propVaries : null,
         ),
         onSubmitted: (_) => _commit(),
       ),

@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import 'devtools.dart';
 import 'editor_screen.dart';
+import 'l10n/app_localizations.dart';
 import 'oidc_signin.dart';
 import 'platform_fonts.dart';
 
@@ -51,6 +52,12 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
         2,
       _ => 3,
     };
+    // Warm the render worker now, before any document is opened: on the web this
+    // fetches, compiles, and boots the ~1 MB worker script (~1.45 s on a phone,
+    // #450) so that cost overlaps the user choosing a file instead of blocking
+    // the first render. A later open adopts the pre-booted worker and only hands
+    // off the document. No-op off-web (isolate spawn is cheap).
+    PdfRenderWorker.prewarm(count: pdfRenderWorkerPoolSize);
     // Proactive process-level ceiling across the viewer's budgeted caches
     // (decoded images 256 MB + render records + previews + thumbnails + tiles
     // can sum past 600 MB, and desktop OSes deliver the memory-pressure signal
@@ -64,6 +71,12 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
         192 << 20,
       _ => 384 << 20,
     };
+    // Cross-page ceiling over the base rasters, detail patches, and retained-
+    // scene images the live pages in the scroll cacheExtent hold at once - the
+    // additive-per-page memory #405 measured. Farther-from-viewport pages are
+    // reclaimed first when the sum exceeds this; the on-screen page and its
+    // neighbours always fit.
+    PdfLiveRasterBudget.instance.maxBytes = pdfDefaultLiveRasterBudgetBytes();
     // Persisted devtools options (deep-zoom mode, overlays, worker count)
     // override the defaults above once loaded.
     if (kDevToolsEnabled) unawaited(AppDevTools.instance.restoreOptions());
@@ -97,6 +110,11 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
           [_prefs, AppDevTools.instance.showPerformanceOverlay]),
       builder: (context, _) => MaterialApp(
         title: 'DartPDF',
+        localizationsDelegates: const [
+          ...AppLocalizations.localizationsDelegates,
+          DartPdfEditorLocalizations.delegate,
+        ],
+        supportedLocales: AppLocalizations.supportedLocales,
         showPerformanceOverlay:
             AppDevTools.instance.showPerformanceOverlay.value,
         theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),

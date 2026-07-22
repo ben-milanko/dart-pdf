@@ -16,3 +16,11 @@ Future<bool> copyPngToClipboard(Uint8List bytes) async {
 Future<Uint8List?> readImageFromClipboard() async {
   return await _channel.invokeMethod<Uint8List>('readImage');
 }
+
+/// Reads plain text from the native system clipboard. Flutter's [Clipboard]
+/// works fine on desktop/mobile, so this just delegates to it (the web variant
+/// bypasses it because `Clipboard.getData` is unreliable in the browser).
+Future<String?> readTextFromClipboard() async {
+  final data = await Clipboard.getData(Clipboard.kTextPlain);
+  return data?.text;
+}

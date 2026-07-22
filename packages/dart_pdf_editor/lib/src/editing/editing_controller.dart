@@ -13,6 +13,7 @@ import 'digital_signature.dart';
 import 'editing_measure.dart';
 import 'editing_page_clipboard.dart';
 import 'editing_preferences.dart';
+import 'editing_snapshot_clipboard.dart';
 import 'editing_tool_behavior.dart';
 import 'line_style.dart';
 import 'editing_stamps.dart';
@@ -331,17 +332,23 @@ class PdfEditingController extends ChangeNotifier {
     String password = '',
     PdfEditingPreferences? preferences,
     PdfPageClipboard? pageClipboard,
+    PdfSnapshotClipboard? snapshotClipboard,
   })  : _bytes = bytes,
         _used = bytes.length,
         _password = password,
         _revisions = [bytes.length],
         _document = PdfDocument.open(bytes, password: password),
         preferences = preferences ?? PdfEditingPreferences(),
-        pageClipboard = pageClipboard ?? PdfPageClipboard.instance {
+        pageClipboard = pageClipboard ?? PdfPageClipboard.instance,
+        snapshotClipboard =
+            snapshotClipboard ?? PdfSnapshotClipboard.instance {
     this.preferences.addListener(notifyListeners);
     // rebuild paste affordances live as the shared page clipboard fills or
     // clears - from this controller or from another document tab sharing it
     this.pageClipboard.addListener(notifyListeners);
+    // same for the shared snapshot clipboard, so a region captured in one tab
+    // lights up Paste-as-vector in every tab
+    this.snapshotClipboard.addListener(notifyListeners);
   }
 
   /// The persisted UI preferences that own the tool styles (stroke width,
@@ -358,6 +365,14 @@ class PdfEditingController extends ChangeNotifier {
   /// the process-wide [PdfPageClipboard.instance]; pass a private one to
   /// isolate a session. See [copyPages], [cutPages], and [pastePages].
   final PdfPageClipboard pageClipboard;
+
+  /// The clipboard the Snapshot tool's captured vector region lives in, shared
+  /// across document tabs so a region captured in one document pastes back as
+  /// vector into another (rather than falling back to the raster the capture
+  /// also drops on the system clipboard). Defaults to the process-wide
+  /// [PdfSnapshotClipboard.instance]; pass a private one to isolate a session.
+  /// See [copyVectorSnapshot] and [pasteSnapshot].
+  final PdfSnapshotClipboard snapshotClipboard;
 
   /// The session's shared page-thumbnail cache (and its viewport-ordered
   /// render queue). Every thumbnail surface - the docked strip, the
@@ -376,6 +391,7 @@ class PdfEditingController extends ChangeNotifier {
     thumbnailCache.dispose();
     preferences.removeListener(notifyListeners);
     pageClipboard.removeListener(notifyListeners);
+    snapshotClipboard.removeListener(notifyListeners);
     super.dispose();
   }
 
@@ -466,10 +482,23 @@ class PdfEditingController extends ChangeNotifier {
   int pageDestructiveStamp(int pageIndex) => _destructiveStampEpoch;
 
   PdfDocument _document;
+  int _revisionId = 0;
 
-  /// The document at the current revision. Changes identity on every
-  /// edit, undo, and redo.
+  /// The document at the current revision.
+  ///
+  /// Do NOT use `identical(document, ...)` as a "did a revision land?" signal -
+  /// compare [revisionId] instead. That the wrapper's identity happens to
+  /// change on every commit today is an implementation convenience of
+  /// [PdfDocument.withIncrementalUpdate], not a contract: applying a revision in
+  /// place would keep the same object and silently break every such check (this
+  /// is exactly what bit #395). See #414.
   PdfDocument get document => _document;
+
+  /// Monotonic id of the current revision, bumped whenever a commit, undo, or
+  /// redo lands (i.e. whenever [document] moves to a different revision - even an
+  /// undo-then-redo back to the same undo cursor). Compare this rather than
+  /// `identical(document, ...)` to ask "did anything commit?".
+  int get revisionId => _revisionId;
 
   PdfWorkerRevisionDelta? _lastRevisionDelta;
 
@@ -571,6 +600,7 @@ class PdfEditingController extends ChangeNotifier {
   void _reloadDocument({required bool grew}) {
     if (grew && _tryApplyIncrementalUpdate()) return;
     _document = PdfDocument.open(bytes, password: _password);
+    _revisionId++;
   }
 
   /// Debug-only sanity check behind the assert in [_tryApplyIncrementalUpdate].
@@ -620,10 +650,11 @@ class PdfEditingController extends ChangeNotifier {
     assert(_looksLikeAppend(),
         'incremental revision is not an append of the open document');
     try {
-      // A *new* wrapper over the same updated COS layer: editing widgets read
-      // `identical(document, before)` as "the commit produced no revision",
-      // so the instance has to change even though the parse does not repeat.
+      // Reuse the same COS layer (the parse does not repeat), wrapped fresh
+      // only as a convenience - [revisionId] is now the "did a revision land?"
+      // signal, so the wrapper identity no longer has to change (#414).
       _document = _document.withIncrementalUpdate(bytes);
+      _revisionId++;
       return true;
     } on CosParseException {
       return false;
@@ -1460,7 +1491,7 @@ class PdfEditingController extends ChangeNotifier {
     }
   }
 
-  PdfDocument? _documentFontsFor;
+  int? _documentFontsForRevision;
   List<PdfEmbeddedFont>? _documentFontsCache;
 
   /// The embeddable fonts the current document already uses (see
@@ -1468,9 +1499,9 @@ class PdfEditingController extends ChangeNotifier {
   /// can reuse a face the file already carries. Parsed once per revision
   /// and cached; the list is empty when nothing embeddable is found.
   List<PdfEmbeddedFont> get documentFonts {
-    if (!identical(_documentFontsFor, _document) ||
+    if (_documentFontsForRevision != _revisionId ||
         _documentFontsCache == null) {
-      _documentFontsFor = _document;
+      _documentFontsForRevision = _revisionId;
       _documentFontsCache = PdfEmbeddedFont.usedIn(_document);
     }
     return _documentFontsCache!;
@@ -1728,7 +1759,7 @@ class PdfEditingController extends ChangeNotifier {
   /// them until that revision's raster is on screen, so the drawing
   /// doesn't blink out for the render's duration.
   ({
-    PdfDocument document,
+    int revisionId,
     Map<int, List<List<(double, double)>>> strokes,
     Map<int, List<List<double>?>> pressures,
     Color color,
@@ -1744,7 +1775,7 @@ class PdfEditingController extends ChangeNotifier {
     double strokeWidth,
   })? committedInkOn(int pageIndex) {
     final committed = _committedInk;
-    if (committed == null || !identical(committed.document, _document)) {
+    if (committed == null || committed.revisionId != _revisionId) {
       return null;
     }
     final strokes = committed.strokes[pageIndex];
@@ -1844,7 +1875,7 @@ class PdfEditingController extends ChangeNotifier {
     );
     if (committed) {
       _committedInk = (
-        document: _document,
+        revisionId: _revisionId,
         strokes: strokes,
         pressures: pressures,
         color: preferences.color.withValues(
@@ -2005,6 +2036,7 @@ class PdfEditingController extends ChangeNotifier {
     // un-redacted) one up while the fresh render lands
     if (impact.destructive) _destructiveStampEpoch++;
     _document = PdfDocument.open(bytes, password: _password);
+    _revisionId++;
     _invalidateElements();
     notifyListeners();
   }
@@ -4358,7 +4390,7 @@ class PdfEditingController extends ChangeNotifier {
     _clipboardSourcePage = _selected.last.$1;
     _pasteCount = 0;
     // the most recent copy wins ⌘V (see [copyVectorSnapshot])
-    _snapshotClipboard = null;
+    snapshotClipboard.clear();
     notifyListeners();
     return snapshots.length;
   }
@@ -4481,24 +4513,23 @@ class PdfEditingController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // snapshot clipboard (the Snapshot tool's vector paste)
 
-  /// The in-app snapshot clipboard: a detached vector copy of a page
-  /// region ([captureVectorSnapshot]) that survives edits, undo, and
-  /// document swaps. Filled by the Snapshot tool, consumed by
-  /// [pasteSnapshot].
-  PdfVectorSnapshot? _snapshotClipboard;
   int _snapshotPasteCount = 0;
 
   /// The object number of the captured form materialized by the last paste
-  /// of [_snapshotClipboard] into the current document - reused so repeat
+  /// of the active snapshot into the current document - reused so repeat
   /// pastes share one XObject instead of re-embedding the page content.
-  /// Reset whenever a fresh snapshot is captured.
+  /// Reset whenever a different snapshot becomes active.
   int? _snapshotCapturedRef;
 
-  /// Whether [pasteSnapshot] has a captured region to paste.
-  bool get hasSnapshotClipboard => _snapshotClipboard != null;
+  /// Which snapshot [_snapshotCapturedRef] / [_snapshotPasteCount] belong to.
+  /// The shared [snapshotClipboard] can change under this controller (a
+  /// recapture here, or a capture in another tab), so paste keys its
+  /// per-document bookkeeping to the snapshot identity and resets when it
+  /// differs.
+  PdfVectorSnapshot? _snapshotPasteAnchor;
 
-  /// The captured region on the snapshot clipboard, or null.
-  PdfVectorSnapshot? get snapshotClipboard => _snapshotClipboard;
+  /// Whether [pasteSnapshot] has a captured region to paste.
+  bool get hasSnapshotClipboard => snapshotClipboard.isNotEmpty;
 
   /// Captures [region] (PDF user space) of [pageIndex] as a detached
   /// vector snapshot - the page graphics under the region, copied inline,
@@ -4513,9 +4544,10 @@ class PdfEditingController extends ChangeNotifier {
   /// clipboard. Returns the captured snapshot.
   PdfVectorSnapshot copyVectorSnapshot(int pageIndex, PdfRect region) {
     final snapshot = captureVectorSnapshot(pageIndex, region);
-    _snapshotClipboard = snapshot;
-    _snapshotPasteCount = 0;
-    _snapshotCapturedRef = null;
+    // publish to the shared clipboard; paste resets its per-document
+    // bookkeeping when it sees this new snapshot (identity differs from the
+    // anchor).
+    snapshotClipboard.set(snapshot);
     _clipboard = const [];
     notifyListeners();
     return snapshot;
@@ -4530,9 +4562,18 @@ class PdfEditingController extends ChangeNotifier {
   /// cascading 12pt down-right per repeat. The region always clamps into
   /// the page's crop box. Returns whether anything was pasted.
   bool pasteSnapshot(int pageIndex, {(double, double)? at}) {
-    final snapshot = _snapshotClipboard;
+    final snapshot = snapshotClipboard.snapshot;
     if (snapshot == null) return false;
     if (pageIndex < 0 || pageIndex >= _document.pageCount) return false;
+    // The shared clipboard may hold a different snapshot than the one this
+    // controller last pasted (recaptured here, or captured in another tab).
+    // Restart the position cascade and drop the captured-form ref, which was
+    // materialized from the previous snapshot into this document.
+    if (!identical(snapshot, _snapshotPasteAnchor)) {
+      _snapshotPasteAnchor = snapshot;
+      _snapshotPasteCount = 0;
+      _snapshotCapturedRef = null;
+    }
     final w = snapshot.displayWidth, h = snapshot.displayHeight;
     if (w <= 0 || h <= 0) return false;
     double left, bottom;
@@ -4772,7 +4813,7 @@ class PdfEditingController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // attention flash
 
-  ({PdfDocument document, int page, int slot})? _flash;
+  ({int revisionId, int page, int slot})? _flash;
   int _flashSequence = 0;
   Timer? _flashTimer;
 
@@ -4786,7 +4827,7 @@ class PdfEditingController extends ChangeNotifier {
   /// its annotation, so the eye lands on the right spot.
   void flashAnnotation(int pageIndex, int index) {
     if (annotationAt(pageIndex, index) == null) return;
-    _flash = (document: _document, page: pageIndex, slot: index);
+    _flash = (revisionId: _revisionId, page: pageIndex, slot: index);
     _flashSequence++;
     _flashTimer?.cancel();
     _flashTimer = Timer(flashLifetime, () {
@@ -4803,7 +4844,7 @@ class PdfEditingController extends ChangeNotifier {
   /// else now).
   ({int page, int slot, int sequence})? get pendingFlash {
     final flash = _flash;
-    if (flash == null || !identical(flash.document, _document)) return null;
+    if (flash == null || flash.revisionId != _revisionId) return null;
     return (page: flash.page, slot: flash.slot, sequence: _flashSequence);
   }
 
@@ -6232,7 +6273,7 @@ class PdfEditingController extends ChangeNotifier {
       return null;
     }
 
-    final document = _document;
+    final revisionAtStart = _revisionId;
     final page = _page(selected.$1);
     final size = PdfPageRenderer.pageSize(page, rotation: page.rotation);
     final geometry = PdfPageGeometry(
@@ -6265,7 +6306,7 @@ class PdfEditingController extends ChangeNotifier {
       );
       final data = await image.toByteData(format: ui.ImageByteFormat.png);
       if (data == null ||
-          !identical(_document, document) ||
+          revisionAtStart != _revisionId ||
           _selectedElement != selected) {
         return null;
       }

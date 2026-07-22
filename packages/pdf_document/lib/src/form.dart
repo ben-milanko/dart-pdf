@@ -3,6 +3,10 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'document.dart';
 import 'rect.dart';
 
+// /DA parsing patterns, compiled once (these getters run per field/tile).
+final RegExp _daFontSizeRe = RegExp(r'/[^\s/]+\s+(\d+(?:\.\d+)?)\s+Tf');
+final RegExp _whitespaceRe = RegExp(r'\s+');
+
 /// What kind of input a form field accepts, derived from /FT plus the
 /// discriminating /Ff bits (§12.7.4).
 enum PdfFieldType {
@@ -408,8 +412,7 @@ class PdfFormField {
   /// The /DA font size in points; 0 means auto-size (the appearance fits
   /// the text to the box). Parsed from the `/Font size Tf` operator.
   double get appearanceFontSize {
-    final m = RegExp(r'/[^\s/]+\s+(\d+(?:\.\d+)?)\s+Tf')
-        .firstMatch(defaultAppearance ?? '');
+    final m = _daFontSizeRe.firstMatch(defaultAppearance ?? '');
     return double.tryParse(m?.group(1) ?? '') ?? 0;
   }
 
@@ -418,7 +421,7 @@ class PdfFormField {
   /// colour-setting operator and its operands (§12.7.3.3).
   int? get appearanceColor {
     final tokens = (defaultAppearance ?? '')
-        .split(RegExp(r'\s+'))
+        .split(_whitespaceRe)
         .where((t) => t.isNotEmpty)
         .toList();
     int byte(double v) => (v.clamp(0.0, 1.0) * 255).round();

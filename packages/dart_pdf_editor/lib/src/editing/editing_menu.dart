@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../l10n/pdf_l10n.dart';
 import '../page_range_dialog.dart';
 import 'editing_color_picker.dart';
 import 'editing_controller.dart';
@@ -108,29 +109,28 @@ Future<void> showPdfAnnotationMenu({
     if (hasSelection) ...[
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-copy'),
-        label: 'Copy',
+        label: pdfL10n(context).copy,
         icon: Icons.copy,
         onSelected: (request) => request.controller.copySelectedAnnotations(),
       ),
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-cut'),
-        label: 'Cut',
+        label: pdfL10n(context).cut,
         icon: Icons.cut,
         onSelected: (request) => request.controller.cutSelectedAnnotations(),
       ),
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-apply-pages'),
-        label: 'Apply to pages…',
+        label: pdfL10n(context).menuApplyToPages,
         icon: Icons.copy_all_outlined,
         onSelected: (request) async {
           final pageCount = request.controller.document.pageCount;
           final range = await showPdfPageRangeDialog(
             context,
             pageCount: pageCount,
-            title: request.annotations.length == 1
-                ? 'Apply annotation to pages'
-                : 'Apply annotations to pages',
-            confirmLabel: 'Apply',
+            title: pdfL10n(context)
+                .menuApplyAnnotationsToPagesTitle(request.annotations.length),
+            confirmLabel: pdfL10n(context).apply,
           );
           if (range == null) return;
           request.controller.applySelectedAnnotationsToPages(
@@ -144,7 +144,7 @@ Future<void> showPdfAnnotationMenu({
     ],
     PdfAnnotationMenuItem(
       key: const ValueKey('pdf-annot-menu-paste'),
-      label: 'Paste',
+      label: pdfL10n(context).paste,
       icon: Icons.paste,
       enabled: canPaste,
       onSelected: (request) => canPasteSnapshot
@@ -154,14 +154,14 @@ Future<void> showPdfAnnotationMenu({
     if (hasSelection) ...[
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-front'),
-        label: 'Bring to front',
+        label: pdfL10n(context).menuBringToFront,
         icon: Icons.flip_to_front,
         enabled: controller.canBringSelectedToFront,
         onSelected: (request) => request.controller.bringSelectedToFront(),
       ),
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-back'),
-        label: 'Send to back',
+        label: pdfL10n(context).menuSendToBack,
         icon: Icons.flip_to_back,
         enabled: controller.canSendSelectedToBack,
         onSelected: (request) => request.controller.sendSelectedToBack(),
@@ -172,14 +172,14 @@ Future<void> showPdfAnnotationMenu({
       if (pagePoint != null && controller.canAddSelectedVertex) ...[
         PdfAnnotationMenuItem(
           key: const ValueKey('pdf-annot-menu-add-node'),
-          label: 'Add node',
+          label: pdfL10n(context).menuAddNode,
           icon: Icons.add_location_alt_outlined,
           onSelected: (request) =>
               request.controller.addSelectedVertexAt(pagePoint),
         ),
         PdfAnnotationMenuItem(
           key: const ValueKey('pdf-annot-menu-remove-node'),
-          label: 'Remove node',
+          label: pdfL10n(context).menuRemoveNode,
           icon: Icons.wrong_location_outlined,
           enabled: controller.canRemoveSelectedVertex,
           onSelected: (request) =>
@@ -189,7 +189,7 @@ Future<void> showPdfAnnotationMenu({
       if (controller.canRecolorSnapshotSelected)
         PdfAnnotationMenuItem(
           key: const ValueKey('pdf-annot-menu-recolor-snapshot'),
-          label: 'Recolour…',
+          label: pdfL10n(context).menuRecolour,
           icon: Icons.palette_outlined,
           onSelected: (request) async {
             final picked = await showPdfColorPicker(
@@ -206,7 +206,7 @@ Future<void> showPdfAnnotationMenu({
         ),
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-delete'),
-        label: 'Delete',
+        label: pdfL10n(context).delete,
         icon: Icons.delete_outline,
         enabled: true,
         onSelected: (request) => request.controller.deleteSelected(),
@@ -259,19 +259,21 @@ Future<void> showPdfFormFieldMenu({
       case PdfFieldType.text:
         return PdfAnnotationMenuItem(
           key: const ValueKey('pdf-form-menu-edit'),
-          label: 'Edit value…',
+          label: pdfL10n(context).menuEditValue,
           icon: Icons.edit_outlined,
           enabled: enabled,
           onSelected: (_) async {
             final value = await textPrompt(context,
-                title: 'Field value', initial: field.value ?? '');
+                title: pdfL10n(context).menuFieldValue, initial: field.value ?? '');
             if (value != null) controller.setFormFieldText(fieldName, value);
           },
         );
       case PdfFieldType.checkBox:
         return PdfAnnotationMenuItem(
           key: const ValueKey('pdf-form-menu-edit'),
-          label: field.isChecked ? 'Clear check' : 'Check',
+          label: field.isChecked
+              ? pdfL10n(context).menuClearCheck
+              : pdfL10n(context).menuCheck,
           icon: field.isChecked
               ? Icons.check_box_outline_blank
               : Icons.check_box_outlined,
@@ -283,7 +285,7 @@ Future<void> showPdfFormFieldMenu({
             widgetIndex == null ? null : field.widgetOnState(widgetIndex);
         return PdfAnnotationMenuItem(
           key: const ValueKey('pdf-form-menu-edit'),
-          label: 'Select option',
+          label: pdfL10n(context).menuSelectOption,
           icon: Icons.radio_button_checked,
           enabled: enabled && state != null && field.value != state,
           onSelected: (_) {
@@ -293,7 +295,7 @@ Future<void> showPdfFormFieldMenu({
       case PdfFieldType.comboBox || PdfFieldType.listBox:
         return PdfAnnotationMenuItem(
           key: const ValueKey('pdf-form-menu-edit'),
-          label: 'Choose value…',
+          label: pdfL10n(context).menuChooseValue,
           icon: Icons.list_alt_outlined,
           enabled: enabled && field.options.isNotEmpty,
           onSelected: (_) async {
@@ -321,7 +323,7 @@ Future<void> showPdfFormFieldMenu({
       case PdfFieldType.pushButton:
         return PdfAnnotationMenuItem(
           key: const ValueKey('pdf-form-menu-edit'),
-          label: 'Set image…',
+          label: pdfL10n(context).menuSetImage,
           icon: Icons.image_outlined,
           enabled: enabled && formImagePicker != null,
           onSelected: (_) async {
@@ -345,7 +347,7 @@ Future<void> showPdfFormFieldMenu({
     if (type == PdfFieldType.text)
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-form-menu-style'),
-        label: 'Text style…',
+        label: pdfL10n(context).menuTextStyle,
         icon: Icons.text_format,
         onSelected: (_) async {
           if (!controller.selectFormFieldByName(fieldName)) return;
@@ -360,11 +362,11 @@ Future<void> showPdfFormFieldMenu({
       ),
     PdfAnnotationMenuItem(
       key: const ValueKey('pdf-form-menu-rename'),
-      label: 'Rename…',
+      label: pdfL10n(context).menuRename,
       icon: Icons.drive_file_rename_outline,
       onSelected: (_) async {
-        final newName =
-            await textPrompt(context, title: 'Field name', initial: fieldName);
+        final newName = await textPrompt(context,
+            title: pdfL10n(context).menuFieldName, initial: fieldName);
         if (newName == null || newName.isEmpty || newName == fieldName) {
           return;
         }
@@ -373,7 +375,7 @@ Future<void> showPdfFormFieldMenu({
     ),
     PdfAnnotationMenuItem(
       key: const ValueKey('pdf-form-menu-text'),
-      label: 'Convert to text field',
+      label: pdfL10n(context).menuConvertToTextField,
       icon: Icons.text_fields,
       enabled: convertsTo(PdfFormFieldKind.text),
       onSelected: (_) =>
@@ -381,7 +383,7 @@ Future<void> showPdfFormFieldMenu({
     ),
     PdfAnnotationMenuItem(
       key: const ValueKey('pdf-form-menu-checkbox'),
-      label: 'Convert to check box',
+      label: pdfL10n(context).menuConvertToCheckBox,
       icon: Icons.check_box_outlined,
       enabled: convertsTo(PdfFormFieldKind.checkBox),
       onSelected: (_) =>
@@ -389,7 +391,7 @@ Future<void> showPdfFormFieldMenu({
     ),
     PdfAnnotationMenuItem(
       key: const ValueKey('pdf-form-menu-button'),
-      label: 'Convert to image button',
+      label: pdfL10n(context).menuConvertToImageButton,
       icon: Icons.smart_button,
       enabled: convertsTo(PdfFormFieldKind.pushButton),
       onSelected: (_) => controller.changeFormFieldKind(
@@ -397,13 +399,13 @@ Future<void> showPdfFormFieldMenu({
     ),
     PdfAnnotationMenuItem(
       key: const ValueKey('pdf-form-menu-delete'),
-      label: 'Delete field',
+      label: pdfL10n(context).menuDeleteField,
       icon: Icons.delete_outline,
       onSelected: (_) => controller.removeFormField(fieldName),
     ),
     PdfAnnotationMenuItem(
       key: const ValueKey('pdf-form-menu-flatten'),
-      label: 'Flatten form',
+      label: pdfL10n(context).menuFlattenForm,
       icon: Icons.layers_clear_outlined,
       onSelected: (_) => controller.flattenFormFields(),
     ),

@@ -7,6 +7,7 @@ import 'package:pdf_document/pdf_document.dart'
         PdfTextFont,
         PdfTextStyle;
 
+import '../l10n/pdf_l10n.dart';
 import 'editing_font_controls.dart';
 
 /// The quick-pick colours the styled-text dialog offers by default - the
@@ -141,7 +142,7 @@ class _StyledTextDialogState extends State<_StyledTextDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Edit text & style'),
+      title: Text(pdfL10n(context).textStyleTitle),
       content: SizedBox(
         width: 320,
         child: SingleChildScrollView(
@@ -154,12 +155,14 @@ class _StyledTextDialogState extends State<_StyledTextDialog> {
                 controller: _text,
                 autofocus: true,
                 maxLines: 1,
-                decoration: const InputDecoration(labelText: 'Text'),
+                decoration:
+                    InputDecoration(labelText: pdfL10n(context).textStyleText),
                 onSubmitted: (_) => _submit(),
               ),
               const SizedBox(height: 12),
               Row(children: [
-                const SizedBox(width: 86, child: Text('Font size')),
+                SizedBox(
+                    width: 86, child: Text(pdfL10n(context).textStyleFontSize)),
                 Expanded(
                   child: Slider(
                     key: const ValueKey('pdf-styled-size'),
@@ -175,7 +178,9 @@ class _StyledTextDialogState extends State<_StyledTextDialog> {
                 SizedBox(
                   width: 52,
                   child: Text(
-                    _sizeTouched ? '${_size.round()} pt' : 'keep',
+                    _sizeTouched
+                        ? '${_size.round()} pt'
+                        : pdfL10n(context).textStyleKeep,
                     textAlign: TextAlign.right,
                   ),
                 ),
@@ -183,7 +188,8 @@ class _StyledTextDialogState extends State<_StyledTextDialog> {
               Padding(
                 padding: const EdgeInsets.only(top: 6),
                 child: Row(children: [
-                  const SizedBox(width: 86, child: Text('Font')),
+                  SizedBox(
+                      width: 86, child: Text(pdfL10n(context).textStyleFont)),
                   if (widget.pickFont != null)
                     OutlinedButton.icon(
                       key: const ValueKey('pdf-styled-font'),
@@ -227,7 +233,8 @@ class _StyledTextDialogState extends State<_StyledTextDialog> {
               Padding(
                 padding: const EdgeInsets.only(top: 6),
                 child: Row(children: [
-                  const SizedBox(width: 86, child: Text('Style')),
+                  SizedBox(
+                      width: 86, child: Text(pdfL10n(context).textStyleStyle)),
                   FontStyleToggles(
                     keyPrefix: 'pdf-styled',
                     font: _font,
@@ -239,7 +246,7 @@ class _StyledTextDialogState extends State<_StyledTextDialog> {
                 ]),
               ),
               PdfColorSwatchRow(
-                label: 'Text fill',
+                label: pdfL10n(context).textStyleTextFill,
                 keyPrefix: 'pdf-styled-fill',
                 value: _fill,
                 palette: widget.palette,
@@ -252,12 +259,12 @@ class _StyledTextDialogState extends State<_StyledTextDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(pdfL10n(context).cancel),
         ),
         FilledButton(
           key: const ValueKey('pdf-styled-ok'),
           onPressed: _submit,
-          child: const Text('Apply'),
+          child: Text(pdfL10n(context).apply),
         ),
       ],
     );

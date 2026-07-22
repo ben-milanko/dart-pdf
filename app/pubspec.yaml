@@ -14,6 +14,12 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  # Localized message formatting (ICU plurals/select, DateFormat/NumberFormat)
+  # and the generated AppLocalizations bundle. Pinned to the version
+  # flutter_localizations resolves against Flutter 3.44.4.
+  intl: ^0.20.2
   cupertino_icons: ^1.0.8
 
   # The PDF engine and editing UI live in the workspace packages.
@@ -76,6 +82,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # Generate the AppLocalizations bundle from lib/l10n (see l10n.yaml). The
+  # generated Dart is checked in so builds/CI need no extra codegen step.
+  generate: true
   assets:
     - web/favicon.png
     - web/icons/Icon-512.png

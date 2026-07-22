@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:pdf_cos/pdf_cos.dart' show X509Certificate;
 import 'package:pdf_document/pdf_document.dart';
 
+import 'l10n/app_l10n.dart';
 import 'signature_appearance_store.dart';
 import 'signature_raster.dart';
 
@@ -374,7 +375,9 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
       if (failure != null) {
         // A pre-select attempt on open fails quietly; the user can retry with
         // the button (which surfaces the error).
-        if (!silent) _error = 'Keyless sign-in failed: $failure';
+        if (!silent) {
+          _error = appL10n(context).appSigKeylessSignInFailed('$failure');
+        }
         return;
       }
       if (identity == null) return; // cancelled
@@ -402,7 +405,10 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
         _rebuildIdentity();
       });
     } catch (error) {
-      if (mounted) setState(() => _error = 'Could not read the key: $error');
+      if (mounted) {
+        setState(
+            () => _error = appL10n(context).appSigCouldNotReadKey('$error'));
+      }
     }
   }
 
@@ -420,7 +426,8 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
       });
     } catch (error) {
       if (mounted) {
-        setState(() => _error = 'Could not read the certificate: $error');
+        setState(() =>
+            _error = appL10n(context).appSigCouldNotReadCertificate('$error'));
       }
     }
   }
@@ -441,7 +448,7 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
     } on FormatException catch (error) {
       _error = error.message;
     } catch (_) {
-      _error = 'The selected key or certificate could not be read.';
+      _error = appL10n(context).appSigKeyOrCertUnreadable;
     }
   }
 
@@ -457,7 +464,8 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
     if (!mounted) return;
     setState(() {
       _signaturePng = png;
-      _appearanceError = png == null ? 'Could not capture the signature.' : null;
+      _appearanceError =
+          png == null ? appL10n(context).appSigCouldNotCaptureSignature : null;
     });
     _persistAppearance();
   }
@@ -471,7 +479,8 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
     try {
       PdfEmbeddableImage.decode(bytes);
     } catch (_) {
-      setState(() => _appearanceError = 'Choose a PNG or JPEG image.');
+      setState(
+          () => _appearanceError = appL10n(context).appSigChoosePngOrJpeg);
       return;
     }
     setState(() {
@@ -489,8 +498,8 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
       pageCount: widget.pageCount,
       initialStart: _applyRange?.start ?? placement.page,
       initialEnd: _applyRange?.end ?? placement.page,
-      title: 'Show the signature on pages',
-      confirmLabel: 'Apply',
+      title: appL10n(context).appSigShowSignatureOnPages,
+      confirmLabel: appL10n(context).apply,
     );
     if (range == null || !mounted) return;
     setState(() => _applyRange = range);
@@ -509,11 +518,13 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
 
   String _applyPagesLabel() {
     final range = _applyRange;
-    if (range == null || (range.start == range.end)) return 'This page only';
-    if (range.start == 0 && range.end == widget.pageCount - 1) {
-      return 'All ${widget.pageCount} pages';
+    if (range == null || (range.start == range.end)) {
+      return appL10n(context).appSigThisPageOnly;
     }
-    return 'Pages ${range.start + 1}–${range.end + 1}';
+    if (range.start == 0 && range.end == widget.pageCount - 1) {
+      return appL10n(context).appSigAllPages(widget.pageCount);
+    }
+    return appL10n(context).appSigPagesRange(range.start + 1, range.end + 1);
   }
 
   /// The visible-box appearance for the placed rectangle, or null when there
@@ -568,8 +579,8 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
       if (fresh == null) {
         _keyless = null; // force a re-tap of "Sign in with your email"
         _error = failure == null
-            ? 'Your keyless sign-in expired. Please sign in again.'
-            : 'Keyless sign-in failed: $failure';
+            ? appL10n(context).appSigKeylessSignInExpired
+            : appL10n(context).appSigKeylessSignInFailed('$failure');
       }
     });
     return fresh;
@@ -625,10 +636,10 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
     final canSign = identity != null || selfSigned != null || keyless != null;
     final theme = Theme.of(context);
     return AlertDialog(
-      title: const Row(children: [
-        Icon(Icons.verified_user_outlined),
-        SizedBox(width: 10),
-        Text('Digitally sign'),
+      title: Row(children: [
+        const Icon(Icons.verified_user_outlined),
+        const SizedBox(width: 10),
+        Text(appL10n(context).appSigDigitallySign),
       ]),
       content: SizedBox(
         width: 480,
@@ -638,8 +649,7 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'A digital signature proves you signed this document and that '
-                'it has not been changed since. Pick how you want to sign.',
+                appL10n(context).appSigIntro,
                 style: theme.textTheme.bodyMedium,
               ),
               const SizedBox(height: 16),
@@ -656,21 +666,18 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                         )
                       : const Icon(Icons.mail_lock_outlined),
                   label: Text(_keylessBusy
-                      ? 'Signing you in…'
-                      : 'Sign in with your email'),
+                      ? appL10n(context).appSigSigningYouIn
+                      : appL10n(context).appSigSignInWithEmail),
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Easiest. We confirm it\'s you by email and sign for you, '
-                  'with a trusted timestamp. Nothing to install or set up.',
+                  appL10n(context).appSigKeylessDescription,
                   style: theme.textTheme.bodySmall,
                 ),
                 const SizedBox(height: 16),
               ] else if (widget.keylessUnavailable) ...[
                 Text(
-                  'Signing in with your email is the easiest way — it\'s '
-                  'available in the DartPDF desktop and mobile apps. For '
-                  'security reasons it can\'t run in a web browser.',
+                  appL10n(context).appSigKeylessWebNote,
                   key: const ValueKey('digital-signature-keyless-web-note'),
                   style: theme.textTheme.bodySmall,
                 ),
@@ -680,14 +687,11 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                 key: const ValueKey('digital-signature-create-identity'),
                 onPressed: _createSelfSignedIdentity,
                 icon: const Icon(Icons.badge_outlined),
-                label: const Text('Create a signature on this device'),
+                label: Text(appL10n(context).appSigCreateOnDevice),
               ),
               const SizedBox(height: 6),
               Text(
-                'No sign-in or files needed. Best for personal use — it\'s '
-                'saved on this device for next time. Some PDF readers will '
-                'show it as "signed, validity unknown", which is normal for a '
-                'signature you make yourself.',
+                appL10n(context).appSigSelfSignedDescription,
                 style: theme.textTheme.bodySmall,
               ),
               const SizedBox(height: 8),
@@ -698,18 +702,16 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                   key: const ValueKey('digital-signature-advanced'),
                   tilePadding: EdgeInsets.zero,
                   childrenPadding: const EdgeInsets.only(bottom: 8),
-                  title: Text('Use your own certificate',
+                  title: Text(appL10n(context).appSigUseOwnCertificate,
                       style: theme.textTheme.bodyMedium),
                   subtitle: Text(
-                      'For a signing certificate from your organisation',
+                      appL10n(context).appSigUseOwnCertificateSubtitle,
                       style: theme.textTheme.bodySmall),
                   children: [
                     Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        'Choose your private key (RSA, PEM or DER) and its '
-                        'certificate file. The key is only used to sign and is '
-                        'never saved.',
+                        appL10n(context).appSigChooseKeyDescription,
                         style: theme.textTheme.bodySmall,
                       ),
                     ),
@@ -718,7 +720,8 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                       key: const ValueKey('digital-signature-private-key'),
                       onPressed: _selectPrivateKey,
                       icon: const Icon(Icons.key_outlined),
-                      label: Text(_privateKeyName ?? 'Choose private key…'),
+                      label: Text(_privateKeyName ??
+                          appL10n(context).appSigChoosePrivateKey),
                     ),
                     const SizedBox(height: 8),
                     OutlinedButton.icon(
@@ -726,7 +729,7 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                       onPressed: _selectCertificates,
                       icon: const Icon(Icons.workspace_premium_outlined),
                       label: Text(_certificateNames.isEmpty
-                          ? 'Choose certificate file…'
+                          ? appL10n(context).appSigChooseCertificate
                           : _certificateNames.join(', ')),
                     ),
                   ],
@@ -747,12 +750,16 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                   child: ListTile(
                     key: const ValueKey('digital-signature-identity'),
                     leading: const Icon(Icons.verified_outlined),
-                    title: Text(identity.signerName ?? 'X.509 signer'),
+                    title: Text(
+                        identity.signerName ?? appL10n(context).appSigX509Signer),
                     subtitle: Text(
-                      '${identity.certificateCount} certificate'
-                      '${identity.certificateCount == 1 ? '' : 's'} · valid '
-                      '${MaterialLocalizations.of(context).formatMediumDate(identity.validFrom.toLocal())} '
-                      'to ${MaterialLocalizations.of(context).formatMediumDate(identity.validUntil.toLocal())}',
+                      appL10n(context).appSigIdentitySubtitle(
+                        identity.certificateCount,
+                        MaterialLocalizations.of(context)
+                            .formatMediumDate(identity.validFrom.toLocal()),
+                        MaterialLocalizations.of(context)
+                            .formatMediumDate(identity.validUntil.toLocal()),
+                      ),
                     ),
                   ),
                 ),
@@ -763,8 +770,9 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                   child: ListTile(
                     key: const ValueKey('digital-signature-self-signed'),
                     leading: const Icon(Icons.badge_outlined),
-                    title: Text(selfSigned.name ?? 'Self-signed identity'),
-                    subtitle: const Text('Self-signed · validity unknown'),
+                    title: Text(selfSigned.name ??
+                        appL10n(context).appSigSelfSignedIdentity),
+                    subtitle: Text(appL10n(context).appSigSelfSignedSubtitle),
                   ),
                 ),
               ] else if (keyless != null) ...[
@@ -774,9 +782,9 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                   child: ListTile(
                     key: const ValueKey('digital-signature-keyless-identity'),
                     leading: const Icon(Icons.mail_lock_outlined),
-                    title: Text(keyless.name ?? 'Keyless identity'),
-                    subtitle:
-                        const Text('Keyless · timestamped · validity unknown'),
+                    title: Text(
+                        keyless.name ?? appL10n(context).appSigKeylessIdentity),
+                    subtitle: Text(appL10n(context).appSigKeylessSubtitle),
                   ),
                 ),
               ],
@@ -784,25 +792,28 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
               TextField(
                 key: const ValueKey('digital-signature-field'),
                 controller: _fieldName,
-                decoration: const InputDecoration(
-                  labelText: 'Existing signature field (optional)',
-                  helperText: 'Leave blank to create a new signature field.',
+                decoration: InputDecoration(
+                  labelText: appL10n(context).appSigFieldLabel,
+                  helperText: appL10n(context).appSigFieldHelper,
                 ),
               ),
               TextField(
                 key: const ValueKey('digital-signature-reason'),
                 controller: _reason,
-                decoration: const InputDecoration(labelText: 'Reason'),
+                decoration:
+                    InputDecoration(labelText: appL10n(context).appSigReason),
               ),
               TextField(
                 key: const ValueKey('digital-signature-location'),
                 controller: _location,
-                decoration: const InputDecoration(labelText: 'Location'),
+                decoration:
+                    InputDecoration(labelText: appL10n(context).appSigLocation),
               ),
               TextField(
                 key: const ValueKey('digital-signature-contact'),
                 controller: _contact,
-                decoration: const InputDecoration(labelText: 'Contact info'),
+                decoration: InputDecoration(
+                    labelText: appL10n(context).appSigContactInfo),
               ),
               if (widget.placement != null) ...[
                 const SizedBox(height: 16),
@@ -810,15 +821,14 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                   const Expanded(child: Divider()),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Text('Appearance', style: theme.textTheme.labelMedium),
+                    child: Text(appL10n(context).appSigAppearance,
+                        style: theme.textTheme.labelMedium),
                   ),
                   const Expanded(child: Divider()),
                 ]),
                 const SizedBox(height: 6),
                 Text(
-                  'The signature is drawn where you placed it. The signer name '
-                  'and details are always shown; you can add a hand-drawn mark '
-                  'and a logo backdrop.',
+                  appL10n(context).appSigAppearanceDescription,
                   style: theme.textTheme.bodySmall,
                 ),
                 const SizedBox(height: 10),
@@ -829,8 +839,8 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                       onPressed: _drawSignature,
                       icon: const Icon(Icons.draw_outlined),
                       label: Text(_signaturePng == null
-                          ? 'Draw signature…'
-                          : 'Signature added ✓'),
+                          ? appL10n(context).appSigDrawSignature
+                          : appL10n(context).appSigSignatureAdded),
                     ),
                   ),
                   if (widget.logoPicker != null) ...[
@@ -840,8 +850,9 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                         key: const ValueKey('digital-signature-logo'),
                         onPressed: _pickLogo,
                         icon: const Icon(Icons.image_outlined),
-                        label: Text(
-                            _logoBytes == null ? 'Add logo…' : 'Logo added ✓'),
+                        label: Text(_logoBytes == null
+                            ? appL10n(context).appSigAddLogo
+                            : appL10n(context).appSigLogoAdded),
                       ),
                     ),
                   ],
@@ -850,14 +861,15 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                   const SizedBox(height: 4),
                   Row(children: [
                     Expanded(
-                      child: Text('Apply to: ${_applyPagesLabel()}',
+                      child: Text(
+                          appL10n(context).appSigApplyTo(_applyPagesLabel()),
                           style: theme.textTheme.bodyMedium),
                     ),
                     TextButton.icon(
                       key: const ValueKey('digital-signature-apply-pages'),
                       onPressed: _chooseApplyPages,
                       icon: const Icon(Icons.copy_all_outlined, size: 18),
-                      label: const Text('Apply to pages…'),
+                      label: Text(appL10n(context).appSigApplyToPages),
                     ),
                   ]),
                 ],
@@ -901,7 +913,7 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(appL10n(context).cancel),
         ),
         FilledButton.icon(
           key: const ValueKey('digital-signature-sign'),
@@ -913,7 +925,9 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Icon(Icons.draw_outlined),
-          label: Text(_submitting ? 'Refreshing sign-in…' : 'Sign'),
+          label: Text(_submitting
+              ? appL10n(context).appSigRefreshingSignIn
+              : appL10n(context).appSigSign),
         ),
       ],
     );
@@ -949,9 +963,10 @@ class _AppearancePreview extends StatelessWidget {
     final theme = Theme.of(context);
     final details = <String>[
       if (signerName != null && signerName!.isNotEmpty)
-        'Digitally signed by $signerName',
-      'Date: ${_acrobatSignDate(DateTime.now())}',
-      if (reason != null && reason!.isNotEmpty) 'Reason: $reason',
+        appL10n(context).appSigSignedBy(signerName!),
+      appL10n(context).appSigDate(_acrobatSignDate(DateTime.now())),
+      if (reason != null && reason!.isNotEmpty)
+        appL10n(context).appSigReasonLine(reason!),
     ];
     // Wraps [child] to the panel width, then scales the whole block down to
     // fit the panel height - mirroring the renderer, which wraps the text and
@@ -990,7 +1005,7 @@ class _AppearancePreview extends StatelessWidget {
               // the signer name, centred and shrunk/wrapped to fit
               : fitText(
                   Text(
-                    signerName ?? 'Signer',
+                    signerName ?? appL10n(context).appSigSigner,
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                         color: Color(0xFF1A1A1A),
@@ -1039,11 +1054,13 @@ class _AppearancePreview extends StatelessWidget {
           if (onClearSignature != null)
             TextButton(
                 onPressed: onClearSignature,
-                child: const Text('Remove signature')),
+                child: Text(appL10n(context).appSigRemoveSignature)),
           if (onClearLogo != null)
-            TextButton(onPressed: onClearLogo, child: const Text('Remove logo')),
+            TextButton(
+                onPressed: onClearLogo,
+                child: Text(appL10n(context).appSigRemoveLogo)),
         ]),
-        Text('Preview - the signed box may differ slightly.',
+        Text(appL10n(context).appSigPreviewNote,
             style: theme.textTheme.bodySmall),
       ],
     );

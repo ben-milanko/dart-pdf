@@ -12,6 +12,9 @@ dependencies:
   file_selector: ^1.0.3
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: ^0.20.2
   pdf_document: ^2.1.0
   pdf_graphics: ^2.1.0
   dart_pdf_editor: ^2.1.0
@@ -30,3 +33,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # Generate the AppLocalizations bundle from lib/l10n (see l10n.yaml); the
+  # generated Dart is checked in.
+  generate: true

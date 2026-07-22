@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import 'l10n/app_l10n.dart';
+
 /// Modal dialog shown while a print job rasterises its pages, tracking
 /// "page X of Y".
 ///
@@ -16,7 +18,7 @@ class PrintProgressDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Printing'),
+      title: Text(appL10n(context).printDlgTitle),
       content: ValueListenableBuilder<(int, int)?>(
         valueListenable: progress,
         builder: (context, value, _) {
@@ -28,8 +30,8 @@ class PrintProgressDialog extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(total > 0
-                  ? 'Rendering page $rendered of $total…'
-                  : 'Preparing…'),
+                  ? appL10n(context).printDlgRendering(rendered, total)
+                  : appL10n(context).printDlgPreparing),
               const SizedBox(height: 16),
               LinearProgressIndicator(value: fraction),
             ],

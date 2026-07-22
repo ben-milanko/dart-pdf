@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 
+import '../l10n/pdf_l10n.dart';
 import '../scrollbar.dart';
 
 /// Which side of the viewer a sidebar panel's resize grip belongs to. Its
@@ -110,7 +111,7 @@ class PdfSidebarCloseButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) => IconButton(
         icon: const Icon(Icons.close, size: 18),
-        tooltip: 'Close',
+        tooltip: pdfL10n(context).close,
         visualDensity: VisualDensity.compact,
         onPressed: onPressed,
       );
@@ -136,7 +137,7 @@ class PdfSidebarMoveHandle extends StatelessWidget {
     final handle = MouseRegion(
       cursor: SystemMouseCursors.move,
       child: Tooltip(
-        message: 'Drag to move panel',
+        message: pdfL10n(context).panelDragToMovePanel,
         child: Icon(Icons.drag_indicator,
             size: 18, color: scheme.onSurfaceVariant),
       ),

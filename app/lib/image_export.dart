@@ -1,6 +1,8 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/material.dart';
 
+import 'l10n/app_l10n.dart';
+
 /// The image encodings the "Export page as image…" action offers.
 enum ImageExportFormat {
   png('PNG', 'png', 'image/png', PdfRasterFormat.png),
@@ -35,12 +37,12 @@ Future<ImageExportOptions?> showImageExportDialog(BuildContext context) {
     context: context,
     builder: (context) => StatefulBuilder(
       builder: (context, setState) => AlertDialog(
-        title: const Text('Export page as image'),
+        title: Text(appL10n(context).imgExportTitle),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Format'),
+            Text(appL10n(context).imgExportFormat),
             const SizedBox(height: 8),
             SegmentedButton<ImageExportFormat>(
               segments: [
@@ -51,7 +53,7 @@ Future<ImageExportOptions?> showImageExportDialog(BuildContext context) {
               onSelectionChanged: (s) => setState(() => format = s.first),
             ),
             const SizedBox(height: 16),
-            const Text('Resolution'),
+            Text(appL10n(context).imgExportResolution),
             const SizedBox(height: 8),
             DropdownButton<double>(
               key: const ValueKey('export-image-dpi'),
@@ -61,7 +63,7 @@ Future<ImageExportOptions?> showImageExportDialog(BuildContext context) {
                 for (final d in _dpiChoices)
                   DropdownMenuItem(
                     value: d,
-                    child: Text('${d.toInt()} dpi'),
+                    child: Text(appL10n(context).imgExportDpiValue(d.toInt())),
                   ),
               ],
               onChanged: (d) => setState(() => dpi = d ?? dpi),
@@ -71,14 +73,14 @@ Future<ImageExportOptions?> showImageExportDialog(BuildContext context) {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
+            child: Text(appL10n(context).cancel),
           ),
           FilledButton(
             key: const ValueKey('export-image-confirm'),
             onPressed: () => Navigator.of(context).pop(
               ImageExportOptions(format: format, dpi: dpi),
             ),
-            child: const Text('Export'),
+            child: Text(appL10n(context).imgExportExport),
           ),
         ],
       ),

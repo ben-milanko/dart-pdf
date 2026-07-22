@@ -61,4 +61,20 @@ if [ ! -f "$DN" ]; then
   ( cd "$ROOT" && $DART run packages/pdf_cos/tool/gen_devicen_pdf.dart "$DN" 8 1240 1650 )
 fi
 
+# Raster-underlay sheet, DCTDecode variant: two 9460x2918 JPEG underlays under
+# non-DCT gray soft masks + 71 OCG layers - the shape that forces the platform
+# JPEG codec at native resolution (the committed corpus twin is FlateDecode).
+# Needs cjpeg, which CI lacks - skipped (not failed) when it is missing.
+UNDERLAY="$ROOT/tool/perf/cache/raster-underlay/raster-underlay-mixed-2x9460x2918.pdf"
+if [ ! -f "$UNDERLAY" ]; then
+  if command -v cjpeg >/dev/null 2>&1; then
+    echo "gen raster-underlay-mixed (DCT underlays) -> $UNDERLAY"
+    mkdir -p "$(dirname "$UNDERLAY")"
+    ( cd "$ROOT" && $DART run packages/pdf_test_fixtures/tool/gen_raster_underlay_pdf.dart \
+        "$UNDERLAY" mixed 2 9460 2918 71 6000 20260722 )
+  else
+    echo "skip raster-underlay-mixed: cjpeg not on PATH" >&2
+  fi
+fi
+
 echo "perf docs ready under $ROOT/tool/perf/cache"
