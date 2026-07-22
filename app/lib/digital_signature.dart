@@ -25,19 +25,20 @@ String _acrobatSignDate(DateTime time) {
       "${two(utc.hour)}:${two(utc.minute)}:${two(utc.second)} +00'00'";
 }
 
-const digitalSignatureKeyTypeGroup = XTypeGroup(
-  label: 'RSA private keys',
-  extensions: ['pem', 'key', 'der'],
-  mimeTypes: ['application/x-pem-file', 'application/pkcs8'],
-  uniformTypeIdentifiers: ['public.data'],
-);
+// `label` is the localized file-dialog filter name; the caller resolves it.
+XTypeGroup digitalSignatureKeyTypeGroup(String label) => XTypeGroup(
+      label: label,
+      extensions: const ['pem', 'key', 'der'],
+      mimeTypes: const ['application/x-pem-file', 'application/pkcs8'],
+      uniformTypeIdentifiers: const ['public.data'],
+    );
 
-const digitalSignatureCertificateTypeGroup = XTypeGroup(
-  label: 'X.509 certificates',
-  extensions: ['pem', 'crt', 'cer', 'der'],
-  mimeTypes: ['application/pkix-cert', 'application/x-x509-ca-cert'],
-  uniformTypeIdentifiers: ['public.x509-certificate', 'public.data'],
-);
+XTypeGroup digitalSignatureCertificateTypeGroup(String label) => XTypeGroup(
+      label: label,
+      extensions: const ['pem', 'crt', 'cer', 'der'],
+      mimeTypes: const ['application/pkix-cert', 'application/x-x509-ca-cert'],
+      uniformTypeIdentifiers: const ['public.x509-certificate', 'public.data'],
+    );
 
 typedef DigitalSignatureOptionsProvider = Future<DigitalSignatureOptions?>
     Function(BuildContext context);
@@ -149,8 +150,10 @@ Future<DigitalSignatureOptions?> showDigitalSigningDialog(
     showDialog<DigitalSignatureOptions>(
       context: context,
       builder: (context) => DigitalSignatureDialog(
-        privateKeyPicker: privateKeyPicker ?? _pickPrivateKey,
-        certificatePicker: certificatePicker ?? _pickCertificates,
+        privateKeyPicker: privateKeyPicker ??
+            () => _pickPrivateKey(appL10n(context).appSigKeyFileType),
+        certificatePicker: certificatePicker ??
+            () => _pickCertificates(appL10n(context).appSigCertificateFileType),
         identityStore: identityStore ?? SecureIdentityStore(),
         createSelfSignedIdentity: createSelfSignedIdentity ??
             (context, store) =>
@@ -166,12 +169,12 @@ Future<DigitalSignatureOptions?> showDigitalSigningDialog(
       ),
     );
 
-Future<XFile?> _pickPrivateKey() => openFile(
-      acceptedTypeGroups: const [digitalSignatureKeyTypeGroup],
+Future<XFile?> _pickPrivateKey(String label) => openFile(
+      acceptedTypeGroups: [digitalSignatureKeyTypeGroup(label)],
     );
 
-Future<List<XFile>> _pickCertificates() => openFiles(
-      acceptedTypeGroups: const [digitalSignatureCertificateTypeGroup],
+Future<List<XFile>> _pickCertificates(String label) => openFiles(
+      acceptedTypeGroups: [digitalSignatureCertificateTypeGroup(label)],
     );
 
 class DigitalSignatureDialog extends StatefulWidget {
@@ -445,11 +448,36 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
         privateKey: key,
         certificates: _certificates,
       );
+    } on PdfSignatureIdentityException catch (error) {
+      _error = _localizeSignatureIdentityError(context, error);
     } on FormatException catch (error) {
       _error = error.message;
     } catch (_) {
       _error = appL10n(context).appSigKeyOrCertUnreadable;
     }
+  }
+
+  /// Maps a [PdfSignatureIdentityException] code (English `message` aside) to a
+  /// localized message. The engine model stays English-only; the translation
+  /// happens here, at the display site.
+  String _localizeSignatureIdentityError(
+    BuildContext context,
+    PdfSignatureIdentityException error,
+  ) {
+    final l10n = appL10n(context);
+    return switch (error.code) {
+      PdfSignatureIdentityError.noCertificateSelected =>
+        l10n.appSigErrorNoCertificateSelected,
+      PdfSignatureIdentityError.invalidCertificate =>
+        l10n.appSigErrorInvalidCertificate(error.certificateIndex ?? 0),
+      PdfSignatureIdentityError.keyCertificateMismatch =>
+        l10n.appSigErrorKeyCertificateMismatch,
+      PdfSignatureIdentityError.encryptedKeyUnsupported =>
+        l10n.appSigErrorEncryptedKeyUnsupported,
+      PdfSignatureIdentityError.keyNotRsa => l10n.appSigErrorKeyNotRsa,
+      PdfSignatureIdentityError.noCertificateFound =>
+        l10n.appSigErrorNoCertificateFound,
+    };
   }
 
   String? _value(TextEditingController controller) {

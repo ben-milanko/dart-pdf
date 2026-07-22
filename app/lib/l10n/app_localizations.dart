@@ -1340,6 +1340,108 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Tap to reopen'**
   String get welcomeTapToReopen;
+
+  /// One-line hint on the Settings row explaining how to make DartPDF the default PDF app; the arm is chosen by the running platform.
+  ///
+  /// In en, this message translates to:
+  /// **'{platform, select, web{Install the web app, then choose it for PDF files.} windows{Open Windows default apps settings for PDFs.} macos{Follow Finder’s “Always Open With” steps.} linux{Use your desktop’s default applications settings.} android{Choose DartPDF when opening a PDF, then tap Always.} ios{Use Share or Open In from Files to send PDFs here.} other{Configure your system’s PDF file handler.}}'**
+  String settingsDefaultAppSubtitle(String platform);
+
+  /// Full platform-specific steps for making DartPDF the default PDF app, shown in the setup dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'{platform, select, web{Install DartPDF from your browser first. Then use the browser or operating system file-handler settings to associate PDF files with the installed app.} windows{Windows Settings will open to Default apps. Search for “.pdf” or “PDF”, choose the current PDF app, then select DartPDF.} macos{In Finder, select any PDF, choose File > Get Info, expand “Open with”, pick DartPDF, then click “Change All…”.} linux{Open your desktop settings for Default Applications, or right-click a PDF in Files, choose Properties, and set DartPDF as the default for PDF documents.} android{Open a PDF from Files or Downloads, choose DartPDF in the app picker, then select Always. If another app already opens PDFs, clear that app’s defaults in Android Settings first.} ios{iOS does not provide a global default PDF editor. Use Files > Share, or long-press a PDF and choose Share/Open In, then pick DartPDF.} other{Use the system settings for file handlers to associate PDF documents with DartPDF.}}'**
+  String settingsDefaultAppInstructions(String platform);
+
+  /// OCR progress chip while the recognition model downloads (size unknown).
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading OCR model…'**
+  String get ocrChipDownloadingModel;
+
+  /// OCR progress chip while the recognition model downloads, with percent.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading model {percent}%'**
+  String ocrChipDownloadingModelPercent(int percent);
+
+  /// OCR progress chip while recognizing text, showing page of total.
+  ///
+  /// In en, this message translates to:
+  /// **'OCR {page}/{pageCount}'**
+  String ocrChipRecognising(int page, int pageCount);
+
+  /// OCR progress chip while assembling the recognized PDF after the last page.
+  ///
+  /// In en, this message translates to:
+  /// **'Finishing OCR…'**
+  String get ocrChipFinishing;
+
+  /// File-picker filter label for PDF files.
+  ///
+  /// In en, this message translates to:
+  /// **'PDF documents'**
+  String get fileTypePdf;
+
+  /// File-picker filter label for PNG/JPEG image files.
+  ///
+  /// In en, this message translates to:
+  /// **'Images'**
+  String get fileTypeImages;
+
+  /// File-picker filter label for exported custom-stamp JSON bundles.
+  ///
+  /// In en, this message translates to:
+  /// **'DartPDF stamps'**
+  String get fileTypeStampBundle;
+
+  /// File-picker filter label when choosing a private key to sign with.
+  ///
+  /// In en, this message translates to:
+  /// **'RSA private keys'**
+  String get appSigKeyFileType;
+
+  /// File-picker filter label when choosing signing certificates.
+  ///
+  /// In en, this message translates to:
+  /// **'X.509 certificates'**
+  String get appSigCertificateFileType;
+
+  /// Signing error: the user picked a key but no certificate.
+  ///
+  /// In en, this message translates to:
+  /// **'Select at least one X.509 certificate.'**
+  String get appSigErrorNoCertificateSelected;
+
+  /// Signing error: a chosen certificate file could not be parsed as X.509.
+  ///
+  /// In en, this message translates to:
+  /// **'Certificate {index} is not valid X.509.'**
+  String appSigErrorInvalidCertificate(int index);
+
+  /// Signing error: the key pairs with none of the chosen certificates.
+  ///
+  /// In en, this message translates to:
+  /// **'The private key does not match any selected RSA certificate.'**
+  String get appSigErrorKeyCertificateMismatch;
+
+  /// Signing error: the chosen private key is an encrypted PEM.
+  ///
+  /// In en, this message translates to:
+  /// **'Encrypted private keys are not supported. Choose an unencrypted RSA PKCS#1 or PKCS#8 key.'**
+  String get appSigErrorEncryptedKeyUnsupported;
+
+  /// Signing error: the chosen private key could not be read as RSA.
+  ///
+  /// In en, this message translates to:
+  /// **'The private key is not an unencrypted RSA PKCS#1 or PKCS#8 key.'**
+  String get appSigErrorKeyNotRsa;
+
+  /// Signing error: the chosen files contained no X.509 certificate.
+  ///
+  /// In en, this message translates to:
+  /// **'No X.509 certificates were found.'**
+  String get appSigErrorNoCertificateFound;
 }
 
 class _AppLocalizationsDelegate

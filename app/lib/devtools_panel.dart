@@ -294,6 +294,8 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
       context,
       const JsonEncoder.withIndent('  ').convert(snapshot),
       'dartpdf-devtools-$stamp.json',
+      // The developer tools stay English (excluded from the app l10n).
+      typeLabel: 'DartPDF stamps',
     );
     _tools.addLog('devtools: snapshot export ${result.runtimeType}');
   }

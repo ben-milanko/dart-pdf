@@ -91,9 +91,11 @@ void main() {
     fs.FileSelectorPlatform.instance = fake;
     addTearDown(() => fs.FileSelectorPlatform.instance = original);
 
-    final files = await pickPdfFiles();
+    final files = await pickPdfFiles('PDF documents');
     expect(fake.openedMultiple, isTrue);
-    expect(fake.acceptedTypeGroups, [pdfTypeGroup]);
+    expect(fake.acceptedTypeGroups, hasLength(1));
+    expect(fake.acceptedTypeGroups!.single.label, 'PDF documents');
+    expect(fake.acceptedTypeGroups!.single.extensions, ['pdf']);
     expect(files.map((f) => f.path), [a, b]);
   });
 
@@ -164,7 +166,8 @@ void main() {
         );
         try {
           final result = await saveBytesAs(
-              ctx, Uint8List.fromList([1, 2, 3, 4]), 'exported');
+              ctx, Uint8List.fromList([1, 2, 3, 4]), 'exported',
+              pdfLabel: 'PDF documents');
 
           expect(result.succeeded, isTrue);
           expect(result.path, '$chosen.pdf');

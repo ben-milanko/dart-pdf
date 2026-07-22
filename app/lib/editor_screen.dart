@@ -25,6 +25,7 @@ import 'keyless_signing.dart';
 import 'l10n/app_l10n.dart';
 import 'new_document.dart';
 import 'ocr.dart';
+import 'ocr_status_label.dart';
 import 'pdf_cache.dart';
 import 'print_progress_dialog.dart';
 import 'printing.dart';
@@ -998,7 +999,7 @@ class _EditorScreenState extends State<EditorScreen>
       }
     }
     try {
-      final files = await pickPdfFiles();
+      final files = await pickPdfFiles(l10n.fileTypePdf);
       if (files.isEmpty) return;
       // Opening a batch: defer parsing every file but the one that ends up
       // active, so the picker doesn't freeze while it opens all of them.
@@ -1338,7 +1339,7 @@ class _EditorScreenState extends State<EditorScreen>
     if (current == null) return;
     final l10n = appL10n(context);
     try {
-      final other = await pickPdfBytes();
+      final other = await pickPdfBytes(l10n.fileTypePdf);
       if (other == null) return;
       setState(() {
         _tabs.add(DocumentTab.comparison(
@@ -1535,7 +1536,9 @@ class _EditorScreenState extends State<EditorScreen>
   Future<void> _save(DocumentTab tab, {bool saveAs = false}) async {
     final bytes = tab.session?.bytes;
     if (bytes == null) return;
-    final saveAsDocument = widget.saveDocumentAs ?? saveBytesAs;
+    final saveAsDocument = widget.saveDocumentAs ??
+        (ctx, bytes, name) =>
+            saveBytesAs(ctx, bytes, name, pdfLabel: appL10n(ctx).fileTypePdf);
     final saveToPath = widget.saveDocumentToPath ?? saveBytesToPath;
     final inPlace = !saveAs && tab.originPath != null && supportsInPlaceSave;
     var result = inPlace
@@ -1628,7 +1631,9 @@ class _EditorScreenState extends State<EditorScreen>
                         ? null
                         : (context) => _obtainKeyless(context, silentProvider),
                 placement: placement,
-                logoPicker: placement == null ? null : pickImageBytes,
+                logoPicker: placement == null
+                    ? null
+                    : () => pickImageBytes(appL10n(context).fileTypeImages),
                 pageCount: session.document.pageCount,
               ))(context);
       if (!mounted || options == null || !_tabs.contains(tab)) return;
@@ -1815,8 +1820,9 @@ class _EditorScreenState extends State<EditorScreen>
       if (!mounted) return;
       final name =
           imageExportFileName(tab.title, pageIndex + 1, options.format);
-      final result =
-          await saveImageBytesAs(context, bytes, name, options.format.mimeType);
+      final result = await saveImageBytesAs(
+          context, bytes, name, options.format.mimeType,
+          imageLabel: appL10n(context).fileTypeImages);
       if (result.message != null) _toast(result.message!);
     } catch (_) {
       if (mounted) _toast(appL10n(context).editorCouldNotExport(tab.title));
@@ -1830,7 +1836,8 @@ class _EditorScreenState extends State<EditorScreen>
   ) async {
     final name = selectedContentImageFileName(tab.title, image.pageIndex + 1);
     final result = await saveImageBytesAs(
-        exportContext, image.pngBytes, name, 'image/png');
+        exportContext, image.pngBytes, name, 'image/png',
+        imageLabel: appL10n(exportContext).fileTypeImages);
     if (mounted && result.message != null) _toast(result.message!);
   }
 
@@ -1838,13 +1845,14 @@ class _EditorScreenState extends State<EditorScreen>
     BuildContext exportContext,
     List<PdfCustomStamp> stamps,
   ) async {
-    final result = await exportCustomStampsAs(exportContext, stamps);
+    final result = await exportCustomStampsAs(exportContext, stamps,
+        stampLabel: appL10n(exportContext).fileTypeStampBundle);
     if (mounted && result.message != null) _toast(result.message!);
   }
 
   Future<List<PdfCustomStamp>?> _importCustomStamps(BuildContext _) async {
     try {
-      return await importCustomStamps();
+      return await importCustomStamps(appL10n(context).fileTypeStampBundle);
     } catch (e) {
       if (mounted) _toast(appL10n(context).editorCouldNotImportStamps('$e'));
       return null;
@@ -2360,13 +2368,14 @@ class _EditorScreenState extends State<EditorScreen>
       // Save (button + Ctrl/⌘+S) live even before the first edit - the first
       // save writes the file via the Save As flow.
       alwaysAllowSave: tab.isUnsaved,
-      onPickPdfToInsert: pickPdfBytes,
-      onExportPages: (bytes) =>
-          unawaited(saveBytesAs(context, bytes, tab.title)),
+      onPickPdfToInsert: () => pickPdfBytes(appL10n(context).fileTypePdf),
+      onExportPages: (bytes) => unawaited(saveBytesAs(context, bytes, tab.title,
+          pdfLabel: appL10n(context).fileTypePdf)),
       onAction: _onAction,
       annotationMenuBuilder: _annotationMenuActions,
-      formImagePicker: (context, field) => pickImageBytes(),
-      imagePicker: (context) => pickImageBytes(),
+      formImagePicker: (context, field) =>
+          pickImageBytes(appL10n(context).fileTypeImages),
+      imagePicker: (context) => pickImageBytes(appL10n(context).fileTypeImages),
       systemImagePasteProvider: (context) =>
           (widget.imageClipboardReader ?? readImageFromClipboard)(),
       systemTextPasteProvider: (context) =>
@@ -3247,7 +3256,7 @@ class _OcrStatusChip extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  status.label,
+                  ocrStatusLabel(appL10n(context), status),
                   style: TextStyle(
                     fontSize: 12,
                     color: scheme.onSecondaryContainer,
