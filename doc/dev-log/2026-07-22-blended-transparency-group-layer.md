@@ -54,6 +54,19 @@ of canvas save/restore state).
   `streaming_interpreter_test`, the pure-Dart PDF.js corpus and the Flutter
   PDF.js render smoke all pass; the Ghent pure-Dart interpret pass is green.
 
+## Follow-up: strip/canvas parity
+
+Opening a group layer for a blended group means the interpreter resets the
+in-group blend to Normal, which on the **strip** device re-enabled strip binning
+for the group's own content (the canvas device draws it directly), so
+`strip_parity_test` dropped one Ghent page below its 0.9 threshold
+(51/57 -> failing). Fixed in `strip_binning_device.dart`: `beginGroup` now
+records whether the group was entered under a non-Normal blend (observed before
+the interpreter's in-group reset) and `stripsActive` stays false for that
+group's duration, mirroring the existing knockout handling - so blended-group
+content delegates to the canvas device on both paths. Parity back to 52/57
+(91.2%).
+
 ## Not reproduced: "black bar on the RHS of page 9"
 
 The same report was reported to show a black bar down the right edge of page 9

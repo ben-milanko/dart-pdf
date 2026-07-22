@@ -108,6 +108,14 @@ abstract class StripBinningDevice implements PdfDevice {
 
   PdfBlendMode _blend = PdfBlendMode.normal;
   final List<bool> _groupKnockout = [];
+  // Per open group: true when the group was *entered* under a non-Normal blend
+  // mode. Such a group composites as one object with that blend on its own
+  // layer, and the interpreter resets the in-group blend to Normal (§11.6.6) so
+  // inner elements don't blend twice - which would otherwise re-enable strip
+  // binning for the group's own content while the canvas device draws it
+  // directly, diverging the two. Keeping the content on the delegate holds
+  // strip/canvas parity.
+  final List<bool> _groupBlended = [];
   final List<bool> _savedClip = [];
   int _flushOrdinal = 0;
 
@@ -123,7 +131,8 @@ abstract class StripBinningDevice implements PdfDevice {
   bool get stripsActive =>
       !delegateAll &&
       _blend == PdfBlendMode.normal &&
-      (_groupKnockout.isEmpty || !_groupKnockout.last);
+      (_groupKnockout.isEmpty || !_groupKnockout.last) &&
+      (_groupBlended.isEmpty || !_groupBlended.last);
 
   /// Runs one flush point: snapshots the generator's strips (when binning)
   /// and hands them to [emitBatch] with this point's ordinal. Call once
@@ -297,6 +306,8 @@ abstract class StripBinningDevice implements PdfDevice {
   void beginGroup(double alpha, {bool knockout = false}) {
     flushPending(); // the group's layer must not capture earlier strips
     _groupKnockout.add(knockout);
+    // Observed before the interpreter resets the in-group blend to Normal.
+    _groupBlended.add(_blend != PdfBlendMode.normal);
     delegateBeginGroup(alpha, knockout: knockout);
   }
 
@@ -304,6 +315,7 @@ abstract class StripBinningDevice implements PdfDevice {
   void endGroup() {
     flushPending(); // strips inside the group must land inside its layer
     if (_groupKnockout.isNotEmpty) _groupKnockout.removeLast();
+    if (_groupBlended.isNotEmpty) _groupBlended.removeLast();
     delegateEndGroup();
   }
 
