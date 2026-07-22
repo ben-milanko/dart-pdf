@@ -118,7 +118,7 @@ jobs:
           fail_ci_if_error: false
 
   # Keep the checked-in web render worker bundle in sync with source. The bundle
-  # (`packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js`) is a
+  # (`packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js`) is a
   # `dart compile js` output that links most of the stack, so almost any change
   # can make it stale - and it must stay in git because it ships in the pub.dev
   # package and a fresh clone-and-run needs it. This job compiles it (which also
@@ -143,7 +143,7 @@ jobs:
       - run: flutter pub get
       - name: Regenerate bundled web render worker
         env:
-          ASSET: packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js
+          ASSET: packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
           EVENT_NAME: ${{ github.event_name }}
           IS_SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}

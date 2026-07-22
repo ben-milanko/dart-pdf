@@ -7,48 +7,63 @@ import 'package:pdf_document/pdf_document.dart';
 import 'editing_controller.dart';
 import 'text_prompt.dart';
 
-/// A font shipped with the package, embeddable without a file picker. The
-/// bytes load lazily from the asset bundle ([loadBundledFont]).
+/// A font offered in the font menu without a file picker, its bytes loaded
+/// lazily on pick ([loadBundledFont]).
+///
+/// By default the bytes come from an [assetKey] in the asset bundle, but a host
+/// can instead supply raw [loadBytes] (application-provided fonts, or fonts read
+/// from a source Flutter's asset bundle can't reach) - either way the outlines
+/// embed into the document so the text renders everywhere.
 class PdfBundledFont {
-  const PdfBundledFont(this.label, this.assetKey);
+  const PdfBundledFont(this.label, this.assetKey, {this.package, this.loadBytes});
 
   /// The name shown in the font menu.
   final String label;
 
   /// The asset bundle key (e.g.
-  /// `packages/dart_pdf_editor/assets/fonts/DejaVuSans.ttf`).
+  /// `packages/dart_pdf_editor_assets/assets/fonts/DejaVuSans.ttf`). Used to
+  /// load the bytes when [loadBytes] is null, and as this entry's cache key.
   final String assetKey;
+
+  /// The package whose `fonts:` declaration registers this face with the engine
+  /// for the menu-row preview (e.g. `dart_pdf_editor_assets`). Null when the
+  /// face is not a package asset, in which case the row previews in the menu's
+  /// default face (the bytes still embed on pick).
+  final String? package;
+
+  /// An optional loader for the font's program bytes, overriding [assetKey].
+  /// Lets an app provide font bytes directly instead of declaring an asset.
+  final Future<Uint8List> Function()? loadBytes;
 }
 
-/// The fonts bundled with the editor - the DejaVu trio (sans, serif and
-/// monospace covering Latin, Cyrillic, Greek and more) plus a few extra
-/// faces for stylistic range: Fira Sans (humanist sans), Spectral (a
-/// refined serif) and Lobster (a display script). Users get a richer
-/// choice than the base-14 set out of the box, and custom `.ttf`/`.otf`
-/// files extend it further via a [PdfFontPicker].
-const List<PdfBundledFont> pdfBundledFonts = [
-  PdfBundledFont(
-      'DejaVu Sans', 'packages/dart_pdf_editor/assets/fonts/DejaVuSans.ttf'),
-  PdfBundledFont(
-      'DejaVu Serif', 'packages/dart_pdf_editor/assets/fonts/DejaVuSerif.ttf'),
-  PdfBundledFont('DejaVu Sans Mono',
-      'packages/dart_pdf_editor/assets/fonts/DejaVuSansMono.ttf'),
-  PdfBundledFont('Fira Sans',
-      'packages/dart_pdf_editor/assets/fonts/FiraSans-Regular.ttf'),
-  PdfBundledFont(
-      'Spectral', 'packages/dart_pdf_editor/assets/fonts/Spectral-Regular.ttf'),
-  PdfBundledFont(
-      'Lobster', 'packages/dart_pdf_editor/assets/fonts/Lobster-Regular.ttf'),
-];
+/// The fonts offered in every font menu without a file picker, on top of the
+/// base-14 families, the document's own fonts, and the platform fonts.
+///
+/// Empty by default: the bundled font catalogue ships in the optional
+/// `dart_pdf_editor_assets` package, whose `registerBundledEditorAssets()` fills
+/// this in at startup (the DejaVu trio, Fira Sans, Spectral and Lobster). A
+/// viewer-only app that doesn't depend on that package leaves it empty - the
+/// menu simply drops the "bundled" group rather than failing - and an app can
+/// assign its own catalogue (see [PdfBundledFont.loadBytes] for
+/// application-provided font bytes). Custom `.ttf`/`.otf` files extend any menu
+/// further via a [PdfFontPicker].
+List<PdfBundledFont> pdfBundledFonts = const <PdfBundledFont>[];
 
 final Map<String, Uint8List> _bundledCache = {};
 
-/// Loads (and caches) a bundled font's bytes from the asset bundle.
+/// Loads (and caches) a bundled font's bytes, from its [PdfBundledFont.loadBytes]
+/// when set, otherwise from the asset bundle key.
 Future<Uint8List> loadBundledFont(PdfBundledFont font) async {
   final cached = _bundledCache[font.assetKey];
   if (cached != null) return cached;
-  final data = await rootBundle.load(font.assetKey);
-  final bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+  final loader = font.loadBytes;
+  final Uint8List bytes;
+  if (loader != null) {
+    bytes = await loader();
+  } else {
+    final data = await rootBundle.load(font.assetKey);
+    bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+  }
   return _bundledCache[font.assetKey] = bytes;
 }
 
@@ -93,7 +108,9 @@ List<PdfEmbeddedFont>? _fallbackFontsCache;
 /// document's own font may be subsetted and lack the glyph for a character
 /// the user types, so these wide-Unicode faces draw it instead (the closest
 /// serif/mono match is chosen). Loaded and cached once; a missing/corrupt
-/// asset is skipped.
+/// asset is skipped. Returns an empty list when [pdfBundledFonts] carries no
+/// DejaVu faces (a viewer that didn't register `dart_pdf_editor_assets`), which
+/// just disables composite-text fallback rather than failing.
 Future<List<PdfEmbeddedFont>> loadFallbackFonts() async {
   if (_fallbackFontsCache != null) return _fallbackFontsCache!;
   final fonts = <PdfEmbeddedFont>[];
@@ -147,7 +164,7 @@ class PdfFontMenuButton extends StatelessWidget {
     required this.controller,
     this.buttonKey,
     this.fontPicker,
-    this.bundled = pdfBundledFonts,
+    this.bundled,
     this.platformFonts,
     this.currentFont,
   });
@@ -162,8 +179,9 @@ class PdfFontMenuButton extends StatelessWidget {
   /// when null.
   final PdfFontPicker? fontPicker;
 
-  /// The bundled fonts offered. Defaults to [pdfBundledFonts].
-  final List<PdfBundledFont> bundled;
+  /// The bundled fonts offered. Defaults to the [pdfBundledFonts] registry
+  /// when null.
+  final List<PdfBundledFont>? bundled;
 
   /// The platform fonts offered. Defaults to the host-populated
   /// [pdfPlatformFonts] registry when null.
@@ -469,12 +487,13 @@ Future<void> showPdfFontMenu({
   required BuildContext context,
   required PdfEditingController controller,
   PdfFontPicker? fontPicker,
-  List<PdfBundledFont> bundled = pdfBundledFonts,
+  List<PdfBundledFont>? bundled,
   List<PdfPlatformFont>? platformFonts,
   List<PdfEmbeddedFont>? documentFonts,
   PdfTextFont? currentFont,
   void Function(PdfTextFont font)? onSelected,
 }) async {
+  final bundledFonts = bundled ?? pdfBundledFonts;
   final platform = platformFonts ?? pdfPlatformFonts;
   final inDocument = documentFonts ?? controller.documentFonts;
 
@@ -546,16 +565,16 @@ Future<void> showPdfFontMenu({
       recentKey: 'std:mono',
       section: 'All fonts',
     ),
-    for (var i = 0; i < bundled.length; i++)
+    for (var i = 0; i < bundledFonts.length; i++)
       _FontEntry(
         key: ValueKey('pdf-font-bundled-$i'),
-        label: bundled[i].label,
+        label: bundledFonts[i].label,
         subtitle: 'Bundled font',
-        searchText: '${bundled[i].label} bundled font'.toLowerCase(),
-        choice: _BundledChoice(bundled[i]),
-        fontFamily: bundled[i].label,
-        package: 'dart_pdf_editor',
-        recentKey: 'bundled:${bundled[i].label}',
+        searchText: '${bundledFonts[i].label} bundled font'.toLowerCase(),
+        choice: _BundledChoice(bundledFonts[i]),
+        fontFamily: bundledFonts[i].label,
+        package: bundledFonts[i].package,
+        recentKey: 'bundled:${bundledFonts[i].label}',
         section: 'All fonts',
       ),
     for (var i = 0; i < platform.length; i++)

@@ -13,4 +13,4 @@ doc/dev-log.md     merge=union
 # pushes it automatically on same-repo PRs (tool/ci/regen_web_worker.sh).
 # -merge keeps our side and flags a conflict instead of interleaving hunks;
 # -diff keeps ~970 KB of minified JS out of diffs and PR views.
-packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js -merge -diff
+packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js -merge -diff

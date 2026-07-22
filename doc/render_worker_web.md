@@ -45,16 +45,20 @@ the same worker cache.
 
 ## Do I have to do anything?
 
-**No.** The package declares `assets/web/pdf_render_worker.dart.js` as a Flutter
-asset, and the default `pdfRenderWorkerScriptUrl` points at Flutter's package
-asset path:
+**One line.** The worker script ships in the optional `dart_pdf_editor_assets`
+package (it used to be a `dart_pdf_editor` asset, but was split out so
+viewer-only apps don't bundle its ~0.48 MB). Depend on that package and call
+`registerBundledEditorAssets()` once at startup - it sets
+`pdfRenderWorkerScriptUrl` to Flutter's package asset path:
 
 ```text
-assets/packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js
+assets/packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
 ```
 
-If that worker cannot load, the viewer degrades to main-thread rendering. Set
-`pdfRenderWorkerScriptUrl = null` before opening a viewer to force that fallback.
+Without that call, `pdfRenderWorkerScriptUrl` is null and web rendering runs on
+the main thread. If a worker URL is set but the script cannot load, the viewer
+degrades to main-thread rendering too. Set `pdfRenderWorkerScriptUrl = null`
+before opening a viewer to force that fallback explicitly.
 
 ## Self-host the worker (optional)
 

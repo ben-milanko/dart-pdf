@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -34,6 +35,10 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
   @override
   void initState() {
     super.initState();
+    // Register the optional bundled editor fonts + web render worker so the app
+    // keeps the full-featured editor. A viewer-only app would drop the
+    // dart_pdf_editor_assets dependency and this call to save the ~1.7 MB.
+    registerBundledEditorAssets();
     // Log/frame-timing capture for the F12 developer tools.
     if (kDevToolsEnabled) AppDevTools.instance.install();
     // A small pool gives heavy CAD/image pages real overlap without multiplying
