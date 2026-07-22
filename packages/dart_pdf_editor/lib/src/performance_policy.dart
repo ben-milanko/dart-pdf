@@ -102,6 +102,30 @@ int pdfDefaultImageCacheBytes({
   };
 }
 
+/// Platform-aware default for [PdfLiveRasterBudget.maxBytes]: the ceiling over
+/// the base rasters, detail patches, and retained-scene images the live pages
+/// in the scroll cacheExtent hold at once (#405).
+///
+/// Sized so the on-screen page plus its immediate neighbours always fit (they
+/// are never evicted), and only farther cache-window pages are reclaimed under
+/// pressure. Larger than the decoded-image cache because a single large-format
+/// base raster can be tens of MB and a few must coexist for smooth scrolling;
+/// smaller on memory-constrained mobile/web where jetsam bites first.
+int pdfDefaultLiveRasterBudgetBytes({
+  PdfPerformancePlatform? platform,
+  double? deviceMemoryGb,
+}) {
+  const mb = 1024 * 1024;
+  final family = platform ?? detectedPdfPerformancePlatform;
+  final ram = deviceMemoryGb ?? detectedPdfDeviceMemoryGb;
+  return switch (family) {
+    PdfPerformancePlatform.desktop => 384 * mb,
+    PdfPerformancePlatform.mobile => 192 * mb,
+    PdfPerformancePlatform.web => ram != null && ram <= 2 ? 128 * mb : 192 * mb,
+    PdfPerformancePlatform.other => 192 * mb,
+  };
+}
+
 /// The current auto-policy posture. Exposed in diagnostics and tests.
 enum PdfPerformanceTier { conservative, balanced, throughput }
 

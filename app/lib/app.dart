@@ -59,6 +59,12 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
         192 << 20,
       _ => 384 << 20,
     };
+    // Cross-page ceiling over the base rasters, detail patches, and retained-
+    // scene images the live pages in the scroll cacheExtent hold at once - the
+    // additive-per-page memory #405 measured. Farther-from-viewport pages are
+    // reclaimed first when the sum exceeds this; the on-screen page and its
+    // neighbours always fit.
+    PdfLiveRasterBudget.instance.maxBytes = pdfDefaultLiveRasterBudgetBytes();
     // Persisted devtools options (deep-zoom mode, overlays, worker count)
     // override the defaults above once loaded.
     if (kDevToolsEnabled) unawaited(AppDevTools.instance.restoreOptions());

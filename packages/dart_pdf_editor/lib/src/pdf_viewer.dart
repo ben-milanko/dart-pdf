@@ -15,6 +15,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'annotation_tap.dart';
 import 'debug_overlays.dart';
+import 'live_raster_budget.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_fonts.dart';
 import 'editing/editing_form_layer.dart';
@@ -1631,9 +1632,13 @@ class _PdfViewerState extends State<PdfViewer>
     // banded transcripts): dropped indices rebuild identically, evicted strips
     // re-materialize on demand, so this is free of any visual regression.
     final scenes = PdfRetainedScene.handleMemoryPressure();
+    // Live-page rasters were exempt from the pressure signal (#405): surrender
+    // every off-viewport page's base raster + detail patch + retained scene now.
+    final liveFreed = PdfLiveRasterBudget.instance.evictReclaimable();
     PdfPerfLog.log('memory-pressure cleared ${freed >> 20}MB across '
         '${PdfCacheRegistry.instance.registrationCount} caches, '
-        'shed spatial metadata on $scenes scene(s)'
+        'shed spatial metadata on $scenes scene(s), '
+        'freed ${liveFreed >> 20}MB of live rasters'
         '${PdfPerfLog.rssSuffix()}');
     _previews.clear();
   }

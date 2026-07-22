@@ -66,6 +66,7 @@ export 'src/page_range_dialog.dart';
 export 'src/pdf_editor_view.dart';
 export 'src/pdf_page_view.dart';
 export 'src/pdf_reader.dart';
+export 'src/live_raster_budget.dart';
 export 'src/pdf_reflow_view.dart';
 export 'src/pdf_viewer.dart';
 export 'src/performance_policy.dart';

@@ -14,6 +14,7 @@ import 'package:pdf_graphics/pdf_graphics.dart'
         PdfRenderCommand;
 
 import 'debug_overlays.dart';
+import 'live_raster_budget.dart';
 import 'perf_log.dart';
 import 'page_render_session.dart';
 import 'performance_policy.dart';
@@ -404,7 +405,8 @@ class PdfPageView extends StatefulWidget {
   State<PdfPageView> createState() => _PdfPageViewState();
 }
 
-class _PdfPageViewState extends State<PdfPageView> {
+class _PdfPageViewState extends State<PdfPageView>
+    implements PdfLiveRasterHolder {
   late final PdfPageRenderSession _renderSession;
   Future<ui.Picture>? _picture;
 
@@ -484,6 +486,7 @@ class _PdfPageViewState extends State<PdfPageView> {
   void initState() {
     super.initState();
     PdfLivePageRegistry.instance.add(widget.previewIndex);
+    PdfLiveRasterBudget.instance.register(this);
     _renderSession = PdfPageRenderSession(_renderIntent(widget));
     widget.renderHold?.addListener(_onRenderHoldChanged);
     widget.previewCache?.addListener(_onPreviewCacheChanged);
@@ -681,6 +684,7 @@ class _PdfPageViewState extends State<PdfPageView> {
   @override
   void dispose() {
     PdfLivePageRegistry.instance.remove(widget.previewIndex);
+    PdfLiveRasterBudget.instance.unregister(this);
     PdfDebugDetailRegions.instance.report(widget.previewIndex, null);
     widget.renderHold?.removeListener(_onRenderHoldChanged);
     _liveTransformFor(widget)?.removeListener(_onLiveTransformChanged);
@@ -804,6 +808,54 @@ class _PdfPageViewState extends State<PdfPageView> {
 
   double _effectiveRatio() => _effectiveRatioAt(widget.scale);
 
+  // --- Live-raster budget (#405) --------------------------------------------
+
+  static int _imageBytes(ui.Image? image) =>
+      image == null ? 0 : image.width * image.height * 4;
+
+  @override
+  int get liveRasterBytes =>
+      _imageBytes(_image) +
+      _imageBytes(_detailImage) +
+      (_scene?.decodedImageBytes ?? 0);
+
+  @override
+  int get liveRasterDistance => widget.focusDistance;
+
+  @override
+  void evictLiveRaster() {
+    if (!mounted) return;
+    // Reclaim this off-viewport page's heavy rasters: the base raster, the
+    // deep-zoom detail patch, and the retained scene's decoded images. The soft
+    // preview (if any) stays up, and the page re-rasterises when it is next
+    // scrolled back near the viewport (_render re-runs because _image and
+    // _rasteredRatio are null). Never called on the focused page.
+    setState(() {
+      _image?.dispose();
+      _image = null;
+      _dropDetail();
+      _dropPicture(); // frees the scene + slug picture and nulls _rasteredRatio
+    });
+    PdfPerfLog.log(
+      'live-raster evict page=${widget.previewIndex} '
+      'dist=${widget.focusDistance}',
+    );
+  }
+
+  bool _budgetRebalanceScheduled = false;
+
+  /// Trims the global live-raster budget after this page's raster grew, once
+  /// per frame. Post-frame so evicting another page (its setState) never lands
+  /// mid-build of this one.
+  void _scheduleBudgetRebalance() {
+    if (_budgetRebalanceScheduled) return;
+    _budgetRebalanceScheduled = true;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _budgetRebalanceScheduled = false;
+      PdfLiveRasterBudget.instance.rebalance();
+    });
+  }
+
   /// The image-decode resolution this page's record should use: the display
   /// ratio (capped by [PdfPageView.workerImagePixelRatioCap]), reduced by
   /// [PdfPageView.prefetchImagePixelRatioFactor] when the page is an off-focus
@@ -903,6 +955,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       _preview?.dispose();
       _preview = null;
     });
+    _scheduleBudgetRebalance();
     PdfPerfLog.log(
       'full-raster cache hit page=${widget.previewIndex} '
       '${image.width}x${image.height}',
@@ -1330,6 +1383,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       _preview?.dispose();
       _preview = null;
     });
+    _scheduleBudgetRebalance();
     PdfPerfLog.log('vector-first page=$pageIndex${PdfPerfLog.rssSuffix()}');
     // This path rasterized a full-page vector preview instead of arming a
     // region detail, so there is nothing for the caller to wait on.
@@ -1665,6 +1719,7 @@ class _PdfPageViewState extends State<PdfPageView> {
         _preview?.dispose();
         _preview = null;
       });
+      _scheduleBudgetRebalance();
       if (_renderedAtFullImageRatio()) {
         cache?.putFullImage(
           widget.previewIndex,
