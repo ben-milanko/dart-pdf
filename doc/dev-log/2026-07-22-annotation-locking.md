@@ -40,16 +40,21 @@ markup && !ReadOnly && host predicate:
   for the current (necessarily unlocked) selection; locks as one revision
   then clears the selection.
 
-**Context menu (`editing_menu.dart`).** A "Lock" entry beside Delete,
-enabled on `canLockSelected`. Only "Lock" is needed here because a locked
-annotation can't be selected to reach this menu.
+**Context menu (`editing_menu.dart` + `pdf_viewer.dart`).** A "Lock" entry
+beside Delete, enabled on `canLockSelected`, for the (necessarily
+unlocked) selection. For the reverse, a right-click *on a locked
+annotation* opens an Unlock-only menu: since the annotation can't be
+selected, `_onSecondaryTapUp` falls through the normal
+`selectableAnnotationAt` miss to `lockedAnnotationAt` (a locked-aware hit
+test) and passes the slot to `showPdfAnnotationMenu(unlockTarget:)`, which
+then shows a standalone "Unlock" item (and suppresses the otherwise-always
+Paste row). So mouse users get both directions from the page itself.
 
-**Sidebar (`editing_sidebar.dart`).** A persistent lock/unlock icon on
-every markup row (`pdf-annotation-lock-$page-$index`), shown even for
-locked rows (which otherwise expose no actions) - this is the sole way
-back from a locked state, mirroring Bluebeam's Markups-List lock column.
-It sits *outside* the hover-reveal `Visibility` so the lock state reads at
-a glance and stays tappable.
+**Sidebar (`editing_sidebar.dart`).** A lock/unlock icon on every markup
+row (`pdf-annotation-lock-$page-$index`) that hover-reveals with the row's
+other actions (delete, thread menu), and stays reachable for a locked row
+even though its edit actions are gone - the touch counterpart to
+right-click Unlock, mirroring Bluebeam's Markups-List lock column.
 
 ## Bluebeam interop
 
@@ -80,7 +85,8 @@ move.
 - `editing_sidebar_test.dart`: the row's lock button locks then unlocks,
   with the delete action disappearing while locked.
 - `editing_menu_test.dart`: "Lock" from the context menu locks + clears
-  the selection, and a subsequent right-click can't reach the locked one.
+  the selection; a right-click on the locked annotation then offers
+  Unlock (not Lock/Delete), unlocks it, and it selects normally again.
 
 l10n: `menuLock`, `sidebarLockAnnotation`, `sidebarUnlockAnnotation`
 (en.arb + regenerated `dart_pdf_editor_localizations*.dart`).

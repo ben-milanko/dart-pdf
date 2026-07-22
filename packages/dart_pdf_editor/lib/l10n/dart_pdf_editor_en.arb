@@ -391,6 +391,10 @@
   "@menuLock": {
     "description": "Annotation context-menu item that locks the selected annotation(s) so they can't be moved, resized, deleted, or edited (sets the /F Locked and LockedContents flags)."
   },
+  "menuUnlock": "Unlock",
+  "@menuUnlock": {
+    "description": "Annotation context-menu item shown when right-clicking a locked annotation; unlocks it so it can be edited again."
+  },
   "menuRecolour": "Recolour…",
   "@menuRecolour": {
     "description": "Annotation context-menu item that opens a color picker to recolour a pasted vector snapshot."

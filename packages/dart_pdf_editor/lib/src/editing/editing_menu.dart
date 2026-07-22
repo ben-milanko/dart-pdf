@@ -97,6 +97,7 @@ Future<void> showPdfAnnotationMenu({
   required int pageIndex,
   PdfAnnotationMenuBuilder? customActions,
   (double, double)? pagePoint,
+  (int page, int slot)? unlockTarget,
 }) async {
   final request = PdfAnnotationMenuRequest._(controller, pageIndex);
   // a captured snapshot pastes back as vector graphics; otherwise the
@@ -104,8 +105,19 @@ Future<void> showPdfAnnotationMenu({
   final canPasteSnapshot = controller.hasSnapshotClipboard;
   final canPaste = canPasteSnapshot || controller.hasAnnotationClipboard;
   final hasSelection = request.annotations.isNotEmpty;
-  if (!hasSelection && !canPaste) return;
+  // A locked annotation can't be selected, so a right-click on one opens
+  // an Unlock-only menu instead ([unlockTarget]); it stands alone from the
+  // selection/paste entries.
+  if (!hasSelection && !canPaste && unlockTarget == null) return;
   final stock = <PdfAnnotationMenuItem>[
+    if (unlockTarget != null)
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-unlock'),
+        label: pdfL10n(context).menuUnlock,
+        icon: Icons.lock_open_outlined,
+        onSelected: (request) => request.controller
+            .setAnnotationLocked(unlockTarget.$1, unlockTarget.$2, false),
+      ),
     if (hasSelection) ...[
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-copy'),
@@ -142,15 +154,18 @@ Future<void> showPdfAnnotationMenu({
         },
       ),
     ],
-    PdfAnnotationMenuItem(
-      key: const ValueKey('pdf-annot-menu-paste'),
-      label: pdfL10n(context).paste,
-      icon: Icons.paste,
-      enabled: canPaste,
-      onSelected: (request) => canPasteSnapshot
-          ? request.controller.pasteSnapshot(pageIndex, at: pagePoint)
-          : request.controller.pasteAnnotations(pageIndex, at: pagePoint),
-    ),
+    // Paste rides the selection/clipboard menu; it stays out of the
+    // standalone Unlock menu (no selection, no clipboard).
+    if (canPaste || hasSelection)
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-paste'),
+        label: pdfL10n(context).paste,
+        icon: Icons.paste,
+        enabled: canPaste,
+        onSelected: (request) => canPasteSnapshot
+            ? request.controller.pasteSnapshot(pageIndex, at: pagePoint)
+            : request.controller.pasteAnnotations(pageIndex, at: pagePoint),
+      ),
     if (hasSelection) ...[
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-front'),

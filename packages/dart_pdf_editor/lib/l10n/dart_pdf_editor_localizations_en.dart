@@ -306,6 +306,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get menuLock => 'Lock';
 
   @override
+  String get menuUnlock => 'Unlock';
+
+  @override
   String get menuRecolour => 'Recolour…';
 
   @override

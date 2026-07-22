@@ -3429,6 +3429,21 @@ class _PdfViewerState extends State<PdfViewer>
           );
           return;
         }
+        // A locked annotation can't be selected, but a right-click on it
+        // still offers Unlock - the mouse counterpart to the sidebar row.
+        final locked = editing.lockedAnnotationAt(page, x, y);
+        if (locked != null) {
+          await showPdfAnnotationMenu(
+            context: context,
+            position: details.globalPosition,
+            controller: editing,
+            pageIndex: page,
+            customActions: widget.annotationMenuBuilder,
+            pagePoint: (x, y),
+            unlockTarget: (page, locked.$1),
+          );
+          return;
+        }
       }
     } else if (editing != null) {
       // the eyedropper owns the click while it is armed

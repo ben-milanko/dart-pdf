@@ -605,6 +605,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Lock'**
   String get menuLock;
 
+  /// Annotation context-menu item shown when right-clicking a locked annotation; unlocks it so it can be edited again.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock'**
+  String get menuUnlock;
+
   /// Annotation context-menu item that opens a color picker to recolour a pasted vector snapshot.
   ///
   /// In en, this message translates to:

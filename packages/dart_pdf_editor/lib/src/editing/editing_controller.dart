@@ -3878,6 +3878,29 @@ class PdfEditingController extends ChangeNotifier {
     return null;
   }
 
+  /// The topmost *locked* lock-manageable annotation under ([x], [y]) on
+  /// [pageIndex], with its /Annots slot - the right-click "Unlock" hit
+  /// test. Unlike [selectableAnnotationAt] it deliberately reaches locked
+  /// annotations (which can't be selected), so a mouse user can lift the
+  /// lock the same way the sidebar row's button does. Skips hidden ones.
+  (int index, PdfAnnotation)? lockedAnnotationAt(
+    int pageIndex,
+    double x,
+    double y,
+  ) {
+    final annotations = _page(pageIndex).annotations;
+    for (var i = annotations.length - 1; i >= 0; i--) {
+      final annotation = annotations[i];
+      if (annotation.isHidden ||
+          !annotation.isLocked ||
+          !isAnnotationLockManageable(annotation)) {
+        continue;
+      }
+      if (annotation.rect.contains(x, y)) return (i, annotation);
+    }
+    return null;
+  }
+
   /// The topmost form-field widget under ([x], [y]) on [pageIndex] with
   /// its /Annots slot - the form tool's selection hit test (later
   /// entries draw on top, so they win). Skips hidden widgets and ones
