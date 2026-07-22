@@ -107,6 +107,16 @@
     "timeoutS": 900,
     "ciSafe": false
   },
+  "raster-underlay-render": {
+    "suite": "flutter-render",
+    "note": "Rasterizes the giant-image survey sheet: two 9460x2918 DCTDecode underlays, each under a full-size non-DCT gray /SMask, plus 71 OCG layers. This is the scenario that means something for the pathology - a non-CMYK DCTDecode base goes to the platform codec (ui.instantiateImageCodec), and the Flate soft mask forces the base back to RGBA for a per-pixel alpha-multiply; both run at native resolution unless capped to display size. ~220 MB RGBA resident. Generation needs cjpeg locally; pre-seeded into tool/perf/cache/raster-underlay, never generated in CI.",
+    "corpus": "tool/perf/cache/raster-underlay",
+    "scale": 1,
+    "maxPages": 1,
+    "repeat": 2,
+    "timeoutS": 300,
+    "ciSafe": false
+  },
   "cad-133p-scroll": {
     "suite": "chrome-scroll",
     "note": "app/tool/perf loop against the real local CAD PDF ($PERF_PDF); manual/local only",

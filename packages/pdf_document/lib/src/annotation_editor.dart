@@ -3410,36 +3410,75 @@ extension PdfAnnotationEditing on PdfEditor {
     final imageRef = _updater.addObject(
       image.toXObject((smask) => _updater.addObject(smask)),
     );
+    final (w, resources) = _imageStampContent(
+      rect,
+      imageRef,
+      opacity,
+      pageRotation: effectivePageRotation,
+    );
+    // Mark it a picture stamp so the restyle path re-bakes only its alpha
+    // over this image, and never mistakes it for a text/template stamp.
+    final dict = _markupDict('Stamp', rect, 0xC03030, null, author)
+      ..['DartPdfImageStamp'] = const CosBoolean(true);
+    _addAnnotation(
+      pageIndex,
+      dict,
+      _form(rect, w, resources: resources),
+      name: name,
+    );
+  }
+
+  /// Builds an image stamp's appearance: a unit image (1×1 at the origin)
+  /// mapped onto [rect]'s oriented visual box, gated by [opacity]'s alpha.
+  /// The form's BBox stays the page-space rect, so unrotated appearances fit
+  /// as an identity mapping. Shared by [addImageStamp] and the opacity
+  /// restyle path so a pasted picture keeps its image when its transparency
+  /// changes.
+  (ContentWriter, CosDictionary?) _imageStampContent(
+    PdfRect rect,
+    CosObject imageRef,
+    double opacity, {
+    int pageRotation = 0,
+  }) {
     final w = ContentWriter();
     final gs = _alphaState(opacity);
     if (gs != null) w.extGState('GS0');
-    final vr = _orientedVisualRect(rect, effectivePageRotation);
-    if (effectivePageRotation != 0) {
+    final vr = _orientedVisualRect(rect, pageRotation);
+    if (pageRotation != 0) {
       w.save();
-      _orientedCounterRotation(w, rect, effectivePageRotation);
+      _orientedCounterRotation(w, rect, pageRotation);
     }
-    // A unit image (1×1 at the origin) mapped onto the visual rect. The form's
-    // BBox remains the page-space rect, so unrotated appearances still fit as
-    // an identity mapping.
     w
       ..save()
       ..concatMatrix(vr.width, 0, 0, vr.height, vr.left, vr.bottom)
       ..drawXObject('Img0')
       ..restore();
-    if (effectivePageRotation != 0) w.restore();
-    _addAnnotation(
-      pageIndex,
-      _markupDict('Stamp', rect, 0xC03030, null, author),
-      _form(
-        rect,
-        w,
-        resources: _resources(
-          extGState: gs,
-          xObject: CosDictionary({'Img0': imageRef}),
-        ),
+    if (pageRotation != 0) w.restore();
+    return (
+      w,
+      _resources(
+        extGState: gs,
+        xObject: CosDictionary({'Img0': imageRef}),
       ),
-      name: name,
     );
+  }
+
+  /// The indirect image XObject an image stamp's appearance draws, or null
+  /// when [form] isn't a single-image stamp appearance. Reused verbatim so a
+  /// restyle re-references the existing picture rather than re-embedding it.
+  CosObject? _stampImageRef(CosStream form) {
+    final cos = document.cos;
+    final resources = cos.resolve(form.dictionary['Resources']);
+    if (resources is! CosDictionary) return null;
+    final xobjects = cos.resolve(resources['XObject']);
+    if (xobjects is! CosDictionary) return null;
+    for (final entry in xobjects.entries.values) {
+      final xobj = cos.resolve(entry);
+      if (xobj is! CosStream) continue;
+      final subtype = cos.resolve(xobj.dictionary['Subtype']);
+      if (subtype is CosName && subtype.value == 'Image') return entry;
+    }
+    return null;
   }
 
   /// Removes [annotation] from the page, along with its popup, if any.
@@ -3946,12 +3985,36 @@ extension PdfAnnotationEditing on PdfEditor {
     if (rect.width <= 0 || rect.height <= 0) {
       throw ArgumentError('rotateAnnotation needs a non-degenerate rect');
     }
+    if (!_foldRotationInto(annotation.dict, form, rect, degrees)) return;
+    final formRef = document.cos.referenceTo(form);
+    if (formRef != null) _updater.replaceObject(formRef.objectNumber, form);
+    _markAnnotationChanged(pageIndex, annotation.dict);
+  }
+
+  /// Folds a counterclockwise rotation of [degrees] about the centre of
+  /// [rect] into [form]'s /Matrix, resets [annotDict]'s /Rect to the
+  /// rotated artwork's bounds, and rotates the absolute-coordinate point
+  /// arrays (/QuadPoints, /L, /Vertices, /CL, /InkList) the same way -
+  /// the geometry mutation shared by [rotateAnnotation] and the
+  /// paste-onto-a-rotated-page re-orientation
+  /// ([PdfAnnotationClipboard.pasteAnnotation]).
+  ///
+  /// The BBox→Rect fit is baked in first, so artwork whose BBox aspect
+  /// differs from /Rect rotates without shearing. Returns false without
+  /// touching anything when [form] has no usable BBox (§12.5.5 has nothing
+  /// to map), leaving the caller to skip staging.
+  bool _foldRotationInto(
+    CosDictionary annotDict,
+    CosStream form,
+    PdfRect rect,
+    double degrees,
+  ) {
     final cos = document.cos;
     final bbox = pdfRectFrom(cos, form.dictionary['BBox']);
-    if (bbox == null) return; // no BBox: §12.5.5 has nothing to map
+    if (bbox == null) return false; // no BBox: §12.5.5 has nothing to map
     // the current BBox→Rect fit (the same bounds walk as the renderer)
     final baked = _bakedFormMatrix(form, rect);
-    if (baked == null) return;
+    if (baked == null) return false;
 
     final theta = degrees * math.pi / 180;
     final cosT = math.cos(theta), sinT = math.sin(theta);
@@ -3973,27 +4036,24 @@ extension PdfAnnotationEditing on PdfEditor {
     // carries the whole rotation history, so this stays the tightest box
     // around the rotated artwork - two 45° turns land exactly where one
     // 90° turn does, instead of compounding loose bounding boxes.
-    annotation.dict['Rect'] = _rectArray(boundsUnderMatrix(matrix, bbox));
+    annotDict['Rect'] = _rectArray(boundsUnderMatrix(matrix, bbox));
 
     (double, double) rotate(double x, double y) => (
           cx + (x - cx) * cosT - (y - cy) * sinT,
           cy + (x - cx) * sinT + (y - cy) * cosT,
         );
     for (final key in const ['QuadPoints', 'L', 'Vertices', 'CL']) {
-      final rotated = _mapPointPairs(annotation.dict[key], rotate);
-      if (rotated != null) annotation.dict[key] = rotated;
+      final rotated = _mapPointPairs(annotDict[key], rotate);
+      if (rotated != null) annotDict[key] = rotated;
     }
-    final ink = cos.resolve(annotation.dict['InkList']);
+    final ink = cos.resolve(annotDict['InkList']);
     if (ink is CosArray) {
-      annotation.dict['InkList'] = CosArray([
+      annotDict['InkList'] = CosArray([
         for (final stroke in ink.items)
           _mapPointPairs(stroke, rotate) ?? stroke,
       ]);
     }
-
-    final formRef = cos.referenceTo(form);
-    if (formRef != null) _updater.replaceObject(formRef.objectNumber, form);
-    _markAnnotationChanged(pageIndex, annotation.dict);
+    return true;
   }
 
   /// Resizes a possibly-rotated annotation in its own (unrotated) frame.
@@ -4736,6 +4796,30 @@ extension PdfAnnotationEditing on PdfEditor {
       case 'Stamp':
         final form = annotation.normalAppearance;
         if (form == null) return false;
+        // A picture stamp re-bakes its alpha over the same image; a text
+        // check-mark stamp redraws from its /Contents. Only a stamp the
+        // editor marked as an image stamp takes the image path, so a
+        // template stamp that merely contains an image is never flattened
+        // to a single picture.
+        if (annotation.isImageStamp) {
+          final imageRef = _stampImageRef(form);
+          if (imageRef != null) {
+            final (w, resources) = _imageStampContent(
+              to,
+              imageRef,
+              opacity ?? _appearanceOpacity(form),
+              pageRotation: pageRotation,
+            );
+            _replaceAppearance(
+              annotation.dict,
+              form,
+              to,
+              w,
+              resources: resources,
+            );
+            return true;
+          }
+        }
         final color = annotation.color ?? 0xC03030;
         final (w, gs) = _stampContent(
           to,

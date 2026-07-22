@@ -182,4 +182,101 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
     });
   });
+
+  // When the host sets `contextMenuEnabled: false`, the popup menu is
+  // suppressed but the underlying gesture outcomes (annotation selection,
+  // text selection) must still run. The recognizer returns early in
+  // `_maybeAnnotationMenu` (`pdf_viewer.dart`) and `_onSecondaryTapUp` so
+  // neither annotation nor plain-text menus reach the user.
+  group('contextMenuEnabled: false', () {
+    Future<PdfEditingController> pumpViewerNoContextMenu(
+        WidgetTester tester,
+        {Uint8List? bytes}) async {
+      final editing =
+          PdfEditingController(bytes ?? buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: editing,
+            builder: (context, _) => PdfViewer(
+              initialFit: PdfViewerFit.width,
+              document: editing.document,
+              editing: editing,
+              contextMenuEnabled: false,
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+      return editing;
+    }
+
+    testWidgets(
+        'long-press on an annotation in select mode suppresses the menu '
+        'but still selects the annotation',
+        (tester) async {
+      final editing = await pumpViewerNoContextMenu(tester);
+      editing
+        ..addRectangle(0, const PdfRect(300, 400, 400, 450))
+        ..tool = PdfEditTool.select;
+      await tester.pump();
+
+      await longPressAt(tester, viewPoint(350, 425));
+      expect(editing.selectedAnnotationSlots, [(0, 0)],
+          reason: 'annotation selection still happens; only the popup is '
+              'suppressed');
+      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')),
+          findsNothing);
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+
+    testWidgets(
+        'long-press on an annotation in reader mode suppresses the menu',
+        (tester) async {
+      final editing = await pumpViewerNoContextMenu(tester);
+      editing.addRectangle(0, const PdfRect(300, 400, 400, 450));
+      await tester.pump();
+      expect(editing.tool, isNull);
+
+      await longPressAt(tester, viewPoint(350, 425));
+      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')),
+          findsNothing);
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+
+    testWidgets(
+        'long-press on plain page text still selects the word; no menu pops',
+        (tester) async {
+      final controller = PdfViewerController();
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: editing,
+            builder: (context, _) => PdfViewer(
+              initialFit: PdfViewerFit.width,
+              document: editing.document,
+              controller: controller,
+              editing: editing,
+              contextMenuEnabled: false,
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      // 'Page 1' baseline at (72, 720), 24pt - press mid-word
+      await longPressAt(tester, viewPoint(100, 726));
+      expect(controller.selectedText, 'Page',
+          reason: 'text selection survives; only the context menu is '
+              'suppressed');
+      expect(find.byKey(const ValueKey('pdf-text-menu-copy')), findsNothing);
+      expect(
+          find.byKey(const ValueKey('pdf-text-menu-select-all')),
+          findsNothing);
+      await tester.pump(const Duration(milliseconds: 400));
+    });
+  });
 }

@@ -15,6 +15,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'annotation_tap.dart';
 import 'debug_overlays.dart';
+import 'live_raster_budget.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_fonts.dart';
 import 'editing/editing_form_layer.dart';
@@ -825,10 +826,12 @@ class PdfViewer extends StatefulWidget {
     this.textSelectionEditing = true,
     this.textSelectionMarkup = true,
     this.annotationMenuBuilder,
+    this.contextMenuEnabled = true,
     this.formImagePicker,
     this.fontPicker,
     this.imagePicker,
     this.systemImagePasteProvider,
+    this.systemTextPasteProvider,
     this.onSnapshot,
     this.onPlaceSignature,
     this.pageSpacing = 12,
@@ -1027,6 +1030,17 @@ class PdfViewer extends StatefulWidget {
   /// there is no context menu.
   final PdfAnnotationMenuBuilder? annotationMenuBuilder;
 
+  /// Whether right-click (desktop) and long-press (touch/stylus) open a
+  /// context menu. When false, selection, link taps, and pan/zoom still run
+  /// normally; only the popup menus are suppressed. Defaults to true.
+  ///
+  /// This covers the desktop right-click **text** menu even without [editing]
+  /// (reader mode), plus - when [editing] is set - the right-click and
+  /// long-press **annotation** menus and the floating selection chip's "More"
+  /// button. The long-press annotation menu and selection-chip button require
+  /// [editing]; the desktop text menu does not.
+  final bool contextMenuEnabled;
+
   /// How the form tool fills a tapped push-button field with an image
   /// (signature and logo fields) - typically a file picker returning
   /// PNG or JPEG bytes. With none, tapping a push button does nothing.
@@ -1049,6 +1063,12 @@ class PdfViewer extends StatefulWidget {
   /// no pointer location is known. When null or when it returns null, paste
   /// falls back to plain text from Flutter's system clipboard.
   final PdfSystemImagePasteProvider? systemImagePasteProvider;
+
+  /// Supplies plain text for ⌘V/Ctrl+V when neither the in-app clipboard nor
+  /// [systemImagePasteProvider] produced content. Used in preference to
+  /// Flutter's [Clipboard], which is unreliable on the web. When null, paste
+  /// reads text from [Clipboard] as before.
+  final PdfSystemTextPasteProvider? systemTextPasteProvider;
 
   /// Receives a region captured by the snapshot tool
   /// ([PdfEditTool.snapshot]) - typically to copy it to the clipboard,
@@ -1620,9 +1640,13 @@ class _PdfViewerState extends State<PdfViewer>
     // banded transcripts): dropped indices rebuild identically, evicted strips
     // re-materialize on demand, so this is free of any visual regression.
     final scenes = PdfRetainedScene.handleMemoryPressure();
+    // Live-page rasters were exempt from the pressure signal (#405): surrender
+    // every off-viewport page's base raster + detail patch + retained scene now.
+    final liveFreed = PdfLiveRasterBudget.instance.evictReclaimable();
     PdfPerfLog.log('memory-pressure cleared ${freed >> 20}MB across '
         '${PdfCacheRegistry.instance.registrationCount} caches, '
-        'shed spatial metadata on $scenes scene(s)'
+        'shed spatial metadata on $scenes scene(s), '
+        'freed ${liveFreed >> 20}MB of live rasters'
         '${PdfPerfLog.rssSuffix()}');
     _previews.clear();
   }
@@ -3346,6 +3370,7 @@ class _PdfViewerState extends State<PdfViewer>
   Future<void> _onSecondaryTapUp(TapUpDetails details) async {
     final point = _pagePointAt(details.localPosition);
     if (point == null) return;
+    if (!widget.contextMenuEnabled) return;
     final (page, x, y) = point;
     final editing = widget.editing;
     if (editing != null && !editing.isPickingColor) {
@@ -3856,8 +3881,21 @@ class _PdfViewerState extends State<PdfViewer>
   }
 
   Future<void> _pasteSystemClipboardText(PdfEditingController editing) async {
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    final text = data?.text;
+    // Prefer the host's reader (the web build wires one over the browser Async
+    // Clipboard API, since Flutter's Clipboard.getData is unreliable there);
+    // fall back to Flutter's clipboard when none is injected.
+    String? text;
+    final provider = widget.systemTextPasteProvider;
+    if (provider != null) {
+      try {
+        text = await provider(context);
+      } catch (_) {
+        text = null;
+      }
+    } else {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      text = data?.text;
+    }
     if (text == null || text.trim().isEmpty) return;
     if (!mounted || widget.editing != editing) return;
     final local = _lastPointerLocal;
@@ -4260,7 +4298,10 @@ class _PdfViewerState extends State<PdfViewer>
   /// content. Returns whether a menu opened.
   bool _maybeAnnotationMenu(LongPressStartDetails details) {
     final editing = widget.editing;
-    if (editing == null || editing.tool != null || editing.isPickingColor) {
+    if (editing == null ||
+        editing.tool != null ||
+        editing.isPickingColor ||
+        !widget.contextMenuEnabled) {
       return false;
     }
     final point = _pagePointAt(details.localPosition);
@@ -5190,6 +5231,8 @@ class _PdfViewerState extends State<PdfViewer>
                 contentStamp: _contentStamp(index),
                 destructiveStamp: _destructiveStamp(index),
                 renderPriority: _renderPriority(index),
+                focusDistance:
+                    (index - (_jumpFocusPage ?? _controller.currentPage)).abs(),
                 matches: _controller._matchesOn(index),
                 currentMatch: _controller._currentMatch >= 0
                     ? _controller._matches[_controller._currentMatch]
@@ -5206,6 +5249,7 @@ class _PdfViewerState extends State<PdfViewer>
                 onSnapshot: widget.onSnapshot,
                 onPlaceSignature: widget.onPlaceSignature,
                 onAnnotationTap: widget.onAnnotationTap,
+                contextMenuEnabled: widget.contextMenuEnabled,
                 interactionHost: PdfEditingInteractionHost(
                   panViewport: _touchGrabPanBy,
                   endViewportPan: _flingViewport,
@@ -5697,7 +5741,8 @@ class _AnnotationAppearanceLayerState
   List<ui.Picture> _pictures = const [];
   Size? _picturePageSize;
 
-  /// Rendered appearances keyed on the appearance stream itself.
+  /// Rendered appearances keyed on the appearance stream plus the /Rect it
+  /// was drawn into.
   ///
   /// An incremental revision keeps the COS object cache (the byte prefix is
   /// unchanged, so `CosDocument` hands back the same instances), which means
@@ -5706,15 +5751,33 @@ class _AnnotationAppearanceLayerState
   /// each one an ImageCollector scan, an image decode, and an interpreter
   /// walk - so a page of 50 highlights paid 50 renders per stroke (#404).
   ///
-  /// Only the entries whose stream changed are re-rendered. The cache owns
-  /// every picture in it; [_pictures] is an ordered view and never disposes.
+  /// Only the entries whose key changed are re-rendered. The cache owns every
+  /// picture in it; [_pictures] is an ordered view and never disposes.
   ///
-  /// Keyed as `Object` because `CosStream` is not exported into this library.
-  /// `CosStream` uses identity equality, so this is keyed on the stream
-  /// instance - which is exactly the intent.
-  final Map<Object, ui.Picture> _cache = {};
+  /// The /Rect is part of the key because a rendered picture bakes in the
+  /// annotation's position: the appearance BBox is mapped onto /Rect
+  /// (§12.5.5). Moving or stretch-resizing an annotation rewrites /Rect while
+  /// leaving the appearance stream identical (that is exactly how the editors
+  /// mutate a moved or scaled box), so keying on the stream alone returned the
+  /// stale picture pinned at the old spot - the change only appeared once the
+  /// layer was rebuilt, e.g. on a tab switch (#418 follow-up). With /Rect in
+  /// the key the moved box misses and re-renders at its new position, while
+  /// every untouched appearance on the page still hits.
+  ///
+  /// The stream half is typed `Object` because `CosStream` is not exported
+  /// into this library; it uses identity equality, so the key mixes stream
+  /// identity with the [PdfRect]'s value equality - exactly the intent.
+  final Map<(Object, PdfRect), ui.Picture> _cache = {};
   int? _cacheRotation;
   Size? _cacheSize;
+
+  /// The appearance-cache key for [annotation]: its appearance stream identity
+  /// paired with the /Rect the picture is positioned into.
+  ///
+  /// Callers guarantee `normalAppearance != null` (every code path filters the
+  /// page's annotations on it before keying), so the unwrap is safe.
+  static (Object, PdfRect) _appearanceKey(PdfAnnotation annotation) =>
+      (annotation.normalAppearance!, annotation.rect);
 
   @override
   void initState() {
@@ -5807,7 +5870,7 @@ class _AnnotationAppearanceLayerState
     // are repeatedly replaced cannot accumulate pictures. Disposal waits for
     // the publish below (see [_retire]).
     final live = {
-      for (final annotation in annotations) annotation.normalAppearance!,
+      for (final annotation in annotations) _appearanceKey(annotation),
     };
     for (final source in _cache.keys.toList()) {
       if (!live.contains(source)) _retire([_cache.remove(source)!]);
@@ -5815,7 +5878,7 @@ class _AnnotationAppearanceLayerState
 
     final missing = [
       for (final annotation in annotations)
-        if (!_cache.containsKey(annotation.normalAppearance)) annotation,
+        if (!_cache.containsKey(_appearanceKey(annotation))) annotation,
     ];
     if (missing.isEmpty) {
       _publish(generation, annotations, pageSize);
@@ -5824,7 +5887,7 @@ class _AnnotationAppearanceLayerState
     unawaited(Future.wait([
       for (final annotation in missing)
         _renderAnnotation(page, annotation, widget.rotation)
-            .then((picture) => (annotation.normalAppearance!, picture)),
+            .then((picture) => (_appearanceKey(annotation), picture)),
     ]).then((rendered) {
       if (!mounted || generation != _generation) {
         for (final (_, picture) in rendered) {
@@ -5853,7 +5916,7 @@ class _AnnotationAppearanceLayerState
     if (!mounted || generation != _generation) return;
     final next = [
       for (final annotation in annotations)
-        if (_cache[annotation.normalAppearance] case final picture?) picture,
+        if (_cache[_appearanceKey(annotation)] case final picture?) picture,
     ];
     setState(() {
       _pictures = next;
@@ -5951,6 +6014,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.contentStamp,
     required this.destructiveStamp,
     required this.renderPriority,
+    required this.focusDistance,
     required this.matches,
     required this.currentMatch,
     required this.selection,
@@ -5974,6 +6038,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.renderWorker,
     required this.performance,
     required this.predictStrokes,
+    required this.contextMenuEnabled,
   });
 
   final PdfPage page;
@@ -6016,6 +6081,7 @@ class _PdfViewerPage extends StatefulWidget {
   /// can't linger on screen. 0 outside an editing session.
   final int destructiveStamp;
   final int renderPriority;
+  final int focusDistance;
   final List<PdfTextMatch> matches;
   final PdfTextMatch? currentMatch;
   final List<PdfTextQuad> selection;
@@ -6073,6 +6139,11 @@ class _PdfViewerPage extends StatefulWidget {
 
   /// See [PdfViewer.predictStrokes].
   final bool predictStrokes;
+
+  /// See [PdfViewer.contextMenuEnabled] - forwarded to the editing overlay
+  /// so its long-press recognizer and the floating selection chip both
+  /// honor the host's intent.
+  final bool contextMenuEnabled;
 
   @override
   State<_PdfViewerPage> createState() => _PdfViewerPageState();
@@ -6150,6 +6221,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         contentStamp: widget.contentStamp,
         destructiveStamp: widget.destructiveStamp,
         renderPriority: widget.renderPriority,
+        focusDistance: widget.focusDistance,
         pageColor: widget.pageColor,
         showAnnotations: widget.pageImagesShowAnnotations,
         trustContentStamp: widget.trustContentStamp,
@@ -6266,6 +6338,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                                 rasterCurrent: rasterCurrent,
                                 zoom: zoom,
                                 predictStrokes: widget.predictStrokes,
+                                contextMenuEnabled: widget.contextMenuEnabled,
                               ),
                             ),
                           );

@@ -67,6 +67,7 @@ class EditorScreen extends StatefulWidget {
     this.saveDocumentToPath,
     this.imageClipboardWriter,
     this.imageClipboardReader,
+    this.textClipboardReader,
   });
 
   final PdfEditingPreferences prefs;
@@ -138,6 +139,12 @@ class EditorScreen extends StatefulWidget {
   /// Override for reading an image from the system clipboard. Tests inject a
   /// fake; production falls back to [readImageFromClipboard].
   final ImageClipboardReader? imageClipboardReader;
+
+  /// Override for reading text from the system clipboard. Tests inject a fake;
+  /// production falls back to [readTextFromClipboard] (which on the web reads
+  /// through the browser Async Clipboard API instead of Flutter's unreliable
+  /// `Clipboard.getData`).
+  final TextClipboardReader? textClipboardReader;
 
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -2353,6 +2360,8 @@ class _EditorScreenState extends State<EditorScreen>
       imagePicker: (context) => pickImageBytes(),
       systemImagePasteProvider: (context) =>
           (widget.imageClipboardReader ?? readImageFromClipboard)(),
+      systemTextPasteProvider: (context) =>
+          (widget.textClipboardReader ?? readTextFromClipboard)(),
       onExportSelectedContentImage: (context, image) =>
           _exportSelectedContentImage(context, tab, image),
       onExportCustomStamps: _exportCustomStamps,

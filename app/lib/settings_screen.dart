@@ -222,6 +222,18 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                   onPressed: () => launchUrl(Uri.parse(AppInfo.sourceUrl),
                       mode: LaunchMode.externalApplication),
                 ),
+                ListTile(
+                  key: const ValueKey('settings-licenses'),
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.article_outlined),
+                  title: const Text('Open source licenses'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => showLicensePage(
+                    context: context,
+                    applicationName: AppInfo.name,
+                    applicationVersion: AppInfo.version,
+                  ),
+                ),
               ],
             ),
           ),

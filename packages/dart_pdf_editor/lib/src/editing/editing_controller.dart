@@ -13,6 +13,7 @@ import 'digital_signature.dart';
 import 'editing_measure.dart';
 import 'editing_page_clipboard.dart';
 import 'editing_preferences.dart';
+import 'editing_snapshot_clipboard.dart';
 import 'editing_tool_behavior.dart';
 import 'line_style.dart';
 import 'editing_stamps.dart';
@@ -331,17 +332,23 @@ class PdfEditingController extends ChangeNotifier {
     String password = '',
     PdfEditingPreferences? preferences,
     PdfPageClipboard? pageClipboard,
+    PdfSnapshotClipboard? snapshotClipboard,
   })  : _bytes = bytes,
         _used = bytes.length,
         _password = password,
         _revisions = [bytes.length],
         _document = PdfDocument.open(bytes, password: password),
         preferences = preferences ?? PdfEditingPreferences(),
-        pageClipboard = pageClipboard ?? PdfPageClipboard.instance {
+        pageClipboard = pageClipboard ?? PdfPageClipboard.instance,
+        snapshotClipboard =
+            snapshotClipboard ?? PdfSnapshotClipboard.instance {
     this.preferences.addListener(notifyListeners);
     // rebuild paste affordances live as the shared page clipboard fills or
     // clears - from this controller or from another document tab sharing it
     this.pageClipboard.addListener(notifyListeners);
+    // same for the shared snapshot clipboard, so a region captured in one tab
+    // lights up Paste-as-vector in every tab
+    this.snapshotClipboard.addListener(notifyListeners);
   }
 
   /// The persisted UI preferences that own the tool styles (stroke width,
@@ -358,6 +365,14 @@ class PdfEditingController extends ChangeNotifier {
   /// the process-wide [PdfPageClipboard.instance]; pass a private one to
   /// isolate a session. See [copyPages], [cutPages], and [pastePages].
   final PdfPageClipboard pageClipboard;
+
+  /// The clipboard the Snapshot tool's captured vector region lives in, shared
+  /// across document tabs so a region captured in one document pastes back as
+  /// vector into another (rather than falling back to the raster the capture
+  /// also drops on the system clipboard). Defaults to the process-wide
+  /// [PdfSnapshotClipboard.instance]; pass a private one to isolate a session.
+  /// See [copyVectorSnapshot] and [pasteSnapshot].
+  final PdfSnapshotClipboard snapshotClipboard;
 
   /// The session's shared page-thumbnail cache (and its viewport-ordered
   /// render queue). Every thumbnail surface - the docked strip, the
@@ -376,6 +391,7 @@ class PdfEditingController extends ChangeNotifier {
     thumbnailCache.dispose();
     preferences.removeListener(notifyListeners);
     pageClipboard.removeListener(notifyListeners);
+    snapshotClipboard.removeListener(notifyListeners);
     super.dispose();
   }
 
@@ -1182,6 +1198,7 @@ class PdfEditingController extends ChangeNotifier {
           _document,
           annotation,
           keepName: true,
+          sourcePageRotation: _page(pageIndex).rotation,
         );
         if (snapshot == null) continue;
         changes.add(
@@ -4348,7 +4365,8 @@ class PdfEditingController extends ChangeNotifier {
     for (final slot in _selected) {
       final annotation = _annotationAt(slot);
       if (annotation == null) continue;
-      final snapshot = PdfAnnotationSnapshot.capture(_document, annotation);
+      final snapshot = PdfAnnotationSnapshot.capture(_document, annotation,
+          sourcePageRotation: _page(slot.$1).rotation);
       if (snapshot != null) snapshots.add(snapshot);
     }
     if (snapshots.isEmpty) return 0;
@@ -4356,7 +4374,7 @@ class PdfEditingController extends ChangeNotifier {
     _clipboardSourcePage = _selected.last.$1;
     _pasteCount = 0;
     // the most recent copy wins ⌘V (see [copyVectorSnapshot])
-    _snapshotClipboard = null;
+    snapshotClipboard.clear();
     notifyListeners();
     return snapshots.length;
   }
@@ -4436,7 +4454,8 @@ class PdfEditingController extends ChangeNotifier {
     for (final slot in _selected) {
       final annotation = _annotationAt(slot);
       if (annotation == null) continue;
-      final snapshot = PdfAnnotationSnapshot.capture(_document, annotation);
+      final snapshot = PdfAnnotationSnapshot.capture(_document, annotation,
+          sourcePageRotation: _page(slot.$1).rotation);
       if (snapshot != null) snapshots.add((page: slot.$1, snapshot: snapshot));
     }
     if (snapshots.isEmpty) return 0;
@@ -4478,24 +4497,23 @@ class PdfEditingController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // snapshot clipboard (the Snapshot tool's vector paste)
 
-  /// The in-app snapshot clipboard: a detached vector copy of a page
-  /// region ([captureVectorSnapshot]) that survives edits, undo, and
-  /// document swaps. Filled by the Snapshot tool, consumed by
-  /// [pasteSnapshot].
-  PdfVectorSnapshot? _snapshotClipboard;
   int _snapshotPasteCount = 0;
 
   /// The object number of the captured form materialized by the last paste
-  /// of [_snapshotClipboard] into the current document - reused so repeat
+  /// of the active snapshot into the current document - reused so repeat
   /// pastes share one XObject instead of re-embedding the page content.
-  /// Reset whenever a fresh snapshot is captured.
+  /// Reset whenever a different snapshot becomes active.
   int? _snapshotCapturedRef;
 
-  /// Whether [pasteSnapshot] has a captured region to paste.
-  bool get hasSnapshotClipboard => _snapshotClipboard != null;
+  /// Which snapshot [_snapshotCapturedRef] / [_snapshotPasteCount] belong to.
+  /// The shared [snapshotClipboard] can change under this controller (a
+  /// recapture here, or a capture in another tab), so paste keys its
+  /// per-document bookkeeping to the snapshot identity and resets when it
+  /// differs.
+  PdfVectorSnapshot? _snapshotPasteAnchor;
 
-  /// The captured region on the snapshot clipboard, or null.
-  PdfVectorSnapshot? get snapshotClipboard => _snapshotClipboard;
+  /// Whether [pasteSnapshot] has a captured region to paste.
+  bool get hasSnapshotClipboard => snapshotClipboard.isNotEmpty;
 
   /// Captures [region] (PDF user space) of [pageIndex] as a detached
   /// vector snapshot - the page graphics under the region, copied inline,
@@ -4510,9 +4528,10 @@ class PdfEditingController extends ChangeNotifier {
   /// clipboard. Returns the captured snapshot.
   PdfVectorSnapshot copyVectorSnapshot(int pageIndex, PdfRect region) {
     final snapshot = captureVectorSnapshot(pageIndex, region);
-    _snapshotClipboard = snapshot;
-    _snapshotPasteCount = 0;
-    _snapshotCapturedRef = null;
+    // publish to the shared clipboard; paste resets its per-document
+    // bookkeeping when it sees this new snapshot (identity differs from the
+    // anchor).
+    snapshotClipboard.set(snapshot);
     _clipboard = const [];
     notifyListeners();
     return snapshot;
@@ -4527,9 +4546,18 @@ class PdfEditingController extends ChangeNotifier {
   /// cascading 12pt down-right per repeat. The region always clamps into
   /// the page's crop box. Returns whether anything was pasted.
   bool pasteSnapshot(int pageIndex, {(double, double)? at}) {
-    final snapshot = _snapshotClipboard;
+    final snapshot = snapshotClipboard.snapshot;
     if (snapshot == null) return false;
     if (pageIndex < 0 || pageIndex >= _document.pageCount) return false;
+    // The shared clipboard may hold a different snapshot than the one this
+    // controller last pasted (recaptured here, or captured in another tab).
+    // Restart the position cascade and drop the captured-form ref, which was
+    // materialized from the previous snapshot into this document.
+    if (!identical(snapshot, _snapshotPasteAnchor)) {
+      _snapshotPasteAnchor = snapshot;
+      _snapshotPasteCount = 0;
+      _snapshotCapturedRef = null;
+    }
     final w = snapshot.displayWidth, h = snapshot.displayHeight;
     if (w <= 0 || h <= 0) return false;
     double left, bottom;
@@ -4929,6 +4957,7 @@ class PdfEditingController extends ChangeNotifier {
       _document,
       annotation,
       keepName: true,
+      sourcePageRotation: _page(slot.$1).rotation,
     );
     if (snapshot == null) return false; // links/widgets/popups don't move
     final source = slot.$1;

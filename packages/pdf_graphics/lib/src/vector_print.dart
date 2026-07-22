@@ -26,7 +26,9 @@
 ///
 /// Transparency, shadings and blend modes are approximated the way a printer
 /// flattens them (gradients/meshes fall back to their average colour, group
-/// and soft-mask alpha is dropped); these are the documented hard parts.
+/// and soft-mask alpha is dropped, a darkening blend like Multiply is lowered
+/// to a constant alpha so a highlight stays see-through); these are the
+/// documented hard parts.
 ///
 /// The format is decoded back by [decodeVectorPrint] (the reference consumer,
 /// used by the tests and mirrored by the native replayers) and the byte layout
@@ -209,17 +211,57 @@ class _EncodingDevice implements PdfDevice {
   final PdfMatrix _toDevice;
   final Map<PdfImageRequest, PdfDecodedPixels> _images;
 
-  @override
-  void save() => _w.u8(_opSave);
+  /// The blend mode the interpreter last set (gs /BM). The op set has no blend
+  /// modes - GDI and Cairo composite source-over - so a darkening blend is
+  /// approximated by lowering the paint's alpha ([_flattenAlpha]).
+  ///
+  /// Pushed/popped by [save]/[restore] ([_blendStack]) so a blend set inside a
+  /// form or `q`/`Q` scope cannot leak past it: the interpreter brackets every
+  /// form and appearance (and each `q`) with [save]/[restore] but restores its
+  /// *own* graphics state on the way out without re-issuing [setBlendMode], so
+  /// mirroring the blend on the save stack is what keeps this in step.
+  PdfBlendMode _blend = PdfBlendMode.normal;
+  final List<PdfBlendMode> _blendStack = [];
+
+  /// Alpha a darkening blend (Multiply/Darken) lowers to for print. A highlight
+  /// draws an *opaque* colour whose translucency is entirely the Multiply blend
+  /// (both our own highlights and foreign InkHighlights work this way); with the
+  /// blend dropped it would print as a solid block that hides the content
+  /// underneath. Capping such paint at this alpha instead keeps the linework
+  /// readable, the way a highlighter pen and a print flattener both do. No
+  /// single alpha reproduces Multiply exactly (over white it stays saturated,
+  /// over black it goes dark) - this is the readable-through compromise.
+  static const double _blendFlattenAlpha = 0.4;
+
+  /// [alpha] after the current blend mode's print approximation. Darkening
+  /// blends are capped at [_blendFlattenAlpha] so an opaque highlight prints
+  /// translucent; an already-fainter paint is left as-is (min, not scale).
+  double _flattenAlpha(double alpha) => switch (_blend) {
+        PdfBlendMode.multiply ||
+        PdfBlendMode.darken =>
+          alpha < _blendFlattenAlpha ? alpha : _blendFlattenAlpha,
+        _ => alpha,
+      };
 
   @override
-  void restore() => _w.u8(_opRestore);
+  void save() {
+    _blendStack.add(_blend);
+    _w.u8(_opSave);
+  }
+
+  @override
+  void restore() {
+    // Lenient: a malformed stream can emit an unbalanced restore. Keep the
+    // current blend rather than underflow.
+    if (_blendStack.isNotEmpty) _blend = _blendStack.removeLast();
+    _w.u8(_opRestore);
+  }
 
   @override
   void fillPath(PdfPath path, PdfColor color, PdfFillRule rule, double alpha) {
     if (path.isEmpty) return;
     _w.u8(_opFillPath);
-    _w.rgba(color, alpha);
+    _w.rgba(color, _flattenAlpha(alpha));
     _w.u8(rule == PdfFillRule.evenOdd ? 1 : 0);
     _writePath(path);
   }
@@ -244,7 +286,7 @@ class _EncodingDevice implements PdfDevice {
       PdfPath path, PdfColor color, PdfStroke stroke, double alpha) {
     if (path.isEmpty) return;
     _w.u8(_opStrokePath);
-    _w.rgba(color, alpha);
+    _w.rgba(color, _flattenAlpha(alpha));
     _w.f32(stroke.width);
     _w.u8(stroke.cap);
     _w.u8(stroke.join);
@@ -334,7 +376,10 @@ class _EncodingDevice implements PdfDevice {
 
   @override
   void setBlendMode(PdfBlendMode mode) {
-    // Blend modes flatten to normal for print; nothing to emit.
+    // No blend op in the set; a darkening blend is instead approximated by
+    // lowering subsequent paint alpha (see [_flattenAlpha]). Other modes still
+    // flatten to normal.
+    _blend = mode;
   }
 
   @override

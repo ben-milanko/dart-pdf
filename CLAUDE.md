@@ -31,6 +31,18 @@ Nightly trends + dashboard live on the orphan `perf-data` branch
 NEVER edit sources or run builds while a sweep/loop is measuring. See
 doc/dev-log/2026-07-18-perf-tooling-suite.md.
 
+**For any change that could affect performance** (interpreter, render
+pipeline, font/text, image decode, worker offload, editing/annotation,
+search, memory), measure it — don't eyeball it. Use the real-Chrome
+harness: `tool/perf.sh web <scenario>` for a single run and
+`tool/perf.sh webdiff <ref> <scenario>` for a one-command A/B vs a git
+ref (per-metric median deltas, gated on a threshold). Scenarios (scroll/
+open/search/edit) live in `app/tool/perf/scenarios.json`; add one for the
+workload your change touches if none fits (harness method + JSON entry —
+no driver change, see `app/tool/perf/README.md`). VM-layer changes still
+A/B through `tool/perf.sh diff`; the web harness catches dart2js-only and
+render/decode/memory effects the NullDevice VM sweep can't.
+
 ## Layering rules (strict)
 
 `pdf_cos` ← `pdf_document` ← `pdf_graphics` ← `dart_pdf_editor`

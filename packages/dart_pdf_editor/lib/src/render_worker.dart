@@ -205,6 +205,22 @@ abstract class PdfRenderWorker {
   static PdfRenderWorker startUncached(Uint8List bytes) =>
       startRenderWorker(bytes);
 
+  /// Warms the platform render worker ahead of a document, so its startup cost
+  /// overlaps whatever the user is doing (choosing or loading a file) instead of
+  /// blocking the first render. On the web this fetches, compiles, and boots the
+  /// ~1 MB worker script now (~1.45 s on a phone, #450); a later [start] adopts
+  /// the pre-booted worker and only hands off the document (a few tens of ms).
+  /// No-op on native (isolate spawn is cheap) and where no worker is configured.
+  ///
+  /// [count] defaults to [pdfRenderWorkerPoolSize]. Safe to call more than once
+  /// (tops the pool up rather than doubling it) and safe even when a worker is
+  /// never used - drop the unadopted workers with [disposePrewarm].
+  static void prewarm({int? count}) =>
+      prewarmRenderWorkers(count ?? pdfRenderWorkerPoolSize);
+
+  /// Terminates any prewarmed-but-unadopted workers ([prewarm]).
+  static void disposePrewarm() => disposePrewarmedRenderWorkers();
+
   /// Records page [pageIndex] off-thread and returns its replayable command
   /// buffer (image XObjects decoded off-thread and attached), or null when the
   /// page can't be offloaded - it draws an inline image (`BI .. ID .. EI`,

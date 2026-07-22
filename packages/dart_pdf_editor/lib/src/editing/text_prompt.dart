@@ -23,6 +23,14 @@ typedef PdfImagePicker = Future<Uint8List?> Function(BuildContext context);
 typedef PdfSystemImagePasteProvider = Future<Uint8List?> Function(
     BuildContext context);
 
+/// Supplies plain text for a system clipboard paste, used in preference to
+/// Flutter's [Clipboard] when set. Return null when the clipboard carries no
+/// text. Exists mainly for the web, where Flutter's `Clipboard.getData` is
+/// unreliable: the host injects a reader built on the browser Async Clipboard
+/// API so ⌘V/Ctrl+V can paste text into a [PdfEditTool.freeText] box.
+typedef PdfSystemTextPasteProvider = Future<String?> Function(
+    BuildContext context);
+
 /// A selected page-content image exported by the Content tool.
 class PdfSelectedContentImage {
   const PdfSelectedContentImage({

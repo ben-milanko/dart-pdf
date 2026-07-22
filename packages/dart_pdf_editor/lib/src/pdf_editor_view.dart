@@ -225,9 +225,11 @@ class PdfEditorView extends StatefulWidget {
     this.onAnnotationTap,
     this.pageOverlayBuilder,
     this.annotationMenuBuilder,
+    this.contextMenuEnabled = true,
     this.formImagePicker,
     this.imagePicker,
     this.systemImagePasteProvider,
+    this.systemTextPasteProvider,
     this.onExportSelectedContentImage,
     this.onExportCustomStamps,
     this.onImportCustomStamps,
@@ -300,9 +302,11 @@ class PdfEditorView extends StatefulWidget {
     this.onAnnotationTap,
     this.pageOverlayBuilder,
     this.annotationMenuBuilder,
+    this.contextMenuEnabled = true,
     this.formImagePicker,
     this.imagePicker,
     this.systemImagePasteProvider,
+    this.systemTextPasteProvider,
     this.onExportSelectedContentImage,
     this.onExportCustomStamps,
     this.onImportCustomStamps,
@@ -442,6 +446,9 @@ class PdfEditorView extends StatefulWidget {
   /// See [PdfViewer.annotationMenuBuilder].
   final PdfAnnotationMenuBuilder? annotationMenuBuilder;
 
+  /// See [PdfViewer.contextMenuEnabled].
+  final bool contextMenuEnabled;
+
   /// See [PdfViewer.formImagePicker].
   final PdfFormImagePicker? formImagePicker;
 
@@ -450,6 +457,9 @@ class PdfEditorView extends StatefulWidget {
 
   /// See [PdfViewer.systemImagePasteProvider].
   final PdfSystemImagePasteProvider? systemImagePasteProvider;
+
+  /// See [PdfViewer.systemTextPasteProvider].
+  final PdfSystemTextPasteProvider? systemTextPasteProvider;
 
   /// See [PdfEditingToolbar.onExportSelectedContentImage].
   final PdfSelectedContentImageHandler? onExportSelectedContentImage;
@@ -691,9 +701,11 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         onAnnotationTap: widget.onAnnotationTap,
         pageOverlayBuilder: widget.pageOverlayBuilder,
         annotationMenuBuilder: widget.annotationMenuBuilder,
+        contextMenuEnabled: widget.contextMenuEnabled,
         formImagePicker: widget.formImagePicker,
         imagePicker: widget.imagePicker,
         systemImagePasteProvider: widget.systemImagePasteProvider,
+        systemTextPasteProvider: widget.systemTextPasteProvider,
         onExportSelectedContentImage: widget.onExportSelectedContentImage,
         onExportCustomStamps: widget.onExportCustomStamps,
         onImportCustomStamps: widget.onImportCustomStamps,
@@ -1326,10 +1338,13 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         onAnnotationTap: widget.onAnnotationTap,
                         pageOverlayBuilder: widget.pageOverlayBuilder,
                         annotationMenuBuilder: widget.annotationMenuBuilder,
+                        contextMenuEnabled: widget.contextMenuEnabled,
                         formImagePicker: widget.formImagePicker,
                         imagePicker: widget.imagePicker,
                         systemImagePasteProvider:
                             widget.systemImagePasteProvider,
+                        systemTextPasteProvider:
+                            widget.systemTextPasteProvider,
                         onSnapshot: widget.onSnapshot,
                         onPlaceSignature: widget.onPlaceSignature,
                         editingTextPrompt: widget.textPrompt,

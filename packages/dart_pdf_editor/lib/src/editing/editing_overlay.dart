@@ -503,6 +503,7 @@ class EditingPageOverlay extends StatefulWidget {
     this.onResolvePagePoint,
     this.onMoveDragPreview,
     this.onTextEditClosed,
+    this.contextMenuEnabled = true,
   });
 
   final PdfEditingController controller;
@@ -556,6 +557,12 @@ class EditingPageOverlay extends StatefulWidget {
       onResolvePagePoint;
   final PdfMoveDragPreviewCallback? onMoveDragPreview;
   final VoidCallback? onTextEditClosed;
+
+  /// Whether the touch long-press annotation menu and the floating selection
+  /// chip's "More" button are allowed to show. Mirrors [PdfViewer.contextMenuEnabled];
+  /// see that property for the semantics. Has no effect without an editing
+  /// controller (the menu path is reader-mode only). Defaults to true.
+  final bool contextMenuEnabled;
 
   /// Whether the page raster on screen already shows the controller's
   /// current revision. While false (an edit just committed and the
@@ -3127,6 +3134,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// joins the arena when this is true), so a long-press that has nothing to
   /// offer never steals the gesture from text selection or the viewer. Form
   /// fields use selection + toolbar controls instead of a long-press menu.
+  ///
+  /// Note: the host's [contextMenuEnabled] gate lives in [_onMenuLongPress]
+  /// itself, not here - this predicate decides *gesture ownership*, so it
+  /// must mirror the no-op case (nothing to select, no clipboard) regardless
+  /// of the menu toggle, otherwise long-press selection silently dies when
+  /// the menu is suppressed.
   bool _menuLongPressClaims(Offset position) {
     if (_pointers.gestureBailed) return false;
     final (x, y) = _geometry.toPagePoint(position);
@@ -3142,6 +3155,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// right-clicking. A pressed annotation joins the selection first
   /// (an already-selected one keeps a multi-selection intact); empty
   /// page area opens the paste menu when the clipboard has content.
+  ///
+  /// When [contextMenuEnabled] is false the press still selects the
+  /// annotation (or, with a clipboard, still bails out the same way) -
+  /// only the popup is suppressed.
   void _onMenuLongPress(LongPressStartDetails details) {
     final position = details.localPosition;
     final (x, y) = _geometry.toPagePoint(position);
@@ -3154,6 +3171,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       return;
     }
     HapticFeedback.selectionClick();
+    if (!widget.contextMenuEnabled) return;
     _host.showAnnotationMenu
         ?.call(details.globalPosition, widget.pageIndex, pagePoint: (x, y));
   }
@@ -4297,7 +4315,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     if (rect != null) _openTextEditor(rect, existing: true);
                   },
                 ),
-              if (_host.showAnnotationMenu != null)
+              if (_host.showAnnotationMenu != null && widget.contextMenuEnabled)
                 IconButton(
                   key: const ValueKey('pdf-selection-chip-menu'),
                   icon: const Icon(Icons.more_horiz),

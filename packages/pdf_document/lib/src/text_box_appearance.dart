@@ -177,9 +177,18 @@ void writePdfTextBox(
     case PdfTextBoxVAlign.top:
       firstY = box.top - padding - ascentPts;
     case PdfTextBoxVAlign.centerBlock:
+      // The N line boxes stack to `N*lineHeight`, centred in the box. Within
+      // each box the glyphs occupy the em (`fontSize`), so the extra
+      // `lineHeight - fontSize` of leading splits half above the ascent and
+      // half below the descent. Placing the first baseline one ascent below
+      // the block top would drop that whole gap below the last line and shove
+      // the block up until the top line's ascenders press against - and are
+      // clipped by - the top edge. Reserving the half-leading above the first
+      // line keeps the ink centred and the top line clear of the clip.
       final blockTop =
           box.bottom + (box.height + lines.length * lineHeight) / 2;
-      firstY = blockTop - ascentPts;
+      final halfLeading = math.max(0.0, (lineHeight - fontSize) / 2);
+      firstY = blockTop - halfLeading - ascentPts;
     case PdfTextBoxVAlign.centerLine:
       final centered = (box.height - ascentPts) / 2;
       firstY = box.bottom + (centered < padding ? padding : centered);

@@ -15,6 +15,9 @@ Offset viewPoint(double x, double y) => Offset(x * scale, (792 - y) * scale);
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    // controllers share the process-wide snapshot clipboard by default; start
+    // each test from empty so one test's capture can't leak into the next.
+    PdfSnapshotClipboard.instance.clear();
   });
 
   group('controller z-order', () {

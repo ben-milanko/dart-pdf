@@ -198,6 +198,17 @@ class PdfRetainedScene {
   /// on the legacy full-page raster to avoid per-tile full-transcript replays.
   bool get supportsRegionRaster => _ensureRegionIndex().supported;
 
+  /// Approximate bytes of the decoded images this scene retains for replay
+  /// (RGBA, width*height*4). Counted against the live-raster budget (#405): a
+  /// dense sheet's underlays keep tens of MB of pixels resident per live page.
+  int get decodedImageBytes {
+    var total = 0;
+    for (final image in _images.values) {
+      total += image.width * image.height * 4;
+    }
+    return total;
+  }
+
   int get debugRegionReplayUnitCount => _ensureRegionIndex().units.length;
   int get debugRegionReplayEstimatedBytes =>
       _ensureRegionIndex().estimatedBytes;
@@ -245,10 +256,16 @@ class PdfRetainedScene {
   ///
   /// Decodes share [PdfImageCache.instance] like every other render path, so
   /// recording a page the viewer already showed is decode-free.
+  ///
+  /// [maxImagePixelRatio] (screen px per page point) caps each image decode to
+  /// display resolution, as in [decodeImages] - the local twin of the render
+  /// worker's own cap, so a JPEG the worker declined does not decode at full
+  /// native resolution on the UI thread.
   static Future<PdfRetainedScene> record(
     PdfPage page, {
     PdfPageRenderPlan plan = const PdfPageRenderPlan(),
     bool Function(PdfAnnotation)? skipAnnotation,
+    double? maxImagePixelRatio,
   }) async {
     final cos = page.document.cos;
     final recorder = RecordingPdfDevice();
@@ -256,7 +273,7 @@ class PdfRetainedScene {
       ..drawPageContent(page, page.contentBytes());
     if (plan.annotations) recording.drawAnnotations(page, skip: skipAnnotation);
     final images = await decodeImages(cos, recorder.imageRequests,
-        cache: PdfImageCache.instance);
+        cache: PdfImageCache.instance, maxImagePixelRatio: maxImagePixelRatio);
     return PdfRetainedScene._(page, plan, recorder.commands, images);
   }
 
@@ -270,12 +287,18 @@ class PdfRetainedScene {
   /// perf log's way of splitting the render 'build' phase into image decode
   /// vs the canvas-call construction that follows. Null (the default)
   /// measures nothing.
+  ///
+  /// [maxImagePixelRatio] caps each image decode to display resolution
+  /// ([decodeImages]). This is the path that pays for a JPEG the worker shipped
+  /// un-decoded (it cannot run the platform codec); the cap keeps that UI-thread
+  /// decode at display size instead of the image's full native resolution.
   static Future<PdfRetainedScene> fromCommands(
     PdfPage page,
     List<PdfRenderCommand> commands, {
     PdfPageRenderPlan plan = const PdfPageRenderPlan(),
     bool includeImages = true,
     PdfSceneBuildTiming? timing,
+    double? maxImagePixelRatio,
   }) async {
     final images = <Object, ui.Image>{};
     if (includeImages) {
@@ -285,7 +308,8 @@ class PdfRetainedScene {
       // render never pays for it.
       final clock = timing == null ? null : (Stopwatch()..start());
       images.addAll(await decodeImages(page.document.cos, requests,
-          cache: PdfImageCache.instance));
+          cache: PdfImageCache.instance,
+          maxImagePixelRatio: maxImagePixelRatio));
       if (clock != null) {
         timing!.decodeMs = clock.elapsedMicroseconds / 1000.0;
       }

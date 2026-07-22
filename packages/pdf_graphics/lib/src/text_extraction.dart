@@ -562,14 +562,14 @@ class PdfTextExtractor {
 
       for (final rune in text.runes) {
         runeCount++;
-        final char = String.fromCharCode(rune);
         final kind = _bidiKind(rune, previousKind);
         if (kind != segmentKind) {
           flush();
           segmentStart = offset;
           segmentKind = kind;
         }
-        offset += char.length;
+        // UTF-16 length of the code point, without allocating a String for it.
+        offset += rune > 0xFFFF ? 2 : 1;
         previousKind = kind;
         if (kind == _BidiKind.rtl) {
           hasRtl = true;

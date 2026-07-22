@@ -12,7 +12,8 @@ unknown keys).
 {
   "schema": 1,
   "suite": "vm-sweep",         // vm-sweep | vm-interpret | flutter-render |
-                               // chrome-scroll | web-renderer | pdfium |
+                               // chrome-scroll | chrome-open | chrome-search |
+                               // chrome-edit | web-renderer | pdfium |
                                // gate-counters
   "scenario": "ghent-suite-open", // named workload from scenarios.json, or null
   "tool": "dart-pdf-sweep",    // legacy field, unchanged semantics

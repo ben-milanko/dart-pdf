@@ -184,7 +184,7 @@ extension PdfPadesSigning on PdfEditor {
       appearance: appearance,
     );
     final signedAttrs = cmsSignedAttributes(
-      contentDigest: crypto.sha256.convert(revision.signedData).bytes,
+      contentDigest: revision.digestSha256(),
       signingTime: time,
       essCertificate: signerCert,
     );
@@ -246,7 +246,7 @@ extension PdfPadesSigning on PdfEditor {
       docTimeStamp: true,
     );
     final request = buildTimeStampRequest(
-        messageImprint: crypto.sha256.convert(revision.signedData).bytes);
+        messageImprint: revision.digestSha256());
     final token = await timestampClient(request);
     PdfSigning._writeContents(revision, token);
     return revision.saved;
