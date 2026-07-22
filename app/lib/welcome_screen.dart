@@ -1,7 +1,10 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import 'app_info.dart';
 import 'l10n/app_l10n.dart';
+import 'recent_thumbnails.dart';
 import 'recents.dart';
 
 /// The landing surface shown when no document is open: a hero with the open
@@ -12,11 +15,17 @@ class WelcomeScreen extends StatelessWidget {
     required this.recents,
     required this.onOpen,
     required this.onOpenRecent,
+    this.thumbnails,
   });
 
   final RecentsStore recents;
   final VoidCallback onOpen;
   final void Function(RecentFile entry) onOpenRecent;
+
+  /// Renders the first-page thumbnail shown beside each recent entry. When
+  /// null (or an entry has no readable source), the list shows a generic
+  /// document icon instead.
+  final RecentThumbnailCache? thumbnails;
 
   @override
   Widget build(BuildContext context) {
@@ -62,7 +71,8 @@ class WelcomeScreen extends StatelessWidget {
                           final entry = items[i];
                           return ListTile(
                             key: ValueKey('recent-${entry.id}'),
-                            leading: const Icon(Icons.description_outlined),
+                            leading: _RecentLeading(
+                                entry: entry, thumbnails: thumbnails),
                             title: Text(entry.title,
                                 maxLines: 1, overflow: TextOverflow.ellipsis),
                             subtitle: entry.path != null
@@ -95,6 +105,77 @@ class WelcomeScreen extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// The leading widget for a recent-file row: the document's first-page
+/// thumbnail once it renders, falling back to a generic icon while it loads
+/// (or when no thumbnail is available). Fetches the thumbnail once per entry
+/// and holds it across rebuilds so scrolling / recents changes don't reset it
+/// to the placeholder.
+class _RecentLeading extends StatefulWidget {
+  const _RecentLeading({required this.entry, required this.thumbnails});
+
+  final RecentFile entry;
+  final RecentThumbnailCache? thumbnails;
+
+  @override
+  State<_RecentLeading> createState() => _RecentLeadingState();
+}
+
+class _RecentLeadingState extends State<_RecentLeading> {
+  Future<Uint8List?>? _thumbnail;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(_RecentLeading oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.entry.id != widget.entry.id ||
+        oldWidget.thumbnails != widget.thumbnails) {
+      _load();
+    }
+  }
+
+  void _load() {
+    _thumbnail = widget.thumbnails?.thumbnailFor(widget.entry);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final placeholder = Icon(Icons.description_outlined,
+        color: theme.iconTheme.color);
+    final future = _thumbnail;
+    return SizedBox(
+      width: 40,
+      height: 52,
+      child: future == null
+          ? Center(child: placeholder)
+          : FutureBuilder<Uint8List?>(
+              future: future,
+              builder: (context, snapshot) {
+                final bytes = snapshot.data;
+                if (bytes == null) return Center(child: placeholder);
+                return Center(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: theme.dividerColor),
+                    ),
+                    child: Image.memory(
+                      bytes,
+                      fit: BoxFit.contain,
+                      gaplessPlayback: true,
+                    ),
+                  ),
+                );
+              },
+            ),
     );
   }
 }

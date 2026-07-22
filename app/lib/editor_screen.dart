@@ -28,6 +28,7 @@ import 'ocr.dart';
 import 'pdf_cache.dart';
 import 'print_progress_dialog.dart';
 import 'printing.dart';
+import 'recent_thumbnails.dart';
 import 'recents.dart';
 import 'session_store.dart';
 import 'settings_screen.dart';
@@ -155,6 +156,7 @@ class _EditorScreenState extends State<EditorScreen>
   PdfEditingPreferences get _prefs => widget.prefs;
 
   final _recents = RecentsStore();
+  final _recentThumbnails = RecentThumbnailCache();
   final _session = SessionStore();
   final _incoming = IncomingFileService();
   final _ocr = OnDeviceOcr();
@@ -300,6 +302,7 @@ class _EditorScreenState extends State<EditorScreen>
       tab.dispose();
     }
     _recents.dispose();
+    _recentThumbnails.dispose();
     _updates.removeListener(_onUpdateStatus);
     if (_ownsUpdates) _updates.dispose();
     super.dispose();
@@ -2300,6 +2303,7 @@ class _EditorScreenState extends State<EditorScreen>
         recents: _recents,
         onOpen: _pickAndOpen,
         onOpenRecent: _openRecent,
+        thumbnails: _recentThumbnails,
       );
     }
     if (tab.isDeferredPath) {
