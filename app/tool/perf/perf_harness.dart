@@ -1,34 +1,63 @@
-// Automated real-world web-performance harness for the render worker.
+// Reusable real-world web-performance harness for the dart-pdf viewer/editor.
 //
-// A standalone Flutter web entrypoint (NOT the shipping app) that loads a big
-// PDF over HTTP, mounts the real [PdfViewer] with the web render worker enabled,
-// and then auto-scrolls every page while recording perf data - so an
-// off-browser driver (tool/perf/driver.mjs) can run it headless in real Chrome
-// and assert the decode/interpret offload keeps the UI thread smooth, exactly
-// the manual `flutter run -d chrome` check but repeatable and unattended.
+// A standalone Flutter web entrypoint (NOT the shipping app) that fetches a PDF
+// over HTTP, mounts the real [PdfViewer]/editing stack, runs one named
+// *scenario* workload, and records perf data - so an off-browser driver
+// (tool/perf/driver.mjs) can run it headless in real Chrome and get a
+// repeatable number. This is the manual `flutter run -d chrome` perf check,
+// generalized: one bundle, many workloads, driven entirely from the URL query
+// so the prebuilt bundle never needs a rebuild to switch scenario.
 //
 // Build:  flutter build web --release --target tool/perf/perf_harness.dart \
 //           --dart-define=PDF_PERF_LOG=true
-// (the driver does this for you).
+// (tool/perf/build.sh does this for you.)
 //
-// Tunables (--dart-define):
-//   PERF_PDF_URL    URL to fetch the PDF from        (default /perf.pdf)
-//   PERF_DWELL_MS   pause on each page, ms           (default 220)
-//   PERF_MAX_PAGES  cap pages visited, 0 = all       (default 0)
-//   PERF_PASSES     number of full step passes       (default 1)
-//   PERF_FAST_PASS  add a coarse fast-fling pass     (default true)
+// SCENARIOS (?scenario=<kind>, default `scroll`):
+//   scroll  - scroll every page (+ optional zoom-settle + fast-fling pass);
+//             frame smoothness and interpret/decode offload. The original
+//             workload; its behaviour is byte-for-byte unchanged.
+//   open    - cold-open profile: bytes -> PdfDocument.open -> pageCount ->
+//             first painted content on a target page (time-to-first-content).
+//   search  - full-document text search latency + match count (best-of-N).
+//   edit    - apply a batch of annotations (highlight/rectangle/ink) through
+//             the real PdfEditingController; incremental-save + appearance-gen
+//             cost, revision count, and session-buffer growth.
 //
-// The driver reads three JS globals this installs:
-//   window.__perfDone   -> bool, true when the scroll script finishes
-//   window.__perfDump()  -> all captured debugPrint/[perf] lines, '\n'-joined
-//   window.__perfFrames()-> JSON [{b,r,t}] per FrameTiming (build/raster/total ms)
-//   window.__perfError   -> a fatal error string, if the harness threw
+// Adding a scenario going forward = add one `_drive<Kind>()` method + a `case`
+// in `_drive()`, and emit numbers with `_metric(name, value)`. The driver reads
+// `window.__perfMetrics()` generically, so NO driver change is needed for a new
+// scenario's headline numbers to appear in the summary and the A/B diff.
+//
+// Tunables (?query, each falling back to a --dart-define default):
+//   scenario   scroll|open|search|edit          (default scroll)
+//   url        PDF to fetch                      (default /perf.pdf)
+//   dwell      scroll: pause on each page, ms    (default 220)
+//   maxPages   scroll: cap pages visited, 0=all  (default 0)
+//   passes     scroll: full step passes          (default 1)
+//   fast       scroll: add a fast-fling pass     (default true)
+//   zoom       scroll: zoom-settle cycles/page   (default 0)
+//   targetPage open/scroll: page to profile      (default 0 for open)
+//   query      search: text to search for        (default "the")
+//   repeat     search: best-of-N internal runs   (default 3)
+//   ops        edit: annotations to apply        (default 24)
+//   imageCacheMb  decoded-image cache budget, MB (default 0 = platform default)
+//
+// The driver reads these JS globals this installs:
+//   window.__perfDone     -> bool, true when the scenario finishes
+//   window.__perfError    -> a fatal error string, if the harness threw
+//   window.__perfDump()   -> all captured debugPrint/[perf] lines, '\n'-joined
+//   window.__perfFrames() -> JSON [{b,r,t}] per FrameTiming (build/raster/total ms)
+//   window.__perfMetrics() -> JSON {name: number} of this scenario's headline
+//                             metrics (the generic surface new scenarios use)
 import 'dart:async';
 import 'dart:convert';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+// PdfRect isn't in the dart_pdf_editor barrel's `show` list; pull it directly
+// (app depends on pdf_document). Only the edit scenario's annotation coords.
+import 'package:pdf_document/pdf_document.dart' show PdfRect;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -36,7 +65,6 @@ import 'package:flutter/scheduler.dart';
 // ---------------------------------------------------------------------------
 // Tunables - read from the URL query string at runtime (so the driver can vary
 // them per run without a rebuild), each falling back to a --dart-define default.
-//   ?url=/perf.pdf&dwell=220&maxPages=0&passes=1&fast=1
 // ---------------------------------------------------------------------------
 final Map<String, String> _q = Uri.base.queryParameters;
 
@@ -47,6 +75,9 @@ bool _qBool(String key, bool fallback) {
   return v == '1' || v.toLowerCase() == 'true';
 }
 
+final String _scenario = (_q['scenario'] ??
+        const String.fromEnvironment('PERF_SCENARIO', defaultValue: 'scroll'))
+    .toLowerCase();
 final String _pdfUrl = _q['url'] ??
     const String.fromEnvironment('PERF_PDF_URL', defaultValue: '/perf.pdf');
 final int _dwellMs = _qInt(
@@ -57,29 +88,51 @@ final int _passes =
     _qInt('passes', const int.fromEnvironment('PERF_PASSES', defaultValue: 1));
 final bool _fastPass = _qBool(
     'fast', const bool.fromEnvironment('PERF_FAST_PASS', defaultValue: true));
+
+/// `?targetPage=N`: the page whose first-content paint the `open` scenario
+/// times (and, for `scroll`, an alternate single-page target mode). -1 uses a
+/// scenario default (0 for `open`).
 final int _targetPage = _qInt('targetPage', -1);
 
-/// `?zoom=N`: after each step-pass page dwell, run N zoom-in/out settle
-/// cycles (1x -> 3x -> 1x via the controller's setZoom, waiting out the
-/// viewer's settle debounce between legs) - the pan/zoom-settle workload a
-/// Revu comparison cares about. 0 (default) = off.
+/// `?zoom=N`: after each scroll page dwell, run N zoom-in/out settle cycles
+/// (1x -> 3x -> 1x via the controller's setZoom, waiting out the viewer's
+/// settle debounce between legs) - the pan/zoom-settle workload. 0 = off.
 final int _zoomCycles = _qInt('zoom', 0);
+
+/// `?query=` / `?repeat=`: the `search` scenario's needle and best-of-N count.
+final String _searchQuery = _q['query'] ??
+    const String.fromEnvironment('PERF_QUERY', defaultValue: 'the');
+final int _searchRepeat =
+    _qInt('repeat', const int.fromEnvironment('PERF_REPEAT', defaultValue: 3));
+
+/// `?ops=`: how many annotations the `edit` scenario applies.
+final int _editOps =
+    _qInt('ops', const int.fromEnvironment('PERF_OPS', defaultValue: 24));
 
 /// Decoded-image cache budget, MB. 0 leaves the platform default in place; the
 /// driver sweeps it to measure what each budget costs a real tab (issue #281).
 final int _imageCacheMb = _qInt('imageCacheMb', 0);
 
 // ---------------------------------------------------------------------------
-// Capture: every debugPrint line + every frame's timing.
+// Capture: every debugPrint line + every frame's timing + scenario metrics.
 // ---------------------------------------------------------------------------
 final List<String> _lines = <String>[];
 final List<FrameTiming> _frames = <FrameTiming>[];
+final Map<String, num> _metrics = <String, num>{};
 
 void _record(String line) {
   _lines.add(line);
-  // Mirror to the real console too, so a headful run / page.on('console')
-  // can watch live. Guarded - console must exist in a browser.
+  // Mirror to the real console too, so a headful run / page.on('console') can
+  // watch live. Guarded - console must exist in a browser.
   _consoleLog(line.toJS);
+}
+
+/// Publish one scenario metric. It lands in `window.__perfMetrics()` (the
+/// generic surface the driver parses) AND as a trace line (so a headful run and
+/// the raw dump show it too). New scenarios only need to call this.
+void _metric(String name, num value) {
+  _metrics[name] = value;
+  _record('[perf.metric] $name=$value');
 }
 
 @JS('console.log')
@@ -131,7 +184,7 @@ void main() {
   };
   final isolated =
       (globalContext['crossOriginIsolated'] as JSBoolean?)?.toDart ?? false;
-  _record('[perf] HARNESS crossOriginIsolated=$isolated');
+  _record('[perf] HARNESS scenario=$_scenario crossOriginIsolated=$isolated');
   if (_imageCacheMb > 0) {
     PdfImageCache.instance.maxBytes = _imageCacheMb * 1024 * 1024;
   }
@@ -145,8 +198,10 @@ void main() {
   // Expose the driver's read surface up front (so a poll never races startup).
   _setGlobal('__perfDone', false.toJS);
   _setGlobal('__perfError', null);
+  _setGlobal('__perfScenario', _scenario.toJS);
   _setGlobal('__perfDump', (() => _lines.join('\n').toJS).toJS);
   _setGlobal('__perfFrames', (() => _framesJson().toJS).toJS);
+  _setGlobal('__perfMetrics', (() => jsonEncode(_metrics).toJS).toJS);
 
   // Record every frame's timing (not just jank) so the driver can compute
   // p50/p95/max build times over the whole run.
@@ -166,7 +221,10 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
   final PdfViewerController _viewer = PdfViewerController();
   PdfDocument? _document;
   PdfRenderWorker? _worker;
+  PdfEditingController? _editing;
   String? _error;
+
+  bool get _isEdit => _scenario == 'edit';
 
   @override
   void initState() {
@@ -175,18 +233,40 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
   }
 
   Future<void> _start() async {
+    // Cold-open stopwatch: covers fetch + parse + worker start + first paint,
+    // exactly what a user waits through. Legal here - the harness is tool code,
+    // not lib/ (the no-Stopwatch-in-lib rule is about shipping paths).
+    final coldOpen = Stopwatch()..start();
     try {
+      // First-content timing for `open` is computed driver-side from the
+      // PdfPerfLog `[perf <ms>]` timestamps: the target page's first paint is
+      // logged in the render-WORKER isolate, which never reaches this isolate's
+      // captured lines - only the browser console the driver reads. Emit the
+      // same start marker the driver's target machinery keys on, as early as
+      // possible so the measured span is a true cold open.
+      if (_scenario == 'open') {
+        PdfPerfLog.log('HARNESS TARGET start page=${_targetPage < 0 ? 0 : _targetPage}');
+      }
       _record('[perf] HARNESS load url=$_pdfUrl');
       final bytes = await _loadPdf(_pdfUrl);
+      _metric('openBytesMs', coldOpen.elapsedMicroseconds / 1000.0);
       _record('[perf] HARNESS loaded bytes=${bytes.length}');
-      final document = PdfDocument.open(bytes);
-      final worker = PdfRenderWorker.start(bytes);
-      setState(() {
-        _document = document;
-        _worker = worker;
-      });
-      // Let the first frame + the viewer's first page settle, then drive.
-      unawaited(_drive());
+      if (_isEdit) {
+        // The edit scenario mounts the editing stack: PdfViewer(editing:) owns
+        // the revision buffer and re-renders as annotations land. No render
+        // worker - revisions would stale a worker started on the original.
+        final editing = PdfEditingController(bytes);
+        setState(() => _editing = editing);
+      } else {
+        final document = PdfDocument.open(bytes);
+        _metric('openDocMs', coldOpen.elapsedMicroseconds / 1000.0);
+        final worker = PdfRenderWorker.start(bytes);
+        setState(() {
+          _document = document;
+          _worker = worker;
+        });
+      }
+      unawaited(_drive(coldOpen));
     } catch (e, st) {
       _record('[perf] HARNESS ERROR $e');
       _setGlobal('__perfError', '$e\n$st'.toJS);
@@ -195,24 +275,50 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
     }
   }
 
-  Future<void> _drive() async {
-    // Wait for the page tree to resolve so pageCount is real.
+  /// Wait for the page tree to resolve so pageCount is real.
+  Future<int> _awaitPageCount(Stopwatch coldOpen) async {
     final deadline = DateTime.now().add(const Duration(seconds: 30));
     while (_viewer.pageCount <= 0 && DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
     }
     final count = _viewer.pageCount;
+    _metric('openPageCountMs', coldOpen.elapsedMicroseconds / 1000.0);
     _record('[perf] HARNESS pageCount=$count');
-    if (count <= 0) {
-      _setGlobal('__perfError', 'pageCount never became positive'.toJS);
-      _setGlobal('__perfDone', true.toJS);
-      return;
-    }
-    if (_targetPage >= 0) {
-      await _driveTarget(count);
-      return;
-    }
+    return count;
+  }
 
+  Future<void> _drive(Stopwatch coldOpen) async {
+    try {
+      switch (_scenario) {
+        case 'open':
+          await _driveOpen(coldOpen);
+        case 'search':
+          await _driveSearch(coldOpen);
+        case 'edit':
+          await _driveEdit(coldOpen);
+        case 'scroll':
+        default:
+          await _driveScroll(coldOpen);
+      }
+    } catch (e, st) {
+      _record('[perf] HARNESS DRIVE ERROR $e');
+      _setGlobal('__perfError', '$e\n$st'.toJS);
+    } finally {
+      // Settle so trailing prerenders/decodes land in the trace.
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      _metric('frames', _frames.length);
+      _record('[perf] HARNESS DONE scenario=$_scenario '
+          'frames=${_frames.length} lines=${_lines.length}');
+      _setGlobal('__perfDone', true.toJS);
+    }
+  }
+
+  // ----- scroll: the original workload, behaviour unchanged ------------------
+  Future<void> _driveScroll(Stopwatch coldOpen) async {
+    final count = await _awaitPageCount(coldOpen);
+    if (count <= 0) {
+      throw StateError('pageCount never became positive');
+    }
     // Let the first visible page interpret before we start moving.
     await Future<void>.delayed(const Duration(milliseconds: 1500));
 
@@ -252,63 +358,142 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
         await Future<void>.delayed(const Duration(milliseconds: 40));
       }
     }
-
-    // Settle so trailing prerenders/decodes land in the trace.
-    await Future<void>.delayed(const Duration(milliseconds: 1500));
-    _record(
-        '[perf] HARNESS DONE frames=${_frames.length} lines=${_lines.length}');
-    _setGlobal('__perfDone', true.toJS);
+    _metric('pagesVisited', last);
   }
 
-  Future<void> _driveTarget(int count) async {
-    final target = _targetPage.clamp(0, count - 1);
-    await Future<void>.delayed(const Duration(milliseconds: 100));
-    _record('[perf] HARNESS TARGET start page=$target');
-    PdfPerfLog.log('HARNESS TARGET start page=$target');
-    unawaited(_viewer.jumpToPage(target));
+  // ----- open: cold-open profile; first-content is computed driver-side ------
+  Future<void> _driveOpen(Stopwatch coldOpen) async {
+    final count = await _awaitPageCount(coldOpen);
+    if (count <= 0) throw StateError('pageCount never became positive');
+    final target = (_targetPage < 0 ? 0 : _targetPage).clamp(0, count - 1);
+    _record('[perf] HARNESS OPEN target=$target');
+    // The `HARNESS TARGET start` marker was emitted in _start(); page 0 renders
+    // on its own, deeper targets need a jump. The driver reads the first-paint
+    // timestamp off the trace and reports openFirstContentMs.
+    if (target != 0) unawaited(_viewer.jumpToPage(target));
+    // Let first content + refinement land in the trace before we finish.
+    await Future<void>.delayed(const Duration(milliseconds: 2500));
+  }
 
-    final vector = 'vector-first page=$target';
-    final full = 'interpret page=$target ';
-    final deadline = DateTime.now().add(const Duration(seconds: 30));
-    while (DateTime.now().isBefore(deadline)) {
-      if (_lines.any((line) => line.contains(vector) || line.contains(full))) {
-        _record('[perf] HARNESS TARGET firstContent page=$target');
-        PdfPerfLog.log('HARNESS TARGET firstContent page=$target');
-        break;
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+  // ----- search: full-document text search latency + match count ------------
+  Future<void> _driveSearch(Stopwatch coldOpen) async {
+    final count = await _awaitPageCount(coldOpen);
+    if (count <= 0) throw StateError('pageCount never became positive');
+    // Let the first page settle so search doesn't race initial layout.
+    await Future<void>.delayed(const Duration(milliseconds: 800));
+    _record('[perf] HARNESS SEARCH query="$_searchQuery" repeat=$_searchRepeat');
+    var bestMs = double.infinity;
+    var matches = 0;
+    for (var r = 0; r < _searchRepeat.clamp(1, 20); r++) {
+      _viewer.clearSearch();
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      final sw = Stopwatch()..start();
+      await _viewer.search(_searchQuery);
+      sw.stop();
+      final ms = sw.elapsedMicroseconds / 1000.0;
+      matches = _viewer.matchCount;
+      _record('[perf] HARNESS SEARCH run=$r ${ms.toStringAsFixed(1)}ms '
+          'matches=$matches');
+      if (ms < bestMs) bestMs = ms;
     }
+    // Best-of-N within the run, matching the suite's timing convention.
+    _metric('searchMs', bestMs.isFinite ? bestMs : 0);
+    _metric('searchMatches', matches);
+  }
 
-    await Future<void>.delayed(const Duration(milliseconds: 1500));
-    _record(
-        '[perf] HARNESS DONE frames=${_frames.length} lines=${_lines.length}');
-    _setGlobal('__perfDone', true.toJS);
+  // ----- edit: apply a batch of annotations through the real controller -----
+  Future<void> _driveEdit(Stopwatch coldOpen) async {
+    final count = await _awaitPageCount(coldOpen);
+    if (count <= 0) throw StateError('pageCount never became positive');
+    final editing = _editing!;
+    // Let the first page paint before we start mutating.
+    await Future<void>.delayed(const Duration(milliseconds: 800));
+    final ops = _editOps.clamp(1, 500);
+    _record('[perf] HARNESS EDIT ops=$ops pages=$count');
+    final bufferBefore = editing.sessionBufferBytes;
+    final revBefore = editing.revisionCount;
+
+    final apply = Stopwatch()..start();
+    var applied = 0;
+    for (var i = 0; i < ops; i++) {
+      final page = i % count;
+      switch (i % 3) {
+        case 0:
+          // Highlight: one synthetic quad. Appearance-stream generation cost is
+          // coordinate-independent, so fixed low coords are fine for any page.
+          editing.addMarkup(
+            PdfMarkupKind.highlight,
+            {
+              page: [PdfRect(72, 100 + (i % 5) * 22, 320, 118 + (i % 5) * 22)],
+            },
+          );
+        case 1:
+          editing.addRectangle(page, const PdfRect(72, 200, 320, 260));
+        case 2:
+          editing.addInkStroke(page, const [
+            (72, 300),
+            (120, 340),
+            (180, 300),
+            (240, 350),
+            (320, 300),
+          ]);
+          editing.finishInk();
+      }
+      applied++;
+      // Yield so the viewer can re-render the new revision between ops (the
+      // real interactive cadence, and it lets FrameTiming capture the repaint).
+      await Future<void>.delayed(const Duration(milliseconds: 16));
+    }
+    apply.stop();
+
+    final applyMs = apply.elapsedMicroseconds / 1000.0;
+    _metric('editApplyMs', applyMs);
+    _metric('editApplyMsPerOp', applyMs / applied);
+    _metric('editRevisions', editing.revisionCount - revBefore);
+    _metric(
+        'editBufferGrowthKb',
+        (editing.sessionBufferBytes - bufferBefore) / 1024.0);
+    _record('[perf] HARNESS EDIT applied=$applied '
+        'buffer=${editing.sessionBufferBytes}B revisions=${editing.revisionCount}');
+    // Let the last repaint settle.
+    await Future<void>.delayed(const Duration(milliseconds: 500));
   }
 
   @override
   void dispose() {
     _worker?.dispose();
+    _editing?.dispose();
     _viewer.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final Widget body;
+    if (_error != null) {
+      body = Center(child: Text('harness error: $_error'));
+    } else if (_isEdit) {
+      body = _editing == null
+          ? const Center(child: Text('loading…'))
+          : PdfViewer(
+              editing: _editing,
+              controller: _viewer,
+              initialFit: PdfViewerFit.width,
+            );
+    } else {
+      body = _document == null
+          ? const Center(child: Text('loading…'))
+          : PdfViewer(
+              document: _document!,
+              controller: _viewer,
+              initialFit: PdfViewerFit.width,
+              renderWorker: _worker,
+            );
+    }
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'dart-pdf perf harness',
-      home: Scaffold(
-        body: _error != null
-            ? Center(child: Text('harness error: $_error'))
-            : _document == null
-                ? const Center(child: Text('loading…'))
-                : PdfViewer(
-                    document: _document!,
-                    controller: _viewer,
-                    initialFit: PdfViewerFit.width,
-                    renderWorker: _worker,
-                  ),
-      ),
+      home: Scaffold(body: body),
     );
   }
 }

@@ -59,6 +59,18 @@ console.log(`  build p95 ms    min=${p95.min.toFixed(1)} med=${p95.med.toFixed(1
 console.log(`  build max ms    min=${bmax.min.toFixed(0)} med=${bmax.med.toFixed(0)} max=${bmax.max.toFixed(0)}`);
 console.log(`  frames >50ms    min=${over50.min} med=${over50.med} max=${over50.max}`);
 console.log(`  worker warmMax  min=${warm.min.toFixed(0)} med=${warm.med.toFixed(0)} max=${warm.max.toFixed(0)} ms`);
+// Scenario-generic metric medians (works for any suite: open/search/edit/
+// scroll). Driven by the envelope `metrics` block, so a new scenario's numbers
+// show up here with no change to this file.
+const metricKeys = [...new Set(runs.flatMap((r) => Object.keys(r.metrics ?? {})))].sort();
+if (metricKeys.length) {
+  const suites = [...new Set(runs.map((r) => r.suite).filter(Boolean))];
+  console.log(`\n  metrics (median over ${runs.length}) — suite ${suites.join(',') || '?'}`);
+  for (const k of metricKeys) {
+    const a = agg(runs.map((r) => r.metrics?.[k]));
+    console.log(`    ${k.padEnd(22)} min=${a.min.toFixed(1)} med=${a.med.toFixed(1)} max=${a.max.toFixed(1)}`);
+  }
+}
 if (fails.length) {
   console.log('\n  ⚠ failing runs:');
   for (const r of fails) console.log(`     ${r.ts}  ${r.fatal ?? r.harnessError ?? (r.errorLines?.[0]) ?? r.pageErrors?.[0]}`);

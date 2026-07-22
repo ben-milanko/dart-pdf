@@ -1,0 +1,48 @@
+{
+  "_readme": "Declarative registry for the reusable web perf harness. Each scenario names a workload kind (scroll|open|search|edit), a repo-relative PDF (portable, from the CC0 test_corpora/dartpdf corpus so any checkout - and any git worktree in an A/B diff - can run it), and kind-specific params passed to the harness via URL query. The driver (driver.mjs) serves `pdf` at /perf.pdf, sets the query from `params`, and merges whatever window.__perfMetrics() returns into the run envelope - so adding a scenario needs NO driver change. Pick one with `node driver.mjs --scenario <name>` or `tool/perf.sh web <name>`; A/B two revisions with `tool/perf.sh webdiff <ref> <name>`.",
+  "default": "scroll-plan",
+  "scenarios": {
+    "scroll-plan": {
+      "kind": "scroll",
+      "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",
+      "params": { "passes": 1, "fast": 1 },
+      "note": "16-sheet vector plan set (~70k ops/page). Scroll + fast-fling: frame smoothness and interpret/decode worker offload."
+    },
+    "scroll-scan": {
+      "kind": "scroll",
+      "pdf": "test_corpora/dartpdf/scan-book-12p.pdf",
+      "params": { "passes": 1, "fast": 1 },
+      "note": "12p A3 scanned grayscale (~3.7 MB decoded/page). Stresses off-thread image decode + the image cache."
+    },
+    "scroll-diagram": {
+      "kind": "scroll",
+      "pdf": "test_corpora/dartpdf/diagram-dense-3p.pdf",
+      "params": { "passes": 2, "fast": 0 },
+      "note": "3p ultra-dense diagram (~270k ops/page, MB-scale streams). Tokenizer/interpreter saturation."
+    },
+    "open-plan": {
+      "kind": "open",
+      "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",
+      "params": { "targetPage": 8 },
+      "note": "Cold-open time-to-first-content jumping to a heavy vector sheet mid-document."
+    },
+    "open-text": {
+      "kind": "open",
+      "pdf": "test_corpora/dartpdf/text-report-40p.pdf",
+      "params": { "targetPage": 0 },
+      "note": "Cold-open of a 40p office-text doc: page-tree walk + first paint."
+    },
+    "search-text": {
+      "kind": "search",
+      "pdf": "test_corpora/dartpdf/text-report-40p.pdf",
+      "params": { "query": "Page", "repeat": 3 },
+      "note": "Full-document text search latency + match count on a 40p text report (best-of-3). 'Page' hits ~1.1k times, spread across every page - a stable, comparable workload."
+    },
+    "edit-annotate": {
+      "kind": "edit",
+      "pdf": "test_corpora/dartpdf/styled-booklet-24p.pdf",
+      "params": { "ops": 24 },
+      "note": "Apply 24 highlight/rectangle/ink annotations through PdfEditingController: incremental-save + appearance-gen cost, revisions, buffer growth."
+    }
+  }
+}

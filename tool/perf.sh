@@ -4,7 +4,10 @@
 #   tool/perf.sh sweep <scenario|corpus-path> [extra perf_sweep flags]
 #   tool/perf.sh interpret <corpus> [flags]     # legacy interpret benchmark
 #   tool/perf.sh render <corpus>                # Flutter raster benchmark
-#   tool/perf.sh web                            # Chrome scroll loop (app/tool/perf)
+#   tool/perf.sh web [scenario]                 # one real-Chrome scenario run
+#   tool/perf.sh web build                      # (re)build the web harness bundle
+#   tool/perf.sh web loop [N]                   # legacy scroll loop, N iters
+#   tool/perf.sh webdiff <ref> [scenario] ...   # one-command web A/B vs a git ref
 #   tool/perf.sh compare-pdfium [corpus]        # dart-pdf vs PDFium tables
 #   tool/perf.sh gate [--update-baseline]       # deterministic PR counter gate
 #   tool/perf.sh dce                            # PDF_PERF=false tree-shake proof
@@ -56,7 +59,33 @@ case "$cmd" in
       PDF_BENCHMARK_DIR="$corpus" $FLUTTER test test/benchmark_render_test.dart "$@")
     ;;
   web)
-    (cd "$ROOT/app/tool/perf" && ./loop.sh "${1:-1}")
+    PERF_DIR="$ROOT/app/tool/perf"
+    [ -d "$PERF_DIR/node_modules" ] || (cd "$PERF_DIR" && npm install)
+    sub="${1:-default}"
+    shift || true
+    case "$sub" in
+      build)
+        "$PERF_DIR/build.sh" "$@" ;;
+      loop)
+        (cd "$PERF_DIR" && ./loop.sh "${1:-6}") ;;
+      *)
+        # One real-Chrome run of a named scenario (default = scenarios.json's
+        # `default`). Auto-build the bundle if it's missing. Each scenario keeps
+        # its own history file so single-run trends never mix workloads.
+        [ -f "$ROOT/app/build/web/index.html" ] || "$PERF_DIR/build.sh"
+        results="$PERF_DIR/results-$sub.ndjson"
+        (cd "$PERF_DIR" && PERF_RESULTS="$results" node driver.mjs --scenario "$sub" "$@")
+        echo "▸ history: $results   (trend: PERF_RESULTS=$results node $PERF_DIR/report.mjs)" ;;
+    esac
+    ;;
+  webdiff)
+    PERF_DIR="$ROOT/app/tool/perf"
+    [ -d "$PERF_DIR/node_modules" ] || (cd "$PERF_DIR" && npm install)
+    REF="${1:?usage: perf.sh webdiff <ref> [scenario] [--iterations N] [--threshold R] [--keep]}"
+    shift
+    args=(--baseline "$REF")
+    if [ $# -gt 0 ] && [[ "$1" != --* ]]; then args+=(--scenario "$1"); shift; fi
+    (cd "$PERF_DIR" && node bench.mjs "${args[@]}" "$@")
     ;;
   compare-pdfium)
     (cd "$ROOT/benchmark" && ./run.sh "$@")
