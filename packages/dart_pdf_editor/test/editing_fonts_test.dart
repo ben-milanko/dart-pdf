@@ -13,11 +13,42 @@ import 'package:shared_preferences/shared_preferences.dart';
 final _fontBytes =
     File('../pdf_document/test/fonts/DejaVuSans.ttf').readAsBytesSync();
 
+/// The bundled font catalogue now ships in `dart_pdf_editor_assets`, so this
+/// package's tests can't reach it through the asset bundle. Register the same
+/// six faces backed by the moved asset files (read synchronously, so the loader
+/// future completes on the microtask queue `pumpAndSettle` drains - no real
+/// I/O the fake clock wouldn't wait for). Mirrors what
+/// `registerBundledEditorAssets()` does at runtime.
+const _assetFontDir = '../dart_pdf_editor_assets/assets/fonts';
+List<PdfBundledFont> _registerBundledFontCatalogue() {
+  PdfBundledFont face(String label, String file) => PdfBundledFont(
+        label,
+        'test:$file',
+        loadBytes: () async => File('$_assetFontDir/$file').readAsBytesSync(),
+      );
+  return [
+    face('DejaVu Sans', 'DejaVuSans.ttf'),
+    face('DejaVu Serif', 'DejaVuSerif.ttf'),
+    face('DejaVu Sans Mono', 'DejaVuSansMono.ttf'),
+    face('Fira Sans', 'FiraSans-Regular.ttf'),
+    face('Spectral', 'Spectral-Regular.ttf'),
+    face('Lobster', 'Lobster-Regular.ttf'),
+  ];
+}
+
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({}));
-  // The platform-font registry is module-global (a host fills it once at
-  // startup); reset it so a test that populates it can't leak into others.
-  tearDown(() => pdfPlatformFonts = const []);
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    // The bundled catalogue is opt-in (empty by default); populate it so the
+    // font-menu and fallback tests exercise the registered path.
+    pdfBundledFonts = _registerBundledFontCatalogue();
+  });
+  // The font registries are module-global (a host fills them once at startup);
+  // reset them so a test that populates them can't leak into others.
+  tearDown(() {
+    pdfPlatformFonts = const [];
+    pdfBundledFonts = const [];
+  });
 
   String daOf(PdfEditingController c, PdfAnnotation a) =>
       (c.document.cos.resolve(a.dict['DA']) as CosString).text;

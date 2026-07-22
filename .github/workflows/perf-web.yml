@@ -26,7 +26,7 @@ jobs:
           flutter-version: 3.44.4
           channel: stable
           cache: true
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - run: flutter pub get

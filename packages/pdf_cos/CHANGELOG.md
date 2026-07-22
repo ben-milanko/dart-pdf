@@ -1,5 +1,47 @@
 # Changelog
 
+## 2.1.0
+
+- Append incremental saves to the existing bytes instead of rebuilding the
+  whole file: `CosUpdater.saveTail()` returns only the new tail (the appended
+  objects, xref, and trailer), so an incremental revision costs the size of
+  the change rather than the size of the document. Save cost no longer scales
+  with the base file - a guard test pins that a 2.78x larger base does not
+  make a same-sized edit 2.78x more expensive (#413).
+- Memoise the per-object decryption key so a page's streams and strings derive
+  it once per object rather than once per access, cutting repeated MD5/AES key
+  derivation on encrypted documents (#400).
+
+- Speed up CCITT G3/G4 decoding by ~4x on dense scanned pages: a monotonic
+  cursor for the 2-D reference-row scan (was O(transitions^2) per row),
+  peek-once prefix tables for run and mode codes, byte-run span fills, and
+  a byte-at-a-time bit reader. The JBIG2 MMR path, which reuses the same
+  decoder, gains a byte-at-a-time bitmap unpack. Output is byte-identical
+  on well-formed, malformed, and truncated input, locked by golden digests
+  captured from the previous implementation (#398).
+
+## 2.0.0
+
+- Major version bump for the 2.0.0 package suite. A breaking API change in
+  `dart_pdf_editor` moves every package to 2.0.0 in lockstep; the COS object
+  model, syntax, and (de)serialization API is source-compatible with 1.4.7.
+- Add an asynchronous byte-source API (`PdfByteSource`) for progressive PDF
+  loading: the reader pulls ranged slices on demand instead of requiring the
+  whole file up front, so remote and large local files can paint their first
+  page before the full download or read completes (#328, #359).
+- Decode PDF text strings as PDFDocEncoding rather than Latin-1, so document
+  metadata and outline titles that use PDFDocEncoding-specific code points
+  round-trip correctly (#347).
+- Add the crypto primitives behind one-tap and keyless signing identities:
+  P-256 `EcPrivateKey.generate`, deterministic RFC 6979 `ecdsaSign`, the X.509
+  v3 builders `buildSelfSignedCertificate` / `buildCaCertificate` /
+  `issueCertificate`, and `ecSubjectPublicKeyInfo` / `pemEncode` for
+  Sigstore/Fulcio (#322, #337, #355).
+- Internal refactors with no public API change: extract `CosXrefReader` from
+  `CosDocument`, move the encryption object-graph walk behind the security
+  handler, share file-tail framing between the builder and updater, and dedupe
+  ObjStm header parsing between recovery and the stream decoder.
+
 ## 1.4.7
 
 - Version bump to keep the dart-pdf package suite aligned at 1.4.7. No COS API

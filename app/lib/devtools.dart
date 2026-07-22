@@ -14,6 +14,7 @@ import 'dart:ui' show FramePhase;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -40,6 +41,22 @@ class DevLogEntry {
 }
 
 enum DevLogLevel { info, error }
+
+/// Per-pointer accumulator for touch-input logging: the net displacement,
+/// total path length, and move count between a pointer's down and up.
+class _TouchTrack {
+  _TouchTrack(this.start, this.startTime);
+
+  final Offset start;
+  final Duration startTime;
+  double pathLength = 0;
+  int moves = 0;
+
+  void accumulate(Offset delta) {
+    pathLength += delta.distance;
+    moves++;
+  }
+}
 
 /// Rolling frame-timing aggregates over the sample window.
 class DevFrameStats {
@@ -94,6 +111,9 @@ class AppDevTools extends ChangeNotifier {
   bool _installed = false;
   bool _capturing = false;
   bool _notifyScheduled = false;
+  bool _logTouchInput = false;
+  bool _logPerfTrace = false;
+  final Map<int, _TouchTrack> _touchTracks = {};
   DateTime _lastNotify = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// Captured log, oldest first. A fixed-size ring of [maxLogEntries].
@@ -131,7 +151,97 @@ class AppDevTools extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _record(DevLogLevel level, String message) {
+  // --- touch input logging --------------------------------------------------
+
+  /// Whether raw pointer events over the viewer are summarized into the log,
+  /// and the viewer's own gesture-decision sink ([pdfDebugGestureLog]) is
+  /// captured too. Off by default; the diagnostic for "panning does nothing
+  /// while zoomed" and similar touch reports, which never reproduce off the
+  /// affected device. Toggling it installs/removes the viewer sink.
+  bool get logTouchInput => _logTouchInput;
+
+  set logTouchInput(bool value) {
+    if (_logTouchInput == value) return;
+    _logTouchInput = value;
+    // The viewer's discrete gesture decisions (which recognizer claimed a
+    // drag) join the same log, tagged so the panel filter can isolate them.
+    pdfDebugGestureLog = value ? (m) => addLog('gesture: $m') : null;
+    if (!value) _touchTracks.clear();
+    addLog('devtools: touch input logging ${value ? 'on' : 'off'}');
+    _scheduleNotify();
+  }
+
+  /// Feeds one raw pointer event from a host [Listener]. A no-op unless
+  /// [logTouchInput] is on. Emits one line per gesture on down and up/cancel
+  /// (with a moved-distance/duration summary), never per move - a dragging
+  /// finger fires moves at 60-120 Hz and would drown the ring buffer.
+  void logPointerEvent(PointerEvent event) {
+    if (!_logTouchInput) return;
+    // Mice and trackpads are not the subject here (touch/stylus panning is);
+    // logging their hover/move stream would bury the finger events.
+    if (event.kind != PointerDeviceKind.touch &&
+        event.kind != PointerDeviceKind.stylus &&
+        event.kind != PointerDeviceKind.invertedStylus) {
+      return;
+    }
+    if (event is PointerDownEvent) {
+      _touchTracks[event.pointer] = _TouchTrack(event.position, event.timeStamp);
+      addLog('touch: DOWN id=${event.pointer} ${event.kind.name} '
+          '@${_fmt(event.position)} contacts=${_touchTracks.length}');
+    } else if (event is PointerMoveEvent) {
+      _touchTracks[event.pointer]?.accumulate(event.delta);
+    } else if (event is PointerUpEvent || event is PointerCancelEvent) {
+      final track = _touchTracks.remove(event.pointer);
+      final verb = event is PointerCancelEvent ? 'CANCEL' : 'UP';
+      if (track == null) {
+        addLog('touch: $verb id=${event.pointer}');
+        return;
+      }
+      final net = event.position - track.start;
+      final ms = (event.timeStamp - track.startTime).inMilliseconds;
+      addLog('touch: $verb id=${event.pointer} net=${_fmt(net)} '
+          'path=${track.pathLength.toStringAsFixed(0)}px '
+          'moves=${track.moves} ${ms}ms');
+    }
+  }
+
+  static String _fmt(Offset o) =>
+      '(${o.dx.toStringAsFixed(0)},${o.dy.toStringAsFixed(0)})';
+
+  // --- perf trace forwarding --------------------------------------------------
+
+  /// Whether [PdfPerfLog] runs AND its lines are forwarded into this log,
+  /// tagged `perf:`. Off by default. The export's pdfPerf block only covers
+  /// the document-open path; this is how the render path (worker traffic,
+  /// interprets, rasters, jank) gets into the same exported trace. Toggling
+  /// installs/removes the package's sink - the package never imports the app,
+  /// so the sink is the seam.
+  bool get logPerfTrace => _logPerfTrace;
+
+  set logPerfTrace(bool value) {
+    if (_logPerfTrace == value) return;
+    _logPerfTrace = value;
+    PdfPerfLog.enabled = value;
+    // The trace is verbose - a line per worker request/reply, interpret, and
+    // raster - and this log is a ring of only maxLogEntries, so a sustained
+    // trace WILL evict the earlier entries (the open-trace: lines included).
+    // Reproduce the problem, then export promptly; don't leave it running.
+    PdfPerfLog.sink =
+        value ? (m) => _record(DevLogLevel.info, 'perf: $m', notify: false) : null;
+    addLog('devtools: perf trace logging ${value ? 'on' : 'off'}');
+    _scheduleNotify();
+  }
+
+  /// Appends one entry to the ring.
+  ///
+  /// [notify] false is for high-volume lines - the [PdfPerfLog] trace, which
+  /// emits a JANK line per janky frame. Notifying there would schedule a panel
+  /// rebuild, which is itself a frame, which can produce the next JANK line:
+  /// the measurement driving the thing it measures. Those lines still appear,
+  /// because the panel refreshes anyway (the 250 ms throttle from [_onTimings]
+  /// while frames are produced, and its own 1 s poll while open) - they simply
+  /// stop being a rebuild trigger of their own.
+  void _record(DevLogLevel level, String message, {bool notify = true}) {
     // debugPrint re-entrance guard: recording must never print.
     if (_capturing) return;
     _capturing = true;
@@ -140,7 +250,7 @@ class AppDevTools extends ChangeNotifier {
       _log.removeFirst();
     }
     _capturing = false;
-    _scheduleNotify();
+    if (notify) _scheduleNotify();
   }
 
   void _onTimings(List<FrameTiming> timings) {
@@ -246,7 +356,8 @@ class AppDevTools extends ChangeNotifier {
       if (map['perfOverlay'] case final bool v) {
         showPerformanceOverlay.value = v;
       }
-      if (map['perfLog'] case final bool v) PdfPerfLog.enabled = v;
+      if (map['perfLog'] case final bool v) logPerfTrace = v;
+      if (map['logTouchInput'] case final bool v) logTouchInput = v;
       if (map['workers'] case final int v) {
         pdfRenderWorkerPoolSize = v.clamp(1, 8);
       }
@@ -266,7 +377,8 @@ class AppDevTools extends ChangeNotifier {
           'tileBorders': pdfDebugPaintDetailBounds.value,
           'renderWindow': pdfDebugShowRenderWindow.value,
           'perfOverlay': showPerformanceOverlay.value,
-          'perfLog': PdfPerfLog.enabled,
+          'perfLog': _logPerfTrace,
+          'logTouchInput': _logTouchInput,
           'workers': pdfRenderWorkerPoolSize,
         }),
       );
@@ -284,6 +396,11 @@ class AppDevTools extends ChangeNotifier {
   /// Timer on this process-wide singleton would leak across widget tests);
   /// the panel's own 1 s poll picks up whatever the throttle dropped.
   void _scheduleNotify() {
+    // Nothing listening (panel closed): rebuilds would be pure waste, and a
+    // panel rebuild is itself a frame that feeds back into the frame timings
+    // being measured. Recording above is unaffected - entries and timings
+    // still accumulate so the history is there when the panel opens.
+    if (!hasListeners) return;
     if (_notifyScheduled) return;
     if (DateTime.now().difference(_lastNotify) <
         const Duration(milliseconds: 250)) {

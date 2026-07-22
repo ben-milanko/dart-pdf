@@ -13,6 +13,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+
+import 'app_info.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show debugRepaintRainbowEnabled;
@@ -23,14 +25,25 @@ import 'package:pdf_cos/perf.dart';
 import 'devtools.dart';
 import 'file_io.dart';
 
-/// Docked developer tools panel. Create it only off-release.
+/// Developer tools panel. Create it only off-release. Docks as a side panel on
+/// wide screens; pass [bottomSheet] to render it as a phone bottom sheet.
 class DevToolsPanel extends StatefulWidget {
-  const DevToolsPanel({super.key, required this.onClose, this.session});
+  const DevToolsPanel({
+    super.key,
+    required this.onClose,
+    this.session,
+    this.bottomSheet = false,
+  });
 
   final VoidCallback onClose;
 
   /// The active tab's edit session, when one is open.
   final PdfEditingController? session;
+
+  /// Render as a bottom sheet (phones) rather than a right-docked side panel:
+  /// a rounded, height-capped card with a drag-handle affordance and its own
+  /// close button, instead of the resizable side dock.
+  final bool bottomSheet;
 
   @override
   State<DevToolsPanel> createState() => _DevToolsPanelState();
@@ -58,9 +71,15 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // The same docked chrome the editor's own sidebars (Annotations, Pages)
-    // use: shared frame, resize grip, surface color, compact close button.
-    // The width is session-local (no persistence preference).
+    return widget.bottomSheet
+        ? _buildBottomSheet(theme)
+        : _buildDocked(theme);
+  }
+
+  /// The same docked chrome the editor's own sidebars (Annotations, Pages)
+  /// use: shared frame, resize grip, surface color, compact close button.
+  /// The width is session-local (no persistence preference).
+  Widget _buildDocked(ThemeData theme) {
     return PdfSidebarPanelFrame(
       width: 360,
       minWidth: 300,
@@ -76,38 +95,98 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
         child: Column(
           children: [
             _header(theme, geometry),
-            Expanded(
-              child: ListenableBuilder(
-                listenable: _tools,
-                // Eager column, not a lazy list: every section stays live so
-                // its metrics keep updating (and are findable) off-screen.
-                builder: (context, _) => SingleChildScrollView(
-                  padding: EdgeInsets.only(
-                      bottom: 16, left: geometry.contentStartInset),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _framesSection(theme),
-                      _memorySection(theme),
-                      _workersSection(theme),
-                      _deepZoomSection(theme),
-                      _perfSection(theme),
-                      if (widget.session != null) _sessionSection(theme),
-                      _logSection(theme),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+            Expanded(child: _scrollBody(theme, geometry)),
           ],
         ),
       ),
     );
   }
 
+  /// Phone presentation: a rounded, height-capped card anchored to the bottom.
+  /// The frame runs in [PdfSidebarPanelFrame.bottomSheet] mode (no grip, no
+  /// fixed cross-axis size), so this owns the rounded surface, the height cap,
+  /// and the grab-handle affordance.
+  Widget _buildBottomSheet(ThemeData theme) {
+    final maxHeight = MediaQuery.sizeOf(context).height * 0.6;
+    return PdfSidebarPanelFrame(
+      width: 360,
+      minWidth: 300,
+      maxWidth: 560,
+      dock: PdfPanelDock.bottom,
+      resizable: false,
+      bottomSheet: true,
+      gripKey: const ValueKey('devtools-resize-grip'),
+      onClose: widget.onClose,
+      builder: (context, geometry) => Material(
+        key: const ValueKey('devtools-panel'),
+        color: theme.colorScheme.surfaceContainerLow,
+        elevation: 8,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+        clipBehavior: Clip.antiAlias,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: maxHeight),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _grabHandle(theme),
+              _header(theme, geometry),
+              Flexible(child: _scrollBody(theme, geometry)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The scrolling stack of sections, shared by both presentations. An eager
+  /// column, not a lazy list: every section stays live so its metrics keep
+  /// updating (and are findable) off-screen.
+  Widget _scrollBody(ThemeData theme, PdfSidebarPanelGeometry geometry) {
+    return ListenableBuilder(
+      listenable: _tools,
+      builder: (context, _) => SingleChildScrollView(
+        padding:
+            EdgeInsets.only(bottom: 16, left: geometry.contentStartInset),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _framesSection(theme),
+            _memorySection(theme),
+            _workersSection(theme),
+            _deepZoomSection(theme),
+            _perfSection(theme),
+            if (widget.session != null) _sessionSection(theme),
+            _logSection(theme),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _grabHandle(ThemeData theme) => Container(
+        width: 32,
+        height: 4,
+        margin: const EdgeInsets.only(top: 8, bottom: 2),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.outlineVariant,
+          borderRadius: BorderRadius.circular(2),
+        ),
+      );
+
   Widget _header(ThemeData theme, PdfSidebarPanelGeometry geometry) {
+    // In bottom-sheet mode the frame renders no close button (it owns no
+    // chrome), so the sheet supplies its own.
     final closeButton =
-        geometry.closeButton(key: const ValueKey('devtools-close'));
+        geometry.closeButton(key: const ValueKey('devtools-close')) ??
+            (widget.bottomSheet
+                ? IconButton(
+                    key: const ValueKey('devtools-close'),
+                    icon: const Icon(Icons.close, size: 18),
+                    visualDensity: VisualDensity.compact,
+                    tooltip: 'Close',
+                    onPressed: widget.onClose,
+                  )
+                : null);
     return Padding(
       padding: EdgeInsets.fromLTRB(
           12 + geometry.contentStartInset, 8, closeButton != null ? 4 : 12, 4),
@@ -143,6 +222,11 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
     final snapshot = <String, Object?>{
       'tool': 'dartpdf-devtools',
       'exportedAt': DateTime.now().toIso8601String(),
+      // Which build produced this export. Without it a report cannot be tied
+      // to a revision - "slow on 2.0.0" is unactionable when several builds
+      // share that version.
+      'appVersion': AppInfo.version,
+      'appBuild': AppInfo.buildNumber,
       'platform': kIsWeb ? 'web' : defaultTargetPlatform.name,
       'buildMode': kDebugMode
           ? 'debug'
@@ -714,16 +798,34 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
       [
         _helpSwitch(
           theme,
+          key: const ValueKey('devtools-log-touch'),
+          title: 'Log touch input',
+          help: 'Summarizes every touch/stylus gesture over the viewer (down, '
+              'up, net move, path length, duration) into this log, and captures '
+              "the viewer's own gesture decisions - which pan/zoom recognizer "
+              'claimed each drag. The tool for touch reports that only happen '
+              'on-device (e.g. "panning does nothing while zoomed"): enable it, '
+              'reproduce the gesture, then read or export the log. Filter for '
+              '"touch" or "gesture" to isolate.',
+          value: _tools.logTouchInput,
+          onChanged: (v) => setState(() {
+            _tools.logTouchInput = v;
+            _persist();
+          }),
+        ),
+        _helpSwitch(
+          theme,
           key: const ValueKey('devtools-perf-log'),
           title: 'Verbose render log (PdfPerfLog)',
-          help: 'Streams the render stack\'s diagnostic log lines '
-              '(vector-first routing, worker requests, detail settles, '
-              'jank markers) through debugPrint into this log. Also lights '
-              'up the PdfPerf accumulators. Chatty - enable to diagnose, '
+          help: 'Streams the render stack\'s diagnostic trace '
+              '(worker requests/replies, interprets, rasters, jank markers) '
+              'into this log as "perf:" lines, so the exported JSON carries '
+              'the render path too. Chatty - the 500-entry ring evicts older '
+              'lines quickly, so reproduce the problem and export promptly, '
               'then turn it off.',
-          value: PdfPerfLog.enabled,
+          value: _tools.logPerfTrace,
           onChanged: (v) => setState(() {
-            PdfPerfLog.enabled = v;
+            _tools.logPerfTrace = v;
             _persist();
           }),
         ),

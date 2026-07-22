@@ -2,8 +2,10 @@
 // renderer, so apps that want a custom worker URL don't have to hand-write a
 // worker entry or remember the exact `dart compile js` invocation.
 //
-// Most Flutter web apps do not need this command: dart_pdf_editor ships a
-// prebuilt worker as a package asset and uses it by default.
+// Most Flutter web apps do not need this command: the optional
+// dart_pdf_editor_assets package ships a prebuilt worker, and
+// registerBundledEditorAssets() wires it up. Use this only to self-host a
+// custom worker URL.
 //
 // Run it from your app's root (where pubspec.yaml lives):
 //
@@ -123,8 +125,9 @@ Future<int> main(List<String> args) async {
   stdout.writeln('''
 ==> Built $out
 
-dart_pdf_editor uses its bundled package-asset worker by default, so no app
-startup code is needed for the normal path.
+For the normal path, depend on dart_pdf_editor_assets and call
+registerBundledEditorAssets() at startup - it points the worker at that
+package's bundled asset, so no per-URL setup is needed.
 
 To use this custom app-hosted worker instead, set this once in your app's
 main() (web only):

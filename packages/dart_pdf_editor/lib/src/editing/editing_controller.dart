@@ -13,6 +13,7 @@ import 'digital_signature.dart';
 import 'editing_measure.dart';
 import 'editing_page_clipboard.dart';
 import 'editing_preferences.dart';
+import 'editing_snapshot_clipboard.dart';
 import 'editing_tool_behavior.dart';
 import 'line_style.dart';
 import 'editing_stamps.dart';
@@ -331,16 +332,23 @@ class PdfEditingController extends ChangeNotifier {
     String password = '',
     PdfEditingPreferences? preferences,
     PdfPageClipboard? pageClipboard,
+    PdfSnapshotClipboard? snapshotClipboard,
   })  : _bytes = bytes,
+        _used = bytes.length,
         _password = password,
         _revisions = [bytes.length],
         _document = PdfDocument.open(bytes, password: password),
         preferences = preferences ?? PdfEditingPreferences(),
-        pageClipboard = pageClipboard ?? PdfPageClipboard.instance {
+        pageClipboard = pageClipboard ?? PdfPageClipboard.instance,
+        snapshotClipboard =
+            snapshotClipboard ?? PdfSnapshotClipboard.instance {
     this.preferences.addListener(notifyListeners);
     // rebuild paste affordances live as the shared page clipboard fills or
     // clears - from this controller or from another document tab sharing it
     this.pageClipboard.addListener(notifyListeners);
+    // same for the shared snapshot clipboard, so a region captured in one tab
+    // lights up Paste-as-vector in every tab
+    this.snapshotClipboard.addListener(notifyListeners);
   }
 
   /// The persisted UI preferences that own the tool styles (stroke width,
@@ -357,6 +365,14 @@ class PdfEditingController extends ChangeNotifier {
   /// the process-wide [PdfPageClipboard.instance]; pass a private one to
   /// isolate a session. See [copyPages], [cutPages], and [pastePages].
   final PdfPageClipboard pageClipboard;
+
+  /// The clipboard the Snapshot tool's captured vector region lives in, shared
+  /// across document tabs so a region captured in one document pastes back as
+  /// vector into another (rather than falling back to the raster the capture
+  /// also drops on the system clipboard). Defaults to the process-wide
+  /// [PdfSnapshotClipboard.instance]; pass a private one to isolate a session.
+  /// See [copyVectorSnapshot] and [pasteSnapshot].
+  final PdfSnapshotClipboard snapshotClipboard;
 
   /// The session's shared page-thumbnail cache (and its viewport-ordered
   /// render queue). Every thumbnail surface - the docked strip, the
@@ -375,6 +391,7 @@ class PdfEditingController extends ChangeNotifier {
     thumbnailCache.dispose();
     preferences.removeListener(notifyListeners);
     pageClipboard.removeListener(notifyListeners);
+    snapshotClipboard.removeListener(notifyListeners);
     super.dispose();
   }
 
@@ -382,6 +399,11 @@ class PdfEditingController extends ChangeNotifier {
 
   /// The full byte buffer; revisions are prefixes of it.
   Uint8List _bytes;
+
+  /// Bytes of [_bytes] that hold document data. The buffer may be larger:
+  /// [_commitSavedTail] over-allocates so appends amortise, so `_bytes.length`
+  /// is capacity, not content.
+  int _used;
 
   /// Byte length of each revision, oldest first. `_revisions[_cursor]`
   /// is the current one; entries past the cursor are redoable.
@@ -460,10 +482,23 @@ class PdfEditingController extends ChangeNotifier {
   int pageDestructiveStamp(int pageIndex) => _destructiveStampEpoch;
 
   PdfDocument _document;
+  int _revisionId = 0;
 
-  /// The document at the current revision. Changes identity on every
-  /// edit, undo, and redo.
+  /// The document at the current revision.
+  ///
+  /// Do NOT use `identical(document, ...)` as a "did a revision land?" signal -
+  /// compare [revisionId] instead. That the wrapper's identity happens to
+  /// change on every commit today is an implementation convenience of
+  /// [PdfDocument.withIncrementalUpdate], not a contract: applying a revision in
+  /// place would keep the same object and silently break every such check (this
+  /// is exactly what bit #395). See #414.
   PdfDocument get document => _document;
+
+  /// Monotonic id of the current revision, bumped whenever a commit, undo, or
+  /// redo lands (i.e. whenever [document] moves to a different revision - even an
+  /// undo-then-redo back to the same undo cursor). Compare this rather than
+  /// `identical(document, ...)` to ask "did anything commit?".
+  int get revisionId => _revisionId;
 
   PdfWorkerRevisionDelta? _lastRevisionDelta;
 
@@ -498,7 +533,7 @@ class PdfEditingController extends ChangeNotifier {
   /// the whole edit history, of which [bytes] is the current revision's
   /// prefix view. This only ever grows within a session (see the memory
   /// audit notes); watch it when chasing memory growth during editing.
-  int get sessionBufferBytes => _bytes.length;
+  int get sessionBufferBytes => _used;
 
   void undo() {
     if (!canUndo) return;
@@ -536,16 +571,94 @@ class PdfEditingController extends ChangeNotifier {
             newLength: _revisions[_cursor],
             changedPages: impact.visualPages,
           );
-    _reopen();
+    // redo re-extends to a revision already in the buffer: an append
+    _reopen(grew: true);
     _emitAnnotationChanges(beforeLength, impact.annotationPages);
   }
 
-  void _reopen() {
-    _document = PdfDocument.open(bytes, password: _password);
+  void _reopen({bool grew = false}) {
+    _reloadDocument(grew: grew);
     // the same /Annots slot may hold a different annotation now
     _selected.clear();
     _invalidateElements();
     notifyListeners();
+  }
+
+  /// Points [_document] at the current [bytes].
+  ///
+  /// Every edit is an incremental save, so a commit - and a redo, which
+  /// re-extends to a revision already sitting in the buffer - only ever
+  /// *appends* to what the open document already holds. Reopening from
+  /// scratch there re-walks the whole `/Prev` chain, so a session of N
+  /// revisions costs O(N^2) xref work and gets visibly slower the longer you
+  /// edit. [CosDocument.applyIncrementalUpdate] instead stops the walk at the
+  /// previous startxref and evicts only the objects the revision redefined.
+  ///
+  /// [grew] must be true only when [bytes] extends the currently open
+  /// document. Undo shrinks the buffer and [_resetTo] replaces it outright,
+  /// and neither is an append - those reopen.
+  void _reloadDocument({required bool grew}) {
+    if (grew && _tryApplyIncrementalUpdate()) return;
+    _document = PdfDocument.open(bytes, password: _password);
+    _revisionId++;
+  }
+
+  /// Debug-only sanity check behind the assert in [_tryApplyIncrementalUpdate].
+  ///
+  /// Every revision reaching that method is an append *by construction*: the
+  /// updater writes "whole current file, then the appended objects" and the
+  /// editor that produced it was built from [_document], while redo just
+  /// lengthens a view over the same buffer. This guards against a *future*
+  /// call site breaking that, which would silently graft one document's xref
+  /// onto another's bytes ([CosDocument.applyIncrementalUpdate] only checks
+  /// the length, not the content).
+  ///
+  /// It deliberately samples rather than comparing the whole prefix: this runs
+  /// on every commit in debug builds - which is how the app is developed - and
+  /// a full memcmp of a 40 MB drawing per ink stroke is exactly the cost this
+  /// change set out to remove. A wrong-document mix-up differs in the header
+  /// and around the previous revision's tail; a byte-identical head, tail and
+  /// length is not a case any realistic bug produces.
+  bool _looksLikeAppend() {
+    final next = bytes;
+    final current = _document.cos.bytes;
+    if (next.length <= current.length) return false;
+    // Views over one buffer (the redo path) are provably a prefix - no compare.
+    if (identical(next.buffer, current.buffer) &&
+        next.offsetInBytes == current.offsetInBytes) {
+      return true;
+    }
+    const window = 4096;
+    bool sameRange(int from, int to) {
+      for (var i = from; i < to; i++) {
+        if (next[i] != current[i]) return false;
+      }
+      return true;
+    }
+
+    final headEnd = current.length < window ? current.length : window;
+    final tailStart =
+        current.length - window < headEnd ? headEnd : current.length - window;
+    return sameRange(0, headEnd) && sameRange(tailStart, current.length);
+  }
+
+  /// Folds the appended revision into the open document. False when it can't
+  /// be done incrementally (the document was opened through xref recovery,
+  /// or the appended xref chain is malformed), leaving [_document] untouched
+  /// for the caller to reopen from scratch.
+  bool _tryApplyIncrementalUpdate() {
+    assert(_looksLikeAppend(),
+        'incremental revision is not an append of the open document');
+    try {
+      // Reuse the same COS layer (the parse does not repeat), wrapped fresh
+      // only as a convenience - [revisionId] is now the "did a revision land?"
+      // signal, so the wrapper identity no longer has to change (#414).
+      _document = _document.withIncrementalUpdate(bytes);
+      _revisionId++;
+      return true;
+    } on CosParseException {
+      return false;
+    }
   }
 
   /// Runs [edit] against the current document and commits the result as a
@@ -569,25 +682,71 @@ class PdfEditingController extends ChangeNotifier {
     final impact = pages != null || contentPages != null
         ? PdfEditImpact.legacy(pages: pages, contentPages: contentPages)
         : editor.impact;
-    final saved = editor.save();
     final beforeLength = _revisions[_cursor];
-    _commitSavedRevision(
-      saved,
+    // Append-only: the editor hands back just the incremental update and it
+    // lands in the session buffer we already own. `save()` would rebuild the
+    // whole file here, so a long session re-copied O(file x revisions) bytes
+    // into short-lived garbage - and `file` grows with every revision (#413).
+    final tail = editor.saveTail();
+    _commitSavedTail(
+      tail,
       beforeLength: beforeLength,
       impact: impact,
     );
     return true;
   }
 
+  /// Commits a revision delivered as the appended tail only, growing the
+  /// session buffer in place.
+  void _commitSavedTail(
+    Uint8List tail, {
+    required int beforeLength,
+    required PdfEditImpact impact,
+  }) {
+    final newLength = beforeLength + tail.length;
+    if (newLength > _bytes.length) {
+      // Amortised doubling: a realloc every ~log(n) revisions instead of one
+      // whole-file copy per revision.
+      var capacity = _bytes.isEmpty ? newLength : _bytes.length;
+      while (capacity < newLength) {
+        capacity *= 2;
+      }
+      final grown = Uint8List(capacity)..setRange(0, beforeLength, _bytes);
+      _bytes = grown;
+    }
+    _bytes.setRange(beforeLength, newLength, tail);
+    _used = newLength;
+    _finishRevision(
+      newLength: newLength,
+      beforeLength: beforeLength,
+      impact: impact,
+    );
+  }
+
+  /// Commits a revision delivered as a complete file (signing, and the worker
+  /// batch paths, which build their own buffer).
   void _commitSavedRevision(
     Uint8List saved, {
     required int beforeLength,
     required PdfEditImpact impact,
   }) {
+    _bytes = saved;
+    _used = saved.length;
+    _finishRevision(
+      newLength: saved.length,
+      beforeLength: beforeLength,
+      impact: impact,
+    );
+  }
+
+  void _finishRevision({
+    required int newLength,
+    required int beforeLength,
+    required PdfEditImpact impact,
+  }) {
     _revisions.removeRange(_cursor + 1, _revisions.length);
     _revisionImpacts.removeRange(_cursor + 1, _revisionImpacts.length);
-    _bytes = saved;
-    _revisions.add(saved.length);
+    _revisions.add(newLength);
     _revisionImpacts.add(impact);
     _bumpRenderStamps(impact.visualPages);
     _bumpContentRenderStamps(impact.contentPages);
@@ -601,12 +760,13 @@ class PdfEditingController extends ChangeNotifier {
         ? null
         : PdfWorkerRevisionDelta(
             baseLength: beforeLength,
-            newLength: saved.length,
+            newLength: newLength,
             changedPages: impact.visualPages,
           );
     if (_committingRemoteRevision) _undoFloor = _cursor;
     final selected = List.of(_selected);
-    _document = PdfDocument.open(bytes, password: _password);
+    // the incremental save appended to the previous revision
+    _reloadDocument(grew: true);
     // Existing controller mutations remap slots before committing when an
     // /Annots edit shifts them. The transaction validates that post-mutation
     // selection against the reopened revision in one place.
@@ -1053,6 +1213,7 @@ class PdfEditingController extends ChangeNotifier {
           _document,
           annotation,
           keepName: true,
+          sourcePageRotation: _page(pageIndex).rotation,
         );
         if (snapshot == null) continue;
         changes.add(
@@ -1330,7 +1491,7 @@ class PdfEditingController extends ChangeNotifier {
     }
   }
 
-  PdfDocument? _documentFontsFor;
+  int? _documentFontsForRevision;
   List<PdfEmbeddedFont>? _documentFontsCache;
 
   /// The embeddable fonts the current document already uses (see
@@ -1338,9 +1499,9 @@ class PdfEditingController extends ChangeNotifier {
   /// can reuse a face the file already carries. Parsed once per revision
   /// and cached; the list is empty when nothing embeddable is found.
   List<PdfEmbeddedFont> get documentFonts {
-    if (!identical(_documentFontsFor, _document) ||
+    if (_documentFontsForRevision != _revisionId ||
         _documentFontsCache == null) {
-      _documentFontsFor = _document;
+      _documentFontsForRevision = _revisionId;
       _documentFontsCache = PdfEmbeddedFont.usedIn(_document);
     }
     return _documentFontsCache!;
@@ -1598,7 +1759,7 @@ class PdfEditingController extends ChangeNotifier {
   /// them until that revision's raster is on screen, so the drawing
   /// doesn't blink out for the render's duration.
   ({
-    PdfDocument document,
+    int revisionId,
     Map<int, List<List<(double, double)>>> strokes,
     Map<int, List<List<double>?>> pressures,
     Color color,
@@ -1614,7 +1775,7 @@ class PdfEditingController extends ChangeNotifier {
     double strokeWidth,
   })? committedInkOn(int pageIndex) {
     final committed = _committedInk;
-    if (committed == null || !identical(committed.document, _document)) {
+    if (committed == null || committed.revisionId != _revisionId) {
       return null;
     }
     final strokes = committed.strokes[pageIndex];
@@ -1714,7 +1875,7 @@ class PdfEditingController extends ChangeNotifier {
     );
     if (committed) {
       _committedInk = (
-        document: _document,
+        revisionId: _revisionId,
         strokes: strokes,
         pressures: pressures,
         color: preferences.color.withValues(
@@ -1854,6 +2015,7 @@ class PdfEditingController extends ChangeNotifier {
   /// is not a prefix of the prior buffer).
   void _resetTo(Uint8List bytes, {required PdfEditImpact impact}) {
     _bytes = bytes;
+    _used = bytes.length;
     _revisions
       ..clear()
       ..add(bytes.length);
@@ -1874,6 +2036,7 @@ class PdfEditingController extends ChangeNotifier {
     // un-redacted) one up while the fresh render lands
     if (impact.destructive) _destructiveStampEpoch++;
     _document = PdfDocument.open(bytes, password: _password);
+    _revisionId++;
     _invalidateElements();
     notifyListeners();
   }
@@ -2589,7 +2752,7 @@ class PdfEditingController extends ChangeNotifier {
       pressures: signature.pressures,
       // follow the selected toolbar colour, like every other tool
       color: _colorValue,
-      strokeWidth: w / 75, // pen-like: ~2pt at the default width
+      strokeWidth: w / 60, // pen-like: ~2.7pt at the default width
     );
   }
 
@@ -4218,7 +4381,8 @@ class PdfEditingController extends ChangeNotifier {
     for (final slot in _selected) {
       final annotation = _annotationAt(slot);
       if (annotation == null) continue;
-      final snapshot = PdfAnnotationSnapshot.capture(_document, annotation);
+      final snapshot = PdfAnnotationSnapshot.capture(_document, annotation,
+          sourcePageRotation: _page(slot.$1).rotation);
       if (snapshot != null) snapshots.add(snapshot);
     }
     if (snapshots.isEmpty) return 0;
@@ -4226,7 +4390,7 @@ class PdfEditingController extends ChangeNotifier {
     _clipboardSourcePage = _selected.last.$1;
     _pasteCount = 0;
     // the most recent copy wins ⌘V (see [copyVectorSnapshot])
-    _snapshotClipboard = null;
+    snapshotClipboard.clear();
     notifyListeners();
     return snapshots.length;
   }
@@ -4306,7 +4470,8 @@ class PdfEditingController extends ChangeNotifier {
     for (final slot in _selected) {
       final annotation = _annotationAt(slot);
       if (annotation == null) continue;
-      final snapshot = PdfAnnotationSnapshot.capture(_document, annotation);
+      final snapshot = PdfAnnotationSnapshot.capture(_document, annotation,
+          sourcePageRotation: _page(slot.$1).rotation);
       if (snapshot != null) snapshots.add((page: slot.$1, snapshot: snapshot));
     }
     if (snapshots.isEmpty) return 0;
@@ -4348,24 +4513,23 @@ class PdfEditingController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // snapshot clipboard (the Snapshot tool's vector paste)
 
-  /// The in-app snapshot clipboard: a detached vector copy of a page
-  /// region ([captureVectorSnapshot]) that survives edits, undo, and
-  /// document swaps. Filled by the Snapshot tool, consumed by
-  /// [pasteSnapshot].
-  PdfVectorSnapshot? _snapshotClipboard;
   int _snapshotPasteCount = 0;
 
   /// The object number of the captured form materialized by the last paste
-  /// of [_snapshotClipboard] into the current document - reused so repeat
+  /// of the active snapshot into the current document - reused so repeat
   /// pastes share one XObject instead of re-embedding the page content.
-  /// Reset whenever a fresh snapshot is captured.
+  /// Reset whenever a different snapshot becomes active.
   int? _snapshotCapturedRef;
 
-  /// Whether [pasteSnapshot] has a captured region to paste.
-  bool get hasSnapshotClipboard => _snapshotClipboard != null;
+  /// Which snapshot [_snapshotCapturedRef] / [_snapshotPasteCount] belong to.
+  /// The shared [snapshotClipboard] can change under this controller (a
+  /// recapture here, or a capture in another tab), so paste keys its
+  /// per-document bookkeeping to the snapshot identity and resets when it
+  /// differs.
+  PdfVectorSnapshot? _snapshotPasteAnchor;
 
-  /// The captured region on the snapshot clipboard, or null.
-  PdfVectorSnapshot? get snapshotClipboard => _snapshotClipboard;
+  /// Whether [pasteSnapshot] has a captured region to paste.
+  bool get hasSnapshotClipboard => snapshotClipboard.isNotEmpty;
 
   /// Captures [region] (PDF user space) of [pageIndex] as a detached
   /// vector snapshot - the page graphics under the region, copied inline,
@@ -4380,9 +4544,10 @@ class PdfEditingController extends ChangeNotifier {
   /// clipboard. Returns the captured snapshot.
   PdfVectorSnapshot copyVectorSnapshot(int pageIndex, PdfRect region) {
     final snapshot = captureVectorSnapshot(pageIndex, region);
-    _snapshotClipboard = snapshot;
-    _snapshotPasteCount = 0;
-    _snapshotCapturedRef = null;
+    // publish to the shared clipboard; paste resets its per-document
+    // bookkeeping when it sees this new snapshot (identity differs from the
+    // anchor).
+    snapshotClipboard.set(snapshot);
     _clipboard = const [];
     notifyListeners();
     return snapshot;
@@ -4397,9 +4562,18 @@ class PdfEditingController extends ChangeNotifier {
   /// cascading 12pt down-right per repeat. The region always clamps into
   /// the page's crop box. Returns whether anything was pasted.
   bool pasteSnapshot(int pageIndex, {(double, double)? at}) {
-    final snapshot = _snapshotClipboard;
+    final snapshot = snapshotClipboard.snapshot;
     if (snapshot == null) return false;
     if (pageIndex < 0 || pageIndex >= _document.pageCount) return false;
+    // The shared clipboard may hold a different snapshot than the one this
+    // controller last pasted (recaptured here, or captured in another tab).
+    // Restart the position cascade and drop the captured-form ref, which was
+    // materialized from the previous snapshot into this document.
+    if (!identical(snapshot, _snapshotPasteAnchor)) {
+      _snapshotPasteAnchor = snapshot;
+      _snapshotPasteCount = 0;
+      _snapshotCapturedRef = null;
+    }
     final w = snapshot.displayWidth, h = snapshot.displayHeight;
     if (w <= 0 || h <= 0) return false;
     double left, bottom;
@@ -4517,6 +4691,129 @@ class PdfEditingController extends ChangeNotifier {
     final annotation = selectedAnnotation;
     if (annotation == null) return null;
     return annotation.hasCloudyBorder ? annotation.cloudBorderScale : null;
+  }
+
+  // ---------------------------------------------------------------------
+  // Set-as-default: seed a creation tool's remembered style from an
+  // existing annotation (the right-click "Set as default" action).
+
+  /// The creation tool that draws [annotation]'s subtype, or null when no
+  /// tool authors it (links, widgets, popups, and the appearance-only
+  /// subtypes). Used to pick which persisted style scope "set as default"
+  /// writes into.
+  static PdfEditTool? _creatingToolFor(PdfAnnotation annotation) {
+    switch (annotation.subtype) {
+      case 'Square':
+        return PdfEditTool.rectangle;
+      case 'Circle':
+        return PdfEditTool.ellipse;
+      case 'Line':
+        final endings = pdfLineEndings(annotation);
+        const arrows = {
+          PdfLineEnding.openArrow,
+          PdfLineEnding.closedArrow,
+          PdfLineEnding.rOpenArrow,
+          PdfLineEnding.rClosedArrow,
+        };
+        final isArrow = endings != null &&
+            (arrows.contains(endings.$1) || arrows.contains(endings.$2));
+        return isArrow ? PdfEditTool.arrow : PdfEditTool.line;
+      case 'PolyLine':
+        return PdfEditTool.polyline;
+      case 'Polygon':
+        return annotation.hasCloudyBorder
+            ? PdfEditTool.cloudPolygon
+            : PdfEditTool.polygon;
+      case 'Ink':
+        return PdfEditTool.ink;
+      case 'FreeText':
+        return annotation.isCallout ? PdfEditTool.callout : PdfEditTool.freeText;
+      case 'Text':
+        return PdfEditTool.note;
+      case 'Stamp':
+        return PdfEditTool.stamp;
+      default:
+        return null;
+    }
+  }
+
+  /// The persisted style scope "set as default" would write [annotation]'s
+  /// style into, and the fields that scope remembers, or null when the
+  /// subtype has no creation default to seed. Text markup (highlight /
+  /// underline / strike-out / squiggly) acts on a text selection rather than
+  /// arming a tool, so it maps to its own shared `markup` scope.
+  static ({String scope, Set<String> fields})? _defaultStyleTargetFor(
+      PdfAnnotation annotation) {
+    switch (annotation.subtype) {
+      case 'Highlight' || 'Underline' || 'StrikeOut' || 'Squiggly':
+        return (scope: 'markup', fields: const {'color', 'opacity'});
+    }
+    final tool = _creatingToolFor(annotation);
+    if (tool == null) return null;
+    final behavior = PdfEditToolBehavior.of(tool);
+    final scope = behavior.styleScopeKey;
+    final fields = behavior.styleScopeFields;
+    if (scope == null || fields.isEmpty) return null;
+    return (scope: scope, fields: fields);
+  }
+
+  /// The full set of captured style values for [annotation], keyed by the
+  /// same field names the persisted style scopes use.
+  /// [PdfEditingPreferences.writeScopedStyle] keeps only the fields the
+  /// target scope actually remembers.
+  Map<String, Object?> _capturedStyleOf(PdfAnnotation annotation) {
+    final style = annotation.behavior.style;
+    final endings = pdfLineEndings(annotation);
+    int? argb(int? rgb) => rgb == null ? null : 0xFF000000 | rgb;
+    final values = <String, Object?>{
+      if (style.color != null) 'color': argb(style.color),
+      if (style.strokeWidth != null) 'strokeWidth': style.strokeWidth,
+      'opacity': style.opacity,
+      'lineStyle': PdfLineStyle.ofDashArray(annotation.borderDash).name,
+      // shapes bake their pattern scale into the dash array; only a cloud
+      // exposes a readable scallop scale to seed
+      if (annotation.hasCloudyBorder) 'lineScale': annotation.cloudBorderScale,
+      'shapeFillColor': argb(style.fillColor),
+      if (endings != null) 'lineStartEnding': endings.$1.name,
+      if (endings != null) 'lineEndEnding': endings.$2.name,
+    };
+    if (annotation.subtype == 'FreeText') {
+      final text = _freeTextStyleOf(annotation);
+      values['fontSize'] = text.size;
+      values['fontFamily'] = text.font.name;
+      final align = annotation.freeTextStyle?.alignment;
+      values['textAlign'] = align?.name;
+      // for a text box /C is the background and /DA border colour is separate;
+      // the box's tint is its text colour, already captured as `color`
+      values['textFillColor'] = argb(style.fillColor);
+      values['textBorderColor'] = argb(style.borderColor);
+    }
+    return values;
+  }
+
+  /// Whether the primary selected annotation has a creation style that
+  /// [applySelectedStyleAsDefault] can capture as the default for new
+  /// annotations of its kind.
+  bool get canApplySelectedStyleAsDefault {
+    final annotation = selectedAnnotation;
+    return annotation != null && _defaultStyleTargetFor(annotation) != null;
+  }
+
+  /// Captures the primary selected annotation's appearance (colour, stroke
+  /// width, opacity, fill, line style, and - for free text - font, size,
+  /// and alignment) as the creation default for the tool that draws its
+  /// subtype, so subsequent annotations of that kind inherit it. The
+  /// right-click "Set as default" action. Returns whether a default was
+  /// captured.
+  bool applySelectedStyleAsDefault() {
+    final annotation = selectedAnnotation;
+    if (annotation == null) return false;
+    final target = _defaultStyleTargetFor(annotation);
+    if (target == null) return false;
+    preferences.writeScopedStyle(
+        target.scope, target.fields, _capturedStyleOf(annotation));
+    notifyListeners();
+    return true;
   }
 
   /// Restyles every selected annotation in place - one revision, one
@@ -4639,7 +4936,7 @@ class PdfEditingController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // attention flash
 
-  ({PdfDocument document, int page, int slot})? _flash;
+  ({int revisionId, int page, int slot})? _flash;
   int _flashSequence = 0;
   Timer? _flashTimer;
 
@@ -4653,7 +4950,7 @@ class PdfEditingController extends ChangeNotifier {
   /// its annotation, so the eye lands on the right spot.
   void flashAnnotation(int pageIndex, int index) {
     if (annotationAt(pageIndex, index) == null) return;
-    _flash = (document: _document, page: pageIndex, slot: index);
+    _flash = (revisionId: _revisionId, page: pageIndex, slot: index);
     _flashSequence++;
     _flashTimer?.cancel();
     _flashTimer = Timer(flashLifetime, () {
@@ -4670,7 +4967,7 @@ class PdfEditingController extends ChangeNotifier {
   /// else now).
   ({int page, int slot, int sequence})? get pendingFlash {
     final flash = _flash;
-    if (flash == null || !identical(flash.document, _document)) return null;
+    if (flash == null || flash.revisionId != _revisionId) return null;
     return (page: flash.page, slot: flash.slot, sequence: _flashSequence);
   }
 
@@ -4799,6 +5096,7 @@ class PdfEditingController extends ChangeNotifier {
       _document,
       annotation,
       keepName: true,
+      sourcePageRotation: _page(slot.$1).rotation,
     );
     if (snapshot == null) return false; // links/widgets/popups don't move
     final source = slot.$1;
@@ -6098,7 +6396,7 @@ class PdfEditingController extends ChangeNotifier {
       return null;
     }
 
-    final document = _document;
+    final revisionAtStart = _revisionId;
     final page = _page(selected.$1);
     final size = PdfPageRenderer.pageSize(page, rotation: page.rotation);
     final geometry = PdfPageGeometry(
@@ -6131,7 +6429,7 @@ class PdfEditingController extends ChangeNotifier {
       );
       final data = await image.toByteData(format: ui.ImageByteFormat.png);
       if (data == null ||
-          !identical(_document, document) ||
+          revisionAtStart != _revisionId ||
           _selectedElement != selected) {
         return null;
       }

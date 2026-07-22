@@ -1,6 +1,5 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
-import 'package:pdf_document/pdf_document.dart';
 
 /// A snapshot of an open document handed to a freshly-opened window when a tab
 /// is moved out of its window ("Move to new window", experimental

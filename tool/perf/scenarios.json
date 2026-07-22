@@ -14,6 +14,41 @@
     "repeat": 3,
     "ciSafe": true
   },
+  "ghent-render": {
+    "suite": "flutter-render",
+    "note": "Full page rasterization (interpret + paint + toImage) via benchmark_render_test on the headless Flutter engine; captures paint + image-decode gains the NullDevice vm-sweep can't. Driven by env vars, not perf_sweep.",
+    "corpus": "test_corpora/ghent",
+    "scale": 2,
+    "maxPages": 3,
+    "repeat": 2,
+    "ciSafe": true
+  },
+  "image-heavy": {
+    "suite": "vm-sweep",
+    "note": "Heavy per-page RGB images (~8 MB decoded RGBA each, ~196 MB total) - the #283 scanned/photo memory shape. Exercises image decode + peak RSS / the decoded-image-cache budget work (#307/#314). Generated once + pre-seeded into tool/perf/cache/image-heavy so every version measures identical input.",
+    "corpus": "tool/perf/cache/image-heavy",
+    "maxPages": 0,
+    "repeat": 2,
+    "ciSafe": true
+  },
+  "image-render": {
+    "suite": "flutter-render",
+    "note": "Rasterizes the image-heavy doc (image decode + paint). Same generated corpus as image-heavy.",
+    "corpus": "tool/perf/cache/image-heavy",
+    "scale": 1.5,
+    "maxPages": 4,
+    "repeat": 2,
+    "ciSafe": true
+  },
+  "devicen-render": {
+    "suite": "flutter-render",
+    "note": "Rasterizes a DeviceN-image doc (3-colorant /DeviceN + type-4 tint -> CMYK, banded samples). The tint transform runs at decode, so this isolates the #282 memoisation: renderMs collapses ~2530 ms/page (1.4.6) -> ~98 ms/page (1.4.7). Generated + pre-seeded.",
+    "corpus": "tool/perf/cache/devicen",
+    "scale": 1,
+    "maxPages": 2,
+    "repeat": 2,
+    "ciSafe": true
+  },
   "pdfjs-hostile": {
     "suite": "vm-sweep",
     "corpus": "test_corpora/pdfjs",
@@ -30,6 +65,15 @@
     "timeoutS": 600,
     "ciSafe": true
   },
+  "cad-wide-1p-sweep": {
+    "suite": "vm-sweep",
+    "note": "the pathological single-sheet strip drawing behind the iPad-jank report: one ~8504x842pt page, ~850k paint commands in 8 /Contents streams. Exercises interpret + peak RSS + text-extract on a transcript that overflows the region-replay linear ceiling. HEAD-only (new generator), never backfilled.",
+    "generate": { "shape": "wide", "ops": 850000, "streams": 8, "seed": 20260718 },
+    "maxPages": 0,
+    "repeat": 3,
+    "timeoutS": 600,
+    "ciSafe": true
+  },
   "save-incremental": {
     "suite": "vm-sweep",
     "corpus": "test_corpora/ghent",
@@ -41,6 +85,34 @@
     "suite": "vm-sweep",
     "corpus": "corpus",
     "maxPages": 20,
+    "repeat": 2,
+    "timeoutS": 300,
+    "ciSafe": false
+  },
+  "cad-images-1p-sweep": {
+    "suite": "vm-sweep",
+    "note": "the image-heavy variant of the wide CAD strip, profiled from a real 62 MB cathodic-protection sheet rather than guessed: 1386 tiles of 2048x1754 (918 one-bit /ImageMask stencils, 450 DeviceRGB, 18 Indexed - all FlateDecode, no SMasks) under ~500k vector ops in 8 /Contents streams. ~4979 Mpx, so the page would decode to ~20 GB of RGBA from a ~78 MB file: the decoded-image-cache-budget shape. Also the only perf doc exercising the 1-bit ImageMask stencil path. Pre-seeded into tool/perf/cache/cad-images.",
+    "corpus": "tool/perf/cache/cad-images",
+    "maxPages": 0,
+    "repeat": 2,
+    "timeoutS": 900,
+    "ciSafe": true
+  },
+  "cad-images-mixed-sweep": {
+    "suite": "vm-sweep",
+    "note": "the same sheet re-encoded with DCTDecode and JPXDecode tiles, for decoder coverage the faithful profile cannot give (the real file is Flate-only). CAVEAT: a non-CMYK DCTDecode base is handed to the platform codec (ui.instantiateImageCodec), not our Dart code, so on a vm-sweep only the JPX and Flate tiles exercise us - the JPEG half needs a flutter-render suite to mean anything. Generation needs cjpeg + opj_compress locally; pre-seeded, never generated in CI.",
+    "corpus": "tool/perf/cache/cad-images",
+    "maxPages": 0,
+    "repeat": 2,
+    "timeoutS": 900,
+    "ciSafe": false
+  },
+  "raster-underlay-render": {
+    "suite": "flutter-render",
+    "note": "Rasterizes the giant-image survey sheet: two 9460x2918 DCTDecode underlays, each under a full-size non-DCT gray /SMask, plus 71 OCG layers. This is the scenario that means something for the pathology - a non-CMYK DCTDecode base goes to the platform codec (ui.instantiateImageCodec), and the Flate soft mask forces the base back to RGBA for a per-pixel alpha-multiply; both run at native resolution unless capped to display size. ~220 MB RGBA resident. Generation needs cjpeg locally; pre-seeded into tool/perf/cache/raster-underlay, never generated in CI.",
+    "corpus": "tool/perf/cache/raster-underlay",
+    "scale": 1,
+    "maxPages": 1,
     "repeat": 2,
     "timeoutS": 300,
     "ciSafe": false

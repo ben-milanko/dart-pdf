@@ -3,6 +3,7 @@ library;
 
 export 'package:pdf_document/pdf_document.dart'
     show
+        PdfDocument,
         PdfStampTemplate,
         PdfStampTemplateComponent,
         PdfStampTemplateComponentType,
@@ -35,6 +36,7 @@ export 'src/editing/editing_preferences.dart';
 export 'src/editing/editing_properties.dart';
 export 'src/editing/editing_sidebar.dart';
 export 'src/editing/editing_signature.dart';
+export 'src/editing/editing_snapshot_clipboard.dart';
 export 'src/editing/editing_stamps.dart';
 export 'src/editing/editing_takeoff.dart';
 export 'src/editing/editing_thumbnails.dart';
@@ -50,10 +52,13 @@ export 'src/editing/tool_shortcuts.dart';
 export 'package:pdf_cos/pdf_cos.dart'
     show PdfByteSource, PdfBytesByteSource, PdfSourceLoadOptions, PdfSourceProgress;
 export 'src/http_byte_source.dart';
+export 'l10n/dart_pdf_editor_localizations.dart';
+export 'src/l10n/pdf_l10n.dart';
 export 'src/image_decoder.dart' show PdfImageCache;
 export 'src/ocr.dart';
 export 'src/page_export.dart';
 export 'src/print_rasterize.dart';
+export 'src/progressive_source.dart';
 export 'src/vector_print_ui.dart';
 export 'src/page_geometry.dart';
 export 'src/page_object_cache.dart';
@@ -64,6 +69,7 @@ export 'src/page_range_dialog.dart';
 export 'src/pdf_editor_view.dart';
 export 'src/pdf_page_view.dart';
 export 'src/pdf_reader.dart';
+export 'src/live_raster_budget.dart';
 export 'src/pdf_reflow_view.dart';
 export 'src/pdf_viewer.dart';
 export 'src/performance_policy.dart';

@@ -5,7 +5,7 @@ resolution: workspace
 
 # version is the single source of truth for every platform build; CI passes
 # --build-name / --build-number derived from it (see app/RELEASING.md).
-version: 1.4.7+17
+version: 2.1.0+19
 
 environment:
   sdk: ^3.5.0
@@ -14,20 +14,29 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  # Localized message formatting (ICU plurals/select, DateFormat/NumberFormat)
+  # and the generated AppLocalizations bundle. Pinned to the version
+  # flutter_localizations resolves against Flutter 3.44.4.
+  intl: ^0.20.2
   cupertino_icons: ^1.0.8
 
   # The PDF engine and editing UI live in the workspace packages.
-  dart_pdf_editor: ^1.4.7
-  pdf_document: ^1.4.7
-  pdf_cos: ^1.4.7
+  dart_pdf_editor: ^2.1.0
+  # The optional editor fonts + web render worker; registered at startup so the
+  # app keeps the full-featured editor. A viewer-only app would omit this.
+  dart_pdf_editor_assets: ^2.1.0
+  pdf_document: ^2.1.0
+  pdf_cos: ^2.1.0
 
   # On-device, downloadable OCR - adds a selectable text layer over scans
   # without leaving the device (native platforms only).
-  pdf_ocr_ondevice: ^1.4.7
+  pdf_ocr_ondevice: ^2.1.0
 
   # Cross-platform file I/O and OS integration.
   file_selector: ^1.0.3
-  share_plus: ^13.2.0
+  share_plus: ^13.2.1
   url_launcher: ^6.3.0
   # Printing has no third-party PDF engine. Where the OS can print a PDF
   # natively (iOS/macOS via CoreGraphics, Android via PrintManager, the browser
@@ -49,7 +58,7 @@ dependencies:
   http: ^1.2.0
   # Reads the version stamped into the build artifact (derived from the
   # pubspec version above), so the About box can't drift from the release.
-  package_info_plus: ^10.2.0
+  package_info_plus: ^10.2.1
   web: ^1.1.1
 
 dev_dependencies:
@@ -64,15 +73,18 @@ dev_dependencies:
     path: ../packages/dart_pdf_editor/example
 
   # Programmatically-built PDFs for widget tests.
-  pdf_test_fixtures: ^1.4.7
+  pdf_test_fixtures: ^2.1.0
 
   # Text extraction, used by the on-device OCR integration test to assert
   # the recognized layer is selectable (pdf_ocr_ondevice is a runtime dep).
-  pdf_graphics: ^1.4.7
+  pdf_graphics: ^2.1.0
   file_selector_platform_interface: ^2.7.0
 
 flutter:
   uses-material-design: true
+  # Generate the AppLocalizations bundle from lib/l10n (see l10n.yaml). The
+  # generated Dart is checked in so builds/CI need no extra codegen step.
+  generate: true
   assets:
     - web/favicon.png
     - web/icons/Icon-512.png

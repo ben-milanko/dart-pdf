@@ -38,6 +38,76 @@ Uint8List buildContentPdf(String content,
   return Uint8List.fromList(buffer.toString().codeUnits);
 }
 
+/// Like [buildContentPdf] but adds a /GS0 ExtGState resource carrying [blend]
+/// (default Multiply), so [content] can select it with `/GS0 gs`. Used to
+/// exercise the print device's blend-mode alpha approximation.
+Uint8List buildBlendPdf(String content,
+    {String blend = 'Multiply',
+    String extra = '',
+    double width = 100,
+    double height = 100}) {
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 $width $height] '
+        '/Contents 4 0 R /Resources << /ExtGState << /GS0 << /Type /ExtGState '
+        '/BM /$blend >> $extra >> >> >>',
+    '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+  ];
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${objects.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return Uint8List.fromList(buffer.toString().codeUnits);
+}
+
+/// A one-page PDF whose content draws a form XObject (which sets Multiply and
+/// fills), then draws [after] in page content once the form returns. Lets a
+/// test assert the form's blend does not leak past its implicit q/Q.
+Uint8List buildFormBlendPdf(String after) {
+  const form = '/GS0 gs 1 1 0 rg 0 0 20 20 re f';
+  final content = '/Fm0 Do $after';
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R '
+        '/Resources << /XObject << /Fm0 5 0 R >> >> >>',
+    '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+    '<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] /Resources << '
+        '/ExtGState << /GS0 << /BM /Multiply >> >> >> /Length ${form.length} >>'
+        '\nstream\n$form\nendstream',
+  ];
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${objects.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return Uint8List.fromList(buffer.toString().codeUnits);
+}
+
 Future<VectorPrintPage> encodeAndDecode(Uint8List pdf, {int? rotation}) async {
   final doc = PdfDocument.open(pdf);
   final bytes = await encodeVectorPrintPage(doc.page(0), rotation: rotation);
@@ -183,6 +253,62 @@ void main() {
           buildContentPdf('0 0 0 rg 0 0 10 10 re f', width: 100, height: 100));
       final fill = page.ops.whereType<VpFillPath>().first;
       expect(fill.color.a, 255);
+    });
+
+    test('a Multiply fill lowers to a translucent alpha (highlight print)',
+        () async {
+      // A highlight draws opaque paint whose translucency is entirely the /BM
+      // Multiply blend. The op set has no blend modes, so without approximation
+      // this would print as a solid block hiding the content underneath; it
+      // must lower to a see-through alpha (0.4) instead.
+      final page = decodeVectorPrint(await encodeVectorPrintPage(
+          PdfDocument.open(buildBlendPdf('/GS0 gs 1 1 0 rg 0 0 50 50 re f'))
+              .page(0)));
+      final fill = page.ops.whereType<VpFillPath>().single;
+      expect(fill.color, const VpColor(255, 255, 0, 102)); // 0.4 * 255
+    });
+
+    test('a Multiply stroke lowers to a translucent alpha', () async {
+      // An InkHighlight paints its strokes under a Multiply blend - the same
+      // approximation must apply on the stroke path.
+      final page = decodeVectorPrint(await encodeVectorPrintPage(
+          PdfDocument.open(buildBlendPdf(
+                  '/GS0 gs 1 1 0 RG 4 w 5 5 m 45 45 l S'))
+              .page(0)));
+      final stroke = page.ops.whereType<VpStrokePath>().single;
+      expect(stroke.color.a, 102); // 0.4 * 255
+    });
+
+    test('the Multiply approximation is reset by a following Normal blend',
+        () async {
+      // /BM /Normal after the highlight restores opaque painting, so a later
+      // fill is not dimmed.
+      final page = decodeVectorPrint(await encodeVectorPrintPage(
+          PdfDocument.open(buildBlendPdf(
+                  '/GS0 gs 1 1 0 rg 0 0 20 20 re f '
+                  '/GS1 gs 0 0 1 rg 30 30 20 20 re f',
+                  extra: '/GS1 << /Type /ExtGState /BM /Normal >>'))
+              .page(0)));
+      final fills = page.ops.whereType<VpFillPath>().toList();
+      expect(fills, hasLength(2));
+      expect(fills[0].color.a, 102); // Multiply highlight, dimmed
+      expect(fills[1].color.a, 255); // back to Normal, opaque
+    });
+
+    test('a Multiply set inside a form does not leak past it', () async {
+      // A form Do is an implicit q/Q: the Multiply the form sets must not dim
+      // the Normal-blend blue fill drawn in page content after the form
+      // returns. The interpreter brackets the form with device save/restore, so
+      // the device must pop the blend on restore (it restores its own graphics
+      // state without re-issuing setBlendMode).
+      final page = decodeVectorPrint(await encodeVectorPrintPage(
+          PdfDocument.open(buildFormBlendPdf('0 0 1 rg 60 60 20 20 re f'))
+              .page(0)));
+      final fills = page.ops.whereType<VpFillPath>().toList();
+      final yellow = fills.firstWhere((f) => f.color.g > 150 && f.color.b < 80);
+      final blue = fills.firstWhere((f) => f.color.b > 200 && f.color.r < 80);
+      expect(yellow.color.a, 102); // inside the form: Multiply, dimmed
+      expect(blue.color.a, 255); // after the form: Normal, opaque - no leak
     });
   });
 

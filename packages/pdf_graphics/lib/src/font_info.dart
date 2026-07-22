@@ -30,6 +30,7 @@ class PdfFontInfo {
     bool legacyGbk = false,
     CjkCmap? cjkCmap,
     Map<int, String> encodingNames = const {},
+    Map<int, String> differenceNames = const {},
     Map<int, int>? cffCodeToGid,
     Map<int, CosStream> type3Procs = const {},
     CosDictionary? type3Resources,
@@ -50,6 +51,7 @@ class PdfFontInfo {
         _legacyGbk = legacyGbk,
         _cjkCmap = cjkCmap,
         _encodingNames = encodingNames,
+        _differenceNames = differenceNames,
         _cffCodeToGid = cffCodeToGid,
         _type3Procs = type3Procs,
         _type3Resources = type3Resources,
@@ -91,6 +93,12 @@ class PdfFontInfo {
   final CjkCmap? _cjkCmap;
 
   final Map<int, String> _encodingNames;
+
+  /// Just the /Encoding /Differences entries, without the base encoding merged
+  /// in. A Differences entry is the document naming the glyph itself, so it
+  /// outranks a font's built-in encoding (§9.6.6.1) - which [_encodingNames]
+  /// alone can't express, because a base encoding fills the same map.
+  final Map<int, String> _differenceNames;
 
   /// PDF /Encoding (base + Differences) resolved against the CFF charset;
   /// overrides the font's built-in encoding when present.
@@ -191,6 +199,7 @@ class PdfFontInfo {
     var symbolic = false;
     CjkCmap? cjkCmap;
     var encodingNames = const <int, String>{};
+    var differenceNames = const <int, String>{};
 
     if (isCid) {
       // Writing mode: a `…-V` predefined CMap name or an embedded CMap stream
@@ -248,6 +257,7 @@ class PdfFontInfo {
       }
     } else {
       encodingNames = _simpleEncoding(cos, font['Encoding'], baseFont);
+      differenceNames = _parseDifferences(cos, font['Encoding']);
       final firstCharObj = cos.resolve(font['FirstChar']);
       final firstChar = firstCharObj is CosInteger ? firstCharObj.value : 0;
       final w = cos.resolve(font['Widths']);
@@ -298,6 +308,7 @@ class PdfFontInfo {
       legacyGbk: !isCid && toUnicode.isEmpty && _isLegacyGbkFont(baseFont),
       cjkCmap: cjkCmap,
       encodingNames: encodingNames,
+      differenceNames: differenceNames,
       cffCodeToGid: cffCodeToGid,
       type3Procs: type3Procs,
       type3Resources: type3Resources,
@@ -589,6 +600,17 @@ class PdfFontInfo {
       final mapped = glyphNameUnicode(name);
       if (mapped != null) return mapped;
     }
+    // Built-in encodings of the symbolic standard-14 faces, before the Latin-1
+    // guess - otherwise a substituted font is asked for the glyph at U+0061 and
+    // draws 'a' where the document wanted alpha.
+    if (_isSymbol(baseFont)) {
+      final mapped = symbolUnicode(code);
+      if (mapped != null) return mapped;
+    }
+    if (_isZapfDingbats(baseFont)) {
+      final mapped = zapfDingbatsUnicode(code);
+      if (mapped != null) return mapped;
+    }
     // No encoding entry: Standard/WinAnsi ≈ Latin-1 over 0x20–0xFF.
     if (code >= 0x20 && code <= 0xFF) return code;
     return null;
@@ -679,8 +701,26 @@ class PdfFontInfo {
       final mapped = _legacyGbkUnicode[code];
       if (mapped != null) return String.fromCharCode(mapped);
     }
+    if (!isCid) {
+      // An explicit /Differences entry names the glyph outright, so it beats
+      // the built-in encodings below. Without this the Symbol/ZapfDingbats
+      // tables would shadow a document that deliberately remapped a code.
+      final name = _differenceNames[code];
+      if (name != null) {
+        final mapped = glyphNameUnicode(name);
+        if (mapped != null) return String.fromCharCode(mapped);
+      }
+    }
     if (!isCid && _isZapfDingbats(baseFont)) {
       final mapped = zapfDingbatsUnicode(code);
+      if (mapped != null) return String.fromCharCode(mapped);
+    }
+    // Symbol's built-in encoding, like ZapfDingbats', outranks a *base*
+    // encoding: producers routinely tag a Symbol font /WinAnsiEncoding while
+    // meaning the Greek/math glyphs, and honouring WinAnsi there yields Latin
+    // letters. Only /Differences (handled above) overrides it.
+    if (!isCid && _isSymbol(baseFont)) {
+      final mapped = symbolUnicode(code);
       if (mapped != null) return String.fromCharCode(mapped);
     }
     if (!isCid) {
@@ -694,6 +734,14 @@ class PdfFontInfo {
       return String.fromCharCode(code); // Latin-1 ≈ Standard/WinAnsi enough
     }
     return '';
+  }
+
+  static bool _isSymbol(String? baseFont) {
+    if (baseFont == null) return false;
+    final plus = baseFont.indexOf('+');
+    final name =
+        (plus >= 0 ? baseFont.substring(plus + 1) : baseFont).toLowerCase();
+    return name == 'symbol';
   }
 
   static bool _isZapfDingbats(String? baseFont) {

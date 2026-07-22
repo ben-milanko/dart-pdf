@@ -47,7 +47,12 @@ if (existsSync(historyDir)) {
     }
   }
 }
-runs.sort((a, b) => String(a.ts ?? '').localeCompare(String(b.ts ?? '')));
+// Order the trend by COMMIT date (rev.date), not the day the sweep ran, so
+// backfilled historical points land at their real position instead of stacking
+// on the backfill job's run date. Fall back to the run timestamp for any point
+// without a captured rev.
+const whenOf = (r) => String(r.rev?.date ?? r.ts ?? '');
+runs.sort((a, b) => whenOf(a).localeCompare(whenOf(b)));
 
 const groups = new Map(); // "suite / scenario" -> runs
 for (const r of runs) {
@@ -219,8 +224,8 @@ for (const [key, groupRuns] of groups) {
       .filter((r) => typeof r.metrics?.[metric] === 'number')
       .map((r) => ({
         v: r.metrics[metric],
-        date: String(r.ts ?? '').slice(0, 10),
-        label: `${String(r.ts ?? '').slice(0, 16).replace('T', ' ')}  ${metric}=${fmt(r.metrics[metric])}  @${String(r.rev?.sha ?? '').slice(0, 8)}${r.rev?.dirty ? '+dirty' : ''}`,
+        date: whenOf(r).slice(0, 10),
+        label: `${whenOf(r).slice(0, 16).replace('T', ' ')}  ${metric}=${fmt(r.metrics[metric])}  @${String(r.rev?.sha ?? '').slice(0, 8)}${r.rev?.dirty ? '+dirty' : ''}`,
       }));
     if (series.length === 0) return '';
     return chart(metric, series, scenarioTargets[metric]?.max);

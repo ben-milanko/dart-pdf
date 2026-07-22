@@ -20,6 +20,27 @@ final ValueNotifier<bool> pdfDebugPaintDetailBounds = ValueNotifier(false);
 /// window" whose retained scenes and rasters dominate per-page memory.
 final ValueNotifier<bool> pdfDebugShowRenderWindow = ValueNotifier(false);
 
+/// Sink for the viewer's touch/gesture diagnostics. Null (the default) means
+/// the viewer emits nothing and pays only a single null-check at each gesture
+/// decision point. A host's developer tools sets it to capture which pan/zoom
+/// path a touch actually took - the signal for "panning does nothing while
+/// zoomed" reports that never reproduce off-device. Set back to null to stop.
+///
+/// Only discrete gesture *decisions* flow through here (a recognizer claims a
+/// drag, the enable gate's verdict on pointer-down, an interaction start/end),
+/// never per-move updates, so the log stays readable. Raw per-pointer streams
+/// are the host's job (a passive `Listener`).
+void Function(String message)? pdfDebugGestureLog;
+
+/// Emits [message] through [pdfDebugGestureLog] when a host has installed one.
+/// [details] is appended lazily so its (possibly non-trivial) string only
+/// builds when logging is live.
+void pdfLogGesture(String message, [String Function()? details]) {
+  final sink = pdfDebugGestureLog;
+  if (sink == null) return;
+  sink(details == null ? message : '$message ${details()}');
+}
+
 /// Debug registry of the page indices with a live page-view state (created
 /// in `initState`, removed on `dispose`). Only the active document's viewer
 /// builds page views, so indices are unambiguous. Feeds

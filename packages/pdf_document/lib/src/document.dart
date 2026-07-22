@@ -74,12 +74,14 @@ class PdfDocument {
     if (index < 0) {
       throw RangeError.range(index, 0, null, 'index');
     }
+    final cached = _pageCache[index];
+    if (cached != null) return cached;
     // The fast walk trusts /Count on intermediate nodes to skip whole
     // subtrees. Real-world files lie about /Count, so a miss falls back
     // to walking every leaf before giving up.
     final fast = _findPage(_pagesRoot, _Counter(index), const _Inherited(),
         <CosDictionary>{});
-    if (fast != null) return fast;
+    if (fast != null) return _pageCache[index] = fast;
     final counter = _Counter(index);
     final found = _findPage(
         _pagesRoot, counter, const _Inherited(), <CosDictionary>{},
@@ -88,10 +90,36 @@ class PdfDocument {
       throw RangeError('page index $index out of range: document has only '
           '${index - counter.value} reachable pages');
     }
-    return found;
+    return _pageCache[index] = found;
   }
 
+  /// Page objects by index, so repeat access reuses one instance.
+  ///
+  /// Safe because [PdfPage] resolves its inheritable attributes from its live
+  /// dictionary rather than snapshotting them, so an in-place [PdfEditor]
+  /// mutation is visible through a cached page (#418). Only the page TREE
+  /// shape is snapshotted here, and that is dropped by
+  /// [invalidatePageCache] alongside the leaf index.
+  ///
+  /// Reusing instances is what makes [PdfPage.annotations]' cache reachable:
+  /// building a fresh page per call meant every annotation read re-parsed
+  /// /Annots and rebuilt every PdfAnnotation.
+  final Map<int, PdfPage> _pageCache = {};
+
   List<CosDictionary>? _leafCache;
+  Map<CosDictionary, int>? _leafIndexCache;
+
+  /// Identity map from page dictionary to index, built alongside [_leaves].
+  ///
+  /// [CosDictionary] does not override `==`, so a plain map is identity-keyed
+  /// - the same comparison the linear scan this replaces made, at O(1).
+  ///
+  /// Iteration order is immaterial because [_leaves] cannot hold the same
+  /// dictionary twice: [_collectLeaves] guards on a `visited` set, so a node a
+  /// broken file reaches from two places in the tree is collected once.
+  Map<CosDictionary, int> get _leafIndex => _leafIndexCache ??= {
+        for (var i = 0; i < _leaves.length; i++) _leaves[i]: i,
+      };
 
   List<CosDictionary> get _leaves => _leafCache ??= () {
         final t0 = PdfPerf.begin();
@@ -103,7 +131,11 @@ class PdfDocument {
 
   /// Drops cached page-tree state. Editing code calls this after structural
   /// changes (reorder, removal, insertion) so lookups re-walk the tree.
-  void invalidatePageCache() => _leafCache = null;
+  void invalidatePageCache() {
+    _leafCache = null;
+    _leafIndexCache = null;
+    _pageCache.clear();
+  }
 
   /// Feeds an append-only incremental revision into this open document in
   /// place (see [CosDocument.applyIncrementalUpdate]) and re-walks the page
@@ -118,16 +150,29 @@ class PdfDocument {
     return changed;
   }
 
+  /// Folds an append-only revision into the COS layer (see
+  /// [applyIncrementalUpdate]) and returns a *fresh* [PdfDocument] over it.
+  ///
+  /// The fresh wrapper is a convenience, not a contract: it skips the full
+  /// re-parse (the COS object cache is shared and only the objects this
+  /// revision redefined were evicted, and the new wrapper starts with an empty
+  /// page-tree cache), so it is cheaper than reopening. Callers that need a
+  /// "did a new revision land?" signal must NOT rely on the wrapper's identity
+  /// changing - `PdfEditingController.revisionId` is that signal (#414). Once no
+  /// caller depends on the identity, applying the update in place
+  /// ([applyIncrementalUpdate]) is a valid drop-in that saves this allocation.
+  ///
+  /// The previous wrapper must be discarded: it shares the now-updated
+  /// [CosDocument], so its cached page tree no longer matches.
+  PdfDocument withIncrementalUpdate(Uint8List newBytes) {
+    cos.applyIncrementalUpdate(newBytes);
+    return PdfDocument._(cos);
+  }
+
   /// Zero-based index of a page dictionary, or -1 if it isn't a leaf of
   /// this document's page tree. Resolved objects are cached by reference,
   /// so identity comparison is sound. Used to resolve link destinations.
-  int pageIndexOf(CosDictionary pageDict) {
-    final leaves = _leaves;
-    for (var i = 0; i < leaves.length; i++) {
-      if (identical(leaves[i], pageDict)) return i;
-    }
-    return -1;
-  }
+  int pageIndexOf(CosDictionary pageDict) => _leafIndex[pageDict] ?? -1;
 
   void _collectLeaves(CosDictionary node, List<CosDictionary> out,
       Set<CosDictionary> visited) {
@@ -154,13 +199,16 @@ class PdfDocument {
     final merged = inherited.mergedWith(node, cos);
     if (_isLeaf(node)) {
       if (remaining.value == 0) {
+        // Pass what the ANCESTORS supply, not the merge including this leaf:
+        // PdfPage reads its own entries from `node` live, so snapshotting the
+        // merged values here would reintroduce the staleness it avoids.
         return PdfPage(
           document: this,
           dict: node,
-          resources: merged.resources,
-          mediaBoxArray: merged.mediaBox,
-          cropBoxArray: merged.cropBox,
-          rotate: merged.rotate,
+          inheritedResources: inherited.resources,
+          inheritedMediaBox: inherited.mediaBox,
+          inheritedCropBox: inherited.cropBox,
+          inheritedRotate: inherited.rotate,
         );
       }
       remaining.value--;

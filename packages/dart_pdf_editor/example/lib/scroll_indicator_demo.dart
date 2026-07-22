@@ -1,19 +1,25 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 
+import 'l10n/app_l10n.dart';
+
 /// A self-contained showcase of the viewer's public scroll-indicator API
-/// (issue #326): [PdfViewer.scrollIndicatorBuilder] fed by a live
+/// (issues #326 and #428): [PdfViewer.scrollIndicatorBuilder] fed by a live
 /// [PdfScrollMetrics], driven back with
 /// [PdfViewerController.jumpToNormalized] and
 /// [PdfViewerController.animateToPage].
 ///
 /// The built-in scrollbar is replaced with a draggable page scrubber that
 /// pops a page bubble while dragging, and a corner readout mirrors the raw
-/// metrics so the numbers are visible as you scroll and zoom. The app opens
-/// it as a full-screen route from the DartPDF menu.
+/// metrics so the numbers are visible as you scroll and zoom. A layout toggle
+/// flips the viewer between vertical and horizontal continuous reading; the
+/// same scrubber re-orients itself from [PdfScrollMetrics.scrollAxis] (a
+/// right-edge track vertically, a bottom-edge one horizontally), showing that
+/// the metrics and [PdfViewerController.jumpToNormalized] describe whichever
+/// axis is active. The app opens it as a full-screen route from the DartPDF
+/// menu.
 class ScrollIndicatorDemoScreen extends StatefulWidget {
   const ScrollIndicatorDemoScreen({super.key, required this.bytes});
 
@@ -28,6 +34,9 @@ class ScrollIndicatorDemoScreen extends StatefulWidget {
 class _ScrollIndicatorDemoScreenState extends State<ScrollIndicatorDemoScreen> {
   final _controller = PdfViewerController();
   late final PdfDocument _document = PdfDocument.open(widget.bytes);
+
+  /// The viewer's current continuous layout, flipped by the app-bar toggle.
+  PdfPageLayout _layout = const PdfPageLayout.verticalContinuous();
 
   /// The latest metrics the viewer handed to [scrollIndicatorBuilder]. The
   /// corner readout renders from this so it is populated the moment the
@@ -60,20 +69,39 @@ class _ScrollIndicatorDemoScreenState extends State<ScrollIndicatorDemoScreen> {
     _controller.animateToPage(target);
   }
 
+  void _toggleLayout() {
+    setState(() {
+      _layout = _layout.scrollAxis == Axis.vertical
+          ? const PdfPageLayout.horizontalContinuous()
+          : const PdfPageLayout.verticalContinuous();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    final horizontal = _layout.scrollAxis == Axis.horizontal;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Scroll indicator API'),
+        title: Text(appL10n(context).scrollDemoTitle),
         actions: [
           IconButton(
-            tooltip: 'Previous page',
-            icon: const Icon(Icons.keyboard_arrow_up),
+            tooltip: horizontal
+                ? appL10n(context).scrollDemoSwitchVertical
+                : appL10n(context).scrollDemoSwitchHorizontal,
+            icon: Icon(horizontal ? Icons.view_day : Icons.view_column),
+            onPressed: _toggleLayout,
+          ),
+          IconButton(
+            tooltip: appL10n(context).scrollDemoPreviousPage,
+            icon: Icon(
+                horizontal ? Icons.keyboard_arrow_left : Icons.keyboard_arrow_up),
             onPressed: () => _step(-1),
           ),
           IconButton(
-            tooltip: 'Next page',
-            icon: const Icon(Icons.keyboard_arrow_down),
+            tooltip: appL10n(context).scrollDemoNextPage,
+            icon: Icon(horizontal
+                ? Icons.keyboard_arrow_right
+                : Icons.keyboard_arrow_down),
             onPressed: () => _step(1),
           ),
           const SizedBox(width: 4),
@@ -84,7 +112,8 @@ class _ScrollIndicatorDemoScreenState extends State<ScrollIndicatorDemoScreen> {
           PdfViewer(
             document: _document,
             controller: _controller,
-            // width fit guarantees vertical overflow so the scrubber shows
+            pageLayout: _layout,
+            // width fit guarantees main-axis overflow so the scrubber shows
             initialFit: PdfViewerFit.width,
             // the whole point of the demo: swap the stock bar for our own
             scrollIndicatorBuilder: (context, controller, metrics) {
@@ -109,9 +138,11 @@ class _ScrollIndicatorDemoScreenState extends State<ScrollIndicatorDemoScreen> {
   }
 }
 
-/// A draggable page scrubber that mirrors the stock scrollbar's geometry
-/// from [PdfScrollMetrics] (thumb of height `extent` at `position`) and
-/// drives the view with [PdfViewerController.jumpToNormalized].
+/// A draggable page scrubber that mirrors the stock scrollbar's geometry from
+/// [PdfScrollMetrics] (thumb of size `extent` at `position`) and drives the
+/// view with [PdfViewerController.jumpToNormalized]. It orients itself from
+/// [PdfScrollMetrics.scrollAxis]: a right-edge vertical track for a vertical
+/// layout, a bottom-edge horizontal track for a horizontal one.
 class _PageScrubber extends StatefulWidget {
   const _PageScrubber({
     super.key,
@@ -127,99 +158,135 @@ class _PageScrubber extends StatefulWidget {
 }
 
 class _PageScrubberState extends State<_PageScrubber> {
-  static const _trackWidth = 48.0;
+  static const _trackBreadth = 48.0;
   static const _minThumb = 44.0;
 
   bool _dragging = false;
 
-  void _scrubTo(double localY, double trackHeight, double thumbHeight) {
-    final span = trackHeight - thumbHeight;
+  void _scrubTo(double localMain, double trackMain, double thumbMain) {
+    final span = trackMain - thumbMain;
     // map the pointer to the thumb's *centre*, so grabbing anywhere on the
     // thumb feels natural, then hand the fraction to the controller
     final fraction =
-        span <= 0 ? 0.0 : ((localY - thumbHeight / 2) / span).clamp(0.0, 1.0);
+        span <= 0 ? 0.0 : ((localMain - thumbMain / 2) / span).clamp(0.0, 1.0);
     widget.controller.jumpToNormalized(fraction);
   }
 
   @override
   Widget build(BuildContext context) {
     final metrics = widget.metrics;
-    final scheme = Theme.of(context).colorScheme;
+    final horizontal = metrics.scrollAxis == Axis.horizontal;
     return Align(
-      alignment: Alignment.centerRight,
+      // the track hugs the edge along the scroll axis: the bottom for a
+      // horizontal layout, the right for a vertical one
+      alignment: horizontal ? Alignment.bottomCenter : Alignment.centerRight,
       child: SizedBox(
-        width: _trackWidth,
+        width: horizontal ? null : _trackBreadth,
+        height: horizontal ? _trackBreadth : null,
         child: LayoutBuilder(builder: (context, constraints) {
-          final trackHeight = constraints.maxHeight;
-          final thumbHeight =
-              (metrics.extent * trackHeight).clamp(_minThumb, trackHeight);
-          final thumbTop = metrics.position * (trackHeight - thumbHeight);
+          // the "main" extent is the track's length along the scroll axis
+          final trackMain =
+              horizontal ? constraints.maxWidth : constraints.maxHeight;
+          final thumbMain =
+              (metrics.extent * trackMain).clamp(_minThumb, trackMain);
+          final thumbLead = metrics.position * (trackMain - thumbMain);
+          void start(DragStartDetails d) {
+            setState(() => _dragging = true);
+            _scrubTo(horizontal ? d.localPosition.dx : d.localPosition.dy,
+                trackMain, thumbMain);
+          }
+
+          void update(DragUpdateDetails d) => _scrubTo(
+              horizontal ? d.localPosition.dx : d.localPosition.dy,
+              trackMain,
+              thumbMain);
+          void end() => setState(() => _dragging = false);
           return GestureDetector(
-            // the drag target - a 48px strip down the right edge
+            // the drag target - a 48px strip along the scroll edge. The drag
+            // recognizer matches the scroll axis (like the stock bar's strip)
+            // so, being opaque and on top, it wins the arena over the scroll
+            // view underneath on that same axis.
             key: const ValueKey('demo-page-scrubber'),
-            // opaque so the scrubber wins the vertical-drag gesture arena
-            // over the scroll view underneath (as the stock bar's strip does)
             behavior: HitTestBehavior.opaque,
-            onVerticalDragStart: (d) {
-              setState(() => _dragging = true);
-              _scrubTo(d.localPosition.dy, trackHeight, thumbHeight);
-            },
-            onVerticalDragUpdate: (d) =>
-                _scrubTo(d.localPosition.dy, trackHeight, thumbHeight),
-            onVerticalDragEnd: (_) => setState(() => _dragging = false),
-            onVerticalDragCancel: () => setState(() => _dragging = false),
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                // a faint track scrim down the right edge
-                Positioned(
-                  top: 0,
-                  bottom: 0,
-                  right: 8,
-                  width: 6,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: scheme.onSurface.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                  ),
-                ),
-                // the thumb - height is metrics.extent, offset is position
-                Positioned(
-                  top: thumbTop,
-                  right: 4,
-                  width: _trackWidth - 8,
-                  height: thumbHeight,
-                  child: Center(
-                    child: Container(
-                      width: _dragging ? 16 : 12,
-                      height: thumbHeight,
-                      decoration: BoxDecoration(
-                        color: _dragging
-                            ? scheme.primary
-                            : scheme.primary.withValues(alpha: 0.75),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                            color: scheme.onSurface.withValues(alpha: 0.25)),
-                      ),
-                    ),
-                  ),
-                ),
-                // a page bubble that follows the thumb while dragging
-                if (_dragging)
-                  Positioned(
-                    right: _trackWidth,
-                    top: (thumbTop + thumbHeight / 2 - 18)
-                        .clamp(0.0, trackHeight - 36),
-                    child: _Bubble(
-                      'Page ${metrics.currentPage + 1} / ${metrics.pageCount}',
-                    ),
-                  ),
-              ],
-            ),
+            onVerticalDragStart: horizontal ? null : start,
+            onVerticalDragUpdate: horizontal ? null : update,
+            onVerticalDragEnd: horizontal ? null : (_) => end(),
+            onVerticalDragCancel: horizontal ? null : end,
+            onHorizontalDragStart: horizontal ? start : null,
+            onHorizontalDragUpdate: horizontal ? update : null,
+            onHorizontalDragEnd: horizontal ? (_) => end() : null,
+            onHorizontalDragCancel: horizontal ? end : null,
+            child: _buildTrack(
+                context, horizontal, thumbLead, thumbMain, trackMain, metrics),
           );
         }),
       ),
+    );
+  }
+
+  Widget _buildTrack(BuildContext context, bool horizontal, double thumbLead,
+      double thumbMain, double trackMain, PdfScrollMetrics metrics) {
+    final scheme = Theme.of(context).colorScheme;
+    // the thumb's cross-axis thickness grows a little while dragging
+    final thumbCross = _dragging ? 16.0 : 12.0;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        // a faint track scrim along the scroll edge
+        Positioned(
+          top: horizontal ? null : 0,
+          bottom: horizontal ? 8 : 0,
+          left: horizontal ? 0 : null,
+          right: horizontal ? 0 : 8,
+          width: horizontal ? null : 6,
+          height: horizontal ? 6 : null,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: scheme.onSurface.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(3),
+            ),
+          ),
+        ),
+        // the thumb - length is metrics.extent, offset is position
+        Positioned(
+          top: horizontal ? null : thumbLead,
+          bottom: horizontal ? 4 : null,
+          left: horizontal ? thumbLead : null,
+          right: horizontal ? null : 4,
+          width: horizontal ? thumbMain : _trackBreadth - 8,
+          height: horizontal ? _trackBreadth - 8 : thumbMain,
+          child: Center(
+            child: Container(
+              width: horizontal ? thumbMain : thumbCross,
+              height: horizontal ? thumbCross : thumbMain,
+              decoration: BoxDecoration(
+                color: _dragging
+                    ? scheme.primary
+                    : scheme.primary.withValues(alpha: 0.75),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                    color: scheme.onSurface.withValues(alpha: 0.25)),
+              ),
+            ),
+          ),
+        ),
+        // a page bubble that follows the thumb while dragging
+        if (_dragging)
+          Positioned(
+            right: horizontal ? null : _trackBreadth,
+            bottom: horizontal ? _trackBreadth : null,
+            left: horizontal
+                ? (thumbLead + thumbMain / 2 - 60).clamp(0.0, trackMain - 120)
+                : null,
+            top: horizontal
+                ? null
+                : (thumbLead + thumbMain / 2 - 18).clamp(0.0, trackMain - 36),
+            child: _Bubble(
+              appL10n(context).scrollDemoPageBubble(
+                  metrics.currentPage + 1, metrics.pageCount),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -262,6 +329,7 @@ class _MetricsReadout extends StatelessWidget {
     final lines = m == null
         ? const ['scrollMetrics: null (not laid out)']
         : [
+            'axis:      ${m.scrollAxis.name}',
             'page:      ${m.currentPage + 1} / ${m.pageCount}',
             'position:  ${m.position.toStringAsFixed(3)}',
             'extent:    ${m.extent.toStringAsFixed(3)}',

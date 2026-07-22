@@ -318,6 +318,76 @@ void main() {
       });
     });
 
+    testWidgets('keeps in-flight rasters for the pages it did not invalidate',
+        (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer();
+        for (var page = 0; page < 2; page++) {
+          store.viewFor(
+            id: _id(page),
+            pageSize: const Size(32, 32),
+            desiredRatio: 1.0,
+            visiblePageRect: const Rect.fromLTWH(0, 0, 32, 32),
+            rasterize: raster.call,
+          );
+        }
+        expect(store.inFlightCount, 8);
+
+        // A targeted invalidation must not reach across pages. The page view
+        // invalidates its own slot whenever its detail geometry resolves to
+        // null, so a global stale check throws away the neighbouring page's
+        // in-flight work during the very pan that scheduled it (#374).
+        store.invalidate(pages: {0});
+        await raster.flush();
+
+        expect(store.debugTilesDiscarded, 4, reason: 'only page 0');
+        expect(store.debugTilesLanded, 4, reason: 'page 1 survives');
+        expect(store.containsTile(PdfTileKey(_id(1), 0, 0, 0)), isTrue);
+        store.dispose();
+      });
+    });
+
+    testWidgets('an off-screen neighbour settling does not starve the panned '
+        'page', (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer();
+
+        // The shape of issue #427's session: page 0 is zoomed and panning, so
+        // each settle schedules its visible tiles; page 1 is scrolled off
+        // screen, so _detailGeometryAt returns null every settle and the page
+        // view drops its detail - invalidating only its own slot.
+        for (var settle = 0; settle < 8; settle++) {
+          store.viewFor(
+            id: _id(0),
+            pageSize: const Size(64, 64),
+            desiredRatio: 1.0,
+            visiblePageRect: Rect.fromLTWH(settle * 4.0, 0, 32, 32),
+            rasterize: raster.call,
+          );
+          store.invalidate(pages: {1});
+        }
+        await raster.flush();
+
+        expect(store.debugTilesScheduled, greaterThan(0));
+        expect(store.debugTilesDiscarded, 0,
+            reason: 'page 1 never had tiles; page 0 was never invalidated');
+        expect(store.debugTilesLanded, store.debugTilesScheduled);
+        store.dispose();
+      });
+    });
+
     testWidgets('null clears every page', (tester) async {
       await tester.runAsync(() async {
         final store = PdfTileStore(
@@ -337,6 +407,42 @@ void main() {
         await raster.flush();
         expect(store.tileCount, greaterThan(0));
         store.invalidate();
+        expect(store.tileCount, 0);
+        store.dispose();
+      });
+    });
+
+    testWidgets('null discards in-flight rasters on every page',
+        (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer();
+        for (var page = 0; page < 2; page++) {
+          store.viewFor(
+            id: _id(page),
+            pageSize: const Size(32, 32),
+            desiredRatio: 1.0,
+            visiblePageRect: const Rect.fromLTWH(0, 0, 32, 32),
+            rasterize: raster.call,
+          );
+        }
+        expect(store.inFlightCount, 8);
+
+        // The counterpart to the targeted cases above: a full invalidation
+        // reaches every page, including slots _pageEpoch has never seen. This
+        // is the only cover for the _allPagesEpoch arm of _isStale - the
+        // 'null clears every page' test flushes before invalidating, so it
+        // exercises cache clearing and never the in-flight guard.
+        store.invalidate();
+        await raster.flush();
+
+        expect(store.debugTilesDiscarded, 8);
+        expect(store.debugTilesLanded, 0);
         expect(store.tileCount, 0);
         store.dispose();
       });

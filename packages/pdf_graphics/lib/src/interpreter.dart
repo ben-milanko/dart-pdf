@@ -237,7 +237,12 @@ class PdfInterpreter {
 
   var _state = _GraphicsState();
   final List<_GraphicsState> _stateStack = [];
-  final Map<CosStream, List<ContentOperation>> _patternOpsCache = {};
+  // Parsed content operations keyed by stream identity, so a form XObject,
+  // annotation appearance, soft-mask group, tiling pattern, or Type3 CharProc
+  // drawn more than once in a render (including the image-collect pass plus the
+  // paint pass) is filter-decoded and parsed once. Per-interpreter, so it never
+  // outlives a render; stream identity changes when an edit rewrites content.
+  final Map<CosStream, List<ContentOperation>> _opsCache = {};
 
   /// Memoises parsed ICC profiles across `cs`/`CS` selections so a colour
   /// space chosen repeatedly parses its profile only once.
@@ -768,16 +773,28 @@ class PdfInterpreter {
     return PdfPath(segments);
   }
 
+  /// Filter-decodes and parses [stream]'s content operations, cached by stream
+  /// identity ([_opsCache]). Returns null when the stream cannot be decoded.
+  /// The returned list is read-only (shared across draws) - callers pass it to
+  /// [_run], which never mutates it.
+  List<ContentOperation>? _parsedOps(CosStream stream) {
+    final cached = _opsCache[stream];
+    if (cached != null) return cached;
+    final Uint8List content;
+    try {
+      content = cos.decodeStreamData(stream);
+    } on Exception {
+      return null;
+    }
+    return _opsCache[stream] = ContentStreamParser.parse(content);
+  }
+
   /// Renders one appearance form: the /BBox corners go through /Matrix,
   /// their bounding box is fitted onto the annotation's /Rect, and the
   /// content runs clipped to the BBox (the algorithm in §12.5.5).
   void _drawAppearance(CosStream form, PdfRect rect) {
-    final Uint8List content;
-    try {
-      content = cos.decodeStreamData(form);
-    } on Exception {
-      return;
-    }
+    final ops = _parsedOps(form);
+    if (ops == null) return;
     final dict = form.dictionary;
     final matrixObj = cos.resolve(dict['Matrix']);
     final matrix = matrixObj is CosArray && matrixObj.length >= 6
@@ -817,7 +834,7 @@ class PdfInterpreter {
       if (bbox.length >= 4) _clipToBox(bbox);
       final resources = cos.resolve(dict['Resources']);
       _run(
-        ContentStreamParser.parse(content),
+        ops,
         resources is CosDictionary ? resources : CosDictionary(),
         _currentFormDepth + 1,
       );
@@ -979,45 +996,12 @@ class PdfInterpreter {
   void _execOp(ContentOperation op, CosDictionary resources, int formDepth) {
     final o = op.operands;
     switch (op.operator) {
-      // --- graphics state ---
-      case 'q':
-        _stateStack.add(_GraphicsState.from(_state));
-        device.save();
-      case 'Q':
-        if (_stateStack.isNotEmpty) {
-          final restored = _stateStack.removeLast();
-          final mask = _state.softMask;
-          if (mask != null && !identical(mask, restored.softMask)) {
-            _finalizeSoftMask(mask);
-          }
-          if (_state.blendMode != restored.blendMode) {
-            device.setBlendMode(restored.blendMode);
-          }
-          _state = restored;
-          device.restore();
-        }
-      case 'cm':
-        _state.ctm = _matrixFrom(o).concat(_state.ctm);
-      case 'w':
-        _state.stroke = _state.stroke.copyWith(width: _num(o, 0));
-      case 'J':
-        _state.stroke = _state.stroke.copyWith(cap: _num(o, 0).toInt());
-      case 'j':
-        _state.stroke = _state.stroke.copyWith(join: _num(o, 0).toInt());
-      case 'M':
-        _state.stroke = _state.stroke.copyWith(miterLimit: _num(o, 0));
-      case 'd':
-        _state.stroke = _state.stroke.copyWith(
-          dashArray: o.isNotEmpty && o[0] is CosArray
-              ? [for (final v in (o[0] as CosArray).items) _numOf(v)]
-              : const [],
-          dashPhase: _num(o, 1),
-        );
-      case 'gs':
-        _applyExtGState(_dictResource(resources, 'ExtGState', o));
-      case 'ri' || 'i':
-        break;
-
+      // Ordering here is deliberate and load-bearing: Dart lowers this
+      // String switch to a linear chain of comparisons, not a jump table
+      // (measured: one hot case moved ~36 positions later cost 5.9x).
+      // Vector-dense pages are overwhelmingly path ops - l, m and S are 75%
+      // of all operations on the CAD probe - so the path/painting group
+      // leads and the rarer state/text groups follow (#401).
       // --- path construction ---
       case 'm':
         _moveTo(_num(o, 0), _num(o, 1));
@@ -1069,6 +1053,45 @@ class PdfInterpreter {
         _pendingClip = PdfFillRule.nonzero;
       case 'W*':
         _pendingClip = PdfFillRule.evenOdd;
+
+      // --- graphics state ---
+      case 'q':
+        _stateStack.add(_GraphicsState.from(_state));
+        device.save();
+      case 'Q':
+        if (_stateStack.isNotEmpty) {
+          final restored = _stateStack.removeLast();
+          final mask = _state.softMask;
+          if (mask != null && !identical(mask, restored.softMask)) {
+            _finalizeSoftMask(mask);
+          }
+          if (_state.blendMode != restored.blendMode) {
+            device.setBlendMode(restored.blendMode);
+          }
+          _state = restored;
+          device.restore();
+        }
+      case 'cm':
+        _state.ctm = _matrixFrom(o).concat(_state.ctm);
+      case 'w':
+        _state.stroke = _state.stroke.copyWith(width: _num(o, 0));
+      case 'J':
+        _state.stroke = _state.stroke.copyWith(cap: _num(o, 0).toInt());
+      case 'j':
+        _state.stroke = _state.stroke.copyWith(join: _num(o, 0).toInt());
+      case 'M':
+        _state.stroke = _state.stroke.copyWith(miterLimit: _num(o, 0));
+      case 'd':
+        _state.stroke = _state.stroke.copyWith(
+          dashArray: o.isNotEmpty && o[0] is CosArray
+              ? [for (final v in (o[0] as CosArray).items) _numOf(v)]
+              : const [],
+          dashPhase: _num(o, 1),
+        );
+      case 'gs':
+        _applyExtGState(_dictResource(resources, 'ExtGState', o));
+      case 'ri' || 'i':
+        break;
 
       // --- color ---
       case 'g':
@@ -1507,9 +1530,12 @@ class PdfInterpreter {
       if (stroke) {
         final k = _state.ctm.scaleFactor;
         final scaled = _state.stroke.copyWith(
-            width: _state.stroke.width <= 0
-                ? k // zero width = thinnest line
-                : _state.stroke.width * k,
+            // A zero width stays zero: PDF 32000-1 8.4.3.2 defines it as "the
+            // thinnest line that can be rendered at device resolution: 1
+            // device pixel", which is a device-space rule. Resolving it here
+            // to one *user*-space unit made it correct only at pixel ratio 1
+            // and three pixels wide at ratio 3. Devices apply the floor.
+            width: _state.stroke.width * k,
             // dash lengths live in user space too (§8.4.3.6)
             dashArray: [for (final d in _state.stroke.dashArray) d * k],
             dashPhase: _state.stroke.dashPhase * k);
@@ -1648,12 +1674,8 @@ class PdfInterpreter {
   /// coordinate space captured when the mask was set.
   void _runSoftMaskForm(_ActiveSoftMask mask) {
     if (_currentFormDepth >= _maxFormDepth) return;
-    final Uint8List content;
-    try {
-      content = cos.decodeStreamData(mask.form);
-    } on Exception {
-      return;
-    }
+    final ops = _parsedOps(mask.form);
+    if (ops == null) return;
     final savedState = _state;
     final savedStackDepth = _stateStack.length;
     device.save();
@@ -1669,7 +1691,7 @@ class PdfInterpreter {
       }
       final resources = cos.resolve(mask.form.dictionary['Resources']);
       _run(
-        ContentStreamParser.parse(content),
+        ops,
         resources is CosDictionary ? resources : CosDictionary(),
         _currentFormDepth + 1,
       );
@@ -1854,7 +1876,7 @@ class PdfInterpreter {
               : textFill,
           fill: embedded ? true : doFill,
           strokeColor: !embedded && strokeText ? _state.strokeColor : null,
-          strokeWidth: _state.stroke.width <= 0 ? k : _state.stroke.width * k,
+          strokeWidth: _state.stroke.width * k, // see strokePath: 0 stays 0
           gradient: (embedded ? fillText : doFill)
               ? _gradientOfPattern(pattern)
               : null,
@@ -1888,7 +1910,7 @@ class PdfInterpreter {
       code,
       decode: (proc) {
         try {
-          return _patternOpsCache.putIfAbsent(
+          return _opsCache.putIfAbsent(
               proc, () => ContentStreamParser.parse(cos.decodeStreamData(proc)));
         } on Exception {
           return const [];
@@ -1972,7 +1994,8 @@ class PdfInterpreter {
     if (shading == null) return null;
     return shading.toGradient(PdfMatrix.identity)?.averageColor ??
         shading.toMesh(PdfMatrix.identity)?.averageColor ??
-        shading.toFunctionMesh(PdfMatrix.identity)?.averageColor;
+        shading.toFunctionMesh(PdfMatrix.identity)?.averageColor ??
+        shading.toRadialConeMesh(PdfMatrix.identity)?.averageColor;
   }
 
   /// A representative solid colour for a tiling pattern, used where the cell
@@ -1990,7 +2013,7 @@ class PdfInterpreter {
     }
     final List<ContentOperation> ops;
     try {
-      ops = _patternOpsCache.putIfAbsent(pattern,
+      ops = _opsCache.putIfAbsent(pattern,
           () => ContentStreamParser.parse(cos.decodeStreamData(pattern)));
     } on Exception {
       return null;
@@ -2054,8 +2077,10 @@ class PdfInterpreter {
         device.fillPathGradient(path, rule, gradient, _state.fillAlpha);
         return;
       }
-      final mesh = shading?.toMesh(_patternMatrix(dict)) ??
-          shading?.toFunctionMesh(_patternMatrix(dict));
+      final patternMatrix = _patternMatrix(dict);
+      final mesh = shading?.toMesh(patternMatrix) ??
+          shading?.toFunctionMesh(patternMatrix) ??
+          shading?.toRadialConeMesh(patternMatrix, clip: _pathBounds(path));
       if (mesh != null) {
         device.save();
         device.clipPath(path, rule);
@@ -2093,7 +2118,7 @@ class PdfInterpreter {
     final inverse = matrix.inverted();
     if (inverse == null) return;
 
-    final ops = _patternOpsCache.putIfAbsent(pattern, () {
+    final ops = _opsCache.putIfAbsent(pattern, () {
       try {
         return ContentStreamParser.parse(cos.decodeStreamData(pattern));
       } on Exception {
@@ -2187,8 +2212,10 @@ class PdfInterpreter {
     if (gradient == null) {
       // mesh and function-based shadings paint their own geometry; the
       // clip bounds them
-      final mesh =
-          shading?.toMesh(_state.ctm) ?? shading?.toFunctionMesh(_state.ctm);
+      final mesh = shading?.toMesh(_state.ctm) ??
+          shading?.toFunctionMesh(_state.ctm) ??
+          shading?.toRadialConeMesh(_state.ctm,
+              clip: _pageBox ?? const PdfRect(-1e5, -1e5, 1e5, 1e5));
       if (mesh != null) device.fillMesh(mesh, _state.fillAlpha);
       return;
     }
@@ -2209,6 +2236,23 @@ class PdfInterpreter {
     final v = cos.resolve(object);
     if (v is! CosArray) return const [];
     return [for (final item in v.items) _numOf(cos.resolve(item))];
+  }
+
+  /// Axis-aligned bounds of a path's control points, in user space - a
+  /// conservative superset of the fill area, enough to size a shading mesh.
+  static PdfRect? _pathBounds(PdfPath path) {
+    var minX = double.infinity, minY = double.infinity;
+    var maxX = -double.infinity, maxY = -double.infinity;
+    for (final segment in path.segments) {
+      for (final (x, y) in _segmentPoints(segment)) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+    if (minX > maxX) return null;
+    return PdfRect(minX, minY, maxX, maxY);
   }
 
   static Iterable<(double, double)> _segmentPoints(
@@ -2289,14 +2333,10 @@ class PdfInterpreter {
         _clipToBox([for (var i = 0; i < 4; i++) _numOf(cos.resolve(bbox[i]))]);
       }
       final innerResources = cos.resolve(xobject.dictionary['Resources']);
-      final Uint8List content;
-      try {
-        content = cos.decodeStreamData(xobject);
-      } on Exception {
-        return;
-      }
+      final ops = _parsedOps(xobject);
+      if (ops == null) return;
       _run(
-        ContentStreamParser.parse(content),
+        ops,
         innerResources is CosDictionary ? innerResources : resources,
         formDepth + 1,
       );

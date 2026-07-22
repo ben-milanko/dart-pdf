@@ -830,6 +830,80 @@ void main() {
       );
       expect(device.gradients, hasLength(1));
     });
+
+    // A radial shading whose circles are not nested (r0=0 focal point d=90
+    // outside the r1=60 circle): a device radial gradient can't express it,
+    // so the interpreter must fall through to a cone mesh instead.
+    CosDictionary radialPatternResources() => CosDictionary({
+          'Pattern': CosDictionary({
+            'P0': CosDictionary({
+              'PatternType': const CosInteger(2),
+              'Shading': CosDictionary({
+                'ShadingType': const CosInteger(3),
+                'ColorSpace': const CosName('DeviceRGB'),
+                'Coords': CosArray([
+                  const CosInteger(521),
+                  const CosInteger(289),
+                  const CosInteger(0),
+                  const CosInteger(431),
+                  const CosInteger(289),
+                  const CosInteger(60),
+                ]),
+                'Extend': CosArray([
+                  const CosBoolean(false),
+                  const CosBoolean(true),
+                ]),
+                'Function': CosDictionary({
+                  'FunctionType': const CosInteger(2),
+                  'C0': CosArray([
+                    const CosInteger(1),
+                    const CosInteger(0),
+                    const CosInteger(0),
+                  ]),
+                  'C1': CosArray([
+                    const CosInteger(0),
+                    const CosInteger(0),
+                    const CosInteger(1),
+                  ]),
+                  'N': const CosInteger(1),
+                }),
+              }),
+            }),
+          }),
+        });
+
+    test('non-nested radial pattern fill clips a cone mesh, not a gradient',
+        () {
+      final doc = CosDocument.open(buildClassicPdf());
+      final device = RecordingDevice();
+      PdfInterpreter(cos: doc, device: device).run(
+        ContentStreamParser.parse(Uint8List.fromList(
+            '/Pattern cs /P0 scn 400 250 130 80 re f'.codeUnits)),
+        radialPatternResources(),
+      );
+      expect(device.gradients, isEmpty);
+      expect(device.meshes, hasLength(1));
+      expect(device.meshes.single.vertices, isNotEmpty);
+      // clipped to the fill path: save/clip/mesh/restore, in that order
+      expect(device.calls, containsAllInOrder(['save', 'clip', 'mesh', 'restore']));
+    });
+
+    test('non-nested radial sh paints a cone mesh', () {
+      final doc = CosDocument.open(buildClassicPdf());
+      final device = RecordingDevice();
+      final pattern =
+          (radialPatternResources()['Pattern'] as CosDictionary)['P0']
+              as CosDictionary;
+      final resources = CosDictionary({
+        'Shading': CosDictionary({'S0': pattern['Shading']!}),
+      });
+      PdfInterpreter(cos: doc, device: device).run(
+        ContentStreamParser.parse(Uint8List.fromList('/S0 sh'.codeUnits)),
+        resources,
+      );
+      expect(device.gradients, isEmpty);
+      expect(device.meshes, hasLength(1));
+    });
   });
 
   group('soft masks and blend modes', () {

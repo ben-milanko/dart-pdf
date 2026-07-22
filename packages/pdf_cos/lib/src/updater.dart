@@ -70,25 +70,57 @@ class CosIncrementalUpdater {
   }
 
   /// Returns the full bytes of the updated file: original + appended update.
+  ///
+  /// Prefer [saveTail] in a session that keeps revisions as prefixes of one
+  /// growing buffer: this has to materialise the whole file again per call,
+  /// so an N-revision session copies O(file x N) bytes and `file` itself
+  /// grows with every revision.
   Uint8List save() {
+    final tail = saveTail();
+    return (BytesBuilder(copy: false)
+          ..add(document.bytes)
+          ..add(tail))
+        .takeBytes();
+  }
+
+  /// Returns **only the bytes to append** to [CosDocument.bytes] to form the
+  /// updated file - the incremental update section and nothing else.
+  ///
+  /// `save()` concatenates the whole original file with this tail on every
+  /// call. A caller that already holds the base bytes in a buffer it controls
+  /// (the editor keeps every revision as a length into one buffer) can append
+  /// this instead and pay only the tail, turning a per-revision O(file) copy
+  /// into an amortised append.
+  ///
+  /// The returned bytes are position-dependent: they are only valid appended
+  /// directly to this document's bytes, because the cross-reference offsets
+  /// inside them are computed against that base length.
+  Uint8List saveTail() {
     final t0 = PdfPerf.begin();
     try {
-      final saved = _saveTimed();
-      PdfPerf.add(PdfPerfCount.savedBytes, saved.length - document.bytes.length);
+      final tail = _saveTailTimed();
+      PdfPerf.add(PdfPerfCount.savedBytes, tail.length);
       PdfPerf.add(PdfPerfCount.savedObjects, _changed.length);
-      return saved;
+      return tail;
     } finally {
       PdfPerf.end(PdfPerfPhase.saveIncremental, t0);
     }
   }
 
-  Uint8List _saveTimed() {
-    final out = BytesBuilder(copy: false)..add(document.bytes);
+  Uint8List _saveTailTimed() {
+    // The tail is built on its own, so every offset written into it has to be
+    // biased by the base file it will be appended to. `base` counts only the
+    // bytes NOT in this builder - the separator below goes into `out`, so it
+    // is already carried by `out.length` and must not be counted twice.
+    final out = BytesBuilder(copy: false);
+    final base = document.bytes.length;
     final last = document.bytes.isEmpty ? 0x0A : document.bytes.last;
     if (last != 0x0A && last != 0x0D) out.addByte(0x0A);
 
-    // xref offsets are relative to the %PDF- header, which may not be byte 0
-    final shift = document.headerOffset;
+    // xref offsets are relative to the %PDF- header, which may not be byte 0.
+    // Folding `base` in here keeps every `out.length - shift` below reading
+    // exactly as it did when the whole file was in the builder.
+    final shift = document.headerOffset - base;
     final offsets = <int, int>{};
     final serializer = CosSerializer(out);
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../l10n/pdf_l10n.dart';
 import 'signing_identity_store.dart';
 
 /// Shows the "Create signing identity" dialog: the user enters a name (and
@@ -108,31 +109,34 @@ class _CreateSigningIdentityFormState extends State<CreateSigningIdentityForm> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Create signing identity', style: theme.textTheme.titleLarge),
+            Text(pdfL10n(context).signIdTitle,
+                style: theme.textTheme.titleLarge),
             const SizedBox(height: 12),
             TextFormField(
               controller: _name,
               autofocus: true,
-              decoration: const InputDecoration(
-                labelText: 'Name',
-                hintText: 'Your name, as it should appear on the signature',
+              decoration: InputDecoration(
+                labelText: pdfL10n(context).signIdName,
+                hintText: pdfL10n(context).signIdNameHint,
               ),
               textInputAction: TextInputAction.next,
-              validator: (value) =>
-                  (value == null || value.trim().isEmpty) ? 'Enter a name' : null,
+              validator: (value) => (value == null || value.trim().isEmpty)
+                  ? pdfL10n(context).signIdNameRequired
+                  : null,
             ),
             const SizedBox(height: 8),
             TextFormField(
               controller: _email,
-              decoration: const InputDecoration(labelText: 'Email (optional)'),
+              decoration:
+                  InputDecoration(labelText: pdfL10n(context).signIdEmail),
               keyboardType: TextInputType.emailAddress,
               textInputAction: TextInputAction.next,
             ),
             const SizedBox(height: 8),
             TextFormField(
               controller: _organization,
-              decoration:
-                  const InputDecoration(labelText: 'Organization (optional)'),
+              decoration: InputDecoration(
+                  labelText: pdfL10n(context).signIdOrganization),
               textInputAction: TextInputAction.done,
               onFieldSubmitted: (_) => _create(),
             ),
@@ -151,10 +155,7 @@ class _CreateSigningIdentityFormState extends State<CreateSigningIdentityForm> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'This creates a self-signed identity. Signatures will '
-                      'read as "signed, validity unknown" in Adobe Acrobat and '
-                      'other readers - the same as their own self-signed IDs. '
-                      'The green checkmark requires a paid, publicly trusted CA.',
+                      pdfL10n(context).signIdSelfSignedInfo,
                       style: theme.textTheme.bodySmall,
                     ),
                   ),
@@ -168,7 +169,7 @@ class _CreateSigningIdentityFormState extends State<CreateSigningIdentityForm> {
                 TextButton(
                   onPressed:
                       _busy ? null : () => Navigator.of(context).maybePop(),
-                  child: const Text('Cancel'),
+                  child: Text(pdfL10n(context).cancel),
                 ),
                 const SizedBox(width: 8),
                 FilledButton(
@@ -179,7 +180,7 @@ class _CreateSigningIdentityFormState extends State<CreateSigningIdentityForm> {
                           height: 18,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Text('Create'),
+                      : Text(pdfL10n(context).signIdCreate),
                 ),
               ],
             ),

@@ -60,6 +60,42 @@ Uint8List buildEmptySigFieldPdf() {
   return ascii(buffer.toString());
 }
 
+/// A one-page PDF whose AcroForm /Fields is an *indirect* array (object 7),
+/// holding one existing text field. Signing this without reusing a field
+/// creates a new signature field and must append it to that indirect array.
+Uint8List buildIndirectFieldsPdf() {
+  const content = 'BT /F1 24 Tf 72 720 Td (Fill in) Tj ET';
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields 7 0 R '
+        '/SigFlags 3 >> >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R '
+        '/Resources << /Font << /F1 5 0 R >> >> /Annots [6 0 R] >>',
+    '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    '<< /FT /Tx /T (Name) /Type /Annot /Subtype /Widget '
+        '/Rect [100 100 300 150] /F 4 /P 3 0 R >>',
+    '[6 0 R]', // the indirect /Fields array
+  ];
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${objects.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return ascii(buffer.toString());
+}
+
 /// The decoded content of a field's /AP /N appearance form, or null.
 String? appearanceContent(PdfDocument doc, PdfFormField field) {
   final widget = field.widgets.first;
@@ -539,6 +575,32 @@ void main() {
           .single
           .validate(trustStore: PdfTrustStore());
       expect(empty.chainTrusted, isFalse);
+    });
+  });
+
+  group('indirect AcroForm /Fields array', () {
+    test('a new signature field is appended when /Fields is indirect', () {
+      // Regression for the in-place mutation of a resolved indirect /Fields
+      // array: the added field object was never re-serialised, so the new
+      // signature was dropped from the AcroForm on save.
+      final editor = PdfEditor(PdfDocument.open(buildIndirectFieldsPdf()));
+      final signed = editor.saveSigned(
+        privateKey: key,
+        certificates: [cert],
+        signingTime: signedAt,
+      );
+      final doc = PdfDocument.open(signed);
+
+      final acroForm = doc.cos.resolve(doc.catalog['AcroForm']);
+      expect(acroForm, isA<CosDictionary>());
+      final fields =
+          doc.cos.resolve((acroForm as CosDictionary)['Fields']);
+      expect(fields, isA<CosArray>());
+      // both the original text field and the new signature field are present
+      expect((fields as CosArray).items, hasLength(2));
+
+      final signature = PdfSignature.of(doc).single;
+      expect(signature.validate().intact, isTrue);
     });
   });
 }

@@ -102,7 +102,7 @@ if [[ -f "$MAIN_JS" ]]; then
   fi
 fi
 
-asset_worker_path="assets/packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js"
+asset_worker_path="assets/packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js"
 asset_worker="$BUILD_DIR/$asset_worker_path"
 if [[ -f "$asset_worker" ]]; then
   hash="$(hash_file "$asset_worker")"

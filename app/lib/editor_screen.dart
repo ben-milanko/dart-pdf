@@ -22,6 +22,7 @@ import 'image_export.dart';
 import 'incoming_file.dart';
 import 'keyless_identity_cache.dart';
 import 'keyless_signing.dart';
+import 'l10n/app_l10n.dart';
 import 'new_document.dart';
 import 'ocr.dart';
 import 'pdf_cache.dart';
@@ -69,6 +70,7 @@ class EditorScreen extends StatefulWidget {
     this.onNewWindow,
     this.initialHandoff,
     this.persistSession = true,
+    this.textClipboardReader,
   });
 
   final PdfEditingPreferences prefs;
@@ -162,6 +164,12 @@ class EditorScreen extends StatefulWidget {
   /// session; additional multi-window instances pass `false` so they start
   /// empty and don't race the primary on the shared store. Defaults to true.
   final bool persistSession;
+
+  /// Override for reading text from the system clipboard. Tests inject a fake;
+  /// production falls back to [readTextFromClipboard] (which on the web reads
+  /// through the browser Async Clipboard API instead of Flutter's unreliable
+  /// `Clipboard.getData`).
+  final TextClipboardReader? textClipboardReader;
 
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -268,7 +276,8 @@ class _EditorScreenState extends State<EditorScreen>
     final messenger = ScaffoldMessenger.of(context);
     messenger.showMaterialBanner(MaterialBanner(
       key: const ValueKey('update-available-banner'),
-      content: Text('DartPDF ${release.version} is available.'),
+      content: Text(
+          appL10n(context).editorUpdateAvailable(release.version.toString())),
       leading: const Icon(Icons.system_update_alt),
       actions: [
         TextButton(
@@ -276,7 +285,7 @@ class _EditorScreenState extends State<EditorScreen>
             messenger.hideCurrentMaterialBanner();
             unawaited(_updates.dismiss());
           },
-          child: const Text('Later'),
+          child: Text(appL10n(context).editorUpdateLater),
         ),
         FilledButton(
           key: const ValueKey('update-banner-download'),
@@ -285,7 +294,7 @@ class _EditorScreenState extends State<EditorScreen>
             final url = _updates.downloadUrl;
             if (url != null) unawaited(_openExternal(Uri.parse(url)));
           },
-          child: const Text('Download'),
+          child: Text(appL10n(context).editorDownload),
         ),
       ],
     ));
@@ -333,9 +342,7 @@ class _EditorScreenState extends State<EditorScreen>
     final dirty = _tabs.where((t) => t.isDirty).length;
     if (dirty == 0) return ui.AppExitResponse.exit;
     final proceed = await _confirmDiscard(
-      dirty == 1
-          ? 'A document has unsaved changes.'
-          : '$dirty documents have unsaved changes.',
+      appL10n(context).editorUnsavedChangesCount(dirty),
     );
     return proceed ? ui.AppExitResponse.exit : ui.AppExitResponse.cancel;
   }
@@ -475,8 +482,9 @@ class _EditorScreenState extends State<EditorScreen>
       final path = tab.originPath;
       final cachePath = tab.cachePath;
       // Track by the writable origin (desktop) or the private snapshot
-      // (mobile); tabs with neither (web, or a derived/comparison tab) can't
-      // be read back and are skipped.
+      // (mobile file cache / web IndexedDB); tabs with neither (a derived or
+      // comparison tab, or a web pick whose snapshot failed) can't be read back
+      // and are skipped.
       final key = (path != null && path.isNotEmpty) ? path : cachePath;
       if (key == null || key.isEmpty || !seen.add(key)) continue;
       documents.add(SessionDocument(
@@ -593,12 +601,20 @@ class _EditorScreenState extends State<EditorScreen>
       originPath: originPath,
       originBookmark: originBookmark,
     );
+    AppDevTools.instance.addLog(
+        'open-trace: "$title" placeholder shown, awaiting bytes '
+        '(defer=$defer, path=${originPath ?? "-"})');
     try {
       final bytes = await bytesFuture;
+      AppDevTools.instance.addLog(
+          'open-trace: "$title" bytes ready — ${bytes.length} B; '
+          'waiting for end of frame');
       // Let the loading tab paint before constructing the edit session, which
       // synchronously opens the PDF and can be noticeable for large files.
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return;
+      AppDevTools.instance.addLog(
+          'open-trace: "$title" building ${defer ? "deferred tab" : "session"}');
       // A batch open ([defer]) parses only the tab the user lands on; the
       // rest stay unparsed until first activated (see _materializeDeferred),
       // so opening many large files no longer stalls on every one at once.
@@ -617,6 +633,8 @@ class _EditorScreenState extends State<EditorScreen>
               originBookmark: originBookmark,
             );
       final opened = _replaceLoadingTab(loading, tab);
+      AppDevTools.instance.addLog(
+          'open-trace: "$title" tab ${opened ? "shown" : "replace-skipped"}');
       if (opened) {
         // With a reusable file origin (desktop) or no writable store (web),
         // record the recent right away. Without one (mobile), snapshot the
@@ -635,7 +653,8 @@ class _EditorScreenState extends State<EditorScreen>
         loading,
         DocumentTab.error(
           title: errorTitle ?? title,
-          error: 'Could not open ${errorTitle ?? title}\n$e',
+          error: appL10n(context)
+              .editorCouldNotOpenDetail(errorTitle ?? title, '$e'),
         ),
       );
     }
@@ -674,6 +693,9 @@ class _EditorScreenState extends State<EditorScreen>
       final index = _tabs.indexOf(tab);
       final bytes = tab.deferredBytes;
       if (index == -1 || bytes == null) return;
+      AppDevTools.instance.addLog(
+          'open-trace: materializing deferred "${tab.title}" '
+          '— building session over ${bytes.length} B');
       final built = DocumentTab.document(
         title: tab.title,
         bytes: bytes,
@@ -683,6 +705,8 @@ class _EditorScreenState extends State<EditorScreen>
         cachePath: tab.cachePath,
       );
       setState(() => _tabs[index] = built);
+      AppDevTools.instance.addLog(
+          'open-trace: materialized deferred "${tab.title}" — session ready');
       tab.dispose();
       unawaited(_persistSession());
     });
@@ -908,7 +932,8 @@ class _EditorScreenState extends State<EditorScreen>
         if (index == -1) return;
         setState(() => _tabs[index] = DocumentTab.error(
               title: preview.title,
-              error: 'Could not open ${preview.title}\n$error2',
+              error: appL10n(context)
+                  .editorCouldNotOpenDetail(preview.title, '$error2'),
             ));
         preview.dispose();
       }
@@ -996,13 +1021,15 @@ class _EditorScreenState extends State<EditorScreen>
         loading,
         DocumentTab.error(
           title: title,
-          error: 'Could not open $title\n$error',
+          error: appL10n(context).editorCouldNotOpenDetail(title, '$error'),
         ),
       );
     }
   }
 
   Future<void> _pickAndOpen() async {
+    // Resolve error-toast strings before the async gaps below.
+    final l10n = appL10n(context);
     // On phones/tablets the OS picker copies the whole file into the sandbox
     // before the app sees a byte, paying the full cloud transport up front
     // (#364). Prefer the reference picker there: it keeps the original file so
@@ -1017,7 +1044,8 @@ class _EditorScreenState extends State<EditorScreen>
         // Older runner without the mobile_file channel - fall through to the
         // copy-based picker below.
       } catch (e) {
-        _openError('Open failed', 'Could not open the selected file\n$e');
+        _openError(l10n.editorOpenFailedTitle,
+            l10n.editorCouldNotOpenSelected('$e'));
         return;
       }
     }
@@ -1038,6 +1066,16 @@ class _EditorScreenState extends State<EditorScreen>
           await _openProgressive(
               title: file.name, path: path!, bookmark: bookmark);
         } else {
+          // Probe the pick's declared size before the read, so a stalled
+          // readAsBytes shows up as "size known, bytes never ready".
+          int? pickLength;
+          try {
+            pickLength = await file.length();
+          } catch (_) {}
+          AppDevTools.instance.addLog(
+              'open-trace: picked "${file.name}" '
+              '(declared ${pickLength ?? "?"} B, path=${path ?? "-"}); '
+              'starting readAsBytes');
           await _openLoadedBytes(
             file.readAsBytes(),
             title: file.name,
@@ -1048,7 +1086,8 @@ class _EditorScreenState extends State<EditorScreen>
         }
       }
     } catch (e) {
-      _openError('Open failed', 'Could not open the selected file\n$e');
+      _openError(l10n.editorOpenFailedTitle,
+          l10n.editorCouldNotOpenSelected('$e'));
     }
   }
 
@@ -1216,14 +1255,12 @@ class _EditorScreenState extends State<EditorScreen>
     }
     if (!mounted) return;
     if (inserted == 0) {
-      _toast(
-          'Could not insert the dropped ${pdfs.length == 1 ? 'PDF' : 'PDFs'}');
+      _toast(appL10n(context).editorCouldNotInsertDropped(pdfs.length));
     } else if (failed.isEmpty) {
-      _toast(inserted == 1
-          ? 'Inserted pages into $title'
-          : 'Inserted $inserted PDFs into $title');
+      _toast(appL10n(context).editorInsertedIntoTitle(inserted, title));
     } else {
-      _toast('Inserted $inserted; could not read ${failed.join(', ')}');
+      _toast(appL10n(context)
+          .editorInsertedButFailed(inserted, failed.join(', ')));
     }
   }
 
@@ -1231,29 +1268,26 @@ class _EditorScreenState extends State<EditorScreen>
   /// new tabs or have their pages inserted into the current document. Returns
   /// null when cancelled.
   Future<_DropAction?> _promptDropAction(int count, String title) {
-    final noun = count == 1 ? 'this PDF' : 'these $count PDFs';
-    final pages = count == 1 ? 'its pages' : 'their pages';
     return showDialog<_DropAction>(
       context: context,
       builder: (context) => AlertDialog(
         key: const ValueKey('drop-action-dialog'),
-        title: Text('Add dropped ${count == 1 ? 'PDF' : 'PDFs'}'),
-        content: Text('Open $noun in a new tab, or insert $pages into '
-            '"$title"?'),
+        title: Text(appL10n(context).editorAddDroppedTitle(count)),
+        content: Text(appL10n(context).editorAddDroppedMessage(count, title)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
+            child: Text(appL10n(context).cancel),
           ),
           TextButton(
             key: const ValueKey('drop-action-open'),
             onPressed: () => Navigator.of(context).pop(_DropAction.open),
-            child: Text(count == 1 ? 'Open in new tab' : 'Open in new tabs'),
+            child: Text(appL10n(context).editorOpenInNewTab(count)),
           ),
           FilledButton(
             key: const ValueKey('drop-action-insert'),
             onPressed: () => Navigator.of(context).pop(_DropAction.insert),
-            child: const Text('Insert pages'),
+            child: Text(appL10n(context).editorInsertPages),
           ),
         ],
       ),
@@ -1281,7 +1315,7 @@ class _EditorScreenState extends State<EditorScreen>
         onOpenFailed: (_) {
           unawaited(_recents.remove(entry.id));
           _pruneRecentCache();
-          _toast('Could not reopen ${entry.title}');
+          _toast(appL10n(context).editorCouldNotReopen(entry.title));
         },
       );
       return;
@@ -1322,10 +1356,10 @@ class _EditorScreenState extends State<EditorScreen>
         loading,
         DocumentTab.error(
           title: entry.title,
-          error: 'Could not open ${entry.title}\n$e',
+          error: appL10n(context).editorCouldNotOpenDetail(entry.title, '$e'),
         ),
       );
-      _toast('Could not reopen ${entry.title}');
+      _toast(appL10n(context).editorCouldNotReopen(entry.title));
     }
   }
 
@@ -1348,7 +1382,7 @@ class _EditorScreenState extends State<EditorScreen>
   void _openMostRecent() {
     final recents = _recentMenuEntries();
     if (recents.isEmpty) {
-      _toast('No recent files');
+      _toast(appL10n(context).editorNoRecentFiles);
       return;
     }
     unawaited(_openRecent(recents.first));
@@ -1360,19 +1394,21 @@ class _EditorScreenState extends State<EditorScreen>
     final tab = _active;
     final current = tab?.session?.bytes;
     if (current == null) return;
+    final l10n = appL10n(context);
     try {
       final other = await pickPdfBytes();
       if (other == null) return;
       setState(() {
         _tabs.add(DocumentTab.comparison(
-          title: 'Compare: ${tab!.title}',
+          title: l10n.editorCompareTitle(tab!.title),
           before: current,
           after: other,
         ));
         _activeIndex = _tabs.length - 1;
       });
     } catch (e) {
-      _openError('Compare failed', 'Could not open the second file\n$e');
+      _openError(l10n.editorCompareFailedTitle,
+          l10n.editorCouldNotOpenSecond('$e'));
     }
   }
 
@@ -1385,7 +1421,7 @@ class _EditorScreenState extends State<EditorScreen>
     final tab = _active;
     final bytes = tab?.session?.bytes;
     if (tab == null || bytes == null) {
-      _toast('Open a document before running OCR');
+      _toast(appL10n(context).editorOpenDocBeforeOcr);
       return;
     }
     // Snapshot the title now - the source tab may be closed before OCR ends.
@@ -1398,7 +1434,9 @@ class _EditorScreenState extends State<EditorScreen>
         if (mounted) _toast(message);
       },
       onComplete: (result) {
-        if (mounted) _openBytes(result, '$title (OCR)');
+        if (mounted) {
+          _openBytes(result, appL10n(context).editorOcrTitle(title));
+        }
       },
     );
   }
@@ -1415,9 +1453,7 @@ class _EditorScreenState extends State<EditorScreen>
     final dirty = targets.where((t) => t.isDirty).length;
     if (dirty > 0) {
       final ok = await _confirmDiscard(
-        dirty == 1
-            ? 'A document has unsaved changes.'
-            : '$dirty documents have unsaved changes.',
+        appL10n(context).editorUnsavedChangesCount(dirty),
       );
       if (!ok || !mounted) return;
     }
@@ -1479,7 +1515,15 @@ class _EditorScreenState extends State<EditorScreen>
   /// Opens the right-click context menu for the tab at [index] at [position]
   /// (global coordinates), offering Close / Close others / Close to the right /
   /// Close all. Entries that would close nothing are disabled.
-  Future<void> _showTabMenu(int index, Offset position) async {
+  ///
+  /// [onChanged] runs after the chosen action resolves; the tabs-grid overlay
+  /// passes it to refresh (or dismiss itself once the last tab is gone), since
+  /// the modal grid does not rebuild off the screen's own [setState].
+  Future<void> _showTabMenu(
+    int index,
+    Offset position, {
+    VoidCallback? onChanged,
+  }) async {
     final tab = _tabs[index];
     final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
     final selected = await showMenu<_TabMenuAction>(
@@ -1513,28 +1557,28 @@ class _EditorScreenState extends State<EditorScreen>
           key: const ValueKey('tab-menu-close'),
           height: _appMenuItemHeight(),
           value: _TabMenuAction.close,
-          child: const Text('Close'),
+          child: Text(appL10n(context).close),
         ),
         PopupMenuItem(
           key: const ValueKey('tab-menu-close-others'),
           height: _appMenuItemHeight(),
           value: _TabMenuAction.closeOthers,
           enabled: _tabs.length > 1,
-          child: const Text('Close others'),
+          child: Text(appL10n(context).editorCloseOthers),
         ),
         PopupMenuItem(
           key: const ValueKey('tab-menu-close-right'),
           height: _appMenuItemHeight(),
           value: _TabMenuAction.closeRight,
           enabled: index < _tabs.length - 1,
-          child: const Text('Close tabs to the right'),
+          child: Text(appL10n(context).editorCloseTabsToRight),
         ),
         const PopupMenuDivider(),
         PopupMenuItem(
           key: const ValueKey('tab-menu-close-all'),
           height: _appMenuItemHeight(),
           value: _TabMenuAction.closeAll,
-          child: const Text('Close all'),
+          child: Text(appL10n(context).editorCloseAll),
         ),
       ],
     );
@@ -1546,7 +1590,9 @@ class _EditorScreenState extends State<EditorScreen>
     switch (selected) {
       case _TabMenuAction.openFolder:
         final opened = await openContainingFolder(tab.originPath);
-        if (!opened && mounted) _toast('Could not open containing folder');
+        if (!opened && mounted) {
+          _toast(appL10n(context).editorCouldNotOpenFolder);
+        }
       case _TabMenuAction.moveToNewWindow:
         _moveTabToNewWindow(tab);
       case _TabMenuAction.close:
@@ -1558,22 +1604,23 @@ class _EditorScreenState extends State<EditorScreen>
       case _TabMenuAction.closeAll:
         await _closeTabs(List.of(_tabs));
     }
+    onChanged?.call();
   }
 
   Future<bool> _confirmDiscard(String message) async {
     final result = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Discard changes?'),
+        title: Text(appL10n(context).editorDiscardChangesTitle),
         content: Text(message),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+            child: Text(appL10n(context).cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Discard'),
+            child: Text(appL10n(context).editorDiscard),
           ),
         ],
       ),
@@ -1729,9 +1776,11 @@ class _EditorScreenState extends State<EditorScreen>
       // Offer an immediate undo, in case the signature was placed by accident.
       if (mounted && _tabs.contains(tab)) _offerSignatureUndo(tab);
     } on FormatException catch (error) {
-      if (mounted) _toast('Could not digitally sign: ${error.message}');
+      if (mounted) {
+        _toast(appL10n(context).editorCouldNotSign(error.message));
+      }
     } catch (error) {
-      if (mounted) _toast('Could not digitally sign: $error');
+      if (mounted) _toast(appL10n(context).editorCouldNotSign('$error'));
     } finally {
       if (mounted) setState(() => _digitallySigning = false);
     }
@@ -1745,12 +1794,12 @@ class _EditorScreenState extends State<EditorScreen>
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
       ..showSnackBar(SnackBar(
-        content: const Text('Document digitally signed'),
+        content: Text(appL10n(context).editorDocumentSigned),
         behavior: SnackBarBehavior.floating,
         margin: pdfFloatingToastMargin(context),
         duration: const Duration(seconds: 6),
         action: SnackBarAction(
-          label: 'Undo',
+          label: appL10n(context).undo,
           onPressed: () => unawaited(_undoSignature(tab)),
         ),
       ));
@@ -1764,7 +1813,7 @@ class _EditorScreenState extends State<EditorScreen>
     session.undo();
     if (!mounted || !_tabs.contains(tab)) return;
     await _save(tab);
-    if (mounted) _toast('Signature removed');
+    if (mounted) _toast(appL10n(context).editorSignatureRemoved);
   }
 
   /// Hands the active document to the OS print dialog (the `printing` plugin -
@@ -1782,7 +1831,7 @@ class _EditorScreenState extends State<EditorScreen>
         await _printWithProgress(bytes, tab.title);
       }
     } catch (_) {
-      if (mounted) _toast('Could not print ${tab.title}');
+      if (mounted) _toast(appL10n(context).editorCouldNotPrint(tab.title));
     }
   }
 
@@ -1872,7 +1921,7 @@ class _EditorScreenState extends State<EditorScreen>
           await saveImageBytesAs(context, bytes, name, options.format.mimeType);
       if (result.message != null) _toast(result.message!);
     } catch (_) {
-      if (mounted) _toast('Could not export ${tab.title}');
+      if (mounted) _toast(appL10n(context).editorCouldNotExport(tab.title));
     }
   }
 
@@ -1899,7 +1948,7 @@ class _EditorScreenState extends State<EditorScreen>
     try {
       return await importCustomStamps();
     } catch (e) {
-      if (mounted) _toast('Could not import stamps: $e');
+      if (mounted) _toast(appL10n(context).editorCouldNotImportStamps('$e'));
       return null;
     }
   }
@@ -1915,14 +1964,14 @@ class _EditorScreenState extends State<EditorScreen>
         if (parsed != null) {
           unawaited(_openExternal(parsed));
         } else {
-          _toast('Invalid link: $uri');
+          _toast(appL10n(context).editorInvalidLink(uri));
         }
       case PdfNamedAction(:final name):
-        _toast('Named action: $name');
+        _toast(appL10n(context).editorNamedAction(name));
       case PdfJavaScriptAction():
-        _toast('This document tried to run JavaScript (ignored)');
+        _toast(appL10n(context).editorJavaScriptIgnored);
       case PdfUnknownAction(:final type):
-        _toast('Unsupported action: $type');
+        _toast(appL10n(context).editorUnsupportedAction(type));
       case PdfGoToAction():
         break; // unreachable - handled by the viewer
     }
@@ -1930,7 +1979,7 @@ class _EditorScreenState extends State<EditorScreen>
 
   Future<void> _openExternal(Uri url) async {
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-      if (mounted) _toast('Could not open $url');
+      if (mounted) _toast(appL10n(context).editorCouldNotOpenUrl('$url'));
     }
   }
 
@@ -1940,11 +1989,11 @@ class _EditorScreenState extends State<EditorScreen>
     if (contents == null || contents.isEmpty) return const [];
     return [
       PdfAnnotationMenuItem(
-        label: 'Copy text',
+        label: appL10n(context).editorCopyText,
         icon: Icons.copy_outlined,
         onSelected: (request) {
           Clipboard.setData(ClipboardData(text: contents));
-          _toast('Annotation text copied');
+          _toast(appL10n(context).editorAnnotationTextCopied);
         },
       ),
     ];
@@ -2050,7 +2099,7 @@ class _EditorScreenState extends State<EditorScreen>
         padding: EdgeInsets.zero,
         child: PopupMenuButton<VoidCallback>(
           key: const ValueKey('open-recent-submenu'),
-          tooltip: 'Open Recent',
+          tooltip: appL10n(context).editorOpenRecent,
           onSelected: (action) {
             action();
             if (Navigator.of(menuContext).canPop()) {
@@ -2064,7 +2113,7 @@ class _EditorScreenState extends State<EditorScreen>
                 enabled: false,
                 child: _appMenuTile(
                   icon: Icons.history_toggle_off,
-                  title: 'No recent files',
+                  title: appL10n(context).editorNoRecentFiles,
                 ),
               )
             else ...[
@@ -2074,7 +2123,9 @@ class _EditorScreenState extends State<EditorScreen>
                   value: () => unawaited(_openRecent(entry)),
                   child: _appMenuTile(
                     icon: Icons.picture_as_pdf_outlined,
-                    title: entry.title.isEmpty ? 'Untitled' : entry.title,
+                    title: entry.title.isEmpty
+                        ? appL10n(context).editorUntitled
+                        : entry.title,
                     overflow: TextOverflow.ellipsis,
                     subtitle: entry.path == null
                         ? null
@@ -2091,7 +2142,7 @@ class _EditorScreenState extends State<EditorScreen>
                 value: () => unawaited(_recents.clear()),
                 child: _appMenuTile(
                   icon: Icons.clear_all,
-                  title: 'Clear recent files',
+                  title: appL10n(context).editorClearRecentFiles,
                 ),
               ),
             ],
@@ -2104,7 +2155,7 @@ class _EditorScreenState extends State<EditorScreen>
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: _appMenuTile(
               icon: Icons.history,
-              title: 'Open Recent',
+              title: appL10n(context).editorOpenRecent,
               trailing: trailing,
             ),
           ),
@@ -2122,7 +2173,7 @@ class _EditorScreenState extends State<EditorScreen>
           value: () => unawaited(_newDocument()),
           child: _appMenuTile(
             icon: Icons.note_add_outlined,
-            title: 'New document…',
+            title: appL10n(context).editorMenuNewDocument,
             shortcut: _menuShortcut('N'),
           ),
         ),
@@ -2143,7 +2194,7 @@ class _EditorScreenState extends State<EditorScreen>
           value: () => unawaited(_pickAndOpen()),
           child: _appMenuTile(
             icon: Icons.folder_open,
-            title: 'Open a PDF…',
+            title: appL10n(context).editorMenuOpen,
             shortcut: _menuShortcut('O'),
           ),
         ),
@@ -2156,7 +2207,7 @@ class _EditorScreenState extends State<EditorScreen>
             value: () => _save(tab!, saveAs: true),
             child: _appMenuTile(
               icon: Icons.save_as_outlined,
-              title: 'Save as…',
+              title: appL10n(context).editorMenuSaveAs,
               shortcut: _menuShortcut('S', shift: true),
             ),
           ),
@@ -2167,8 +2218,9 @@ class _EditorScreenState extends State<EditorScreen>
             value: () => unawaited(_digitallySign(tab!)),
             child: _appMenuTile(
               icon: Icons.verified_user_outlined,
-              title:
-                  _digitallySigning ? 'Digitally signing…' : 'Digitally sign…',
+              title: _digitallySigning
+                  ? appL10n(context).editorMenuDigitallySigning
+                  : appL10n(context).editorMenuDigitallySign,
             ),
           ),
           PopupMenuItem(
@@ -2177,7 +2229,7 @@ class _EditorScreenState extends State<EditorScreen>
             value: () => unawaited(_print(tab!)),
             child: _appMenuTile(
               icon: Icons.print_outlined,
-              title: 'Print…',
+              title: appL10n(context).editorMenuPrint,
               shortcut: _menuShortcut('P'),
             ),
           ),
@@ -2187,7 +2239,7 @@ class _EditorScreenState extends State<EditorScreen>
             value: () => unawaited(_exportImage(tab!)),
             child: _appMenuTile(
               icon: Icons.image_outlined,
-              title: 'Export page as image…',
+              title: appL10n(context).editorMenuExportImage,
             ),
           ),
           PopupMenuItem(
@@ -2195,7 +2247,7 @@ class _EditorScreenState extends State<EditorScreen>
             value: _compareWith,
             child: _appMenuTile(
               icon: Icons.compare_arrows,
-              title: 'Compare with…',
+              title: appL10n(context).editorMenuCompareWith,
             ),
           ),
           PopupMenuItem(
@@ -2203,7 +2255,9 @@ class _EditorScreenState extends State<EditorScreen>
             value: () => setState(() => _readOnly = !_readOnly),
             child: _appMenuTile(
               icon: _readOnly ? Icons.edit : Icons.edit_off,
-              title: _readOnly ? 'Switch to edit mode' : 'Switch to read-only',
+              title: _readOnly
+                  ? appL10n(context).editorMenuSwitchToEdit
+                  : appL10n(context).editorMenuSwitchToReadOnly,
             ),
           ),
           if (OnDeviceOcr.isSupported)
@@ -2213,7 +2267,7 @@ class _EditorScreenState extends State<EditorScreen>
               value: () => unawaited(_runOcr()),
               child: _appMenuTile(
                 icon: Icons.document_scanner_outlined,
-                title: 'OCR…',
+                title: appL10n(context).editorMenuOcr,
               ),
             ),
           const PopupMenuDivider(),
@@ -2229,7 +2283,7 @@ class _EditorScreenState extends State<EditorScreen>
           ),
           child: _appMenuTile(
             icon: Icons.settings_outlined,
-            title: 'Settings',
+            title: appL10n(context).editorMenuSettings,
           ),
         ),
       ];
@@ -2302,31 +2356,55 @@ class _EditorScreenState extends State<EditorScreen>
             setState(() => _dragging = false);
             _onFilesDropped(detail.files);
           },
-          child: Stack(
-            children: [
-              // The devtools panel docks beside the body (like the editor's
-              // own sidebars), so the viewer relays out narrower instead of
-              // being overlaid - zoom and scroll gestures keep their space.
-              Positioned.fill(
-                child: Row(
-                  children: [
-                    Expanded(child: _buildBody(tab)),
-                    if (_devToolsOpen && kDevToolsEnabled)
-                      DevToolsPanel(
-                        onClose: _toggleDevTools,
-                        session: tab?.session,
-                      ),
-                  ],
-                ),
-              ),
-              if (_dragging)
+          child: Builder(builder: (context) {
+            final compactDevTools = _isCompactWidth(context);
+            return Stack(
+              children: [
+                // On wide screens the devtools panel docks beside the body
+                // (like the editor's own sidebars), so the viewer relays out
+                // narrower instead of being overlaid - zoom and scroll
+                // gestures keep their space. On phones there is no room for a
+                // side dock, so it rides up as a bottom sheet instead (below).
                 Positioned.fill(
-                  child: _DropOverlay(
-                    canInsert: tab?.session != null && !_readOnly,
+                  child: Row(
+                    children: [
+                      Expanded(child: _devToolsPointerLog(_buildBody(tab))),
+                      if (_devToolsOpen &&
+                          kDevToolsEnabled &&
+                          !compactDevTools)
+                        DevToolsPanel(
+                          onClose: _toggleDevTools,
+                          session: tab?.session,
+                        ),
+                    ],
                   ),
                 ),
-            ],
-          ),
+                if (_dragging)
+                  Positioned.fill(
+                    child: _DropOverlay(
+                      canInsert: tab?.session != null && !_readOnly,
+                    ),
+                  ),
+                // Phone devtools: a bottom sheet over the viewer. Scrim-less,
+                // so the page underneath still takes gestures (matching the
+                // docked panel, which never blocked the viewer either).
+                if (_devToolsOpen && kDevToolsEnabled && compactDevTools)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: SafeArea(
+                      top: false,
+                      child: DevToolsPanel(
+                        onClose: _toggleDevTools,
+                        session: tab?.session,
+                        bottomSheet: true,
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          }),
         ),
       ),
     );
@@ -2408,6 +2486,8 @@ class _EditorScreenState extends State<EditorScreen>
       imagePicker: (context) => pickImageBytes(),
       systemImagePasteProvider: (context) =>
           (widget.imageClipboardReader ?? readImageFromClipboard)(),
+      systemTextPasteProvider: (context) =>
+          (widget.textClipboardReader ?? readTextFromClipboard)(),
       onExportSelectedContentImage: (context, image) =>
           _exportSelectedContentImage(context, tab, image),
       onExportCustomStamps: _exportCustomStamps,
@@ -2419,8 +2499,8 @@ class _EditorScreenState extends State<EditorScreen>
         onResult: (copied) {
           if (!mounted) return;
           _toast(copied
-              ? 'Snapshot copied to clipboard'
-              : 'Could not copy snapshot to clipboard');
+              ? appL10n(context).editorSnapshotCopied
+              : appL10n(context).editorSnapshotCopyFailed);
         },
       ),
       // The signature-box tool: drag a box, then pick an identity and
@@ -2448,11 +2528,11 @@ class _EditorScreenState extends State<EditorScreen>
               ? const SizedBox.shrink()
               : IconButton(
                   icon: const Icon(Icons.copy),
-                  tooltip: 'Copy selected text (⌘C)',
+                  tooltip: appL10n(context).editorCopySelectedTextTooltip,
                   onPressed: () async {
                     await tab.viewer!.copySelection();
                     if (!context.mounted) return;
-                    _toast('Copied to clipboard');
+                    _toast(appL10n(context).editorCopiedToClipboard);
                   },
                 ),
         ),
@@ -2468,7 +2548,7 @@ class _EditorScreenState extends State<EditorScreen>
               padding: const EdgeInsets.symmetric(horizontal: 12),
             ),
             icon: const Icon(Icons.save_alt, size: 18),
-            label: const Text('Save'),
+            label: Text(appL10n(context).save),
             onPressed: () => unawaited(_save(tab!)),
           ),
         ),
@@ -2484,7 +2564,7 @@ class _EditorScreenState extends State<EditorScreen>
           height: _appMenuIconSize,
           semanticLabel: 'DartPDF',
         ),
-        tooltip: 'DartPDF menu',
+        tooltip: appL10n(context).editorAppMenuTooltip,
         onSelected: (action) => action(),
         itemBuilder: (context) => _appMenuItems(context, tab),
       );
@@ -2493,7 +2573,7 @@ class _EditorScreenState extends State<EditorScreen>
     if (!_isCompactWidth(context)) return _buildTabStrip();
     final tab = _active;
     return Text(
-      tab?.title.isEmpty ?? true ? 'Untitled' : tab!.title,
+      tab?.title.isEmpty ?? true ? appL10n(context).editorUntitled : tab!.title,
       overflow: TextOverflow.ellipsis,
     );
   }
@@ -2501,12 +2581,28 @@ class _EditorScreenState extends State<EditorScreen>
   bool _isCompactWidth(BuildContext context) =>
       MediaQuery.sizeOf(context).width < _mobileTabsBreakpoint;
 
+  /// Wraps the body in a passive [Listener] that feeds the devtools touch-input
+  /// log. It is not a gesture recognizer, so it never joins the arena and
+  /// cannot affect panning/zoom; the callbacks no-op unless the log is on.
+  /// Gated on [kDevToolsEnabled] so a stripped build carries no wrapper.
+  Widget _devToolsPointerLog(Widget body) {
+    if (!kDevToolsEnabled) return body;
+    final tools = AppDevTools.instance;
+    return Listener(
+      onPointerDown: tools.logPointerEvent,
+      onPointerMove: tools.logPointerEvent,
+      onPointerUp: tools.logPointerEvent,
+      onPointerCancel: tools.logPointerEvent,
+      child: body,
+    );
+  }
+
   Widget _buildMobileTabsButton() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 2),
       child: IconButton(
         key: const ValueKey('mobile-tabs-button'),
-        tooltip: 'Open tabs',
+        tooltip: appL10n(context).editorOpenTabs,
         icon: Badge(
           label: Text(
             '${_tabs.length}',
@@ -2585,14 +2681,14 @@ class _EditorScreenState extends State<EditorScreen>
             children: [
               Expanded(
                 child: Text(
-                  'Tabs',
+                  appL10n(overlayContext).editorTabs,
                   style: Theme.of(overlayContext).textTheme.titleMedium,
                 ),
               ),
               IconButton(
                 key: ValueKey('$keyPrefix-tabs-open'),
                 icon: const Icon(Icons.add),
-                tooltip: 'Open PDF in a new tab',
+                tooltip: appL10n(overlayContext).editorOpenPdfNewTab,
                 onPressed: () {
                   Navigator.of(overlayContext).pop();
                   unawaited(_pickAndOpen());
@@ -2616,6 +2712,17 @@ class _EditorScreenState extends State<EditorScreen>
             itemBuilder: (context, index) {
               final tab = _tabs[index];
               final selected = index == _activeIndex;
+              // Refresh the modal grid after a mutation (or dismiss it once no
+              // tabs remain); it does not rebuild off the screen's setState.
+              void refreshOverlay() {
+                if (!mounted || !overlayContext.mounted) return;
+                if (_tabs.isEmpty) {
+                  Navigator.of(overlayContext).pop();
+                } else {
+                  setOverlayState(() {});
+                }
+              }
+
               return _MobileTabTile(
                 key: ValueKey('$keyPrefix-tab-${tab.hashCode}'),
                 tab: tab,
@@ -2626,12 +2733,15 @@ class _EditorScreenState extends State<EditorScreen>
                 },
                 onClose: () async {
                   await _closeTabs([tab]);
-                  if (!mounted || !overlayContext.mounted) return;
-                  if (_tabs.isEmpty) {
-                    Navigator.of(overlayContext).pop();
-                  } else {
-                    setOverlayState(() {});
-                  }
+                  refreshOverlay();
+                },
+                onContextMenu: (position) {
+                  // Re-resolve by identity: the grid can reorder under us.
+                  final i = _tabs.indexOf(tab);
+                  if (i < 0) return;
+                  unawaited(
+                    _showTabMenu(i, position, onChanged: refreshOverlay),
+                  );
                 },
               );
             },
@@ -2640,7 +2750,7 @@ class _EditorScreenState extends State<EditorScreen>
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
           child: Text(
-            '${_tabs.length} open',
+            appL10n(overlayContext).editorTabsOpenCount(_tabs.length),
             style: Theme.of(overlayContext)
                 .textTheme
                 .labelMedium
@@ -2705,7 +2815,7 @@ class _EditorScreenState extends State<EditorScreen>
                   constraints:
                       const BoxConstraints.tightFor(width: buttonWidth),
                   icon: const Icon(Icons.add),
-                  tooltip: 'Open PDF in a new tab',
+                  tooltip: appL10n(context).editorOpenPdfNewTab,
                   onPressed: _pickAndOpen,
                 ),
               ),
@@ -2720,7 +2830,7 @@ class _EditorScreenState extends State<EditorScreen>
                   constraints:
                       const BoxConstraints.tightFor(width: buttonWidth),
                   icon: const Icon(Icons.grid_view),
-                  tooltip: 'View all tabs',
+                  tooltip: appL10n(context).editorViewAllTabs,
                   onPressed: _showTabsDialog,
                 ),
               ),
@@ -2738,7 +2848,7 @@ class _EditorScreenState extends State<EditorScreen>
     for (final tab in _tabs) {
       final painter = TextPainter(
         text: TextSpan(
-          text: tab.title.isEmpty ? 'Untitled' : tab.title,
+          text: tab.title.isEmpty ? appL10n(context).editorUntitled : tab.title,
           style: style,
         ),
         maxLines: 1,
@@ -2759,7 +2869,7 @@ class _EditorScreenState extends State<EditorScreen>
     final scheme = Theme.of(context).colorScheme;
     Widget label() {
       final text = Text(
-        tab.title.isEmpty ? 'Untitled' : tab.title,
+        tab.title.isEmpty ? appL10n(context).editorUntitled : tab.title,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
           fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
@@ -2822,7 +2932,7 @@ class _EditorScreenState extends State<EditorScreen>
                         minWidth: 30,
                         minHeight: 30,
                       ),
-                      tooltip: 'Close tab',
+                      tooltip: appL10n(context).editorCloseTab,
                       onPressed: () => _closeTab(index),
                     ),
                   ],
@@ -2845,7 +2955,7 @@ class _OpeningDocument extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Semantics(
-        label: 'Opening document',
+        label: appL10n(context).editorOpeningDocumentSemantic,
         liveRegion: true,
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -2853,7 +2963,9 @@ class _OpeningDocument extends StatelessWidget {
             const CircularProgressIndicator(),
             const SizedBox(height: 16),
             Text(
-              title.isEmpty ? 'Opening PDF…' : 'Opening $title…',
+              title.isEmpty
+                  ? appL10n(context).editorOpeningPdf
+                  : appL10n(context).editorOpeningTitle(title),
               textAlign: TextAlign.center,
             ),
           ],
@@ -2904,7 +3016,7 @@ class _ProgressivePreview extends StatelessWidget {
               // to the edit session is imminent.
               if (value >= 0.999) return const SizedBox.shrink();
               return Semantics(
-                label: 'Loading full document',
+                label: appL10n(context).editorLoadingFullDocument,
                 value: '${(value * 100).round()}%',
                 liveRegion: true,
                 child: LinearProgressIndicator(
@@ -3117,7 +3229,9 @@ class _DesktopTabPreviewCard extends StatelessWidget {
                   ),
                 Expanded(
                   child: Text(
-                    tab.title.isEmpty ? 'Untitled' : tab.title,
+                    tab.title.isEmpty
+                        ? appL10n(context).editorUntitled
+                        : tab.title,
                     key: const ValueKey('tab-hover-preview-title'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -3126,7 +3240,7 @@ class _DesktopTabPreviewCard extends StatelessWidget {
                 ),
                 if (tab.session != null)
                   Text(
-                    'Page ${pageIndex + 1}',
+                    appL10n(context).editorPageNumber(pageIndex + 1),
                     key: const ValueKey('tab-hover-preview-page'),
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
                           color: scheme.onSurfaceVariant,
@@ -3213,8 +3327,8 @@ class _DropOverlay extends StatelessWidget {
                   size: 40, color: scheme.primary),
               const SizedBox(height: 8),
               Text(canInsert
-                  ? 'Drop PDF to open or insert'
-                  : 'Drop PDF to open'),
+                  ? appL10n(context).editorDropToOpenOrInsert
+                  : appL10n(context).editorDropToOpen),
             ],
           ),
         ),
@@ -3235,7 +3349,7 @@ class _OcrStatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Tooltip(
-      message: 'OCR · ${status.title}',
+      message: appL10n(context).editorOcrTooltip(status.title),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4),
         child: Material(
@@ -3268,7 +3382,7 @@ class _OcrStatusChip extends StatelessWidget {
                   visualDensity: VisualDensity.compact,
                   iconSize: 18,
                   icon: const Icon(Icons.close),
-                  tooltip: 'Cancel OCR',
+                  tooltip: appL10n(context).editorCancelOcr,
                   onPressed: onCancel,
                 ),
               ],
@@ -3287,12 +3401,17 @@ class _MobileTabTile extends StatelessWidget {
     required this.selected,
     required this.onTap,
     required this.onClose,
+    this.onContextMenu,
   });
 
   final DocumentTab tab;
   final bool selected;
   final VoidCallback onTap;
   final VoidCallback onClose;
+
+  /// Opens the tab's context menu at the given global position (right-click on
+  /// desktop, long-press on touch). Null disables the affordance.
+  final void Function(Offset globalPosition)? onContextMenu;
 
   @override
   Widget build(BuildContext context) {
@@ -3319,6 +3438,18 @@ class _MobileTabTile extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
+        onSecondaryTapUp: onContextMenu == null
+            ? null
+            : (details) => onContextMenu!(details.globalPosition),
+        onLongPress: onContextMenu == null
+            ? null
+            : () {
+                // InkWell's long-press carries no position, so anchor the menu
+                // at the tile's centre (touch parity for the right-click menu).
+                final box = context.findRenderObject() as RenderBox?;
+                if (box == null || !box.hasSize) return;
+                onContextMenu!(box.localToGlobal(box.size.center(Offset.zero)));
+              },
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -3344,7 +3475,9 @@ class _MobileTabTile extends StatelessWidget {
                     ),
                   Expanded(
                     child: Text(
-                      tab.title.isEmpty ? 'Untitled' : tab.title,
+                      tab.title.isEmpty
+                          ? appL10n(context).editorUntitled
+                          : tab.title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -3358,7 +3491,7 @@ class _MobileTabTile extends StatelessWidget {
                   ),
                   IconButton(
                     icon: const Icon(Icons.close, size: 18),
-                    tooltip: 'Close tab',
+                    tooltip: appL10n(context).editorCloseTab,
                     visualDensity: VisualDensity.compact,
                     padding: EdgeInsets.zero,
                     constraints:
@@ -3407,13 +3540,14 @@ class _TabPreview extends StatelessWidget {
         imageCache: imageCache,
       );
     }
+    final l10n = appL10n(context);
     final (icon, label) = tab.isLoading
-        ? (Icons.hourglass_empty, 'Opening')
+        ? (Icons.hourglass_empty, l10n.editorPreviewOpening)
         : tab.error != null
-            ? (Icons.error_outline, 'Could not open')
+            ? (Icons.error_outline, l10n.editorPreviewCouldNotOpen)
             : tab.isComparison
-                ? (Icons.compare_arrows, 'Comparison')
-                : (Icons.picture_as_pdf_outlined, 'PDF');
+                ? (Icons.compare_arrows, l10n.editorPreviewComparison)
+                : (Icons.picture_as_pdf_outlined, l10n.editorPreviewPdf);
     return DecoratedBox(
       key: previewKey,
       decoration: BoxDecoration(

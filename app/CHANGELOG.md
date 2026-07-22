@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.0.0
+
+- Deep zoom now shows crisp detail on every platform: zoom past the normal
+  limit and the visible area re-renders at full resolution instead of looking
+  blurry.
+- Large files and cloud documents open much faster — the first page appears
+  while the rest of the file is still loading, instead of waiting for the whole
+  download or read to finish.
+- Digitally sign a document with one tap: create a signing identity in the app
+  (self-signed, or keyless via Sigstore) and sign without setting up
+  certificates by hand.
+- Rearrange the workspace: side panels can be dragged and docked to any edge,
+  placed side by side or grouped into tabs, and the layout is remembered.
+  Press F12 for a developer-tools overlay.
+- The font menu lists the document's own fonts and your recent picks, and the
+  toolbar shows the actual embedded typeface.
+- The annotation list supports multi-select (ctrl/shift) and a hover menu.
+- Better colour accuracy for certain CMYK photos, and assorted mobile polish.
+
 ## 1.4.7
 
 - Printing now goes through each platform's own print system, so

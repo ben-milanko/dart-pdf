@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:flutter/gestures.dart' show kSecondaryButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -389,6 +390,9 @@ void main() {
 
     await gesture.moveTo(view(100, 720)); // over 'Page 1'
     await tester.pump();
+    // An ordinary (small) page still extracts synchronously on hover, so the
+    // I-beam appears immediately. Only heavy pages defer (see
+    // hover_text_warm_test).
     expect(region().cursor, SystemMouseCursors.text);
 
     await gesture.moveTo(view(300, 500));
@@ -1438,6 +1442,65 @@ void main() {
       await tester.pump();
       expect(controller.pageCount, 2,
           reason: 'the viewer subscribes to the form controller as well');
+    });
+  });
+
+  // The viewer routes desktop right-click / touch secondary-tap to the
+  // text menu via GestureDetector.onSecondaryTapUp → `_onSecondaryTapUp`.
+  // When the host sets `contextMenuEnabled: false`, the menu must be
+  // suppressed; the recognizer still runs so text selection, links, etc.
+  // are unaffected.
+  group('contextMenuEnabled', () {
+    test('defaults to true', () {
+      expect(
+          PdfViewer(
+                  document: PdfDocument.open(buildMultiPagePdf(1)))
+              .contextMenuEnabled,
+          isTrue);
+    });
+
+    testWidgets(
+        'right-click on plain page text opens the text menu by default',
+        (tester) async {
+      final controller = await pumpViewer(tester, pages: 2);
+      // 'Page 1' baseline at (72, 720), 24pt - mid-word of "Page"
+      await tester.tapAt(annotView(100, 720),
+          buttons: kSecondaryButton);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pdf-text-menu-copy')), findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-text-menu-select-all')),
+          findsOneWidget);
+      // dismiss the menu so the teardown of the viewer does not race it
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
+      expect(controller.selectedText, isNotNull,
+          reason: 'selection survives menu dismissal');
+    });
+
+    testWidgets(
+        'right-click on plain page text is suppressed when '
+        'contextMenuEnabled is false', (tester) async {
+      final controller = PdfViewerController();
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            initialFit: PdfViewerFit.width,
+            document: PdfDocument.open(buildMultiPagePdf(2)),
+            controller: controller,
+            contextMenuEnabled: false,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      await tester.tapAt(annotView(100, 720),
+          buttons: kSecondaryButton);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pdf-text-menu-copy')), findsNothing);
+      expect(
+          find.byKey(const ValueKey('pdf-text-menu-select-all')),
+          findsNothing);
     });
   });
 }

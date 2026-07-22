@@ -17,9 +17,42 @@ import 'image_decoder.dart';
 /// engine produces real glyph outlines. Images must be pre-decoded into
 /// [images] (painting is synchronous).
 class CanvasPdfDevice implements PdfDevice {
-  CanvasPdfDevice(this.canvas, {this.images = const {}});
+  CanvasPdfDevice(this.canvas,
+      {this.images = const {}, this.pixelRatio = 1});
 
   final Canvas canvas;
+
+  /// Device pixels per page unit at the scale this device is painting for.
+  ///
+  /// Only used to floor stroke widths at one device pixel (see
+  /// [_strokeWidthFor]). 1 is the identity assumption for a picture recorded
+  /// without a known target scale.
+  final double pixelRatio;
+
+  /// Stroke width to paint, never thinner than one device pixel.
+  ///
+  /// Skia paints a stroke narrower than a pixel as a one-pixel line with its
+  /// **alpha scaled down** by the sub-pixel width, rather than as a true
+  /// sub-pixel band. Faithful to Skia, but not to the page: CAD and schematic
+  /// producers emit 0.06 pt / 0.12 pt lines meaning "hairline", and those came
+  /// out at ~6% and ~12% opacity - the pale, washed-out linework this floor
+  /// fixes. Reference viewers paint them as solid one-pixel lines.
+  ///
+  /// A width of 0 arrives here unchanged from the interpreter and is floored
+  /// the same way, which is PDF 32000-1 8.4.3.2's "thinnest line that can be
+  /// rendered at device resolution: 1 device pixel" - and, unlike the old
+  /// user-space resolution, it stays one pixel at every zoom.
+  @visibleForTesting
+  double strokeWidthFor(double width) {
+    if (pixelRatio <= 0) return width;
+    // 0 is Skia's hairline: exactly one device pixel at *any* canvas
+    // transform, at full alpha. That matters because a recorded picture is
+    // replayed at several ratios (base raster, deep-zoom detail patch,
+    // retained scene), so a page-space floor baked at record time would be
+    // right for one of them and too thick for the rest. A hairline is correct
+    // for all of them.
+    return width * pixelRatio < 1 ? 0 : width;
+  }
 
   /// Decoded images keyed by [pdfImageKey] — stream identity for XObjects,
   /// value identity for inline images.
@@ -357,7 +390,7 @@ class CanvasPdfDevice implements PdfDevice {
       return Paint()
         ..style = PaintingStyle.stroke
         ..color = _toColor(color, alpha)
-        ..strokeWidth = stroke.width
+        ..strokeWidth = strokeWidthFor(stroke.width)
         ..strokeCap = switch (stroke.cap) {
           1 => StrokeCap.round,
           2 => StrokeCap.square,
@@ -391,7 +424,7 @@ class CanvasPdfDevice implements PdfDevice {
     return _strokePaint = Paint()
       ..style = PaintingStyle.stroke
       ..color = _toColor(color, alpha)
-      ..strokeWidth = stroke.width
+      ..strokeWidth = strokeWidthFor(stroke.width)
       ..strokeCap = switch (stroke.cap) {
         1 => StrokeCap.round,
         2 => StrokeCap.square,
@@ -757,10 +790,13 @@ class CanvasPdfDevice implements PdfDevice {
   ];
 
   static const _defaultFontFallbacks = [
-    // Shipped with dart_pdf_editor, so Arabic (including presentation forms
+    // Shipped in the optional dart_pdf_editor_assets package (registered by
+    // registerBundledEditorAssets), so Arabic (including presentation forms
     // copied from shaped PDFs), Hebrew, Greek and Cyrillic render consistently
-    // even when the host's Helvetica substitute has no suitable fallback.
-    'packages/dart_pdf_editor/DejaVu Sans',
+    // even when the host's Helvetica substitute has no suitable fallback. When
+    // that package isn't present this family simply isn't registered and the
+    // later candidates apply.
+    'packages/dart_pdf_editor_assets/DejaVu Sans',
     // The unprefixed family is used when this package itself is the Flutter
     // application under test, and by hosts that register DejaVu system-wide.
     'DejaVu Sans',

@@ -14,6 +14,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dart_pdf_editor_app/image_clipboard.dart';
 
 void main() {
+  setUp(() {
+    // controllers share the process-wide snapshot clipboard by default; start
+    // each test from empty so one test's capture can't leak into the next.
+    PdfSnapshotClipboard.instance.clear();
+  });
+
   // A throwaway PdfSnapshot whose pngBytes are the only field the handler reads.
   PdfSnapshot makeSnapshot(Uint8List png) {
     SharedPreferences.setMockInitialValues({});
@@ -154,6 +160,26 @@ void main() {
 
     expect(calls, 1);
     expect(read, image);
+  });
+
+  testWidgets('the default text reader reads Flutter\'s clipboard on native',
+      (tester) async {
+    var calls = 0;
+    tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.getData') {
+        calls++;
+        return const <String, Object?>{'text': 'Native clipboard text'};
+      }
+      return null;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+
+    final read = await readTextFromClipboard();
+
+    expect(calls, 1);
+    expect(read, 'Native clipboard text');
   });
 
   group('Snapshot tool through the viewer', () {

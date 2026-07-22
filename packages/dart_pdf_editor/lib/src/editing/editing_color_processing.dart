@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
+import '../l10n/pdf_l10n.dart';
 import 'editing_color_picker.dart';
 import 'editing_controller.dart';
 import 'editing_preferences.dart';
@@ -212,7 +213,7 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
 
   String? get _findValueText => _selectedDocumentColorRgbs.length <= 1
       ? null
-      : '${_selectedDocumentColorRgbs.length} colors selected';
+      : pdfL10n(context).colorColorsSelected(_selectedDocumentColorRgbs.length);
 
   void _toggleDocumentColor(Color color) {
     final rgb = _rgb(color);
@@ -255,7 +256,7 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
     return PopScope(
       canPop: !_applying,
       child: AlertDialog(
-        title: const Text('Color processing'),
+        title: Text(pdfL10n(context).colorProcessingTitle),
         content: SizedBox(
           width: 360,
           child: SingleChildScrollView(
@@ -265,7 +266,7 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
               children: [
                 _ColorRow(
                   key: const ValueKey('pdf-color-process-find'),
-                  label: 'Find',
+                  label: pdfL10n(context).colorFind,
                   color: _find,
                   valueText: _findValueText,
                   pickerKey: const ValueKey('pdf-color-process-find-picker'),
@@ -284,7 +285,7 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
                 const SizedBox(height: 8),
                 _ColorRow(
                   key: const ValueKey('pdf-color-process-replace'),
-                  label: 'Replace',
+                  label: pdfL10n(context).colorReplace,
                   color: _replace,
                   transparent: _replaceTransparent,
                   enabled: !_replaceTransparent && !_applying,
@@ -298,14 +299,14 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
                       ? null
                       : (value) =>
                           setState(() => _replaceTransparent = value ?? false),
-                  title: const Text('Replace with transparent'),
+                  title: Text(pdfL10n(context).colorReplaceWithTransparent),
                   dense: true,
                   contentPadding: EdgeInsets.zero,
                 ),
                 const SizedBox(height: 18),
                 Row(
                   children: [
-                    const Expanded(child: Text('Tolerance')),
+                    Expanded(child: Text(pdfL10n(context).colorTolerance)),
                     Text('$_tolerance'),
                   ],
                 ),
@@ -334,7 +335,8 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
                         key: const ValueKey('pdf-color-process-selected-pages'),
                         value: true,
                         enabled: selectedCount > 0 && !_applying,
-                        title: Text('Selected pages ($selectedCount)'),
+                        title: Text(
+                            pdfL10n(context).colorSelectedPages(selectedCount)),
                         dense: true,
                         contentPadding: EdgeInsets.zero,
                       ),
@@ -342,7 +344,7 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
                         key: const ValueKey('pdf-color-process-whole-document'),
                         value: false,
                         enabled: !_applying,
-                        title: const Text('Whole document'),
+                        title: Text(pdfL10n(context).colorWholeDocument),
                         dense: true,
                         contentPadding: EdgeInsets.zero,
                       ),
@@ -355,7 +357,7 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
                   value: _fill,
                   onChanged:
                       _applying ? null : (value) => _setFill(value ?? false),
-                  title: const Text('Fill colors'),
+                  title: Text(pdfL10n(context).colorFillColors),
                   dense: true,
                   contentPadding: EdgeInsets.zero,
                 ),
@@ -364,7 +366,7 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
                   value: _stroke,
                   onChanged:
                       _applying ? null : (value) => _setStroke(value ?? false),
-                  title: const Text('Stroke colors'),
+                  title: Text(pdfL10n(context).colorStrokeColors),
                   dense: true,
                   contentPadding: EdgeInsets.zero,
                 ),
@@ -375,7 +377,7 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Applying color changes…',
+                    pdfL10n(context).colorApplyingChanges,
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
@@ -386,12 +388,12 @@ class _ColorProcessingDialogState extends State<_ColorProcessingDialog> {
         actions: [
           TextButton(
             onPressed: _applying ? null : () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
+            child: Text(pdfL10n(context).cancel),
           ),
           FilledButton(
             key: const ValueKey('pdf-color-process-apply'),
             onPressed: canApply ? () => unawaited(_apply()) : null,
-            child: const Text('Apply'),
+            child: Text(pdfL10n(context).apply),
           ),
         ],
       ),
@@ -435,14 +437,15 @@ class _ColorRow extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                valueText ?? (transparent ? 'Transparent' : hex),
+                valueText ??
+                    (transparent ? pdfL10n(context).colorTransparent : hex),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
             IconButton(
               key: pickerKey,
               onPressed: enabled ? onTap : null,
-              tooltip: 'Pick color',
+              tooltip: pdfL10n(context).colorPickColor,
               icon: const Icon(Icons.colorize),
             ),
           ],
@@ -474,7 +477,7 @@ class _DocumentColors extends StatelessWidget {
     final theme = Theme.of(context);
     if (colors.isEmpty && !loading) {
       return Text(
-        'No page-content colors found',
+        pdfL10n(context).colorNoPageContentColors,
         style: theme.textTheme.bodySmall,
       );
     }
@@ -483,12 +486,15 @@ class _DocumentColors extends StatelessWidget {
       children: [
         Row(
           children: [
-            Text('Document colors', style: theme.textTheme.labelLarge),
+            Text(pdfL10n(context).colorDocumentColors,
+                style: theme.textTheme.labelLarge),
             if (loading) ...[
               const SizedBox(width: 10),
               Flexible(
                 child: Text(
-                  total <= 0 ? 'Scanning…' : 'Scanning $progress / $total',
+                  total <= 0
+                      ? pdfL10n(context).colorScanning
+                      : pdfL10n(context).colorScanningProgress(progress, total),
                   key: const ValueKey('pdf-color-process-scan-progress'),
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall,
@@ -506,7 +512,8 @@ class _DocumentColors extends StatelessWidget {
         ],
         const SizedBox(height: 8),
         if (colors.isEmpty)
-          Text('No colors found yet', style: theme.textTheme.bodySmall)
+          Text(pdfL10n(context).colorNoColorsFound,
+              style: theme.textTheme.bodySmall)
         else
           Wrap(
             key: const ValueKey('pdf-color-process-document-colors'),

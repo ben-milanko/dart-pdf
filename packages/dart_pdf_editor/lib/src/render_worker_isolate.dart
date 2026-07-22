@@ -11,6 +11,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart'
     show StripPlan, StripPlanBinner, decodeStripPlan, encodeStripPlan;
 
+import 'region_replay_index.dart';
 import 'render_worker.dart';
 import 'render_worker_transcript_cache.dart'
     show compactTranscriptSourceCommands, retainedCommandGraphsWeight;
@@ -56,6 +57,14 @@ int debugPdfRenderWorkerIgnoredStaleCancels = 0;
 /// `doc/dev-log/2026-07-17-seam-transfer-measurement.md`.
 PdfRenderWorker startRenderWorker(Uint8List bytes) =>
     _IsolateRenderWorker(bytes);
+
+/// No-op on native: spawning a background isolate carries no fetch/compile cost
+/// (the ~1.45 s #450 warm-up is dart2js-on-the-web specific), so there is
+/// nothing worth prewarming ahead of the document.
+void prewarmRenderWorkers(int count) {}
+
+/// No-op counterpart to [prewarmRenderWorkers].
+void disposePrewarmedRenderWorkers() {}
 
 class _IsolateRenderWorker extends PdfRenderWorker {
   _IsolateRenderWorker(Uint8List bytes) {
@@ -290,6 +299,28 @@ class _IsolateRenderWorker extends PdfRenderWorker {
     }
   }
 
+  @override
+  Future<PdfRegionReplayIndex?> buildRegionIndex(
+    int pageIndex, {
+    required bool annotations,
+    required int maxCommands,
+    required bool buildGrid,
+    int priority = 0,
+  }) async {
+    if (_disposed || _spawnFailed) return null;
+    final request = _PendingRequest.regionIndex(
+        priority, _seq++, pageIndex, annotations, maxCommands, buildGrid);
+    _queue.add(request);
+    _pump();
+    final buffers = await request.completer.future;
+    if (buffers == null) return null;
+    try {
+      return deserializeRegionReplayIndex(buffers.single);
+    } catch (_) {
+      return null; // corrupt buffer → build in-isolate rather than crash
+    }
+  }
+
   /// Sends the highest-priority queued request to the worker when it is idle
   /// and spawned. Lower [priority] wins; ties break by submission order, so a
   /// freshly-requested visible page (priority 0) preempts pending prefetch.
@@ -367,6 +398,15 @@ class _IsolateRenderWorker extends PdfRenderWorker {
         request.deviceHeight,
         request.binPixelRatio,
         request.slugGlyphs,
+      ]);
+    } else if (request.kind == _RequestKind.regionIndex) {
+      port.send([
+        'regionIndex',
+        request.id,
+        request.pageIndex,
+        request.annotations,
+        request.regionMaxCommands,
+        request.regionBuildGrid,
       ]);
     } else {
       port.send([
@@ -480,7 +520,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
   }
 }
 
-enum _RequestKind { record, bin, detail, update }
+enum _RequestKind { record, bin, detail, update, regionIndex }
 
 /// One queued request (a page record or a strip bin) and its pending result.
 class _PendingRequest {
@@ -502,7 +542,9 @@ class _PendingRequest {
         baseLength = 0,
         appendedBytes = null,
         newLength = 0,
-        changedPages = null;
+        changedPages = null,
+        regionMaxCommands = 0,
+        regionBuildGrid = false;
 
   _PendingRequest.bin(
       this.priority,
@@ -522,7 +564,9 @@ class _PendingRequest {
         baseLength = 0,
         appendedBytes = null,
         newLength = 0,
-        changedPages = null;
+        changedPages = null,
+        regionMaxCommands = 0,
+        regionBuildGrid = false;
 
   _PendingRequest.detail(
       this.priority,
@@ -538,6 +582,30 @@ class _PendingRequest {
         imagePixelRatio = null,
         decodeImages = true,
         commandLimit = null,
+        slugGlyphs = false,
+        baseLength = 0,
+        appendedBytes = null,
+        newLength = 0,
+        changedPages = null,
+        regionMaxCommands = 0,
+        regionBuildGrid = false;
+
+  _PendingRequest.regionIndex(
+      this.priority,
+      this.seq,
+      this.pageIndex,
+      this.annotations,
+      this.regionMaxCommands,
+      this.regionBuildGrid)
+      : kind = _RequestKind.regionIndex,
+        imagePixelRatio = null,
+        decodeImages = false,
+        commandLimit = null,
+        imageDecodeRegion = null,
+        pageToDevice = null,
+        deviceWidth = 0,
+        deviceHeight = 0,
+        binPixelRatio = 0,
         slugGlyphs = false,
         baseLength = 0,
         appendedBytes = null,
@@ -562,7 +630,9 @@ class _PendingRequest {
         deviceWidth = 0,
         deviceHeight = 0,
         binPixelRatio = 0,
-        slugGlyphs = false;
+        slugGlyphs = false,
+        regionMaxCommands = 0,
+        regionBuildGrid = false;
 
   final _RequestKind kind;
   final int priority;
@@ -588,6 +658,10 @@ class _PendingRequest {
   final Uint8List? appendedBytes;
   final int newLength;
   final Set<int>? changedPages;
+
+  // regionIndex-only
+  final int regionMaxCommands;
+  final bool regionBuildGrid;
 
   final completer = Completer<List<Uint8List>?>();
   bool requeueAfterPreemption = false;
@@ -745,6 +819,15 @@ void _workerMain(_WorkerInit init) {
           );
           buffer = result?.$1;
           detailPlanBuffer = result?.$2;
+        } else if (kind == 'regionIndex') {
+          buffer = await _buildRegionIndexAsync(
+              doc,
+              binCommands,
+              pageIndex,
+              annotations,
+              request[4] as int,
+              request[5] as bool,
+              token);
         } else {
           final imagePixelRatio = request[4] as double?;
           final decodeImages = request[5] as bool;
@@ -897,6 +980,33 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
   );
   await binner.bin(commands, cancellation: token);
   return (commandBuffer, encodeStripPlan(binner.finish()));
+}
+
+/// Builds the region-replay spatial index from the page's cached wire
+/// transcript and serializes it, or null when the page can't be offloaded
+/// (unserializable content declines in [_BinCommandCache], as [binStrips]).
+///
+/// The transcript is the SAME round-tripped command list the strip bins replay
+/// (compacted, float32 path coordinates), which is byte-for-byte what a
+/// worker-recorded retained scene holds - so the index's unit indices line up
+/// with that scene's transcript on the UI isolate. The grid build itself is a
+/// synchronous pass over the commands; the cancellable work is the re-record
+/// inside [_BinCommandCache.commandsFor], already checked below.
+Future<Uint8List?> _buildRegionIndexAsync(
+    PdfDocument document,
+    _BinCommandCache cache,
+    int pageIndex,
+    bool annotations,
+    int maxCommands,
+    bool buildGrid,
+    PdfCancellationToken token) async {
+  final commands =
+      await cache.commandsFor(document, pageIndex, annotations, token);
+  if (commands == null) return null;
+  if (token.cancelled) throw const PdfCancelledException();
+  final index = PdfRegionReplayIndex.build(commands,
+      maxCommands: maxCommands, buildGrid: buildGrid);
+  return serializeRegionReplayIndex(index);
 }
 
 /// Tiny per-worker LRU of the command lists strip bins replay, keyed

@@ -6,30 +6,35 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart' show StripPlan;
 
 import 'budgeted_cache.dart';
+import 'region_replay_index.dart';
 import 'render_trace.dart';
 import 'render_worker_stub.dart'
     if (dart.library.io) 'render_worker_isolate.dart'
     if (dart.library.js_interop) 'render_worker_web.dart';
 
-/// The package-asset URL of dart_pdf_editor's bundled Web Worker script.
+/// The package-asset URL of the Web Worker script shipped in the optional
+/// `dart_pdf_editor_assets` package.
 ///
-/// Flutter serves package assets under `assets/packages/<package>/...`, so a
-/// Flutter web app that depends on this package can use the worker without
-/// copying a script into its own `web/` directory.
+/// Flutter serves package assets under `assets/packages/<package>/...`. This
+/// URL only resolves when an app depends on `dart_pdf_editor_assets` (whose
+/// `registerBundledEditorAssets()` assigns it to [pdfRenderWorkerScriptUrl]);
+/// `dart_pdf_editor` itself no longer bundles the worker, so viewer-only apps
+/// don't pay its ~0.48 MB.
 const String defaultPdfRenderWorkerScriptUrl =
-    'assets/packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js';
+    'assets/packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js';
 
 /// On web, the URL of the compiled Web Worker script that backs the render
 /// worker (its `main()` calls `runPdfRenderWorker`; see the web-only library
 /// `package:dart_pdf_editor/render_worker_web.dart` and
 /// `doc/render_worker_web.md` for the build wiring).
 ///
-/// The default points at dart_pdf_editor's bundled package asset, so apps get
-/// off-main-thread rendering on web without startup configuration. Set this to
-/// another URL before opening a viewer to self-host/cache-bust a custom worker,
-/// or set it to null to force local main-thread rendering. Ignored on native,
-/// where the isolate backend needs no script.
-String? pdfRenderWorkerScriptUrl = defaultPdfRenderWorkerScriptUrl;
+/// Null by default: the worker is an optional asset that ships in
+/// `dart_pdf_editor_assets`, so web rendering runs on the main thread until an
+/// app opts in. `registerBundledEditorAssets()` sets this to
+/// [defaultPdfRenderWorkerScriptUrl] (the bundled package asset); set it to
+/// another URL before opening a viewer to self-host/cache-bust a custom worker.
+/// Ignored on native, where the isolate backend needs no script.
+String? pdfRenderWorkerScriptUrl;
 
 /// Default number of platform workers [PdfRenderWorker.start] fans page
 /// records across.
@@ -204,6 +209,22 @@ abstract class PdfRenderWorker {
   static PdfRenderWorker startUncached(Uint8List bytes) =>
       startRenderWorker(bytes);
 
+  /// Warms the platform render worker ahead of a document, so its startup cost
+  /// overlaps whatever the user is doing (choosing or loading a file) instead of
+  /// blocking the first render. On the web this fetches, compiles, and boots the
+  /// ~1 MB worker script now (~1.45 s on a phone, #450); a later [start] adopts
+  /// the pre-booted worker and only hands off the document (a few tens of ms).
+  /// No-op on native (isolate spawn is cheap) and where no worker is configured.
+  ///
+  /// [count] defaults to [pdfRenderWorkerPoolSize]. Safe to call more than once
+  /// (tops the pool up rather than doubling it) and safe even when a worker is
+  /// never used - drop the unadopted workers with [disposePrewarm].
+  static void prewarm({int? count}) =>
+      prewarmRenderWorkers(count ?? pdfRenderWorkerPoolSize);
+
+  /// Terminates any prewarmed-but-unadopted workers ([prewarm]).
+  static void disposePrewarm() => disposePrewarmedRenderWorkers();
+
   /// Records page [pageIndex] off-thread and returns its replayable command
   /// buffer (image XObjects decoded off-thread and attached), or null when the
   /// page can't be offloaded - it draws an inline image (`BI .. ID .. EI`,
@@ -330,6 +351,35 @@ abstract class PdfRenderWorker {
     required int deviceHeight,
     required double pixelRatio,
     required PdfRect imageDecodeRegion,
+    int priority = 0,
+  }) async =>
+      null;
+
+  /// Builds page [pageIndex]'s region-replay spatial index off-thread and ships
+  /// it back reconstructed, or null when the page can't be offloaded (this
+  /// platform has no worker, the worker failed/declined, or the page's content
+  /// can't round-trip through the command codec).
+  ///
+  /// The worker re-records the page in its own isolate through the same
+  /// deterministic transcript the retained scene was built from (like
+  /// [binStrips]), builds [PdfRegionReplayIndex.build] against it with the
+  /// caller-supplied [maxCommands]/[buildGrid] (the caller's escalation policy),
+  /// and serializes the result across the seam. Because the transcript matches
+  /// byte-for-byte, the index's unit indices line up with the caller's scene.
+  /// The point (issue #384): that grid build is ~O(commands) of pure command-
+  /// bounds arithmetic — no `dart:ui` — so it belongs off the UI isolate, which
+  /// is where the last ~210 ms first-deep-zoom freeze on a dense CAD page lived.
+  ///
+  /// [annotations] must match the recording the scene was built from.
+  /// [priority] shares the queue ordering with [record]/[binStrips].
+  ///
+  /// The base implementation declines. Native isolates and Web Workers override
+  /// it; unsupported platforms keep the caller's in-isolate build.
+  Future<PdfRegionReplayIndex?> buildRegionIndex(
+    int pageIndex, {
+    required bool annotations,
+    required int maxCommands,
+    required bool buildGrid,
     int priority = 0,
   }) async =>
       null;
@@ -581,7 +631,29 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
 
   int _workerForPage(int pageIndex) {
     final existing = _pageWorkers[pageIndex];
-    if (existing != null && _workers[existing].isActive) return existing;
+    if (existing != null && _workers[existing].isActive) {
+      // Stickiness buys a transcript hit: the sticky worker holds this page's
+      // warm caches, so a repeat record on it is near-free, while a cold
+      // worker re-records the page. Abandon that only when the page would
+      // otherwise queue behind unrelated work - i.e. another active worker
+      // has strictly lower load. Equal load keeps the sticky worker: a
+      // transcript miss is never worth paying to break a tie.
+      var alternative = -1;
+      var alternativeLoad = 1 << 62;
+      for (var i = 0; i < _workers.length; i++) {
+        if (i == existing || !_workers[i].isActive) continue;
+        final load = _loads[i];
+        if (load < alternativeLoad) {
+          alternative = i;
+          alternativeLoad = load;
+        }
+      }
+      if (alternative >= 0 && alternativeLoad < _loads[existing]) {
+        _pageWorkers[pageIndex] = alternative;
+        return alternative;
+      }
+      return existing;
+    }
     final worker = _leastLoadedWorker(pageIndex);
     _pageWorkers[pageIndex] = worker;
     return worker;
@@ -709,6 +781,25 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   void cancelBinStrips(int pageIndex, {int priority = 0}) =>
       _workers[_workerForPage(pageIndex)].cancelBinStrips(
         pageIndex,
+        priority: priority,
+      );
+
+  /// Region-index builds follow the page's stable worker affinity like
+  /// [binStrips]: both re-record the page, so the second request hits the same
+  /// worker's warm command cache instead of re-recording on a different one.
+  @override
+  Future<PdfRegionReplayIndex?> buildRegionIndex(
+    int pageIndex, {
+    required bool annotations,
+    required int maxCommands,
+    required bool buildGrid,
+    int priority = 0,
+  }) =>
+      _workers[_workerForPage(pageIndex)].buildRegionIndex(
+        pageIndex,
+        annotations: annotations,
+        maxCommands: maxCommands,
+        buildGrid: buildGrid,
         priority: priority,
       );
 
@@ -1074,6 +1165,26 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
   @override
   void cancelBinStrips(int pageIndex, {int priority = 0}) =>
       _inner.cancelBinStrips(pageIndex, priority: priority);
+
+  /// Pure passthrough. The retained scene memoizes the index it receives for
+  /// its whole life, so a second identical build never reaches the worker;
+  /// caching the (multi-MB on a dense page) index in the record LRU would only
+  /// evict reusable page buffers for data the scene already holds.
+  @override
+  Future<PdfRegionReplayIndex?> buildRegionIndex(
+    int pageIndex, {
+    required bool annotations,
+    required int maxCommands,
+    required bool buildGrid,
+    int priority = 0,
+  }) =>
+      _inner.buildRegionIndex(
+        pageIndex,
+        annotations: annotations,
+        maxCommands: maxCommands,
+        buildGrid: buildGrid,
+        priority: priority,
+      );
 
   @override
   void dispose() {

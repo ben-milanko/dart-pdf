@@ -302,4 +302,13 @@ class PdfEditor {
 
   /// The full bytes of the edited file (original + incremental update).
   Uint8List save() => _updater.save();
+
+  /// Only the bytes to append to the source document to form the edited file
+  /// (see [CosIncrementalUpdater.saveTail]).
+  ///
+  /// For a caller that already holds the source bytes and keeps revisions as
+  /// prefixes of one buffer, this avoids re-materialising the whole file per
+  /// save. The bytes are only valid appended directly to the document this
+  /// editor was built over.
+  Uint8List saveTail() => _updater.saveTail();
 }

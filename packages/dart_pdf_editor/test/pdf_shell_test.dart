@@ -239,7 +239,10 @@ void main() {
 
       expect(prefs.showReflowView, isTrue);
       expect(find.byType(PdfViewer), findsNothing);
-      expect(find.byType(PdfThumbnailSidebar), findsNothing);
+      // The Pages strip stays available in reflow - it drives the reading view
+      // (page taps scroll it) - while the canvas-bound search and page-number
+      // controls, which have no page to act on, drop away.
+      expect(find.byType(PdfThumbnailSidebar), findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-search-field')), findsNothing);
       expect(find.byKey(const ValueKey('pdf-page-number-field')), findsNothing);
       expect(find.byType(PdfReflowView), findsOneWidget);
@@ -404,6 +407,83 @@ void main() {
 
       expect(find.text('Press a key'), findsNothing);
       expect(find.text('R'), findsOneWidget);
+    });
+
+    testWidgets('shortcuts are grouped under tool-category headers',
+        (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+      await openShortcutsSheet(tester);
+
+      // The Shapes header sits above the rectangle tool it groups.
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-group-shapes')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')),
+          findsOneWidget);
+      expect(find.text('R'), findsOneWidget);
+      final headerY = tester
+          .getTopLeft(
+              find.byKey(const ValueKey('pdf-shell-shortcut-group-shapes')))
+          .dy;
+      final rectY = tester
+          .getTopLeft(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')))
+          .dy;
+      expect(headerY, lessThan(rectY));
+
+      // A group lower down builds once scrolled into view.
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('pdf-shell-shortcut-group-insert')),
+        200,
+        scrollable: find
+            .descendant(
+              of: find.byType(ListView),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-group-insert')),
+          findsOneWidget);
+    });
+
+    testWidgets('searching filters the shortcut list and its group headers',
+        (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+      await openShortcutsSheet(tester);
+
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-shell-shortcuts-search')), 'rect');
+      await tester.pumpAndSettle();
+
+      // Only the rectangle tool (and its Shapes header) survives the filter.
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-ellipse')),
+          findsNothing);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-group-shapes')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-group-insert')),
+          findsNothing);
+    });
+
+    testWidgets('searching by key label matches, and a miss shows a message',
+        (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+      await openShortcutsSheet(tester);
+
+      // The rectangle tool is bound to "R" - searching the key finds it.
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-shell-shortcuts-search')), 'r');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')),
+          findsOneWidget);
+
+      // A query no tool matches shows the empty-state message instead.
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-shell-shortcuts-search')), 'zzzz');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pdf-shell-shortcuts-no-matches')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')),
+          findsNothing);
     });
 
     testWidgets('view options can switch the editor to reflow text',

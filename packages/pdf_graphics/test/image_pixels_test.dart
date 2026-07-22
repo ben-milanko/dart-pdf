@@ -725,6 +725,117 @@ void main() {
     });
   });
 
+  // An /Indexed palette over a Separation/DeviceN base once returned null and
+  // dropped the whole image (issue #430 - both images on the Ghent DeviceN
+  // page are this shape). Each palette entry runs through the base's tint
+  // transform, exactly as the non-indexed Separation/DeviceN path does.
+  group('indexed over a tint base', () {
+    /// `[/Indexed [/Separation Spot DeviceCMYK { dup 0.5 mul exch 0.25 mul 0 0 }]
+    /// hival lookup]`: one ink per palette entry into DeviceCMYK.
+    CosStream indexedSeparation(List<int> lookup, List<int> indices) => image({
+          'Width': CosInteger(indices.length),
+          'Height': const CosInteger(1),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': CosArray([
+            const CosName('Indexed'),
+            CosArray([
+              const CosName('Separation'),
+              const CosName('Spot'),
+              const CosName('DeviceCMYK'),
+              CosStream(
+                  CosDictionary({
+                    'FunctionType': const CosInteger(4),
+                    'Domain': CosArray([const CosReal(0), const CosReal(1)]),
+                    'Range': CosArray([
+                      for (var i = 0; i < 4; i++) ...[
+                        const CosReal(0),
+                        const CosReal(1)
+                      ]
+                    ]),
+                  }),
+                  Uint8List.fromList(
+                      '{ dup 0.5 mul exch 0.25 mul 0.0 0.0 }'.codeUnits)),
+            ]),
+            CosInteger(lookup.length - 1),
+            CosString(Uint8List.fromList(lookup)),
+          ]),
+        }, indices);
+
+    test('decodes instead of dropping the image', () {
+      // The regression: this whole image used to decode to null.
+      final pixels = decodePdfImagePixels(cos, indexedSeparation([0, 255], [0, 1]));
+      expect(pixels, isNotNull);
+      expect(pixels!.width, 2);
+      expect(pixels.height, 1);
+    });
+
+    test('each palette entry maps through the tint transform', () {
+      // Two colorant tints (0 and 1) selected by index; the decoded colour must
+      // match the transform's CMYK converted the way the decoder does.
+      final pixels = decodePdfImagePixels(cos, indexedSeparation([0, 255], [0, 1]))!;
+      for (final (i, tint) in [(0, 0.0), (1, 1.0)]) {
+        final expected =
+            colorFromComponents([tint * 0.5, tint * 0.25, 0.0, 0.0], 4);
+        expect(pixels.rgba[i * 4], (expected.red * 255).round().clamp(0, 255),
+            reason: 'red for tint $tint');
+        expect(pixels.rgba[i * 4 + 1],
+            (expected.green * 255).round().clamp(0, 255),
+            reason: 'green for tint $tint');
+        expect(pixels.rgba[i * 4 + 2],
+            (expected.blue * 255).round().clamp(0, 255),
+            reason: 'blue for tint $tint');
+        expect(pixels.rgba[i * 4 + 3], 255);
+      }
+    });
+
+    test('DeviceN base sizes each palette entry by its colorant count', () {
+      // `{ pop dup 0.0 0.0 }` paints with InkA and drops InkB, so a two-colorant
+      // palette entry [InkA, InkB] must consume two lookup bytes: entries
+      // [200, 0] and [200, 255] share InkA and must decode identically, while
+      // [0, 0] must differ. A base mis-sized to one byte would misalign the
+      // whole table.
+      final stream = image({
+        'Width': const CosInteger(3),
+        'Height': const CosInteger(1),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': CosArray([
+          const CosName('Indexed'),
+          CosArray([
+            const CosName('DeviceN'),
+            CosArray([const CosName('InkA'), const CosName('InkB')]),
+            const CosName('DeviceCMYK'),
+            CosStream(
+                CosDictionary({
+                  'FunctionType': const CosInteger(4),
+                  'Domain': CosArray([
+                    const CosReal(0),
+                    const CosReal(1),
+                    const CosReal(0),
+                    const CosReal(1)
+                  ]),
+                  'Range': CosArray([
+                    for (var i = 0; i < 4; i++) ...[
+                      const CosReal(0),
+                      const CosReal(1)
+                    ]
+                  ]),
+                }),
+                Uint8List.fromList('{ pop dup 0.0 0.0 }'.codeUnits)),
+          ]),
+          const CosInteger(2),
+          CosString(Uint8List.fromList([200, 0, 200, 255, 0, 0])),
+        ]),
+      }, [
+        0, 1, 2, //
+      ]);
+
+      final pixels = decodePdfImagePixels(cos, stream)!;
+      List<int> pixelAt(int i) => pixels.rgba.sublist(i * 4, i * 4 + 4);
+      expect(pixelAt(0), pixelAt(1)); // same InkA, InkB ignored
+      expect(pixelAt(0), isNot(pixelAt(2))); // InkA drives the colour
+    });
+  });
+
   group('decodePdfImage façade', () {
     // A 4x1 Flate DeviceRGB image the region/scaled fast paths support.
     CosStream rgbStrip() => flateImage({

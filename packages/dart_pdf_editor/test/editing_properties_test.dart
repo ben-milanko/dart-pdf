@@ -2,6 +2,8 @@
 // edits them through the controller - plus the controller's contents and
 // author setters it relies on.
 
+import 'dart:convert';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -256,6 +258,40 @@ void main() {
       expect(opacity, greaterThan(0));
       // the selection (and the stroke restyle) survived both edits
       expect(editing.selectedAnnotation!.borderWidth, width);
+    });
+
+    testWidgets('a placed image gets a working opacity slider, no colour',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      // 2x2 RGBA PNG (shared with the image tests)
+      expect(
+          editing.placeImage(
+              0,
+              300,
+              400,
+              base64.decode(
+                  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0k'
+                  'AAAAGUlEQVR4nGP4z8DwHwgbWBgZ/jNyicr7AgA3BAUOTnqjAAAAAABJRU5ErkJggg==')),
+          isTrue);
+      await pumpPanel(tester, editing);
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      // the pasted picture has no tint, so the colour swatch is hidden...
+      expect(find.byKey(const ValueKey('pdf-prop-color')), findsNothing);
+      // ...but its opacity is editable, and dragging it takes effect
+      final opacity = find.byKey(const ValueKey('pdf-prop-opacity'));
+      expect(opacity, findsOneWidget);
+      await tester.drag(opacity, const Offset(-60, 0));
+      await tester.pump();
+      final stamp = editing.selectedAnnotation!;
+      expect(stamp.appearanceOpacity, lessThan(1));
+      expect(stamp.appearanceOpacity, greaterThan(0));
+      // the picture survived the restyle
+      final content = latin1
+          .decode(editing.document.cos.decodeStreamData(stamp.normalAppearance!));
+      expect(content, contains('/Img0 Do'));
     });
 
     testWidgets('the pattern-scale slider rescales a selected cloud',

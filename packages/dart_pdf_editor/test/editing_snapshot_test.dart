@@ -12,6 +12,12 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  setUp(() {
+    // controllers share the process-wide snapshot clipboard by default; start
+    // each test from empty so one test's capture can't leak into the next.
+    PdfSnapshotClipboard.instance.clear();
+  });
+
   group('PdfEditingController snapshot clipboard', () {
     test('copyVectorSnapshot fills the clipboard; paste adds a vector stamp',
         () {
@@ -46,7 +52,7 @@ void main() {
           editing.captureVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
       expect(snap.region, const PdfRect(60, 700, 220, 740));
       expect(editing.hasSnapshotClipboard, isFalse);
-      expect(editing.snapshotClipboard, isNull);
+      expect(editing.snapshotClipboard.snapshot, isNull);
     });
 
     test('copying without a paste point cascades repeat pastes', () {
@@ -54,7 +60,7 @@ void main() {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
       editing.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
-      expect(editing.snapshotClipboard, isNotNull);
+      expect(editing.snapshotClipboard.snapshot, isNotNull);
 
       expect(editing.pasteSnapshot(0), isTrue);
       final first = editing.document.page(0).annotations.last.rect;
@@ -131,6 +137,51 @@ void main() {
       // pinned to the low edge of the 612x792 crop box
       expect(rect.left, closeTo(0, 1e-6));
       expect(rect.bottom, closeTo(0, 1e-6));
+    });
+
+    test('a snapshot captured in one tab pastes as vector in another', () {
+      SharedPreferences.setMockInitialValues({});
+      // two documents ("tabs") that share one snapshot clipboard, mirroring
+      // the app's process-wide PdfSnapshotClipboard.instance
+      final clip = PdfSnapshotClipboard();
+      final tabA = PdfEditingController(buildMultiPagePdf(1),
+          snapshotClipboard: clip);
+      final tabB = PdfEditingController(buildMultiPagePdf(1),
+          snapshotClipboard: clip);
+      addTearDown(tabA.dispose);
+      addTearDown(tabB.dispose);
+
+      // capture a region in tab A
+      tabA.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      // tab B sees it on the shared clipboard - so ⌘V pastes vector, not the
+      // raster the capture also dropped on the system clipboard
+      expect(tabB.hasSnapshotClipboard, isTrue);
+      expect(tabB.pasteSnapshot(0, at: (300, 400)), isTrue);
+
+      final stamp = tabB.document.page(0).annotations.single;
+      expect(stamp.subtype, 'Stamp');
+      final ap = latin1.decode(
+          tabB.document.cos.decodeStreamData(stamp.normalAppearance!));
+      // the appearance *draws* the captured form - it is vector, not an image
+      expect(ap, contains('/Cap Do'));
+    });
+
+    test('the shared clipboard survives closing the source tab', () {
+      SharedPreferences.setMockInitialValues({});
+      final clip = PdfSnapshotClipboard();
+      final tabA = PdfEditingController(buildMultiPagePdf(1),
+          snapshotClipboard: clip);
+      final tabB = PdfEditingController(buildMultiPagePdf(1),
+          snapshotClipboard: clip);
+      addTearDown(tabB.dispose);
+
+      tabA.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+      // the source tab is closed before the paste (the snapshot is detached)
+      tabA.dispose();
+
+      expect(tabB.hasSnapshotClipboard, isTrue);
+      expect(tabB.pasteSnapshot(0, at: (300, 400)), isTrue);
+      expect(tabB.document.page(0).annotations.single.subtype, 'Stamp');
     });
   });
 

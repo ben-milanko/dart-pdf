@@ -1,6 +1,15 @@
 import 'dart:async';
 
+// The perf_log entry, NOT the package entry: main.dart runs before the
+// deferred app.dart loading unit (the splash), and importing the entry here
+// would drag the whole editor stack into the initial web download that the
+// deferred split exists to keep small.
+import 'package:dart_pdf_editor/dart_pdf_editor.dart'
+    show DartPdfEditorLocalizations;
+import 'package:dart_pdf_editor/perf_log.dart';
 import 'package:flutter/material.dart';
+
+import 'l10n/app_localizations.dart';
 
 import 'app.dart' deferred as app;
 import 'app_info.dart' deferred as app_info;
@@ -11,6 +20,16 @@ import 'window_support.dart';
 Future<void> main(List<String> args) async {
   // PackageInfo (loaded below) needs the binding; ensure it before awaiting.
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Diagnostics: turn on the in-app performance trace (interpret times,
+  // render-hold/scheduler transitions, prerender warms, and frame JANK,
+  // streamed to the browser console) without a rebuild by opening the app
+  // with `?perf=1`. Off otherwise - it's verbose and adds per-line print
+  // overhead. `Uri.base` carries the page URL on web (and is harmless on
+  // native, where there's no query string), so no `package:web` import.
+  if (Uri.base.queryParameters['perf'] == '1') {
+    PdfPerfLog.enabled = true;
+  }
 
   // With the experimental windowing feature enabled this bootstraps an
   // explicit primary window that can spawn siblings; otherwise it's the
@@ -67,6 +86,11 @@ class _DeferredAppState extends State<_DeferredApp> {
     }
     return MaterialApp(
       title: 'DartPDF',
+      localizationsDelegates: const [
+        ...AppLocalizations.localizationsDelegates,
+        DartPdfEditorLocalizations.delegate,
+      ],
+      supportedLocales: AppLocalizations.supportedLocales,
       theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
       darkTheme: ThemeData(
         colorSchemeSeed: Colors.indigo,

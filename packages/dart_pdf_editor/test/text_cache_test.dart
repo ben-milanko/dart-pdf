@@ -2,6 +2,7 @@
 // repeated (text, font, colour) runs reuse one laid-out painter, and (b) never
 // change a pixel - a warm (cache-hot) render is byte-identical to a cold one,
 // for both substituted text and embedded-font glyph outlines.
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -31,10 +32,14 @@ bool _dejavuLoaded = false;
 Future<void> _loadBundledDejavu() async {
   if (_dejavuLoaded) return;
   _dejavuLoaded = true;
-  final data = await rootBundle
-      .load('packages/dart_pdf_editor/assets/fonts/DejaVuSans.ttf');
-  final loader = FontLoader('packages/dart_pdf_editor/DejaVu Sans')
-    ..addFont(Future.value(data));
+  // DejaVu now ships in dart_pdf_editor_assets, which this package's test asset
+  // bundle can't reach; read the moved file and register it under the family
+  // name the default fallback list expects.
+  final bytes =
+      File('../dart_pdf_editor_assets/assets/fonts/DejaVuSans.ttf')
+          .readAsBytesSync();
+  final loader = FontLoader('packages/dart_pdf_editor_assets/DejaVu Sans')
+    ..addFont(Future.value(ByteData.sublistView(bytes)));
   await loader.load();
 }
 
@@ -159,7 +164,7 @@ void main() {
 
       expect(
         CanvasPdfDevice.debugDefaultFontFallbacks,
-        contains('packages/dart_pdf_editor/DejaVu Sans'),
+        contains('packages/dart_pdf_editor_assets/DejaVu Sans'),
       );
       final expected = await _rasterSubstitutedArabic(throughDevice: false);
       final missing = await _rasterSubstitutedArabic(

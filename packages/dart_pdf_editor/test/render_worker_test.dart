@@ -974,6 +974,69 @@ void main() {
       expect(only.cancels.single, (5, 0));
     });
 
+    test('a page keeps its sticky worker while loads are equal', () async {
+      final workers = [_ManualWorker(), _ManualWorker()];
+      final pool = PdfPooledRenderWorker.fromWorkers(workers);
+      // Page 0 sticks to worker 0; page 1 loads worker 1 to the same level.
+      final first = pool.record(0, priority: 1);
+      final other = pool.record(1, priority: 1);
+      final repeat = pool.record(0, priority: 0);
+      expect(workers[0].calls.map((c) => c.$1), [0, 0],
+          reason: 'equal load keeps the sticky worker (the transcript hit '
+              'is never traded away to break a tie)');
+      expect(workers[1].calls.map((c) => c.$1), [1]);
+      for (final worker in workers) {
+        worker.completeAll();
+      }
+      await Future.wait([first, other, repeat]);
+    });
+
+    test('a page re-routes to an idle worker when its sticky worker is busier',
+        () async {
+      final workers = [_ManualWorker(), _ManualWorker()];
+      final pool = PdfPooledRenderWorker.fromWorkers(workers);
+      // A background prefetch occupies page 0's sticky worker; the on-screen
+      // record (another priority, so a fresh lease) must not queue behind it.
+      final background = pool.record(0, priority: 1);
+      final onScreen = pool.record(0, priority: 0);
+      expect(workers[0].calls.map((c) => c.$1), [0]);
+      expect(workers[1].calls.map((c) => c.$1), [0],
+          reason: 'a strictly-less-loaded active worker wins over stickiness');
+      for (final worker in workers) {
+        worker.completeAll();
+      }
+      await Future.wait([background, onScreen]);
+    });
+
+    test('a re-routed page follows its new worker afterwards', () async {
+      final workers = [_ManualWorker(), _ManualWorker()];
+      final pool = PdfPooledRenderWorker.fromWorkers(workers);
+      final background = pool.record(0, priority: 1);
+      final onScreen = pool.record(0, priority: 0); // re-routes to worker 1
+      for (final worker in workers) {
+        worker.completeAll();
+      }
+      await Future.wait([background, onScreen]);
+
+      final revisit = pool.record(0);
+      expect(workers[1].calls.map((c) => c.$1), [0, 0],
+          reason: 'the page sticks to the worker it was re-routed to');
+      expect(workers[0].calls, hasLength(1));
+      workers[1].completeAll();
+      await revisit;
+    });
+
+    test('a single-worker pool always routes to worker 0', () async {
+      final only = _ManualWorker();
+      final pool = PdfPooledRenderWorker.fromWorkers([only]);
+      final first = pool.record(3, priority: 1);
+      final second = pool.record(3, priority: 0);
+      expect(only.calls.map((c) => c.$1), [3, 3],
+          reason: 'with one worker there is no alternative to re-route to');
+      only.completeAll();
+      await Future.wait([first, second]);
+    });
+
     test('every worker is seeded from one shared byte snapshot, not a '
         'per-worker copy', () {
       final source = Uint8List.fromList(List.generate(64, (i) => i & 0xff));

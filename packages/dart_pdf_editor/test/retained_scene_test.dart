@@ -9,7 +9,6 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
@@ -155,8 +154,11 @@ void main() {
       (tester) async {
     await tester.runAsync(() async {
       final previousMax = PdfRetainedScene.spatialRegionReplayMaxCommands;
-      addTearDown(
-          () => PdfRetainedScene.spatialRegionReplayMaxCommands = previousMax);
+      final previousGridMax = PdfRetainedScene.spatialGridReplayMaxCommands;
+      addTearDown(() {
+        PdfRetainedScene.spatialRegionReplayMaxCommands = previousMax;
+        PdfRetainedScene.spatialGridReplayMaxCommands = previousGridMax;
+      });
       final page = PdfDocument.open(buildClassicPdf()).page(0);
       final grouped = await PdfRetainedScene.fromCommands(
         page,
@@ -181,25 +183,25 @@ void main() {
       expect(grouped.debugLastRegionReplayWasSelective, isFalse);
       expect(grouped.debugRegionReplaySupported, isFalse);
 
+      // Over BOTH ceilings (linear and grid): genuine full-replay fallback.
       PdfRetainedScene.spatialRegionReplayMaxCommands = 1;
-      final bounded = await PdfRetainedScene.fromCommands(
-        page,
-        [
-          PdfFillPathCommand(
-            _rectPath(20, 650, 100, 740),
-            const PdfColor(1, 0, 0),
-            PdfFillRule.nonzero,
-            1,
-          ),
-          PdfFillPathCommand(
-            _rectPath(420, 650, 500, 740),
-            const PdfColor(0, 0, 1),
-            PdfFillRule.nonzero,
-            1,
-          ),
-        ],
-        includeImages: false,
-      );
+      PdfRetainedScene.spatialGridReplayMaxCommands = 1;
+      final commands = [
+        PdfFillPathCommand(
+          _rectPath(20, 650, 100, 740),
+          const PdfColor(1, 0, 0),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        PdfFillPathCommand(
+          _rectPath(420, 650, 500, 740),
+          const PdfColor(0, 0, 1),
+          PdfFillRule.nonzero,
+          1,
+        ),
+      ];
+      final bounded =
+          await PdfRetainedScene.fromCommands(page, commands, includeImages: false);
       addTearDown(bounded.dispose);
       final boundedImage = await bounded.rasterizeRegion(
         const Rect.fromLTWH(0, 0, 220, 220),
@@ -208,6 +210,20 @@ void main() {
       boundedImage.dispose();
       expect(bounded.debugLastRegionReplayWasSelective, isFalse);
       expect(bounded.debugRegionReplaySupported, isFalse);
+
+      // Over the linear ceiling but UNDER the grid ceiling: escalates to the
+      // grid spatial index rather than full-replaying the transcript.
+      PdfRetainedScene.spatialGridReplayMaxCommands = 1000;
+      final escalated =
+          await PdfRetainedScene.fromCommands(page, commands, includeImages: false);
+      addTearDown(escalated.dispose);
+      final escalatedImage = await escalated.rasterizeRegion(
+        const Rect.fromLTWH(0, 0, 220, 220),
+        pixelRatio: 2,
+      );
+      escalatedImage.dispose();
+      expect(escalated.debugRegionReplaySupported, isTrue);
+      expect(escalated.debugLastRegionReplayWasSelective, isTrue);
     });
   });
 }

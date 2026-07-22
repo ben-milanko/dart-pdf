@@ -15,7 +15,15 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(const ViewerApp());
-    await tester.pump();
+    // use-deferred-loading makes the localizations delegate load
+    // asynchronously, so the app subtree - and the post-frame demo open -
+    // only appear after the deferred unit resolves over several frames.
+    // pumpAndSettle can't be used (the open demo runs a periodic clock timer
+    // that never settles), so pump a bounded number of frames until the demo
+    // viewer is up.
+    for (var i = 0; i < 20 && find.byType(PdfViewer).evaluate().isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
   }
 
   /// Demo pages are 612×792pt and the viewer opens fit-page, so the

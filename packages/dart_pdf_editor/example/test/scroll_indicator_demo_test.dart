@@ -37,4 +37,30 @@ void main() {
     // drain the viewer's settle/motion-hold timers before teardown
     await tester.pumpAndSettle();
   });
+
+  testWidgets('the horizontal layout toggle re-orients the scrubber',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: ScrollIndicatorDemoScreen(bytes: buildDemoPdf()),
+    ));
+    await tester.pumpAndSettle();
+
+    // flip the viewer into horizontal continuous reading
+    await tester.tap(find.byTooltip('Switch to horizontal layout'));
+    await tester.pumpAndSettle();
+
+    // the readout now reports the horizontal main axis
+    expect(find.textContaining('axis:      horizontal'), findsOneWidget);
+
+    // a horizontal drag on the (now bottom-edge) scrubber scrolls the doc
+    final scroll =
+        tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+    expect(scroll.pixels, moreOrLessEquals(0, epsilon: 0.5));
+    await tester.drag(find.byKey(const ValueKey('demo-page-scrubber')),
+        const Offset(400, 0));
+    await tester.pump();
+    expect(scroll.pixels, greaterThan(0));
+
+    await tester.pumpAndSettle();
+  });
 }
