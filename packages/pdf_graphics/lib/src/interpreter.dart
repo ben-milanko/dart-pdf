@@ -237,7 +237,12 @@ class PdfInterpreter {
 
   var _state = _GraphicsState();
   final List<_GraphicsState> _stateStack = [];
-  final Map<CosStream, List<ContentOperation>> _patternOpsCache = {};
+  // Parsed content operations keyed by stream identity, so a form XObject,
+  // annotation appearance, soft-mask group, tiling pattern, or Type3 CharProc
+  // drawn more than once in a render (including the image-collect pass plus the
+  // paint pass) is filter-decoded and parsed once. Per-interpreter, so it never
+  // outlives a render; stream identity changes when an edit rewrites content.
+  final Map<CosStream, List<ContentOperation>> _opsCache = {};
 
   /// Memoises parsed ICC profiles across `cs`/`CS` selections so a colour
   /// space chosen repeatedly parses its profile only once.
@@ -768,16 +773,28 @@ class PdfInterpreter {
     return PdfPath(segments);
   }
 
+  /// Filter-decodes and parses [stream]'s content operations, cached by stream
+  /// identity ([_opsCache]). Returns null when the stream cannot be decoded.
+  /// The returned list is read-only (shared across draws) - callers pass it to
+  /// [_run], which never mutates it.
+  List<ContentOperation>? _parsedOps(CosStream stream) {
+    final cached = _opsCache[stream];
+    if (cached != null) return cached;
+    final Uint8List content;
+    try {
+      content = cos.decodeStreamData(stream);
+    } on Exception {
+      return null;
+    }
+    return _opsCache[stream] = ContentStreamParser.parse(content);
+  }
+
   /// Renders one appearance form: the /BBox corners go through /Matrix,
   /// their bounding box is fitted onto the annotation's /Rect, and the
   /// content runs clipped to the BBox (the algorithm in §12.5.5).
   void _drawAppearance(CosStream form, PdfRect rect) {
-    final Uint8List content;
-    try {
-      content = cos.decodeStreamData(form);
-    } on Exception {
-      return;
-    }
+    final ops = _parsedOps(form);
+    if (ops == null) return;
     final dict = form.dictionary;
     final matrixObj = cos.resolve(dict['Matrix']);
     final matrix = matrixObj is CosArray && matrixObj.length >= 6
@@ -817,7 +834,7 @@ class PdfInterpreter {
       if (bbox.length >= 4) _clipToBox(bbox);
       final resources = cos.resolve(dict['Resources']);
       _run(
-        ContentStreamParser.parse(content),
+        ops,
         resources is CosDictionary ? resources : CosDictionary(),
         _currentFormDepth + 1,
       );
@@ -1657,12 +1674,8 @@ class PdfInterpreter {
   /// coordinate space captured when the mask was set.
   void _runSoftMaskForm(_ActiveSoftMask mask) {
     if (_currentFormDepth >= _maxFormDepth) return;
-    final Uint8List content;
-    try {
-      content = cos.decodeStreamData(mask.form);
-    } on Exception {
-      return;
-    }
+    final ops = _parsedOps(mask.form);
+    if (ops == null) return;
     final savedState = _state;
     final savedStackDepth = _stateStack.length;
     device.save();
@@ -1678,7 +1691,7 @@ class PdfInterpreter {
       }
       final resources = cos.resolve(mask.form.dictionary['Resources']);
       _run(
-        ContentStreamParser.parse(content),
+        ops,
         resources is CosDictionary ? resources : CosDictionary(),
         _currentFormDepth + 1,
       );
@@ -1897,7 +1910,7 @@ class PdfInterpreter {
       code,
       decode: (proc) {
         try {
-          return _patternOpsCache.putIfAbsent(
+          return _opsCache.putIfAbsent(
               proc, () => ContentStreamParser.parse(cos.decodeStreamData(proc)));
         } on Exception {
           return const [];
@@ -2000,7 +2013,7 @@ class PdfInterpreter {
     }
     final List<ContentOperation> ops;
     try {
-      ops = _patternOpsCache.putIfAbsent(pattern,
+      ops = _opsCache.putIfAbsent(pattern,
           () => ContentStreamParser.parse(cos.decodeStreamData(pattern)));
     } on Exception {
       return null;
@@ -2105,7 +2118,7 @@ class PdfInterpreter {
     final inverse = matrix.inverted();
     if (inverse == null) return;
 
-    final ops = _patternOpsCache.putIfAbsent(pattern, () {
+    final ops = _opsCache.putIfAbsent(pattern, () {
       try {
         return ContentStreamParser.parse(cos.decodeStreamData(pattern));
       } on Exception {
@@ -2320,14 +2333,10 @@ class PdfInterpreter {
         _clipToBox([for (var i = 0; i < 4; i++) _numOf(cos.resolve(bbox[i]))]);
       }
       final innerResources = cos.resolve(xobject.dictionary['Resources']);
-      final Uint8List content;
-      try {
-        content = cos.decodeStreamData(xobject);
-      } on Exception {
-        return;
-      }
+      final ops = _parsedOps(xobject);
+      if (ops == null) return;
       _run(
-        ContentStreamParser.parse(content),
+        ops,
         innerResources is CosDictionary ? innerResources : resources,
         formDepth + 1,
       );
