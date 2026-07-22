@@ -13,6 +13,7 @@ import 'editing_preferences.dart';
 import 'editing_value_field.dart';
 import 'text_prompt.dart';
 import 'line_style.dart';
+import '../l10n/pdf_l10n.dart';
 
 /// A panel showing - and editing - the selected annotation's properties.
 ///
@@ -162,17 +163,18 @@ class _PdfAnnotationPropertiesPanelState
     if (mounted) setState(() {});
   }
 
-  static String _endingLabel(PdfLineEnding ending) => switch (ending) {
-        PdfLineEnding.none => 'None',
-        PdfLineEnding.square => 'Square',
-        PdfLineEnding.circle => 'Circle',
-        PdfLineEnding.diamond => 'Diamond',
-        PdfLineEnding.openArrow => 'Open arrow',
-        PdfLineEnding.closedArrow => 'Closed arrow',
-        PdfLineEnding.butt => 'Butt',
-        PdfLineEnding.rOpenArrow => 'Open arrow (rev.)',
-        PdfLineEnding.rClosedArrow => 'Closed arrow (rev.)',
-        PdfLineEnding.slash => 'Slash',
+  String _endingLabel(PdfLineEnding ending) => switch (ending) {
+        PdfLineEnding.none => pdfL10n(context).none,
+        PdfLineEnding.square => pdfL10n(context).propLineEndingSquare,
+        PdfLineEnding.circle => pdfL10n(context).propLineEndingCircle,
+        PdfLineEnding.diamond => pdfL10n(context).propLineEndingDiamond,
+        PdfLineEnding.openArrow => pdfL10n(context).propLineEndingOpenArrow,
+        PdfLineEnding.closedArrow => pdfL10n(context).propLineEndingClosedArrow,
+        PdfLineEnding.butt => pdfL10n(context).propLineEndingButt,
+        PdfLineEnding.rOpenArrow => pdfL10n(context).propLineEndingOpenArrowRev,
+        PdfLineEnding.rClosedArrow =>
+          pdfL10n(context).propLineEndingClosedArrowRev,
+        PdfLineEnding.slash => pdfL10n(context).propLineEndingSlash,
       };
 
   Widget _lineEndingRow({
@@ -189,7 +191,7 @@ class _PdfAnnotationPropertiesPanelState
           child: DropdownButton<PdfLineEnding>(
             key: key,
             value: value,
-            hint: const Text('Varies'),
+            hint: Text(pdfL10n(context).propVaries),
             isDense: true,
             isExpanded: true,
             items: [
@@ -346,7 +348,7 @@ class _PdfAnnotationPropertiesPanelState
       {required Key key,
       required VoidCallback onTap,
       VoidCallback? onClear,
-      String clearTooltip = 'No fill',
+      String? clearTooltip,
       bool varies = false}) {
     final scheme = Theme.of(context).colorScheme;
     final variesKey = key is ValueKey
@@ -358,7 +360,7 @@ class _PdfAnnotationPropertiesPanelState
         Expanded(child: Text(label)),
         if (varies) ...[
           Text(
-            'Varies',
+            pdfL10n(context).propVaries,
             key: variesKey,
             style: TextStyle(color: scheme.onSurfaceVariant),
           ),
@@ -367,7 +369,7 @@ class _PdfAnnotationPropertiesPanelState
         if (onClear != null)
           IconButton(
             icon: const Icon(Icons.format_color_reset_outlined, size: 18),
-            tooltip: clearTooltip,
+            tooltip: clearTooltip ?? pdfL10n(context).propNoFill,
             visualDensity: VisualDensity.compact,
             onPressed: color == null && !varies ? null : onClear,
           ),
@@ -458,7 +460,7 @@ class _PdfAnnotationPropertiesPanelState
           minLines: 1,
           decoration: InputDecoration(
             labelText: label,
-            hintText: varies ? 'Varies' : null,
+            hintText: varies ? pdfL10n(context).propVaries : null,
             isDense: true,
             border: const OutlineInputBorder(),
           ),
@@ -476,7 +478,7 @@ class _PdfAnnotationPropertiesPanelState
             value,
             key: key,
             style: TextStyle(
-              color: value == 'Varies'
+              color: value == pdfL10n(context).propVaries
                   ? Theme.of(context).colorScheme.onSurfaceVariant
                   : null,
             ),
@@ -532,10 +534,10 @@ class _PdfAnnotationPropertiesPanelState
     ];
     final style = _controller.selectedAnnotationStyle;
     if (style == null) return children;
-    children.add(_section('Appearance'));
+    children.add(_section(pdfL10n(context).propSectionAppearance));
     final colors = _common<int?>([for (final style in styles) style.color]);
     children.add(_swatchRow(
-      'Color',
+      pdfL10n(context).propColor,
       Color(0xFF000000 | (colors.value ?? 0)),
       key: const ValueKey('pdf-prop-color'),
       onTap: _pickColor,
@@ -547,7 +549,7 @@ class _PdfAnnotationPropertiesPanelState
       ]);
       final fillColor =
           fills.value == null ? null : Color(0xFF000000 | fills.value!);
-      children.add(_swatchRow('Fill', fillColor,
+      children.add(_swatchRow(pdfL10n(context).propFill, fillColor,
           key: const ValueKey('pdf-prop-fill'),
           onTap: () => _pickFill(fillColor),
           onClear: () => _controller.restyleSelected(fill: (null,)),
@@ -558,7 +560,7 @@ class _PdfAnnotationPropertiesPanelState
         for (final style in styles) style.strokeWidth,
       ]);
       children.add(_sliderRow(
-        'Stroke',
+        pdfL10n(context).propStroke,
         _draggingStroke ?? widths.value ?? _controller.preferences.strokeWidth,
         key: const ValueKey('pdf-prop-stroke'),
         min: 0.5,
@@ -582,11 +584,11 @@ class _PdfAnnotationPropertiesPanelState
       children.add(Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Row(children: [
-          const Expanded(child: Text('Line type')),
+          Expanded(child: Text(pdfL10n(context).propLineType)),
           DropdownButton<PdfLineStyle>(
             key: const ValueKey('pdf-prop-line-type'),
             value: lineStyles.varies ? null : lineStyles.value,
-            hint: const Text('Varies'),
+            hint: Text(pdfL10n(context).propVaries),
             isDense: true,
             items: [
               for (final style in PdfLineStyle.values)
@@ -602,7 +604,7 @@ class _PdfAnnotationPropertiesPanelState
         ]),
       ));
       children.add(_sliderRow(
-        'Scale',
+        pdfL10n(context).propScale,
         _draggingScale ??
             _controller.selectedLineScale ??
             _controller.preferences.lineScale,
@@ -627,14 +629,14 @@ class _PdfAnnotationPropertiesPanelState
       ]);
       children
         ..add(_lineEndingRow(
-          label: 'Line start',
+          label: pdfL10n(context).propLineStart,
           key: const ValueKey('pdf-prop-line-start-ending'),
           value: starts.varies ? null : starts.value,
           onChanged: (ending) =>
               _controller.setSelectedLineEndings(start: ending),
         ))
         ..add(_lineEndingRow(
-          label: 'Line end',
+          label: pdfL10n(context).propLineEnd,
           key: const ValueKey('pdf-prop-line-end-ending'),
           value: ends.varies ? null : ends.value,
           onChanged: (ending) =>
@@ -646,7 +648,7 @@ class _PdfAnnotationPropertiesPanelState
         for (final style in styles) style.opacity,
       ]);
       children.add(_sliderRow(
-        'Opacity',
+        pdfL10n(context).propOpacity,
         _draggingOpacity ?? opacities.value,
         key: const ValueKey('pdf-prop-opacity'),
         min: 0.05,
@@ -677,11 +679,11 @@ class _PdfAnnotationPropertiesPanelState
     final border = annotation.behavior.style.borderColor;
     final borderColor = border == null ? null : Color(0xFF000000 | border);
     return [
-      _section('Text'),
+      _section(pdfL10n(context).propSectionText),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Row(children: [
-          const Expanded(child: Text('Font')),
+          Expanded(child: Text(pdfL10n(context).propFont)),
           PdfFontMenuButton(
             buttonKey: const ValueKey('pdf-prop-font'),
             controller: _controller,
@@ -694,7 +696,7 @@ class _PdfAnnotationPropertiesPanelState
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Row(children: [
-          const Expanded(child: Text('Style')),
+          Expanded(child: Text(pdfL10n(context).propStyle)),
           FontStyleToggles(
             keyPrefix: 'pdf-prop-font',
             font: style.font,
@@ -705,7 +707,7 @@ class _PdfAnnotationPropertiesPanelState
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Row(children: [
-          const Expanded(child: Text('Align')),
+          Expanded(child: Text(pdfL10n(context).propAlign)),
           TextAlignToggles(
             keyPrefix: 'pdf-prop-text-align',
             align: _controller.selectedTextAlign ?? PdfTextAlign.left,
@@ -714,7 +716,7 @@ class _PdfAnnotationPropertiesPanelState
         ]),
       ),
       _sliderRow(
-        'Size',
+        pdfL10n(context).propSize,
         _draggingFontSize ?? style.size,
         key: const ValueKey('pdf-prop-font-size'),
         min: 6,
@@ -731,11 +733,11 @@ class _PdfAnnotationPropertiesPanelState
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           child: Row(children: [
-            const Expanded(child: Text('Underline')),
+            Expanded(child: Text(pdfL10n(context).propUnderline)),
             IconButton(
               key: const ValueKey('pdf-prop-text-underline'),
               icon: const Icon(Icons.format_underlined, size: 18),
-              tooltip: 'Underline',
+              tooltip: pdfL10n(context).propUnderline,
               isSelected: _controller.selectedFreeTextStyle?.underline ?? false,
               onPressed: () => _controller.setSelectedTextBoxStyle(
                   underline:
@@ -744,7 +746,7 @@ class _PdfAnnotationPropertiesPanelState
           ]),
         ),
         _sliderRow(
-          'Line spacing',
+          pdfL10n(context).propLineSpacing,
           _draggingLineSpacing ??
               _controller.selectedFreeTextStyle?.lineSpacing ??
               kPdfFreeTextDefaultLineSpacing,
@@ -761,7 +763,7 @@ class _PdfAnnotationPropertiesPanelState
           },
         ),
         _sliderRow(
-          'Char spacing',
+          pdfL10n(context).propCharSpacing,
           _draggingCharSpacing ??
               _controller.selectedFreeTextStyle?.charSpacing ??
               0,
@@ -778,7 +780,7 @@ class _PdfAnnotationPropertiesPanelState
           },
         ),
         _sliderRow(
-          'Font width',
+          pdfL10n(context).propFontWidth,
           _draggingFontWidth ??
               _controller.selectedFreeTextStyle?.horizontalScale ??
               kPdfFreeTextDefaultHorizontalScale,
@@ -794,11 +796,11 @@ class _PdfAnnotationPropertiesPanelState
             setState(() => _draggingFontWidth = null);
           },
         ),
-        _swatchRow('Outline', borderColor,
+        _swatchRow(pdfL10n(context).propOutline, borderColor,
             key: const ValueKey('pdf-prop-text-border'),
             onTap: () => _pickTextBorder(borderColor),
             onClear: () => _controller.restyleSelectedText(border: (null,)),
-            clearTooltip: 'No outline'),
+            clearTooltip: pdfL10n(context).propNoOutline),
       ],
     ];
   }
@@ -811,11 +813,11 @@ class _PdfAnnotationPropertiesPanelState
     final style = _controller.selectedFormFieldStyle;
     if (name == null || style == null) return const [];
     return [
-      _section('Text'),
+      _section(pdfL10n(context).propSectionText),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Row(children: [
-          const Expanded(child: Text('Font')),
+          Expanded(child: Text(pdfL10n(context).propFont)),
           PdfFontMenuButton(
             buttonKey: const ValueKey('pdf-prop-form-font'),
             controller: _controller,
@@ -827,7 +829,7 @@ class _PdfAnnotationPropertiesPanelState
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Row(children: [
-          const Expanded(child: Text('Style')),
+          Expanded(child: Text(pdfL10n(context).propStyle)),
           FontStyleToggles(
             keyPrefix: 'pdf-prop-form-font',
             font: style.font,
@@ -839,7 +841,7 @@ class _PdfAnnotationPropertiesPanelState
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Row(children: [
-          const Expanded(child: Text('Align')),
+          Expanded(child: Text(pdfL10n(context).propAlign)),
           TextAlignToggles(
             keyPrefix: 'pdf-prop-form-align',
             align: style.align,
@@ -852,14 +854,14 @@ class _PdfAnnotationPropertiesPanelState
         key: const ValueKey('pdf-prop-form-autosize'),
         dense: true,
         contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-        title: const Text('Auto-size'),
+        title: Text(pdfL10n(context).propAutoSize),
         value: style.autoSize,
         onChanged: (v) => _controller.setFormFieldStyle(name,
             autoSize: v, fontSize: v ? null : style.size),
       ),
       if (!style.autoSize)
         _sliderRow(
-          'Size',
+          pdfL10n(context).propSize,
           _draggingFontSize ?? style.size,
           key: const ValueKey('pdf-prop-form-size'),
           min: 6,
@@ -876,11 +878,11 @@ class _PdfAnnotationPropertiesPanelState
         key: const ValueKey('pdf-prop-form-multiline'),
         dense: true,
         contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-        title: const Text('Multiline'),
+        title: Text(pdfL10n(context).propMultiline),
         value: style.multiline,
         onChanged: (v) => _controller.setFormFieldStyle(name, multiline: v),
       ),
-      _swatchRow('Color', style.color,
+      _swatchRow(pdfL10n(context).propColor, style.color,
           key: const ValueKey('pdf-prop-form-color'),
           onTap: () => _pickFormColor(name, style.color)),
     ];
@@ -902,9 +904,9 @@ class _PdfAnnotationPropertiesPanelState
             ? Icons.chat_bubble_outline
             : pdfAnnotationIcon(annotation.subtype)),
         title: Text(annotation.isCallout
-            ? 'Callout'
+            ? pdfL10n(context).propCallout
             : pdfAnnotationLabel(annotation.subtype)),
-        subtitle: Text('Page ${slot.$1 + 1}'),
+        subtitle: Text(pdfL10n(context).propPageNumber(slot.$1 + 1)),
       ),
       ..._styleControls(),
       ..._textStyleControls(annotation),
@@ -913,14 +915,14 @@ class _PdfAnnotationPropertiesPanelState
       // of the generic Contents/Author section
       if (annotation.subtype == 'Widget') ...[
         if (_controller.selectedWidgetFieldName != null) ...[
-          _section('Form field'),
-          _textRow('Field name', _fieldName,
+          _section(pdfL10n(context).propSectionFormField),
+          _textRow(pdfL10n(context).propFieldName, _fieldName,
               key: const ValueKey('pdf-prop-field-name'),
               onCommit: _commitFieldName),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Row(children: [
-              const Expanded(child: Text('Type')),
+              Expanded(child: Text(pdfL10n(context).propType)),
               PdfSelectedFormFieldTypeMenu(
                 controller: _controller,
                 buttonKey: const ValueKey('pdf-prop-form-type'),
@@ -933,31 +935,37 @@ class _PdfAnnotationPropertiesPanelState
         ..._formFieldControls(),
       ] else ...[
         ..._formFieldControls(),
-        _section('Content'),
-        _textRow('Contents', _contents,
+        _section(pdfL10n(context).propSectionContent),
+        _textRow(pdfL10n(context).propContents, _contents,
             key: const ValueKey('pdf-prop-contents'),
             onCommit: _commitContents,
             maxLines: 4),
         if (widget.showAuthor)
-          _textRow('Author', _author,
+          _textRow(pdfL10n(context).propAuthor, _author,
               key: const ValueKey('pdf-prop-author'), onCommit: _commitAuthor),
       ],
-      _section('Position & size (pt)'),
+      _section(pdfL10n(context).propSectionPositionSize),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Row(children: [
-          _geometryField('X', _x, const ValueKey('pdf-prop-x'), enabled: true),
+          _geometryField(pdfL10n(context).propGeometryX, _x,
+              const ValueKey('pdf-prop-x'),
+              enabled: true),
           const SizedBox(width: 8),
-          _geometryField('Y', _y, const ValueKey('pdf-prop-y'), enabled: true),
+          _geometryField(pdfL10n(context).propGeometryY, _y,
+              const ValueKey('pdf-prop-y'),
+              enabled: true),
         ]),
       ),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Row(children: [
-          _geometryField('W', _w, const ValueKey('pdf-prop-w'),
+          _geometryField(pdfL10n(context).propGeometryWidth, _w,
+              const ValueKey('pdf-prop-w'),
               enabled: _controller.canResizeSelected),
           const SizedBox(width: 8),
-          _geometryField('H', _h, const ValueKey('pdf-prop-h'),
+          _geometryField(pdfL10n(context).propGeometryHeight, _h,
+              const ValueKey('pdf-prop-h'),
               enabled: _controller.canResizeSelected),
         ]),
       ),
@@ -970,7 +978,7 @@ class _PdfAnnotationPropertiesPanelState
     final type = _common<String>([
       for (final annotation in annotations)
         annotation.isCallout
-            ? 'Callout'
+            ? pdfL10n(context).propCallout
             : pdfAnnotationLabel(annotation.subtype),
     ]);
     final page = _common<int>([
@@ -980,25 +988,25 @@ class _PdfAnnotationPropertiesPanelState
     return [
       ListTile(
         leading: const Icon(Icons.select_all),
-        title: Text('$count annotations'),
-        subtitle: const Text('Edits apply to all compatible annotations'),
+        title: Text(pdfL10n(context).propAnnotationCount(count)),
+        subtitle: Text(pdfL10n(context).propEditsApplyToAll),
       ),
-      _section('Selection'),
+      _section(pdfL10n(context).propSectionSelection),
       _readOnlyRow(
-        'Type',
-        type.varies ? 'Varies' : type.value,
+        pdfL10n(context).propType,
+        type.varies ? pdfL10n(context).propVaries : type.value,
         const ValueKey('pdf-prop-type-value'),
       ),
       _readOnlyRow(
-        'Page',
-        page.varies ? 'Varies' : '${page.value}',
+        pdfL10n(context).propPageLabel,
+        page.varies ? pdfL10n(context).propVaries : '${page.value}',
         const ValueKey('pdf-prop-page-value'),
       ),
       ..._styleControls(),
       if (!hasWidget) ...[
-        _section('Content'),
+        _section(pdfL10n(context).propSectionContent),
         _textRow(
-          'Contents',
+          pdfL10n(context).propContents,
           _contents,
           key: const ValueKey('pdf-prop-contents'),
           onCommit: _commitContents,
@@ -1008,7 +1016,7 @@ class _PdfAnnotationPropertiesPanelState
         ),
         if (widget.showAuthor)
           _textRow(
-            'Author',
+            pdfL10n(context).propAuthor,
             _author,
             key: const ValueKey('pdf-prop-author'),
             onCommit: _commitAuthor,
@@ -1049,7 +1057,7 @@ class _PdfAnnotationPropertiesPanelState
                 padding: const EdgeInsets.fromLTRB(16, 4, 4, 0),
                 child: Row(children: [
                   Expanded(
-                    child: Text('Properties',
+                    child: Text(pdfL10n(context).propPropertiesTitle,
                         style: Theme.of(context).textTheme.titleSmall),
                   ),
                   if (moveHandle != null) moveHandle,
@@ -1063,11 +1071,11 @@ class _PdfAnnotationPropertiesPanelState
                   final annotation = _controller.selectedAnnotation;
                   _syncFields(annotation);
                   if (annotation == null) {
-                    return const Center(
+                    return Center(
                       child: Padding(
-                        padding: EdgeInsets.all(24),
+                        padding: const EdgeInsets.all(24),
                         child: Text(
-                            'Select an annotation to see its properties',
+                            pdfL10n(context).propSelectAnnotationPrompt,
                             textAlign: TextAlign.center),
                       ),
                     );

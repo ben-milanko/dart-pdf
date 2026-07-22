@@ -58,16 +58,24 @@ Localize the whole product to maximize users. Decisions already made:
 
 ## Phase 1 remaining work
 
+Phase 1 extraction is **done** (2026-07-22) — see
+`doc/dev-log/2026-07-22-i18n-extraction.md` for the write-up, key counts,
+gotchas, and the deferred no-context inventory.
+
 - [x] l10n infra in `packages/dart_pdf_editor` (see "What's done")
-- [ ] Extract ~450 `dart_pdf_editor` strings into the ARB (per-file
-      inventory below)
-- [ ] `dart analyze` + `fvm flutter test` green in dart_pdf_editor
-- [ ] `app/`: l10n infra + extract ~150 user-facing strings + wire
-      `MaterialApp` delegates (skip `devtools_panel.dart` ~160 strings —
-      developer diagnostics, keep English)
-- [ ] `example/`: l10n infra + extract ~80 strings + wire `MaterialApp`
-      delegates
-- [ ] Full verification: root `fvm dart analyze` + all three test suites
+- [x] Extract `dart_pdf_editor` strings into the ARB (443 keys total)
+- [x] `dart analyze` + `fvm flutter test` green in dart_pdf_editor (the
+      one `ghent_render_test` spot-color baseline failure is pre-existing,
+      unrelated to i18n)
+- [x] `app/`: l10n infra + extract user-facing strings (208 keys) + wire
+      `MaterialApp` delegates (`devtools_panel.dart` left English)
+- [x] `example/`: l10n infra + extract strings (117 keys) + wire
+      `MaterialApp` delegates
+- [x] Full verification: root `fvm dart analyze --fatal-infos` + all three
+      test suites (package/app/example) green
+- [ ] Deferred: the no-context strings that need a context-threading
+      refactor (toolbar tool tooltips are the biggest) — full list in the
+      2026-07-22 dev-log note.
 
 ## What's done (state of this branch)
 

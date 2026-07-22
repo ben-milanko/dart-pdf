@@ -5,6 +5,7 @@ import 'package:flutter/services.dart' show HardwareKeyboard;
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import '../l10n/pdf_l10n.dart';
 import '../pdf_viewer.dart';
 import 'annotation_presentation.dart';
 import 'editing_controller.dart';
@@ -270,7 +271,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
       controller: _search,
       onChanged: (_) => setState(() {}),
       decoration: InputDecoration(
-        hintText: 'Search annotations',
+        hintText: pdfL10n(context).sidebarSearchHint,
         isDense: true,
         prefixIcon: const Icon(Icons.search, size: 18),
         suffixIcon: _search.text.isEmpty
@@ -278,7 +279,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
             : IconButton(
                 key: const ValueKey('pdf-annotation-search-clear'),
                 icon: const Icon(Icons.close, size: 18),
-                tooltip: 'Clear search',
+                tooltip: pdfL10n(context).sidebarClearSearch,
                 onPressed: () => setState(_search.clear),
               ),
         border: const OutlineInputBorder(),
@@ -374,7 +375,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
         IconButton(
           key: ValueKey('pdf-signature-delete-$pageIndex-$index'),
           icon: const Icon(Icons.delete_outline, size: 20),
-          tooltip: 'Delete signature',
+          tooltip: pdfL10n(context).sidebarDeleteSignature,
           onPressed: () =>
               unawaited(_confirmRemoveSignature(context, signature)),
         )
@@ -382,7 +383,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
         IconButton(
           key: ValueKey('pdf-annotation-delete-$pageIndex-$index'),
           icon: const Icon(Icons.delete_outline, size: 20),
-          tooltip: 'Delete',
+          tooltip: pdfL10n(context).delete,
           onPressed: () => widget.controller.deleteAnnotation(pageIndex, index),
         ),
     ];
@@ -416,20 +417,18 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Remove signature?'),
+        title: Text(pdfL10n(context).sidebarRemoveSignatureTitle),
         content: Text(name == null || name.isEmpty
-            ? 'This removes the digital signature from the document. You can '
-                'undo this.'
-            : 'This removes the digital signature by "$name" from the '
-                'document. You can undo this.'),
+            ? pdfL10n(context).sidebarRemoveSignatureBody
+            : pdfL10n(context).sidebarRemoveSignatureBodyNamed(name)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+            child: Text(pdfL10n(context).cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Remove'),
+            child: Text(pdfL10n(context).remove),
           ),
         ],
       ),
@@ -446,7 +445,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
     return PopupMenuButton<_ThreadAction>(
       key: ValueKey('pdf-annotation-more-$pageIndex-$index'),
       icon: const Icon(Icons.more_vert, size: 20),
-      tooltip: 'More',
+      tooltip: pdfL10n(context).sidebarMore,
       onSelected: (action) {
         switch (action) {
           case _ThreadAction.reply:
@@ -467,12 +466,13 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
           // a reply is matched to its root by /NM; without one there's
           // no field to open
           enabled: nm != null,
-          child: const Text('Reply'),
+          child: Text(pdfL10n(context).sidebarReply),
         ),
         PopupMenuItem(
           key: const ValueKey('pdf-resolve-button'),
           value: _ThreadAction.resolve,
-          child: Text(resolved ? 'Reopen' : 'Resolve'),
+          child: Text(
+              resolved ? pdfL10n(context).sidebarReopen : pdfL10n(context).sidebarResolve),
         ),
       ],
     );
@@ -575,7 +575,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.only(left: 6),
-                  child: Text('by ${entry.author}',
+                  child: Text(pdfL10n(context).sidebarByAuthor(entry.author!),
                       style: textTheme.bodySmall
                           ?.copyWith(color: cs.onSurfaceVariant),
                       overflow: TextOverflow.ellipsis),
@@ -608,22 +608,22 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
             autofocus: true,
             minLines: 1,
             maxLines: 4,
-            decoration: const InputDecoration(
-              hintText: 'Write a reply…',
+            decoration: InputDecoration(
+              hintText: pdfL10n(context).sidebarWriteReplyHint,
               isDense: true,
-              border: OutlineInputBorder(),
+              border: const OutlineInputBorder(),
             ),
             onSubmitted: (_) => _sendReply(page, root),
           ),
           Wrap(alignment: WrapAlignment.end, spacing: 4, children: [
             TextButton(
               onPressed: () => setState(() => _replyingTo = null),
-              child: const Text('Cancel'),
+              child: Text(pdfL10n(context).cancel),
             ),
             FilledButton(
               key: const ValueKey('pdf-reply-send'),
               onPressed: () => _sendReply(page, root),
-              child: const Text('Reply'),
+              child: Text(pdfL10n(context).sidebarReply),
             ),
           ]),
         ]),
@@ -678,18 +678,18 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
       child: Row(children: [
         IconButton(
           icon: const Icon(Icons.close, size: 20),
-          tooltip: 'Cancel selection',
+          tooltip: pdfL10n(context).sidebarCancelSelection,
           onPressed: () => setState(() {
             _selecting = false;
             _checked.clear();
           }),
         ),
-        Text('${_checked.length} selected',
+        Text(pdfL10n(context).sidebarSelectedCount(_checked.length),
             style: Theme.of(context).textTheme.labelLarge),
         const Spacer(),
         IconButton(
           icon: const Icon(Icons.delete_outline, size: 20),
-          tooltip: 'Delete selected',
+          tooltip: pdfL10n(context).sidebarDeleteSelected,
           onPressed: _checked.isEmpty
               ? null
               : () => widget.controller.deleteAnnotations(_checked.toList()),
@@ -773,7 +773,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
                 children
                   ..add(Padding(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                    child: Text('Page ${page + 1}',
+                    child: Text(pdfL10n(context).sidebarPageHeader(page + 1),
                         style: Theme.of(context).textTheme.labelLarge),
                   ))
                   ..addAll(tiles);
@@ -789,8 +789,8 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
             final list = children.isEmpty
                 ? Center(
                     child: Text(listed > 0 && query.isNotEmpty
-                        ? 'No matching annotations'
-                        : 'No annotations'))
+                        ? pdfL10n(context).sidebarNoMatchingAnnotations
+                        : pdfL10n(context).sidebarNoAnnotations))
                 : geometry.withScrollbar(
                     scroll: _scroll,
                     thumbKey: const ValueKey('pdf-annotation-scrollbar-thumb'),

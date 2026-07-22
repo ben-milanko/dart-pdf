@@ -11,6 +11,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import '../debug_overlays.dart';
+import '../l10n/pdf_l10n.dart';
 import '../page_geometry.dart';
 import '../renderer.dart';
 import '../theme.dart';
@@ -3778,7 +3779,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           return;
         }
         final text = await widget.textPrompt(context,
-            title: 'Stamp text', initial: 'APPROVED');
+            title: pdfL10n(context).overlayStampText, initial: 'APPROVED');
         if (text == null || text.isEmpty) return;
         await _commitStampWithAfterimage(
             _stampAfterimage(viewRect, text: text, color: _controller.color),
@@ -4029,7 +4030,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _controller.selectElementAt(widget.pageIndex, x, y);
       case PdfEditTool.note:
         final text =
-            await widget.textPrompt(context, title: 'Note', multiline: true);
+            await widget.textPrompt(context,
+                title: pdfL10n(context).overlayNote, multiline: true);
         if (text == null || text.isEmpty) return;
         _controller.addNote(widget.pageIndex, x, y, text);
       case PdfEditTool.count:
@@ -4064,7 +4066,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           // the classic flow normally drags out a box; a plain tap places
           // a default-sized stamp after prompting for its caption
           final text = await widget.textPrompt(context,
-              title: 'Stamp text', initial: 'APPROVED');
+              title: pdfL10n(context).overlayStampText, initial: 'APPROVED');
           if (text == null || text.isEmpty) return;
           await _commitStampWithAfterimage(
               _textStampAfterimageAt(
@@ -4282,14 +4284,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
               IconButton(
                 key: const ValueKey('pdf-selection-chip-delete'),
                 icon: const Icon(Icons.delete_outline),
-                tooltip: 'Delete',
+                tooltip: pdfL10n(context).delete,
                 onPressed: _controller.deleteSelected,
               ),
               if (_controller.canEditSelectedText)
                 IconButton(
                   key: const ValueKey('pdf-selection-chip-edit'),
                   icon: const Icon(Icons.edit_outlined),
-                  tooltip: 'Edit text',
+                  tooltip: pdfL10n(context).overlayEditText,
                   onPressed: () {
                     final rect = _selectedViewRect;
                     if (rect != null) _openTextEditor(rect, existing: true);
@@ -4299,7 +4301,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                 IconButton(
                   key: const ValueKey('pdf-selection-chip-menu'),
                   icon: const Icon(Icons.more_horiz),
-                  tooltip: 'More',
+                  tooltip: pdfL10n(context).overlayMore,
                   onPressed: () {
                     final box = context.findRenderObject() as RenderBox?;
                     if (box == null) return;
@@ -4504,7 +4506,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   return IconButton(
                     key: const ValueKey('pdf-inline-text-font'),
                     icon: const Icon(Icons.font_download_outlined),
-                    tooltip: 'Font',
+                    tooltip: pdfL10n(context).overlayFont,
                     onPressed: enabled
                         ? () => _showInlineTextFontMenu(buttonContext)
                         : null,
@@ -4513,7 +4515,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                 IconButton(
                   key: const ValueKey('pdf-inline-text-size-down'),
                   icon: const Icon(Icons.text_decrease),
-                  tooltip: 'Smaller',
+                  tooltip: pdfL10n(context).overlaySmaller,
                   onPressed: enabled
                       ? () => _applyInlineTextStyle(
                           size: (current.size - 1).clamp(8, 48).toDouble())
@@ -4522,7 +4524,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                 IconButton(
                   key: const ValueKey('pdf-inline-text-size-up'),
                   icon: const Icon(Icons.text_increase),
-                  tooltip: 'Larger',
+                  tooltip: pdfL10n(context).overlayLarger,
                   onPressed: enabled
                       ? () => _applyInlineTextStyle(
                           size: (current.size + 1).clamp(8, 48).toDouble())
@@ -4531,7 +4533,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                 IconButton(
                   key: const ValueKey('pdf-inline-text-underline'),
                   icon: const Icon(Icons.format_underlined),
-                  tooltip: 'Underline',
+                  tooltip: pdfL10n(context).overlayUnderline,
                   isSelected: current.underline,
                   // underline works with or without a selection (whole box)
                   onPressed: _textEditFieldName == null
@@ -4542,7 +4544,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   return IconButton(
                     key: const ValueKey('pdf-inline-text-color'),
                     icon: Icon(Icons.format_color_text, color: iconColor),
-                    tooltip: 'Color',
+                    tooltip: pdfL10n(context).overlayColor,
                     onPressed: enabled
                         ? () async {
                             await _pickInlineTextColor(

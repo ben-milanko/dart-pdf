@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_info.dart';
+import 'l10n/app_l10n.dart';
 import 'recents.dart';
 import 'update.dart';
 
@@ -47,8 +48,8 @@ Future<void> _openDefaultAppsSettings(BuildContext context) async {
   final uri = Uri.parse('ms-settings:defaultapps');
   final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
   if (!opened && context.mounted) {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-      content: Text('Could not open system settings'),
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(appL10n(context).settingsCouldNotOpenSystemSettings),
     ));
   }
 }
@@ -57,18 +58,18 @@ Future<void> _showDefaultAppSetup(BuildContext context) {
   return showDialog<void>(
     context: context,
     builder: (context) => AlertDialog(
-      title: const Text('Set up as default application'),
+      title: Text(appL10n(context).settingsSetUpAsDefault),
       content: Text(_defaultAppInstructions),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
+          child: Text(appL10n(context).close),
         ),
         if (_canOpenDefaultAppsSettings)
           FilledButton.icon(
             key: const ValueKey('default-app-open-settings'),
             icon: const Icon(Icons.open_in_new),
-            label: const Text('Open Settings'),
+            label: Text(appL10n(context).settingsOpenSettings),
             onPressed: () {
               Navigator.of(context).pop();
               _openDefaultAppsSettings(context);
@@ -126,7 +127,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return AlertDialog(
-      title: const Text('Settings'),
+      title: Text(appL10n(context).settingsTitle),
       content: SizedBox(
         width: 360,
         child: SingleChildScrollView(
@@ -136,22 +137,23 @@ class _SettingsDialogState extends State<_SettingsDialog> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Appearance', style: theme.textTheme.titleSmall),
+                Text(appL10n(context).settingsAppearance,
+                    style: theme.textTheme.titleSmall),
                 const SizedBox(height: 8),
                 SegmentedButton<ThemeMode>(
-                  segments: const [
+                  segments: [
                     ButtonSegment(
                         value: ThemeMode.system,
-                        icon: Icon(Icons.brightness_auto),
-                        label: Text('System')),
+                        icon: const Icon(Icons.brightness_auto),
+                        label: Text(appL10n(context).settingsThemeSystem)),
                     ButtonSegment(
                         value: ThemeMode.light,
-                        icon: Icon(Icons.light_mode),
-                        label: Text('Light')),
+                        icon: const Icon(Icons.light_mode),
+                        label: Text(appL10n(context).settingsThemeLight)),
                     ButtonSegment(
                         value: ThemeMode.dark,
-                        icon: Icon(Icons.dark_mode),
-                        label: Text('Dark')),
+                        icon: const Icon(Icons.dark_mode),
+                        label: Text(appL10n(context).settingsThemeDark)),
                   ],
                   selected: {widget.prefs.themeMode},
                   onSelectionChanged: (s) => widget.prefs.themeMode = s.first,
@@ -160,30 +162,29 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                 Row(
                   children: [
                     Expanded(
-                      child: Text('Recent files',
+                      child: Text(appL10n(context).settingsRecentFiles,
                           style: theme.textTheme.titleSmall),
                     ),
                     TextButton(
                       onPressed: widget.recents.isEmpty
                           ? null
                           : () => widget.recents.clear(),
-                      child: const Text('Clear'),
+                      child: Text(appL10n(context).clear),
                     ),
                   ],
                 ),
                 Text(
-                  widget.recents.isEmpty
-                      ? 'No recent files'
-                      : '${widget.recents.items.length} remembered',
+                  appL10n(context).settingsRecentCount(widget.recents.items.length),
                   style: theme.textTheme.bodySmall,
                 ),
                 const Divider(height: 32),
-                Text('System', style: theme.textTheme.titleSmall),
+                Text(appL10n(context).settingsSystem,
+                    style: theme.textTheme.titleSmall),
                 ListTile(
                   key: const ValueKey('settings-default-app'),
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.assignment_turned_in_outlined),
-                  title: const Text('Set up as default application'),
+                  title: Text(appL10n(context).settingsSetUpAsDefault),
                   subtitle: Text(_defaultAppSubtitle),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => _showDefaultAppSetup(context),
@@ -193,8 +194,9 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                     key: const ValueKey('settings-devtools'),
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.build_outlined),
-                    title: const Text('Developer tools'),
-                    subtitle: const Text('Metrics, logs, render modes (F12)'),
+                    title: Text(appL10n(context).settingsDeveloperTools),
+                    subtitle:
+                        Text(appL10n(context).settingsDeveloperToolsSubtitle),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () {
                       Navigator.of(context).pop();
@@ -206,7 +208,8 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                   _UpdateSection(updates: widget.updates!),
                 ],
                 const Divider(height: 32),
-                Text('About', style: theme.textTheme.titleSmall),
+                Text(appL10n(context).settingsAbout,
+                    style: theme.textTheme.titleSmall),
                 const SizedBox(height: 4),
                 Text('${AppInfo.name} ${AppInfo.version}',
                     style: theme.textTheme.bodyMedium),
@@ -215,7 +218,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                 TextButton.icon(
                   style: TextButton.styleFrom(padding: EdgeInsets.zero),
                   icon: const Icon(Icons.code, size: 18),
-                  label: const Text('View source on GitHub'),
+                  label: Text(appL10n(context).settingsViewSource),
                   onPressed: () => launchUrl(Uri.parse(AppInfo.sourceUrl),
                       mode: LaunchMode.externalApplication),
                 ),
@@ -227,7 +230,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
+          child: Text(appL10n(context).close),
         ),
       ],
     );
@@ -251,8 +254,8 @@ class _UpdateSection extends StatelessWidget {
       mode: LaunchMode.externalApplication,
     );
     if (!opened && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Could not open the download'),
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(appL10n(context).settingsCouldNotOpenDownload),
       ));
     }
   }
@@ -270,7 +273,8 @@ class _UpdateSection extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text('Updates', style: theme.textTheme.titleSmall),
+                  child: Text(appL10n(context).settingsUpdates,
+                      style: theme.textTheme.titleSmall),
                 ),
                 TextButton(
                   key: const ValueKey('settings-check-updates'),
@@ -283,7 +287,7 @@ class _UpdateSection extends StatelessWidget {
                           height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Text('Check now'),
+                      : Text(appL10n(context).settingsCheckNow),
                 ),
               ],
             ),
@@ -295,7 +299,8 @@ class _UpdateSection extends StatelessWidget {
                 child: FilledButton.icon(
                   key: const ValueKey('settings-download-update'),
                   icon: const Icon(Icons.download_outlined, size: 18),
-                  label: Text('Download ${updates.latest!.version}'),
+                  label: Text(appL10n(context).settingsDownloadVersion(
+                      updates.latest!.version.toString())),
                   onPressed: () => _openDownload(context),
                 ),
               ),
@@ -310,25 +315,26 @@ class _UpdateSection extends StatelessWidget {
     final scheme = theme.colorScheme;
     final style = theme.textTheme.bodySmall;
     return switch (updates.status) {
-      UpdateStatus.checking => Text('Checking for updates…', style: style),
+      UpdateStatus.checking =>
+        Text(appL10n(context).settingsCheckingForUpdates, style: style),
       UpdateStatus.updateAvailable => Text(
-          'Version ${updates.latest!.version} is available '
-          '(you have ${AppInfo.version}).',
+          appL10n(context).settingsUpdateAvailable(
+              updates.latest!.version.toString(), AppInfo.version),
           key: const ValueKey('settings-update-available'),
           style: style?.copyWith(color: scheme.primary),
         ),
       UpdateStatus.upToDate => Text(
-          'You’re on the latest version (${AppInfo.version}).',
+          appL10n(context).settingsUpToDate(AppInfo.version),
           key: const ValueKey('settings-up-to-date'),
           style: style,
         ),
       UpdateStatus.failed => Text(
-          'Couldn’t check for updates. Try again later.',
+          appL10n(context).settingsUpdateFailed,
           key: const ValueKey('settings-update-failed'),
           style: style?.copyWith(color: scheme.error),
         ),
       UpdateStatus.idle => Text(
-          'You have ${AppInfo.name} ${AppInfo.version}.',
+          appL10n(context).settingsUpdateIdle(AppInfo.name, AppInfo.version),
           style: style,
         ),
     };

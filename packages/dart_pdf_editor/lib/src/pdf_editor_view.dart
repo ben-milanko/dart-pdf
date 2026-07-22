@@ -19,6 +19,7 @@ import 'editing/editing_toolbar.dart';
 import 'editing/text_prompt.dart';
 import 'editing/text_style_prompt.dart';
 import 'editing/tool_shortcuts.dart';
+import 'l10n/pdf_l10n.dart';
 import 'page_number_field.dart';
 import 'performance_policy.dart';
 import 'pdf_reflow_view.dart';
@@ -772,7 +773,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   Future<void> _promptAuthor() async {
     final session = _session;
     final name = await showPdfTextPrompt(context,
-        title: 'Author name', initial: session.preferences.author ?? '');
+        title: pdfL10n(context).editorViewAuthorNameTitle,
+        initial: session.preferences.author ?? '');
     if (name == null) return;
     session.preferences.author = name.trim().isEmpty ? null : name.trim();
   }
@@ -1048,7 +1050,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                   if (showThumbnailsPanel)
                     PdfPanelBottomSheet(
                       key: const ValueKey('pdf-shell-thumbnails-sheet'),
-                      title: 'Pages',
+                      title: pdfL10n(context).shellPanelPages,
                       closeKey:
                           const ValueKey('pdf-shell-thumbnails-sheet-close'),
                       onClose: () => prefs.showThumbnailSidebar = false,
@@ -1057,7 +1059,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                   if (showSearchPanel)
                     PdfPanelBottomSheet(
                       key: const ValueKey('pdf-shell-search-sheet'),
-                      title: 'Search results',
+                      title: pdfL10n(context).shellPanelSearchResults,
                       closeKey: const ValueKey('pdf-shell-search-sheet-close'),
                       onClose: () => prefs.showSearchResultsPanel = false,
                       child: searchResults(bottomSheet: true),
@@ -1065,7 +1067,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                   if (showBookmarksPanel)
                     PdfPanelBottomSheet(
                       key: const ValueKey('pdf-shell-bookmarks-sheet'),
-                      title: 'Bookmarks',
+                      title: pdfL10n(context).shellPanelBookmarks,
                       closeKey:
                           const ValueKey('pdf-shell-bookmarks-sheet-close'),
                       onClose: () => prefs.showBookmarkSidebar = false,
@@ -1074,7 +1076,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                   if (showAnnotationsPanel)
                     PdfPanelBottomSheet(
                       key: const ValueKey('pdf-shell-annotations-sheet'),
-                      title: 'Annotations',
+                      title: pdfL10n(context).shellPanelAnnotations,
                       closeKey:
                           const ValueKey('pdf-shell-annotations-sheet-close'),
                       onClose: () => prefs.showAnnotationSidebar = false,
@@ -1083,7 +1085,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                   if (showPropertiesPanel)
                     PdfPanelBottomSheet(
                       key: const ValueKey('pdf-shell-properties-sheet'),
-                      title: 'Properties',
+                      title: pdfL10n(context).shellPanelProperties,
                       closeKey:
                           const ValueKey('pdf-shell-properties-sheet-close'),
                       onClose: () => prefs.showPropertiesPanel = false,
@@ -1132,7 +1134,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
           final viewOptionsControl = PdfShellControlItem(
             key: const ValueKey('pdf-shell-view-options'),
             icon: Icons.display_settings_outlined,
-            label: 'Settings',
+            label: pdfL10n(context).shellSettings,
             onPressed: () {
               showPdfShellViewOptionsSheet(
                 context,
@@ -1157,7 +1159,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
           final reflowControl = PdfShellControlItem(
             key: const ValueKey('pdf-shell-reflow-toggle'),
             icon: Icons.article_outlined,
-            label: 'Reflow',
+            label: pdfL10n(context).shellReflow,
             selected: reflowActive,
             onPressed: () {
               prefs.showThumbnailView = false;
@@ -1169,7 +1171,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
               PdfShellPanelItem(
                 key: const ValueKey('pdf-shell-search-results-toggle'),
                 icon: Icons.manage_search,
-                tooltip: 'Search results',
+                tooltip: pdfL10n(context).shellPanelSearchResults,
                 selected: prefs.showSearchResultsPanel,
                 onPressed: () => prefs.showSearchResultsPanel =
                     !prefs.showSearchResultsPanel,
@@ -1178,7 +1180,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
               PdfShellPanelItem(
                 key: const ValueKey('pdf-shell-thumbnails-toggle'),
                 icon: Icons.grid_view,
-                tooltip: 'Pages',
+                tooltip: pdfL10n(context).shellPanelPages,
                 selected: showThumbnails,
                 onPressed: () => prefs.showThumbnailSidebar = !showThumbnails,
               ),
@@ -1186,7 +1188,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
               PdfShellPanelItem(
                 key: const ValueKey('pdf-shell-bookmarks-toggle'),
                 icon: Icons.bookmarks_outlined,
-                tooltip: 'Bookmarks',
+                tooltip: pdfL10n(context).shellPanelBookmarks,
                 selected: prefs.showBookmarkSidebar,
                 onPressed: () =>
                     prefs.showBookmarkSidebar = !prefs.showBookmarkSidebar,
@@ -1195,7 +1197,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
               PdfShellPanelItem(
                 key: const ValueKey('pdf-shell-annotations-toggle'),
                 icon: Icons.list_alt,
-                tooltip: 'Annotations',
+                tooltip: pdfL10n(context).shellPanelAnnotations,
                 selected: prefs.showAnnotationSidebar,
                 onPressed: () =>
                     prefs.showAnnotationSidebar = !prefs.showAnnotationSidebar,
@@ -1204,7 +1206,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
               PdfShellPanelItem(
                 key: const ValueKey('pdf-shell-properties-toggle'),
                 icon: Icons.tune,
-                tooltip: 'Properties',
+                tooltip: pdfL10n(context).shellPanelProperties,
                 selected: prefs.showPropertiesPanel,
                 onPressed: () =>
                     prefs.showPropertiesPanel = !prefs.showPropertiesPanel,
@@ -1275,7 +1277,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         padding: const EdgeInsets.symmetric(horizontal: 12),
                       ),
                       icon: const Icon(Icons.save_alt, size: 18),
-                      label: const Text('Save'),
+                      label: Text(pdfL10n(context).save),
                       onPressed: _canSave ? _save : null,
                     ),
                 ],
@@ -1297,7 +1299,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     PdfShellControlItem(
                       key: const ValueKey('pdf-shell-save'),
                       icon: Icons.save_alt,
-                      label: 'Save',
+                      label: pdfL10n(context).save,
                       enabled: _canSave,
                       onPressed: _save,
                     ),

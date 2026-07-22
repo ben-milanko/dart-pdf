@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart'
     show pdfInkCurveControls, pdfInkStrokeWidth;
 
+import '../l10n/pdf_l10n.dart';
+
 /// A hand-drawn signature, stored device-side and stamped onto pages as
 /// an Ink annotation ([PdfEditingController.placeSignature]).
 ///
@@ -178,7 +180,7 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Signature'),
+      title: Text(pdfL10n(context).sigTitle),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -253,7 +255,7 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
                         _active = null;
                         _activePressures = null;
                       }),
-              child: const Text('Clear'),
+              child: Text(pdfL10n(context).clear),
             ),
           ]),
         ],
@@ -261,14 +263,14 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(pdfL10n(context).cancel),
         ),
         FilledButton(
           onPressed: _isEmpty
               ? null
               : () => Navigator.of(context)
                   .pop(PdfInkSignature.fromPad(_strokes, _pressures, _ink)),
-          child: const Text('Done'),
+          child: Text(pdfL10n(context).done),
         ),
       ],
     );

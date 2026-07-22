@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import '../editing/editing_panel.dart';
+import '../l10n/pdf_l10n.dart';
 import '../page_geometry.dart';
 import '../pdf_viewer.dart';
 import '../scrollbar.dart';
@@ -189,7 +190,7 @@ class _PdfComparisonViewState extends State<PdfComparisonView> {
     return Row(children: [
       Expanded(
         child: _LabeledPane(
-          label: 'Before',
+          label: pdfL10n(context).compareBefore,
           child: PdfViewer(
             key: const ValueKey('pdf-compare-before'),
             document: _beforeDoc,
@@ -201,7 +202,7 @@ class _PdfComparisonViewState extends State<PdfComparisonView> {
       const VerticalDivider(width: 1),
       Expanded(
         child: _LabeledPane(
-          label: 'After',
+          label: pdfL10n(context).compareAfter,
           child: PdfViewer(
             key: const ValueKey('pdf-compare-after'),
             document: _afterDoc,
@@ -344,16 +345,16 @@ class _PdfComparisonToolbar extends StatelessWidget {
       child: Row(children: [
         SegmentedButton<PdfComparisonMode>(
           key: const ValueKey('pdf-compare-mode'),
-          segments: const [
+          segments: [
             ButtonSegment(
               value: PdfComparisonMode.sideBySide,
-              icon: Icon(Icons.view_column_outlined),
-              label: Text('Side by side'),
+              icon: const Icon(Icons.view_column_outlined),
+              label: Text(pdfL10n(context).compareSideBySide),
             ),
             ButtonSegment(
               value: PdfComparisonMode.overlay,
-              icon: Icon(Icons.layers_outlined),
-              label: Text('Overlay'),
+              icon: const Icon(Icons.layers_outlined),
+              label: Text(pdfL10n(context).compareOverlay),
             ),
           ],
           selected: {mode},
@@ -368,19 +369,19 @@ class _PdfComparisonToolbar extends StatelessWidget {
             return Row(mainAxisSize: MainAxisSize.min, children: [
               Text(
                 count == 0
-                    ? 'No changes'
-                    : '${current + 1} / $count changes',
+                    ? pdfL10n(context).compareNoChanges
+                    : pdfL10n(context).compareChangePosition(current + 1, count),
                 style: Theme.of(context).textTheme.labelMedium,
               ),
               IconButton(
                 key: const ValueKey('pdf-compare-prev'),
-                tooltip: 'Previous change',
+                tooltip: pdfL10n(context).comparePreviousChange,
                 icon: const Icon(Icons.keyboard_arrow_up),
                 onPressed: count == 0 ? null : comparison.previousChange,
               ),
               IconButton(
                 key: const ValueKey('pdf-compare-next'),
-                tooltip: 'Next change',
+                tooltip: pdfL10n(context).compareNextChange,
                 icon: const Icon(Icons.keyboard_arrow_down),
                 onPressed: count == 0 ? null : comparison.nextChange,
               ),
@@ -474,7 +475,7 @@ class _PdfDiffNavigatorPanelState extends State<PdfDiffNavigatorPanel> {
       selectedTileColor: scheme.secondaryContainer,
       selectedColor: scheme.onSecondaryContainer,
       title: Text(
-        change.label.isEmpty ? '(empty)' : change.label,
+        change.label.isEmpty ? pdfL10n(context).compareEmptyLabel : change.label,
         style: Theme.of(context).textTheme.bodySmall,
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
@@ -502,7 +503,7 @@ class _PdfDiffNavigatorPanelState extends State<PdfDiffNavigatorPanel> {
               builder: (context, _) {
                 final changes = controller.changes;
                 if (changes.isEmpty) {
-                  return _hint('No differences between the two documents');
+                  return _hint(pdfL10n(context).compareNoDifferences);
                 }
                 // Group entries by their display page with headers.
                 final entries = <({int? header, int? change})>[];
@@ -520,9 +521,7 @@ class _PdfDiffNavigatorPanelState extends State<PdfDiffNavigatorPanel> {
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
                       child: Text(
-                        changes.length == 1
-                            ? '1 change'
-                            : '${changes.length} changes',
+                        pdfL10n(context).compareChangeCount(changes.length),
                         style: textTheme.labelLarge,
                       ),
                     ),
@@ -542,7 +541,9 @@ class _PdfDiffNavigatorPanelState extends State<PdfDiffNavigatorPanel> {
                               return Padding(
                                 padding:
                                     const EdgeInsets.fromLTRB(16, 10, 16, 2),
-                                child: Text('Page ${entry.header! + 1}',
+                                child: Text(
+                                    pdfL10n(context)
+                                        .comparePageHeader(entry.header! + 1),
                                     style: textTheme.labelMedium?.copyWith(
                                         color: Theme.of(context)
                                             .colorScheme

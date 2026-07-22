@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../l10n/pdf_l10n.dart';
 import 'editing_controller.dart';
 
 /// A compact takeoff register: the per-tool running totals over the live
@@ -42,19 +43,19 @@ class PdfTakeoffPanel extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
               child: Row(
                 children: [
-                  Text(title ?? 'Takeoff',
+                  Text(title ?? pdfL10n(context).takeoffTitle,
                       style: theme.textTheme.titleMedium),
                   const Spacer(),
                   if (groups.isNotEmpty)
-                    Text('${groups.length} groups',
+                    Text(pdfL10n(context).takeoffGroupCount(groups.length),
                         style: theme.textTheme.bodySmall),
                 ],
               ),
             ),
             if (groups.isEmpty)
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 4, 16, 16),
-                child: Text('No measurements yet.'),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                child: Text(pdfL10n(context).takeoffEmpty),
               )
             else
               ListView.separated(
@@ -76,7 +77,7 @@ class PdfTakeoffPanel extends StatelessWidget {
                       children: [
                         Text(g.formattedTotal(measure),
                             style: theme.textTheme.titleSmall),
-                        Text('${g.count} item${g.count == 1 ? '' : 's'}',
+                        Text(pdfL10n(context).takeoffItemCount(g.count),
                             style: theme.textTheme.bodySmall),
                       ],
                     ),
@@ -92,14 +93,16 @@ class PdfTakeoffPanel extends StatelessWidget {
                   runSpacing: 4,
                   children: [
                     if (summary.totalCount > 0)
-                      _Chip(label: 'Count', value: '${summary.totalCount}'),
+                      _Chip(
+                          label: pdfL10n(context).takeoffCount,
+                          value: '${summary.totalCount}'),
                     if (summary.totalLength > 0)
                       _Chip(
-                          label: 'Length',
+                          label: pdfL10n(context).takeoffLength,
                           value: summary.totalLength.toStringAsFixed(1)),
                     if (summary.totalArea > 0)
                       _Chip(
-                          label: 'Area',
+                          label: pdfL10n(context).takeoffArea,
                           value: summary.totalArea.toStringAsFixed(1)),
                   ],
                 ),

@@ -26,6 +26,7 @@ import 'editing/text_style_prompt.dart';
 import 'editing/tool_shortcuts.dart';
 import 'exact_extent_list.dart';
 import 'budgeted_cache.dart';
+import 'l10n/pdf_l10n.dart';
 import 'page_geometry.dart';
 import 'page_object_cache.dart';
 import 'perf_log.dart';
@@ -3421,28 +3422,33 @@ class _PdfViewerState extends State<PdfViewer>
           PopupMenuItem<_TextMenuAction>(
             key: const ValueKey('pdf-text-menu-edit'),
             value: _TextMenuAction.edit,
-            child: _textMenuRow(Icons.edit, 'Edit text & style', true),
+            child: _textMenuRow(
+                Icons.edit, pdfL10n(context).viewerEditTextStyle, true),
           ),
         if (canMarkup) ...[
           PopupMenuItem<_TextMenuAction>(
             key: const ValueKey('pdf-text-menu-highlight'),
             value: _TextMenuAction.highlight,
-            child: _textMenuRow(Icons.border_color, 'Highlight', true),
+            child: _textMenuRow(
+                Icons.border_color, pdfL10n(context).viewerMarkupHighlight, true),
           ),
           PopupMenuItem<_TextMenuAction>(
             key: const ValueKey('pdf-text-menu-underline'),
             value: _TextMenuAction.underline,
-            child: _textMenuRow(Icons.format_underlined, 'Underline', true),
+            child: _textMenuRow(Icons.format_underlined,
+                pdfL10n(context).viewerMarkupUnderline, true),
           ),
           PopupMenuItem<_TextMenuAction>(
             key: const ValueKey('pdf-text-menu-strikeout'),
             value: _TextMenuAction.strikeOut,
-            child: _textMenuRow(Icons.format_strikethrough, 'Strike out', true),
+            child: _textMenuRow(Icons.format_strikethrough,
+                pdfL10n(context).viewerMarkupStrikeOut, true),
           ),
           PopupMenuItem<_TextMenuAction>(
             key: const ValueKey('pdf-text-menu-squiggly'),
             value: _TextMenuAction.squiggly,
-            child: _textMenuRow(Icons.gesture, 'Squiggly', true),
+            child: _textMenuRow(
+                Icons.gesture, pdfL10n(context).viewerMarkupSquiggly, true),
           ),
         ],
         if (canEdit || canMarkup) const PopupMenuDivider(),
@@ -3450,13 +3456,14 @@ class _PdfViewerState extends State<PdfViewer>
           key: const ValueKey('pdf-text-menu-copy'),
           value: _TextMenuAction.copy,
           enabled: hasSelection,
-          child: _textMenuRow(Icons.copy, 'Copy', hasSelection),
+          child: _textMenuRow(Icons.copy, pdfL10n(context).copy, hasSelection),
         ),
         PopupMenuItem<_TextMenuAction>(
           key: const ValueKey('pdf-text-menu-select-all'),
           value: _TextMenuAction.selectAll,
           enabled: hasText,
-          child: _textMenuRow(Icons.select_all, 'Select all', hasText),
+          child: _textMenuRow(
+              Icons.select_all, pdfL10n(context).viewerSelectAll, hasText),
         ),
       ],
     );
@@ -3489,15 +3496,14 @@ class _PdfViewerState extends State<PdfViewer>
     final selected = _controller.selectedText;
     if (editing == null || range == null || selected.isEmpty) return;
     if (range.$1.$1 != range.$2.$1) {
-      _textSelectionToast('Editing requires a selection on one page.');
+      _textSelectionToast(pdfL10n(context).viewerEditNeedsSinglePage);
       return;
     }
     final page = range.$1.$1;
     final rects = _selectionRectsOn(page);
     final element = editing.textElementForSelection(page, rects, selected);
     if (element == null) {
-      _textSelectionToast(
-          'This selection is not one editable page-content text run.');
+      _textSelectionToast(pdfL10n(context).viewerEditNotEditableRun);
       return;
     }
     final result =
@@ -3513,8 +3519,7 @@ class _PdfViewerState extends State<PdfViewer>
       return;
     }
     if (!result.style.isEmpty && !editing.canStyleContentText(page, element)) {
-      _textSelectionToast(
-          'This PDF font can be re-typed, but its style cannot be changed.');
+      _textSelectionToast(pdfL10n(context).viewerEditStyleUnchangeable);
       return;
     }
     final fallbacks = await loadFallbackFonts();
@@ -3532,7 +3537,7 @@ class _PdfViewerState extends State<PdfViewer>
       fallbackFonts: fallbacks,
     );
     if (count == 0) {
-      _textSelectionToast('This PDF font or encoding cannot be edited safely.');
+      _textSelectionToast(pdfL10n(context).viewerEditFontUnsafe);
       return;
     }
     _clearSelection();
@@ -6726,11 +6731,11 @@ class _TextSelectionChrome extends StatelessWidget {
           onDragEnd: selection.onDragEnd,
         ),
       if (selection.chip && endRect != null)
-        _buildChip(geometry.toViewRect(endRect), s),
+        _buildChip(context, geometry.toViewRect(endRect), s),
     ]);
   }
 
-  Widget _buildChip(Rect anchor, double s) {
+  Widget _buildChip(BuildContext context, Rect anchor, double s) {
     // clear of the end handle's ball below and the start handle's above
     final clearance = 28 * s;
     final above = anchor.top - clearance - 44 * s >= 0;
@@ -6754,7 +6759,7 @@ class _TextSelectionChrome extends StatelessWidget {
               if (selection.onEdit != null) ...[
                 IconButton(
                   key: const ValueKey('pdf-text-selection-chip-edit'),
-                  tooltip: 'Edit text & style',
+                  tooltip: pdfL10n(context).viewerEditTextStyle,
                   icon: const Icon(Icons.edit, size: 20),
                   onPressed: selection.onEdit,
                 ),
@@ -6763,50 +6768,50 @@ class _TextSelectionChrome extends StatelessWidget {
               TextButton(
                 key: const ValueKey('pdf-text-selection-chip-copy'),
                 onPressed: selection.onCopy,
-                child: const Text('Copy'),
+                child: Text(pdfL10n(context).copy),
               ),
               if (selection.onMarkup != null) ...[
                 const SizedBox(height: 24, child: VerticalDivider(width: 1)),
                 PopupMenuButton<PdfMarkupKind>(
                   key: const ValueKey('pdf-text-selection-chip-markup'),
-                  tooltip: 'Markup',
+                  tooltip: pdfL10n(context).viewerMarkup,
                   icon: const Icon(Icons.edit_note, size: 20),
                   onSelected: selection.onMarkup,
-                  itemBuilder: (context) => const [
+                  itemBuilder: (context) => [
                     PopupMenuItem(
-                      key: ValueKey('pdf-text-selection-highlight'),
+                      key: const ValueKey('pdf-text-selection-highlight'),
                       value: PdfMarkupKind.highlight,
                       child: ListTile(
                         dense: true,
-                        leading: Icon(Icons.border_color),
-                        title: Text('Highlight'),
+                        leading: const Icon(Icons.border_color),
+                        title: Text(pdfL10n(context).viewerMarkupHighlight),
                       ),
                     ),
                     PopupMenuItem(
-                      key: ValueKey('pdf-text-selection-underline'),
+                      key: const ValueKey('pdf-text-selection-underline'),
                       value: PdfMarkupKind.underline,
                       child: ListTile(
                         dense: true,
-                        leading: Icon(Icons.format_underlined),
-                        title: Text('Underline'),
+                        leading: const Icon(Icons.format_underlined),
+                        title: Text(pdfL10n(context).viewerMarkupUnderline),
                       ),
                     ),
                     PopupMenuItem(
-                      key: ValueKey('pdf-text-selection-strikeout'),
+                      key: const ValueKey('pdf-text-selection-strikeout'),
                       value: PdfMarkupKind.strikeOut,
                       child: ListTile(
                         dense: true,
-                        leading: Icon(Icons.format_strikethrough),
-                        title: Text('Strike out'),
+                        leading: const Icon(Icons.format_strikethrough),
+                        title: Text(pdfL10n(context).viewerMarkupStrikeOut),
                       ),
                     ),
                     PopupMenuItem(
-                      key: ValueKey('pdf-text-selection-squiggly'),
+                      key: const ValueKey('pdf-text-selection-squiggly'),
                       value: PdfMarkupKind.squiggly,
                       child: ListTile(
                         dense: true,
-                        leading: Icon(Icons.gesture),
-                        title: Text('Squiggly'),
+                        leading: const Icon(Icons.gesture),
+                        title: Text(pdfL10n(context).viewerMarkupSquiggly),
                       ),
                     ),
                   ],
@@ -6816,7 +6821,7 @@ class _TextSelectionChrome extends StatelessWidget {
               TextButton(
                 key: const ValueKey('pdf-text-selection-chip-select-all'),
                 onPressed: selection.onSelectAll,
-                child: const Text('Select all'),
+                child: Text(pdfL10n(context).viewerSelectAll),
               ),
             ]),
           ),

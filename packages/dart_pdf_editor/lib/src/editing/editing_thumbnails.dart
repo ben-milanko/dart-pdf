@@ -9,6 +9,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import '../debug_overlays.dart';
+import '../l10n/pdf_l10n.dart';
 import '../page_range_dialog.dart';
 import '../pdf_page_view.dart';
 import '../pdf_viewer.dart';
@@ -558,7 +559,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                                       children: [
                                         Expanded(
                                           child: Text(
-                                            'Pages',
+                                            pdfL10n(context).thumbPages,
                                             style: Theme.of(context)
                                                 .textTheme
                                                 .labelMedium,
@@ -651,7 +652,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                         child: TextButton.icon(
                           key: const ValueKey('pdf-thumbnail-add-page'),
                           icon: const Icon(Icons.add, size: 16),
-                          label: const Text('Add page'),
+                          label: Text(pdfL10n(context).thumbAddPage),
                           style: TextButton.styleFrom(
                             visualDensity: VisualDensity.compact,
                             textStyle: Theme.of(context).textTheme.labelMedium,
@@ -757,13 +758,13 @@ class _PageSelectionBar extends StatelessWidget {
         _action(
           key: 'pdf-thumbnail-rotate-selected-ccw',
           icon: Icons.rotate_left,
-          tooltip: 'Rotate selected pages left',
+          tooltip: pdfL10n(context).thumbRotateSelectedLeft,
           onPressed: () => controller.rotateSelectedPages(-90),
         ),
         _action(
           key: 'pdf-thumbnail-rotate-selected-cw',
           icon: Icons.rotate_right,
-          tooltip: 'Rotate selected pages right',
+          tooltip: pdfL10n(context).thumbRotateSelectedRight,
           onPressed: () => controller.rotateSelectedPages(90),
         ),
       ],
@@ -771,13 +772,13 @@ class _PageSelectionBar extends StatelessWidget {
         _action(
           key: 'pdf-thumbnail-copy-selected',
           icon: Icons.copy_outlined,
-          tooltip: 'Copy selected pages',
+          tooltip: pdfL10n(context).thumbCopySelectedPages,
           onPressed: () => controller.copySelectedPages(),
         ),
         _action(
           key: 'pdf-thumbnail-cut-selected',
           icon: Icons.content_cut,
-          tooltip: 'Cut selected pages',
+          tooltip: pdfL10n(context).thumbCutSelectedPages,
           onPressed: () => controller.cutSelectedPages(),
         ),
       ],
@@ -785,25 +786,25 @@ class _PageSelectionBar extends StatelessWidget {
         _action(
           key: 'pdf-thumbnail-export-selected',
           icon: Icons.file_download_outlined,
-          tooltip: 'Export selected pages',
+          tooltip: pdfL10n(context).thumbExportSelectedPages,
           onPressed: _exportSelected,
         ),
       if (allowPageEditing)
         _action(
           key: 'pdf-thumbnail-delete-selected',
           icon: Icons.delete_outline,
-          tooltip: 'Delete selected pages',
+          tooltip: pdfL10n(context).thumbDeleteSelectedPages,
           onPressed: () => controller.removeSelectedPages(),
         ),
       _action(
         key: 'pdf-thumbnail-clear-selection',
         icon: Icons.close,
-        tooltip: 'Clear selection',
+        tooltip: pdfL10n(context).thumbClearSelection,
         onPressed: controller.clearPageSelection,
       ),
     ];
     final count = Text(
-      '${controller.selectedPageCount} selected',
+      pdfL10n(context).thumbSelectedCount(controller.selectedPageCount),
       style: Theme.of(context).textTheme.labelMedium,
       overflow: TextOverflow.ellipsis,
     );
@@ -884,6 +885,7 @@ class _PageActionsButton extends StatelessWidget {
     // read everything off the context BEFORE the async gap
     final messenger = ScaffoldMessenger.maybeOf(context);
     final margin = pdfFloatingToastMargin(context);
+    final failedMessage = pdfL10n(context).thumbInsertFileFailed;
     final bytes = await pick();
     if (bytes == null) return;
     try {
@@ -894,7 +896,7 @@ class _PageActionsButton extends StatelessWidget {
       // tell the user rather than failing silently
       messenger?.showSnackBar(
         SnackBar(
-          content: const Text("Couldn't insert that file."),
+          content: Text(failedMessage),
           behavior: SnackBarBehavior.floating,
           margin: margin,
         ),
@@ -920,7 +922,7 @@ class _PageActionsButton extends StatelessWidget {
     final canExport = onExportPages != null;
     return PopupMenuButton<_PageAction>(
       key: const ValueKey('pdf-thumbnail-page-actions'),
-      tooltip: 'Page actions',
+      tooltip: pdfL10n(context).thumbPageActions,
       icon: const Icon(Icons.file_copy_outlined, size: 18),
       style: const ButtonStyle(visualDensity: VisualDensity.compact),
       onSelected: (action) {
@@ -940,9 +942,8 @@ class _PageActionsButton extends StatelessWidget {
             value: _PageAction.paste,
             height: _densePopupMenuHeight,
             child: Text(
-              controller.pageClipboard.pageCount == 1
-                  ? 'Paste page'
-                  : 'Paste ${controller.pageClipboard.pageCount} pages',
+              pdfL10n(context)
+                  .thumbPastePages(controller.pageClipboard.pageCount),
               style: _densePopupTextStyle(context),
             ),
           ),
@@ -951,14 +952,16 @@ class _PageActionsButton extends StatelessWidget {
             key: const ValueKey('pdf-thumbnail-insert-pdf'),
             value: _PageAction.insert,
             height: _densePopupMenuHeight,
-            child: Text('Insert PDF…', style: _densePopupTextStyle(context)),
+            child: Text(pdfL10n(context).thumbInsertPdf,
+                style: _densePopupTextStyle(context)),
           ),
         if (canExport)
           PopupMenuItem(
             key: const ValueKey('pdf-thumbnail-export-pages'),
             value: _PageAction.export,
             height: _densePopupMenuHeight,
-            child: Text('Export pages…', style: _densePopupTextStyle(context)),
+            child: Text(pdfL10n(context).thumbExportPagesEllipsis,
+                style: _densePopupTextStyle(context)),
           ),
       ],
     );
@@ -1332,7 +1335,7 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                                     onExportPages: widget.onExportPages,
                                     compact: true,
                                   )
-                                : Text('Pages',
+                                : Text(pdfL10n(context).thumbPages,
                                     style:
                                         Theme.of(context).textTheme.titleSmall,
                                     overflow: TextOverflow.ellipsis),
@@ -1434,7 +1437,7 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                           child: TextButton.icon(
                             key: const ValueKey('pdf-thumbnail-view-add-page'),
                             icon: const Icon(Icons.add, size: 18),
-                            label: const Text('Add page'),
+                            label: Text(pdfL10n(context).thumbAddPage),
                             onPressed: () => controller.addBlankPage(),
                           ),
                         ),
@@ -1599,7 +1602,7 @@ class _GridPageCellState extends State<_GridPageCell> {
 
   Widget _draggable(Widget tile) {
     final feedback = _DragFeedback(
-      label: 'Page ${widget.pageIndex + 1}',
+      label: pdfL10n(context).thumbPageNumber(widget.pageIndex + 1),
       width: widget.tileWidth,
     );
     // dim the page being dragged in place, leaving a gap-marker
@@ -1997,7 +2000,7 @@ class _PageTileState extends State<_PageTile> {
                   Flexible(
                     // the label echoes the selection so the cue carries into
                     // the footer row, below the framed thumbnail
-                    child: Text('Page ${pageIndex + 1}',
+                    child: Text(pdfL10n(context).thumbPageNumber(pageIndex + 1),
                         overflow: TextOverflow.ellipsis,
                         style:
                             Theme.of(context).textTheme.labelMedium?.copyWith(
@@ -2015,7 +2018,7 @@ class _PageTileState extends State<_PageTile> {
                     Visibility(
                       visible: showPageActions,
                       child: Semantics(
-                        label: 'Rotate page right',
+                        label: pdfL10n(context).thumbRotatePageRight,
                         button: true,
                         child: IconButton(
                           key: ValueKey('pdf-thumbnail-rotate-$pageIndex'),
@@ -2034,7 +2037,7 @@ class _PageTileState extends State<_PageTile> {
                     Visibility(
                       visible: showPageActions,
                       child: Semantics(
-                        label: 'Delete page',
+                        label: pdfL10n(context).thumbDeletePages(1),
                         button: true,
                         child: IconButton(
                           icon: const Icon(Icons.delete_outline, size: 16),
@@ -2108,70 +2111,67 @@ Future<void> _showPageTileMenu({
   final targets = controller.selectedPages;
   final multi = targets.length > 1;
   final pageCount = controller.document.pageCount;
-
+  final l10n = pdfL10n(context);
   // "Duplicate page" / "Export 3 pages" - the verb's object reflects how
-  // many pages the action spans
-  String forPages(String verb) =>
-      multi ? '$verb ${targets.length} pages' : '$verb page';
+  // many pages the action spans (each verb is its own ICU plural)
+  final count = targets.length;
 
   final items = <PopupMenuEntry<_PageTileAction>>[
     if (allowPageEditing) ...[
       _pageMenuRow(context, _PageTileAction.rotateLeft,
           tileKey: 'pdf-thumbnail-menu-rotate-left',
           icon: Icons.rotate_left,
-          label: 'Rotate left'),
+          label: l10n.thumbRotateLeft),
       _pageMenuRow(context, _PageTileAction.rotateRight,
           tileKey: 'pdf-thumbnail-menu-rotate-right',
           icon: Icons.rotate_right,
-          label: 'Rotate right'),
+          label: l10n.thumbRotateRight),
       _pageMenuRow(context, _PageTileAction.rotate180,
           tileKey: 'pdf-thumbnail-menu-rotate-180',
           icon: Icons.cached,
-          label: 'Rotate 180°'),
+          label: l10n.thumbRotate180),
       _pageMenuRow(context, _PageTileAction.duplicate,
           tileKey: 'pdf-thumbnail-menu-duplicate',
           icon: Icons.copy_all_outlined,
-          label: forPages('Duplicate')),
+          label: l10n.thumbDuplicatePages(count)),
       // copy/cut fill the shared page clipboard (cross-tab); paste drops
       // its pages after the right-clicked page. Cut can't empty the
       // document, so it dims when it would take every page.
       _pageMenuRow(context, _PageTileAction.copy,
           tileKey: 'pdf-thumbnail-menu-copy',
           icon: Icons.copy_outlined,
-          label: forPages('Copy')),
+          label: l10n.thumbCopyPages(count)),
       _pageMenuRow(context, _PageTileAction.cut,
           tileKey: 'pdf-thumbnail-menu-cut',
           icon: Icons.content_cut,
-          label: forPages('Cut'),
+          label: l10n.thumbCutPages(count),
           enabled: multi ? targets.length < pageCount : pageCount > 1),
       _pageMenuRow(context, _PageTileAction.paste,
           tileKey: 'pdf-thumbnail-menu-paste',
           icon: Icons.content_paste,
-          label: controller.pageClipboard.pageCount == 1
-              ? 'Paste page'
-              : 'Paste ${controller.pageClipboard.pageCount} pages',
+          label: l10n.thumbPastePages(controller.pageClipboard.pageCount),
           enabled: controller.hasPageClipboard),
       // insert is relative to the right-clicked page - a single insertion
       // point - so it stays singular even under a multi-selection
       _pageMenuRow(context, _PageTileAction.insertBefore,
           tileKey: 'pdf-thumbnail-menu-insert-before',
           icon: Icons.vertical_align_top,
-          label: 'Insert blank page before'),
+          label: l10n.thumbInsertBlankBefore),
       _pageMenuRow(context, _PageTileAction.insertAfter,
           tileKey: 'pdf-thumbnail-menu-insert-after',
           icon: Icons.vertical_align_bottom,
-          label: 'Insert blank page after'),
+          label: l10n.thumbInsertBlankAfter),
     ],
     if (canExport)
       _pageMenuRow(context, _PageTileAction.export,
           tileKey: 'pdf-thumbnail-menu-export',
           icon: Icons.file_download_outlined,
-          label: '${forPages('Export')}…'),
+          label: l10n.thumbExportPagesMenu(count)),
     if (allowPageEditing)
       _pageMenuRow(context, _PageTileAction.delete,
           tileKey: 'pdf-thumbnail-menu-delete',
           icon: Icons.delete_outline,
-          label: forPages('Delete'),
+          label: l10n.thumbDeletePages(count),
           // a document must keep at least one page
           enabled: multi ? targets.length < pageCount : pageCount > 1),
   ];

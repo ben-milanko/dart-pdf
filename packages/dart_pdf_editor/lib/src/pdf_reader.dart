@@ -9,6 +9,7 @@ import 'editing/editing_bookmarks.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_preferences.dart';
 import 'editing/editing_thumbnails.dart';
+import 'l10n/pdf_l10n.dart';
 import 'page_number_field.dart';
 import 'performance_policy.dart';
 import 'pdf_reflow_view.dart';
@@ -422,7 +423,7 @@ class _PdfReaderState extends State<PdfReader> {
                       PdfShellPanelItem(
                         key: const ValueKey('pdf-shell-thumbnails-toggle'),
                         icon: Icons.grid_view,
-                        tooltip: 'Pages',
+                        tooltip: pdfL10n(context).shellPanelPages,
                         selected: showThumbnails,
                         onPressed: () =>
                             prefs.showThumbnailSidebar = !showThumbnails,
@@ -431,7 +432,7 @@ class _PdfReaderState extends State<PdfReader> {
                       PdfShellPanelItem(
                         key: const ValueKey('pdf-shell-bookmarks-toggle'),
                         icon: Icons.bookmarks_outlined,
-                        tooltip: 'Bookmarks',
+                        tooltip: pdfL10n(context).shellPanelBookmarks,
                         selected: prefs.showBookmarkSidebar,
                         onPressed: () => prefs.showBookmarkSidebar =
                             !prefs.showBookmarkSidebar,
@@ -447,7 +448,7 @@ class _PdfReaderState extends State<PdfReader> {
                     PdfShellControlItem(
                       key: const ValueKey('pdf-shell-view-options'),
                       icon: Icons.display_settings_outlined,
-                      label: 'Settings',
+                      label: pdfL10n(context).shellSettings,
                       onPressed: () {
                         showPdfShellViewOptionsSheet(
                           context,
@@ -462,7 +463,7 @@ class _PdfReaderState extends State<PdfReader> {
                   PdfShellControlItem(
                     key: const ValueKey('pdf-shell-reflow-toggle'),
                     icon: Icons.article_outlined,
-                    label: 'Reflow',
+                    label: pdfL10n(context).shellReflow,
                     selected: prefs.showReflowView,
                     onPressed: () =>
                         prefs.showReflowView = !prefs.showReflowView,
@@ -471,7 +472,7 @@ class _PdfReaderState extends State<PdfReader> {
                     PdfShellControlItem(
                       key: const ValueKey('pdf-shell-thumbnails-toggle'),
                       icon: Icons.grid_view,
-                      label: 'Pages',
+                      label: pdfL10n(context).shellPanelPages,
                       selected: showThumbnails,
                       onPressed: () =>
                           prefs.showThumbnailSidebar = !showThumbnails,
@@ -480,7 +481,7 @@ class _PdfReaderState extends State<PdfReader> {
                     PdfShellControlItem(
                       key: const ValueKey('pdf-shell-bookmarks-toggle'),
                       icon: Icons.bookmarks_outlined,
-                      label: 'Bookmarks',
+                      label: pdfL10n(context).shellPanelBookmarks,
                       selected: prefs.showBookmarkSidebar,
                       onPressed: () => prefs.showBookmarkSidebar =
                           !prefs.showBookmarkSidebar,
@@ -532,7 +533,7 @@ class _PdfReaderState extends State<PdfReader> {
                   if (useSheets && showThumbnailsPanel)
                     PdfPanelBottomSheet(
                       key: const ValueKey('pdf-shell-thumbnails-sheet'),
-                      title: 'Pages',
+                      title: pdfL10n(context).shellPanelPages,
                       closeKey:
                           const ValueKey('pdf-shell-thumbnails-sheet-close'),
                       onClose: () => prefs.showThumbnailSidebar = false,
@@ -541,7 +542,7 @@ class _PdfReaderState extends State<PdfReader> {
                   if (useSheets && showBookmarksPanel)
                     PdfPanelBottomSheet(
                       key: const ValueKey('pdf-shell-bookmarks-sheet'),
-                      title: 'Bookmarks',
+                      title: pdfL10n(context).shellPanelBookmarks,
                       closeKey:
                           const ValueKey('pdf-shell-bookmarks-sheet-close'),
                       onClose: () => prefs.showBookmarkSidebar = false,

@@ -6,6 +6,7 @@ import 'package:pdf_document/pdf_document.dart';
 
 import 'editing_controller.dart';
 import 'text_prompt.dart';
+import '../l10n/pdf_l10n.dart';
 
 /// A font shipped with the package, embeddable without a file picker. The
 /// bytes load lazily from the asset bundle ([loadBundledFont]).
@@ -343,7 +344,7 @@ class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
     final rows = <Object>[];
     if (query.isEmpty) {
       if (widget.recent.isNotEmpty) {
-        rows.add('Recently used');
+        rows.add(pdfL10n(context).propRecentlyUsed);
         rows.addAll(widget.recent);
       }
       String? lastSection;
@@ -368,27 +369,28 @@ class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('Font', style: Theme.of(context).textTheme.titleMedium),
+              Text(pdfL10n(context).propFont,
+                  style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 10),
               TextField(
                 key: const ValueKey('pdf-font-search'),
                 controller: _search,
                 autofocus: true,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   isDense: true,
-                  prefixIcon: Icon(Icons.search),
-                  hintText: 'Search fonts',
-                  border: OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.search),
+                  hintText: pdfL10n(context).propSearchFonts,
+                  border: const OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 8),
               Flexible(
                 child: !hasEntries
-                    ? const Center(
+                    ? Center(
                         child: Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Text('No fonts found',
-                              key: ValueKey('pdf-font-empty')),
+                          padding: const EdgeInsets.all(24),
+                          child: Text(pdfL10n(context).propNoFontsFound,
+                              key: const ValueKey('pdf-font-empty')),
                         ),
                       )
                     : ListView.builder(
@@ -415,9 +417,8 @@ class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
                                     overflow: TextOverflow.ellipsis),
                             trailing: entry.limited
                                 ? Tooltip(
-                                    message: 'This font is subset - only the '
-                                        'characters already used in the '
-                                        'document can be typed.',
+                                    message:
+                                        pdfL10n(context).propFontSubsetTooltip,
                                     child: Icon(
                                       Icons.warning_amber_rounded,
                                       size: 18,
@@ -505,7 +506,7 @@ Future<void> showPdfFontMenu({
       _FontEntry(
         key: ValueKey('pdf-font-document-$i'),
         label: inDocument[i].displayName,
-        subtitle: limited[i] ? 'Limited characters' : null,
+        subtitle: limited[i] ? pdfL10n(context).propLimitedCharacters : null,
         searchText: '${inDocument[i].displayName} '
                 '${inDocument[i].familyName} ${inDocument[i].postScriptName} '
                 'document embedded font'
@@ -513,72 +514,72 @@ Future<void> showPdfFontMenu({
         choice: _DocumentChoice(inDocument[i]),
         fontFamily: previewFamilies[i],
         recentKey: 'doc:${inDocument[i].postScriptName}',
-        section: 'In this document',
+        section: pdfL10n(context).propSectionInThisDocument,
         limited: limited[i],
       ),
-    const _FontEntry(
-      key: ValueKey('pdf-font-std-sans'),
+    _FontEntry(
+      key: const ValueKey('pdf-font-std-sans'),
       label: 'Sans (Helvetica)',
-      subtitle: 'Standard PDF font',
+      subtitle: pdfL10n(context).propStandardPdfFont,
       searchText: 'sans helvetica standard pdf font',
-      choice: _StandardChoice(PdfStandardFontFamily.sans),
+      choice: const _StandardChoice(PdfStandardFontFamily.sans),
       fontFamily: 'Helvetica',
       recentKey: 'std:sans',
-      section: 'All fonts',
+      section: pdfL10n(context).propSectionAllFonts,
     ),
-    const _FontEntry(
-      key: ValueKey('pdf-font-std-serif'),
+    _FontEntry(
+      key: const ValueKey('pdf-font-std-serif'),
       label: 'Serif (Times)',
-      subtitle: 'Standard PDF font',
+      subtitle: pdfL10n(context).propStandardPdfFont,
       searchText: 'serif times times-roman standard pdf font',
-      choice: _StandardChoice(PdfStandardFontFamily.serif),
+      choice: const _StandardChoice(PdfStandardFontFamily.serif),
       fontFamily: 'Times New Roman',
       recentKey: 'std:serif',
-      section: 'All fonts',
+      section: pdfL10n(context).propSectionAllFonts,
     ),
-    const _FontEntry(
-      key: ValueKey('pdf-font-std-mono'),
+    _FontEntry(
+      key: const ValueKey('pdf-font-std-mono'),
       label: 'Mono (Courier)',
-      subtitle: 'Standard PDF font',
+      subtitle: pdfL10n(context).propStandardPdfFont,
       searchText: 'mono monospace courier standard pdf font',
-      choice: _StandardChoice(PdfStandardFontFamily.mono),
+      choice: const _StandardChoice(PdfStandardFontFamily.mono),
       fontFamily: 'Courier',
       recentKey: 'std:mono',
-      section: 'All fonts',
+      section: pdfL10n(context).propSectionAllFonts,
     ),
     for (var i = 0; i < bundled.length; i++)
       _FontEntry(
         key: ValueKey('pdf-font-bundled-$i'),
         label: bundled[i].label,
-        subtitle: 'Bundled font',
+        subtitle: pdfL10n(context).propBundledFont,
         searchText: '${bundled[i].label} bundled font'.toLowerCase(),
         choice: _BundledChoice(bundled[i]),
         fontFamily: bundled[i].label,
         package: 'dart_pdf_editor',
         recentKey: 'bundled:${bundled[i].label}',
-        section: 'All fonts',
+        section: pdfL10n(context).propSectionAllFonts,
       ),
     for (var i = 0; i < platform.length; i++)
       _FontEntry(
         key: ValueKey('pdf-font-platform-$i'),
         label: platform[i].label,
-        subtitle: 'System font',
+        subtitle: pdfL10n(context).propSystemFont,
         searchText: '${platform[i].label} ${platform[i].family ?? ''} '
                 'system platform font'
             .toLowerCase(),
         choice: _PlatformChoice(platform[i]),
         fontFamily: platform[i].family,
         recentKey: 'platform:${platform[i].label}',
-        section: 'All fonts',
+        section: pdfL10n(context).propSectionAllFonts,
       ),
     if (fontPicker != null)
-      const _FontEntry(
-        key: ValueKey('pdf-font-load'),
-        label: 'Load font…',
-        subtitle: 'TTF or OTF file',
+      _FontEntry(
+        key: const ValueKey('pdf-font-load'),
+        label: pdfL10n(context).propLoadFont,
+        subtitle: pdfL10n(context).propLoadFontSubtitle,
         searchText: 'load custom font ttf otf file upload',
-        choice: _LoadChoice(),
-        section: 'All fonts',
+        choice: const _LoadChoice(),
+        section: pdfL10n(context).propSectionAllFonts,
       ),
   ];
 
