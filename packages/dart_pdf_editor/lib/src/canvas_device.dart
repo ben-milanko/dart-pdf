@@ -790,10 +790,13 @@ class CanvasPdfDevice implements PdfDevice {
   ];
 
   static const _defaultFontFallbacks = [
-    // Shipped with dart_pdf_editor, so Arabic (including presentation forms
+    // Shipped in the optional dart_pdf_editor_assets package (registered by
+    // registerBundledEditorAssets), so Arabic (including presentation forms
     // copied from shaped PDFs), Hebrew, Greek and Cyrillic render consistently
-    // even when the host's Helvetica substitute has no suitable fallback.
-    'packages/dart_pdf_editor/DejaVu Sans',
+    // even when the host's Helvetica substitute has no suitable fallback. When
+    // that package isn't present this family simply isn't registered and the
+    // later candidates apply.
+    'packages/dart_pdf_editor_assets/DejaVu Sans',
     // The unprefixed family is used when this package itself is the Flutter
     // application under test, and by hosts that register DejaVu system-wide.
     'DejaVu Sans',

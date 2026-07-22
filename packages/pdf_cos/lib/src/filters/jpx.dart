@@ -1187,7 +1187,12 @@ void _synthesize1d(Float32List signal, int i0, bool reversible) {
     return;
   }
 
-  // extend with symmetric boundary handling via index mirroring
+  // Symmetric boundary handling via index mirroring. Reflection about n-1
+  // (index -> 2*(n-1)-index) preserves index parity, so each pass below only
+  // ever reads samples of the *opposite* parity to the one it writes - never a
+  // sample it has already updated this pass. The lifts are therefore
+  // parity-disjoint and run in place, without the per-lift scratch buffers the
+  // straight double-buffered form allocated (5+ Float32Lists per row/column).
   double at(int i) {
     var index = i;
     if (index < 0) index = -index;
@@ -1195,29 +1200,17 @@ void _synthesize1d(Float32List signal, int i0, bool reversible) {
     return signal[index.clamp(0, n - 1)];
   }
 
-  final result = Float32List(n);
   if (reversible) {
-    // 5/3 (T.800 F.3.8.2): even samples first, then odd
+    // 5/3 (T.800 F.3.8.2): even samples first (reading odd neighbours), then
+    // odd samples (reading the now-updated even neighbours).
     for (var i = 0; i < n; i++) {
-      final global = i0 + i;
-      if (global.isEven) {
-        result[i] =
-            signal[i] - ((at(i - 1) + at(i + 1) + 2) / 4).floorToDouble();
+      if ((i0 + i).isEven) {
+        signal[i] -= ((at(i - 1) + at(i + 1) + 2) / 4).floorToDouble();
       }
     }
-    double even(int i) {
-      var index = i;
-      if (index < 0) index = -index;
-      if (index >= n) index = 2 * (n - 1) - index;
-      index = index.clamp(0, n - 1);
-      return (i0 + index).isEven ? result[index] : signal[index];
-    }
-
     for (var i = 0; i < n; i++) {
-      final global = i0 + i;
-      if (global.isOdd) {
-        result[i] =
-            signal[i] + ((even(i - 1) + even(i + 1)) / 2).floorToDouble();
+      if ((i0 + i).isOdd) {
+        signal[i] += ((at(i - 1) + at(i + 1)) / 2).floorToDouble();
       }
     }
   } else {
@@ -1228,32 +1221,23 @@ void _synthesize1d(Float32List signal, int i0, bool reversible) {
     const gamma = 0.882911075530934;
     const delta = 0.443506852043971;
     for (var i = 0; i < n; i++) {
-      result[i] = (i0 + i).isEven ? signal[i] * k : signal[i] / k;
+      if ((i0 + i).isEven) {
+        signal[i] *= k;
+      } else {
+        signal[i] /= k;
+      }
     }
-    Float32List current = result;
-    double cat(int i) {
-      var index = i;
-      if (index < 0) index = -index;
-      if (index >= n) index = 2 * (n - 1) - index;
-      return current[index.clamp(0, n - 1)];
-    }
-
     void lift(double coefficient, bool evenTargets) {
-      final next = Float32List.fromList(current);
       for (var i = 0; i < n; i++) {
-        final isEven = (i0 + i).isEven;
-        if (isEven == evenTargets) {
-          next[i] = current[i] - coefficient * (cat(i - 1) + cat(i + 1));
+        if ((i0 + i).isEven == evenTargets) {
+          signal[i] -= coefficient * (at(i - 1) + at(i + 1));
         }
       }
-      current = next;
     }
 
     lift(delta, true);
     lift(gamma, false);
     lift(beta, true);
     lift(alpha, false);
-    result.setRange(0, n, current);
   }
-  signal.setRange(0, n, result);
 }

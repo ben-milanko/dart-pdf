@@ -34,7 +34,50 @@ class CosDocument {
   int startXref;
 
   final Map<CosReference, CosObject> _cache = {};
+  // Identity-keyed reverse index of [_cache]: object -> the ref it loaded
+  // under. Keeps [referenceTo] O(1) instead of a linear scan of the cache on
+  // every call (editing code maps a mutated object back to its number per
+  // mutation). Kept in lockstep with [_cache] at every insert/remove site.
+  final Map<CosObject, CosReference> _reverseCache = Map.identity();
   final Map<int, _ObjectStream> _objectStreams = {};
+
+  // Decoded stream-payload cache (#392). [decodeStreamData] re-runs the whole
+  // filter chain (and the cipher, on encrypted files) on every call, and every
+  // consumer above pdf_cos decodes the same streams repeatedly - a page's
+  // /Contents for render + text-extract + element-enumeration + colour
+  // processing, form XObjects and appearances per use, fonts, cmaps, functions.
+  //
+  // Correct without invalidation: a [CosStream]'s rawBytes and dictionary are
+  // immutable for its lifetime, so its decoded bytes are stable, and an edit
+  // that changes content builds a *new* stream object (new identity, cache
+  // miss). Entries for streams a revision redefined simply become unreachable
+  // and age out under the budget. The returned bytes are treated as read-only
+  // by every caller (the same contract [decodeStream] already relies on when it
+  // returns [CosStream.rawBytes] verbatim for an unfiltered stream) - audited,
+  // no consumer writes into a decode result.
+  //
+  // Insertion-ordered (a plain Map is a LinkedHashMap): a hit reinserts to the
+  // MRU end, eviction drops from the LRU front. Bounded two ways so it never
+  // competes with the decoded-image budget (#405): a result larger than
+  // [_decodedItemCap] is never cached (large image/soft-mask planes are decoded
+  // a bounded number of times and cached as pixels elsewhere), and the total is
+  // capped at [_decodedCacheBudget].
+  final Map<_DecodedKey, Uint8List> _decodedCache = {};
+  int _decodedCacheBytes = 0;
+
+  /// Largest decoded result the cache will hold, in bytes. Bigger results
+  /// (multi-megapixel image / soft-mask planes) are never cached - they are
+  /// decoded a bounded number of times and their pixels live in the
+  /// decoded-image cache, so caching their raw planes here would just crowd out
+  /// the small, hot streams. Tunable by memory-constrained hosts (and tests).
+  static int decodedStreamCacheItemCapBytes = 1 << 20; // 1 MB
+
+  /// Total bytes the decoded-stream cache retains before evicting
+  /// least-recently-used entries. Tunable by memory-constrained hosts.
+  static int decodedStreamCacheBudgetBytes = 16 << 20; // 16 MB
+
+  /// Bytes currently held in the decoded-stream cache - test/diagnostic hook.
+  int get debugDecodedCacheBytes => _decodedCacheBytes;
 
   StandardSecurityHandler? _encryption;
   int? _encryptObjectNumber;
@@ -140,7 +183,11 @@ class CosDocument {
 
     // Drop cached state for every redefined object so the next resolve re-reads
     // it from the appended bytes; untouched objects keep their warm cache.
-    _cache.removeWhere((ref, _) => changed.contains(ref.objectNumber));
+    _cache.removeWhere((ref, obj) {
+      if (!changed.contains(ref.objectNumber)) return false;
+      if (identical(_reverseCache[obj], ref)) _reverseCache.remove(obj);
+      return true;
+    });
     _objectStreams.removeWhere((number, _) => changed.contains(number));
     _scannedHeaders = null;
     return changed;
@@ -239,6 +286,7 @@ class CosDocument {
       }
     }
     document._cache.clear();
+    document._reverseCache.clear();
     document._objectStreams.clear();
 
     document._initEncryption(password);
@@ -412,12 +460,7 @@ class CosDocument {
   /// Finds the reference under which [object] was loaded, or null if it is
   /// not an already-loaded indirect object. Identity-based; used by editing
   /// code to map a mutated object back to its number.
-  CosReference? referenceTo(CosObject object) {
-    for (final entry in _cache.entries) {
-      if (identical(entry.value, object)) return entry.key;
-    }
-    return null;
-  }
+  CosReference? referenceTo(CosObject object) => _reverseCache[object];
 
   /// Registers an in-memory [object] under [ref] as if it had been loaded
   /// from the file, so it resolves (and [referenceTo] finds it) before the
@@ -425,6 +468,7 @@ class CosDocument {
   /// for every object it allocates.
   void adoptObject(CosReference ref, CosObject object) {
     _cache[ref] = object;
+    _reverseCache[object] = ref;
   }
 
   /// Loads an object by number, parsing it on first access.
@@ -497,6 +541,7 @@ class CosDocument {
     // file's original bytes (see [CosStream.sourceRef]).
     if (result is CosStream) result.sourceRef = ref;
     _cache[ref] = result;
+    _reverseCache[result] = ref;
     return result;
   }
 
@@ -547,6 +592,22 @@ class CosDocument {
   /// owning object's key before the filters run. See [decodeStream] for
   /// [stopBeforeFilter].
   Uint8List decodeStreamData(CosStream stream, {String? stopBeforeFilter}) {
+    final key = _DecodedKey(stream, stopBeforeFilter);
+    final hit = _decodedCache.remove(key);
+    if (hit != null) {
+      _decodedCache[key] = hit; // reinsert as most-recently-used
+      return hit;
+    }
+    final decoded = _decodeStreamUncached(stream, stopBeforeFilter);
+    _cacheDecoded(key, decoded);
+    return decoded;
+  }
+
+  /// The decrypt-then-filter-decode work behind [decodeStreamData], without the
+  /// cache. Used directly for object streams, whose decoded bytes are already
+  /// held (and reused) by [_objectStreams] - caching them again would only pin a
+  /// never-re-hit entry against the budget.
+  Uint8List _decodeStreamUncached(CosStream stream, String? stopBeforeFilter) {
     var source = stream;
     final handler = _encryption;
     if (handler != null) {
@@ -564,6 +625,19 @@ class CosDocument {
         resolve: _resolveRef, stopBeforeFilter: stopBeforeFilter);
   }
 
+  /// Stores [decoded] under [key] when it is small enough to cache, evicting
+  /// least-recently-used entries until the total is back within budget.
+  void _cacheDecoded(_DecodedKey key, Uint8List decoded) {
+    if (decoded.length > decodedStreamCacheItemCapBytes) return;
+    _decodedCache[key] = decoded;
+    _decodedCacheBytes += decoded.length;
+    while (_decodedCacheBytes > decodedStreamCacheBudgetBytes &&
+        _decodedCache.length > 1) {
+      final oldest = _decodedCache.keys.first;
+      _decodedCacheBytes -= _decodedCache.remove(oldest)!.length;
+    }
+  }
+
   CosObject _resolveRef(CosReference ref) =>
       getObject(ref.objectNumber, ref.generation);
 
@@ -576,7 +650,7 @@ class CosDocument {
           throw CosParseException(
               'object stream $streamObjectNumber is not a stream');
         }
-        final data = decodeStreamData(object);
+        final data = _decodeStreamUncached(object, null);
         final count = resolve(object.dictionary['N']);
         final first = resolve(object.dictionary['First']);
         if (count is! CosInteger || first is! CosInteger) {
@@ -600,6 +674,25 @@ class CosDocument {
     return index;
   }
 
+}
+
+/// Key for the decoded-stream cache: a [CosStream] by identity plus the
+/// `stopBeforeFilter` argument (the same stream decodes to different bytes when
+/// asked to stop before its final filter - e.g. a DCT image kept JPEG-encoded).
+class _DecodedKey {
+  _DecodedKey(this.stream, this.stopBeforeFilter);
+
+  final CosStream stream;
+  final String? stopBeforeFilter;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _DecodedKey &&
+      identical(other.stream, stream) &&
+      other.stopBeforeFilter == stopBeforeFilter;
+
+  @override
+  int get hashCode => Object.hash(identityHashCode(stream), stopBeforeFilter);
 }
 
 /// A decoded /Type /ObjStm: many small objects packed into one stream.

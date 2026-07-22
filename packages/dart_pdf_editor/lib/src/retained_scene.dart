@@ -198,6 +198,17 @@ class PdfRetainedScene {
   /// on the legacy full-page raster to avoid per-tile full-transcript replays.
   bool get supportsRegionRaster => _ensureRegionIndex().supported;
 
+  /// Approximate bytes of the decoded images this scene retains for replay
+  /// (RGBA, width*height*4). Counted against the live-raster budget (#405): a
+  /// dense sheet's underlays keep tens of MB of pixels resident per live page.
+  int get decodedImageBytes {
+    var total = 0;
+    for (final image in _images.values) {
+      total += image.width * image.height * 4;
+    }
+    return total;
+  }
+
   int get debugRegionReplayUnitCount => _ensureRegionIndex().units.length;
   int get debugRegionReplayEstimatedBytes =>
       _ensureRegionIndex().estimatedBytes;

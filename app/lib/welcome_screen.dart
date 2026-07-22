@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'app_info.dart';
+import 'l10n/app_l10n.dart';
 import 'recents.dart';
 
 /// The landing surface shown when no document is open: a hero with the open
@@ -43,13 +44,14 @@ class WelcomeScreen extends StatelessWidget {
                   FilledButton.icon(
                     onPressed: onOpen,
                     icon: const Icon(Icons.folder_open),
-                    label: const Text('Open a PDF'),
+                    label: Text(appL10n(context).welcomeOpenPdf),
                   ),
                   if (items.isNotEmpty) ...[
                     const SizedBox(height: 28),
                     Align(
                       alignment: Alignment.centerLeft,
-                      child: Text('Recent', style: theme.textTheme.titleSmall),
+                      child: Text(appL10n(context).welcomeRecent,
+                          style: theme.textTheme.titleSmall),
                     ),
                     const SizedBox(height: 4),
                     Flexible(
@@ -70,12 +72,13 @@ class WelcomeScreen extends StatelessWidget {
                                 : entry.isReopenable
                                     // Mobile: reopens from a private snapshot,
                                     // so no path to show and no re-pick needed.
-                                    ? const Text('Tap to reopen')
-                                    : const Text('Pick again to reopen'),
+                                    ? Text(appL10n(context).welcomeTapToReopen)
+                                    : Text(appL10n(context)
+                                        .welcomePickAgainToReopen),
                             enabled: entry.isReopenable,
                             trailing: IconButton(
                               icon: const Icon(Icons.close, size: 18),
-                              tooltip: 'Remove from recent',
+                              tooltip: appL10n(context).welcomeRemoveFromRecent,
                               onPressed: () => recents.remove(entry.id),
                             ),
                             onTap: entry.isReopenable

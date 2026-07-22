@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../l10n/pdf_l10n.dart';
+
 /// The value-entry formats [PdfColorPicker] can show: hex (the default),
 /// RGB (0–255), HSL (degrees and percentages), and CMYK (percentages -
 /// a naive device conversion for entry and display; the committed color
@@ -317,7 +319,7 @@ class _PdfColorPickerState extends State<PdfColorPicker> {
               height: 38,
               child: PopupMenuButton<PdfColorFormat>(
                 key: const ValueKey('pdf-color-format'),
-                tooltip: 'Color format',
+                tooltip: pdfL10n(context).colorColorFormat,
                 initialValue: _format,
                 onSelected: _switchFormat,
                 itemBuilder: (context) => [
@@ -346,10 +348,11 @@ class _PdfColorPickerState extends State<PdfColorPicker> {
   /// labelled [_SwatchGrid]; empty inputs drop out entirely.
   List<Widget> _gridSections(BuildContext context) {
     final currentRgb = _color.toARGB32() & 0xFFFFFF;
+    final l10n = pdfL10n(context);
     final sections = <(String, String, List<Color>)>[
-      ('Palette', 'palette', widget.swatches),
-      ('Recent', 'recent', widget.recentColors),
-      ('In document', 'document', widget.documentColors),
+      (l10n.colorPalette, 'palette', widget.swatches),
+      (l10n.colorRecent, 'recent', widget.recentColors),
+      (l10n.colorInDocument, 'document', widget.documentColors),
     ];
     final grids = <Widget>[];
     for (final (label, keyPart, colors) in sections) {
@@ -585,7 +588,7 @@ Future<Color?> showPdfColorPicker(
   return showDialog<Color>(
     context: context,
     builder: (context) => AlertDialog(
-      title: const Text('Color'),
+      title: Text(pdfL10n(context).colorColorTitle),
       content: SingleChildScrollView(
         child: PdfColorPicker(
           color: initial,
@@ -599,11 +602,11 @@ Future<Color?> showPdfColorPicker(
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(pdfL10n(context).cancel),
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(current),
-          child: const Text('OK'),
+          child: Text(pdfL10n(context).ok),
         ),
       ],
     ),

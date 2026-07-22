@@ -12,25 +12,29 @@ import 'render_worker_stub.dart'
     if (dart.library.io) 'render_worker_isolate.dart'
     if (dart.library.js_interop) 'render_worker_web.dart';
 
-/// The package-asset URL of dart_pdf_editor's bundled Web Worker script.
+/// The package-asset URL of the Web Worker script shipped in the optional
+/// `dart_pdf_editor_assets` package.
 ///
-/// Flutter serves package assets under `assets/packages/<package>/...`, so a
-/// Flutter web app that depends on this package can use the worker without
-/// copying a script into its own `web/` directory.
+/// Flutter serves package assets under `assets/packages/<package>/...`. This
+/// URL only resolves when an app depends on `dart_pdf_editor_assets` (whose
+/// `registerBundledEditorAssets()` assigns it to [pdfRenderWorkerScriptUrl]);
+/// `dart_pdf_editor` itself no longer bundles the worker, so viewer-only apps
+/// don't pay its ~0.48 MB.
 const String defaultPdfRenderWorkerScriptUrl =
-    'assets/packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js';
+    'assets/packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js';
 
 /// On web, the URL of the compiled Web Worker script that backs the render
 /// worker (its `main()` calls `runPdfRenderWorker`; see the web-only library
 /// `package:dart_pdf_editor/render_worker_web.dart` and
 /// `doc/render_worker_web.md` for the build wiring).
 ///
-/// The default points at dart_pdf_editor's bundled package asset, so apps get
-/// off-main-thread rendering on web without startup configuration. Set this to
-/// another URL before opening a viewer to self-host/cache-bust a custom worker,
-/// or set it to null to force local main-thread rendering. Ignored on native,
-/// where the isolate backend needs no script.
-String? pdfRenderWorkerScriptUrl = defaultPdfRenderWorkerScriptUrl;
+/// Null by default: the worker is an optional asset that ships in
+/// `dart_pdf_editor_assets`, so web rendering runs on the main thread until an
+/// app opts in. `registerBundledEditorAssets()` sets this to
+/// [defaultPdfRenderWorkerScriptUrl] (the bundled package asset); set it to
+/// another URL before opening a viewer to self-host/cache-bust a custom worker.
+/// Ignored on native, where the isolate backend needs no script.
+String? pdfRenderWorkerScriptUrl;
 
 /// Default number of platform workers [PdfRenderWorker.start] fans page
 /// records across.
@@ -204,6 +208,22 @@ abstract class PdfRenderWorker {
   /// `dart compile js` without pulling in Flutter.)
   static PdfRenderWorker startUncached(Uint8List bytes) =>
       startRenderWorker(bytes);
+
+  /// Warms the platform render worker ahead of a document, so its startup cost
+  /// overlaps whatever the user is doing (choosing or loading a file) instead of
+  /// blocking the first render. On the web this fetches, compiles, and boots the
+  /// ~1 MB worker script now (~1.45 s on a phone, #450); a later [start] adopts
+  /// the pre-booted worker and only hands off the document (a few tens of ms).
+  /// No-op on native (isolate spawn is cheap) and where no worker is configured.
+  ///
+  /// [count] defaults to [pdfRenderWorkerPoolSize]. Safe to call more than once
+  /// (tops the pool up rather than doubling it) and safe even when a worker is
+  /// never used - drop the unadopted workers with [disposePrewarm].
+  static void prewarm({int? count}) =>
+      prewarmRenderWorkers(count ?? pdfRenderWorkerPoolSize);
+
+  /// Terminates any prewarmed-but-unadopted workers ([prewarm]).
+  static void disposePrewarm() => disposePrewarmedRenderWorkers();
 
   /// Records page [pageIndex] off-thread and returns its replayable command
   /// buffer (image XObjects decoded off-thread and attached), or null when the

@@ -58,6 +58,14 @@ int debugPdfRenderWorkerIgnoredStaleCancels = 0;
 PdfRenderWorker startRenderWorker(Uint8List bytes) =>
     _IsolateRenderWorker(bytes);
 
+/// No-op on native: spawning a background isolate carries no fetch/compile cost
+/// (the ~1.45 s #450 warm-up is dart2js-on-the-web specific), so there is
+/// nothing worth prewarming ahead of the document.
+void prewarmRenderWorkers(int count) {}
+
+/// No-op counterpart to [prewarmRenderWorkers].
+void disposePrewarmedRenderWorkers() {}
+
 class _IsolateRenderWorker extends PdfRenderWorker {
   _IsolateRenderWorker(Uint8List bytes) {
     unawaited(_spawn(bytes));

@@ -1,0 +1,1113 @@
+{
+  "@@locale": "en",
+  "add": "Add",
+  "@add": {
+    "description": "Generic button that adds a new item."
+  },
+  "appSigAddLogo": "Add logo…",
+  "@appSigAddLogo": {
+    "description": "Button to pick a logo backdrop image for the signature box."
+  },
+  "appSigAllPages": "All {pageCount} pages",
+  "@appSigAllPages": {
+    "description": "Label meaning the signature box is shown on every page of the document.",
+    "placeholders": {
+      "pageCount": {
+        "type": "int"
+      }
+    }
+  },
+  "appSigAppearance": "Appearance",
+  "@appSigAppearance": {
+    "description": "Section header for the visible signature box appearance options."
+  },
+  "appSigAppearanceDescription": "The signature is drawn where you placed it. The signer name and details are always shown; you can add a hand-drawn mark and a logo backdrop.",
+  "@appSigAppearanceDescription": {
+    "description": "Explanatory text for the visible signature box appearance section."
+  },
+  "appSigApplyTo": "Apply to: {label}",
+  "@appSigApplyTo": {
+    "description": "Row showing which pages the signature box will appear on.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "appSigApplyToPages": "Apply to pages…",
+  "@appSigApplyToPages": {
+    "description": "Button that opens the page-range picker for showing the signature box on multiple pages."
+  },
+  "appSigChooseCertificate": "Choose certificate file…",
+  "@appSigChooseCertificate": {
+    "description": "Button label to pick a certificate file when none is selected yet."
+  },
+  "appSigChooseKeyDescription": "Choose your private key (RSA, PEM or DER) and its certificate file. The key is only used to sign and is never saved.",
+  "@appSigChooseKeyDescription": {
+    "description": "Instructions in the advanced section for choosing a private key and certificate file."
+  },
+  "appSigChoosePngOrJpeg": "Choose a PNG or JPEG image.",
+  "@appSigChoosePngOrJpeg": {
+    "description": "Error shown when the picked logo backdrop image is not a supported PNG or JPEG."
+  },
+  "appSigChoosePrivateKey": "Choose private key…",
+  "@appSigChoosePrivateKey": {
+    "description": "Button label to pick a private key file when none is selected yet."
+  },
+  "appSigContactInfo": "Contact info",
+  "@appSigContactInfo": {
+    "description": "Label for the signer contact info input field."
+  },
+  "appSigCouldNotCaptureSignature": "Could not capture the signature.",
+  "@appSigCouldNotCaptureSignature": {
+    "description": "Error shown when rasterizing the hand-drawn signature mark fails."
+  },
+  "appSigCouldNotReadCertificate": "Could not read the certificate: {error}",
+  "@appSigCouldNotReadCertificate": {
+    "description": "Error shown when the selected certificate file cannot be read.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "appSigCouldNotReadKey": "Could not read the key: {error}",
+  "@appSigCouldNotReadKey": {
+    "description": "Error shown when the selected private key file cannot be read.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "appSigCreateOnDevice": "Create a signature on this device",
+  "@appSigCreateOnDevice": {
+    "description": "Button that creates a self-signed signing identity stored on the device."
+  },
+  "appSigDate": "Date: {date}",
+  "@appSigDate": {
+    "description": "Detail line in the signature box preview showing the signing date.",
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "appSigDigitallySign": "Digitally sign",
+  "@appSigDigitallySign": {
+    "description": "Title of the digital signing dialog."
+  },
+  "appSigDrawSignature": "Draw signature…",
+  "@appSigDrawSignature": {
+    "description": "Button to open the hand-drawn signature capture dialog."
+  },
+  "appSigFieldHelper": "Leave blank to create a new signature field.",
+  "@appSigFieldHelper": {
+    "description": "Helper text for the existing signature field input."
+  },
+  "appSigFieldLabel": "Existing signature field (optional)",
+  "@appSigFieldLabel": {
+    "description": "Text field label for naming an existing signature field to sign into."
+  },
+  "appSigIdentitySubtitle": "{count, plural, =1{1 certificate} other{{count} certificates}} · valid {validFrom} to {validUntil}",
+  "@appSigIdentitySubtitle": {
+    "description": "Subtitle summarizing a bring-your-own identity: number of certificates and validity dates.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "validFrom": {
+        "type": "String"
+      },
+      "validUntil": {
+        "type": "String"
+      }
+    }
+  },
+  "appSigIntro": "A digital signature proves you signed this document and that it has not been changed since. Pick how you want to sign.",
+  "@appSigIntro": {
+    "description": "Introductory explanation at the top of the digital signing dialog."
+  },
+  "appSigKeyOrCertUnreadable": "The selected key or certificate could not be read.",
+  "@appSigKeyOrCertUnreadable": {
+    "description": "Error shown when the chosen key or certificate could not be parsed for signing."
+  },
+  "appSigKeylessDescription": "Easiest. We confirm it's you by email and sign for you, with a trusted timestamp. Nothing to install or set up.",
+  "@appSigKeylessDescription": {
+    "description": "Explanatory text under the keyless email signing button."
+  },
+  "appSigKeylessIdentity": "Keyless identity",
+  "@appSigKeylessIdentity": {
+    "description": "Fallback title for a keyless identity that has no name."
+  },
+  "appSigKeylessSignInExpired": "Your keyless sign-in expired. Please sign in again.",
+  "@appSigKeylessSignInExpired": {
+    "description": "Error shown when a short-lived keyless certificate has expired and re-signing is needed."
+  },
+  "appSigKeylessSignInFailed": "Keyless sign-in failed: {failure}",
+  "@appSigKeylessSignInFailed": {
+    "description": "Error shown when the Sigstore/Fulcio keyless sign-in flow fails.",
+    "placeholders": {
+      "failure": {
+        "type": "String"
+      }
+    }
+  },
+  "appSigKeylessSubtitle": "Keyless · timestamped · validity unknown",
+  "@appSigKeylessSubtitle": {
+    "description": "Subtitle describing a keyless (Sigstore/Fulcio) signing identity."
+  },
+  "appSigKeylessWebNote": "Signing in with your email is the easiest way — it's available in the DartPDF desktop and mobile apps. For security reasons it can't run in a web browser.",
+  "@appSigKeylessWebNote": {
+    "description": "Note shown on the web build explaining that keyless email signing is only available in the desktop and mobile apps."
+  },
+  "appSigLocation": "Location",
+  "@appSigLocation": {
+    "description": "Label for the signing location input field."
+  },
+  "appSigLogoAdded": "Logo added ✓",
+  "@appSigLogoAdded": {
+    "description": "Button label confirming a logo backdrop has been added."
+  },
+  "appSigPagesRange": "Pages {start}–{end}",
+  "@appSigPagesRange": {
+    "description": "Label for a range of pages (1-based, inclusive) the signature box is shown on.",
+    "placeholders": {
+      "start": {
+        "type": "int"
+      },
+      "end": {
+        "type": "int"
+      }
+    }
+  },
+  "appSigPreviewNote": "Preview - the signed box may differ slightly.",
+  "@appSigPreviewNote": {
+    "description": "Caption under the signature box preview noting the rendered box may differ."
+  },
+  "appSigReason": "Reason",
+  "@appSigReason": {
+    "description": "Label for the signing reason input field."
+  },
+  "appSigReasonLine": "Reason: {reason}",
+  "@appSigReasonLine": {
+    "description": "Detail line in the signature box preview showing the signing reason.",
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "appSigRefreshingSignIn": "Refreshing sign-in…",
+  "@appSigRefreshingSignIn": {
+    "description": "Busy label on the Sign button while re-minting an about-to-expire keyless certificate."
+  },
+  "appSigRemoveLogo": "Remove logo",
+  "@appSigRemoveLogo": {
+    "description": "Button that clears the logo backdrop from the appearance preview."
+  },
+  "appSigRemoveSignature": "Remove signature",
+  "@appSigRemoveSignature": {
+    "description": "Button that clears the hand-drawn signature mark from the appearance preview."
+  },
+  "appSigSelfSignedDescription": "No sign-in or files needed. Best for personal use — it's saved on this device for next time. Some PDF readers will show it as \"signed, validity unknown\", which is normal for a signature you make yourself.",
+  "@appSigSelfSignedDescription": {
+    "description": "Explanatory text under the create-a-signature-on-this-device button."
+  },
+  "appSigSelfSignedIdentity": "Self-signed identity",
+  "@appSigSelfSignedIdentity": {
+    "description": "Fallback title for a self-signed identity that has no name."
+  },
+  "appSigSelfSignedSubtitle": "Self-signed · validity unknown",
+  "@appSigSelfSignedSubtitle": {
+    "description": "Subtitle describing a self-signed signing identity."
+  },
+  "appSigShowSignatureOnPages": "Show the signature on pages",
+  "@appSigShowSignatureOnPages": {
+    "description": "Title of the dialog that chooses which pages the visible signature box appears on."
+  },
+  "appSigSign": "Sign",
+  "@appSigSign": {
+    "description": "Confirm button that applies the digital signature."
+  },
+  "appSigSignInWithEmail": "Sign in with your email",
+  "@appSigSignInWithEmail": {
+    "description": "Button that starts the keyless email-based signing flow."
+  },
+  "appSigSignatureAdded": "Signature added ✓",
+  "@appSigSignatureAdded": {
+    "description": "Button label confirming a hand-drawn signature mark has been added."
+  },
+  "appSigSignedBy": "Digitally signed by {signerName}",
+  "@appSigSignedBy": {
+    "description": "First detail line in the signature box preview naming the signer.",
+    "placeholders": {
+      "signerName": {
+        "type": "String"
+      }
+    }
+  },
+  "appSigSigner": "Signer",
+  "@appSigSigner": {
+    "description": "Fallback text shown in the signature box preview when no signer name is known."
+  },
+  "appSigSigningYouIn": "Signing you in…",
+  "@appSigSigningYouIn": {
+    "description": "Busy label on the keyless button while the email sign-in is in progress."
+  },
+  "appSigThisPageOnly": "This page only",
+  "@appSigThisPageOnly": {
+    "description": "Label meaning the signature box is shown only on the placed page."
+  },
+  "appSigUseOwnCertificate": "Use your own certificate",
+  "@appSigUseOwnCertificate": {
+    "description": "Title of the advanced section for signing with a bring-your-own key and certificate."
+  },
+  "appSigUseOwnCertificateSubtitle": "For a signing certificate from your organisation",
+  "@appSigUseOwnCertificateSubtitle": {
+    "description": "Subtitle for the advanced bring-your-own-certificate signing section."
+  },
+  "appSigX509Signer": "X.509 signer",
+  "@appSigX509Signer": {
+    "description": "Fallback title for an identity from a certificate that has no signer name."
+  },
+  "apply": "Apply",
+  "@apply": {
+    "description": "Generic button that applies pending changes."
+  },
+  "cancel": "Cancel",
+  "@cancel": {
+    "description": "Button that dismisses a dialog without applying."
+  },
+  "clear": "Clear",
+  "@clear": {
+    "description": "Generic button that clears the current value or selection."
+  },
+  "close": "Close",
+  "@close": {
+    "description": "Generic button/tooltip that closes a panel or dialog."
+  },
+  "copy": "Copy",
+  "@copy": {
+    "description": "Generic button/menu label to copy the current item."
+  },
+  "cut": "Cut",
+  "@cut": {
+    "description": "Generic button/menu label to cut the current item."
+  },
+  "delete": "Delete",
+  "@delete": {
+    "description": "Generic button/menu label to delete the current item."
+  },
+  "done": "Done",
+  "@done": {
+    "description": "Generic button that finishes the current interaction."
+  },
+  "edit": "Edit",
+  "@edit": {
+    "description": "Generic button/menu label to edit the current item."
+  },
+  "editorAddDroppedMessage": "{count, plural, =1{Open this PDF in a new tab, or insert its pages into \"{title}\"?} other{Open these {count} PDFs in a new tab, or insert their pages into \"{title}\"?}}",
+  "@editorAddDroppedMessage": {
+    "description": "Dialog body asking whether to open dropped PDFs in new tabs or insert their pages into the named open document.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "editorAddDroppedTitle": "{count, plural, =1{Add dropped PDF} other{Add dropped PDFs}}",
+  "@editorAddDroppedTitle": {
+    "description": "Dialog title asking how to handle PDFs dropped while a document is open.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "editorAnnotationTextCopied": "Annotation text copied",
+  "@editorAnnotationTextCopied": {
+    "description": "Toast confirming annotation text was copied to the clipboard."
+  },
+  "editorAppMenuTooltip": "DartPDF menu",
+  "@editorAppMenuTooltip": {
+    "description": "Tooltip on the app icon that opens the main application menu."
+  },
+  "editorCancelOcr": "Cancel OCR",
+  "@editorCancelOcr": {
+    "description": "Tooltip on the button that cancels the running background OCR job."
+  },
+  "editorClearRecentFiles": "Clear recent files",
+  "@editorClearRecentFiles": {
+    "description": "Open Recent submenu action to clear the recent files list."
+  },
+  "editorCloseAll": "Close all",
+  "@editorCloseAll": {
+    "description": "Tab context-menu action to close every open tab."
+  },
+  "editorCloseOthers": "Close others",
+  "@editorCloseOthers": {
+    "description": "Tab context-menu action to close all other tabs."
+  },
+  "editorCloseTab": "Close tab",
+  "@editorCloseTab": {
+    "description": "Tooltip on the per-tab close button."
+  },
+  "editorCloseTabsToRight": "Close tabs to the right",
+  "@editorCloseTabsToRight": {
+    "description": "Tab context-menu action to close every tab to the right of this one."
+  },
+  "editorCompareFailedTitle": "Compare failed",
+  "@editorCompareFailedTitle": {
+    "description": "Tab title when opening a second document for comparison failed."
+  },
+  "editorCompareTitle": "Compare: {title}",
+  "@editorCompareTitle": {
+    "description": "Tab title for a document comparison, naming the base document.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "editorCopiedToClipboard": "Copied to clipboard",
+  "@editorCopiedToClipboard": {
+    "description": "Toast confirming the text selection was copied to the clipboard."
+  },
+  "editorCopySelectedTextTooltip": "Copy selected text (⌘C)",
+  "@editorCopySelectedTextTooltip": {
+    "description": "Tooltip on the app-bar button that copies the current text selection."
+  },
+  "editorCopyText": "Copy text",
+  "@editorCopyText": {
+    "description": "Annotation context-menu action to copy the annotation's text."
+  },
+  "editorCouldNotExport": "Could not export {title}",
+  "@editorCouldNotExport": {
+    "description": "Toast when exporting the named document's page as an image failed.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "editorCouldNotImportStamps": "Could not import stamps: {error}",
+  "@editorCouldNotImportStamps": {
+    "description": "Toast when importing custom stamps failed, with the error detail.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "editorCouldNotInsertDropped": "{count, plural, =1{Could not insert the dropped PDF} other{Could not insert the dropped PDFs}}",
+  "@editorCouldNotInsertDropped": {
+    "description": "Toast shown when none of the dropped PDFs could be inserted into the current document.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "editorCouldNotOpenDetail": "Could not open {title}\n{error}",
+  "@editorCouldNotOpenDetail": {
+    "description": "Error shown in a failed document tab: could not open the named file, with the underlying error detail.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      },
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "editorCouldNotOpenFolder": "Could not open containing folder",
+  "@editorCouldNotOpenFolder": {
+    "description": "Toast when the tab's containing folder could not be revealed in the OS file manager."
+  },
+  "editorCouldNotOpenSecond": "Could not open the second file\n{error}",
+  "@editorCouldNotOpenSecond": {
+    "description": "Error tab body when the second document picked for comparison could not be opened.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "editorCouldNotOpenSelected": "Could not open the selected file\n{error}",
+  "@editorCouldNotOpenSelected": {
+    "description": "Error tab body shown when the file chosen in the picker could not be opened.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "editorCouldNotOpenUrl": "Could not open {url}",
+  "@editorCouldNotOpenUrl": {
+    "description": "Toast when an external URL could not be launched.",
+    "placeholders": {
+      "url": {
+        "type": "String"
+      }
+    }
+  },
+  "editorCouldNotPrint": "Could not print {title}",
+  "@editorCouldNotPrint": {
+    "description": "Toast when printing the named document failed.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "editorCouldNotReopen": "Could not reopen {title}",
+  "@editorCouldNotReopen": {
+    "description": "Toast when a recent/session document could not be reopened.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "editorCouldNotSign": "Could not digitally sign: {error}",
+  "@editorCouldNotSign": {
+    "description": "Toast shown when digitally signing the document failed, with the error detail.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "editorDiscard": "Discard",
+  "@editorDiscard": {
+    "description": "Confirmation-dialog action that discards unsaved changes."
+  },
+  "editorDiscardChangesTitle": "Discard changes?",
+  "@editorDiscardChangesTitle": {
+    "description": "Title of the confirmation dialog shown before discarding unsaved edits."
+  },
+  "editorDocumentSigned": "Document digitally signed",
+  "@editorDocumentSigned": {
+    "description": "Snackbar confirming a digital signature was applied; offers an undo."
+  },
+  "editorDownload": "Download",
+  "@editorDownload": {
+    "description": "Update banner action to download the newer release."
+  },
+  "editorDropToOpen": "Drop PDF to open",
+  "@editorDropToOpen": {
+    "description": "Drop-zone hint when a dropped PDF can only be opened in a new tab."
+  },
+  "editorDropToOpenOrInsert": "Drop PDF to open or insert",
+  "@editorDropToOpenOrInsert": {
+    "description": "Drop-zone hint when a dropped PDF can be opened or inserted into the current document."
+  },
+  "editorInsertPages": "Insert pages",
+  "@editorInsertPages": {
+    "description": "Dialog action to insert dropped PDFs' pages into the current document."
+  },
+  "editorInsertedButFailed": "Inserted {count}; could not read {files}",
+  "@editorInsertedButFailed": {
+    "description": "Toast when some dropped PDFs were inserted but others could not be read; files is a comma-separated list of names.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "files": {
+        "type": "String"
+      }
+    }
+  },
+  "editorInsertedIntoTitle": "{count, plural, =1{Inserted pages into {title}} other{Inserted {count} PDFs into {title}}}",
+  "@editorInsertedIntoTitle": {
+    "description": "Toast confirming that dropped PDFs' pages were inserted into the named document.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "editorInvalidLink": "Invalid link: {uri}",
+  "@editorInvalidLink": {
+    "description": "Toast when a link annotation points to an unparseable URI.",
+    "placeholders": {
+      "uri": {
+        "type": "String"
+      }
+    }
+  },
+  "editorJavaScriptIgnored": "This document tried to run JavaScript (ignored)",
+  "@editorJavaScriptIgnored": {
+    "description": "Toast noting that an embedded JavaScript action was ignored for safety."
+  },
+  "editorLoadingFullDocument": "Loading full document",
+  "@editorLoadingFullDocument": {
+    "description": "Accessibility label for the progress bar loading the full document behind a progressive first paint."
+  },
+  "editorMenuCompareWith": "Compare with…",
+  "@editorMenuCompareWith": {
+    "description": "App menu item to compare the current document with another PDF."
+  },
+  "editorMenuDigitallySign": "Digitally sign…",
+  "@editorMenuDigitallySign": {
+    "description": "App menu item to digitally sign the document."
+  },
+  "editorMenuDigitallySigning": "Digitally signing…",
+  "@editorMenuDigitallySigning": {
+    "description": "App menu item label while a digital signature is in progress."
+  },
+  "editorMenuExportImage": "Export page as image…",
+  "@editorMenuExportImage": {
+    "description": "App menu item to export the current page as an image."
+  },
+  "editorMenuNewDocument": "New document…",
+  "@editorMenuNewDocument": {
+    "description": "App menu item to create a new blank document."
+  },
+  "editorMenuOcr": "OCR…",
+  "@editorMenuOcr": {
+    "description": "App menu item to run on-device OCR over the document."
+  },
+  "editorMenuOpen": "Open a PDF…",
+  "@editorMenuOpen": {
+    "description": "App menu item to open a PDF file."
+  },
+  "editorMenuPrint": "Print…",
+  "@editorMenuPrint": {
+    "description": "App menu item to print the document."
+  },
+  "editorMenuSaveAs": "Save as…",
+  "@editorMenuSaveAs": {
+    "description": "App menu item to save the document under a new name/location."
+  },
+  "editorMenuSettings": "Settings",
+  "@editorMenuSettings": {
+    "description": "App menu item to open the settings screen."
+  },
+  "editorMenuSwitchToEdit": "Switch to edit mode",
+  "@editorMenuSwitchToEdit": {
+    "description": "App menu item to leave read-only mode and allow editing."
+  },
+  "editorMenuSwitchToReadOnly": "Switch to read-only",
+  "@editorMenuSwitchToReadOnly": {
+    "description": "App menu item to switch the app into read-only mode."
+  },
+  "editorNamedAction": "Named action: {name}",
+  "@editorNamedAction": {
+    "description": "Toast reporting a PDF named action that the viewer does not navigate.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "editorNoRecentFiles": "No recent files",
+  "@editorNoRecentFiles": {
+    "description": "Placeholder shown in the Open Recent submenu and toast when there are no recent files."
+  },
+  "editorOcrTitle": "{title} (OCR)",
+  "@editorOcrTitle": {
+    "description": "Tab title for the OCR result derived from the named document.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "editorOcrTooltip": "OCR · {title}",
+  "@editorOcrTooltip": {
+    "description": "Tooltip on the running background OCR status chip, naming the document.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "editorOpenDocBeforeOcr": "Open a document before running OCR",
+  "@editorOpenDocBeforeOcr": {
+    "description": "Toast prompting the user to open a document before starting OCR."
+  },
+  "editorOpenFailedTitle": "Open failed",
+  "@editorOpenFailedTitle": {
+    "description": "Tab title for a document that failed to open."
+  },
+  "editorOpenInNewTab": "{count, plural, =1{Open in new tab} other{Open in new tabs}}",
+  "@editorOpenInNewTab": {
+    "description": "Dialog action to open the dropped PDFs each in their own new tab.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "editorOpenPdfNewTab": "Open PDF in a new tab",
+  "@editorOpenPdfNewTab": {
+    "description": "Tooltip on the button that opens a PDF in a new tab."
+  },
+  "editorOpenRecent": "Open Recent",
+  "@editorOpenRecent": {
+    "description": "App menu submenu / tooltip for reopening recently opened files."
+  },
+  "editorOpenTabs": "Open tabs",
+  "@editorOpenTabs": {
+    "description": "Tooltip on the mobile app-bar button that shows the open tabs sheet."
+  },
+  "editorOpeningDocumentSemantic": "Opening document",
+  "@editorOpeningDocumentSemantic": {
+    "description": "Accessibility label for the opening-document progress indicator."
+  },
+  "editorOpeningPdf": "Opening PDF…",
+  "@editorOpeningPdf": {
+    "description": "Placeholder text while an untitled document is opening."
+  },
+  "editorOpeningTitle": "Opening {title}…",
+  "@editorOpeningTitle": {
+    "description": "Placeholder text while the named document is opening.",
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "editorPageNumber": "Page {number}",
+  "@editorPageNumber": {
+    "description": "Page indicator in a tab hover preview.",
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "editorPreviewComparison": "Comparison",
+  "@editorPreviewComparison": {
+    "description": "Tab preview placeholder label for a document comparison tab."
+  },
+  "editorPreviewCouldNotOpen": "Could not open",
+  "@editorPreviewCouldNotOpen": {
+    "description": "Tab preview placeholder label when the document failed to open."
+  },
+  "editorPreviewOpening": "Opening",
+  "@editorPreviewOpening": {
+    "description": "Tab preview placeholder label while the document is opening."
+  },
+  "editorPreviewPdf": "PDF",
+  "@editorPreviewPdf": {
+    "description": "Tab preview placeholder label for a generic PDF with no rendered preview."
+  },
+  "editorSignatureRemoved": "Signature removed",
+  "@editorSignatureRemoved": {
+    "description": "Toast confirming a just-placed signature was undone."
+  },
+  "editorSnapshotCopied": "Snapshot copied to clipboard",
+  "@editorSnapshotCopied": {
+    "description": "Toast confirming a captured snapshot was copied to the system clipboard."
+  },
+  "editorSnapshotCopyFailed": "Could not copy snapshot to clipboard",
+  "@editorSnapshotCopyFailed": {
+    "description": "Toast when copying a captured snapshot to the clipboard failed."
+  },
+  "editorTabs": "Tabs",
+  "@editorTabs": {
+    "description": "Header of the open-tabs grid overlay."
+  },
+  "editorTabsOpenCount": "{count} open",
+  "@editorTabsOpenCount": {
+    "description": "Footer of the tabs grid showing how many tabs are open.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "editorUnsavedChangesCount": "{count, plural, =1{A document has unsaved changes.} other{{count} documents have unsaved changes.}}",
+  "@editorUnsavedChangesCount": {
+    "description": "Discard-confirmation message stating how many open documents have unsaved edits.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "editorUnsupportedAction": "Unsupported action: {type}",
+  "@editorUnsupportedAction": {
+    "description": "Toast reporting an unsupported PDF action type.",
+    "placeholders": {
+      "type": {
+        "type": "String"
+      }
+    }
+  },
+  "editorUntitled": "Untitled",
+  "@editorUntitled": {
+    "description": "Fallback display name for a document tab with no title."
+  },
+  "editorUpdateAvailable": "DartPDF {version} is available.",
+  "@editorUpdateAvailable": {
+    "description": "Update banner text announcing that a newer release can be downloaded.",
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "editorUpdateLater": "Later",
+  "@editorUpdateLater": {
+    "description": "Update banner action to dismiss the update notice for now."
+  },
+  "editorViewAllTabs": "View all tabs",
+  "@editorViewAllTabs": {
+    "description": "Tooltip on the desktop button that opens the all-tabs grid dialog."
+  },
+  "imgExportDpiValue": "{dpi} dpi",
+  "@imgExportDpiValue": {
+    "description": "A resolution option expressed in dots per inch.",
+    "placeholders": {
+      "dpi": {
+        "type": "int"
+      }
+    }
+  },
+  "imgExportExport": "Export",
+  "@imgExportExport": {
+    "description": "Button that confirms the image export."
+  },
+  "imgExportFormat": "Format",
+  "@imgExportFormat": {
+    "description": "Label for the image-format chooser in the export dialog."
+  },
+  "imgExportResolution": "Resolution",
+  "@imgExportResolution": {
+    "description": "Label for the resolution (DPI) chooser in the export dialog."
+  },
+  "imgExportTitle": "Export page as image",
+  "@imgExportTitle": {
+    "description": "Title of the dialog that exports a page to an image file."
+  },
+  "newDocCreate": "Create",
+  "@newDocCreate": {
+    "description": "Button that creates the new document with the chosen size and orientation."
+  },
+  "newDocLandscape": "Landscape",
+  "@newDocLandscape": {
+    "description": "Landscape page orientation option."
+  },
+  "newDocOrientation": "Orientation",
+  "@newDocOrientation": {
+    "description": "Label for the orientation chooser in the new-document dialog."
+  },
+  "newDocPageSize": "Page size",
+  "@newDocPageSize": {
+    "description": "Label for the page-size chooser in the new-document dialog."
+  },
+  "newDocPortrait": "Portrait",
+  "@newDocPortrait": {
+    "description": "Portrait page orientation option."
+  },
+  "newDocTitle": "New document",
+  "@newDocTitle": {
+    "description": "Title of the dialog that creates a new blank PDF."
+  },
+  "none": "None",
+  "@none": {
+    "description": "Label for the absence of a selection or value."
+  },
+  "ocrAlreadyRunning": "OCR is already running - wait for it to finish or cancel it",
+  "@ocrAlreadyRunning": {
+    "description": "Toast shown when starting OCR while another OCR job is in flight."
+  },
+  "ocrBrowserInitFailed": "Browser OCR failed to initialise",
+  "@ocrBrowserInitFailed": {
+    "description": "Toast shown when the browser-local OCR bridge failed to initialize."
+  },
+  "ocrCancelled": "OCR cancelled",
+  "@ocrCancelled": {
+    "description": "Toast shown when an OCR job is cancelled before any pages are processed."
+  },
+  "ocrCancelledAfterSpans": "{count, plural, =1{OCR cancelled after 1 text span} other{OCR cancelled after {count} text spans}}",
+  "@ocrCancelledAfterSpans": {
+    "description": "Toast shown when OCR is cancelled after adding some text spans.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "ocrDownload": "Download",
+  "@ocrDownload": {
+    "description": "Button that confirms downloading the OCR model."
+  },
+  "ocrDownloadFailed": "Could not download the OCR model: {error}",
+  "@ocrDownloadFailed": {
+    "description": "Toast shown when the OCR model download fails.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "ocrDownloadPromptBody": "Adding a selectable text layer needs the on-device OCR model{size}. It downloads once and then runs offline.\n\nModel: {model}",
+  "@ocrDownloadPromptBody": {
+    "description": "Body of the OCR model download confirmation dialog. {size} is an optional approximate-size fragment (with leading space) or empty; {model} is the model's display name.",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      },
+      "model": {
+        "type": "String"
+      }
+    }
+  },
+  "ocrDownloadPromptTitle": "Download OCR model?",
+  "@ocrDownloadPromptTitle": {
+    "description": "Title of the dialog confirming the one-time OCR model download."
+  },
+  "ocrFailed": "OCR failed: {error}",
+  "@ocrFailed": {
+    "description": "Toast shown when an OCR job throws an error.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "ocrModelApproxSize": "(~{mb} MB)",
+  "@ocrModelApproxSize": {
+    "description": "Approximate download size of the OCR model, in megabytes, shown in the download prompt.",
+    "placeholders": {
+      "mb": {
+        "type": "int"
+      }
+    }
+  },
+  "ocrNotAvailable": "On-device OCR is not available on this platform",
+  "@ocrNotAvailable": {
+    "description": "Toast shown when on-device OCR is unsupported on the current platform."
+  },
+  "ocrResult": "{count, plural, =0{OCR found no text on these pages} =1{OCR added 1 text span - the page text is now selectable} other{OCR added {count} text spans - the page text is now selectable}}",
+  "@ocrResult": {
+    "description": "Toast summarizing an OCR run: either no text found or the number of selectable text spans added.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "ocrWebPromptBody": "Web OCR downloads a Florence-2 vision-language model and runs it locally with WebGPU/WASM through Transformers.js. The PDF pages stay in this browser; only model files are fetched on first use.",
+  "@ocrWebPromptBody": {
+    "description": "Explanatory body of the browser-local OCR confirmation dialog."
+  },
+  "ocrWebPromptTitle": "Run AI OCR in this browser?",
+  "@ocrWebPromptTitle": {
+    "description": "Title of the dialog confirming browser-local AI OCR."
+  },
+  "ocrWebStart": "Start OCR",
+  "@ocrWebStart": {
+    "description": "Button that starts browser-local OCR."
+  },
+  "ok": "OK",
+  "@ok": {
+    "description": "Button that confirms a dialog."
+  },
+  "paste": "Paste",
+  "@paste": {
+    "description": "Generic button/menu label to paste from the clipboard."
+  },
+  "printDlgPreparing": "Preparing…",
+  "@printDlgPreparing": {
+    "description": "Progress line shown before the first print page has rendered."
+  },
+  "printDlgRendering": "Rendering page {rendered} of {total}…",
+  "@printDlgRendering": {
+    "description": "Progress line while pages are being rendered for printing.",
+    "placeholders": {
+      "rendered": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "printDlgTitle": "Printing",
+  "@printDlgTitle": {
+    "description": "Title of the modal dialog shown while a print job renders pages."
+  },
+  "redo": "Redo",
+  "@redo": {
+    "description": "Generic button/tooltip to redo the last undone change."
+  },
+  "remove": "Remove",
+  "@remove": {
+    "description": "Generic button that removes the current item."
+  },
+  "rename": "Rename",
+  "@rename": {
+    "description": "Generic button/menu label to rename the current item."
+  },
+  "reset": "Reset",
+  "@reset": {
+    "description": "Generic button that resets a value to its default."
+  },
+  "save": "Save",
+  "@save": {
+    "description": "Generic button that saves the document or changes."
+  },
+  "settingsAbout": "About",
+  "@settingsAbout": {
+    "description": "Section header for the About block in settings."
+  },
+  "settingsAppearance": "Appearance",
+  "@settingsAppearance": {
+    "description": "Section header for theme/appearance controls in settings."
+  },
+  "settingsCheckNow": "Check now",
+  "@settingsCheckNow": {
+    "description": "Button that triggers an immediate check for app updates."
+  },
+  "settingsCheckingForUpdates": "Checking for updates…",
+  "@settingsCheckingForUpdates": {
+    "description": "Status line shown while an update check is in progress."
+  },
+  "settingsCouldNotOpenDownload": "Could not open the download",
+  "@settingsCouldNotOpenDownload": {
+    "description": "Snackbar shown when the update download link could not be opened."
+  },
+  "settingsCouldNotOpenSystemSettings": "Could not open system settings",
+  "@settingsCouldNotOpenSystemSettings": {
+    "description": "Snackbar shown when the OS default-apps settings could not be launched."
+  },
+  "settingsDeveloperTools": "Developer tools",
+  "@settingsDeveloperTools": {
+    "description": "Settings list tile title that opens the developer tools panel."
+  },
+  "settingsDeveloperToolsSubtitle": "Metrics, logs, render modes (F12)",
+  "@settingsDeveloperToolsSubtitle": {
+    "description": "Subtitle describing what the developer tools panel offers."
+  },
+  "settingsDownloadVersion": "Download {version}",
+  "@settingsDownloadVersion": {
+    "description": "Button that downloads the given available app version.",
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsOpenSettings": "Open Settings",
+  "@settingsOpenSettings": {
+    "description": "Button that opens the operating system's default-apps settings."
+  },
+  "settingsRecentCount": "{count, plural, =0{No recent files} =1{1 remembered} other{{count} remembered}}",
+  "@settingsRecentCount": {
+    "description": "Summary line for how many recent files are remembered.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsRecentFiles": "Recent files",
+  "@settingsRecentFiles": {
+    "description": "Section header for the recent-files list in settings."
+  },
+  "settingsSetUpAsDefault": "Set up as default application",
+  "@settingsSetUpAsDefault": {
+    "description": "Title/label for the flow that makes the app the default PDF handler."
+  },
+  "settingsSystem": "System",
+  "@settingsSystem": {
+    "description": "Section header for system integration settings (default app, dev tools)."
+  },
+  "settingsThemeDark": "Dark",
+  "@settingsThemeDark": {
+    "description": "Dark theme mode option."
+  },
+  "settingsThemeLight": "Light",
+  "@settingsThemeLight": {
+    "description": "Light theme mode option."
+  },
+  "settingsThemeSystem": "System",
+  "@settingsThemeSystem": {
+    "description": "Theme mode option that follows the operating system light/dark setting."
+  },
+  "settingsTitle": "Settings",
+  "@settingsTitle": {
+    "description": "Title of the app settings dialog."
+  },
+  "settingsUpToDate": "You’re on the latest version ({version}).",
+  "@settingsUpToDate": {
+    "description": "Status line shown when the running build is the newest available.",
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsUpdateAvailable": "Version {version} is available (you have {currentVersion}).",
+  "@settingsUpdateAvailable": {
+    "description": "Status line shown when a newer app version is available.",
+    "placeholders": {
+      "version": {
+        "type": "String"
+      },
+      "currentVersion": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsUpdateFailed": "Couldn’t check for updates. Try again later.",
+  "@settingsUpdateFailed": {
+    "description": "Status line shown when an update check failed."
+  },
+  "settingsUpdateIdle": "You have {name} {version}.",
+  "@settingsUpdateIdle": {
+    "description": "Status line shown before any update check has run, naming the current app and version.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsUpdates": "Updates",
+  "@settingsUpdates": {
+    "description": "Section header for the software-update block in settings."
+  },
+  "settingsViewSource": "View source on GitHub",
+  "@settingsViewSource": {
+    "description": "Link that opens the project's source repository on GitHub."
+  },
+  "undo": "Undo",
+  "@undo": {
+    "description": "Generic button/tooltip to undo the last change."
+  },
+  "welcomeOpenPdf": "Open a PDF",
+  "@welcomeOpenPdf": {
+    "description": "Primary button on the welcome screen that opens a PDF file."
+  },
+  "welcomePickAgainToReopen": "Pick again to reopen",
+  "@welcomePickAgainToReopen": {
+    "description": "Subtitle for a recent file that must be re-selected from disk to reopen."
+  },
+  "welcomeRecent": "Recent",
+  "@welcomeRecent": {
+    "description": "Header for the recent-documents list on the welcome screen."
+  },
+  "welcomeRemoveFromRecent": "Remove from recent",
+  "@welcomeRemoveFromRecent": {
+    "description": "Tooltip on the button that removes an entry from the recent-files list."
+  },
+  "welcomeTapToReopen": "Tap to reopen",
+  "@welcomeTapToReopen": {
+    "description": "Subtitle for a recent file that can be reopened directly from a saved snapshot."
+  }
+}

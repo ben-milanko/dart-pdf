@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_ocr_ondevice/pdf_ocr_ondevice.dart';
 
+import 'l10n/app_l10n.dart';
 import 'ocr_status.dart';
 
 export 'ocr_status.dart';
@@ -60,12 +61,13 @@ class OnDeviceOcr {
     required void Function(String message) onToast,
     required void Function(Uint8List result) onComplete,
   }) async {
+    final l10n = appL10n(context);
     if (isBusy) {
-      onToast('OCR is already running - wait for it to finish or cancel it');
+      onToast(l10n.ocrAlreadyRunning);
       return;
     }
     if (!isSupported) {
-      onToast('On-device OCR is not available on this platform');
+      onToast(l10n.ocrNotAvailable);
       return;
     }
     _cancelled = false;
@@ -87,12 +89,12 @@ class OnDeviceOcr {
       }
     } on PdfOcrModelException catch (e) {
       status.value = null;
-      onToast('Could not download the OCR model: ${e.message}');
+      onToast(l10n.ocrDownloadFailed(e.message));
       return;
     }
     if (_cancelled) {
       status.value = null;
-      onToast('OCR cancelled');
+      onToast(l10n.ocrCancelled);
       return;
     }
 
@@ -116,17 +118,15 @@ class OnDeviceOcr {
         await Future<void>.delayed(Duration.zero);
       }
       if (_cancelled) {
-        onToast('OCR cancelled after $spans text spans');
+        onToast(l10n.ocrCancelledAfterSpans(spans));
         return;
       }
       status.value = OcrJobStatus(phase: OcrPhase.finishing, title: title);
       final result = editor.save();
-      onToast(spans == 0
-          ? 'OCR found no text on these pages'
-          : 'OCR added $spans text spans - the page text is now selectable');
+      onToast(l10n.ocrResult(spans));
       onComplete(result);
     } catch (e) {
-      onToast('OCR failed: $e');
+      onToast(l10n.ocrFailed(e.toString()));
     } finally {
       await engine?.dispose();
       status.value = null;
@@ -135,27 +135,27 @@ class OnDeviceOcr {
 
   Future<bool?> _confirmDownload(BuildContext context) {
     final size = _model.approxSizeBytes;
-    final sizeText =
-        size == null ? '' : ' (~${(size / 1024 / 1024).round()} MB)';
+    final sizeText = size == null
+        ? ''
+        : ' ${appL10n(context).ocrModelApproxSize((size / 1024 / 1024).round())}';
     return showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         key: const ValueKey('ocr-download-confirm'),
-        title: const Text('Download OCR model?'),
+        title: Text(appL10n(context).ocrDownloadPromptTitle),
         content: Text(
-          'Adding a selectable text layer needs the on-device OCR model'
-          '$sizeText. It downloads once and then runs offline.\n\n'
-          'Model: ${_model.displayName}',
+          appL10n(context)
+              .ocrDownloadPromptBody(sizeText, _model.displayName),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+            child: Text(appL10n(context).cancel),
           ),
           FilledButton(
             key: const ValueKey('ocr-download-confirm-ok'),
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Download'),
+            child: Text(appL10n(context).ocrDownload),
           ),
         ],
       ),

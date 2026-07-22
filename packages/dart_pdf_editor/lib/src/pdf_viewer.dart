@@ -15,6 +15,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'annotation_tap.dart';
 import 'debug_overlays.dart';
+import 'live_raster_budget.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_fonts.dart';
 import 'editing/editing_form_layer.dart';
@@ -26,6 +27,7 @@ import 'editing/text_style_prompt.dart';
 import 'editing/tool_shortcuts.dart';
 import 'exact_extent_list.dart';
 import 'budgeted_cache.dart';
+import 'l10n/pdf_l10n.dart';
 import 'page_geometry.dart';
 import 'page_object_cache.dart';
 import 'perf_log.dart';
@@ -302,7 +304,33 @@ class PdfViewerController extends ChangeNotifier {
   PdfSearchOptions _searchOptions = const PdfSearchOptions();
   List<PdfSearchResult> _results = const [];
   List<PdfTextMatch> _matches = const [];
+  // Matches grouped by page, rebuilt once when [_matches] changes so
+  // [_matchesOn] is an O(1) lookup rather than an O(matches) filter run per page
+  // per build - the per-build rescan #403 flagged during an active search.
+  Map<int, List<PdfTextMatch>> _matchesByPage = const {};
   int _currentMatch = -1;
+
+  /// Assigns [_matches] and rebuilds the by-page index in one pass.
+  ///
+  /// The per-page lists are handed out by [_matchesOn] (unlike the old filter,
+  /// which returned a fresh list per call), so they are frozen unmodifiable -
+  /// the index stays the single source of truth even if a caller tries to
+  /// mutate what it gets back.
+  void _setMatches(List<PdfTextMatch> matches) {
+    _matches = matches;
+    if (matches.isEmpty) {
+      _matchesByPage = const {};
+      return;
+    }
+    final byPage = <int, List<PdfTextMatch>>{};
+    for (final match in matches) {
+      (byPage[match.pageIndex] ??= <PdfTextMatch>[]).add(match);
+    }
+    _matchesByPage = {
+      for (final entry in byPage.entries)
+        entry.key: List<PdfTextMatch>.unmodifiable(entry.value),
+    };
+  }
 
   int get pageCount => _pageCount;
 
@@ -589,7 +617,7 @@ class PdfViewerController extends ChangeNotifier {
     final opts = _searchOptions;
     _query = query;
     _results = const [];
-    _matches = const [];
+    _setMatches(const []);
     _currentMatch = -1;
     _searching = query.isNotEmpty;
     notifyListeners();
@@ -598,7 +626,7 @@ class PdfViewerController extends ChangeNotifier {
     // superseded by a newer search (changed query or options)
     if (_query != query || _searchOptions != opts) return;
     _results = results;
-    _matches = [for (final result in results) result.match];
+    _setMatches([for (final result in results) result.match]);
     _searching = false;
     _currentMatch = results.isEmpty ? -1 : 0;
     notifyListeners();
@@ -634,7 +662,7 @@ class PdfViewerController extends ChangeNotifier {
   void clearSearch() {
     _query = '';
     _results = const [];
-    _matches = const [];
+    _setMatches(const []);
     _currentMatch = -1;
     _searching = false;
     _notifySafely();
@@ -676,10 +704,8 @@ class PdfViewerController extends ChangeNotifier {
     }
   }
 
-  List<PdfTextMatch> _matchesOn(int pageIndex) => [
-        for (final m in _matches)
-          if (m.pageIndex == pageIndex) m
-      ];
+  List<PdfTextMatch> _matchesOn(int pageIndex) =>
+      _matchesByPage[pageIndex] ?? const [];
 }
 
 /// [ChangeNotifier.notifyListeners] is protected; this is the smallest
@@ -829,6 +855,7 @@ class PdfViewer extends StatefulWidget {
     this.fontPicker,
     this.imagePicker,
     this.systemImagePasteProvider,
+    this.systemTextPasteProvider,
     this.onSnapshot,
     this.onPlaceSignature,
     this.pageSpacing = 12,
@@ -1060,6 +1087,12 @@ class PdfViewer extends StatefulWidget {
   /// no pointer location is known. When null or when it returns null, paste
   /// falls back to plain text from Flutter's system clipboard.
   final PdfSystemImagePasteProvider? systemImagePasteProvider;
+
+  /// Supplies plain text for ⌘V/Ctrl+V when neither the in-app clipboard nor
+  /// [systemImagePasteProvider] produced content. Used in preference to
+  /// Flutter's [Clipboard], which is unreliable on the web. When null, paste
+  /// reads text from [Clipboard] as before.
+  final PdfSystemTextPasteProvider? systemTextPasteProvider;
 
   /// Receives a region captured by the snapshot tool
   /// ([PdfEditTool.snapshot]) - typically to copy it to the clipboard,
@@ -1631,9 +1664,13 @@ class _PdfViewerState extends State<PdfViewer>
     // banded transcripts): dropped indices rebuild identically, evicted strips
     // re-materialize on demand, so this is free of any visual regression.
     final scenes = PdfRetainedScene.handleMemoryPressure();
+    // Live-page rasters were exempt from the pressure signal (#405): surrender
+    // every off-viewport page's base raster + detail patch + retained scene now.
+    final liveFreed = PdfLiveRasterBudget.instance.evictReclaimable();
     PdfPerfLog.log('memory-pressure cleared ${freed >> 20}MB across '
         '${PdfCacheRegistry.instance.registrationCount} caches, '
-        'shed spatial metadata on $scenes scene(s)'
+        'shed spatial metadata on $scenes scene(s), '
+        'freed ${liveFreed >> 20}MB of live rasters'
         '${PdfPerfLog.rssSuffix()}');
     _previews.clear();
   }
@@ -3434,28 +3471,33 @@ class _PdfViewerState extends State<PdfViewer>
           PopupMenuItem<_TextMenuAction>(
             key: const ValueKey('pdf-text-menu-edit'),
             value: _TextMenuAction.edit,
-            child: _textMenuRow(Icons.edit, 'Edit text & style', true),
+            child: _textMenuRow(
+                Icons.edit, pdfL10n(context).viewerEditTextStyle, true),
           ),
         if (canMarkup) ...[
           PopupMenuItem<_TextMenuAction>(
             key: const ValueKey('pdf-text-menu-highlight'),
             value: _TextMenuAction.highlight,
-            child: _textMenuRow(Icons.border_color, 'Highlight', true),
+            child: _textMenuRow(
+                Icons.border_color, pdfL10n(context).viewerMarkupHighlight, true),
           ),
           PopupMenuItem<_TextMenuAction>(
             key: const ValueKey('pdf-text-menu-underline'),
             value: _TextMenuAction.underline,
-            child: _textMenuRow(Icons.format_underlined, 'Underline', true),
+            child: _textMenuRow(Icons.format_underlined,
+                pdfL10n(context).viewerMarkupUnderline, true),
           ),
           PopupMenuItem<_TextMenuAction>(
             key: const ValueKey('pdf-text-menu-strikeout'),
             value: _TextMenuAction.strikeOut,
-            child: _textMenuRow(Icons.format_strikethrough, 'Strike out', true),
+            child: _textMenuRow(Icons.format_strikethrough,
+                pdfL10n(context).viewerMarkupStrikeOut, true),
           ),
           PopupMenuItem<_TextMenuAction>(
             key: const ValueKey('pdf-text-menu-squiggly'),
             value: _TextMenuAction.squiggly,
-            child: _textMenuRow(Icons.gesture, 'Squiggly', true),
+            child: _textMenuRow(
+                Icons.gesture, pdfL10n(context).viewerMarkupSquiggly, true),
           ),
         ],
         if (canEdit || canMarkup) const PopupMenuDivider(),
@@ -3463,13 +3505,14 @@ class _PdfViewerState extends State<PdfViewer>
           key: const ValueKey('pdf-text-menu-copy'),
           value: _TextMenuAction.copy,
           enabled: hasSelection,
-          child: _textMenuRow(Icons.copy, 'Copy', hasSelection),
+          child: _textMenuRow(Icons.copy, pdfL10n(context).copy, hasSelection),
         ),
         PopupMenuItem<_TextMenuAction>(
           key: const ValueKey('pdf-text-menu-select-all'),
           value: _TextMenuAction.selectAll,
           enabled: hasText,
-          child: _textMenuRow(Icons.select_all, 'Select all', hasText),
+          child: _textMenuRow(
+              Icons.select_all, pdfL10n(context).viewerSelectAll, hasText),
         ),
       ],
     );
@@ -3502,15 +3545,14 @@ class _PdfViewerState extends State<PdfViewer>
     final selected = _controller.selectedText;
     if (editing == null || range == null || selected.isEmpty) return;
     if (range.$1.$1 != range.$2.$1) {
-      _textSelectionToast('Editing requires a selection on one page.');
+      _textSelectionToast(pdfL10n(context).viewerEditNeedsSinglePage);
       return;
     }
     final page = range.$1.$1;
     final rects = _selectionRectsOn(page);
     final element = editing.textElementForSelection(page, rects, selected);
     if (element == null) {
-      _textSelectionToast(
-          'This selection is not one editable page-content text run.');
+      _textSelectionToast(pdfL10n(context).viewerEditNotEditableRun);
       return;
     }
     final result =
@@ -3526,8 +3568,7 @@ class _PdfViewerState extends State<PdfViewer>
       return;
     }
     if (!result.style.isEmpty && !editing.canStyleContentText(page, element)) {
-      _textSelectionToast(
-          'This PDF font can be re-typed, but its style cannot be changed.');
+      _textSelectionToast(pdfL10n(context).viewerEditStyleUnchangeable);
       return;
     }
     final fallbacks = await loadFallbackFonts();
@@ -3545,7 +3586,7 @@ class _PdfViewerState extends State<PdfViewer>
       fallbackFonts: fallbacks,
     );
     if (count == 0) {
-      _textSelectionToast('This PDF font or encoding cannot be edited safely.');
+      _textSelectionToast(pdfL10n(context).viewerEditFontUnsafe);
       return;
     }
     _clearSelection();
@@ -3864,8 +3905,21 @@ class _PdfViewerState extends State<PdfViewer>
   }
 
   Future<void> _pasteSystemClipboardText(PdfEditingController editing) async {
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    final text = data?.text;
+    // Prefer the host's reader (the web build wires one over the browser Async
+    // Clipboard API, since Flutter's Clipboard.getData is unreliable there);
+    // fall back to Flutter's clipboard when none is injected.
+    String? text;
+    final provider = widget.systemTextPasteProvider;
+    if (provider != null) {
+      try {
+        text = await provider(context);
+      } catch (_) {
+        text = null;
+      }
+    } else {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      text = data?.text;
+    }
     if (text == null || text.trim().isEmpty) return;
     if (!mounted || widget.editing != editing) return;
     final local = _lastPointerLocal;
@@ -4506,6 +4560,8 @@ class _PdfViewerState extends State<PdfViewer>
 
   void _clearSelection() {
     _wordAnchor = null;
+    _selectionQuadCacheRange = null;
+    _selectionQuadCache.clear();
     if (_selAnchor != null || _selFocus != null || _touchSelecting) {
       setState(() {
         _selAnchor = null;
@@ -4545,16 +4601,33 @@ class _PdfViewerState extends State<PdfViewer>
 
   /// Baseline-aligned selection quads on [pageIndex], so the highlight
   /// rotates with rotated text instead of painting an axis-aligned box.
+  // Selection quads memoized per page, keyed on the selection range. The range
+  // is a value-equal record, so a new anchor/focus rebuilds the cache and a
+  // stable selection is computed once instead of per call - `_textSelectionOn`,
+  // `_selectionRectsOn`, and the per-page build each ask for the same quads
+  // (#403). Cleared explicitly in [_clearSelection]; also self-invalidates when
+  // the range changes (an active-selection drag).
+  ((int, int), (int, int))? _selectionQuadCacheRange;
+  final Map<int, List<PdfTextQuad>> _selectionQuadCache = {};
+
   List<PdfTextQuad> _selectionQuadsOn(int pageIndex) {
     final range = _selRange;
     if (range == null) return const [];
+    if (range != _selectionQuadCacheRange) {
+      _selectionQuadCacheRange = range;
+      _selectionQuadCache.clear();
+    }
+    final cached = _selectionQuadCache[pageIndex];
+    if (cached != null) return cached;
     final (start, end) = range;
-    if (pageIndex < start.$1 || pageIndex > end.$1) return const [];
+    if (pageIndex < start.$1 || pageIndex > end.$1) {
+      return _selectionQuadCache[pageIndex] = const [];
+    }
     final text = _pageText(pageIndex);
     final from = pageIndex == start.$1 ? start.$2 : 0;
     final to = pageIndex == end.$1 ? end.$2 : text.text.length;
-    if (from >= to) return const [];
-    return text.quadsFor(from, to);
+    if (from >= to) return _selectionQuadCache[pageIndex] = const [];
+    return _selectionQuadCache[pageIndex] = text.quadsFor(from, to);
   }
 
   void _showMatch(PdfTextMatch match) {
@@ -5201,6 +5274,8 @@ class _PdfViewerState extends State<PdfViewer>
                 contentStamp: _contentStamp(index),
                 destructiveStamp: _destructiveStamp(index),
                 renderPriority: _renderPriority(index),
+                focusDistance:
+                    (index - (_jumpFocusPage ?? _controller.currentPage)).abs(),
                 matches: _controller._matchesOn(index),
                 currentMatch: _controller._currentMatch >= 0
                     ? _controller._matches[_controller._currentMatch]
@@ -5709,7 +5784,8 @@ class _AnnotationAppearanceLayerState
   List<ui.Picture> _pictures = const [];
   Size? _picturePageSize;
 
-  /// Rendered appearances keyed on the appearance stream itself.
+  /// Rendered appearances keyed on the appearance stream plus the /Rect it
+  /// was drawn into.
   ///
   /// An incremental revision keeps the COS object cache (the byte prefix is
   /// unchanged, so `CosDocument` hands back the same instances), which means
@@ -5718,15 +5794,33 @@ class _AnnotationAppearanceLayerState
   /// each one an ImageCollector scan, an image decode, and an interpreter
   /// walk - so a page of 50 highlights paid 50 renders per stroke (#404).
   ///
-  /// Only the entries whose stream changed are re-rendered. The cache owns
-  /// every picture in it; [_pictures] is an ordered view and never disposes.
+  /// Only the entries whose key changed are re-rendered. The cache owns every
+  /// picture in it; [_pictures] is an ordered view and never disposes.
   ///
-  /// Keyed as `Object` because `CosStream` is not exported into this library.
-  /// `CosStream` uses identity equality, so this is keyed on the stream
-  /// instance - which is exactly the intent.
-  final Map<Object, ui.Picture> _cache = {};
+  /// The /Rect is part of the key because a rendered picture bakes in the
+  /// annotation's position: the appearance BBox is mapped onto /Rect
+  /// (§12.5.5). Moving or stretch-resizing an annotation rewrites /Rect while
+  /// leaving the appearance stream identical (that is exactly how the editors
+  /// mutate a moved or scaled box), so keying on the stream alone returned the
+  /// stale picture pinned at the old spot - the change only appeared once the
+  /// layer was rebuilt, e.g. on a tab switch (#418 follow-up). With /Rect in
+  /// the key the moved box misses and re-renders at its new position, while
+  /// every untouched appearance on the page still hits.
+  ///
+  /// The stream half is typed `Object` because `CosStream` is not exported
+  /// into this library; it uses identity equality, so the key mixes stream
+  /// identity with the [PdfRect]'s value equality - exactly the intent.
+  final Map<(Object, PdfRect), ui.Picture> _cache = {};
   int? _cacheRotation;
   Size? _cacheSize;
+
+  /// The appearance-cache key for [annotation]: its appearance stream identity
+  /// paired with the /Rect the picture is positioned into.
+  ///
+  /// Callers guarantee `normalAppearance != null` (every code path filters the
+  /// page's annotations on it before keying), so the unwrap is safe.
+  static (Object, PdfRect) _appearanceKey(PdfAnnotation annotation) =>
+      (annotation.normalAppearance!, annotation.rect);
 
   @override
   void initState() {
@@ -5819,7 +5913,7 @@ class _AnnotationAppearanceLayerState
     // are repeatedly replaced cannot accumulate pictures. Disposal waits for
     // the publish below (see [_retire]).
     final live = {
-      for (final annotation in annotations) annotation.normalAppearance!,
+      for (final annotation in annotations) _appearanceKey(annotation),
     };
     for (final source in _cache.keys.toList()) {
       if (!live.contains(source)) _retire([_cache.remove(source)!]);
@@ -5827,7 +5921,7 @@ class _AnnotationAppearanceLayerState
 
     final missing = [
       for (final annotation in annotations)
-        if (!_cache.containsKey(annotation.normalAppearance)) annotation,
+        if (!_cache.containsKey(_appearanceKey(annotation))) annotation,
     ];
     if (missing.isEmpty) {
       _publish(generation, annotations, pageSize);
@@ -5836,7 +5930,7 @@ class _AnnotationAppearanceLayerState
     unawaited(Future.wait([
       for (final annotation in missing)
         _renderAnnotation(page, annotation, widget.rotation)
-            .then((picture) => (annotation.normalAppearance!, picture)),
+            .then((picture) => (_appearanceKey(annotation), picture)),
     ]).then((rendered) {
       if (!mounted || generation != _generation) {
         for (final (_, picture) in rendered) {
@@ -5865,7 +5959,7 @@ class _AnnotationAppearanceLayerState
     if (!mounted || generation != _generation) return;
     final next = [
       for (final annotation in annotations)
-        if (_cache[annotation.normalAppearance] case final picture?) picture,
+        if (_cache[_appearanceKey(annotation)] case final picture?) picture,
     ];
     setState(() {
       _pictures = next;
@@ -5963,6 +6057,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.contentStamp,
     required this.destructiveStamp,
     required this.renderPriority,
+    required this.focusDistance,
     required this.matches,
     required this.currentMatch,
     required this.selection,
@@ -6029,6 +6124,7 @@ class _PdfViewerPage extends StatefulWidget {
   /// can't linger on screen. 0 outside an editing session.
   final int destructiveStamp;
   final int renderPriority;
+  final int focusDistance;
   final List<PdfTextMatch> matches;
   final PdfTextMatch? currentMatch;
   final List<PdfTextQuad> selection;
@@ -6168,6 +6264,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         contentStamp: widget.contentStamp,
         destructiveStamp: widget.destructiveStamp,
         renderPriority: widget.renderPriority,
+        focusDistance: widget.focusDistance,
         pageColor: widget.pageColor,
         showAnnotations: widget.pageImagesShowAnnotations,
         trustContentStamp: widget.trustContentStamp,
@@ -6750,11 +6847,11 @@ class _TextSelectionChrome extends StatelessWidget {
           onDragEnd: selection.onDragEnd,
         ),
       if (selection.chip && endRect != null)
-        _buildChip(geometry.toViewRect(endRect), s),
+        _buildChip(context, geometry.toViewRect(endRect), s),
     ]);
   }
 
-  Widget _buildChip(Rect anchor, double s) {
+  Widget _buildChip(BuildContext context, Rect anchor, double s) {
     // clear of the end handle's ball below and the start handle's above
     final clearance = 28 * s;
     final above = anchor.top - clearance - 44 * s >= 0;
@@ -6778,7 +6875,7 @@ class _TextSelectionChrome extends StatelessWidget {
               if (selection.onEdit != null) ...[
                 IconButton(
                   key: const ValueKey('pdf-text-selection-chip-edit'),
-                  tooltip: 'Edit text & style',
+                  tooltip: pdfL10n(context).viewerEditTextStyle,
                   icon: const Icon(Icons.edit, size: 20),
                   onPressed: selection.onEdit,
                 ),
@@ -6787,50 +6884,50 @@ class _TextSelectionChrome extends StatelessWidget {
               TextButton(
                 key: const ValueKey('pdf-text-selection-chip-copy'),
                 onPressed: selection.onCopy,
-                child: const Text('Copy'),
+                child: Text(pdfL10n(context).copy),
               ),
               if (selection.onMarkup != null) ...[
                 const SizedBox(height: 24, child: VerticalDivider(width: 1)),
                 PopupMenuButton<PdfMarkupKind>(
                   key: const ValueKey('pdf-text-selection-chip-markup'),
-                  tooltip: 'Markup',
+                  tooltip: pdfL10n(context).viewerMarkup,
                   icon: const Icon(Icons.edit_note, size: 20),
                   onSelected: selection.onMarkup,
-                  itemBuilder: (context) => const [
+                  itemBuilder: (context) => [
                     PopupMenuItem(
-                      key: ValueKey('pdf-text-selection-highlight'),
+                      key: const ValueKey('pdf-text-selection-highlight'),
                       value: PdfMarkupKind.highlight,
                       child: ListTile(
                         dense: true,
-                        leading: Icon(Icons.border_color),
-                        title: Text('Highlight'),
+                        leading: const Icon(Icons.border_color),
+                        title: Text(pdfL10n(context).viewerMarkupHighlight),
                       ),
                     ),
                     PopupMenuItem(
-                      key: ValueKey('pdf-text-selection-underline'),
+                      key: const ValueKey('pdf-text-selection-underline'),
                       value: PdfMarkupKind.underline,
                       child: ListTile(
                         dense: true,
-                        leading: Icon(Icons.format_underlined),
-                        title: Text('Underline'),
+                        leading: const Icon(Icons.format_underlined),
+                        title: Text(pdfL10n(context).viewerMarkupUnderline),
                       ),
                     ),
                     PopupMenuItem(
-                      key: ValueKey('pdf-text-selection-strikeout'),
+                      key: const ValueKey('pdf-text-selection-strikeout'),
                       value: PdfMarkupKind.strikeOut,
                       child: ListTile(
                         dense: true,
-                        leading: Icon(Icons.format_strikethrough),
-                        title: Text('Strike out'),
+                        leading: const Icon(Icons.format_strikethrough),
+                        title: Text(pdfL10n(context).viewerMarkupStrikeOut),
                       ),
                     ),
                     PopupMenuItem(
-                      key: ValueKey('pdf-text-selection-squiggly'),
+                      key: const ValueKey('pdf-text-selection-squiggly'),
                       value: PdfMarkupKind.squiggly,
                       child: ListTile(
                         dense: true,
-                        leading: Icon(Icons.gesture),
-                        title: Text('Squiggly'),
+                        leading: const Icon(Icons.gesture),
+                        title: Text(pdfL10n(context).viewerMarkupSquiggly),
                       ),
                     ),
                   ],
@@ -6840,7 +6937,7 @@ class _TextSelectionChrome extends StatelessWidget {
               TextButton(
                 key: const ValueKey('pdf-text-selection-chip-select-all'),
                 onPressed: selection.onSelectAll,
-                child: const Text('Select all'),
+                child: Text(pdfL10n(context).viewerSelectAll),
               ),
             ]),
           ),

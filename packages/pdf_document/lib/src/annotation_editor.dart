@@ -668,7 +668,7 @@ extension PdfAnnotationEditing on PdfEditor {
         'must parallel strokes point for point',
       );
     }
-    final (rect, w, gs) = _inkAppearance(
+    final (rect, w, resources) = _inkAppearance(
       strokes,
       pressures,
       color,
@@ -681,15 +681,23 @@ extension PdfAnnotationEditing on PdfEditor {
       _markupDict('Ink', rect, color, contents, author)
         ..['BS'] = _borderStyle(strokeWidth)
         ..['InkList'] = _inkListArray(strokes),
-      _form(rect, w, resources: _resources(extGState: gs)),
+      _form(rect, w, resources: resources),
       name: name,
     );
   }
 
   /// The generated Ink appearance for [strokes]: the padded rect (the
   /// Bézier control hull plus half the widest pen width), the content,
-  /// and the alpha ExtGState when [opacity] < 1. Shared by [addInk] and
+  /// and its /Resources (null at full [opacity]). Shared by [addInk] and
   /// [sliceInk] so sliced ink re-renders exactly as it was drawn.
+  ///
+  /// At reduced opacity the strokes are drawn at full alpha into an
+  /// isolated transparency-group form that the returned content paints
+  /// once under a constant-alpha ExtGState. Stroking each pressure
+  /// segment (and each separate stroke) on its own means the round caps
+  /// overlap at every join; compositing them individually at partial
+  /// alpha double-paints those overlaps into visible dots - drawing them
+  /// opaquely inside the group and fading the group as a whole avoids it.
   (PdfRect, ContentWriter, CosDictionary?) _inkAppearance(
     List<List<(double, double)>> strokes,
     List<List<double>?>? pressures,
@@ -726,10 +734,7 @@ extension PdfAnnotationEditing on PdfEditor {
     final pad = maxWidth / 2 + 1;
     final rect = PdfRect(minX - pad, minY - pad, maxX + pad, maxY + pad);
 
-    final w = ContentWriter();
-    final gs = _alphaState(opacity);
-    if (gs != null) w.extGState('GS0');
-    w
+    final w = ContentWriter()
       ..strokeColor(color)
       ..lineWidth(strokeWidth)
       ..roundLines();
@@ -774,7 +779,21 @@ extension PdfAnnotationEditing on PdfEditor {
           ..stroke();
       }
     }
-    return (rect, w, gs);
+
+    final gs = _alphaState(opacity);
+    if (gs == null) return (rect, w, null);
+    // Fade the strokes as one object: wrap them in an isolated
+    // transparency group and apply the constant alpha to the group at its
+    // `Do`, so overlapping round caps composite opaquely inside instead of
+    // darkening every join into a dot.
+    final innerRef = _updater.addObject(_form(rect, w, transparencyGroup: true));
+    return (
+      rect,
+      ContentWriter()
+        ..extGState('GS0')
+        ..drawXObject('Fm0'),
+      _resources(extGState: gs, xObject: CosDictionary({'Fm0': innerRef})),
+    );
   }
 
   CosArray _inkListArray(List<List<(double, double)>> strokes) => CosArray([
@@ -831,7 +850,7 @@ extension PdfAnnotationEditing on PdfEditor {
     }
     final opacity = form == null ? 1.0 : _appearanceOpacity(form);
     final color = annotation.color ?? 0x000000;
-    final (rect, w, gs) = _inkAppearance(
+    final (rect, w, resources) = _inkAppearance(
       strokes,
       pressures,
       color,
@@ -847,12 +866,12 @@ extension PdfAnnotationEditing on PdfEditor {
         form,
         rect,
         w,
-        resources: _resources(extGState: gs),
+        resources: resources,
       );
     } else {
       dict['AP'] = CosDictionary({
         'N': _updater.addObject(
-          _form(rect, w, resources: _resources(extGState: gs)),
+          _form(rect, w, resources: resources),
         ),
       });
     }
@@ -872,9 +891,13 @@ extension PdfAnnotationEditing on PdfEditor {
     double strokeWidth,
   ) {
     if (strokeWidth <= 0) return null;
+    // Reduced-opacity ink strokes live inside an isolated transparency
+    // group the /N form paints with `/GS0 gs /Fm0 Do`; unwrap to that
+    // inner form so the per-segment `w` recovery sees the stroke ops.
+    final drawing = _inkDrawingStream(form) ?? form;
     final List<ContentOperation> ops;
     try {
-      ops = ContentStreamParser.parse(document.cos.decodeStreamData(form));
+      ops = ContentStreamParser.parse(document.cos.decodeStreamData(drawing));
     } catch (_) {
       return null;
     }
@@ -934,6 +957,36 @@ extension PdfAnnotationEditing on PdfEditor {
       ]);
     }
     return anyPressure ? result : null;
+  }
+
+  /// If [form] is the wrapper this editor emits for reduced-opacity ink -
+  /// a single `Do` of an isolated transparency group carrying the strokes -
+  /// returns that inner group's stream; null when the form draws the
+  /// strokes directly (full opacity) or isn't one of ours.
+  CosStream? _inkDrawingStream(CosStream form) {
+    final cos = document.cos;
+    final List<ContentOperation> ops;
+    try {
+      ops = ContentStreamParser.parse(cos.decodeStreamData(form));
+    } catch (_) {
+      return null;
+    }
+    String? drawn;
+    for (final op in ops) {
+      if (op.operator == 'Do') {
+        if (op.operands.length != 1 || op.operands.single is! CosName) {
+          return null;
+        }
+        drawn = (op.operands.single as CosName).value;
+      }
+    }
+    if (drawn == null) return null;
+    final resources = cos.resolve(form.dictionary['Resources']);
+    if (resources is! CosDictionary) return null;
+    final xObjects = cos.resolve(resources['XObject']);
+    if (xObjects is! CosDictionary) return null;
+    final inner = cos.resolve(xObjects[drawn]);
+    return inner is CosStream ? inner : null;
   }
 
   /// Adds a rectangle annotation. At least one of [strokeColor] and
@@ -3410,36 +3463,75 @@ extension PdfAnnotationEditing on PdfEditor {
     final imageRef = _updater.addObject(
       image.toXObject((smask) => _updater.addObject(smask)),
     );
+    final (w, resources) = _imageStampContent(
+      rect,
+      imageRef,
+      opacity,
+      pageRotation: effectivePageRotation,
+    );
+    // Mark it a picture stamp so the restyle path re-bakes only its alpha
+    // over this image, and never mistakes it for a text/template stamp.
+    final dict = _markupDict('Stamp', rect, 0xC03030, null, author)
+      ..['DartPdfImageStamp'] = const CosBoolean(true);
+    _addAnnotation(
+      pageIndex,
+      dict,
+      _form(rect, w, resources: resources),
+      name: name,
+    );
+  }
+
+  /// Builds an image stamp's appearance: a unit image (1×1 at the origin)
+  /// mapped onto [rect]'s oriented visual box, gated by [opacity]'s alpha.
+  /// The form's BBox stays the page-space rect, so unrotated appearances fit
+  /// as an identity mapping. Shared by [addImageStamp] and the opacity
+  /// restyle path so a pasted picture keeps its image when its transparency
+  /// changes.
+  (ContentWriter, CosDictionary?) _imageStampContent(
+    PdfRect rect,
+    CosObject imageRef,
+    double opacity, {
+    int pageRotation = 0,
+  }) {
     final w = ContentWriter();
     final gs = _alphaState(opacity);
     if (gs != null) w.extGState('GS0');
-    final vr = _orientedVisualRect(rect, effectivePageRotation);
-    if (effectivePageRotation != 0) {
+    final vr = _orientedVisualRect(rect, pageRotation);
+    if (pageRotation != 0) {
       w.save();
-      _orientedCounterRotation(w, rect, effectivePageRotation);
+      _orientedCounterRotation(w, rect, pageRotation);
     }
-    // A unit image (1×1 at the origin) mapped onto the visual rect. The form's
-    // BBox remains the page-space rect, so unrotated appearances still fit as
-    // an identity mapping.
     w
       ..save()
       ..concatMatrix(vr.width, 0, 0, vr.height, vr.left, vr.bottom)
       ..drawXObject('Img0')
       ..restore();
-    if (effectivePageRotation != 0) w.restore();
-    _addAnnotation(
-      pageIndex,
-      _markupDict('Stamp', rect, 0xC03030, null, author),
-      _form(
-        rect,
-        w,
-        resources: _resources(
-          extGState: gs,
-          xObject: CosDictionary({'Img0': imageRef}),
-        ),
+    if (pageRotation != 0) w.restore();
+    return (
+      w,
+      _resources(
+        extGState: gs,
+        xObject: CosDictionary({'Img0': imageRef}),
       ),
-      name: name,
     );
+  }
+
+  /// The indirect image XObject an image stamp's appearance draws, or null
+  /// when [form] isn't a single-image stamp appearance. Reused verbatim so a
+  /// restyle re-references the existing picture rather than re-embedding it.
+  CosObject? _stampImageRef(CosStream form) {
+    final cos = document.cos;
+    final resources = cos.resolve(form.dictionary['Resources']);
+    if (resources is! CosDictionary) return null;
+    final xobjects = cos.resolve(resources['XObject']);
+    if (xobjects is! CosDictionary) return null;
+    for (final entry in xobjects.entries.values) {
+      final xobj = cos.resolve(entry);
+      if (xobj is! CosStream) continue;
+      final subtype = cos.resolve(xobj.dictionary['Subtype']);
+      if (subtype is CosName && subtype.value == 'Image') return entry;
+    }
+    return null;
   }
 
   /// Removes [annotation] from the page, along with its popup, if any.
@@ -4523,7 +4615,7 @@ extension PdfAnnotationEditing on PdfEditor {
         final newColor = color ?? currentStyle.color ?? 0x000000;
         final newWidth = strokeWidth ?? oldWidth;
         final newOpacity = opacity ?? currentStyle.opacity;
-        final (rect, w, gs) =
+        final (rect, w, resources) =
             _inkAppearance(strokes, pressures, newColor, newWidth, newOpacity);
         dict['Rect'] = _rectArray(rect);
         dict['C'] = _colorComponents(newColor);
@@ -4534,12 +4626,12 @@ extension PdfAnnotationEditing on PdfEditor {
             form,
             rect,
             w,
-            resources: _resources(extGState: gs),
+            resources: resources,
           );
         } else {
           dict['AP'] = CosDictionary({
             'N': _updater.addObject(
-              _form(rect, w, resources: _resources(extGState: gs)),
+              _form(rect, w, resources: resources),
             ),
           });
         }
@@ -4757,6 +4849,30 @@ extension PdfAnnotationEditing on PdfEditor {
       case 'Stamp':
         final form = annotation.normalAppearance;
         if (form == null) return false;
+        // A picture stamp re-bakes its alpha over the same image; a text
+        // check-mark stamp redraws from its /Contents. Only a stamp the
+        // editor marked as an image stamp takes the image path, so a
+        // template stamp that merely contains an image is never flattened
+        // to a single picture.
+        if (annotation.isImageStamp) {
+          final imageRef = _stampImageRef(form);
+          if (imageRef != null) {
+            final (w, resources) = _imageStampContent(
+              to,
+              imageRef,
+              opacity ?? _appearanceOpacity(form),
+              pageRotation: pageRotation,
+            );
+            _replaceAppearance(
+              annotation.dict,
+              form,
+              to,
+              w,
+              resources: resources,
+            );
+            return true;
+          }
+        }
         final color = annotation.color ?? 0xC03030;
         final (w, gs) = _stampContent(
           to,
@@ -5620,6 +5736,7 @@ extension PdfAnnotationEditing on PdfEditor {
     PdfRect bbox,
     ContentWriter content, {
     CosDictionary? resources,
+    bool transparencyGroup = false,
   }) {
     final bytes = content.takeBytes();
     final dict = CosDictionary({
@@ -5628,6 +5745,15 @@ extension PdfAnnotationEditing on PdfEditor {
       'BBox': _rectArray(bbox),
       'Length': CosInteger(bytes.length),
     });
+    if (transparencyGroup) {
+      // An isolated transparency group (§11.6.6): a constant alpha set
+      // before this form's `Do` composites the group's result as one
+      // object, instead of compounding wherever the content self-overlaps.
+      dict['Group'] = CosDictionary({
+        'S': const CosName('Transparency'),
+        'I': const CosBoolean(true),
+      });
+    }
     if (resources != null) dict['Resources'] = resources;
     return CosStream(dict, bytes);
   }

@@ -13,6 +13,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
@@ -32,7 +33,10 @@ final _maxWarmRegression = double.tryParse(
     ) ??
     1.10;
 
-void main() => runApp(const _BenchmarkApp());
+void main() {
+  registerBundledEditorAssets();
+  runApp(const _BenchmarkApp());
+}
 
 class _BenchmarkApp extends StatefulWidget {
   const _BenchmarkApp();

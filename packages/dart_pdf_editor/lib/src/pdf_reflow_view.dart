@@ -6,6 +6,7 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'image_decoder.dart';
+import 'l10n/pdf_l10n.dart';
 import 'pdf_viewer.dart';
 
 /// Receives a figure the reader tapped in [PdfReflowView], rendered as a PNG,
@@ -353,7 +354,7 @@ class _PdfReflowViewState extends State<PdfReflowView>
           if (snapshot.data != true) {
             return Center(
               child: Text(
-                'No extractable content',
+                pdfL10n(context).reflowNoContent,
                 style: theme.textTheme.bodyLarge,
               ),
             );
@@ -534,7 +535,7 @@ class _ReflowPage extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'Page ${page.pageIndex + 1}',
+            pdfL10n(context).reflowPageLabel(page.pageIndex + 1),
             style: theme.textTheme.labelMedium?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
@@ -545,7 +546,7 @@ class _ReflowPage extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 12),
               child: switch (item) {
                 final PdfReflowBlock block => _block(theme, block, median),
-                final PdfReflowImage image => _image(theme, image),
+                final PdfReflowImage image => _image(context, theme, image),
               },
             ),
         ],
@@ -566,7 +567,7 @@ class _ReflowPage extends StatelessWidget {
     );
   }
 
-  Widget _image(ThemeData theme, PdfReflowImage image) {
+  Widget _image(BuildContext context, ThemeData theme, PdfReflowImage image) {
     final decoded = images[pdfImageKey(image.request)];
     if (decoded == null) {
       // Undecodable (or images turned off): leave a labelled placeholder so the
@@ -588,7 +589,7 @@ class _ReflowPage extends StatelessWidget {
     // Tap a figure to view it fullscreen (pan and pinch to zoom, share).
     return Semantics(
       button: true,
-      label: 'View figure',
+      label: pdfL10n(context).reflowViewFigure,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         child: GestureDetector(
@@ -708,7 +709,7 @@ class _FullscreenReflowImageState extends State<_FullscreenReflowImage> {
                     key: const ValueKey('pdf-reflow-image-close'),
                     icon: const Icon(Icons.close),
                     color: Colors.white,
-                    tooltip: 'Close',
+                    tooltip: pdfL10n(context).close,
                     onPressed: () => Navigator.of(context).maybePop(),
                   ),
                   const Spacer(),
@@ -724,7 +725,7 @@ class _FullscreenReflowImageState extends State<_FullscreenReflowImage> {
                             )
                           : const Icon(Icons.ios_share),
                       color: Colors.white,
-                      tooltip: 'Save or share',
+                      tooltip: pdfL10n(context).reflowSaveOrShare,
                       onPressed: _sharing ? null : _share,
                     ),
                 ],
