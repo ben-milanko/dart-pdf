@@ -1491,7 +1491,7 @@ class PdfEditingController extends ChangeNotifier {
     }
   }
 
-  PdfDocument? _documentFontsFor;
+  int? _documentFontsForRevision;
   List<PdfEmbeddedFont>? _documentFontsCache;
 
   /// The embeddable fonts the current document already uses (see
@@ -1499,9 +1499,9 @@ class PdfEditingController extends ChangeNotifier {
   /// can reuse a face the file already carries. Parsed once per revision
   /// and cached; the list is empty when nothing embeddable is found.
   List<PdfEmbeddedFont> get documentFonts {
-    if (!identical(_documentFontsFor, _document) ||
+    if (_documentFontsForRevision != _revisionId ||
         _documentFontsCache == null) {
-      _documentFontsFor = _document;
+      _documentFontsForRevision = _revisionId;
       _documentFontsCache = PdfEmbeddedFont.usedIn(_document);
     }
     return _documentFontsCache!;
