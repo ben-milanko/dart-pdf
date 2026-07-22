@@ -1837,7 +1837,8 @@ class _PdfPageViewState extends State<PdfPageView> {
       }
       if (widget.renderHold?.value ?? false) return false;
     }
-    final picture = await (_picture ??= PdfPageRenderer.renderPictureWithPlan(
+    final picture =
+        await (_picture ??= PdfPageRenderer.renderPictureRecordedWithPlan(
       widget.page,
       _renderPlan,
     ));
