@@ -218,6 +218,14 @@ Future<void> showPdfAnnotationMenu({
           }
         },
       ),
+    if (hasSelection && controller.canApplySelectedStyleAsDefault)
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-set-default'),
+        label: pdfL10n(context).menuSetAsDefaultStyle,
+        icon: Icons.brush_outlined,
+        onSelected: (request) =>
+            request.controller.applySelectedStyleAsDefault(),
+      ),
   ];
   final destructive = <PdfAnnotationMenuItem>[
     if (hasSelection)
