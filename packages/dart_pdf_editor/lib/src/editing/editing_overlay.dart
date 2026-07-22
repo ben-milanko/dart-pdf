@@ -5489,8 +5489,21 @@ void _paintInkStrokes(
     List<List<double>?> pressures,
     Color color,
     double strokeWidth) {
+  // Per-pressure segments (and crossing strokes) meet at overlapping round
+  // caps; at partial alpha, compositing each on its own double-paints those
+  // overlaps into visible dots. Mirror the committed appearance's
+  // transparency group: fade the whole set as one layer, painting the
+  // strokes opaquely inside so the overlaps composite once.
+  final grouped = color.a < 1;
+  if (grouped) {
+    canvas.saveLayer(
+        null,
+        Paint()
+          ..color = Color.from(alpha: color.a, red: 0, green: 0, blue: 0));
+  }
+  final drawColor = grouped ? color.withValues(alpha: 1) : color;
   final paint = Paint()
-    ..color = color
+    ..color = drawColor
     ..style = PaintingStyle.stroke
     ..strokeWidth = strokeWidth
     ..strokeCap = StrokeCap.round
@@ -5505,7 +5518,7 @@ void _paintInkStrokes(
       final width = pressure == null
           ? strokeWidth
           : pdfInkStrokeWidth(strokeWidth, pressure.first);
-      canvas.drawCircle(p, width / 2, Paint()..color = color);
+      canvas.drawCircle(p, width / 2, Paint()..color = drawColor);
       continue;
     }
     // the same Catmull-Rom smoothing the committed appearance uses
@@ -5515,7 +5528,7 @@ void _paintInkStrokes(
       // point pair at its own pressure-mapped width, round caps as the
       // seams
       final segment = Paint()
-        ..color = color
+        ..color = drawColor
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round;
       for (var i = 0; i < stroke.length - 1; i++) {
@@ -5546,6 +5559,7 @@ void _paintInkStrokes(
     }
     canvas.drawPath(path, paint);
   }
+  if (grouped) canvas.restore();
 }
 
 /// The single in-progress pencil/mouse stroke, on its own RepaintBoundary.
