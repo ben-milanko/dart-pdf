@@ -17,7 +17,10 @@
 // one appearance stream and deleting drops one, so both evict. The first only
 // adds annotations, so nothing is ever evicted and it passes either way - it
 // is here to cover the plain repeat-commit path, not the lifetime bug.
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -87,5 +90,110 @@ void main() {
     editing.undo();
     await tester.pumpAndSettle();
     expect(editing.document.page(0).annotations, hasLength(2));
+  });
+
+  // Regression (#418 follow-up): the appearance cache is keyed on the
+  // appearance stream, but a move rewrites only /Rect and leaves that stream
+  // identical - so keying on the stream alone returned the stale picture
+  // pinned at the old spot, and the annotation appeared not to move until the
+  // layer was rebuilt (a tab switch). The /Rect must be part of the key.
+  testWidgets('moving an annotation repaints it at the new /Rect',
+      (tester) async {
+    await tester.runAsync(() async {
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(300, 460);
+      addTearDown(tester.view.reset);
+
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing.preferences
+        ..shapeFillColor = const Color(0xFFFF0000)
+        ..opacity = 1.0;
+      editing.color = const Color(0xFFFF0000);
+
+      final boundaryKey = GlobalKey();
+      await tester.pumpWidget(RepaintBoundary(
+        key: boundaryKey,
+        child: MaterialApp(
+          home: Scaffold(
+            body: ListenableBuilder(
+              listenable: editing,
+              builder: (context, _) => PdfViewer(
+                initialFit: PdfViewerFit.width,
+                document: editing.document,
+                editing: editing,
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      // A solid-red box near the top of the page, then the same box slid far
+      // down (same appearance stream, new /Rect).
+      const oldRect = PdfRect(120, 620, 260, 700);
+      const newRect = PdfRect(120, 120, 260, 200);
+      editing.addRectangle(0, oldRect);
+      await tester.pumpAndSettle();
+
+      final pageRect = tester.getRect(find.byType(PdfPageView).first);
+      final geometry = PdfPageGeometry(
+        cropBox: editing.document.page(0).cropBox,
+        rotation: 0,
+        viewSize: pageRect.size,
+      );
+      Offset centerOf(PdfRect r) =>
+          pageRect.topLeft + geometry.toViewRect(r).center;
+      final oldCenter = centerOf(oldRect);
+      final newCenter = centerOf(newRect);
+
+      // Count red pixels in an 11×11 window around a boundary-local point.
+      Future<int> reds(Offset at) async {
+        final boundary =
+            tester.renderObject<RenderRepaintBoundary>(find.byKey(boundaryKey));
+        final image = await boundary.toImage();
+        final width = image.width;
+        final height = image.height;
+        final data =
+            (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+        image.dispose();
+        var count = 0;
+        for (var dy = -5; dy <= 5; dy++) {
+          for (var dx = -5; dx <= 5; dx++) {
+            final x = (at.dx + dx).round();
+            final y = (at.dy + dy).round();
+            if (x < 0 || x >= width || y < 0 || y >= height) continue;
+            final i = (y * width + x) * 4;
+            final r = data.getUint8(i);
+            final g = data.getUint8(i + 1);
+            final b = data.getUint8(i + 2);
+            if (r > 150 && g < 100 && b < 100) count++;
+          }
+        }
+        return count;
+      }
+
+      // The box paints where it was added and nowhere it wasn't.
+      expect(await reds(oldCenter), greaterThan(20),
+          reason: 'the added box should paint at its /Rect');
+      expect(await reds(newCenter), 0,
+          reason: 'nothing painted at the destination yet');
+
+      // Slide it down by 500pt and let the appearance layer re-render.
+      editing
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      editing.moveSelected(0, newRect.bottom - oldRect.bottom);
+      await tester.pumpAndSettle();
+      expect(editing.document.page(0).annotations.single.rect, newRect);
+
+      // The picture must follow the box: red at the new spot, gone from the
+      // old one. Before the fix the stale cached picture stayed put and the
+      // old spot was still red.
+      expect(await reds(newCenter), greaterThan(20),
+          reason: 'the moved box must repaint at its new /Rect');
+      expect(await reds(oldCenter), 0,
+          reason: 'the stale picture must not linger at the old /Rect');
+    });
   });
 }

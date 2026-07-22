@@ -5709,7 +5709,8 @@ class _AnnotationAppearanceLayerState
   List<ui.Picture> _pictures = const [];
   Size? _picturePageSize;
 
-  /// Rendered appearances keyed on the appearance stream itself.
+  /// Rendered appearances keyed on the appearance stream plus the /Rect it
+  /// was drawn into.
   ///
   /// An incremental revision keeps the COS object cache (the byte prefix is
   /// unchanged, so `CosDocument` hands back the same instances), which means
@@ -5718,15 +5719,30 @@ class _AnnotationAppearanceLayerState
   /// each one an ImageCollector scan, an image decode, and an interpreter
   /// walk - so a page of 50 highlights paid 50 renders per stroke (#404).
   ///
-  /// Only the entries whose stream changed are re-rendered. The cache owns
-  /// every picture in it; [_pictures] is an ordered view and never disposes.
+  /// Only the entries whose key changed are re-rendered. The cache owns every
+  /// picture in it; [_pictures] is an ordered view and never disposes.
   ///
-  /// Keyed as `Object` because `CosStream` is not exported into this library.
-  /// `CosStream` uses identity equality, so this is keyed on the stream
-  /// instance - which is exactly the intent.
-  final Map<Object, ui.Picture> _cache = {};
+  /// The /Rect is part of the key because a rendered picture bakes in the
+  /// annotation's position: the appearance BBox is mapped onto /Rect
+  /// (§12.5.5). Moving or stretch-resizing an annotation rewrites /Rect while
+  /// leaving the appearance stream identical (that is exactly how the editors
+  /// mutate a moved or scaled box), so keying on the stream alone returned the
+  /// stale picture pinned at the old spot - the change only appeared once the
+  /// layer was rebuilt, e.g. on a tab switch (#418 follow-up). With /Rect in
+  /// the key the moved box misses and re-renders at its new position, while
+  /// every untouched appearance on the page still hits.
+  ///
+  /// The stream half is typed `Object` because `CosStream` is not exported
+  /// into this library; it uses identity equality, so the key mixes stream
+  /// identity with the [PdfRect]'s value equality - exactly the intent.
+  final Map<(Object, PdfRect), ui.Picture> _cache = {};
   int? _cacheRotation;
   Size? _cacheSize;
+
+  /// The appearance-cache key for [annotation]: its appearance stream identity
+  /// paired with the /Rect the picture is positioned into.
+  static (Object, PdfRect) _appearanceKey(PdfAnnotation annotation) =>
+      (annotation.normalAppearance!, annotation.rect);
 
   @override
   void initState() {
@@ -5819,7 +5835,7 @@ class _AnnotationAppearanceLayerState
     // are repeatedly replaced cannot accumulate pictures. Disposal waits for
     // the publish below (see [_retire]).
     final live = {
-      for (final annotation in annotations) annotation.normalAppearance!,
+      for (final annotation in annotations) _appearanceKey(annotation),
     };
     for (final source in _cache.keys.toList()) {
       if (!live.contains(source)) _retire([_cache.remove(source)!]);
@@ -5827,7 +5843,7 @@ class _AnnotationAppearanceLayerState
 
     final missing = [
       for (final annotation in annotations)
-        if (!_cache.containsKey(annotation.normalAppearance)) annotation,
+        if (!_cache.containsKey(_appearanceKey(annotation))) annotation,
     ];
     if (missing.isEmpty) {
       _publish(generation, annotations, pageSize);
@@ -5836,7 +5852,7 @@ class _AnnotationAppearanceLayerState
     unawaited(Future.wait([
       for (final annotation in missing)
         _renderAnnotation(page, annotation, widget.rotation)
-            .then((picture) => (annotation.normalAppearance!, picture)),
+            .then((picture) => (_appearanceKey(annotation), picture)),
     ]).then((rendered) {
       if (!mounted || generation != _generation) {
         for (final (_, picture) in rendered) {
@@ -5865,7 +5881,7 @@ class _AnnotationAppearanceLayerState
     if (!mounted || generation != _generation) return;
     final next = [
       for (final annotation in annotations)
-        if (_cache[annotation.normalAppearance] case final picture?) picture,
+        if (_cache[_appearanceKey(annotation)] case final picture?) picture,
     ];
     setState(() {
       _pictures = next;
