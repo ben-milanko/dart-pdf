@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import 'devtools.dart';
 import 'editor_screen.dart';
+import 'l10n/app_localizations.dart';
 import 'oidc_signin.dart';
 import 'platform_fonts.dart';
 
@@ -92,6 +93,11 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
           [_prefs, AppDevTools.instance.showPerformanceOverlay]),
       builder: (context, _) => MaterialApp(
         title: 'DartPDF',
+        localizationsDelegates: const [
+          ...AppLocalizations.localizationsDelegates,
+          DartPdfEditorLocalizations.delegate,
+        ],
+        supportedLocales: AppLocalizations.supportedLocales,
         showPerformanceOverlay:
             AppDevTools.instance.showPerformanceOverlay.value,
         theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
