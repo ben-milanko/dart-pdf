@@ -127,12 +127,12 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
 
   /// The document revision the selection state belongs to. Any edit,
   /// undo, or redo can shift /Annots slots, so a new revision drops it.
-  PdfDocument? _builtFor;
+  int? _builtForRevision;
 
   /// Extracted page text for link tiles ("the text under the link"),
   /// per page, for the current revision only - extraction interprets
   /// the page, so it runs once per page that actually lists a link and
-  /// the cache dies with [_builtFor]. Null entries are failed or
+  /// the cache dies with the built-for revision. Null entries are failed or
   /// text-free extractions.
   final Map<int, PdfPageText?> _pageTexts = {};
 
@@ -718,9 +718,10 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
           listenable: widget.controller,
           builder: (context, _) {
             final document = widget.controller.document;
-            if (!identical(document, _builtFor)) {
+            final revisionId = widget.controller.revisionId;
+            if (revisionId != _builtForRevision) {
               // already rebuilding - adjust the state in place
-              _builtFor = document;
+              _builtForRevision = revisionId;
               _checked.clear();
               _hoveredSlot = null;
               _selecting = false;

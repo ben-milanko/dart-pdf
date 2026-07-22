@@ -482,10 +482,23 @@ class PdfEditingController extends ChangeNotifier {
   int pageDestructiveStamp(int pageIndex) => _destructiveStampEpoch;
 
   PdfDocument _document;
+  int _revisionId = 0;
 
-  /// The document at the current revision. Changes identity on every
-  /// edit, undo, and redo.
+  /// The document at the current revision.
+  ///
+  /// Do NOT use `identical(document, ...)` as a "did a revision land?" signal -
+  /// compare [revisionId] instead. That the wrapper's identity happens to
+  /// change on every commit today is an implementation convenience of
+  /// [PdfDocument.withIncrementalUpdate], not a contract: applying a revision in
+  /// place would keep the same object and silently break every such check (this
+  /// is exactly what bit #395). See #414.
   PdfDocument get document => _document;
+
+  /// Monotonic id of the current revision, bumped whenever a commit, undo, or
+  /// redo lands (i.e. whenever [document] moves to a different revision - even an
+  /// undo-then-redo back to the same undo cursor). Compare this rather than
+  /// `identical(document, ...)` to ask "did anything commit?".
+  int get revisionId => _revisionId;
 
   PdfWorkerRevisionDelta? _lastRevisionDelta;
 
@@ -587,6 +600,7 @@ class PdfEditingController extends ChangeNotifier {
   void _reloadDocument({required bool grew}) {
     if (grew && _tryApplyIncrementalUpdate()) return;
     _document = PdfDocument.open(bytes, password: _password);
+    _revisionId++;
   }
 
   /// Debug-only sanity check behind the assert in [_tryApplyIncrementalUpdate].
@@ -636,10 +650,11 @@ class PdfEditingController extends ChangeNotifier {
     assert(_looksLikeAppend(),
         'incremental revision is not an append of the open document');
     try {
-      // A *new* wrapper over the same updated COS layer: editing widgets read
-      // `identical(document, before)` as "the commit produced no revision",
-      // so the instance has to change even though the parse does not repeat.
+      // Reuse the same COS layer (the parse does not repeat), wrapped fresh
+      // only as a convenience - [revisionId] is now the "did a revision land?"
+      // signal, so the wrapper identity no longer has to change (#414).
       _document = _document.withIncrementalUpdate(bytes);
+      _revisionId++;
       return true;
     } on CosParseException {
       return false;
@@ -1744,7 +1759,7 @@ class PdfEditingController extends ChangeNotifier {
   /// them until that revision's raster is on screen, so the drawing
   /// doesn't blink out for the render's duration.
   ({
-    PdfDocument document,
+    int revisionId,
     Map<int, List<List<(double, double)>>> strokes,
     Map<int, List<List<double>?>> pressures,
     Color color,
@@ -1760,7 +1775,7 @@ class PdfEditingController extends ChangeNotifier {
     double strokeWidth,
   })? committedInkOn(int pageIndex) {
     final committed = _committedInk;
-    if (committed == null || !identical(committed.document, _document)) {
+    if (committed == null || committed.revisionId != _revisionId) {
       return null;
     }
     final strokes = committed.strokes[pageIndex];
@@ -1860,7 +1875,7 @@ class PdfEditingController extends ChangeNotifier {
     );
     if (committed) {
       _committedInk = (
-        document: _document,
+        revisionId: _revisionId,
         strokes: strokes,
         pressures: pressures,
         color: preferences.color.withValues(
@@ -2021,6 +2036,7 @@ class PdfEditingController extends ChangeNotifier {
     // un-redacted) one up while the fresh render lands
     if (impact.destructive) _destructiveStampEpoch++;
     _document = PdfDocument.open(bytes, password: _password);
+    _revisionId++;
     _invalidateElements();
     notifyListeners();
   }
@@ -4797,7 +4813,7 @@ class PdfEditingController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // attention flash
 
-  ({PdfDocument document, int page, int slot})? _flash;
+  ({int revisionId, int page, int slot})? _flash;
   int _flashSequence = 0;
   Timer? _flashTimer;
 
@@ -4811,7 +4827,7 @@ class PdfEditingController extends ChangeNotifier {
   /// its annotation, so the eye lands on the right spot.
   void flashAnnotation(int pageIndex, int index) {
     if (annotationAt(pageIndex, index) == null) return;
-    _flash = (document: _document, page: pageIndex, slot: index);
+    _flash = (revisionId: _revisionId, page: pageIndex, slot: index);
     _flashSequence++;
     _flashTimer?.cancel();
     _flashTimer = Timer(flashLifetime, () {
@@ -4828,7 +4844,7 @@ class PdfEditingController extends ChangeNotifier {
   /// else now).
   ({int page, int slot, int sequence})? get pendingFlash {
     final flash = _flash;
-    if (flash == null || !identical(flash.document, _document)) return null;
+    if (flash == null || flash.revisionId != _revisionId) return null;
     return (page: flash.page, slot: flash.slot, sequence: _flashSequence);
   }
 
@@ -6257,7 +6273,7 @@ class PdfEditingController extends ChangeNotifier {
       return null;
     }
 
-    final document = _document;
+    final revisionAtStart = _revisionId;
     final page = _page(selected.$1);
     final size = PdfPageRenderer.pageSize(page, rotation: page.rotation);
     final geometry = PdfPageGeometry(
@@ -6290,7 +6306,7 @@ class PdfEditingController extends ChangeNotifier {
       );
       final data = await image.toByteData(format: ui.ImageByteFormat.png);
       if (data == null ||
-          !identical(_document, document) ||
+          revisionAtStart != _revisionId ||
           _selectedElement != selected) {
         return null;
       }
