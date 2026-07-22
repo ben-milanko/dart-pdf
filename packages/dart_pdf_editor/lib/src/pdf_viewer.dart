@@ -5201,6 +5201,8 @@ class _PdfViewerState extends State<PdfViewer>
                 contentStamp: _contentStamp(index),
                 destructiveStamp: _destructiveStamp(index),
                 renderPriority: _renderPriority(index),
+                focusDistance:
+                    (index - (_jumpFocusPage ?? _controller.currentPage)).abs(),
                 matches: _controller._matchesOn(index),
                 currentMatch: _controller._currentMatch >= 0
                     ? _controller._matches[_controller._currentMatch]
@@ -5963,6 +5965,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.contentStamp,
     required this.destructiveStamp,
     required this.renderPriority,
+    required this.focusDistance,
     required this.matches,
     required this.currentMatch,
     required this.selection,
@@ -6029,6 +6032,7 @@ class _PdfViewerPage extends StatefulWidget {
   /// can't linger on screen. 0 outside an editing session.
   final int destructiveStamp;
   final int renderPriority;
+  final int focusDistance;
   final List<PdfTextMatch> matches;
   final PdfTextMatch? currentMatch;
   final List<PdfTextQuad> selection;
@@ -6168,6 +6172,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         contentStamp: widget.contentStamp,
         destructiveStamp: widget.destructiveStamp,
         renderPriority: widget.renderPriority,
+        focusDistance: widget.focusDistance,
         pageColor: widget.pageColor,
         showAnnotations: widget.pageImagesShowAnnotations,
         trustContentStamp: widget.trustContentStamp,
