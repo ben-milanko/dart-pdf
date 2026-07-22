@@ -33,4 +33,13 @@ echo "generating public corpus into $OUT"
 (cd "$ROOT" &&
   $DART packages/pdf_cos/tool/gen_cad_pdf.dart "$OUT/plan-set-16p.pdf" \
     16 23000 20260722)
+# Raster-underlay sheet: the giant-image survey/CAD class profiled from a real
+# (unredistributable) ~8 MB single-page drawing - two 9460x2918 DeviceRGB
+# underlays, each with a full-size non-DCT grayscale soft mask, under 71 OCG
+# layers (~221 MB RGBA if decoded at native resolution). The committed variant
+# is FlateDecode (hermetic); the DCTDecode variant that reproduces the
+# platform-JPEG decode pathology is a generated perf-cache doc, not committed.
+(cd "$ROOT" &&
+  $DART packages/pdf_test_fixtures/tool/gen_raster_underlay_pdf.dart \
+    "$OUT/raster-underlay-1p.pdf" faithful 2 9460 2918 71 6000 20260722)
 ls -la "$OUT" | awk 'NR>1 {print "  " $NF "\t" $5 " bytes"}' | grep -v '^\s*\.'

@@ -757,4 +757,67 @@ void main() {
       expect(pixels.sublist(0, 4), [255, 191, 0, 255]);
     });
   });
+
+  group('display-resolution decode cap', () {
+    // One full-bleed underlay + gray soft mask on an A1-ish sheet, decoded
+    // through the real interpreter so the request carries the true page-space
+    // transform the cap reads its footprint from.
+    Future<(CosDocument, List<PdfImageRequest>)> underlay(
+        int nativeW, int nativeH) async {
+      final bytes = buildSyntheticRasterUnderlaySheet(
+        underlays: [PdfUnderlaySpec(width: nativeW, height: nativeH)],
+        layers: 4,
+        ops: 50,
+      );
+      final doc = CosDocument.open(bytes);
+      final page = PdfDocument.open(bytes).page(0);
+      final collector = ImageCollector();
+      PdfInterpreter(cos: doc, device: collector)
+          .drawPageContent(page, page.contentBytes());
+      // The base underlay, not its mask (masks are referenced via /SMask, not
+      // drawn), is the one image the page draws.
+      return (doc, collector.streams);
+    }
+
+    testWidgets('a huge underlay decodes at display size, not native',
+        (tester) async {
+      await tester.runAsync(() async {
+        final (doc, requests) = await underlay(4000, 2600);
+        // ratio 0.5 px/pt over a ~2384pt-wide sheet -> ~1192px on screen; the
+        // 2x headroom caps near 2384px, well under the 4000px native width.
+        final images =
+            await decodeImages(doc, requests, maxImagePixelRatio: 0.5);
+        final image = images.values.single;
+        expect(image.width, lessThan(4000));
+        expect(image.width, greaterThan(1192)); // sharper than 1:1
+        // The soft mask was fitted to the base, so the composite kept the cap
+        // instead of ballooning back to the mask's native 4000x2600.
+        expect(image.height, lessThan(2600));
+      });
+    });
+
+    testWidgets('no ratio still clamps past the GPU max texture size',
+        (tester) async {
+      await tester.runAsync(() async {
+        final (doc, requests) = await underlay(9460, 2918);
+        // No display ratio: only the hard ceilings apply. 9460 > 8192 must be
+        // brought within the common GPU max texture dimension.
+        final images = await decodeImages(doc, requests);
+        final image = images.values.single;
+        expect(image.width, lessThanOrEqualTo(8192));
+        expect(image.width * image.height, lessThanOrEqualTo(1 << 24));
+      });
+    });
+
+    testWidgets('a small image is untouched by the cap', (tester) async {
+      await tester.runAsync(() async {
+        final (doc, requests) = await underlay(64, 48);
+        final images =
+            await decodeImages(doc, requests, maxImagePixelRatio: 2.0);
+        final image = images.values.single;
+        expect(image.width, 64);
+        expect(image.height, 48);
+      });
+    });
+  });
 }
