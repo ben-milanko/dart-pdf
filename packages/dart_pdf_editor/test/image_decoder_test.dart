@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:image/image.dart' as img;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:dart_pdf_editor/src/image_decoder.dart';
@@ -817,6 +818,69 @@ void main() {
         final image = images.values.single;
         expect(image.width, 64);
         expect(image.height, 48);
+      });
+    });
+
+    testWidgets('a DCTDecode base under a non-DCT soft mask caps on the '
+        'platform-codec path', (tester) async {
+      await tester.runAsync(() async {
+        // The #458 shape: a non-CMYK JPEG base (platform codec, not the
+        // pure-Dart path) with a Flate gray /SMask. Exercises
+        // instantiateImageCodec(targetWidth:) and the _fitMask step that keeps
+        // the composite at the capped base size instead of ballooning back to
+        // the mask's native resolution.
+        const w = 512, h = 384;
+        final rgb = img.Image(width: w, height: h);
+        for (final p in rgb) {
+          p
+            ..r = (p.x * 255 ~/ w)
+            ..g = (p.y * 255 ~/ h)
+            ..b = 128;
+        }
+        final jpeg = img.encodeJpg(rgb, quality: 90);
+        // A fully-opaque Flate gray mask at the base's native size: if _fitMask
+        // did not shrink it, pdfApplyImageAlpha would upsize the capped base
+        // back to 512x384.
+        final maskBytes =
+            Uint8List.fromList(ZLibCodec(level: 6).encode(Uint8List(w * h)
+              ..fillRange(0, w * h, 0xFF)));
+        final base = CosStream(
+          CosDictionary({
+            'Subtype': const CosName('Image'),
+            'Width': const CosInteger(w),
+            'Height': const CosInteger(h),
+            'BitsPerComponent': const CosInteger(8),
+            'ColorSpace': const CosName('DeviceRGB'),
+            'Filter': const CosName('DCTDecode'),
+            'SMask': CosStream(
+              CosDictionary({
+                'Subtype': const CosName('Image'),
+                'Width': const CosInteger(w),
+                'Height': const CosInteger(h),
+                'BitsPerComponent': const CosInteger(8),
+                'ColorSpace': const CosName('DeviceGray'),
+                'Filter': const CosName('FlateDecode'),
+                'Length': CosInteger(maskBytes.length),
+              }),
+              maskBytes,
+            ),
+          }),
+          Uint8List.fromList(jpeg),
+        );
+        // Unit square -> a 300x225 pt page footprint; at ratio 0.4 the 2x
+        // headroom targets ~240px wide, well under the 512px native JPEG.
+        final request = PdfImageRequest(
+          stream: base,
+          transform: PdfMatrix(300, 0, 0, 225, 0, 0),
+        );
+        final images =
+            await decodeImages(cos, [request], maxImagePixelRatio: 0.4);
+        final image = images.values.single;
+        expect(image.width, lessThan(w));
+        expect(image.height, lessThan(h));
+        // Base and (fitted) mask agree, so the composite is the capped size,
+        // not the mask's native 512x384.
+        expect(image.width, greaterThan(0));
       });
     });
   });
