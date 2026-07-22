@@ -877,14 +877,19 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get sidebarSignatureInvalid => 'Invalid';
 
   @override
-  String sidebarSignatureSignedBy(String name) => 'Signed by $name';
+  String sidebarSignatureSignedBy(String name) {
+    return 'Signed by $name';
+  }
 
   @override
-  String sidebarSignatureSignedAt(String time) => 'Signed $time';
+  String sidebarSignatureSignedAt(String time) {
+    return 'Signed $time';
+  }
 
   @override
-  String sidebarSignatureTrustedVia(String authority) =>
-      'Trusted via $authority';
+  String sidebarSignatureTrustedVia(String authority) {
+    return 'Trusted via $authority';
+  }
 
   @override
   String get sidebarSignatureUntrustedDetail =>
@@ -898,14 +903,17 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get sidebarSignatureModified => 'Document was changed after signing';
 
   @override
-  String get sidebarSignatureRevoked =>
-      'The signer\'s certificate was revoked';
+  String get sidebarSignatureRevoked => 'The signer\'s certificate was revoked';
 
   @override
-  String sidebarSignatureTimestamped(String time) => 'Timestamped $time';
+  String sidebarSignatureTimestamped(String time) {
+    return 'Timestamped $time';
+  }
 
   @override
-  String sidebarSignatureLevel(String level) => 'PAdES $level';
+  String sidebarSignatureLevel(String level) {
+    return 'PAdES $level';
+  }
 
   @override
   String get sidebarWriteReplyHint => 'Write a reply…';
