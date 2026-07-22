@@ -43,10 +43,12 @@ const THRESHOLD = Number(opt('--threshold', '1.10'));
 const KEEP = has('--keep');
 const BUILD_CURRENT = !has('--no-build-current');
 
-// Metrics where a change is expected/informational rather than a regression
-// (equality metrics and search hit counts). Everything else is lower-is-better.
+// Structural/equality metrics: a change is informational, not a regression
+// (they should stay ~constant across revisions). `frames` (total captured) is
+// timing-dependent noise, so it's here too - but jankCount is a real quality
+// metric and IS gated, not informational.
 const INFORMATIONAL = new Set([
-  'searchMatches', 'pagesVisited', 'editRevisions', 'frames', 'jankCount',
+  'searchMatches', 'pagesVisited', 'editRevisions', 'frames',
 ]);
 
 const reg = JSON.parse(readFileSync(join(HERE, 'scenarios.json'), 'utf8'));
@@ -59,8 +61,9 @@ if (!reg.scenarios[scenarioName]) {
 // bytes even if the corpus drifted between revisions.
 const PDF = join(REPO_ROOT, reg.scenarios[scenarioName].pdf);
 
+// execFileSync (no shell) so a ref name can't inject - BASELINE is external.
 const git = (args, cwd = REPO_ROOT) =>
-  execSync(`git ${args}`, { cwd, encoding: 'utf8' }).trim();
+  execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
 
 function build(treeRoot) {
   console.log(`\n▶ building web bundle in ${treeRoot}`);
@@ -91,7 +94,10 @@ function readRuns(file) {
   if (!existsSync(file)) return [];
   return readFileSync(file, 'utf8').split('\n').filter(Boolean)
     .map((l) => { try { return JSON.parse(l); } catch { return null; } })
-    .filter(Boolean);
+    .filter(Boolean)
+    // A fatal/errored run carries no usable numbers - comparing it would skew
+    // (or empty) the medians while the verdict still read "no regression".
+    .filter((r) => !r.fatal && !r.harnessError && r.ok !== false);
 }
 
 const median = (xs) => {
@@ -110,7 +116,7 @@ function medianMetrics(runs) {
 function main() {
   if (!existsSync(PDF)) { console.error(`✗ PDF not found: ${PDF}`); process.exit(2); }
 
-  const sha = git(`rev-parse --short ${BASELINE}`);
+  const sha = git(['rev-parse', '--short', BASELINE]);
   console.log(`\n══ web A/B: ${BASELINE} (${sha}) → working tree`);
   console.log(`   scenario ${scenarioName}  iterations ${ITER}  threshold ${THRESHOLD}×`);
 
@@ -124,15 +130,19 @@ function main() {
   if (!existsSync(wt)) {
     console.log(`\n▶ creating worktree for ${BASELINE} (${sha}) at ${wt}`);
     mkdirSync(dirname(wt), { recursive: true });
-    git(`worktree add --detach ${wt} ${BASELINE}`);
+    git(['worktree', 'add', '--detach', wt, BASELINE]);
     const dart = existsSync(join(REPO_ROOT, '.fvmrc')) ? 'fvm dart' : 'dart';
     execSync(`${dart} pub get`, { cwd: wt, stdio: 'inherit' });
   } else {
     console.log(`\n▶ reusing cached worktree ${wt}`);
   }
   // Bootstrap: copy today's harness tooling into the ref so it measures its own
-  // lib with the current harness/driver/scenario (additive, overwrites tool/perf).
-  cpSync(join(HERE), join(wt, 'app', 'tool', 'perf'), { recursive: true });
+  // lib with the current harness/scenario (additive, overwrites tool/perf).
+  // Skip node_modules (big, unneeded for the build) and stray history files.
+  cpSync(join(HERE), join(wt, 'app', 'tool', 'perf'), {
+    recursive: true,
+    filter: (src) => !/[/\\]node_modules([/\\]|$)|results.*\.ndjson$/.test(src),
+  });
   build(wt);
   const refWeb = join(wt, 'app', 'build', 'web');
 
@@ -150,8 +160,16 @@ function main() {
   }
 
   // ---- compare ----
-  const cur = medianMetrics(readRuns(curFile));
-  const ref = medianMetrics(readRuns(refFile));
+  const curRuns = readRuns(curFile);
+  const refRuns = readRuns(refFile);
+  if (!curRuns.length || !refRuns.length) {
+    console.error(`\n✗ no successful runs on ${!refRuns.length ? BASELINE : 'the working tree'} `
+      + `(${refRuns.length} ref / ${curRuns.length} current of ${ITER} each) - cannot compare`);
+    if (!KEEP) rmSync(out, { recursive: true, force: true });
+    process.exit(2);
+  }
+  const cur = medianMetrics(curRuns);
+  const ref = medianMetrics(refRuns);
   const keys = [...new Set([...Object.keys(ref), ...Object.keys(cur)])].sort();
 
   console.log(`\n══ ${scenarioName}: ${BASELINE} (${sha}) → working tree, ${ITER} interleaved runs\n`);
