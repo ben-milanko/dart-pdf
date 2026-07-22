@@ -213,10 +213,15 @@ class _EncodingDevice implements PdfDevice {
 
   /// The blend mode the interpreter last set (gs /BM). The op set has no blend
   /// modes - GDI and Cairo composite source-over - so a darkening blend is
-  /// approximated by lowering the paint's alpha ([_flattenAlpha]). Tracked as a
-  /// plain field: the interpreter re-issues [setBlendMode] whenever its own
-  /// graphics state changes, restore (Q) included, so this mirrors it.
+  /// approximated by lowering the paint's alpha ([_flattenAlpha]).
+  ///
+  /// Pushed/popped by [save]/[restore] ([_blendStack]) so a blend set inside a
+  /// form or `q`/`Q` scope cannot leak past it: the interpreter brackets every
+  /// form and appearance (and each `q`) with [save]/[restore] but restores its
+  /// *own* graphics state on the way out without re-issuing [setBlendMode], so
+  /// mirroring the blend on the save stack is what keeps this in step.
   PdfBlendMode _blend = PdfBlendMode.normal;
+  final List<PdfBlendMode> _blendStack = [];
 
   /// Alpha a darkening blend (Multiply/Darken) lowers to for print. A highlight
   /// draws an *opaque* colour whose translucency is entirely the Multiply blend
@@ -239,10 +244,18 @@ class _EncodingDevice implements PdfDevice {
       };
 
   @override
-  void save() => _w.u8(_opSave);
+  void save() {
+    _blendStack.add(_blend);
+    _w.u8(_opSave);
+  }
 
   @override
-  void restore() => _w.u8(_opRestore);
+  void restore() {
+    // Lenient: a malformed stream can emit an unbalanced restore. Keep the
+    // current blend rather than underflow.
+    if (_blendStack.isNotEmpty) _blend = _blendStack.removeLast();
+    _w.u8(_opRestore);
+  }
 
   @override
   void fillPath(PdfPath path, PdfColor color, PdfFillRule rule, double alpha) {
