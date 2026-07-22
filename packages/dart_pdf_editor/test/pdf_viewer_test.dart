@@ -198,6 +198,57 @@ void main() {
         reason: 'the same point of the page stays at the viewport top');
   });
 
+  testWidgets('resizing a side panel below fit-width holds the zoom',
+      (tester) async {
+    // Below fit-width (the default fit-page rest state) the page lays out at
+    // _layoutZoom < 1. A panel resize changes the viewer width and so the fit
+    // scale; without compensation the page would visibly grow or shrink. The
+    // viewer counter-scales _layoutZoom so the on-screen zoom stays put.
+    final controller = PdfViewerController();
+    final document = PdfDocument.open(buildMultiPagePdf(8));
+    Widget build(double panelWidth) => MaterialApp(
+          home: Scaffold(
+            body: Row(children: [
+              SizedBox(width: panelWidth, height: double.infinity),
+              Expanded(
+                child: PdfViewer(
+                  key: const ValueKey('viewer'),
+                  // fit-page: whole first page visible, so _layoutZoom < 1
+                  document: document,
+                  controller: controller,
+                ),
+              ),
+            ]),
+          ),
+        );
+
+    await tester.pumpWidget(build(100));
+    await tester.pump();
+
+    controller.jumpToPage(3);
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    await tester.drag(find.byType(PdfViewer), const Offset(0, -80));
+    await tester.pumpAndSettle(const Duration(milliseconds: 100));
+
+    final beforeZoom = controller.zoom;
+    final beforeTop = controller.visiblePageRegion(3)!.top;
+    // sanity: resting below fit-width (a 612pt page under a 700px viewer fills
+    // the width at 700/612, and fit-page is shorter than that)
+    expect(beforeZoom, lessThan(700 / 612));
+
+    // widen the panel: the viewer shrinks, but the zoom must not follow
+    await tester.pumpWidget(build(300));
+    await tester.pump(); // lay out at the new width
+    await tester.pump(); // run the post-frame re-anchor
+
+    expect(controller.zoom, closeTo(beforeZoom, 0.001),
+        reason: 'the on-screen zoom holds across the resize');
+    final region = controller.visiblePageRegion(3);
+    expect(region, isNotNull);
+    expect(region!.top, closeTo(beforeTop, 0.02),
+        reason: 'the reading position also stays put');
+  });
+
   testWidgets('search finds matches and tracks the current one',
       (tester) async {
     final controller = await pumpViewer(tester);

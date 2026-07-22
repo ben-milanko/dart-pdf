@@ -2661,15 +2661,31 @@ class _PdfViewerState extends State<PdfViewer>
     return offset;
   }
 
-  /// Page heights scale with [_viewWidth] (see [_pageHeight]), so when the
-  /// viewport width changes - most visibly while a side panel's resize grip
-  /// is dragged - a fixed scroll offset maps to a different page and the
-  /// document appears to scroll under the reader. This pins the reading
-  /// position: capture the page (and fraction within it) at the viewport top
-  /// under the OLD geometry, then re-derive the scroll offset once the new
-  /// width has laid out. Called from build while [_viewWidth] still holds the
-  /// previous width.
-  void _preserveReadingAnchor() {
+  /// Page sizes scale with the viewport's cross axis (the on-screen scale is
+  /// [_fitScale] × [_layoutZoom], and [_fitScale] tracks [_crossView]; see
+  /// [_pageMain]). So when a side panel is resized - the viewer's width, a
+  /// vertical layout's cross axis, changes - both the reading position and the
+  /// zoom would move: a fixed scroll offset maps to a different page, and every
+  /// page visibly grows or shrinks. That reads as the document jumping under
+  /// the reader while the grip is dragged.
+  ///
+  /// This holds the view put across the resize, given the cross extent before
+  /// ([oldCross]) and after ([newCross]) the change. It counter-scales
+  /// [_layoutZoom] so the on-screen scale stays constant - capped at fit-width
+  /// (layout zoom 1), where the page already fills the viewport and growing
+  /// further would overflow the narrower width - and pins the reading anchor
+  /// (the page, and the fraction down it, at the viewport top), re-deriving the
+  /// scroll offset once the new width has laid out. When the viewer is zoomed
+  /// in past fit-width the [_transform] carries the zoom, so [_layoutZoom] is
+  /// left at 1 and only the anchor is preserved.
+  ///
+  /// Called from build while [_viewWidth]/[_viewHeight] still hold the previous
+  /// size: [_layoutZoom] is assigned directly (a plain field write is picked up
+  /// by this same build, like the initial-fit branch), and the scroll offset is
+  /// restored in a post-frame callback once the new extents exist.
+  void _preserveViewOnResize(double oldCross, double newCross) {
+    // Capture the reading anchor under the OLD geometry (before [_layoutZoom]
+    // and [_viewWidth] adopt the new width below).
     final top = _scroll.offset;
     var acc = 0.0;
     var anchorPage = _pages.length - 1;
@@ -2682,6 +2698,13 @@ class _PdfViewerState extends State<PdfViewer>
         break;
       }
       acc += extent;
+    }
+    // Hold the on-screen scale: [_fitScale] scales by newCross/oldCross, so
+    // scale [_layoutZoom] the other way. Only the at-/below-fit tier (transform
+    // ~ identity) is adjusted; past fit-width the transform carries the zoom.
+    if (newCross > 0 && _transform.value.getMaxScaleOnAxis() <= 1.01) {
+      _layoutZoom =
+          (_layoutZoom * oldCross / newCross).clamp(widget.minZoom, 1.0);
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scroll.hasClients || _viewWidth <= 0) return;
@@ -5165,18 +5188,19 @@ class _PdfViewerState extends State<PdfViewer>
         const Color(0xFF1E88E5);
     return LayoutBuilder(builder: (context, constraints) {
       // _viewWidth/_viewHeight still hold the previous layout's size here; a
-      // change to the cross (fit) dimension rescales every page, so pin the
-      // reading position before adopting it (skips the very first layout,
-      // where there is nothing to preserve).
+      // change to the cross (fit) dimension rescales every page, so hold the
+      // view put before adopting it (skips the very first layout, where there
+      // is nothing to preserve, and any pending restore, which wins).
       final newCross =
           _horizontal ? constraints.maxHeight : constraints.maxWidth;
       final oldCross = _horizontal ? _viewHeight : _viewWidth;
       if (_viewWidth > 0 &&
           _viewHeight > 0 &&
           newCross != oldCross &&
+          _pendingViewport == null &&
           _scroll.hasClients &&
           _pages.isNotEmpty) {
-        _preserveReadingAnchor();
+        _preserveViewOnResize(oldCross, newCross);
       }
       _viewWidth = constraints.maxWidth;
       _viewHeight = constraints.maxHeight;
