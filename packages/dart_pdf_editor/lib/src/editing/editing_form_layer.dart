@@ -158,7 +158,7 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   Rect? _afterRect;
   PdfStandardFont _afterFont = PdfStandardFont.helvetica;
   double _afterSize = 12;
-  PdfDocument? _afterDocument;
+  int? _afterRevisionId;
 
   @override
   void dispose() {
@@ -228,15 +228,15 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
     final font = _editFont;
     final size = _editSize;
     _closeEditor();
-    final before = _controller.document;
+    final before = _controller.revisionId;
     _controller.setFormFieldText(name, value);
-    if (identical(before, _controller.document)) return;
+    if (before == _controller.revisionId) return;
     setState(() {
       _afterValue = value;
       _afterRect = rect;
       _afterFont = font;
       _afterSize = size;
-      _afterDocument = _controller.document;
+      _afterRevisionId = _controller.revisionId;
     });
   }
 
@@ -346,12 +346,12 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
   Widget build(BuildContext context) {
     // the afterimage has served once the committed revision's raster is
     // on screen, or is stale once the document moved past it
-    if (_afterDocument != null &&
+    if (_afterRevisionId != null &&
         (widget.rasterCurrent ||
-            !identical(_afterDocument, _controller.document))) {
+            _afterRevisionId != _controller.revisionId)) {
       _afterValue = null;
       _afterRect = null;
-      _afterDocument = null;
+      _afterRevisionId = null;
     }
 
     final geometry = widget.geometry;

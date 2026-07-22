@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart' show PdfPageTextCache;
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
 import 'package:pdf_ocr_vlm/pdf_ocr_vlm.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -100,6 +101,11 @@ String pdfSavePathWithExtension(String path) {
 }
 
 void main() {
+  // Register the optional bundled editor fonts + web render worker so the
+  // example keeps the full-featured editor (font menu catalogue, composite-text
+  // fallbacks, off-main-thread web rendering). A viewer-only app would omit the
+  // dart_pdf_editor_assets dependency and this call.
+  registerBundledEditorAssets();
   // Diagnostics: turn on the in-app performance trace (interpret times,
   // render-hold/scheduler transitions, prerender warms, and frame JANK,
   // streamed to the browser console) without a rebuild by opening the demo

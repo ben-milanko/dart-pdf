@@ -11,6 +11,7 @@ class CountingDevice implements PdfDevice {
   final strokes = <PdfColor>[];
   final texts = <PdfTextRun>[];
   final blendModes = <PdfBlendMode>[];
+  final groupAlphas = <double>[];
   var alphas = <double>[];
 
   @override
@@ -47,7 +48,8 @@ class CountingDevice implements PdfDevice {
   @override
   void drawImage(PdfImageRequest request) {}
   @override
-  void beginGroup(double alpha, {bool knockout = false}) {}
+  void beginGroup(double alpha, {bool knockout = false}) =>
+      groupAlphas.add(alpha);
   @override
   void endGroup() {}
   @override
@@ -106,6 +108,42 @@ void main() {
     expect(
         device.fills.any((c) => c.red > 0.99 && c.green < 0.01), isTrue);
     expect(device.blendModes, contains(PdfBlendMode.multiply));
+  });
+
+  test('reduced-opacity ink strokes composite once through a group', () {
+    // The per-pressure segments overlap at their round caps; without the
+    // transparency group each would composite separately at 0.5 alpha and
+    // darken every join into a dot. The group makes them one object faded
+    // once - the interpreter opens exactly one group at the ink's opacity.
+    final device = render(annotated((e) => e.addInk(
+          0,
+          [
+            [(100, 100), (150, 130), (200, 100)],
+          ],
+          strokeWidth: 6,
+          opacity: 0.5,
+          pressures: [
+            [0.2, 0.6, 1.0],
+          ],
+        )));
+    expect(device.groupAlphas, [closeTo(0.5, 1e-9)]);
+    // the strokes still reach the device (inside the group, at full alpha)
+    expect(device.strokes, isNotEmpty);
+  });
+
+  test('full-opacity ink strokes render without a group', () {
+    final device = render(annotated((e) => e.addInk(
+          0,
+          [
+            [(100, 100), (150, 130), (200, 100)],
+          ],
+          strokeWidth: 6,
+          pressures: [
+            [0.2, 0.6, 1.0],
+          ],
+        )));
+    expect(device.groupAlphas, isEmpty);
+    expect(device.strokes, isNotEmpty);
   });
 
   test('drawAnnotations skip omits the matched annotation, keeps the rest', () {

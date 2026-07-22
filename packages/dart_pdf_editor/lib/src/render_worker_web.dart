@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 import 'dart:math' as math;
@@ -73,7 +74,10 @@ bool pdfRenderWorkerUseSharedArrayBuffer = true;
 PdfRenderWorker startRenderWorker(Uint8List bytes) {
   final url = pdfRenderWorkerScriptUrl;
   _wlog('startRenderWorker url=$url bytes=${bytes.length}');
-  if (url == null) return _WebRenderWorker.disabled();
+  if (url == null) {
+    _warnMainThreadRendering();
+    return _WebRenderWorker.disabled();
+  }
   try {
     return _WebRenderWorker(bytes, url);
   } catch (e) {
@@ -81,6 +85,38 @@ PdfRenderWorker startRenderWorker(Uint8List bytes) {
     _wlog('construction threw: $e - falling back to local');
     return _WebRenderWorker.disabled();
   }
+}
+
+/// Whether the one-time main-thread-rendering advisory has already fired.
+bool _warnedMainThreadRendering = false;
+
+/// Warns once, in debug builds only, that web page rendering is falling back to
+/// the main thread because no render-worker script is configured
+/// ([pdfRenderWorkerScriptUrl] is null) - the silent performance cliff an app
+/// hits after upgrading if it never opted into the worker asset. Points at the
+/// one-line fix.
+///
+/// The whole body runs inside an `assert`, so release and profile builds strip
+/// it and stay silent; it is emitted once per session to avoid spamming the
+/// console on every document open. A host that deliberately forces main-thread
+/// rendering can ignore it.
+void _warnMainThreadRendering() {
+  assert(() {
+    if (_warnedMainThreadRendering) return true;
+    _warnedMainThreadRendering = true;
+    developer.log(
+      'Web page rendering is running on the MAIN THREAD: no render-worker '
+      'script is configured (pdfRenderWorkerScriptUrl is null), so scrolling '
+      'and page decode will jank on large documents. For off-main-thread '
+      'rendering, depend on the dart_pdf_editor_assets package and call '
+      'registerBundledEditorAssets() once at startup, or set '
+      'pdfRenderWorkerScriptUrl to your own compiled worker URL. (Debug-only '
+      'notice, shown once; ignore it if main-thread rendering is intentional.)',
+      name: 'dart_pdf_editor.render_worker',
+      level: 900, // WARNING
+    );
+    return true;
+  }());
 }
 
 /// Pre-booted Web Workers waiting for their first `init`. The expensive part of

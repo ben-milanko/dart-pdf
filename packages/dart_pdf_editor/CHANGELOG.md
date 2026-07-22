@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+- **Breaking:** the six bundled editor fonts and the web render worker moved out
+  of this package into the optional
+  [`dart_pdf_editor_assets`](../dart_pdf_editor_assets) package, so viewer-only
+  apps no longer bundle their ~1.7 MB on every platform (#459). To keep the
+  historical full-featured behaviour, add that package and call
+  `registerBundledEditorAssets()` once at startup. Missing assets degrade
+  gracefully: the font menu drops its "bundled" group, composite-text fallback
+  is skipped, and web rendering falls back to the main thread.
+  `pdfBundledFonts` is now a mutable, empty-by-default registry (a
+  `PdfBundledFont` can also carry a `loadBytes` byte loader for
+  application-provided fonts), and `pdfRenderWorkerScriptUrl` defaults to null.
+- On web, if page rendering falls back to the main thread because no
+  render-worker script is configured, a one-time **debug-only** warning is now
+  logged pointing at `registerBundledEditorAssets()`, so an app that forgot to
+  opt into the worker asset notices the silent performance cliff. Release and
+  profile builds stay silent.
+
 ## 2.1.0
 
 - Add a reflow reading view: lazy scrolling over the extracted text, in-view

@@ -16,8 +16,8 @@ import 'reference_raster.dart';
 
 TrueTypeFont? _loadDejaVu() {
   for (final path in [
-    '../dart_pdf_editor/assets/fonts/DejaVuSans.ttf',
-    '../../packages/dart_pdf_editor/assets/fonts/DejaVuSans.ttf',
+    '../dart_pdf_editor_assets/assets/fonts/DejaVuSans.ttf',
+    '../../packages/dart_pdf_editor_assets/assets/fonts/DejaVuSans.ttf',
   ]) {
     final f = File(path);
     if (f.existsSync()) return TrueTypeFont.parse(f.readAsBytesSync());

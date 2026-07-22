@@ -24,6 +24,9 @@ dependencies:
 
   # The PDF engine and editing UI live in the workspace packages.
   dart_pdf_editor: ^2.1.0
+  # The optional editor fonts + web render worker; registered at startup so the
+  # app keeps the full-featured editor. A viewer-only app would omit this.
+  dart_pdf_editor_assets: ^2.1.0
   pdf_document: ^2.1.0
   pdf_cos: ^2.1.0
 

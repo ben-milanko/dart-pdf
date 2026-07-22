@@ -110,7 +110,7 @@ class _PdfAnnotationPropertiesPanelState
   /// selection are unchanged the user owns the field text; any revision or
   /// selection change re-syncs (including a secondary slot being toggled
   /// while the primary slot stays put).
-  PdfDocument? _syncedDocument;
+  int? _syncedRevisionId;
   List<(int, int)> _syncedSlots = const [];
   bool _contentsVaries = false;
   bool _authorVaries = false;
@@ -219,11 +219,11 @@ class _PdfAnnotationPropertiesPanelState
 
   void _syncFields(PdfAnnotation? annotation) {
     final slots = _controller.selectedAnnotationSlots;
-    if (identical(_syncedDocument, _controller.document) &&
+    if (_syncedRevisionId == _controller.revisionId &&
         listEquals(_syncedSlots, slots)) {
       return;
     }
-    _syncedDocument = _controller.document;
+    _syncedRevisionId = _controller.revisionId;
     _syncedSlots = List.of(slots);
     final selected = _selectedAnnotations;
     if (selected.isEmpty) {
@@ -289,7 +289,7 @@ class _PdfAnnotationPropertiesPanelState
       _controller.moveSelected(x - rect.left, y - rect.bottom);
     } else {
       // unparsable input - put the real values back
-      _syncedDocument = null;
+      _syncedRevisionId = null;
       setState(() {});
     }
   }

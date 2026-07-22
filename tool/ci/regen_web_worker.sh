@@ -2,7 +2,7 @@
 # CI: regenerate the bundled web render worker and keep it in git in sync with
 # the source, instead of failing the build when it drifts. See issue #411.
 #
-# `packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js` is a
+# `packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js` is a
 # `dart compile js` bundle that links most of the stack, so any change to
 # pdf_cos / pdf_document / pdf_graphics / dart_pdf_editor can make it stale. It
 # is a *declared Flutter asset* that ships inside the published pub.dev package
