@@ -598,7 +598,16 @@ class CosDocument {
       _decodedCache[key] = hit; // reinsert as most-recently-used
       return hit;
     }
+    final decoded = _decodeStreamUncached(stream, stopBeforeFilter);
+    _cacheDecoded(key, decoded);
+    return decoded;
+  }
 
+  /// The decrypt-then-filter-decode work behind [decodeStreamData], without the
+  /// cache. Used directly for object streams, whose decoded bytes are already
+  /// held (and reused) by [_objectStreams] - caching them again would only pin a
+  /// never-re-hit entry against the budget.
+  Uint8List _decodeStreamUncached(CosStream stream, String? stopBeforeFilter) {
     var source = stream;
     final handler = _encryption;
     if (handler != null) {
@@ -612,10 +621,8 @@ class CosDocument {
         PdfPerf.end(PdfPerfPhase.streamDecrypt, t0);
       }
     }
-    final decoded = decodeStream(source,
+    return decodeStream(source,
         resolve: _resolveRef, stopBeforeFilter: stopBeforeFilter);
-    _cacheDecoded(key, decoded);
-    return decoded;
   }
 
   /// Stores [decoded] under [key] when it is small enough to cache, evicting
@@ -643,7 +650,7 @@ class CosDocument {
           throw CosParseException(
               'object stream $streamObjectNumber is not a stream');
         }
-        final data = decodeStreamData(object);
+        final data = _decodeStreamUncached(object, null);
         final count = resolve(object.dictionary['N']);
         final first = resolve(object.dictionary['First']);
         if (count is! CosInteger || first is! CosInteger) {
