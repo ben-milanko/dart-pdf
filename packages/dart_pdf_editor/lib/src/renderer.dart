@@ -396,7 +396,7 @@ class PdfPageRenderer {
       {double pixelRatio = 1,
       Color pageColor = const Color(0xFFFFFFFF),
       bool annotations = true,
-      bool recorded = false,
+      bool recorded = true,
       int? rotation}) async {
     return renderImageWithPlan(
       page,
@@ -420,8 +420,11 @@ class PdfPageRenderer {
   static Future<ui.Image> renderImageWithPlan(PdfPage page,
       {required PdfPageRenderPlan plan,
       double pixelRatio = 1,
-      bool recorded = false}) async {
-    if (deviceMode == PdfRenderDeviceMode.strips && !recorded) {
+      bool recorded = true}) async {
+    // Strips is its own device axis (opt-in via [deviceMode], only the
+    // benchmark/parity harnesses set it) - independent of the recorded/two-walk
+    // choice, so it engages whenever selected regardless of [recorded].
+    if (deviceMode == PdfRenderDeviceMode.strips) {
       return _renderImageStrips(page, plan, pixelRatio);
     }
     final picture = recorded
@@ -641,7 +644,7 @@ class PdfPageColorSampler {
           rotation: rotation,
         );
     final picture =
-        await PdfPageRenderer.renderPictureWithPlan(page, renderPlan);
+        await PdfPageRenderer.renderPictureRecordedWithPlan(page, renderPlan);
     try {
       final image = await PdfPageRenderer.rasterize(
           picture, renderPlan.pageSize(page), 1);

@@ -690,6 +690,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   Offset? _dragStart;
   Offset? _dragCurrent;
   List<Offset>? _polyPoints;
+  // the raw (un-snapped) view position of the last placed vertex. Vertices in
+  // [_polyPoints] may be Shift-snapped away from where they were tapped, so
+  // the near-duplicate dedup (which rejects the second tap of a finishing
+  // double-tap) must measure against this raw point, not the snapped vertex.
+  Offset? _polyLastRaw;
   Offset? _polyHover;
   Offset? _polyDoubleTapPosition;
   // the form tool's double-tap fills the field under the down position
@@ -720,6 +725,34 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   final ValueNotifier<int> _activeStrokeRepaint = ValueNotifier<int>(0);
 
   void _bumpActiveStroke() => _activeStrokeRepaint.value++;
+
+  /// Extends the in-progress ink stroke to the view-space [localPosition].
+  /// Normally each sample appends, tracing the freehand path; while Shift is
+  /// held the stroke collapses to a single straight segment from where it
+  /// began to the pointer, rubber-banding as the pointer moves - so releasing
+  /// with Shift down commits a ruler-straight line. Shared by the raw-pointer
+  /// and gesture-arena draw paths.
+  void _extendActiveStroke(Offset localPosition) {
+    _penCursor = localPosition;
+    final page = _geometry.toPagePoint(localPosition);
+    final pressures = _activeStrokePressures;
+    final pressure = _pointerPressure ?? pressures?.last;
+    if (HardwareKeyboard.instance.isShiftPressed) {
+      _activeStroke!
+        ..length = 1 // keep the origin, drop the freehand tail
+        ..add(page);
+      if (pressures != null) {
+        final first = pressures.first;
+        pressures
+          ..length = 1
+          ..add(pressure ?? first);
+      }
+    } else {
+      _activeStroke!.add(page);
+      if (pressures != null) pressures.add(pressure ?? pressures.last);
+    }
+    _bumpActiveStroke();
+  }
 
   /// The latest normalized pressure of the pointer being tracked, or null
   /// for devices that don't report pressure (finger, mouse).
@@ -1117,6 +1150,24 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// distance/slope measurement).
   bool get _lineDragTool => _behavior?.isLineDrag ?? false;
 
+  /// Constrains [point] to the nearest 45° direction from [anchor] while
+  /// Shift is held, so the line / polyline / polygon tools lay down
+  /// axis-aligned or diagonal straight segments. The pointer's reach along
+  /// the chosen direction is preserved by projecting the delta onto it.
+  /// Returns [point] unchanged when Shift is up (or the delta is zero).
+  Offset _straightSnap(Offset anchor, Offset point) {
+    if (!HardwareKeyboard.instance.isShiftPressed) return point;
+    final delta = point - anchor;
+    if (delta == Offset.zero) return point;
+    const step = math.pi / 4; // 45° increments (8 directions)
+    final angle = (delta.direction / step).roundToDouble() * step;
+    final dir = Offset(math.cos(angle), math.sin(angle));
+    // project onto the snapped axis; the rounded angle is within 22.5° of the
+    // pointer, so the projection is always forward (non-negative)
+    final reach = delta.dx * dir.dx + delta.dy * dir.dy;
+    return anchor + dir * reach;
+  }
+
   /// The measurement kind the armed tool creates, or null for a
   /// non-measurement tool.
   PdfMeasurementKind? get _measureKind => _behavior?.measureKind;
@@ -1274,11 +1325,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _eraseAt(event.localPosition);
     } else if (_activeStroke != null) {
       // hot path: append + repaint the stroke layer only, no rebuild
-      _penCursor = event.localPosition;
-      _activeStroke!.add(_geometry.toPagePoint(event.localPosition));
-      _activeStrokePressures
-          ?.add(_pointerPressure ?? _activeStrokePressures!.last);
-      _bumpActiveStroke();
+      _extendActiveStroke(event.localPosition);
     }
   }
 
@@ -3195,11 +3242,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
     if (_activeStroke != null) {
       // hot path: append + repaint the stroke layer only, no rebuild
-      _penCursor = position;
-      _activeStroke!.add(_geometry.toPagePoint(position));
-      _activeStrokePressures
-          ?.add(_pointerPressure ?? _activeStrokePressures!.last);
-      _bumpActiveStroke();
+      _extendActiveStroke(position);
       return;
     }
     // region/selection drags (marquee, move, resize, vertex, shape/snapshot
@@ -3261,7 +3304,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       // over a sibling list item)
       _reportMovePreview();
     } else if (_dragStart != null) {
-      setState(() => _dragCurrent = position);
+      // holding Shift snaps a line/arrow/measure drag to a straight 45° axis
+      setState(() => _dragCurrent =
+          _lineDragTool ? _straightSnap(_dragStart!, position) : position);
     }
   }
 
@@ -3686,8 +3731,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     var reachedFixed = false;
     setState(() {
       final points = _polyPoints ?? <Offset>[];
-      if (points.isEmpty || (point - points.last).distance >= 2) {
-        _polyPoints = [...points, point];
+      // only the segment being drawn snaps: holding Shift straightens this
+      // new vertex against the previous one, leaving already-placed vertices
+      // exactly where they landed. Dedup against the raw tap so a snapped
+      // vertex doesn't make the finishing double-tap add a stray segment.
+      if (points.isEmpty) {
+        _polyPoints = [point];
+        _polyLastRaw = point;
+      } else if ((point - _polyLastRaw!).distance >= 2) {
+        _polyPoints = [...points, _straightSnap(points.last, point)];
+        _polyLastRaw = point;
       }
       _polyHover = null;
       final fixed = _fixedPolyCount;
@@ -3701,9 +3754,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final existing = _polyPoints;
     if (existing == null) return;
     final points = List<Offset>.of(existing);
-    if (finalPoint != null &&
-        (points.isEmpty || (finalPoint - points.last).distance >= 2)) {
-      points.add(finalPoint);
+    if (finalPoint != null) {
+      // the closing double-tap only adds a vertex if it moved off the last
+      // one (raw dedup); when it does, that final segment snaps like any other
+      if (points.isEmpty) {
+        points.add(finalPoint);
+      } else if (_polyLastRaw == null ||
+          (finalPoint - _polyLastRaw!).distance >= 2) {
+        points.add(_straightSnap(points.last, finalPoint));
+      }
     }
     final closed = _tool == PdfEditTool.polygon ||
         _tool == PdfEditTool.cloudPolygon ||
@@ -3711,6 +3770,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _tool == PdfEditTool.measureVolume;
     final minPoints = _fixedPolyCount ?? (closed ? 3 : 2);
     if (points.length < minPoints) return;
+    // vertices are already snapped per-segment as they were placed
     final simplified = <Offset>[];
     for (final point in points) {
       if (simplified.isEmpty || (point - simplified.last).distance >= 2) {
@@ -3727,6 +3787,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _clearAfterimage();
       setState(() {
         _polyPoints = null;
+        _polyLastRaw = null;
         _polyHover = null;
       });
       return;
@@ -3743,6 +3804,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _clearAfterimage();
     setState(() {
       _polyPoints = null;
+      _polyLastRaw = null;
       _polyHover = null;
     });
     final opacity = _controller.preferences.opacity.clamp(0.0, 1.0);
@@ -4220,7 +4282,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       cursor = SystemMouseCursors.precise;
     } else if (_polyTool || _tool == PdfEditTool.cloudPolygon) {
       // once a cloud vertex is down, the hover rubber-bands the next edge;
-      // before that the cloud tool still rubber-bands a rectangle on drag
+      // before that the cloud tool still rubber-bands a rectangle on drag.
+      // the raw hover is stored; Shift-snapping is applied in the preview
+      // builder (see [_straightChain]) so the rubber band tracks the snap
       if (_polyPoints != null && event.localPosition != _polyHover) {
         setState(() => _polyHover = event.localPosition);
       }
@@ -4607,8 +4671,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         if (points == null || points.isEmpty) return null;
         final view = [
           ...points,
+          // the live edge to the hover snaps with Shift like the drawn one
           if (_polyHover != null && (_polyHover! - points.last).distance >= 2)
-            _polyHover!,
+            _straightSnap(points.last, _polyHover!),
         ];
         final pagePoints = [for (final p in view) _geometry.toPagePoint(p)];
         // volume's depth isn't known until placement finishes, so the live
@@ -4810,6 +4875,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         !_polyTool &&
         _tool != PdfEditTool.cloudPolygon) {
       _polyPoints = null;
+      _polyLastRaw = null;
       _polyHover = null;
     }
     // re-derive the editor's view rect through the LIVE geometry: a zoom
@@ -4947,13 +5013,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // warm the eyedropper's raster so the first preview is instant-ish
     if (_controller.isPickingColor) unawaited(_ensureSampler());
     final preview = _controller.isPickingColor ? _pickPosition : null;
+    // placed vertices are already snapped; only the live rubber-band edge to
+    // the hover point snaps here (and only while Shift is held)
     final polyPreview = _polyPoints == null
         ? null
         : [
             ..._polyPoints!,
             if (_polyHover != null &&
                 (_polyHover! - _polyPoints!.last).distance >= 2)
-              _polyHover!,
+              _straightSnap(_polyPoints!.last, _polyHover!),
           ];
     final vertexHandles = _vertexPoints ?? _selectedVertexPoints;
     final vertexPreview =
