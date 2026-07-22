@@ -35,9 +35,11 @@ Three bundles (`packages/dart_pdf_editor`, `app`, `.../example`):
    the arb-dir, runs `gen-l10n` (so the delegate + `supportedLocales` come back
    sized to the kept set), restores the ARBs (source of truth never lost), then
    deletes the now-orphaned generated `*_localizations_<loc>.dart` (gen-l10n
-   regenerates the delegate but never deletes stale outputs). A `RETURN` trap
-   guarantees the ARBs are put back even on failure. `--restore` just re-runs
-   gen-l10n across all three bundles; `--list` shows bundled locales.
+   regenerates the delegate but never deletes stale outputs). It restores the
+   stashed ARBs unconditionally after regenerating - even if gen-l10n fails
+   (`( … ) || rc=$?` keeps `set -e` from exiting before the restore) - so the
+   source tree never loses a language. `--restore` just re-runs gen-l10n across
+   all three bundles; `--list` shows bundled locales.
 
 3. **`doc/i18n.md`** — how lookups/fallback/delegates work, adding
    strings/languages, the two `dart analyze --fatal-infos` traps

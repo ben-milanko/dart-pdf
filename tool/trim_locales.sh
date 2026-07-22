@@ -48,7 +48,9 @@ BUNDLES=(
 
 readonly TEMPLATE_LOCALE="en"
 
-usage() { sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; }
+# Print the leading comment block (everything after the shebang up to the
+# first non-comment line), with the '# ' prefix stripped.
+usage() { awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$0"; }
 
 # Locale embedded in a "<prefix>_<locale>.<ext>" basename.
 locale_of() { # <basename> <prefix>
@@ -88,9 +90,6 @@ trim() { # <keep-locale>...
     local arbdir="$ROOT/$dir/lib/l10n"
     local stash removed=()
     stash="$(mktemp -d)"
-    # A trap per bundle guarantees the ARBs come back even on failure.
-    # shellcheck disable=SC2064
-    trap "mv \"$stash\"/*.arb \"$arbdir\"/ 2>/dev/null || true; rmdir \"$stash\" 2>/dev/null || true" RETURN
 
     # Move locales we are NOT keeping out of the arb-dir so gen-l10n omits them.
     for f in "$arbdir/${arb_prefix}"_*.arb; do
@@ -102,12 +101,17 @@ trim() { # <keep-locale>...
       esac
     done
 
-    ( cd "$ROOT/$dir" && $FLUTTER gen-l10n >/dev/null )
-
-    # Restore the ARBs (source of truth stays intact) ...
+    # Regenerate for the kept subset, then ALWAYS restore the stashed ARBs -
+    # even if gen-l10n fails - so the source tree is never left short a
+    # language. ( ... ) || rc=$? keeps `set -e` from exiting before we restore.
+    local rc=0
+    ( cd "$ROOT/$dir" && $FLUTTER gen-l10n >/dev/null ) || rc=$?
     mv "$stash"/*.arb "$arbdir"/ 2>/dev/null || true
     rmdir "$stash" 2>/dev/null || true
-    trap - RETURN
+    if [ "$rc" -ne 0 ]; then
+      echo "gen-l10n failed in $dir (rc=$rc); ARBs restored, aborting." >&2
+      exit "$rc"
+    fi
 
     # ... then drop the now-orphaned generated locale classes gen-l10n left
     # behind (it regenerates the delegate but never deletes stale outputs).
