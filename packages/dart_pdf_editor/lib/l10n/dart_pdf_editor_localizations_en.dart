@@ -309,6 +309,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get menuRemoveNode => 'Remove node';
 
   @override
+  String get menuSetAsDefaultStyle => 'Set as default style';
+
+  @override
   String get menuRename => 'Rename…';
 
   @override
