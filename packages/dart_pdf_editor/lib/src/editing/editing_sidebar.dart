@@ -175,21 +175,21 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
   }
 
   /// A finer title for form fields, from the inherited /FT.
-  static String _fieldLabel(String? fieldType) => switch (fieldType) {
-        'Tx' => 'Text field',
-        'Btn' => 'Button field',
-        'Ch' => 'Choice field',
-        'Sig' => 'Signature field',
-        _ => 'Form field',
+  String _fieldLabel(String? fieldType) => switch (fieldType) {
+        'Tx' => pdfL10n(context).sbarFieldText,
+        'Btn' => pdfL10n(context).sbarFieldButton,
+        'Ch' => pdfL10n(context).sbarFieldChoice,
+        'Sig' => pdfL10n(context).sbarFieldSignature,
+        _ => pdfL10n(context).sbarFieldGeneric,
       };
 
   /// Where an action leads, for a link tile's subtitle.
-  static String? _actionLabel(PdfAction? action) => switch (action) {
+  String? _actionLabel(PdfAction? action) => switch (action) {
         PdfUriAction(:final uri) => uri,
         PdfGoToAction(:final destination) =>
-          'Page ${destination.pageIndex + 1}',
+          pdfL10n(context).sbarActionPage(destination.pageIndex + 1),
         PdfNamedAction(:final name) => name,
-        PdfJavaScriptAction() => 'JavaScript',
+        PdfJavaScriptAction() => pdfL10n(context).sbarActionJavaScript,
         PdfUnknownAction(:final type) => type.isEmpty ? null : type,
         null => null,
       };
@@ -241,8 +241,8 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
   String _title(PdfAnnotation annotation) => annotation is PdfWidgetAnnotation
       ? _fieldLabel(annotation.fieldType)
       : annotation.isCallout
-          ? 'Callout'
-          : pdfAnnotationLabel(annotation.subtype);
+          ? pdfL10n(context).sbarCallout
+          : pdfAnnotationLabel(context, annotation.subtype);
 
   bool _matches(String query, int pageIndex, PdfAnnotation annotation) {
     if (query.isEmpty) return true;
@@ -526,16 +526,18 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
 
   /// The label and accent color for a review state chip, or null when the
   /// state is `None` (an open/unresolved thread shows no chip).
-  static (String, Color)? _stateChip(PdfReviewState state, ColorScheme cs) =>
-      switch (state) {
-        PdfReviewState.completed => ('Resolved', Colors.green),
-        PdfReviewState.accepted => ('Accepted', Colors.green),
-        PdfReviewState.rejected => ('Rejected', Colors.red),
-        PdfReviewState.cancelled => ('Cancelled', Colors.orange),
-        PdfReviewState.marked => ('Marked', Colors.blue),
-        PdfReviewState.unmarked => ('Unmarked', cs.outline),
-        PdfReviewState.none => null,
-      };
+  (String, Color)? _stateChip(PdfReviewState state, ColorScheme cs) {
+    final l = pdfL10n(context);
+    return switch (state) {
+      PdfReviewState.completed => (l.sbarStateResolved, Colors.green),
+      PdfReviewState.accepted => (l.sbarStateAccepted, Colors.green),
+      PdfReviewState.rejected => (l.sbarStateRejected, Colors.red),
+      PdfReviewState.cancelled => (l.sbarStateCancelled, Colors.orange),
+      PdfReviewState.marked => (l.sbarStateMarked, Colors.blue),
+      PdfReviewState.unmarked => (l.sbarStateUnmarked, cs.outline),
+      PdfReviewState.none => null,
+    };
+  }
 
   /// Each comment in [root]'s reply tree with its depth (root = 0), in
   /// document/pre-order.

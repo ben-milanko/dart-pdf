@@ -413,7 +413,7 @@ class _PanelTab extends StatelessWidget {
               size: 16,
               color: selected ? scheme.primary : scheme.onSurfaceVariant),
           const SizedBox(width: 6),
-          Text(panel.label,
+          Text(panel.label(context),
               style: TextStyle(
                 color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
                 fontWeight: selected ? FontWeight.w600 : FontWeight.w400,

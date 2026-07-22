@@ -599,7 +599,7 @@ class _PdfAnnotationPropertiesPanelState
                 DropdownMenuItem(
                     value: style,
                     key: ValueKey('pdf-prop-line-type-${style.name}'),
-                    child: Text(style.label)),
+                    child: Text(pdfLineStyleLabel(context, style))),
             ],
             onChanged: (style) {
               if (style != null) _controller.restyleSelected(lineStyle: style);
@@ -909,7 +909,7 @@ class _PdfAnnotationPropertiesPanelState
             : pdfAnnotationIcon(annotation.subtype)),
         title: Text(annotation.isCallout
             ? pdfL10n(context).propCallout
-            : pdfAnnotationLabel(annotation.subtype)),
+            : pdfAnnotationLabel(context, annotation.subtype)),
         subtitle: Text(pdfL10n(context).propPageNumber(slot.$1 + 1)),
       ),
       ..._styleControls(),
@@ -983,7 +983,7 @@ class _PdfAnnotationPropertiesPanelState
       for (final annotation in annotations)
         annotation.isCallout
             ? pdfL10n(context).propCallout
-            : pdfAnnotationLabel(annotation.subtype),
+            : pdfAnnotationLabel(context, annotation.subtype),
     ]);
     final page = _common<int>([
       for (final (page, _) in _controller.selectedAnnotationSlots) page + 1,
