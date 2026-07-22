@@ -5741,6 +5741,9 @@ class _AnnotationAppearanceLayerState
 
   /// The appearance-cache key for [annotation]: its appearance stream identity
   /// paired with the /Rect the picture is positioned into.
+  ///
+  /// Callers guarantee `normalAppearance != null` (every code path filters the
+  /// page's annotations on it before keying), so the unwrap is safe.
   static (Object, PdfRect) _appearanceKey(PdfAnnotation annotation) =>
       (annotation.normalAppearance!, annotation.rect);
 
