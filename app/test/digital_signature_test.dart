@@ -120,6 +120,54 @@ void main() {
     expect(result!.location, 'Melbourne');
   });
 
+  testWidgets('a key/cert mismatch shows a localized error, not a raw exception',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => FilledButton(
+            onPressed: () => showDigitalSigningDialog(
+              context,
+              // A valid key paired with a certificate for a different key -
+              // fromFiles throws PdfSignatureIdentityException(keyCertificateMismatch),
+              // which the app maps to a localized message at the display site.
+              privateKeyPicker: () async => XFile.fromData(
+                Uint8List.fromList(testSignerKeyPem.codeUnits),
+                name: 'signer-key.pem',
+              ),
+              certificatePicker: () async => [
+                XFile.fromData(
+                  Uint8List.fromList(testChainSignerCertPem.codeUnits),
+                  name: 'other-cert.pem',
+                ),
+              ],
+            ),
+            child: const Text('Open'),
+          ),
+        ),
+      ),
+    ));
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('digital-signature-advanced')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('digital-signature-private-key')));
+    await tester.tap(find.byKey(const ValueKey('digital-signature-private-key')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('digital-signature-certificates')));
+    await tester.tap(find.byKey(const ValueKey('digital-signature-certificates')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('digital-signature-error')), findsOneWidget);
+    expect(
+      find.text('The private key does not match any selected RSA certificate.'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('one-tap: create a self-signed identity and sign with it',
       (tester) async {
     DigitalSignatureOptions? result;

@@ -28,6 +28,16 @@ class _FakeFileSelector extends fs.FileSelectorPlatform {
     this.acceptedTypeGroups = acceptedTypeGroups;
     return files;
   }
+
+  @override
+  Future<fs.XFile?> openFile({
+    List<fs.XTypeGroup>? acceptedTypeGroups,
+    String? initialDirectory,
+    String? confirmButtonText,
+  }) async {
+    this.acceptedTypeGroups = acceptedTypeGroups;
+    return files.isEmpty ? null : files.first;
+  }
 }
 
 void main() {
@@ -97,6 +107,48 @@ void main() {
     expect(fake.acceptedTypeGroups!.single.label, 'PDF documents');
     expect(fake.acceptedTypeGroups!.single.extensions, ['pdf']);
     expect(files.map((f) => f.path), [a, b]);
+  });
+
+  testWidgets('single-file pickers pass their localized filter label through',
+      (tester) async {
+    final original = fs.FileSelectorPlatform.instance;
+    final fake = _FakeFileSelector(
+        [fs.XFile.fromData(Uint8List.fromList([1, 2, 3]), name: 'x')]);
+    fs.FileSelectorPlatform.instance = fake;
+    addTearDown(() => fs.FileSelectorPlatform.instance = original);
+
+    await pickPdfBytes('PDF documents');
+    expect(fake.acceptedTypeGroups!.single.label, 'PDF documents');
+    expect(fake.acceptedTypeGroups!.single.extensions, ['pdf']);
+
+    await pickImageBytes('Images');
+    expect(fake.acceptedTypeGroups!.single.label, 'Images');
+    expect(fake.acceptedTypeGroups!.single.extensions,
+        containsAll(['png', 'jpg', 'jpeg']));
+  });
+
+  testWidgets('importCustomStamps filters on the stamp-bundle label',
+      (tester) async {
+    final stamp = PdfCustomStamp(
+      text: 'PAID',
+      color: 0xC03030,
+      template: PdfStampTemplate.text('PAID', 0xC03030),
+      type: 'Approval',
+    );
+    final original = fs.FileSelectorPlatform.instance;
+    final fake = _FakeFileSelector([
+      fs.XFile.fromData(
+        Uint8List.fromList(utf8.encode(encodeCustomStampBundle([stamp]))),
+        name: 'stamps.json',
+      ),
+    ]);
+    fs.FileSelectorPlatform.instance = fake;
+    addTearDown(() => fs.FileSelectorPlatform.instance = original);
+
+    final stamps = await importCustomStamps('DartPDF stamps');
+    expect(stamps, [stamp]);
+    expect(fake.acceptedTypeGroups!.single.label, 'DartPDF stamps');
+    expect(fake.acceptedTypeGroups!.single.extensions, ['json']);
   });
 
   test('saveBytesToPath overwrites the file in place', () async {
