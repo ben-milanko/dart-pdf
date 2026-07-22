@@ -41,36 +41,6 @@ typedef PdfEditingToolbarWidgetBuilder = Widget Function(
   PdfViewerController viewerController,
 );
 
-/// A tool *type* - one dock group in [PdfEditingToolbar]. Pass a subset
-/// to [PdfEditingToolbar.groups] (or [PdfEditorFeatures.toolGroups]) to
-/// hide whole groups: e.g. `{PdfEditToolGroup.select,
-/// PdfEditToolGroup.markup}` shows only the Select and Markup groups.
-///
-/// This is the coarse axis. The finer [PdfEditingToolbar.tools] hides
-/// individual tools *within* the groups that survive this filter.
-enum PdfEditToolGroup {
-  /// Select / move / resize existing annotations.
-  select,
-
-  /// Text-markup actions (highlight, underline, strike out, squiggly).
-  markup,
-
-  /// Freehand drawing, freehand highlight, and the ink eraser.
-  draw,
-
-  /// Rectangle, ellipse, line, arrow, polyline, polygon.
-  shapes,
-
-  /// Text box, note, stamp, image, signature.
-  insert,
-
-  /// Distance, perimeter and area measurement.
-  measure,
-
-  /// Page content, form fields and redaction.
-  edit,
-}
-
 /// A ready-made toolbar for [PdfEditingController].
 ///
 /// The bar is organised as a **dock** of tool *groups* - Select, Markup,

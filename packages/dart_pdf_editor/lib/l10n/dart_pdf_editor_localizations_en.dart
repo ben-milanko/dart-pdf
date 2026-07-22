@@ -759,6 +759,35 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get shellKeyboardShortcutsTitle => 'Keyboard shortcuts';
 
   @override
+  String get shellShortcutsSearchHint => 'Search shortcuts';
+
+  @override
+  String shellShortcutsNoMatches(String query) {
+    return 'No shortcuts match “$query”';
+  }
+
+  @override
+  String get shellShortcutGroupSelect => 'Select';
+
+  @override
+  String get shellShortcutGroupMarkup => 'Markup';
+
+  @override
+  String get shellShortcutGroupDraw => 'Draw';
+
+  @override
+  String get shellShortcutGroupShapes => 'Shapes';
+
+  @override
+  String get shellShortcutGroupInsert => 'Insert';
+
+  @override
+  String get shellShortcutGroupMeasure => 'Measure';
+
+  @override
+  String get shellShortcutGroupEdit => 'Edit';
+
+  @override
   String get shellNotSet => 'Not set';
 
   @override
