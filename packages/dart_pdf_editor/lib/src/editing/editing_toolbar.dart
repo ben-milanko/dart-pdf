@@ -402,6 +402,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           PdfEditTool.content, Icons.format_shapes, 'Edit page content'),
       _GroupTool.tool(PdfEditTool.form, Icons.ballot_outlined,
           'Form fields - tap to select, double-tap to fill, drag to add'),
+      _GroupTool.tool(PdfEditTool.link, Icons.link,
+          'Link - drag a region (or select text) to add a hyperlink'),
       _GroupTool.tool(PdfEditTool.redact, Icons.gradient,
           'Redact - drag a region, then apply'),
       _GroupTool.tool(PdfEditTool.snapshot, Icons.crop,

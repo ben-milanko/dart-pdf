@@ -20,6 +20,7 @@ import 'editing/editing_controller.dart';
 import 'editing/editing_fonts.dart';
 import 'editing/editing_form_layer.dart';
 import 'editing/editing_interaction.dart';
+import 'editing/editing_link.dart';
 import 'editing/editing_menu.dart';
 import 'editing/editing_overlay.dart';
 import 'editing/text_prompt.dart';
@@ -3499,6 +3500,12 @@ class _PdfViewerState extends State<PdfViewer>
             child: _textMenuRow(
                 Icons.gesture, pdfL10n(context).viewerMarkupSquiggly, true),
           ),
+          PopupMenuItem<_TextMenuAction>(
+            key: const ValueKey('pdf-text-menu-link'),
+            value: _TextMenuAction.addLink,
+            child: _textMenuRow(
+                Icons.link, pdfL10n(context).textSelectionAddLink, true),
+          ),
         ],
         if (canEdit || canMarkup) const PopupMenuDivider(),
         PopupMenuItem<_TextMenuAction>(
@@ -3527,6 +3534,8 @@ class _PdfViewerState extends State<PdfViewer>
         _markupTextSelection(PdfMarkupKind.strikeOut);
       case _TextMenuAction.squiggly:
         _markupTextSelection(PdfMarkupKind.squiggly);
+      case _TextMenuAction.addLink:
+        await _addLinkToTextSelection();
       case _TextMenuAction.copy:
         await _controller.copySelection();
       case _TextMenuAction.selectAll:
@@ -3613,6 +3622,30 @@ class _PdfViewerState extends State<PdfViewer>
     };
     editing.useMarkupStyleScope();
     editing.addMarkup(kind, quadsByPage);
+    _clearSelection();
+  }
+
+  /// Turns the current text selection into a hyperlink: collects its quads
+  /// per page, asks for the target (an external URL or an in-document page),
+  /// and creates one /Link annotation per page over the selected glyphs.
+  Future<void> _addLinkToTextSelection() async {
+    final editing = widget.editing;
+    if (editing == null || _selRange == null) return;
+    final quadsByPage = {
+      for (final page in _controller.selectionPages)
+        page: _selectionRectsOn(page),
+    };
+    if (quadsByPage.values.every((quads) => quads.isEmpty)) return;
+    final firstPage = _controller.selectionPages.isEmpty
+        ? 0
+        : _controller.selectionPages.first;
+    final target = await showPdfAddLinkDialog(
+      context,
+      pageCount: editing.document.pageCount,
+      currentPage: firstPage,
+    );
+    if (target == null) return;
+    editing.addLinkToSelection(quadsByPage, target);
     _clearSelection();
   }
 
@@ -4428,6 +4461,9 @@ class _PdfViewerState extends State<PdfViewer>
           : null,
       onMarkup: widget.editing != null && widget.textSelectionMarkup
           ? _markupTextSelection
+          : null,
+      onAddLink: widget.editing != null && widget.textSelectionMarkup
+          ? _addLinkToTextSelection
           : null,
     );
   }
@@ -6596,6 +6632,7 @@ enum _TextMenuAction {
   underline,
   strikeOut,
   squiggly,
+  addLink,
   copy,
   selectAll,
 }
@@ -6772,6 +6809,7 @@ class _PageTextSelection {
     required this.onSelectAll,
     required this.onEdit,
     required this.onMarkup,
+    required this.onAddLink,
   });
 
   /// The selection's first rect on this page (PDF coordinates) when the
@@ -6799,6 +6837,10 @@ class _PageTextSelection {
   final VoidCallback onSelectAll;
   final Future<void> Function()? onEdit;
   final void Function(PdfMarkupKind kind)? onMarkup;
+
+  /// Turns the current selection into a hyperlink (opens the Add-link
+  /// dialog), or null when link authoring isn't available.
+  final Future<void> Function()? onAddLink;
 }
 
 /// The touch selection chrome on one page: iOS-style lollipop handles
@@ -6931,6 +6973,15 @@ class _TextSelectionChrome extends StatelessWidget {
                       ),
                     ),
                   ],
+                ),
+              ],
+              if (selection.onAddLink != null) ...[
+                const SizedBox(height: 24, child: VerticalDivider(width: 1)),
+                IconButton(
+                  key: const ValueKey('pdf-text-selection-chip-link'),
+                  tooltip: pdfL10n(context).textSelectionAddLink,
+                  icon: const Icon(Icons.link, size: 20),
+                  onPressed: selection.onAddLink,
                 ),
               ],
               const SizedBox(height: 24, child: VerticalDivider(width: 1)),

@@ -701,6 +701,48 @@ abstract class DartPdfEditorLocalizations {
   /// **'Stamp text'**
   String get overlayStampText;
 
+  /// Title of the dialog that collects a hyperlink's target when adding a link annotation.
+  ///
+  /// In en, this message translates to:
+  /// **'Add link'**
+  String get linkDialogTitle;
+
+  /// Label of the choice for an external (URL) hyperlink target in the Add-link dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Web address'**
+  String get linkKindWeb;
+
+  /// Label of the choice for an internal (jump to a page) hyperlink target in the Add-link dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Page in document'**
+  String get linkKindPage;
+
+  /// Text field label for the web address of an external hyperlink in the Add-link dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'URL'**
+  String get linkUrlLabel;
+
+  /// Text field label for the target page number of an internal hyperlink in the Add-link dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Page number'**
+  String get linkPageLabel;
+
+  /// Label and tooltip for the link tool in the editing toolbar.
+  ///
+  /// In en, this message translates to:
+  /// **'Link'**
+  String get toolLink;
+
+  /// Menu action that turns the current text selection into a hyperlink.
+  ///
+  /// In en, this message translates to:
+  /// **'Add link'**
+  String get textSelectionAddLink;
+
   /// Tooltip on the inline text-style chip button that toggles underline.
   ///
   /// In en, this message translates to:

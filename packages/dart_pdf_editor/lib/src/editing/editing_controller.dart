@@ -219,10 +219,50 @@ enum PdfEditTool {
   /// (via [PdfEditingController.addKeylessSignature] et al. with a
   /// [PdfSignatureAppearance]). With no handler the tool does nothing.
   signatureBox,
+
+  /// Drag out a rectangle (or use the current text selection) to add a
+  /// hyperlink. On release the Add-link dialog collects the target - an
+  /// external URL or a page in this same document - and a /Link annotation
+  /// is created over the region ([PdfEditingController.addLink]).
+  link,
 }
 
 /// Text-markup kinds for [PdfEditingController.addMarkup].
 enum PdfMarkupKind { highlight, underline, strikeOut, squiggly }
+
+/// Where a hyperlink created by the link tool points: either an external
+/// [PdfLinkTarget.uri] (a web address, `mailto:`, or app scheme) or an
+/// in-document jump to a [PdfLinkTarget.page] (a whole-page fit) or a more
+/// specific [PdfLinkTarget.destination] (a position, zoom, or rectangle).
+///
+/// Consumed by [PdfEditingController.addLink] and
+/// [PdfEditingController.addLinkToSelection]; produced by the Add-link dialog
+/// ([showPdfAddLinkDialog]).
+class PdfLinkTarget {
+  const PdfLinkTarget._(this.uri, this.page, this.destination);
+
+  /// An external link to [uri].
+  const PdfLinkTarget.uri(String uri) : this._(uri, null, null);
+
+  /// An internal link to the top of [page] (zero-based), fit to the window.
+  const PdfLinkTarget.page(int page) : this._(null, page, null);
+
+  /// An internal link to an explicit [destination] (a specific view).
+  const PdfLinkTarget.destination(PdfExplicitDestination destination)
+      : this._(null, null, destination);
+
+  /// The external URI, or null for an internal link.
+  final String? uri;
+
+  /// The zero-based target page for a whole-page internal link, or null.
+  final int? page;
+
+  /// The explicit destination for a precise internal link, or null.
+  final PdfExplicitDestination? destination;
+
+  /// Whether this points outside the document (a [uri]).
+  bool get isExternal => uri != null;
+}
 
 /// Host veto over which annotations the editing UI may change - see
 /// [PdfEditingController.canEditAnnotation].
@@ -1983,6 +2023,100 @@ class PdfEditingController extends ChangeNotifier {
           }
         });
       },
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // links
+
+  /// Adds a hyperlink over [quads] on [pageIndex] pointing at [target] - an
+  /// external URI or an in-document jump (see [PdfLinkTarget]). [quads] is
+  /// one rectangle per line of a text run, or a single box.
+  ///
+  /// By default a link over a dragged box is drawn with a visible border so
+  /// it can be seen, while a link over selected text is drawn with a subtle
+  /// underline; override with [borderColor] / [underlineColor] (pass a
+  /// negative value to suppress that decoration and leave the region
+  /// invisible, the Acrobat convention for linking existing text).
+  void addLink(
+    int pageIndex,
+    List<PdfRect> quads,
+    PdfLinkTarget target, {
+    int? borderColor,
+    int? underlineColor,
+  }) {
+    if (quads.isEmpty) return;
+    apply((e) => _emitLink(
+          e,
+          pageIndex,
+          quads,
+          target,
+          borderColor: borderColor,
+          underlineColor: underlineColor,
+        ));
+  }
+
+  /// Adds one hyperlink per page in [quadsByPage] pointing at [target],
+  /// e.g. from a multi-page text selection. Mirrors [addMarkup]; links over
+  /// selected text default to an underline decoration.
+  void addLinkToSelection(
+    Map<int, List<PdfRect>> quadsByPage,
+    PdfLinkTarget target, {
+    int? underlineColor,
+    int? borderColor,
+  }) {
+    if (quadsByPage.values.every((quads) => quads.isEmpty)) return;
+    apply((editor) {
+      quadsByPage.forEach((page, quads) {
+        if (quads.isEmpty) return;
+        _emitLink(
+          editor,
+          page,
+          quads,
+          target,
+          underlineColor:
+              underlineColor ?? PdfAnnotationEditing.defaultLinkColor,
+          borderColor: borderColor,
+        );
+      });
+    });
+  }
+
+  /// Emits one link annotation for [target] over [quads]. When neither
+  /// decoration is specified a border is drawn (so a bare box link is
+  /// visible); a negative colour clears that decoration.
+  void _emitLink(
+    PdfEditor editor,
+    int pageIndex,
+    List<PdfRect> quads,
+    PdfLinkTarget target, {
+    int? borderColor,
+    int? underlineColor,
+  }) {
+    final resolvedBorder = borderColor == null && underlineColor == null
+        ? PdfAnnotationEditing.defaultLinkColor
+        : (borderColor != null && borderColor >= 0 ? borderColor : null);
+    final resolvedUnderline =
+        underlineColor != null && underlineColor >= 0 ? underlineColor : null;
+    final uri = target.uri;
+    if (uri != null) {
+      editor.addLinkToUri(
+        pageIndex,
+        quads,
+        uri: uri,
+        borderColor: resolvedBorder,
+        underlineColor: resolvedUnderline,
+      );
+      return;
+    }
+    final destination = target.destination ??
+        PdfExplicitDestination.fit(target.page ?? pageIndex);
+    editor.addLinkToDestination(
+      pageIndex,
+      quads,
+      destination: destination,
+      borderColor: resolvedBorder,
+      underlineColor: resolvedUnderline,
     );
   }
 
