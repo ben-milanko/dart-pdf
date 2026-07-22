@@ -138,6 +138,24 @@ void main() {
         closeTo(0.5, 1e-9));
   });
 
+  test('an image stamp on a rotated page counter-rotates its appearance', () {
+    // pageRotation != 0 wraps the image draw in a save + counter-rotation so
+    // the picture reads upright on a /Rotate 90 page.
+    final image = PdfEmbeddableImage.decode(_png);
+    final doc = roundTrip((e) => e.addImageStamp(
+        0, const PdfRect(100, 500, 220, 620), image,
+        opacity: 0.5, pageRotation: 90));
+    final stamp = doc.page(0).annotations.single;
+    expect(stamp.subtype, 'Stamp');
+    expect(stamp.isImageStamp, isTrue);
+    expect(stamp.appearanceOpacity, closeTo(0.5, 1e-9));
+    final content =
+        latin1.decode(doc.cos.decodeStreamData(stamp.normalAppearance!));
+    // the image is still drawn, now under a counter-rotation matrix
+    expect(content, contains('/Img0 Do'));
+    expect(content, contains(' cm'));
+  });
+
   test('an image stamp resizes by stretching its appearance', () {
     final image = PdfEmbeddableImage.decode(_png);
     final doc = PdfDocument.open(buildClassicPdf());
