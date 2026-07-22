@@ -1574,6 +1574,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// then the restyle settings that apply (colour, opacity, the tune
   /// popup carries stroke/font/etc).
   Widget _selectionStrip(BuildContext context) {
+    if (controller.isCroppingImage) return _cropStrip(context);
     final canRestyle = controller.canRestyleSelected;
     final selectedFieldName = controller.selectedWidgetFieldName;
     final settings = <Widget>[
@@ -1602,6 +1603,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                   tooltip: pdfL10n(context).tbDeleteAnnotations(
                       controller.selectedAnnotationSlots.length),
                   onPressed: controller.deleteSelected,
+                ),
+              if (controller.canCropSelected)
+                IconButton(
+                  key: const ValueKey('pdf-crop-image'),
+                  icon: const Icon(Icons.crop),
+                  tooltip: pdfL10n(context).tbCropImage,
+                  onPressed: controller.beginImageCrop,
                 ),
               if (controller.canEditSelectedText)
                 IconButton(
@@ -1632,6 +1640,57 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
               child: Row(mainAxisSize: MainAxisSize.min, children: settings),
             ),
           ],
+        ],
+      ),
+    );
+    return _centeredCard(context, padding: EdgeInsets.zero, child: row);
+  }
+
+  /// The toolbar shown while the interactive image-crop tool is armed: a
+  /// label, a reset-crop action, then cancel/apply. The on-page crop overlay
+  /// carries its own confirm/cancel chips; these mirror them for keyboard and
+  /// pointer users who reach for the toolbar.
+  Widget _cropStrip(BuildContext context) {
+    final l10n = pdfL10n(context);
+    final hasCrop = controller.selectedAnnotation?.imageStampCrop != null;
+    final row = IntrinsicHeight(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 7, 4, 7),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              _StripLabel(l10n.tbCroppingImage),
+              if (hasCrop)
+                IconButton(
+                  key: const ValueKey('pdf-crop-reset'),
+                  icon: const Icon(Icons.restart_alt),
+                  tooltip: l10n.tbCropReset,
+                  onPressed: () {
+                    controller.cancelImageCrop();
+                    controller.resetSelectedImageCrop();
+                  },
+                ),
+            ]),
+          ),
+          const _StripDivider(),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              IconButton(
+                key: const ValueKey('pdf-crop-cancel-toolbar'),
+                icon: const Icon(Icons.close),
+                tooltip: l10n.tbCropCancel,
+                onPressed: controller.cancelImageCrop,
+              ),
+              IconButton(
+                key: const ValueKey('pdf-crop-apply-toolbar'),
+                icon: const Icon(Icons.check),
+                tooltip: l10n.tbCropApply,
+                onPressed: controller.commitImageCrop,
+              ),
+            ]),
+          ),
         ],
       ),
     );

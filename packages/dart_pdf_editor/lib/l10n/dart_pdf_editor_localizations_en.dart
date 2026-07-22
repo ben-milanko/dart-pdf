@@ -1056,6 +1056,21 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'Check-marks on the document';
 
   @override
+  String get tbCropImage => 'Crop image';
+
+  @override
+  String get tbCroppingImage => 'Cropping image';
+
+  @override
+  String get tbCropApply => 'Apply crop';
+
+  @override
+  String get tbCropCancel => 'Cancel crop';
+
+  @override
+  String get tbCropReset => 'Reset crop';
+
+  @override
   String get tbColorLabel => 'Color';
 
   @override
