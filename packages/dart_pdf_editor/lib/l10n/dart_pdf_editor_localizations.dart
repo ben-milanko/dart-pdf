@@ -611,6 +611,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Remove node'**
   String get menuRemoveNode;
 
+  /// Annotation context-menu item that captures the selected annotation's appearance as the default for new annotations of the same kind.
+  ///
+  /// In en, this message translates to:
+  /// **'Set as default style'**
+  String get menuSetAsDefaultStyle;
+
   /// Form-field context-menu item that renames the field.
   ///
   /// In en, this message translates to:

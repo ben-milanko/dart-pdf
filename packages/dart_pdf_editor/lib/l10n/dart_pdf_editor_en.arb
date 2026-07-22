@@ -395,6 +395,10 @@
   "@menuRemoveNode": {
     "description": "Annotation context-menu item that removes the nearest vertex of a polyline or polygon."
   },
+  "menuSetAsDefaultStyle": "Set as default style",
+  "@menuSetAsDefaultStyle": {
+    "description": "Annotation context-menu item that captures the selected annotation's appearance as the default for new annotations of the same kind."
+  },
   "menuRename": "Rename…",
   "@menuRename": {
     "description": "Form-field context-menu item that renames the field."

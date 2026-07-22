@@ -204,6 +204,14 @@ Future<void> showPdfAnnotationMenu({
             }
           },
         ),
+      if (controller.canApplySelectedStyleAsDefault)
+        PdfAnnotationMenuItem(
+          key: const ValueKey('pdf-annot-menu-set-default'),
+          label: pdfL10n(context).menuSetAsDefaultStyle,
+          icon: Icons.brush_outlined,
+          onSelected: (request) =>
+              request.controller.applySelectedStyleAsDefault(),
+        ),
       PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-delete'),
         label: pdfL10n(context).delete,
