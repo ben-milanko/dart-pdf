@@ -333,11 +333,13 @@ class PdfEditingController extends ChangeNotifier {
     PdfEditingPreferences? preferences,
     PdfPageClipboard? pageClipboard,
     PdfSnapshotClipboard? snapshotClipboard,
+    PdfTrustStore? trustStore,
   })  : _bytes = bytes,
         _used = bytes.length,
         _password = password,
         _revisions = [bytes.length],
         _document = PdfDocument.open(bytes, password: password),
+        _trustStore = trustStore,
         preferences = preferences ?? PdfEditingPreferences(),
         pageClipboard = pageClipboard ?? PdfPageClipboard.instance,
         snapshotClipboard =
@@ -921,6 +923,46 @@ class PdfEditingController extends ChangeNotifier {
 
   /// The signatures present in the current revision (`PdfSignature.of`).
   List<PdfSignature> get signatures => PdfSignature.of(_document);
+
+  PdfTrustStore? _trustStore;
+
+  /// The trust anchors [validateSignature] chains signer certificates up to,
+  /// so a signature can read as "trusted" rather than "validity unknown". The
+  /// library ships no built-in roots; a host supplies an AATL/EUTL or
+  /// organisation bundle (e.g. `PdfTrustStore.trusting([...])`). Null leaves
+  /// every signature's [PdfSignatureValidation.chainTrusted] null - crypto is
+  /// still checked, but the signer is never vouched for.
+  ///
+  /// Setting it re-validates on the next read (the cache is dropped) and
+  /// notifies listeners, so a bundle loaded asynchronously lights up the
+  /// signature panel when it arrives.
+  PdfTrustStore? get trustStore => _trustStore;
+
+  set trustStore(PdfTrustStore? store) {
+    if (identical(store, _trustStore)) return;
+    _trustStore = store;
+    _validationCache.clear();
+    notifyListeners();
+  }
+
+  /// [validateSignature] results for the current revision, keyed by the
+  /// signature field's fully qualified name. Dropped whenever the revision
+  /// moves (or the trust store changes) so it never reports a stale verdict.
+  final Map<String, PdfSignatureValidation> _validationCache = {};
+  int _validationCacheRevision = -1;
+
+  /// Validates [signature] against the current [trustStore], caching the
+  /// result for the current revision. Validation walks the CMS/certificate
+  /// crypto, so it is cached per (revision, field) - repeated reads while the
+  /// signature panel rebuilds are free.
+  PdfSignatureValidation validateSignature(PdfSignature signature) {
+    if (_validationCacheRevision != _revisionId) {
+      _validationCacheRevision = _revisionId;
+      _validationCache.clear();
+    }
+    final key = signature.field.name;
+    return _validationCache[key] ??= signature.validate(trustStore: _trustStore);
+  }
 
   /// Removes a digital signature as one undoable revision: drops its signature
   /// field (and its widget) and every "apply to pages" appearance copy - the

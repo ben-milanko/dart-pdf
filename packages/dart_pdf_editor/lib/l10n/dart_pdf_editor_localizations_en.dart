@@ -868,6 +868,46 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   }
 
   @override
+  String get sidebarSignatureTrusted => 'Valid — trusted';
+
+  @override
+  String get sidebarSignatureUnverified => 'Valid — unverified';
+
+  @override
+  String get sidebarSignatureInvalid => 'Invalid';
+
+  @override
+  String sidebarSignatureSignedBy(String name) => 'Signed by $name';
+
+  @override
+  String sidebarSignatureSignedAt(String time) => 'Signed $time';
+
+  @override
+  String sidebarSignatureTrustedVia(String authority) =>
+      'Trusted via $authority';
+
+  @override
+  String get sidebarSignatureUntrustedDetail =>
+      'Signer is not from a trusted authority';
+
+  @override
+  String get sidebarSignatureNoAnchors =>
+      'No trusted authorities are configured';
+
+  @override
+  String get sidebarSignatureModified => 'Document was changed after signing';
+
+  @override
+  String get sidebarSignatureRevoked =>
+      'The signer\'s certificate was revoked';
+
+  @override
+  String sidebarSignatureTimestamped(String time) => 'Timestamped $time';
+
+  @override
+  String sidebarSignatureLevel(String level) => 'PAdES $level';
+
+  @override
   String get sidebarWriteReplyHint => 'Write a reply…';
 
   @override

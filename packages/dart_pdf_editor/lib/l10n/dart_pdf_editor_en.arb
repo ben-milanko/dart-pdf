@@ -1133,6 +1133,79 @@
       }
     }
   },
+  "sidebarSignatureTrusted": "Valid — trusted",
+  "@sidebarSignatureTrusted": {
+    "description": "Status pill on a signature-field row when the signature is cryptographically intact and chains to a trusted authority."
+  },
+  "sidebarSignatureUnverified": "Valid — unverified",
+  "@sidebarSignatureUnverified": {
+    "description": "Status pill when the signature is cryptographically intact but its signer does not chain to a configured trust anchor."
+  },
+  "sidebarSignatureInvalid": "Invalid",
+  "@sidebarSignatureInvalid": {
+    "description": "Status pill when the signature fails its cryptographic check (digest or signature mismatch)."
+  },
+  "sidebarSignatureSignedBy": "Signed by {name}",
+  "@sidebarSignatureSignedBy": {
+    "description": "Detail line naming the certificate subject that signed.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarSignatureSignedAt": "Signed {time}",
+  "@sidebarSignatureSignedAt": {
+    "description": "Detail line giving the signing time.",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarSignatureTrustedVia": "Trusted via {authority}",
+  "@sidebarSignatureTrustedVia": {
+    "description": "Detail line naming the trusted authority the signer chains to.",
+    "placeholders": {
+      "authority": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarSignatureUntrustedDetail": "Signer is not from a trusted authority",
+  "@sidebarSignatureUntrustedDetail": {
+    "description": "Detail line when the signer does not chain to any configured trust anchor."
+  },
+  "sidebarSignatureNoAnchors": "No trusted authorities are configured",
+  "@sidebarSignatureNoAnchors": {
+    "description": "Detail line when no trust anchors are configured, so trust can't be judged."
+  },
+  "sidebarSignatureModified": "Document was changed after signing",
+  "@sidebarSignatureModified": {
+    "description": "Detail line when the document was changed after this signature was applied."
+  },
+  "sidebarSignatureRevoked": "The signer's certificate was revoked",
+  "@sidebarSignatureRevoked": {
+    "description": "Detail line when the signer's certificate is listed as revoked by embedded material."
+  },
+  "sidebarSignatureTimestamped": "Timestamped {time}",
+  "@sidebarSignatureTimestamped": {
+    "description": "Detail line giving the trusted timestamp time.",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarSignatureLevel": "PAdES {level}",
+  "@sidebarSignatureLevel": {
+    "description": "Detail line naming the PAdES baseline level the signature reaches.",
+    "placeholders": {
+      "level": {
+        "type": "String"
+      }
+    }
+  },
   "sidebarWriteReplyHint": "Write a reply…",
   "@sidebarWriteReplyHint": {
     "description": "Placeholder text in the inline reply text field."

@@ -1619,6 +1619,78 @@ abstract class DartPdfEditorLocalizations {
   /// **'{count, plural, one{{count} selected} other{{count} selected}}'**
   String sidebarSelectedCount(int count);
 
+  /// Status pill on a signature-field row when the signature is cryptographically intact and chains to a trusted authority.
+  ///
+  /// In en, this message translates to:
+  /// **'Valid — trusted'**
+  String get sidebarSignatureTrusted;
+
+  /// Status pill when the signature is cryptographically intact but its signer does not chain to a configured trust anchor.
+  ///
+  /// In en, this message translates to:
+  /// **'Valid — unverified'**
+  String get sidebarSignatureUnverified;
+
+  /// Status pill when the signature fails its cryptographic check (digest or signature mismatch).
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid'**
+  String get sidebarSignatureInvalid;
+
+  /// Detail line naming the certificate subject that signed.
+  ///
+  /// In en, this message translates to:
+  /// **'Signed by {name}'**
+  String sidebarSignatureSignedBy(String name);
+
+  /// Detail line giving the signing time.
+  ///
+  /// In en, this message translates to:
+  /// **'Signed {time}'**
+  String sidebarSignatureSignedAt(String time);
+
+  /// Detail line naming the trusted authority the signer chains to.
+  ///
+  /// In en, this message translates to:
+  /// **'Trusted via {authority}'**
+  String sidebarSignatureTrustedVia(String authority);
+
+  /// Detail line when the signer does not chain to any configured trust anchor.
+  ///
+  /// In en, this message translates to:
+  /// **'Signer is not from a trusted authority'**
+  String get sidebarSignatureUntrustedDetail;
+
+  /// Detail line when no trust anchors are configured, so trust can't be judged.
+  ///
+  /// In en, this message translates to:
+  /// **'No trusted authorities are configured'**
+  String get sidebarSignatureNoAnchors;
+
+  /// Detail line when the document was changed after this signature was applied.
+  ///
+  /// In en, this message translates to:
+  /// **'Document was changed after signing'**
+  String get sidebarSignatureModified;
+
+  /// Detail line when the signer's certificate is listed as revoked by embedded material.
+  ///
+  /// In en, this message translates to:
+  /// **'The signer\'s certificate was revoked'**
+  String get sidebarSignatureRevoked;
+
+  /// Detail line giving the trusted timestamp time.
+  ///
+  /// In en, this message translates to:
+  /// **'Timestamped {time}'**
+  String sidebarSignatureTimestamped(String time);
+
+  /// Detail line naming the PAdES baseline level the signature reaches.
+  ///
+  /// In en, this message translates to:
+  /// **'PAdES {level}'**
+  String sidebarSignatureLevel(String level);
+
   /// Placeholder text in the inline reply text field.
   ///
   /// In en, this message translates to:

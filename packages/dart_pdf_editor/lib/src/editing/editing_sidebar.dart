@@ -436,6 +436,120 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
     if (confirmed == true) widget.controller.removeSignature(signature);
   }
 
+  /// The inline validation section under a signed signature-field row: a
+  /// status pill (valid & trusted / valid but unverified / invalid) and the
+  /// signer, signing time, trust, timestamp and PAdES-level details drawn from
+  /// [PdfEditingController.validateSignature]. Trust reads as "trusted" only
+  /// when the controller carries a [PdfTrustStore] the signer chains to;
+  /// without one, an otherwise-valid signature is "unverified".
+  List<Widget> _signatureSection(BuildContext context, PdfSignature signature) {
+    if (_selecting) return const []; // chrome stays clear during multi-select
+    final l10n = pdfL10n(context);
+    final cs = Theme.of(context).colorScheme;
+
+    final validation = widget.controller.validateSignature(signature);
+    final intact = validation.intact;
+    final trusted = validation.chainTrusted == true;
+
+    final (String, Color) status = !intact
+        ? (l10n.sidebarSignatureInvalid, Colors.red)
+        : trusted
+            ? (l10n.sidebarSignatureTrusted, Colors.green)
+            : (l10n.sidebarSignatureUnverified, Colors.orange);
+
+    // (text, accent colour) detail lines; a null colour is a muted line.
+    final details = <(String, Color?)>[];
+
+    final signer = validation.signerCertificate?.subjectCommonName ??
+        signature.signerName;
+    if (signer != null && signer.isNotEmpty) {
+      details.add((l10n.sidebarSignatureSignedBy(signer), null));
+    }
+
+    final signedAt = validation.signedAt ?? signature.signingTime;
+    if (signedAt != null) {
+      details.add(
+          (l10n.sidebarSignatureSignedAt(_formatTime(signedAt)), null));
+    }
+
+    if (intact) {
+      if (trusted) {
+        final authority = validation.trustChain.isNotEmpty
+            ? (validation.trustChain.last.subjectCommonName ??
+                validation.trustChain.last.issuerCommonName)
+            : validation.signerCertificate?.issuerCommonName;
+        details.add((
+          authority != null && authority.isNotEmpty
+              ? l10n.sidebarSignatureTrustedVia(authority)
+              : l10n.sidebarSignatureTrusted,
+          Colors.green,
+        ));
+      } else if (validation.chainTrusted == false) {
+        details.add((l10n.sidebarSignatureUntrustedDetail, Colors.orange));
+      } else {
+        // no trust store configured - crypto is checked, trust isn't judged
+        details.add((l10n.sidebarSignatureNoAnchors, null));
+      }
+    }
+
+    if (!validation.coversWholeDocument) {
+      details.add((l10n.sidebarSignatureModified, Colors.orange));
+    }
+    if (validation.embeddedRevocation == PdfRevocationStatus.revoked) {
+      details.add((l10n.sidebarSignatureRevoked, Colors.red));
+    }
+
+    final timestamp = validation.timestamp;
+    if (timestamp != null && timestamp.valid && timestamp.time != null) {
+      details.add((
+        l10n.sidebarSignatureTimestamped(_formatTime(timestamp.time)),
+        null,
+      ));
+    }
+
+    final level = validation.padesLevel;
+    if (level != null) {
+      details.add((l10n.sidebarSignatureLevel(_padesLabel(level)), null));
+    }
+
+    // Surface the cryptographic problems that explain an invalid verdict; a
+    // valid signature's incidental notes stay out of the panel.
+    if (!intact) {
+      for (final problem in validation.problems) {
+        details.add((problem, Colors.red));
+      }
+    }
+
+    final textTheme = Theme.of(context).textTheme;
+    return [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(56, 0, 12, 2),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: _Pill(label: status.$1, color: status.$2),
+        ),
+      ),
+      for (final (text, color) in details)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(56, 0, 12, 2),
+          child: Text(
+            text,
+            style: textTheme.bodySmall
+                ?.copyWith(color: color ?? cs.onSurfaceVariant),
+          ),
+        ),
+      const SizedBox(height: 6),
+    ];
+  }
+
+  /// The short PAdES baseline label for a level enum (e.g. `B-LTA`).
+  static String _padesLabel(PdfPadesLevel level) => switch (level) {
+        PdfPadesLevel.bB => 'B-B',
+        PdfPadesLevel.bT => 'B-T',
+        PdfPadesLevel.bLT => 'B-LT',
+        PdfPadesLevel.bLTA => 'B-LTA',
+      };
+
   /// The per-row "more" menu holding a markup annotation's thread actions:
   /// Reply (opens the inline reply field) and Resolve / Reopen.
   Widget _threadMenu(BuildContext context, int pageIndex, int index,
@@ -764,6 +878,11 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
                   ordered.add((page, i));
                 }
                 tiles.add(_tile(context, page, i, annotation, thread, ordered));
+                // a signed signature field shows its validation status inline
+                final signature = _signatureFor(annotation);
+                if (signature != null) {
+                  tiles.addAll(_signatureSection(context, signature));
+                }
                 // a markup annotation hosts a comment thread
                 if (annotation.behavior.selectable) {
                   tiles.addAll(
