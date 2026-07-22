@@ -233,6 +233,13 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
   }
 
   Future<void> _start() async {
+    // #450 A/B: warm the render worker up front (web: fetch + compile + boot the
+    // worker script) so that cost overlaps the PDF load + parse instead of
+    // blocking the first render. Gated on ?prewarm so one bundle measures both
+    // arms - default on (matches the app), `?prewarm=0` for the baseline.
+    if (_q['prewarm'] != '0') {
+      PdfRenderWorker.prewarm();
+    }
     // Cold-open stopwatch: covers fetch + parse + worker start + first paint,
     // exactly what a user waits through. Legal here - the harness is tool code,
     // not lib/ (the no-Stopwatch-in-lib rule is about shipping paths).

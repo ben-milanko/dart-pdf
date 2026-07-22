@@ -46,6 +46,12 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
         2,
       _ => 3,
     };
+    // Warm the render worker now, before any document is opened: on the web this
+    // fetches, compiles, and boots the ~1 MB worker script (~1.45 s on a phone,
+    // #450) so that cost overlaps the user choosing a file instead of blocking
+    // the first render. A later open adopts the pre-booted worker and only hands
+    // off the document. No-op off-web (isolate spawn is cheap).
+    PdfRenderWorker.prewarm(count: pdfRenderWorkerPoolSize);
     // Proactive process-level ceiling across the viewer's budgeted caches
     // (decoded images 256 MB + render records + previews + thumbnails + tiles
     // can sum past 600 MB, and desktop OSes deliver the memory-pressure signal
