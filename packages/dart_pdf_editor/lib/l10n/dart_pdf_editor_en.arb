@@ -969,6 +969,47 @@
   "@shellKeyboardShortcutsTitle": {
     "description": "Header of the keyboard shortcuts editor bottom sheet."
   },
+  "shellShortcutsSearchHint": "Search shortcuts",
+  "@shellShortcutsSearchHint": {
+    "description": "Placeholder text in the search field of the keyboard shortcuts editor."
+  },
+  "shellShortcutsNoMatches": "No shortcuts match “{query}”",
+  "@shellShortcutsNoMatches": {
+    "description": "Message shown when a keyboard-shortcuts search matches no tools.",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "shellShortcutGroupSelect": "Select",
+  "@shellShortcutGroupSelect": {
+    "description": "Section header for the Select tool group in the keyboard shortcuts editor."
+  },
+  "shellShortcutGroupMarkup": "Markup",
+  "@shellShortcutGroupMarkup": {
+    "description": "Section header for the Markup tool group in the keyboard shortcuts editor."
+  },
+  "shellShortcutGroupDraw": "Draw",
+  "@shellShortcutGroupDraw": {
+    "description": "Section header for the Draw tool group in the keyboard shortcuts editor."
+  },
+  "shellShortcutGroupShapes": "Shapes",
+  "@shellShortcutGroupShapes": {
+    "description": "Section header for the Shapes tool group in the keyboard shortcuts editor."
+  },
+  "shellShortcutGroupInsert": "Insert",
+  "@shellShortcutGroupInsert": {
+    "description": "Section header for the Insert tool group in the keyboard shortcuts editor."
+  },
+  "shellShortcutGroupMeasure": "Measure",
+  "@shellShortcutGroupMeasure": {
+    "description": "Section header for the Measure tool group in the keyboard shortcuts editor."
+  },
+  "shellShortcutGroupEdit": "Edit",
+  "@shellShortcutGroupEdit": {
+    "description": "Section header for the Edit tool group in the keyboard shortcuts editor."
+  },
   "shellNotSet": "Not set",
   "@shellNotSet": {
     "description": "Subtitle shown for the default author when no author name is configured."

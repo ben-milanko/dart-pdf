@@ -1424,7 +1424,15 @@ class _EditorScreenState extends State<EditorScreen>
   /// Opens the right-click context menu for the tab at [index] at [position]
   /// (global coordinates), offering Close / Close others / Close to the right /
   /// Close all. Entries that would close nothing are disabled.
-  Future<void> _showTabMenu(int index, Offset position) async {
+  ///
+  /// [onChanged] runs after the chosen action resolves; the tabs-grid overlay
+  /// passes it to refresh (or dismiss itself once the last tab is gone), since
+  /// the modal grid does not rebuild off the screen's own [setState].
+  Future<void> _showTabMenu(
+    int index,
+    Offset position, {
+    VoidCallback? onChanged,
+  }) async {
     final tab = _tabs[index];
     final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
     final selected = await showMenu<_TabMenuAction>(
@@ -1494,6 +1502,7 @@ class _EditorScreenState extends State<EditorScreen>
       case _TabMenuAction.closeAll:
         await _closeTabs(List.of(_tabs));
     }
+    onChanged?.call();
   }
 
   Future<bool> _confirmDiscard(String message) async {
@@ -2586,6 +2595,17 @@ class _EditorScreenState extends State<EditorScreen>
             itemBuilder: (context, index) {
               final tab = _tabs[index];
               final selected = index == _activeIndex;
+              // Refresh the modal grid after a mutation (or dismiss it once no
+              // tabs remain); it does not rebuild off the screen's setState.
+              void refreshOverlay() {
+                if (!mounted || !overlayContext.mounted) return;
+                if (_tabs.isEmpty) {
+                  Navigator.of(overlayContext).pop();
+                } else {
+                  setOverlayState(() {});
+                }
+              }
+
               return _MobileTabTile(
                 key: ValueKey('$keyPrefix-tab-${tab.hashCode}'),
                 tab: tab,
@@ -2596,12 +2616,15 @@ class _EditorScreenState extends State<EditorScreen>
                 },
                 onClose: () async {
                   await _closeTabs([tab]);
-                  if (!mounted || !overlayContext.mounted) return;
-                  if (_tabs.isEmpty) {
-                    Navigator.of(overlayContext).pop();
-                  } else {
-                    setOverlayState(() {});
-                  }
+                  refreshOverlay();
+                },
+                onContextMenu: (position) {
+                  // Re-resolve by identity: the grid can reorder under us.
+                  final i = _tabs.indexOf(tab);
+                  if (i < 0) return;
+                  unawaited(
+                    _showTabMenu(i, position, onChanged: refreshOverlay),
+                  );
                 },
               );
             },
@@ -3254,12 +3277,17 @@ class _MobileTabTile extends StatelessWidget {
     required this.selected,
     required this.onTap,
     required this.onClose,
+    this.onContextMenu,
   });
 
   final DocumentTab tab;
   final bool selected;
   final VoidCallback onTap;
   final VoidCallback onClose;
+
+  /// Opens the tab's context menu at the given global position (right-click on
+  /// desktop, long-press on touch). Null disables the affordance.
+  final void Function(Offset globalPosition)? onContextMenu;
 
   @override
   Widget build(BuildContext context) {
@@ -3286,6 +3314,18 @@ class _MobileTabTile extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
+        onSecondaryTapUp: onContextMenu == null
+            ? null
+            : (details) => onContextMenu!(details.globalPosition),
+        onLongPress: onContextMenu == null
+            ? null
+            : () {
+                // InkWell's long-press carries no position, so anchor the menu
+                // at the tile's centre (touch parity for the right-click menu).
+                final box = context.findRenderObject() as RenderBox?;
+                if (box == null || !box.hasSize) return;
+                onContextMenu!(box.localToGlobal(box.size.center(Offset.zero)));
+              },
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
