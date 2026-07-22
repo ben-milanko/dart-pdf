@@ -156,6 +156,26 @@ void main() {
     expect(read, image);
   });
 
+  testWidgets('the default text reader reads Flutter\'s clipboard on native',
+      (tester) async {
+    var calls = 0;
+    tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.getData') {
+        calls++;
+        return const <String, Object?>{'text': 'Native clipboard text'};
+      }
+      return null;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+
+    final read = await readTextFromClipboard();
+
+    expect(calls, 1);
+    expect(read, 'Native clipboard text');
+  });
+
   group('Snapshot tool through the viewer', () {
     const scale = 800 / 612;
     Offset view(double x, double y) => Offset(x * scale, (792 - y) * scale);

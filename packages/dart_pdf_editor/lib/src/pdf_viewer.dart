@@ -829,6 +829,7 @@ class PdfViewer extends StatefulWidget {
     this.fontPicker,
     this.imagePicker,
     this.systemImagePasteProvider,
+    this.systemTextPasteProvider,
     this.onSnapshot,
     this.onPlaceSignature,
     this.pageSpacing = 12,
@@ -1060,6 +1061,12 @@ class PdfViewer extends StatefulWidget {
   /// no pointer location is known. When null or when it returns null, paste
   /// falls back to plain text from Flutter's system clipboard.
   final PdfSystemImagePasteProvider? systemImagePasteProvider;
+
+  /// Supplies plain text for ⌘V/Ctrl+V when neither the in-app clipboard nor
+  /// [systemImagePasteProvider] produced content. Used in preference to
+  /// Flutter's [Clipboard], which is unreliable on the web. When null, paste
+  /// reads text from [Clipboard] as before.
+  final PdfSystemTextPasteProvider? systemTextPasteProvider;
 
   /// Receives a region captured by the snapshot tool
   /// ([PdfEditTool.snapshot]) - typically to copy it to the clipboard,
@@ -3864,8 +3871,21 @@ class _PdfViewerState extends State<PdfViewer>
   }
 
   Future<void> _pasteSystemClipboardText(PdfEditingController editing) async {
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    final text = data?.text;
+    // Prefer the host's reader (the web build wires one over the browser Async
+    // Clipboard API, since Flutter's Clipboard.getData is unreliable there);
+    // fall back to Flutter's clipboard when none is injected.
+    String? text;
+    final provider = widget.systemTextPasteProvider;
+    if (provider != null) {
+      try {
+        text = await provider(context);
+      } catch (_) {
+        text = null;
+      }
+    } else {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      text = data?.text;
+    }
     if (text == null || text.trim().isEmpty) return;
     if (!mounted || widget.editing != editing) return;
     final local = _lastPointerLocal;
