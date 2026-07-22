@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The keyboard-shortcuts editor (Settings → Keyboard shortcuts…) now groups
+  tools under tool-category headers (Select, Draw, Shapes, Insert, Measure,
+  Edit) and adds a search box that filters by tool name or bound key. New
+  public `pdfEditToolGroupOf(PdfEditTool)`; `PdfEditToolGroup` moved to the
+  `tool_shortcuts` library (still exported, so no import change for callers).
+
 - **Breaking:** the six bundled editor fonts and the web render worker moved out
   of this package into the optional
   [`dart_pdf_editor_assets`](../dart_pdf_editor_assets) package, so viewer-only
