@@ -268,7 +268,17 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     final at = (selected.isNotEmpty ? selected.last : _keyboardBase()) + 1;
     if (!widget.controller.pastePages(at: at)) return;
     _focusPage(at);
-    if (widget.followsViewer) _revealPage(at);
+    if (widget.followsViewer) {
+      // A paste inserts pages, so the viewer resets its scroll to the top in
+      // a post-frame callback (a geometry-changing revision). A following
+      // strip chases that reset via [_onViewerChanged] and scrolls back to
+      // the top, burying the pages that just landed. Drive the viewer to the
+      // paste target after its reset settles so the strip reveals the new
+      // pages instead - the same route the menu/header paste paths take.
+      unawaited(_jumpToInsertedPage(widget.viewerController, at));
+    } else {
+      _revealPage(at);
+    }
   }
 
   Map<ShortcutActivator, VoidCallback> get _keyboardShortcuts => {
