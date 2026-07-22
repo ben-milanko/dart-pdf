@@ -29,6 +29,16 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
   }
 
+  // A realistic desktop width: with Chrome-style tab sizing a handful of tabs
+  // cap at their max width and leave slack for the trailing controls, rather
+  // than filling the whole 800px default test surface.
+  void setDesktopSize(WidgetTester tester) {
+    tester.view.physicalSize = const Size(1400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+  }
+
   // Delivers a PDF to the running app the way the OS would (a warm-start
   // "open with"), opening it in a new tab.
   Future<void> openTab(
@@ -152,6 +162,7 @@ void main() {
 
   testWidgets('desktop tab strip opens the preview grid in a dialog',
       (tester) async {
+    setDesktopSize(tester);
     await openTabs(tester);
 
     final button = find.byKey(const ValueKey('desktop-tabs-button'));

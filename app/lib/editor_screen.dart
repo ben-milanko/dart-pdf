@@ -37,6 +37,21 @@ import 'welcome_screen.dart';
 
 /// Height of the AppBar's browser-style tab strip.
 const double _tabStripHeight = 42;
+
+/// Chrome-style tab sizing: tabs share the strip equally, growing no wider
+/// than [_tabMaxWidth] and shrinking no narrower than [_tabMinWidth] before
+/// the strip starts to scroll.
+const double _tabMaxWidth = 240;
+const double _tabMinWidth = 56;
+
+/// Below this per-tab width the close button is hidden on inactive tabs (as in
+/// Chrome) so the label still has room; the active tab always keeps its close.
+const double _tabCloseHideWidth = 100;
+
+/// How long the tabs take to grow back after the pointer leaves the strip
+/// following a close (the width-hold release animation).
+const Duration _tabResizeDuration = Duration(milliseconds: 150);
+
 const double _mobileTabsBreakpoint = 700;
 const double _appMenuLeadingWidth = 60;
 const double _appMenuIconSize = 24;
@@ -184,6 +199,20 @@ class _EditorScreenState extends State<EditorScreen>
 
   final List<DocumentTab> _tabs = [];
   int _activeIndex = 0;
+
+  /// Whether the pointer is currently hovering the desktop tab strip. While it
+  /// is, closing a tab pins the remaining tabs' width (see [_heldTabWidth]) so
+  /// the close buttons stay under the cursor for a rapid close streak.
+  bool _tabStripHovered = false;
+
+  /// The most recent natural (unheld) per-tab width computed during the tab
+  /// strip layout, captured so a close can pin to it.
+  double _lastNaturalTabWidth = 0;
+
+  /// When non-null, the tabs render at this fixed width instead of growing to
+  /// fill the freed space. Set on close while the strip is hovered and released
+  /// (animating back to the natural width) once the pointer leaves the strip.
+  double? _heldTabWidth;
 
   /// Whether the developer tools panel is docked over the editor (F12).
   bool _devToolsOpen = false;
@@ -500,10 +529,19 @@ class _EditorScreenState extends State<EditorScreen>
 
   void _addTab(DocumentTab tab) {
     setState(() {
+      // A new tab shrinks the others to fit; drop any close-streak width hold.
+      _heldTabWidth = null;
       _tabs.add(tab);
       _activeIndex = _tabs.length - 1;
     });
     unawaited(_persistSession());
+  }
+
+  /// Releases the close-streak width hold, letting the tabs animate back out to
+  /// fill the strip. Called when the pointer leaves the tab strip.
+  void _releaseTabWidthHold() {
+    if (_heldTabWidth == null) return;
+    setState(() => _heldTabWidth = null);
   }
 
   DocumentTab _openLoading(String title,
@@ -1400,6 +1438,13 @@ class _EditorScreenState extends State<EditorScreen>
       if (!ok || !mounted) return;
     }
     final active = _active;
+    // Chrome-style width hold: while the cursor is over the strip, keep the
+    // surviving tabs at their current width so the next close button lands
+    // under the cursor. `??=` preserves the width from the first close of a
+    // streak; it's released when the pointer leaves the strip.
+    if (_tabStripHovered && _lastNaturalTabWidth > 0) {
+      _heldTabWidth ??= _lastNaturalTabWidth;
+    }
     setState(() {
       for (final tab in targets) {
         _tabs.remove(tab);
@@ -2641,28 +2686,53 @@ class _EditorScreenState extends State<EditorScreen>
         builder: (context, constraints) {
           const buttonWidth = 40.0;
           const controlsWidth = buttonWidth * 2;
+          const listPadding = 8.0; // 4px each side (see the list's padding).
           final maxTabsWidth = (constraints.maxWidth - controlsWidth)
               .clamp(0.0, double.infinity)
               .toDouble();
-          final desiredTabsWidth = _estimatedTabStripWidth(context);
-          final tabsWidth =
-              desiredTabsWidth < maxTabsWidth ? desiredTabsWidth : maxTabsWidth;
+
+          // Chrome-style sizing: every tab gets an equal share of the strip,
+          // clamped between the min and max tab width. As tabs are added the
+          // share shrinks until it hits the floor, after which the list scrolls.
+          final natural = _chromeTabWidth(maxTabsWidth - listPadding);
+          _lastNaturalTabWidth = natural;
+          // While a close streak is held, keep the surviving tabs at the pinned
+          // width; otherwise use the natural share (never wider than natural, so
+          // a stale hold can't overflow after a resize).
+          final tabWidth =
+              _heldTabWidth == null ? natural : math.min(_heldTabWidth!, natural);
+          final tabsWidth = _tabs.isEmpty
+              ? 0.0
+              : math.min(tabWidth * _tabs.length + listPadding, maxTabsWidth);
+
           return Row(
             mainAxisSize: MainAxisSize.max,
             children: [
               if (tabsWidth > 0)
-                SizedBox(
-                  width: tabsWidth,
-                  child: ReorderableListView.builder(
-                    key: const ValueKey('tab-strip'),
-                    scrollDirection: Axis.horizontal,
-                    // The whole tab is the drag handle (see _buildTab); the stock
-                    // trailing handles don't fit a horizontal tab strip.
-                    buildDefaultDragHandles: false,
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    itemCount: _tabs.length,
-                    onReorderItem: _reorderTabs,
-                    itemBuilder: (context, i) => _buildTab(i),
+                MouseRegion(
+                  onEnter: (_) => _tabStripHovered = true,
+                  onExit: (_) {
+                    _tabStripHovered = false;
+                    _releaseTabWidthHold();
+                  },
+                  // Grow back smoothly once the hold releases; both the strip
+                  // and each tab animate to the same width with a linear curve,
+                  // so they stay pixel-consistent throughout.
+                  child: AnimatedContainer(
+                    duration: _tabResizeDuration,
+                    curve: Curves.linear,
+                    width: tabsWidth,
+                    child: ReorderableListView.builder(
+                      key: const ValueKey('tab-strip'),
+                      scrollDirection: Axis.horizontal,
+                      // The whole tab is the drag handle (see _buildTab); the
+                      // stock trailing handles don't fit a horizontal tab strip.
+                      buildDefaultDragHandles: false,
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      itemCount: _tabs.length,
+                      onReorderItem: _reorderTabs,
+                      itemBuilder: (context, i) => _buildTab(i, tabWidth),
+                    ),
                   ),
                 ),
               SizedBox(
@@ -2701,32 +2771,23 @@ class _EditorScreenState extends State<EditorScreen>
     );
   }
 
-  double _estimatedTabStripWidth(BuildContext context) {
-    final style = Theme.of(context).textTheme.bodyMedium ?? const TextStyle();
-    final direction = Directionality.of(context);
-    var width = 8.0; // Horizontal list padding.
-    for (final tab in _tabs) {
-      final painter = TextPainter(
-        text: TextSpan(
-          text: tab.title.isEmpty ? appL10n(context).editorUntitled : tab.title,
-          style: style,
-        ),
-        maxLines: 1,
-        textDirection: direction,
-      )..layout(maxWidth: 160);
-      final dirtyWidth = tab.isDirty ? 14.0 : 0.0;
-      width += 4 +
-          12 +
-          (painter.width + dirtyWidth).clamp(40.0, 160.0).toDouble() +
-          30;
-    }
-    return width;
+  /// The equal-share width for one tab given the space [available] to the whole
+  /// tab list, clamped to the Chrome-style min/max. Below the min the tabs stop
+  /// shrinking and the strip scrolls instead.
+  double _chromeTabWidth(double available) {
+    final count = _tabs.length;
+    if (count == 0) return 0;
+    final share = available / count;
+    return share.clamp(_tabMinWidth, _tabMaxWidth).toDouble();
   }
 
-  Widget _buildTab(int index) {
+  Widget _buildTab(int index, double width) {
     final tab = _tabs[index];
     final selected = index == _activeIndex;
     final scheme = Theme.of(context).colorScheme;
+    // Like Chrome, drop the close button on inactive tabs once they get narrow
+    // so the label keeps room; the active tab always keeps it.
+    final showClose = selected || width >= _tabCloseHideWidth;
     Widget label() {
       final text = Text(
         tab.title.isEmpty ? appL10n(context).editorUntitled : tab.title,
@@ -2763,7 +2824,12 @@ class _EditorScreenState extends State<EditorScreen>
       enabled: !selected,
       child: _TabDragStartListener(
         index: index,
-        child: Padding(
+        // Match the strip's linear resize so the tab and its container stay in
+        // step while the width-hold releases (see _buildTabStrip).
+        child: AnimatedContainer(
+          duration: _tabResizeDuration,
+          curve: Curves.linear,
+          width: width,
           padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
           child: Material(
             color: selected
@@ -2776,25 +2842,23 @@ class _EditorScreenState extends State<EditorScreen>
               onSecondaryTapUp: (details) =>
                   _showTabMenu(index, details.globalPosition),
               child: Padding(
-                padding: const EdgeInsets.only(left: 12, right: 2),
+                padding: EdgeInsets.only(left: 12, right: showClose ? 2 : 12),
                 child: Row(
-                  mainAxisSize: MainAxisSize.min,
+                  mainAxisSize: MainAxisSize.max,
                   children: [
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 160),
-                      child: label(),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close, size: 16),
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 30,
-                        minHeight: 30,
+                    Expanded(child: label()),
+                    if (showClose)
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 16),
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 30,
+                          minHeight: 30,
+                        ),
+                        tooltip: appL10n(context).editorCloseTab,
+                        onPressed: () => _closeTab(index),
                       ),
-                      tooltip: appL10n(context).editorCloseTab,
-                      onPressed: () => _closeTab(index),
-                    ),
                   ],
                 ),
               ),
