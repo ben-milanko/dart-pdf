@@ -678,6 +678,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get save => 'Save';
 
   @override
+  String get searchAnnotations => 'Search annotations';
+
+  @override
   String get searchClearSearch => 'Clear search';
 
   @override

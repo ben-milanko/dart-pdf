@@ -882,6 +882,10 @@
   "@save": {
     "description": "Generic button that saves the document or changes."
   },
+  "searchAnnotations": "Search annotations",
+  "@searchAnnotations": {
+    "description": "Tooltip on the search option toggle that also searches annotation contents (notes, comments, free text)."
+  },
   "searchClearSearch": "Clear search",
   "@searchClearSearch": {
     "description": "Tooltip on the button that clears the document search field."

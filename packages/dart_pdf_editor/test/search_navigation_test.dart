@@ -45,6 +45,47 @@ Uint8List buildLongLinePdf() {
   return ascii(buffer.toString());
 }
 
+/// One page reading "Visible sentinel here" whose /Annots carries a /Text
+/// note annotation with /Contents "hidden treasure note", a /Popup mirroring
+/// it (which search must not double-count), and a /Link (no /Contents).
+Uint8List buildAnnotationSearchPdf() {
+  const line = 'Visible sentinel here';
+  const content = 'BT /F1 12 Tf 36 720 Td ($line) Tj ET';
+  const annots = '/Annots [ '
+      '<< /Type /Annot /Subtype /Text /Rect [400 700 420 720] '
+      '/Contents (hidden treasure note) >> '
+      '<< /Type /Annot /Subtype /Popup /Rect [420 700 560 800] '
+      '/Contents (hidden treasure note) >> '
+      '<< /Type /Annot /Subtype /Link /Rect [72 600 200 624] '
+      '/A << /S /URI /URI (app://x) >> >> '
+      ']';
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R '
+        '/Resources << /Font << /F1 5 0 R >> >> $annots >>',
+    '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${objects.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return ascii(buffer.toString());
+}
+
 void main() {
   setUp(() {
     // the mock store is process-global: start every test from defaults
@@ -172,6 +213,67 @@ void main() {
       expect(controller.searchOptions.wholeWord, isTrue);
       expect(controller.query, isEmpty);
       expect(controller.matchCount, 0);
+    });
+
+    testWidgets('annotation contents are searched by default', (tester) async {
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await pumpViewer(tester, controller, buildAnnotationSearchPdf());
+
+      // the query lives only in the /Text note's /Contents, not the page text
+      unawaited(controller.search('treasure'));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+
+      // exactly one hit - the /Popup mirroring the note is not double-counted
+      expect(controller.searchResults, hasLength(1));
+      final result = controller.searchResults.single;
+      expect(result.isAnnotation, isTrue);
+      expect(result.annotation?.subtype, 'Text');
+      expect(result.matchText, 'treasure');
+      expect(result.pageIndex, 0);
+    });
+
+    testWidgets('page-text and annotation hits are told apart', (tester) async {
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await pumpViewer(tester, controller, buildAnnotationSearchPdf());
+
+      // "hidden" lives only in the note's /Contents
+      unawaited(controller.search('hidden'));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.searchResults, hasLength(1));
+      expect(controller.searchResults.single.isAnnotation, isTrue);
+
+      // "sentinel" lives only in the page text
+      unawaited(controller.search('sentinel'));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.searchResults, hasLength(1));
+      expect(controller.searchResults.single.isAnnotation, isFalse);
+    });
+
+    testWidgets('disabling searchAnnotations excludes annotation hits',
+        (tester) async {
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await pumpViewer(tester, controller, buildAnnotationSearchPdf());
+
+      controller
+          .setSearchOptions(const PdfSearchOptions(searchAnnotations: false));
+      unawaited(controller.search('treasure'));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.searchResults, isEmpty);
+
+      // page text is unaffected by the toggle
+      unawaited(controller.search('sentinel'));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.searchResults, hasLength(1));
+
+      // turning it back on restores the annotation hit
+      controller
+          .setSearchOptions(const PdfSearchOptions(searchAnnotations: true));
+      unawaited(controller.search('treasure'));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.searchResults, hasLength(1));
     });
 
     testWidgets('goToMatch makes a match current and navigates there',
@@ -343,12 +445,14 @@ void main() {
       await tester.pumpAndSettle(const Duration(milliseconds: 100));
       expect(controller.matchCount, 3);
 
-      // the three toggles are present
+      // the four toggles are present
       expect(
           find.byKey(const ValueKey('pdf-search-match-case')), findsOneWidget);
       expect(
           find.byKey(const ValueKey('pdf-search-whole-word')), findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-search-regex')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-search-annotations')),
+          findsOneWidget);
 
       // tapping match case re-runs the live search
       await tester.tap(find.byKey(const ValueKey('pdf-search-match-case')));
@@ -386,6 +490,50 @@ void main() {
       await tester.pump();
       expect(controller.searchOptions.matchCase, isTrue);
       expect(preferences.searchMatchCase, isTrue);
+    });
+
+    testWidgets('the annotation toggle drives the controller and re-searches',
+        (tester) async {
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await pumpViewer(tester, controller, buildAnnotationSearchPdf(),
+          above: PdfSearchField(controller: controller));
+
+      // on by default: the note's /Contents is found
+      await tester.enterText(find.byKey(fieldKey), 'treasure');
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.searchOptions.searchAnnotations, isTrue);
+      expect(controller.matchCount, 1);
+
+      // tapping it off re-runs the live search with no annotation hits
+      await tester.tap(find.byKey(const ValueKey('pdf-search-annotations')));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.searchOptions.searchAnnotations, isFalse);
+      expect(controller.matchCount, 0);
+
+      // and back on restores it
+      await tester.tap(find.byKey(const ValueKey('pdf-search-annotations')));
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
+      expect(controller.matchCount, 1);
+    });
+
+    testWidgets('a stored searchAnnotations:false seeds the controller off',
+        (tester) async {
+      SharedPreferences.setMockInitialValues(
+          {'dart_pdf_editor.editing.searchAnnotations': false});
+      final preferences = PdfEditingPreferences();
+      addTearDown(preferences.dispose);
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await pumpViewer(tester, controller, buildMultiPagePdf(2),
+          above:
+              PdfSearchField(controller: controller, preferences: preferences));
+
+      // the stored preference loads and seeds the toggle off (it defaults on)
+      await tester.runAsync(() => preferences.ready);
+      await tester.pump();
+      expect(controller.searchOptions.searchAnnotations, isFalse);
     });
 
     testWidgets('showOptions: false hides the toggles', (tester) async {

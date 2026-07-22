@@ -63,6 +63,7 @@ class PdfSearchResult {
     required this.prefix,
     required this.matchText,
     required this.suffix,
+    this.annotation,
   });
 
   final PdfTextMatch match;
@@ -76,6 +77,16 @@ class PdfSearchResult {
   /// Context after the hit on the same line, ' …'-tailed when truncated.
   final String suffix;
 
+  /// The annotation this hit came from, when the match is in an annotation's
+  /// /Contents (a note body, free-text box, comment) rather than the page's
+  /// own text. Null for an ordinary page-text hit. Its [match] geometry is
+  /// the annotation's rectangle, so it still scrolls into view and
+  /// highlights like any other match.
+  final PdfAnnotation? annotation;
+
+  /// Whether this hit is inside an annotation rather than the page text.
+  bool get isAnnotation => annotation != null;
+
   int get pageIndex => match.pageIndex;
 }
 
@@ -88,6 +99,7 @@ class PdfSearchOptions {
     this.matchCase = false,
     this.wholeWord = false,
     this.regex = false,
+    this.searchAnnotations = true,
   });
 
   /// When true, an upper/lower-case difference fails the match.
@@ -106,11 +118,23 @@ class PdfSearchOptions {
   /// but a host exposing this to untrusted input should guard it.
   final bool regex;
 
-  PdfSearchOptions copyWith({bool? matchCase, bool? wholeWord, bool? regex}) =>
+  /// When true, an annotation's /Contents text (note bodies, free-text
+  /// boxes, comments) is searched alongside the page's own text, and hits
+  /// there appear in the results with the annotation's rectangle as their
+  /// highlight geometry. On by default.
+  final bool searchAnnotations;
+
+  PdfSearchOptions copyWith({
+    bool? matchCase,
+    bool? wholeWord,
+    bool? regex,
+    bool? searchAnnotations,
+  }) =>
       PdfSearchOptions(
         matchCase: matchCase ?? this.matchCase,
         wholeWord: wholeWord ?? this.wholeWord,
         regex: regex ?? this.regex,
+        searchAnnotations: searchAnnotations ?? this.searchAnnotations,
       );
 
   @override
@@ -118,10 +142,12 @@ class PdfSearchOptions {
       other is PdfSearchOptions &&
       other.matchCase == matchCase &&
       other.wholeWord == wholeWord &&
-      other.regex == regex;
+      other.regex == regex &&
+      other.searchAnnotations == searchAnnotations;
 
   @override
-  int get hashCode => Object.hash(matchCase, wholeWord, regex);
+  int get hashCode =>
+      Object.hash(matchCase, wholeWord, regex, searchAnnotations);
 }
 
 /// A snapshot of a viewer's scroll position and zoom, for mirroring one
@@ -3043,6 +3069,9 @@ class _PdfViewerState extends State<PdfViewer>
       for (final match in matches) {
         results.add(_snippetFor(text, match));
       }
+      if (options.searchAnnotations) {
+        _searchAnnotations(i, query, options, results);
+      }
       // Yield to the event loop every few pages so frames paint and the
       // superseding search gets a chance to run (a microtask wouldn't let
       // timers/rendering in, so this is a Duration.zero delay).
@@ -3072,6 +3101,114 @@ class _PdfViewerState extends State<PdfViewer>
       matchText: s.substring(match.start, match.end),
       suffix: squash(s.substring(match.end, to)).trimRight() +
           (to < lineEnd ? ' …' : ''),
+    );
+  }
+
+  /// Appends hits found in the /Contents of page [pageIndex]'s visible
+  /// annotations to [results]. Popups (which mirror their parent's text) and
+  /// hidden or non-viewable annotations are skipped, so the same comment is
+  /// not listed twice and off-screen markup stays out of the results.
+  void _searchAnnotations(
+    int pageIndex,
+    String query,
+    PdfSearchOptions options,
+    List<PdfSearchResult> results,
+  ) {
+    for (final annotation in _pages[pageIndex].annotations) {
+      if (annotation.subtype == 'Popup' ||
+          annotation.isHidden ||
+          annotation.isNoView) {
+        continue;
+      }
+      final contents = annotation.contents;
+      if (contents == null || contents.isEmpty) continue;
+      for (final (start, end) in _stringMatches(contents, query, options)) {
+        results.add(
+            _annotationSnippet(pageIndex, annotation, contents, start, end));
+      }
+    }
+  }
+
+  /// Literal or regex matches of [query] in [source] under [options], as
+  /// (start, end) index pairs - the string-only core of [PdfPageText.findAll]
+  /// for annotation-content search, where there are no positioned runs to
+  /// derive geometry from.
+  static List<(int, int)> _stringMatches(
+      String source, String query, PdfSearchOptions options) {
+    bool isWordChar(int i) {
+      if (i < 0 || i >= source.length) return false;
+      final c = source.codeUnitAt(i);
+      return (c >= 0x30 && c <= 0x39) ||
+          (c >= 0x41 && c <= 0x5A) ||
+          (c >= 0x61 && c <= 0x7A) ||
+          c == 0x5F;
+    }
+
+    bool wholeWord(int start, int end) =>
+        !isWordChar(start - 1) && !isWordChar(end);
+
+    final matches = <(int, int)>[];
+    if (options.regex) {
+      final RegExp pattern;
+      try {
+        pattern =
+            RegExp(query, caseSensitive: options.matchCase, multiLine: true);
+      } on FormatException {
+        return const []; // invalid pattern - no matches, like findAll
+      }
+      for (final m in pattern.allMatches(source)) {
+        if (m.start == m.end) continue; // skip zero-width hits
+        if (options.wholeWord && !wholeWord(m.start, m.end)) continue;
+        matches.add((m.start, m.end));
+      }
+      return matches;
+    }
+    if (query.isEmpty) return const [];
+    final haystack = options.matchCase ? source : source.toLowerCase();
+    final needle = options.matchCase ? query : query.toLowerCase();
+    var from = 0;
+    while (true) {
+      final index = haystack.indexOf(needle, from);
+      if (index < 0) break;
+      final end = index + needle.length;
+      if (!options.wholeWord || wholeWord(index, end)) matches.add((index, end));
+      from = end;
+    }
+    return matches;
+  }
+
+  /// A results-panel entry for a hit inside an annotation's /Contents. The
+  /// synthetic [PdfTextMatch] carries the annotation's rectangle as its
+  /// highlight geometry (a single quad), so it scrolls into view and paints
+  /// like a page-text match.
+  static PdfSearchResult _annotationSnippet(int pageIndex,
+      PdfAnnotation annotation, String contents, int start, int end) {
+    const beforeChars = 36, afterChars = 48;
+    final from = math.max(0, start - beforeChars);
+    final to = math.min(contents.length, end + afterChars);
+    String squash(String part) => part.replaceAll(_whitespaceRun, ' ');
+    final r = annotation.rect;
+    final quad = PdfTextQuad([
+      (r.left, r.bottom),
+      (r.right, r.bottom),
+      (r.right, r.top),
+      (r.left, r.top),
+    ]);
+    final match = PdfTextMatch(
+      pageIndex: pageIndex,
+      start: start,
+      end: end,
+      rects: [r],
+      quads: [quad],
+    );
+    return PdfSearchResult(
+      match: match,
+      prefix: (from > 0 ? '… ' : '') +
+          squash(contents.substring(from, start)).trimLeft(),
+      matchText: contents.substring(start, end),
+      suffix: squash(contents.substring(end, to)).trimRight() +
+          (to < contents.length ? ' …' : ''),
+      annotation: annotation,
     );
   }
 

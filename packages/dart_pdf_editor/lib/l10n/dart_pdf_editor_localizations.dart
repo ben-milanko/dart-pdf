@@ -1295,6 +1295,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Save'**
   String get save;
 
+  /// Tooltip on the search option toggle that also searches annotation contents (notes, comments, free text).
+  ///
+  /// In en, this message translates to:
+  /// **'Search annotations'**
+  String get searchAnnotations;
+
   /// Tooltip on the button that clears the document search field.
   ///
   /// In en, this message translates to:
