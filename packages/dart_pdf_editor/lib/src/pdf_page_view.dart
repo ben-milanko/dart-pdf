@@ -900,14 +900,15 @@ class _PdfPageViewState extends State<PdfPageView> {
       // resolution so a CAD raster underlay isn't decoded/shipped/rasterized
       // at its native 100+ megapixels (the deep-zoom patch re-rasters the
       // visible region for sharper zoom).
+      final imageRatio = math.min(
+        _effectiveRatio(),
+        widget.workerImagePixelRatioCap ?? double.infinity,
+      );
       final commands = await worker.record(
         pageIndex,
         annotations: widget.showAnnotations,
         priority: widget.renderPriority,
-        imagePixelRatio: math.min(
-          _effectiveRatio(),
-          widget.workerImagePixelRatioCap ?? double.infinity,
-        ),
+        imagePixelRatio: imageRatio,
       );
       // The wait phase ends when the record reply lands; the build phase is
       // everything after - decoding images that shipped un-decoded and
@@ -928,7 +929,8 @@ class _PdfPageViewState extends State<PdfPageView> {
         if (_renderPaused) return null;
         _lastInterpretPath = 'worker';
         _lastInterpretResultBytes = _logImageStats(pageIndex, commands);
-        final (picture, scene) = await _replayableFromCommands(commands);
+        final (picture, scene) =
+            await _replayableFromCommands(commands, maxImagePixelRatio: imageRatio);
         _lastInterpretWaitMs = waitMs;
         _lastInterpretBuildMs =
             buildClock == null ? null : buildClock.elapsedMicroseconds / 1000.0;
@@ -960,7 +962,8 @@ class _PdfPageViewState extends State<PdfPageView> {
     // Same record + decode renderPictureRecordedWithPlan runs internally,
     // but the command buffer and decoded images are kept for zoom replays
     // instead of being discarded after the 1:1 replay below.
-    final scene = await PdfRetainedScene.record(widget.page, plan: _renderPlan);
+    final scene = await PdfRetainedScene.record(widget.page,
+        plan: _renderPlan, maxImagePixelRatio: _effectiveRatio());
     _lastInterpretResultBytes = _logImageStats(pageIndex, scene.commands);
     if (!_retainScene(scene.commands)) {
       // Too dense or too fragmented to replay per zoom settle: take the 1:1
@@ -1051,8 +1054,9 @@ class _PdfPageViewState extends State<PdfPageView> {
   /// pass serves both, and the picture IS the scene's own 1:1 replay, so
   /// the pair can never disagree.
   Future<(ui.Picture, PdfRetainedScene?)> _replayableFromCommands(
-    List<PdfRenderCommand> commands,
-  ) async {
+    List<PdfRenderCommand> commands, {
+    double? maxImagePixelRatio,
+  }) async {
     // The build-split instrumentation exists only while the perf log is on
     // (the phase-clock pattern in _interpretPicture): the carrier and the
     // replay clock stay off the ordinary path. 'build' is the dominant
@@ -1064,6 +1068,7 @@ class _PdfPageViewState extends State<PdfPageView> {
         widget.page,
         commands,
         _renderPlan,
+        maxImagePixelRatio: maxImagePixelRatio,
       );
       // Deliberately unmeasured: this branch decodes INSIDE
       // pictureFromCommandsWithPlan and constructs the picture in the same
@@ -1076,11 +1081,16 @@ class _PdfPageViewState extends State<PdfPageView> {
       _lastInterpretReplayMs = null;
       return (picture, null);
     }
+    // The record shipped platform-codec images (JPEGs the worker can't decode)
+    // un-decoded; cap that UI-thread decode to the same display resolution the
+    // worker used, so a giant raster underlay isn't decoded at native size here
+    // (the perf(web) 643 ms main-thread JPEG decode, #458).
     final scene = await PdfRetainedScene.fromCommands(
       widget.page,
       commands,
       plan: _renderPlan,
       timing: timing,
+      maxImagePixelRatio: maxImagePixelRatio,
     );
     final replayClock = timing == null ? null : (Stopwatch()..start());
     final picture = scene.replay(pixelRatio: 1);
@@ -2416,6 +2426,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       widget.page,
       commands,
       _renderPlan,
+      maxImagePixelRatio: ratio,
     );
   }
 
@@ -2475,6 +2486,7 @@ class _PdfPageViewState extends State<PdfPageView> {
       widget.page,
       detail.commands,
       plan: _renderPlan,
+      maxImagePixelRatio: ratio,
     );
     if (_abandoned(pageIndex) ||
         !_renderSession.acceptsDetail(generation) ||

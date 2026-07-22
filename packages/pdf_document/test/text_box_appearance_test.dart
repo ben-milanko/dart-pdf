@@ -136,9 +136,32 @@ void main() {
           lineHeight: 12, vAlign: PdfTextBoxVAlign.centerBlock);
       final ascent = 10 * font.ascent / 1000;
       final blockTop = (50 + 2 * 12) / 2;
+      // Half the per-line leading sits above the first ascent so the block's
+      // ink is centred and the top line clears the top edge.
+      const halfLeading = (12 - 10) / 2;
       final lines = _baselines(_content(w));
-      expect(lines[0].$2, closeTo(blockTop - ascent, 1e-6));
-      expect(lines[1].$2, closeTo(blockTop - ascent - 12, 1e-6));
+      expect(lines[0].$2, closeTo(blockTop - halfLeading - ascent, 1e-6));
+      expect(lines[1].$2, closeTo(blockTop - halfLeading - ascent - 12, 1e-6));
+    });
+
+    test('centreBlock balances the top and bottom margins', () {
+      // The block's ink clears both edges by (almost) the same amount - the
+      // top line is no longer shoved against the top. Any residual is exactly
+      // ascent + descent - fontSize, since the leading is split assuming the
+      // text height is the em (fontSize) rather than the metric ascent+descent.
+      const fontSize = 10.0, lineHeight = 12.0;
+      final w = ContentWriter();
+      writePdfTextBox(w, box, ['a', 'b'],
+          font: font, fontSize: fontSize, align: PdfTextAlign.left, padding: 0,
+          lineHeight: lineHeight, vAlign: PdfTextBoxVAlign.centerBlock);
+      final ascent = fontSize * font.ascent / 1000;
+      const descent = fontSize * 207 / 1000; // Helvetica descent, per 1000 em
+      final lines = _baselines(_content(w));
+      final topMargin = box.top - (lines.first.$2 + ascent);
+      final bottomMargin = (lines.last.$2 - descent) - box.bottom;
+      expect(topMargin, greaterThan(0));
+      expect(topMargin - bottomMargin,
+          closeTo(ascent + descent - fontSize, 1e-6));
     });
 
     test('leading emits a TL only when asked', () {

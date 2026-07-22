@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -31,11 +32,18 @@ Object pdfImageKey(PdfImageRequest request) {
       : PdfSizedImageKey(content, decoded.width, decoded.height);
 }
 
-/// An [PdfInlineImageKey] qualified by a decoded resolution - see [pdfImageKey].
+/// A content key qualified by a decoded resolution - see [pdfImageKey].
+///
+/// The wrapped [content] is an inline image's value key ([PdfInlineImageKey])
+/// or an XObject's stream identity ([CosStream]). Two renders that decode the
+/// same source image to different sizes - a sharp on-screen page and a tiny
+/// preview, or two zoom levels capped to different display resolutions - must
+/// not evict or stand in for each other in the shared [PdfImageCache]; folding
+/// the size into the key keeps each on its own.
 class PdfSizedImageKey {
   PdfSizedImageKey(this.content, this.width, this.height);
 
-  final PdfInlineImageKey content;
+  final Object content;
   final int width;
   final int height;
 
@@ -242,14 +250,34 @@ class ImageCollector implements PdfDevice {
 /// returns a clone, a miss decodes once, caches the master, and returns a
 /// clone. Without a cache every call decodes afresh (the cold path used by
 /// probes and direct tests).
+/// [maxImagePixelRatio] (screen pixels per page point, including the device
+/// pixel ratio) caps each locally-decoded image to ~2× the pixels it covers on
+/// screen, so a giant raster underlay on a CAD sheet is decoded (and cached,
+/// and readback for its soft mask) at display resolution instead of its native
+/// 100+ megapixels. This is the local-decode twin of the render worker's
+/// `serializeCommands`'s `maxImagePixelRatio` - a non-CMYK JPEG needs the
+/// platform codec and so can never be worker-decoded, so without this cap the
+/// biggest images on the heaviest pages always decoded at full native size.
+/// Null still applies the hard ceilings ([cappedImagePixelSize]'s 8192-px max
+/// edge and 16 MP cap) so no path ever hands the engine a texture past the
+/// common GPU limit; only the display-size refinement is skipped.
 Future<Map<Object, ui.Image>> decodeImages(
     CosDocument cos, Iterable<PdfImageRequest> requests,
-    {PdfImageCache? cache}) async {
+    {PdfImageCache? cache, double? maxImagePixelRatio}) async {
   final out = <Object, ui.Image>{};
   for (final request in requests) {
     final key = pdfImageKey(request);
     if (out.containsKey(key)) continue;
-    final hit = cache?.take(key);
+    // Worker-decoded pixels are already sized; only a local decode is capped.
+    final target = request.decoded != null
+        ? null
+        : _decodeTarget(cos, request, maxImagePixelRatio);
+    // The returned map keys by the ratio-independent [pdfImageKey] so the paint
+    // side (which has no ratio) always matches. The shared cache keys by the
+    // target size too, so two zoom levels of the same image cache separately.
+    final cacheKey =
+        target == null ? key : PdfSizedImageKey(key, target.$1, target.$2);
+    final hit = cache?.take(cacheKey);
     if (hit != null) {
       out[key] = hit;
       continue;
@@ -259,9 +287,10 @@ Future<Map<Object, ui.Image>> decodeImages(
       final image = decoded != null
           ? await _imageFromPremultiplied(
               decoded.rgba, decoded.width, decoded.height)
-          : await _decodeOne(cos, request.stream);
+          : await _decodeOne(cos, request.stream,
+              targetWidth: target?.$1, targetHeight: target?.$2);
       if (image != null) {
-        out[key] = cache == null ? image : cache.put(key, image);
+        out[key] = cache == null ? image : cache.put(cacheKey, image);
       }
     } on Exception {
       // undecodable image: the device will skip it
@@ -270,12 +299,71 @@ Future<Map<Object, ui.Image>> decodeImages(
   return out;
 }
 
+/// The display-capped decode size for [request]'s image, or null to decode at
+/// native resolution. Combines the image's native dimensions, its on-page
+/// footprint (from [PdfImageRequest.transform]), and [ratio] through the shared
+/// [cappedImagePixelSize] - the same cap the render worker applies - so the
+/// local and worker paths agree on target sizes. With no [ratio] the hard
+/// ceilings (8192-px max edge, 16 MP) still apply. Returns null when the cap is
+/// a no-op (the image is already at or below the target), so those images keep
+/// their byte-identical native decode and a bare cache key.
+(int, int)? _decodeTarget(
+    CosDocument cos, PdfImageRequest request, double? ratio) {
+  final dict = request.stream.dictionary;
+  final w = _intOrNull(cos.resolve(dict['Width']));
+  final h = _intOrNull(cos.resolve(dict['Height']));
+  if (w == null || h == null || w < 1 || h < 1) return null;
+  final t = request.transform;
+  // The unit image square maps to page space through [transform]; the edge
+  // lengths in points are the column norms.
+  final widthPts = math.sqrt(t.a * t.a + t.b * t.b);
+  final heightPts = math.sqrt(t.c * t.c + t.d * t.d);
+  final (tw, th) = ratio != null && ratio > 0 && widthPts > 0 && heightPts > 0
+      ? cappedImagePixelSize(w, h, widthPts, heightPts, ratio)
+      : _clampToCeilings(w, h);
+  return (tw == w && th == h) ? null : (tw, th);
+}
+
+/// The ratio-free hard ceilings [cappedImagePixelSize] enforces (8192-px max
+/// edge, 16 MP), so even a decode with no display ratio never exceeds the
+/// common GPU max texture size or blows the decoded-image budget on one image.
+(int, int) _clampToCeilings(int w, int h,
+    {double maxDimension = 8192, int maxPixels = 1 << 24}) {
+  var tw = w, th = h;
+  final maxEdge = math.max(tw, th);
+  if (maxEdge > maxDimension) {
+    final s = maxDimension / maxEdge;
+    tw = (tw * s).floor().clamp(1, w);
+    th = (th * s).floor().clamp(1, h);
+  }
+  if (tw * th > maxPixels) {
+    final s = math.sqrt(maxPixels / (tw * th));
+    tw = (tw * s).floor().clamp(1, w);
+    th = (th * s).floor().clamp(1, h);
+  }
+  return (tw, th);
+}
+
+int? _intOrNull(CosObject? o) => o is CosInteger ? o.value : null;
+
 /// Decodes one image XObject to a [ui.Image]. The pure-Dart decode
 /// ([decodePdfImagePixels]) covers everything but the platform JPEG codec;
 /// the residual path here decodes a non-CMYK DCTDecode base and applies
 /// /Decode, color-key, and soft/stencil masks on top.
-Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream) async {
-  final pixels = decodePdfImagePixels(cos, stream);
+///
+/// [targetWidth]/[targetHeight], when set, decode the image at that display
+/// size instead of its native resolution (see [_decodeTarget]) - the pure path
+/// decodes scaled, the JPEG path asks the platform codec to downscale during
+/// decode, and the soft mask is fitted to the base so the composited result
+/// stays at the target size. The pixels are geometrically identical to a native
+/// decode drawn through the same transform, just at fewer samples.
+Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream,
+    {int? targetWidth, int? targetHeight}) async {
+  final scaled = targetWidth != null && targetHeight != null;
+  final pixels = scaled
+      ? decodePdfImage(cos, stream,
+          targetWidth: targetWidth, targetHeight: targetHeight)
+      : decodePdfImagePixels(cos, stream);
   if (pixels != null) {
     return _imageFromPremultiplied(pixels.rgba, pixels.width, pixels.height);
   }
@@ -287,15 +375,17 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream) async {
   // (e.g. a CMYK or Flate image under a DCTDecode soft mask).
   final pureBase = decodePdfImageBase(cos, stream);
   if (pureBase != null) {
-    final mask = await _resolveDartUiMask(cos, dict);
+    final mask = await _resolveDartUiMask(cos, dict,
+        targetWidth: pureBase.width, targetHeight: pureBase.height);
     if (mask == null) {
       return pureBase.opaque
           ? _imageFromPremultiplied(
               pureBase.rgba, pureBase.width, pureBase.height)
           : _imageFromStraight(pureBase.rgba, pureBase.width, pureBase.height);
     }
-    final m =
-        pdfApplyImageAlpha(pureBase.rgba, pureBase.width, pureBase.height, mask);
+    final fitted = _fitMask(mask, pureBase.width, pureBase.height);
+    final m = pdfApplyImageAlpha(
+        pureBase.rgba, pureBase.width, pureBase.height, fitted);
     return _imageFromStraight(m.$1, m.$2, m.$3);
   }
 
@@ -310,9 +400,16 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream) async {
 
   // undo any wrapping filters (e.g. [/FlateDecode /DCTDecode])
   final jpeg = cos.decodeStreamData(stream, stopBeforeFilter: dctName);
-  final codec = await ui.instantiateImageCodec(jpeg);
+  // The platform codec downscales during decode when a target is given -
+  // decisive on the web, where the alternative is decoding 100+ MP and reading
+  // it back off the GPU for the soft-mask multiply.
+  final codec = scaled
+      ? await ui.instantiateImageCodec(jpeg,
+          targetWidth: targetWidth, targetHeight: targetHeight)
+      : await ui.instantiateImageCodec(jpeg);
   final base = (await codec.getNextFrame()).image;
-  final mask = await _resolveDartUiMask(cos, dict);
+  final mask = await _resolveDartUiMask(cos, dict,
+      targetWidth: base.width, targetHeight: base.height);
   // /Decode and color-key /Mask apply to the decoded samples; gray
   // JPEGs decode to RGBA with the sample replicated, so one channel
   // stands in for the raw sample either way.
@@ -334,19 +431,29 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream) async {
   }
   final m = mask == null
       ? (rgba, base.width, base.height)
-      : pdfApplyImageAlpha(rgba, base.width, base.height, mask);
+      : pdfApplyImageAlpha(
+          rgba, base.width, base.height, _fitMask(mask, base.width, base.height));
   return _imageFromStraight(m.$1, m.$2, m.$3);
 }
 
 /// The soft/stencil mask for a platform-decoded JPEG. A DCT-encoded /SMask is
 /// decoded with the platform codec here (the one mask branch that needs
 /// `dart:ui`); otherwise the pure non-DCT soft mask, then the stencil /Mask.
-Future<PdfImageSoftMask?> _resolveDartUiMask(
-    CosDocument cos, CosDictionary dict) async {
+///
+/// [targetWidth]/[targetHeight] is the size the base decoded to. The DCT mask
+/// path decodes straight to it (the codec downscales); the pure paths decode at
+/// the mask's own native size and are fitted to the base by the caller
+/// ([_fitMask]) - so the whole composite lands at the target, never ballooning
+/// back to a mask that is larger than the capped base.
+Future<PdfImageSoftMask?> _resolveDartUiMask(CosDocument cos, CosDictionary dict,
+    {int? targetWidth, int? targetHeight}) async {
   final dctBytes = pdfImageDctSoftMaskBytes(cos, dict);
   if (dctBytes != null) {
     try {
-      final codec = await ui.instantiateImageCodec(dctBytes);
+      final codec = targetWidth != null && targetHeight != null
+          ? await ui.instantiateImageCodec(dctBytes,
+              targetWidth: targetWidth, targetHeight: targetHeight)
+          : await ui.instantiateImageCodec(dctBytes);
       final image = (await codec.getNextFrame()).image;
       final raw = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
       if (raw != null) {
@@ -362,6 +469,28 @@ Future<PdfImageSoftMask?> _resolveDartUiMask(
     }
   }
   return pdfImageSoftMask(cos, dict) ?? pdfImageStencilMask(cos, dict);
+}
+
+/// Nearest-samples [mask] down to at most [width]x[height] so the base image it
+/// is applied to stays the composited size. [pdfApplyImageAlpha] upsamples the
+/// *base* to the mask when the mask is larger - which would undo a display-res
+/// cap on the base - so a mask that outsizes a capped base must be shrunk
+/// first. A mask already within the base is returned untouched (the common
+/// case, and the exact byte path when nothing is capped).
+PdfImageSoftMask _fitMask(PdfImageSoftMask mask, int width, int height) {
+  if (mask.width <= width && mask.height <= height) return mask;
+  final tw = math.min(mask.width, width);
+  final th = math.min(mask.height, height);
+  final out = Uint8List(tw * th);
+  for (var y = 0; y < th; y++) {
+    final my = y * mask.height ~/ th;
+    final row = my * mask.width;
+    final orow = y * tw;
+    for (var x = 0; x < tw; x++) {
+      out[orow + x] = mask.alpha[row + (x * mask.width ~/ tw)];
+    }
+  }
+  return PdfImageSoftMask(out, tw, th);
 }
 
 /// Hands already-premultiplied RGBA straight to the engine codec - the only
