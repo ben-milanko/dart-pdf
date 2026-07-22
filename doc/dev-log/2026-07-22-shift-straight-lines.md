@@ -7,8 +7,11 @@ editing overlay (`packages/dart_pdf_editor/lib/src/editing/editing_overlay.dart`
   snaps to the nearest 45° axis off the press point (8 directions:
   horizontal, vertical, both diagonals).
 - **Polyline / polygon** and the poly-shaped measurements (perimeter, area,
-  angle, arc, volume) and the cloud polygon's click path: each edge snaps to
-  a straight 45° axis off the previous vertex.
+  angle, arc, volume) and the cloud polygon's click path: the segment
+  *currently being drawn* snaps to a straight 45° axis off the previous
+  vertex. Only the live edge is constrained — already-placed vertices are
+  never straightened retroactively, so Shift held at the end doesn't reflow
+  the whole polyline.
 - **Ink** (pen / freehand highlighter): the freehand stroke collapses to a
   single ruler-straight segment from where it began to the pointer,
   rubber-banding as it moves. This one is *not* 45°-constrained — "straight
@@ -16,29 +19,31 @@ editing overlay (`packages/dart_pdf_editor/lib/src/editing/editing_overlay.dart`
 
 ## Implementation notes
 
-Two small geometry helpers do the work, both operating in **view space** (the
-gesture Offsets) so previews and commits share one source of truth:
+One geometry helper does the work, operating in **view space** (the gesture
+Offsets): `_straightSnap(anchor, point)` projects `point` onto the nearest 45°
+direction from `anchor`, or returns `point` unchanged when Shift is up. It's
+used by the single-segment line drag, by each poly vertex as it's placed, and
+by the live rubber-band / measurement-readout edge.
 
-- `_straightSnap(anchor, point)` — projects `point` onto the nearest 45°
-  direction from `anchor`. Returns `point` unchanged when Shift is up. Used
-  directly by the single-segment line drag.
-- `_straightChain(raw)` — snaps a whole vertex chain, each vertex relative to
-  the previous *already-snapped* one. Returns `raw` untouched when Shift is up.
+### Per-segment, not whole-chain
 
-### Why poly stores raw points, not snapped ones
+Snapping happens **per vertex, at placement time**, based on the Shift state
+at that moment — the placed point (already snapped) is stored in
+`_polyPoints`. The preview and commit do *not* re-snap the chain, so holding
+Shift only straightens the edge currently being drawn; earlier segments keep
+whatever angle they were placed at. (An earlier cut re-snapped the entire
+chain at commit/preview against the live Shift state, which straightened every
+segment when Shift happened to be down at the finish — wrong.)
 
-The first cut snapped each vertex as it was placed and stored the snapped
-point in `_polyPoints`. That broke **double-tap-to-finish**: the poly vertex
-dedup (`distance >= 2`) compares the incoming tap against the last stored
-vertex, and once a vertex snapped *away* from where it was tapped, the second
-tap of the finishing double-tap landed >2px from the snapped vertex and got
-appended as a stray short segment.
+### The double-tap dedup: `_polyLastRaw`
 
-The fix: keep `_polyPoints` (and `_polyHover`) as the **raw** tapped/hovered
-points — so the dedup stays exact — and apply `_straightChain` only where the
-chain is *drawn* (the `polyPreview` builder) and *committed*
-(`_finishPolyPath`, just before simplification → page-space). Snapping is a
-pure view-of-the-data transform; nothing about placement/dedup changes.
+Because a placed vertex can snap *away* from where it was tapped, the
+near-duplicate dedup (`distance >= 2`, which rejects the redundant second tap
+of a finishing double-tap) can't measure against the stored (snapped) vertex —
+it would see the finishing tap as a new point >2px away and append a stray
+segment. So `_polyLastRaw` tracks the raw tap position of the last placed
+vertex, and both `_addPolyPoint` and `_finishPolyPath` dedup against it. It's
+reset to null everywhere `_polyPoints` is cleared.
 
 ### Ink
 
@@ -55,4 +60,6 @@ each pointer sample, so toggling Shift mid-gesture updates the next move
 (standard drawing-app behaviour).
 
 Tests: `test/editing_straight_lines_test.dart` (line axis + diagonal snap,
-per-edge polyline snap through a double-tap finish, ink straightening).
+per-edge polyline snap through a double-tap finish, the per-segment guarantee
+— Shift held only for the last edge leaves the opening segment angled — and
+ink straightening).

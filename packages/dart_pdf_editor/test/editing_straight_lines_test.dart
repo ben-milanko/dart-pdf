@@ -115,6 +115,37 @@ void main() {
     expect(annotation.vertices![2].$1, closeTo(240, 1));
   });
 
+  testWidgets('Shift only straightens the segment being drawn', (tester) async {
+    final editing = await pumpEditor(tester);
+    editing.tool = PdfEditTool.polyline;
+    await tester.pump();
+
+    // first two vertices placed WITHOUT Shift - an angled opening segment
+    await tester.tapAt(view(100, 700));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tapAt(view(150, 660));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    // now hold Shift and place the third: only this last edge snaps flat
+    await holdShift(tester);
+    await tester.tapAt(view(240, 650));
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tapAt(view(240, 650));
+    await tester.pumpAndSettle(const Duration(milliseconds: 400));
+
+    final v = editing.document.page(0).annotations.single.vertices!;
+    expect(v, hasLength(3));
+    // the opening segment kept its angle (not straightened retroactively)
+    expect(v[0].$1, closeTo(100, 1));
+    expect(v[0].$2, closeTo(700, 1));
+    expect(v[1].$1, closeTo(150, 1));
+    expect(v[1].$2, closeTo(660, 1));
+    // only the last edge snapped: v2 sits on v1's row
+    expect(v[2].$2, closeTo(660, 1),
+        reason: 'the Shift-held edge is horizontal off v1');
+    expect(v[2].$1, closeTo(240, 1));
+  });
+
   testWidgets('Shift straightens a freehand ink stroke', (tester) async {
     final editing = await pumpEditor(tester);
     editing.tool = PdfEditTool.ink;

@@ -690,6 +690,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   Offset? _dragStart;
   Offset? _dragCurrent;
   List<Offset>? _polyPoints;
+  // the raw (un-snapped) view position of the last placed vertex. Vertices in
+  // [_polyPoints] may be Shift-snapped away from where they were tapped, so
+  // the near-duplicate dedup (which rejects the second tap of a finishing
+  // double-tap) must measure against this raw point, not the snapped vertex.
+  Offset? _polyLastRaw;
   Offset? _polyHover;
   Offset? _polyDoubleTapPosition;
   // the form tool's double-tap fills the field under the down position
@@ -1161,20 +1166,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // pointer, so the projection is always forward (non-negative)
     final reach = delta.dx * dir.dx + delta.dy * dir.dy;
     return anchor + dir * reach;
-  }
-
-  /// Snaps a raw vertex chain so that, while Shift is held, every edge runs
-  /// along a straight 45° axis off the previous (already-snapped) vertex.
-  /// Returns [raw] untouched when Shift is up, so [_polyPoints] can stay the
-  /// raw tapped points (keeping the double-tap-to-finish dedup exact) and the
-  /// snap is applied only where the chain is drawn or committed.
-  List<Offset> _straightChain(List<Offset> raw) {
-    if (!HardwareKeyboard.instance.isShiftPressed || raw.length < 2) return raw;
-    final out = <Offset>[raw.first];
-    for (var i = 1; i < raw.length; i++) {
-      out.add(_straightSnap(out.last, raw[i]));
-    }
-    return out;
   }
 
   /// The measurement kind the armed tool creates, or null for a
@@ -3740,10 +3731,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     var reachedFixed = false;
     setState(() {
       final points = _polyPoints ?? <Offset>[];
-      // store the raw tapped point; Shift-snapping is applied to the whole
-      // chain at preview/commit time (see [_straightChain])
-      if (points.isEmpty || (point - points.last).distance >= 2) {
-        _polyPoints = [...points, point];
+      // only the segment being drawn snaps: holding Shift straightens this
+      // new vertex against the previous one, leaving already-placed vertices
+      // exactly where they landed. Dedup against the raw tap so a snapped
+      // vertex doesn't make the finishing double-tap add a stray segment.
+      if (points.isEmpty) {
+        _polyPoints = [point];
+        _polyLastRaw = point;
+      } else if ((point - _polyLastRaw!).distance >= 2) {
+        _polyPoints = [...points, _straightSnap(points.last, point)];
+        _polyLastRaw = point;
       }
       _polyHover = null;
       final fixed = _fixedPolyCount;
@@ -3757,9 +3754,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final existing = _polyPoints;
     if (existing == null) return;
     final points = List<Offset>.of(existing);
-    if (finalPoint != null &&
-        (points.isEmpty || (finalPoint - points.last).distance >= 2)) {
-      points.add(finalPoint);
+    if (finalPoint != null) {
+      // the closing double-tap only adds a vertex if it moved off the last
+      // one (raw dedup); when it does, that final segment snaps like any other
+      if (points.isEmpty) {
+        points.add(finalPoint);
+      } else if (_polyLastRaw == null ||
+          (finalPoint - _polyLastRaw!).distance >= 2) {
+        points.add(_straightSnap(points.last, finalPoint));
+      }
     }
     final closed = _tool == PdfEditTool.polygon ||
         _tool == PdfEditTool.cloudPolygon ||
@@ -3767,10 +3770,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _tool == PdfEditTool.measureVolume;
     final minPoints = _fixedPolyCount ?? (closed ? 3 : 2);
     if (points.length < minPoints) return;
-    // holding Shift snaps every edge to a straight 45° axis before commit
-    final snapped = _straightChain(points);
+    // vertices are already snapped per-segment as they were placed
     final simplified = <Offset>[];
-    for (final point in snapped) {
+    for (final point in points) {
       if (simplified.isEmpty || (point - simplified.last).distance >= 2) {
         simplified.add(point);
       }
@@ -3785,6 +3787,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _clearAfterimage();
       setState(() {
         _polyPoints = null;
+        _polyLastRaw = null;
         _polyHover = null;
       });
       return;
@@ -3801,6 +3804,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _clearAfterimage();
     setState(() {
       _polyPoints = null;
+      _polyLastRaw = null;
       _polyHover = null;
     });
     final opacity = _controller.preferences.opacity.clamp(0.0, 1.0);
@@ -4667,8 +4671,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         if (points == null || points.isEmpty) return null;
         final view = [
           ...points,
+          // the live edge to the hover snaps with Shift like the drawn one
           if (_polyHover != null && (_polyHover! - points.last).distance >= 2)
-            _polyHover!,
+            _straightSnap(points.last, _polyHover!),
         ];
         final pagePoints = [for (final p in view) _geometry.toPagePoint(p)];
         // volume's depth isn't known until placement finishes, so the live
@@ -4870,6 +4875,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         !_polyTool &&
         _tool != PdfEditTool.cloudPolygon) {
       _polyPoints = null;
+      _polyLastRaw = null;
       _polyHover = null;
     }
     // re-derive the editor's view rect through the LIVE geometry: a zoom
@@ -5007,14 +5013,16 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // warm the eyedropper's raster so the first preview is instant-ish
     if (_controller.isPickingColor) unawaited(_ensureSampler());
     final preview = _controller.isPickingColor ? _pickPosition : null;
+    // placed vertices are already snapped; only the live rubber-band edge to
+    // the hover point snaps here (and only while Shift is held)
     final polyPreview = _polyPoints == null
         ? null
-        : _straightChain([
+        : [
             ..._polyPoints!,
             if (_polyHover != null &&
                 (_polyHover! - _polyPoints!.last).distance >= 2)
-              _polyHover!,
-          ]);
+              _straightSnap(_polyPoints!.last, _polyHover!),
+          ];
     final vertexHandles = _vertexPoints ?? _selectedVertexPoints;
     final vertexPreview =
         _vertexPoints == null ? null : _linePreviewPath(_vertexPoints!);
