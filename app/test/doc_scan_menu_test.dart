@@ -117,6 +117,61 @@ void main() {
     expect(scanned, 1);
   });
 
+  testWidgets('a cancelled scan (null) opens no tab', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(prefs: prefs, documentScanner: () async => null),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    await openMenu(tester);
+
+    await tester.tap(find.byKey(const ValueKey('menu-scan-document')));
+    await tester.pumpAndSettle();
+
+    // No document was created; the welcome screen is still up.
+    expect(find.text('Untitled.pdf'), findsNothing);
+    expect(find.byType(PdfEditorView), findsNothing);
+  });
+
+  testWidgets('a failing scan toasts instead of throwing', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(
+        prefs: prefs,
+        documentScanner: () async => throw StateError('scanner unavailable'),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    await openMenu(tester);
+
+    await tester.tap(find.byKey(const ValueKey('menu-scan-document')));
+    await tester.pump(); // reject the future
+    await tester.pump(); // show the snack bar
+
+    expect(find.text("Couldn't scan the document."), findsOneWidget);
+    expect(find.text('Untitled.pdf'), findsNothing);
+  });
+
+  testWidgets('a failing Insert scan toasts instead of throwing',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(
+        prefs: prefs,
+        documentScanner: () async => throw StateError('scanner unavailable'),
+        initialDocument: (bytes: buildClassicPdf(), title: 'Scan.pdf'),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    await openMenu(tester);
+
+    await tester.tap(find.byKey(const ValueKey('menu-insert-scan')));
+    await tester.pump(); // reject the future
+    await tester.pump(); // show the snack bar
+
+    expect(find.text("Couldn't scan the document."), findsOneWidget);
+  });
+
   testWidgets('no scan entries where scanning is unsupported', (tester) async {
     // A desktop platform with no injected scanner: the entries hide.
     debugDefaultTargetPlatformOverride = TargetPlatform.linux;
