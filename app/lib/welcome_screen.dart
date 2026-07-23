@@ -283,10 +283,13 @@ class _RecentGridTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final enabled = entry.isReopenable;
-    final subtitle = entry.path ??
-        (enabled
+    // The tooltip shows the full path when we have one (titles ellipsize),
+    // otherwise the same reopen hint the list row carries.
+    final tooltip = entry.path != null
+        ? '${entry.title}\n${entry.path}'
+        : enabled
             ? appL10n(context).welcomeTapToReopen
-            : appL10n(context).welcomePickAgainToReopen);
+            : appL10n(context).welcomePickAgainToReopen;
 
     final tile = SizedBox(
       width: _tileWidth,
@@ -339,7 +342,7 @@ class _RecentGridTile extends StatelessWidget {
     );
 
     return Tooltip(
-      message: entry.path != null ? '${entry.title}\n${entry.path}' : subtitle,
+      message: tooltip,
       child: Opacity(opacity: enabled ? 1.0 : 0.5, child: tile),
     );
   }
