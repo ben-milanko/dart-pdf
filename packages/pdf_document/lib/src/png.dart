@@ -78,8 +78,8 @@ class PngImage {
       throw ArgumentError('unsupported PNG bit depth $bitDepth');
     }
 
-    final raw =
-        Uint8List.fromList(const ZLibDecoder().decodeBytes(idat.takeBytes()));
+    // decodeBytes already returns a freshly allocated Uint8List (#533).
+    final raw = const ZLibDecoder().decodeBytes(idat.takeBytes());
 
     // raw channel data, 8 bits per channel, full image. Palette indices
     // must stay verbatim - only real samples scale to 0–255.
