@@ -25,6 +25,7 @@ import 'keyless_signing.dart';
 import 'l10n/app_l10n.dart';
 import 'new_document.dart';
 import 'ocr.dart';
+import 'ocr_status_label.dart';
 import 'pdf_cache.dart';
 import 'print_progress_dialog.dart';
 import 'printing.dart';
@@ -998,7 +999,7 @@ class _EditorScreenState extends State<EditorScreen>
       }
     }
     try {
-      final files = await pickPdfFiles();
+      final files = await pickPdfFiles(l10n.fileTypePdf);
       if (files.isEmpty) return;
       // Opening a batch: defer parsing every file but the one that ends up
       // active, so the picker doesn't freeze while it opens all of them.
@@ -1338,7 +1339,7 @@ class _EditorScreenState extends State<EditorScreen>
     if (current == null) return;
     final l10n = appL10n(context);
     try {
-      final other = await pickPdfBytes();
+      final other = await pickPdfBytes(l10n.fileTypePdf);
       if (other == null) return;
       setState(() {
         _tabs.add(DocumentTab.comparison(
@@ -1424,7 +1425,15 @@ class _EditorScreenState extends State<EditorScreen>
   /// Opens the right-click context menu for the tab at [index] at [position]
   /// (global coordinates), offering Close / Close others / Close to the right /
   /// Close all. Entries that would close nothing are disabled.
-  Future<void> _showTabMenu(int index, Offset position) async {
+  ///
+  /// [onChanged] runs after the chosen action resolves; the tabs-grid overlay
+  /// passes it to refresh (or dismiss itself once the last tab is gone), since
+  /// the modal grid does not rebuild off the screen's own [setState].
+  Future<void> _showTabMenu(
+    int index,
+    Offset position, {
+    VoidCallback? onChanged,
+  }) async {
     final tab = _tabs[index];
     final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
     final selected = await showMenu<_TabMenuAction>(
@@ -1494,6 +1503,7 @@ class _EditorScreenState extends State<EditorScreen>
       case _TabMenuAction.closeAll:
         await _closeTabs(List.of(_tabs));
     }
+    onChanged?.call();
   }
 
   Future<bool> _confirmDiscard(String message) async {
@@ -1526,7 +1536,9 @@ class _EditorScreenState extends State<EditorScreen>
   Future<void> _save(DocumentTab tab, {bool saveAs = false}) async {
     final bytes = tab.session?.bytes;
     if (bytes == null) return;
-    final saveAsDocument = widget.saveDocumentAs ?? saveBytesAs;
+    final saveAsDocument = widget.saveDocumentAs ??
+        (ctx, bytes, name) =>
+            saveBytesAs(ctx, bytes, name, pdfLabel: appL10n(ctx).fileTypePdf);
     final saveToPath = widget.saveDocumentToPath ?? saveBytesToPath;
     final inPlace = !saveAs && tab.originPath != null && supportsInPlaceSave;
     var result = inPlace
@@ -1619,7 +1631,9 @@ class _EditorScreenState extends State<EditorScreen>
                         ? null
                         : (context) => _obtainKeyless(context, silentProvider),
                 placement: placement,
-                logoPicker: placement == null ? null : pickImageBytes,
+                logoPicker: placement == null
+                    ? null
+                    : () => pickImageBytes(appL10n(context).fileTypeImages),
                 pageCount: session.document.pageCount,
               ))(context);
       if (!mounted || options == null || !_tabs.contains(tab)) return;
@@ -1806,8 +1820,9 @@ class _EditorScreenState extends State<EditorScreen>
       if (!mounted) return;
       final name =
           imageExportFileName(tab.title, pageIndex + 1, options.format);
-      final result =
-          await saveImageBytesAs(context, bytes, name, options.format.mimeType);
+      final result = await saveImageBytesAs(
+          context, bytes, name, options.format.mimeType,
+          imageLabel: appL10n(context).fileTypeImages);
       if (result.message != null) _toast(result.message!);
     } catch (_) {
       if (mounted) _toast(appL10n(context).editorCouldNotExport(tab.title));
@@ -1821,7 +1836,8 @@ class _EditorScreenState extends State<EditorScreen>
   ) async {
     final name = selectedContentImageFileName(tab.title, image.pageIndex + 1);
     final result = await saveImageBytesAs(
-        exportContext, image.pngBytes, name, 'image/png');
+        exportContext, image.pngBytes, name, 'image/png',
+        imageLabel: appL10n(exportContext).fileTypeImages);
     if (mounted && result.message != null) _toast(result.message!);
   }
 
@@ -1829,13 +1845,14 @@ class _EditorScreenState extends State<EditorScreen>
     BuildContext exportContext,
     List<PdfCustomStamp> stamps,
   ) async {
-    final result = await exportCustomStampsAs(exportContext, stamps);
+    final result = await exportCustomStampsAs(exportContext, stamps,
+        stampLabel: appL10n(exportContext).fileTypeStampBundle);
     if (mounted && result.message != null) _toast(result.message!);
   }
 
   Future<List<PdfCustomStamp>?> _importCustomStamps(BuildContext _) async {
     try {
-      return await importCustomStamps();
+      return await importCustomStamps(appL10n(context).fileTypeStampBundle);
     } catch (e) {
       if (mounted) _toast(appL10n(context).editorCouldNotImportStamps('$e'));
       return null;
@@ -2351,13 +2368,14 @@ class _EditorScreenState extends State<EditorScreen>
       // Save (button + Ctrl/⌘+S) live even before the first edit - the first
       // save writes the file via the Save As flow.
       alwaysAllowSave: tab.isUnsaved,
-      onPickPdfToInsert: pickPdfBytes,
-      onExportPages: (bytes) =>
-          unawaited(saveBytesAs(context, bytes, tab.title)),
+      onPickPdfToInsert: () => pickPdfBytes(appL10n(context).fileTypePdf),
+      onExportPages: (bytes) => unawaited(saveBytesAs(context, bytes, tab.title,
+          pdfLabel: appL10n(context).fileTypePdf)),
       onAction: _onAction,
       annotationMenuBuilder: _annotationMenuActions,
-      formImagePicker: (context, field) => pickImageBytes(),
-      imagePicker: (context) => pickImageBytes(),
+      formImagePicker: (context, field) =>
+          pickImageBytes(appL10n(context).fileTypeImages),
+      imagePicker: (context) => pickImageBytes(appL10n(context).fileTypeImages),
       systemImagePasteProvider: (context) =>
           (widget.imageClipboardReader ?? readImageFromClipboard)(),
       systemTextPasteProvider: (context) =>
@@ -2586,6 +2604,17 @@ class _EditorScreenState extends State<EditorScreen>
             itemBuilder: (context, index) {
               final tab = _tabs[index];
               final selected = index == _activeIndex;
+              // Refresh the modal grid after a mutation (or dismiss it once no
+              // tabs remain); it does not rebuild off the screen's setState.
+              void refreshOverlay() {
+                if (!mounted || !overlayContext.mounted) return;
+                if (_tabs.isEmpty) {
+                  Navigator.of(overlayContext).pop();
+                } else {
+                  setOverlayState(() {});
+                }
+              }
+
               return _MobileTabTile(
                 key: ValueKey('$keyPrefix-tab-${tab.hashCode}'),
                 tab: tab,
@@ -2596,12 +2625,15 @@ class _EditorScreenState extends State<EditorScreen>
                 },
                 onClose: () async {
                   await _closeTabs([tab]);
-                  if (!mounted || !overlayContext.mounted) return;
-                  if (_tabs.isEmpty) {
-                    Navigator.of(overlayContext).pop();
-                  } else {
-                    setOverlayState(() {});
-                  }
+                  refreshOverlay();
+                },
+                onContextMenu: (position) {
+                  // Re-resolve by identity: the grid can reorder under us.
+                  final i = _tabs.indexOf(tab);
+                  if (i < 0) return;
+                  unawaited(
+                    _showTabMenu(i, position, onChanged: refreshOverlay),
+                  );
                 },
               );
             },
@@ -3224,7 +3256,7 @@ class _OcrStatusChip extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  status.label,
+                  ocrStatusLabel(appL10n(context), status),
                   style: TextStyle(
                     fontSize: 12,
                     color: scheme.onSecondaryContainer,
@@ -3254,12 +3286,17 @@ class _MobileTabTile extends StatelessWidget {
     required this.selected,
     required this.onTap,
     required this.onClose,
+    this.onContextMenu,
   });
 
   final DocumentTab tab;
   final bool selected;
   final VoidCallback onTap;
   final VoidCallback onClose;
+
+  /// Opens the tab's context menu at the given global position (right-click on
+  /// desktop, long-press on touch). Null disables the affordance.
+  final void Function(Offset globalPosition)? onContextMenu;
 
   @override
   Widget build(BuildContext context) {
@@ -3286,6 +3323,18 @@ class _MobileTabTile extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
+        onSecondaryTapUp: onContextMenu == null
+            ? null
+            : (details) => onContextMenu!(details.globalPosition),
+        onLongPress: onContextMenu == null
+            ? null
+            : () {
+                // InkWell's long-press carries no position, so anchor the menu
+                // at the tile's centre (touch parity for the right-click menu).
+                final box = context.findRenderObject() as RenderBox?;
+                if (box == null || !box.hasSize) return;
+                onContextMenu!(box.localToGlobal(box.size.center(Offset.zero)));
+              },
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

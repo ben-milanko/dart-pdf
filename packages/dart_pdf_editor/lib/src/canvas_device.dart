@@ -167,6 +167,14 @@ class CanvasPdfDevice implements PdfDevice {
   }
 
   @override
+  void setOverprint(
+      {required bool fill, required bool stroke, required int mode}) {
+    // Overprint (§8.6.7) is a subtractive (CMYK/spot colorant) operation that
+    // this RGB canvas compositor cannot reproduce faithfully; the state is
+    // accepted but does not change compositing yet (issue #502).
+  }
+
+  @override
   void beginGroup(double alpha, {bool knockout = false}) {
     canvas.saveLayer(
       null,

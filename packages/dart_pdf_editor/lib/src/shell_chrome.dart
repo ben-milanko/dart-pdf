@@ -413,7 +413,7 @@ class _PanelTab extends StatelessWidget {
               size: 16,
               color: selected ? scheme.primary : scheme.onSurfaceVariant),
           const SizedBox(width: 6),
-          Text(panel.label,
+          Text(panel.label(context),
               style: TextStyle(
                 color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
                 fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
@@ -1253,6 +1253,7 @@ Future<Map<PdfEditTool, LogicalKeyboardKey>?> showPdfShellShortcutsSheet(
       if (tools == null || tools.contains(entry.key)) entry.key,
   ];
   var draft = Map<PdfEditTool, LogicalKeyboardKey>.of(shortcuts);
+  var searchQuery = '';
 
   Future<LogicalKeyboardKey?> captureKey(BuildContext context) {
     return showDialog<LogicalKeyboardKey>(
@@ -1334,18 +1335,61 @@ Future<Map<PdfEditTool, LogicalKeyboardKey>?> showPdfShellShortcutsSheet(
                 ),
               ),
               const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: TextField(
+                  key: const ValueKey('pdf-shell-shortcuts-search'),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    prefixIcon: const Icon(Icons.search),
+                    hintText: pdfL10n(context).shellShortcutsSearchHint,
+                    border: const OutlineInputBorder(),
+                  ),
+                  onChanged: (value) =>
+                      setSheetState(() => searchQuery = value),
+                ),
+              ),
               Flexible(
-                child: ListView(
-                  shrinkWrap: true,
-                  children: [
-                    for (final tool in visibleTools)
-                      ListTile(
+                child: Builder(builder: (context) {
+                  final l10n = pdfL10n(context);
+                  final query = searchQuery.trim().toLowerCase();
+                  bool matches(PdfEditTool tool) {
+                    if (query.isEmpty) return true;
+                    final label =
+                        pdfEditToolShortcutLabel(tool, shortcuts: draft) ?? '';
+                    return _toolName(tool).toLowerCase().contains(query) ||
+                        label.toLowerCase().contains(query);
+                  }
+
+                  final byGroup = <PdfEditToolGroup, List<PdfEditTool>>{};
+                  for (final tool in visibleTools.where(matches)) {
+                    byGroup
+                        .putIfAbsent(pdfEditToolGroupOf(tool), () => [])
+                        .add(tool);
+                  }
+
+                  if (byGroup.isEmpty) {
+                    return Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
+                      child: Text(
+                        l10n.shellShortcutsNoMatches(searchQuery.trim()),
+                        key: const ValueKey('pdf-shell-shortcuts-no-matches'),
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodyMedium
+                            ?.copyWith(color: Theme.of(context).hintColor),
+                      ),
+                    );
+                  }
+
+                  Widget tile(PdfEditTool tool) => ListTile(
                         key: ValueKey('pdf-shell-shortcut-${tool.name}'),
                         leading: const Icon(Icons.keyboard_outlined),
                         title: Text(_toolName(tool)),
                         trailing: Text(
                             pdfEditToolShortcutLabel(tool, shortcuts: draft) ??
-                                pdfL10n(context).shellUnbound),
+                                l10n.shellUnbound),
                         onTap: () async {
                           final key = await captureKey(context);
                           if (key == null) return;
@@ -1358,9 +1402,34 @@ Future<Map<PdfEditTool, LogicalKeyboardKey>?> showPdfShellShortcutsSheet(
                             }
                           });
                         },
-                      ),
-                  ],
-                ),
+                      );
+
+                  return ListView(
+                    shrinkWrap: true,
+                    children: [
+                      for (final group in PdfEditToolGroup.values)
+                        if (byGroup[group] case final groupTools?) ...[
+                          Padding(
+                            key: ValueKey(
+                                'pdf-shell-shortcut-group-${group.name}'),
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                            child: Text(
+                              _shortcutGroupLabel(context, group),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelMedium
+                                  ?.copyWith(
+                                    color:
+                                        Theme.of(context).colorScheme.primary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          ),
+                          for (final tool in groupTools) tile(tool),
+                        ],
+                    ],
+                  );
+                }),
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
@@ -1392,6 +1461,27 @@ String _toolName(PdfEditTool tool) {
   final words = tool.name.replaceAllMapped(
       RegExp(r'([A-Z])'), (match) => ' ${match.group(1)!.toLowerCase()}');
   return words[0].toUpperCase() + words.substring(1);
+}
+
+/// The localized section header for [group] in the keyboard-shortcuts editor.
+String _shortcutGroupLabel(BuildContext context, PdfEditToolGroup group) {
+  final l10n = pdfL10n(context);
+  switch (group) {
+    case PdfEditToolGroup.select:
+      return l10n.shellShortcutGroupSelect;
+    case PdfEditToolGroup.markup:
+      return l10n.shellShortcutGroupMarkup;
+    case PdfEditToolGroup.draw:
+      return l10n.shellShortcutGroupDraw;
+    case PdfEditToolGroup.shapes:
+      return l10n.shellShortcutGroupShapes;
+    case PdfEditToolGroup.insert:
+      return l10n.shellShortcutGroupInsert;
+    case PdfEditToolGroup.measure:
+      return l10n.shellShortcutGroupMeasure;
+    case PdfEditToolGroup.edit:
+      return l10n.shellShortcutGroupEdit;
+  }
 }
 
 Future<void> showPdfShellViewOptionsSheet(

@@ -78,6 +78,12 @@ class RecordingPdfDevice implements PdfDevice {
       _target.add(PdfSetBlendModeCommand(mode));
 
   @override
+  void setOverprint(
+          {required bool fill, required bool stroke, required int mode}) =>
+      _target.add(
+          PdfSetOverprintCommand(fill: fill, stroke: stroke, mode: mode));
+
+  @override
   void beginGroup(double alpha, {bool knockout = false}) =>
       _target.add(PdfBeginGroupCommand(alpha, knockout: knockout));
 

@@ -550,6 +550,35 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (changed) _writeToolStyles();
   }
 
+  /// Writes captured style [values] into the persisted style scope [scope],
+  /// keeping only the fields the scope actually remembers ([fields]). When
+  /// [scope] is the currently active scope, the values also flow into the
+  /// live creation defaults so the change takes effect immediately for the
+  /// armed tool. Used by "set as default", which seeds a tool's creation
+  /// style from an existing annotation.
+  ///
+  /// A field whose value is null is honoured for the colours that can be
+  /// cleared ([textFillColor]/[textBorderColor]/[shapeFillColor]) - null
+  /// there means "no fill" - and skipped otherwise, so a value the
+  /// annotation doesn't carry leaves that default untouched.
+  void writeScopedStyle(
+      String scope, Set<String> fields, Map<String, Object?> values) {
+    const nullable = {'textFillColor', 'textBorderColor', 'shapeFillColor'};
+    final slot = _toolStyles[scope] ??= <String, Object?>{};
+    var changed = false;
+    values.forEach((field, value) {
+      if (!fields.contains(field)) return;
+      if (value == null && !nullable.contains(field)) return;
+      if (slot.containsKey(field) && slot[field] == value) return;
+      slot[field] = value;
+      changed = true;
+    });
+    if (changed) _writeToolStyles();
+    // Reflect into the live values when this is the active scope, driving the
+    // public setters (which notify) through the shared restore path.
+    if (scope == _styleScope) _restoreScope(scope);
+  }
+
   /// Records [value] for [field] under the active scope when that scope
   /// remembers the field. Called from the style setters.
   void _recordScoped(String field, Object? value) {

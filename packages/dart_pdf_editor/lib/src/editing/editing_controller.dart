@@ -2752,7 +2752,7 @@ class PdfEditingController extends ChangeNotifier {
       pressures: signature.pressures,
       // follow the selected toolbar colour, like every other tool
       color: _colorValue,
-      strokeWidth: w / 75, // pen-like: ~2pt at the default width
+      strokeWidth: w / 60, // pen-like: ~2.7pt at the default width
     );
   }
 
@@ -4691,6 +4691,129 @@ class PdfEditingController extends ChangeNotifier {
     final annotation = selectedAnnotation;
     if (annotation == null) return null;
     return annotation.hasCloudyBorder ? annotation.cloudBorderScale : null;
+  }
+
+  // ---------------------------------------------------------------------
+  // Set-as-default: seed a creation tool's remembered style from an
+  // existing annotation (the right-click "Set as default" action).
+
+  /// The creation tool that draws [annotation]'s subtype, or null when no
+  /// tool authors it (links, widgets, popups, and the appearance-only
+  /// subtypes). Used to pick which persisted style scope "set as default"
+  /// writes into.
+  static PdfEditTool? _creatingToolFor(PdfAnnotation annotation) {
+    switch (annotation.subtype) {
+      case 'Square':
+        return PdfEditTool.rectangle;
+      case 'Circle':
+        return PdfEditTool.ellipse;
+      case 'Line':
+        final endings = pdfLineEndings(annotation);
+        const arrows = {
+          PdfLineEnding.openArrow,
+          PdfLineEnding.closedArrow,
+          PdfLineEnding.rOpenArrow,
+          PdfLineEnding.rClosedArrow,
+        };
+        final isArrow = endings != null &&
+            (arrows.contains(endings.$1) || arrows.contains(endings.$2));
+        return isArrow ? PdfEditTool.arrow : PdfEditTool.line;
+      case 'PolyLine':
+        return PdfEditTool.polyline;
+      case 'Polygon':
+        return annotation.hasCloudyBorder
+            ? PdfEditTool.cloudPolygon
+            : PdfEditTool.polygon;
+      case 'Ink':
+        return PdfEditTool.ink;
+      case 'FreeText':
+        return annotation.isCallout ? PdfEditTool.callout : PdfEditTool.freeText;
+      case 'Text':
+        return PdfEditTool.note;
+      case 'Stamp':
+        return PdfEditTool.stamp;
+      default:
+        return null;
+    }
+  }
+
+  /// The persisted style scope "set as default" would write [annotation]'s
+  /// style into, and the fields that scope remembers, or null when the
+  /// subtype has no creation default to seed. Text markup (highlight /
+  /// underline / strike-out / squiggly) acts on a text selection rather than
+  /// arming a tool, so it maps to its own shared `markup` scope.
+  static ({String scope, Set<String> fields})? _defaultStyleTargetFor(
+      PdfAnnotation annotation) {
+    switch (annotation.subtype) {
+      case 'Highlight' || 'Underline' || 'StrikeOut' || 'Squiggly':
+        return (scope: 'markup', fields: const {'color', 'opacity'});
+    }
+    final tool = _creatingToolFor(annotation);
+    if (tool == null) return null;
+    final behavior = PdfEditToolBehavior.of(tool);
+    final scope = behavior.styleScopeKey;
+    final fields = behavior.styleScopeFields;
+    if (scope == null || fields.isEmpty) return null;
+    return (scope: scope, fields: fields);
+  }
+
+  /// The full set of captured style values for [annotation], keyed by the
+  /// same field names the persisted style scopes use.
+  /// [PdfEditingPreferences.writeScopedStyle] keeps only the fields the
+  /// target scope actually remembers.
+  Map<String, Object?> _capturedStyleOf(PdfAnnotation annotation) {
+    final style = annotation.behavior.style;
+    final endings = pdfLineEndings(annotation);
+    int? argb(int? rgb) => rgb == null ? null : 0xFF000000 | rgb;
+    final values = <String, Object?>{
+      if (style.color != null) 'color': argb(style.color),
+      if (style.strokeWidth != null) 'strokeWidth': style.strokeWidth,
+      'opacity': style.opacity,
+      'lineStyle': PdfLineStyle.ofDashArray(annotation.borderDash).name,
+      // shapes bake their pattern scale into the dash array; only a cloud
+      // exposes a readable scallop scale to seed
+      if (annotation.hasCloudyBorder) 'lineScale': annotation.cloudBorderScale,
+      'shapeFillColor': argb(style.fillColor),
+      if (endings != null) 'lineStartEnding': endings.$1.name,
+      if (endings != null) 'lineEndEnding': endings.$2.name,
+    };
+    if (annotation.subtype == 'FreeText') {
+      final text = _freeTextStyleOf(annotation);
+      values['fontSize'] = text.size;
+      values['fontFamily'] = text.font.name;
+      final align = annotation.freeTextStyle?.alignment;
+      values['textAlign'] = align?.name;
+      // for a text box /C is the background and /DA border colour is separate;
+      // the box's tint is its text colour, already captured as `color`
+      values['textFillColor'] = argb(style.fillColor);
+      values['textBorderColor'] = argb(style.borderColor);
+    }
+    return values;
+  }
+
+  /// Whether the primary selected annotation has a creation style that
+  /// [applySelectedStyleAsDefault] can capture as the default for new
+  /// annotations of its kind.
+  bool get canApplySelectedStyleAsDefault {
+    final annotation = selectedAnnotation;
+    return annotation != null && _defaultStyleTargetFor(annotation) != null;
+  }
+
+  /// Captures the primary selected annotation's appearance (colour, stroke
+  /// width, opacity, fill, line style, and - for free text - font, size,
+  /// and alignment) as the creation default for the tool that draws its
+  /// subtype, so subsequent annotations of that kind inherit it. The
+  /// right-click "Set as default" action. Returns whether a default was
+  /// captured.
+  bool applySelectedStyleAsDefault() {
+    final annotation = selectedAnnotation;
+    if (annotation == null) return false;
+    final target = _defaultStyleTargetFor(annotation);
+    if (target == null) return false;
+    preferences.writeScopedStyle(
+        target.scope, target.fields, _capturedStyleOf(annotation));
+    notifyListeners();
+    return true;
   }
 
   /// Restyles every selected annotation in place - one revision, one

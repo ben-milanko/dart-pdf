@@ -794,6 +794,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Undo'**
   String get undo;
+
+  /// File-picker filter label for PDF files.
+  ///
+  /// In en, this message translates to:
+  /// **'PDF documents'**
+  String get exFileTypePdf;
+
+  /// File-picker filter label for image files.
+  ///
+  /// In en, this message translates to:
+  /// **'Images'**
+  String get exFileTypeImages;
+
+  /// File-picker filter label for TrueType/OpenType font files.
+  ///
+  /// In en, this message translates to:
+  /// **'Fonts'**
+  String get exFileTypeFonts;
 }
 
 class _AppLocalizationsDelegate

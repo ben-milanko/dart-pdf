@@ -8,38 +8,27 @@ import 'l10n/app_l10n.dart';
 import 'recents.dart';
 import 'update.dart';
 
-String get _defaultAppSubtitle {
-  if (kIsWeb) return 'Install the web app, then choose it for PDF files.';
+// The platform-specific default-app help lives in the ARB as one ICU `select`
+// key each (branches: web/windows/macos/linux/android/ios/other), resolved from
+// this selector. Both consumers below have a BuildContext, so no literal needs
+// to live at the no-context data site any more.
+String get _defaultAppPlatform {
+  if (kIsWeb) return 'web';
   return switch (defaultTargetPlatform) {
-    TargetPlatform.windows => 'Open Windows default apps settings for PDFs.',
-    TargetPlatform.macOS => 'Follow Finder’s “Always Open With” steps.',
-    TargetPlatform.linux => 'Use your desktop’s default applications settings.',
-    TargetPlatform.android =>
-      'Choose DartPDF when opening a PDF, then tap Always.',
-    TargetPlatform.iOS => 'Use Share or Open In from Files to send PDFs here.',
-    TargetPlatform.fuchsia => 'Configure your system’s PDF file handler.',
+    TargetPlatform.windows => 'windows',
+    TargetPlatform.macOS => 'macos',
+    TargetPlatform.linux => 'linux',
+    TargetPlatform.android => 'android',
+    TargetPlatform.iOS => 'ios',
+    TargetPlatform.fuchsia => 'fuchsia',
   };
 }
 
-String get _defaultAppInstructions {
-  if (kIsWeb) {
-    return 'Install DartPDF from your browser first. Then use the browser or operating system file-handler settings to associate PDF files with the installed app.';
-  }
-  return switch (defaultTargetPlatform) {
-    TargetPlatform.windows =>
-      'Windows Settings will open to Default apps. Search for “.pdf” or “PDF”, choose the current PDF app, then select DartPDF.',
-    TargetPlatform.macOS =>
-      'In Finder, select any PDF, choose File > Get Info, expand “Open with”, pick DartPDF, then click “Change All…”.',
-    TargetPlatform.linux =>
-      'Open your desktop settings for Default Applications, or right-click a PDF in Files, choose Properties, and set DartPDF as the default for PDF documents.',
-    TargetPlatform.android =>
-      'Open a PDF from Files or Downloads, choose DartPDF in the app picker, then select Always. If another app already opens PDFs, clear that app’s defaults in Android Settings first.',
-    TargetPlatform.iOS =>
-      'iOS does not provide a global default PDF editor. Use Files > Share, or long-press a PDF and choose Share/Open In, then pick DartPDF.',
-    TargetPlatform.fuchsia =>
-      'Use the system settings for file handlers to associate PDF documents with DartPDF.',
-  };
-}
+String _defaultAppSubtitle(BuildContext context) =>
+    appL10n(context).settingsDefaultAppSubtitle(_defaultAppPlatform);
+
+String _defaultAppInstructions(BuildContext context) =>
+    appL10n(context).settingsDefaultAppInstructions(_defaultAppPlatform);
 
 bool get _canOpenDefaultAppsSettings =>
     !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
@@ -59,7 +48,7 @@ Future<void> _showDefaultAppSetup(BuildContext context) {
     context: context,
     builder: (context) => AlertDialog(
       title: Text(appL10n(context).settingsSetUpAsDefault),
-      content: Text(_defaultAppInstructions),
+      content: Text(_defaultAppInstructions(context)),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
@@ -185,7 +174,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.assignment_turned_in_outlined),
                   title: Text(appL10n(context).settingsSetUpAsDefault),
-                  subtitle: Text(_defaultAppSubtitle),
+                  subtitle: Text(_defaultAppSubtitle(context)),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => _showDefaultAppSetup(context),
                 ),
