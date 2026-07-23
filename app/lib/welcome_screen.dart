@@ -139,9 +139,10 @@ class _RecentLeadingState extends State<_RecentLeading> {
     final placeholder = Icon(Icons.description_outlined,
         color: theme.iconTheme.color);
     final future = _thumbnail;
+    const radius = BorderRadius.all(Radius.circular(4));
     return SizedBox(
-      width: 40,
-      height: 52,
+      width: 48,
+      height: 62,
       child: future == null
           ? Center(child: placeholder)
           : FutureBuilder<Uint8List?>(
@@ -152,12 +153,16 @@ class _RecentLeadingState extends State<_RecentLeading> {
                 return Center(
                   child: DecoratedBox(
                     decoration: BoxDecoration(
+                      borderRadius: radius,
                       border: Border.all(color: theme.dividerColor),
                     ),
-                    child: Image.memory(
-                      bytes,
-                      fit: BoxFit.contain,
-                      gaplessPlayback: true,
+                    child: ClipRRect(
+                      borderRadius: radius,
+                      child: Image.memory(
+                        bytes,
+                        fit: BoxFit.contain,
+                        gaplessPlayback: true,
+                      ),
                     ),
                   ),
                 );
