@@ -947,7 +947,7 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get shellPressLetterKeyHint =>
-      'Press a letter key, or Delete to clear.';
+      'Press a letter key, add Shift for a variant, or Delete to clear.';
 
   @override
   String get shellReflow => 'Reflow';

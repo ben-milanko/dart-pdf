@@ -397,10 +397,10 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'Làm phẳng biểu mẫu';
 
   @override
-  String get menuLock => 'Lock';
+  String get menuLock => 'Khóa';
 
   @override
-  String get menuUnlock => 'Unlock';
+  String get menuUnlock => 'Mở khóa';
 
   @override
   String get menuRecolour => 'Đổi màu…';
@@ -826,7 +826,7 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'Chưa đánh dấu';
 
   @override
-  String get searchAnnotations => 'Search annotations';
+  String get searchAnnotations => 'Tìm chú thích';
 
   @override
   String get searchClearSearch => 'Xóa tìm kiếm';
@@ -1000,10 +1000,10 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get sidebarDeleteSignature => 'Xóa chữ ký';
 
   @override
-  String get sidebarLockAnnotation => 'Lock';
+  String get sidebarLockAnnotation => 'Khóa';
 
   @override
-  String get sidebarUnlockAnnotation => 'Unlock';
+  String get sidebarUnlockAnnotation => 'Mở khóa';
 
   @override
   String get sidebarMore => 'Thêm';
@@ -1321,19 +1321,19 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'Dấu kiểm trên tài liệu';
 
   @override
-  String get tbCropImage => 'Crop image';
+  String get tbCropImage => 'Cắt hình ảnh';
 
   @override
-  String get tbCroppingImage => 'Cropping image';
+  String get tbCroppingImage => 'Đang cắt hình ảnh';
 
   @override
-  String get tbCropApply => 'Apply crop';
+  String get tbCropApply => 'Áp dụng cắt';
 
   @override
-  String get tbCropCancel => 'Cancel crop';
+  String get tbCropCancel => 'Hủy cắt';
 
   @override
-  String get tbCropReset => 'Reset crop';
+  String get tbCropReset => 'Đặt lại cắt';
 
   @override
   String get tbColorLabel => 'Màu';

@@ -396,10 +396,10 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'รวมแบบฟอร์ม';
 
   @override
-  String get menuLock => 'Lock';
+  String get menuLock => 'ล็อก';
 
   @override
-  String get menuUnlock => 'Unlock';
+  String get menuUnlock => 'ปลดล็อก';
 
   @override
   String get menuRecolour => 'เปลี่ยนสี…';
@@ -824,7 +824,7 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'ยกเลิกเครื่องหมายแล้ว';
 
   @override
-  String get searchAnnotations => 'Search annotations';
+  String get searchAnnotations => 'ค้นหาคำอธิบายประกอบ';
 
   @override
   String get searchClearSearch => 'ล้างการค้นหา';
@@ -997,10 +997,10 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get sidebarDeleteSignature => 'ลบลายเซ็น';
 
   @override
-  String get sidebarLockAnnotation => 'Lock';
+  String get sidebarLockAnnotation => 'ล็อก';
 
   @override
-  String get sidebarUnlockAnnotation => 'Unlock';
+  String get sidebarUnlockAnnotation => 'ปลดล็อก';
 
   @override
   String get sidebarMore => 'เพิ่มเติม';
@@ -1318,19 +1318,19 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'เครื่องหมายถูกบนเอกสาร';
 
   @override
-  String get tbCropImage => 'Crop image';
+  String get tbCropImage => 'ครอบตัดรูปภาพ';
 
   @override
-  String get tbCroppingImage => 'Cropping image';
+  String get tbCroppingImage => 'กำลังครอบตัดรูปภาพ';
 
   @override
-  String get tbCropApply => 'Apply crop';
+  String get tbCropApply => 'ใช้การครอบตัด';
 
   @override
-  String get tbCropCancel => 'Cancel crop';
+  String get tbCropCancel => 'ยกเลิกการครอบตัด';
 
   @override
-  String get tbCropReset => 'Reset crop';
+  String get tbCropReset => 'รีเซ็ตการครอบตัด';
 
   @override
   String get tbColorLabel => 'สี';

@@ -402,10 +402,10 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'Звести форму';
 
   @override
-  String get menuLock => 'Lock';
+  String get menuLock => 'Заблокувати';
 
   @override
-  String get menuUnlock => 'Unlock';
+  String get menuUnlock => 'Розблокувати';
 
   @override
   String get menuRecolour => 'Перефарбувати…';
@@ -835,7 +835,7 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'Знято позначку';
 
   @override
-  String get searchAnnotations => 'Search annotations';
+  String get searchAnnotations => 'Пошук в анотаціях';
 
   @override
   String get searchClearSearch => 'Очистити пошук';
@@ -1011,10 +1011,10 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get sidebarDeleteSignature => 'Видалити підпис';
 
   @override
-  String get sidebarLockAnnotation => 'Lock';
+  String get sidebarLockAnnotation => 'Заблокувати';
 
   @override
-  String get sidebarUnlockAnnotation => 'Unlock';
+  String get sidebarUnlockAnnotation => 'Розблокувати';
 
   @override
   String get sidebarMore => 'Більше';
@@ -1337,19 +1337,19 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'Позначки на документі';
 
   @override
-  String get tbCropImage => 'Crop image';
+  String get tbCropImage => 'Обрізати зображення';
 
   @override
-  String get tbCroppingImage => 'Cropping image';
+  String get tbCroppingImage => 'Обрізання зображення';
 
   @override
-  String get tbCropApply => 'Apply crop';
+  String get tbCropApply => 'Застосувати обрізання';
 
   @override
-  String get tbCropCancel => 'Cancel crop';
+  String get tbCropCancel => 'Скасувати обрізання';
 
   @override
-  String get tbCropReset => 'Reset crop';
+  String get tbCropReset => 'Скинути обрізання';
 
   @override
   String get tbColorLabel => 'Колір';

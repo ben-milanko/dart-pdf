@@ -405,10 +405,10 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'تسطيح النموذج';
 
   @override
-  String get menuLock => 'Lock';
+  String get menuLock => 'قفل';
 
   @override
-  String get menuUnlock => 'Unlock';
+  String get menuUnlock => 'إلغاء القفل';
 
   @override
   String get menuRecolour => 'إعادة التلوين…';
@@ -838,7 +838,7 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'غير معلّم';
 
   @override
-  String get searchAnnotations => 'Search annotations';
+  String get searchAnnotations => 'البحث في التعليقات التوضيحية';
 
   @override
   String get searchClearSearch => 'مسح البحث';
@@ -1013,10 +1013,10 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get sidebarDeleteSignature => 'حذف التوقيع';
 
   @override
-  String get sidebarLockAnnotation => 'Lock';
+  String get sidebarLockAnnotation => 'قفل';
 
   @override
-  String get sidebarUnlockAnnotation => 'Unlock';
+  String get sidebarUnlockAnnotation => 'إلغاء القفل';
 
   @override
   String get sidebarMore => 'المزيد';
@@ -1342,19 +1342,19 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'علامات الاختيار على المستند';
 
   @override
-  String get tbCropImage => 'Crop image';
+  String get tbCropImage => 'اقتصاص الصورة';
 
   @override
-  String get tbCroppingImage => 'Cropping image';
+  String get tbCroppingImage => 'جارٍ اقتصاص الصورة';
 
   @override
-  String get tbCropApply => 'Apply crop';
+  String get tbCropApply => 'تطبيق الاقتصاص';
 
   @override
-  String get tbCropCancel => 'Cancel crop';
+  String get tbCropCancel => 'إلغاء الاقتصاص';
 
   @override
-  String get tbCropReset => 'Reset crop';
+  String get tbCropReset => 'إعادة تعيين الاقتصاص';
 
   @override
   String get tbColorLabel => 'اللون';

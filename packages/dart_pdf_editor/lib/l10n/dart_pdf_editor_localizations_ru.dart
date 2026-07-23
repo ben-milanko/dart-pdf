@@ -403,10 +403,10 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'Свести форму';
 
   @override
-  String get menuLock => 'Lock';
+  String get menuLock => 'Заблокировать';
 
   @override
-  String get menuUnlock => 'Unlock';
+  String get menuUnlock => 'Разблокировать';
 
   @override
   String get menuRecolour => 'Перекрасить…';
@@ -836,7 +836,7 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'Без отметки';
 
   @override
-  String get searchAnnotations => 'Search annotations';
+  String get searchAnnotations => 'Поиск по аннотациям';
 
   @override
   String get searchClearSearch => 'Очистить поиск';
@@ -1012,10 +1012,10 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get sidebarDeleteSignature => 'Удалить подпись';
 
   @override
-  String get sidebarLockAnnotation => 'Lock';
+  String get sidebarLockAnnotation => 'Заблокировать';
 
   @override
-  String get sidebarUnlockAnnotation => 'Unlock';
+  String get sidebarUnlockAnnotation => 'Разблокировать';
 
   @override
   String get sidebarMore => 'Ещё';
@@ -1339,19 +1339,19 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'Галочки на документе';
 
   @override
-  String get tbCropImage => 'Crop image';
+  String get tbCropImage => 'Обрезать изображение';
 
   @override
-  String get tbCroppingImage => 'Cropping image';
+  String get tbCroppingImage => 'Обрезка изображения';
 
   @override
-  String get tbCropApply => 'Apply crop';
+  String get tbCropApply => 'Применить обрезку';
 
   @override
-  String get tbCropCancel => 'Cancel crop';
+  String get tbCropCancel => 'Отменить обрезку';
 
   @override
-  String get tbCropReset => 'Reset crop';
+  String get tbCropReset => 'Сбросить обрезку';
 
   @override
   String get tbColorLabel => 'Цвет';

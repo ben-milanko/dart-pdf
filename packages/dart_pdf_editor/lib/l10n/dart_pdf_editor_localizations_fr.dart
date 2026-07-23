@@ -399,10 +399,10 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'Aplatir le formulaire';
 
   @override
-  String get menuLock => 'Lock';
+  String get menuLock => 'Verrouiller';
 
   @override
-  String get menuUnlock => 'Unlock';
+  String get menuUnlock => 'Déverrouiller';
 
   @override
   String get menuRecolour => 'Recoloriser…';
@@ -828,7 +828,7 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'Non marqué';
 
   @override
-  String get searchAnnotations => 'Search annotations';
+  String get searchAnnotations => 'Rechercher dans les annotations';
 
   @override
   String get searchClearSearch => 'Effacer la recherche';
@@ -1002,10 +1002,10 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get sidebarDeleteSignature => 'Supprimer la signature';
 
   @override
-  String get sidebarLockAnnotation => 'Lock';
+  String get sidebarLockAnnotation => 'Verrouiller';
 
   @override
-  String get sidebarUnlockAnnotation => 'Unlock';
+  String get sidebarUnlockAnnotation => 'Déverrouiller';
 
   @override
   String get sidebarMore => 'Plus';
@@ -1325,19 +1325,19 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'Coches sur le document';
 
   @override
-  String get tbCropImage => 'Crop image';
+  String get tbCropImage => 'Rogner l\'image';
 
   @override
-  String get tbCroppingImage => 'Cropping image';
+  String get tbCroppingImage => 'Rognage de l\'image';
 
   @override
-  String get tbCropApply => 'Apply crop';
+  String get tbCropApply => 'Appliquer le rognage';
 
   @override
-  String get tbCropCancel => 'Cancel crop';
+  String get tbCropCancel => 'Annuler le rognage';
 
   @override
-  String get tbCropReset => 'Reset crop';
+  String get tbCropReset => 'Réinitialiser le rognage';
 
   @override
   String get tbColorLabel => 'Couleur';

@@ -396,10 +396,10 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'Formu düzleştir';
 
   @override
-  String get menuLock => 'Lock';
+  String get menuLock => 'Kilitle';
 
   @override
-  String get menuUnlock => 'Unlock';
+  String get menuUnlock => 'Kilidi aç';
 
   @override
   String get menuRecolour => 'Yeniden renklendir…';
@@ -824,7 +824,7 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'İşareti kaldırıldı';
 
   @override
-  String get searchAnnotations => 'Search annotations';
+  String get searchAnnotations => 'Ek açıklamalarda ara';
 
   @override
   String get searchClearSearch => 'Aramayı temizle';
@@ -998,10 +998,10 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get sidebarDeleteSignature => 'İmzayı sil';
 
   @override
-  String get sidebarLockAnnotation => 'Lock';
+  String get sidebarLockAnnotation => 'Kilitle';
 
   @override
-  String get sidebarUnlockAnnotation => 'Unlock';
+  String get sidebarUnlockAnnotation => 'Kilidi aç';
 
   @override
   String get sidebarMore => 'Daha fazla';
@@ -1318,19 +1318,19 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'Belge üzerindeki onay işaretleri';
 
   @override
-  String get tbCropImage => 'Crop image';
+  String get tbCropImage => 'Görseli kırp';
 
   @override
-  String get tbCroppingImage => 'Cropping image';
+  String get tbCroppingImage => 'Görsel kırpılıyor';
 
   @override
-  String get tbCropApply => 'Apply crop';
+  String get tbCropApply => 'Kırpmayı uygula';
 
   @override
-  String get tbCropCancel => 'Cancel crop';
+  String get tbCropCancel => 'Kırpmayı iptal et';
 
   @override
-  String get tbCropReset => 'Reset crop';
+  String get tbCropReset => 'Kırpmayı sıfırla';
 
   @override
   String get tbColorLabel => 'Renk';

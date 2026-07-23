@@ -397,10 +397,10 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'Formular reduzieren';
 
   @override
-  String get menuLock => 'Lock';
+  String get menuLock => 'Sperren';
 
   @override
-  String get menuUnlock => 'Unlock';
+  String get menuUnlock => 'Entsperren';
 
   @override
   String get menuRecolour => 'Umfärben…';
@@ -826,7 +826,7 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'Nicht markiert';
 
   @override
-  String get searchAnnotations => 'Search annotations';
+  String get searchAnnotations => 'Anmerkungen durchsuchen';
 
   @override
   String get searchClearSearch => 'Suche leeren';
@@ -1000,10 +1000,10 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get sidebarDeleteSignature => 'Signatur löschen';
 
   @override
-  String get sidebarLockAnnotation => 'Lock';
+  String get sidebarLockAnnotation => 'Sperren';
 
   @override
-  String get sidebarUnlockAnnotation => 'Unlock';
+  String get sidebarUnlockAnnotation => 'Entsperren';
 
   @override
   String get sidebarMore => 'Mehr';
@@ -1322,19 +1322,19 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'Häkchen auf dem Dokument';
 
   @override
-  String get tbCropImage => 'Crop image';
+  String get tbCropImage => 'Bild zuschneiden';
 
   @override
-  String get tbCroppingImage => 'Cropping image';
+  String get tbCroppingImage => 'Bild wird zugeschnitten';
 
   @override
-  String get tbCropApply => 'Apply crop';
+  String get tbCropApply => 'Zuschnitt anwenden';
 
   @override
-  String get tbCropCancel => 'Cancel crop';
+  String get tbCropCancel => 'Zuschnitt abbrechen';
 
   @override
-  String get tbCropReset => 'Reset crop';
+  String get tbCropReset => 'Zuschnitt zurücksetzen';
 
   @override
   String get tbColorLabel => 'Farbe';

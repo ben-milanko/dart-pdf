@@ -397,10 +397,10 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'Formulier afvlakken';
 
   @override
-  String get menuLock => 'Lock';
+  String get menuLock => 'Vergrendelen';
 
   @override
-  String get menuUnlock => 'Unlock';
+  String get menuUnlock => 'Ontgrendelen';
 
   @override
   String get menuRecolour => 'Herkleuren…';
@@ -826,7 +826,7 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'Niet gemarkeerd';
 
   @override
-  String get searchAnnotations => 'Search annotations';
+  String get searchAnnotations => 'Annotaties doorzoeken';
 
   @override
   String get searchClearSearch => 'Zoekopdracht wissen';
@@ -1000,10 +1000,10 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get sidebarDeleteSignature => 'Handtekening verwijderen';
 
   @override
-  String get sidebarLockAnnotation => 'Lock';
+  String get sidebarLockAnnotation => 'Vergrendelen';
 
   @override
-  String get sidebarUnlockAnnotation => 'Unlock';
+  String get sidebarUnlockAnnotation => 'Ontgrendelen';
 
   @override
   String get sidebarMore => 'Meer';
@@ -1321,19 +1321,19 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'Vinkjes op het document';
 
   @override
-  String get tbCropImage => 'Crop image';
+  String get tbCropImage => 'Afbeelding bijsnijden';
 
   @override
-  String get tbCroppingImage => 'Cropping image';
+  String get tbCroppingImage => 'Bezig met bijsnijden';
 
   @override
-  String get tbCropApply => 'Apply crop';
+  String get tbCropApply => 'Bijsnijden toepassen';
 
   @override
-  String get tbCropCancel => 'Cancel crop';
+  String get tbCropCancel => 'Bijsnijden annuleren';
 
   @override
-  String get tbCropReset => 'Reset crop';
+  String get tbCropReset => 'Bijsnijden herstellen';
 
   @override
   String get tbColorLabel => 'Kleur';

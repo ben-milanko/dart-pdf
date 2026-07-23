@@ -396,10 +396,10 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get menuFlattenForm => '양식 병합';
 
   @override
-  String get menuLock => 'Lock';
+  String get menuLock => '잠금';
 
   @override
-  String get menuUnlock => 'Unlock';
+  String get menuUnlock => '잠금 해제';
 
   @override
   String get menuRecolour => '색상 변경…';
@@ -822,7 +822,7 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => '표시 해제됨';
 
   @override
-  String get searchAnnotations => 'Search annotations';
+  String get searchAnnotations => '주석 검색';
 
   @override
   String get searchClearSearch => '검색 지우기';
@@ -994,10 +994,10 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get sidebarDeleteSignature => '서명 삭제';
 
   @override
-  String get sidebarLockAnnotation => 'Lock';
+  String get sidebarLockAnnotation => '잠금';
 
   @override
-  String get sidebarUnlockAnnotation => 'Unlock';
+  String get sidebarUnlockAnnotation => '잠금 해제';
 
   @override
   String get sidebarMore => '더 보기';
@@ -1313,19 +1313,19 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => '문서의 체크 표시';
 
   @override
-  String get tbCropImage => 'Crop image';
+  String get tbCropImage => '이미지 자르기';
 
   @override
-  String get tbCroppingImage => 'Cropping image';
+  String get tbCroppingImage => '이미지 자르는 중';
 
   @override
-  String get tbCropApply => 'Apply crop';
+  String get tbCropApply => '자르기 적용';
 
   @override
-  String get tbCropCancel => 'Cancel crop';
+  String get tbCropCancel => '자르기 취소';
 
   @override
-  String get tbCropReset => 'Reset crop';
+  String get tbCropReset => '자르기 재설정';
 
   @override
   String get tbColorLabel => '색상';

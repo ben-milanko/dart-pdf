@@ -2,7 +2,6 @@ import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:pdf_document/pdf_document.dart'
     show
         PdfAlignment,
@@ -134,7 +133,7 @@ class PdfEditingToolbar extends StatefulWidget {
   /// Shortcut labels to show in tooltips. Keep this in sync with
   /// [PdfViewer.toolShortcuts] when rebinding keys in the stock editor UI.
   /// Tools omitted from the map show no shortcut label.
-  final Map<PdfEditTool, LogicalKeyboardKey> toolShortcuts;
+  final Map<PdfEditTool, PdfToolShortcut> toolShortcuts;
 
   /// The tools to expose, null meaning all of them. A group disappears
   /// from the dock when none of its tools are in the set. Sub-controls

@@ -396,10 +396,10 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'フォームを統合';
 
   @override
-  String get menuLock => 'Lock';
+  String get menuLock => 'ロック';
 
   @override
-  String get menuUnlock => 'Unlock';
+  String get menuUnlock => 'ロック解除';
 
   @override
   String get menuRecolour => '色を変更…';
@@ -822,7 +822,7 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'マーク解除済み';
 
   @override
-  String get searchAnnotations => 'Search annotations';
+  String get searchAnnotations => '注釈を検索';
 
   @override
   String get searchClearSearch => '検索をクリア';
@@ -994,10 +994,10 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get sidebarDeleteSignature => '署名を削除';
 
   @override
-  String get sidebarLockAnnotation => 'Lock';
+  String get sidebarLockAnnotation => 'ロック';
 
   @override
-  String get sidebarUnlockAnnotation => 'Unlock';
+  String get sidebarUnlockAnnotation => 'ロック解除';
 
   @override
   String get sidebarMore => 'その他';
@@ -1312,19 +1312,19 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'ドキュメント上のチェックマーク';
 
   @override
-  String get tbCropImage => 'Crop image';
+  String get tbCropImage => '画像をトリミング';
 
   @override
-  String get tbCroppingImage => 'Cropping image';
+  String get tbCroppingImage => '画像をトリミング中';
 
   @override
-  String get tbCropApply => 'Apply crop';
+  String get tbCropApply => 'トリミングを適用';
 
   @override
-  String get tbCropCancel => 'Cancel crop';
+  String get tbCropCancel => 'トリミングをキャンセル';
 
   @override
-  String get tbCropReset => 'Reset crop';
+  String get tbCropReset => 'トリミングをリセット';
 
   @override
   String get tbColorLabel => 'カラー';

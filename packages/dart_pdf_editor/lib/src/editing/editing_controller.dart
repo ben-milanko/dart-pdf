@@ -1657,6 +1657,16 @@ class PdfEditingController extends ChangeNotifier {
   /// placeholders. Override in tests or when a host app needs a fixed clock.
   DateTime Function() stampTemplateClock = DateTime.now;
 
+  /// The UI locale used to localize the built-in `date`/`datetime` stamp
+  /// fields (month names, AM/PM). Kept fresh by the editing overlay from its
+  /// ambient [Localizations]; falls back to [PdfEditingPreferences.locale]
+  /// (the persisted Settings choice) and finally English. Purely an output
+  /// detail of the resolved stamp text - setting it never notifies listeners.
+  ui.Locale? uiLocale;
+
+  String? get _stampLocaleName =>
+      (uiLocale ?? preferences.locale)?.toString();
+
   /// Field names the stamp editor should offer for insertion.
   ///
   /// This includes the built-ins plus the current custom value keys.
@@ -1685,8 +1695,9 @@ class PdfEditingController extends ChangeNotifier {
 
   Map<String, String> _resolvedStampTemplateValues() {
     final now = stampTemplateClock();
-    final date = preferences.stampDateFormat.format(now);
-    final time = preferences.stampTimeFormat.format(now);
+    final localeName = _stampLocaleName;
+    final date = preferences.stampDateFormat.format(now, localeName: localeName);
+    final time = preferences.stampTimeFormat.format(now, localeName: localeName);
     return {
       'date': date,
       'time': time,
