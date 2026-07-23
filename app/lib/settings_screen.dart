@@ -296,7 +296,7 @@ class _UpdateSection extends StatelessWidget {
             if (updates.updateAvailable) ...[
               const SizedBox(height: 8),
               Align(
-                alignment: Alignment.centerLeft,
+                alignment: AlignmentDirectional.centerStart,
                 child: FilledButton.icon(
                   key: const ValueKey('settings-download-update'),
                   icon: const Icon(Icons.download_outlined, size: 18),

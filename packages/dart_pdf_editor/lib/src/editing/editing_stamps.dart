@@ -269,7 +269,7 @@ class PdfStampPickerDialog extends StatelessWidget {
                 for (final stamp in controller.customStamps)
                   ListTile(
                     title: Align(
-                      alignment: Alignment.centerLeft,
+                      alignment: AlignmentDirectional.centerStart,
                       child: PdfStampPreview(
                           stamp: stamp,
                           templateValues:
@@ -928,7 +928,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
               Row(children: [
                 for (final ink in _inks)
                   Padding(
-                    padding: const EdgeInsets.only(right: 8),
+                    padding: const EdgeInsetsDirectional.only(end: 8),
                     child: InkWell(
                       onTap: () => _setSelectedColor(ink),
                       customBorder: const CircleBorder(),

@@ -261,7 +261,7 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
           Row(children: [
             for (final ink in _inks)
               Padding(
-                padding: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsetsDirectional.only(end: 8),
                 child: InkWell(
                   onTap: () => setState(() => _ink = ink),
                   customBorder: const CircleBorder(),

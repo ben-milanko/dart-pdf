@@ -737,7 +737,7 @@ class _DigitalSignatureDialogState extends State<DigitalSignatureDialog> {
                       style: theme.textTheme.bodySmall),
                   children: [
                     Align(
-                      alignment: Alignment.centerLeft,
+                      alignment: AlignmentDirectional.centerStart,
                       child: Text(
                         appL10n(context).appSigChooseKeyDescription,
                         style: theme.textTheme.bodySmall,

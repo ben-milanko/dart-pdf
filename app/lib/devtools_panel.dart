@@ -151,6 +151,7 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _framesSection(theme),
+            _localeSection(theme),
             _memorySection(theme),
             _workersSection(theme),
             _deepZoomSection(theme),
@@ -354,6 +355,55 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
               .copyWith(color: theme.colorScheme.outline),
         ),
       ]);
+
+  /// A short menu of locales for exercising localization at runtime - RTL ones
+  /// especially, to test the directional-layout sweep. Only English app
+  /// strings ship today, so a non-English pick shows the Material widgets'
+  /// own translations (and RTL layout for Arabic/Hebrew) while app text falls
+  /// back to English.
+  static const List<(Locale?, String)> _testLocales = [
+    (null, 'System default'),
+    (Locale('en'), 'English'),
+    (Locale('es'), 'Español (Spanish)'),
+    (Locale('de'), 'Deutsch (German)'),
+    (Locale('fr'), 'Français (French)'),
+    (Locale('ja'), '日本語 (Japanese)'),
+    (Locale('ar'), 'العربية (Arabic) — RTL'),
+    (Locale('he'), 'עברית (Hebrew) — RTL'),
+  ];
+
+  Widget _localeSection(ThemeData theme) {
+    final override = AppDevTools.instance.localeOverride;
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    return _section(theme, 'Locale (testing)', [
+      DropdownButton<Locale?>(
+        key: const ValueKey('devtools-locale-dropdown'),
+        isExpanded: true,
+        value: override.value,
+        items: [
+          for (final (locale, label) in _testLocales)
+            DropdownMenuItem<Locale?>(
+              value: locale,
+              child: Text(label, overflow: TextOverflow.ellipsis),
+            ),
+        ],
+        onChanged: (locale) => setState(() => override.value = locale),
+      ),
+      Text(
+        'Forces the whole app onto a locale, bypassing platform resolution. '
+        'Only English translations ship today, so other locales show the '
+        'Material widgets translated (and RTL layout for Arabic/Hebrew) while '
+        'app strings fall back to English. Session-only - not persisted.',
+        style:
+            theme.textTheme.bodySmall!.copyWith(color: theme.colorScheme.outline),
+      ),
+      const SizedBox(height: 4),
+      _kv(theme, 'Layout direction', rtl ? 'RTL (right-to-left)' : 'LTR (left-to-right)',
+          help: 'The ambient Directionality the app is currently laying out '
+              'with. RTL locales (Arabic, Hebrew) flip it; the chrome mirrors '
+              'via EdgeInsetsDirectional / AlignmentDirectional.'),
+    ]);
+  }
 
   Widget _section(ThemeData theme, String title, List<Widget> children,
           {Widget? trailing}) =>

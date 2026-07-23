@@ -2432,7 +2432,7 @@ class _EditorScreenState extends State<EditorScreen>
 
       if (compact && !_readOnly && tab?.session != null)
         Padding(
-          padding: const EdgeInsets.only(right: 8),
+          padding: const EdgeInsetsDirectional.only(end: 8),
           child: FilledButton.icon(
             key: const ValueKey('mobile-app-save'),
             style: FilledButton.styleFrom(
@@ -2778,7 +2778,7 @@ class _EditorScreenState extends State<EditorScreen>
           children: [
             if (tab.isDirty)
               Padding(
-                padding: const EdgeInsets.only(right: 6),
+                padding: const EdgeInsetsDirectional.only(end: 6),
                 child: Icon(Icons.circle, size: 8, color: scheme.primary),
               ),
             Flexible(child: text),
@@ -2808,7 +2808,7 @@ class _EditorScreenState extends State<EditorScreen>
               onSecondaryTapUp: (details) =>
                   _showTabMenu(index, details.globalPosition),
               child: Padding(
-                padding: const EdgeInsets.only(left: 12, right: 2),
+                padding: const EdgeInsetsDirectional.only(start: 12, end: 2),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -3242,7 +3242,7 @@ class _OcrStatusChip extends StatelessWidget {
           color: scheme.secondaryContainer,
           borderRadius: BorderRadius.circular(20),
           child: Padding(
-            padding: const EdgeInsets.only(left: 10),
+            padding: const EdgeInsetsDirectional.only(start: 10),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [

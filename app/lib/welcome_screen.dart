@@ -49,7 +49,7 @@ class WelcomeScreen extends StatelessWidget {
                   if (items.isNotEmpty) ...[
                     const SizedBox(height: 28),
                     Align(
-                      alignment: Alignment.centerLeft,
+                      alignment: AlignmentDirectional.centerStart,
                       child: Text(appL10n(context).welcomeRecent,
                           style: theme.textTheme.titleSmall),
                     ),

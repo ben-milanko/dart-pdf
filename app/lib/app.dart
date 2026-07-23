@@ -106,8 +106,11 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge(
-          [_prefs, AppDevTools.instance.showPerformanceOverlay]),
+      listenable: Listenable.merge([
+        _prefs,
+        AppDevTools.instance.showPerformanceOverlay,
+        AppDevTools.instance.localeOverride,
+      ]),
       builder: (context, _) => MaterialApp(
         title: 'DartPDF',
         localizationsDelegates: const [
@@ -115,6 +118,18 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
           DartPdfEditorLocalizations.delegate,
         ],
         supportedLocales: AppLocalizations.supportedLocales,
+        // A DevTools locale override wins over platform resolution: returning
+        // it here forces the app onto that locale even when it isn't in
+        // supportedLocales (untranslated app strings fall back to English, but
+        // Directionality and the Material delegates follow it - enough to test
+        // the RTL sweep). Null override falls through to the default resolution.
+        locale: AppDevTools.instance.localeOverride.value,
+        localeResolutionCallback: (locale, supportedLocales) {
+          final override = AppDevTools.instance.localeOverride.value;
+          if (override != null) return override;
+          return basicLocaleListResolution(
+              locale == null ? null : [locale], supportedLocales);
+        },
         showPerformanceOverlay:
             AppDevTools.instance.showPerformanceOverlay.value,
         theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),

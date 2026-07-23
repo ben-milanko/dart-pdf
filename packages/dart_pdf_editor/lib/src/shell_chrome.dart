@@ -1847,7 +1847,7 @@ class PdfShellPanelSwitch extends StatelessWidget {
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         if (items.length > 1)
           Padding(
-            padding: const EdgeInsets.only(left: 4, right: 6),
+            padding: const EdgeInsetsDirectional.only(start: 4, end: 6),
             child: Text(
               pdfL10n(context).shellPanels,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(

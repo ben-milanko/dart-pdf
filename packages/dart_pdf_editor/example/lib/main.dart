@@ -1570,7 +1570,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
           borderRadius: BorderRadius.circular(8),
           onTap: () => setState(() => _activeIndex = index),
           child: Padding(
-            padding: const EdgeInsets.only(left: 12, right: 2),
+            padding: const EdgeInsetsDirectional.only(start: 12, end: 2),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1911,7 +1911,7 @@ class _OcrSettingsDialogState extends State<_OcrSettingsDialog> {
             ),
             const SizedBox(height: 8),
             Align(
-              alignment: Alignment.centerLeft,
+              alignment: AlignmentDirectional.centerStart,
               child: TextButton.icon(
                 icon: const Icon(Icons.help_outline, size: 18),
                 label: Text(appL10n(context).exHowToSetupOcr),

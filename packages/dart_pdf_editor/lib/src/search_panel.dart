@@ -157,7 +157,7 @@ class _PdfSearchFieldState extends State<PdfSearchField> {
           ),
           if (widget.showOptions)
             Padding(
-              padding: const EdgeInsets.only(left: 4),
+              padding: const EdgeInsetsDirectional.only(start: 4),
               child: _SearchOptionsBar(
                   controller: controller, preferences: widget.preferences),
             ),
@@ -445,7 +445,7 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
                   child: Align(
-                    alignment: Alignment.centerLeft,
+                    alignment: AlignmentDirectional.centerStart,
                     child: _SearchOptionsBar(
                         controller: controller,
                         preferences: widget.preferences),
