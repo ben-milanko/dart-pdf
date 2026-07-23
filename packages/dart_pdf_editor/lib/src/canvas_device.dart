@@ -180,7 +180,12 @@ class CanvasPdfDevice implements PdfDevice {
       {required bool fill, required bool stroke, required int mode}) {
     // [mode] (OPM 0/1) only distinguishes which DeviceCMYK components a
     // colorant buffer would write; the RGB `darken` approximation below cannot
-    // act on it, so it is intentionally not stored.
+    // act on it, so it is intentionally not stored. Empirically (issue #502)
+    // no fixed RGB blend that keys off OPM beats darken-always here: gating
+    // OPM-0 to a knockout fixes the "over CMYK" patches but reintroduces the
+    // fail-marker on the "over spot" patches (a separation colorant must
+    // survive the knockout), and vice-versa - the two only diverge in colorant
+    // space. See doc/dev-log/2026-07-23-overprint-rgb-ceiling.md.
     _fillOverprint = fill;
     _strokeOverprint = stroke;
   }
