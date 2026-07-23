@@ -1,0 +1,19 @@
+Neu in 2.1.0
+
+LESEN
+• Umbruch-Leseansicht: Lesen Sie ein Dokument als fließenden Text statt als feste Seiten – mit flüssigem Scrollen durch lange Dateien, schneller Navigation, gemerkter Leseposition und einer Abbildungsansicht zum Durchtippen von Bildern und Diagrammen.
+
+TEMPO UND SPEICHER
+• Dokumente öffnen und rendern spürbar schneller, mit den größten Verbesserungen bei großen oder bildlastigen Dateien.
+• Das Speichern einer Änderung ist jetzt proportional zur Größe der Änderung statt zur Größe des Dokuments, sodass Bearbeitungen auch in langen Dateien schnell bleiben.
+• Geringerer Speicherbedarf bei sehr breiten Zeichnungen, die beim Verschieben nur noch den sichtbaren Teil der Seite im Speicher halten.
+• Schnelleres Dekodieren gescannter Schwarz-Weiß-Dokumente.
+
+RENDERING-KORREKTUREN
+• Feine Linienführung bleibt beim Herauszoomen scharf und lesbar, statt zu verblassen – ein Unterschied, den Sie vor allem bei Zeichnungen und Plänen bemerken werden.
+• Genauere Farben in Farbverläufen, einschließlich radialer Verläufe, die zuvor nur teilweise angezeigt wurden.
+• Korrekte Farben für indizierte Bilder, auch für solche auf Basis von JPEG 2000, Separation und DeviceN.
+• Symbol- und ZapfDingbats-Zeichen werden jetzt richtig dargestellt, statt als leere Kästchen zu erscheinen.
+• Abgetastete Farbfunktionen mit mehreren Eingaben werden korrekt ausgewertet.
+
+Vielen Dank, dass Sie DartPDF verwenden. Feedback und Fehlerberichte sind jederzeit willkommen.

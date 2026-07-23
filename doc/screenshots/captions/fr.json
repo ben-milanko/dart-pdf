@@ -1,0 +1,38 @@
+{
+  "locale": "fr",
+  "_comment": "Localized marketing-screenshot captions. Keyed <target>/<basename>, matching the raw capture PNG names. Each entry is the headline and subtitle overlaid on the framed store shot by tool/compose_marketing.dart. Keep headlines short (they set at a large size) and honour the App Store Guideline 2.3.10 rule: no other-platform names in app/* captions.",
+  "captions": {
+    "app/01-welcome": {
+      "headline": "Modification PDF privée",
+      "subtitle": "Sans compte. Sans téléversement. Vos fichiers restent sur votre appareil."
+    },
+    "app/02-editor": {
+      "headline": "Annotez, signez, caviardez",
+      "subtitle": "Remplissez des formulaires, ajoutez des notes et déplacez les pages."
+    },
+    "app/03-dark": {
+      "headline": "Conçu pour de vrais documents",
+      "subtitle": "Recherchez du texte, lancez l'OCR, comparez les versions,\net ouvrez des fichiers protégés."
+    },
+    "example/01-document": {
+      "headline": "Ouvrez n'importe quel PDF",
+      "subtitle": "Rendu en Dart pur, sur toutes les plateformes"
+    },
+    "example/02-graphics": {
+      "headline": "Graphismes",
+      "subtitle": "Dégradés, ombrages et transparence"
+    },
+    "example/03-annotations": {
+      "headline": "Annotations",
+      "subtitle": "Surlignages, encre, notes, tampons et formulaires"
+    },
+    "example/04-markup": {
+      "headline": "Outils de marquage",
+      "subtitle": "Dessinez, ajoutez des formes et signez sur la page"
+    },
+    "example/05-reader": {
+      "headline": "Vue de lecture",
+      "subtitle": "Redistribue le texte pour l'adapter à l'écran"
+    }
+  }
+}

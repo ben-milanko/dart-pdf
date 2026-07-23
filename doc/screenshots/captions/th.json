@@ -1,0 +1,38 @@
+{
+  "locale": "th",
+  "_comment": "Localized marketing-screenshot captions. Keyed <target>/<basename>, matching the raw capture PNG names. Each entry is the headline and subtitle overlaid on the framed store shot by tool/compose_marketing.dart. Keep headlines short (they set at a large size) and honour the App Store Guideline 2.3.10 rule: no other-platform names in app/* captions.",
+  "captions": {
+    "app/01-welcome": {
+      "headline": "แก้ไข PDF แบบเป็นส่วนตัว",
+      "subtitle": "ไม่ต้องมีบัญชี ไม่มีการอัปโหลด ไฟล์อยู่บนอุปกรณ์ของคุณ"
+    },
+    "app/02-editor": {
+      "headline": "ใส่คำอธิบาย ลงนาม ปิดบัง",
+      "subtitle": "กรอกแบบฟอร์ม เพิ่มโน้ต และย้ายหน้า"
+    },
+    "app/03-dark": {
+      "headline": "สร้างมาเพื่อเอกสารจริง",
+      "subtitle": "ค้นหาข้อความ รัน OCR เปรียบเทียบเวอร์ชัน\nและเปิดไฟล์ที่ป้องกันไว้"
+    },
+    "example/01-document": {
+      "headline": "เปิด PDF ไฟล์ใดก็ได้",
+      "subtitle": "แสดงผลด้วย Dart ล้วน บนทุกแพลตฟอร์ม"
+    },
+    "example/02-graphics": {
+      "headline": "กราฟิก",
+      "subtitle": "การไล่ระดับ การแรเงา และความโปร่งใส"
+    },
+    "example/03-annotations": {
+      "headline": "คำอธิบายประกอบ",
+      "subtitle": "ไฮไลต์ หมึกวาด โน้ต ตราประทับ และแบบฟอร์ม"
+    },
+    "example/04-markup": {
+      "headline": "เครื่องมือมาร์กอัป",
+      "subtitle": "วาด เพิ่มรูปทรง และลงนามบนหน้า"
+    },
+    "example/05-reader": {
+      "headline": "มุมมองการอ่าน",
+      "subtitle": "จัดเรียงข้อความใหม่ให้พอดีหน้าจอ"
+    }
+  }
+}

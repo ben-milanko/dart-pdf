@@ -1,0 +1,38 @@
+{
+  "locale": "tr",
+  "_comment": "Localized marketing-screenshot captions. Keyed <target>/<basename>, matching the raw capture PNG names. Each entry is the headline and subtitle overlaid on the framed store shot by tool/compose_marketing.dart. Keep headlines short (they set at a large size) and honour the App Store Guideline 2.3.10 rule: no other-platform names in app/* captions.",
+  "captions": {
+    "app/01-welcome": {
+      "headline": "Gizli PDF düzenleme",
+      "subtitle": "Hesap yok. Yükleme yok. Dosyalar cihazınızda kalır."
+    },
+    "app/02-editor": {
+      "headline": "İşaretle, imzala, karart",
+      "subtitle": "Form doldurun, not ekleyin ve sayfaları taşıyın."
+    },
+    "app/03-dark": {
+      "headline": "Gerçek belgeler için tasarlandı",
+      "subtitle": "Metin arayın, OCR çalıştırın, sürümleri karşılaştırın\nve korumalı dosyaları açın."
+    },
+    "example/01-document": {
+      "headline": "Her PDF'yi açın",
+      "subtitle": "Her platformda saf Dart ile işlenir"
+    },
+    "example/02-graphics": {
+      "headline": "Grafikler",
+      "subtitle": "Gradyanlar, gölgelendirmeler ve saydamlık"
+    },
+    "example/03-annotations": {
+      "headline": "Ek açıklamalar",
+      "subtitle": "Vurgular, kalem, notlar, damgalar ve formlar"
+    },
+    "example/04-markup": {
+      "headline": "İşaretleme araçları",
+      "subtitle": "Sayfada çizin, şekil ekleyin ve imzalayın"
+    },
+    "example/05-reader": {
+      "headline": "Okuma görünümü",
+      "subtitle": "Metni ekrana sığacak şekilde yeniden akıtır"
+    }
+  }
+}
