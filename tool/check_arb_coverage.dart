@@ -141,12 +141,70 @@ Map<String, dynamic>? _readArb(File file, List<String> problems) {
 Set<String> _messageKeys(Map<String, dynamic> arb) =>
     {for (final key in arb.keys) if (!key.startsWith('@')) key};
 
-/// The bare `{name}` interpolation placeholders used in [value] (not the ICU
-/// `{x, plural/select, ...}` selectors, whose `{x,` shape doesn't match).
-Set<String> _placeholders(String value) => RegExp(r'\{(\w+)\}')
-    .allMatches(value)
-    .map((m) => m.group(1)!)
-    .toSet();
+/// The interpolation placeholder names referenced in [value].
+///
+/// ICU plural/select *branch bodies* are literal text that each locale
+/// translates, so a bare word used as a branch body - the `Selection` in
+/// `{count, plural, =1{Selection} other{{count} selected}}` - is NOT a
+/// placeholder, even though it is brace-wrapped. Only the plural/select
+/// argument variable (`count`) and genuine `{name}` interpolations count. A
+/// naive `\{(\w+)\}` scan would flag a translated single-word branch body
+/// (`{Auswahl}`) as a stray placeholder; this walks the ICU structure so it
+/// doesn't, while still catching a typo'd/renamed real placeholder inside a
+/// branch (`{cont}` for `{count}`).
+Set<String> _placeholders(String value) {
+  final names = <String>{};
+  _scanMessage(value, names);
+  return names;
+}
+
+/// Index of the `}` matching the `{` at [open] in [s], or -1 if unbalanced.
+int _matchBrace(String s, int open) {
+  var depth = 0;
+  for (var i = open; i < s.length; i++) {
+    if (s[i] == '{') depth++;
+    if (s[i] == '}' && --depth == 0) return i;
+  }
+  return -1;
+}
+
+/// Walks the `{...}` groups in a message [s], recording real placeholder names.
+void _scanMessage(String s, Set<String> names) {
+  for (var i = 0; i < s.length; i++) {
+    if (s[i] != '{') continue;
+    final close = _matchBrace(s, i);
+    if (close < 0) break;
+    final inner = s.substring(i + 1, close);
+    final icu = RegExp(r'^\s*(\w+)\s*,\s*(\w+)\s*,?(.*)$', dotAll: true)
+        .firstMatch(inner);
+    if (icu != null) {
+      names.add(icu.group(1)!); // the ICU argument variable
+      // plural/select/selectordinal carry translatable branch bodies to walk;
+      // number/date/time (and other simple arg formats) carry none.
+      const branching = {'plural', 'select', 'selectordinal'};
+      if (branching.contains(icu.group(2))) _scanBranches(icu.group(3)!, names);
+    } else if (RegExp(r'^\s*\w+\s*$').hasMatch(inner)) {
+      names.add(inner.trim()); // a simple {name} interpolation
+    } else {
+      _scanMessage(inner, names); // some other nested shape
+    }
+    i = close;
+  }
+}
+
+/// Walks the `selector{body}` pairs of a plural/select's [s], scanning each
+/// body's interior (not its delimiting braces) for real interpolations.
+void _scanBranches(String s, Set<String> names) {
+  var i = 0;
+  while (true) {
+    final open = s.indexOf('{', i);
+    if (open < 0) break;
+    final close = _matchBrace(s, open);
+    if (close < 0) break;
+    _scanMessage(s.substring(open + 1, close), names);
+    i = close + 1;
+  }
+}
 
 /// Placeholder names the template's `@key` metadata declares for [key].
 Set<String> _declaredPlaceholders(Map<String, dynamic> template, String key) {

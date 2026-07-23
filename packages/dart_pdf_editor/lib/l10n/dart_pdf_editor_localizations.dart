@@ -5,8 +5,25 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart' as intl;
 
+import 'dart_pdf_editor_localizations_ar.dart';
+import 'dart_pdf_editor_localizations_de.dart';
 import 'dart_pdf_editor_localizations_en.dart';
 import 'dart_pdf_editor_localizations_es.dart';
+import 'dart_pdf_editor_localizations_fr.dart';
+import 'dart_pdf_editor_localizations_hi.dart';
+import 'dart_pdf_editor_localizations_id.dart';
+import 'dart_pdf_editor_localizations_it.dart';
+import 'dart_pdf_editor_localizations_ja.dart';
+import 'dart_pdf_editor_localizations_ko.dart';
+import 'dart_pdf_editor_localizations_nl.dart';
+import 'dart_pdf_editor_localizations_pl.dart';
+import 'dart_pdf_editor_localizations_pt.dart';
+import 'dart_pdf_editor_localizations_ru.dart';
+import 'dart_pdf_editor_localizations_th.dart';
+import 'dart_pdf_editor_localizations_tr.dart';
+import 'dart_pdf_editor_localizations_uk.dart';
+import 'dart_pdf_editor_localizations_vi.dart';
+import 'dart_pdf_editor_localizations_zh.dart';
 
 // ignore_for_file: type=lint
 
@@ -95,8 +112,26 @@ abstract class DartPdfEditorLocalizations {
 
   /// A list of this localizations delegate's supported locales.
   static const List<Locale> supportedLocales = <Locale>[
+    Locale('ar'),
+    Locale('de'),
     Locale('en'),
-    Locale('es')
+    Locale('es'),
+    Locale('fr'),
+    Locale('hi'),
+    Locale('id'),
+    Locale('it'),
+    Locale('ja'),
+    Locale('ko'),
+    Locale('nl'),
+    Locale('pl'),
+    Locale('pt'),
+    Locale('ru'),
+    Locale('th'),
+    Locale('tr'),
+    Locale('uk'),
+    Locale('vi'),
+    Locale('zh'),
+    Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant')
   ];
 
   /// Generic button that adds a new item.
@@ -1574,6 +1609,12 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Unmarked'**
   String get sbarStateUnmarked;
+
+  /// Tooltip on the search option toggle that also searches annotation contents (notes, comments, free text).
+  ///
+  /// In en, this message translates to:
+  /// **'Search annotations'**
+  String get searchAnnotations;
 
   /// Tooltip on the button that clears the document search field.
   ///
@@ -3471,20 +3512,85 @@ class _DartPdfEditorLocalizationsDelegate
   }
 
   @override
-  bool isSupported(Locale locale) =>
-      <String>['en', 'es'].contains(locale.languageCode);
+  bool isSupported(Locale locale) => <String>[
+        'ar',
+        'de',
+        'en',
+        'es',
+        'fr',
+        'hi',
+        'id',
+        'it',
+        'ja',
+        'ko',
+        'nl',
+        'pl',
+        'pt',
+        'ru',
+        'th',
+        'tr',
+        'uk',
+        'vi',
+        'zh'
+      ].contains(locale.languageCode);
 
   @override
   bool shouldReload(_DartPdfEditorLocalizationsDelegate old) => false;
 }
 
 DartPdfEditorLocalizations lookupDartPdfEditorLocalizations(Locale locale) {
+  // Lookup logic when language+script codes are specified.
+  switch (locale.languageCode) {
+    case 'zh':
+      {
+        switch (locale.scriptCode) {
+          case 'Hant':
+            return DartPdfEditorLocalizationsZhHant();
+        }
+        break;
+      }
+  }
+
   // Lookup logic when only language code is specified.
   switch (locale.languageCode) {
+    case 'ar':
+      return DartPdfEditorLocalizationsAr();
+    case 'de':
+      return DartPdfEditorLocalizationsDe();
     case 'en':
       return DartPdfEditorLocalizationsEn();
     case 'es':
       return DartPdfEditorLocalizationsEs();
+    case 'fr':
+      return DartPdfEditorLocalizationsFr();
+    case 'hi':
+      return DartPdfEditorLocalizationsHi();
+    case 'id':
+      return DartPdfEditorLocalizationsId();
+    case 'it':
+      return DartPdfEditorLocalizationsIt();
+    case 'ja':
+      return DartPdfEditorLocalizationsJa();
+    case 'ko':
+      return DartPdfEditorLocalizationsKo();
+    case 'nl':
+      return DartPdfEditorLocalizationsNl();
+    case 'pl':
+      return DartPdfEditorLocalizationsPl();
+    case 'pt':
+      return DartPdfEditorLocalizationsPt();
+    case 'ru':
+      return DartPdfEditorLocalizationsRu();
+    case 'th':
+      return DartPdfEditorLocalizationsTh();
+    case 'tr':
+      return DartPdfEditorLocalizationsTr();
+    case 'uk':
+      return DartPdfEditorLocalizationsUk();
+    case 'vi':
+      return DartPdfEditorLocalizationsVi();
+    case 'zh':
+      return DartPdfEditorLocalizationsZh();
   }
 
   throw FlutterError(

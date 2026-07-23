@@ -305,6 +305,14 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
       selected: index == widget.controller.currentMatch,
       selectedTileColor: scheme.secondaryContainer,
       selectedColor: scheme.onSecondaryContainer,
+      // Annotation hits (note bodies, comments, free text) carry a small
+      // comment glyph so they read apart from page-text hits in the list.
+      leading: result.isAnnotation
+          ? Icon(Icons.comment_outlined,
+              size: 16, color: scheme.onSurfaceVariant)
+          : null,
+      horizontalTitleGap: result.isAnnotation ? 8 : null,
+      minLeadingWidth: result.isAnnotation ? 16 : null,
       title: Text.rich(
         TextSpan(children: [
           TextSpan(text: result.prefix),
@@ -501,6 +509,7 @@ class _SearchOptionsBarState extends State<_SearchOptionsBar> {
           matchCase: p.searchMatchCase,
           wholeWord: p.searchWholeWord,
           regex: p.searchRegex,
+          searchAnnotations: p.searchAnnotations,
         ));
       });
     }
@@ -513,7 +522,8 @@ class _SearchOptionsBarState extends State<_SearchOptionsBar> {
       prefs
         ..searchMatchCase = next.matchCase
         ..searchWholeWord = next.wholeWord
-        ..searchRegex = next.regex;
+        ..searchRegex = next.regex
+        ..searchAnnotations = next.searchAnnotations;
     }
   }
 
@@ -524,7 +534,8 @@ class _SearchOptionsBarState extends State<_SearchOptionsBar> {
 
     Widget toggle({
       required String keyName,
-      required String glyph,
+      String? glyph,
+      IconData? iconData,
       required String tooltip,
       required bool selected,
       required PdfSearchOptions next,
@@ -543,11 +554,13 @@ class _SearchOptionsBarState extends State<_SearchOptionsBar> {
                 : scheme.onSurfaceVariant,
           ),
           onPressed: () => _apply(next),
-          icon: Text(
-            glyph,
-            style: const TextStyle(
-                fontSize: 13, fontWeight: FontWeight.w600, height: 1),
-          ),
+          icon: iconData != null
+              ? Icon(iconData, size: 16)
+              : Text(
+                  glyph!,
+                  style: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w600, height: 1),
+                ),
         );
 
     return Row(mainAxisSize: MainAxisSize.min, children: [
@@ -571,6 +584,13 @@ class _SearchOptionsBarState extends State<_SearchOptionsBar> {
         tooltip: pdfL10n(context).searchRegex,
         selected: options.regex,
         next: options.copyWith(regex: !options.regex),
+      ),
+      toggle(
+        keyName: 'pdf-search-annotations',
+        iconData: Icons.comment_outlined,
+        tooltip: pdfL10n(context).searchAnnotations,
+        selected: options.searchAnnotations,
+        next: options.copyWith(searchAnnotations: !options.searchAnnotations),
       ),
     ]);
   }

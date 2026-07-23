@@ -88,6 +88,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   bool _searchMatchCase = false;
   bool _searchWholeWord = false;
   bool _searchRegex = false;
+  bool _searchAnnotations = true;
   double? _thumbnailSidebarWidth;
   double? _bookmarkSidebarWidth;
   double? _annotationSidebarWidth;
@@ -265,6 +266,8 @@ class PdfEditingPreferences extends ChangeNotifier {
       _searchWholeWord =
           store.getBool('${_prefix}searchWholeWord') ?? _searchWholeWord;
       _searchRegex = store.getBool('${_prefix}searchRegex') ?? _searchRegex;
+      _searchAnnotations = store.getBool('${_prefix}searchAnnotations') ??
+          _searchAnnotations;
       _propertiesPanelWidth =
           store.getDouble('${_prefix}propertiesPanelWidth') ??
               _propertiesPanelWidth;
@@ -1328,6 +1331,17 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _searchRegex) return;
     _searchRegex = value;
     _write((s) => s.setBool('${_prefix}searchRegex', value));
+    notifyListeners();
+  }
+
+  /// Whether document search also scans annotation /Contents (see
+  /// `PdfSearchOptions.searchAnnotations`). On by default. Persisted.
+  bool get searchAnnotations => _searchAnnotations;
+
+  set searchAnnotations(bool value) {
+    if (value == _searchAnnotations) return;
+    _searchAnnotations = value;
+    _write((s) => s.setBool('${_prefix}searchAnnotations', value));
     notifyListeners();
   }
 }
