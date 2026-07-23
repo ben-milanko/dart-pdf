@@ -25,6 +25,23 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('language picker writes the chosen locale to prefs',
+      (tester) async {
+    await openSettings(tester);
+
+    // Defaults to "System default" (null locale).
+    expect(prefs.locale, isNull);
+    expect(find.byKey(const ValueKey('settings-language')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('settings-language')));
+    await tester.pumpAndSettle();
+    // The menu lists each language by its native name; pick Spanish.
+    await tester.tap(find.text('Español').last);
+    await tester.pumpAndSettle();
+
+    expect(prefs.locale, const Locale('es'));
+  });
+
   testWidgets('settings offer default application setup', (tester) async {
     await openSettings(tester);
 
@@ -81,7 +98,13 @@ void main() {
       await openSettings(tester);
 
       expect(find.textContaining(scenario.subtitle), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('settings-default-app')));
+      // The settings content scrolls; ensure the default-app tile is on-screen
+      // before tapping (a longer per-platform subtitle can push it below the
+      // fold on the smaller mobile surfaces).
+      final tile = find.byKey(const ValueKey('settings-default-app'));
+      await tester.ensureVisible(tile);
+      await tester.pumpAndSettle();
+      await tester.tap(tile);
       await tester.pumpAndSettle();
 
       expect(find.textContaining(scenario.dialogText), findsOneWidget);

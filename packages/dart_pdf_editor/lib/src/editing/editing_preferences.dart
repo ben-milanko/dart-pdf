@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart' show ThemeMode;
+import 'package:flutter/material.dart' show Locale, ThemeMode;
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart'
     show PdfLineEnding, PdfStandardFont, PdfTextAlign;
@@ -73,6 +73,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   PdfStampDateFormat _stampDateFormat = PdfStampDateFormat.iso;
   PdfStampTimeFormat _stampTimeFormat = PdfStampTimeFormat.twentyFourHour;
   ThemeMode _themeMode = ThemeMode.system;
+  Locale? _locale;
   PdfColorFormat _colorPickerFormat = PdfColorFormat.hex;
   List<Color> _recentColors = const [];
   List<String> _recentFonts = const [];
@@ -210,6 +211,10 @@ class PdfEditingPreferences extends ChangeNotifier {
       final themeMode = store.getString('${_prefix}themeMode');
       if (themeMode != null) {
         _themeMode = ThemeMode.values.asNameMap()[themeMode] ?? _themeMode;
+      }
+      final locale = store.getString('${_prefix}locale');
+      if (locale != null && locale.isNotEmpty) {
+        _locale = _parseLocaleTag(locale);
       }
       final colorPickerFormat = store.getString('${_prefix}colorPickerFormat');
       if (colorPickerFormat != null) {
@@ -830,6 +835,46 @@ class PdfEditingPreferences extends ChangeNotifier {
     _themeMode = value;
     _write((s) => s.setString('${_prefix}themeMode', value.name));
     notifyListeners();
+  }
+
+  /// The UI language the user picked in Settings, or null (the default) to
+  /// follow the platform locale. A host feeds this to its `MaterialApp`
+  /// locale resolution; null means "System default" and defers to Flutter's
+  /// own preferred-locale algorithm. Persisted by BCP-47 language tag.
+  Locale? get locale => _locale;
+
+  set locale(Locale? value) {
+    if (value == _locale) return;
+    _locale = value;
+    _write((s) => value == null
+        ? s.remove('${_prefix}locale')
+        : s.setString('${_prefix}locale', value.toLanguageTag()));
+    notifyListeners();
+  }
+
+  /// Parses a persisted BCP-47 language tag (e.g. `es`, `pt-BR`, `zh-Hans`)
+  /// back into a [Locale], reading a 4-letter subtag as the script and a
+  /// 2-letter / 3-digit subtag as the region. Returns null for an empty or
+  /// malformed tag so a corrupt value quietly falls back to the system
+  /// locale.
+  static Locale? _parseLocaleTag(String tag) {
+    final parts = tag.split(RegExp('[-_]'));
+    if (parts.isEmpty || parts.first.isEmpty) return null;
+    String? script;
+    String? country;
+    for (final part in parts.skip(1)) {
+      if (part.length == 4 && script == null) {
+        script = part[0].toUpperCase() + part.substring(1).toLowerCase();
+      } else if (country == null &&
+          (part.length == 2 || (part.length == 3 && int.tryParse(part) != null))) {
+        country = part.toUpperCase();
+      }
+    }
+    return Locale.fromSubtags(
+      languageCode: parts.first.toLowerCase(),
+      scriptCode: script,
+      countryCode: country,
+    );
   }
 
   /// The value format the color picker last showed (hex, RGB, HSL, or

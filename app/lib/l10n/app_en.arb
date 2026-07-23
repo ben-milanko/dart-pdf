@@ -971,6 +971,14 @@
   "@settingsCheckNow": {
     "description": "Button that triggers an immediate check for app updates."
   },
+  "settingsLanguage": "Language",
+  "@settingsLanguage": {
+    "description": "Section header / label for the UI language picker in settings."
+  },
+  "settingsLanguageSystem": "System default",
+  "@settingsLanguageSystem": {
+    "description": "Language picker option that follows the device's language instead of a fixed choice."
+  },
   "settingsCheckingForUpdates": "Checking for updates…",
   "@settingsCheckingForUpdates": {
     "description": "Status line shown while an update check is in progress."

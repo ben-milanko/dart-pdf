@@ -714,6 +714,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsCheckNow => 'Check now';
 
   @override
+  String get settingsLanguage => 'Language';
+
+  @override
+  String get settingsLanguageSystem => 'System default';
+
+  @override
   String get settingsCheckingForUpdates => 'Checking for updates…';
 
   @override
