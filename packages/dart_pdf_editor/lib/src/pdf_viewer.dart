@@ -2675,9 +2675,10 @@ class _PdfViewerState extends State<PdfViewer>
   /// (layout zoom 1), where the page already fills the viewport and growing
   /// further would overflow the narrower width - and pins the reading anchor
   /// (the page, and the fraction down it, at the viewport top), re-deriving the
-  /// scroll offset once the new width has laid out. When the viewer is zoomed
-  /// in past fit-width the [_transform] carries the zoom, so [_layoutZoom] is
-  /// left at 1 and only the anchor is preserved.
+  /// scroll offset once the new width has laid out. The zoom itself lives in
+  /// one of two tiers - [_layoutZoom] at/below fit-width, the [_transform]
+  /// scale above it - and whichever is live is counter-scaled so the on-screen
+  /// scale ([_fitScale] × zoom) comes out unchanged.
   ///
   /// The scale is held for any cross-axis change, whatever moves it - a panel's
   /// resize grip, a panel opening or closing, or a window resize. (An earlier
@@ -2706,15 +2707,36 @@ class _PdfViewerState extends State<PdfViewer>
       }
       acc += extent;
     }
-    // Hold the on-screen scale: [_fitScale] scales by newCross/oldCross, so
-    // scale [_layoutZoom] the other way. Only the at-/below-fit tier (transform
-    // ~ identity) is adjusted; past fit-width the transform carries the zoom.
-    if (newCross > 0 && _transform.value.getMaxScaleOnAxis() <= 1.01) {
+    // Hold the on-screen scale (= [_fitScale] × zoom): [_fitScale] scales by
+    // newCross/oldCross, so scale the zoom the other way. The zoom lives in one
+    // of two tiers, so compensate whichever one is live:
+    //  - at/below fit-width the pages lay out at [_layoutZoom] (transform ~
+    //    identity): counter-scale it here, during build, so this same frame
+    //    lays out at the held scale (no flicker). Capped at fit-width.
+    //  - zoomed in past fit-width the [_transform] carries the zoom
+    //    ([_layoutZoom] == 1): counter-scale the transform in the post-frame
+    //    below, once the new extents exist. This is the common editing case -
+    //    without it, closing a panel (a wider viewport, so a larger fit scale)
+    //    zoomed the page in.
+    final zoomedIn = _transform.value.getMaxScaleOnAxis() > 1.01;
+    if (newCross > 0 && !zoomedIn) {
       _layoutZoom =
           (_layoutZoom * oldCross / newCross).clamp(widget.minZoom, 1.0);
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scroll.hasClients || _viewWidth <= 0) return;
+      if (zoomedIn && newCross > 0) {
+        // hold the zoomed-in scale: rescale the transform by oldCross/newCross
+        // about the viewport centre (which stays put), cancelling the fit-scale
+        // change so [_fitScale] × transformScale is constant.
+        final factor = oldCross / newCross;
+        final focal = Offset(_viewWidth / 2, _viewHeight / 2);
+        final matrix = _transform.value.clone()
+          ..translateByDouble(focal.dx, focal.dy, 0, 1)
+          ..scaleByDouble(factor, factor, factor, 1)
+          ..translateByDouble(-focal.dx, -focal.dy, 0, 1);
+        _transform.value = _clampedTransform(matrix);
+      }
       final target =
           (_slotStart(anchorPage) + fraction * _scrollExtentOf(anchorPage))
               .clamp(0.0, _scroll.position.maxScrollExtent);

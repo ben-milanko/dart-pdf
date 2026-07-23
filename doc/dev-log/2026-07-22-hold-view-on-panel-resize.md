@@ -25,11 +25,19 @@ _layoutZoom = (_layoutZoom * oldCross / newCross).clamp(widget.minZoom, 1.0);
 - Capped at fit-width (1.0): past that the page already fills the viewport and
   growing further would overflow the now-narrower width, so filling the width
   is the natural stopping point for a resize.
-- Only the at-/below-fit tier is touched (`_transform` ~ identity). When zoomed
-  in past fit-width the transform carries the zoom, so `_layoutZoom` is left at
-  1 and only the reading anchor is preserved (unchanged from before — no
-  regression, holding scale there would need to rescale the transform during
-  build, which risks a mid-build notifier mutation).
+- The zoom sits in one of two tiers and **both** are compensated so the hold
+  works wherever the user is:
+  - at/below fit-width the pages lay out at `_layoutZoom` (transform ≈
+    identity) — counter-scaled during build (same frame, no flicker).
+  - **zoomed in past fit-width** the `_transform` scale carries the zoom
+    (`_layoutZoom == 1`) — counter-scaled in the post-frame callback by
+    rescaling the transform `oldCross / newCross` about the viewport centre.
+    This is the common editing case, and the one that shipped broken first:
+    reading at e.g. 286% and closing a panel widened the viewport, grew the fit
+    scale, and — with the transform untouched — zoomed the page in to 400%+.
+    (The transform is set post-frame, not during build, to avoid mutating its
+    `ValueNotifier` mid-build; a discrete panel toggle self-corrects in one
+    frame.)
 
 The scale is held for **any** cross-axis change, whatever moves it (a resize
 grip, a panel opening/closing, or a window resize).
@@ -56,7 +64,10 @@ at 1), so it exercises the unchanged path. "resizing a side panel below
 fit-width holds the zoom" rests the viewer at fit-page (`_layoutZoom < 1`),
 widens the panel, and asserts `controller.zoom` is unchanged (scale held) and
 the reading anchor still holds. "closing a panel holds the zoom even when the
-main axis also nudges" is the regression test for the follow-up: it closes a
-panel (viewer widens) while a stand-in bottom chrome also shifts the height,
-and asserts the zoom still holds — this fails under the old `newMain == oldMain`
-gate and passes now.
+main axis also nudges" is the regression test for the byte-exact-gate
+follow-up: it closes a panel (viewer widens) while a stand-in bottom chrome
+also shifts the height, and asserts the zoom still holds. "closing a panel
+holds the zoom while zoomed in past fit-width" is the regression test for the
+transform tier: it zooms to 2.5 px/pt (well past fit-width, so the transform is
+active), closes the panel, and asserts the zoom holds — this fails without the
+transform counter-scale and passes now.

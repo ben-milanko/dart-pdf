@@ -306,6 +306,49 @@ void main() {
         reason: 'the reading position also stays put');
   });
 
+  testWidgets('closing a panel holds the zoom while zoomed in past fit-width',
+      (tester) async {
+    // The real report: the user reads zoomed in (the zoom lives in the
+    // InteractiveViewer transform, not _layoutZoom), and closing a panel - a
+    // wider viewport, so a larger fit scale - zoomed the page in further. The
+    // transform must be counter-scaled too, not just the layout-zoom tier.
+    final controller = PdfViewerController();
+    final document = PdfDocument.open(buildMultiPagePdf(8));
+    Widget build(double panelWidth) => MaterialApp(
+          home: Scaffold(
+            body: Row(children: [
+              SizedBox(width: panelWidth, height: double.infinity),
+              Expanded(
+                child: PdfViewer(
+                  key: const ValueKey('viewer'),
+                  document: document,
+                  controller: controller,
+                ),
+              ),
+            ]),
+          ),
+        );
+
+    await tester.pumpWidget(build(300)); // viewer 500 wide
+    await tester.pump();
+
+    // zoom in well past fit-width (500/612 px/pt); 2.5 px/pt rides the transform
+    controller.setZoom(2.5);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250)); // drain the settle
+    final beforeZoom = controller.zoom;
+    expect(beforeZoom, greaterThan(500 / 612),
+        reason: 'sanity: zoomed in past fit-width, so the transform is active');
+
+    // close the panel: viewer widens to 800; the zoom must not follow
+    await tester.pumpWidget(build(0));
+    await tester.pump(); // lay out at the new width, run the post-frame
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(controller.zoom, closeTo(beforeZoom, 0.02),
+        reason: 'the zoomed-in scale holds when the panel closes');
+  });
+
   testWidgets('search finds matches and tracks the current one',
       (tester) async {
     final controller = await pumpViewer(tester);
