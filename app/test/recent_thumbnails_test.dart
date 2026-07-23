@@ -37,6 +37,30 @@ void main() {
     cache.dispose();
   });
 
+  testWidgets('evicts the least-recently-used entry past maxEntries',
+      (tester) async {
+    final pdf = PdfBlankDocument.create();
+    final reads = <String>[];
+    final cache = RecentThumbnailCache(
+      maxEntries: 1,
+      readBytes: (path, {bookmark}) async {
+        reads.add(path);
+        return pdf;
+      },
+    );
+
+    await tester.runAsync(() async {
+      await cache.thumbnailFor(entry(path: '/a.pdf'));
+      await cache.thumbnailFor(entry(path: '/b.pdf')); // evicts /a.pdf
+      await cache.thumbnailFor(entry(path: '/a.pdf')); // re-rendered
+    });
+
+    // /a.pdf was read twice: once before eviction, once after.
+    expect(reads, ['/a.pdf', '/b.pdf', '/a.pdf']);
+
+    cache.dispose();
+  });
+
   testWidgets('an entry with no readable source resolves to null',
       (tester) async {
     final cache = RecentThumbnailCache(

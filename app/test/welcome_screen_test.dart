@@ -45,6 +45,32 @@ void main() {
     cache.dispose();
   });
 
+  testWidgets('falls back to the document icon when the render fails',
+      (tester) async {
+    final store = RecentsStore();
+    await store.add(title: 'a.pdf', path: '/a.pdf');
+    // A cache that can't read the bytes resolves the thumbnail to null.
+    final cache = RecentThumbnailCache(
+        readBytes: (path, {bookmark}) async => throw StateError('gone'));
+
+    await pump(
+        tester,
+        WelcomeScreen(
+          recents: store,
+          onOpen: () {},
+          onOpenRecent: (_) {},
+          thumbnails: cache,
+        ));
+
+    await tester.runAsync(() => cache.thumbnailFor(store.items.single));
+    await tester.pump();
+
+    expect(find.byIcon(Icons.description_outlined), findsOneWidget);
+    expect(find.byType(Image), findsNothing);
+
+    cache.dispose();
+  });
+
   testWidgets('falls back to the document icon without a thumbnail cache',
       (tester) async {
     final store = RecentsStore();

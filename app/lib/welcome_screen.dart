@@ -72,7 +72,9 @@ class WelcomeScreen extends StatelessWidget {
                           return ListTile(
                             key: ValueKey('recent-${entry.id}'),
                             leading: _RecentLeading(
-                                entry: entry, thumbnails: thumbnails),
+                                key: ValueKey('recent-leading-${entry.id}'),
+                                entry: entry,
+                                thumbnails: thumbnails),
                             title: Text(entry.title,
                                 maxLines: 1, overflow: TextOverflow.ellipsis),
                             subtitle: entry.path != null
@@ -115,7 +117,7 @@ class WelcomeScreen extends StatelessWidget {
 /// and holds it across rebuilds so scrolling / recents changes don't reset it
 /// to the placeholder.
 class _RecentLeading extends StatefulWidget {
-  const _RecentLeading({required this.entry, required this.thumbnails});
+  const _RecentLeading({super.key, required this.entry, required this.thumbnails});
 
   final RecentFile entry;
   final RecentThumbnailCache? thumbnails;
@@ -125,26 +127,11 @@ class _RecentLeading extends StatefulWidget {
 }
 
 class _RecentLeadingState extends State<_RecentLeading> {
-  Future<Uint8List?>? _thumbnail;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  @override
-  void didUpdateWidget(_RecentLeading oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.entry.id != widget.entry.id ||
-        oldWidget.thumbnails != widget.thumbnails) {
-      _load();
-    }
-  }
-
-  void _load() {
-    _thumbnail = widget.thumbnails?.thumbnailFor(widget.entry);
-  }
+  // Fetched once and held for the widget's lifetime. The row is keyed by
+  // entry.id, so a different entry lands on a fresh state (and re-fetches from
+  // the cache, which memoizes) rather than mutating this one.
+  late final Future<Uint8List?>? _thumbnail =
+      widget.thumbnails?.thumbnailFor(widget.entry);
 
   @override
   Widget build(BuildContext context) {
