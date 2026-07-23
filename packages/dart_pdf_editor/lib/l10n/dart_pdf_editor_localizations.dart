@@ -5,8 +5,16 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart' as intl;
 
+import 'dart_pdf_editor_localizations_ar.dart';
+import 'dart_pdf_editor_localizations_de.dart';
 import 'dart_pdf_editor_localizations_en.dart';
 import 'dart_pdf_editor_localizations_es.dart';
+import 'dart_pdf_editor_localizations_fr.dart';
+import 'dart_pdf_editor_localizations_hi.dart';
+import 'dart_pdf_editor_localizations_ja.dart';
+import 'dart_pdf_editor_localizations_pt.dart';
+import 'dart_pdf_editor_localizations_ru.dart';
+import 'dart_pdf_editor_localizations_zh.dart';
 
 // ignore_for_file: type=lint
 
@@ -95,8 +103,16 @@ abstract class DartPdfEditorLocalizations {
 
   /// A list of this localizations delegate's supported locales.
   static const List<Locale> supportedLocales = <Locale>[
+    Locale('ar'),
+    Locale('de'),
     Locale('en'),
-    Locale('es')
+    Locale('es'),
+    Locale('fr'),
+    Locale('hi'),
+    Locale('ja'),
+    Locale('pt'),
+    Locale('ru'),
+    Locale('zh')
   ];
 
   /// Generic button that adds a new item.
@@ -3471,8 +3487,18 @@ class _DartPdfEditorLocalizationsDelegate
   }
 
   @override
-  bool isSupported(Locale locale) =>
-      <String>['en', 'es'].contains(locale.languageCode);
+  bool isSupported(Locale locale) => <String>[
+        'ar',
+        'de',
+        'en',
+        'es',
+        'fr',
+        'hi',
+        'ja',
+        'pt',
+        'ru',
+        'zh'
+      ].contains(locale.languageCode);
 
   @override
   bool shouldReload(_DartPdfEditorLocalizationsDelegate old) => false;
@@ -3481,10 +3507,26 @@ class _DartPdfEditorLocalizationsDelegate
 DartPdfEditorLocalizations lookupDartPdfEditorLocalizations(Locale locale) {
   // Lookup logic when only language code is specified.
   switch (locale.languageCode) {
+    case 'ar':
+      return DartPdfEditorLocalizationsAr();
+    case 'de':
+      return DartPdfEditorLocalizationsDe();
     case 'en':
       return DartPdfEditorLocalizationsEn();
     case 'es':
       return DartPdfEditorLocalizationsEs();
+    case 'fr':
+      return DartPdfEditorLocalizationsFr();
+    case 'hi':
+      return DartPdfEditorLocalizationsHi();
+    case 'ja':
+      return DartPdfEditorLocalizationsJa();
+    case 'pt':
+      return DartPdfEditorLocalizationsPt();
+    case 'ru':
+      return DartPdfEditorLocalizationsRu();
+    case 'zh':
+      return DartPdfEditorLocalizationsZh();
   }
 
   throw FlutterError(
