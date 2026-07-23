@@ -1888,3 +1888,1888 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   @override
   String get viewerSelectAll => '全选';
 }
+
+/// The translations for Chinese, using the Han script (`zh_Hant`).
+class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
+  DartPdfEditorLocalizationsZhHant() : super('zh_Hant');
+
+  @override
+  String get add => '新增';
+
+  @override
+  String get annotCaret => '插入符號';
+
+  @override
+  String get annotCircle => '圓形';
+
+  @override
+  String get annotFileAttachment => '檔案附件';
+
+  @override
+  String get annotFreeText => '文字方塊';
+
+  @override
+  String get annotHighlight => '醒目提示';
+
+  @override
+  String get annotInk => '手繪';
+
+  @override
+  String get annotLine => '線條';
+
+  @override
+  String get annotLink => '連結';
+
+  @override
+  String get annotPolygon => '多邊形';
+
+  @override
+  String get annotPolyline => '折線';
+
+  @override
+  String get annotRedact => '塗黑';
+
+  @override
+  String get annotSquare => '方形';
+
+  @override
+  String get annotSquiggly => '波浪線';
+
+  @override
+  String get annotStamp => '戳記';
+
+  @override
+  String get annotStrikeOut => '刪除線';
+
+  @override
+  String get annotText => '便箋';
+
+  @override
+  String get annotUnderline => '底線';
+
+  @override
+  String get annotWidget => '表單欄位';
+
+  @override
+  String get apply => '套用';
+
+  @override
+  String get bookmarkAdd => '新增書籤';
+
+  @override
+  String get bookmarkAddChild => '新增子書籤';
+
+  @override
+  String get bookmarkCollapse => '收合';
+
+  @override
+  String get bookmarkDelete => '刪除書籤';
+
+  @override
+  String get bookmarkEdit => '編輯書籤';
+
+  @override
+  String get bookmarkEmpty => '沒有書籤';
+
+  @override
+  String get bookmarkExpand => '展開';
+
+  @override
+  String get bookmarkExpandedByDefault => '預設展開';
+
+  @override
+  String get bookmarkNoDestination => '沒有目的地';
+
+  @override
+  String get bookmarkPageFieldLabel => '頁面';
+
+  @override
+  String bookmarkPageLabel(int number) {
+    return '第 $number 頁';
+  }
+
+  @override
+  String bookmarkPageRangeHint(int count) {
+    return '1-$count';
+  }
+
+  @override
+  String get bookmarkTitle => '書籤';
+
+  @override
+  String get bookmarkTitleLabel => '標題';
+
+  @override
+  String get bookmarkUntitled => '未命名';
+
+  @override
+  String get cancel => '取消';
+
+  @override
+  String get clear => '清除';
+
+  @override
+  String get close => '關閉';
+
+  @override
+  String get colorApplyingChanges => '正在套用顏色變更…';
+
+  @override
+  String get colorColorFormat => '顏色格式';
+
+  @override
+  String get colorColorTitle => '顏色';
+
+  @override
+  String colorColorsSelected(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '已選取 $count 個顏色',
+      one: '已選取 $count 個顏色',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get colorDocumentColors => '文件顏色';
+
+  @override
+  String get colorFillColors => '填滿顏色';
+
+  @override
+  String get colorFind => '尋找';
+
+  @override
+  String get colorInDocument => '文件中';
+
+  @override
+  String get colorNoColorsFound => '尚未找到顏色';
+
+  @override
+  String get colorNoPageContentColors => '找不到頁面內容顏色';
+
+  @override
+  String get colorPalette => '調色盤';
+
+  @override
+  String get colorPickColor => '挑選顏色';
+
+  @override
+  String get colorProcessingTitle => '顏色處理';
+
+  @override
+  String get colorRecent => '最近使用';
+
+  @override
+  String get colorReplace => '取代';
+
+  @override
+  String get colorReplaceWithTransparent => '取代為透明';
+
+  @override
+  String get colorScanning => '掃描中…';
+
+  @override
+  String colorScanningProgress(int progress, int total) {
+    return '掃描 $progress / $total';
+  }
+
+  @override
+  String colorSelectedPages(int count) {
+    return '選取的頁面 ($count)';
+  }
+
+  @override
+  String get colorStrokeColors => '線條顏色';
+
+  @override
+  String get colorTolerance => '容許度';
+
+  @override
+  String get colorTransparent => '透明';
+
+  @override
+  String get colorWholeDocument => '整份文件';
+
+  @override
+  String get compareAfter => '之後';
+
+  @override
+  String get compareBefore => '之前';
+
+  @override
+  String compareChangeCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count 項變更',
+      one: '1 項變更',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String compareChangePosition(int current, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count 項變更',
+      one: '1 項變更',
+    );
+    return '$current / $_temp0';
+  }
+
+  @override
+  String get compareEmptyLabel => '（空白）';
+
+  @override
+  String get compareNextChange => '下一項變更';
+
+  @override
+  String get compareNoChanges => '沒有變更';
+
+  @override
+  String get compareNoDifferences => '兩份文件之間沒有差異';
+
+  @override
+  String get compareOverlay => '疊加';
+
+  @override
+  String comparePageHeader(int page) {
+    return '第 $page 頁';
+  }
+
+  @override
+  String get comparePreviousChange => '上一項變更';
+
+  @override
+  String get compareSideBySide => '並排';
+
+  @override
+  String get copy => '複製';
+
+  @override
+  String get cut => '剪下';
+
+  @override
+  String get delete => '刪除';
+
+  @override
+  String get done => '完成';
+
+  @override
+  String get edit => '編輯';
+
+  @override
+  String get editorViewAuthorNameTitle => '作者名稱';
+
+  @override
+  String get lineStyleDashDot => '點虛線';
+
+  @override
+  String get lineStyleDashed => '虛線';
+
+  @override
+  String get lineStyleDotted => '點線';
+
+  @override
+  String get lineStyleSolid => '實線';
+
+  @override
+  String get measCalibrate => '校準';
+
+  @override
+  String get measCalibrateScale => '校準比例';
+
+  @override
+  String get measDepthLabel => '深度： ';
+
+  @override
+  String get measKindAngle => '角度';
+
+  @override
+  String get measKindArc => '弧';
+
+  @override
+  String get measKindArea => '面積';
+
+  @override
+  String get measKindCount => '計數';
+
+  @override
+  String get measKindLength => '長度';
+
+  @override
+  String get measKindNetArea => '淨面積';
+
+  @override
+  String get measKindPerimeter => '周長';
+
+  @override
+  String get measKindSlope => '坡度';
+
+  @override
+  String get measKindVolume => '體積';
+
+  @override
+  String get measLineRepresents => '您繪製的線條代表：';
+
+  @override
+  String get measMeasure => '測量';
+
+  @override
+  String get measSetScale => '設定測量比例';
+
+  @override
+  String get measSetScaleButton => '設定比例';
+
+  @override
+  String get measVolumeDepth => '體積深度';
+
+  @override
+  String get menuAddNode => '新增節點';
+
+  @override
+  String menuApplyAnnotationsToPagesTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '將註解套用至頁面',
+      one: '將註解套用至頁面',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get menuApplyToPages => '套用至頁面…';
+
+  @override
+  String get menuBringToFront => '移至最上層';
+
+  @override
+  String get menuCheck => '勾選';
+
+  @override
+  String get menuChooseValue => '選擇值…';
+
+  @override
+  String get menuClearCheck => '清除勾選';
+
+  @override
+  String get menuConvertToCheckBox => '轉換為核取方塊';
+
+  @override
+  String get menuConvertToImageButton => '轉換為影像按鈕';
+
+  @override
+  String get menuConvertToTextField => '轉換為文字欄位';
+
+  @override
+  String get menuDeleteField => '刪除欄位';
+
+  @override
+  String get menuEditValue => '編輯值…';
+
+  @override
+  String get menuFieldName => '欄位名稱';
+
+  @override
+  String get menuFieldValue => '欄位值';
+
+  @override
+  String get menuFlattenForm => '平面化表單';
+
+  @override
+  String get menuRecolour => '重新上色…';
+
+  @override
+  String get menuRemoveNode => '移除節點';
+
+  @override
+  String get menuSetAsDefaultStyle => '設為預設樣式';
+
+  @override
+  String get menuRename => '重新命名…';
+
+  @override
+  String get menuSelectOption => '選取選項';
+
+  @override
+  String get menuSendToBack => '移至最下層';
+
+  @override
+  String get menuSetImage => '設定影像…';
+
+  @override
+  String get menuTextStyle => '文字樣式…';
+
+  @override
+  String get none => '無';
+
+  @override
+  String get ok => '確定';
+
+  @override
+  String get overlayColor => '顏色';
+
+  @override
+  String get overlayEditText => '編輯文字';
+
+  @override
+  String get overlayFont => '字型';
+
+  @override
+  String get overlayLarger => '放大';
+
+  @override
+  String get overlayMore => '更多';
+
+  @override
+  String get overlayNote => '便箋';
+
+  @override
+  String get overlaySmaller => '縮小';
+
+  @override
+  String get overlayStampText => '戳記文字';
+
+  @override
+  String get overlayUnderline => '底線';
+
+  @override
+  String pageRangeErrorBounds(int count) {
+    return '請輸入 1 到 $count 之間的頁碼。';
+  }
+
+  @override
+  String get pageRangeErrorOrder => '最後一頁不得早於第一頁。';
+
+  @override
+  String get pageRangeFrom => '從';
+
+  @override
+  String pageRangePageCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count 頁',
+      one: '1 頁',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get pageRangeTo => '至';
+
+  @override
+  String get panelDragToMovePanel => '拖曳以移動面板';
+
+  @override
+  String get paste => '貼上';
+
+  @override
+  String get propAlign => '對齊';
+
+  @override
+  String get propAlignCenter => '置中對齊';
+
+  @override
+  String get propAlignLeft => '靠左對齊';
+
+  @override
+  String get propAlignRight => '靠右對齊';
+
+  @override
+  String propAnnotationCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count 個註解',
+      one: '$count 個註解',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get propAuthor => '作者';
+
+  @override
+  String get propAutoSize => '自動調整大小';
+
+  @override
+  String get propBold => '粗體';
+
+  @override
+  String get propBoldLetter => 'B';
+
+  @override
+  String get propBundledFont => '隨附字型';
+
+  @override
+  String get propCallout => '圖說文字';
+
+  @override
+  String get propCharSpacing => '字元間距';
+
+  @override
+  String get propColor => '顏色';
+
+  @override
+  String get propColour => '顏色';
+
+  @override
+  String get propContents => '內容';
+
+  @override
+  String get propEditsApplyToAll => '編輯會套用至所有相容的註解';
+
+  @override
+  String get propFieldName => '欄位名稱';
+
+  @override
+  String get propFieldTypeCheckBox => '核取方塊';
+
+  @override
+  String get propFieldTypeComboBox => '下拉式方塊';
+
+  @override
+  String get propFieldTypeImageButton => '影像按鈕';
+
+  @override
+  String get propFieldTypeListBox => '清單方塊';
+
+  @override
+  String get propFieldTypeRadioGroup => '選項按鈕群組';
+
+  @override
+  String get propFieldTypeSignature => '簽章';
+
+  @override
+  String get propFieldTypeText => '文字欄位';
+
+  @override
+  String propFieldTypeTooltip(String type) {
+    return '欄位類型：$type';
+  }
+
+  @override
+  String get propFieldTypeUnknown => '未知欄位';
+
+  @override
+  String get propFill => '填滿';
+
+  @override
+  String get propFont => '字型';
+
+  @override
+  String get propFontSubsetTooltip => '此字型為子集 - 只能輸入文件中已使用的字元。';
+
+  @override
+  String get propFontWidth => '字型寬度';
+
+  @override
+  String get propGeometryHeight => '高';
+
+  @override
+  String get propGeometryWidth => '寬';
+
+  @override
+  String get propGeometryX => 'X';
+
+  @override
+  String get propGeometryY => 'Y';
+
+  @override
+  String get propItalic => '斜體';
+
+  @override
+  String get propItalicLetter => 'I';
+
+  @override
+  String get propLimitedCharacters => '字元受限';
+
+  @override
+  String get propLineEnd => '線條終點';
+
+  @override
+  String get propLineEndingButt => '平端';
+
+  @override
+  String get propLineEndingCircle => '圓形';
+
+  @override
+  String get propLineEndingClosedArrow => '實心箭頭';
+
+  @override
+  String get propLineEndingClosedArrowRev => '實心箭頭（反向）';
+
+  @override
+  String get propLineEndingDiamond => '菱形';
+
+  @override
+  String get propLineEndingOpenArrow => '開口箭頭';
+
+  @override
+  String get propLineEndingOpenArrowRev => '開口箭頭（反向）';
+
+  @override
+  String get propLineEndingSlash => '斜線';
+
+  @override
+  String get propLineEndingSquare => '方形';
+
+  @override
+  String get propLineSpacing => '行距';
+
+  @override
+  String get propLineStart => '線條起點';
+
+  @override
+  String get propLineType => '線條類型';
+
+  @override
+  String get propLoadFont => '載入字型…';
+
+  @override
+  String get propLoadFontSubtitle => 'TTF 或 OTF 檔案';
+
+  @override
+  String get propMoreColors => '更多顏色…';
+
+  @override
+  String get propMultiline => '多行';
+
+  @override
+  String get propNoFill => '無填滿';
+
+  @override
+  String get propNoFontsFound => '找不到字型';
+
+  @override
+  String get propNoOutline => '無外框';
+
+  @override
+  String get propOpacity => '不透明度';
+
+  @override
+  String get propOutline => '外框';
+
+  @override
+  String get propPageLabel => '頁面';
+
+  @override
+  String propPageNumber(int number) {
+    return '第 $number 頁';
+  }
+
+  @override
+  String get propPropertiesTitle => '屬性';
+
+  @override
+  String get propRecentlyUsed => '最近使用';
+
+  @override
+  String get propScale => '縮放';
+
+  @override
+  String get propSearchFonts => '搜尋字型';
+
+  @override
+  String get propSectionAllFonts => '所有字型';
+
+  @override
+  String get propSectionAppearance => '外觀';
+
+  @override
+  String get propSectionContent => '內容';
+
+  @override
+  String get propSectionFormField => '表單欄位';
+
+  @override
+  String get propSectionInThisDocument => '此文件中';
+
+  @override
+  String get propSectionPositionSize => '位置與大小 (pt)';
+
+  @override
+  String get propSectionSelection => '選取範圍';
+
+  @override
+  String get propSectionText => '文字';
+
+  @override
+  String get propSelectAnnotationPrompt => '選取註解以查看其屬性';
+
+  @override
+  String get propSize => '大小';
+
+  @override
+  String get propStandardPdfFont => '標準 PDF 字型';
+
+  @override
+  String get propStroke => '筆畫寬度';
+
+  @override
+  String get propStyle => '樣式';
+
+  @override
+  String get propSystemFont => '系統字型';
+
+  @override
+  String get propType => '類型';
+
+  @override
+  String get propUnderline => '底線';
+
+  @override
+  String get propVaries => '不一';
+
+  @override
+  String get redo => '重做';
+
+  @override
+  String get reflowNoContent => '沒有可擷取的內容';
+
+  @override
+  String reflowPageLabel(int number) {
+    return '第 $number 頁';
+  }
+
+  @override
+  String get reflowSaveOrShare => '儲存或分享';
+
+  @override
+  String get reflowViewFigure => '檢視圖片';
+
+  @override
+  String get remove => '移除';
+
+  @override
+  String get rename => '重新命名';
+
+  @override
+  String get reset => '重設';
+
+  @override
+  String get save => '儲存';
+
+  @override
+  String get sbarActionJavaScript => 'JavaScript';
+
+  @override
+  String sbarActionPage(int page) {
+    return '第 $page 頁';
+  }
+
+  @override
+  String get sbarCallout => '圖說文字';
+
+  @override
+  String get sbarFieldButton => '按鈕欄位';
+
+  @override
+  String get sbarFieldChoice => '選擇欄位';
+
+  @override
+  String get sbarFieldGeneric => '表單欄位';
+
+  @override
+  String get sbarFieldSignature => '簽章欄位';
+
+  @override
+  String get sbarFieldText => '文字欄位';
+
+  @override
+  String get sbarStateAccepted => '已接受';
+
+  @override
+  String get sbarStateCancelled => '已取消';
+
+  @override
+  String get sbarStateMarked => '已標記';
+
+  @override
+  String get sbarStateRejected => '已拒絕';
+
+  @override
+  String get sbarStateResolved => '已解決';
+
+  @override
+  String get sbarStateUnmarked => '未標記';
+
+  @override
+  String get searchClearSearch => '清除搜尋';
+
+  @override
+  String get searchEmptyHint => '搜尋文件以在此列出所有相符項目';
+
+  @override
+  String get searchMatchCase => '大小寫相符';
+
+  @override
+  String searchMatchCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count 個相符項目',
+      one: '1 個相符項目',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get searchNextMatch => '下一個相符項目';
+
+  @override
+  String searchNoMatches(String query) {
+    return '找不到「$query」的相符項目';
+  }
+
+  @override
+  String searchPageHeader(int page) {
+    return '第 $page 頁';
+  }
+
+  @override
+  String get searchPreviousMatch => '上一個相符項目';
+
+  @override
+  String get searchRegex => '正規表示式';
+
+  @override
+  String get searchResultsTitle => '搜尋結果';
+
+  @override
+  String get searchWholeWord => '全字相符';
+
+  @override
+  String get shellControls => '控制項';
+
+  @override
+  String get shellDefaultAuthor => '預設作者…';
+
+  @override
+  String get shellHighlightFormFields => '標示表單欄位';
+
+  @override
+  String get shellKeyboardShortcutsMenu => '鍵盤快速鍵…';
+
+  @override
+  String get shellKeyboardShortcutsTitle => '鍵盤快速鍵';
+
+  @override
+  String get shellShortcutsSearchHint => '搜尋快速鍵';
+
+  @override
+  String shellShortcutsNoMatches(String query) {
+    return '沒有符合「$query」的快速鍵';
+  }
+
+  @override
+  String get shellShortcutGroupSelect => '選取';
+
+  @override
+  String get shellShortcutGroupMarkup => '標記';
+
+  @override
+  String get shellShortcutGroupDraw => '繪製';
+
+  @override
+  String get shellShortcutGroupShapes => '形狀';
+
+  @override
+  String get shellShortcutGroupInsert => '插入';
+
+  @override
+  String get shellShortcutGroupMeasure => '測量';
+
+  @override
+  String get shellShortcutGroupEdit => '編輯';
+
+  @override
+  String get shellNotSet => '未設定';
+
+  @override
+  String get shellPageColor => '頁面顏色…';
+
+  @override
+  String get shellPageGrid => '頁面網格';
+
+  @override
+  String get shellPanelAnnotations => '註解';
+
+  @override
+  String get shellPanelBookmarks => '書籤';
+
+  @override
+  String get shellPanelPages => '頁面';
+
+  @override
+  String get shellPanelProperties => '屬性';
+
+  @override
+  String get shellPanelSearchResults => '搜尋結果';
+
+  @override
+  String get shellPanels => '面板';
+
+  @override
+  String get shellPressAKey => '按下按鍵';
+
+  @override
+  String get shellPressLetterKeyHint => '按下字母鍵，或按 Delete 清除。';
+
+  @override
+  String get shellReflow => '重排';
+
+  @override
+  String get shellReflowText => '文字重排';
+
+  @override
+  String get shellResetZoom => '重設縮放';
+
+  @override
+  String get shellSectionShell => '外殼';
+
+  @override
+  String get shellSectionView => '檢視';
+
+  @override
+  String get shellSettings => '設定';
+
+  @override
+  String get shellShowAnnotations => '顯示註解';
+
+  @override
+  String get shellTabHere => '在此建立分頁';
+
+  @override
+  String get shellUnbound => '未綁定';
+
+  @override
+  String get shellZoom => '縮放';
+
+  @override
+  String sidebarByAuthor(String author) {
+    return '由 $author';
+  }
+
+  @override
+  String get sidebarCancelSelection => '取消選取';
+
+  @override
+  String get sidebarClearSearch => '清除搜尋';
+
+  @override
+  String get sidebarDeleteSelected => '刪除選取項目';
+
+  @override
+  String get sidebarDeleteSignature => '刪除簽章';
+
+  @override
+  String get sidebarMore => '更多';
+
+  @override
+  String get sidebarNoAnnotations => '沒有註解';
+
+  @override
+  String get sidebarNoMatchingAnnotations => '沒有相符的註解';
+
+  @override
+  String sidebarPageHeader(int number) {
+    return '第 $number 頁';
+  }
+
+  @override
+  String get sidebarRemoveSignatureBody => '這會從文件中移除數位簽章。您可以復原此操作。';
+
+  @override
+  String sidebarRemoveSignatureBodyNamed(String name) {
+    return '這會從文件中移除由「$name」建立的數位簽章。您可以復原此操作。';
+  }
+
+  @override
+  String get sidebarRemoveSignatureTitle => '移除簽章？';
+
+  @override
+  String get sidebarReopen => '重新開啟';
+
+  @override
+  String get sidebarReply => '回覆';
+
+  @override
+  String get sidebarResolve => '解決';
+
+  @override
+  String get sidebarSearchHint => '搜尋註解';
+
+  @override
+  String sidebarSelectedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '已選取 $count 個',
+      one: '已選取 $count 個',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get sidebarWriteReplyHint => '撰寫回覆…';
+
+  @override
+  String get sigTitle => '簽名';
+
+  @override
+  String get signIdCreate => '建立';
+
+  @override
+  String get signIdEmail => '電子郵件（選填）';
+
+  @override
+  String get signIdName => '名稱';
+
+  @override
+  String get signIdNameHint => '您的名稱，會顯示在簽名上';
+
+  @override
+  String get signIdNameRequired => '請輸入名稱';
+
+  @override
+  String get signIdOrganization => '組織（選填）';
+
+  @override
+  String get signIdSelfSignedInfo =>
+      '這會建立自我簽署的身分。在 Adobe Acrobat 及其他閱讀器中，簽章會顯示為「已簽署，有效性未知」- 與它們自己的自我簽署 ID 相同。綠色勾號需要付費且受公開信任的 CA。';
+
+  @override
+  String get signIdTitle => '建立簽署身分';
+
+  @override
+  String get stampBox => '方框';
+
+  @override
+  String get stampCircle => '圓形';
+
+  @override
+  String get stampCustomCaption => '自訂戳記';
+
+  @override
+  String get stampDateFormat => '日期格式';
+
+  @override
+  String get stampDeleteComponent => '刪除選取的元件';
+
+  @override
+  String get stampDeleteStamp => '刪除戳記';
+
+  @override
+  String get stampEditStamp => '編輯戳記';
+
+  @override
+  String get stampExport => '匯出…';
+
+  @override
+  String get stampFieldDate => '日期';
+
+  @override
+  String get stampFieldDateTime => '日期與時間';
+
+  @override
+  String get stampFieldTime => '時間';
+
+  @override
+  String get stampFieldUsername => '使用者名稱';
+
+  @override
+  String get stampFont => '字型';
+
+  @override
+  String get stampFontBold => '粗體';
+
+  @override
+  String get stampFontItalic => '斜體';
+
+  @override
+  String get stampHeight => '高度';
+
+  @override
+  String get stampImage => '影像';
+
+  @override
+  String get stampImport => '匯入…';
+
+  @override
+  String get stampInsertField => '插入欄位';
+
+  @override
+  String get stampMoreColors => '更多顏色…';
+
+  @override
+  String get stampNewStamp => '新增戳記…';
+
+  @override
+  String get stampNewStampTitle => '新增戳記';
+
+  @override
+  String get stampSelectTextToEdit => '選取文字以編輯';
+
+  @override
+  String get stampSelectedText => '選取的文字';
+
+  @override
+  String get stampSignature => '簽名';
+
+  @override
+  String get stampStamps => '戳記';
+
+  @override
+  String get stampText => '文字';
+
+  @override
+  String get stampTime12Hour => '12 小時';
+
+  @override
+  String get stampTime24Hour => '24 小時';
+
+  @override
+  String get stampTimeFormat => '時間格式';
+
+  @override
+  String get stampWidth => '寬度';
+
+  @override
+  String get takeoffArea => '面積';
+
+  @override
+  String get takeoffCount => '計數';
+
+  @override
+  String get takeoffEmpty => '尚無測量。';
+
+  @override
+  String takeoffGroupCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count 個群組',
+      one: '$count 個群組',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String takeoffItemCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count 個項目',
+      one: '$count 個項目',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get takeoffLength => '長度';
+
+  @override
+  String get takeoffTitle => '估算';
+
+  @override
+  String get tbAddInkAnnotation => '新增手繪註解';
+
+  @override
+  String get tbAlign => '對齊';
+
+  @override
+  String get tbAlignBottom => '靠下對齊';
+
+  @override
+  String get tbAlignHorizontalCenters => '水平置中對齊';
+
+  @override
+  String get tbAlignLeft => '靠左對齊';
+
+  @override
+  String get tbAlignRight => '靠右對齊';
+
+  @override
+  String get tbAlignTop => '靠上對齊';
+
+  @override
+  String get tbAlignVerticalCenters => '垂直置中對齊';
+
+  @override
+  String get tbAnnotationsFlattened => '已將註解平面化至頁面';
+
+  @override
+  String get tbApplyRedactionsMessage => '標記的內容將從文件中永久移除。此操作無法復原。';
+
+  @override
+  String get tbApplyRedactionsTitle => '套用塗黑？';
+
+  @override
+  String get tbApplyRedactionsTooltip => '套用塗黑（無法復原）';
+
+  @override
+  String get tbAutosizeTextBox => '自動調整文字方塊大小 (Alt+Z)';
+
+  @override
+  String get tbCalibrateScaleHint => '繪製一條已知長度的線條以校準比例。';
+
+  @override
+  String get tbCharSpacing => '字元間距';
+
+  @override
+  String get tbCheckBoxOption => '核取方塊';
+
+  @override
+  String get tbCheckMarksOnDocument => '文件上的勾選標記';
+
+  @override
+  String get tbColorLabel => '顏色';
+
+  @override
+  String get tbColorProcessingTooltip => '顏色處理 - 尋找並取代頁面內容顏色';
+
+  @override
+  String tbColorsReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '已取代 $count 個顏色',
+      one: '已取代 1 個顏色',
+      zero: '找不到相符的顏色',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get tbConvertToCheckBox => '轉換為核取方塊';
+
+  @override
+  String get tbConvertToImageButton => '轉換為影像按鈕';
+
+  @override
+  String get tbConvertToTextField => '轉換為文字欄位';
+
+  @override
+  String get tbCornerRadius => '圓角半徑';
+
+  @override
+  String tbDeleteAnnotations(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '刪除 $count 個註解',
+      one: '刪除註解',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get tbDeleteElement => '刪除元素';
+
+  @override
+  String get tbDeleteField => '刪除欄位';
+
+  @override
+  String get tbDiscardDrawing => '捨棄繪圖';
+
+  @override
+  String get tbDistributeHorizontally => '水平均分';
+
+  @override
+  String get tbDistributeVertically => '垂直均分';
+
+  @override
+  String get tbDrawNewSignature => '繪製新簽名…';
+
+  @override
+  String get tbEditAnnotationText => '編輯註解文字';
+
+  @override
+  String get tbEditTextStyle => '編輯文字與樣式';
+
+  @override
+  String get tbElement => '元素';
+
+  @override
+  String get tbEraserSize => '橡皮擦大小';
+
+  @override
+  String get tbFieldActions => '欄位動作';
+
+  @override
+  String get tbFieldName => '欄位名稱';
+
+  @override
+  String tbFieldNamed(String name) {
+    return '欄位：$name';
+  }
+
+  @override
+  String get tbFieldValue => '欄位值';
+
+  @override
+  String get tbFill => '填滿';
+
+  @override
+  String get tbFingerDraws => '手指繪圖 - 點一下改為捲動';
+
+  @override
+  String get tbFingerScrolls => '手指捲動（觸控筆繪圖）- 點一下改為繪圖';
+
+  @override
+  String get tbFlattenAnnotationsTooltip => '將註解平面化至頁面';
+
+  @override
+  String get tbFlattenForm => '平面化表單';
+
+  @override
+  String get tbFlattenFormBakeValues => '平面化表單 - 將值烙印至頁面';
+
+  @override
+  String get tbFlattenLabel => '平面化';
+
+  @override
+  String get tbFont => '字型';
+
+  @override
+  String get tbFontSize => '字型大小';
+
+  @override
+  String get tbFontWidth => '字型寬度';
+
+  @override
+  String get tbFormFieldsFlattened => '已將表單欄位平面化至頁面';
+
+  @override
+  String get tbGroupDraw => '繪製';
+
+  @override
+  String get tbGroupEdit => '編輯';
+
+  @override
+  String get tbGroupInsert => '插入';
+
+  @override
+  String get tbGroupMarkup => '標記';
+
+  @override
+  String get tbGroupMeasure => '測量';
+
+  @override
+  String get tbGroupSelect => '選取';
+
+  @override
+  String get tbGroupShapes => '形狀';
+
+  @override
+  String get tbImageButtonOption => '影像按鈕';
+
+  @override
+  String get tbLineEnd => '線條終點';
+
+  @override
+  String get tbLineSpacing => '行距';
+
+  @override
+  String get tbLineStart => '線條起點';
+
+  @override
+  String get tbLineType => '線條類型';
+
+  @override
+  String get tbManageStamps => '管理戳記…';
+
+  @override
+  String get tbMarkupHighlight => '醒目提示';
+
+  @override
+  String get tbMarkupHighlightTip => '醒目提示選取範圍';
+
+  @override
+  String get tbMarkupSquiggly => '波浪底線';
+
+  @override
+  String get tbMarkupSquigglyTip => '為選取範圍加上波浪底線';
+
+  @override
+  String get tbMarkupStrikeOut => '刪除線';
+
+  @override
+  String get tbMarkupStrikeOutTip => '為選取範圍加上刪除線';
+
+  @override
+  String get tbMarkupUnderline => '底線';
+
+  @override
+  String get tbMarkupUnderlineTip => '為選取範圍加上底線';
+
+  @override
+  String get tbMoreColors => '更多顏色…';
+
+  @override
+  String get tbNameArrow => '箭頭';
+
+  @override
+  String get tbNameCallout => '圖說文字';
+
+  @override
+  String get tbNameCloudPolygon => '雲形多邊形';
+
+  @override
+  String get tbNameCount => '計數';
+
+  @override
+  String get tbNameDigitalSignature => '數位簽章';
+
+  @override
+  String get tbNameDraw => '繪製';
+
+  @override
+  String get tbNameEllipse => '橢圓形';
+
+  @override
+  String get tbNameEraser => '擦除手繪筆畫';
+
+  @override
+  String get tbNameHighlight => '醒目提示';
+
+  @override
+  String get tbNameImage => '影像';
+
+  @override
+  String get tbNameLine => '線條';
+
+  @override
+  String get tbNameMeasureAngle => '測量角度';
+
+  @override
+  String get tbNameMeasureArc => '測量弧長';
+
+  @override
+  String get tbNameMeasureArea => '測量面積';
+
+  @override
+  String get tbNameMeasureDistance => '測量距離';
+
+  @override
+  String get tbNameMeasurePerimeter => '測量周長';
+
+  @override
+  String get tbNameMeasureSlope => '測量坡度（垂直/水平）';
+
+  @override
+  String get tbNameMeasureVolume => '測量體積（面積 × 深度）';
+
+  @override
+  String get tbNameNote => '便箋';
+
+  @override
+  String get tbNamePolygon => '多邊形';
+
+  @override
+  String get tbNamePolyline => '折線';
+
+  @override
+  String get tbNameRectangle => '矩形';
+
+  @override
+  String get tbNameSelect => '選取';
+
+  @override
+  String get tbNameSignature => '簽名';
+
+  @override
+  String get tbNameStamp => '戳記';
+
+  @override
+  String get tbNameTextBox => '文字方塊';
+
+  @override
+  String get tbNewFieldType => '新欄位類型 - 在頁面上拖曳以新增';
+
+  @override
+  String get tbNoAnnotationsToFlatten => '沒有可平面化的註解';
+
+  @override
+  String get tbNoCustomStamps => '沒有自訂戳記';
+
+  @override
+  String get tbNoFormFieldsToFlatten => '沒有可平面化的表單欄位';
+
+  @override
+  String get tbNoRedactionsToApply => '沒有可套用的塗黑';
+
+  @override
+  String get tbNoteTitle => '便箋';
+
+  @override
+  String get tbOpacity => '不透明度';
+
+  @override
+  String get tbOutline => '外框';
+
+  @override
+  String get tbPatternScale => '圖樣縮放';
+
+  @override
+  String get tbPickColorFromPage => '從頁面挑選顏色';
+
+  @override
+  String get tbRedactionsApplied => '已套用塗黑';
+
+  @override
+  String get tbRedoShortcut => '重做 (⇧⌘Z)';
+
+  @override
+  String get tbReflowFailed => '無法重排 - 這不是此工具可重新換行的單欄段落。請改用「取代文字」。';
+
+  @override
+  String get tbReflowParagraph => '重排段落';
+
+  @override
+  String get tbRenameField => '重新命名欄位';
+
+  @override
+  String get tbRenameFieldEllipsis => '重新命名欄位…';
+
+  @override
+  String get tbReplaceImage => '取代影像';
+
+  @override
+  String get tbReplaceImageFailed => '無法取代影像';
+
+  @override
+  String get tbReplaceText => '取代文字';
+
+  @override
+  String get tbSaveImage => '儲存影像';
+
+  @override
+  String get tbSaveShortcut => '儲存… (⌘S / Ctrl+S)';
+
+  @override
+  String get tbScale => '比例';
+
+  @override
+  String get tbSelectTextForMarkup => '選取文字以使用標記';
+
+  @override
+  String tbSelectionCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '已選取 $count 個',
+      one: '選取範圍',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get tbSetEllipsis => '設定…';
+
+  @override
+  String get tbStamp => '戳記';
+
+  @override
+  String get tbStampText => '戳記文字';
+
+  @override
+  String get tbStrokeOpacityFont => '筆畫、不透明度、字型';
+
+  @override
+  String get tbStrokeWidthLabel => '筆畫寬度';
+
+  @override
+  String tbStrokeWidthPreset(String width) {
+    return '筆畫 $width';
+  }
+
+  @override
+  String get tbStyle => '樣式';
+
+  @override
+  String get tbTakeoffTotals => '估算總計';
+
+  @override
+  String get tbTextBorder => '文字邊框';
+
+  @override
+  String get tbTextColour => '文字顏色';
+
+  @override
+  String get tbTextFieldOption => '文字欄位';
+
+  @override
+  String get tbTextFill => '文字填滿';
+
+  @override
+  String get tbTextStyleEllipsis => '文字樣式…';
+
+  @override
+  String get tbTextTitle => '文字';
+
+  @override
+  String get tbTipCallout => '圖說文字 - 從點拖曳至方塊要放置的位置';
+
+  @override
+  String get tbTipContent => '編輯頁面內容';
+
+  @override
+  String get tbTipCount => '計數 - 點一下放置勾選標記並計數';
+
+  @override
+  String get tbTipDigitalSignature => '數位簽章 - 拖曳方塊以放置並簽署';
+
+  @override
+  String get tbTipForm => '表單欄位 - 點一下選取，點兩下填寫，拖曳以新增';
+
+  @override
+  String get tbTipHighlightDraw => '醒目提示 - 手繪';
+
+  @override
+  String get tbTipImage => '影像 - 點一下放置，或拖曳出方塊';
+
+  @override
+  String get tbTipMeasureAngle => '測量角度 - 點三個點';
+
+  @override
+  String get tbTipMeasureArc => '測量弧長 - 點三個點';
+
+  @override
+  String get tbTipRedact => '塗黑 - 拖曳出區域，然後套用';
+
+  @override
+  String get tbTipSignature => '簽名 - 點一下頁面以放置';
+
+  @override
+  String get tbTipSnapshot => '快照 - 拖曳出區域以擷取（以向量貼回）';
+
+  @override
+  String get tbToolContent => '內容';
+
+  @override
+  String get tbToolForm => '表單';
+
+  @override
+  String get tbToolRedact => '塗黑';
+
+  @override
+  String get tbToolSnapshot => '快照';
+
+  @override
+  String get tbTools => '工具';
+
+  @override
+  String get tbTotals => '總計';
+
+  @override
+  String get tbTypeTextEachTime => '每次輸入文字';
+
+  @override
+  String get tbUnderline => '底線';
+
+  @override
+  String get tbUndoShortcut => '復原 (⌘Z)';
+
+  @override
+  String get textStyleFont => '字型';
+
+  @override
+  String get textStyleFontSize => '字型大小';
+
+  @override
+  String get textStyleKeep => '保留';
+
+  @override
+  String get textStyleStyle => '樣式';
+
+  @override
+  String get textStyleText => '文字';
+
+  @override
+  String get textStyleTextFill => '文字填滿';
+
+  @override
+  String get textStyleTitle => '編輯文字與樣式';
+
+  @override
+  String get thumbAddPage => '新增頁面';
+
+  @override
+  String get thumbClearSelection => '清除選取';
+
+  @override
+  String thumbCopyPages(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '複製 $count 頁',
+      one: '複製頁面',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get thumbCopySelectedPages => '複製選取的頁面';
+
+  @override
+  String thumbCutPages(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '剪下 $count 頁',
+      one: '剪下頁面',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get thumbCutSelectedPages => '剪下選取的頁面';
+
+  @override
+  String thumbDeletePages(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '刪除 $count 頁',
+      one: '刪除頁面',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get thumbDeleteSelectedPages => '刪除選取的頁面';
+
+  @override
+  String thumbDuplicatePages(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '再製 $count 頁',
+      one: '再製頁面',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get thumbExportPagesEllipsis => '匯出頁面…';
+
+  @override
+  String thumbExportPagesMenu(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '匯出 $count 頁…',
+      one: '匯出頁面…',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get thumbExportSelectedPages => '匯出選取的頁面';
+
+  @override
+  String get thumbInsertBlankAfter => '在後方插入空白頁';
+
+  @override
+  String get thumbInsertBlankBefore => '在前方插入空白頁';
+
+  @override
+  String get thumbInsertFileFailed => '無法插入該檔案。';
+
+  @override
+  String get thumbInsertPdf => '插入 PDF…';
+
+  @override
+  String get thumbPageActions => '頁面動作';
+
+  @override
+  String thumbPageNumber(int number) {
+    return '第 $number 頁';
+  }
+
+  @override
+  String get thumbPages => '頁面';
+
+  @override
+  String thumbPastePages(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '貼上 $count 頁',
+      one: '貼上頁面',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get thumbRotate180 => '旋轉 180°';
+
+  @override
+  String get thumbRotateLeft => '向左旋轉';
+
+  @override
+  String get thumbRotatePageRight => '向右旋轉頁面';
+
+  @override
+  String get thumbRotateRight => '向右旋轉';
+
+  @override
+  String get thumbRotateSelectedLeft => '向左旋轉選取的頁面';
+
+  @override
+  String get thumbRotateSelectedRight => '向右旋轉選取的頁面';
+
+  @override
+  String thumbSelectedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '已選取 $count 個',
+      one: '已選取 $count 個',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get undo => '復原';
+
+  @override
+  String get viewerEditFontUnsafe => '無法安全地編輯此 PDF 字型或編碼。';
+
+  @override
+  String get viewerEditNeedsSinglePage => '編輯需要在單一頁面上選取。';
+
+  @override
+  String get viewerEditNotEditableRun => '此選取範圍不是單一可編輯的頁面內容文字段。';
+
+  @override
+  String get viewerEditStyleUnchangeable => '此 PDF 字型可重新輸入，但無法變更其樣式。';
+
+  @override
+  String get viewerEditTextStyle => '編輯文字與樣式';
+
+  @override
+  String get viewerMarkup => '標記';
+
+  @override
+  String get viewerMarkupHighlight => '醒目提示';
+
+  @override
+  String get viewerMarkupSquiggly => '波浪線';
+
+  @override
+  String get viewerMarkupStrikeOut => '刪除線';
+
+  @override
+  String get viewerMarkupUnderline => '底線';
+
+  @override
+  String get viewerSelectAll => '全選';
+}

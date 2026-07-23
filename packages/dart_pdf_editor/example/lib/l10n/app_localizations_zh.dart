@@ -437,3 +437,437 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get exFileTypeFonts => '字体';
 }
+
+/// The translations for Chinese, using the Han script (`zh_Hant`).
+class AppLocalizationsZhHant extends AppLocalizationsZh {
+  AppLocalizationsZhHant() : super('zh_Hant');
+
+  @override
+  String get add => '新增';
+
+  @override
+  String get apply => '套用';
+
+  @override
+  String get cancel => '取消';
+
+  @override
+  String get clear => '清除';
+
+  @override
+  String get close => '關閉';
+
+  @override
+  String get copy => '複製';
+
+  @override
+  String get cut => '剪下';
+
+  @override
+  String get delete => '刪除';
+
+  @override
+  String get done => '完成';
+
+  @override
+  String get edit => '編輯';
+
+  @override
+  String exActionJavaScript(String script) {
+    return '已顯示給應用程式的 JavaScript：$script';
+  }
+
+  @override
+  String exActionLink(String uri) {
+    return '連結：$uri';
+  }
+
+  @override
+  String exActionNamed(String name) {
+    return '具名動作：$name';
+  }
+
+  @override
+  String exActionUnhandled(String type) {
+    return '未處理的動作類型：$type';
+  }
+
+  @override
+  String get exAnnotationTextCopied => '已複製註解文字';
+
+  @override
+  String get exApiKeyHelper => '以 Authorization: Bearer … 傳送';
+
+  @override
+  String get exApiKeyLabel => 'API 金鑰／權杖（選填）';
+
+  @override
+  String get exAppMenuTooltip => 'DartPDF 選單';
+
+  @override
+  String get exClearRecentFiles => '清除最近使用的檔案';
+
+  @override
+  String get exCloseTab => '關閉分頁';
+
+  @override
+  String exCompareTabTitle(String before, String after) {
+    return '比較：$before ↔ $after';
+  }
+
+  @override
+  String get exCompareWithAnother => '與另一個 PDF 比較…';
+
+  @override
+  String get exCopiedToClipboard => '已複製到剪貼簿';
+
+  @override
+  String get exCopySelectedText => '複製選取的文字 (⌘C)';
+
+  @override
+  String get exCopyText => '複製文字';
+
+  @override
+  String exCouldNotOpenFile(String name, String error) {
+    return '無法開啟 $name\n$error';
+  }
+
+  @override
+  String exCouldNotOpenPath(String path, String error) {
+    return '無法開啟 $path\n$error';
+  }
+
+  @override
+  String exCouldNotOpenUrl(String url) {
+    return '無法開啟 $url';
+  }
+
+  @override
+  String exCouldNotOpenUrlCors(String uri, String error) {
+    return '無法開啟 $uri\n$error\n\n在網頁上這通常是 CORS 限制：伺服器必須傳送 Access-Control-Allow-Origin 並公開 Range 標頭。';
+  }
+
+  @override
+  String exCouldNotReopen(String title, String error) {
+    return '無法重新開啟 $title\n$error';
+  }
+
+  @override
+  String exCouldNotReopenGone(String title) {
+    return '無法重新開啟 $title - 其儲存的副本已無法使用。';
+  }
+
+  @override
+  String get exDemoNoteHint => '在此輸入 - 此文字方塊浮在頁面上方';
+
+  @override
+  String get exDiagnosticsCopied => '已將診斷資料複製到剪貼簿';
+
+  @override
+  String exDownloaded(String name) {
+    return '已下載 $name';
+  }
+
+  @override
+  String exDownloadedSnapshotCtrl(String name) {
+    return '已下載 $name - 使用 Ctrl+V 貼回 PDF';
+  }
+
+  @override
+  String get exExport => '匯出';
+
+  @override
+  String exExportFailed(String error) {
+    return '匯出失敗：$error';
+  }
+
+  @override
+  String get exExportPageImageMenu => '將頁面匯出為影像…';
+
+  @override
+  String get exExportPageImageTitle => '將頁面匯出為影像';
+
+  @override
+  String get exFeatureShowcase => '功能展示';
+
+  @override
+  String get exFormat => '格式';
+
+  @override
+  String get exHide => '隱藏';
+
+  @override
+  String get exHorizontalLayout => '水平頁面版面配置';
+
+  @override
+  String get exHowToSetupOcr => '如何設定 OCR 伺服器';
+
+  @override
+  String get exModelName => '模型名稱';
+
+  @override
+  String get exNoMessage => '沒有訊息';
+
+  @override
+  String get exNoRecentFiles => '沒有最近使用的檔案';
+
+  @override
+  String exNotAValidUrl(String url) {
+    return '不是有效的 URL：\n$url';
+  }
+
+  @override
+  String exOcrAddedSpans(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'OCR 新增了 $count 個文字範圍 - 現在可選取頁面文字',
+      one: 'OCR 新增了 1 個文字範圍 - 現在可選取頁面文字',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get exOcrDescription =>
+      '使用您自行託管的視覺語言 OCR 模型（在 vLLM 上執行的 dots.ocr，或任何相容於 OpenAI 的 OCR 端點），在掃描頁面上新增可選取、可搜尋的文字圖層。';
+
+  @override
+  String exOcrDocumentTitle(String title) {
+    return '$title（OCR）';
+  }
+
+  @override
+  String exOcrFailed(String error) {
+    return 'OCR 失敗：$error';
+  }
+
+  @override
+  String get exOcrMenu => 'OCR…';
+
+  @override
+  String get exOpen => '開啟';
+
+  @override
+  String get exOpenDocumentBeforeOcr => '執行 OCR 前請先開啟文件';
+
+  @override
+  String get exOpenDocumentFirst => '請先開啟文件';
+
+  @override
+  String get exOpenFromUrl => '從 URL 開啟…';
+
+  @override
+  String get exOpenFromUrlTitle => '從 URL 開啟';
+
+  @override
+  String get exOpenInNewTab => '在新分頁中開啟 PDF';
+
+  @override
+  String get exOpenInteractiveDemo => '開啟互動式示範';
+
+  @override
+  String get exOpenPdf => '開啟 PDF…';
+
+  @override
+  String get exOpenPdfButton => '開啟 PDF';
+
+  @override
+  String get exOpenRecent => '開啟最近使用';
+
+  @override
+  String get exOpenUrlDescription =>
+      '透過 PdfHttpByteSource 以 HTTP Range 要求串流 PDF，只擷取剖析器需要的部分，並在伺服器不支援範圍時改為完整下載。';
+
+  @override
+  String get exOpeningDocument => '正在開啟文件';
+
+  @override
+  String get exOpeningPdf => '正在開啟 PDF…';
+
+  @override
+  String exOpeningTitle(String title) {
+    return '正在開啟 $title…';
+  }
+
+  @override
+  String get exPdfUrlLabel => 'PDF URL';
+
+  @override
+  String get exPerformanceAuto => '效能：自動';
+
+  @override
+  String get exPreparing => '準備中…';
+
+  @override
+  String get exPubDevMenuItem => 'dart_pdf_editor 於 pub.dev';
+
+  @override
+  String exRecognisingPage(int current, int count) {
+    return '正在辨識第 $current 頁，共 $count 頁…';
+  }
+
+  @override
+  String get exResolution => '解析度';
+
+  @override
+  String get exRunOcr => '執行 OCR';
+
+  @override
+  String get exSaveAs => '另存新檔…';
+
+  @override
+  String exSaveFailed(String error) {
+    return '儲存失敗：$error';
+  }
+
+  @override
+  String exSavedName(String name) {
+    return '已儲存 $name';
+  }
+
+  @override
+  String exSavedSnapshotCmd(String name) {
+    return '已儲存 $name - 使用 ⌘V 貼回 PDF';
+  }
+
+  @override
+  String exSavedTo(String path) {
+    return '已儲存至 $path';
+  }
+
+  @override
+  String get exScrollIndicatorDemo => '捲動指示器 API 示範';
+
+  @override
+  String get exServiceEndpoint => '服務端點';
+
+  @override
+  String get exShow => '顯示';
+
+  @override
+  String get exSingleWorker => '單一工作程序';
+
+  @override
+  String get exSupplyFeedback => '提供意見回饋…';
+
+  @override
+  String get exSwitchToEdit => '切換至編輯模式';
+
+  @override
+  String get exSwitchToReadOnly => '切換至唯讀';
+
+  @override
+  String get exThemeDark => '主題：深色 - 切換至系統';
+
+  @override
+  String get exThemeLight => '主題：淺色 - 切換至深色';
+
+  @override
+  String get exThemeSystem => '主題：系統 - 切換至淺色';
+
+  @override
+  String get exTryDemo => '試用互動式示範';
+
+  @override
+  String get exUntitled => '未命名';
+
+  @override
+  String get exVerticalLayout => '垂直頁面版面配置';
+
+  @override
+  String get exViewSource => '在 GitHub 上檢視原始碼';
+
+  @override
+  String get exWorkerAuto => '自動';
+
+  @override
+  String exWorkerPoolTooltip(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '效能：$count 個工作程序',
+      one: '效能：單一工作程序',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String exWorkersCount(int count) {
+    return '$count 個工作程序';
+  }
+
+  @override
+  String get feedbackAttachDiagnostics => '將這些診斷資料附加到報告';
+
+  @override
+  String get feedbackClearLog => '清除記錄';
+
+  @override
+  String get feedbackCopyDiagnostics => '複製診斷資料';
+
+  @override
+  String get feedbackDiagnosticsNotice =>
+      '意見回饋表單會在您的瀏覽器中開啟。以下診斷資料僅在此裝置上收集，並會附加以協助重現問題。請先檢閱它們 - 請勿包含任何您想保密的內容。';
+
+  @override
+  String get feedbackOpenForm => '開啟意見回饋表單';
+
+  @override
+  String get feedbackTitle => '傳送意見回饋';
+
+  @override
+  String get none => '無';
+
+  @override
+  String get ok => '確定';
+
+  @override
+  String get paste => '貼上';
+
+  @override
+  String get redo => '重做';
+
+  @override
+  String get remove => '移除';
+
+  @override
+  String get rename => '重新命名';
+
+  @override
+  String get reset => '重設';
+
+  @override
+  String get save => '儲存';
+
+  @override
+  String get scrollDemoNextPage => '下一頁';
+
+  @override
+  String scrollDemoPageBubble(int current, int count) {
+    return '第 $current 頁 / 共 $count 頁';
+  }
+
+  @override
+  String get scrollDemoPreviousPage => '上一頁';
+
+  @override
+  String get scrollDemoSwitchHorizontal => '切換至水平版面配置';
+
+  @override
+  String get scrollDemoSwitchVertical => '切換至垂直版面配置';
+
+  @override
+  String get scrollDemoTitle => '捲動指示器 API';
+
+  @override
+  String get undo => '復原';
+
+  @override
+  String get exFileTypePdf => 'PDF 文件';
+
+  @override
+  String get exFileTypeImages => '影像';
+
+  @override
+  String get exFileTypeFonts => '字型';
+}
