@@ -15505,7 +15505,7 @@ bL(a,b){var s
 t.L.a(a)
 s=A.vA(32768)
 B.cK.kP(A.oL(a,B.aG,null,null),s,!1,!1)
-return A.rS(new Uint8Array(A.I(s.ho())),b)}}
+return A.rS(s.ho(),b)}}
 A.ks.prototype={
 fh(b2){var s,r,q,p,o,n,m,l,k,j,i,h,g,f,e,d,c,b,a,a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,b0=this,b1=A.aH(b2)
 for(s=b2.length,r=t.t,q=b0.b,p=b0.a,o=p*q,n=b0.e,m=b0.d,l=b0.c,k=0;k+11<=s;k=a1){j=b1.getUint32(k,!1)
