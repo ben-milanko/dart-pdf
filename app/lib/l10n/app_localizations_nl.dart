@@ -565,28 +565,29 @@ class AppLocalizationsNl extends AppLocalizations {
   String get editorUpdateLater => 'Later';
 
   @override
-  String get updateInstallNow => 'Update now';
+  String get updateInstallNow => 'Nu bijwerken';
 
   @override
-  String get updateDownloadingTitle => 'Downloading update';
+  String get updateDownloadingTitle => 'Update downloaden';
 
   @override
-  String get updatePreparing => 'Preparing…';
+  String get updatePreparing => 'Voorbereiden…';
 
   @override
   String updateDownloadingPercent(int percent) {
-    return 'Downloading… $percent%';
+    return 'Downloaden… $percent%';
   }
 
   @override
-  String get updateRestarting => 'Restarting to finish the update…';
+  String get updateRestarting => 'Opnieuw opstarten om de update te voltooien…';
 
   @override
-  String get updateHandedOff => 'Update downloaded. Opening the installer…';
+  String get updateHandedOff =>
+      'Update gedownload. Installatieprogramma wordt geopend…';
 
   @override
   String updateFailed(String error) {
-    return 'Update failed: $error';
+    return 'Bijwerken mislukt: $error';
   }
 
   @override

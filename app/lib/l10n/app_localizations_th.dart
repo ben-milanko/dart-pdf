@@ -558,28 +558,28 @@ class AppLocalizationsTh extends AppLocalizations {
   String get editorUpdateLater => 'ภายหลัง';
 
   @override
-  String get updateInstallNow => 'Update now';
+  String get updateInstallNow => 'อัปเดตทันที';
 
   @override
-  String get updateDownloadingTitle => 'Downloading update';
+  String get updateDownloadingTitle => 'กำลังดาวน์โหลดการอัปเดต';
 
   @override
-  String get updatePreparing => 'Preparing…';
+  String get updatePreparing => 'กำลังเตรียม…';
 
   @override
   String updateDownloadingPercent(int percent) {
-    return 'Downloading… $percent%';
+    return 'กำลังดาวน์โหลด… $percent%';
   }
 
   @override
-  String get updateRestarting => 'Restarting to finish the update…';
+  String get updateRestarting => 'กำลังรีสตาร์ทเพื่อสิ้นสุดการอัปเดต…';
 
   @override
-  String get updateHandedOff => 'Update downloaded. Opening the installer…';
+  String get updateHandedOff => 'ดาวน์โหลดการอัปเดตแล้ว กำลังเปิดตัวติดตั้ง…';
 
   @override
   String updateFailed(String error) {
-    return 'Update failed: $error';
+    return 'การอัปเดตล้มเหลว: $error';
   }
 
   @override

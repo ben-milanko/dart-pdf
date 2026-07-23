@@ -228,5 +228,12 @@
   "appSigErrorKeyCertificateMismatch": "Приватний ключ не відповідає жодному вибраному сертифікату RSA.",
   "appSigErrorEncryptedKeyUnsupported": "Зашифровані приватні ключі не підтримуються. Виберіть незашифрований ключ RSA PKCS#1 або PKCS#8.",
   "appSigErrorKeyNotRsa": "Приватний ключ не є незашифрованим ключем RSA PKCS#1 або PKCS#8.",
-  "appSigErrorNoCertificateFound": "Сертифікатів X.509 не знайдено."
+  "appSigErrorNoCertificateFound": "Сертифікатів X.509 не знайдено.",
+  "updateInstallNow": "Оновити зараз",
+  "updateDownloadingTitle": "Завантаження оновлення",
+  "updatePreparing": "Підготовка…",
+  "updateDownloadingPercent": "Завантаження… {percent}%",
+  "updateRestarting": "Перезапуск для завершення оновлення…",
+  "updateHandedOff": "Оновлення завантажено. Відкриття інсталятора…",
+  "updateFailed": "Не вдалося оновити: {error}"
 }

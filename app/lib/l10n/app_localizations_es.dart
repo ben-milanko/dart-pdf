@@ -564,28 +564,29 @@ class AppLocalizationsEs extends AppLocalizations {
   String get editorUpdateLater => 'Más tarde';
 
   @override
-  String get updateInstallNow => 'Update now';
+  String get updateInstallNow => 'Actualizar ahora';
 
   @override
-  String get updateDownloadingTitle => 'Downloading update';
+  String get updateDownloadingTitle => 'Descargando actualización';
 
   @override
-  String get updatePreparing => 'Preparing…';
+  String get updatePreparing => 'Preparando…';
 
   @override
   String updateDownloadingPercent(int percent) {
-    return 'Downloading… $percent%';
+    return 'Descargando… $percent%';
   }
 
   @override
-  String get updateRestarting => 'Restarting to finish the update…';
+  String get updateRestarting => 'Reiniciando para completar la actualización…';
 
   @override
-  String get updateHandedOff => 'Update downloaded. Opening the installer…';
+  String get updateHandedOff =>
+      'Actualización descargada. Abriendo el instalador…';
 
   @override
   String updateFailed(String error) {
-    return 'Update failed: $error';
+    return 'Error en la actualización: $error';
   }
 
   @override

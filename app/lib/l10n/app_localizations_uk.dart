@@ -566,28 +566,28 @@ class AppLocalizationsUk extends AppLocalizations {
   String get editorUpdateLater => 'Пізніше';
 
   @override
-  String get updateInstallNow => 'Update now';
+  String get updateInstallNow => 'Оновити зараз';
 
   @override
-  String get updateDownloadingTitle => 'Downloading update';
+  String get updateDownloadingTitle => 'Завантаження оновлення';
 
   @override
-  String get updatePreparing => 'Preparing…';
+  String get updatePreparing => 'Підготовка…';
 
   @override
   String updateDownloadingPercent(int percent) {
-    return 'Downloading… $percent%';
+    return 'Завантаження… $percent%';
   }
 
   @override
-  String get updateRestarting => 'Restarting to finish the update…';
+  String get updateRestarting => 'Перезапуск для завершення оновлення…';
 
   @override
-  String get updateHandedOff => 'Update downloaded. Opening the installer…';
+  String get updateHandedOff => 'Оновлення завантажено. Відкриття інсталятора…';
 
   @override
   String updateFailed(String error) {
-    return 'Update failed: $error';
+    return 'Не вдалося оновити: $error';
   }
 
   @override

@@ -550,28 +550,28 @@ class AppLocalizationsKo extends AppLocalizations {
   String get editorUpdateLater => '나중에';
 
   @override
-  String get updateInstallNow => 'Update now';
+  String get updateInstallNow => '지금 업데이트';
 
   @override
-  String get updateDownloadingTitle => 'Downloading update';
+  String get updateDownloadingTitle => '업데이트 다운로드 중';
 
   @override
-  String get updatePreparing => 'Preparing…';
+  String get updatePreparing => '준비 중…';
 
   @override
   String updateDownloadingPercent(int percent) {
-    return 'Downloading… $percent%';
+    return '다운로드 중… $percent%';
   }
 
   @override
-  String get updateRestarting => 'Restarting to finish the update…';
+  String get updateRestarting => '업데이트를 완료하기 위해 다시 시작하는 중…';
 
   @override
-  String get updateHandedOff => 'Update downloaded. Opening the installer…';
+  String get updateHandedOff => '업데이트를 다운로드했습니다. 설치 프로그램을 여는 중…';
 
   @override
   String updateFailed(String error) {
-    return 'Update failed: $error';
+    return '업데이트 실패: $error';
   }
 
   @override

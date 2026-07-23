@@ -228,5 +228,12 @@
   "appSigErrorKeyCertificateMismatch": "La chiave privata non corrisponde a nessun certificato RSA selezionato.",
   "appSigErrorEncryptedKeyUnsupported": "Le chiavi private crittografate non sono supportate. Scegli una chiave RSA PKCS#1 o PKCS#8 non crittografata.",
   "appSigErrorKeyNotRsa": "La chiave privata non è una chiave RSA PKCS#1 o PKCS#8 non crittografata.",
-  "appSigErrorNoCertificateFound": "Nessun certificato X.509 trovato."
+  "appSigErrorNoCertificateFound": "Nessun certificato X.509 trovato.",
+  "updateInstallNow": "Aggiorna ora",
+  "updateDownloadingTitle": "Download dell’aggiornamento",
+  "updatePreparing": "Preparazione…",
+  "updateDownloadingPercent": "Download… {percent}%",
+  "updateRestarting": "Riavvio per completare l’aggiornamento…",
+  "updateHandedOff": "Aggiornamento scaricato. Apertura del programma di installazione…",
+  "updateFailed": "Aggiornamento non riuscito: {error}"
 }

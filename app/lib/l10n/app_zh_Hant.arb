@@ -228,5 +228,12 @@
   "appSigErrorKeyCertificateMismatch": "私密金鑰與任何選取的 RSA 憑證都不相符。",
   "appSigErrorEncryptedKeyUnsupported": "不支援加密的私密金鑰。請選擇未加密的 RSA PKCS#1 或 PKCS#8 金鑰。",
   "appSigErrorKeyNotRsa": "私密金鑰不是未加密的 RSA PKCS#1 或 PKCS#8 金鑰。",
-  "appSigErrorNoCertificateFound": "找不到 X.509 憑證。"
+  "appSigErrorNoCertificateFound": "找不到 X.509 憑證。",
+  "updateInstallNow": "立即更新",
+  "updateDownloadingTitle": "正在下載更新",
+  "updatePreparing": "正在準備…",
+  "updateDownloadingPercent": "正在下載… {percent}%",
+  "updateRestarting": "正在重新啟動以完成更新…",
+  "updateHandedOff": "更新已下載。正在開啟安裝程式…",
+  "updateFailed": "更新失敗：{error}"
 }

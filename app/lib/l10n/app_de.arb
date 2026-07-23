@@ -228,5 +228,12 @@
   "appSigErrorKeyCertificateMismatch": "Der private Schlüssel passt zu keinem ausgewählten RSA-Zertifikat.",
   "appSigErrorEncryptedKeyUnsupported": "Verschlüsselte private Schlüssel werden nicht unterstützt. Wählen Sie einen unverschlüsselten RSA-PKCS#1- oder PKCS#8-Schlüssel.",
   "appSigErrorKeyNotRsa": "Der private Schlüssel ist kein unverschlüsselter RSA-PKCS#1- oder PKCS#8-Schlüssel.",
-  "appSigErrorNoCertificateFound": "Es wurden keine X.509-Zertifikate gefunden."
+  "appSigErrorNoCertificateFound": "Es wurden keine X.509-Zertifikate gefunden.",
+  "updateInstallNow": "Jetzt aktualisieren",
+  "updateDownloadingTitle": "Update wird heruntergeladen",
+  "updatePreparing": "Wird vorbereitet…",
+  "updateDownloadingPercent": "Wird heruntergeladen… {percent}%",
+  "updateRestarting": "Neustart, um das Update abzuschließen…",
+  "updateHandedOff": "Update heruntergeladen. Installationsprogramm wird geöffnet…",
+  "updateFailed": "Update fehlgeschlagen: {error}"
 }

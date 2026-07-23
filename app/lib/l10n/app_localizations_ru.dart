@@ -565,28 +565,28 @@ class AppLocalizationsRu extends AppLocalizations {
   String get editorUpdateLater => 'Позже';
 
   @override
-  String get updateInstallNow => 'Update now';
+  String get updateInstallNow => 'Обновить сейчас';
 
   @override
-  String get updateDownloadingTitle => 'Downloading update';
+  String get updateDownloadingTitle => 'Загрузка обновления';
 
   @override
-  String get updatePreparing => 'Preparing…';
+  String get updatePreparing => 'Подготовка…';
 
   @override
   String updateDownloadingPercent(int percent) {
-    return 'Downloading… $percent%';
+    return 'Загрузка… $percent%';
   }
 
   @override
-  String get updateRestarting => 'Restarting to finish the update…';
+  String get updateRestarting => 'Перезапуск для завершения обновления…';
 
   @override
-  String get updateHandedOff => 'Update downloaded. Opening the installer…';
+  String get updateHandedOff => 'Обновление загружено. Открытие установщика…';
 
   @override
   String updateFailed(String error) {
-    return 'Update failed: $error';
+    return 'Не удалось обновить: $error';
   }
 
   @override

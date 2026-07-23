@@ -564,28 +564,28 @@ class AppLocalizationsId extends AppLocalizations {
   String get editorUpdateLater => 'Nanti';
 
   @override
-  String get updateInstallNow => 'Update now';
+  String get updateInstallNow => 'Perbarui sekarang';
 
   @override
-  String get updateDownloadingTitle => 'Downloading update';
+  String get updateDownloadingTitle => 'Mengunduh pembaruan';
 
   @override
-  String get updatePreparing => 'Preparing…';
+  String get updatePreparing => 'Menyiapkan…';
 
   @override
   String updateDownloadingPercent(int percent) {
-    return 'Downloading… $percent%';
+    return 'Mengunduh… $percent%';
   }
 
   @override
-  String get updateRestarting => 'Restarting to finish the update…';
+  String get updateRestarting => 'Memulai ulang untuk menyelesaikan pembaruan…';
 
   @override
-  String get updateHandedOff => 'Update downloaded. Opening the installer…';
+  String get updateHandedOff => 'Pembaruan diunduh. Membuka penginstal…';
 
   @override
   String updateFailed(String error) {
-    return 'Update failed: $error';
+    return 'Pembaruan gagal: $error';
   }
 
   @override

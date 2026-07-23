@@ -228,5 +228,12 @@
   "appSigErrorKeyCertificateMismatch": "La clave privada no coincide con ningún certificado RSA seleccionado.",
   "appSigErrorEncryptedKeyUnsupported": "Las claves privadas cifradas no son compatibles. Elige una clave RSA PKCS#1 o PKCS#8 sin cifrar.",
   "appSigErrorKeyNotRsa": "La clave privada no es una clave RSA PKCS#1 o PKCS#8 sin cifrar.",
-  "appSigErrorNoCertificateFound": "No se encontraron certificados X.509."
+  "appSigErrorNoCertificateFound": "No se encontraron certificados X.509.",
+  "updateInstallNow": "Actualizar ahora",
+  "updateDownloadingTitle": "Descargando actualización",
+  "updatePreparing": "Preparando…",
+  "updateDownloadingPercent": "Descargando… {percent}%",
+  "updateRestarting": "Reiniciando para completar la actualización…",
+  "updateHandedOff": "Actualización descargada. Abriendo el instalador…",
+  "updateFailed": "Error en la actualización: {error}"
 }

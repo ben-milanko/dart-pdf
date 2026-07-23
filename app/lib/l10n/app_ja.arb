@@ -228,5 +228,12 @@
   "appSigErrorKeyCertificateMismatch": "秘密鍵が、選択したどの RSA 証明書とも一致しません。",
   "appSigErrorEncryptedKeyUnsupported": "暗号化された秘密鍵はサポートされていません。暗号化されていない RSA PKCS#1 または PKCS#8 鍵を選択してください。",
   "appSigErrorKeyNotRsa": "秘密鍵は暗号化されていない RSA PKCS#1 または PKCS#8 鍵ではありません。",
-  "appSigErrorNoCertificateFound": "X.509 証明書が見つかりませんでした。"
+  "appSigErrorNoCertificateFound": "X.509 証明書が見つかりませんでした。",
+  "updateInstallNow": "今すぐ更新",
+  "updateDownloadingTitle": "更新をダウンロード中",
+  "updatePreparing": "準備中…",
+  "updateDownloadingPercent": "ダウンロード中… {percent}%",
+  "updateRestarting": "更新を完了するために再起動しています…",
+  "updateHandedOff": "更新をダウンロードしました。インストーラーを開いています…",
+  "updateFailed": "更新に失敗しました: {error}"
 }

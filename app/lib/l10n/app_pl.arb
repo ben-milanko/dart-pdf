@@ -228,5 +228,12 @@
   "appSigErrorKeyCertificateMismatch": "Klucz prywatny nie pasuje do żadnego wybranego certyfikatu RSA.",
   "appSigErrorEncryptedKeyUnsupported": "Zaszyfrowane klucze prywatne nie są obsługiwane. Wybierz niezaszyfrowany klucz RSA PKCS#1 lub PKCS#8.",
   "appSigErrorKeyNotRsa": "Klucz prywatny nie jest niezaszyfrowanym kluczem RSA PKCS#1 lub PKCS#8.",
-  "appSigErrorNoCertificateFound": "Nie znaleziono certyfikatów X.509."
+  "appSigErrorNoCertificateFound": "Nie znaleziono certyfikatów X.509.",
+  "updateInstallNow": "Aktualizuj teraz",
+  "updateDownloadingTitle": "Pobieranie aktualizacji",
+  "updatePreparing": "Przygotowywanie…",
+  "updateDownloadingPercent": "Pobieranie… {percent}%",
+  "updateRestarting": "Ponowne uruchamianie, aby dokończyć aktualizację…",
+  "updateHandedOff": "Pobrano aktualizację. Otwieranie instalatora…",
+  "updateFailed": "Aktualizacja nie powiodła się: {error}"
 }

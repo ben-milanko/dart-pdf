@@ -228,5 +228,12 @@
   "appSigErrorKeyCertificateMismatch": "निजी कुंजी किसी भी चयनित RSA प्रमाणपत्र से मेल नहीं खाती।",
   "appSigErrorEncryptedKeyUnsupported": "एन्क्रिप्टेड निजी कुंजियाँ समर्थित नहीं हैं। कोई अनएन्क्रिप्टेड RSA PKCS#1 या PKCS#8 कुंजी चुनें।",
   "appSigErrorKeyNotRsa": "निजी कुंजी अनएन्क्रिप्टेड RSA PKCS#1 या PKCS#8 कुंजी नहीं है।",
-  "appSigErrorNoCertificateFound": "कोई X.509 प्रमाणपत्र नहीं मिला।"
+  "appSigErrorNoCertificateFound": "कोई X.509 प्रमाणपत्र नहीं मिला।",
+  "updateInstallNow": "अभी अपडेट करें",
+  "updateDownloadingTitle": "अपडेट डाउनलोड हो रहा है",
+  "updatePreparing": "तैयार हो रहा है…",
+  "updateDownloadingPercent": "डाउनलोड हो रहा है… {percent}%",
+  "updateRestarting": "अपडेट पूरा करने के लिए पुनरारंभ हो रहा है…",
+  "updateHandedOff": "अपडेट डाउनलोड हो गया. इंस्टॉलर खोला जा रहा है…",
+  "updateFailed": "अपडेट विफल: {error}"
 }

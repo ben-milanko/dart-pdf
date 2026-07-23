@@ -552,28 +552,28 @@ class AppLocalizationsJa extends AppLocalizations {
   String get editorUpdateLater => '後で';
 
   @override
-  String get updateInstallNow => 'Update now';
+  String get updateInstallNow => '今すぐ更新';
 
   @override
-  String get updateDownloadingTitle => 'Downloading update';
+  String get updateDownloadingTitle => '更新をダウンロード中';
 
   @override
-  String get updatePreparing => 'Preparing…';
+  String get updatePreparing => '準備中…';
 
   @override
   String updateDownloadingPercent(int percent) {
-    return 'Downloading… $percent%';
+    return 'ダウンロード中… $percent%';
   }
 
   @override
-  String get updateRestarting => 'Restarting to finish the update…';
+  String get updateRestarting => '更新を完了するために再起動しています…';
 
   @override
-  String get updateHandedOff => 'Update downloaded. Opening the installer…';
+  String get updateHandedOff => '更新をダウンロードしました。インストーラーを開いています…';
 
   @override
   String updateFailed(String error) {
-    return 'Update failed: $error';
+    return '更新に失敗しました: $error';
   }
 
   @override

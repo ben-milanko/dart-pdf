@@ -228,5 +228,12 @@
   "appSigErrorKeyCertificateMismatch": "De privésleutel komt met geen enkel geselecteerd RSA-certificaat overeen.",
   "appSigErrorEncryptedKeyUnsupported": "Versleutelde privésleutels worden niet ondersteund. Kies een onversleutelde RSA PKCS#1- of PKCS#8-sleutel.",
   "appSigErrorKeyNotRsa": "De privésleutel is geen onversleutelde RSA PKCS#1- of PKCS#8-sleutel.",
-  "appSigErrorNoCertificateFound": "Er zijn geen X.509-certificaten gevonden."
+  "appSigErrorNoCertificateFound": "Er zijn geen X.509-certificaten gevonden.",
+  "updateInstallNow": "Nu bijwerken",
+  "updateDownloadingTitle": "Update downloaden",
+  "updatePreparing": "Voorbereiden…",
+  "updateDownloadingPercent": "Downloaden… {percent}%",
+  "updateRestarting": "Opnieuw opstarten om de update te voltooien…",
+  "updateHandedOff": "Update gedownload. Installatieprogramma wordt geopend…",
+  "updateFailed": "Bijwerken mislukt: {error}"
 }

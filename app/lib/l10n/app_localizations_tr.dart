@@ -560,28 +560,29 @@ class AppLocalizationsTr extends AppLocalizations {
   String get editorUpdateLater => 'Daha sonra';
 
   @override
-  String get updateInstallNow => 'Update now';
+  String get updateInstallNow => 'Şimdi güncelle';
 
   @override
-  String get updateDownloadingTitle => 'Downloading update';
+  String get updateDownloadingTitle => 'Güncelleme indiriliyor';
 
   @override
-  String get updatePreparing => 'Preparing…';
+  String get updatePreparing => 'Hazırlanıyor…';
 
   @override
   String updateDownloadingPercent(int percent) {
-    return 'Downloading… $percent%';
+    return 'İndiriliyor… $percent%';
   }
 
   @override
-  String get updateRestarting => 'Restarting to finish the update…';
+  String get updateRestarting =>
+      'Güncellemeyi tamamlamak için yeniden başlatılıyor…';
 
   @override
-  String get updateHandedOff => 'Update downloaded. Opening the installer…';
+  String get updateHandedOff => 'Güncelleme indirildi. Yükleyici açılıyor…';
 
   @override
   String updateFailed(String error) {
-    return 'Update failed: $error';
+    return 'Güncelleme başarısız: $error';
   }
 
   @override

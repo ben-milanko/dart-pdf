@@ -565,28 +565,29 @@ class AppLocalizationsFr extends AppLocalizations {
   String get editorUpdateLater => 'Plus tard';
 
   @override
-  String get updateInstallNow => 'Update now';
+  String get updateInstallNow => 'Mettre à jour maintenant';
 
   @override
-  String get updateDownloadingTitle => 'Downloading update';
+  String get updateDownloadingTitle => 'Téléchargement de la mise à jour';
 
   @override
-  String get updatePreparing => 'Preparing…';
+  String get updatePreparing => 'Préparation…';
 
   @override
   String updateDownloadingPercent(int percent) {
-    return 'Downloading… $percent%';
+    return 'Téléchargement… $percent%';
   }
 
   @override
-  String get updateRestarting => 'Restarting to finish the update…';
+  String get updateRestarting => 'Redémarrage pour terminer la mise à jour…';
 
   @override
-  String get updateHandedOff => 'Update downloaded. Opening the installer…';
+  String get updateHandedOff =>
+      'Mise à jour téléchargée. Ouverture du programme d’installation…';
 
   @override
   String updateFailed(String error) {
-    return 'Update failed: $error';
+    return 'Échec de la mise à jour : $error';
   }
 
   @override
