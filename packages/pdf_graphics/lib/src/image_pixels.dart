@@ -320,9 +320,62 @@ PdfDecodedPixels? decodePdfImagePixelsScaled(
   final dict = stream.dictionary;
   final width = _intOf(cos.resolve(dict['Width']));
   final height = _intOf(cos.resolve(dict['Height']));
+  final jpx = _decodeJpxScaled(
+      cos, stream, dict, width, height, targetWidth, targetHeight);
+  if (jpx != null) return jpx;
   return decodePdfImagePixelsRegionScaled(
       cos, stream, 0, 0, width, height, targetWidth, targetHeight,
       wholeImageOnlyIfDownscaled: true);
+}
+
+/// Decodes a plain (colour, unmasked, non-Indexed) JPXDecode image at a reduced
+/// resolution level when it is shown much smaller than native, then box-filters
+/// that already-small raster to the exact target. This is PDFium's `cp_reduce`
+/// (OpenJPEG `resolution_levels_to_skip`): rather than fully decoding ~O(pixels)
+/// and discarding most of it in the downsample, the JPX decoder skips the
+/// entropy decode and inverse wavelet of the finest resolutions.
+///
+/// Returns null - and the caller falls back to a full decode - for anything the
+/// reduced path deliberately does not cover: non-JPX streams, an image not
+/// meaningfully downscaled, Indexed palettes (the samples are palette indices,
+/// not colour, so they must never be resolution-averaged), and masked images
+/// (a stencil/soft mask would have to be reduced in lockstep). Correctness over
+/// coverage: the omitted cases are exactly the ones where a reduced luminance
+/// plane would be wrong, not merely slower.
+PdfDecodedPixels? _decodeJpxScaled(
+  CosDocument cos,
+  CosStream stream,
+  CosDictionary dict,
+  int width,
+  int height,
+  int targetWidth,
+  int targetHeight,
+) {
+  if (width <= 0 || height <= 0 || targetWidth <= 0 || targetHeight <= 0) {
+    return null;
+  }
+  if (!pdfImageFilters(cos, dict).contains('JPXDecode')) return null;
+  if (cos.resolve(dict['ImageMask']) == const CosBoolean(true)) return null;
+  if (dict.containsKey('SMask') || dict.containsKey('Mask')) return null;
+  if (pdfImageColorFamily(cos, dict) == 'Indexed') return null;
+
+  // Resolution levels to skip = floor(log2(min(w/tw, h/th))), and only when the
+  // image is at least halved on its limiting axis (below that the reduce buys
+  // nothing and the full path's downsample is already cheap).
+  final ratio = math.min(width / targetWidth, height / targetHeight);
+  if (ratio < 2) return null;
+  final reduce = (math.log(ratio) / math.ln2).floor();
+  if (reduce < 1) return null;
+
+  final jpx = JpxDecoder.decode(
+      cos.decodeStreamData(stream, stopBeforeFilter: 'JPXDecode'),
+      reduceLevels: reduce);
+  if (jpx == null) return null;
+  final rgba = _jpxToRgba(jpx);
+  if (rgba == null) return null;
+  // JPX carries no colour key; the mapper writes opaque alpha throughout.
+  final decoded = _finish(rgba, jpx.width, jpx.height, hasAlpha: false);
+  return downsamplePdfDecodedPixels(decoded, targetWidth, targetHeight);
 }
 
 /// Decodes a rectangular source-region of a simple Flate/raw or CCITT image
