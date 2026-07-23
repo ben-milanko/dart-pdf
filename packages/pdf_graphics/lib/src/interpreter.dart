@@ -13,7 +13,10 @@ import 'font_info.dart';
 import 'function.dart';
 import 'icc.dart';
 import 'path.dart';
+import 'recording_device.dart';
+import 'render_command.dart';
 import 'shading.dart';
+import 'translating_device.dart';
 
 /// Graphics state, mirroring §8.4. Text state parameters live here too
 /// because `Tf`, `Tc` etc. are saved and restored by `q`/`Q`.
@@ -186,7 +189,13 @@ class PdfInterpreter {
       : _scanImages = scanImagesOnly;
 
   final CosDocument cos;
-  final PdfDevice device;
+
+  /// The render target. Mutable only for the record-once/replay-per-tile
+  /// path (#524), which briefly redirects the walk into a
+  /// [RecordingPdfDevice] while a tiling-pattern cell is captured; it is
+  /// always restored before control returns to the caller.
+  PdfDevice device;
+
   final PdfCancellationToken? cancellation;
 
   static const _maxFormDepth = 16;
@@ -1539,6 +1548,13 @@ class PdfInterpreter {
       return;
     }
     final path = PdfPath(_segments);
+    // Reset the builder *before* dispatching: a pattern fill below re-enters
+    // the interpreter to run the pattern's cell content, and with the live
+    // list still installed the cell's first path ops would append into this
+    // already-captured path - the outer region's geometry then leaked into
+    // the first tile's paint (and, once cells are recorded and replayed for
+    // #524, into every tile).
+    _segments = [];
     if (!path.isEmpty && _contentVisible) {
       if (fill != null) {
         final pattern = _state.fillPattern;
@@ -2222,27 +2238,49 @@ class PdfInterpreter {
         uncolored ? colorFromComponents(_state.fillPatternComponents) : null;
     _activeTilingPatterns.add(pattern);
     try {
+      // Record-once/replay-per-tile (#524, PDFium's CPDF_RenderTiling shape):
+      // every tile runs the same cell ops from the same fresh graphics state -
+      // the only per-tile difference is a pattern-space translation, which the
+      // (affine) pattern matrix maps to a pure page-space translation. So for
+      // multi-tile fills the cell is interpreted once at the base tile and
+      // replayed translated for the rest, instead of re-executing the cell
+      // content O(tiles) times. Small fills keep the direct loop - recording
+      // has overhead and one or two tiles can't win it back.
+      const minTilesToRecord = 4;
+      final recordCell = (i1 - i0 + 1) * (j1 - j0 + 1) >= minTilesToRecord;
+      List<PdfRenderCommand>? cell;
+      if (recordCell) {
+        final recorder = RecordingPdfDevice();
+        final outer = device;
+        device = recorder;
+        try {
+          _runPatternCell(
+              ops, patternResources, bbox, matrix, i0, j0, xStep, yStep,
+              patternColor: patternColor);
+        } finally {
+          device = outer;
+        }
+        cell = recorder.commands;
+      }
       for (var j = j0; j <= j1; j++) {
         for (var i = i0; i <= i1; i++) {
-          _state = _GraphicsState()
-            ..ctm = PdfMatrix.translation(i * xStep, j * yStep).concat(matrix);
-          if (patternColor != null) {
-            _state.fillColor = patternColor;
-            _state.strokeColor = patternColor;
+          if (cell != null) {
+            if (i == i0 && j == j0) {
+              replayCommands(cell, device);
+            } else {
+              // Page-space image of the pattern-space step from the base
+              // tile - the linear part of the pattern matrix only.
+              final du = (i - i0) * xStep, dv = (j - j0) * yStep;
+              replayCommands(
+                  cell,
+                  TranslatingPdfDevice(device, matrix.a * du + matrix.c * dv,
+                      matrix.b * du + matrix.d * dv));
+            }
+            continue;
           }
-          device.save();
-          try {
-            // §8.7.3.1: the cell content is clipped to the pattern BBox before
-            // tiling - content drawn outside the cell (this pattern's red rect
-            // overruns the BBox by 50 units) must not paint, leaving the white
-            // border the baseline shows.
-            _clipToBox(bbox);
-            _run(ops, patternResources, _currentFormDepth + 1);
-          } finally {
-            final mask = _state.softMask;
-            if (mask != null) _finalizeSoftMask(mask);
-            device.restore();
-          }
+          _runPatternCell(
+              ops, patternResources, bbox, matrix, i, j, xStep, yStep,
+              patternColor: patternColor);
         }
       }
     } finally {
@@ -2252,6 +2290,42 @@ class PdfInterpreter {
       }
       _state = savedState;
       device.restore();
+    }
+  }
+
+  /// Executes one tiling-pattern cell at tile (i, j): fresh graphics state at
+  /// the tile's transform, §8.7.3.1 BBox clip, the cell content, and any
+  /// pending soft-mask finalize - through whatever [device] currently is
+  /// (the real target for direct tiles, a recorder for the #524 capture).
+  void _runPatternCell(List<ContentOperation> ops, CosDictionary resources,
+      List<double> bbox, PdfMatrix matrix, int i, int j, double xStep,
+      double yStep,
+      {PdfColor? patternColor}) {
+    _state = _GraphicsState()
+      ..ctm = PdfMatrix.translation(i * xStep, j * yStep).concat(matrix);
+    if (patternColor != null) {
+      _state.fillColor = patternColor;
+      _state.strokeColor = patternColor;
+    }
+    // The cell runs with its own path builder: segments a cell leaves
+    // unpainted must not prepend to the path the enclosing content stream
+    // builds next (and the enclosing region's captured path must never grow
+    // under a recorded cell - see _paintPath's early reset).
+    final savedSegments = _segments;
+    _segments = [];
+    device.save();
+    try {
+      // §8.7.3.1: the cell content is clipped to the pattern BBox before
+      // tiling - content drawn outside the cell (this pattern's red rect
+      // overruns the BBox by 50 units) must not paint, leaving the white
+      // border the baseline shows.
+      _clipToBox(bbox);
+      _run(ops, resources, _currentFormDepth + 1);
+    } finally {
+      final mask = _state.softMask;
+      if (mask != null) _finalizeSoftMask(mask);
+      device.restore();
+      _segments = savedSegments;
     }
   }
 
