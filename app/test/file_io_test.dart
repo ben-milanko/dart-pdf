@@ -236,4 +236,69 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     }
   }, timeout: const Timeout(Duration(seconds: 30)));
+
+  testWidgets('pickPdf reads the chosen file and passes the PDF filter label',
+      (tester) async {
+    // The platform override must be cleared before the test body returns (the
+    // binding asserts foundation debug vars are unset), so reset it inline.
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    final dir = Directory.systemTemp.createTempSync('dartpdf_pickpdf');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final path = '${dir.path}/doc.pdf';
+    File(path).writeAsBytesSync([37, 80, 68, 70]); // %PDF
+
+    final original = fs.FileSelectorPlatform.instance;
+    final fake = _FakeFileSelector([fs.XFile(path)]);
+    fs.FileSelectorPlatform.instance = fake;
+    addTearDown(() => fs.FileSelectorPlatform.instance = original);
+
+    try {
+      await tester.runAsync(() async {
+        final picked = await pickPdf('PDF documents');
+        expect(picked, isNotNull);
+        expect(picked!.bytes, [37, 80, 68, 70]);
+        expect(fake.acceptedTypeGroups!.single.label, 'PDF documents');
+      });
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  }, timeout: const Timeout(Duration(seconds: 30)));
+
+  testWidgets('image and JSON save-as pass their filter label to the dialog',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    late BuildContext ctx;
+    await tester.pumpWidget(Builder(builder: (context) {
+      ctx = context;
+      return const SizedBox.shrink();
+    }));
+    try {
+      await tester.runAsync(() async {
+        final dir = await Directory.systemTemp.createTemp('dartpdf_savemisc');
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/file_selector'),
+          (call) async =>
+              call.method == 'getSavePath' ? '${dir.path}/out' : null,
+        );
+        try {
+          final image = await saveImageBytesAs(
+              ctx, Uint8List.fromList([1, 2, 3]), 'page.png', 'image/png',
+              imageLabel: 'Images');
+          expect(image.succeeded, isTrue);
+
+          final json = await saveJsonAs(ctx, '{"a":1}', 'data.json',
+              typeLabel: 'DartPDF stamps');
+          expect(json.succeeded, isTrue);
+        } finally {
+          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            const MethodChannel('plugins.flutter.io/file_selector'),
+            null,
+          );
+          await dir.delete(recursive: true);
+        }
+      });
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  }, timeout: const Timeout(Duration(seconds: 30)));
 }
