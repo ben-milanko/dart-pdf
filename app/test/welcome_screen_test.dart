@@ -158,4 +158,73 @@ void main() {
     expect(find.byType(ListTile), findsOneWidget);
     expect(find.byKey(const ValueKey('recent-tile-/a.pdf')), findsNothing);
   });
+
+  testWidgets('tapping a grid tile opens the entry', (tester) async {
+    final store = RecentsStore();
+    await store.add(title: 'a.pdf', path: '/a.pdf');
+    RecentFile? opened;
+
+    await pump(
+        tester,
+        size: wide,
+        WelcomeScreen(
+          recents: store,
+          onOpen: () {},
+          onOpenRecent: (e) => opened = e,
+        ));
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('recent-tile-thumb-/a.pdf')));
+    await tester.pump();
+    expect(opened?.id, '/a.pdf');
+  });
+
+  testWidgets("a grid tile's remove button drops the entry", (tester) async {
+    final store = RecentsStore();
+    await store.add(title: 'a.pdf', path: '/a.pdf');
+
+    await pump(
+        tester,
+        size: wide,
+        WelcomeScreen(
+          recents: store,
+          onOpen: () {},
+          onOpenRecent: (_) {},
+        ));
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.close));
+    await tester.pumpAndSettle();
+
+    expect(store.items, isEmpty);
+    expect(find.byKey(const ValueKey('recent-tile-/a.pdf')), findsNothing);
+  });
+
+  testWidgets('a non-reopenable grid tile is dimmed and not tappable',
+      (tester) async {
+    final store = RecentsStore();
+    // No path / cache path -> not reopenable (a web pick with no snapshot).
+    await store.add(title: 'web.pdf');
+    var opened = false;
+
+    await pump(
+        tester,
+        size: wide,
+        WelcomeScreen(
+          recents: store,
+          onOpen: () {},
+          onOpenRecent: (_) => opened = true,
+        ));
+    await tester.pump();
+
+    final tile = find.byKey(const ValueKey('recent-tile-web.pdf'));
+    expect(tile, findsOneWidget);
+    final opacity = tester.widget<Opacity>(
+        find.descendant(of: tile, matching: find.byType(Opacity)).first);
+    expect(opacity.opacity, lessThan(1.0));
+
+    await tester.tap(find.byKey(const ValueKey('recent-tile-thumb-web.pdf')));
+    await tester.pump();
+    expect(opened, isFalse);
+  });
 }
