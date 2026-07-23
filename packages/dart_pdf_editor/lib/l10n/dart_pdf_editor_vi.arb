@@ -1,5 +1,10 @@
 {
   "@@locale": "vi",
+  "menuLock": "Khóa",
+  "menuUnlock": "Mở khóa",
+  "searchAnnotations": "Tìm chú thích",
+  "sidebarLockAnnotation": "Khóa",
+  "sidebarUnlockAnnotation": "Mở khóa",
   "add": "Thêm",
   "annotCaret": "Dấu chèn",
   "annotCircle": "Hình tròn",

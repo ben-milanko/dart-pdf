@@ -403,6 +403,12 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'Свести форму';
 
   @override
+  String get menuLock => 'Заблокировать';
+
+  @override
+  String get menuUnlock => 'Разблокировать';
+
+  @override
   String get menuRecolour => 'Перекрасить…';
 
   @override
@@ -830,6 +836,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'Без отметки';
 
   @override
+  String get searchAnnotations => 'Поиск по аннотациям';
+
+  @override
   String get searchClearSearch => 'Очистить поиск';
 
   @override
@@ -1001,6 +1010,12 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => 'Удалить подпись';
+
+  @override
+  String get sidebarLockAnnotation => 'Заблокировать';
+
+  @override
+  String get sidebarUnlockAnnotation => 'Разблокировать';
 
   @override
   String get sidebarMore => 'Ещё';

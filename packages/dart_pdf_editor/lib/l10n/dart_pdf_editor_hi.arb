@@ -1,5 +1,10 @@
 {
   "@@locale": "hi",
+  "menuLock": "लॉक करें",
+  "menuUnlock": "अनलॉक करें",
+  "searchAnnotations": "एनोटेशन खोजें",
+  "sidebarLockAnnotation": "लॉक करें",
+  "sidebarUnlockAnnotation": "अनलॉक करें",
   "add": "जोड़ें",
   "annotCaret": "कैरेट",
   "annotCircle": "वृत्त",

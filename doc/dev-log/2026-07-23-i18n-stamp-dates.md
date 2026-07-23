@@ -68,6 +68,20 @@ resolving `{{date}}` through `uiLocale`. Full `editing_stamps_test.dart` green
 (49). Root `dart analyze --fatal-infos` clean. ARB coverage gate unaffected (57
 files) — no message keys were added; this is content formatting, not UI strings.
 
+## Caught up with main: translate the lock/unlock + search-annotations keys
+
+Merging `main` in pulled the lock/unlock (#493) and search-annotations (#495)
+features, which had added five English editor keys (`menuLock`, `menuUnlock`,
+`searchAnnotations`, `sidebarLockAnnotation`, `sidebarUnlockAnnotation`) to
+`_en.arb` **without** translating them into the 19 locales — so the ARB
+coverage gate was red on `main` itself (and therefore on this PR's merge
+result). Filled in all 19 locales (three distinct strings: "Lock"/"Unlock"
+annotation verbs and "Search annotations"), matching each locale's existing
+`shellPanelAnnotations` term for "annotation" (e.g. 注释 zh, 註解 zh_Hant, 주석
+ko, Anmerkungen de), regenerated gen-l10n, and the gate is green again (57 files
+across 3 bundles). These are seed translations for the same community-review
+pass as the rest.
+
 ## Next (unchanged from tier 2)
 
 `NumberFormat` for the remaining numeric readouts, engine-error→UI-message

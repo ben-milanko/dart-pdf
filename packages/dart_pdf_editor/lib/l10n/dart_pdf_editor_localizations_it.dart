@@ -398,6 +398,12 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'Rendi definitivo il modulo';
 
   @override
+  String get menuLock => 'Blocca';
+
+  @override
+  String get menuUnlock => 'Sblocca';
+
+  @override
   String get menuRecolour => 'Ricolora…';
 
   @override
@@ -821,6 +827,9 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'Non contrassegnato';
 
   @override
+  String get searchAnnotations => 'Cerca annotazioni';
+
+  @override
   String get searchClearSearch => 'Cancella ricerca';
 
   @override
@@ -990,6 +999,12 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => 'Elimina firma';
+
+  @override
+  String get sidebarLockAnnotation => 'Blocca';
+
+  @override
+  String get sidebarUnlockAnnotation => 'Sblocca';
 
   @override
   String get sidebarMore => 'Altro';

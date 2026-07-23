@@ -396,6 +396,12 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'Formu düzleştir';
 
   @override
+  String get menuLock => 'Kilitle';
+
+  @override
+  String get menuUnlock => 'Kilidi aç';
+
+  @override
   String get menuRecolour => 'Yeniden renklendir…';
 
   @override
@@ -818,6 +824,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'İşareti kaldırıldı';
 
   @override
+  String get searchAnnotations => 'Ek açıklamalarda ara';
+
+  @override
   String get searchClearSearch => 'Aramayı temizle';
 
   @override
@@ -987,6 +996,12 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => 'İmzayı sil';
+
+  @override
+  String get sidebarLockAnnotation => 'Kilitle';
+
+  @override
+  String get sidebarUnlockAnnotation => 'Kilidi aç';
 
   @override
   String get sidebarMore => 'Daha fazla';

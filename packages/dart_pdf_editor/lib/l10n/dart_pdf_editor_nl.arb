@@ -1,5 +1,10 @@
 {
   "@@locale": "nl",
+  "menuLock": "Vergrendelen",
+  "menuUnlock": "Ontgrendelen",
+  "searchAnnotations": "Annotaties doorzoeken",
+  "sidebarLockAnnotation": "Vergrendelen",
+  "sidebarUnlockAnnotation": "Ontgrendelen",
   "add": "Toevoegen",
   "annotCaret": "Invoegteken",
   "annotCircle": "Cirkel",

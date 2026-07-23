@@ -1,5 +1,10 @@
 {
   "@@locale": "fr",
+  "menuLock": "Verrouiller",
+  "menuUnlock": "Déverrouiller",
+  "searchAnnotations": "Rechercher dans les annotations",
+  "sidebarLockAnnotation": "Verrouiller",
+  "sidebarUnlockAnnotation": "Déverrouiller",
   "add": "Ajouter",
   "annotCaret": "Caret",
   "annotCircle": "Cercle",

@@ -1,5 +1,10 @@
 {
   "@@locale": "ru",
+  "menuLock": "Заблокировать",
+  "menuUnlock": "Разблокировать",
+  "searchAnnotations": "Поиск по аннотациям",
+  "sidebarLockAnnotation": "Заблокировать",
+  "sidebarUnlockAnnotation": "Разблокировать",
   "add": "Добавить",
   "annotCaret": "Знак вставки",
   "annotCircle": "Круг",

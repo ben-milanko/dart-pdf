@@ -1,5 +1,10 @@
 {
   "@@locale": "ja",
+  "menuLock": "ロック",
+  "menuUnlock": "ロック解除",
+  "searchAnnotations": "注釈を検索",
+  "sidebarLockAnnotation": "ロック",
+  "sidebarUnlockAnnotation": "ロック解除",
   "add": "追加",
   "annotCaret": "カレット",
   "annotCircle": "円",

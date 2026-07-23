@@ -1,5 +1,10 @@
 {
   "@@locale": "de",
+  "menuLock": "Sperren",
+  "menuUnlock": "Entsperren",
+  "searchAnnotations": "Anmerkungen durchsuchen",
+  "sidebarLockAnnotation": "Sperren",
+  "sidebarUnlockAnnotation": "Entsperren",
   "add": "Hinzufügen",
   "annotCaret": "Einfügemarke",
   "annotCircle": "Kreis",

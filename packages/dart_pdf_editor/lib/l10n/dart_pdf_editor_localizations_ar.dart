@@ -405,6 +405,12 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'تسطيح النموذج';
 
   @override
+  String get menuLock => 'قفل';
+
+  @override
+  String get menuUnlock => 'إلغاء القفل';
+
+  @override
   String get menuRecolour => 'إعادة التلوين…';
 
   @override
@@ -832,6 +838,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'غير معلّم';
 
   @override
+  String get searchAnnotations => 'البحث في التعليقات التوضيحية';
+
+  @override
   String get searchClearSearch => 'مسح البحث';
 
   @override
@@ -1002,6 +1011,12 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => 'حذف التوقيع';
+
+  @override
+  String get sidebarLockAnnotation => 'قفل';
+
+  @override
+  String get sidebarUnlockAnnotation => 'إلغاء القفل';
 
   @override
   String get sidebarMore => 'المزيد';

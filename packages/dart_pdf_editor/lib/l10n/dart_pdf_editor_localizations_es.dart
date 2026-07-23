@@ -398,6 +398,12 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'Aplanar formulario';
 
   @override
+  String get menuLock => 'Bloquear';
+
+  @override
+  String get menuUnlock => 'Desbloquear';
+
+  @override
   String get menuRecolour => 'Recolorear…';
 
   @override
@@ -821,6 +827,9 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'Sin marcar';
 
   @override
+  String get searchAnnotations => 'Buscar anotaciones';
+
+  @override
   String get searchClearSearch => 'Borrar búsqueda';
 
   @override
@@ -989,6 +998,12 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => 'Eliminar firma';
+
+  @override
+  String get sidebarLockAnnotation => 'Bloquear';
+
+  @override
+  String get sidebarUnlockAnnotation => 'Desbloquear';
 
   @override
   String get sidebarMore => 'Más';

@@ -1,5 +1,10 @@
 {
   "@@locale": "th",
+  "menuLock": "ล็อก",
+  "menuUnlock": "ปลดล็อก",
+  "searchAnnotations": "ค้นหาคำอธิบายประกอบ",
+  "sidebarLockAnnotation": "ล็อก",
+  "sidebarUnlockAnnotation": "ปลดล็อก",
   "add": "เพิ่ม",
   "annotCaret": "เครื่องหมายแทรก",
   "annotCircle": "วงกลม",

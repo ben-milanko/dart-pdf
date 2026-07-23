@@ -1,5 +1,10 @@
 {
   "@@locale": "zh",
+  "menuLock": "锁定",
+  "menuUnlock": "解锁",
+  "searchAnnotations": "搜索注释",
+  "sidebarLockAnnotation": "锁定",
+  "sidebarUnlockAnnotation": "解锁",
   "add": "添加",
   "annotCaret": "插入符",
   "annotCircle": "圆形",

@@ -1,5 +1,10 @@
 {
   "@@locale": "es",
+  "menuLock": "Bloquear",
+  "menuUnlock": "Desbloquear",
+  "searchAnnotations": "Buscar anotaciones",
+  "sidebarLockAnnotation": "Bloquear",
+  "sidebarUnlockAnnotation": "Desbloquear",
   "add": "Añadir",
   "annotCaret": "Cursor de inserción",
   "annotCircle": "Círculo",

@@ -1,5 +1,10 @@
 {
   "@@locale": "id",
+  "menuLock": "Kunci",
+  "menuUnlock": "Buka kunci",
+  "searchAnnotations": "Cari anotasi",
+  "sidebarLockAnnotation": "Kunci",
+  "sidebarUnlockAnnotation": "Buka kunci",
   "add": "Tambah",
   "annotCaret": "Sisipan",
   "annotCircle": "Lingkaran",

@@ -1,5 +1,10 @@
 {
   "@@locale": "pl",
+  "menuLock": "Zablokuj",
+  "menuUnlock": "Odblokuj",
+  "searchAnnotations": "Szukaj w adnotacjach",
+  "sidebarLockAnnotation": "Zablokuj",
+  "sidebarUnlockAnnotation": "Odblokuj",
   "add": "Dodaj",
   "annotCaret": "Znak wstawiania",
   "annotCircle": "Okrąg",
