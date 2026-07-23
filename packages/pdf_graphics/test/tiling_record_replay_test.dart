@@ -97,6 +97,57 @@ void main() {
     }
   });
 
+  test('a recording device keeps the cell nested as one tiled command', () {
+    final doc = CosDocument.open(buildClassicPdf());
+    final recorder = RecordingPdfDevice();
+    PdfInterpreter(cos: doc, device: recorder).run(
+      ContentStreamParser.parse(Uint8List.fromList(
+          '/Pattern cs /P1 scn 0 0 32 32 re f'.codeUnits)),
+      hatchResources(),
+    );
+    final tiled = recorder.commands.whereType<PdfDrawTiledCellCommand>();
+    expect(tiled, hasLength(1), reason: 'O(cell + tiles), not O(cell x tiles)');
+    final command = tiled.single;
+    expect(command.originsX.length, greaterThanOrEqualTo(16));
+    expect(command.originsX[0], 0);
+    expect(command.originsY[0], 0);
+    expect(command.cellCommands.whereType<PdfStrokePathCommand>(),
+        hasLength(1));
+
+    // Expanding the recorded transcript through a plain device must produce
+    // exactly what direct interpretation produces.
+    final expanded = RecordingDevice();
+    replayCommands(recorder.commands, expanded);
+    final direct = run('/Pattern cs /P1 scn 0 0 32 32 re f', hatchResources());
+    expect(expanded.strokes.length, direct.strokes.length);
+    for (var i = 0; i < direct.strokes.length; i++) {
+      final a = expanded.strokes[i].$1.segments;
+      final b = direct.strokes[i].$1.segments;
+      expect(a.length, b.length);
+      expect((a[0] as PdfMoveTo).x, closeTo((b[0] as PdfMoveTo).x, 1e-9));
+      expect((a[0] as PdfMoveTo).y, closeTo((b[0] as PdfMoveTo).y, 1e-9));
+    }
+
+    // The wire codec round-trips the nested command bit-stably.
+    final bytes = serializeCommands(recorder.commands, cos: doc);
+    expect(bytes, isNotNull);
+    final decoded = deserializeCommands(bytes!);
+    final decodedTiled =
+        decoded.whereType<PdfDrawTiledCellCommand>().toList();
+    expect(decodedTiled, hasLength(1));
+    expect(decodedTiled.single.originsX, command.originsX);
+    expect(decodedTiled.single.originsY, command.originsY);
+    expect(decodedTiled.single.cellCommands.length,
+        command.cellCommands.length);
+    final reencoded = serializeCommands(decoded, cos: doc);
+    expect(reencoded, bytes, reason: 're-serialization is byte-stable');
+
+    // And the decoded transcript still expands to the same geometry.
+    final replayed = RecordingDevice();
+    replayCommands(decoded, replayed);
+    expect(replayed.strokes.length, direct.strokes.length);
+  });
+
   test('unpainted cell segments do not leak into later content', () {
     // A cell that builds a path but never paints it must not prepend those
     // segments to the path the enclosing stream draws next.

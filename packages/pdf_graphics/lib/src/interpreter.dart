@@ -2262,25 +2262,47 @@ class PdfInterpreter {
         }
         cell = recorder.commands;
       }
-      for (var j = j0; j <= j1; j++) {
-        for (var i = i0; i <= i1; i++) {
-          if (cell != null) {
-            if (i == i0 && j == j0) {
-              replayCommands(cell, device);
-            } else {
-              // Page-space image of the pattern-space step from the base
-              // tile - the linear part of the pattern matrix only.
-              final du = (i - i0) * xStep, dv = (j - j0) * yStep;
-              replayCommands(
-                  cell,
-                  TranslatingPdfDevice(device, matrix.a * du + matrix.c * dv,
-                      matrix.b * du + matrix.d * dv));
-            }
-            continue;
+      if (cell != null && device is PdfTiledCellSink) {
+        // The device consumes the cell natively (a recorder keeps it nested -
+        // O(cell + tiles) transcript instead of O(cell x tiles); a canvas can
+        // stamp one sub-picture per origin). Origins are the page-space
+        // images of the pattern-space steps - the linear part of the pattern
+        // matrix only - base tile first at (0, 0).
+        final tiles = (i1 - i0 + 1) * (j1 - j0 + 1);
+        final originsX = Float64List(tiles);
+        final originsY = Float64List(tiles);
+        var t = 0;
+        for (var j = j0; j <= j1; j++) {
+          for (var i = i0; i <= i1; i++) {
+            final du = (i - i0) * xStep, dv = (j - j0) * yStep;
+            originsX[t] = matrix.a * du + matrix.c * dv;
+            originsY[t] = matrix.b * du + matrix.d * dv;
+            t++;
           }
-          _runPatternCell(
-              ops, patternResources, bbox, matrix, i, j, xStep, yStep,
-              patternColor: patternColor);
+        }
+        (device as PdfTiledCellSink)
+            .drawTiledCell(PdfDrawTiledCellCommand(cell, originsX, originsY));
+      } else {
+        for (var j = j0; j <= j1; j++) {
+          for (var i = i0; i <= i1; i++) {
+            if (cell != null) {
+              if (i == i0 && j == j0) {
+                replayCommands(cell, device);
+              } else {
+                // Page-space image of the pattern-space step from the base
+                // tile - the linear part of the pattern matrix only.
+                final du = (i - i0) * xStep, dv = (j - j0) * yStep;
+                replayCommands(
+                    cell,
+                    TranslatingPdfDevice(device, matrix.a * du + matrix.c * dv,
+                        matrix.b * du + matrix.d * dv));
+              }
+              continue;
+            }
+            _runPatternCell(
+                ops, patternResources, bbox, matrix, i, j, xStep, yStep,
+                patternColor: patternColor);
+          }
         }
       }
     } finally {

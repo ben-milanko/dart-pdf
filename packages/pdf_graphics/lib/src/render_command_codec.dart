@@ -72,6 +72,7 @@ const int _tEndGroup = 11;
 const int _tBeginSoftMasked = 12;
 const int _tEndSoftMasked = 13;
 const int _tSetOverprint = 14;
+const int _tDrawTiledCell = 15;
 
 /// Thrown internally when an image cannot be serialized (an inline image, or
 /// no [CosDocument] to resolve against); [serializeCommands] catches it and
@@ -302,6 +303,9 @@ double _imageBudgetScale(List<PdfRenderCommand> commands, CosDocument cos,
         }
       } else if (c is PdfEndSoftMaskedCommand) {
         walk(c.maskCommands);
+      } else if (c is PdfDrawTiledCellCommand) {
+        // A cell's images decode once and stamp per tile - count them once.
+        walk(c.cellCommands);
       }
     }
   }
@@ -517,6 +521,20 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
       w.f64(transferScale);
       w.f64(transferOffset);
       _writeCommands(w, maskCommands, cos,
+          decode: decode,
+          maxImageRatio: maxImageRatio,
+          imageDecodeRegion: imageDecodeRegion,
+          budgetScale: budgetScale,
+          imagePlaceholders: imagePlaceholders); // nested
+    case PdfDrawTiledCellCommand(
+        :final cellCommands,
+        :final originsX,
+        :final originsY
+      ):
+      w.u8(_tDrawTiledCell);
+      w.f64List(originsX);
+      w.f64List(originsY);
+      _writeCommands(w, cellCommands, cos,
           decode: decode,
           maxImageRatio: maxImageRatio,
           imageDecodeRegion: imageDecodeRegion,
@@ -919,6 +937,11 @@ PdfRenderCommand _readCommand(_Reader r) {
         transferScale: transferScale,
         transferOffset: transferOffset,
       );
+    case _tDrawTiledCell:
+      final originsX = Float64List.fromList(r.f64List());
+      final originsY = Float64List.fromList(r.f64List());
+      final cellCommands = _readCommands(r);
+      return PdfDrawTiledCellCommand(cellCommands, originsX, originsY);
     default:
       throw StateError('unknown render command tag $tag');
   }
