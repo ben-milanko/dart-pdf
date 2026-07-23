@@ -310,6 +310,12 @@ class PdfInterpreter {
   final StringBuffer _textBuffer = StringBuffer();
   bool _textBufferInUse = false;
 
+  /// True while executing a Type3 CharProc that opened with `d1` (§9.6.5):
+  /// such a glyph is a pure shape painted in the text colour, so colour-setting
+  /// operators inside it "shall be ignored". Set by the `d1` case, saved and
+  /// restored around each CharProc, and consulted before the colour ops.
+  bool _type3ColorLocked = false;
+
   void drawPage(PdfPage page) => drawPageContent(page, page.contentBytes());
 
   /// Parses and interprets [content] incrementally without retaining a
@@ -430,10 +436,25 @@ class PdfInterpreter {
   /// ([PdfAnnotation.isReply]/[PdfAnnotation.isStateAnnotation]) are shown
   /// by a viewer in its comment pane, not painted as a second icon over
   /// the page (matching Acrobat).
-  void drawAnnotations(PdfPage page, {bool Function(PdfAnnotation)? skip}) {
+  /// Paints a page's annotations.
+  ///
+  /// The /F visibility flags (§12.5.3) are screen-vs-print sensitive. On
+  /// screen ([forPrint] false, the default) a Hidden or NoView annotation is
+  /// skipped and the Print flag is ignored. For print output ([forPrint]
+  /// true) the roles swap: NoView annotations DO print (NoView means
+  /// "hide on screen, show on paper"), and an annotation is printed only when
+  /// its Print flag is set - so screen-only markup (e.g. a viewer's own
+  /// highlights) stays off the page. Hidden is honored either way.
+  void drawAnnotations(PdfPage page,
+      {bool Function(PdfAnnotation)? skip, bool forPrint = false}) {
     _pageBox = page.mediaBox;
     for (final annotation in page.annotations) {
-      if (annotation.isHidden || annotation.isNoView) continue;
+      if (annotation.isHidden) continue;
+      if (forPrint) {
+        if (!annotation.isPrint) continue;
+      } else if (annotation.isNoView) {
+        continue;
+      }
       if (annotation.subtype == 'Popup') continue;
       if (annotation.isReply || annotation.isStateAnnotation) continue;
       if (skip != null && skip(annotation)) continue;
@@ -471,10 +492,91 @@ class PdfInterpreter {
         _drawFallbackInk(annotation);
       case 'Highlight' || 'Underline' || 'StrikeOut' || 'Squiggly':
         _drawFallbackTextMarkup(annotation);
+      case 'Polygon':
+        _drawFallbackPolygon(annotation, closed: true);
+      case 'PolyLine':
+        _drawFallbackPolygon(annotation, closed: false);
+      case 'Link':
+        _drawFallbackLink(annotation);
+      case 'FreeText':
+        _drawFallbackFreeText(annotation);
       case 'Widget':
         if (annotation is PdfWidgetAnnotation) {
           _drawFallbackWidget(annotation);
         }
+    }
+  }
+
+  void _drawFallbackPolygon(PdfAnnotation annotation, {required bool closed}) {
+    final points = annotation.vertices;
+    if (points == null || points.length < 2) return;
+    final segments = <PdfPathSegment>[
+      PdfMoveTo(points.first.$1, points.first.$2),
+      for (final p in points.skip(1)) PdfLineTo(p.$1, p.$2),
+      if (closed) const PdfClosePath(),
+    ];
+    final path = PdfPath(segments);
+    // A /Polygon may carry an interior fill (/IC); a /PolyLine is open.
+    final fill = closed ? annotation.interiorColor : null;
+    if (fill != null) {
+      device.fillPath(path, _pdfColor(fill), PdfFillRule.nonzero,
+          _annotationFillAlpha(annotation));
+    }
+    device.strokePath(path, _pdfColor(annotation.color ?? 0x000000),
+        _annotationStroke(annotation), _annotationStrokeAlpha(annotation));
+  }
+
+  /// A /Link's visible border (§12.5.6.5): most links carry /Border [0 0 0]
+  /// (invisible) and no /C, so this paints nothing for them - it draws only
+  /// when the link declares both a colour and a positive border width.
+  void _drawFallbackLink(PdfAnnotation annotation) {
+    final color = annotation.color;
+    if (color == null) return;
+    final width =
+        annotation.borderWidth ?? _annotationBorderWidth(annotation) ?? 0;
+    if (width <= 0) return;
+    final rect = _insetRect(annotation.rect, width / 2);
+    if (rect.width <= 0 || rect.height <= 0) return;
+    device.strokePath(_rectPath(rect), _pdfColor(color),
+        _annotationStroke(annotation), _annotationStrokeAlpha(annotation));
+  }
+
+  /// A /FreeText's text body (§12.5.6.19), drawn from /Contents through the
+  /// /DA appearance string when no /AP was generated. Explicit line breaks in
+  /// /Contents are honored; the text is top-anchored and clipped to /Rect.
+  /// Auto-wrapping and quadding are left to a real appearance stream.
+  void _drawFallbackFreeText(PdfAnnotation annotation) {
+    final text = annotation.contents;
+    if (text == null || text.isEmpty) return;
+    final rect = annotation.rect;
+    if (rect.width <= 0 || rect.height <= 0) return;
+    final da = cos.resolve(annotation.dict['DA']);
+    final style =
+        _parseDefaultAppearance(da is CosString ? da.text : '');
+    final size = style.size;
+    const pad = 2.0;
+    final lineHeight = size * 1.15;
+    device.save();
+    try {
+      device.clipPath(_rectPath(rect), PdfFillRule.nonzero);
+      var y = rect.top - pad - size * 0.718;
+      for (final line in text.split('\n')) {
+        if (y + size < rect.bottom) break;
+        if (line.isNotEmpty) {
+          final width = measureHelvetica(line, size) / size;
+          device.drawText(PdfTextRun(
+            text: line,
+            transform: PdfMatrix(size, 0, 0, size, rect.left + pad, y),
+            color: style.color,
+            width: width,
+            fontName: style.fontName,
+            fontSize: size,
+          ));
+        }
+        y -= lineHeight;
+      }
+    } finally {
+      device.restore();
     }
   }
 
@@ -587,7 +689,15 @@ class PdfInterpreter {
   }
 
   void _drawFallbackWidget(PdfWidgetAnnotation annotation) {
-    if (annotation.fieldType != 'Tx') return;
+    switch (annotation.fieldType) {
+      case 'Tx' || 'Ch':
+        _drawFallbackTextWidget(annotation);
+      case 'Btn':
+        _drawFallbackButtonWidget(annotation);
+    }
+  }
+
+  void _drawFallbackTextWidget(PdfWidgetAnnotation annotation) {
     final value = annotation.fieldValue;
     if (value == null || value.isEmpty) return;
     final rect = annotation.rect;
@@ -624,8 +734,14 @@ class PdfInterpreter {
   }
 
   ({String fontName, double size, PdfColor color})
-      _parseWidgetDefaultAppearance(PdfWidgetAnnotation annotation) {
-    final da = _widgetDefaultAppearance(annotation) ?? '';
+      _parseWidgetDefaultAppearance(PdfWidgetAnnotation annotation) =>
+          _parseDefaultAppearance(_widgetDefaultAppearance(annotation) ?? '');
+
+  /// Parses a /DA default-appearance string (§12.7.3.3) into the font name,
+  /// size and colour it selects - the shared core behind text-field widgets
+  /// and FreeText fallbacks.
+  ({String fontName, double size, PdfColor color}) _parseDefaultAppearance(
+      String da) {
     final tf = RegExp(r'/(\S+)\s+([\d.]+)\s+Tf').firstMatch(da);
     final rawName = tf?.group(1) ?? 'Helv';
     final fontName = switch (rawName) {
@@ -674,6 +790,122 @@ class PdfInterpreter {
       if (da is CosString) return da.text;
     }
     return null;
+  }
+
+  /// Fallback for a button field (/Btn) with no appearance stream: paints the
+  /// /MK background and border (§12.5.6.19), a pushbutton's /MK caption, and a
+  /// check/dot for a checkbox or radio whose own /AS is an on state.
+  void _drawFallbackButtonWidget(PdfWidgetAnnotation annotation) {
+    final rect = annotation.rect;
+    if (rect.width <= 0 || rect.height <= 0) return;
+    final mk = cos.resolve(annotation.dict['MK']);
+    final mkDict = mk is CosDictionary ? mk : null;
+    final bg = _mkColor(mkDict?['BG']);
+    final bc = _mkColor(mkDict?['BC']);
+    final stroke = _annotationStroke(annotation);
+    if (bg != null) {
+      device.fillPath(_rectPath(rect), bg, PdfFillRule.nonzero,
+          _annotationFillAlpha(annotation));
+    }
+    if (bc != null && stroke.width > 0) {
+      device.strokePath(_rectPath(_insetRect(rect, stroke.width / 2)), bc,
+          stroke, _annotationStrokeAlpha(annotation));
+    }
+
+    final flags = _fieldFlags(annotation);
+    const pushButton = 1 << 16; // /Ff bit 17 (§12.7.4.2, table 227)
+    const radio = 1 << 15; // /Ff bit 16
+    if (flags & pushButton != 0) {
+      final ca = cos.resolve(mkDict?['CA']);
+      if (ca is CosString && ca.text.isNotEmpty) {
+        _drawButtonCaption(annotation, rect, ca.text);
+      }
+      return;
+    }
+    // Checkbox / radio: the widget's own /AS names its on/off appearance; an
+    // on state paints the mark even without the /AP that would carry it.
+    final as = cos.resolve(annotation.dict['AS']);
+    if (as is! CosName || as.value == 'Off') return;
+    _drawCheckMark(rect,
+        radio: flags & radio != 0,
+        color: bc ?? _pdfColor(0x000000),
+        alpha: _annotationStrokeAlpha(annotation));
+  }
+
+  void _drawButtonCaption(
+      PdfWidgetAnnotation annotation, PdfRect rect, String caption) {
+    final style = _parseWidgetDefaultAppearance(annotation);
+    // The DA size (defaulted to 12 when the string says auto-size), capped so
+    // the caption fits a short button.
+    final size = math.min(style.size, rect.height);
+    final textWidth = measureHelvetica(caption, size);
+    final x = rect.left + (rect.width - textWidth) / 2;
+    final y = rect.bottom + (rect.height - size * 0.718) / 2;
+    device.save();
+    try {
+      device.clipPath(_rectPath(rect), PdfFillRule.nonzero);
+      device.drawText(PdfTextRun(
+        text: caption,
+        transform: PdfMatrix(size, 0, 0, size, x, y),
+        color: style.color,
+        width: size == 0 ? 0 : textWidth / size,
+        fontName: style.fontName,
+        fontSize: size,
+      ));
+    } finally {
+      device.restore();
+    }
+  }
+
+  /// A checkbox check (stroked tick) or radio dot (filled disc), inset in
+  /// [rect] - the synthesized on-state mark when a button carries no /AP.
+  void _drawCheckMark(PdfRect rect,
+      {required bool radio, required PdfColor color, required double alpha}) {
+    final inset = _insetRect(rect, math.min(rect.width, rect.height) * 0.25);
+    if (inset.width <= 0 || inset.height <= 0) return;
+    if (radio) {
+      device.fillPath(_ellipsePath(inset), color, PdfFillRule.nonzero, alpha);
+      return;
+    }
+    final w = inset.width, h = inset.height;
+    device.strokePath(
+      PdfPath([
+        PdfMoveTo(inset.left, inset.bottom + h * 0.55),
+        PdfLineTo(inset.left + w * 0.35, inset.bottom + h * 0.15),
+        PdfLineTo(inset.right, inset.top),
+      ]),
+      color,
+      PdfStroke(width: math.max(1, math.min(w, h) * 0.15), cap: 1, join: 1),
+      alpha,
+    );
+  }
+
+  /// Parses an /MK colour array (0/1/3/4 components; §12.5.6.19). An empty
+  /// array means "no colour" (transparent) and returns null.
+  PdfColor? _mkColor(CosObject? raw) {
+    final v = cos.resolve(raw);
+    if (v is! CosArray) return null;
+    final c = [for (final e in v.items) _numOf(cos.resolve(e))];
+    return switch (c.length) {
+      1 => PdfColor.gray(c[0].clamp(0.0, 1.0)),
+      3 => PdfColor(
+          c[0].clamp(0.0, 1.0), c[1].clamp(0.0, 1.0), c[2].clamp(0.0, 1.0)),
+      4 => PdfColor.cmyk(c[0], c[1], c[2], c[3]),
+      _ => null,
+    };
+  }
+
+  /// The field flag word (/Ff), resolved up the /Parent chain (§12.7.3.1).
+  int _fieldFlags(PdfAnnotation annotation) {
+    CosDictionary? node = annotation.dict;
+    final visited = <CosDictionary>{};
+    while (node != null && visited.add(node)) {
+      final ff = cos.resolve(node['Ff']);
+      if (ff is CosInteger) return ff.value;
+      final parent = cos.resolve(node['Parent']);
+      node = parent is CosDictionary ? parent : null;
+    }
+    return 0;
   }
 
   PdfStroke _annotationStroke(PdfAnnotation annotation) => PdfStroke(
@@ -1008,6 +1240,10 @@ class PdfInterpreter {
 
   void _execOp(ContentOperation op, CosDictionary resources, int formDepth) {
     final o = op.operands;
+    // A `d1` Type3 glyph forbids colour operators (§9.6.5): the glyph paints
+    // in the text colour that invoked it. The flag is false on every ordinary
+    // page, so this is one short-circuited branch on the hot path.
+    if (_type3ColorLocked && _isColorOp(op.operator)) return;
     switch (op.operator) {
       // Ordering here is deliberate and load-bearing: Dart lowers this
       // String switch to a linear chain of comparisons, not a jump table
@@ -1271,8 +1507,13 @@ class PdfInterpreter {
         if (_mcidStack.isNotEmpty) _mcidStack.removeLast();
       case 'MP' || 'DP':
       case 'BX' || 'EX':
-      case 'd0' || 'd1':
+      case 'd0':
         break;
+      case 'd1':
+        // The glyph is a shape-only Type3 glyph: it paints in the invoking
+        // text colour and its own colour operators are ignored (§9.6.5). The
+        // width/BBox operands are advisory (the font already supplied widths).
+        _type3ColorLocked = true;
 
       default:
         // unknown operator: PDF says ignore (in compatibility sections);
@@ -1280,6 +1521,14 @@ class PdfInterpreter {
         break;
     }
   }
+
+  /// Whether [op] sets a colour or colour space - the operators a `d1` Type3
+  /// CharProc must ignore (§9.6.5, referencing the colour operators of §8.6.8).
+  static bool _isColorOp(String op) => switch (op) {
+        'g' || 'G' || 'rg' || 'RG' || 'k' || 'K' => true,
+        'cs' || 'CS' || 'sc' || 'scn' || 'SC' || 'SCN' => true,
+        _ => false,
+      };
 
   bool get _contentVisible => _visibilityStack.every((visible) => visible);
 
@@ -1988,6 +2237,11 @@ class PdfInterpreter {
         final savedLineMatrix = _lineMatrix;
         final savedClipPending = _textClipPending;
         final savedClipSegments = List.of(_textClipSegments);
+        // A `d1` inside this CharProc locks colour to the text colour; the lock
+        // is per-glyph, so snapshot and clear it (a nested glyph mustn't inherit
+        // an outer glyph's lock) and restore it afterwards.
+        final savedColorLocked = _type3ColorLocked;
+        _type3ColorLocked = false;
         device.save();
         try {
           _state = _GraphicsState.from(savedState)
@@ -1996,6 +2250,7 @@ class PdfInterpreter {
             ..softMask = savedState.softMask;
           _run(ops, resources, _currentFormDepth + 1);
         } finally {
+          _type3ColorLocked = savedColorLocked;
           while (_stateStack.length > savedStackDepth) {
             _stateStack.removeLast();
           }

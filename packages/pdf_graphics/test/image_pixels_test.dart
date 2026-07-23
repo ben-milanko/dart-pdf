@@ -127,6 +127,41 @@ void main() {
     expect(pixels.rgba.sublist(4, 8), [0, 0, 0, 0]);
   });
 
+  test('/SMask /Matte un-preblends the base against the matte colour', () {
+    // A white pixel preblended over a red matte at coverage 0.5 stores
+    // c' = m + a·(c − m) = (255, 128, 128). With /Matte [1 0 0] the decoder
+    // must recover the true white before premultiplying, so the result is a
+    // neutral grey (128,128,128,128) - not the reddish (128,64,64,128) a
+    // naïve decode would give.
+    final smask = image({
+      'Width': const CosInteger(1),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceGray'),
+      'Matte': CosArray([
+        const CosInteger(1),
+        const CosInteger(0),
+        const CosInteger(0),
+      ]),
+    }, [
+      128
+    ]);
+    final stream = image({
+      'Width': const CosInteger(1),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceRGB'),
+      'SMask': smask,
+    }, [
+      255,
+      128,
+      128
+    ]);
+
+    final pixels = decodePdfImagePixels(cos, stream)!;
+    expect(pixels.rgba.sublist(0, 4), [128, 128, 128, 128]);
+  });
+
   test('color-key /Mask turns matching samples transparent', () {
     final stream = image({
       'Width': const CosInteger(2),

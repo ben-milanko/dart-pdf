@@ -39,11 +39,17 @@ class PdfDecodedPixels {
 /// A grayscale alpha plane lifted from an /SMask or stencil /Mask
 /// (§11.6.5.2 / §8.9.6.3), to be baked into a base image's alpha channel.
 class PdfImageSoftMask {
-  PdfImageSoftMask(this.alpha, this.width, this.height);
+  PdfImageSoftMask(this.alpha, this.width, this.height, {this.matte});
 
   final Uint8List alpha;
   final int width;
   final int height;
+
+  /// The /Matte colour (§11.6.5.3) the base image was preblended against,
+  /// as straight sRGB bytes `[r, g, b]`, or null when the mask carries no
+  /// /Matte. When present, [pdfApplyImageAlpha] un-preblends each covered
+  /// pixel so the matte fringe does not bleed at partially transparent edges.
+  final List<int>? matte;
 }
 
 /// The base image samples decoded to straight-alpha RGBA, with **no** /SMask
@@ -1034,10 +1040,11 @@ PdfImageSoftMask? pdfImageSoftMask(CosDocument cos, CosDictionary dict) {
     if (width <= 0 || height <= 0) return null;
     final bits =
         _intOf(cos.resolve(smask.dictionary['BitsPerComponent']), fallback: 8);
+    final matte = _matteColor(cos, dict, smask.dictionary);
     final data = cos.decodeStreamData(smask);
 
     if (bits == 8 && data.length >= width * height) {
-      return PdfImageSoftMask(data, width, height);
+      return PdfImageSoftMask(data, width, height, matte: matte);
     }
     if (bits == 1) {
       final rowBytes = (width + 7) ~/ 8;
@@ -1049,11 +1056,35 @@ PdfImageSoftMask? pdfImageSoftMask(CosDocument cos, CosDictionary dict) {
           alpha[y * width + x] = bit == 1 ? 255 : 0;
         }
       }
-      return PdfImageSoftMask(alpha, width, height);
+      return PdfImageSoftMask(alpha, width, height, matte: matte);
     }
     return null;
   } on Exception {
     return null; // unsupported mask: leave the image opaque
+  }
+}
+
+/// The /Matte colour of a soft mask (§11.6.5.3), converted to straight sRGB
+/// bytes through the *parent* image's colour space (the matte is specified in
+/// that space). Null when the mask has no /Matte or its colour can't be
+/// resolved - in which case no un-preblending happens.
+List<int>? _matteColor(
+    CosDocument cos, CosDictionary imageDict, CosDictionary maskDict) {
+  final raw = cos.resolve(maskDict['Matte']);
+  if (raw is! CosArray || raw.items.isEmpty) return null;
+  final components = [for (final v in raw.items) _numOf(cos.resolve(v))];
+  try {
+    final space =
+        PdfColorSpace.parse(cos, cos.resolve(imageDict['ColorSpace']));
+    if (space.channels != 0 && space.channels != components.length) return null;
+    final srgb = space.toSrgb(components);
+    return [
+      (srgb.red * 255).round().clamp(0, 255),
+      (srgb.green * 255).round().clamp(0, 255),
+      (srgb.blue * 255).round().clamp(0, 255),
+    ];
+  } on Exception {
+    return null;
   }
 }
 
@@ -1209,12 +1240,18 @@ void pdfApplyImageDecodeAndColorKey(Uint8List rgba, int components,
 /// point-sampled onto the base in place.
 (Uint8List, int, int) pdfApplyImageAlpha(
     Uint8List rgba, int width, int height, PdfImageSoftMask mask) {
+  final matte = mask.matte;
   if (mask.width * mask.height <= width * height) {
     for (var y = 0; y < height; y++) {
       final maskY = y * mask.height ~/ height;
       for (var x = 0; x < width; x++) {
         final maskX = x * mask.width ~/ width;
-        rgba[(y * width + x) * 4 + 3] = mask.alpha[maskY * mask.width + maskX];
+        final i = (y * width + x) * 4;
+        final a = mask.alpha[maskY * mask.width + maskX];
+        rgba[i + 3] = a;
+        if (matte != null && a > 0 && a < 255) {
+          _unpreblend(rgba, i, a, matte);
+        }
       }
     }
     return (rgba, width, height);
@@ -1244,10 +1281,26 @@ void pdfApplyImageDecodeAndColorKey(Uint8List rgba, int components,
         final bot = rgba[i10 + c] * (1 - wx) + rgba[i11 + c] * wx;
         out[o + c] = (top * (1 - wy) + bot * wy).round().clamp(0, 255);
       }
-      out[o + 3] = mask.alpha[my * mw + mx];
+      final a = mask.alpha[my * mw + mx];
+      out[o + 3] = a;
+      if (matte != null && a > 0 && a < 255) {
+        _unpreblend(out, o, a, matte);
+      }
     }
   }
   return (out, mw, mh);
+}
+
+/// Reverses the /Matte preblend for one RGBA pixel at byte offset [i]
+/// (§11.6.5.3): a stored sample is `c' = m + a·(c − m)`, so the true colour is
+/// `c = m + (c' − m)/a`. [a] is the coverage byte (0-255); [matte] is the
+/// straight sRGB matte `[r, g, b]`. Only meaningful for `0 < a < 255`.
+void _unpreblend(Uint8List rgba, int i, int a, List<int> matte) {
+  for (var c = 0; c < 3; c++) {
+    final m = matte[c];
+    final recovered = m + (rgba[i + c] - m) * 255 / a;
+    rgba[i + c] = recovered.round().clamp(0, 255);
+  }
 }
 
 /// The parsed ICC profile of an ICCBased image color space, when the

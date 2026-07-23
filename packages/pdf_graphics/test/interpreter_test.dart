@@ -502,6 +502,62 @@ void main() {
       expect(corner.y, closeTo(201, 1e-9));
     });
 
+    test('a d1 Type3 glyph ignores its own colour, painting in text colour',
+        () {
+      // §9.6.5: a CharProc that opens with d1 is a shape-only glyph. The red
+      // `rg` inside it must be ignored; the glyph paints in the blue fill
+      // colour that was in effect when the glyph was shown.
+      CosDictionary type3(String proc) => CosDictionary({
+            'Type': const CosName('Font'),
+            'Subtype': const CosName('Type3'),
+            'FontBBox': CosArray([
+              const CosInteger(0),
+              const CosInteger(0),
+              const CosInteger(100),
+              const CosInteger(100),
+            ]),
+            'FontMatrix': CosArray([
+              const CosReal(0.001),
+              const CosInteger(0),
+              const CosInteger(0),
+              const CosReal(0.001),
+              const CosInteger(0),
+              const CosInteger(0),
+            ]),
+            'FirstChar': const CosInteger(0x58),
+            'LastChar': const CosInteger(0x58),
+            'Widths': CosArray([const CosInteger(1000)]),
+            'Encoding': CosDictionary({
+              'Differences':
+                  CosArray([const CosInteger(0x58), const CosName('X')]),
+            }),
+            'CharProcs': CosDictionary({
+              'X': CosStream(CosDictionary({'Length': const CosInteger(0)}),
+                  Uint8List.fromList(proc.codeUnits)),
+            }),
+          });
+
+      PdfColor glyphFill(String proc) {
+        final doc = CosDocument.open(buildClassicPdf());
+        final device = RecordingDevice();
+        PdfInterpreter(cos: doc, device: device).run(
+          ContentStreamParser.parse(Uint8List.fromList(
+              'BT /T3 10 Tf 100 200 Td 0 0 1 rg (X) Tj ET'.codeUnits)),
+          CosDictionary({
+            'Font': CosDictionary({'T3': type3(proc)}),
+          }),
+        );
+        return device.fills.single.$2;
+      }
+
+      // d1: the inner red rg is ignored -> the glyph keeps the blue text fill.
+      expect(glyphFill('0 0 0 0 100 100 d1 1 0 0 rg 0 0 100 100 re f'),
+          const PdfColor(0, 0, 1));
+      // Control: d0 imposes no colour rule, so the inner red rg wins.
+      expect(glyphFill('1000 0 d0 1 0 0 rg 0 0 100 100 re f'),
+          const PdfColor(1, 0, 0));
+    });
+
     test('TJ adjustments shift subsequent runs', () {
       final doc = PdfDocument.open(buildClassicPdf());
       final device = RecordingDevice();
@@ -1238,6 +1294,180 @@ void main() {
       expect(device.texts.single.transform.e, 22);
       expect(device.texts.single.transform.f, closeTo(106.692, 1e-3));
       expect(device.clips, hasLength(1));
+    });
+
+    RecordingDevice drawFallback(CosDictionary dict) {
+      final doc = PdfDocument.open(buildClassicPdf());
+      final device = RecordingDevice();
+      PdfInterpreter(cos: doc.cos, device: device)
+          .drawAnnotation(doc.page(0), PdfAnnotation.fromDict(doc, dict));
+      return device;
+    }
+
+    test('fallback Polygon closes and fills from /Vertices and /IC', () {
+      final device = drawFallback(CosDictionary({
+        'Subtype': const CosName('Polygon'),
+        'Rect': CosArray([for (final v in [10, 10, 60, 60]) CosInteger(v)]),
+        'Vertices': CosArray(
+            [for (final v in [10, 10, 60, 10, 35, 60]) CosInteger(v)]),
+        'C': CosArray([const CosInteger(0), const CosInteger(0), const CosInteger(0)]),
+        'IC': CosArray([const CosInteger(1), const CosInteger(0), const CosInteger(0)]),
+      }));
+      // one interior fill (red) plus the stroked outline
+      expect(device.fills.single.$2, const PdfColor(1, 0, 0));
+      final outline = device.strokes.single.$1;
+      expect(outline.segments.last, isA<PdfClosePath>());
+    });
+
+    test('fallback PolyLine strokes an open path from /Vertices', () {
+      final device = drawFallback(CosDictionary({
+        'Subtype': const CosName('PolyLine'),
+        'Rect': CosArray([for (final v in [10, 10, 60, 60]) CosInteger(v)]),
+        'Vertices': CosArray(
+            [for (final v in [10, 10, 60, 10, 35, 60]) CosInteger(v)]),
+      }));
+      expect(device.fills, isEmpty); // open: no interior
+      final path = device.strokes.single.$1;
+      expect(path.segments.any((s) => s is PdfClosePath), isFalse);
+    });
+
+    test('fallback Link draws its border only with a colour and width', () {
+      // no /C: nothing painted (the common invisible-link case)
+      expect(
+          drawFallback(CosDictionary({
+            'Subtype': const CosName('Link'),
+            'Rect': CosArray([for (final v in [10, 10, 60, 30]) CosInteger(v)]),
+            'Border': CosArray(
+                [const CosInteger(0), const CosInteger(0), const CosInteger(1)]),
+          })).strokes,
+          isEmpty);
+      // /C plus a positive border width -> a stroked rectangle
+      final device = drawFallback(CosDictionary({
+        'Subtype': const CosName('Link'),
+        'Rect': CosArray([for (final v in [10, 10, 60, 30]) CosInteger(v)]),
+        'Border': CosArray(
+            [const CosInteger(0), const CosInteger(0), const CosInteger(2)]),
+        'C': CosArray([const CosInteger(0), const CosInteger(0), const CosInteger(1)]),
+      }));
+      expect(device.strokes.single.$2, const PdfColor(0, 0, 1));
+    });
+
+    test('fallback FreeText draws /Contents lines through /DA, clipped', () {
+      final device = drawFallback(CosDictionary({
+        'Subtype': const CosName('FreeText'),
+        'Rect': CosArray([for (final v in [50, 500, 250, 560]) CosInteger(v)]),
+        'DA': CosString.fromText('/Helv 10 Tf 1 0 0 rg'),
+        'Contents': CosString.fromText('line one\nline two'),
+      }));
+      expect(device.texts.map((t) => t.text), ['line one', 'line two']);
+      expect(device.texts.first.color, const PdfColor(1, 0, 0));
+      expect(device.clips, hasLength(1));
+    });
+
+    test('fallback checkbox widget marks an on /AS with no /AP', () {
+      final on = drawFallback(CosDictionary({
+        'Subtype': const CosName('Widget'),
+        'FT': const CosName('Btn'),
+        'Rect': CosArray([for (final v in [72, 540, 92, 560]) CosInteger(v)]),
+        'AS': const CosName('Yes'),
+        'MK': CosDictionary({
+          'BC': CosArray([const CosInteger(0)]),
+        }),
+      }));
+      // border stroke + the check-mark stroke
+      expect(on.strokes, hasLength(2));
+
+      final off = drawFallback(CosDictionary({
+        'Subtype': const CosName('Widget'),
+        'FT': const CosName('Btn'),
+        'Rect': CosArray([for (final v in [72, 540, 92, 560]) CosInteger(v)]),
+        'AS': const CosName('Off'),
+        'MK': CosDictionary({
+          'BC': CosArray([const CosInteger(0)]),
+        }),
+      }));
+      // border only, no mark
+      expect(off.strokes, hasLength(1));
+    });
+
+    test('fallback pushbutton widget draws its /MK caption', () {
+      final device = drawFallback(CosDictionary({
+        'Subtype': const CosName('Widget'),
+        'FT': const CosName('Btn'),
+        'Ff': const CosInteger(65536), // pushbutton
+        'Rect': CosArray([for (final v in [72, 540, 172, 560]) CosInteger(v)]),
+        'DA': CosString.fromText('/Helv 12 Tf 0 g'),
+        'MK': CosDictionary({
+          'CA': CosString.fromText('Submit'),
+        }),
+      }));
+      expect(device.texts.single.text, 'Submit');
+    });
+  });
+
+  group('annotation print flags', () {
+    // A page with three Square annotations, each an /AP filling a distinct
+    // colour: red is Print (/F 4), green is Print+NoView (/F 36), blue has no
+    // flags (/F 0). Screen shows red+blue (NoView hidden, Print ignored);
+    // print shows red+green (only /Print, NoView prints).
+    Uint8List flaggedPdf() {
+      String form(String content) =>
+          '<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] '
+          '/Length ${content.length} >>\nstream\n$content\nendstream';
+      const annots = '/Annots [ '
+          '<< /Type /Annot /Subtype /Square /Rect [10 10 20 20] /F 4 '
+          '/AP << /N 5 0 R >> >> '
+          '<< /Type /Annot /Subtype /Square /Rect [30 10 40 20] /F 36 '
+          '/AP << /N 6 0 R >> >> '
+          '<< /Type /Annot /Subtype /Square /Rect [50 10 60 20] /F 0 '
+          '/AP << /N 7 0 R >> >> ]';
+      final objects = <String>[
+        '<< /Type /Catalog /Pages 2 0 R >>',
+        '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+            '/Contents 4 0 R $annots >>',
+        '<< /Length 0 >>\nstream\n\nendstream',
+        form('1 0 0 rg 0 0 10 10 re f'),
+        form('0 1 0 rg 0 0 10 10 re f'),
+        form('0 0 1 rg 0 0 10 10 re f'),
+      ];
+      final buffer = StringBuffer('%PDF-1.4\n');
+      final offsets = <int>[];
+      for (var i = 0; i < objects.length; i++) {
+        offsets.add(buffer.length);
+        buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+      }
+      final xrefOffset = buffer.length;
+      buffer
+        ..write('xref\n0 ${objects.length + 1}\n')
+        ..write('0000000000 65535 f \n');
+      for (final offset in offsets) {
+        buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+      }
+      buffer
+        ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+        ..write('startxref\n$xrefOffset\n%%EOF\n');
+      return Uint8List.fromList(buffer.toString().codeUnits);
+    }
+
+    List<PdfColor> drawn({required bool forPrint}) {
+      final doc = PdfDocument.open(flaggedPdf());
+      final device = RecordingDevice();
+      PdfInterpreter(cos: doc.cos, device: device)
+          .drawAnnotations(doc.page(0), forPrint: forPrint);
+      return [for (final f in device.fills) f.$2];
+    }
+
+    test('screen hides NoView and ignores the Print flag', () {
+      // red (Print) + blue (no flags); green is NoView
+      expect(drawn(forPrint: false),
+          [const PdfColor(1, 0, 0), const PdfColor(0, 0, 1)]);
+    });
+
+    test('print keeps only Print annotations, including NoView ones', () {
+      // red (Print) + green (Print+NoView); blue lacks Print
+      expect(drawn(forPrint: true),
+          [const PdfColor(1, 0, 0), const PdfColor(0, 1, 0)]);
     });
   });
 
