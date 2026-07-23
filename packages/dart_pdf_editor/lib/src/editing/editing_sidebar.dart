@@ -369,6 +369,21 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
     // normally selectable annotation (undo restores it).
     final signature = _signatureFor(annotation);
     final actions = <Widget>[
+      // The lock toggle hover-reveals with the rest of the row's actions;
+      // an unlock stays reachable here for a locked annotation (which can't
+      // be selected), the same way a right-click on it does.
+      if (widget.controller.isAnnotationLockManageable(annotation))
+        IconButton(
+          key: ValueKey('pdf-annotation-lock-$pageIndex-$index'),
+          icon: Icon(
+              annotation.isLocked ? Icons.lock : Icons.lock_open_outlined,
+              size: 20),
+          tooltip: annotation.isLocked
+              ? pdfL10n(context).sidebarUnlockAnnotation
+              : pdfL10n(context).sidebarLockAnnotation,
+          onPressed: () =>
+              widget.controller.toggleAnnotationLock(pageIndex, index),
+        ),
       if (hostsThread)
         _threadMenu(context, pageIndex, index, annotation, thread),
       if (signature != null)
