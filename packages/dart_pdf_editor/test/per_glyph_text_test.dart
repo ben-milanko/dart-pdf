@@ -54,9 +54,10 @@ void main() {
   testWidgets('a composable run composes identically to whole-run shaping',
       (tester) async {
     await tester.runAsync(() async {
-      // The flutter_test font has no kerning, so per-character placement must
-      // match whole-run placement to the pixel.
-      const label = 'N1234.567 E7654.321 ABC/DEF';
+      // A gate-composable run (isolated letters, tabular digits). The
+      // flutter_test font has no kerning, so per-character placement must match
+      // whole-run placement to the pixel - a placement bug would show here.
+      const label = 'N1234.567 E7654.321 A3 B7';
       final whole = await _rasterRun(label, perGlyph: false);
       final composed = await _rasterRun(label, perGlyph: true);
       expect(_diffPixels(whole, composed), 0,

@@ -92,9 +92,12 @@ class CanvasPdfDevice implements PdfDevice {
   /// shaping the whole run (#454). Unique labels (which miss the run cache and
   /// re-shape every time - the replay-bound CAD pathology) then reuse
   /// per-character shaping and drop toward the warm-cache floor. Restricted to
-  /// pure-fill, simple-script runs (see [_composableRun]); everything else keeps
-  /// whole-run shaping. Trades intra-run kerning for speed, so it is opt-in.
-  static bool perGlyphSubstitutedText = false;
+  /// pure-fill runs whose text has no kernable adjacency (see [_composableRun]);
+  /// everything else keeps whole-run shaping. On by default: a real-Chrome probe
+  /// across Helvetica/Arial/Courier put the composed-vs-whole-run pixel diff at
+  /// 0% for every run this gate admits (kerning-pair uppercase words, the only
+  /// divergent case, are excluded), so the speed-up carries no fidelity cost.
+  static bool perGlyphSubstitutedText = true;
 
   /// Em-space [ui.Path] per embedded-glyph outline, keyed by outline identity.
   /// An [Expando] ties each entry to its [PdfPath]'s lifetime (the font's own
@@ -822,22 +825,42 @@ class CanvasPdfDevice implements PdfDevice {
   }
 
   /// Whether [text] can be composed from independent per-character layouts
-  /// without changing shaping: ASCII digits, uppercase letters, space, and
-  /// common technical punctuation - none join or ligate contextually, and the
-  /// digits (the bulk of CAD labels) are tabular, so per-character placement
-  /// matches whole-run placement. Lowercase (fi/fl/ff ligatures) and everything
-  /// outside ASCII (Arabic/CJK/combining marks) fall back to whole-run shaping.
+  /// without visibly changing the result. Composition drops cross-character
+  /// kerning, so the run must contain no kernable adjacency: every character is
+  /// an ASCII digit, uppercase letter, space, or common technical punctuation
+  /// (no lowercase - those ligate), AND a letter only ever neighbours a digit or
+  /// a space, never another letter or punctuation. That is exactly the shape of
+  /// coordinate/survey/part labels ("N1234.567 E7654.321", "PLATE 12/48"), where
+  /// tabular digits and isolated letters do not kern - a real-Chrome probe put
+  /// the whole-run-vs-composed pixel diff at 0% for such runs and 20-56% for
+  /// kerning-pair uppercase words (PAY, AVENUE, WATER), which this gate excludes.
   static bool _composableRun(String text) {
     if (text.isEmpty) return false;
-    for (final cu in text.codeUnits) {
-      final ok = (cu >= 0x30 && cu <= 0x39) || // 0-9
-          (cu >= 0x41 && cu <= 0x5A) || // A-Z
-          cu == 0x20 || // space
-          _composablePunct.contains(cu);
-      if (!ok) return false;
+    final u = text.codeUnits;
+    for (var i = 0; i < u.length; i++) {
+      final cu = u[i];
+      if (!_composableChar(cu)) return false;
+      // A letter may only sit next to a digit or a space; a letter beside
+      // another letter or beside punctuation is a kerning pair in the
+      // substitute fonts, so the whole run falls back to whole-run shaping.
+      if (i > 0) {
+        final prev = u[i - 1];
+        final curLetter = _isAsciiUpper(cu);
+        final prevLetter = _isAsciiUpper(prev);
+        if (curLetter && !(_isAsciiDigit(prev) || prev == 0x20)) return false;
+        if (prevLetter && !(_isAsciiDigit(cu) || cu == 0x20)) return false;
+      }
     }
     return true;
   }
+
+  static bool _isAsciiUpper(int cu) => cu >= 0x41 && cu <= 0x5A;
+  static bool _isAsciiDigit(int cu) => cu >= 0x30 && cu <= 0x39;
+  static bool _composableChar(int cu) =>
+      _isAsciiDigit(cu) ||
+      _isAsciiUpper(cu) ||
+      cu == 0x20 || // space
+      _composablePunct.contains(cu);
 
   // . , - + / : = ( ) % # * _
   static const _composablePunct = <int>{

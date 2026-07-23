@@ -122,9 +122,10 @@ final int _imageCacheMb = _qInt('imageCacheMb', 0);
 final int _workerPool = _qInt('worker', 4);
 
 /// `?perGlyph=1` turns on per-glyph substituted-text composition (#454) so the
-/// same build can A/B it against the whole-run shaping default - watch the
-/// interpret line's `replay=`/`shape=` on `scroll-cad-labels`.
-final bool _perGlyph = _qBool('perGlyph', false);
+/// same build can A/B it: `?perGlyph=0` turns it OFF (whole-run shaping) - watch
+/// the interpret line's `replay=`/`shape=` on `scroll-cad-labels`. Default on,
+/// matching the app.
+final bool _perGlyph = _qBool('perGlyph', true);
 
 // ---------------------------------------------------------------------------
 // Capture: every debugPrint line + every frame's timing + scenario metrics.
