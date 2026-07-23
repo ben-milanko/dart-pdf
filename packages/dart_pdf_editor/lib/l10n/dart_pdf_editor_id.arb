@@ -1,5 +1,10 @@
 {
   "@@locale": "id",
+  "tbCropImage": "Pangkas gambar",
+  "tbCroppingImage": "Memangkas gambar",
+  "tbCropApply": "Terapkan pangkas",
+  "tbCropCancel": "Batalkan pangkas",
+  "tbCropReset": "Atur ulang pangkas",
   "menuLock": "Kunci",
   "menuUnlock": "Buka kunci",
   "searchAnnotations": "Cari anotasi",

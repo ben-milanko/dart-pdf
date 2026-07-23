@@ -1,5 +1,10 @@
 {
   "@@locale": "ja",
+  "tbCropImage": "画像をトリミング",
+  "tbCroppingImage": "画像をトリミング中",
+  "tbCropApply": "トリミングを適用",
+  "tbCropCancel": "トリミングをキャンセル",
+  "tbCropReset": "トリミングをリセット",
   "menuLock": "ロック",
   "menuUnlock": "ロック解除",
   "searchAnnotations": "注釈を検索",

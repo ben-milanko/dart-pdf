@@ -1,5 +1,10 @@
 {
   "@@locale": "uk",
+  "tbCropImage": "Обрізати зображення",
+  "tbCroppingImage": "Обрізання зображення",
+  "tbCropApply": "Застосувати обрізання",
+  "tbCropCancel": "Скасувати обрізання",
+  "tbCropReset": "Скинути обрізання",
   "menuLock": "Заблокувати",
   "menuUnlock": "Розблокувати",
   "searchAnnotations": "Пошук в анотаціях",

@@ -1,5 +1,10 @@
 {
   "@@locale": "es",
+  "tbCropImage": "Recortar imagen",
+  "tbCroppingImage": "Recortando imagen",
+  "tbCropApply": "Aplicar recorte",
+  "tbCropCancel": "Cancelar recorte",
+  "tbCropReset": "Restablecer recorte",
   "menuLock": "Bloquear",
   "menuUnlock": "Desbloquear",
   "searchAnnotations": "Buscar anotaciones",

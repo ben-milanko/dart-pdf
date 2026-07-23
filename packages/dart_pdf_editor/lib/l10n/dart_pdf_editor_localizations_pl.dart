@@ -1288,6 +1288,21 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'Znaczniki na dokumencie';
 
   @override
+  String get tbCropImage => 'Przytnij obraz';
+
+  @override
+  String get tbCroppingImage => 'Przycinanie obrazu';
+
+  @override
+  String get tbCropApply => 'Zastosuj przycięcie';
+
+  @override
+  String get tbCropCancel => 'Anuluj przycięcie';
+
+  @override
+  String get tbCropReset => 'Resetuj przycięcie';
+
+  @override
   String get tbColorLabel => 'Kolor';
 
   @override

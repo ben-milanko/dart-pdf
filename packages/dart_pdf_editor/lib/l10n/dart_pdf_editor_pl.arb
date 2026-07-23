@@ -1,5 +1,10 @@
 {
   "@@locale": "pl",
+  "tbCropImage": "Przytnij obraz",
+  "tbCroppingImage": "Przycinanie obrazu",
+  "tbCropApply": "Zastosuj przycięcie",
+  "tbCropCancel": "Anuluj przycięcie",
+  "tbCropReset": "Resetuj przycięcie",
   "menuLock": "Zablokuj",
   "menuUnlock": "Odblokuj",
   "searchAnnotations": "Szukaj w adnotacjach",

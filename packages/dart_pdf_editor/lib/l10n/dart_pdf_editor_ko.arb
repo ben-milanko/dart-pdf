@@ -1,5 +1,10 @@
 {
   "@@locale": "ko",
+  "tbCropImage": "이미지 자르기",
+  "tbCroppingImage": "이미지 자르는 중",
+  "tbCropApply": "자르기 적용",
+  "tbCropCancel": "자르기 취소",
+  "tbCropReset": "자르기 재설정",
   "menuLock": "잠금",
   "menuUnlock": "잠금 해제",
   "searchAnnotations": "주석 검색",

@@ -82,6 +82,15 @@ ko, Anmerkungen de), regenerated gen-l10n, and the gate is green again (57 files
 across 3 bundles). These are seed translations for the same community-review
 pass as the rest.
 
+A second catch-up merge pulled the image-crop feature (#504), which likewise
+added five untranslated English keys (`tbCropImage`, `tbCroppingImage`,
+`tbCropApply`, `tbCropCancel`, `tbCropReset`); translated across the 19 locales
+the same way (matching each locale's `stampImage`/`tbReplaceImage` term for
+"image"), regenerated, gate green. (The keyboard-shortcut PR #497 also merged in
+that pull but added no new strings.) These recurring red gates are the
+seed-translation debt catching up with feature PRs that ship English-only keys -
+worth a note for whoever wires up Weblate/Crowdin.
+
 ## Next (unchanged from tier 2)
 
 `NumberFormat` for the remaining numeric readouts, engine-error→UI-message

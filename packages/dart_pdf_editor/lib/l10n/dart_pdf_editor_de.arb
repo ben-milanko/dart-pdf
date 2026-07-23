@@ -1,5 +1,10 @@
 {
   "@@locale": "de",
+  "tbCropImage": "Bild zuschneiden",
+  "tbCroppingImage": "Bild wird zugeschnitten",
+  "tbCropApply": "Zuschnitt anwenden",
+  "tbCropCancel": "Zuschnitt abbrechen",
+  "tbCropReset": "Zuschnitt zurücksetzen",
   "menuLock": "Sperren",
   "menuUnlock": "Entsperren",
   "searchAnnotations": "Anmerkungen durchsuchen",

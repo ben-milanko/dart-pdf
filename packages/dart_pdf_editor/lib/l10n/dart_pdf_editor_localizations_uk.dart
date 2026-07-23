@@ -1286,6 +1286,21 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'Позначки на документі';
 
   @override
+  String get tbCropImage => 'Обрізати зображення';
+
+  @override
+  String get tbCroppingImage => 'Обрізання зображення';
+
+  @override
+  String get tbCropApply => 'Застосувати обрізання';
+
+  @override
+  String get tbCropCancel => 'Скасувати обрізання';
+
+  @override
+  String get tbCropReset => 'Скинути обрізання';
+
+  @override
   String get tbColorLabel => 'Колір';
 
   @override

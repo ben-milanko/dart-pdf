@@ -1271,6 +1271,21 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'Tanda centang pada dokumen';
 
   @override
+  String get tbCropImage => 'Pangkas gambar';
+
+  @override
+  String get tbCroppingImage => 'Memangkas gambar';
+
+  @override
+  String get tbCropApply => 'Terapkan pangkas';
+
+  @override
+  String get tbCropCancel => 'Batalkan pangkas';
+
+  @override
+  String get tbCropReset => 'Atur ulang pangkas';
+
+  @override
   String get tbColorLabel => 'Warna';
 
   @override

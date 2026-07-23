@@ -1,5 +1,10 @@
 {
   "@@locale": "vi",
+  "tbCropImage": "Cắt hình ảnh",
+  "tbCroppingImage": "Đang cắt hình ảnh",
+  "tbCropApply": "Áp dụng cắt",
+  "tbCropCancel": "Hủy cắt",
+  "tbCropReset": "Đặt lại cắt",
   "menuLock": "Khóa",
   "menuUnlock": "Mở khóa",
   "searchAnnotations": "Tìm chú thích",

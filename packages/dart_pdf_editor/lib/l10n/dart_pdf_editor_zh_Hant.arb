@@ -1,5 +1,10 @@
 {
   "@@locale": "zh_Hant",
+  "tbCropImage": "裁剪影像",
+  "tbCroppingImage": "正在裁剪影像",
+  "tbCropApply": "套用裁剪",
+  "tbCropCancel": "取消裁剪",
+  "tbCropReset": "重設裁剪",
   "menuLock": "鎖定",
   "menuUnlock": "解鎖",
   "searchAnnotations": "搜尋註解",

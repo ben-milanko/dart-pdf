@@ -1,5 +1,10 @@
 {
   "@@locale": "it",
+  "tbCropImage": "Ritaglia immagine",
+  "tbCroppingImage": "Ritaglio immagine in corso",
+  "tbCropApply": "Applica ritaglio",
+  "tbCropCancel": "Annulla ritaglio",
+  "tbCropReset": "Reimposta ritaglio",
   "menuLock": "Blocca",
   "menuUnlock": "Sblocca",
   "searchAnnotations": "Cerca annotazioni",

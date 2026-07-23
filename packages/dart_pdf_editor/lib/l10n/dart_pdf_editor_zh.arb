@@ -1,5 +1,10 @@
 {
   "@@locale": "zh",
+  "tbCropImage": "裁剪图像",
+  "tbCroppingImage": "正在裁剪图像",
+  "tbCropApply": "应用裁剪",
+  "tbCropCancel": "取消裁剪",
+  "tbCropReset": "重置裁剪",
   "menuLock": "锁定",
   "menuUnlock": "解锁",
   "searchAnnotations": "搜索注释",

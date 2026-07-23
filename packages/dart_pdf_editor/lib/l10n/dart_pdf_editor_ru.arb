@@ -1,5 +1,10 @@
 {
   "@@locale": "ru",
+  "tbCropImage": "Обрезать изображение",
+  "tbCroppingImage": "Обрезка изображения",
+  "tbCropApply": "Применить обрезку",
+  "tbCropCancel": "Отменить обрезку",
+  "tbCropReset": "Сбросить обрезку",
   "menuLock": "Заблокировать",
   "menuUnlock": "Разблокировать",
   "searchAnnotations": "Поиск по аннотациям",

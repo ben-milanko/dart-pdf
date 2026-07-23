@@ -1,5 +1,10 @@
 {
   "@@locale": "th",
+  "tbCropImage": "ครอบตัดรูปภาพ",
+  "tbCroppingImage": "กำลังครอบตัดรูปภาพ",
+  "tbCropApply": "ใช้การครอบตัด",
+  "tbCropCancel": "ยกเลิกการครอบตัด",
+  "tbCropReset": "รีเซ็ตการครอบตัด",
   "menuLock": "ล็อก",
   "menuUnlock": "ปลดล็อก",
   "searchAnnotations": "ค้นหาคำอธิบายประกอบ",

@@ -1,5 +1,10 @@
 {
   "@@locale": "nl",
+  "tbCropImage": "Afbeelding bijsnijden",
+  "tbCroppingImage": "Bezig met bijsnijden",
+  "tbCropApply": "Bijsnijden toepassen",
+  "tbCropCancel": "Bijsnijden annuleren",
+  "tbCropReset": "Bijsnijden herstellen",
   "menuLock": "Vergrendelen",
   "menuUnlock": "Ontgrendelen",
   "searchAnnotations": "Annotaties doorzoeken",

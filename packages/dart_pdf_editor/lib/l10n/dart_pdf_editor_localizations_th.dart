@@ -1267,6 +1267,21 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'เครื่องหมายถูกบนเอกสาร';
 
   @override
+  String get tbCropImage => 'ครอบตัดรูปภาพ';
+
+  @override
+  String get tbCroppingImage => 'กำลังครอบตัดรูปภาพ';
+
+  @override
+  String get tbCropApply => 'ใช้การครอบตัด';
+
+  @override
+  String get tbCropCancel => 'ยกเลิกการครอบตัด';
+
+  @override
+  String get tbCropReset => 'รีเซ็ตการครอบตัด';
+
+  @override
   String get tbColorLabel => 'สี';
 
   @override

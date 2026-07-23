@@ -1291,6 +1291,21 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'علامات الاختيار على المستند';
 
   @override
+  String get tbCropImage => 'اقتصاص الصورة';
+
+  @override
+  String get tbCroppingImage => 'جارٍ اقتصاص الصورة';
+
+  @override
+  String get tbCropApply => 'تطبيق الاقتصاص';
+
+  @override
+  String get tbCropCancel => 'إلغاء الاقتصاص';
+
+  @override
+  String get tbCropReset => 'إعادة تعيين الاقتصاص';
+
+  @override
   String get tbColorLabel => 'اللون';
 
   @override

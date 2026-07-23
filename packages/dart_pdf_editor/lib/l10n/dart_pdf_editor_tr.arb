@@ -1,5 +1,10 @@
 {
   "@@locale": "tr",
+  "tbCropImage": "Görseli kırp",
+  "tbCroppingImage": "Görsel kırpılıyor",
+  "tbCropApply": "Kırpmayı uygula",
+  "tbCropCancel": "Kırpmayı iptal et",
+  "tbCropReset": "Kırpmayı sıfırla",
   "menuLock": "Kilitle",
   "menuUnlock": "Kilidi aç",
   "searchAnnotations": "Ek açıklamalarda ara",

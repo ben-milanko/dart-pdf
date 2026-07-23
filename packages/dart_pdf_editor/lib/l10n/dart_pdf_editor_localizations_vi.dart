@@ -1270,6 +1270,21 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'Dấu kiểm trên tài liệu';
 
   @override
+  String get tbCropImage => 'Cắt hình ảnh';
+
+  @override
+  String get tbCroppingImage => 'Đang cắt hình ảnh';
+
+  @override
+  String get tbCropApply => 'Áp dụng cắt';
+
+  @override
+  String get tbCropCancel => 'Hủy cắt';
+
+  @override
+  String get tbCropReset => 'Đặt lại cắt';
+
+  @override
   String get tbColorLabel => 'Màu';
 
   @override

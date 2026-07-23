@@ -1288,6 +1288,21 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'Галочки на документе';
 
   @override
+  String get tbCropImage => 'Обрезать изображение';
+
+  @override
+  String get tbCroppingImage => 'Обрезка изображения';
+
+  @override
+  String get tbCropApply => 'Применить обрезку';
+
+  @override
+  String get tbCropCancel => 'Отменить обрезку';
+
+  @override
+  String get tbCropReset => 'Сбросить обрезку';
+
+  @override
   String get tbColorLabel => 'Цвет';
 
   @override
