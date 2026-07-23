@@ -69,10 +69,32 @@ class CanvasPdfDevice implements PdfDevice {
   static final PdfBudgetedCache<String, _TextLayout> _textCache =
       PdfBudgetedCache<String, _TextLayout>(
     maxEntries: 2048,
-    disposer: (layout) => layout.painter.dispose(),
+    disposer: (layout) => layout.dispose(),
     clearsUnderMemoryPressure: true,
     debugLabel: 'text-layout',
   );
+
+  /// Per-character layout cache backing [perGlyphSubstitutedText] (#454): a
+  /// single laid-out [TextPainter] per (character, font, colour). A run of
+  /// unique labels shares the same handful of digits/letters, so this hits
+  /// near-100% where the run cache misses every time. Small (an alphabet, not a
+  /// corpus of runs), so its bound is generous and it rarely evicts - which also
+  /// keeps the transient composed runs that reference it safe.
+  static final PdfBudgetedCache<String, _TextLayout> _glyphCache =
+      PdfBudgetedCache<String, _TextLayout>(
+    maxEntries: 4096,
+    disposer: (layout) => layout.dispose(),
+    clearsUnderMemoryPressure: true,
+    debugLabel: 'glyph-layout',
+  );
+
+  /// Compose substituted-font runs from cached per-character layouts instead of
+  /// shaping the whole run (#454). Unique labels (which miss the run cache and
+  /// re-shape every time - the replay-bound CAD pathology) then reuse
+  /// per-character shaping and drop toward the warm-cache floor. Restricted to
+  /// pure-fill, simple-script runs (see [_composableRun]); everything else keeps
+  /// whole-run shaping. Trades intra-run kerning for speed, so it is opt-in.
+  static bool perGlyphSubstitutedText = false;
 
   /// Em-space [ui.Path] per embedded-glyph outline, keyed by outline identity.
   /// An [Expando] ties each entry to its [PdfPath]'s lifetime (the font's own
@@ -81,11 +103,18 @@ class CanvasPdfDevice implements PdfDevice {
 
   /// Drops every cached text layout (memory pressure / tests). The
   /// decoded-image cache ([PdfImageCache]) is separate.
-  static void clearTextLayoutCache() => _textCache.clear();
+  static void clearTextLayoutCache() {
+    _textCache.clear();
+    _glyphCache.clear();
+  }
 
   /// Number of cached text layouts — test hook.
   @visibleForTesting
   static int get debugTextLayoutCacheLength => _textCache.length;
+
+  /// Number of cached per-character glyph layouts — test hook (#454).
+  @visibleForTesting
+  static int get debugGlyphLayoutCacheLength => _glyphCache.length;
 
   /// Within-replay substituted-text shaping split (#454). [debugTextShapeUs] is
   /// the time spent in cache-miss `TextPainter` layout — the "shaping" the
@@ -634,7 +663,15 @@ class CanvasPdfDevice implements PdfDevice {
     // a cached laid-out painter (immutable, repaints at any transform) and its
     // metrics. The plain painter doubles as the fill painter in the common
     // no-gradient case, exactly as the un-cached path did.
-    final layout = _measureLayout(run);
+    //
+    // Per-glyph composition (#454) applies only to plain fills of simple-script
+    // runs; a gradient, a stroke, or complex text keeps whole-run shaping so the
+    // fresh gradient/stroke painters and the layout stay width-consistent.
+    final compose = perGlyphSubstitutedText &&
+        run.gradient == null &&
+        run.strokeColor == null &&
+        _composableRun(run.text);
+    final layout = _measureLayout(run, compose: compose);
 
     canvas.save();
     canvas.transform(_toFloat64(run.transform));
@@ -644,10 +681,12 @@ class CanvasPdfDevice implements PdfDevice {
         ? targetWidth / layout.width
         : 1.0;
 
-    // Fill painter (modes 0/2/4/6), with a gradient shader when present.
-    TextPainter? fillPainter;
+    // Fill (modes 0/2/4/6). A plain fill paints the cached/composed layout
+    // (colour baked in); a gradient fill needs a fresh painter carrying the
+    // shader, which can't be cached because the shader depends on this run's
+    // own transform. The cached/composed layout serves every plain fill.
+    TextPainter? gradientFill;
     if (run.fill) {
-      Paint? foreground;
       final gradient = run.gradient;
       if (gradient != null) {
         final localToPage =
@@ -655,22 +694,19 @@ class CanvasPdfDevice implements PdfDevice {
                 .concat(run.transform);
         final pageToLocal = localToPage.inverted();
         if (pageToLocal != null) {
-          foreground = Paint()
-            ..shader = _shaderFor(gradient,
-                transform: gradient.transform.concat(pageToLocal))
-            ..blendMode = _elementBlend;
+          gradientFill = TextPainter(
+            text: TextSpan(
+                text: run.text,
+                style: _styleFor(
+                    run,
+                    foreground: Paint()
+                      ..shader = _shaderFor(gradient,
+                          transform: gradient.transform.concat(pageToLocal))
+                      ..blendMode = _elementBlend)),
+            textDirection: TextDirection.ltr,
+          )..layout();
         }
       }
-      // A gradient run's shader depends on this run's own transform, so it
-      // can't be cached — build it fresh. The cached painter serves every
-      // plain fill.
-      fillPainter = foreground == null
-          ? layout.painter
-          : (TextPainter(
-              text: TextSpan(
-                  text: run.text, style: _styleFor(run, foreground: foreground)),
-              textDirection: TextDirection.ltr,
-            )..layout());
     }
 
     // Stroke painter (modes 1/2/5/6): outline the glyphs in the stroke colour.
@@ -697,7 +733,13 @@ class CanvasPdfDevice implements PdfDevice {
     }
 
     canvas.scale(scaleX / renderSize, -1 / renderSize);
-    fillPainter?.paint(canvas, Offset(0, -layout.baseline));
+    if (run.fill) {
+      if (gradientFill != null) {
+        gradientFill.paint(canvas, Offset(0, -layout.baseline));
+      } else {
+        layout.paint(canvas, Offset(0, -layout.baseline));
+      }
+    }
     strokePainter?.paint(canvas, Offset(0, -layout.baseline));
     canvas.restore();
   }
@@ -705,9 +747,12 @@ class CanvasPdfDevice implements PdfDevice {
   /// A laid-out painter (+ width/baseline) for a substituted-font run, served
   /// from the process-wide cache. The key is (text, font, colour) — everything
   /// [_styleFor] reads — so the cached painter and its metrics are exact.
-  _TextLayout _measureLayout(PdfTextRun run) {
+  _TextLayout _measureLayout(PdfTextRun run, {required bool compose}) {
+    // Composed runs are transient (built per paint from the glyph cache), so
+    // they skip the run cache and its miss/hit instrumentation entirely.
+    if (compose) return _composeLayout(run);
     final c = run.color;
-    final key = '${run.text} ${run.fontName ?? ''} '
+    final key = '${run.text} ${run.fontName ?? ''} '
         '${c.red},${c.green},${c.blue}';
     if (!PdfPerfLog.enabled) {
       return _textCache.getOrAdd(key, () => _shapeLayout(run));
@@ -739,6 +784,65 @@ class CanvasPdfDevice implements PdfDevice {
         painter.computeDistanceToActualBaseline(TextBaseline.alphabetic);
     return _TextLayout(painter, painter.width, baseline);
   }
+
+  /// Builds a run layout by placing per-character layouts (each shaped once and
+  /// cached in [_glyphCache]) at their cumulative natural advances. The total
+  /// natural width still feeds the same `scaleX` that stretches the run to the
+  /// PDF's own advance, so the run's overall placement is unchanged; only the
+  /// intra-run distribution differs (no cross-character kerning) - which is why
+  /// [_composableRun] gates it to text where that difference is nil-to-tiny.
+  _TextLayout _composeLayout(PdfTextRun run) {
+    final parts = <_GlyphRun>[];
+    var dx = 0.0;
+    double? baseline;
+    for (final rune in run.text.runes) {
+      final glyph = _glyphLayout(rune, run);
+      parts.add(_GlyphRun(glyph, dx));
+      dx += glyph.width;
+      baseline ??= glyph.baseline;
+    }
+    return _TextLayout.composed(parts, dx, baseline ?? 0);
+  }
+
+  /// A single character's cached layout, keyed like the run cache but per rune.
+  _TextLayout _glyphLayout(int rune, PdfTextRun run) {
+    final c = run.color;
+    final key = '$rune ${run.fontName ?? ''} ${c.red},${c.green},${c.blue}';
+    return _glyphCache.getOrAdd(key, () {
+      final painter = TextPainter(
+        text: TextSpan(
+            text: String.fromCharCode(rune),
+            style: _styleFor(run, foreground: null)),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final baseline =
+          painter.computeDistanceToActualBaseline(TextBaseline.alphabetic);
+      return _TextLayout(painter, painter.width, baseline);
+    });
+  }
+
+  /// Whether [text] can be composed from independent per-character layouts
+  /// without changing shaping: ASCII digits, uppercase letters, space, and
+  /// common technical punctuation - none join or ligate contextually, and the
+  /// digits (the bulk of CAD labels) are tabular, so per-character placement
+  /// matches whole-run placement. Lowercase (fi/fl/ff ligatures) and everything
+  /// outside ASCII (Arabic/CJK/combining marks) fall back to whole-run shaping.
+  static bool _composableRun(String text) {
+    if (text.isEmpty) return false;
+    for (final cu in text.codeUnits) {
+      final ok = (cu >= 0x30 && cu <= 0x39) || // 0-9
+          (cu >= 0x41 && cu <= 0x5A) || // A-Z
+          cu == 0x20 || // space
+          _composablePunct.contains(cu);
+      if (!ok) return false;
+    }
+    return true;
+  }
+
+  // . , - + / : = ( ) % # * _
+  static const _composablePunct = <int>{
+    0x2E, 0x2C, 0x2D, 0x2B, 0x2F, 0x3A, 0x3D, 0x28, 0x29, 0x25, 0x23, 0x2A, 0x5F,
+  };
 
   /// The em-space [ui.Path] for a glyph outline, built once per outline
   /// instance and memoized by identity. Glyph outlines fill nonzero.
@@ -1002,9 +1106,44 @@ class CanvasPdfDevice implements PdfDevice {
 /// and baseline are constant for a given (text, font, colour) so the per-run
 /// horizontal squeeze (scaleX) and baseline offset are recomputed cheaply.
 class _TextLayout {
-  _TextLayout(this.painter, this.width, this.baseline);
-  final TextPainter painter;
+  /// A whole-run layout: one [TextPainter] the cache owns and disposes.
+  _TextLayout(TextPainter this.painter, this.width, this.baseline)
+      : parts = null;
+
+  /// A run composed from per-character layouts (#454). [parts] reference
+  /// glyph-cache layouts this layout does NOT own (the glyph cache disposes
+  /// them); a composed layout is transient - built per paint, never cached -
+  /// so the referenced glyphs cannot be evicted under it on the single thread.
+  _TextLayout.composed(List<_GlyphRun> this.parts, this.width, this.baseline)
+      : painter = null;
+
+  final TextPainter? painter;
+  final List<_GlyphRun>? parts;
   final double width;
   final double baseline;
+
+  /// Paints the run at [offset] in the painter's 100px-per-em space.
+  void paint(Canvas canvas, Offset offset) {
+    final p = painter;
+    if (p != null) {
+      p.paint(canvas, offset);
+      return;
+    }
+    for (final g in parts!) {
+      g.glyph.painter!.paint(canvas, offset.translate(g.dx, 0));
+    }
+  }
+
+  /// Disposes the owned painter; a composed layout owns none (its glyphs
+  /// belong to the glyph cache).
+  void dispose() => painter?.dispose();
+}
+
+/// One character's layout within a composed run: the shared glyph-cache
+/// layout and its x-offset (natural, un-scaled 100px-per-em space).
+class _GlyphRun {
+  const _GlyphRun(this.glyph, this.dx);
+  final _TextLayout glyph;
+  final double dx;
 }
 

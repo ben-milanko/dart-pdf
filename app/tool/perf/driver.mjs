@@ -311,6 +311,7 @@ async function main() {
   if (process.env.PERF_QUERY) qp.set('query', process.env.PERF_QUERY);
   if (process.env.PERF_REPEAT) qp.set('repeat', process.env.PERF_REPEAT);
   if (process.env.PERF_OPS) qp.set('ops', process.env.PERF_OPS);
+  if (process.env.PERF_PER_GLYPH) qp.set('perGlyph', process.env.PERF_PER_GLYPH);
   const qs = qp.toString();
   const url = `http://127.0.0.1:${PORT}/${qs ? '?' + qs : ''}`;
   if (SCENARIO) console.log(`▶ scenario ${SCENARIO.name} (${SCENARIO.kind}) pdf=${SCENARIO.pdf}`);

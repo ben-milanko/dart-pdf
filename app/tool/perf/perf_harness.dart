@@ -121,6 +121,11 @@ final int _imageCacheMb = _qInt('imageCacheMb', 0);
 /// path never runs. Default 4 (the app's normal pool).
 final int _workerPool = _qInt('worker', 4);
 
+/// `?perGlyph=1` turns on per-glyph substituted-text composition (#454) so the
+/// same build can A/B it against the whole-run shaping default - watch the
+/// interpret line's `replay=`/`shape=` on `scroll-cad-labels`.
+final bool _perGlyph = _qBool('perGlyph', false);
+
 // ---------------------------------------------------------------------------
 // Capture: every debugPrint line + every frame's timing + scenario metrics.
 // ---------------------------------------------------------------------------
@@ -193,6 +198,8 @@ void main() {
     pdfRenderWorkerPoolSize = _workerPool;
   }
   _record('[perf] HARNESS workerPool=$_workerPool');
+  CanvasPdfDevice.perGlyphSubstitutedText = _perGlyph;
+  _record('[perf] HARNESS perGlyph=$_perGlyph');
   debugPrint = (String? message, {int? wrapWidth}) {
     if (message != null) _record(message);
   };
