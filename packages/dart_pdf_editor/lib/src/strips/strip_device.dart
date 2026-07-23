@@ -336,6 +336,11 @@ class StripPdfDevice extends StripBinningDevice {
       _state((d) => d.setBlendMode(mode));
 
   @override
+  void delegateSetOverprint(
+          {required bool fill, required bool stroke, required int mode}) =>
+      _state((d) => d.setOverprint(fill: fill, stroke: stroke, mode: mode));
+
+  @override
   void delegateBeginGroup(double alpha, {required bool knockout}) =>
       _state((d) => d.beginGroup(alpha, knockout: knockout));
 

@@ -203,6 +203,8 @@ class StripPlanBinner extends StripBinningDevice {
   @override
   void delegateSetBlendMode(mode) {}
   @override
+  void delegateSetOverprint({required fill, required stroke, required mode}) {}
+  @override
   void delegateBeginGroup(double alpha, {required bool knockout}) {}
   @override
   void delegateEndGroup() {}

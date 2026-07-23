@@ -37,6 +37,10 @@ class CountingDevice implements PdfDevice {
   void setBlendMode(PdfBlendMode mode) => blendModes.add(mode);
 
   @override
+  void setOverprint(
+      {required bool fill, required bool stroke, required int mode}) {}
+
+  @override
   void save() {}
   @override
   void restore() {}

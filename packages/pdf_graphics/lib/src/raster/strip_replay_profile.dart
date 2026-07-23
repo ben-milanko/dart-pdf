@@ -124,6 +124,9 @@ class _StripReplayProfiler extends StripBinningDevice {
   @override
   void delegateSetBlendMode(PdfBlendMode mode) {}
   @override
+  void delegateSetOverprint(
+      {required bool fill, required bool stroke, required int mode}) {}
+  @override
   void delegateBeginGroup(double alpha, {required bool knockout}) {}
   @override
   void delegateEndGroup() {}

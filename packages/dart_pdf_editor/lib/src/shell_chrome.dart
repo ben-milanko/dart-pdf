@@ -413,7 +413,7 @@ class _PanelTab extends StatelessWidget {
               size: 16,
               color: selected ? scheme.primary : scheme.onSurfaceVariant),
           const SizedBox(width: 6),
-          Text(panel.label,
+          Text(panel.label(context),
               style: TextStyle(
                 color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
                 fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
@@ -1847,7 +1847,7 @@ class PdfShellPanelSwitch extends StatelessWidget {
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         if (items.length > 1)
           Padding(
-            padding: const EdgeInsets.only(left: 4, right: 6),
+            padding: const EdgeInsetsDirectional.only(start: 4, end: 6),
             child: Text(
               pdfL10n(context).shellPanels,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(

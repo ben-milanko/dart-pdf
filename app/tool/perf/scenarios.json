@@ -20,6 +20,18 @@
       "params": { "passes": 2, "fast": 0 },
       "note": "3p ultra-dense diagram (~270k ops/page, MB-scale streams). Tokenizer/interpreter saturation."
     },
+    "scroll-photo-noworker": {
+      "kind": "scroll",
+      "pdf": "test_corpora/dartpdf/photo-jpeg-6p.pdf",
+      "params": { "passes": 1, "fast": 1, "worker": 0 },
+      "note": "6p full-page DeviceRGB DCTDecode covers (~1240x1654) with the render worker OFF (worker=0), so every JPEG decodes on the main thread through _decodeOne. The A/B lever for #458's browser-codec fallback vs the engine WASM codec - the win the worker-on desktop path hides."
+    },
+    "scroll-cad-labels": {
+      "kind": "scroll",
+      "pdf": "test_corpora/dartpdf/cad-labels-6p.pdf",
+      "params": { "passes": 1, "fast": 1 },
+      "note": "6p A3 sheets of 660 UNIQUE survey-point labels each, substituted Helvetica. The run-layout cache misses on every label, so this is the worst case for substituted-text shaping (#454) - the interpret line's shape= vs replay= split shows shaping vs canvas-call volume when the cache cannot help."
+    },
     "open-plan": {
       "kind": "open",
       "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",

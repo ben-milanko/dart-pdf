@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart' show ThemeMode;
+import 'package:flutter/material.dart' show Locale, ThemeMode;
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart'
     show PdfLineEnding, PdfStandardFont, PdfTextAlign;
@@ -73,6 +73,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   PdfStampDateFormat _stampDateFormat = PdfStampDateFormat.iso;
   PdfStampTimeFormat _stampTimeFormat = PdfStampTimeFormat.twentyFourHour;
   ThemeMode _themeMode = ThemeMode.system;
+  Locale? _locale;
   PdfColorFormat _colorPickerFormat = PdfColorFormat.hex;
   List<Color> _recentColors = const [];
   List<String> _recentFonts = const [];
@@ -87,6 +88,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   bool _searchMatchCase = false;
   bool _searchWholeWord = false;
   bool _searchRegex = false;
+  bool _searchAnnotations = true;
   double? _thumbnailSidebarWidth;
   double? _bookmarkSidebarWidth;
   double? _annotationSidebarWidth;
@@ -211,6 +213,10 @@ class PdfEditingPreferences extends ChangeNotifier {
       if (themeMode != null) {
         _themeMode = ThemeMode.values.asNameMap()[themeMode] ?? _themeMode;
       }
+      final locale = store.getString('${_prefix}locale');
+      if (locale != null && locale.isNotEmpty) {
+        _locale = _parseLocaleTag(locale);
+      }
       final colorPickerFormat = store.getString('${_prefix}colorPickerFormat');
       if (colorPickerFormat != null) {
         _colorPickerFormat =
@@ -260,6 +266,8 @@ class PdfEditingPreferences extends ChangeNotifier {
       _searchWholeWord =
           store.getBool('${_prefix}searchWholeWord') ?? _searchWholeWord;
       _searchRegex = store.getBool('${_prefix}searchRegex') ?? _searchRegex;
+      _searchAnnotations = store.getBool('${_prefix}searchAnnotations') ??
+          _searchAnnotations;
       _propertiesPanelWidth =
           store.getDouble('${_prefix}propertiesPanelWidth') ??
               _propertiesPanelWidth;
@@ -547,6 +555,35 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (changed) _writeToolStyles();
   }
 
+  /// Writes captured style [values] into the persisted style scope [scope],
+  /// keeping only the fields the scope actually remembers ([fields]). When
+  /// [scope] is the currently active scope, the values also flow into the
+  /// live creation defaults so the change takes effect immediately for the
+  /// armed tool. Used by "set as default", which seeds a tool's creation
+  /// style from an existing annotation.
+  ///
+  /// A field whose value is null is honoured for the colours that can be
+  /// cleared ([textFillColor]/[textBorderColor]/[shapeFillColor]) - null
+  /// there means "no fill" - and skipped otherwise, so a value the
+  /// annotation doesn't carry leaves that default untouched.
+  void writeScopedStyle(
+      String scope, Set<String> fields, Map<String, Object?> values) {
+    const nullable = {'textFillColor', 'textBorderColor', 'shapeFillColor'};
+    final slot = _toolStyles[scope] ??= <String, Object?>{};
+    var changed = false;
+    values.forEach((field, value) {
+      if (!fields.contains(field)) return;
+      if (value == null && !nullable.contains(field)) return;
+      if (slot.containsKey(field) && slot[field] == value) return;
+      slot[field] = value;
+      changed = true;
+    });
+    if (changed) _writeToolStyles();
+    // Reflect into the live values when this is the active scope, driving the
+    // public setters (which notify) through the shared restore path.
+    if (scope == _styleScope) _restoreScope(scope);
+  }
+
   /// Records [value] for [field] under the active scope when that scope
   /// remembers the field. Called from the style setters.
   void _recordScoped(String field, Object? value) {
@@ -801,6 +838,47 @@ class PdfEditingPreferences extends ChangeNotifier {
     _themeMode = value;
     _write((s) => s.setString('${_prefix}themeMode', value.name));
     notifyListeners();
+  }
+
+  /// The UI language the user picked in Settings, or null (the default) to
+  /// follow the platform locale. A host feeds this to its `MaterialApp`
+  /// locale resolution; null means "System default" and defers to Flutter's
+  /// own preferred-locale algorithm. Persisted by BCP-47 language tag.
+  Locale? get locale => _locale;
+
+  set locale(Locale? value) {
+    if (value == _locale) return;
+    _locale = value;
+    _write((s) => value == null
+        ? s.remove('${_prefix}locale')
+        : s.setString('${_prefix}locale', value.toLanguageTag()));
+    notifyListeners();
+  }
+
+  /// Parses a persisted BCP-47 language tag (e.g. `es`, `pt-BR`, `zh-Hans`)
+  /// back into a [Locale], reading a 4-letter subtag as the script and a
+  /// 2-letter / 3-digit subtag as the region. Returns null for an empty or
+  /// malformed tag so a corrupt value quietly falls back to the system
+  /// locale.
+  static Locale? _parseLocaleTag(String tag) {
+    final parts = tag.split(RegExp('[-_]'));
+    if (parts.isEmpty || parts.first.isEmpty) return null;
+    String? script;
+    String? country;
+    for (final part in parts.skip(1)) {
+      if (part.length == 4 && script == null) {
+        script = part[0].toUpperCase() + part.substring(1).toLowerCase();
+      } else if (country == null &&
+          (part.length == 2 ||
+              (part.length == 3 && int.tryParse(part) != null))) {
+        country = part.toUpperCase();
+      }
+    }
+    return Locale.fromSubtags(
+      languageCode: parts.first.toLowerCase(),
+      scriptCode: script,
+      countryCode: country,
+    );
   }
 
   /// The value format the color picker last showed (hex, RGB, HSL, or
@@ -1253,6 +1331,17 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _searchRegex) return;
     _searchRegex = value;
     _write((s) => s.setBool('${_prefix}searchRegex', value));
+    notifyListeners();
+  }
+
+  /// Whether document search also scans annotation /Contents (see
+  /// `PdfSearchOptions.searchAnnotations`). On by default. Persisted.
+  bool get searchAnnotations => _searchAnnotations;
+
+  set searchAnnotations(bool value) {
+    if (value == _searchAnnotations) return;
+    _searchAnnotations = value;
+    _write((s) => s.setBool('${_prefix}searchAnnotations', value));
     notifyListeners();
   }
 }

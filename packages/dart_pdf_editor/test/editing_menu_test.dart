@@ -368,9 +368,9 @@ void main() {
       );
 
       await rightClick(tester, viewPoint(110, 725));
-      // stock entries are grouped (clipboard | arrange | delete) and the
-      // host action rides in its own group below the last divider
-      expect(find.byType(PopupMenuDivider), findsNWidgets(3));
+      // stock entries are grouped (clipboard | arrange | set-default | delete)
+      // and the host action rides in its own group below the last divider
+      expect(find.byType(PopupMenuDivider), findsNWidgets(4));
       expect(find.text('Bring to front'), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('host-copy-comment')));
@@ -391,13 +391,17 @@ void main() {
       expect(editing.hasAnnotationSelection, isFalse);
     });
 
-    testWidgets('a plain rectangle menu rules off clipboard, arrange, delete',
-        (tester) async {
+    testWidgets(
+        'a plain rectangle menu rules off clipboard, arrange, set-default, '
+        'delete', (tester) async {
       await pumpViewer(tester);
 
       await rightClick(tester, viewPoint(110, 725)); // rectangle A
-      // clipboard (copy/cut/apply/paste) | arrange (front/back) | delete
-      expect(find.byType(PopupMenuDivider), findsNWidgets(2));
+      // clipboard (copy/cut/apply/paste) | arrange (front/back) |
+      // set-default (style capture) | delete
+      expect(find.byType(PopupMenuDivider), findsNWidgets(3));
+      expect(find.byKey(const ValueKey('pdf-annot-menu-set-default')),
+          findsOneWidget);
     });
 
     testWidgets('a paste-only menu draws no dividers', (tester) async {

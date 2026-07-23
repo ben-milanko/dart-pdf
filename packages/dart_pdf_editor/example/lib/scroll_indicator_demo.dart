@@ -178,8 +178,10 @@ class _PageScrubberState extends State<_PageScrubber> {
     final horizontal = metrics.scrollAxis == Axis.horizontal;
     return Align(
       // the track hugs the edge along the scroll axis: the bottom for a
-      // horizontal layout, the right for a vertical one
-      alignment: horizontal ? Alignment.bottomCenter : Alignment.centerRight,
+      // horizontal layout, the trailing edge (right in LTR, left in RTL) for
+      // a vertical one
+      alignment:
+          horizontal ? Alignment.bottomCenter : AlignmentDirectional.centerEnd,
       child: SizedBox(
         width: horizontal ? null : _trackBreadth,
         height: horizontal ? _trackBreadth : null,
