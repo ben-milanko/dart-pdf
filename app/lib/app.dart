@@ -122,13 +122,14 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
         // it here forces the app onto that locale even when it isn't in
         // supportedLocales (untranslated app strings fall back to English, but
         // Directionality and the Material delegates follow it - enough to test
-        // the RTL sweep). Null override falls through to the default resolution.
-        locale: AppDevTools.instance.localeOverride.value,
-        localeResolutionCallback: (locale, supportedLocales) {
+        // the RTL sweep). With no override, defer to Flutter's own algorithm
+        // over the FULL preferred-locale list so the normal fallback chain is
+        // unchanged (a list callback, not the single-locale one, to keep the
+        // user's second/third preference in play).
+        localeListResolutionCallback: (locales, supportedLocales) {
           final override = AppDevTools.instance.localeOverride.value;
           if (override != null) return override;
-          return basicLocaleListResolution(
-              locale == null ? null : [locale], supportedLocales);
+          return basicLocaleListResolution(locales, supportedLocales);
         },
         showPerformanceOverlay:
             AppDevTools.instance.showPerformanceOverlay.value,
