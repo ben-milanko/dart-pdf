@@ -243,6 +243,8 @@ class _IccColorSpace extends PdfColorSpace {
   PdfColor toSrgb(List<double> values) {
     final profile = _profile;
     if (profile != null && values.length == profile.channels) {
+      // sRGB-equivalent: components pass through unmanaged (#531).
+      if (profile.isSrgb) return colorFromComponents(values, channels);
       return profile.toSrgb(values);
     }
     return colorFromComponents(values, channels);
