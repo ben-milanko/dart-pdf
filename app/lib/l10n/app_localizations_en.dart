@@ -714,6 +714,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsCheckNow => 'Check now';
 
   @override
+  String get settingsLanguage => 'Language';
+
+  @override
+  String get settingsLanguageSystem => 'System default';
+
+  @override
   String get settingsCheckingForUpdates => 'Checking for updates…';
 
   @override
@@ -813,4 +819,101 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get welcomeTapToReopen => 'Tap to reopen';
+
+  @override
+  String settingsDefaultAppSubtitle(String platform) {
+    String _temp0 = intl.Intl.selectLogic(
+      platform,
+      {
+        'web': 'Install the web app, then choose it for PDF files.',
+        'windows': 'Open Windows default apps settings for PDFs.',
+        'macos': 'Follow Finder’s “Always Open With” steps.',
+        'linux': 'Use your desktop’s default applications settings.',
+        'android': 'Choose DartPDF when opening a PDF, then tap Always.',
+        'ios': 'Use Share or Open In from Files to send PDFs here.',
+        'other': 'Configure your system’s PDF file handler.',
+      },
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String settingsDefaultAppInstructions(String platform) {
+    String _temp0 = intl.Intl.selectLogic(
+      platform,
+      {
+        'web':
+            'Install DartPDF from your browser first. Then use the browser or operating system file-handler settings to associate PDF files with the installed app.',
+        'windows':
+            'Windows Settings will open to Default apps. Search for “.pdf” or “PDF”, choose the current PDF app, then select DartPDF.',
+        'macos':
+            'In Finder, select any PDF, choose File > Get Info, expand “Open with”, pick DartPDF, then click “Change All…”.',
+        'linux':
+            'Open your desktop settings for Default Applications, or right-click a PDF in Files, choose Properties, and set DartPDF as the default for PDF documents.',
+        'android':
+            'Open a PDF from Files or Downloads, choose DartPDF in the app picker, then select Always. If another app already opens PDFs, clear that app’s defaults in Android Settings first.',
+        'ios':
+            'iOS does not provide a global default PDF editor. Use Files > Share, or long-press a PDF and choose Share/Open In, then pick DartPDF.',
+        'other':
+            'Use the system settings for file handlers to associate PDF documents with DartPDF.',
+      },
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get ocrChipDownloadingModel => 'Downloading OCR model…';
+
+  @override
+  String ocrChipDownloadingModelPercent(int percent) {
+    return 'Downloading model $percent%';
+  }
+
+  @override
+  String ocrChipRecognising(int page, int pageCount) {
+    return 'OCR $page/$pageCount';
+  }
+
+  @override
+  String get ocrChipFinishing => 'Finishing OCR…';
+
+  @override
+  String get fileTypePdf => 'PDF documents';
+
+  @override
+  String get fileTypeImages => 'Images';
+
+  @override
+  String get fileTypeStampBundle => 'DartPDF stamps';
+
+  @override
+  String get appSigKeyFileType => 'RSA private keys';
+
+  @override
+  String get appSigCertificateFileType => 'X.509 certificates';
+
+  @override
+  String get appSigErrorNoCertificateSelected =>
+      'Select at least one X.509 certificate.';
+
+  @override
+  String appSigErrorInvalidCertificate(int index) {
+    return 'Certificate $index is not valid X.509.';
+  }
+
+  @override
+  String get appSigErrorKeyCertificateMismatch =>
+      'The private key does not match any selected RSA certificate.';
+
+  @override
+  String get appSigErrorEncryptedKeyUnsupported =>
+      'Encrypted private keys are not supported. Choose an unencrypted RSA PKCS#1 or PKCS#8 key.';
+
+  @override
+  String get appSigErrorKeyNotRsa =>
+      'The private key is not an unencrypted RSA PKCS#1 or PKCS#8 key.';
+
+  @override
+  String get appSigErrorNoCertificateFound =>
+      'No X.509 certificates were found.';
 }

@@ -100,6 +100,15 @@ class PdfSetBlendModeCommand extends PdfRenderCommand {
   final PdfBlendMode mode;
 }
 
+/// [PdfDevice.setOverprint].
+class PdfSetOverprintCommand extends PdfRenderCommand {
+  const PdfSetOverprintCommand(
+      {required this.fill, required this.stroke, required this.mode});
+  final bool fill;
+  final bool stroke;
+  final int mode;
+}
+
 /// [PdfDevice.beginGroup].
 class PdfBeginGroupCommand extends PdfRenderCommand {
   const PdfBeginGroupCommand(this.alpha, {this.knockout = false});
@@ -179,6 +188,8 @@ void replayCommands(List<PdfRenderCommand> commands, PdfDevice device,
         device.drawImage(request);
       case PdfSetBlendModeCommand(:final mode):
         device.setBlendMode(mode);
+      case PdfSetOverprintCommand(:final fill, :final stroke, :final mode):
+        device.setOverprint(fill: fill, stroke: stroke, mode: mode);
       case PdfBeginGroupCommand(:final alpha, :final knockout):
         device.beginGroup(alpha, knockout: knockout);
       case PdfEndGroupCommand():

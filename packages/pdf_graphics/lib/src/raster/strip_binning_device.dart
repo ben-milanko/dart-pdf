@@ -107,7 +107,17 @@ abstract class StripBinningDevice implements PdfDevice {
   final StripGenerator generator = StripGenerator();
 
   PdfBlendMode _blend = PdfBlendMode.normal;
+  bool _fillOverprint = false;
+  bool _strokeOverprint = false;
   final List<bool> _groupKnockout = [];
+  // Per open group: true when the group was *entered* under a non-Normal blend
+  // mode. Such a group composites as one object with that blend on its own
+  // layer, and the interpreter resets the in-group blend to Normal (§11.6.6) so
+  // inner elements don't blend twice - which would otherwise re-enable strip
+  // binning for the group's own content while the canvas device draws it
+  // directly, diverging the two. Keeping the content on the delegate holds
+  // strip/canvas parity.
+  final List<bool> _groupBlended = [];
   final List<bool> _savedClip = [];
   int _flushOrdinal = 0;
 
@@ -123,7 +133,8 @@ abstract class StripBinningDevice implements PdfDevice {
   bool get stripsActive =>
       !delegateAll &&
       _blend == PdfBlendMode.normal &&
-      (_groupKnockout.isEmpty || !_groupKnockout.last);
+      (_groupKnockout.isEmpty || !_groupKnockout.last) &&
+      (_groupBlended.isEmpty || !_groupBlended.last);
 
   /// Runs one flush point: snapshots the generator's strips (when binning)
   /// and hands them to [emitBatch] with this point's ordinal. Call once
@@ -157,6 +168,8 @@ abstract class StripBinningDevice implements PdfDevice {
   void delegateRestore();
   void delegateClipPath(PdfPath path, PdfFillRule rule);
   void delegateSetBlendMode(PdfBlendMode mode);
+  void delegateSetOverprint(
+      {required bool fill, required bool stroke, required int mode});
   void delegateBeginGroup(double alpha, {required bool knockout});
   void delegateEndGroup();
   void delegateBeginSoftMasked();
@@ -208,7 +221,7 @@ abstract class StripBinningDevice implements PdfDevice {
 
   @override
   void fillPath(PdfPath path, PdfColor color, PdfFillRule rule, double alpha) {
-    if (!stripsActive || delegateFills) {
+    if (!stripsActive || delegateFills || _fillOverprint) {
       _delegatePaint(() => delegateFillPath(path, color, rule, alpha));
       return;
     }
@@ -220,7 +233,7 @@ abstract class StripBinningDevice implements PdfDevice {
   @override
   void strokePath(
       PdfPath path, PdfColor color, PdfStroke stroke, double alpha) {
-    if (!stripsActive || delegateStrokes) {
+    if (!stripsActive || delegateStrokes || _strokeOverprint) {
       _delegatePaint(() => delegateStrokePath(path, color, stroke, alpha));
       return;
     }
@@ -294,9 +307,24 @@ abstract class StripBinningDevice implements PdfDevice {
   }
 
   @override
+  void setOverprint(
+      {required bool fill, required bool stroke, required int mode}) {
+    // Overprint (§8.6.7) composites with BlendMode.darken on the canvas device,
+    // which batched srcOver strip quads can't express - so an overprinting fill
+    // or stroke routes to the delegate (see fillPath/strokePath), exactly like a
+    // non-Normal blend mode. Forward the state so the delegate darkens to match
+    // the pure-canvas render and strip/canvas parity holds (issue #502).
+    _fillOverprint = fill;
+    _strokeOverprint = stroke;
+    delegateSetOverprint(fill: fill, stroke: stroke, mode: mode);
+  }
+
+  @override
   void beginGroup(double alpha, {bool knockout = false}) {
     flushPending(); // the group's layer must not capture earlier strips
     _groupKnockout.add(knockout);
+    // Observed before the interpreter resets the in-group blend to Normal.
+    _groupBlended.add(_blend != PdfBlendMode.normal);
     delegateBeginGroup(alpha, knockout: knockout);
   }
 
@@ -304,6 +332,7 @@ abstract class StripBinningDevice implements PdfDevice {
   void endGroup() {
     flushPending(); // strips inside the group must land inside its layer
     if (_groupKnockout.isNotEmpty) _groupKnockout.removeLast();
+    if (_groupBlended.isNotEmpty) _groupBlended.removeLast();
     delegateEndGroup();
   }
 

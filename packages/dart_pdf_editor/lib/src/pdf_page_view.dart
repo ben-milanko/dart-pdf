@@ -13,6 +13,7 @@ import 'package:pdf_graphics/pdf_graphics.dart'
         PdfMatrix,
         PdfRenderCommand;
 
+import 'canvas_device.dart';
 import 'debug_overlays.dart';
 import 'live_raster_budget.dart';
 import 'perf_log.dart';
@@ -1197,6 +1198,9 @@ class _PdfPageViewState extends State<PdfPageView>
       // signal; both fields stay null and the line omits them.
       _lastInterpretDecodeMs = null;
       _lastInterpretReplayMs = null;
+      _lastInterpretTextShapeMs = null;
+      _lastInterpretTextShapeMiss = null;
+      _lastInterpretTextShapeHit = null;
       return (picture, null);
     }
     // The record shipped platform-codec images (JPEGs the worker can't decode)
@@ -1210,11 +1214,18 @@ class _PdfPageViewState extends State<PdfPageView>
       timing: timing,
       maxImagePixelRatio: maxImagePixelRatio,
     );
+    if (timing != null) CanvasPdfDevice.debugResetTextShape();
     final replayClock = timing == null ? null : (Stopwatch()..start());
     final picture = scene.replay(pixelRatio: 1);
     _lastInterpretDecodeMs = timing?.decodeMs;
     _lastInterpretReplayMs =
         replayClock == null ? null : replayClock.elapsedMicroseconds / 1000.0;
+    _lastInterpretTextShapeMs =
+        timing == null ? null : CanvasPdfDevice.debugTextShapeUs / 1000.0;
+    _lastInterpretTextShapeMiss =
+        timing == null ? null : CanvasPdfDevice.debugTextShapeMiss;
+    _lastInterpretTextShapeHit =
+        timing == null ? null : CanvasPdfDevice.debugTextShapeHit;
     return (picture, scene);
   }
 
@@ -1447,6 +1458,14 @@ class _PdfPageViewState extends State<PdfPageView>
   double? _lastInterpretDecodeMs;
   double? _lastInterpretReplayMs;
 
+  /// The within-replay substituted-text shaping split (#454): shaping wall time
+  /// and run-cache miss/hit counts, filled only when [PdfPerfLog.enabled] on the
+  /// retained-scene replay path; null everywhere else, like the decode/replay
+  /// pair above.
+  double? _lastInterpretTextShapeMs;
+  int? _lastInterpretTextShapeMiss;
+  int? _lastInterpretTextShapeHit;
+
   /// The actual interpret + rasterize, run once the first render is no
   /// longer gated (or directly for re-rasters of a cached picture).
   Future<void> _renderNow() async {
@@ -1459,6 +1478,9 @@ class _PdfPageViewState extends State<PdfPageView>
       _lastInterpretBuildMs = null;
       _lastInterpretDecodeMs = null;
       _lastInterpretReplayMs = null;
+      _lastInterpretTextShapeMs = null;
+      _lastInterpretTextShapeMiss = null;
+      _lastInterpretTextShapeHit = null;
     }
     final sw = Stopwatch()..start();
     if (_renderPaused) {
@@ -1537,6 +1559,9 @@ class _PdfPageViewState extends State<PdfPageView>
         buildMs: _lastInterpretBuildMs,
         decodeMs: _lastInterpretDecodeMs,
         replayMs: _lastInterpretReplayMs,
+        textShapeMs: _lastInterpretTextShapeMs,
+        textShapeMiss: _lastInterpretTextShapeMiss,
+        textShapeHit: _lastInterpretTextShapeHit,
         first: true,
       );
       widget.performance?.observe(
@@ -1961,7 +1986,8 @@ class _PdfPageViewState extends State<PdfPageView>
       }
       if (widget.renderHold?.value ?? false) return false;
     }
-    final picture = await (_picture ??= PdfPageRenderer.renderPictureWithPlan(
+    final picture =
+        await (_picture ??= PdfPageRenderer.renderPictureRecordedWithPlan(
       widget.page,
       _renderPlan,
     ));

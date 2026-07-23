@@ -269,7 +269,7 @@ class PdfStampPickerDialog extends StatelessWidget {
                 for (final stamp in controller.customStamps)
                   ListTile(
                     title: Align(
-                      alignment: Alignment.centerLeft,
+                      alignment: AlignmentDirectional.centerStart,
                       child: PdfStampPreview(
                           stamp: stamp,
                           templateValues:
@@ -347,14 +347,15 @@ class _StampDateTimeFormatControls extends StatelessWidget {
 
   final PdfEditingController controller;
 
-  static String _timePreview(PdfStampTimeFormat format, DateTime sample) {
+  static String _timePreview(
+      BuildContext context, PdfStampTimeFormat format, DateTime sample) {
     final suffix = switch (format) {
       PdfStampTimeFormat.twentyFourHour ||
       PdfStampTimeFormat.twentyFourHourSeconds =>
-        '24 hr',
+        pdfL10n(context).stampTime24Hour,
       PdfStampTimeFormat.twelveHour ||
       PdfStampTimeFormat.twelveHourSeconds =>
-        '12 hr',
+        pdfL10n(context).stampTime12Hour,
     };
     return '${format.format(sample)} ($suffix)';
   }
@@ -400,7 +401,7 @@ class _StampDateTimeFormatControls extends StatelessWidget {
                 DropdownMenuItem<PdfStampTimeFormat>(
                   key: ValueKey('pdf-stamp-time-format-${format.name}'),
                   value: format,
-                  child: Text(_timePreview(format, sample)),
+                  child: Text(_timePreview(context, format, sample)),
                 ),
             ],
             onChanged: (value) {
@@ -511,7 +512,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
         return component.text.trim();
       }
     }
-    return 'Custom stamp';
+    return pdfL10n(context).stampCustomCaption;
   }
 
   int get _primaryColor =>
@@ -888,7 +889,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                             key: ValueKey('pdf-stamp-field-$field'),
                             value: field,
                             height: 34,
-                            child: Text(_fieldLabel(field)),
+                            child: Text(_fieldLabel(context, field)),
                           ),
                       ],
                     ),
@@ -906,7 +907,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                             value: font,
                             height: 34,
                             child: Text(
-                              _fontLabel(font),
+                              _fontLabel(context, font),
                               style: TextStyle(
                                 fontFamily: _uiFamily(font),
                                 fontWeight: font.isBold
@@ -927,7 +928,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
               Row(children: [
                 for (final ink in _inks)
                   Padding(
-                    padding: const EdgeInsets.only(right: 8),
+                    padding: const EdgeInsetsDirectional.only(end: 8),
                     child: InkWell(
                       onTap: () => _setSelectedColor(ink),
                       customBorder: const CircleBorder(),
@@ -1615,11 +1616,12 @@ String? _stampDetail(PdfCustomStamp stamp) {
   return parts.isEmpty ? null : parts.join(' · ');
 }
 
-String _fontLabel(PdfStandardFont font) {
+String _fontLabel(BuildContext context, PdfStandardFont font) {
   final family = font.family.label;
+  final l = pdfL10n(context);
   final style = [
-    if (font.isBold) 'Bold',
-    if (font.isItalic) 'Italic',
+    if (font.isBold) l.stampFontBold,
+    if (font.isItalic) l.stampFontItalic,
   ].join(' ');
   return style.isEmpty ? family : '$family $style';
 }
@@ -1641,11 +1643,11 @@ List<String> _normalizeFields(Iterable<String> fields) {
   return List.unmodifiable(normalized);
 }
 
-String _fieldLabel(String field) => switch (field) {
-      'date' => 'Date',
-      'time' => 'Time',
-      'datetime' => 'Date & time',
-      'username' => 'Username',
+String _fieldLabel(BuildContext context, String field) => switch (field) {
+      'date' => pdfL10n(context).stampFieldDate,
+      'time' => pdfL10n(context).stampFieldTime,
+      'datetime' => pdfL10n(context).stampFieldDateTime,
+      'username' => pdfL10n(context).stampFieldUsername,
       _ => field
           .split(RegExp(r'[_\s]+'))
           .where((part) => part.isNotEmpty)

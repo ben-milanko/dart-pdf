@@ -971,6 +971,14 @@
   "@settingsCheckNow": {
     "description": "Button that triggers an immediate check for app updates."
   },
+  "settingsLanguage": "Language",
+  "@settingsLanguage": {
+    "description": "Section header / label for the UI language picker in settings."
+  },
+  "settingsLanguageSystem": "System default",
+  "@settingsLanguageSystem": {
+    "description": "Language picker option that follows the device's language instead of a fixed choice."
+  },
   "settingsCheckingForUpdates": "Checking for updates…",
   "@settingsCheckingForUpdates": {
     "description": "Status line shown while an update check is in progress."
@@ -1109,5 +1117,101 @@
   "welcomeTapToReopen": "Tap to reopen",
   "@welcomeTapToReopen": {
     "description": "Subtitle for a recent file that can be reopened directly from a saved snapshot."
+  },
+  "settingsDefaultAppSubtitle": "{platform, select, web{Install the web app, then choose it for PDF files.} windows{Open Windows default apps settings for PDFs.} macos{Follow Finder’s “Always Open With” steps.} linux{Use your desktop’s default applications settings.} android{Choose DartPDF when opening a PDF, then tap Always.} ios{Use Share or Open In from Files to send PDFs here.} other{Configure your system’s PDF file handler.}}",
+  "@settingsDefaultAppSubtitle":   {
+      "description": "One-line hint on the Settings row explaining how to make DartPDF the default PDF app; the arm is chosen by the running platform.",
+      "placeholders": {
+          "platform": {
+              "type": "String"
+          }
+      }
+  },
+  "settingsDefaultAppInstructions": "{platform, select, web{Install DartPDF from your browser first. Then use the browser or operating system file-handler settings to associate PDF files with the installed app.} windows{Windows Settings will open to Default apps. Search for “.pdf” or “PDF”, choose the current PDF app, then select DartPDF.} macos{In Finder, select any PDF, choose File > Get Info, expand “Open with”, pick DartPDF, then click “Change All…”.} linux{Open your desktop settings for Default Applications, or right-click a PDF in Files, choose Properties, and set DartPDF as the default for PDF documents.} android{Open a PDF from Files or Downloads, choose DartPDF in the app picker, then select Always. If another app already opens PDFs, clear that app’s defaults in Android Settings first.} ios{iOS does not provide a global default PDF editor. Use Files > Share, or long-press a PDF and choose Share/Open In, then pick DartPDF.} other{Use the system settings for file handlers to associate PDF documents with DartPDF.}}",
+  "@settingsDefaultAppInstructions":   {
+      "description": "Full platform-specific steps for making DartPDF the default PDF app, shown in the setup dialog.",
+      "placeholders": {
+          "platform": {
+              "type": "String"
+          }
+      }
+  },
+  "ocrChipDownloadingModel": "Downloading OCR model…",
+  "@ocrChipDownloadingModel":   {
+      "description": "OCR progress chip while the recognition model downloads (size unknown)."
+  },
+  "ocrChipDownloadingModelPercent": "Downloading model {percent}%",
+  "@ocrChipDownloadingModelPercent":   {
+      "description": "OCR progress chip while the recognition model downloads, with percent.",
+      "placeholders": {
+          "percent": {
+              "type": "int"
+          }
+      }
+  },
+  "ocrChipRecognising": "OCR {page}/{pageCount}",
+  "@ocrChipRecognising":   {
+      "description": "OCR progress chip while recognizing text, showing page of total.",
+      "placeholders": {
+          "page": {
+              "type": "int"
+          },
+          "pageCount": {
+              "type": "int"
+          }
+      }
+  },
+  "ocrChipFinishing": "Finishing OCR…",
+  "@ocrChipFinishing":   {
+      "description": "OCR progress chip while assembling the recognized PDF after the last page."
+  },
+  "fileTypePdf": "PDF documents",
+  "@fileTypePdf":   {
+      "description": "File-picker filter label for PDF files."
+  },
+  "fileTypeImages": "Images",
+  "@fileTypeImages":   {
+      "description": "File-picker filter label for PNG/JPEG image files."
+  },
+  "fileTypeStampBundle": "DartPDF stamps",
+  "@fileTypeStampBundle":   {
+      "description": "File-picker filter label for exported custom-stamp JSON bundles."
+  },
+  "appSigKeyFileType": "RSA private keys",
+  "@appSigKeyFileType":   {
+      "description": "File-picker filter label when choosing a private key to sign with."
+  },
+  "appSigCertificateFileType": "X.509 certificates",
+  "@appSigCertificateFileType":   {
+      "description": "File-picker filter label when choosing signing certificates."
+  },
+  "appSigErrorNoCertificateSelected": "Select at least one X.509 certificate.",
+  "@appSigErrorNoCertificateSelected":   {
+      "description": "Signing error: the user picked a key but no certificate."
+  },
+  "appSigErrorInvalidCertificate": "Certificate {index} is not valid X.509.",
+  "@appSigErrorInvalidCertificate":   {
+      "description": "Signing error: a chosen certificate file could not be parsed as X.509.",
+      "placeholders": {
+          "index": {
+              "type": "int"
+          }
+      }
+  },
+  "appSigErrorKeyCertificateMismatch": "The private key does not match any selected RSA certificate.",
+  "@appSigErrorKeyCertificateMismatch":   {
+      "description": "Signing error: the key pairs with none of the chosen certificates."
+  },
+  "appSigErrorEncryptedKeyUnsupported": "Encrypted private keys are not supported. Choose an unencrypted RSA PKCS#1 or PKCS#8 key.",
+  "@appSigErrorEncryptedKeyUnsupported":   {
+      "description": "Signing error: the chosen private key is an encrypted PEM."
+  },
+  "appSigErrorKeyNotRsa": "The private key is not an unencrypted RSA PKCS#1 or PKCS#8 key.",
+  "@appSigErrorKeyNotRsa":   {
+      "description": "Signing error: the chosen private key could not be read as RSA."
+  },
+  "appSigErrorNoCertificateFound": "No X.509 certificates were found.",
+  "@appSigErrorNoCertificateFound":   {
+      "description": "Signing error: the chosen files contained no X.509 certificate."
   }
 }

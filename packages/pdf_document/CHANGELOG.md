@@ -2,6 +2,12 @@
 
 ## 2.1.0
 
+- Add `PdfEditor.saveSignedExternal`: delegates the RSA operation to a
+  `PdfExternalSigner` callback so the private key can stay in a hardware keystore
+  (Android KeyStore, iOS Keychain). `PdfSignatureAppearance` gains overridable
+  `signedByLabel`/`dateLabel`/`reasonLabel`/`locationLabel`, and the visible `/M`
+  and signature-box date now preserve a non-UTC `signingTime`'s offset (UTC
+  input unchanged) (#507).
 - Cache `PdfPage` instances instead of rebuilding them per access, resolving
   inherited attributes live: a page holds only ancestor-derived values and
   reads its own `/Rotate`, `/MediaBox`, `/CropBox`, and `/Resources` from the
