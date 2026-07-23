@@ -24,6 +24,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:image/image.dart' as img;
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -499,6 +500,80 @@ Uint8List buildScanBook(int pageCount, {int seed = 20260723}) {
   return builder.build(root: catalogRef);
 }
 
+/// The DCTDecode-photo class (#458): full-page DeviceRGB JPEG covers, the shape
+/// the print/photo-book workload takes. Unlike the Flate `scan-book` pages,
+/// these ride the platform/browser JPEG codec, so they are the corpus's only
+/// non-CMYK DCT decode workload - on web the render worker's browser codec, or
+/// the main thread's `_decodeOne` when the worker declines (the iOS Safari
+/// case). Large STORED dimensions (~150 dpi A4), because JPEG decode cost is per
+/// stored pixel, not display size. Real photo-like spectral content (smooth
+/// gradient + a soft blob + light grain) so the JPEG keeps a realistic size and
+/// the decode stays honest. Byte-deterministic: fixed seed, fixed encoder
+/// quality (`package:image` is a pure function of pixels + quality).
+Uint8List buildPhotoJpeg(int pageCount, {int seed = 20260723}) {
+  const pageW = 595.0, pageH = 842.0; // A4 portrait
+  const imgW = 1240, imgH = 1654; // ~150 dpi, the #458 cover shape
+  final rng = _Lcg(seed);
+  final builder = CosDocumentBuilder();
+
+  final catalog = CosDictionary({'Type': const CosName('Catalog')});
+  final catalogRef = builder.add(catalog);
+  final tree = CosDictionary({'Type': const CosName('Pages')});
+  final treeRef = builder.add(tree);
+  catalog['Pages'] = treeRef;
+
+  final pageRefs = <CosReference>[];
+  for (var p = 0; p < pageCount; p++) {
+    final photo = img.Image(width: imgW, height: imgH);
+    final cx = imgW * (0.3 + 0.4 * rng.unit());
+    final cy = imgH * (0.3 + 0.4 * rng.unit());
+    for (final px in photo) {
+      final gx = px.x * 255 ~/ imgW;
+      final gy = px.y * 255 ~/ imgH;
+      final dx = px.x - cx, dy = px.y - cy;
+      final blob = (120.0 / (1 + (dx * dx + dy * dy) / 40000)).toInt();
+      final n = rng.intBelow(18) - 9;
+      px
+        ..r = (gx + blob + n).clamp(0, 255)
+        ..g = (gy + (blob >> 1) + n + p * 7).clamp(0, 255)
+        ..b = (170 - (gx >> 1) + n).clamp(0, 255);
+    }
+    final jpeg = img.encodeJpg(photo, quality: 78);
+    final imageRef = builder.add(CosStream(
+      CosDictionary({
+        'Type': const CosName('XObject'),
+        'Subtype': const CosName('Image'),
+        'Width': const CosInteger(imgW),
+        'Height': const CosInteger(imgH),
+        'ColorSpace': const CosName('DeviceRGB'),
+        'BitsPerComponent': const CosInteger(8),
+        'Filter': const CosName('DCTDecode'),
+        'Length': CosInteger(jpeg.length),
+      }),
+      Uint8List.fromList(jpeg),
+    ));
+    final contentRef =
+        _addContent(builder, 'q $pageW 0 0 $pageH 0 0 cm /Im0 Do Q\n');
+    pageRefs.add(builder.add(CosDictionary({
+      'Type': const CosName('Page'),
+      'Parent': treeRef,
+      'MediaBox': CosArray([
+        const CosInteger(0),
+        const CosInteger(0),
+        const CosReal(pageW),
+        const CosReal(pageH),
+      ]),
+      'Resources': CosDictionary({
+        'XObject': CosDictionary({'Im0': imageRef}),
+      }),
+      'Contents': contentRef,
+    })));
+  }
+  tree['Kids'] = CosArray(pageRefs);
+  tree['Count'] = CosInteger(pageCount);
+  return builder.build(root: catalogRef);
+}
+
 /// A designed-booklet workload: the "InDesign export" class, profiled from
 /// a real (unredistributable) RPG quickstart with the perf sweep - 62pp,
 /// 93 embedded font programs, ~13 content-stream tokenizations per page
@@ -712,6 +787,7 @@ void main(List<String> argv) {
   write('annotated-10p.pdf', buildAnnotated());
   write('styled-booklet-24p.pdf', buildStyledBooklet(24));
   write('scan-book-12p.pdf', buildScanBook(12));
+  write('photo-jpeg-6p.pdf', buildPhotoJpeg(6));
   // Damaged classes derive from a well-formed base so recovery/leniency
   // timing measures the same underlying document.
   write('broken-startxref.pdf', _smash(textReport, 'startxref'));

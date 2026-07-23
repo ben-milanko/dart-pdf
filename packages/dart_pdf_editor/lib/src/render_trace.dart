@@ -63,6 +63,15 @@ class PdfRenderTrace {
   /// Whether the worker served this page from its retained transcript cache.
   bool transcriptHit = false;
 
+  /// How the browser image codec fared on this job, web-only diagnostics for
+  /// #458 (e.g. `codec=2` or `codec=0 declined=2(noCapability)`). Null on the
+  /// native backend and the VM [captureOffThread] path, which never invoke it.
+  /// A silently-declined browser decode is otherwise indistinguishable from one
+  /// that ran, so it is surfaced next to [decodeUs] in the phase log. Carried
+  /// like [cosStats] (keep-whichever), not summed, since only the image-bearing
+  /// pass of a progressive page fills it.
+  String? imageDecodeSummary;
+
   // --- Main-isolate half -----------------------------------------------------
 
   /// Time the request waited in the main-side priority queue before dispatch.
@@ -115,6 +124,7 @@ class PdfRenderTrace {
     replayUs += other.replayUs;
     rasterizeUs += other.rasterizeUs;
     transcriptHit = transcriptHit || other.transcriptHit;
+    imageDecodeSummary = other.imageDecodeSummary ?? imageDecodeSummary;
   }
 
   /// A deep copy - a stable snapshot of a still-mutating accumulator.
@@ -127,6 +137,7 @@ class PdfRenderTrace {
 
   PdfRenderTrace copy() => PdfRenderTrace(pageIndex: pageIndex)
     ..cosStats = cosStats
+    ..imageDecodeSummary = imageDecodeSummary
     ..parseUs = parseUs
     ..streamUs = streamUs
     ..interpretUs = interpretUs
@@ -147,6 +158,7 @@ class PdfRenderTrace {
   PdfRenderTrace min(PdfRenderTrace other) =>
       PdfRenderTrace(pageIndex: pageIndex == other.pageIndex ? pageIndex : -1)
         ..cosStats = cosStats ?? other.cosStats
+        ..imageDecodeSummary = imageDecodeSummary ?? other.imageDecodeSummary
         ..parseUs = _min(parseUs, other.parseUs)
         ..streamUs = _min(streamUs, other.streamUs)
         ..interpretUs = _min(interpretUs, other.interpretUs)
@@ -176,6 +188,7 @@ class PdfRenderTrace {
       if (deserializeUs > 0) 'deserialize=${_ms(deserializeUs)}',
       if (replayUs > 0) 'replay=${_ms(replayUs)}',
       if (rasterizeUs > 0) 'rasterize=${_ms(rasterizeUs)}',
+      if (imageDecodeSummary != null) 'imageDecode=$imageDecodeSummary',
     ];
     return 'page=$pageIndex ${parts.join(' ')} '
         'total=${_ms(endToEndUs)} transcript=${transcriptHit ? 'hit' : 'miss'}';

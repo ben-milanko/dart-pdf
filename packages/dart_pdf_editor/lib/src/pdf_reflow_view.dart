@@ -562,7 +562,7 @@ class _ReflowPage extends StatelessWidget {
     if (!block.isListItem) return text;
     // Hang the wrapped lines under the marker's text.
     return Padding(
-      padding: const EdgeInsets.only(left: 16),
+      padding: const EdgeInsetsDirectional.only(start: 16),
       child: text,
     );
   }

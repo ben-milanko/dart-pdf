@@ -113,6 +113,14 @@ final int _editOps =
 /// driver sweeps it to measure what each budget costs a real tab (issue #281).
 final int _imageCacheMb = _qInt('imageCacheMb', 0);
 
+/// `?worker=N`: render-worker pool size; `?worker=0` disables the web render
+/// worker entirely (`pdfRenderWorkerScriptUrl = null`), forcing every page -
+/// interpret AND image decode - onto the main thread. That is the only way to
+/// A/B the main-thread `_decodeOne` DCT path on desktop (#458's browser-JPEG
+/// fallback): with the worker on, DCT images decode off-thread and the main
+/// path never runs. Default 4 (the app's normal pool).
+final int _workerPool = _qInt('worker', 4);
+
 // ---------------------------------------------------------------------------
 // Capture: every debugPrint line + every frame's timing + scenario metrics.
 // ---------------------------------------------------------------------------
@@ -177,8 +185,14 @@ void main() {
   // Reassigning debugPrint (a mutable foundation global) captures every
   // PdfPerfLog line without the console throttle dropping any under load.
   PdfPerfLog.enabled = true;
-  pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
-  pdfRenderWorkerPoolSize = 4;
+  if (_workerPool <= 0) {
+    // Worker off: everything renders on the main thread. #458's A/B lever.
+    pdfRenderWorkerScriptUrl = null;
+  } else {
+    pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
+    pdfRenderWorkerPoolSize = _workerPool;
+  }
+  _record('[perf] HARNESS workerPool=$_workerPool');
   debugPrint = (String? message, {int? wrapWidth}) {
     if (message != null) _record(message);
   };

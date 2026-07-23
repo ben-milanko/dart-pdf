@@ -576,7 +576,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
             if (entry.author != null && entry.author!.isNotEmpty)
               Expanded(
                 child: Padding(
-                  padding: const EdgeInsets.only(left: 6),
+                  padding: const EdgeInsetsDirectional.only(start: 6),
                   child: Text(pdfL10n(context).sidebarByAuthor(entry.author!),
                       style: textTheme.bodySmall
                           ?.copyWith(color: cs.onSurfaceVariant),

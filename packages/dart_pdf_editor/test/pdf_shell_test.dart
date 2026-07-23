@@ -1354,8 +1354,8 @@ void main() {
   group('floating toast margin', () {
     testWidgets('lifts the toast above the dock and the safe-area inset',
         (tester) async {
-      late EdgeInsets withoutInset;
-      late EdgeInsets withInset;
+      late EdgeInsetsGeometry withoutInset;
+      late EdgeInsetsGeometry withInset;
       await tester.pumpWidget(MaterialApp(
         home: MediaQuery(
           data: const MediaQueryData(size: Size(800, 600)),
@@ -1377,10 +1377,12 @@ void main() {
           }),
         ),
       ));
+      final withoutInsetLtr = withoutInset.resolve(TextDirection.ltr);
+      final withInsetLtr = withInset.resolve(TextDirection.ltr);
       // clears the floating editing toolbar dock…
-      expect(withoutInset.bottom, greaterThanOrEqualTo(84));
+      expect(withoutInsetLtr.bottom, greaterThanOrEqualTo(84));
       // …and adds the device's bottom safe-area inset on top
-      expect(withInset.bottom, withoutInset.bottom + 34);
+      expect(withInsetLtr.bottom, withoutInsetLtr.bottom + 34);
     });
   });
 

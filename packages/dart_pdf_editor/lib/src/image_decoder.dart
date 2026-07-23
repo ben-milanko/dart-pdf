@@ -8,6 +8,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import 'browser_jpeg_decode.dart';
 import 'budgeted_cache.dart';
 import 'performance_policy.dart';
 
@@ -403,14 +404,27 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream,
 
   // undo any wrapping filters (e.g. [/FlateDecode /DCTDecode])
   final jpeg = cos.decodeStreamData(stream, stopBeforeFilter: dctName);
+  // On web, decode through the browser's native codec first: it is far faster
+  // than the engine's WASM codec under CanvasKit (a ~640 ms main-thread cost on
+  // the reported doc) and lands a GPU image with no readback. The worker
+  // already does this off-thread; this recovers the win on the main thread when
+  // the worker declined - e.g. its scope lacked OffscreenCanvas. Returns null
+  // off web and on any failure, falling through to the engine codec. #458.
+  //
   // The platform codec downscales during decode when a target is given -
   // decisive on the web, where the alternative is decoding 100+ MP and reading
   // it back off the GPU for the soft-mask multiply.
-  final codec = scaled
-      ? await ui.instantiateImageCodec(jpeg,
+  var base = scaled
+      ? await decodeJpegWithBrowser(jpeg,
           targetWidth: targetWidth, targetHeight: targetHeight)
-      : await ui.instantiateImageCodec(jpeg);
-  final base = (await codec.getNextFrame()).image;
+      : await decodeJpegWithBrowser(jpeg);
+  if (base == null) {
+    final codec = scaled
+        ? await ui.instantiateImageCodec(jpeg,
+            targetWidth: targetWidth, targetHeight: targetHeight)
+        : await ui.instantiateImageCodec(jpeg);
+    base = (await codec.getNextFrame()).image;
+  }
   final mask = await _resolveDartUiMask(cos, dict,
       targetWidth: base.width, targetHeight: base.height);
   // /Decode and color-key /Mask apply to the decoded samples; gray
