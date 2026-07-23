@@ -2670,27 +2670,27 @@ class _PdfViewerState extends State<PdfViewer>
   /// the reader while the grip is dragged.
   ///
   /// This holds the view put across the resize, given the cross extent before
-  /// ([oldCross]) and after ([newCross]) the change. When [holdScale] is set it
-  /// counter-scales [_layoutZoom] so the on-screen scale stays constant - capped
-  /// at fit-width (layout zoom 1), where the page already fills the viewport and
-  /// growing further would overflow the narrower width. Either way it pins the
-  /// reading anchor (the page, and the fraction down it, at the viewport top),
-  /// re-deriving the scroll offset once the new width has laid out. When the
-  /// viewer is zoomed in past fit-width the [_transform] carries the zoom, so
-  /// [_layoutZoom] is left at 1 and only the anchor is preserved.
+  /// ([oldCross]) and after ([newCross]) the change. It counter-scales
+  /// [_layoutZoom] so the on-screen scale stays constant - capped at fit-width
+  /// (layout zoom 1), where the page already fills the viewport and growing
+  /// further would overflow the narrower width - and pins the reading anchor
+  /// (the page, and the fraction down it, at the viewport top), re-deriving the
+  /// scroll offset once the new width has laid out. When the viewer is zoomed
+  /// in past fit-width the [_transform] carries the zoom, so [_layoutZoom] is
+  /// left at 1 and only the anchor is preserved.
   ///
-  /// [holdScale] is set for a pure cross-axis resize - a side panel, which
-  /// leaves the main axis untouched - so the page neither grows nor shrinks as
-  /// the grip is dragged. A window resize that also changes the main axis clears
-  /// it, keeping the pre-existing re-fit-to-width behavior (only the reading
-  /// position is preserved, as before).
+  /// The scale is held for any cross-axis change, whatever moves it - a panel's
+  /// resize grip, a panel opening or closing, or a window resize. (An earlier
+  /// version only held it when the main axis stayed byte-identical, to single
+  /// out side-panel resizes, but opening or closing a panel also nudges the
+  /// main axis a hair through the surrounding chrome, so that gate let the zoom
+  /// jump on exactly the case it was meant to protect.)
   ///
   /// Called from build while [_viewWidth]/[_viewHeight] still hold the previous
   /// size: [_layoutZoom] is assigned directly (a plain field write is picked up
   /// by this same build, like the initial-fit branch), and the scroll offset is
   /// restored in a post-frame callback once the new extents exist.
-  void _preserveViewOnResize(double oldCross, double newCross,
-      {required bool holdScale}) {
+  void _preserveViewOnResize(double oldCross, double newCross) {
     // Capture the reading anchor under the OLD geometry (before [_layoutZoom]
     // and [_viewWidth] adopt the new width below).
     final top = _scroll.offset;
@@ -2709,9 +2709,7 @@ class _PdfViewerState extends State<PdfViewer>
     // Hold the on-screen scale: [_fitScale] scales by newCross/oldCross, so
     // scale [_layoutZoom] the other way. Only the at-/below-fit tier (transform
     // ~ identity) is adjusted; past fit-width the transform carries the zoom.
-    if (holdScale &&
-        newCross > 0 &&
-        _transform.value.getMaxScaleOnAxis() <= 1.01) {
+    if (newCross > 0 && _transform.value.getMaxScaleOnAxis() <= 1.01) {
       _layoutZoom =
           (_layoutZoom * oldCross / newCross).clamp(widget.minZoom, 1.0);
     }
@@ -5199,22 +5197,17 @@ class _PdfViewerState extends State<PdfViewer>
       // _viewWidth/_viewHeight still hold the previous layout's size here; a
       // change to the cross (fit) dimension rescales every page, so hold the
       // view put before adopting it (skips the very first layout, where there
-      // is nothing to preserve, and any pending restore, which wins). A pure
-      // cross change (main axis unchanged) is a side-panel resize - hold the
-      // zoom too; a window resize moves both axes and keeps re-fitting to width.
+      // is nothing to preserve, and any pending restore, which wins).
       final newCross =
           _horizontal ? constraints.maxHeight : constraints.maxWidth;
       final oldCross = _horizontal ? _viewHeight : _viewWidth;
-      final newMain =
-          _horizontal ? constraints.maxWidth : constraints.maxHeight;
-      final oldMain = _horizontal ? _viewWidth : _viewHeight;
       if (_viewWidth > 0 &&
           _viewHeight > 0 &&
           newCross != oldCross &&
           _pendingViewport == null &&
           _scroll.hasClients &&
           _pages.isNotEmpty) {
-        _preserveViewOnResize(oldCross, newCross, holdScale: newMain == oldMain);
+        _preserveViewOnResize(oldCross, newCross);
       }
       _viewWidth = constraints.maxWidth;
       _viewHeight = constraints.maxHeight;

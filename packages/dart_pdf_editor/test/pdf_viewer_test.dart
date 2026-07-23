@@ -249,31 +249,40 @@ void main() {
         reason: 'the reading position also stays put');
   });
 
-  testWidgets('a window resize still re-fits to width, holding zoom only '
-      'for a pure panel resize', (tester) async {
-    // The zoom-hold is scoped to a pure cross-axis (side-panel) resize. A
-    // window resize moves both axes, so the pre-existing behavior stands: the
-    // page re-fits to the new width (zoom scales with the width) while the
-    // reading position is still pinned.
+  testWidgets('closing a panel holds the zoom even when the main axis '
+      'also nudges', (tester) async {
+    // Regression: opening/closing a panel widens the viewer, but the
+    // surrounding chrome (toolbar/header reflow) can nudge the main axis a
+    // hair at the same time. The zoom-hold must not be gated on the main axis
+    // staying byte-identical, or it lets the page zoom on exactly this case.
+    // Here the panel closes (viewer widens) while the height also changes a
+    // little; the on-screen zoom must still hold.
     final controller = PdfViewerController();
     final document = PdfDocument.open(buildMultiPagePdf(8));
-    Widget build(double w, double h) => MaterialApp(
+    Widget build(double panelWidth, double bottomChrome) => MaterialApp(
           home: Scaffold(
-            body: Center(
-              child: SizedBox(
-                width: w,
-                height: h,
-                child: PdfViewer(
-                  key: const ValueKey('viewer'),
-                  document: document,
-                  controller: controller,
-                ),
+            body: Column(children: [
+              Expanded(
+                child: Row(children: [
+                  SizedBox(width: panelWidth, height: double.infinity),
+                  Expanded(
+                    child: PdfViewer(
+                      key: const ValueKey('viewer'),
+                      // fit-page: _layoutZoom < 1, so the fit scale is visible
+                      document: document,
+                      controller: controller,
+                    ),
+                  ),
+                ]),
               ),
-            ),
+              // stand-in for chrome that reflows as the panel toggles, moving
+              // the viewer's main (height) axis a few px
+              SizedBox(height: bottomChrome),
+            ]),
           ),
         );
 
-    await tester.pumpWidget(build(700, 600));
+    await tester.pumpWidget(build(300, 40));
     await tester.pump();
 
     controller.jumpToPage(3);
@@ -284,18 +293,17 @@ void main() {
     final beforeZoom = controller.zoom;
     final beforeTop = controller.visiblePageRegion(3)!.top;
 
-    // shrink both axes, as a window resize does
-    await tester.pumpWidget(build(500, 400));
-    await tester.pump();
-    await tester.pump();
+    // close the panel (viewer widens) and reflow the chrome (height shifts)
+    await tester.pumpWidget(build(0, 32));
+    await tester.pump(); // lay out at the new size
+    await tester.pump(); // run the post-frame re-anchor
 
-    // zoom tracked the width (re-fit), it did not stay put
-    expect(controller.zoom, closeTo(beforeZoom * 500 / 700, 0.002),
-        reason: 'a window resize re-fits to width instead of holding zoom');
+    expect(controller.zoom, closeTo(beforeZoom, 0.001),
+        reason: 'the zoom holds despite the main axis also moving');
     final region = controller.visiblePageRegion(3);
     expect(region, isNotNull);
     expect(region!.top, closeTo(beforeTop, 0.02),
-        reason: 'the reading position is still preserved');
+        reason: 'the reading position also stays put');
   });
 
   testWidgets('search finds matches and tracks the current one',
