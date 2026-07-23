@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 
 import 'app_info.dart';
@@ -277,7 +275,6 @@ class _RecentGridTile extends StatelessWidget {
   final VoidCallback onRemove;
 
   static const double _tileWidth = 150;
-  static const double _thumbHeight = 190;
 
   @override
   Widget build(BuildContext context) {
@@ -306,8 +303,8 @@ class _RecentGridTile extends StatelessWidget {
                   entry: entry,
                   thumbnails: thumbnails,
                   width: _tileWidth,
-                  height: _thumbHeight,
-                  fill: true,
+                  // No fixed height: the tile shapes itself to the page's
+                  // aspect ratio once the thumbnail renders.
                   iconSize: 48,
                 ),
               ),
@@ -354,26 +351,28 @@ class _RecentGridTile extends StatelessWidget {
 /// placeholder. Falls back to a generic document icon while the render is
 /// pending, when no cache is provided, or when the render fails.
 ///
-/// With [fill] false (the list) the hairline border hugs the rendered image,
-/// which fits within [width]×[height]. With [fill] true (the grid) the image
-/// is letterboxed to fill that box so tiles line up regardless of page
-/// aspect ratio or device pixel ratio.
+/// With a fixed [height] (the list) the box is [width]×[height] and the
+/// hairline border hugs the contained image. With [height] null (the grid)
+/// the box takes [width] and derives its height from the rendered page's
+/// aspect ratio, so each tile is shaped like its own page instead of being
+/// letterboxed into a common box; the image then fills that box.
 class _RecentThumbnail extends StatefulWidget {
   const _RecentThumbnail({
     super.key,
     required this.entry,
     required this.thumbnails,
     required this.width,
-    required this.height,
-    this.fill = false,
+    this.height,
     this.iconSize,
   });
 
   final RecentFile entry;
   final RecentThumbnailCache? thumbnails;
   final double width;
-  final double height;
-  final bool fill;
+
+  /// Fixed box height (list). Null makes the thumbnail aspect-aware (grid):
+  /// its height follows the rendered page's aspect ratio.
+  final double? height;
   final double? iconSize;
 
   @override
@@ -381,11 +380,27 @@ class _RecentThumbnail extends StatefulWidget {
 }
 
 class _RecentThumbnailState extends State<_RecentThumbnail> {
+  // A4 portrait - the box shape assumed before the real aspect ratio is known,
+  // so the placeholder box already resembles a typical page.
+  static const double _defaultAspect = 0.7071;
+  // Clamp derived heights so a pathological page (a banner or a tall receipt)
+  // can't blow the row height out; extremes get cropped by the cover fit.
+  static const double _minHeight = 90;
+  static const double _maxHeight = 260;
+
   // Fetched once and held for the widget's lifetime. The widget is keyed by
   // entry.id, so a different entry lands on a fresh state (and re-fetches from
   // the cache, which memoizes) rather than mutating this one.
-  late final Future<Uint8List?>? _thumbnail =
+  late final Future<RecentThumbnail?>? _thumbnail =
       widget.thumbnails?.thumbnailFor(widget.entry);
+
+  bool get _aspectAware => widget.height == null;
+
+  double _heightFor(RecentThumbnail? thumb) {
+    if (!_aspectAware) return widget.height!;
+    final aspect = thumb?.aspectRatio ?? _defaultAspect;
+    return (widget.width / aspect).clamp(_minHeight, _maxHeight);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -395,13 +410,16 @@ class _RecentThumbnailState extends State<_RecentThumbnail> {
     final future = _thumbnail;
     const radius = BorderRadius.all(Radius.circular(4));
 
-    Widget framed(Uint8List bytes) {
+    Widget framed(RecentThumbnail thumb, double height) {
+      // Aspect-aware tiles size their box to the page, so the image fills it
+      // (cover, cropping only a clamped extreme); the fixed-box list lets the
+      // border hug the contained image.
       final image = Image.memory(
-        bytes,
-        fit: BoxFit.contain,
+        thumb.pngBytes,
+        fit: _aspectAware ? BoxFit.cover : BoxFit.contain,
         gaplessPlayback: true,
-        width: widget.fill ? widget.width : null,
-        height: widget.fill ? widget.height : null,
+        width: _aspectAware ? widget.width : null,
+        height: _aspectAware ? height : null,
       );
       return DecoratedBox(
         decoration: BoxDecoration(
@@ -412,19 +430,20 @@ class _RecentThumbnailState extends State<_RecentThumbnail> {
       );
     }
 
-    return SizedBox(
-      width: widget.width,
-      height: widget.height,
-      child: future == null
-          ? Center(child: placeholder)
-          : FutureBuilder<Uint8List?>(
-              future: future,
-              builder: (context, snapshot) {
-                final bytes = snapshot.data;
-                if (bytes == null) return Center(child: placeholder);
-                return Center(child: framed(bytes));
-              },
-            ),
+    Widget box(double height, Widget child) =>
+        SizedBox(width: widget.width, height: height, child: child);
+
+    if (future == null) {
+      return box(_heightFor(null), Center(child: placeholder));
+    }
+    return FutureBuilder<RecentThumbnail?>(
+      future: future,
+      builder: (context, snapshot) {
+        final thumb = snapshot.data;
+        final height = _heightFor(thumb);
+        if (thumb == null) return box(height, Center(child: placeholder));
+        return box(height, Center(child: framed(thumb, height)));
+      },
     );
   }
 }

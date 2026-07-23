@@ -200,6 +200,39 @@ void main() {
     expect(find.byKey(const ValueKey('recent-tile-/a.pdf')), findsNothing);
   });
 
+  testWidgets('grid tiles are shaped to the page aspect ratio',
+      (tester) async {
+    final store = RecentsStore();
+    await store.add(title: 'landscape.pdf', path: '/landscape.pdf');
+    final landscape =
+        PdfBlankDocument.create(pageSize: PdfPageSize.letter.landscape);
+    final cache =
+        RecentThumbnailCache(readBytes: (path, {bookmark}) async => landscape);
+
+    await pump(
+        tester,
+        size: wide,
+        WelcomeScreen(
+          recents: store,
+          onOpen: () {},
+          onOpenRecent: (_) {},
+          thumbnails: cache,
+        ));
+
+    // Drive the render, then let the aspect-aware box relayout.
+    await tester.runAsync(() => cache.thumbnailFor(store.items.single));
+    await tester.pump();
+
+    final size = tester
+        .getSize(find.byKey(const ValueKey('recent-tile-thumb-/landscape.pdf')));
+    // A landscape page yields a wider-than-tall tile; the portrait placeholder
+    // default (taller than wide) never would, so this proves the box follows
+    // the rendered page's real aspect ratio.
+    expect(size.width, greaterThan(size.height));
+
+    cache.dispose();
+  });
+
   testWidgets('a non-reopenable grid tile is dimmed and not tappable',
       (tester) async {
     final store = RecentsStore();

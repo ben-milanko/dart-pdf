@@ -19,18 +19,26 @@ a file browser to adapt.
   (vs 520 for the list) so several tiles fit per row.
   - `_RecentsList` is the old list, unchanged in behaviour.
   - `_RecentsGrid` is a scrolling `Wrap` of `_RecentGridTile`s - a large
-    letterboxed thumbnail (150×190) with the title below, a corner remove
-    button, tap-to-open, and a tooltip carrying the full title/path. Dimmed
-    and non-tappable when the entry isn't reopenable.
+    thumbnail (150 px wide, height following the page's aspect ratio) with
+    the title below, a corner remove button, tap-to-open, and a tooltip
+    carrying the full title/path. Dimmed and non-tappable when the entry
+    isn't reopenable.
   - `_RecentThumbnail` replaces `_RecentLeading` and is shared by both
-    layouts. It keeps #508's fetch-once/hold-across-rebuilds behaviour and
-    gains a `fill` flag: false (list) hugs the border to the rendered image
-    as before; true (grid) sizes the image to fill the box so tiles line up
-    regardless of page aspect ratio or device pixel ratio.
-- `app/lib/recent_thumbnails.dart` - default `longestSide` bumped 96 → 240
-  so the grid's ~150 px tiles stay crisp on high-DPI screens (the list draws
-  the same raster at ~40 px). Everything else (LRU, null memoization,
-  injectable reader) is unchanged.
+    layouts. It keeps #508's fetch-once/hold-across-rebuilds behaviour. A
+    fixed `height` (list) keeps the old behaviour - a `width`×`height` box
+    with the border hugging the contained image. A **null** `height` (grid)
+    makes it aspect-aware: the box takes `width` and derives its height from
+    the rendered page's aspect ratio (`_RecentThumbnail` carries it), so each
+    tile is shaped like its own page and the image fills the box (`cover`)
+    instead of being letterboxed. Height is clamped to 90–260 px so a
+    banner/receipt page can't blow out the row; a portrait A4 default shapes
+    the placeholder box until the real ratio lands.
+- `app/lib/recent_thumbnails.dart` - `thumbnailFor` now returns a
+  `RecentThumbnail` (PNG bytes + source-page `aspectRatio`) instead of raw
+  bytes, so the grid can shape tiles to the page. Default `longestSide`
+  bumped 96 → 240 so the grid's ~150 px tiles stay crisp on high-DPI screens
+  (the list draws the same raster at ~40 px). Everything else (LRU, null
+  memoization, injectable reader) is unchanged.
 - `app/lib/l10n/*` - `welcomeViewAsList` / `welcomeViewAsGrid` tooltip
   strings for the toggle (added to `app_en.arb` and the checked-in generated
   `AppLocalizations` / `AppLocalizationsEn`).

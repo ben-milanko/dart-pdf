@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 
@@ -19,18 +17,21 @@ void main() {
       return pdf;
     });
 
-    Uint8List? png;
+    RecentThumbnail? thumb;
     await tester.runAsync(() async {
-      png = await cache.thumbnailFor(entry(path: '/a.pdf'));
+      thumb = await cache.thumbnailFor(entry(path: '/a.pdf'));
     });
 
-    expect(png, isNotNull);
+    expect(thumb, isNotNull);
     // PNG signature.
-    expect(png!.sublist(0, 4), [0x89, 0x50, 0x4E, 0x47]);
+    expect(thumb!.pngBytes.sublist(0, 4), [0x89, 0x50, 0x4E, 0x47]);
+    // A blank page is portrait (taller than wide), so aspect < 1.
+    expect(thumb!.aspectRatio, greaterThan(0));
+    expect(thumb!.aspectRatio, lessThan(1));
 
     // A second request is served from the memo, not a fresh read/render.
     await tester.runAsync(() async {
-      expect(await cache.thumbnailFor(entry(path: '/a.pdf')), same(png));
+      expect(await cache.thumbnailFor(entry(path: '/a.pdf')), same(thumb));
     });
     expect(reads, 1);
 
