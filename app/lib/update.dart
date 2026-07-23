@@ -90,6 +90,7 @@ class ReleaseInfo {
     required this.notes,
     required this.htmlUrl,
     required this.assets,
+    this.assetSizes = const {},
   });
 
   final AppVersion version;
@@ -101,6 +102,11 @@ class ReleaseInfo {
   /// Asset file name → `browser_download_url`.
   final Map<String, String> assets;
 
+  /// Asset file name → byte size, from the GitHub release metadata. Used to
+  /// verify an in-app update download landed complete (a truncated download
+  /// is rejected rather than written over the running install).
+  final Map<String, int> assetSizes;
+
   /// Builds a release from one element of the GitHub `/releases` array,
   /// returning null when the tag isn't a parseable version (so non-app tags
   /// and malformed entries are simply skipped).
@@ -110,13 +116,18 @@ class ReleaseInfo {
     final version = AppVersion.tryParse(tag);
     if (version == null) return null;
     final assets = <String, String>{};
+    final assetSizes = <String, int>{};
     final rawAssets = json['assets'];
     if (rawAssets is List) {
       for (final asset in rawAssets) {
         if (asset is! Map) continue;
         final name = asset['name'];
         final url = asset['browser_download_url'];
-        if (name is String && url is String) assets[name] = url;
+        if (name is String && url is String) {
+          assets[name] = url;
+          final size = asset['size'];
+          if (size is int && size > 0) assetSizes[name] = size;
+        }
       }
     }
     return ReleaseInfo(
@@ -128,6 +139,7 @@ class ReleaseInfo {
       notes: (json['body'] as String?)?.trim() ?? '',
       htmlUrl: (json['html_url'] as String?) ?? '',
       assets: assets,
+      assetSizes: assetSizes,
     );
   }
 }
@@ -256,8 +268,28 @@ class UpdateService extends ChangeNotifier {
   String? get downloadUrl {
     final release = _latest;
     if (release == null) return null;
-    final asset = _platformAsset(release.assets);
+    final name = _platformAssetName(release.assets);
+    final asset = name == null ? null : release.assets[name];
     return asset ?? (release.htmlUrl.isEmpty ? null : release.htmlUrl);
+  }
+
+  /// The file name of the platform artifact for [latest], or null when there
+  /// is no direct artifact (so only the release page is available). The
+  /// in-app installer needs the name to decide how to apply the update and
+  /// where to stage the download.
+  String? get downloadAssetName {
+    final release = _latest;
+    if (release == null) return null;
+    return _platformAssetName(release.assets);
+  }
+
+  /// The expected byte size of [downloadAssetName], when GitHub reported one,
+  /// for verifying an in-app download landed complete.
+  int? get downloadAssetSize {
+    final release = _latest;
+    final name = downloadAssetName;
+    if (release == null || name == null) return null;
+    return release.assetSizes[name];
   }
 
   /// Queries GitHub for a newer release. Throttled to [_checkInterval] unless
@@ -312,7 +344,7 @@ class UpdateService extends ChangeNotifier {
     return last != null && _now().difference(last) < _checkInterval;
   }
 
-  String? _platformAsset(Map<String, String> assets) {
+  String? _platformAssetName(Map<String, String> assets) {
     if (assets.isEmpty) return null;
     final patterns = switch (_targetPlatform) {
       TargetPlatform.macOS => ['dartpdf-macos.dmg'],
@@ -330,7 +362,7 @@ class UpdateService extends ChangeNotifier {
     };
     for (final pattern in patterns) {
       for (final entry in assets.entries) {
-        if (entry.key == pattern) return entry.value;
+        if (entry.key == pattern) return entry.key;
       }
     }
     return null;

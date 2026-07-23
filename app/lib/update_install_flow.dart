@@ -1,0 +1,153 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import 'l10n/app_l10n.dart';
+import 'l10n/app_localizations.dart';
+import 'update.dart';
+import 'update_installer.dart';
+import 'update_platform.dart';
+
+/// Runs the interactive "update now" flow for the update [updates] found: on
+/// desktop, downloads the artifact in a progress dialog and applies it in place
+/// (AppImage self-replace + relaunch) or hands it to the OS installer
+/// (macOS/Windows). Where no in-app apply path exists, or on failure, it falls
+/// back to opening the browser download.
+///
+/// Reused by both the Settings "Update now" button and the startup banner.
+Future<void> startUpdateInstall(
+  BuildContext context, {
+  required UpdateService updates,
+  required UpdateInstaller installer,
+}) async {
+  final url = updates.downloadUrl;
+  if (url == null) return;
+  final assetName = updates.downloadAssetName;
+
+  // Capture the messenger and localizations before any await, so a snackbar
+  // still resolves after the async download even if the context is unmounted.
+  final messenger = ScaffoldMessenger.of(context);
+  final l10n = appL10n(context);
+
+  // No in-app apply path (mobile, a release page only, a Linux tarball): keep
+  // the old behaviour and open the download in the browser.
+  if (installer.modeFor(assetName) == UpdateApplyMode.unsupported) {
+    await _openInBrowser(messenger, l10n, url);
+    return;
+  }
+
+  final progress = ValueNotifier<double?>(null);
+  var cancelled = false;
+
+  final dialogFuture = showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => _UpdateProgressDialog(
+      progress: progress,
+      onCancel: () => cancelled = true,
+    ),
+  );
+
+  UpdateInstallOutcome? outcome;
+  Object? failure;
+  try {
+    outcome = await installer.downloadAndApply(
+      url: url,
+      assetName: assetName!,
+      expectedSize: updates.downloadAssetSize,
+      isCancelled: () => cancelled,
+      onProgress: (received, total) {
+        progress.value =
+            (total != null && total > 0) ? received / total : null;
+      },
+    );
+  } on UpdateCancelledException {
+    // User cancelled - close the dialog quietly, no toast.
+  } catch (e) {
+    failure = e;
+  }
+
+  // Dismiss the progress dialog. (An AppImage relaunch already exited the
+  // process, so this only runs on hand-off, cancel, or failure.)
+  if (context.mounted) {
+    Navigator.of(context, rootNavigator: true).pop();
+  }
+  await dialogFuture;
+  progress.dispose();
+
+  if (failure != null) {
+    final message =
+        failure is UpdateInstallException ? failure.message : '$failure';
+    messenger.showSnackBar(SnackBar(
+      key: const ValueKey('update-install-failed'),
+      content: Text(l10n.updateFailed(message)),
+      action: SnackBarAction(
+        label: l10n.editorDownload,
+        onPressed: () =>
+            launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+      ),
+    ));
+    return;
+  }
+
+  if (outcome == UpdateInstallOutcome.handedOff) {
+    messenger.showSnackBar(SnackBar(
+      key: const ValueKey('update-handed-off'),
+      content: Text(l10n.updateHandedOff),
+    ));
+  }
+}
+
+Future<void> _openInBrowser(
+  ScaffoldMessengerState messenger,
+  AppLocalizations l10n,
+  String url,
+) async {
+  final opened =
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+  if (!opened) {
+    messenger.showSnackBar(SnackBar(
+      content: Text(l10n.settingsCouldNotOpenDownload),
+    ));
+  }
+}
+
+/// Modal progress dialog for an in-app update download, with a cancel button.
+class _UpdateProgressDialog extends StatelessWidget {
+  const _UpdateProgressDialog({required this.progress, required this.onCancel});
+
+  final ValueListenable<double?> progress;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      key: const ValueKey('update-progress-dialog'),
+      title: Text(appL10n(context).updateDownloadingTitle),
+      content: ValueListenableBuilder<double?>(
+        valueListenable: progress,
+        builder: (context, fraction, _) {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(fraction == null
+                  ? appL10n(context).updatePreparing
+                  : appL10n(context)
+                      .updateDownloadingPercent((fraction * 100).round())),
+              const SizedBox(height: 16),
+              LinearProgressIndicator(value: fraction),
+            ],
+          );
+        },
+      ),
+      actions: [
+        TextButton(
+          key: const ValueKey('update-progress-cancel'),
+          onPressed: onCancel,
+          child: Text(appL10n(context).cancel),
+        ),
+      ],
+    );
+  }
+}

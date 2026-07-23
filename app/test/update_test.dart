@@ -124,9 +124,62 @@ void main() {
       expect(release.assets['dartpdf-macos.dmg'], 'https://example.test/dmg');
     });
 
+    test('reads asset byte sizes when present', () {
+      final release = ReleaseInfo.fromJson({
+        'tag_name': 'app-v1.3.0',
+        'assets': [
+          {
+            'name': 'dartpdf-linux-x86_64.AppImage',
+            'browser_download_url': 'https://example.test/appimage',
+            'size': 12345,
+          },
+          {
+            'name': 'nosize.zip',
+            'browser_download_url': 'https://example.test/zip',
+          },
+        ],
+      });
+      expect(release!.assetSizes['dartpdf-linux-x86_64.AppImage'], 12345);
+      // A missing/zero size is simply absent (no false integrity check).
+      expect(release.assetSizes.containsKey('nosize.zip'), isFalse);
+    });
+
     test('returns null for a non-version tag', () {
       expect(ReleaseInfo.fromJson({'tag_name': 'pdf_cos-v1.0.0'}), isNull);
       expect(ReleaseInfo.fromJson(const {}), isNull);
+    });
+  });
+
+  group('UpdateService download asset resolution', () {
+    ReleaseInfo linuxRelease() => ReleaseInfo(
+          version: const AppVersion(1, 3, 0),
+          tagName: 'app-v1.3.0',
+          name: 'app-v1.3.0',
+          notes: '',
+          htmlUrl: 'https://example.test/app-v1.3.0',
+          assets: const {
+            'dartpdf-linux-x86_64.AppImage': 'https://example.test/appimage',
+          },
+          assetSizes: const {'dartpdf-linux-x86_64.AppImage': 999},
+        );
+
+    test('exposes the platform artifact name and size', () async {
+      final service = _service('1.2.0',
+          releases: [linuxRelease()], platform: TargetPlatform.linux);
+      await service.checkForUpdates(force: true);
+      expect(service.downloadAssetName, 'dartpdf-linux-x86_64.AppImage');
+      expect(service.downloadAssetSize, 999);
+      expect(service.downloadUrl, 'https://example.test/appimage');
+    });
+
+    test('a release with no matching artifact has no asset name', () async {
+      // macOS has no asset in this Linux-only release, so only the page URL.
+      final service = _service('1.2.0',
+          releases: [linuxRelease()], platform: TargetPlatform.macOS);
+      await service.checkForUpdates(force: true);
+      expect(service.downloadAssetName, isNull);
+      expect(service.downloadAssetSize, isNull);
+      expect(service.downloadUrl, 'https://example.test/app-v1.3.0');
     });
   });
 

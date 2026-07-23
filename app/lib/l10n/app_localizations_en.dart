@@ -559,6 +559,31 @@ class AppLocalizationsEn extends AppLocalizations {
   String get editorUpdateLater => 'Later';
 
   @override
+  String get updateInstallNow => 'Update now';
+
+  @override
+  String get updateDownloadingTitle => 'Downloading update';
+
+  @override
+  String get updatePreparing => 'Preparing…';
+
+  @override
+  String updateDownloadingPercent(int percent) {
+    return 'Downloading… $percent%';
+  }
+
+  @override
+  String get updateRestarting => 'Restarting to finish the update…';
+
+  @override
+  String get updateHandedOff => 'Update downloaded. Opening the installer…';
+
+  @override
+  String updateFailed(String error) {
+    return 'Update failed: $error';
+  }
+
+  @override
   String get editorViewAllTabs => 'View all tabs';
 
   @override
