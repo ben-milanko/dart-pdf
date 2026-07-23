@@ -4,6 +4,14 @@ Accurate to what the app ships today. Character budgets noted per field.
 Update this file whenever the live listings change — it is the source of
 truth for re-submissions.
 
+> **Localized listings.** The English copy below is translated into every
+> language the app ships, laid out per store in a fastlane-compatible tree
+> under [`fastlane/metadata/`](fastlane/metadata/) (`ios/<locale>/` and
+> `android/<locale>/`, plus per-release "What's New"). Localized marketing
+> screenshot captions live in `doc/screenshots/captions/<locale>.json`. When
+> you change any field here, mirror it into `en-US` there and re-translate the
+> other locales — see [`fastlane/metadata/README.md`](fastlane/metadata/README.md).
+
 > ⚠️ **Apple Guideline 2.3.10 — do not mention other platforms.** The App
 > Store description, subtitle, promo text, keywords, and screenshots must
 > not reference Android, Windows, Linux, or the web. Version 1.1.0 was

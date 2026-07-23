@@ -457,6 +457,24 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get overlayStampText => 'Stempeltekst';
 
   @override
+  String get linkDialogTitle => 'Link toevoegen';
+
+  @override
+  String get linkKindWeb => 'Webadres';
+
+  @override
+  String get linkKindPage => 'Pagina in document';
+
+  @override
+  String get linkUrlLabel => 'URL';
+
+  @override
+  String get linkPageLabel => 'Paginanummer';
+
+  @override
+  String get toolLink => 'Link';
+
+  @override
   String get overlayUnderline => 'Onderstrepen';
 
   @override

@@ -1,0 +1,19 @@
+Baru di 2.1.0
+
+MEMBACA
+• Tampilan baca alir ulang: baca dokumen sebagai teks mengalir alih-alih halaman tetap, dengan gulir malas melalui berkas panjang, navigasi cepat, posisi baca yang diingat, dan penampil gambar untuk mengetuk melalui gambar dan diagram.
+
+KECEPATAN DAN MEMORI
+• Dokumen terbuka dan dirender jauh lebih cepat, dengan peningkatan terbesar pada berkas besar atau padat gambar.
+• Menyimpan suntingan kini sebanding dengan ukuran perubahan alih-alih ukuran dokumen, sehingga suntingan tetap cepat pada berkas panjang.
+• Penggunaan memori lebih rendah pada gambar yang sangat lebar, yang kini hanya menyimpan bagian halaman yang terlihat di memori saat Anda menggeser.
+• Dekode lebih cepat untuk dokumen hitam-putih hasil pindai.
+
+PERBAIKAN RENDER
+• Garis halus tetap tajam dan terbaca saat diperkecil, alih-alih memudar — perbedaan yang paling terlihat pada gambar dan denah.
+• Warna lebih akurat pada gradien, termasuk gradien radial yang sebelumnya hanya menampilkan sebagian bentuk.
+• Warna yang benar untuk gambar terindeks, termasuk yang dibangun di atas basis JPEG 2000, Separation, dan DeviceN.
+• Karakter Symbol dan ZapfDingbats kini dirender dengan benar alih-alih tampil sebagai kotak kosong.
+• Fungsi warna tersampel dengan beberapa masukan dievaluasi dengan benar.
+
+Terima kasih telah menggunakan DartPDF. Masukan dan laporan bug selalu kami terima.

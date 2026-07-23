@@ -1,5 +1,24 @@
 # Changelog
 
+## 3.0.0
+
+Lockstep major release (a breaking change in `dart_pdf_editor` moves the whole
+suite to 3.0.0). `pdf_graphics`'s own public API is unchanged.
+
+- Parse overprint state (`/OP`, `/op`, `/OPM`) into the graphics state and
+  deliver it via `PdfDevice.setOverprint`; `CanvasPdfDevice` approximates
+  overprint with a `darken` (per-channel min) composite for the common
+  neutral-ink-over-colour case — a no-op over white, so pages that set the flags
+  defensively over the page background are unaffected (#502).
+- Composite a transparency-group form XObject drawn under a non-Normal blend
+  mode into its own layer so the group blends onto the backdrop as a single
+  object (§11.6.6); previously the outer blend mode leaked and an opaque group
+  could paint as a solid box over the page (#505).
+- Approximate the Multiply blend mode as alpha when printing so highlights are
+  not printed as opaque blocks (#461).
+- Cache parsed content operators for form XObjects, annotation appearances, and
+  soft masks instead of re-tokenising them on every paint (#471).
+
 ## 2.1.0
 
 - Paint sub-pixel strokes as solid hairlines instead of fading them: a stroke

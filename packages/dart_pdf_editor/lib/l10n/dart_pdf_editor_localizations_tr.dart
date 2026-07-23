@@ -456,6 +456,24 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get overlayStampText => 'Damga metni';
 
   @override
+  String get linkDialogTitle => 'Bağlantı ekle';
+
+  @override
+  String get linkKindWeb => 'Web adresi';
+
+  @override
+  String get linkKindPage => 'Belgedeki sayfa';
+
+  @override
+  String get linkUrlLabel => 'URL';
+
+  @override
+  String get linkPageLabel => 'Sayfa numarası';
+
+  @override
+  String get toolLink => 'Bağlantı';
+
+  @override
   String get overlayUnderline => 'Altı çizili';
 
   @override

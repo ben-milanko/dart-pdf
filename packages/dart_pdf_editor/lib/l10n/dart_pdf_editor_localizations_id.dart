@@ -457,6 +457,24 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get overlayStampText => 'Teks stempel';
 
   @override
+  String get linkDialogTitle => 'Tambahkan tautan';
+
+  @override
+  String get linkKindWeb => 'Alamat web';
+
+  @override
+  String get linkKindPage => 'Halaman dalam dokumen';
+
+  @override
+  String get linkUrlLabel => 'URL';
+
+  @override
+  String get linkPageLabel => 'Nomor halaman';
+
+  @override
+  String get toolLink => 'Tautan';
+
+  @override
   String get overlayUnderline => 'Garis bawah';
 
   @override

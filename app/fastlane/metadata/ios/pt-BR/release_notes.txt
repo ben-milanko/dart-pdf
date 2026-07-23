@@ -1,0 +1,19 @@
+Novidades na versão 2.1.0
+
+LEITURA
+• Modo de leitura com refluxo: leia um documento como texto contínuo em vez de páginas fixas, com rolagem sob demanda em arquivos longos, navegação rápida, memorização da posição de leitura e um visualizador de figuras para percorrer imagens e diagramas.
+
+VELOCIDADE E MEMÓRIA
+• Os documentos abrem e são renderizados visivelmente mais rápido, com os maiores ganhos em arquivos grandes ou com muitas imagens.
+• Salvar uma edição agora é proporcional ao tamanho da alteração, e não ao tamanho do documento, então as edições continuam rápidas em arquivos longos.
+• Menor uso de memória em desenhos muito largos, que agora mantêm na memória apenas a parte visível da página enquanto você navega.
+• Decodificação mais rápida de documentos digitalizados em preto e branco.
+
+CORREÇÕES DE RENDERIZAÇÃO
+• As linhas finas permanecem nítidas e legíveis com o zoom reduzido, em vez de desaparecer — uma diferença que você notará mais em desenhos e plantas.
+• Cores mais precisas em gradientes, incluindo gradientes radiais que antes mostravam apenas uma forma parcial.
+• Cor correta para imagens indexadas, incluindo as baseadas em JPEG 2000, Separation e DeviceN.
+• Os caracteres Symbol e ZapfDingbats agora são renderizados corretamente em vez de aparecer como caixas vazias.
+• Funções de cor amostradas com múltiplas entradas são avaliadas corretamente.
+
+Obrigado por usar o DartPDF. Comentários e relatos de erros são sempre bem-vindos.

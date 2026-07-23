@@ -457,6 +457,24 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get overlayStampText => 'Văn bản con dấu';
 
   @override
+  String get linkDialogTitle => 'Thêm liên kết';
+
+  @override
+  String get linkKindWeb => 'Địa chỉ web';
+
+  @override
+  String get linkKindPage => 'Trang trong tài liệu';
+
+  @override
+  String get linkUrlLabel => 'URL';
+
+  @override
+  String get linkPageLabel => 'Số trang';
+
+  @override
+  String get toolLink => 'Liên kết';
+
+  @override
   String get overlayUnderline => 'Gạch chân';
 
   @override

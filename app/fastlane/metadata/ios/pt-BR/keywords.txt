@@ -1,0 +1,1 @@
+pdf,editor,anotar,destacar,assinar,assinatura,formulário,preencher,tarja,digitalizar,ocr,comparar

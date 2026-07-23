@@ -1,0 +1,19 @@
+2.1.0 sürümündeki yenilikler
+
+OKUMA
+• Yeniden akıtılan okuma görünümü: bir belgeyi sabit sayfalar yerine akan metin olarak okuyun; uzun dosyalarda tembel kaydırma, hızlı gezinme, hatırlanan bir okuma konumu ve görsellerle diyagramlara dokunarak gezinmeniz için bir şekil görüntüleyici.
+
+HIZ VE BELLEK
+• Belgeler gözle görülür şekilde daha hızlı açılır ve işlenir; en büyük kazanç büyük veya görsel yoğun dosyalarda.
+• Bir düzenlemeyi kaydetmek artık belgenin boyutuyla değil değişikliğin boyutuyla orantılıdır, böylece uzun dosyalarda düzenlemeler hızlı kalır.
+• Çok geniş çizimlerde daha düşük bellek kullanımı; kaydırdıkça sayfanın yalnızca görünen kısmı bellekte tutulur.
+• Taranmış siyah beyaz belgelerin daha hızlı çözülmesi.
+
+İŞLEME DÜZELTMELERİ
+• İnce çizgiler uzaklaştırıldığında solup gitmek yerine net ve okunaklı kalır — en çok çizimlerde ve planlarda fark edeceksiniz.
+• Gradyanlarda daha doğru renk; daha önce yalnızca kısmi bir şekil gösteren radyal gradyanlar dahil.
+• Dizinlenmiş görseller için doğru renk; JPEG 2000, Separation ve DeviceN tabanlı olanlar dahil.
+• Symbol ve ZapfDingbats karakterleri artık boş kutular yerine düzgün işlenir.
+• Birden çok girdili örneklenmiş renk işlevleri doğru şekilde hesaplanır.
+
+DartPDF'yi kullandığınız için teşekkürler. Geri bildirim ve hata raporları her zaman memnuniyetle karşılanır.

@@ -456,6 +456,24 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get overlayStampText => '스탬프 텍스트';
 
   @override
+  String get linkDialogTitle => '링크 추가';
+
+  @override
+  String get linkKindWeb => '웹 주소';
+
+  @override
+  String get linkKindPage => '문서 내 페이지';
+
+  @override
+  String get linkUrlLabel => 'URL';
+
+  @override
+  String get linkPageLabel => '페이지 번호';
+
+  @override
+  String get toolLink => '링크';
+
+  @override
   String get overlayUnderline => '밑줄';
 
   @override

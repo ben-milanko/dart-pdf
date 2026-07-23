@@ -78,6 +78,7 @@ PdfEditToolGroup pdfEditToolGroupOf(PdfEditTool tool) {
     case PdfEditTool.form:
     case PdfEditTool.redact:
     case PdfEditTool.snapshot:
+    case PdfEditTool.link:
       return PdfEditToolGroup.edit;
   }
 }
@@ -189,10 +190,11 @@ const Map<PdfEditTool, PdfToolShortcut> pdfEditToolShortcuts = {
   PdfEditTool.signature: PdfToolShortcut(LogicalKeyboardKey.keyH),
   PdfEditTool.image: PdfToolShortcut(LogicalKeyboardKey.keyI),
 
-  // Edit group: content, form, redact.
+  // Edit group: content, form, redact, and link (Shift+K beside redact's K).
   PdfEditTool.content: PdfToolShortcut(LogicalKeyboardKey.keyC),
   PdfEditTool.form: PdfToolShortcut(LogicalKeyboardKey.keyF),
   PdfEditTool.redact: PdfToolShortcut(LogicalKeyboardKey.keyK),
+  PdfEditTool.link: PdfToolShortcut(LogicalKeyboardKey.keyK, shift: true),
 
   // Capture / sign.
   PdfEditTool.snapshot: PdfToolShortcut(LogicalKeyboardKey.keyG),

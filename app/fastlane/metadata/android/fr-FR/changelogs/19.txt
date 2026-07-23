@@ -1,0 +1,7 @@
+Nouveautés de la version 2.1.0
+
+• Vue de lecture avec redistribution : texte fluide, défilement paresseux, position enregistrée et visionneuse de figures.
+• Ouverture et rendu plus rapides, surtout sur les gros fichiers ou riches en images, et mémoire réduite sur les dessins très larges.
+• Traits fins plus nets, lisibles en zoom arrière.
+• Meilleures couleurs sur les dégradés et les images indexées.
+• Les caractères Symbol et ZapfDingbats s'affichent au lieu de carrés.

@@ -1984,4 +1984,133 @@ void main() {
         roundTrip((e) => e.addHighlight(0, const [PdfRect(72, 700, 200, 712)]));
     expect(doc.page(0).annotations.single.flags & 4, 4);
   });
+
+  group('link annotations', () {
+    PdfDocument roundTripLink(
+      void Function(PdfEditor) edit, {
+      int pages = 1,
+    }) {
+      final editor = PdfEditor(PdfDocument.open(
+          pages == 1 ? buildClassicPdf() : buildMultiPagePdf(pages)));
+      edit(editor);
+      return PdfDocument.open(editor.save());
+    }
+
+    test('URI link round-trips as a /Link with a /URI action', () {
+      final doc = roundTripLink((e) => e.addLinkToUri(
+            0,
+            const [PdfRect(72, 700, 200, 712)],
+            uri: 'https://example.com/docs',
+            contents: 'docs',
+          ));
+      final link = doc.page(0).annotations.single;
+      expect(link, isA<PdfLinkAnnotation>());
+      expect(link.subtype, 'Link');
+      expect(link.rect, const PdfRect(72, 700, 200, 712));
+
+      final action = link.action;
+      expect(action, isA<PdfUriAction>());
+      expect((action as PdfUriAction).uri, 'https://example.com/docs');
+
+      // invisible by default: no border, no appearance stream
+      final border = doc.cos.resolve(link.dict['Border']) as CosArray;
+      expect((doc.cos.resolve(border[2]) as CosReal).value, 0);
+      expect(link.normalAppearance, isNull);
+      expect(link.name, isNotNull);
+      expect(
+          (doc.cos.resolve(link.dict['Contents']) as CosString).text, 'docs');
+    });
+
+    test('a multi-line selection becomes one link with per-quad regions', () {
+      final doc = roundTripLink((e) => e.addLinkToUri(
+            0,
+            const [PdfRect(72, 700, 200, 712), PdfRect(72, 686, 150, 698)],
+            uri: 'mailto:team@example.com',
+          ));
+      final link = doc.page(0).annotations.single;
+      // /Rect is the bounding box of both quads
+      expect(link.rect, const PdfRect(72, 686, 200, 712));
+      final quads = doc.cos.resolve(link.dict['QuadPoints']) as CosArray;
+      expect(quads.length, 16);
+    });
+
+    test('internal link jumps to a page via a /GoTo destination', () {
+      final doc = roundTripLink(
+        (e) => e.addLinkToPage(
+          0,
+          const [PdfRect(72, 700, 200, 712)],
+          targetPage: 2,
+        ),
+        pages: 3,
+      );
+      final action = doc.page(0).annotations.single.action;
+      expect(action, isA<PdfGoToAction>());
+      final destination = (action as PdfGoToAction).destination;
+      expect(destination.pageIndex, 2);
+      expect(destination.fit, 'Fit');
+    });
+
+    test('addLinkToDestination preserves an XYZ view target', () {
+      final doc = roundTripLink(
+        (e) => e.addLinkToDestination(
+          0,
+          const [PdfRect(72, 700, 200, 712)],
+          destination:
+              PdfExplicitDestination.xyz(1, left: 50, top: 400, zoom: 2),
+        ),
+        pages: 2,
+      );
+      final action = doc.page(0).annotations.single.action as PdfGoToAction;
+      expect(action.destination.pageIndex, 1);
+      expect(action.destination.fit, 'XYZ');
+      expect(action.destination.left, 50);
+      expect(action.destination.top, 400);
+      expect(action.destination.zoom, 2);
+    });
+
+    test('underline decoration bakes an appearance stream', () {
+      final doc = roundTripLink((e) => e.addLinkToUri(
+            0,
+            const [PdfRect(72, 700, 200, 712)],
+            uri: 'https://example.com',
+            underlineColor: 0x0000EE,
+          ));
+      final link = doc.page(0).annotations.single;
+      final content = appearanceText(doc, link);
+      expect(content, contains('S')); // a stroked underline
+    });
+
+    test('a visible border sets /C, a non-zero /Border, and an appearance', () {
+      final doc = roundTripLink((e) => e.addLinkToUri(
+            0,
+            const [PdfRect(72, 700, 200, 712)],
+            uri: 'https://example.com',
+            borderColor: 0xFF0000,
+            borderWidth: 2,
+          ));
+      final link = doc.page(0).annotations.single;
+      expect(link.color, 0xFF0000);
+      final border = doc.cos.resolve(link.dict['Border']) as CosArray;
+      expect((doc.cos.resolve(border[2]) as CosReal).value, 2);
+      final content = appearanceText(doc, link);
+      expect(content, contains('re'));
+    });
+
+    test('an empty URI is rejected', () {
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+      expect(
+        () => editor.addLinkToUri(0, const [PdfRect(0, 0, 10, 10)], uri: ''),
+        throwsArgumentError,
+      );
+    });
+
+    test('links carry the print flag', () {
+      final doc = roundTripLink((e) => e.addLinkToUri(
+            0,
+            const [PdfRect(72, 700, 200, 712)],
+            uri: 'https://example.com',
+          ));
+      expect(doc.page(0).annotations.single.flags & 4, 4);
+    });
+  });
 }

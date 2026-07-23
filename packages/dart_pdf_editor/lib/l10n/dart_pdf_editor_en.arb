@@ -591,6 +591,30 @@
   "@overlayStampText": {
     "description": "Title of the prompt asking for the caption of a text stamp being placed on a page."
   },
+  "linkDialogTitle": "Add link",
+  "@linkDialogTitle": {
+    "description": "Title of the dialog that collects a hyperlink's target when adding a link annotation."
+  },
+  "linkKindWeb": "Web address",
+  "@linkKindWeb": {
+    "description": "Label of the choice for an external (URL) hyperlink target in the Add-link dialog."
+  },
+  "linkKindPage": "Page in document",
+  "@linkKindPage": {
+    "description": "Label of the choice for an internal (jump to a page) hyperlink target in the Add-link dialog."
+  },
+  "linkUrlLabel": "URL",
+  "@linkUrlLabel": {
+    "description": "Text field label for the web address of an external hyperlink in the Add-link dialog."
+  },
+  "linkPageLabel": "Page number",
+  "@linkPageLabel": {
+    "description": "Text field label for the target page number of an internal hyperlink in the Add-link dialog."
+  },
+  "toolLink": "Link",
+  "@toolLink": {
+    "description": "Label and tooltip for the link tool in the editing toolbar."
+  },
   "overlayUnderline": "Underline",
   "@overlayUnderline": {
     "description": "Tooltip on the inline text-style chip button that toggles underline."

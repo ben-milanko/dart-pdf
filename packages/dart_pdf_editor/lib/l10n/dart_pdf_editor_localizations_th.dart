@@ -456,6 +456,24 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get overlayStampText => 'ข้อความตราประทับ';
 
   @override
+  String get linkDialogTitle => 'เพิ่มลิงก์';
+
+  @override
+  String get linkKindWeb => 'ที่อยู่เว็บ';
+
+  @override
+  String get linkKindPage => 'หน้าในเอกสาร';
+
+  @override
+  String get linkUrlLabel => 'URL';
+
+  @override
+  String get linkPageLabel => 'หมายเลขหน้า';
+
+  @override
+  String get toolLink => 'ลิงก์';
+
+  @override
   String get overlayUnderline => 'ขีดเส้นใต้';
 
   @override

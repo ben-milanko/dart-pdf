@@ -458,6 +458,24 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   String get overlayStampText => 'Texto del sello';
 
   @override
+  String get linkDialogTitle => 'Añadir enlace';
+
+  @override
+  String get linkKindWeb => 'Dirección web';
+
+  @override
+  String get linkKindPage => 'Página del documento';
+
+  @override
+  String get linkUrlLabel => 'URL';
+
+  @override
+  String get linkPageLabel => 'Número de página';
+
+  @override
+  String get toolLink => 'Enlace';
+
+  @override
   String get overlayUnderline => 'Subrayado';
 
   @override

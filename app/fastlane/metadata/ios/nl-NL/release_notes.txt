@@ -1,0 +1,19 @@
+Nieuw in 2.1.0
+
+LEZEN
+• Herschikte leesweergave: lees een document als doorlopende tekst in plaats van vaste pagina's, met soepel scrollen door lange bestanden, snelle navigatie, een leespositie die wordt onthouden en een afbeeldingsviewer om door afbeeldingen en diagrammen te tikken.
+
+SNELHEID EN GEHEUGEN
+• Documenten openen en renderen merkbaar sneller, met de grootste winst bij grote of afbeeldingsrijke bestanden.
+• Een bewerking opslaan is nu evenredig met de grootte van de wijziging in plaats van met de grootte van het document, zodat bewerkingen ook in lange bestanden snel blijven.
+• Lager geheugengebruik bij zeer brede tekeningen, die nu alleen het zichtbare deel van de pagina in het geheugen houden terwijl u pant.
+• Snellere decodering van gescande zwart-witdocumenten.
+
+RENDERINGCORRECTIES
+• Fijn lijnwerk blijft scherp en leesbaar bij uitzoomen in plaats van te vervagen — een verschil dat u vooral op tekeningen en plattegronden opmerkt.
+• Nauwkeurigere kleur in kleurverlopen, inclusief radiale kleurverlopen die eerder slechts een gedeeltelijke vorm toonden.
+• Correcte kleur voor geïndexeerde afbeeldingen, inclusief afbeeldingen op basis van JPEG 2000, Separation en DeviceN.
+• Symbol- en ZapfDingbats-tekens worden nu correct weergegeven in plaats van als lege vakjes.
+• Bemonsterde kleurfuncties met meerdere invoerwaarden worden correct berekend.
+
+Bedankt voor het gebruik van DartPDF. Feedback en foutmeldingen zijn altijd welkom.

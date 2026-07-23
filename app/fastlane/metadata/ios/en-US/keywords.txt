@@ -1,0 +1,1 @@
+pdf,editor,annotate,markup,highlight,sign,signature,form,fill,redact,merge,pages,scan,ocr,compare

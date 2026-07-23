@@ -462,6 +462,24 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get overlayStampText => 'Текст штампа';
 
   @override
+  String get linkDialogTitle => 'Додати посилання';
+
+  @override
+  String get linkKindWeb => 'Веб-адреса';
+
+  @override
+  String get linkKindPage => 'Сторінка в документі';
+
+  @override
+  String get linkUrlLabel => 'URL';
+
+  @override
+  String get linkPageLabel => 'Номер сторінки';
+
+  @override
+  String get toolLink => 'Посилання';
+
+  @override
   String get overlayUnderline => 'Підкреслення';
 
   @override

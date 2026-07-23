@@ -1,0 +1,19 @@
+Nowość w wersji 2.1.0
+
+CZYTANIE
+• Widok czytania z przepływem tekstu: czytaj dokument jako płynący tekst zamiast stałych stron, z leniwym przewijaniem długich plików, szybką nawigacją, zapamiętywaną pozycją czytania oraz przeglądarką ilustracji do przełączania obrazów i diagramów jednym dotknięciem.
+
+SZYBKOŚĆ I PAMIĘĆ
+• Dokumenty otwierają się i renderują zauważalnie szybciej, a największe zyski dotyczą dużych plików oraz plików z wieloma obrazami.
+• Zapis edycji jest teraz proporcjonalny do wielkości zmiany, a nie do wielkości dokumentu, więc edycja pozostaje szybka nawet w długich plikach.
+• Niższe zużycie pamięci przy bardzo szerokich rysunkach, które podczas przesuwania utrzymują teraz w pamięci tylko widoczny fragment strony.
+• Szybsze dekodowanie zeskanowanych dokumentów czarno-białych.
+
+POPRAWKI RENDEROWANIA
+• Cienkie linie pozostają wyraźne i czytelne przy oddaleniu, zamiast zanikać — różnicę tę najbardziej zauważysz na rysunkach i planach.
+• Dokładniejsze kolory w gradientach, w tym w gradientach radialnych, które wcześniej pokazywały tylko część kształtu.
+• Poprawne kolory obrazów indeksowanych, w tym opartych na bazach JPEG 2000, Separation i DeviceN.
+• Znaki Symbol i ZapfDingbats renderują się teraz poprawnie, zamiast pojawiać się jako puste ramki.
+• Próbkowane funkcje kolorów z wieloma wejściami są obliczane poprawnie.
+
+Dziękujemy za korzystanie z DartPDF. Zawsze czekamy na opinie i zgłoszenia błędów.

@@ -465,6 +465,24 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get overlayStampText => 'نص الختم';
 
   @override
+  String get linkDialogTitle => 'إضافة رابط';
+
+  @override
+  String get linkKindWeb => 'عنوان ويب';
+
+  @override
+  String get linkKindPage => 'صفحة في المستند';
+
+  @override
+  String get linkUrlLabel => 'عنوان URL';
+
+  @override
+  String get linkPageLabel => 'رقم الصفحة';
+
+  @override
+  String get toolLink => 'رابط';
+
+  @override
   String get overlayUnderline => 'تسطير';
 
   @override

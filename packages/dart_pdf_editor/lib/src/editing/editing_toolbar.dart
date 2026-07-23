@@ -357,6 +357,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     _ToolGroup('edit', Icons.design_services, [
       _GroupTool.tool(PdfEditTool.content, Icons.format_shapes),
       _GroupTool.tool(PdfEditTool.form, Icons.ballot_outlined),
+      _GroupTool.tool(PdfEditTool.link, Icons.link),
       _GroupTool.tool(PdfEditTool.redact, Icons.gradient),
       _GroupTool.tool(PdfEditTool.snapshot, Icons.crop),
     ]),
@@ -395,6 +396,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       PdfEditTool.image => l.tbNameImage,
       PdfEditTool.content => l.tbToolContent,
       PdfEditTool.form => l.tbToolForm,
+      PdfEditTool.link => l.toolLink,
       PdfEditTool.redact => l.tbToolRedact,
       PdfEditTool.snapshot => l.tbToolSnapshot,
       PdfEditTool.signatureBox => l.tbNameDigitalSignature,

@@ -2,7 +2,7 @@
   "hosting": {
     "site": "dartpdf",
     "public": ".",
-    "ignore": ["firebase.json", ".firebaserc", "**/.*", "README.md"],
+    "ignore": ["firebase.json", ".firebaserc", "**/.*", "README.md", "i18n/_validate.py"],
     "cleanUrls": true,
     "headers": [
       {
