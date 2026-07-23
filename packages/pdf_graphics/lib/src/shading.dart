@@ -98,6 +98,22 @@ class PdfShading {
     } else {
       return null;
     }
+    // Doc-level parse cache (#534): `sh` and shading-pattern fills re-parse
+    // the same shading object (and its function's sample stream) on every
+    // operator selection, every render. Parsed shadings are immutable -
+    // geometry transforms apply per call - and identity keying makes
+    // invalidation free (edits build new COS objects).
+    final hit = _parsed[dict];
+    if (hit != null) return hit;
+    final shading = _parse(cos, resolved, dict);
+    if (shading != null) _parsed[dict] = shading;
+    return shading;
+  }
+
+  static final Expando<PdfShading> _parsed = Expando();
+
+  static PdfShading? _parse(
+      CosDocument cos, CosObject resolved, CosDictionary dict) {
     final type = cos.resolve(dict['ShadingType']);
     final coords = _numbers(cos, dict['Coords']);
     final domain = _numbers(cos, dict['Domain']);
