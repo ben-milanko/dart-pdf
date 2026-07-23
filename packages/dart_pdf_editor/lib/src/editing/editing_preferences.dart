@@ -866,7 +866,8 @@ class PdfEditingPreferences extends ChangeNotifier {
       if (part.length == 4 && script == null) {
         script = part[0].toUpperCase() + part.substring(1).toLowerCase();
       } else if (country == null &&
-          (part.length == 2 || (part.length == 3 && int.tryParse(part) != null))) {
+          (part.length == 2 ||
+              (part.length == 3 && int.tryParse(part) != null))) {
         country = part.toUpperCase();
       }
     }

@@ -4,7 +4,7 @@
 // generates - the lookups just fall back to the template (English) at runtime.
 // That silence is exactly what we don't want, because a half-translated locale
 // ships looking finished while random strings render in English. This gate is
-// the deterministic guard: for each bundle it compares every `<prefix>_<loc>.arb`
+// the deterministic guard: for each bundle it compares every non-`en` ARB
 // against its `<prefix>_en.arb` template and fails the build when a locale is
 // missing keys, carries keys the template doesn't have, mislabels its
 // `@@locale`, or uses an interpolation placeholder the template never declared
@@ -22,8 +22,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-/// The localization bundles: each is a directory holding `<prefix>_<locale>.arb`
-/// files with `<prefix>_en.arb` as the template.
+/// The localization bundles: each is a directory holding
+/// `<prefix>_<locale>.arb` files with `<prefix>_en.arb` as the template.
 const _bundles = <({String dir, String prefix})>[
   (dir: 'packages/dart_pdf_editor/lib/l10n', prefix: 'dart_pdf_editor'),
   (dir: 'app/lib/l10n', prefix: 'app'),
