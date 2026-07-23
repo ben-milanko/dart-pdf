@@ -162,6 +162,18 @@ void main() {
   }
 
   group('search results API', () {
+    test('PdfSearchOptions value semantics include searchAnnotations', () {
+      const a = PdfSearchOptions(matchCase: true, searchAnnotations: false);
+      const b = PdfSearchOptions(matchCase: true, searchAnnotations: false);
+      const c = PdfSearchOptions(matchCase: true); // searchAnnotations true
+      expect(a, b);
+      expect(a.hashCode, b.hashCode);
+      expect(a, isNot(c)); // the flag is part of identity
+      // used as set keys, so both == and hashCode must agree
+      expect({a, b, c}, hasLength(2));
+      expect(c.copyWith(searchAnnotations: false), a);
+    });
+
     testWidgets('results carry snippets in document order', (tester) async {
       final controller = PdfViewerController();
       addTearDown(controller.dispose);
