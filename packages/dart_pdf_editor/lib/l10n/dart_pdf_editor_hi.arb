@@ -559,5 +559,6 @@
   "viewerMarkupSquiggly": "लहरदार",
   "viewerMarkupStrikeOut": "स्ट्राइक आउट",
   "viewerMarkupUnderline": "रेखांकन",
-  "viewerSelectAll": "सभी चुनें"
+  "viewerSelectAll": "सभी चुनें",
+  "searchAnnotations": "एनोटेशन खोजें"
 }

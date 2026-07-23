@@ -559,5 +559,6 @@
   "viewerMarkupSquiggly": "Faliste",
   "viewerMarkupStrikeOut": "Przekreślenie",
   "viewerMarkupUnderline": "Podkreślenie",
-  "viewerSelectAll": "Zaznacz wszystko"
+  "viewerSelectAll": "Zaznacz wszystko",
+  "searchAnnotations": "Szukaj adnotacji"
 }

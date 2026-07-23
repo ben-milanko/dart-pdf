@@ -210,6 +210,8 @@
   "welcomeRecent": "ล่าสุด",
   "welcomeRemoveFromRecent": "นำออกจากรายการล่าสุด",
   "welcomeTapToReopen": "แตะเพื่อเปิดใหม่",
+  "welcomeViewAsGrid": "มุมมองตาราง",
+  "welcomeViewAsList": "มุมมองรายการ",
   "settingsDefaultAppSubtitle": "{platform, select, web{ติดตั้งเว็บแอป แล้วเลือกให้เปิดไฟล์ PDF} windows{เปิดการตั้งค่าแอปเริ่มต้นของ Windows สำหรับ PDF} macos{ทำตามขั้นตอน “Always Open With” ของ Finder} linux{ใช้การตั้งค่าแอปพลิเคชันเริ่มต้นของเดสก์ท็อปคุณ} android{เลือก DartPDF เมื่อเปิด PDF แล้วแตะเสมอ} ios{ใช้แชร์หรือเปิดในจาก Files เพื่อส่ง PDF มาที่นี่} other{กำหนดค่าตัวจัดการไฟล์ PDF ของระบบคุณ}}",
   "settingsDefaultAppInstructions": "{platform, select, web{ติดตั้ง DartPDF จากเบราว์เซอร์ของคุณก่อน จากนั้นใช้การตั้งค่าตัวจัดการไฟล์ของเบราว์เซอร์หรือระบบปฏิบัติการเพื่อเชื่อมโยงไฟล์ PDF กับแอปที่ติดตั้ง} windows{การตั้งค่า Windows จะเปิดไปที่แอปเริ่มต้น ค้นหา “.pdf” หรือ “PDF” เลือกแอป PDF ปัจจุบัน แล้วเลือก DartPDF} macos{ใน Finder เลือก PDF ใดก็ได้ เลือก File > Get Info ขยาย “Open with” เลือก DartPDF แล้วคลิก “Change All…”} linux{เปิดการตั้งค่าเดสก์ท็อปสำหรับแอปพลิเคชันเริ่มต้น หรือคลิกขวาที่ PDF ใน Files เลือก Properties แล้วตั้ง DartPDF เป็นค่าเริ่มต้นสำหรับเอกสาร PDF} android{เปิด PDF จาก Files หรือ Downloads เลือก DartPDF ในตัวเลือกแอป แล้วเลือกเสมอ หากมีแอปอื่นเปิด PDF อยู่แล้ว ให้ล้างค่าเริ่มต้นของแอปนั้นในการตั้งค่า Android ก่อน} ios{iOS ไม่มีตัวแก้ไข PDF เริ่มต้นแบบทั่วทั้งระบบ ใช้ Files > Share หรือกดค้างที่ PDF แล้วเลือก Share/Open In จากนั้นเลือก DartPDF} other{ใช้การตั้งค่าระบบสำหรับตัวจัดการไฟล์เพื่อเชื่อมโยงเอกสาร PDF กับ DartPDF}}",
   "ocrChipDownloadingModel": "กำลังดาวน์โหลดโมเดล OCR…",

@@ -830,6 +830,12 @@ class AppLocalizationsNl extends AppLocalizations {
   String get welcomeTapToReopen => 'Tik om te heropenen';
 
   @override
+  String get welcomeViewAsGrid => 'Rasterweergave';
+
+  @override
+  String get welcomeViewAsList => 'Lijstweergave';
+
+  @override
   String settingsDefaultAppSubtitle(String platform) {
     String _temp0 = intl.Intl.selectLogic(
       platform,

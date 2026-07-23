@@ -559,5 +559,6 @@
   "viewerMarkupSquiggly": "Ondulado",
   "viewerMarkupStrikeOut": "Tachar",
   "viewerMarkupUnderline": "Sublinhar",
-  "viewerSelectAll": "Selecionar tudo"
+  "viewerSelectAll": "Selecionar tudo",
+  "searchAnnotations": "Pesquisar anotações"
 }

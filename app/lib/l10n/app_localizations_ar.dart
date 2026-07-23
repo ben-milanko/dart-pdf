@@ -849,6 +849,12 @@ class AppLocalizationsAr extends AppLocalizations {
   String get welcomeTapToReopen => 'انقر لإعادة الفتح';
 
   @override
+  String get welcomeViewAsGrid => 'عرض شبكي';
+
+  @override
+  String get welcomeViewAsList => 'عرض القائمة';
+
+  @override
   String settingsDefaultAppSubtitle(String platform) {
     String _temp0 = intl.Intl.selectLogic(
       platform,

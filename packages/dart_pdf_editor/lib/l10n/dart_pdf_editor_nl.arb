@@ -559,5 +559,6 @@
   "viewerMarkupSquiggly": "Golvend",
   "viewerMarkupStrikeOut": "Doorhalen",
   "viewerMarkupUnderline": "Onderstrepen",
-  "viewerSelectAll": "Alles selecteren"
+  "viewerSelectAll": "Alles selecteren",
+  "searchAnnotations": "Annotaties doorzoeken"
 }

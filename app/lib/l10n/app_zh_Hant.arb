@@ -210,6 +210,8 @@
   "welcomeRecent": "最近使用",
   "welcomeRemoveFromRecent": "從最近使用中移除",
   "welcomeTapToReopen": "點一下以重新開啟",
+  "welcomeViewAsGrid": "網格檢視",
+  "welcomeViewAsList": "清單檢視",
   "settingsDefaultAppSubtitle": "{platform, select, web{安裝網頁應用程式，然後將其選為 PDF 檔案的開啟方式。} windows{開啟 Windows 的 PDF 預設應用程式設定。} macos{依照 Finder 的「永遠以此開啟」步驟操作。} linux{使用您桌面環境的預設應用程式設定。} android{開啟 PDF 時選擇 DartPDF，然後點選「一律」。} ios{使用「檔案」中的「分享」或「開啟方式」將 PDF 傳送至此。} other{設定您系統的 PDF 檔案處理程式。}}",
   "settingsDefaultAppInstructions": "{platform, select, web{先從瀏覽器安裝 DartPDF。然後使用瀏覽器或作業系統的檔案處理程式設定，將 PDF 檔案關聯至已安裝的應用程式。} windows{Windows 設定會開啟至「預設應用程式」。搜尋「.pdf」或「PDF」，選擇目前的 PDF 應用程式，然後選取 DartPDF。} macos{在 Finder 中選取任一 PDF，選擇「檔案」>「取得資訊」，展開「打開檔案的應用程式」，選擇 DartPDF，然後按一下「全部更改…」。} linux{開啟桌面環境的「預設應用程式」設定，或在「檔案」中的 PDF 上按一下右鍵，選擇「內容」，並將 DartPDF 設為 PDF 文件的預設值。} android{從「檔案」或「下載」開啟 PDF，在應用程式選擇器中選擇 DartPDF，然後選取「一律」。如果已有其他應用程式開啟 PDF，請先在 Android 設定中清除該應用程式的預設值。} ios{iOS 不提供全域預設 PDF 編輯器。請使用「檔案」>「分享」，或長按 PDF 並選擇「分享/開啟方式」，然後選擇 DartPDF。} other{使用系統的檔案處理程式設定，將 PDF 文件關聯至 DartPDF。}}",
   "ocrChipDownloadingModel": "正在下載 OCR 模型…",

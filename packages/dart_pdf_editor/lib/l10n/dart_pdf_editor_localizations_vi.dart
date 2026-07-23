@@ -9,6 +9,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsVi([String locale = 'vi']) : super(locale);
 
   @override
+  String get searchAnnotations => 'Tìm chú thích';
+
+  @override
   String get add => 'Thêm';
 
   @override

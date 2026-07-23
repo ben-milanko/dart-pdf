@@ -807,6 +807,12 @@ class AppLocalizationsKo extends AppLocalizations {
   String get welcomeTapToReopen => '탭하여 다시 열기';
 
   @override
+  String get welcomeViewAsGrid => '그리드 보기';
+
+  @override
+  String get welcomeViewAsList => '목록 보기';
+
+  @override
   String settingsDefaultAppSubtitle(String platform) {
     String _temp0 = intl.Intl.selectLogic(
       platform,

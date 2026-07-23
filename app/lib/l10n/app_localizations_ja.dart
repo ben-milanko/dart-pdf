@@ -809,6 +809,12 @@ class AppLocalizationsJa extends AppLocalizations {
   String get welcomeTapToReopen => 'タップして再度開く';
 
   @override
+  String get welcomeViewAsGrid => 'グリッド表示';
+
+  @override
+  String get welcomeViewAsList => 'リスト表示';
+
+  @override
   String settingsDefaultAppSubtitle(String platform) {
     String _temp0 = intl.Intl.selectLogic(
       platform,

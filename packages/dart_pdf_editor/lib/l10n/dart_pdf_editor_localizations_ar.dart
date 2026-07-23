@@ -9,6 +9,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsAr([String locale = 'ar']) : super(locale);
 
   @override
+  String get searchAnnotations => 'البحث في التعليقات التوضيحية';
+
+  @override
   String get add => 'إضافة';
 
   @override

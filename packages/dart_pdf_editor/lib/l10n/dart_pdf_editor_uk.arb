@@ -559,5 +559,6 @@
   "viewerMarkupSquiggly": "Хвиляста лінія",
   "viewerMarkupStrikeOut": "Закреслити",
   "viewerMarkupUnderline": "Підкреслення",
-  "viewerSelectAll": "Виділити все"
+  "viewerSelectAll": "Виділити все",
+  "searchAnnotations": "Пошук в анотаціях"
 }

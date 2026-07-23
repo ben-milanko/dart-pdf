@@ -829,6 +829,12 @@ class AppLocalizationsPt extends AppLocalizations {
   String get welcomeTapToReopen => 'Toque para reabrir';
 
   @override
+  String get welcomeViewAsGrid => 'Visualização em grade';
+
+  @override
+  String get welcomeViewAsList => 'Visualização em lista';
+
+  @override
   String settingsDefaultAppSubtitle(String platform) {
     String _temp0 = intl.Intl.selectLogic(
       platform,

@@ -559,5 +559,6 @@
   "viewerMarkupSquiggly": "물결 밑줄",
   "viewerMarkupStrikeOut": "취소선",
   "viewerMarkupUnderline": "밑줄",
-  "viewerSelectAll": "모두 선택"
+  "viewerSelectAll": "모두 선택",
+  "searchAnnotations": "주석 검색"
 }

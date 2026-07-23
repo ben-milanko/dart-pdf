@@ -819,6 +819,12 @@ class AppLocalizationsTh extends AppLocalizations {
   String get welcomeTapToReopen => 'แตะเพื่อเปิดใหม่';
 
   @override
+  String get welcomeViewAsGrid => 'มุมมองตาราง';
+
+  @override
+  String get welcomeViewAsList => 'มุมมองรายการ';
+
+  @override
   String settingsDefaultAppSubtitle(String platform) {
     String _temp0 = intl.Intl.selectLogic(
       platform,

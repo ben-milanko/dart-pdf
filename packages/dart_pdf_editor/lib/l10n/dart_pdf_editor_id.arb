@@ -559,5 +559,6 @@
   "viewerMarkupSquiggly": "Bergelombang",
   "viewerMarkupStrikeOut": "Coret",
   "viewerMarkupUnderline": "Garis bawah",
-  "viewerSelectAll": "Pilih semua"
+  "viewerSelectAll": "Pilih semua",
+  "searchAnnotations": "Cari anotasi"
 }

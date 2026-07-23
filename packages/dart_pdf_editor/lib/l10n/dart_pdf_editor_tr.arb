@@ -559,5 +559,6 @@
   "viewerMarkupSquiggly": "Dalgalı",
   "viewerMarkupStrikeOut": "Üstünü çiz",
   "viewerMarkupUnderline": "Altı çizili",
-  "viewerSelectAll": "Tümünü seç"
+  "viewerSelectAll": "Tümünü seç",
+  "searchAnnotations": "Ek açıklamalarda ara"
 }

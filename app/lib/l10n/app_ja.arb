@@ -210,6 +210,8 @@
   "welcomeRecent": "最近使用",
   "welcomeRemoveFromRecent": "最近使用したファイルから削除",
   "welcomeTapToReopen": "タップして再度開く",
+  "welcomeViewAsGrid": "グリッド表示",
+  "welcomeViewAsList": "リスト表示",
   "settingsDefaultAppSubtitle": "{platform, select, web{ウェブアプリをインストールし、PDF ファイルの既定アプリに選択してください。} windows{PDF の Windows 既定アプリ設定を開きます。} macos{Finder の「常にこのアプリで開く」の手順に従ってください。} linux{デスクトップの既定アプリケーション設定を使用してください。} android{PDF を開くときに DartPDF を選び、「常時」をタップしてください。} ios{ファイルアプリの共有または「このアプリで開く」で PDF をここに送信してください。} other{システムの PDF ファイルハンドラを設定してください。}}",
   "settingsDefaultAppInstructions": "{platform, select, web{まずブラウザから DartPDF をインストールしてください。次に、ブラウザまたはオペレーティングシステムのファイルハンドラ設定で、PDF ファイルをインストールしたアプリに関連付けます。} windows{Windows の設定が「既定のアプリ」に開きます。「.pdf」または「PDF」を検索し、現在の PDF アプリを選択して DartPDF を選びます。} macos{Finder で任意の PDF を選択し、「ファイル」>「情報を見る」を選択して「このアプリケーションで開く」を展開し、DartPDF を選んで「すべてを変更…」をクリックします。} linux{デスクトップの既定のアプリケーション設定を開くか、ファイルアプリで PDF を右クリックして「プロパティ」を選び、DartPDF を PDF ドキュメントの既定に設定します。} android{ファイルまたはダウンロードから PDF を開き、アプリ選択画面で DartPDF を選んで「常時」を選択します。他のアプリが既に PDF を開く場合は、まず Android の設定でそのアプリの既定をクリアしてください。} ios{iOS にはグローバルな既定の PDF エディタはありません。「ファイル」>「共有」を使うか、PDF を長押しして「共有」/「このアプリで開く」を選び、DartPDF を選択してください。} other{システムのファイルハンドラ設定を使い、PDF ドキュメントを DartPDF に関連付けてください。}}",
   "ocrChipDownloadingModel": "OCR モデルをダウンロード中…",

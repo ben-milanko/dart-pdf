@@ -210,6 +210,8 @@
   "welcomeRecent": "최근",
   "welcomeRemoveFromRecent": "최근 항목에서 제거",
   "welcomeTapToReopen": "탭하여 다시 열기",
+  "welcomeViewAsGrid": "그리드 보기",
+  "welcomeViewAsList": "목록 보기",
   "settingsDefaultAppSubtitle": "{platform, select, web{웹 앱을 설치한 후 PDF 파일용으로 선택하세요.} windows{Windows 기본 앱 설정에서 PDF를 여세요.} macos{Finder의 “항상 다음으로 열기” 단계를 따르세요.} linux{데스크톱의 기본 애플리케이션 설정을 사용하세요.} android{PDF를 열 때 DartPDF를 선택한 후 항상을 탭하세요.} ios{파일 앱에서 공유 또는 다음으로 열기를 사용해 PDF를 여기로 보내세요.} other{시스템의 PDF 파일 핸들러를 구성하세요.}}",
   "settingsDefaultAppInstructions": "{platform, select, web{먼저 브라우저에서 DartPDF를 설치하세요. 그런 다음 브라우저 또는 운영 체제 파일 핸들러 설정을 사용하여 PDF 파일을 설치된 앱과 연결하세요.} windows{Windows 설정이 기본 앱으로 열립니다. “.pdf” 또는 “PDF”를 검색하고 현재 PDF 앱을 선택한 후 DartPDF를 선택하세요.} macos{Finder에서 아무 PDF나 선택하고 파일 > 정보 가져오기를 선택한 후 “다음으로 열기”를 펼치고 DartPDF를 선택한 다음 “모두 변경…”을 클릭하세요.} linux{데스크톱 설정에서 기본 애플리케이션을 열거나, 파일 앱에서 PDF를 마우스 오른쪽 버튼으로 클릭하고 속성을 선택한 후 DartPDF를 PDF 문서의 기본값으로 설정하세요.} android{파일 또는 다운로드에서 PDF를 열고 앱 선택기에서 DartPDF를 선택한 후 항상을 선택하세요. 다른 앱이 이미 PDF를 연다면 먼저 Android 설정에서 해당 앱의 기본값을 지우세요.} ios{iOS는 전역 기본 PDF 편집기를 제공하지 않습니다. 파일 > 공유를 사용하거나 PDF를 길게 눌러 공유/다음으로 열기를 선택한 후 DartPDF를 선택하세요.} other{시스템 파일 핸들러 설정을 사용하여 PDF 문서를 DartPDF와 연결하세요.}}",
   "ocrChipDownloadingModel": "OCR 모델 다운로드 중…",

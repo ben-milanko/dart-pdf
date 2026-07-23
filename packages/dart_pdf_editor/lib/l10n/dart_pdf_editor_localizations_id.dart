@@ -9,6 +9,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsId([String locale = 'id']) : super(locale);
 
   @override
+  String get searchAnnotations => 'Cari anotasi';
+
+  @override
   String get add => 'Tambah';
 
   @override

@@ -826,6 +826,12 @@ class AppLocalizationsId extends AppLocalizations {
   String get welcomeTapToReopen => 'Ketuk untuk membuka kembali';
 
   @override
+  String get welcomeViewAsGrid => 'Tampilan kisi';
+
+  @override
+  String get welcomeViewAsList => 'Tampilan daftar';
+
+  @override
   String settingsDefaultAppSubtitle(String platform) {
     String _temp0 = intl.Intl.selectLogic(
       platform,

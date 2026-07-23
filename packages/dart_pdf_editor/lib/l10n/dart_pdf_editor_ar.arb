@@ -559,5 +559,6 @@
   "viewerMarkupSquiggly": "متموّج",
   "viewerMarkupStrikeOut": "شطب",
   "viewerMarkupUnderline": "تسطير",
-  "viewerSelectAll": "تحديد الكل"
+  "viewerSelectAll": "تحديد الكل",
+  "searchAnnotations": "البحث في التعليقات التوضيحية"
 }

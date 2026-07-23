@@ -821,6 +821,12 @@ class AppLocalizationsTr extends AppLocalizations {
   String get welcomeTapToReopen => 'Yeniden açmak için dokunun';
 
   @override
+  String get welcomeViewAsGrid => 'Izgara görünümü';
+
+  @override
+  String get welcomeViewAsList => 'Liste görünümü';
+
+  @override
   String settingsDefaultAppSubtitle(String platform) {
     String _temp0 = intl.Intl.selectLogic(
       platform,

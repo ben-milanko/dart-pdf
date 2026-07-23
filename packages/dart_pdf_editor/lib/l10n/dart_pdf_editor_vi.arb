@@ -559,5 +559,6 @@
   "viewerMarkupSquiggly": "Gạch lượn sóng",
   "viewerMarkupStrikeOut": "Gạch ngang",
   "viewerMarkupUnderline": "Gạch chân",
-  "viewerSelectAll": "Chọn tất cả"
+  "viewerSelectAll": "Chọn tất cả",
+  "searchAnnotations": "Tìm chú thích"
 }

@@ -9,6 +9,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get searchAnnotations => '搜索注释';
+
+  @override
   String get add => '添加';
 
   @override
@@ -1892,6 +1895,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 /// The translations for Chinese, using the Han script (`zh_Hant`).
 class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   DartPdfEditorLocalizationsZhHant() : super('zh_Hant');
+
+  @override
+  String get searchAnnotations => '搜尋註解';
 
   @override
   String get add => '新增';

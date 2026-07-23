@@ -9,6 +9,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsKo([String locale = 'ko']) : super(locale);
 
   @override
+  String get searchAnnotations => '주석 검색';
+
+  @override
   String get add => '추가';
 
   @override

@@ -9,6 +9,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsHi([String locale = 'hi']) : super(locale);
 
   @override
+  String get searchAnnotations => 'एनोटेशन खोजें';
+
+  @override
   String get add => 'जोड़ें';
 
   @override

@@ -559,5 +559,6 @@
   "viewerMarkupSquiggly": "波線",
   "viewerMarkupStrikeOut": "取り消し線",
   "viewerMarkupUnderline": "下線",
-  "viewerSelectAll": "すべて選択"
+  "viewerSelectAll": "すべて選択",
+  "searchAnnotations": "注釈を検索"
 }

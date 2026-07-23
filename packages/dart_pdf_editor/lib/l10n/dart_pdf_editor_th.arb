@@ -559,5 +559,6 @@
   "viewerMarkupSquiggly": "เส้นหยัก",
   "viewerMarkupStrikeOut": "ขีดฆ่า",
   "viewerMarkupUnderline": "ขีดเส้นใต้",
-  "viewerSelectAll": "เลือกทั้งหมด"
+  "viewerSelectAll": "เลือกทั้งหมด",
+  "searchAnnotations": "ค้นหาคำอธิบายประกอบ"
 }

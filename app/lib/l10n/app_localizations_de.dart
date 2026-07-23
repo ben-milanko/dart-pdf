@@ -832,6 +832,12 @@ class AppLocalizationsDe extends AppLocalizations {
   String get welcomeTapToReopen => 'Zum erneuten Öffnen tippen';
 
   @override
+  String get welcomeViewAsGrid => 'Rasteransicht';
+
+  @override
+  String get welcomeViewAsList => 'Listenansicht';
+
+  @override
   String settingsDefaultAppSubtitle(String platform) {
     String _temp0 = intl.Intl.selectLogic(
       platform,

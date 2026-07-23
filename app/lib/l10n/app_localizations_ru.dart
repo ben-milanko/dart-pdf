@@ -838,6 +838,12 @@ class AppLocalizationsRu extends AppLocalizations {
   String get welcomeTapToReopen => 'Коснитесь, чтобы открыть заново';
 
   @override
+  String get welcomeViewAsGrid => 'Сетка';
+
+  @override
+  String get welcomeViewAsList => 'Список';
+
+  @override
   String settingsDefaultAppSubtitle(String platform) {
     String _temp0 = intl.Intl.selectLogic(
       platform,

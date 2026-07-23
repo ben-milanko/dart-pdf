@@ -840,6 +840,12 @@ class AppLocalizationsUk extends AppLocalizations {
   String get welcomeTapToReopen => 'Торкніться, щоб повторно відкрити';
 
   @override
+  String get welcomeViewAsGrid => 'Перегляд сіткою';
+
+  @override
+  String get welcomeViewAsList => 'Перегляд списком';
+
+  @override
   String settingsDefaultAppSubtitle(String platform) {
     String _temp0 = intl.Intl.selectLogic(
       platform,

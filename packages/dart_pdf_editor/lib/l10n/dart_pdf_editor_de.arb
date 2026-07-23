@@ -559,5 +559,6 @@
   "viewerMarkupSquiggly": "Wellenlinie",
   "viewerMarkupStrikeOut": "Durchstreichen",
   "viewerMarkupUnderline": "Unterstreichen",
-  "viewerSelectAll": "Alles auswählen"
+  "viewerSelectAll": "Alles auswählen",
+  "searchAnnotations": "Anmerkungen durchsuchen"
 }

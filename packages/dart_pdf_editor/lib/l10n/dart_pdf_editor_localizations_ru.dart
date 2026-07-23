@@ -9,6 +9,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsRu([String locale = 'ru']) : super(locale);
 
   @override
+  String get searchAnnotations => 'Поиск по аннотациям';
+
+  @override
   String get add => 'Добавить';
 
   @override

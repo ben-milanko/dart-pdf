@@ -559,5 +559,6 @@
   "viewerMarkupSquiggly": "Волнистое",
   "viewerMarkupStrikeOut": "Зачеркнуть",
   "viewerMarkupUnderline": "Подчёркивание",
-  "viewerSelectAll": "Выбрать всё"
+  "viewerSelectAll": "Выбрать всё",
+  "searchAnnotations": "Поиск по аннотациям"
 }

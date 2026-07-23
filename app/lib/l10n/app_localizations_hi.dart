@@ -823,6 +823,12 @@ class AppLocalizationsHi extends AppLocalizations {
   String get welcomeTapToReopen => 'फिर से खोलने के लिए टैप करें';
 
   @override
+  String get welcomeViewAsGrid => 'ग्रिड दृश्य';
+
+  @override
+  String get welcomeViewAsList => 'सूची दृश्य';
+
+  @override
   String settingsDefaultAppSubtitle(String platform) {
     String _temp0 = intl.Intl.selectLogic(
       platform,

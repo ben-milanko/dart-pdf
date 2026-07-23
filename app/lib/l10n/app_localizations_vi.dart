@@ -822,6 +822,12 @@ class AppLocalizationsVi extends AppLocalizations {
   String get welcomeTapToReopen => 'Nhấn để mở lại';
 
   @override
+  String get welcomeViewAsGrid => 'Xem dạng lưới';
+
+  @override
+  String get welcomeViewAsList => 'Xem dạng danh sách';
+
+  @override
   String settingsDefaultAppSubtitle(String platform) {
     String _temp0 = intl.Intl.selectLogic(
       platform,

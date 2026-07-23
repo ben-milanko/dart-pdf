@@ -559,5 +559,6 @@
   "viewerMarkupSquiggly": "波浪线",
   "viewerMarkupStrikeOut": "删除线",
   "viewerMarkupUnderline": "下划线",
-  "viewerSelectAll": "全选"
+  "viewerSelectAll": "全选",
+  "searchAnnotations": "搜索注释"
 }
