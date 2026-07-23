@@ -396,6 +396,12 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'फ़ॉर्म फ़्लैटन करें';
 
   @override
+  String get menuLock => 'लॉक करें';
+
+  @override
+  String get menuUnlock => 'अनलॉक करें';
+
+  @override
   String get menuRecolour => 'पुनः रंग दें…';
 
   @override
@@ -817,6 +823,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'अचिह्नित';
 
   @override
+  String get searchAnnotations => 'एनोटेशन खोजें';
+
+  @override
   String get searchClearSearch => 'खोज साफ़ करें';
 
   @override
@@ -986,6 +995,12 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => 'हस्ताक्षर हटाएँ';
+
+  @override
+  String get sidebarLockAnnotation => 'लॉक करें';
+
+  @override
+  String get sidebarUnlockAnnotation => 'अनलॉक करें';
 
   @override
   String get sidebarMore => 'अधिक';
@@ -1249,6 +1264,21 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
 
   @override
   String get tbCheckMarksOnDocument => 'दस्तावेज़ पर चेक-मार्क';
+
+  @override
+  String get tbCropImage => 'छवि क्रॉप करें';
+
+  @override
+  String get tbCroppingImage => 'छवि क्रॉप हो रही है';
+
+  @override
+  String get tbCropApply => 'क्रॉप लागू करें';
+
+  @override
+  String get tbCropCancel => 'क्रॉप रद्द करें';
+
+  @override
+  String get tbCropReset => 'क्रॉप रीसेट करें';
 
   @override
   String get tbColorLabel => 'रंग';

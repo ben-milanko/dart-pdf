@@ -1060,6 +1060,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _controller.addListener(_onControllerChanged);
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Keep the controller's stamp-locale in sync with the ambient UI locale so
+    // the built-in {{date}}/{{datetime}} stamp fields localize their month
+    // names and AM/PM markers. Runs on mount and whenever the locale changes.
+    _controller.uiLocale = Localizations.localeOf(context);
+  }
+
   void _adoptInteraction() {
     _ownsInteraction = widget.interactionSession == null;
     _interaction =

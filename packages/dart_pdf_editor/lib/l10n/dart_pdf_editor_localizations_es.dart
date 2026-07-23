@@ -398,6 +398,12 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'Aplanar formulario';
 
   @override
+  String get menuLock => 'Bloquear';
+
+  @override
+  String get menuUnlock => 'Desbloquear';
+
+  @override
   String get menuRecolour => 'Recolorear…';
 
   @override
@@ -821,6 +827,9 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'Sin marcar';
 
   @override
+  String get searchAnnotations => 'Buscar anotaciones';
+
+  @override
   String get searchClearSearch => 'Borrar búsqueda';
 
   @override
@@ -989,6 +998,12 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => 'Eliminar firma';
+
+  @override
+  String get sidebarLockAnnotation => 'Bloquear';
+
+  @override
+  String get sidebarUnlockAnnotation => 'Desbloquear';
 
   @override
   String get sidebarMore => 'Más';
@@ -1252,6 +1267,21 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
 
   @override
   String get tbCheckMarksOnDocument => 'Marcas en el documento';
+
+  @override
+  String get tbCropImage => 'Recortar imagen';
+
+  @override
+  String get tbCroppingImage => 'Recortando imagen';
+
+  @override
+  String get tbCropApply => 'Aplicar recorte';
+
+  @override
+  String get tbCropCancel => 'Cancelar recorte';
+
+  @override
+  String get tbCropReset => 'Restablecer recorte';
 
   @override
   String get tbColorLabel => 'Color';

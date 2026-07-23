@@ -396,6 +396,12 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'フォームを統合';
 
   @override
+  String get menuLock => 'ロック';
+
+  @override
+  String get menuUnlock => 'ロック解除';
+
+  @override
   String get menuRecolour => '色を変更…';
 
   @override
@@ -816,6 +822,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'マーク解除済み';
 
   @override
+  String get searchAnnotations => '注釈を検索';
+
+  @override
   String get searchClearSearch => '検索をクリア';
 
   @override
@@ -983,6 +992,12 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => '署名を削除';
+
+  @override
+  String get sidebarLockAnnotation => 'ロック';
+
+  @override
+  String get sidebarUnlockAnnotation => 'ロック解除';
 
   @override
   String get sidebarMore => 'その他';
@@ -1244,6 +1259,21 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get tbCheckMarksOnDocument => 'ドキュメント上のチェックマーク';
+
+  @override
+  String get tbCropImage => '画像をトリミング';
+
+  @override
+  String get tbCroppingImage => '画像をトリミング中';
+
+  @override
+  String get tbCropApply => 'トリミングを適用';
+
+  @override
+  String get tbCropCancel => 'トリミングをキャンセル';
+
+  @override
+  String get tbCropReset => 'トリミングをリセット';
 
   @override
   String get tbColorLabel => 'カラー';
