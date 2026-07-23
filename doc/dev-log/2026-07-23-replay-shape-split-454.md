@@ -55,10 +55,39 @@ shaping already at zero. That recalibrates the fix: per-glyph caching helps the
 unique-label pathology specifically; command-count / slug-layer work is the
 bigger lever for the dense-vector case.
 
-## Note
+## The worst case, made reproducible: `cad-labels-6p.pdf` / `scroll-cad-labels`
 
 The corpus scenarios don't fully reproduce #454's device pathology because their
-labels repeat (high hit rate). The plan set's cold pages (5–7) are the closest —
-all-miss, ~37% shaping — and are enough to bound the win. A dedicated
-all-unique-label scenario would let the eventual per-glyph fix A/B against a
-worst case; not added here (measurement-only change).
+labels repeat. Added a dedicated worst case: `buildCadLabels` emits A3 sheets of
+660 survey-point labels that are **unique across the whole document**
+(substituted Helvetica), so the run-cache misses on every one — the "mostly-
+unique CAD label" condition in pure form. Measured:
+
+```
+page 2  replay=55.7ms  shape=37.1ms  shaped=660  cached=0   <- first render, all unique
+page 4  replay=52.3ms  shape=37.0ms  shaped=660  cached=0
+page 5  replay=48.0ms  shape=33.0ms  shaped=660  cached=0
+page 5  replay= 3.8ms  shape= 0.0ms  shaped=0    cached=660  <- re-render, all cached
+```
+
+### Both levers, quantified on the worst case
+
+- **Text-cache lever ≈ 92% of replay.** The same page replays in **48 ms cold
+  and 3.8 ms warm** — a ~13× collapse once the labels are cached. So ~44 ms of a
+  unique-label page's replay is first-encounter text work: the measured **33 ms
+  is layout** (`shape=`) and the remaining ~11 ms is first-paint/glyph-raster the
+  `shape=` clock doesn't cover. A **per-glyph** cache — which turns unique *runs*
+  into cached *glyphs* — is what could push a cold unique-label page from ~48 ms
+  toward the ~4 ms floor.
+- **Canvas-call-volume floor ≈ 3.8 ms** (~8% here). This is what the warm and
+  vector-dense (diagram) cases are bound by; the per-glyph cache does nothing
+  for it.
+
+### Conclusion for the fix
+
+The per-glyph cache is strongly justified **for the unique-label pathology**
+(up to ~10× replay on those pages), and irrelevant elsewhere. It is a large
+cross-layer change (interpreter → codec → device, Ghent/pdf.js pixel-baseline
+gated), but it now has a measured ceiling and a reproducible A/B target
+(`scroll-cad-labels`, cold vs warm). The canvas-call floor is a separate lever
+(command count / slug layer) for the dense-vector case.

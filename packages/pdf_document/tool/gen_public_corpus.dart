@@ -574,6 +574,70 @@ Uint8List buildPhotoJpeg(int pageCount, {int seed = 20260723}) {
   return builder.build(root: catalogRef);
 }
 
+/// The replay-bound CAD-label class (#454): dense sheets of survey-point
+/// labels that are UNIQUE across the whole document, drawn in a substituted
+/// standard-14 font. Uniqueness is the point - the paint pass's run-layout
+/// cache misses on every label, so this reproduces the "mostly-unique CAD
+/// label" pathology the plan set only shows on its cold pages. It is the
+/// worst case for substituted-text shaping and the workload a per-glyph text
+/// cache would be measured against. Trivial vector content, so `replay` is
+/// almost entirely text: shaping (the cache-miss `TextPainter` layout) plus
+/// the per-label canvas calls.
+Uint8List buildCadLabels(int pageCount) {
+  const pageW = 1190.0, pageH = 842.0; // A3 landscape sheet
+  const cols = 22, rows = 30; // 660 unique labels per page
+  final builder = CosDocumentBuilder();
+
+  final catalog = CosDictionary({'Type': const CosName('Catalog')});
+  final catalogRef = builder.add(catalog);
+  final tree = CosDictionary({'Type': const CosName('Pages')});
+  final treeRef = builder.add(tree);
+  catalog['Pages'] = treeRef;
+  final fontRef = builder.add(CosDictionary({
+    'Type': const CosName('Font'),
+    'Subtype': const CosName('Type1'),
+    'BaseFont': const CosName('Helvetica'),
+  }));
+
+  final pageRefs = <CosReference>[];
+  var counter = 0;
+  for (var p = 0; p < pageCount; p++) {
+    final sb = StringBuffer('BT /F1 6 Tf\n');
+    for (var r = 0; r < rows; r++) {
+      final y = pageH - 30 - r * ((pageH - 60) / rows);
+      for (var c = 0; c < cols; c++) {
+        final x = 30 + c * ((pageW - 60) / cols);
+        // A survey point that never repeats: guarantees a run-cache miss.
+        final n = 1000000 + counter++;
+        final north = '${n ~/ 1000}.${(n % 1000).toString().padLeft(3, '0')}';
+        final e = 9000000 - n;
+        final east = '${e ~/ 1000}.${(e % 1000).toString().padLeft(3, '0')}';
+        sb.writeln('1 0 0 1 ${x.toStringAsFixed(1)} ${y.toStringAsFixed(1)} Tm '
+            '(N$north E$east) Tj');
+      }
+    }
+    sb.writeln('ET');
+    final contentRef = _addContent(builder, sb.toString());
+    pageRefs.add(builder.add(CosDictionary({
+      'Type': const CosName('Page'),
+      'Parent': treeRef,
+      'MediaBox': CosArray([
+        const CosInteger(0),
+        const CosInteger(0),
+        const CosReal(pageW),
+        const CosReal(pageH),
+      ]),
+      'Resources': CosDictionary({
+        'Font': CosDictionary({'F1': fontRef}),
+      }),
+      'Contents': contentRef,
+    })));
+  }
+  tree['Kids'] = CosArray(pageRefs);
+  tree['Count'] = CosInteger(pageCount);
+  return builder.build(root: catalogRef);
+}
+
 /// A designed-booklet workload: the "InDesign export" class, profiled from
 /// a real (unredistributable) RPG quickstart with the perf sweep - 62pp,
 /// 93 embedded font programs, ~13 content-stream tokenizations per page
@@ -788,6 +852,7 @@ void main(List<String> argv) {
   write('styled-booklet-24p.pdf', buildStyledBooklet(24));
   write('scan-book-12p.pdf', buildScanBook(12));
   write('photo-jpeg-6p.pdf', buildPhotoJpeg(6));
+  write('cad-labels-6p.pdf', buildCadLabels(6));
   // Damaged classes derive from a well-formed base so recovery/leniency
   // timing measures the same underlying document.
   write('broken-startxref.pdf', _smash(textReport, 'startxref'));
