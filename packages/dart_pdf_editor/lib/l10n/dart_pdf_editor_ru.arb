@@ -560,5 +560,9 @@
   "viewerMarkupStrikeOut": "Зачеркнуть",
   "viewerMarkupUnderline": "Подчёркивание",
   "viewerSelectAll": "Выбрать всё",
-  "searchAnnotations": "Поиск по аннотациям"
+  "searchAnnotations": "Поиск по аннотациям",
+  "menuLock": "Заблокировать",
+  "menuUnlock": "Разблокировать",
+  "sidebarLockAnnotation": "Заблокировать",
+  "sidebarUnlockAnnotation": "Разблокировать"
 }

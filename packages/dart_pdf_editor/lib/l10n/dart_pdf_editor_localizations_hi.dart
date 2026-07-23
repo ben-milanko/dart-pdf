@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsHi([String locale = 'hi']) : super(locale);
 
   @override
+  String get menuLock => 'लॉक करें';
+
+  @override
+  String get menuUnlock => 'अनलॉक करें';
+
+  @override
+  String get sidebarLockAnnotation => 'लॉक करें';
+
+  @override
+  String get sidebarUnlockAnnotation => 'अनलॉक करें';
+
+  @override
   String get searchAnnotations => 'एनोटेशन खोजें';
 
   @override

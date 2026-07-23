@@ -560,5 +560,9 @@
   "viewerMarkupStrikeOut": "ขีดฆ่า",
   "viewerMarkupUnderline": "ขีดเส้นใต้",
   "viewerSelectAll": "เลือกทั้งหมด",
-  "searchAnnotations": "ค้นหาคำอธิบายประกอบ"
+  "searchAnnotations": "ค้นหาคำอธิบายประกอบ",
+  "menuLock": "ล็อก",
+  "menuUnlock": "ปลดล็อก",
+  "sidebarLockAnnotation": "ล็อก",
+  "sidebarUnlockAnnotation": "ปลดล็อก"
 }

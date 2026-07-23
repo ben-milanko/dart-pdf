@@ -560,5 +560,9 @@
   "viewerMarkupStrikeOut": "Üstünü çiz",
   "viewerMarkupUnderline": "Altı çizili",
   "viewerSelectAll": "Tümünü seç",
-  "searchAnnotations": "Ek açıklamalarda ara"
+  "searchAnnotations": "Ek açıklamalarda ara",
+  "menuLock": "Kilitle",
+  "menuUnlock": "Kilidi aç",
+  "sidebarLockAnnotation": "Kilitle",
+  "sidebarUnlockAnnotation": "Kilidi aç"
 }

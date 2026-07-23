@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsId([String locale = 'id']) : super(locale);
 
   @override
+  String get menuLock => 'Kunci';
+
+  @override
+  String get menuUnlock => 'Buka kunci';
+
+  @override
+  String get sidebarLockAnnotation => 'Kunci';
+
+  @override
+  String get sidebarUnlockAnnotation => 'Buka kunci';
+
+  @override
   String get searchAnnotations => 'Cari anotasi';
 
   @override

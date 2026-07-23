@@ -560,5 +560,9 @@
   "viewerMarkupStrikeOut": "شطب",
   "viewerMarkupUnderline": "تسطير",
   "viewerSelectAll": "تحديد الكل",
-  "searchAnnotations": "البحث في التعليقات التوضيحية"
+  "searchAnnotations": "البحث في التعليقات التوضيحية",
+  "menuLock": "قفل",
+  "menuUnlock": "إلغاء القفل",
+  "sidebarLockAnnotation": "قفل",
+  "sidebarUnlockAnnotation": "إلغاء القفل"
 }

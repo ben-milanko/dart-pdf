@@ -560,5 +560,9 @@
   "viewerMarkupStrikeOut": "Doorhalen",
   "viewerMarkupUnderline": "Onderstrepen",
   "viewerSelectAll": "Alles selecteren",
-  "searchAnnotations": "Annotaties doorzoeken"
+  "searchAnnotations": "Annotaties doorzoeken",
+  "menuLock": "Vergrendelen",
+  "menuUnlock": "Ontgrendelen",
+  "sidebarLockAnnotation": "Vergrendelen",
+  "sidebarUnlockAnnotation": "Ontgrendelen"
 }

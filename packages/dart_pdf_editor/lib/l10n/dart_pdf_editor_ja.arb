@@ -560,5 +560,9 @@
   "viewerMarkupStrikeOut": "取り消し線",
   "viewerMarkupUnderline": "下線",
   "viewerSelectAll": "すべて選択",
-  "searchAnnotations": "注釈を検索"
+  "searchAnnotations": "注釈を検索",
+  "menuLock": "ロック",
+  "menuUnlock": "ロック解除",
+  "sidebarLockAnnotation": "ロック",
+  "sidebarUnlockAnnotation": "ロック解除"
 }

@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsUk([String locale = 'uk']) : super(locale);
 
   @override
+  String get menuLock => 'Заблокувати';
+
+  @override
+  String get menuUnlock => 'Розблокувати';
+
+  @override
+  String get sidebarLockAnnotation => 'Заблокувати';
+
+  @override
+  String get sidebarUnlockAnnotation => 'Розблокувати';
+
+  @override
   String get searchAnnotations => 'Пошук в анотаціях';
 
   @override

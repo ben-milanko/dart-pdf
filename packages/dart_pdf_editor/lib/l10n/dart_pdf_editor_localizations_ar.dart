@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsAr([String locale = 'ar']) : super(locale);
 
   @override
+  String get menuLock => 'قفل';
+
+  @override
+  String get menuUnlock => 'إلغاء القفل';
+
+  @override
+  String get sidebarLockAnnotation => 'قفل';
+
+  @override
+  String get sidebarUnlockAnnotation => 'إلغاء القفل';
+
+  @override
   String get searchAnnotations => 'البحث في التعليقات التوضيحية';
 
   @override

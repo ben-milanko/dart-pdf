@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsKo([String locale = 'ko']) : super(locale);
 
   @override
+  String get menuLock => '잠금';
+
+  @override
+  String get menuUnlock => '잠금 해제';
+
+  @override
+  String get sidebarLockAnnotation => '잠금';
+
+  @override
+  String get sidebarUnlockAnnotation => '잠금 해제';
+
+  @override
   String get searchAnnotations => '주석 검색';
 
   @override

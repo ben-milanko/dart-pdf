@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get menuLock => '锁定';
+
+  @override
+  String get menuUnlock => '解锁';
+
+  @override
+  String get sidebarLockAnnotation => '锁定';
+
+  @override
+  String get sidebarUnlockAnnotation => '解锁';
+
+  @override
   String get searchAnnotations => '搜索注释';
 
   @override
@@ -1895,6 +1907,18 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 /// The translations for Chinese, using the Han script (`zh_Hant`).
 class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   DartPdfEditorLocalizationsZhHant() : super('zh_Hant');
+
+  @override
+  String get menuLock => '鎖定';
+
+  @override
+  String get menuUnlock => '解鎖';
+
+  @override
+  String get sidebarLockAnnotation => '鎖定';
+
+  @override
+  String get sidebarUnlockAnnotation => '解鎖';
 
   @override
   String get searchAnnotations => '搜尋註解';

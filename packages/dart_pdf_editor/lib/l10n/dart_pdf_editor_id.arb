@@ -560,5 +560,9 @@
   "viewerMarkupStrikeOut": "Coret",
   "viewerMarkupUnderline": "Garis bawah",
   "viewerSelectAll": "Pilih semua",
-  "searchAnnotations": "Cari anotasi"
+  "searchAnnotations": "Cari anotasi",
+  "menuLock": "Kunci",
+  "menuUnlock": "Buka kunci",
+  "sidebarLockAnnotation": "Kunci",
+  "sidebarUnlockAnnotation": "Buka kunci"
 }

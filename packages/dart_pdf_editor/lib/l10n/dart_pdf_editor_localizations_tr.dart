@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsTr([String locale = 'tr']) : super(locale);
 
   @override
+  String get menuLock => 'Kilitle';
+
+  @override
+  String get menuUnlock => 'Kilidi aç';
+
+  @override
+  String get sidebarLockAnnotation => 'Kilitle';
+
+  @override
+  String get sidebarUnlockAnnotation => 'Kilidi aç';
+
+  @override
   String get searchAnnotations => 'Ek açıklamalarda ara';
 
   @override

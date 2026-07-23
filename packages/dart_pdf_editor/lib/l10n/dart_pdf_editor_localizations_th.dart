@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsTh([String locale = 'th']) : super(locale);
 
   @override
+  String get menuLock => 'ล็อก';
+
+  @override
+  String get menuUnlock => 'ปลดล็อก';
+
+  @override
+  String get sidebarLockAnnotation => 'ล็อก';
+
+  @override
+  String get sidebarUnlockAnnotation => 'ปลดล็อก';
+
+  @override
   String get searchAnnotations => 'ค้นหาคำอธิบายประกอบ';
 
   @override

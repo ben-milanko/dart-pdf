@@ -560,5 +560,9 @@
   "viewerMarkupStrikeOut": "Przekreślenie",
   "viewerMarkupUnderline": "Podkreślenie",
   "viewerSelectAll": "Zaznacz wszystko",
-  "searchAnnotations": "Szukaj adnotacji"
+  "searchAnnotations": "Szukaj adnotacji",
+  "menuLock": "Zablokuj",
+  "menuUnlock": "Odblokuj",
+  "sidebarLockAnnotation": "Zablokuj",
+  "sidebarUnlockAnnotation": "Odblokuj"
 }

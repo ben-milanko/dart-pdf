@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsEs([String locale = 'es']) : super(locale);
 
   @override
+  String get menuLock => 'Bloquear';
+
+  @override
+  String get menuUnlock => 'Desbloquear';
+
+  @override
+  String get sidebarLockAnnotation => 'Bloquear';
+
+  @override
+  String get sidebarUnlockAnnotation => 'Desbloquear';
+
+  @override
   String get searchAnnotations => 'Buscar anotaciones';
 
   @override

@@ -560,5 +560,9 @@
   "viewerMarkupStrikeOut": "Закреслити",
   "viewerMarkupUnderline": "Підкреслення",
   "viewerSelectAll": "Виділити все",
-  "searchAnnotations": "Пошук в анотаціях"
+  "searchAnnotations": "Пошук в анотаціях",
+  "menuLock": "Заблокувати",
+  "menuUnlock": "Розблокувати",
+  "sidebarLockAnnotation": "Заблокувати",
+  "sidebarUnlockAnnotation": "Розблокувати"
 }

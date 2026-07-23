@@ -560,5 +560,9 @@
   "viewerMarkupStrikeOut": "Durchstreichen",
   "viewerMarkupUnderline": "Unterstreichen",
   "viewerSelectAll": "Alles auswählen",
-  "searchAnnotations": "Anmerkungen durchsuchen"
+  "searchAnnotations": "Anmerkungen durchsuchen",
+  "menuLock": "Sperren",
+  "menuUnlock": "Entsperren",
+  "sidebarLockAnnotation": "Sperren",
+  "sidebarUnlockAnnotation": "Entsperren"
 }

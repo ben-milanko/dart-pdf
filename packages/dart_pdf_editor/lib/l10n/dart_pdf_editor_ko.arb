@@ -560,5 +560,9 @@
   "viewerMarkupStrikeOut": "취소선",
   "viewerMarkupUnderline": "밑줄",
   "viewerSelectAll": "모두 선택",
-  "searchAnnotations": "주석 검색"
+  "searchAnnotations": "주석 검색",
+  "menuLock": "잠금",
+  "menuUnlock": "잠금 해제",
+  "sidebarLockAnnotation": "잠금",
+  "sidebarUnlockAnnotation": "잠금 해제"
 }

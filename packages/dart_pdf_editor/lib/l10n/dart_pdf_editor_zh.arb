@@ -560,5 +560,9 @@
   "viewerMarkupStrikeOut": "删除线",
   "viewerMarkupUnderline": "下划线",
   "viewerSelectAll": "全选",
-  "searchAnnotations": "搜索注释"
+  "searchAnnotations": "搜索注释",
+  "menuLock": "锁定",
+  "menuUnlock": "解锁",
+  "sidebarLockAnnotation": "锁定",
+  "sidebarUnlockAnnotation": "解锁"
 }

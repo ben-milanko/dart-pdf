@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsVi([String locale = 'vi']) : super(locale);
 
   @override
+  String get menuLock => 'Khóa';
+
+  @override
+  String get menuUnlock => 'Mở khóa';
+
+  @override
+  String get sidebarLockAnnotation => 'Khóa';
+
+  @override
+  String get sidebarUnlockAnnotation => 'Mở khóa';
+
+  @override
   String get searchAnnotations => 'Tìm chú thích';
 
   @override

@@ -560,5 +560,9 @@
   "viewerMarkupStrikeOut": "स्ट्राइक आउट",
   "viewerMarkupUnderline": "रेखांकन",
   "viewerSelectAll": "सभी चुनें",
-  "searchAnnotations": "एनोटेशन खोजें"
+  "searchAnnotations": "एनोटेशन खोजें",
+  "menuLock": "लॉक करें",
+  "menuUnlock": "अनलॉक करें",
+  "sidebarLockAnnotation": "लॉक करें",
+  "sidebarUnlockAnnotation": "अनलॉक करें"
 }

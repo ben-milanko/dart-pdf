@@ -9,6 +9,18 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsJa([String locale = 'ja']) : super(locale);
 
   @override
+  String get menuLock => 'ロック';
+
+  @override
+  String get menuUnlock => 'ロック解除';
+
+  @override
+  String get sidebarLockAnnotation => 'ロック';
+
+  @override
+  String get sidebarUnlockAnnotation => 'ロック解除';
+
+  @override
   String get searchAnnotations => '注釈を検索';
 
   @override

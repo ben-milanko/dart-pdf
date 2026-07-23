@@ -560,5 +560,9 @@
   "viewerMarkupStrikeOut": "Gạch ngang",
   "viewerMarkupUnderline": "Gạch chân",
   "viewerSelectAll": "Chọn tất cả",
-  "searchAnnotations": "Tìm chú thích"
+  "searchAnnotations": "Tìm chú thích",
+  "menuLock": "Khóa",
+  "menuUnlock": "Mở khóa",
+  "sidebarLockAnnotation": "Khóa",
+  "sidebarUnlockAnnotation": "Mở khóa"
 }

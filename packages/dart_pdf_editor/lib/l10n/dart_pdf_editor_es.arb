@@ -560,5 +560,9 @@
   "viewerMarkupStrikeOut": "Tachar",
   "viewerMarkupUnderline": "Subrayar",
   "viewerSelectAll": "Seleccionar todo",
-  "searchAnnotations": "Buscar anotaciones"
+  "searchAnnotations": "Buscar anotaciones",
+  "menuLock": "Bloquear",
+  "menuUnlock": "Desbloquear",
+  "sidebarLockAnnotation": "Bloquear",
+  "sidebarUnlockAnnotation": "Desbloquear"
 }
