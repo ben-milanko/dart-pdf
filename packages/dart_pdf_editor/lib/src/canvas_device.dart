@@ -8,6 +8,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'budgeted_cache.dart';
 import 'image_decoder.dart';
+import 'perf_log.dart';
 
 /// Paints interpreter callbacks onto a Flutter [Canvas].
 ///
@@ -85,6 +86,24 @@ class CanvasPdfDevice implements PdfDevice {
   /// Number of cached text layouts — test hook.
   @visibleForTesting
   static int get debugTextLayoutCacheLength => _textCache.length;
+
+  /// Within-replay substituted-text shaping split (#454). [debugTextShapeUs] is
+  /// the time spent in cache-miss `TextPainter` layout — the "shaping" the
+  /// replay-bound CAD pages are made of — and [debugTextShapeMiss]/
+  /// [debugTextShapeHit] are the run-cache miss/hit counts (unique labels miss,
+  /// which is the whole problem). Only written while [PdfPerfLog.enabled]; the
+  /// replay caller resets before a replay and reads after. Static because the
+  /// device is constructed fresh per replay.
+  static int debugTextShapeUs = 0;
+  static int debugTextShapeMiss = 0;
+  static int debugTextShapeHit = 0;
+
+  /// Zeroes the shaping accumulators before a measured replay.
+  static void debugResetTextShape() {
+    debugTextShapeUs = 0;
+    debugTextShapeMiss = 0;
+    debugTextShapeHit = 0;
+  }
 
   /// Ordered fallbacks used for normal substituted text — test hook.
   @visibleForTesting
@@ -650,15 +669,35 @@ class CanvasPdfDevice implements PdfDevice {
     final c = run.color;
     final key = '${run.text} ${run.fontName ?? ''} '
         '${c.red},${c.green},${c.blue}';
-    return _textCache.getOrAdd(key, () {
-      final painter = TextPainter(
-        text: TextSpan(text: run.text, style: _styleFor(run, foreground: null)),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      final baseline =
-          painter.computeDistanceToActualBaseline(TextBaseline.alphabetic);
-      return _TextLayout(painter, painter.width, baseline);
+    if (!PdfPerfLog.enabled) {
+      return _textCache.getOrAdd(key, () => _shapeLayout(run));
+    }
+    // Instrumented path (#454): the factory runs only on a miss, so timing it
+    // isolates the shaping cost, and the flag separates miss from hit.
+    var missed = false;
+    final layout = _textCache.getOrAdd(key, () {
+      missed = true;
+      final clock = Stopwatch()..start();
+      final l = _shapeLayout(run);
+      debugTextShapeUs += clock.elapsedMicroseconds;
+      return l;
     });
+    if (missed) {
+      debugTextShapeMiss++;
+    } else {
+      debugTextShapeHit++;
+    }
+    return layout;
+  }
+
+  _TextLayout _shapeLayout(PdfTextRun run) {
+    final painter = TextPainter(
+      text: TextSpan(text: run.text, style: _styleFor(run, foreground: null)),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final baseline =
+        painter.computeDistanceToActualBaseline(TextBaseline.alphabetic);
+    return _TextLayout(painter, painter.width, baseline);
   }
 
   /// The em-space [ui.Path] for a glyph outline, built once per outline
