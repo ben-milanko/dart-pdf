@@ -3854,6 +3854,28 @@ class PdfEditingController extends ChangeNotifier {
       !annotation.isLocked &&
       (_canEditAnnotation?.call(annotation) ?? true);
 
+  /// The /F Locked flag (§12.5.3 bit 8): the annotation may not be moved,
+  /// resized, or deleted. The bit conforming viewers - Acrobat, Bluebeam
+  /// Revu - set when a markup is locked.
+  static const int _annotationLockedFlag = 1 << 7; // 128
+
+  /// The /F LockedContents flag (§12.5.3 bit 10): the annotation's
+  /// contents may not change. [lockAnnotation] sets it alongside Locked so
+  /// a locked markup can't be retyped either, matching Acrobat/Bluebeam.
+  static const int _annotationLockedContentsFlag = 1 << 9; // 512
+
+  /// Whether the lock state of [annotation] may be toggled - the way in to
+  /// *unlock* it, which [isAnnotationEditable] itself forbids (a locked
+  /// annotation is by definition not editable, so unlocking can't route
+  /// through the normal edit gate). Only selectable markup annotations
+  /// qualify; the document's /F ReadOnly flag and the host's
+  /// [canEditAnnotation] predicate still veto it, but the Locked flag
+  /// deliberately does not, so a lock can always be lifted.
+  bool isAnnotationLockManageable(PdfAnnotation annotation) =>
+      annotation.behavior.selectable &&
+      !annotation.isReadOnly &&
+      (_canEditAnnotation?.call(annotation) ?? true);
+
   /// Selected (page, /Annots slot) pairs in selection order; the last
   /// one is the primary selection (the one handles and text edits act
   /// on when exactly one is selected).
@@ -3983,6 +4005,29 @@ class PdfEditingController extends ChangeNotifier {
       if (annotation.isHidden ||
           !annotation.behavior.selectable ||
           !isAnnotationEditable(annotation)) {
+        continue;
+      }
+      if (annotation.rect.contains(x, y)) return (i, annotation);
+    }
+    return null;
+  }
+
+  /// The topmost *locked* lock-manageable annotation under ([x], [y]) on
+  /// [pageIndex], with its /Annots slot - the right-click "Unlock" hit
+  /// test. Unlike [selectableAnnotationAt] it deliberately reaches locked
+  /// annotations (which can't be selected), so a mouse user can lift the
+  /// lock the same way the sidebar row's button does. Skips hidden ones.
+  (int index, PdfAnnotation)? lockedAnnotationAt(
+    int pageIndex,
+    double x,
+    double y,
+  ) {
+    final annotations = _page(pageIndex).annotations;
+    for (var i = annotations.length - 1; i >= 0; i--) {
+      final annotation = annotations[i];
+      if (annotation.isHidden ||
+          !annotation.isLocked ||
+          !isAnnotationLockManageable(annotation)) {
         continue;
       }
       if (annotation.rect.contains(x, y)) return (i, annotation);
@@ -4302,6 +4347,86 @@ class PdfEditingController extends ChangeNotifier {
         }
       },
     );
+  }
+
+  // ---------------------------------------------------------------------
+  // locking (§12.5.3 /F Locked + LockedContents)
+
+  /// Sets or clears the lock on the annotation in slot [index] of
+  /// [pageIndex]'s /Annots.
+  ///
+  /// Locking sets the /F Locked (bit 8) and LockedContents (bit 10) flags
+  /// (§12.5.3) together - the same pair Acrobat and Bluebeam Revu write
+  /// when a markup is locked - so conforming viewers refuse to move,
+  /// resize, delete, or retype it. Unlocking clears just those two bits,
+  /// leaving Print/Hidden/NoView and any other flag untouched.
+  ///
+  /// This is the *unlock* entry point: it bypasses [isAnnotationEditable]
+  /// (a locked annotation is never editable, so it could otherwise never
+  /// be reached) but still honours [isAnnotationLockManageable]. Locking
+  /// drops the annotation from the selection, since it's no longer
+  /// editable. Returns whether the flag word changed.
+  bool setAnnotationLocked(int pageIndex, int index, bool locked) {
+    final annotation = _annotationAt((pageIndex, index));
+    if (annotation == null || !isAnnotationLockManageable(annotation)) {
+      return false;
+    }
+    const lockBits = _annotationLockedFlag | _annotationLockedContentsFlag;
+    final next =
+        locked ? annotation.flags | lockBits : annotation.flags & ~lockBits;
+    if (next == annotation.flags) return false;
+    // A locked annotation is no longer selectable; drop it so stale
+    // resize/rotate handles don't linger over it (resizable is a
+    // capability, not a permission, so the overlay wouldn't hide them).
+    if (locked) _selected.remove((pageIndex, index));
+    return apply((e) => e.setAnnotationFlags(pageIndex, annotation, next));
+  }
+
+  /// Flips the lock on the annotation in slot [index] of [pageIndex]'s
+  /// /Annots - the annotation sidebar's per-row lock button, and the
+  /// reliable way to unlock (a locked annotation can't be selected).
+  /// Returns the lock state it was set to, or the unchanged state when
+  /// the annotation isn't lock-manageable.
+  bool toggleAnnotationLock(int pageIndex, int index) {
+    final annotation = _annotationAt((pageIndex, index));
+    if (annotation == null) return false;
+    final target = !annotation.isLocked;
+    return setAnnotationLocked(pageIndex, index, target)
+        ? target
+        : annotation.isLocked;
+  }
+
+  /// Whether [lockSelectedAnnotations] would lock anything: something is
+  /// selected and every selected slot is an unlocked, lock-manageable
+  /// markup annotation.
+  bool get canLockSelected =>
+      _selected.isNotEmpty &&
+      _selected.every((slot) {
+        final annotation = _annotationAt(slot);
+        return annotation != null &&
+            !annotation.isLocked &&
+            isAnnotationLockManageable(annotation);
+      });
+
+  /// Locks every selected annotation (see [setAnnotationLocked]) as one
+  /// revision, then clears the selection since a locked annotation is no
+  /// longer editable - the context menu's Lock action. Already-locked or
+  /// non-lock-manageable members are skipped; a no-op when none qualify.
+  void lockSelectedAnnotations() {
+    final targets = <(int, PdfAnnotation)>[
+      for (final slot in _selected)
+        if (_annotationAt(slot) case final annotation?
+            when !annotation.isLocked && isAnnotationLockManageable(annotation))
+          (slot.$1, annotation),
+    ];
+    if (targets.isEmpty) return;
+    _selected.clear();
+    const lockBits = _annotationLockedFlag | _annotationLockedContentsFlag;
+    apply((e) {
+      for (final (page, annotation) in targets) {
+        e.setAnnotationFlags(page, annotation, annotation.flags | lockBits);
+      }
+    });
   }
 
   // ---------------------------------------------------------------------
