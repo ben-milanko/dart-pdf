@@ -15,6 +15,7 @@ import 'app_info.dart';
 import 'devtools.dart';
 import 'devtools_panel.dart';
 import 'digital_signature.dart';
+import 'doc_scan.dart';
 import 'document_tab.dart';
 import 'file_io.dart';
 import 'image_clipboard.dart';
@@ -85,6 +86,7 @@ class EditorScreen extends StatefulWidget {
     this.imageClipboardWriter,
     this.imageClipboardReader,
     this.textClipboardReader,
+    this.documentScanner,
   });
 
   final PdfEditingPreferences prefs;
@@ -163,6 +165,13 @@ class EditorScreen extends StatefulWidget {
   /// `Clipboard.getData`).
   final TextClipboardReader? textClipboardReader;
 
+  /// Overrides the device document scanner behind "Scan to new document" and
+  /// "Insert scan". Tests inject a fake that returns a known PDF so the menu
+  /// wiring can run without the native ML Kit / VisionKit channels. Production
+  /// leaves this null and the screen uses the platform scanner on mobile
+  /// ([scanDocumentToPdf]); where scanning isn't supported the entries hide.
+  final DocumentScanner? documentScanner;
+
   @override
   State<EditorScreen> createState() => _EditorScreenState();
 }
@@ -170,6 +179,14 @@ class EditorScreen extends StatefulWidget {
 class _EditorScreenState extends State<EditorScreen>
     with WidgetsBindingObserver {
   PdfEditingPreferences get _prefs => widget.prefs;
+
+  /// The device document scanner, or null where scanning isn't available. An
+  /// injected fake wins; otherwise the platform scanner is used on mobile
+  /// (and nothing on desktop/web). Drives whether the scan menu entries show.
+  late final DocumentScanner? _documentScanner = widget.documentScanner ??
+      (documentScanSupported ? scanDocumentToPdf : null);
+
+  bool get _canScan => _documentScanner != null;
 
   final _recents = RecentsStore();
   final _recentThumbnails = RecentThumbnailCache();
@@ -407,8 +424,7 @@ class _EditorScreenState extends State<EditorScreen>
     // launch cheap even when the last session held several big files: only the
     // active tab pulls bytes, and it first-paints from ranges.
     if (progressiveOpenSupported(originPath)) {
-      final source =
-          pdfByteSourceForPath(originPath!, bookmark: doc.bookmark);
+      final source = pdfByteSourceForPath(originPath!, bookmark: doc.bookmark);
       int? length;
       try {
         length = await source.length;
@@ -591,14 +607,14 @@ class _EditorScreenState extends State<EditorScreen>
       originPath: originPath,
       originBookmark: originBookmark,
     );
-    AppDevTools.instance.addLog(
-        'open-trace: "$title" placeholder shown, awaiting bytes '
-        '(defer=$defer, path=${originPath ?? "-"})');
+    AppDevTools.instance
+        .addLog('open-trace: "$title" placeholder shown, awaiting bytes '
+            '(defer=$defer, path=${originPath ?? "-"})');
     try {
       final bytes = await bytesFuture;
-      AppDevTools.instance.addLog(
-          'open-trace: "$title" bytes ready — ${bytes.length} B; '
-          'waiting for end of frame');
+      AppDevTools.instance
+          .addLog('open-trace: "$title" bytes ready — ${bytes.length} B; '
+              'waiting for end of frame');
       // Let the loading tab paint before constructing the edit session, which
       // synchronously opens the PDF and can be noticeable for large files.
       await WidgetsBinding.instance.endOfFrame;
@@ -683,9 +699,9 @@ class _EditorScreenState extends State<EditorScreen>
       final index = _tabs.indexOf(tab);
       final bytes = tab.deferredBytes;
       if (index == -1 || bytes == null) return;
-      AppDevTools.instance.addLog(
-          'open-trace: materializing deferred "${tab.title}" '
-          '— building session over ${bytes.length} B');
+      AppDevTools.instance
+          .addLog('open-trace: materializing deferred "${tab.title}" '
+              '— building session over ${bytes.length} B');
       final built = DocumentTab.document(
         title: tab.title,
         bytes: bytes,
@@ -894,9 +910,9 @@ class _EditorScreenState extends State<EditorScreen>
       await source.close();
       if (!mounted) return;
       if (_swapPreviewToDocument(preview, full)) {
-        AppDevTools.instance.addLog(
-            'progressive open: "${preview.title}" full read complete — '
-            '${full.length} bytes');
+        AppDevTools.instance
+            .addLog('progressive open: "${preview.title}" full read complete — '
+                '${full.length} bytes');
       }
     } on PdfHttpCancelledException {
       // The tab was closed mid-read (its dispose fired the token); the preview
@@ -1034,8 +1050,8 @@ class _EditorScreenState extends State<EditorScreen>
         // Older runner without the mobile_file channel - fall through to the
         // copy-based picker below.
       } catch (e) {
-        _openError(l10n.editorOpenFailedTitle,
-            l10n.editorCouldNotOpenSelected('$e'));
+        _openError(
+            l10n.editorOpenFailedTitle, l10n.editorCouldNotOpenSelected('$e'));
         return;
       }
     }
@@ -1062,8 +1078,7 @@ class _EditorScreenState extends State<EditorScreen>
           try {
             pickLength = await file.length();
           } catch (_) {}
-          AppDevTools.instance.addLog(
-              'open-trace: picked "${file.name}" '
+          AppDevTools.instance.addLog('open-trace: picked "${file.name}" '
               '(declared ${pickLength ?? "?"} B, path=${path ?? "-"}); '
               'starting readAsBytes');
           await _openLoadedBytes(
@@ -1076,8 +1091,8 @@ class _EditorScreenState extends State<EditorScreen>
         }
       }
     } catch (e) {
-      _openError(l10n.editorOpenFailedTitle,
-          l10n.editorCouldNotOpenSelected('$e'));
+      _openError(
+          l10n.editorOpenFailedTitle, l10n.editorCouldNotOpenSelected('$e'));
     }
   }
 
@@ -1134,6 +1149,58 @@ class _EditorScreenState extends State<EditorScreen>
     // document had switched the whole app into read-only mode.
     _readOnly = false;
     _addTab(tab);
+  }
+
+  /// Scans a document with the device camera (mobile/tablet only) and opens
+  /// the captured pages as a new tab. The scanner returns the pages as a PDF;
+  /// a cancelled scan is a silent no-op, a failed one toasts.
+  Future<void> _newDocumentFromScan() async {
+    final scan = _documentScanner;
+    if (scan == null) return;
+    final Uint8List? bytes;
+    try {
+      bytes = await scan();
+    } catch (e) {
+      AppDevTools.instance.addLog('scan failed: $e', level: DevLogLevel.error);
+      if (mounted) _toast(appL10n(context).editorScanFailed);
+      return;
+    }
+    if (!mounted || bytes == null) return;
+    final tab = DocumentTab.document(
+      title: _nextUntitledTitle(),
+      bytes: bytes,
+      preferences: _prefs,
+      initiallyDirty: true,
+    );
+    _readOnly = false;
+    _addTab(tab);
+  }
+
+  /// Scans a document (mobile/tablet only) and inserts its pages into [tab]'s
+  /// edit session, after the page currently in view. One undoable step.
+  Future<void> _insertScan(DocumentTab tab) async {
+    final scan = _documentScanner;
+    final session = tab.session;
+    if (scan == null || session == null) return;
+    final Uint8List? bytes;
+    try {
+      bytes = await scan();
+    } catch (e) {
+      AppDevTools.instance.addLog('scan failed: $e', level: DevLogLevel.error);
+      if (mounted) _toast(appL10n(context).editorScanFailed);
+      return;
+    }
+    if (!mounted || bytes == null) return;
+    try {
+      session.insertPagesFromBytes(bytes,
+          at: (tab.viewer?.currentPage ?? 0) + 1);
+    } catch (e) {
+      AppDevTools.instance
+          .addLog('scan insert failed: $e', level: DevLogLevel.error);
+      if (mounted) _toast(appL10n(context).editorScanFailed);
+      return;
+    }
+    if (mounted) _toast(appL10n(context).editorInsertedScan);
   }
 
   /// Opens a file the OS handed us (association, share, launch arg).
@@ -1232,8 +1299,8 @@ class _EditorScreenState extends State<EditorScreen>
         session.insertPagesFromBytes(bytes);
         inserted++;
       } catch (e) {
-        AppDevTools.instance
-            .addLog('insert failed: ${item.name} - $e', level: DevLogLevel.error);
+        AppDevTools.instance.addLog('insert failed: ${item.name} - $e',
+            level: DevLogLevel.error);
         failed.add(item.name);
       }
     }
@@ -1391,8 +1458,8 @@ class _EditorScreenState extends State<EditorScreen>
         _activeIndex = _tabs.length - 1;
       });
     } catch (e) {
-      _openError(l10n.editorCompareFailedTitle,
-          l10n.editorCouldNotOpenSecond('$e'));
+      _openError(
+          l10n.editorCompareFailedTitle, l10n.editorCouldNotOpenSecond('$e'));
     }
   }
 
@@ -2131,6 +2198,16 @@ class _EditorScreenState extends State<EditorScreen>
             shortcut: _menuShortcut('N'),
           ),
         ),
+        if (_canScan)
+          PopupMenuItem(
+            key: const ValueKey('menu-scan-document'),
+            height: _appMenuItemHeight(),
+            value: () => unawaited(_newDocumentFromScan()),
+            child: _appMenuTile(
+              icon: Icons.document_scanner_outlined,
+              title: appL10n(context).editorMenuScanDocument,
+            ),
+          ),
         PopupMenuItem(
           key: const ValueKey('menu-open'),
           height: _appMenuItemHeight(),
@@ -2154,6 +2231,16 @@ class _EditorScreenState extends State<EditorScreen>
               shortcut: _menuShortcut('S', shift: true),
             ),
           ),
+          if (_canScan && !_readOnly)
+            PopupMenuItem(
+              key: const ValueKey('menu-insert-scan'),
+              height: _appMenuItemHeight(),
+              value: () => unawaited(_insertScan(tab!)),
+              child: _appMenuTile(
+                icon: Icons.add_a_photo_outlined,
+                title: appL10n(context).editorMenuInsertScan,
+              ),
+            ),
           PopupMenuItem(
             key: const ValueKey('menu-digital-signature'),
             height: _appMenuItemHeight(),
@@ -2308,9 +2395,7 @@ class _EditorScreenState extends State<EditorScreen>
                   child: Row(
                     children: [
                       Expanded(child: _devToolsPointerLog(_buildBody(tab))),
-                      if (_devToolsOpen &&
-                          kDevToolsEnabled &&
-                          !compactDevTools)
+                      if (_devToolsOpen && kDevToolsEnabled && !compactDevTools)
                         DevToolsPanel(
                           onClose: _toggleDevTools,
                           session: tab?.session,
@@ -2735,8 +2820,9 @@ class _EditorScreenState extends State<EditorScreen>
           // While a close streak is held, keep the surviving tabs at the pinned
           // width; otherwise use the natural share (never wider than natural, so
           // a stale hold can't overflow after a resize).
-          final tabWidth =
-              _heldTabWidth == null ? natural : math.min(_heldTabWidth!, natural);
+          final tabWidth = _heldTabWidth == null
+              ? natural
+              : math.min(_heldTabWidth!, natural);
           final tabsWidth = _tabs.isEmpty
               ? 0.0
               : math.min(tabWidth * _tabs.length + listPadding, maxTabsWidth);

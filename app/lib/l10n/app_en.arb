@@ -587,6 +587,22 @@
   "@editorMenuSaveAs": {
     "description": "App menu item to save the document under a new name/location."
   },
+  "editorMenuScanDocument": "Scan to new document…",
+  "@editorMenuScanDocument": {
+    "description": "App menu item (mobile/tablet) to scan pages with the device camera into a new document."
+  },
+  "editorMenuInsertScan": "Insert scan…",
+  "@editorMenuInsertScan": {
+    "description": "App menu item (mobile/tablet) to scan pages with the device camera and insert them into the open document."
+  },
+  "editorScanFailed": "Couldn't scan the document.",
+  "@editorScanFailed": {
+    "description": "Toast shown when a device document scan fails."
+  },
+  "editorInsertedScan": "Inserted scanned pages.",
+  "@editorInsertedScan": {
+    "description": "Toast shown after scanned pages are inserted into the open document."
+  },
   "editorMenuSettings": "Settings",
   "@editorMenuSettings": {
     "description": "App menu item to open the settings screen."
