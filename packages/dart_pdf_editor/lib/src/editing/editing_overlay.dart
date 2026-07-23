@@ -19,6 +19,7 @@ import '../theme.dart';
 import 'editing_color_pick.dart';
 import 'editing_controller.dart';
 import 'editing_fonts.dart';
+import 'editing_image_crop.dart';
 import 'editing_interaction.dart';
 import 'editing_measure.dart';
 import 'editing_tool_behavior.dart';
@@ -1229,6 +1230,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// stream, stylus detection for palm rejection, multi-touch bail, and
   /// - with ink or the eraser armed - the stroke itself.
   void _onPointerDown(PointerDownEvent event) {
+    // the crop overlay owns all input while a crop is armed
+    if (_controller.isCroppingImage) return;
     _pointerPressure = _normalizedPressure(event);
     if (_lastPointerKind != event.kind) {
       // the selection action chip shows for touch/stylus input only
@@ -2945,6 +2948,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   void _panStart(DragStartDetails details) {
+    // while cropping, the crop overlay owns every pointer over the page
+    if (_controller.isCroppingImage) return;
     // raw-driven pointers own their gesture: the pan recognizer still
     // claims the arena (keeping the viewer's pan/zoom from fighting the
     // stroke) but its callbacks must not double-drive it
@@ -3226,6 +3231,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   void _panUpdate(DragUpdateDetails details) {
+    if (_controller.isCroppingImage) return;
     if (_pointers.gestureBailed || _pointers.rawPointer != null) return;
     final position = details.localPosition;
     _interaction.sample();
@@ -3363,6 +3369,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   void _panEnd(DragEndDetails details) {
+    if (_controller.isCroppingImage) return;
     if (_pointers.rawPointer != null) return; // the raw pointer-up commits
     final before = _controller.revisionId;
     final transition = _interaction.state.transition;
@@ -4040,6 +4047,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _endRawPointer(event, canceled: true);
 
   Future<void> _onTapUp(TapUpDetails details) async {
+    // the crop overlay owns taps while a crop is armed
+    if (_controller.isCroppingImage) return;
     // the eyedropper commits from the raw pointer-up instead
     if (_controller.isPickingColor) return;
     if (_pointers.gestureBailed) return;
@@ -4920,6 +4929,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // instead of waiting for the full-page raster. Dragging keeps using the
     // normal ghost path, and explicit commit afterimages take precedence.
     final selectedAnnotation = _controller.selectedAnnotation;
+    final cropping = _controller.isCroppingImage &&
+        _controller.selectedPage == widget.pageIndex;
     final washRestGhost = selectedAnnotation?.subtype == 'FreeText';
     final _AfterGhost? restGhost = !widget.rasterCurrent &&
             !dragging &&
@@ -5061,20 +5072,25 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // anchor drags at the press point, not where the recognizer won the
         // arena - a shape should start exactly where the pointer went down
         dragStartBehavior: DragStartBehavior.down,
-        onPanStart: _panStart,
-        onPanUpdate: _panUpdate,
-        onPanEnd: _panEnd,
-        onTapUp: _onTapUp,
-        onDoubleTapDown:
-            _polyTool || _tool == PdfEditTool.cloudPolygon ||
-                    _tool == PdfEditTool.form
-                ? _onDoubleTapDown
-                : null,
-        onDoubleTap:
-            _polyTool || _tool == PdfEditTool.cloudPolygon ||
-                    _tool == PdfEditTool.form
-                ? _onDoubleTap
-                : null,
+        // while cropping, the crop overlay owns the page: drop this detector's
+        // recognizers entirely so they never win the gesture arena over the
+        // crop rectangle's own handles and confirm/cancel chips
+        onPanStart: cropping ? null : _panStart,
+        onPanUpdate: cropping ? null : _panUpdate,
+        onPanEnd: cropping ? null : _panEnd,
+        onTapUp: cropping ? null : _onTapUp,
+        onDoubleTapDown: !cropping &&
+                (_polyTool ||
+                    _tool == PdfEditTool.cloudPolygon ||
+                    _tool == PdfEditTool.form)
+            ? _onDoubleTapDown
+            : null,
+        onDoubleTap: !cropping &&
+                (_polyTool ||
+                    _tool == PdfEditTool.cloudPolygon ||
+                    _tool == PdfEditTool.form)
+            ? _onDoubleTap
+            : null,
         child: MouseRegion(
           cursor: _cursor,
           onHover: _onHover,
@@ -5481,6 +5497,23 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                 _buildReadoutChip(text, anchor),
               if (_styleReadout() case (final text, final anchor))
                 _buildReadoutChip(text, anchor, keyValue: 'pdf-style-readout'),
+              if (_controller.isCroppingImage &&
+                  _controller.selectedPage == widget.pageIndex &&
+                  selectedAnnotation != null)
+                PdfImageCropOverlay(
+                  key: const ValueKey('pdf-image-crop-overlay'),
+                  bounds: _geometry.toViewRect(selectedAnnotation.rect),
+                  initialCrop: _geometry.toViewRect(
+                      _controller.imageCropDraft ?? selectedAnnotation.rect),
+                  chromeScale: _chromeScale,
+                  accentColor: PdfViewerTheme.of(context)
+                          .annotationChromeColor ??
+                      const Color(0xFF1E88E5),
+                  onChanged: (viewRect) => _controller
+                      .updateImageCropDraft(_geometry.toPageRect(viewRect)),
+                  onCommit: _controller.commitImageCrop,
+                  onCancel: _controller.cancelImageCrop,
+                ),
             ]),
           ),
         ),

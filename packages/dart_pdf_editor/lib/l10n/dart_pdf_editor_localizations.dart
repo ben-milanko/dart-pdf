@@ -1841,7 +1841,7 @@ abstract class DartPdfEditorLocalizations {
   /// Instructional text in the keyboard-shortcut capture dialog.
   ///
   /// In en, this message translates to:
-  /// **'Press a letter key, or Delete to clear.'**
+  /// **'Press a letter key, add Shift for a variant, or Delete to clear.'**
   String get shellPressLetterKeyHint;
 
   /// Compact control label that toggles the reflow (text reading) view.
@@ -2407,6 +2407,36 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Check-marks on the document'**
   String get tbCheckMarksOnDocument;
+
+  /// Tooltip on the button that starts cropping the selected image.
+  ///
+  /// In en, this message translates to:
+  /// **'Crop image'**
+  String get tbCropImage;
+
+  /// Label shown on the toolbar while the image-crop tool is active.
+  ///
+  /// In en, this message translates to:
+  /// **'Cropping image'**
+  String get tbCroppingImage;
+
+  /// Tooltip on the button that confirms the pending image crop.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply crop'**
+  String get tbCropApply;
+
+  /// Tooltip on the button that abandons the pending image crop.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel crop'**
+  String get tbCropCancel;
+
+  /// Tooltip on the button that removes the crop and restores the whole image.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset crop'**
+  String get tbCropReset;
 
   /// Short button label for the color-processing action.
   ///

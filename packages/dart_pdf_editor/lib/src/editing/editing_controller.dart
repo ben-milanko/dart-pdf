@@ -1276,6 +1276,8 @@ class PdfEditingController extends ChangeNotifier {
     _tool = value;
     if (value != PdfEditTool.select) _selected.clear();
     if (value != PdfEditTool.content) _selectedElement = null;
+    _cropModeArmed = false;
+    _cropDraft = null;
     // each annotation tool remembers its own colour, stroke, opacity, … -
     // arming one restores its saved style and routes further style changes
     // back into its slot (see [PdfEditingPreferences.beginStyleScope])
@@ -3747,6 +3749,15 @@ class PdfEditingController extends ChangeNotifier {
   /// on when exactly one is selected).
   final List<(int page, int index)> _selected = [];
 
+  /// True while the interactive image-crop tool is armed on the selection.
+  /// See [beginImageCrop].
+  bool _cropModeArmed = false;
+
+  /// The pending crop rectangle (page space) the crop overlay is dragging,
+  /// or null when not cropping. Always a sub-rectangle of the selected image
+  /// stamp's /Rect.
+  PdfRect? _cropDraft;
+
   /// Pages cached per revision: [PdfDocument.page] rebuilds the page
   /// (and its lazily parsed annotation list) on every call, and the
   /// selection hit tests run per pointer event.
@@ -3856,6 +3867,26 @@ class PdfEditingController extends ChangeNotifier {
       _selected.length == 1 &&
       selectedAnnotation?.behavior.textEditable == true &&
       selectedAnnotation?.isLockedContents != true;
+
+  /// Whether the selection is a single upright image stamp that the crop
+  /// tool can operate on. Rotated image stamps are excluded: cropping shrinks
+  /// the box to an axis-aligned sub-rectangle, which cannot describe a
+  /// rotated frame.
+  bool get canCropSelected {
+    final annotation = selectedAnnotation;
+    if (_selected.length != 1 ||
+        annotation == null ||
+        !annotation.isImageStamp ||
+        annotation.normalAppearance == null) {
+      return false;
+    }
+    final quad = annotation.appearanceQuad;
+    if (quad == null || quad.length < 2) return true;
+    final (x0, y0) = quad[0];
+    final (x1, y1) = quad[1];
+    // Upright when the picture's bottom edge is horizontal.
+    return (y1 - y0).abs() <= 1e-3 * math.max(1.0, (x1 - x0).abs());
+  }
 
   /// The topmost selectable annotation under ([x], [y]) on [pageIndex],
   /// with its /Annots slot - the select tool's hit test (later entries
@@ -5270,6 +5301,127 @@ class PdfEditingController extends ChangeNotifier {
         pageRotation: _page(_selected.last.$1).rotation,
       ),
     );
+  }
+
+  /// Crops the selected image stamp so only the picture currently shown
+  /// inside [visibleRect] (page space) survives, shrinking the annotation's
+  /// box to that rectangle. [visibleRect] is clamped to the current box, and
+  /// the crop composes with any crop already applied, so it always narrows
+  /// towards the source picture. A no-op unless [canCropSelected].
+  void cropSelectedImage(PdfRect visibleRect) {
+    final annotation = selectedAnnotation;
+    if (annotation == null || !canCropSelected) return;
+    final rect = annotation.rect;
+    if (rect.width <= 0 || rect.height <= 0) return;
+    final v = visibleRect.intersect(rect);
+    if (v.width < 1 || v.height < 1) return;
+    // Untouched box → nothing to crop.
+    if ((v.left - rect.left).abs() < 0.5 &&
+        (v.bottom - rect.bottom).abs() < 0.5 &&
+        (v.right - rect.right).abs() < 0.5 &&
+        (v.top - rect.top).abs() < 0.5) {
+      return;
+    }
+    final current = annotation.imageStampCrop ?? const PdfRect(0, 0, 1, 1);
+    // Fractions of the current box the visible rect covers, composed into the
+    // source picture's normalized coordinates.
+    final fx0 = (v.left - rect.left) / rect.width;
+    final fx1 = (v.right - rect.left) / rect.width;
+    final fy0 = (v.bottom - rect.bottom) / rect.height;
+    final fy1 = (v.top - rect.bottom) / rect.height;
+    final crop = PdfRect(
+      current.left + fx0 * current.width,
+      current.bottom + fy0 * current.height,
+      current.left + fx1 * current.width,
+      current.bottom + fy1 * current.height,
+    );
+    apply(
+      (e) => e.cropImageStamp(
+        _selected.last.$1,
+        annotation,
+        crop: crop,
+        rect: v,
+      ),
+    );
+  }
+
+  /// Removes any crop from the selected image stamp, restoring the whole
+  /// picture. The box grows back to the picture's full extent at the current
+  /// scale. A no-op unless [canCropSelected] and a crop is applied.
+  void resetSelectedImageCrop() {
+    final annotation = selectedAnnotation;
+    if (annotation == null || !canCropSelected) return;
+    final current = annotation.imageStampCrop;
+    if (current == null) return;
+    // Grow the box back so the retained pixels keep their scale: the current
+    // box shows `current`, so the full picture spans box / current.
+    final rect = annotation.rect;
+    final fullWidth = rect.width / current.width;
+    final fullHeight = rect.height / current.height;
+    final left = rect.left - current.left * fullWidth;
+    final bottom = rect.bottom - current.bottom * fullHeight;
+    final full = PdfRect(left, bottom, left + fullWidth, bottom + fullHeight);
+    apply(
+      (e) => e.cropImageStamp(
+        _selected.last.$1,
+        annotation,
+        crop: const PdfRect(0, 0, 1, 1),
+        rect: full,
+      ),
+    );
+  }
+
+  /// Whether the interactive image-crop tool is armed. The overlay renders
+  /// its crop rectangle and handles while this is true, absorbing gestures;
+  /// the toolbar shows Done/Cancel. Auto-clears if the selection stops being
+  /// a croppable image stamp.
+  bool get isCroppingImage => _cropModeArmed && canCropSelected;
+
+  /// The crop rectangle the overlay is currently dragging (page space), or
+  /// null when [isCroppingImage] is false. Sub-rectangle of the selected
+  /// image stamp's /Rect.
+  PdfRect? get imageCropDraft => isCroppingImage ? _cropDraft : null;
+
+  /// Arms the interactive crop tool on the selected image stamp, seeding the
+  /// crop rectangle to the whole picture. A no-op unless [canCropSelected].
+  void beginImageCrop() {
+    final annotation = selectedAnnotation;
+    if (annotation == null || !canCropSelected) return;
+    _cropModeArmed = true;
+    _cropDraft = annotation.rect;
+    notifyListeners();
+  }
+
+  /// Updates the pending crop rectangle as the overlay drags a handle,
+  /// clamped to the selected image stamp's /Rect. A no-op unless cropping.
+  void updateImageCropDraft(PdfRect draft) {
+    if (!isCroppingImage) return;
+    final rect = selectedAnnotation!.rect;
+    final clamped = draft.intersect(rect);
+    if (clamped.width < 1 || clamped.height < 1) return;
+    if (clamped == _cropDraft) return;
+    _cropDraft = clamped;
+    notifyListeners();
+  }
+
+  /// Applies the pending crop and disarms the tool. A no-op (just disarms)
+  /// when the draft still covers the whole picture.
+  void commitImageCrop() {
+    final region = imageCropDraft;
+    _cropModeArmed = false;
+    _cropDraft = null;
+    if (region != null) cropSelectedImage(region);
+    // cropSelectedImage may no-op (unchanged box); repaint either way so the
+    // crop chrome disappears.
+    notifyListeners();
+  }
+
+  /// Disarms the crop tool, discarding the pending crop.
+  void cancelImageCrop() {
+    if (!_cropModeArmed && _cropDraft == null) return;
+    _cropModeArmed = false;
+    _cropDraft = null;
+    notifyListeners();
   }
 
   /// Moves a selected callout's arrow terminus to [target] (page space),

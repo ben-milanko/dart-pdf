@@ -350,10 +350,19 @@ void main() {
       await tester.pumpAndSettle();
     }
 
+    // Filters the (now full) tool list down to a single tool so its tile is
+    // on-screen and tappable regardless of list length.
+    Future<void> filterShortcuts(WidgetTester tester, String query) async {
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-shell-shortcuts-search')), query);
+      await tester.pumpAndSettle();
+    }
+
     testWidgets('rebinding a shortcut updates the label and persists on Done',
         (tester) async {
       await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
       await openShortcutsSheet(tester);
+      await filterShortcuts(tester, 'Rectangle');
 
       // Capture a new key for the rectangle tool.
       await tester
@@ -372,6 +381,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-shell-shortcuts-done')));
       await tester.pumpAndSettle();
       await openShortcutsSheet(tester);
+      await filterShortcuts(tester, 'Rectangle');
       expect(find.text('B'), findsOneWidget);
     });
 
@@ -379,6 +389,7 @@ void main() {
         (tester) async {
       await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
       await openShortcutsSheet(tester);
+      await filterShortcuts(tester, 'Rectangle');
 
       await tester
           .tap(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')));
@@ -397,6 +408,7 @@ void main() {
         (tester) async {
       await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
       await openShortcutsSheet(tester);
+      await filterShortcuts(tester, 'Rectangle');
 
       await tester
           .tap(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')));
@@ -872,7 +884,7 @@ void main() {
       expect(editing.tool, PdfEditTool.ink);
       expect(editing.color, const Color(0xFF123456));
 
-      await tester.tap(find.byTooltip('Highlight - draw freehand'));
+      await tester.tap(find.byTooltip('Highlight - draw freehand (⇧H)'));
       await tester.pump();
       expect(editing.tool, PdfEditTool.highlight);
       expect(editing.color, const Color(0xFF123456));
