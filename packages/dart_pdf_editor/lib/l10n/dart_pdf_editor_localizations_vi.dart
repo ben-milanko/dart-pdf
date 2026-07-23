@@ -397,6 +397,12 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'Làm phẳng biểu mẫu';
 
   @override
+  String get menuLock => 'Lock';
+
+  @override
+  String get menuUnlock => 'Unlock';
+
+  @override
   String get menuRecolour => 'Đổi màu…';
 
   @override
@@ -820,6 +826,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'Chưa đánh dấu';
 
   @override
+  String get searchAnnotations => 'Search annotations';
+
+  @override
   String get searchClearSearch => 'Xóa tìm kiếm';
 
   @override
@@ -991,6 +1000,12 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get sidebarDeleteSignature => 'Xóa chữ ký';
 
   @override
+  String get sidebarLockAnnotation => 'Lock';
+
+  @override
+  String get sidebarUnlockAnnotation => 'Unlock';
+
+  @override
   String get sidebarMore => 'Thêm';
 
   @override
@@ -1037,6 +1052,57 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
       one: 'Đã chọn $count',
     );
     return '$_temp0';
+  }
+
+  @override
+  String get sidebarSignatureChecking => 'Checking…';
+
+  @override
+  String get sidebarSignatureTrusted => 'Valid — trusted';
+
+  @override
+  String get sidebarSignatureUnverified => 'Valid — unverified';
+
+  @override
+  String get sidebarSignatureInvalid => 'Invalid';
+
+  @override
+  String sidebarSignatureSignedBy(String name) {
+    return 'Signed by $name';
+  }
+
+  @override
+  String sidebarSignatureSignedAt(String time) {
+    return 'Signed $time';
+  }
+
+  @override
+  String sidebarSignatureTrustedVia(String authority) {
+    return 'Trusted via $authority';
+  }
+
+  @override
+  String get sidebarSignatureUntrustedDetail =>
+      'Signer is not from a trusted authority';
+
+  @override
+  String get sidebarSignatureNoAnchors =>
+      'No trusted authorities are configured';
+
+  @override
+  String get sidebarSignatureModified => 'Document was changed after signing';
+
+  @override
+  String get sidebarSignatureRevoked => 'The signer\'s certificate was revoked';
+
+  @override
+  String sidebarSignatureTimestamped(String time) {
+    return 'Timestamped $time';
+  }
+
+  @override
+  String sidebarSignatureLevel(String level) {
+    return 'PAdES $level';
   }
 
   @override
@@ -1253,6 +1319,21 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get tbCheckMarksOnDocument => 'Dấu kiểm trên tài liệu';
+
+  @override
+  String get tbCropImage => 'Crop image';
+
+  @override
+  String get tbCroppingImage => 'Cropping image';
+
+  @override
+  String get tbCropApply => 'Apply crop';
+
+  @override
+  String get tbCropCancel => 'Cancel crop';
+
+  @override
+  String get tbCropReset => 'Reset crop';
 
   @override
   String get tbColorLabel => 'Màu';
