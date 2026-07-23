@@ -57,6 +57,22 @@ general-content page moves, because `darken`-over-white is a no-op. CI is
 unaffected (the pixel diff is skipped when `CI=true`; every page still renders
 and is asserted non-blank).
 
+## Strip/canvas parity
+
+`strip_parity_test` renders every Ghent page through both `CanvasPdfDevice`
+and `StripPdfDevice` and diffs them, so the canvas-only darken initially broke
+it (an op page darkened on the canvas but not through the strip binner). Fix:
+`StripBinningDevice` now routes an overprinting fill/stroke to its delegate -
+exactly like a non-Normal blend mode, which batched srcOver strip quads also
+can't express - and forwards `setOverprint` to that delegate (a
+`CanvasPdfDevice`) via a new `delegateSetOverprint` hook (no-op on the
+plan/profile subclasses, whose delegated ops are replayed from the live scene).
+So the strip path gets the same darken and the two devices agree. GWG030/GWG040
+sit just past the strict pixel threshold but inside the suite's documented
+relaxed-edge gate: their residual diff is ~100% on anti-aliased edges (strip
+analytic-area AA vs Skia curve AA), which `darken` concentrates because it
+keeps the darker of the two backdrops.
+
 ## Limitations (still deviations)
 
 Faithful overprint is a subtractive CMYK/spot colorant operation. `darken`

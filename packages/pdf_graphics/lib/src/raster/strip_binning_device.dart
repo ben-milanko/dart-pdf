@@ -107,6 +107,8 @@ abstract class StripBinningDevice implements PdfDevice {
   final StripGenerator generator = StripGenerator();
 
   PdfBlendMode _blend = PdfBlendMode.normal;
+  bool _fillOverprint = false;
+  bool _strokeOverprint = false;
   final List<bool> _groupKnockout = [];
   // Per open group: true when the group was *entered* under a non-Normal blend
   // mode. Such a group composites as one object with that blend on its own
@@ -166,6 +168,8 @@ abstract class StripBinningDevice implements PdfDevice {
   void delegateRestore();
   void delegateClipPath(PdfPath path, PdfFillRule rule);
   void delegateSetBlendMode(PdfBlendMode mode);
+  void delegateSetOverprint(
+      {required bool fill, required bool stroke, required int mode});
   void delegateBeginGroup(double alpha, {required bool knockout});
   void delegateEndGroup();
   void delegateBeginSoftMasked();
@@ -217,7 +221,7 @@ abstract class StripBinningDevice implements PdfDevice {
 
   @override
   void fillPath(PdfPath path, PdfColor color, PdfFillRule rule, double alpha) {
-    if (!stripsActive || delegateFills) {
+    if (!stripsActive || delegateFills || _fillOverprint) {
       _delegatePaint(() => delegateFillPath(path, color, rule, alpha));
       return;
     }
@@ -229,7 +233,7 @@ abstract class StripBinningDevice implements PdfDevice {
   @override
   void strokePath(
       PdfPath path, PdfColor color, PdfStroke stroke, double alpha) {
-    if (!stripsActive || delegateStrokes) {
+    if (!stripsActive || delegateStrokes || _strokeOverprint) {
       _delegatePaint(() => delegateStrokePath(path, color, stroke, alpha));
       return;
     }
@@ -305,9 +309,14 @@ abstract class StripBinningDevice implements PdfDevice {
   @override
   void setOverprint(
       {required bool fill, required bool stroke, required int mode}) {
-    // Overprint (§8.6.7) has no visual effect in this RGB compositor yet
-    // (issue #502), so the binning path drops it rather than threading a new
-    // delegate through every subclass.
+    // Overprint (§8.6.7) composites with BlendMode.darken on the canvas device,
+    // which batched srcOver strip quads can't express - so an overprinting fill
+    // or stroke routes to the delegate (see fillPath/strokePath), exactly like a
+    // non-Normal blend mode. Forward the state so the delegate darkens to match
+    // the pure-canvas render and strip/canvas parity holds (issue #502).
+    _fillOverprint = fill;
+    _strokeOverprint = stroke;
+    delegateSetOverprint(fill: fill, stroke: stroke, mode: mode);
   }
 
   @override
