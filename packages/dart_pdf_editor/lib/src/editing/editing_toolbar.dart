@@ -1905,7 +1905,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         controller.preferences.opacity;
     return Row(mainAxisSize: MainAxisSize.min, children: [
       const Padding(
-        padding: EdgeInsets.only(right: 2),
+        padding: EdgeInsetsDirectional.only(end: 2),
         child: Icon(Icons.opacity, size: 18),
       ),
       SizedBox(
@@ -2329,7 +2329,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                       child: Row(children: [
                         for (final g in groups)
                           Padding(
-                            padding: const EdgeInsets.only(right: 7),
+                            padding: const EdgeInsetsDirectional.only(end: 7),
                             child: _GroupChip(
                               key: ValueKey('pdf-group-tab-${g.id}'),
                               group: g,
@@ -2517,7 +2517,7 @@ class _StripLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.only(right: 8, left: 2),
+      padding: const EdgeInsetsDirectional.only(end: 8, start: 2),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2911,7 +2911,7 @@ class _StampMenuPanel extends StatelessWidget {
                           Padding(
                             padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
                             child: Align(
-                              alignment: Alignment.centerLeft,
+                              alignment: AlignmentDirectional.centerStart,
                               child: Text(
                                 pdfL10n(context).tbNoCustomStamps,
                                 style: TextStyle(
@@ -2977,7 +2977,7 @@ class _StampMenuItem extends StatelessWidget {
             height: 38,
             child: FittedBox(
               fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
+              alignment: AlignmentDirectional.centerStart,
               child: PdfStampPreview(
                 stamp: stamp,
                 templateValues: templateValues,
@@ -3685,7 +3685,7 @@ class _StyleMenuState extends State<_StyleMenu> {
                             width: 86, child: Text(pdfL10n(context).tbFont)),
                         Expanded(
                           child: Align(
-                            alignment: Alignment.centerLeft,
+                            alignment: AlignmentDirectional.centerStart,
                             child: PdfFontMenuButton(
                               controller: controller,
                               fontPicker: widget.fontPicker,

@@ -264,10 +264,17 @@ class _WebRenderWorker extends PdfRenderWorker {
       final shared =
           (data.getProperty('shared'.toJS) as JSBoolean?)?.toDart ?? false;
       final openUs = (data.getProperty('openUs'.toJS) as JSNumber?)?.toDartInt;
+      final browserImageDecode =
+          (data.getProperty('browserImageDecode'.toJS) as JSBoolean?)?.toDart;
+      final browserImageDecodeMissing =
+          (data.getProperty('browserImageDecodeMissing'.toJS) as JSString?)
+              ?.toDart;
       final startupUs = _perfClock?.elapsedMicroseconds;
       _wlog(
         'ready worker=$_workerNumber '
         '(worker opened the document, sharedBytes=$shared)'
+        '${browserImageDecode == null ? '' : ' browserImageDecode=$browserImageDecode'}'
+        '${browserImageDecodeMissing == null ? '' : ' missing=$browserImageDecodeMissing'}'
         '${startupUs == null ? '' : ' startup=${_traceMs(startupUs)}'}'
         '${openUs == null ? '' : ' open=${_traceMs(openUs)}'}',
       );
@@ -864,6 +871,7 @@ class _WebRequestTrace {
   int deserializeUs = 0;
   bool transcriptHit = false;
   String? cosStatsJson;
+  String? imageDecodeSummary;
 
   void receive(JSObject data, int nowUs) {
     receivedUs = nowUs;
@@ -877,6 +885,8 @@ class _WebRequestTrace {
     transcriptHit =
         (data.getProperty('transcriptHit'.toJS) as JSBoolean?)?.toDart ?? false;
     cosStatsJson = (data.getProperty('cosStats'.toJS) as JSString?)?.toDart;
+    imageDecodeSummary =
+        (data.getProperty('imageDecode'.toJS) as JSString?)?.toDart;
   }
 
   /// Assembles this request's collected halves into one unified [PdfRenderTrace]
@@ -896,6 +906,7 @@ class _WebRequestTrace {
       ..transferUs = math.max(0, roundTripUs - workerUs)
       ..deserializeUs = deserializeUs
       ..transcriptHit = transcriptHit
+      ..imageDecodeSummary = imageDecodeSummary
       ..cosStats = cosStatsJson == null
           ? null
           : PdfPerfStats.fromJson(
@@ -916,7 +927,8 @@ class _WebRequestTrace {
       'decode=${_traceMs(decodeUs)} serialize=${_traceMs(serializeUs)} '
       'bin=${_traceMs(binUs)} transfer=${_traceMs(transferUs)} '
       'deserialize=${_traceMs(deserializeUs)} total=${_traceMs(totalUs)} '
-      'transcript=${transcriptHit ? 'hit' : 'miss'}',
+      'transcript=${transcriptHit ? 'hit' : 'miss'}'
+      '${imageDecodeSummary == null ? '' : ' imageDecode=$imageDecodeSummary'}',
     );
   }
 }

@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart' as intl;
 
-import 'app_localizations_en.dart' deferred as app_localizations_en;
+import 'app_localizations_en.dart';
+import 'app_localizations_es.dart';
 
 // ignore_for_file: type=lint
 
@@ -91,7 +93,10 @@ abstract class AppLocalizations {
   ];
 
   /// A list of this localizations delegate's supported locales.
-  static const List<Locale> supportedLocales = <Locale>[Locale('en')];
+  static const List<Locale> supportedLocales = <Locale>[
+    Locale('en'),
+    Locale('es')
+  ];
 
   /// Generic button that adds a new item.
   ///
@@ -1179,6 +1184,18 @@ abstract class AppLocalizations {
   /// **'Check now'**
   String get settingsCheckNow;
 
+  /// Section header / label for the UI language picker in settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Language'**
+  String get settingsLanguage;
+
+  /// Language picker option that follows the device's language instead of a fixed choice.
+  ///
+  /// In en, this message translates to:
+  /// **'System default'**
+  String get settingsLanguageSystem;
+
   /// Status line shown while an update check is in progress.
   ///
   /// In en, this message translates to:
@@ -1462,24 +1479,24 @@ class _AppLocalizationsDelegate
 
   @override
   Future<AppLocalizations> load(Locale locale) {
-    return lookupAppLocalizations(locale);
+    return SynchronousFuture<AppLocalizations>(lookupAppLocalizations(locale));
   }
 
   @override
   bool isSupported(Locale locale) =>
-      <String>['en'].contains(locale.languageCode);
+      <String>['en', 'es'].contains(locale.languageCode);
 
   @override
   bool shouldReload(_AppLocalizationsDelegate old) => false;
 }
 
-Future<AppLocalizations> lookupAppLocalizations(Locale locale) {
+AppLocalizations lookupAppLocalizations(Locale locale) {
   // Lookup logic when only language code is specified.
   switch (locale.languageCode) {
     case 'en':
-      return app_localizations_en
-          .loadLibrary()
-          .then((dynamic _) => app_localizations_en.AppLocalizationsEn());
+      return AppLocalizationsEn();
+    case 'es':
+      return AppLocalizationsEs();
   }
 
   throw FlutterError(

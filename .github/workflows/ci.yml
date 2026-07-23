@@ -24,6 +24,12 @@ jobs:
       # header and dart.dev/go/downgrade-testing.
       - name: Check lockstep dependency lower bounds
         run: dart run tool/check_lockstep_constraints.dart
+      # Every non-English ARB must have 100% key coverage against its _en.arb
+      # template. gen-l10n silently falls back to English for missing keys, so
+      # a half-translated locale would otherwise ship looking finished. See
+      # tool/check_arb_coverage.dart and doc/i18n.md.
+      - name: Check ARB translation coverage
+        run: dart run tool/check_arb_coverage.dart
       # Deterministic perf counter gate: structural work counters (objects
       # loaded, bytes decoded, content ops, ...) over fixed inputs vs the
       # committed baseline. No wall time, so a noisy shared runner cannot

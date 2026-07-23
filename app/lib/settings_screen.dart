@@ -5,6 +5,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'app_info.dart';
 import 'l10n/app_l10n.dart';
+import 'l10n/app_localizations.dart';
+import 'language_names.dart';
 import 'recents.dart';
 import 'update.dart';
 
@@ -91,6 +93,58 @@ Future<void> showAppSettings(
   );
 }
 
+/// The Settings UI-language dropdown: "System default" plus every locale the
+/// app ships translations for, each shown by its native name. Writes the
+/// choice to [PdfEditingPreferences.locale] (null = follow the platform),
+/// which `app.dart` feeds to `MaterialApp.locale`.
+class _LanguagePicker extends StatelessWidget {
+  const _LanguagePicker({required this.prefs});
+
+  final PdfEditingPreferences prefs;
+
+  @override
+  Widget build(BuildContext context) {
+    // Sort supported locales by native name so the list reads naturally; the
+    // "System default" entry (value null) always leads.
+    final locales = AppLocalizations.supportedLocales.toList()
+      ..sort((a, b) => languageDisplayName(a)
+          .toLowerCase()
+          .compareTo(languageDisplayName(b).toLowerCase()));
+    // Match the stored preference to a supported locale by value; an
+    // unsupported stored tag falls back to showing "System default" without
+    // discarding the preference.
+    Locale? selected;
+    for (final locale in locales) {
+      if (locale == prefs.locale) {
+        selected = locale;
+        break;
+      }
+    }
+    return DropdownButtonFormField<Locale?>(
+      key: const ValueKey('settings-language'),
+      initialValue: selected,
+      isExpanded: true,
+      decoration: const InputDecoration(
+        border: OutlineInputBorder(),
+        isDense: true,
+        prefixIcon: Icon(Icons.language),
+      ),
+      items: [
+        DropdownMenuItem<Locale?>(
+          value: null,
+          child: Text(appL10n(context).settingsLanguageSystem),
+        ),
+        for (final locale in locales)
+          DropdownMenuItem<Locale?>(
+            value: locale,
+            child: Text(languageDisplayName(locale)),
+          ),
+      ],
+      onChanged: (value) => prefs.locale = value,
+    );
+  }
+}
+
 class _SettingsDialog extends StatefulWidget {
   const _SettingsDialog({
     required this.prefs,
@@ -147,6 +201,11 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                   selected: {widget.prefs.themeMode},
                   onSelectionChanged: (s) => widget.prefs.themeMode = s.first,
                 ),
+                const SizedBox(height: 16),
+                Text(appL10n(context).settingsLanguage,
+                    style: theme.textTheme.titleSmall),
+                const SizedBox(height: 8),
+                _LanguagePicker(prefs: widget.prefs),
                 const Divider(height: 32),
                 Row(
                   children: [
@@ -296,7 +355,7 @@ class _UpdateSection extends StatelessWidget {
             if (updates.updateAvailable) ...[
               const SizedBox(height: 8),
               Align(
-                alignment: Alignment.centerLeft,
+                alignment: AlignmentDirectional.centerStart,
                 child: FilledButton.icon(
                   key: const ValueKey('settings-download-update'),
                   icon: const Icon(Icons.download_outlined, size: 18),

@@ -392,7 +392,7 @@ class _PdfAnnotationPropertiesPanelState
       bool varies = false}) {
     final base = key is ValueKey ? '${key.value}' : '$key';
     return Padding(
-      padding: const EdgeInsets.only(left: 16, right: 8),
+      padding: const EdgeInsetsDirectional.only(start: 16, end: 8),
       child: Row(children: [
         Text(label),
         Expanded(

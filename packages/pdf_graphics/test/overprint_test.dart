@@ -1,14 +1,13 @@
 // Overprint state parsing + delivery guard (issue #502).
 //
-// The renderer composites in RGB and cannot yet reproduce faithful subtractive
-// overprint (§8.6.7), so the Ghent GWG030 gray/K/separation overprint patch is
-// an accepted baseline deviation like the DeviceN GWG190/191/192 patches. What
-// this guard pins is the half that IS implemented and must not regress: the
-// /OP (stroke), /op (fill) and /OPM (mode) ExtGState keys are parsed into the
-// graphics state, survive q/Q, and are delivered to the device - so a future
-// colorant-buffer compositor has the state to act on. It sits alongside
-// ghent_jpx_indexed_test.dart: pinning a low-level operation directly rather
-// than relying on the tolerated raster baseline.
+// This pins the interpreter half of overprint (§8.6.7): the /OP (stroke),
+// /op (fill) and /OPM (mode) ExtGState keys are parsed into the graphics state,
+// survive q/Q, and are delivered to the device. The RGB canvas then approximates
+// the composite with `darken` (see dart_pdf_editor overprint_render_test.dart);
+// faithful subtractive overprint still needs a CMYK/spot colorant buffer, so
+// Ghent GWG030 stays a tolerated raster baseline deviation like the DeviceN
+// GWG190/191/192 patches. It sits alongside ghent_jpx_indexed_test.dart: pinning
+// a low-level operation directly rather than relying on the tolerated baseline.
 import 'dart:io';
 import 'dart:typed_data';
 
