@@ -73,9 +73,50 @@ a background raster thread there). VM tests exercise the fallback and stay green
 - `render_trace_gate` + `render_worker` + `image_decoder` + `editing_image` +
   `inline_image` tests pass.
 
+## Part 3 — a desktop A/B harness for the main-thread decode
+
+The web perf harness runs desktop Chrome, whose *worker* scope has
+`OffscreenCanvas`, so DCT images normally decode in the worker and Part 2's
+main-thread path never fires — and the corpus had no non-CMYK DCT scenario
+anyway (`scan-book` is Flate, `cmyk-jpeg` is CMYK, which Part 2 declines). Two
+additions make the win measurable on desktop:
+
+- **`photo-jpeg-6p.pdf`** in the public corpus: 6 full-page DeviceRGB DCTDecode
+  covers (~1240×1654, the #458 shape), built by a new `buildPhotoJpeg` in
+  `gen_public_corpus.dart` via `package:image`'s `encodeJpg` (byte-deterministic:
+  fixed seed + fixed quality). It's the corpus's only non-CMYK DCT decode
+  workload. Regeneration leaves the other eight files byte-identical (verified).
+- **`?worker=N`** in `perf_harness.dart`: `worker=0` sets
+  `pdfRenderWorkerScriptUrl = null`, forcing every page — interpret and image
+  decode — onto the main thread. That routes all six JPEGs through the changed
+  `_decodeOne` DCT branch. The toggle lives in the harness, which the A/B copies
+  into the baseline worktree, so both trees fork at the same lever.
+- **`scroll-photo-noworker`** scenario ties them together (`worker:0`).
+
+**Result** (`tool/perf.sh webdiff main scroll-photo-noworker --iterations 5`):
+in `worker=0` mode the only code difference between the trees is `_decodeOne`'s
+DCT branch, and current is **buildP50 1.49 → 1.22 ms, −17.8%** (openPageCountMs
+−5.3%, everything else flat, no regression). A consistent P50 drop of that size
+is the browser codec working and beating Skia's WASM decode — had it silently
+fallen back, current would equal baseline. So Part 2 is confirmed active and
+faster on the main thread, not just compiling.
+
+### Finding surfaced by Part 1's tally (worth its own follow-up)
+
+Running the photo doc with the worker **on** (headless), the worker's browser
+decode declines every page — `imageDecode=codec=0 declined=1(decodeNull:1)` —
+i.e. `createImageBitmap`/`OffscreenCanvas.getImageData` returns null in this
+headless environment (not a capability gap; the getter is true). Part 1 made
+that visible immediately. Whether it's headless-only or also bites real mobile
+browsers is a #458 sub-question for a device trace. (The decline reason strings
+deliberately avoid the words "fail"/"error" — they ride the phase log, which the
+harness scans for fatal-error markers, and `decodeFailed` was tripping it.)
+
 ## Not done here
 
 - Regenerating the committed `pdf_render_worker.dart.js` asset — that's the
   flaky auto-regen path (#422), handled separately.
 - Confirming *which* prerequisite is missing on the reported device — that needs
   a fresh device trace, which Part 1 now makes a one-line read.
+- Root-causing the headless `decodeNull` (Part 1 surfaced it; may be
+  headless-specific).

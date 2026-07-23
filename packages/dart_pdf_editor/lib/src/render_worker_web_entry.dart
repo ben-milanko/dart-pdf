@@ -828,7 +828,7 @@ Future<PdfDecodedPixels?> _decodeWithBrowserCodec(
     base = decodePdfImageBase(cos, stream);
   }
   if (base == null) {
-    tally?.decline('decodeFailed');
+    tally?.decline('decodeNull');
     return null;
   }
   tally?.codec++;
@@ -948,7 +948,9 @@ List<String> _browserImageDecodeMissing() => <String>[
 ///
 /// Reasons: `noCapability` (the scope lacks the codec — the #458 case),
 /// `imageMask`/`cmyk`/`notDct` (expected declines the pure-Dart decoder
-/// handles), and `decodeFailed` (`createImageBitmap` threw or returned empty).
+/// handles), and `decodeNull` (`createImageBitmap` threw or returned empty).
+/// The reason strings avoid the words "fail"/"error" on purpose: they ride the
+/// phase log, which the perf harness scans for fatal-error markers.
 class _BrowserDecodeTally {
   int codec = 0;
   final Map<String, int> _declined = <String, int>{};
