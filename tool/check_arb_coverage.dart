@@ -175,12 +175,14 @@ void _scanMessage(String s, Set<String> names) {
     final close = _matchBrace(s, i);
     if (close < 0) break;
     final inner = s.substring(i + 1, close);
-    final icu =
-        RegExp(r'^\s*(\w+)\s*,\s*(?:plural|select)\s*,(.*)$', dotAll: true)
-            .firstMatch(inner);
+    final icu = RegExp(r'^\s*(\w+)\s*,\s*(\w+)\s*,?(.*)$', dotAll: true)
+        .firstMatch(inner);
     if (icu != null) {
-      names.add(icu.group(1)!); // the plural/select argument variable
-      _scanBranches(icu.group(2)!, names);
+      names.add(icu.group(1)!); // the ICU argument variable
+      // plural/select/selectordinal carry translatable branch bodies to walk;
+      // number/date/time (and other simple arg formats) carry none.
+      const branching = {'plural', 'select', 'selectordinal'};
+      if (branching.contains(icu.group(2))) _scanBranches(icu.group(3)!, names);
     } else if (RegExp(r'^\s*\w+\s*$').hasMatch(inner)) {
       names.add(inner.trim()); // a simple {name} interpolation
     } else {
