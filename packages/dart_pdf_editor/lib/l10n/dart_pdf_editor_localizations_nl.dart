@@ -9,6 +9,21 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsNl([String locale = 'nl']) : super(locale);
 
   @override
+  String get tbCropApply => 'Bijsnijden toepassen';
+
+  @override
+  String get tbCropCancel => 'Bijsnijden annuleren';
+
+  @override
+  String get tbCropImage => 'Afbeelding bijsnijden';
+
+  @override
+  String get tbCropReset => 'Bijsnijden opnieuw instellen';
+
+  @override
+  String get tbCroppingImage => 'Bezig met bijsnijden';
+
+  @override
   String get menuLock => 'Vergrendelen';
 
   @override

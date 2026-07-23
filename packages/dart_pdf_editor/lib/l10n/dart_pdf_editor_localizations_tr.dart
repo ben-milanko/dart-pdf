@@ -9,6 +9,21 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsTr([String locale = 'tr']) : super(locale);
 
   @override
+  String get tbCropApply => 'Kırpmayı uygula';
+
+  @override
+  String get tbCropCancel => 'Kırpmayı iptal et';
+
+  @override
+  String get tbCropImage => 'Resmi kırp';
+
+  @override
+  String get tbCropReset => 'Kırpmayı sıfırla';
+
+  @override
+  String get tbCroppingImage => 'Resim kırpılıyor';
+
+  @override
   String get menuLock => 'Kilitle';
 
   @override

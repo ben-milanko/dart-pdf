@@ -9,6 +9,21 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsHi([String locale = 'hi']) : super(locale);
 
   @override
+  String get tbCropApply => 'क्रॉप लागू करें';
+
+  @override
+  String get tbCropCancel => 'क्रॉप रद्द करें';
+
+  @override
+  String get tbCropImage => 'छवि क्रॉप करें';
+
+  @override
+  String get tbCropReset => 'क्रॉप रीसेट करें';
+
+  @override
+  String get tbCroppingImage => 'छवि क्रॉप हो रही है';
+
+  @override
   String get menuLock => 'लॉक करें';
 
   @override

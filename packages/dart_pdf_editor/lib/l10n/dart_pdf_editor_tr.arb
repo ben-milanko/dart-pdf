@@ -564,5 +564,10 @@
   "menuLock": "Kilitle",
   "menuUnlock": "Kilidi aç",
   "sidebarLockAnnotation": "Kilitle",
-  "sidebarUnlockAnnotation": "Kilidi aç"
+  "sidebarUnlockAnnotation": "Kilidi aç",
+  "tbCropApply": "Kırpmayı uygula",
+  "tbCropCancel": "Kırpmayı iptal et",
+  "tbCropImage": "Resmi kırp",
+  "tbCropReset": "Kırpmayı sıfırla",
+  "tbCroppingImage": "Resim kırpılıyor"
 }

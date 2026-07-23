@@ -564,5 +564,10 @@
   "menuLock": "Bloquear",
   "menuUnlock": "Desbloquear",
   "sidebarLockAnnotation": "Bloquear",
-  "sidebarUnlockAnnotation": "Desbloquear"
+  "sidebarUnlockAnnotation": "Desbloquear",
+  "tbCropApply": "Aplicar corte",
+  "tbCropCancel": "Cancelar corte",
+  "tbCropImage": "Cortar imagem",
+  "tbCropReset": "Redefinir corte",
+  "tbCroppingImage": "Cortando imagem"
 }

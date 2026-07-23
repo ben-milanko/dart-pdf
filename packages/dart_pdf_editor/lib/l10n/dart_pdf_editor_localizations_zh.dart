@@ -9,6 +9,21 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get tbCropApply => '应用裁剪';
+
+  @override
+  String get tbCropCancel => '取消裁剪';
+
+  @override
+  String get tbCropImage => '裁剪图片';
+
+  @override
+  String get tbCropReset => '重置裁剪';
+
+  @override
+  String get tbCroppingImage => '正在裁剪图片';
+
+  @override
   String get menuLock => '锁定';
 
   @override
@@ -1907,6 +1922,21 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 /// The translations for Chinese, using the Han script (`zh_Hant`).
 class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   DartPdfEditorLocalizationsZhHant() : super('zh_Hant');
+
+  @override
+  String get tbCropApply => '套用裁剪';
+
+  @override
+  String get tbCropCancel => '取消裁剪';
+
+  @override
+  String get tbCropImage => '裁剪圖片';
+
+  @override
+  String get tbCropReset => '重設裁剪';
+
+  @override
+  String get tbCroppingImage => '正在裁剪圖片';
 
   @override
   String get menuLock => '鎖定';

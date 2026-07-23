@@ -9,6 +9,21 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsRu([String locale = 'ru']) : super(locale);
 
   @override
+  String get tbCropApply => 'Применить обрезку';
+
+  @override
+  String get tbCropCancel => 'Отменить обрезку';
+
+  @override
+  String get tbCropImage => 'Обрезать изображение';
+
+  @override
+  String get tbCropReset => 'Сбросить обрезку';
+
+  @override
+  String get tbCroppingImage => 'Обрезка изображения';
+
+  @override
   String get menuLock => 'Заблокировать';
 
   @override

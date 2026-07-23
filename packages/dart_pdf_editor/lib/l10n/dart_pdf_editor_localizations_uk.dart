@@ -9,6 +9,21 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsUk([String locale = 'uk']) : super(locale);
 
   @override
+  String get tbCropApply => 'Застосувати обрізання';
+
+  @override
+  String get tbCropCancel => 'Скасувати обрізання';
+
+  @override
+  String get tbCropImage => 'Обрізати зображення';
+
+  @override
+  String get tbCropReset => 'Скинути обрізання';
+
+  @override
+  String get tbCroppingImage => 'Обрізання зображення';
+
+  @override
   String get menuLock => 'Заблокувати';
 
   @override

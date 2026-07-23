@@ -564,5 +564,10 @@
   "menuLock": "잠금",
   "menuUnlock": "잠금 해제",
   "sidebarLockAnnotation": "잠금",
-  "sidebarUnlockAnnotation": "잠금 해제"
+  "sidebarUnlockAnnotation": "잠금 해제",
+  "tbCropApply": "자르기 적용",
+  "tbCropCancel": "자르기 취소",
+  "tbCropImage": "이미지 자르기",
+  "tbCropReset": "자르기 재설정",
+  "tbCroppingImage": "이미지 자르는 중"
 }

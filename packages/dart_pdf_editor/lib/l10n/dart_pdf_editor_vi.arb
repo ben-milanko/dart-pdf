@@ -564,5 +564,10 @@
   "menuLock": "Khóa",
   "menuUnlock": "Mở khóa",
   "sidebarLockAnnotation": "Khóa",
-  "sidebarUnlockAnnotation": "Mở khóa"
+  "sidebarUnlockAnnotation": "Mở khóa",
+  "tbCropApply": "Áp dụng cắt",
+  "tbCropCancel": "Hủy cắt",
+  "tbCropImage": "Cắt ảnh",
+  "tbCropReset": "Đặt lại cắt",
+  "tbCroppingImage": "Đang cắt ảnh"
 }

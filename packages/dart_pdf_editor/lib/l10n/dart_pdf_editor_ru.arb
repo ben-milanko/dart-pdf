@@ -564,5 +564,10 @@
   "menuLock": "Заблокировать",
   "menuUnlock": "Разблокировать",
   "sidebarLockAnnotation": "Заблокировать",
-  "sidebarUnlockAnnotation": "Разблокировать"
+  "sidebarUnlockAnnotation": "Разблокировать",
+  "tbCropApply": "Применить обрезку",
+  "tbCropCancel": "Отменить обрезку",
+  "tbCropImage": "Обрезать изображение",
+  "tbCropReset": "Сбросить обрезку",
+  "tbCroppingImage": "Обрезка изображения"
 }

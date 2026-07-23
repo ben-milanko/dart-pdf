@@ -564,5 +564,10 @@
   "menuLock": "鎖定",
   "menuUnlock": "解鎖",
   "sidebarLockAnnotation": "鎖定",
-  "sidebarUnlockAnnotation": "解鎖"
+  "sidebarUnlockAnnotation": "解鎖",
+  "tbCropApply": "套用裁剪",
+  "tbCropCancel": "取消裁剪",
+  "tbCropImage": "裁剪圖片",
+  "tbCropReset": "重設裁剪",
+  "tbCroppingImage": "正在裁剪圖片"
 }

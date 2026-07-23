@@ -9,6 +9,21 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsDe([String locale = 'de']) : super(locale);
 
   @override
+  String get tbCropApply => 'Zuschnitt anwenden';
+
+  @override
+  String get tbCropCancel => 'Zuschnitt abbrechen';
+
+  @override
+  String get tbCropImage => 'Bild zuschneiden';
+
+  @override
+  String get tbCropReset => 'Zuschnitt zurücksetzen';
+
+  @override
+  String get tbCroppingImage => 'Bild wird zugeschnitten';
+
+  @override
   String get menuLock => 'Sperren';
 
   @override

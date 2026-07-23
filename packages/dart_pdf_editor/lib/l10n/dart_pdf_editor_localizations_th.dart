@@ -9,6 +9,21 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsTh([String locale = 'th']) : super(locale);
 
   @override
+  String get tbCropApply => 'ใช้การครอบตัด';
+
+  @override
+  String get tbCropCancel => 'ยกเลิกการครอบตัด';
+
+  @override
+  String get tbCropImage => 'ครอบตัดรูปภาพ';
+
+  @override
+  String get tbCropReset => 'รีเซ็ตการครอบตัด';
+
+  @override
+  String get tbCroppingImage => 'กำลังครอบตัดรูปภาพ';
+
+  @override
   String get menuLock => 'ล็อก';
 
   @override

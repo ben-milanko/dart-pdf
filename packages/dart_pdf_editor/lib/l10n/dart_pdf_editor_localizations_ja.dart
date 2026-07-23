@@ -9,6 +9,21 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsJa([String locale = 'ja']) : super(locale);
 
   @override
+  String get tbCropApply => '切り抜きを適用';
+
+  @override
+  String get tbCropCancel => '切り抜きをキャンセル';
+
+  @override
+  String get tbCropImage => '画像を切り抜く';
+
+  @override
+  String get tbCropReset => '切り抜きをリセット';
+
+  @override
+  String get tbCroppingImage => '画像を切り抜き中';
+
+  @override
   String get menuLock => 'ロック';
 
   @override

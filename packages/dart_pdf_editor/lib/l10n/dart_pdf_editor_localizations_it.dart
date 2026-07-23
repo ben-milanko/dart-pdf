@@ -9,6 +9,21 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsIt([String locale = 'it']) : super(locale);
 
   @override
+  String get tbCropApply => 'Applica ritaglio';
+
+  @override
+  String get tbCropCancel => 'Annulla ritaglio';
+
+  @override
+  String get tbCropImage => 'Ritaglia immagine';
+
+  @override
+  String get tbCropReset => 'Reimposta ritaglio';
+
+  @override
+  String get tbCroppingImage => 'Ritaglio immagine';
+
+  @override
   String get menuLock => 'Blocca';
 
   @override

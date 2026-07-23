@@ -9,6 +9,21 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsFr([String locale = 'fr']) : super(locale);
 
   @override
+  String get tbCropApply => 'Appliquer le rognage';
+
+  @override
+  String get tbCropCancel => 'Annuler le rognage';
+
+  @override
+  String get tbCropImage => 'Rogner l\'image';
+
+  @override
+  String get tbCropReset => 'Réinitialiser le rognage';
+
+  @override
+  String get tbCroppingImage => 'Rognage de l\'image';
+
+  @override
   String get menuLock => 'Verrouiller';
 
   @override

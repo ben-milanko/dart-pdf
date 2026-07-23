@@ -564,5 +564,10 @@
   "menuLock": "Заблокувати",
   "menuUnlock": "Розблокувати",
   "sidebarLockAnnotation": "Заблокувати",
-  "sidebarUnlockAnnotation": "Розблокувати"
+  "sidebarUnlockAnnotation": "Розблокувати",
+  "tbCropApply": "Застосувати обрізання",
+  "tbCropCancel": "Скасувати обрізання",
+  "tbCropImage": "Обрізати зображення",
+  "tbCropReset": "Скинути обрізання",
+  "tbCroppingImage": "Обрізання зображення"
 }

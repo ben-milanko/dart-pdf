@@ -564,5 +564,10 @@
   "menuLock": "Zablokuj",
   "menuUnlock": "Odblokuj",
   "sidebarLockAnnotation": "Zablokuj",
-  "sidebarUnlockAnnotation": "Odblokuj"
+  "sidebarUnlockAnnotation": "Odblokuj",
+  "tbCropApply": "Zastosuj przycięcie",
+  "tbCropCancel": "Anuluj przycięcie",
+  "tbCropImage": "Przytnij obraz",
+  "tbCropReset": "Resetuj przycięcie",
+  "tbCroppingImage": "Przycinanie obrazu"
 }

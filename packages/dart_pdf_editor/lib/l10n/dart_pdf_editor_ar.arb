@@ -564,5 +564,10 @@
   "menuLock": "قفل",
   "menuUnlock": "إلغاء القفل",
   "sidebarLockAnnotation": "قفل",
-  "sidebarUnlockAnnotation": "إلغاء القفل"
+  "sidebarUnlockAnnotation": "إلغاء القفل",
+  "tbCropApply": "تطبيق الاقتصاص",
+  "tbCropCancel": "إلغاء الاقتصاص",
+  "tbCropImage": "اقتصاص الصورة",
+  "tbCropReset": "إعادة تعيين الاقتصاص",
+  "tbCroppingImage": "جارٍ اقتصاص الصورة"
 }

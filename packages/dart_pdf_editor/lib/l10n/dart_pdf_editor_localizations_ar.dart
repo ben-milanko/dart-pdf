@@ -9,6 +9,21 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsAr([String locale = 'ar']) : super(locale);
 
   @override
+  String get tbCropApply => 'تطبيق الاقتصاص';
+
+  @override
+  String get tbCropCancel => 'إلغاء الاقتصاص';
+
+  @override
+  String get tbCropImage => 'اقتصاص الصورة';
+
+  @override
+  String get tbCropReset => 'إعادة تعيين الاقتصاص';
+
+  @override
+  String get tbCroppingImage => 'جارٍ اقتصاص الصورة';
+
+  @override
   String get menuLock => 'قفل';
 
   @override

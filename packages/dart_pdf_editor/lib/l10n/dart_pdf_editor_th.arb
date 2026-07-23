@@ -564,5 +564,10 @@
   "menuLock": "ล็อก",
   "menuUnlock": "ปลดล็อก",
   "sidebarLockAnnotation": "ล็อก",
-  "sidebarUnlockAnnotation": "ปลดล็อก"
+  "sidebarUnlockAnnotation": "ปลดล็อก",
+  "tbCropApply": "ใช้การครอบตัด",
+  "tbCropCancel": "ยกเลิกการครอบตัด",
+  "tbCropImage": "ครอบตัดรูปภาพ",
+  "tbCropReset": "รีเซ็ตการครอบตัด",
+  "tbCroppingImage": "กำลังครอบตัดรูปภาพ"
 }

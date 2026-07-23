@@ -9,6 +9,21 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsId([String locale = 'id']) : super(locale);
 
   @override
+  String get tbCropApply => 'Terapkan pangkas';
+
+  @override
+  String get tbCropCancel => 'Batalkan pangkas';
+
+  @override
+  String get tbCropImage => 'Pangkas gambar';
+
+  @override
+  String get tbCropReset => 'Atur ulang pangkas';
+
+  @override
+  String get tbCroppingImage => 'Memangkas gambar';
+
+  @override
   String get menuLock => 'Kunci';
 
   @override

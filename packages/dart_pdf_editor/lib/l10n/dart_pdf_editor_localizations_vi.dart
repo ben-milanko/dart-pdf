@@ -9,6 +9,21 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsVi([String locale = 'vi']) : super(locale);
 
   @override
+  String get tbCropApply => 'Áp dụng cắt';
+
+  @override
+  String get tbCropCancel => 'Hủy cắt';
+
+  @override
+  String get tbCropImage => 'Cắt ảnh';
+
+  @override
+  String get tbCropReset => 'Đặt lại cắt';
+
+  @override
+  String get tbCroppingImage => 'Đang cắt ảnh';
+
+  @override
   String get menuLock => 'Khóa';
 
   @override

@@ -564,5 +564,10 @@
   "menuLock": "Kunci",
   "menuUnlock": "Buka kunci",
   "sidebarLockAnnotation": "Kunci",
-  "sidebarUnlockAnnotation": "Buka kunci"
+  "sidebarUnlockAnnotation": "Buka kunci",
+  "tbCropApply": "Terapkan pangkas",
+  "tbCropCancel": "Batalkan pangkas",
+  "tbCropImage": "Pangkas gambar",
+  "tbCropReset": "Atur ulang pangkas",
+  "tbCroppingImage": "Memangkas gambar"
 }

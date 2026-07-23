@@ -564,5 +564,10 @@
   "menuLock": "Verrouiller",
   "menuUnlock": "Déverrouiller",
   "sidebarLockAnnotation": "Verrouiller",
-  "sidebarUnlockAnnotation": "Déverrouiller"
+  "sidebarUnlockAnnotation": "Déverrouiller",
+  "tbCropApply": "Appliquer le rognage",
+  "tbCropCancel": "Annuler le rognage",
+  "tbCropImage": "Rogner l'image",
+  "tbCropReset": "Réinitialiser le rognage",
+  "tbCroppingImage": "Rognage de l'image"
 }

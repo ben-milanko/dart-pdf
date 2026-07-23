@@ -9,6 +9,21 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsEs([String locale = 'es']) : super(locale);
 
   @override
+  String get tbCropApply => 'Aplicar recorte';
+
+  @override
+  String get tbCropCancel => 'Cancelar recorte';
+
+  @override
+  String get tbCropImage => 'Recortar imagen';
+
+  @override
+  String get tbCropReset => 'Restablecer recorte';
+
+  @override
+  String get tbCroppingImage => 'Recortando imagen';
+
+  @override
   String get menuLock => 'Bloquear';
 
   @override

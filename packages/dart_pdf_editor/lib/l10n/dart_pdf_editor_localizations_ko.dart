@@ -9,6 +9,21 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsKo([String locale = 'ko']) : super(locale);
 
   @override
+  String get tbCropApply => '자르기 적용';
+
+  @override
+  String get tbCropCancel => '자르기 취소';
+
+  @override
+  String get tbCropImage => '이미지 자르기';
+
+  @override
+  String get tbCropReset => '자르기 재설정';
+
+  @override
+  String get tbCroppingImage => '이미지 자르는 중';
+
+  @override
   String get menuLock => '잠금';
 
   @override

@@ -564,5 +564,10 @@
   "menuLock": "Vergrendelen",
   "menuUnlock": "Ontgrendelen",
   "sidebarLockAnnotation": "Vergrendelen",
-  "sidebarUnlockAnnotation": "Ontgrendelen"
+  "sidebarUnlockAnnotation": "Ontgrendelen",
+  "tbCropApply": "Bijsnijden toepassen",
+  "tbCropCancel": "Bijsnijden annuleren",
+  "tbCropImage": "Afbeelding bijsnijden",
+  "tbCropReset": "Bijsnijden opnieuw instellen",
+  "tbCroppingImage": "Bezig met bijsnijden"
 }

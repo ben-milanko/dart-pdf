@@ -564,5 +564,10 @@
   "menuLock": "Sperren",
   "menuUnlock": "Entsperren",
   "sidebarLockAnnotation": "Sperren",
-  "sidebarUnlockAnnotation": "Entsperren"
+  "sidebarUnlockAnnotation": "Entsperren",
+  "tbCropApply": "Zuschnitt anwenden",
+  "tbCropCancel": "Zuschnitt abbrechen",
+  "tbCropImage": "Bild zuschneiden",
+  "tbCropReset": "Zuschnitt zurücksetzen",
+  "tbCroppingImage": "Bild wird zugeschnitten"
 }
