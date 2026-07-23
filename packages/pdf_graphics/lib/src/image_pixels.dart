@@ -1390,7 +1390,10 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
   switch (space) {
     case 'DeviceRGB':
       if (data.length < count * 3) return null;
-      final rgbIcc = icc != null && icc.channels == 3 ? icc : null;
+      // An sRGB-equivalent profile is an 8-bit no-op - take the unmanaged
+      // path (#531, the single most common ICCBased RGB case).
+      final rgbIcc =
+          icc != null && icc.channels == 3 && !icc.isSrgb ? icc : null;
       // Fast path: no colour management, identity /Decode, no color key - the
       // RGB samples copy straight through (the LUTs would be identity and the
       // alpha is a constant 255), with no per-pixel list allocation.
@@ -1408,6 +1411,17 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
           lut1 = _lutFor(ranges, 1),
           lut2 = _lutFor(ranges, 2);
       final key = colorKey;
+      // Matrix/TRC profiles transform allocation-free straight from bytes
+      // (#531); with an identity /Decode the samples pass through untouched.
+      final rgb8 = rgbIcc?.rgb8Transform;
+      if (rgb8 != null && ranges == null && key == null) {
+        for (var i = 0; i < count; i++) {
+          final s = i * 3, o = i * 4;
+          rgb8(data, s, out, o);
+          out[o + 3] = 255;
+        }
+        return out;
+      }
       for (var i = 0; i < count; i++) {
         final s = i * 3, o = i * 4;
         final r = data[s], g = data[s + 1], b = data[s + 2];
@@ -1436,7 +1450,8 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
     case 'DeviceGray':
       if (data.length < count) return null;
       final lut = _lutFor(ranges, 0);
-      final grayIcc = icc != null && icc.channels == 1 ? icc : null;
+      final grayIcc =
+          icc != null && icc.channels == 1 && !icc.isSrgb ? icc : null;
       final key = colorKey;
       // Fast path: identity /Decode, no ICC, no color key - replicate the gray
       // sample into RGB with constant 255 alpha, no per-pixel allocation.

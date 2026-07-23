@@ -55,6 +55,12 @@
       "pdf": "test_corpora/dartpdf/styled-booklet-24p.pdf",
       "params": { "ops": 24 },
       "note": "Apply 24 highlight/rectangle/ink annotations through PdfEditingController: incremental-save + appearance-gen cost, revisions, buffer growth."
+    },
+    "scroll-hatch": {
+      "kind": "scroll",
+      "pdf": "test_corpora/dartpdf/hatch-sections-4p.pdf",
+      "params": { "passes": 2, "fast": 0 },
+      "note": "4p A1 sheets, ~70 tiling-pattern-hatched regions each (~300k device commands/page under per-tile re-execution). The #524 record-once/replay anchor: interpret cost, record size, build/raster."
     }
   }
 }

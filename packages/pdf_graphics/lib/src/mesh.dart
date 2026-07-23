@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'color.dart';
@@ -292,11 +293,62 @@ class PdfMeshParser {
     ]);
   }
 
+  /// Chooses a per-patch subdivision count (#536, PDFium's adaptive
+  /// Coons/tensor tessellation): a patch small on the page or nearly flat in
+  /// colour needs far fewer than [_patchDivisions] cells, and a 1000-patch
+  /// mesh otherwise always emits 128k triangles. Driven by the larger of two
+  /// metrics so a big patch never under-tessellates its geometry even when
+  /// its corners share a colour:
+  ///  - screen size: the max page-space span of the four corners, one cell
+  ///    per [_patchTargetEdge] units;
+  ///  - colour delta: the max per-channel corner-colour difference, scaled so
+  ///    a full-range transition still asks for the full division count
+  ///    (PDFium's 4/255 corner-delta threshold is the floor below which a
+  ///    patch reads as flat).
+  /// Clamped to `[1, _patchDivisions]` - 8 stays the ceiling.
+  static const double _patchTargetEdge = 12; // page units per cell
+  static const double _flatColorDelta = 4 / 255;
+
+  int _divisionsFor(
+      List<List<(double, double)>> grid, List<PdfColor> colors) {
+    // Four corners of the bicubic grid.
+    final corners = [grid[0][0], grid[0][3], grid[3][3], grid[3][0]];
+    var span = 0.0;
+    for (var i = 0; i < 4; i++) {
+      for (var j = i + 1; j < 4; j++) {
+        final dx = corners[i].$1 - corners[j].$1;
+        final dy = corners[i].$2 - corners[j].$2;
+        final d = dx * dx + dy * dy;
+        if (d > span) span = d;
+      }
+    }
+    final sizeDiv = (math.sqrt(span) / _patchTargetEdge).ceil();
+
+    var colorDelta = 0.0;
+    for (var i = 0; i < 4; i++) {
+      for (var j = i + 1; j < 4; j++) {
+        final d = math.max(
+            (colors[i].red - colors[j].red).abs(),
+            math.max((colors[i].green - colors[j].green).abs(),
+                (colors[i].blue - colors[j].blue).abs()));
+        if (d > colorDelta) colorDelta = d;
+      }
+    }
+    // Below the flat threshold the colour contributes nothing; above it, ramp
+    // linearly to the full division count at a full-range transition.
+    final colorDiv = colorDelta <= _flatColorDelta
+        ? 0
+        : (colorDelta * _patchDivisions).ceil();
+
+    final n = math.max(sizeDiv, colorDiv);
+    return n < 1 ? 1 : (n > _patchDivisions ? _patchDivisions : n);
+  }
+
   /// Evaluates the bicubic Bézier surface on a regular grid and emits
   /// triangles with bilinearly interpolated corner colors.
   void _tessellatePatch(
       List<List<(double, double)>> grid, List<PdfColor> colors) {
-    const n = _patchDivisions;
+    final n = _divisionsFor(grid, colors);
     final base = _vertices.length;
     for (var si = 0; si <= n; si++) {
       final s = si / n;

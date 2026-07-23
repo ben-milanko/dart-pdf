@@ -36,6 +36,9 @@ int retainedCommandGraphWeight(List<PdfRenderCommand> commands) {
     count++;
     if (command is PdfEndSoftMaskedCommand) {
       count += retainedCommandGraphWeight(command.maskCommands);
+    } else if (command is PdfDrawTiledCellCommand) {
+      // The nested cell is retained once regardless of tile count.
+      count += retainedCommandGraphWeight(command.cellCommands);
     }
   }
   return count;
@@ -94,6 +97,14 @@ List<PdfRenderCommand>? compactTranscriptSourceCommands(
             transferScale: command.transferScale,
             transferOffset: command.transferOffset,
           );
+        }
+      } else if (command is PdfDrawTiledCellCommand) {
+        // Cell images are serialized once (depth-first), matching the
+        // recorder's imageRequests order - patch them once here too.
+        final cellCommands = patch(command.cellCommands);
+        if (!identical(cellCommands, command.cellCommands)) {
+          replacement = PdfDrawTiledCellCommand(
+              cellCommands, command.originsX, command.originsY);
         }
       }
       if (!identical(replacement, command)) {

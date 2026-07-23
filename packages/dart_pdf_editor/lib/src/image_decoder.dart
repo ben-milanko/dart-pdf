@@ -190,11 +190,16 @@ class PdfImageCache {
 }
 
 /// Collects every image a page references, without painting anything.
-class ImageCollector implements PdfDevice {
+class ImageCollector implements PdfDevice, PdfTiledCellSink {
   final List<PdfImageRequest> streams = [];
 
   @override
   void drawImage(PdfImageRequest request) => streams.add(request);
+
+  @override
+  void drawTiledCell(PdfDrawTiledCellCommand command) =>
+      // A cell's images decode once however many tiles stamp it.
+      replayCommands(command.cellCommands, this);
 
   @override
   void save() {}

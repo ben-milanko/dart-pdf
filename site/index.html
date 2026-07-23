@@ -726,6 +726,10 @@
       font-weight: 600;
     }
 
+    .free-note + .free-note {
+      margin-top: 10px;
+    }
+
     /* ---------- Developers ---------- */
     .dev {
       background: var(--dark-2);
@@ -1471,8 +1475,8 @@
           </div>
         </a>
         <a class="dl-card"
-          href="https://github.com/ben-milanko/dart-pdf/releases/latest/download/dartpdf-windows-portable.exe"
-          aria-label="Download DartPDF for Windows (portable .exe)">
+          href="https://github.com/ben-milanko/dart-pdf/releases/latest/download/dartpdf-windows-installer.exe"
+          aria-label="Download DartPDF for Windows (installer)">
           <div class="top">
             <svg class="os" viewBox="0 0 24 24" fill="currentColor">
               <path
@@ -1482,7 +1486,7 @@
           </div>
           <div>
             <div class="name">Windows</div>
-            <div class="meta" data-i18n="dlWin_meta">Portable &middot; 64-bit</div>
+            <div class="meta" data-i18n="dlWin_meta">Installer &middot; 64-bit</div>
           </div>
         </a>
         <a class="dl-card"
@@ -1516,6 +1520,16 @@
           </div>
         </a>
       </div>
+
+      <p class="free-note">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+          <path
+            d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801" />
+        </svg>
+        <span data-i18n-html="dlWin_portable">Prefer not to install? Get the <a
+          href="https://github.com/ben-milanko/dart-pdf/releases/latest/download/dartpdf-windows-portable.exe">Windows
+          portable build</a> that runs from anywhere.</span>
+      </p>
 
       <p class="free-note">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0169b4" stroke-width="2"

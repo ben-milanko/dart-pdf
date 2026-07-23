@@ -13,7 +13,10 @@ import 'font_info.dart';
 import 'function.dart';
 import 'icc.dart';
 import 'path.dart';
+import 'recording_device.dart';
+import 'render_command.dart';
 import 'shading.dart';
+import 'translating_device.dart';
 
 /// Graphics state, mirroring §8.4. Text state parameters live here too
 /// because `Tf`, `Tc` etc. are saved and restored by `q`/`Q`.
@@ -186,7 +189,13 @@ class PdfInterpreter {
       : _scanImages = scanImagesOnly;
 
   final CosDocument cos;
-  final PdfDevice device;
+
+  /// The render target. Mutable only for the record-once/replay-per-tile
+  /// path (#524), which briefly redirects the walk into a
+  /// [RecordingPdfDevice] while a tiling-pattern cell is captured; it is
+  /// always restored before control returns to the caller.
+  PdfDevice device;
+
   final PdfCancellationToken? cancellation;
 
   static const _maxFormDepth = 16;
@@ -1788,6 +1797,13 @@ class PdfInterpreter {
       return;
     }
     final path = PdfPath(_segments);
+    // Reset the builder *before* dispatching: a pattern fill below re-enters
+    // the interpreter to run the pattern's cell content, and with the live
+    // list still installed the cell's first path ops would append into this
+    // already-captured path - the outer region's geometry then leaked into
+    // the first tile's paint (and, once cells are recorded and replayed for
+    // #524, into every tile).
+    _segments = [];
     if (!path.isEmpty && _contentVisible) {
       if (fill != null) {
         final pattern = _state.fillPattern;
@@ -2225,46 +2241,117 @@ class PdfInterpreter {
             .concat(_textMatrix)
             .concat(_state.ctm);
 
-        final savedState = _state;
-        final savedStackDepth = _stateStack.length;
-        // A CharProc is its own content stream and usually opens its own
-        // BT..ET (this font draws each glyph with a nested text object). Save
-        // the outer text-object state so the inner BT/Tm/ET can't clobber the
-        // caller's text matrix - otherwise every glyph after the first lands
-        // at the wrong position (§9.6.5: the glyph description executes in
-        // glyph space and must not disturb the text object that invoked it).
-        final savedTextMatrix = _textMatrix;
-        final savedLineMatrix = _lineMatrix;
-        final savedClipPending = _textClipPending;
-        final savedClipSegments = List.of(_textClipSegments);
-        // A `d1` inside this CharProc locks colour to the text colour; the lock
-        // is per-glyph, so snapshot and clear it (a nested glyph mustn't inherit
-        // an outer glyph's lock) and restore it afterwards.
-        final savedColorLocked = _type3ColorLocked;
-        _type3ColorLocked = false;
-        device.save();
-        try {
-          _state = _GraphicsState.from(savedState)
-            ..ctm = ctm
-            ..font = null
-            ..softMask = savedState.softMask;
-          _run(ops, resources, _currentFormDepth + 1);
-        } finally {
-          _type3ColorLocked = savedColorLocked;
-          while (_stateStack.length > savedStackDepth) {
-            _stateStack.removeLast();
+        // Record-once/stamp-per-occurrence (#535, the #524 sibling; PDFium's
+        // CPDF_Type3Cache shape). Occurrences of the same glyph whose
+        // composed CTMs share a linear part differ by a pure page-space
+        // translation - one recorded cell serves them all, keyed by
+        // everything else the recording bakes in (the paint state a d1 proc
+        // inherits). Pattern fills and soft masks are page-anchored, not
+        // translation-invariant, so those (rare) states bypass the cache.
+        if (_state.softMask == null && _state.fillPattern == null) {
+          final key = (
+            font,
+            code,
+            ctm.a,
+            ctm.b,
+            ctm.c,
+            ctm.d,
+            _state.fillColor,
+            _state.strokeColor,
+            _state.fillAlpha,
+            _state.strokeAlpha,
+            _state.stroke.width,
+          );
+          var cell = _type3Cells[key];
+          if (cell == null && _type3Cells.length < _maxType3Cells) {
+            final recorder = RecordingPdfDevice();
+            final outer = device;
+            device = recorder;
+            try {
+              _executeType3Proc(ops, resources, ctm);
+            } finally {
+              device = outer;
+            }
+            cell = (recorder.commands, ctm.e, ctm.f);
+            _type3Cells[key] = cell;
           }
-          _state = savedState;
-          _textMatrix = savedTextMatrix;
-          _lineMatrix = savedLineMatrix;
-          _textClipPending = savedClipPending;
-          _textClipSegments
-            ..clear()
-            ..addAll(savedClipSegments);
-          device.restore();
+          if (cell != null) {
+            final dx = ctm.e - cell.$2, dy = ctm.f - cell.$3;
+            final sink = device;
+            if (sink is PdfTiledCellSink) {
+              (sink as PdfTiledCellSink).drawTiledCell(PdfDrawTiledCellCommand(
+                  cell.$1,
+                  Float64List(1)..[0] = dx,
+                  Float64List(1)..[0] = dy));
+            } else if (dx == 0 && dy == 0) {
+              replayCommands(cell.$1, device);
+            } else {
+              replayCommands(cell.$1, TranslatingPdfDevice(device, dx, dy));
+            }
+            return;
+          }
         }
+        _executeType3Proc(ops, resources, ctm);
       },
     );
+  }
+
+  /// Recorded Type3 glyph cells for this interpreter, keyed by glyph and the
+  /// full non-translation state the recording depends on. Bounded so a
+  /// pathological document (every glyph at a unique scale) degrades to the
+  /// direct path instead of growing without limit.
+  final Map<Object, (List<PdfRenderCommand>, double, double)> _type3Cells = {};
+  static const _maxType3Cells = 1024;
+
+  /// The direct Type3 CharProc execution behind [_drawType3Glyph]: fresh
+  /// state at [ctm], the §9.6.5 text-object isolation, and its own path
+  /// builder (a proc's unpainted trailing segments must not leak into the
+  /// enclosing stream - same guard as [_runPatternCell]).
+  void _executeType3Proc(
+      List<ContentOperation> ops, CosDictionary resources, PdfMatrix ctm) {
+    final savedState = _state;
+    final savedStackDepth = _stateStack.length;
+    // A CharProc is its own content stream and usually opens its own
+    // BT..ET (this font draws each glyph with a nested text object). Save
+    // the outer text-object state so the inner BT/Tm/ET can't clobber the
+    // caller's text matrix - otherwise every glyph after the first lands
+    // at the wrong position (§9.6.5: the glyph description executes in
+    // glyph space and must not disturb the text object that invoked it).
+    final savedTextMatrix = _textMatrix;
+    final savedLineMatrix = _lineMatrix;
+    final savedClipPending = _textClipPending;
+    final savedClipSegments = List.of(_textClipSegments);
+    final savedSegments = _segments;
+    _segments = [];
+    // A `d1` inside this CharProc locks colour to the text colour; the lock
+    // is per-glyph, so snapshot and clear it (a nested glyph mustn't inherit
+    // an outer glyph's lock) and restore it afterwards. The glyph's effective
+    // colour stays the inherited fill colour, which the cache key already
+    // captures, so the record-once cache remains correct.
+    final savedColorLocked = _type3ColorLocked;
+    _type3ColorLocked = false;
+    device.save();
+    try {
+      _state = _GraphicsState.from(savedState)
+        ..ctm = ctm
+        ..font = null
+        ..softMask = savedState.softMask;
+      _run(ops, resources, _currentFormDepth + 1);
+    } finally {
+      _type3ColorLocked = savedColorLocked;
+      while (_stateStack.length > savedStackDepth) {
+        _stateStack.removeLast();
+      }
+      _state = savedState;
+      _textMatrix = savedTextMatrix;
+      _lineMatrix = savedLineMatrix;
+      _textClipPending = savedClipPending;
+      _textClipSegments
+        ..clear()
+        ..addAll(savedClipSegments);
+      _segments = savedSegments;
+      device.restore();
+    }
   }
 
   // ---------- patterns and shadings ----------
@@ -2477,26 +2564,70 @@ class PdfInterpreter {
         uncolored ? colorFromComponents(_state.fillPatternComponents) : null;
     _activeTilingPatterns.add(pattern);
     try {
-      for (var j = j0; j <= j1; j++) {
-        for (var i = i0; i <= i1; i++) {
-          _state = _GraphicsState()
-            ..ctm = PdfMatrix.translation(i * xStep, j * yStep).concat(matrix);
-          if (patternColor != null) {
-            _state.fillColor = patternColor;
-            _state.strokeColor = patternColor;
+      // Record-once/replay-per-tile (#524, PDFium's CPDF_RenderTiling shape):
+      // every tile runs the same cell ops from the same fresh graphics state -
+      // the only per-tile difference is a pattern-space translation, which the
+      // (affine) pattern matrix maps to a pure page-space translation. So for
+      // multi-tile fills the cell is interpreted once at the base tile and
+      // replayed translated for the rest, instead of re-executing the cell
+      // content O(tiles) times. Small fills keep the direct loop - recording
+      // has overhead and one or two tiles can't win it back.
+      const minTilesToRecord = 4;
+      final recordCell = (i1 - i0 + 1) * (j1 - j0 + 1) >= minTilesToRecord;
+      List<PdfRenderCommand>? cell;
+      if (recordCell) {
+        final recorder = RecordingPdfDevice();
+        final outer = device;
+        device = recorder;
+        try {
+          _runPatternCell(
+              ops, patternResources, bbox, matrix, i0, j0, xStep, yStep,
+              patternColor: patternColor);
+        } finally {
+          device = outer;
+        }
+        cell = recorder.commands;
+      }
+      if (cell != null && device is PdfTiledCellSink) {
+        // The device consumes the cell natively (a recorder keeps it nested -
+        // O(cell + tiles) transcript instead of O(cell x tiles); a canvas can
+        // stamp one sub-picture per origin). Origins are the page-space
+        // images of the pattern-space steps - the linear part of the pattern
+        // matrix only - base tile first at (0, 0).
+        final tiles = (i1 - i0 + 1) * (j1 - j0 + 1);
+        final originsX = Float64List(tiles);
+        final originsY = Float64List(tiles);
+        var t = 0;
+        for (var j = j0; j <= j1; j++) {
+          for (var i = i0; i <= i1; i++) {
+            final du = (i - i0) * xStep, dv = (j - j0) * yStep;
+            originsX[t] = matrix.a * du + matrix.c * dv;
+            originsY[t] = matrix.b * du + matrix.d * dv;
+            t++;
           }
-          device.save();
-          try {
-            // §8.7.3.1: the cell content is clipped to the pattern BBox before
-            // tiling - content drawn outside the cell (this pattern's red rect
-            // overruns the BBox by 50 units) must not paint, leaving the white
-            // border the baseline shows.
-            _clipToBox(bbox);
-            _run(ops, patternResources, _currentFormDepth + 1);
-          } finally {
-            final mask = _state.softMask;
-            if (mask != null) _finalizeSoftMask(mask);
-            device.restore();
+        }
+        (device as PdfTiledCellSink)
+            .drawTiledCell(PdfDrawTiledCellCommand(cell, originsX, originsY));
+      } else {
+        for (var j = j0; j <= j1; j++) {
+          for (var i = i0; i <= i1; i++) {
+            if (cell != null) {
+              if (i == i0 && j == j0) {
+                replayCommands(cell, device);
+              } else {
+                // Page-space image of the pattern-space step from the base
+                // tile - the linear part of the pattern matrix only.
+                final du = (i - i0) * xStep, dv = (j - j0) * yStep;
+                replayCommands(
+                    cell,
+                    TranslatingPdfDevice(device, matrix.a * du + matrix.c * dv,
+                        matrix.b * du + matrix.d * dv));
+              }
+              continue;
+            }
+            _runPatternCell(
+                ops, patternResources, bbox, matrix, i, j, xStep, yStep,
+                patternColor: patternColor);
           }
         }
       }
@@ -2507,6 +2638,42 @@ class PdfInterpreter {
       }
       _state = savedState;
       device.restore();
+    }
+  }
+
+  /// Executes one tiling-pattern cell at tile (i, j): fresh graphics state at
+  /// the tile's transform, §8.7.3.1 BBox clip, the cell content, and any
+  /// pending soft-mask finalize - through whatever [device] currently is
+  /// (the real target for direct tiles, a recorder for the #524 capture).
+  void _runPatternCell(List<ContentOperation> ops, CosDictionary resources,
+      List<double> bbox, PdfMatrix matrix, int i, int j, double xStep,
+      double yStep,
+      {PdfColor? patternColor}) {
+    _state = _GraphicsState()
+      ..ctm = PdfMatrix.translation(i * xStep, j * yStep).concat(matrix);
+    if (patternColor != null) {
+      _state.fillColor = patternColor;
+      _state.strokeColor = patternColor;
+    }
+    // The cell runs with its own path builder: segments a cell leaves
+    // unpainted must not prepend to the path the enclosing content stream
+    // builds next (and the enclosing region's captured path must never grow
+    // under a recorded cell - see _paintPath's early reset).
+    final savedSegments = _segments;
+    _segments = [];
+    device.save();
+    try {
+      // §8.7.3.1: the cell content is clipped to the pattern BBox before
+      // tiling - content drawn outside the cell (this pattern's red rect
+      // overruns the BBox by 50 units) must not paint, leaving the white
+      // border the baseline shows.
+      _clipToBox(bbox);
+      _run(ops, resources, _currentFormDepth + 1);
+    } finally {
+      final mask = _state.softMask;
+      if (mask != null) _finalizeSoftMask(mask);
+      device.restore();
+      _segments = savedSegments;
     }
   }
 

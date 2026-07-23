@@ -2691,13 +2691,17 @@ class _PdfViewerState extends State<PdfViewer>
   }
 
   /// Page heights scale with [_viewWidth] (see [_pageHeight]), so when the
-  /// viewport width changes - most visibly while a side panel's resize grip
-  /// is dragged - a fixed scroll offset maps to a different page and the
-  /// document appears to scroll under the reader. This pins the reading
+  /// viewport width changes a fixed scroll offset maps to a different page and
+  /// the document appears to scroll under the reader. This pins the reading
   /// position: capture the page (and fraction within it) at the viewport top
   /// under the OLD geometry, then re-derive the scroll offset once the new
   /// width has laid out. Called from build while [_viewWidth] still holds the
   /// previous width.
+  ///
+  /// In the editor the side panels overlay the viewer rather than resizing it
+  /// (see PdfShellPanelLayout), so a panel opening or closing no longer changes
+  /// the viewport at all - the view is invariant to it by construction. This
+  /// now only fires for a genuine viewport resize (a window/pane resize).
   void _preserveReadingAnchor() {
     final top = _scroll.offset;
     var acc = 0.0;
@@ -5360,14 +5364,15 @@ class _PdfViewerState extends State<PdfViewer>
     return LayoutBuilder(builder: (context, constraints) {
       // _viewWidth/_viewHeight still hold the previous layout's size here; a
       // change to the cross (fit) dimension rescales every page, so pin the
-      // reading position before adopting it (skips the very first layout,
-      // where there is nothing to preserve).
+      // reading position before adopting it (skips the very first layout, where
+      // there is nothing to preserve, and any pending restore, which wins).
       final newCross =
           _horizontal ? constraints.maxHeight : constraints.maxWidth;
       final oldCross = _horizontal ? _viewHeight : _viewWidth;
       if (_viewWidth > 0 &&
           _viewHeight > 0 &&
           newCross != oldCross &&
+          _pendingViewport == null &&
           _scroll.hasClients &&
           _pages.isNotEmpty) {
         _preserveReadingAnchor();

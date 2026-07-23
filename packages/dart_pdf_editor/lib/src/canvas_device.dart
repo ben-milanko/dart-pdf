@@ -17,7 +17,7 @@ import 'perf_log.dart';
 /// fonts, horizontally scaled to the PDF's own metrics, until the font
 /// engine produces real glyph outlines. Images must be pre-decoded into
 /// [images] (painting is synchronous).
-class CanvasPdfDevice implements PdfDevice {
+class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
   CanvasPdfDevice(this.canvas,
       {this.images = const {}, this.pixelRatio = 1});
 
@@ -269,6 +269,59 @@ class CanvasPdfDevice implements PdfDevice {
     }
     return _blend;
   }
+
+  @override
+  void drawTiledCell(PdfDrawTiledCellCommand command) {
+    // Record the cell once as a sub-picture and stamp it per origin -
+    // PDFium's DrawPatternBitmap shape, on Skia's terms. Only when plain
+    // srcOver compositing is in effect: an active blend mode, knockout
+    // group, or overprint approximation must apply per paint primitive,
+    // which drawPicture cannot express - those (rare) states take the exact
+    // per-tile expansion instead.
+    if (_blend != BlendMode.srcOver ||
+        _knockoutActive ||
+        _fillOverprint ||
+        _strokeOverprint) {
+      for (var t = 0; t < command.originsX.length; t++) {
+        final dx = command.originsX[t], dy = command.originsY[t];
+        replayCommands(command.cellCommands,
+            dx == 0 && dy == 0 ? this : TranslatingPdfDevice(this, dx, dy));
+      }
+      return;
+    }
+    // The retained transcript replays this same command object every frame
+    // (and at every zoom bucket), so the sub-picture is cached against the
+    // command's identity: recorded once for its lifetime, GC'd with it.
+    // A picture is vector - stamping it is resolution-independent, so one
+    // recording serves every scale. (Cells with decoded images resolve them
+    // from this device's [images] at record time; the transcript cache
+    // replaces image-bearing commands wholesale on re-decode, so the cached
+    // picture can never hold a stale image.)
+    var picture = _tiledCellPictures[command.cellCommands];
+    if (picture == null) {
+      final recorder = ui.PictureRecorder();
+      final cell = CanvasPdfDevice(Canvas(recorder),
+          images: images, pixelRatio: pixelRatio);
+      replayCommands(command.cellCommands, cell);
+      picture = recorder.endRecording();
+      _tiledCellPictures[command.cellCommands] = picture;
+    }
+    for (var t = 0; t < command.originsX.length; t++) {
+      canvas.save();
+      canvas.translate(command.originsX[t], command.originsY[t]);
+      canvas.drawPicture(picture);
+      canvas.restore();
+    }
+  }
+
+  /// Cell sub-pictures keyed by the *cell command list* (not the command):
+  /// Type3 glyph stamping (#535) emits one single-origin command per glyph
+  /// occurrence, all sharing one recorded cell - keying by the list gives
+  /// every occurrence the same picture. An [Expando] so a picture lives
+  /// exactly as long as the transcript retaining the list does - transcripts
+  /// are already budgeted by the retained-record caches, and a cell picture
+  /// (a handful of ops) is negligible next to its command list.
+  static final Expando<ui.Picture> _tiledCellPictures = Expando();
 
   @override
   void beginGroup(double alpha, {bool knockout = false}) {

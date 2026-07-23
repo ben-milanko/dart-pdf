@@ -33,7 +33,10 @@ class CosDocument {
   /// `startxref` keyword. An incremental update points /Prev here.
   int startXref;
 
-  final Map<CosReference, CosObject> _cache = {};
+  // Loaded-object cache keyed by the packed (objectNumber, generation) int
+  // (see [_cacheKey]) so [getObject] - the hottest path in the package -
+  // resolves a warm object without allocating a CosReference per call (#522).
+  final Map<int, CosObject> _cache = {};
   // Identity-keyed reverse index of [_cache]: object -> the ref it loaded
   // under. Keeps [referenceTo] O(1) instead of a linear scan of the cache on
   // every call (editing code maps a mutated object back to its number per
@@ -183,9 +186,13 @@ class CosDocument {
 
     // Drop cached state for every redefined object so the next resolve re-reads
     // it from the appended bytes; untouched objects keep their warm cache.
-    _cache.removeWhere((ref, obj) {
-      if (!changed.contains(ref.objectNumber)) return false;
-      if (identical(_reverseCache[obj], ref)) _reverseCache.remove(obj);
+    _cache.removeWhere((key, obj) {
+      if (!changed.contains(key ~/ 65536)) return false;
+      final reverse = _reverseCache[obj];
+      if (reverse != null &&
+          _cacheKey(reverse.objectNumber, reverse.generation) == key) {
+        _reverseCache.remove(obj);
+      }
       return true;
     });
     _objectStreams.removeWhere((number, _) => changed.contains(number));
@@ -467,14 +474,21 @@ class CosDocument {
   /// pending update is saved. [CosIncrementalUpdater.addObject] calls this
   /// for every object it allocates.
   void adoptObject(CosReference ref, CosObject object) {
-    _cache[ref] = object;
+    _cache[_cacheKey(ref.objectNumber, ref.generation)] = object;
     _reverseCache[object] = ref;
   }
 
+  /// Packs (objectNumber, generation) into one int cache key. Generations
+  /// are at most 65535 (a 5-digit xref field), and object numbers stay far
+  /// below 2^37, so the product fits dart2js's 53 safe bits. Multiplication,
+  /// not `<< 16`: JS bitwise shifts truncate to 32 bits under dart2js.
+  static int _cacheKey(int objectNumber, int generation) =>
+      objectNumber * 65536 + generation;
+
   /// Loads an object by number, parsing it on first access.
   CosObject getObject(int objectNumber, int generation) {
-    final ref = CosReference(objectNumber, generation);
-    final cached = _cache[ref];
+    final key = _cacheKey(objectNumber, generation);
+    final cached = _cache[key];
     if (cached != null) return cached;
 
     final entry = _xref[objectNumber];
@@ -536,11 +550,14 @@ class CosDocument {
     } finally {
       _loadingObjects.remove(objectNumber);
     }
+    // The CosReference materializes only on this miss path - a warm resolve
+    // above returns without allocating one (#522).
+    final ref = CosReference(objectNumber, generation);
     // Record the ref every loaded stream was parsed from: its encryption
     // key derives from it, and its presence marks the payload as still the
     // file's original bytes (see [CosStream.sourceRef]).
     if (result is CosStream) result.sourceRef = ref;
-    _cache[ref] = result;
+    _cache[key] = result;
     _reverseCache[result] = ref;
     return result;
   }
