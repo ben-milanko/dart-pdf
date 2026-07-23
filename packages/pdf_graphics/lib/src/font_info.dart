@@ -541,6 +541,13 @@ class PdfFontInfo {
     return code < cff.numGlyphs ? code : 0;
   }
 
+  /// Memoized simple-font code → gid (#521). The CID path below is already
+  /// O(1), but the simple-font chain re-walks the TrueType cmap subtables
+  /// (a linear format-4 segment scan per call) from both [outlineFor] and
+  /// [widthOf] - thousands of times on a text-heavy page. Simple fonts have
+  /// one-byte codes, so this holds at most 256 entries per font.
+  final Map<int, int> _gidMemo = {};
+
   /// Code → glyph id, per §9.6.6.4 (simple fonts) and §9.7.4.2 (CID fonts).
   int _gidFor(int code) {
     final font = _trueType;
@@ -552,6 +559,11 @@ class PdfFontInfo {
       if (index + 1 >= map.length) return 0;
       return (map[index] << 8) | map[index + 1];
     }
+    return _gidMemo[code] ??= _simpleGidFor(font, code);
+  }
+
+  /// The uncached simple-font resolution chain behind [_gidFor].
+  int _simpleGidFor(TrueTypeFont font, int code) {
     if (_symbolic || font.hasSymbolCmap) {
       final gid = font.gidForSymbolCode(code);
       if (gid != 0) return gid;
