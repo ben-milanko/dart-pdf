@@ -9,36 +9,6 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsTr([String locale = 'tr']) : super(locale);
 
   @override
-  String get tbCropApply => 'Kırpmayı uygula';
-
-  @override
-  String get tbCropCancel => 'Kırpmayı iptal et';
-
-  @override
-  String get tbCropImage => 'Resmi kırp';
-
-  @override
-  String get tbCropReset => 'Kırpmayı sıfırla';
-
-  @override
-  String get tbCroppingImage => 'Resim kırpılıyor';
-
-  @override
-  String get menuLock => 'Kilitle';
-
-  @override
-  String get menuUnlock => 'Kilidi aç';
-
-  @override
-  String get sidebarLockAnnotation => 'Kilitle';
-
-  @override
-  String get sidebarUnlockAnnotation => 'Kilidi aç';
-
-  @override
-  String get searchAnnotations => 'Ek açıklamalarda ara';
-
-  @override
   String get add => 'Ekle';
 
   @override
@@ -424,6 +394,12 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get menuFlattenForm => 'Formu düzleştir';
+
+  @override
+  String get menuLock => 'Kilitle';
+
+  @override
+  String get menuUnlock => 'Kilidi aç';
 
   @override
   String get menuRecolour => 'Yeniden renklendir…';
@@ -848,6 +824,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'İşareti kaldırıldı';
 
   @override
+  String get searchAnnotations => 'Ek açıklamalarda ara';
+
+  @override
   String get searchClearSearch => 'Aramayı temizle';
 
   @override
@@ -1017,6 +996,12 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => 'İmzayı sil';
+
+  @override
+  String get sidebarLockAnnotation => 'Kilitle';
+
+  @override
+  String get sidebarUnlockAnnotation => 'Kilidi aç';
 
   @override
   String get sidebarMore => 'Daha fazla';
@@ -1280,6 +1265,21 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get tbCheckMarksOnDocument => 'Belge üzerindeki onay işaretleri';
+
+  @override
+  String get tbCropImage => 'Resmi kırp';
+
+  @override
+  String get tbCroppingImage => 'Resim kırpılıyor';
+
+  @override
+  String get tbCropApply => 'Kırpmayı uygula';
+
+  @override
+  String get tbCropCancel => 'Kırpmayı iptal et';
+
+  @override
+  String get tbCropReset => 'Kırpmayı sıfırla';
 
   @override
   String get tbColorLabel => 'Renk';

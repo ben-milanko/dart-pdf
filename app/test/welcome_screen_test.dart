@@ -233,6 +233,51 @@ void main() {
     cache.dispose();
   });
 
+  testWidgets('grid tiles centre thumbnails and share a title baseline',
+      (tester) async {
+    final store = RecentsStore();
+    await store.add(title: 'portrait.pdf', path: '/portrait.pdf');
+    await store.add(title: 'landscape.pdf', path: '/landscape.pdf');
+    final portrait = PdfBlankDocument.create();
+    final landscape =
+        PdfBlankDocument.create(pageSize: PdfPageSize.letter.landscape);
+    final cache = RecentThumbnailCache(
+        readBytes: (path, {bookmark}) async =>
+            path.contains('landscape') ? landscape : portrait);
+
+    await pump(
+        tester,
+        size: wide,
+        WelcomeScreen(
+          recents: store,
+          onOpen: () {},
+          onOpenRecent: (_) {},
+          thumbnails: cache,
+        ));
+
+    await tester.runAsync(() async {
+      for (final e in store.items) {
+        await cache.thumbnailFor(e);
+      }
+    });
+    await tester.pump();
+
+    final pThumb = tester
+        .getRect(find.byKey(const ValueKey('recent-tile-thumb-/portrait.pdf')));
+    final lThumb = tester.getRect(
+        find.byKey(const ValueKey('recent-tile-thumb-/landscape.pdf')));
+    // The landscape page is shorter than the portrait one...
+    expect(lThumb.height, lessThan(pThumb.height));
+    // ...but both are centred in the same fixed slot, so their vertical
+    // centres line up.
+    expect(lThumb.center.dy, moreOrLessEquals(pThumb.center.dy, epsilon: 0.5));
+
+    // The titles share one bottom baseline despite the differing thumbnails.
+    final pTitle = tester.getRect(find.text('portrait.pdf'));
+    final lTitle = tester.getRect(find.text('landscape.pdf'));
+    expect(lTitle.bottom, moreOrLessEquals(pTitle.bottom, epsilon: 0.5));
+  });
+
   testWidgets('a non-reopenable grid tile is dimmed and not tappable',
       (tester) async {
     final store = RecentsStore();

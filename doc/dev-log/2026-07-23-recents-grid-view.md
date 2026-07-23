@@ -22,7 +22,13 @@ a file browser to adapt.
     thumbnail (150 px wide, height following the page's aspect ratio) with
     the title below, a corner remove button, tap-to-open, and a tooltip
     carrying the full title/path. Dimmed and non-tappable when the entry
-    isn't reopenable.
+    isn't reopenable. The aspect-sized thumbnail is centred vertically in a
+    fixed-height slot (`_slotHeight`, ~A4 portrait; the thumbnail is bounded
+    to it via `_RecentThumbnail.maxHeight`), and the title sits in a fixed
+    two-line box (measured with a `TextPainter` at the ambient text scale)
+    pinned to the bottom - so every tile keeps a common height, thumbnails
+    line up on a shared centre line, and titles share one bottom baseline
+    regardless of each page's shape.
   - `_RecentThumbnail` replaces `_RecentLeading` and is shared by both
     layouts. It keeps #508's fetch-once/hold-across-rebuilds behaviour. A
     fixed `height` (list) keeps the old behaviour - a `width`×`height` box

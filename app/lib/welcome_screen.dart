@@ -275,6 +275,11 @@ class _RecentGridTile extends StatelessWidget {
   final VoidCallback onRemove;
 
   static const double _tileWidth = 150;
+  // Fixed height of the thumbnail slot (~A4 portrait at [_tileWidth]). The
+  // aspect-sized thumbnail is centred within it, so every tile keeps a common
+  // height and the titles below share one bottom baseline regardless of each
+  // page's shape.
+  static const double _slotHeight = 210;
 
   @override
   Widget build(BuildContext context) {
@@ -288,51 +293,66 @@ class _RecentGridTile extends StatelessWidget {
             ? appL10n(context).welcomeTapToReopen
             : appL10n(context).welcomePickAgainToReopen;
 
+    final thumbnail = Stack(
+      children: [
+        InkWell(
+          borderRadius: BorderRadius.circular(6),
+          onTap: enabled ? onOpen : null,
+          child: _RecentThumbnail(
+            key: ValueKey('recent-tile-thumb-${entry.id}'),
+            entry: entry,
+            thumbnails: thumbnails,
+            width: _tileWidth,
+            // Aspect-aware, but bounded to the slot so it stays centred in it.
+            maxHeight: _slotHeight,
+            iconSize: 48,
+          ),
+        ),
+        Positioned(
+          top: 2,
+          right: 2,
+          child: Material(
+            color: theme.colorScheme.surface.withValues(alpha: 0.85),
+            shape: const CircleBorder(),
+            child: IconButton(
+              icon: const Icon(Icons.close, size: 16),
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.all(4),
+              constraints: const BoxConstraints(),
+              tooltip: appL10n(context).welcomeRemoveFromRecent,
+              onPressed: onRemove,
+            ),
+          ),
+        ),
+      ],
+    );
+
     final tile = SizedBox(
       width: _tileWidth,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Stack(
-            children: [
-              InkWell(
-                borderRadius: BorderRadius.circular(6),
-                onTap: enabled ? onOpen : null,
-                child: _RecentThumbnail(
-                  key: ValueKey('recent-tile-thumb-${entry.id}'),
-                  entry: entry,
-                  thumbnails: thumbnails,
-                  width: _tileWidth,
-                  // No fixed height: the tile shapes itself to the page's
-                  // aspect ratio once the thumbnail renders.
-                  iconSize: 48,
-                ),
-              ),
-              Positioned(
-                top: 2,
-                right: 2,
-                child: Material(
-                  color: theme.colorScheme.surface.withValues(alpha: 0.85),
-                  shape: const CircleBorder(),
-                  child: IconButton(
-                    icon: const Icon(Icons.close, size: 16),
-                    visualDensity: VisualDensity.compact,
-                    padding: const EdgeInsets.all(4),
-                    constraints: const BoxConstraints(),
-                    tooltip: appL10n(context).welcomeRemoveFromRecent,
-                    onPressed: onRemove,
-                  ),
-                ),
-              ),
-            ],
+          // Fixed slot: the thumbnail is centred vertically within it.
+          SizedBox(
+            height: _slotHeight,
+            child: Center(child: thumbnail),
           ),
           const SizedBox(height: 6),
-          Text(
-            entry.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall,
+          // Fixed two-line box with the title pinned to the bottom, so a
+          // one-line title sits on the same baseline as a two-line one and
+          // titles line up across the whole grid.
+          SizedBox(
+            height: _twoLineHeight(context, theme.textTheme.bodySmall),
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: Text(
+                entry.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall,
+              ),
+            ),
           ),
         ],
       ),
@@ -342,6 +362,20 @@ class _RecentGridTile extends StatelessWidget {
       message: tooltip,
       child: Opacity(opacity: enabled ? 1.0 : 0.5, child: tile),
     );
+  }
+
+  /// Height of two lines of [style] at the current text scale, so the reserved
+  /// title box always fits a wrapped two-line title.
+  static double _twoLineHeight(BuildContext context, TextStyle? style) {
+    final painter = TextPainter(
+      text: TextSpan(text: 'Ag\nAg', style: style),
+      maxLines: 2,
+      textScaler: MediaQuery.textScalerOf(context),
+      textDirection: Directionality.of(context),
+    )..layout(maxWidth: _tileWidth);
+    final height = painter.height;
+    painter.dispose();
+    return height;
   }
 }
 
@@ -363,6 +397,7 @@ class _RecentThumbnail extends StatefulWidget {
     required this.thumbnails,
     required this.width,
     this.height,
+    this.maxHeight,
     this.iconSize,
   });
 
@@ -373,6 +408,10 @@ class _RecentThumbnail extends StatefulWidget {
   /// Fixed box height (list). Null makes the thumbnail aspect-aware (grid):
   /// its height follows the rendered page's aspect ratio.
   final double? height;
+
+  /// Upper bound for the aspect-derived height (grid); ignored when [height]
+  /// is set. Keeps the thumbnail inside the grid tile's fixed slot.
+  final double? maxHeight;
   final double? iconSize;
 
   @override
@@ -399,7 +438,8 @@ class _RecentThumbnailState extends State<_RecentThumbnail> {
   double _heightFor(RecentThumbnail? thumb) {
     if (!_aspectAware) return widget.height!;
     final aspect = thumb?.aspectRatio ?? _defaultAspect;
-    return (widget.width / aspect).clamp(_minHeight, _maxHeight);
+    return (widget.width / aspect)
+        .clamp(_minHeight, widget.maxHeight ?? _maxHeight);
   }
 
   @override

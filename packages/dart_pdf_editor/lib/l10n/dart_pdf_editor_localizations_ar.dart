@@ -9,36 +9,6 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsAr([String locale = 'ar']) : super(locale);
 
   @override
-  String get tbCropApply => 'تطبيق الاقتصاص';
-
-  @override
-  String get tbCropCancel => 'إلغاء الاقتصاص';
-
-  @override
-  String get tbCropImage => 'اقتصاص الصورة';
-
-  @override
-  String get tbCropReset => 'إعادة تعيين الاقتصاص';
-
-  @override
-  String get tbCroppingImage => 'جارٍ اقتصاص الصورة';
-
-  @override
-  String get menuLock => 'قفل';
-
-  @override
-  String get menuUnlock => 'إلغاء القفل';
-
-  @override
-  String get sidebarLockAnnotation => 'قفل';
-
-  @override
-  String get sidebarUnlockAnnotation => 'إلغاء القفل';
-
-  @override
-  String get searchAnnotations => 'البحث في التعليقات التوضيحية';
-
-  @override
   String get add => 'إضافة';
 
   @override
@@ -433,6 +403,12 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get menuFlattenForm => 'تسطيح النموذج';
+
+  @override
+  String get menuLock => 'قفل';
+
+  @override
+  String get menuUnlock => 'إلغاء القفل';
 
   @override
   String get menuRecolour => 'إعادة التلوين…';
@@ -862,6 +838,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'غير معلّم';
 
   @override
+  String get searchAnnotations => 'البحث في التعليقات التوضيحية';
+
+  @override
   String get searchClearSearch => 'مسح البحث';
 
   @override
@@ -1032,6 +1011,12 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => 'حذف التوقيع';
+
+  @override
+  String get sidebarLockAnnotation => 'قفل';
+
+  @override
+  String get sidebarUnlockAnnotation => 'إلغاء القفل';
 
   @override
   String get sidebarMore => 'المزيد';
@@ -1304,6 +1289,21 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get tbCheckMarksOnDocument => 'علامات الاختيار على المستند';
+
+  @override
+  String get tbCropImage => 'اقتصاص الصورة';
+
+  @override
+  String get tbCroppingImage => 'جارٍ اقتصاص الصورة';
+
+  @override
+  String get tbCropApply => 'تطبيق الاقتصاص';
+
+  @override
+  String get tbCropCancel => 'إلغاء الاقتصاص';
+
+  @override
+  String get tbCropReset => 'إعادة تعيين الاقتصاص';
 
   @override
   String get tbColorLabel => 'اللون';

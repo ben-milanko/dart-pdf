@@ -9,36 +9,6 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsDe([String locale = 'de']) : super(locale);
 
   @override
-  String get tbCropApply => 'Zuschnitt anwenden';
-
-  @override
-  String get tbCropCancel => 'Zuschnitt abbrechen';
-
-  @override
-  String get tbCropImage => 'Bild zuschneiden';
-
-  @override
-  String get tbCropReset => 'Zuschnitt zurücksetzen';
-
-  @override
-  String get tbCroppingImage => 'Bild wird zugeschnitten';
-
-  @override
-  String get menuLock => 'Sperren';
-
-  @override
-  String get menuUnlock => 'Entsperren';
-
-  @override
-  String get sidebarLockAnnotation => 'Sperren';
-
-  @override
-  String get sidebarUnlockAnnotation => 'Entsperren';
-
-  @override
-  String get searchAnnotations => 'Anmerkungen durchsuchen';
-
-  @override
   String get add => 'Hinzufügen';
 
   @override
@@ -425,6 +395,12 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
 
   @override
   String get menuFlattenForm => 'Formular reduzieren';
+
+  @override
+  String get menuLock => 'Sperren';
+
+  @override
+  String get menuUnlock => 'Entsperren';
 
   @override
   String get menuRecolour => 'Umfärben…';
@@ -850,6 +826,9 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'Nicht markiert';
 
   @override
+  String get searchAnnotations => 'Anmerkungen durchsuchen';
+
+  @override
   String get searchClearSearch => 'Suche leeren';
 
   @override
@@ -1019,6 +998,12 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => 'Signatur löschen';
+
+  @override
+  String get sidebarLockAnnotation => 'Sperren';
+
+  @override
+  String get sidebarUnlockAnnotation => 'Entsperren';
 
   @override
   String get sidebarMore => 'Mehr';
@@ -1284,6 +1269,21 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
 
   @override
   String get tbCheckMarksOnDocument => 'Häkchen auf dem Dokument';
+
+  @override
+  String get tbCropImage => 'Bild zuschneiden';
+
+  @override
+  String get tbCroppingImage => 'Bild wird zugeschnitten';
+
+  @override
+  String get tbCropApply => 'Zuschnitt anwenden';
+
+  @override
+  String get tbCropCancel => 'Zuschnitt abbrechen';
+
+  @override
+  String get tbCropReset => 'Zuschnitt zurücksetzen';
 
   @override
   String get tbColorLabel => 'Farbe';

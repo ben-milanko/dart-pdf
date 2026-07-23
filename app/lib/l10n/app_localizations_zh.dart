@@ -907,12 +907,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   AppLocalizationsZhHant() : super('zh_Hant');
 
   @override
-  String get welcomeViewAsGrid => '網格檢視';
-
-  @override
-  String get welcomeViewAsList => '清單檢視';
-
-  @override
   String get add => '新增';
 
   @override
@@ -1708,6 +1702,12 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get welcomeTapToReopen => '點一下以重新開啟';
+
+  @override
+  String get welcomeViewAsGrid => '網格檢視';
+
+  @override
+  String get welcomeViewAsList => '清單檢視';
 
   @override
   String settingsDefaultAppSubtitle(String platform) {

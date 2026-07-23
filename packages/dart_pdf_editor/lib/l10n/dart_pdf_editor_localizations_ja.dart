@@ -9,36 +9,6 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsJa([String locale = 'ja']) : super(locale);
 
   @override
-  String get tbCropApply => '切り抜きを適用';
-
-  @override
-  String get tbCropCancel => '切り抜きをキャンセル';
-
-  @override
-  String get tbCropImage => '画像を切り抜く';
-
-  @override
-  String get tbCropReset => '切り抜きをリセット';
-
-  @override
-  String get tbCroppingImage => '画像を切り抜き中';
-
-  @override
-  String get menuLock => 'ロック';
-
-  @override
-  String get menuUnlock => 'ロック解除';
-
-  @override
-  String get sidebarLockAnnotation => 'ロック';
-
-  @override
-  String get sidebarUnlockAnnotation => 'ロック解除';
-
-  @override
-  String get searchAnnotations => '注釈を検索';
-
-  @override
   String get add => '追加';
 
   @override
@@ -424,6 +394,12 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get menuFlattenForm => 'フォームを統合';
+
+  @override
+  String get menuLock => 'ロック';
+
+  @override
+  String get menuUnlock => 'ロック解除';
 
   @override
   String get menuRecolour => '色を変更…';
@@ -846,6 +822,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'マーク解除済み';
 
   @override
+  String get searchAnnotations => '注釈を検索';
+
+  @override
   String get searchClearSearch => '検索をクリア';
 
   @override
@@ -1013,6 +992,12 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => '署名を削除';
+
+  @override
+  String get sidebarLockAnnotation => 'ロック';
+
+  @override
+  String get sidebarUnlockAnnotation => 'ロック解除';
 
   @override
   String get sidebarMore => 'その他';
@@ -1274,6 +1259,21 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get tbCheckMarksOnDocument => 'ドキュメント上のチェックマーク';
+
+  @override
+  String get tbCropImage => '画像を切り抜く';
+
+  @override
+  String get tbCroppingImage => '画像を切り抜き中';
+
+  @override
+  String get tbCropApply => '切り抜きを適用';
+
+  @override
+  String get tbCropCancel => '切り抜きをキャンセル';
+
+  @override
+  String get tbCropReset => '切り抜きをリセット';
 
   @override
   String get tbColorLabel => 'カラー';

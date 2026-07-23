@@ -9,36 +9,6 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsRu([String locale = 'ru']) : super(locale);
 
   @override
-  String get tbCropApply => 'Применить обрезку';
-
-  @override
-  String get tbCropCancel => 'Отменить обрезку';
-
-  @override
-  String get tbCropImage => 'Обрезать изображение';
-
-  @override
-  String get tbCropReset => 'Сбросить обрезку';
-
-  @override
-  String get tbCroppingImage => 'Обрезка изображения';
-
-  @override
-  String get menuLock => 'Заблокировать';
-
-  @override
-  String get menuUnlock => 'Разблокировать';
-
-  @override
-  String get sidebarLockAnnotation => 'Заблокировать';
-
-  @override
-  String get sidebarUnlockAnnotation => 'Разблокировать';
-
-  @override
-  String get searchAnnotations => 'Поиск по аннотациям';
-
-  @override
   String get add => 'Добавить';
 
   @override
@@ -431,6 +401,12 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
 
   @override
   String get menuFlattenForm => 'Свести форму';
+
+  @override
+  String get menuLock => 'Заблокировать';
+
+  @override
+  String get menuUnlock => 'Разблокировать';
 
   @override
   String get menuRecolour => 'Перекрасить…';
@@ -860,6 +836,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'Без отметки';
 
   @override
+  String get searchAnnotations => 'Поиск по аннотациям';
+
+  @override
   String get searchClearSearch => 'Очистить поиск';
 
   @override
@@ -1031,6 +1010,12 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => 'Удалить подпись';
+
+  @override
+  String get sidebarLockAnnotation => 'Заблокировать';
+
+  @override
+  String get sidebarUnlockAnnotation => 'Разблокировать';
 
   @override
   String get sidebarMore => 'Ещё';
@@ -1301,6 +1286,21 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
 
   @override
   String get tbCheckMarksOnDocument => 'Галочки на документе';
+
+  @override
+  String get tbCropImage => 'Обрезать изображение';
+
+  @override
+  String get tbCroppingImage => 'Обрезка изображения';
+
+  @override
+  String get tbCropApply => 'Применить обрезку';
+
+  @override
+  String get tbCropCancel => 'Отменить обрезку';
+
+  @override
+  String get tbCropReset => 'Сбросить обрезку';
 
   @override
   String get tbColorLabel => 'Цвет';

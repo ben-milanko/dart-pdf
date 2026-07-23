@@ -9,36 +9,6 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsTh([String locale = 'th']) : super(locale);
 
   @override
-  String get tbCropApply => 'ใช้การครอบตัด';
-
-  @override
-  String get tbCropCancel => 'ยกเลิกการครอบตัด';
-
-  @override
-  String get tbCropImage => 'ครอบตัดรูปภาพ';
-
-  @override
-  String get tbCropReset => 'รีเซ็ตการครอบตัด';
-
-  @override
-  String get tbCroppingImage => 'กำลังครอบตัดรูปภาพ';
-
-  @override
-  String get menuLock => 'ล็อก';
-
-  @override
-  String get menuUnlock => 'ปลดล็อก';
-
-  @override
-  String get sidebarLockAnnotation => 'ล็อก';
-
-  @override
-  String get sidebarUnlockAnnotation => 'ปลดล็อก';
-
-  @override
-  String get searchAnnotations => 'ค้นหาคำอธิบายประกอบ';
-
-  @override
   String get add => 'เพิ่ม';
 
   @override
@@ -424,6 +394,12 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get menuFlattenForm => 'รวมแบบฟอร์ม';
+
+  @override
+  String get menuLock => 'ล็อก';
+
+  @override
+  String get menuUnlock => 'ปลดล็อก';
 
   @override
   String get menuRecolour => 'เปลี่ยนสี…';
@@ -848,6 +824,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'ยกเลิกเครื่องหมายแล้ว';
 
   @override
+  String get searchAnnotations => 'ค้นหาคำอธิบายประกอบ';
+
+  @override
   String get searchClearSearch => 'ล้างการค้นหา';
 
   @override
@@ -1016,6 +995,12 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => 'ลบลายเซ็น';
+
+  @override
+  String get sidebarLockAnnotation => 'ล็อก';
+
+  @override
+  String get sidebarUnlockAnnotation => 'ปลดล็อก';
 
   @override
   String get sidebarMore => 'เพิ่มเติม';
@@ -1280,6 +1265,21 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get tbCheckMarksOnDocument => 'เครื่องหมายถูกบนเอกสาร';
+
+  @override
+  String get tbCropImage => 'ครอบตัดรูปภาพ';
+
+  @override
+  String get tbCroppingImage => 'กำลังครอบตัดรูปภาพ';
+
+  @override
+  String get tbCropApply => 'ใช้การครอบตัด';
+
+  @override
+  String get tbCropCancel => 'ยกเลิกการครอบตัด';
+
+  @override
+  String get tbCropReset => 'รีเซ็ตการครอบตัด';
 
   @override
   String get tbColorLabel => 'สี';

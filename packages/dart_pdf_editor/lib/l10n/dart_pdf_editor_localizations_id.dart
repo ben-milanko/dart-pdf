@@ -9,36 +9,6 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsId([String locale = 'id']) : super(locale);
 
   @override
-  String get tbCropApply => 'Terapkan pangkas';
-
-  @override
-  String get tbCropCancel => 'Batalkan pangkas';
-
-  @override
-  String get tbCropImage => 'Pangkas gambar';
-
-  @override
-  String get tbCropReset => 'Atur ulang pangkas';
-
-  @override
-  String get tbCroppingImage => 'Memangkas gambar';
-
-  @override
-  String get menuLock => 'Kunci';
-
-  @override
-  String get menuUnlock => 'Buka kunci';
-
-  @override
-  String get sidebarLockAnnotation => 'Kunci';
-
-  @override
-  String get sidebarUnlockAnnotation => 'Buka kunci';
-
-  @override
-  String get searchAnnotations => 'Cari anotasi';
-
-  @override
   String get add => 'Tambah';
 
   @override
@@ -425,6 +395,12 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get menuFlattenForm => 'Ratakan formulir';
+
+  @override
+  String get menuLock => 'Kunci';
+
+  @override
+  String get menuUnlock => 'Buka kunci';
 
   @override
   String get menuRecolour => 'Warnai ulang…';
@@ -850,6 +826,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'Tak ditandai';
 
   @override
+  String get searchAnnotations => 'Cari anotasi';
+
+  @override
   String get searchClearSearch => 'Bersihkan pencarian';
 
   @override
@@ -1019,6 +998,12 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => 'Hapus tanda tangan';
+
+  @override
+  String get sidebarLockAnnotation => 'Kunci';
+
+  @override
+  String get sidebarUnlockAnnotation => 'Buka kunci';
 
   @override
   String get sidebarMore => 'Lainnya';
@@ -1284,6 +1269,21 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get tbCheckMarksOnDocument => 'Tanda centang pada dokumen';
+
+  @override
+  String get tbCropImage => 'Pangkas gambar';
+
+  @override
+  String get tbCroppingImage => 'Memangkas gambar';
+
+  @override
+  String get tbCropApply => 'Terapkan pangkas';
+
+  @override
+  String get tbCropCancel => 'Batalkan pangkas';
+
+  @override
+  String get tbCropReset => 'Atur ulang pangkas';
 
   @override
   String get tbColorLabel => 'Warna';

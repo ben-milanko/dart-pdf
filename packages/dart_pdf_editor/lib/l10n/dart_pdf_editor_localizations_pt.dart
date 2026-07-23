@@ -9,36 +9,6 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsPt([String locale = 'pt']) : super(locale);
 
   @override
-  String get tbCropApply => 'Aplicar corte';
-
-  @override
-  String get tbCropCancel => 'Cancelar corte';
-
-  @override
-  String get tbCropImage => 'Cortar imagem';
-
-  @override
-  String get tbCropReset => 'Redefinir corte';
-
-  @override
-  String get tbCroppingImage => 'Cortando imagem';
-
-  @override
-  String get menuLock => 'Bloquear';
-
-  @override
-  String get menuUnlock => 'Desbloquear';
-
-  @override
-  String get sidebarLockAnnotation => 'Bloquear';
-
-  @override
-  String get sidebarUnlockAnnotation => 'Desbloquear';
-
-  @override
-  String get searchAnnotations => 'Pesquisar anotações';
-
-  @override
   String get add => 'Adicionar';
 
   @override
@@ -426,6 +396,12 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
 
   @override
   String get menuFlattenForm => 'Achatar formulário';
+
+  @override
+  String get menuLock => 'Bloquear';
+
+  @override
+  String get menuUnlock => 'Desbloquear';
 
   @override
   String get menuRecolour => 'Recolorir…';
@@ -851,6 +827,9 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'Desmarcado';
 
   @override
+  String get searchAnnotations => 'Pesquisar anotações';
+
+  @override
   String get searchClearSearch => 'Limpar pesquisa';
 
   @override
@@ -1020,6 +999,12 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => 'Excluir assinatura';
+
+  @override
+  String get sidebarLockAnnotation => 'Bloquear';
+
+  @override
+  String get sidebarUnlockAnnotation => 'Desbloquear';
 
   @override
   String get sidebarMore => 'Mais';
@@ -1284,6 +1269,21 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
 
   @override
   String get tbCheckMarksOnDocument => 'Marcas de contagem no documento';
+
+  @override
+  String get tbCropImage => 'Cortar imagem';
+
+  @override
+  String get tbCroppingImage => 'Cortando imagem';
+
+  @override
+  String get tbCropApply => 'Aplicar corte';
+
+  @override
+  String get tbCropCancel => 'Cancelar corte';
+
+  @override
+  String get tbCropReset => 'Redefinir corte';
 
   @override
   String get tbColorLabel => 'Cor';

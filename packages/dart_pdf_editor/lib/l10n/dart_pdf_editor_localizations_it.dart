@@ -9,36 +9,6 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsIt([String locale = 'it']) : super(locale);
 
   @override
-  String get tbCropApply => 'Applica ritaglio';
-
-  @override
-  String get tbCropCancel => 'Annulla ritaglio';
-
-  @override
-  String get tbCropImage => 'Ritaglia immagine';
-
-  @override
-  String get tbCropReset => 'Reimposta ritaglio';
-
-  @override
-  String get tbCroppingImage => 'Ritaglio immagine';
-
-  @override
-  String get menuLock => 'Blocca';
-
-  @override
-  String get menuUnlock => 'Sblocca';
-
-  @override
-  String get sidebarLockAnnotation => 'Blocca';
-
-  @override
-  String get sidebarUnlockAnnotation => 'Sblocca';
-
-  @override
-  String get searchAnnotations => 'Cerca annotazioni';
-
-  @override
   String get add => 'Aggiungi';
 
   @override
@@ -426,6 +396,12 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
 
   @override
   String get menuFlattenForm => 'Rendi definitivo il modulo';
+
+  @override
+  String get menuLock => 'Blocca';
+
+  @override
+  String get menuUnlock => 'Sblocca';
 
   @override
   String get menuRecolour => 'Ricolora…';
@@ -851,6 +827,9 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'Non contrassegnato';
 
   @override
+  String get searchAnnotations => 'Cerca annotazioni';
+
+  @override
   String get searchClearSearch => 'Cancella ricerca';
 
   @override
@@ -1020,6 +999,12 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => 'Elimina firma';
+
+  @override
+  String get sidebarLockAnnotation => 'Blocca';
+
+  @override
+  String get sidebarUnlockAnnotation => 'Sblocca';
 
   @override
   String get sidebarMore => 'Altro';
@@ -1284,6 +1269,21 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
 
   @override
   String get tbCheckMarksOnDocument => 'Segni di spunta sul documento';
+
+  @override
+  String get tbCropImage => 'Ritaglia immagine';
+
+  @override
+  String get tbCroppingImage => 'Ritaglio immagine';
+
+  @override
+  String get tbCropApply => 'Applica ritaglio';
+
+  @override
+  String get tbCropCancel => 'Annulla ritaglio';
+
+  @override
+  String get tbCropReset => 'Reimposta ritaglio';
 
   @override
   String get tbColorLabel => 'Colore';

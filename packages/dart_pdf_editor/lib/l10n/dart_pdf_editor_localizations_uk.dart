@@ -9,36 +9,6 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsUk([String locale = 'uk']) : super(locale);
 
   @override
-  String get tbCropApply => 'Застосувати обрізання';
-
-  @override
-  String get tbCropCancel => 'Скасувати обрізання';
-
-  @override
-  String get tbCropImage => 'Обрізати зображення';
-
-  @override
-  String get tbCropReset => 'Скинути обрізання';
-
-  @override
-  String get tbCroppingImage => 'Обрізання зображення';
-
-  @override
-  String get menuLock => 'Заблокувати';
-
-  @override
-  String get menuUnlock => 'Розблокувати';
-
-  @override
-  String get sidebarLockAnnotation => 'Заблокувати';
-
-  @override
-  String get sidebarUnlockAnnotation => 'Розблокувати';
-
-  @override
-  String get searchAnnotations => 'Пошук в анотаціях';
-
-  @override
   String get add => 'Додати';
 
   @override
@@ -430,6 +400,12 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
 
   @override
   String get menuFlattenForm => 'Звести форму';
+
+  @override
+  String get menuLock => 'Заблокувати';
+
+  @override
+  String get menuUnlock => 'Розблокувати';
 
   @override
   String get menuRecolour => 'Перефарбувати…';
@@ -859,6 +835,9 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'Знято позначку';
 
   @override
+  String get searchAnnotations => 'Пошук в анотаціях';
+
+  @override
   String get searchClearSearch => 'Очистити пошук';
 
   @override
@@ -1030,6 +1009,12 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => 'Видалити підпис';
+
+  @override
+  String get sidebarLockAnnotation => 'Заблокувати';
+
+  @override
+  String get sidebarUnlockAnnotation => 'Розблокувати';
 
   @override
   String get sidebarMore => 'Більше';
@@ -1299,6 +1284,21 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
 
   @override
   String get tbCheckMarksOnDocument => 'Позначки на документі';
+
+  @override
+  String get tbCropImage => 'Обрізати зображення';
+
+  @override
+  String get tbCroppingImage => 'Обрізання зображення';
+
+  @override
+  String get tbCropApply => 'Застосувати обрізання';
+
+  @override
+  String get tbCropCancel => 'Скасувати обрізання';
+
+  @override
+  String get tbCropReset => 'Скинути обрізання';
 
   @override
   String get tbColorLabel => 'Колір';

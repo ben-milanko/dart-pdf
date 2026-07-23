@@ -9,36 +9,6 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   DartPdfEditorLocalizationsFr([String locale = 'fr']) : super(locale);
 
   @override
-  String get tbCropApply => 'Appliquer le rognage';
-
-  @override
-  String get tbCropCancel => 'Annuler le rognage';
-
-  @override
-  String get tbCropImage => 'Rogner l\'image';
-
-  @override
-  String get tbCropReset => 'Réinitialiser le rognage';
-
-  @override
-  String get tbCroppingImage => 'Rognage de l\'image';
-
-  @override
-  String get menuLock => 'Verrouiller';
-
-  @override
-  String get menuUnlock => 'Déverrouiller';
-
-  @override
-  String get sidebarLockAnnotation => 'Verrouiller';
-
-  @override
-  String get sidebarUnlockAnnotation => 'Déverrouiller';
-
-  @override
-  String get searchAnnotations => 'Rechercher les annotations';
-
-  @override
   String get add => 'Ajouter';
 
   @override
@@ -427,6 +397,12 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
 
   @override
   String get menuFlattenForm => 'Aplatir le formulaire';
+
+  @override
+  String get menuLock => 'Verrouiller';
+
+  @override
+  String get menuUnlock => 'Déverrouiller';
 
   @override
   String get menuRecolour => 'Recoloriser…';
@@ -852,6 +828,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'Non marqué';
 
   @override
+  String get searchAnnotations => 'Rechercher les annotations';
+
+  @override
   String get searchClearSearch => 'Effacer la recherche';
 
   @override
@@ -1021,6 +1000,12 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => 'Supprimer la signature';
+
+  @override
+  String get sidebarLockAnnotation => 'Verrouiller';
+
+  @override
+  String get sidebarUnlockAnnotation => 'Déverrouiller';
 
   @override
   String get sidebarMore => 'Plus';
@@ -1287,6 +1272,21 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
 
   @override
   String get tbCheckMarksOnDocument => 'Coches sur le document';
+
+  @override
+  String get tbCropImage => 'Rogner l\'image';
+
+  @override
+  String get tbCroppingImage => 'Rognage de l\'image';
+
+  @override
+  String get tbCropApply => 'Appliquer le rognage';
+
+  @override
+  String get tbCropCancel => 'Annuler le rognage';
+
+  @override
+  String get tbCropReset => 'Réinitialiser le rognage';
 
   @override
   String get tbColorLabel => 'Couleur';
