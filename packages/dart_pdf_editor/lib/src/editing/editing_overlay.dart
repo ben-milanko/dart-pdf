@@ -13,6 +13,7 @@ import 'package:pdf_document/pdf_document.dart';
 import '../debug_overlays.dart';
 import '../l10n/pdf_l10n.dart';
 import '../page_geometry.dart';
+import '../platform_cursors.dart';
 import '../renderer.dart';
 import '../theme.dart';
 import 'editing_color_pick.dart';
@@ -4225,7 +4226,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   _rotatePoint(
                       event.localPosition, chrome.$1.center, -resting));
       if (vertex != null) {
-        cursor = SystemMouseCursors.grab;
+        cursor = grabCursor;
       } else if (handle != null) {
         cursor = _resizeCursorFor(handle);
       } else if (chrome != null &&

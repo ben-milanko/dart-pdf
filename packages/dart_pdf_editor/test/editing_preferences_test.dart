@@ -29,6 +29,7 @@ void main() {
       a.searchMatchCase = true;
       a.searchWholeWord = true;
       a.searchRegex = true;
+      a.searchAnnotations = false; // non-default, so the write is real
       a.stampDateFormat = PdfStampDateFormat.dayMonthYear;
       a.stampTimeFormat = PdfStampTimeFormat.twelveHourSeconds;
       a.locale = const Locale('es');
@@ -53,6 +54,7 @@ void main() {
       expect(b.searchMatchCase, isTrue);
       expect(b.searchWholeWord, isTrue);
       expect(b.searchRegex, isTrue);
+      expect(b.searchAnnotations, isFalse);
       expect(b.stampDateFormat, PdfStampDateFormat.dayMonthYear);
       expect(b.stampTimeFormat, PdfStampTimeFormat.twelveHourSeconds);
       expect(b.locale, const Locale('es'));
@@ -141,6 +143,7 @@ void main() {
       expect(prefs.searchMatchCase, isFalse);
       expect(prefs.searchWholeWord, isFalse);
       expect(prefs.searchRegex, isFalse);
+      expect(prefs.searchAnnotations, isTrue); // on by default
       expect(prefs.stampDateFormat, PdfStampDateFormat.iso);
       expect(prefs.stampTimeFormat, PdfStampTimeFormat.twentyFourHour);
     });

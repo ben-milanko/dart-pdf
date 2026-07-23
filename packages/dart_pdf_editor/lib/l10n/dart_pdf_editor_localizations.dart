@@ -824,6 +824,18 @@ abstract class DartPdfEditorLocalizations {
   /// **'Flatten form'**
   String get menuFlattenForm;
 
+  /// Annotation context-menu item that locks the selected annotation(s) so they can't be moved, resized, deleted, or edited (sets the /F Locked and LockedContents flags).
+  ///
+  /// In en, this message translates to:
+  /// **'Lock'**
+  String get menuLock;
+
+  /// Annotation context-menu item shown when right-clicking a locked annotation; unlocks it so it can be edited again.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock'**
+  String get menuUnlock;
+
   /// Annotation context-menu item that opens a color picker to recolour a pasted vector snapshot.
   ///
   /// In en, this message translates to:
@@ -1610,6 +1622,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Unmarked'**
   String get sbarStateUnmarked;
 
+  /// Tooltip on the search option toggle that also searches annotation contents (notes, comments, free text).
+  ///
+  /// In en, this message translates to:
+  /// **'Search annotations'**
+  String get searchAnnotations;
+
   /// Tooltip on the button that clears the document search field.
   ///
   /// In en, this message translates to:
@@ -1915,6 +1933,18 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Delete signature'**
   String get sidebarDeleteSignature;
+
+  /// Tooltip for a sidebar row's button that locks the annotation so it can't be moved, resized, deleted, or edited.
+  ///
+  /// In en, this message translates to:
+  /// **'Lock'**
+  String get sidebarLockAnnotation;
+
+  /// Tooltip for a sidebar row's button that unlocks a locked annotation, making it editable again.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock'**
+  String get sidebarUnlockAnnotation;
 
   /// Tooltip for a row's overflow (three-dot) menu holding thread actions.
   ///
