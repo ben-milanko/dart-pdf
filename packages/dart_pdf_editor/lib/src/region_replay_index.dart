@@ -465,6 +465,7 @@ PdfRect? pdfRenderCommandBounds(PdfRenderCommand command) {
           PdfRestoreCommand() ||
           PdfClipPathCommand() ||
           PdfSetBlendModeCommand() ||
+          PdfSetOverprintCommand() ||
           PdfBeginGroupCommand() ||
           PdfEndGroupCommand() ||
           PdfBeginSoftMaskedCommand() ||

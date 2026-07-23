@@ -112,6 +112,9 @@ class PdfPerfLog {
       double? buildMs,
       double? decodeMs,
       double? replayMs,
+      double? textShapeMs,
+      int? textShapeMiss,
+      int? textShapeHit,
       double? rasterMs,
       bool first = true,
       String note = ''}) {
@@ -123,9 +126,16 @@ class PdfPerfLog {
     final buildSplit = (decodeMs == null || replayMs == null)
         ? ''
         : ' decode=${_ms(decodeMs)} replay=${_ms(replayMs)}';
+    // A third level inside replay (#454): how much of the canvas-call
+    // construction is substituted-text shaping, and the run-cache hit rate that
+    // decides whether a per-glyph cache would help. Printed only when measured.
+    final shapeSplit = textShapeMs == null
+        ? ''
+        : ' shape=${_ms(textShapeMs)}'
+            ' shaped=${textShapeMiss ?? 0} cached=${textShapeHit ?? 0}';
     final kind = first ? 'FIRST' : 're-raster';
     log('interpret page=$page path=$path $kind '
-        'interpret=${_ms(interpretMs)}$phases$buildSplit$raster$note');
+        'interpret=${_ms(interpretMs)}$phases$buildSplit$shapeSplit$raster$note');
   }
 
   static String _ms(double v) => '${v.toStringAsFixed(1)}ms';

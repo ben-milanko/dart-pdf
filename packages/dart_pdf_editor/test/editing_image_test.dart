@@ -175,4 +175,133 @@ void main() {
       expect(editing.document.page(0).annotations, isEmpty);
     });
   });
+
+  group('PdfEditingController image cropping', () {
+    PdfEditingController placedImage() {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      // a 200x200 box centered on (300, 400): [200, 300, 400, 500]
+      expect(editing.addImageInRect(
+          0, const PdfRect(200, 300, 400, 500), _png), isTrue);
+      return editing;
+    }
+
+    test('canCropSelected is true only for a selected image stamp', () {
+      final editing = placedImage();
+      addTearDown(editing.dispose);
+      expect(editing.selectedAnnotation?.isImageStamp, isTrue);
+      expect(editing.canCropSelected, isTrue);
+
+      // a note is not croppable
+      final other = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(other.dispose);
+      other.addNote(0, 100, 100, 'hi');
+      expect(other.canCropSelected, isFalse);
+    });
+
+    test('cropSelectedImage shrinks the box and records the crop', () {
+      final editing = placedImage();
+      addTearDown(editing.dispose);
+      final rect = editing.selectedAnnotation!.rect;
+      // crop to the top-right quarter of the box
+      final cx = (rect.left + rect.right) / 2;
+      final cy = (rect.bottom + rect.top) / 2;
+      editing.cropSelectedImage(PdfRect(cx, cy, rect.right, rect.top));
+
+      final stamp = editing.document.page(0).annotations.single;
+      // the box shrank to the visible quarter
+      expect(stamp.rect.left, closeTo(cx, 1e-6));
+      expect(stamp.rect.bottom, closeTo(cy, 1e-6));
+      expect(stamp.rect.right, closeTo(rect.right, 1e-6));
+      expect(stamp.rect.top, closeTo(rect.top, 1e-6));
+      // the crop is the top-right quarter of the source
+      final crop = stamp.imageStampCrop!;
+      expect(crop.left, closeTo(0.5, 1e-6));
+      expect(crop.bottom, closeTo(0.5, 1e-6));
+      expect(crop.right, closeTo(1.0, 1e-6));
+      expect(crop.top, closeTo(1.0, 1e-6));
+    });
+
+    test('cropping composes against the source across two crops', () {
+      final editing = placedImage();
+      addTearDown(editing.dispose);
+      final rect = editing.selectedAnnotation!.rect;
+      // first crop: left half
+      editing.cropSelectedImage(PdfRect(
+          rect.left, rect.bottom, (rect.left + rect.right) / 2, rect.top));
+      var crop = editing.selectedAnnotation!.imageStampCrop!;
+      expect(crop.right, closeTo(0.5, 1e-6));
+      // second crop: left half of what remains → left quarter of the source
+      final r2 = editing.selectedAnnotation!.rect;
+      editing.cropSelectedImage(PdfRect(
+          r2.left, r2.bottom, (r2.left + r2.right) / 2, r2.top));
+      crop = editing.selectedAnnotation!.imageStampCrop!;
+      expect(crop.right, closeTo(0.25, 1e-6));
+    });
+
+    test('resetSelectedImageCrop restores the whole picture and box', () {
+      final editing = placedImage();
+      addTearDown(editing.dispose);
+      final original = editing.selectedAnnotation!.rect;
+      editing.cropSelectedImage(PdfRect(original.left, original.bottom,
+          (original.left + original.right) / 2, original.top));
+      expect(editing.selectedAnnotation!.imageStampCrop, isNotNull);
+
+      editing.resetSelectedImageCrop();
+      final stamp = editing.selectedAnnotation!;
+      expect(stamp.imageStampCrop, isNull);
+      // the box grew back to the original full extent
+      expect(stamp.rect.left, closeTo(original.left, 1e-4));
+      expect(stamp.rect.right, closeTo(original.right, 1e-4));
+      expect(stamp.rect.bottom, closeTo(original.bottom, 1e-4));
+      expect(stamp.rect.top, closeTo(original.top, 1e-4));
+    });
+
+    test('crop-mode lifecycle: begin, update, commit', () {
+      final editing = placedImage();
+      addTearDown(editing.dispose);
+      final rect = editing.selectedAnnotation!.rect;
+      expect(editing.isCroppingImage, isFalse);
+
+      editing.beginImageCrop();
+      expect(editing.isCroppingImage, isTrue);
+      expect(editing.imageCropDraft, rect);
+
+      // dragging a smaller draft, clamped to the box
+      final draft = PdfRect(
+          rect.left + 10, rect.bottom + 10, rect.right - 10, rect.top - 10);
+      editing.updateImageCropDraft(draft);
+      expect(editing.imageCropDraft, draft);
+      // an out-of-bounds draft is clamped to the box
+      editing.updateImageCropDraft(PdfRect(
+          rect.left - 100, rect.bottom + 10, rect.right - 10, rect.top - 10));
+      expect(editing.imageCropDraft!.left, closeTo(rect.left, 1e-6));
+
+      editing.commitImageCrop();
+      expect(editing.isCroppingImage, isFalse);
+      expect(editing.selectedAnnotation!.imageStampCrop, isNotNull);
+    });
+
+    test('crop-mode cancel discards the pending crop', () {
+      final editing = placedImage();
+      addTearDown(editing.dispose);
+      final rect = editing.selectedAnnotation!.rect;
+      editing.beginImageCrop();
+      editing.updateImageCropDraft(PdfRect(
+          rect.left + 10, rect.bottom + 10, rect.right - 10, rect.top - 10));
+      editing.cancelImageCrop();
+      expect(editing.isCroppingImage, isFalse);
+      expect(editing.selectedAnnotation!.imageStampCrop, isNull);
+      expect(editing.selectedAnnotation!.rect, rect);
+    });
+
+    test('changing tool cancels an in-flight crop', () {
+      final editing = placedImage();
+      addTearDown(editing.dispose);
+      editing.beginImageCrop();
+      expect(editing.isCroppingImage, isTrue);
+      editing.tool = PdfEditTool.ink;
+      expect(editing.isCroppingImage, isFalse);
+    });
+  });
 }

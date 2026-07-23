@@ -37,7 +37,10 @@ class _GraphicsState {
         horizontalScale = 1,
         leading = 0,
         rise = 0,
-        renderMode = 0;
+        renderMode = 0,
+        fillOverprint = false,
+        strokeOverprint = false,
+        overprintMode = 0;
 
   _GraphicsState.from(_GraphicsState other)
       : ctm = other.ctm,
@@ -60,7 +63,10 @@ class _GraphicsState {
         horizontalScale = other.horizontalScale,
         leading = other.leading,
         rise = other.rise,
-        renderMode = other.renderMode;
+        renderMode = other.renderMode,
+        fillOverprint = other.fillOverprint,
+        strokeOverprint = other.strokeOverprint,
+        overprintMode = other.overprintMode;
 
   PdfMatrix ctm;
   PdfColor fillColor;
@@ -93,6 +99,13 @@ class _GraphicsState {
   double leading;
   double rise;
   int renderMode;
+
+  /// Overprint state (gs /op, /OP, /OPM; PDF §8.6.7). [fillOverprint] is the
+  /// nonstroking flag (/op), [strokeOverprint] the stroking flag (/OP), and
+  /// [overprintMode] the overprint mode (/OPM, 0 or 1).
+  bool fillOverprint;
+  bool strokeOverprint;
+  int overprintMode;
 }
 
 /// Reads `sc`/`scn` numeric operands as a plain device colour by count -
@@ -1068,6 +1081,14 @@ class PdfInterpreter {
           if (_state.blendMode != restored.blendMode) {
             device.setBlendMode(restored.blendMode);
           }
+          if (_state.fillOverprint != restored.fillOverprint ||
+              _state.strokeOverprint != restored.strokeOverprint ||
+              _state.overprintMode != restored.overprintMode) {
+            device.setOverprint(
+                fill: restored.fillOverprint,
+                stroke: restored.strokeOverprint,
+                mode: restored.overprintMode);
+          }
           _state = restored;
           device.restore();
         }
@@ -1564,7 +1585,38 @@ class PdfInterpreter {
       _state.stroke = _state.stroke.copyWith(width: _numOf(lw));
     }
     _applyBlendMode(cos.resolve(gs['BM']));
+    _applyOverprint(gs);
     _applySoftMask(cos.resolve(gs['SMask']));
+  }
+
+  /// Parses the overprint keys (/OP, /op, /OPM; PDF §8.6.7) into the graphics
+  /// state and, when the effective state changes, delivers it to the device.
+  /// Each key updates its flag only when present, mirroring ca/CA/LW.
+  ///
+  /// /OP is the stroking flag; /op the nonstroking flag. When /op is absent,
+  /// /OP applies to nonstroking too (backward compatibility, §8.6.7 note).
+  void _applyOverprint(CosDictionary gs) {
+    final beforeFill = _state.fillOverprint;
+    final beforeStroke = _state.strokeOverprint;
+    final beforeMode = _state.overprintMode;
+    final hasLower = gs.containsKey('op');
+    final op = cos.resolve(gs['OP']);
+    if (op is CosBoolean) {
+      _state.strokeOverprint = op.value;
+      if (!hasLower) _state.fillOverprint = op.value;
+    }
+    final opLower = cos.resolve(gs['op']);
+    if (opLower is CosBoolean) _state.fillOverprint = opLower.value;
+    final opm = cos.resolve(gs['OPM']);
+    if (opm is CosInteger) _state.overprintMode = opm.value == 0 ? 0 : 1;
+    if (_state.fillOverprint != beforeFill ||
+        _state.strokeOverprint != beforeStroke ||
+        _state.overprintMode != beforeMode) {
+      device.setOverprint(
+          fill: _state.fillOverprint,
+          stroke: _state.strokeOverprint,
+          mode: _state.overprintMode);
+    }
   }
 
   void _applyBlendMode(CosObject? bm) {
@@ -2302,10 +2354,11 @@ class PdfInterpreter {
     }
     if (name != 'Form' || formDepth >= _maxFormDepth) return;
 
-    // a transparency group composites as one object: the alpha in effect
-    // at Do applies to the group's result, and resets inside (§11.6.6) -
-    // otherwise an inner `gs` back to ca 1.0 would erase the group alpha
+    // a transparency group composites as one object: the alpha AND blend mode
+    // in effect at Do apply to the group's result, and reset inside (§11.6.6) -
+    // otherwise an inner `gs` back to ca 1.0 / BM Normal would erase them
     final groupAlpha = _state.fillAlpha;
+    final groupBlend = _state.blendMode;
     final groupDict = cos.resolve(xobject.dictionary['Group']);
     final isGroup = groupDict is CosDictionary;
     // A knockout group (/K true, §11.4.5) needs its own layer so each
@@ -2313,15 +2366,29 @@ class PdfInterpreter {
     // the group itself paints at full alpha.
     final knockout =
         isGroup && cos.resolve(groupDict['K']) == const CosBoolean(true);
-    final groupLayer = isGroup && (groupAlpha < 1 || knockout);
+    // A non-Normal blend mode applies to the group's *composite* result, not
+    // element-by-element - so the group must render into its own layer that
+    // then blends onto the backdrop as one object. Without a layer the inner
+    // content's own `gs` (typically /BM Normal) overwrites the blend mode and
+    // the outer blend is lost: an opaque white flourish drawn under /Multiply
+    // then paints as a solid white box instead of multiplying into the page.
+    final blended = groupBlend != PdfBlendMode.normal;
+    final groupLayer = isGroup && (groupAlpha < 1 || knockout || blended);
 
     final outerMask = _state.softMask;
     _stateStack.add(_GraphicsState.from(_state));
     device.save();
     if (groupLayer) {
+      // device.beginGroup snapshots the current blend mode into the layer's
+      // compositing paint, so the blend must already be set (the `gs` that
+      // selected it ran before this Do).
       device.beginGroup(groupAlpha, knockout: knockout);
       _state.fillAlpha = 1;
       _state.strokeAlpha = 1;
+      if (blended) {
+        _state.blendMode = PdfBlendMode.normal;
+        device.setBlendMode(PdfBlendMode.normal);
+      }
     }
     try {
       final matrix = cos.resolve(xobject.dictionary['Matrix']);
@@ -2347,7 +2414,14 @@ class PdfInterpreter {
         _finalizeSoftMask(mask);
       }
       if (groupLayer) device.endGroup();
-      _state = _stateStack.removeLast();
+      final restored = _stateStack.removeLast();
+      // The device blend mode is not part of canvas save/restore state, and the
+      // group's inner content may have changed it (or we reset it to Normal for
+      // a blended group above); re-sync it to the state we are restoring.
+      if (_state.blendMode != restored.blendMode) {
+        device.setBlendMode(restored.blendMode);
+      }
+      _state = restored;
       device.restore();
     }
   }

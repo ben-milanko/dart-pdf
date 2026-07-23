@@ -97,6 +97,17 @@ void runPdfRenderWorker() {
       final ready = JSObject()
         ..setProperty('kind'.toJS, 'ready'.toJS)
         ..setProperty('shared'.toJS, shared.toJS);
+      // Report the browser-codec capability so a worker that will decline every
+      // image (no OffscreenCanvas, etc.) is visible up front rather than
+      // discovered as an unexplained main-thread decode cost. See #458.
+      final missing = _browserImageDecodeMissing();
+      ready.setProperty('browserImageDecode'.toJS, missing.isEmpty.toJS);
+      if (missing.isNotEmpty) {
+        ready.setProperty(
+          'browserImageDecodeMissing'.toJS,
+          missing.join('+').toJS,
+        );
+      }
       if (openClock != null) {
         ready.setProperty('openUs'.toJS, openClock.elapsedMicroseconds.toJS);
       }
@@ -424,6 +435,10 @@ void _attachTimings(
     ..setProperty('decodeUs'.toJS, timings.decodeUs.toJS)
     ..setProperty('binUs'.toJS, timings.binUs.toJS)
     ..setProperty('transcriptHit'.toJS, timings.transcriptHit.toJS);
+  final imageDecode = timings.imageDecodeSummary;
+  if (imageDecode != null) {
+    result.setProperty('imageDecode'.toJS, imageDecode.toJS);
+  }
 }
 
 JSUint8Array _jsUint8View(JSObject buffer) {
@@ -496,11 +511,18 @@ Future<Uint8List?> _recordPageAsync(
   }
   if (decodeImages) {
     final decodeClock = timings == null ? null : (Stopwatch()..start());
-    commands = await _withBrowserDecodedImages(document.cos, commands, token);
+    final tally = timings == null ? null : _BrowserDecodeTally();
+    commands = await _withBrowserDecodedImages(
+      document.cos,
+      commands,
+      token,
+      tally,
+    );
     if (decodeClock != null) {
       decodeClock.stop();
       timings!.decodeUs += decodeClock.elapsedMicroseconds;
     }
+    if (tally != null) timings!.imageDecodeSummary = tally.format();
   }
   // Decode the page's images in the worker too: the buffer carries
   // premultiplied RGBA so the main thread only runs the engine codec. On web
@@ -605,15 +627,18 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
   // DCT images use the browser codec on web. Other image formats continue
   // through serializeCommands' pure-Dart, region-aware decoder.
   final decodeClock = timings == null ? null : (Stopwatch()..start());
+  final tally = timings == null ? null : _BrowserDecodeTally();
   sourceCommands = await _withBrowserDecodedImages(
     document.cos,
     sourceCommands,
     token,
+    tally,
   );
   if (decodeClock != null) {
     decodeClock.stop();
     timings!.decodeUs += decodeClock.elapsedMicroseconds;
   }
+  if (tally != null) timings!.imageDecodeSummary = tally.format();
   if (token.cancelled) throw const PdfCancelledException();
   final serializeClock = timings == null ? null : (Stopwatch()..start());
   final commandBuffer = serializeCommands(
@@ -690,6 +715,7 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
   CosDocument cos,
   List<PdfRenderCommand> commands,
   PdfCancellationToken token,
+  _BrowserDecodeTally? tally,
 ) async {
   var changed = false;
   final out = <PdfRenderCommand>[];
@@ -701,7 +727,8 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
           out.add(command);
           continue;
         }
-        final decoded = await _decodeWithBrowserCodec(cos, request.stream);
+        final decoded =
+            await _decodeWithBrowserCodec(cos, request.stream, tally);
         if (decoded == null) {
           out.add(command);
         } else {
@@ -720,6 +747,7 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
           cos,
           maskCommands,
           token,
+          tally,
         );
         if (!identical(decodedMaskCommands, maskCommands)) changed = true;
         out.add(
@@ -755,10 +783,17 @@ PdfImageRequest _withDecodedPixels(
 Future<PdfDecodedPixels?> _decodeWithBrowserCodec(
   CosDocument cos,
   CosStream stream,
+  _BrowserDecodeTally? tally,
 ) async {
-  if (!_browserImageDecodeAvailable) return null;
+  if (!_browserImageDecodeAvailable) {
+    tally?.decline('noCapability');
+    return null;
+  }
   final dict = stream.dictionary;
-  if (cos.resolve(dict['ImageMask']) == const CosBoolean(true)) return null;
+  if (cos.resolve(dict['ImageMask']) == const CosBoolean(true)) {
+    tally?.decline('imageMask');
+    return null;
+  }
 
   final filters = pdfImageFilters(cos, dict);
   final dctName = filters.contains('DCTDecode')
@@ -767,7 +802,10 @@ Future<PdfDecodedPixels?> _decodeWithBrowserCodec(
       ? 'DCT'
       : null;
   final dctMaskBytes = pdfImageDctSoftMaskBytes(cos, dict);
-  if (dctName == null && dctMaskBytes == null) return null;
+  if (dctName == null && dctMaskBytes == null) {
+    tally?.decline('notDct');
+    return null;
+  }
 
   final PdfImageBase? base;
   if (dctName != null) {
@@ -775,7 +813,10 @@ Future<PdfDecodedPixels?> _decodeWithBrowserCodec(
     if (family == 'DeviceCMYK') {
       // CMYK JPEG bases already decode in pure Dart. Only intervene when the
       // soft mask is DCT-encoded and therefore needs the browser codec.
-      if (dctMaskBytes == null) return null;
+      if (dctMaskBytes == null) {
+        tally?.decline('cmyk');
+        return null;
+      }
       base = decodePdfImageBase(cos, stream);
     } else {
       final jpeg = cos.decodeStreamData(stream, stopBeforeFilter: dctName);
@@ -786,7 +827,11 @@ Future<PdfDecodedPixels?> _decodeWithBrowserCodec(
     // mask through the browser codec.
     base = decodePdfImageBase(cos, stream);
   }
-  if (base == null) return null;
+  if (base == null) {
+    tally?.decline('decodeNull');
+    return null;
+  }
+  tally?.codec++;
 
   PdfImageSoftMask? mask;
   if (dctMaskBytes != null) {
@@ -885,10 +930,43 @@ Future<_BrowserDecodedImage?> _decodeBrowserJpegRgba(Uint8List jpeg) async {
   }
 }
 
-bool get _browserImageDecodeAvailable =>
-    globalContext.has('Blob') &&
-    globalContext.has('createImageBitmap') &&
-    globalContext.has('OffscreenCanvas');
+bool get _browserImageDecodeAvailable => _browserImageDecodeMissing().isEmpty;
+
+/// The browser-codec prerequisites absent from this worker scope, or empty when
+/// all are present. Reported on the `ready` line (#458): a worker that silently
+/// declines every image because, say, its scope has no `OffscreenCanvas` is
+/// otherwise indistinguishable in a trace from one whose codec ran.
+List<String> _browserImageDecodeMissing() => <String>[
+  if (!globalContext.has('Blob')) 'Blob',
+  if (!globalContext.has('createImageBitmap')) 'createImageBitmap',
+  if (!globalContext.has('OffscreenCanvas')) 'OffscreenCanvas',
+];
+
+/// Per-job tally of how the browser image codec fared, folded into
+/// [PdfWorkerPhaseTimings.imageDecodeSummary] for the phase log (#458). Only
+/// allocated when the job collects timings, so production pays nothing.
+///
+/// Reasons: `noCapability` (the scope lacks the codec — the #458 case),
+/// `imageMask`/`cmyk`/`notDct` (expected declines the pure-Dart decoder
+/// handles), and `decodeNull` (`createImageBitmap` threw or returned empty).
+/// The reason strings avoid the words "fail"/"error" on purpose: they ride the
+/// phase log, which the perf harness scans for fatal-error markers.
+class _BrowserDecodeTally {
+  int codec = 0;
+  final Map<String, int> _declined = <String, int>{};
+
+  void decline(String reason) =>
+      _declined[reason] = (_declined[reason] ?? 0) + 1;
+
+  String format() {
+    final declined = _declined.values.fold(0, (a, b) => a + b);
+    if (codec == 0 && declined == 0) return 'none';
+    if (declined == 0) return 'codec=$codec';
+    final reasons =
+        _declined.entries.map((e) => '${e.key}:${e.value}').join(',');
+    return 'codec=$codec declined=$declined($reasons)';
+  }
+}
 
 class _BrowserDecodedImage {
   const _BrowserDecodedImage(this.rgba, this.width, this.height);

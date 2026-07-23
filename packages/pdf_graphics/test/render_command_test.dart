@@ -73,6 +73,10 @@ class _TranscriptDevice implements PdfDevice {
 
   @override
   void setBlendMode(PdfBlendMode mode) => log.add('blend ${mode.name}');
+  @override
+  void setOverprint(
+          {required bool fill, required bool stroke, required int mode}) =>
+      log.add('overprint $fill $stroke $mode');
 
   @override
   void beginGroup(double alpha, {bool knockout = false}) =>

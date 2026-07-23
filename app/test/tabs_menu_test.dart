@@ -29,6 +29,16 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
   }
 
+  // A realistic desktop width: with Chrome-style tab sizing a handful of tabs
+  // cap at their max width and leave slack for the trailing controls, rather
+  // than filling the whole 800px default test surface.
+  void setDesktopSize(WidgetTester tester) {
+    tester.view.physicalSize = const Size(1400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+  }
+
   // Delivers a PDF to the running app the way the OS would (a warm-start
   // "open with"), opening it in a new tab.
   Future<void> openTab(
@@ -80,6 +90,33 @@ void main() {
     await openTab(tester, 'alpha.pdf');
     await openTab(tester, 'beta.pdf');
     await openTab(tester, 'gamma.pdf');
+  }
+
+  // Opens the desktop tabs preview grid (grid_view button in the tab strip).
+  Future<void> openTabsGrid(WidgetTester tester) async {
+    await tester.tap(find.byKey(const ValueKey('desktop-tabs-button')));
+    await tester.pumpAndSettle();
+  }
+
+  // The grid tile whose title is [name] (scoped to the preview grid).
+  Finder gridTile(String name) => find.ancestor(
+        of: find.descendant(
+          of: find.byKey(const ValueKey('desktop-tabs-grid')),
+          matching: find.text(name),
+        ),
+        matching: find.byKey(const ValueKey('mobile-tab-tile')),
+      );
+
+  // Right-clicks the grid tile labelled [name] to open its context menu.
+  Future<void> rightClickGridTile(WidgetTester tester, String name) async {
+    final gesture = await tester.startGesture(
+      tester.getCenter(gridTile(name)),
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryButton,
+    );
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
   }
 
   testWidgets('incoming file shows an opening indicator', (tester) async {
@@ -152,6 +189,7 @@ void main() {
 
   testWidgets('desktop tab strip opens the preview grid in a dialog',
       (tester) async {
+    setDesktopSize(tester);
     await openTabs(tester);
 
     final button = find.byKey(const ValueKey('desktop-tabs-button'));
@@ -300,6 +338,53 @@ void main() {
     expect(find.byKey(const ValueKey('tab-menu-close-others')), findsOneWidget);
     expect(find.byKey(const ValueKey('tab-menu-close-right')), findsOneWidget);
     expect(find.byKey(const ValueKey('tab-menu-close-all')), findsOneWidget);
+  });
+
+  testWidgets('right-click on a grid tile opens the tab context menu',
+      (tester) async {
+    await openTabs(tester);
+    await openTabsGrid(tester);
+
+    await rightClickGridTile(tester, 'beta.pdf');
+
+    expect(find.byKey(const ValueKey('tab-menu-close')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tab-menu-close-others')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tab-menu-close-right')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tab-menu-close-all')), findsOneWidget);
+  });
+
+  testWidgets('grid tile Close others leaves only the clicked tab, grid open',
+      (tester) async {
+    await openTabs(tester);
+    await openTabsGrid(tester);
+
+    await rightClickGridTile(tester, 'beta.pdf');
+    await tester.tap(find.byKey(const ValueKey('tab-menu-close-others')));
+    await tester.pumpAndSettle();
+
+    // The grid stays open and refreshes to the single surviving tab.
+    expect(find.byKey(const ValueKey('desktop-tabs-grid')), findsOneWidget);
+    expect(gridTile('beta.pdf'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('desktop-tabs-grid')),
+        matching: find.byKey(const ValueKey('mobile-tab-tile')),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('grid tile Close all empties the grid and dismisses the dialog',
+      (tester) async {
+    await openTabs(tester);
+    await openTabsGrid(tester);
+
+    await rightClickGridTile(tester, 'alpha.pdf');
+    await tester.tap(find.byKey(const ValueKey('tab-menu-close-all')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('desktop-tabs-dialog')), findsNothing);
+    expect(find.byKey(const ValueKey('tab-strip')), findsNothing);
   });
 
   testWidgets(

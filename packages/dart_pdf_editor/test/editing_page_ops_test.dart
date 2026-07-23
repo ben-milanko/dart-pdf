@@ -590,6 +590,74 @@ void main() {
       await tester.pump(const Duration(seconds: 2)); // drain tile renders
     });
 
+    testWidgets('Delete removes the strip selection', (tester) async {
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final editing = PdfEditingController(buildMultiPagePdf(5));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            PdfThumbnailSidebar(controller: editing, viewerController: viewer),
+            const Expanded(child: SizedBox()),
+          ]),
+        ),
+      ));
+      await tester.pump();
+
+      await tester.tap(find.text('Page 2'));
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shift);
+      await tester.tap(find.text('Page 3'));
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shift);
+      await tester.pump();
+      expect(editing.selectedPages, [1, 2]);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+      await tester.pump();
+      expect(labelsOf(editing.document), ['Page 1', 'Page 4', 'Page 5']);
+      expect(editing.hasPageSelection, isFalse);
+      await tester.pump(const Duration(seconds: 2)); // drain tile renders
+    });
+
+    testWidgets('Backspace deletes the keyboard page when nothing is selected',
+        (tester) async {
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final editing = PdfEditingController(buildMultiPagePdf(4));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            PdfThumbnailSidebar(controller: editing, viewerController: viewer),
+            const Expanded(child: SizedBox()),
+          ]),
+        ),
+      ));
+      await tester.pump();
+
+      // land the keyboard cursor on page 2, then clear the selection so only
+      // the navigation cursor remains
+      await tester.tap(find.text('Page 2'));
+      await tester.pump();
+      editing.clearPageSelection();
+      await tester.pump();
+      expect(editing.hasPageSelection, isFalse);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
+      await tester.pump();
+      expect(labelsOf(editing.document), ['Page 1', 'Page 3', 'Page 4']);
+      await tester.pump(const Duration(seconds: 2)); // drain tile renders
+    });
+
     testWidgets('ctrl-click toggles pages into the selection', (tester) async {
       tester.view.physicalSize = const Size(800, 1400);
       tester.view.devicePixelRatio = 1.0;
@@ -942,6 +1010,57 @@ void main() {
 
       expect(editing.document.pageCount, 3);
       expect(viewer.currentPage, 2);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('⌘V paste reveals the new page instead of jumping to the top',
+        (tester) async {
+      // A paste inserts pages, so the viewer resets its scroll to the top in
+      // a post-frame callback (a geometry-changing revision). The following
+      // strip must not chase that reset back to page 0 - it should land on
+      // the pages that were just pasted.
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final editing = PdfEditingController(buildMultiPagePdf(6));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfEditorView(
+            controller: editing,
+            viewerController: viewer,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      // copy page 1, then select a lower page as the paste anchor
+      await tester.tap(find.text('Page 1'));
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+
+      await tester.tap(find.text('Page 4'));
+      await tester.pump();
+      expect(editing.selectedPages, [3]);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+
+      // pasted after page 4 (index 3) -> the copy lands at index 4
+      expect(labelsOf(editing.document),
+          ['Page 1', 'Page 2', 'Page 3', 'Page 4', 'Page 1', 'Page 5',
+              'Page 6']);
+      // the viewer (and the strip that follows it) lands on the pasted page,
+      // not back at the top
+      expect(viewer.currentPage, 4);
       await tester.pump(const Duration(seconds: 2));
     });
 

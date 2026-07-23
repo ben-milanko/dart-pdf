@@ -29,8 +29,10 @@ void main() {
       a.searchMatchCase = true;
       a.searchWholeWord = true;
       a.searchRegex = true;
+      a.searchAnnotations = false; // non-default, so the write is real
       a.stampDateFormat = PdfStampDateFormat.dayMonthYear;
       a.stampTimeFormat = PdfStampTimeFormat.twelveHourSeconds;
+      a.locale = const Locale('es');
       await pumpEventQueue(); // let the unawaited writes land
 
       final b = PdfEditingPreferences();
@@ -52,8 +54,34 @@ void main() {
       expect(b.searchMatchCase, isTrue);
       expect(b.searchWholeWord, isTrue);
       expect(b.searchRegex, isTrue);
+      expect(b.searchAnnotations, isFalse);
       expect(b.stampDateFormat, PdfStampDateFormat.dayMonthYear);
       expect(b.stampTimeFormat, PdfStampTimeFormat.twelveHourSeconds);
+      expect(b.locale, const Locale('es'));
+    });
+
+    test('locale persists as a BCP-47 tag and restores script/region subtags',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final a = PdfEditingPreferences();
+      await a.ready;
+      // A script+region-bearing tag exercises the tag parser both ways.
+      a.locale = const Locale.fromSubtags(
+          languageCode: 'zh', scriptCode: 'Hans', countryCode: 'CN');
+      await pumpEventQueue();
+
+      final b = PdfEditingPreferences();
+      await b.ready;
+      expect(b.locale?.languageCode, 'zh');
+      expect(b.locale?.scriptCode, 'Hans');
+      expect(b.locale?.countryCode, 'CN');
+
+      // Clearing it back to "System default" removes the stored value.
+      b.locale = null;
+      await pumpEventQueue();
+      final c = PdfEditingPreferences();
+      await c.ready;
+      expect(c.locale, isNull);
     });
 
     test('noteRecentColor moves to front, dedupes, caps, and persists',
@@ -115,6 +143,7 @@ void main() {
       expect(prefs.searchMatchCase, isFalse);
       expect(prefs.searchWholeWord, isFalse);
       expect(prefs.searchRegex, isFalse);
+      expect(prefs.searchAnnotations, isTrue); // on by default
       expect(prefs.stampDateFormat, PdfStampDateFormat.iso);
       expect(prefs.stampTimeFormat, PdfStampTimeFormat.twentyFourHour);
     });

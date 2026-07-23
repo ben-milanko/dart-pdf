@@ -73,9 +73,11 @@ gotchas, and the deferred no-context inventory.
       `MaterialApp` delegates
 - [x] Full verification: root `fvm dart analyze --fatal-infos` + all three
       test suites (package/app/example) green
-- [ ] Deferred: the no-context strings that need a context-threading
-      refactor (toolbar tool tooltips are the biggest) — full list in the
-      2026-07-22 dev-log note.
+- [x] Deferred: the no-context strings that need a context-threading
+      refactor — done for the editor package (PR #499,
+      `doc/dev-log/2026-07-22-i18n-no-context-refactors.md`) and the app +
+      example (`doc/dev-log/2026-07-22-i18n-app-no-context.md`). English
+      extraction is now complete across all three bundles.
 
 ## What's done (state of this branch)
 

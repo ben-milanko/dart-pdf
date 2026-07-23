@@ -312,6 +312,41 @@ void main() {
     await tester.pump(PdfEditingController.flashLifetime);
   });
 
+  testWidgets('the sidebar locks and unlocks an annotation from its row',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(1))
+      ..addRectangle(0, const PdfRect(250, 350, 400, 450));
+    final viewer = PdfViewerController();
+    addTearDown(editing.dispose);
+    addTearDown(viewer.dispose);
+    await pumpSidebar(tester, editing, viewer);
+
+    final lock = find.byKey(const ValueKey('pdf-annotation-lock-0-0'));
+    expect(lock, findsOneWidget);
+    expect(editing.annotationAt(0, 0)!.isLocked, isFalse);
+
+    // lock it from the row
+    await tester.tap(lock);
+    await tester.pump();
+    final locked = editing.annotationAt(0, 0)!;
+    expect(locked.isLocked, isTrue);
+    expect(locked.isLockedContents, isTrue);
+
+    // the row's delete action is gone, but the (unlock) lock button remains
+    // reachable - the only way back for a locked annotation
+    expect(
+        find.byKey(const ValueKey('pdf-annotation-delete-0-0')), findsNothing);
+    expect(find.byKey(const ValueKey('pdf-annotation-lock-0-0')),
+        findsOneWidget);
+
+    // unlock it again
+    await tester.tap(find.byKey(const ValueKey('pdf-annotation-lock-0-0')));
+    await tester.pump();
+    expect(editing.annotationAt(0, 0)!.isLocked, isFalse);
+    expect(
+        find.byKey(const ValueKey('pdf-annotation-delete-0-0')), findsOneWidget);
+  });
+
   testWidgets('tapping a tile zooms the viewer to the annotation',
       (tester) async {
     // mid-page, so framing it needs no clamping at the document edges

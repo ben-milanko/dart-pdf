@@ -185,4 +185,149 @@ void main() {
     final stamp = doc.page(0).annotations.single;
     expect(stamp.appearanceOpacity, closeTo(0.5, 1e-9));
   });
+
+  group('image stamp cropping', () {
+    final image = PdfEmbeddableImage.decode(_png);
+
+    test('addImageStamp with a crop clips the box and scales the picture', () {
+      // The central half of the source fills the 120x120 box: the scaled
+      // picture (240x240) is clipped to the box so only the crop shows.
+      final doc = roundTrip((e) => e.addImageStamp(
+          0, const PdfRect(100, 500, 220, 620), image,
+          crop: const PdfRect(0.25, 0.25, 0.75, 0.75)));
+      final stamp = doc.page(0).annotations.single;
+      expect(stamp.isImageStamp, isTrue);
+      expect(stamp.imageStampCrop, const PdfRect(0.25, 0.25, 0.75, 0.75));
+      final content =
+          latin1.decode(doc.cos.decodeStreamData(stamp.normalAppearance!));
+      expect(content, contains('/Img0 Do'));
+      // clip rect = the box; scaled cm maps the crop onto it
+      expect(content, contains('100 500 120 120 re'));
+      expect(content, contains('W'));
+      expect(content, contains('240 0 0 240 40 440 cm'));
+    });
+
+    test('a full crop reads back as no crop and bakes an identity map', () {
+      final doc = roundTrip((e) => e.addImageStamp(
+          0, const PdfRect(100, 500, 220, 620), image,
+          crop: const PdfRect(0, 0, 1, 1)));
+      final stamp = doc.page(0).annotations.single;
+      // full-image crop drops the marker
+      expect(stamp.imageStampCrop, isNull);
+      expect(stamp.dict.containsKey('DartPdfImageCrop'), isFalse);
+      final content =
+          latin1.decode(doc.cos.decodeStreamData(stamp.normalAppearance!));
+      // identity fit, no clip
+      expect(content, contains('120 0 0 120 100 500 cm'));
+    });
+
+    test('cropImageStamp crops in place at the current box', () {
+      final base = PdfDocument.open(buildClassicPdf());
+      final editor = PdfEditor(base)
+        ..addImageStamp(0, const PdfRect(0, 0, 100, 100), image);
+      final reopened = PdfDocument.open(editor.save());
+      final stamp = reopened.page(0).annotations.single;
+
+      final crop = PdfEditor(reopened)
+        ..cropImageStamp(0, stamp, crop: const PdfRect(0, 0, 0.5, 1));
+      final after = PdfDocument.open(crop.save());
+      final cropped = after.page(0).annotations.single;
+      // box unchanged, crop recorded
+      expect(cropped.rect, const PdfRect(0, 0, 100, 100));
+      expect(cropped.imageStampCrop, const PdfRect(0, 0, 0.5, 1));
+      final content =
+          latin1.decode(after.cos.decodeStreamData(cropped.normalAppearance!));
+      // left half fills the box: x scaled by 2, y unchanged
+      expect(content, contains('0 0 100 100 re'));
+      expect(content, contains('200 0 0 100 0 0 cm'));
+    });
+
+    test('cropImageStamp with a rect shrinks the box to the crop', () {
+      final base = PdfDocument.open(buildClassicPdf());
+      final editor = PdfEditor(base)
+        ..addImageStamp(0, const PdfRect(0, 0, 100, 100), image);
+      final reopened = PdfDocument.open(editor.save());
+      final stamp = reopened.page(0).annotations.single;
+
+      final crop = PdfEditor(reopened)
+        ..cropImageStamp(0, stamp,
+            crop: const PdfRect(0, 0, 0.5, 1),
+            rect: const PdfRect(0, 0, 50, 100));
+      final after = PdfDocument.open(crop.save());
+      final cropped = after.page(0).annotations.single;
+      expect(cropped.rect, const PdfRect(0, 0, 50, 100));
+      expect(cropped.imageStampCrop, const PdfRect(0, 0, 0.5, 1));
+      final content =
+          latin1.decode(after.cos.decodeStreamData(cropped.normalAppearance!));
+      // the retained left half keeps its scale (100 pt wide source → 50 pt
+      // box shows the left 50 pt), so the cm re-maps at the same scale
+      expect(content, contains('0 0 50 100 re'));
+      expect(content, contains('100 0 0 100 0 0 cm'));
+    });
+
+    test('an opacity restyle preserves the crop', () {
+      final base = PdfDocument.open(buildClassicPdf());
+      final editor = PdfEditor(base)
+        ..addImageStamp(0, const PdfRect(0, 0, 100, 100), image,
+            crop: const PdfRect(0.1, 0.2, 0.9, 0.8));
+      final reopened = PdfDocument.open(editor.save());
+      final stamp = reopened.page(0).annotations.single;
+      expect(stamp.imageStampCrop, const PdfRect(0.1, 0.2, 0.9, 0.8));
+
+      final restyle = PdfEditor(reopened)
+        ..restyleAnnotation(0, stamp, opacity: 0.4);
+      final after = PdfDocument.open(restyle.save());
+      final restyled = after.page(0).annotations.single;
+      expect(restyled.appearanceOpacity, closeTo(0.4, 1e-9));
+      // the crop marker and the clipped appearance both survive
+      expect(restyled.imageStampCrop, const PdfRect(0.1, 0.2, 0.9, 0.8));
+      final content =
+          latin1.decode(after.cos.decodeStreamData(restyled.normalAppearance!));
+      expect(content, contains('/Img0 Do'));
+      expect(content, contains('W'));
+      expect(content, contains(' re'));
+    });
+
+    test('cropping composes: a second crop narrows towards the source', () {
+      final base = PdfDocument.open(buildClassicPdf());
+      final editor = PdfEditor(base)
+        ..addImageStamp(0, const PdfRect(0, 0, 100, 100), image,
+            crop: const PdfRect(0, 0, 0.5, 1));
+      final reopened = PdfDocument.open(editor.save());
+      final stamp = reopened.page(0).annotations.single;
+      // caller composes against the source: the left quarter overall
+      final crop = PdfEditor(reopened)
+        ..cropImageStamp(0, stamp, crop: const PdfRect(0, 0, 0.25, 1));
+      final after = PdfDocument.open(crop.save());
+      expect(after.page(0).annotations.single.imageStampCrop,
+          const PdfRect(0, 0, 0.25, 1));
+    });
+
+    test('cropImageStamp back to full clears the crop marker', () {
+      final base = PdfDocument.open(buildClassicPdf());
+      final editor = PdfEditor(base)
+        ..addImageStamp(0, const PdfRect(0, 0, 100, 100), image,
+            crop: const PdfRect(0.25, 0.25, 0.75, 0.75));
+      final reopened = PdfDocument.open(editor.save());
+      final stamp = reopened.page(0).annotations.single;
+
+      final reset = PdfEditor(reopened)
+        ..cropImageStamp(0, stamp, crop: const PdfRect(0, 0, 1, 1));
+      final after = PdfDocument.open(reset.save());
+      final cleared = after.page(0).annotations.single;
+      expect(cleared.imageStampCrop, isNull);
+      expect(cleared.dict.containsKey('DartPdfImageCrop'), isFalse);
+    });
+
+    test('cropImageStamp is a no-op on a non-image stamp', () {
+      final base = PdfDocument.open(buildClassicPdf());
+      final editor = PdfEditor(base)
+        ..addNote(0, 100, 100, 'hi');
+      final reopened = PdfDocument.open(editor.save());
+      final note = reopened.page(0).annotations.single;
+      final tried = PdfEditor(reopened)
+          .cropImageStamp(0, note, crop: const PdfRect(0, 0, 0.5, 0.5));
+      expect(tried, isFalse);
+    });
+  });
 }
