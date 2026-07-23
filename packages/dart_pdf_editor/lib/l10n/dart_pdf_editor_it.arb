@@ -1,5 +1,9 @@
 {
   "@@locale": "it",
+  "menuLock": "Blocca",
+  "menuUnlock": "Sblocca",
+  "sidebarLockAnnotation": "Blocca",
+  "sidebarUnlockAnnotation": "Sblocca",
   "searchAnnotations": "Cerca annotazioni",
   "linkDialogTitle": "Aggiungi link",
   "linkKindPage": "Pagina nel documento",

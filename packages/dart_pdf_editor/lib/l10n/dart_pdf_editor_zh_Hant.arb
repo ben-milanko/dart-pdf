@@ -1,5 +1,9 @@
 {
   "@@locale": "zh_Hant",
+  "menuLock": "鎖定",
+  "menuUnlock": "解除鎖定",
+  "sidebarLockAnnotation": "鎖定",
+  "sidebarUnlockAnnotation": "解除鎖定",
   "searchAnnotations": "搜尋註解",
   "linkDialogTitle": "新增連結",
   "linkKindPage": "文件中的頁面",

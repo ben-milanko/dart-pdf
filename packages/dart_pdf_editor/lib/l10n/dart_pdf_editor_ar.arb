@@ -1,5 +1,9 @@
 {
   "@@locale": "ar",
+  "menuLock": "قفل",
+  "menuUnlock": "إلغاء القفل",
+  "sidebarLockAnnotation": "قفل",
+  "sidebarUnlockAnnotation": "إلغاء القفل",
   "searchAnnotations": "البحث في التعليقات التوضيحية",
   "linkDialogTitle": "إضافة رابط",
   "linkKindPage": "صفحة في المستند",

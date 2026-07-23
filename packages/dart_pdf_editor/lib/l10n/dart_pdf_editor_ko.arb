@@ -1,5 +1,9 @@
 {
   "@@locale": "ko",
+  "menuLock": "잠금",
+  "menuUnlock": "잠금 해제",
+  "sidebarLockAnnotation": "잠금",
+  "sidebarUnlockAnnotation": "잠금 해제",
   "searchAnnotations": "주석 검색",
   "linkDialogTitle": "링크 추가",
   "linkKindPage": "문서 내 페이지",

@@ -1,5 +1,9 @@
 {
   "@@locale": "th",
+  "menuLock": "ล็อก",
+  "menuUnlock": "ปลดล็อก",
+  "sidebarLockAnnotation": "ล็อก",
+  "sidebarUnlockAnnotation": "ปลดล็อก",
   "searchAnnotations": "ค้นหาคำอธิบายประกอบ",
   "linkDialogTitle": "เพิ่มลิงก์",
   "linkKindPage": "หน้าในเอกสาร",

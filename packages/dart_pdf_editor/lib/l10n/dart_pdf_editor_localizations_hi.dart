@@ -396,6 +396,12 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'फ़ॉर्म फ़्लैटन करें';
 
   @override
+  String get menuLock => 'लॉक करें';
+
+  @override
+  String get menuUnlock => 'अनलॉक करें';
+
+  @override
   String get menuRecolour => 'पुनः रंग दें…';
 
   @override
@@ -1007,6 +1013,12 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => 'हस्ताक्षर हटाएँ';
+
+  @override
+  String get sidebarLockAnnotation => 'लॉक करें';
+
+  @override
+  String get sidebarUnlockAnnotation => 'अनलॉक करें';
 
   @override
   String get sidebarMore => 'अधिक';

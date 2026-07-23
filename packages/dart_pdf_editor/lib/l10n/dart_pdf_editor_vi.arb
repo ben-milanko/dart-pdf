@@ -1,5 +1,9 @@
 {
   "@@locale": "vi",
+  "menuLock": "Khóa",
+  "menuUnlock": "Mở khóa",
+  "sidebarLockAnnotation": "Khóa",
+  "sidebarUnlockAnnotation": "Mở khóa",
   "searchAnnotations": "Tìm kiếm chú thích",
   "linkDialogTitle": "Thêm liên kết",
   "linkKindPage": "Trang trong tài liệu",

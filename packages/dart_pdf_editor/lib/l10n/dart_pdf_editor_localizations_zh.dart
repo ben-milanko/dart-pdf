@@ -396,6 +396,12 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get menuFlattenForm => '展平表单';
 
   @override
+  String get menuLock => '锁定';
+
+  @override
+  String get menuUnlock => '解锁';
+
+  @override
   String get menuRecolour => '重新着色…';
 
   @override
@@ -1003,6 +1009,12 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => '删除签名';
+
+  @override
+  String get sidebarLockAnnotation => '锁定';
+
+  @override
+  String get sidebarUnlockAnnotation => '解锁';
 
   @override
   String get sidebarMore => '更多';
@@ -2302,6 +2314,12 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get menuFlattenForm => '平面化表單';
 
   @override
+  String get menuLock => '鎖定';
+
+  @override
+  String get menuUnlock => '解除鎖定';
+
+  @override
   String get menuRecolour => '重新上色…';
 
   @override
@@ -2909,6 +2927,12 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get sidebarDeleteSignature => '刪除簽章';
+
+  @override
+  String get sidebarLockAnnotation => '鎖定';
+
+  @override
+  String get sidebarUnlockAnnotation => '解除鎖定';
 
   @override
   String get sidebarMore => '更多';

@@ -1,5 +1,9 @@
 {
   "@@locale": "id",
+  "menuLock": "Kunci",
+  "menuUnlock": "Buka kunci",
+  "sidebarLockAnnotation": "Kunci",
+  "sidebarUnlockAnnotation": "Buka kunci",
   "searchAnnotations": "Cari anotasi",
   "linkDialogTitle": "Tambahkan tautan",
   "linkKindPage": "Halaman dalam dokumen",

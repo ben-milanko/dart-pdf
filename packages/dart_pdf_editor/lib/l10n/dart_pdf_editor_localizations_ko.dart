@@ -396,6 +396,12 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get menuFlattenForm => '양식 병합';
 
   @override
+  String get menuLock => '잠금';
+
+  @override
+  String get menuUnlock => '잠금 해제';
+
+  @override
   String get menuRecolour => '색상 변경…';
 
   @override
@@ -1004,6 +1010,12 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => '서명 삭제';
+
+  @override
+  String get sidebarLockAnnotation => '잠금';
+
+  @override
+  String get sidebarUnlockAnnotation => '잠금 해제';
 
   @override
   String get sidebarMore => '더 보기';

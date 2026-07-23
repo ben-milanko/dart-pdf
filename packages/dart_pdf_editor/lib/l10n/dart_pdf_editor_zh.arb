@@ -1,5 +1,9 @@
 {
   "@@locale": "zh",
+  "menuLock": "锁定",
+  "menuUnlock": "解锁",
+  "sidebarLockAnnotation": "锁定",
+  "sidebarUnlockAnnotation": "解锁",
   "searchAnnotations": "搜索注释",
   "linkDialogTitle": "添加链接",
   "linkKindPage": "文档中的页面",

@@ -1,5 +1,9 @@
 {
   "@@locale": "ru",
+  "menuLock": "Заблокировать",
+  "menuUnlock": "Разблокировать",
+  "sidebarLockAnnotation": "Заблокировать",
+  "sidebarUnlockAnnotation": "Разблокировать",
   "searchAnnotations": "Искать в аннотациях",
   "linkDialogTitle": "Добавить ссылку",
   "linkKindPage": "Страница в документе",

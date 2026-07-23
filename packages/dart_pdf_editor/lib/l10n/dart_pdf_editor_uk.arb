@@ -1,5 +1,9 @@
 {
   "@@locale": "uk",
+  "menuLock": "Заблокувати",
+  "menuUnlock": "Розблокувати",
+  "sidebarLockAnnotation": "Заблокувати",
+  "sidebarUnlockAnnotation": "Розблокувати",
   "searchAnnotations": "Шукати в анотаціях",
   "linkDialogTitle": "Додати посилання",
   "linkKindPage": "Сторінка в документі",

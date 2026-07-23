@@ -396,6 +396,12 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'รวมแบบฟอร์ม';
 
   @override
+  String get menuLock => 'ล็อก';
+
+  @override
+  String get menuUnlock => 'ปลดล็อก';
+
+  @override
   String get menuRecolour => 'เปลี่ยนสี…';
 
   @override
@@ -1007,6 +1013,12 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => 'ลบลายเซ็น';
+
+  @override
+  String get sidebarLockAnnotation => 'ล็อก';
+
+  @override
+  String get sidebarUnlockAnnotation => 'ปลดล็อก';
 
   @override
   String get sidebarMore => 'เพิ่มเติม';

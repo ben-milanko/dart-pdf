@@ -1,5 +1,9 @@
 {
   "@@locale": "fr",
+  "menuLock": "Verrouiller",
+  "menuUnlock": "Déverrouiller",
+  "sidebarLockAnnotation": "Verrouiller",
+  "sidebarUnlockAnnotation": "Déverrouiller",
   "searchAnnotations": "Rechercher dans les annotations",
   "linkDialogTitle": "Ajouter un lien",
   "linkKindPage": "Page du document",

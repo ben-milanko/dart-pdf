@@ -1,5 +1,9 @@
 {
   "@@locale": "tr",
+  "menuLock": "Kilitle",
+  "menuUnlock": "Kilidi aç",
+  "sidebarLockAnnotation": "Kilitle",
+  "sidebarUnlockAnnotation": "Kilidi aç",
   "searchAnnotations": "Ek açıklamalarda ara",
   "linkDialogTitle": "Bağlantı ekle",
   "linkKindPage": "Belgedeki sayfa",

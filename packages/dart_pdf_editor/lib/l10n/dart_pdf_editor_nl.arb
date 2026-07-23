@@ -1,5 +1,9 @@
 {
   "@@locale": "nl",
+  "menuLock": "Vergrendelen",
+  "menuUnlock": "Ontgrendelen",
+  "sidebarLockAnnotation": "Vergrendelen",
+  "sidebarUnlockAnnotation": "Ontgrendelen",
   "searchAnnotations": "Annotaties doorzoeken",
   "linkDialogTitle": "Link toevoegen",
   "linkKindPage": "Pagina in document",

@@ -397,6 +397,12 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'Formulier afvlakken';
 
   @override
+  String get menuLock => 'Vergrendelen';
+
+  @override
+  String get menuUnlock => 'Ontgrendelen';
+
+  @override
   String get menuRecolour => 'Herkleuren…';
 
   @override
@@ -1010,6 +1016,12 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => 'Handtekening verwijderen';
+
+  @override
+  String get sidebarLockAnnotation => 'Vergrendelen';
+
+  @override
+  String get sidebarUnlockAnnotation => 'Ontgrendelen';
 
   @override
   String get sidebarMore => 'Meer';

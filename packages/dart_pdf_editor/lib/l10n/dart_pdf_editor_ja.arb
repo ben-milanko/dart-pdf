@@ -1,5 +1,9 @@
 {
   "@@locale": "ja",
+  "menuLock": "ロック",
+  "menuUnlock": "ロック解除",
+  "sidebarLockAnnotation": "ロック",
+  "sidebarUnlockAnnotation": "ロック解除",
   "searchAnnotations": "注釈を検索",
   "linkDialogTitle": "リンクを追加",
   "linkKindPage": "ドキュメント内のページ",

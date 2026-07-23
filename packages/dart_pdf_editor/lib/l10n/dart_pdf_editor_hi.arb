@@ -1,5 +1,9 @@
 {
   "@@locale": "hi",
+  "menuLock": "लॉक करें",
+  "menuUnlock": "अनलॉक करें",
+  "sidebarLockAnnotation": "लॉक करें",
+  "sidebarUnlockAnnotation": "अनलॉक करें",
   "searchAnnotations": "एनोटेशन खोजें",
   "linkDialogTitle": "लिंक जोड़ें",
   "linkKindPage": "दस्तावेज़ में पृष्ठ",

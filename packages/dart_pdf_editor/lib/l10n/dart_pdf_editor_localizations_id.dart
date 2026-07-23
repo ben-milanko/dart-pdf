@@ -397,6 +397,12 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get menuFlattenForm => 'Ratakan formulir';
 
   @override
+  String get menuLock => 'Kunci';
+
+  @override
+  String get menuUnlock => 'Buka kunci';
+
+  @override
   String get menuRecolour => 'Warnai ulang…';
 
   @override
@@ -1010,6 +1016,12 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get sidebarDeleteSignature => 'Hapus tanda tangan';
+
+  @override
+  String get sidebarLockAnnotation => 'Kunci';
+
+  @override
+  String get sidebarUnlockAnnotation => 'Buka kunci';
 
   @override
   String get sidebarMore => 'Lainnya';

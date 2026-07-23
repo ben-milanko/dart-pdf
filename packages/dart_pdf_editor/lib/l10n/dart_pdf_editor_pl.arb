@@ -1,5 +1,9 @@
 {
   "@@locale": "pl",
+  "menuLock": "Zablokuj",
+  "menuUnlock": "Odblokuj",
+  "sidebarLockAnnotation": "Zablokuj",
+  "sidebarUnlockAnnotation": "Odblokuj",
   "searchAnnotations": "Szukaj adnotacji",
   "linkDialogTitle": "Dodaj link",
   "linkKindPage": "Strona w dokumencie",
