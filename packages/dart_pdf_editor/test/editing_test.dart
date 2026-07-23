@@ -1098,12 +1098,12 @@ void main() {
       await tester.tap(find.byTooltip('Ellipse (O)'));
       await tester.pump();
       expect(editing.tool, PdfEditTool.ellipse);
-      await tester.tap(find.byTooltip('Cloud polygon'));
+      await tester.tap(find.byTooltip('Cloud polygon (⇧D)'));
       await tester.pump();
       expect(editing.tool, PdfEditTool.cloudPolygon);
       // re-tapping the active tool drops back to Select (not a no-tool
       // limbo) so you can immediately select and move things
-      await tester.tap(find.byTooltip('Cloud polygon'));
+      await tester.tap(find.byTooltip('Cloud polygon (⇧D)'));
       await tester.pump();
       expect(editing.tool, PdfEditTool.select);
 
@@ -1149,7 +1149,7 @@ void main() {
       final highlightButton = tester.widget<IconButton>(
           find.widgetWithIcon(IconButton, Icons.border_color));
       expect(highlightButton.onPressed, isNotNull);
-      await tester.tap(find.byTooltip('Highlight - draw freehand'));
+      await tester.tap(find.byTooltip('Highlight - draw freehand (⇧H)'));
       await tester.pump();
       expect(editing.tool, PdfEditTool.highlight);
       expect(viewer.hasSelection, isFalse);
@@ -1164,7 +1164,7 @@ void main() {
       expect(editing.preferences.strokeWidth, 2);
       expect(editing.preferences.opacity, 1);
 
-      await tester.tap(find.byTooltip('Highlight - draw freehand'));
+      await tester.tap(find.byTooltip('Highlight - draw freehand (⇧H)'));
       await tester.pump();
       expect(editing.tool, PdfEditTool.highlight);
       expect(editing.color, const Color(0xFFFFD100));
