@@ -216,11 +216,14 @@ abstract interface class PdfDevice {
   ///
   /// Overprint is a subtractive (CMYK/spot colorant) operation: an
   /// overprinting colorant that is not written leaves the underlying colorant
-  /// untouched instead of knocking it out. This RGB compositor cannot
-  /// reproduce that faithfully, so painting devices currently record the state
-  /// but do not change compositing (issue #502). The state is threaded here so
-  /// a future colorant-buffer path can consume it; non-compositing devices can
-  /// ignore it.
+  /// untouched instead of knocking it out. A faithful reproduction needs a
+  /// CMYK/spot colorant buffer this RGB compositor does not have; painting
+  /// devices approximate the common case (a neutral/dark ink over a coloured
+  /// backdrop) with a `darken` (per-channel min) composite while the flag is
+  /// set - over a white backdrop that is a no-op, so it only affects ink laid
+  /// over ink (issue #502). [mode] is threaded for a future colorant-buffer
+  /// path; the RGB approximation cannot act on the OPM-0/1 zero-component
+  /// distinction. Non-compositing devices can ignore all three.
   void setOverprint({required bool fill, required bool stroke, required int mode});
 
   /// Brackets a transparency-group form (§11.6.6) whose composite result

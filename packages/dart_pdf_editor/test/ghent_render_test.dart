@@ -71,12 +71,15 @@ const _knownBaselineDeviations = <String>{
   '2-SPOT/Ghent_PDF-Output-Test-V50_SPOT_X4.pdf',
   '2-SPOT/GWG020_CMYKSpot_OP_x1a.pdf',
   // GWG030 self-grades gray/K/separation overprint over spot/CMYK backgrounds
-  // (issue #502). /OP, /op and /OPM are now parsed into the graphics state and
-  // delivered to the device (pinned by pdf_graphics overprint_test.dart), but
-  // faithful subtractive overprint needs a CMYK/colorant buffer this RGB
-  // compositor does not have, so the page's fail-marker "X" is not simulated
-  // away. Same missing-feature class as the DeviceN GWG190/191/192 patches
-  // above; kept out of pixel enforcement until full-fidelity overprint lands.
+  // (issue #502). Overprint is now consumed: /op /OP fills and strokes darken
+  // (BlendMode.darken) onto the backdrop instead of knocking it out, so the
+  // "over spot" patches (a-c, g-i) render patch-uniform - their fail-marker "X"
+  // is simulated away (pinned by overprint_render_test.dart). The "over CMYK"
+  // patches (d-f, j-l) still knock out: distinguishing a DeviceCMYK backdrop's
+  // process channels from a spot backdrop of the same RGB colour needs a real
+  // colorant buffer this RGB compositor does not have, so those markers remain
+  // and the page as a whole stays out of pixel enforcement - same missing-
+  // feature class as the DeviceN GWG190/191/192 patches above.
   '2-SPOT/GWG030_Gray_K_black_OP_X1.pdf',
   '3-ICC-CMS/Ghent_PDF-Output-Test-V50_ICC-CMS_X4.pdf',
   '3-ICC-CMS/GWG172_JPEG2000_compression_ICCBasedRGB_x4.pdf',

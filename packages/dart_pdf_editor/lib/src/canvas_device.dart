@@ -96,6 +96,12 @@ class CanvasPdfDevice implements PdfDevice {
   @visibleForTesting
   static bool debugDrawSimpleLines = true;
 
+  /// Overprint compositing kill switch (the A/B baseline is "off"). Off,
+  /// [setOverprint] still records the state but fills/strokes composite
+  /// normally, exactly as before overprint was consumed.
+  @visibleForTesting
+  static bool debugOverprintCompositing = true;
+
   BlendMode _blend = BlendMode.srcOver;
 
   // Most CAD command buffers contain tens of thousands of paths but only a
@@ -166,12 +172,46 @@ class CanvasPdfDevice implements PdfDevice {
     };
   }
 
+  bool _fillOverprint = false;
+  bool _strokeOverprint = false;
+
   @override
   void setOverprint(
       {required bool fill, required bool stroke, required int mode}) {
-    // Overprint (§8.6.7) is a subtractive (CMYK/spot colorant) operation that
-    // this RGB canvas compositor cannot reproduce faithfully; the state is
-    // accepted but does not change compositing yet (issue #502).
+    // [mode] (OPM 0/1) only distinguishes which DeviceCMYK components a
+    // colorant buffer would write; the RGB `darken` approximation below cannot
+    // act on it, so it is intentionally not stored.
+    _fillOverprint = fill;
+    _strokeOverprint = stroke;
+  }
+
+  /// Overprint (§8.6.7) is a subtractive colorant operation this RGB canvas
+  /// cannot reproduce exactly. While the nonstroking flag (/op) is set, a fill
+  /// composites with [BlendMode.darken] (per-channel min): over a coloured
+  /// backdrop it preserves the darker colorant channels and clips the lighter
+  /// ones - a passable stand-in for "the ink darkens what it covers instead of
+  /// knocking it out" - and over white it is a no-op, so pages that set
+  /// overprint defensively over the page background are unaffected. An explicit
+  /// blend mode (/BM) or a knockout group takes precedence.
+  BlendMode get _fillElementBlend {
+    if (_knockoutActive) return BlendMode.src;
+    if (debugOverprintCompositing &&
+        _fillOverprint &&
+        _blend == BlendMode.srcOver) {
+      return BlendMode.darken;
+    }
+    return _blend;
+  }
+
+  /// Stroking (/OP) counterpart of [_fillElementBlend].
+  BlendMode get _strokeElementBlend {
+    if (_knockoutActive) return BlendMode.src;
+    if (debugOverprintCompositing &&
+        _strokeOverprint &&
+        _blend == BlendMode.srcOver) {
+      return BlendMode.darken;
+    }
+    return _blend;
   }
 
   @override
@@ -291,7 +331,7 @@ class CanvasPdfDevice implements PdfDevice {
       _toUiPath(path, rule),
       Paint()
         ..shader = _shaderFor(gradient)
-        ..blendMode = _elementBlend
+        ..blendMode = _fillElementBlend
         ..color =
             Color.from(alpha: alpha.clamp(0, 1), red: 0, green: 0, blue: 0),
     );
@@ -336,7 +376,7 @@ class CanvasPdfDevice implements PdfDevice {
     // BlendMode.dst keeps the vertex colors (paint is the src side of
     // this mode); the paint still carries the PDF blend mode
     canvas.drawVertices(
-        vertices, BlendMode.dst, Paint()..blendMode = _elementBlend);
+        vertices, BlendMode.dst, Paint()..blendMode = _fillElementBlend);
   }
 
   @override
@@ -369,7 +409,7 @@ class CanvasPdfDevice implements PdfDevice {
   }
 
   Paint _solidFillPaint(PdfColor color, double alpha) {
-    final blend = _elementBlend;
+    final blend = _fillElementBlend;
     if (!debugReuseSolidPaints) {
       return Paint()
         ..style = PaintingStyle.fill
@@ -393,7 +433,7 @@ class CanvasPdfDevice implements PdfDevice {
   }
 
   Paint _solidStrokePaint(PdfColor color, PdfStroke stroke, double alpha) {
-    final blend = _elementBlend;
+    final blend = _strokeElementBlend;
     if (!debugReuseSolidPaints) {
       return Paint()
         ..style = PaintingStyle.stroke
