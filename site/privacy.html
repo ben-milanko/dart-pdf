@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>DartPDF privacy policy</title>
-<meta name="description" content="DartPDF does its work entirely on your device and does not collect, transmit, or share any personal data." />
+<title data-i18n="pp_metaTitle">DartPDF privacy policy</title>
+<meta name="description" data-i18n-attr="content:pp_metaDesc" content="DartPDF does its work entirely on your device and does not collect, transmit, or share any personal data." />
 <link rel="canonical" href="https://dart-pdf.com/privacy" />
 <link rel="icon" href="/favicon.ico" sizes="any" />
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
@@ -89,47 +89,50 @@
       </span>
       DartPDF
     </a>
-    <a class="back" href="index.html">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-      Back to DartPDF
-    </a>
+    <div style="display:flex;align-items:center;gap:14px;">
+      <span data-i18n-switcher></span>
+      <a class="back" href="index.html">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        <span data-i18n="back_to">Back to DartPDF</span>
+      </a>
+    </div>
   </div>
 </header>
 
 <main>
-  <p class="eyebrow">Privacy</p>
-  <h1>Privacy Policy</h1>
-  <p class="updated">Last updated: 14 June 2026</p>
+  <p class="eyebrow" data-i18n="pp_eyebrow">Privacy</p>
+  <h1 data-i18n="pp_h1">Privacy Policy</h1>
+  <p class="updated" data-i18n="pp_updated">Last updated: 14 June 2026</p>
 
-  <p class="lede">DartPDF is a PDF viewer and editor published by Railway Engineering Solutions Pty Ltd ("we", "us"). This policy explains how the app handles your information. The short version: <strong>DartPDF does its work entirely on your device and does not collect, transmit, or share any personal data.</strong></p>
+  <p class="lede" data-i18n-html="pp_lede">DartPDF is a PDF viewer and editor published by Railway Engineering Solutions Pty Ltd ("we", "us"). This policy explains how the app handles your information. The short version: <strong>DartPDF does its work entirely on your device and does not collect, transmit, or share any personal data.</strong></p>
 
-  <h2>What we collect</h2>
-  <p><strong>Nothing.</strong> DartPDF has no analytics, no advertising, no accounts, and no backend servers. We do not collect, log, or transmit any personal information, usage data, or device identifiers.</p>
+  <h2 data-i18n="pp_h2_collect">What we collect</h2>
+  <p data-i18n-html="pp_p_collect"><strong>Nothing.</strong> DartPDF has no analytics, no advertising, no accounts, and no backend servers. We do not collect, log, or transmit any personal information, usage data, or device identifiers.</p>
 
-  <h2>Your documents and OCR</h2>
-  <p>PDFs you open, edit, annotate, sign, or save are processed <strong>locally on your device only</strong>. Their contents are never uploaded to us or to any third party. When you choose to share or export a document, it goes only to the destination you pick (for example, another app via the system share sheet, or a file location you select).</p>
-  <p>OCR also runs locally. Native builds may download OCR model files on first use, then recognition runs on your device. The web build downloads browser OCR model and runtime files on first use, then runs recognition in the browser. Your PDF pages and recognized text are not sent to a DartPDF OCR server.</p>
+  <h2 data-i18n="pp_h2_docs">Your documents and OCR</h2>
+  <p data-i18n-html="pp_p_docs1">PDFs you open, edit, annotate, sign, or save are processed <strong>locally on your device only</strong>. Their contents are never uploaded to us or to any third party. When you choose to share or export a document, it goes only to the destination you pick (for example, another app via the system share sheet, or a file location you select).</p>
+  <p data-i18n="pp_p_docs2">OCR also runs locally. Native builds may download OCR model files on first use, then recognition runs on your device. The web build downloads browser OCR model and runtime files on first use, then runs recognition in the browser. Your PDF pages and recognized text are not sent to a DartPDF OCR server.</p>
 
-  <h2>Device permissions</h2>
-  <p>DartPDF requests access to files only so it can open the PDFs you choose and save your changes back. This access is used solely to perform the action you requested and for no other purpose.</p>
+  <h2 data-i18n="pp_h2_perms">Device permissions</h2>
+  <p data-i18n="pp_p_perms">DartPDF requests access to files only so it can open the PDFs you choose and save your changes back. This access is used solely to perform the action you requested and for no other purpose.</p>
 
-  <h2>App preferences</h2>
-  <p>Settings such as your theme, recent-file list, and tool styles are stored locally on your device using the operating system's standard preference storage. They never leave your device and are removed when you uninstall the app or clear its data.</p>
+  <h2 data-i18n="pp_h2_prefs">App preferences</h2>
+  <p data-i18n="pp_p_prefs">Settings such as your theme, recent-file list, and tool styles are stored locally on your device using the operating system's standard preference storage. They never leave your device and are removed when you uninstall the app or clear its data.</p>
 
-  <h2>Third parties</h2>
-  <p>DartPDF does not embed third-party analytics, advertising, or tracking SDKs. The app may open external links (such as its source-code repository) in your browser when you explicitly tap them; those destinations have their own privacy policies.</p>
+  <h2 data-i18n="pp_h2_third">Third parties</h2>
+  <p data-i18n="pp_p_third">DartPDF does not embed third-party analytics, advertising, or tracking SDKs. The app may open external links (such as its source-code repository) in your browser when you explicitly tap them; those destinations have their own privacy policies.</p>
 
-  <h2>Children</h2>
-  <p>DartPDF is a general-purpose productivity tool and does not knowingly collect any information from anyone, including children.</p>
+  <h2 data-i18n="pp_h2_children">Children</h2>
+  <p data-i18n="pp_p_children">DartPDF is a general-purpose productivity tool and does not knowingly collect any information from anyone, including children.</p>
 
-  <h2>Changes to this policy</h2>
-  <p>If this policy changes, we will update the "Last updated" date above and post the revised policy at the same URL.</p>
+  <h2 data-i18n="pp_h2_changes">Changes to this policy</h2>
+  <p data-i18n="pp_p_changes">If this policy changes, we will update the "Last updated" date above and post the revised policy at the same URL.</p>
 
-  <h2>Contact</h2>
-  <p>Questions about this policy: <a href="mailto:ben.milanko@protonmail.com">ben.milanko@protonmail.com</a></p>
+  <h2 data-i18n="pp_h2_contact">Contact</h2>
+  <p data-i18n-html="pp_p_contact">Questions about this policy: <a href="mailto:ben.milanko@protonmail.com">ben.milanko@protonmail.com</a></p>
 
   <hr class="rule" />
-  <p><a href="index.html">← Back to DartPDF</a></p>
+  <p><a href="index.html" data-i18n="back_arrow">← Back to DartPDF</a></p>
 </main>
 
 <footer>
@@ -139,5 +142,6 @@
   </div>
 </footer>
 
+<script src="/i18n.js" defer></script>
 </body>
 </html>
