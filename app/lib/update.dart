@@ -226,12 +226,35 @@ class UpdateService extends ChangeNotifier {
   String? _dismissedTag;
   Future<void> _restored = Future.value();
 
-  /// Whether update checks make sense on this platform. The web build is always
-  /// served fresh (and an installed PWA refreshes through its service worker),
-  /// so there is nothing to check there.
-  static bool get supported => !kIsWeb;
-
   TargetPlatform get _targetPlatform => _platform ?? defaultTargetPlatform;
+
+  /// Whether update checks make sense on this platform.
+  ///
+  /// Only the desktop builds are distributed as direct downloads from GitHub
+  /// Releases, so only they benefit from a "newer build available, download it"
+  /// nudge. Two platforms opt out:
+  ///
+  /// * The web build is always served fresh (and an installed PWA refreshes
+  ///   through its service worker), so there is nothing to check.
+  /// * The Android/iOS builds update through their app stores, and a GitHub
+  ///   release routinely lands *before* the store review clears. Checking
+  ///   GitHub there would nag mobile users about a version they can't install
+  ///   yet, and the "Download" button would only send them to a GitHub page
+  ///   that isn't their update channel - exactly the confusing dead end we
+  ///   want to avoid.
+  ///
+  /// This is an instance getter (not static) so the injected [platform] is
+  /// honoured and the gate is testable.
+  bool get supported {
+    if (kIsWeb) return false;
+    return switch (_targetPlatform) {
+      TargetPlatform.macOS ||
+      TargetPlatform.windows ||
+      TargetPlatform.linux =>
+        true,
+      _ => false,
+    };
+  }
 
   AppVersion? get _current => AppVersion.tryParse(currentVersion);
 
@@ -251,8 +274,9 @@ class UpdateService extends ChangeNotifier {
       );
 
   /// The best download URL for [latest] on the current platform: the matching
-  /// release asset when there is one, else the release page (iOS, and anything
-  /// without a direct artifact, send the user to the page).
+  /// release asset when there is one, else the release page (a desktop build
+  /// with no direct artifact falls back to the page). Only resolved on the
+  /// desktop platforms where updates are [supported].
   String? get downloadUrl {
     final release = _latest;
     if (release == null) return null;
@@ -325,7 +349,9 @@ class UpdateService extends ChangeNotifier {
           'dartpdf-linux-x86_64.AppImage',
           'dartpdf-linux-x64.tar.gz',
         ],
-      TargetPlatform.android => ['app-release.apk'],
+      // Mobile (Android/iOS) never reaches here: those platforms opt out of
+      // update checks (see [supported]) because they update through their app
+      // stores, so downloadUrl is only ever resolved for the desktop builds.
       _ => const <String>[],
     };
     for (final pattern in patterns) {

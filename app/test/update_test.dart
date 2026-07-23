@@ -40,7 +40,10 @@ UpdateService _service(
   bool throwOnFetch = false,
   Duration checkInterval = const Duration(hours: 24),
   DateTime Function()? now,
-  TargetPlatform? platform,
+  // Update checks are desktop-only, and widget/unit tests default to the
+  // Android target platform, so pin a desktop platform unless a test overrides
+  // it to exercise the mobile opt-out.
+  TargetPlatform platform = TargetPlatform.macOS,
 }) =>
     UpdateService(
       currentVersion: current,
@@ -181,6 +184,7 @@ void main() {
       final service = UpdateService(
         currentVersion: '1.2.2',
         checkInterval: const Duration(hours: 24),
+        platform: TargetPlatform.macOS,
         fetcher: () async {
           calls++;
           return [_release('app-v1.3.0')];
@@ -212,9 +216,10 @@ void main() {
       'dartpdf-windows-installer.exe': 'https://example.test/win-installer',
       'dartpdf-windows-x64.zip': 'https://example.test/win',
       'dartpdf-linux-x86_64.AppImage': 'https://example.test/appimage',
-      'app-release.apk': 'https://example.test/apk',
     };
 
+    // Only the desktop builds resolve a download; mobile opts out of update
+    // checks entirely (see UpdateService.supported).
     for (final scenario in [
       (platform: TargetPlatform.macOS, url: 'https://example.test/dmg'),
       (
@@ -222,7 +227,6 @@ void main() {
         url: 'https://example.test/win-installer'
       ),
       (platform: TargetPlatform.linux, url: 'https://example.test/appimage'),
-      (platform: TargetPlatform.android, url: 'https://example.test/apk'),
     ]) {
       test('points at the ${scenario.platform.name} artifact', () async {
         final service = _service(
@@ -261,11 +265,49 @@ void main() {
         releases: [
           _release('app-v1.3.0', html: 'https://example.test/page'),
         ],
-        platform: TargetPlatform.iOS,
+        platform: TargetPlatform.linux,
       );
       await service.checkForUpdates();
       expect(service.downloadUrl, 'https://example.test/page');
     });
+  });
+
+  group('UpdateService.supported', () {
+    for (final platform in [
+      TargetPlatform.macOS,
+      TargetPlatform.windows,
+      TargetPlatform.linux,
+    ]) {
+      test('is on for the desktop ${platform.name} build', () {
+        final service = _service('1.2.2', releases: const [], platform: platform);
+        addTearDown(service.dispose);
+        expect(service.supported, isTrue);
+      });
+    }
+
+    // Mobile updates through the app stores, where a store review routinely
+    // lags the GitHub release - so we must not nudge those users toward a
+    // build they can't install yet.
+    for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+      test('is off for the store-distributed ${platform.name} build', () {
+        final service = _service('1.2.2', releases: const [], platform: platform);
+        addTearDown(service.dispose);
+        expect(service.supported, isFalse);
+      });
+
+      test('checkForUpdates is a no-op on ${platform.name}', () async {
+        final service = _service(
+          '1.2.2',
+          releases: [_release('app-v1.3.0')],
+          platform: platform,
+        );
+        addTearDown(service.dispose);
+        await service.checkForUpdates(force: true);
+        expect(service.status, UpdateStatus.idle);
+        expect(service.updateAvailable, isFalse);
+        expect(service.shouldNotify, isFalse);
+      });
+    }
   });
 
   group('UpdateService default GitHub fetcher', () {
@@ -312,6 +354,7 @@ void main() {
     test('a non-200 response surfaces as a failed check', () async {
       final service = UpdateService(
         currentVersion: '1.2.2',
+        platform: TargetPlatform.macOS,
         clientFactory: () =>
             MockClient((_) async => http.Response('rate limited', 403)),
       );
@@ -326,6 +369,7 @@ void main() {
     test('a non-list body is treated as no releases', () async {
       final service = UpdateService(
         currentVersion: '1.2.2',
+        platform: TargetPlatform.macOS,
         clientFactory: () =>
             MockClient((_) async => http.Response('{"message":"nope"}', 200)),
       );

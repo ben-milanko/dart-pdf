@@ -251,7 +251,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                       widget.onOpenDevTools!();
                     },
                   ),
-                if (widget.updates != null && UpdateService.supported) ...[
+                if (widget.updates != null && widget.updates!.supported) ...[
                   const Divider(height: 32),
                   _UpdateSection(updates: widget.updates!),
                 ],

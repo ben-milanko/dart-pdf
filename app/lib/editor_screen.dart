@@ -251,7 +251,7 @@ class _EditorScreenState extends State<EditorScreen>
     // Re-open the documents that were open when the app last closed, unless the
     // app was launched to open a specific file (that explicit target wins).
     unawaited(_restoreSession());
-    if (widget.autoCheckUpdates && UpdateService.supported) {
+    if (widget.autoCheckUpdates && _updates.supported) {
       _updates.addListener(_onUpdateStatus);
       unawaited(_startupUpdateCheck());
     }
