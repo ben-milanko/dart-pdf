@@ -169,8 +169,14 @@ void main() {
       expect(a, b);
       expect(a.hashCode, b.hashCode);
       expect(a, isNot(c)); // the flag is part of identity
-      // used as set keys, so both == and hashCode must agree
-      expect({a, b, c}, hasLength(2));
+      // used as set keys, so both == and hashCode must agree (built at
+      // runtime so the analyzer doesn't fold the equal consts into a
+      // duplicate-element set-literal warning)
+      final set = <PdfSearchOptions>{}
+        ..add(a)
+        ..add(b)
+        ..add(c);
+      expect(set, hasLength(2));
       expect(c.copyWith(searchAnnotations: false), a);
     });
 
