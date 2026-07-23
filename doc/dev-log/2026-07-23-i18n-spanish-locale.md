@@ -76,20 +76,41 @@ key / add a stray `{x}` → non-zero exit) before wiring it in.
   clearing to null removes the stored value.
 - `settings_menu_test.dart`: the picker writes `Locale('es')` to prefs when
   "Español" is chosen.
-- `spanish_locale_test.dart` (**new file, on purpose** — see the gotcha):
-  forcing `es` renders the shipped Spanish empty-state button ("Abrir un PDF"),
-  proving supportedLocales + the generated delegate + the app ARB are wired end
-  to end.
+- `widget_test.dart`: a runtime en→es override switch flips the empty-state
+  button to "Abrir un PDF" in one settle — the regression guard for the
+  runtime-switch bug below, and the end-to-end proof that supportedLocales + the
+  generated delegate + the app ARB are wired.
+
+### The runtime-switch bug (deferred loading off + re-resolution)
+
+Ben caught this on the preview: **picking Spanish appeared to do nothing.** Two
+compounding causes, both fixed:
+
+1. **Deferred loading.** `use-deferred-loading: true` made each locale a lazily
+   loaded library, so the string swap only happened once the `es` library loaded
+   *asynchronously* — a network chunk fetch on web. A probe reproduced it: after
+   the switch, `pumpAndSettle()` still showed English; the Spanish text only
+   appeared after ~30 real frames elapsed. Turned deferred loading **off** in all
+   three `l10n.yaml` and regenerated — the swap is now synchronous (one pump).
+   The size cost is negligible (two locales) and `trim_locales.sh` still handles
+   native size. This also retired the earlier "deferred locale won't re-load in a
+   test isolate" gotcha, so the es render check folded back into `widget_test.dart`
+   and `spanish_locale_test.dart` was deleted.
+2. **`WidgetsApp` doesn't re-resolve on callback-input changes.** Even with
+   synchronous loading, a runtime override to `es` left `Localizations.localeOf`
+   stuck at `en`. `WidgetsApp` only re-runs locale resolution when its `locale`
+   **field** changes (or the system locale does) — *not* when an external value
+   the `localeListResolutionCallback` reads changes. The phase-2 override only
+   ever worked because it was set before boot. Fix: feed the effective locale in
+   as the field — `locale: AppDevTools.instance.localeOverride.value ?? _prefs.locale`
+   — so any runtime change (picker or override) changes `locale` and forces
+   re-resolution. The callback still returns the override verbatim so it can force
+   an unsupported locale (ar → RTL). The Settings pref path already changed
+   `locale` (so it re-resolved), which is why *that* half was purely the deferred
+   delay; the override half needed this change too.
 
 ### Gotchas hit
 
-- **Deferred-loaded locale + widget tests.** The `es` localization is a deferred
-  library (web chunking, `use-deferred-loading: true`). Once *any* localized app
-  has booted earlier in the same test isolate, a second boot into `es` **never
-  finishes loading the deferred library** — `pumpAndSettle`, `runAsync`, and
-  bounded frame-pumping all leave `SCAFFOLDS: 0`. The fix is to keep the es
-  render test **alone in its own file** (fresh isolate → its boot is the first).
-  Documented in `doc/i18n.md`.
 - **Picker pushed a pre-existing test off-screen.** Adding the ~72px Language
   dropdown to the top of the Settings dialog shifted the default-app tile below
   the fold on the smaller mobile `TargetPlatformVariant`s (their per-platform

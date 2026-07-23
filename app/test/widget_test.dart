@@ -17,13 +17,30 @@ void main() {
   testWidgets('boots into the empty state with an Open button',
       (WidgetTester tester) async {
     await tester.pumpWidget(const DartPdfEditorApp());
-    // use-deferred-loading makes the localizations delegate load
-    // asynchronously; settle so the localized empty state builds.
     await tester.pumpAndSettle();
 
     // No document open yet: the empty state offers a way in.
     expect(find.widgetWithText(FilledButton, 'Open a PDF'), findsOneWidget);
     expect(find.byIcon(Icons.picture_as_pdf_outlined), findsOneWidget);
+  });
+
+  testWidgets('switching locale at runtime immediately re-renders the UI',
+      (WidgetTester tester) async {
+    // Regression guard: with deferred locale loading the switch only landed
+    // after the es library loaded asynchronously, so a language pick looked
+    // like it did nothing (deferred loading is off - see doc/i18n.md). The app
+    // boots English, then an override to es must flip the shipped Spanish
+    // strings in without any extra async settling. The Settings language
+    // picker drives the same MaterialApp.locale resolution as this override.
+    await tester.pumpWidget(const DartPdfEditorApp());
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(FilledButton, 'Open a PDF'), findsOneWidget);
+
+    AppDevTools.instance.localeOverride.value = const Locale('es');
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(FilledButton, 'Abrir un PDF'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Open a PDF'), findsNothing);
   });
 
   testWidgets('a DevTools locale override forces the app onto that locale',
