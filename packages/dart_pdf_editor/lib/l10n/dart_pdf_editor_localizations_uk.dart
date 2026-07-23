@@ -853,7 +853,7 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'Знято позначку';
 
   @override
-  String get searchAnnotations => 'Шукати в анотаціях';
+  String get searchAnnotations => 'Пошук в анотаціях';
 
   @override
   String get searchClearSearch => 'Очистити пошук';
@@ -1302,6 +1302,21 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
 
   @override
   String get tbCheckMarksOnDocument => 'Позначки на документі';
+
+  @override
+  String get tbCropImage => 'Обрізати зображення';
+
+  @override
+  String get tbCroppingImage => 'Обрізання зображення';
+
+  @override
+  String get tbCropApply => 'Застосувати обрізання';
+
+  @override
+  String get tbCropCancel => 'Скасувати обрізання';
+
+  @override
+  String get tbCropReset => 'Скинути обрізання';
 
   @override
   String get tbColorLabel => 'Колір';

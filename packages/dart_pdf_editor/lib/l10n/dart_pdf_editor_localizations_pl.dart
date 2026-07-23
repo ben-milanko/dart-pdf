@@ -854,7 +854,7 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'Nieoznaczono';
 
   @override
-  String get searchAnnotations => 'Szukaj adnotacji';
+  String get searchAnnotations => 'Szukaj w adnotacjach';
 
   @override
   String get searchClearSearch => 'Wyczyść wyszukiwanie';
@@ -1304,6 +1304,21 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
 
   @override
   String get tbCheckMarksOnDocument => 'Znaczniki na dokumencie';
+
+  @override
+  String get tbCropImage => 'Przytnij obraz';
+
+  @override
+  String get tbCroppingImage => 'Przycinanie obrazu';
+
+  @override
+  String get tbCropApply => 'Zastosuj przycięcie';
+
+  @override
+  String get tbCropCancel => 'Anuluj przycięcie';
+
+  @override
+  String get tbCropReset => 'Resetuj przycięcie';
 
   @override
   String get tbColorLabel => 'Kolor';

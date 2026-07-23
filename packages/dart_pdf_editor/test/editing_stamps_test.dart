@@ -6,6 +6,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/editing/editing_overlay.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -1706,6 +1707,88 @@ void main() {
       expect(find.text('Audit · external'), findsOneWidget);
       expect(find.byTooltip('Edit stamp'), findsNothing);
       expect(find.byTooltip('Delete stamp'), findsNothing);
+    });
+  });
+
+  group('localized stamp date/time formatting', () {
+    setUpAll(initializeDateFormatting);
+
+    final noon = DateTime(2026, 7, 4, 9, 5, 6);
+
+    test('defaults to English when no locale is given', () {
+      // Backward compatibility: hosts that never register the localization
+      // delegate (localeName == null) keep the bundled English shapes.
+      expect(PdfStampDateFormat.monthNameDayYear.format(noon), 'Jul 4, 2026');
+      expect(PdfStampDateFormat.dayMonthNameYear.format(noon), '4 Jul 2026');
+      expect(PdfStampTimeFormat.twelveHour.format(noon), '9:05 AM');
+    });
+
+    test('localizes the spelled-out month name', () {
+      expect(
+        PdfStampDateFormat.monthNameDayYear.format(noon, localeName: 'ja'),
+        contains('7月'),
+      );
+      expect(
+        PdfStampDateFormat.dayMonthNameYear.format(noon, localeName: 'ja'),
+        contains('7月'),
+      );
+      // English stays English even through the intl path.
+      expect(
+        PdfStampDateFormat.monthNameDayYear.format(noon, localeName: 'en'),
+        'Jul 4, 2026',
+      );
+    });
+
+    test('numeric date shapes stay ASCII regardless of locale', () {
+      // iso is a fixed technical format; the slash shapes carry no month name.
+      expect(
+        PdfStampDateFormat.iso.format(noon, localeName: 'ja'),
+        '2026-07-04',
+      );
+      expect(
+        PdfStampDateFormat.dayMonthYear.format(noon, localeName: 'ar'),
+        '04/07/2026',
+      );
+    });
+
+    test('localizes the AM/PM marker on 12-hour times', () {
+      final morning = PdfStampTimeFormat.twelveHour
+          .format(DateTime(2026, 7, 4, 9, 5), localeName: 'ja');
+      expect(morning, startsWith('9:05 '));
+      expect(morning, isNot(contains('AM')));
+      expect(morning, contains('午前'));
+      // 24-hour shapes carry no marker and are locale-independent.
+      expect(
+        PdfStampTimeFormat.twentyFourHour.format(noon, localeName: 'ja'),
+        '09:05',
+      );
+    });
+
+    test('falls back to English for an unknown locale instead of throwing', () {
+      expect(
+        () => PdfStampDateFormat.monthNameDayYear
+            .format(noon, localeName: 'zzz-not-a-locale'),
+        returnsNormally,
+      );
+      expect(
+        PdfStampDateFormat.monthNameDayYear
+            .format(noon, localeName: 'zzz-not-a-locale'),
+        'Jul 4, 2026',
+      );
+    });
+
+    test('controller resolves stamp fields through its uiLocale', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..stampTemplateClock = (() => noon)
+        ..preferences.stampDateFormat = PdfStampDateFormat.monthNameDayYear
+        ..uiLocale = const ui.Locale('ja');
+      addTearDown(editing.dispose);
+
+      expect(editing.resolvedStampTemplateValues['date'], contains('7月'));
+
+      // Clearing the override falls back to English (no persisted preference).
+      editing.uiLocale = null;
+      expect(editing.resolvedStampTemplateValues['date'], 'Jul 4, 2026');
     });
   });
 }

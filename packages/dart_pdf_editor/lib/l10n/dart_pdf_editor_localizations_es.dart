@@ -1287,6 +1287,21 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'Marcas en el documento';
 
   @override
+  String get tbCropImage => 'Recortar imagen';
+
+  @override
+  String get tbCroppingImage => 'Recortando imagen';
+
+  @override
+  String get tbCropApply => 'Aplicar recorte';
+
+  @override
+  String get tbCropCancel => 'Cancelar recorte';
+
+  @override
+  String get tbCropReset => 'Restablecer recorte';
+
+  @override
   String get tbColorLabel => 'Color';
 
   @override

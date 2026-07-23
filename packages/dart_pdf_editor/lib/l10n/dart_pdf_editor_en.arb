@@ -1267,7 +1267,7 @@
   "@shellPressAKey": {
     "description": "Dialog title shown while capturing a keyboard shortcut for an editing tool."
   },
-  "shellPressLetterKeyHint": "Press a letter key, or Delete to clear.",
+  "shellPressLetterKeyHint": "Press a letter key, add Shift for a variant, or Delete to clear.",
   "@shellPressLetterKeyHint": {
     "description": "Instructional text in the keyboard-shortcut capture dialog."
   },
@@ -1676,6 +1676,26 @@
   "tbCheckMarksOnDocument": "Check-marks on the document",
   "@tbCheckMarksOnDocument": {
     "description": "Tooltip on the tally chip counting check-marks placed by the Count tool."
+  },
+  "tbCropImage": "Crop image",
+  "@tbCropImage": {
+    "description": "Tooltip on the button that starts cropping the selected image."
+  },
+  "tbCroppingImage": "Cropping image",
+  "@tbCroppingImage": {
+    "description": "Label shown on the toolbar while the image-crop tool is active."
+  },
+  "tbCropApply": "Apply crop",
+  "@tbCropApply": {
+    "description": "Tooltip on the button that confirms the pending image crop."
+  },
+  "tbCropCancel": "Cancel crop",
+  "@tbCropCancel": {
+    "description": "Tooltip on the button that abandons the pending image crop."
+  },
+  "tbCropReset": "Reset crop",
+  "@tbCropReset": {
+    "description": "Tooltip on the button that removes the crop and restores the whole image."
   },
   "tbColorLabel": "Color",
   "@tbColorLabel": {

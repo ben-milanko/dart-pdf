@@ -1288,6 +1288,21 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'Vinkjes op het document';
 
   @override
+  String get tbCropImage => 'Afbeelding bijsnijden';
+
+  @override
+  String get tbCroppingImage => 'Bezig met bijsnijden';
+
+  @override
+  String get tbCropApply => 'Bijsnijden toepassen';
+
+  @override
+  String get tbCropCancel => 'Bijsnijden annuleren';
+
+  @override
+  String get tbCropReset => 'Bijsnijden herstellen';
+
+  @override
   String get tbColorLabel => 'Kleur';
 
   @override

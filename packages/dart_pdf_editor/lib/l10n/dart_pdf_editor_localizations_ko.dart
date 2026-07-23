@@ -1280,6 +1280,21 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => '문서의 체크 표시';
 
   @override
+  String get tbCropImage => '이미지 자르기';
+
+  @override
+  String get tbCroppingImage => '이미지 자르는 중';
+
+  @override
+  String get tbCropApply => '자르기 적용';
+
+  @override
+  String get tbCropCancel => '자르기 취소';
+
+  @override
+  String get tbCropReset => '자르기 재설정';
+
+  @override
   String get tbColorLabel => '색상';
 
   @override

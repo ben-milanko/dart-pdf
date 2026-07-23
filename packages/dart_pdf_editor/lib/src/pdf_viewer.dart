@@ -970,13 +970,14 @@ class PdfViewer extends StatefulWidget {
   /// runtime-safe preview, vector-first, and image-cap tuning live.
   final PdfPerformanceController? performance;
 
-  /// Single-key shortcuts that arm editing tools while [editing] is active.
+  /// Keyboard shortcuts that arm editing tools while [editing] is active.
   ///
   /// Defaults to [pdfEditToolShortcuts]. Pass a replacement map to rebind
   /// keys, omit tools to leave them unbound, or pass an empty map to disable
-  /// tool shortcuts entirely. Modifier-based viewer/editor shortcuts (copy,
-  /// undo, paste, delete, Escape, etc.) are not affected.
-  final Map<PdfEditTool, LogicalKeyboardKey> toolShortcuts;
+  /// tool shortcuts entirely. Each shortcut is a letter optionally extended
+  /// with Shift ([PdfToolShortcut]); the ⌘/Ctrl clipboard, undo/redo,
+  /// delete and Escape bindings are not affected.
+  final Map<PdfEditTool, PdfToolShortcut> toolShortcuts;
 
   final PdfViewerController? controller;
 
@@ -4175,6 +4176,10 @@ class _PdfViewerState extends State<PdfViewer>
         editing.cancelColorPick();
         return;
       }
+      if (editing.isCroppingImage) {
+        editing.cancelImageCrop();
+        return;
+      }
       if (editing.hasAnnotationSelection) {
         editing.clearAnnotationSelection();
         return;
@@ -5581,11 +5586,11 @@ class _PdfViewerState extends State<PdfViewer>
                         () => editing.nudgeSelected(
                             0, _annotationNudgeStepCoarse),
                   },
-                  // unmodified single-key tool shortcuts (V select, P pen,
-                  // R rectangle, …) - safe because an open in-place text
+                  // tool shortcuts (V select, P pen, R rectangle, ⇧L
+                  // polyline, …) - safe because an open in-place text
                   // editor disables every binding above
                   for (final entry in widget.toolShortcuts.entries)
-                    SingleActivator(entry.value): () => _armTool(entry.key),
+                    entry.value.activator: () => _armTool(entry.key),
                 },
               },
         child: Focus(

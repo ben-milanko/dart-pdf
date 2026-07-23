@@ -1292,6 +1292,21 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'Coches sur le document';
 
   @override
+  String get tbCropImage => 'Rogner l\'image';
+
+  @override
+  String get tbCroppingImage => 'Rognage de l\'image';
+
+  @override
+  String get tbCropApply => 'Appliquer le rognage';
+
+  @override
+  String get tbCropCancel => 'Annuler le rognage';
+
+  @override
+  String get tbCropReset => 'Réinitialiser le rognage';
+
+  @override
   String get tbColorLabel => 'Couleur';
 
   @override

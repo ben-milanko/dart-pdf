@@ -1289,6 +1289,21 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'Segni di spunta sul documento';
 
   @override
+  String get tbCropImage => 'Ritaglia immagine';
+
+  @override
+  String get tbCroppingImage => 'Ritaglio immagine in corso';
+
+  @override
+  String get tbCropApply => 'Applica ritaglio';
+
+  @override
+  String get tbCropCancel => 'Annulla ritaglio';
+
+  @override
+  String get tbCropReset => 'Reimposta ritaglio';
+
+  @override
   String get tbColorLabel => 'Colore';
 
   @override

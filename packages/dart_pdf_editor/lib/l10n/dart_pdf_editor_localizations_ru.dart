@@ -854,7 +854,7 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'Без отметки';
 
   @override
-  String get searchAnnotations => 'Искать в аннотациях';
+  String get searchAnnotations => 'Поиск по аннотациям';
 
   @override
   String get searchClearSearch => 'Очистить поиск';
@@ -1304,6 +1304,21 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
 
   @override
   String get tbCheckMarksOnDocument => 'Галочки на документе';
+
+  @override
+  String get tbCropImage => 'Обрезать изображение';
+
+  @override
+  String get tbCroppingImage => 'Обрезка изображения';
+
+  @override
+  String get tbCropApply => 'Применить обрезку';
+
+  @override
+  String get tbCropCancel => 'Отменить обрезку';
+
+  @override
+  String get tbCropReset => 'Сбросить обрезку';
 
   @override
   String get tbColorLabel => 'Цвет';

@@ -1277,6 +1277,21 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => '文档上的勾选标记';
 
   @override
+  String get tbCropImage => '裁剪图像';
+
+  @override
+  String get tbCroppingImage => '正在裁剪图像';
+
+  @override
+  String get tbCropApply => '应用裁剪';
+
+  @override
+  String get tbCropCancel => '取消裁剪';
+
+  @override
+  String get tbCropReset => '重置裁剪';
+
+  @override
   String get tbColorLabel => '颜色';
 
   @override
@@ -2317,7 +2332,7 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get menuLock => '鎖定';
 
   @override
-  String get menuUnlock => '解除鎖定';
+  String get menuUnlock => '解鎖';
 
   @override
   String get menuRecolour => '重新上色…';
@@ -2932,7 +2947,7 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get sidebarLockAnnotation => '鎖定';
 
   @override
-  String get sidebarUnlockAnnotation => '解除鎖定';
+  String get sidebarUnlockAnnotation => '解鎖';
 
   @override
   String get sidebarMore => '更多';
@@ -3193,6 +3208,21 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get tbCheckMarksOnDocument => '文件上的勾選標記';
+
+  @override
+  String get tbCropImage => '裁剪影像';
+
+  @override
+  String get tbCroppingImage => '正在裁剪影像';
+
+  @override
+  String get tbCropApply => '套用裁剪';
+
+  @override
+  String get tbCropCancel => '取消裁剪';
+
+  @override
+  String get tbCropReset => '重設裁剪';
 
   @override
   String get tbColorLabel => '顏色';
