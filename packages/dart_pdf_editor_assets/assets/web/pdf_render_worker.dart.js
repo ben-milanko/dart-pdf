@@ -3051,7 +3051,7 @@ case 9:j=e
 case 7:s=4
 break
 case 5:j=A.pv(a,b)
-case 4:if(j==null){if(c!=null)c.cg("decodeFailed")
+case 4:if(j==null){if(c!=null)c.cg("decodeNull")
 q=null
 s=1
 break}if(c!=null)++c.a
