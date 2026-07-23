@@ -1133,6 +1133,10 @@
       }
     }
   },
+  "sidebarSignatureChecking": "Checking…",
+  "@sidebarSignatureChecking": {
+    "description": "Status pill on a signature-field row while its validation is still being computed."
+  },
   "sidebarSignatureTrusted": "Valid — trusted",
   "@sidebarSignatureTrusted": {
     "description": "Status pill on a signature-field row when the signature is cryptographically intact and chains to a trusted authority."

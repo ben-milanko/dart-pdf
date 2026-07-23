@@ -13,18 +13,27 @@ ask - Adobe/DocuSign/Bluebeam etc.).
   bundle (`PdfTrustStore.trusting([...])`). Setting it drops the
   validation cache and notifies listeners, so a bundle loaded
   asynchronously lights up the panel when it arrives.
-- **`PdfEditingController.validateSignature(signature)`**: runs
-  `PdfSignature.validate(trustStore:)` and caches the result per
-  `(revisionId, field name)`. Validation walks CMS/cert crypto, so the
-  cache keeps the panel's repeated rebuilds free. The cache is dropped
+- **`PdfEditingController.validationFor(signature)`**: returns the cached
+  `PdfSignature.validate(trustStore:)` result, or null while it computes.
+  Validation walks CMS/cert crypto (a whole-file hash + chain build), so it
+  never runs on the caller's frame - when the result isn't cached it's
+  scheduled off the current event-loop turn and `notifyListeners` fires when
+  it lands. The result is cached per `(revisionId, field name)`, so panel
+  rebuilds are free. This is what keeps opening the panel instant on a
+  heavily-signed document (an earlier synchronous version blocked the frame).
+- **`PdfEditingController.signatureByFieldName`**: the current revision's
+  signatures keyed by field name, computed once per revision. The sidebar's
+  `_signatureFor` was calling `PdfSignature.of` (a full AcroForm walk) once
+  per annotation row - quadratic on a form-heavy document; this makes the
+  lookup O(1). The cache is dropped
   whenever the revision moves or the trust store changes.
 - **`_signatureSection` in `editing_sidebar.dart`**: for a signed
   signature-field row, renders a status pill + detail lines under the tile
   (same nesting model as the comment-thread section, suppressed during
   multi-select):
-  - Pill: **Invalid** (red, `!intact`), **Valid — trusted** (green,
-    `chainTrusted == true`), or **Valid — unverified** (orange,
-    intact but not chained to an anchor).
+  - Pill: **Checking…** (while validation runs off-frame), **Invalid**
+    (red, `!intact`), **Valid — trusted** (green, `chainTrusted == true`),
+    or **Valid — unverified** (orange, intact but not chained to an anchor).
   - Details: signer (cert CN, falling back to `/Name`), signing time,
     trust ("Trusted via <root CN>" / "not from a trusted authority" /
     "No trusted authorities are configured" when no store), a

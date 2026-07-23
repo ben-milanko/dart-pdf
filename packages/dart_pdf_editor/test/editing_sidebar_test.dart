@@ -113,6 +113,8 @@ void main() {
     expect(ok, isTrue);
 
     await pumpSidebar(tester, editing, viewer);
+    // validation runs off the build frame; let it land
+    await tester.pumpAndSettle();
 
     // crypto is intact but no anchors are configured, so trust is unjudged
     expect(find.text('Valid — unverified'), findsOneWidget);
@@ -139,6 +141,8 @@ void main() {
     editing.trustStore = PdfTrustStore.trusting([identity.certificate]);
 
     await pumpSidebar(tester, editing, viewer);
+    // validation runs off the build frame; let it land
+    await tester.pumpAndSettle();
 
     expect(find.text('Valid — trusted'), findsOneWidget);
     expect(find.text('Trusted via Ada Lovelace'), findsOneWidget);

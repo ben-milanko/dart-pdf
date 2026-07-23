@@ -1619,6 +1619,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'{count, plural, one{{count} selected} other{{count} selected}}'**
   String sidebarSelectedCount(int count);
 
+  /// Status pill on a signature-field row while its validation is still being computed.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking…'**
+  String get sidebarSignatureChecking;
+
   /// Status pill on a signature-field row when the signature is cryptographically intact and chains to a trusted authority.
   ///
   /// In en, this message translates to:

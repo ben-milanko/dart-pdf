@@ -922,12 +922,34 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// The signatures present in the current revision (`PdfSignature.of`).
+  ///
+  /// This recomputes the AcroForm walk on every read; to look one up by field
+  /// name repeatedly (e.g. per annotation row), use [signatureByFieldName],
+  /// which caches the map for the current revision.
   List<PdfSignature> get signatures => PdfSignature.of(_document);
+
+  Map<String, PdfSignature>? _signaturesByField;
+  int _signaturesByFieldRevision = -1;
+
+  /// The current revision's signatures keyed by their field's fully qualified
+  /// name, computed once per revision. Avoids re-walking the whole AcroForm for
+  /// every annotation the sidebar lists (which is quadratic on a form-heavy
+  /// document).
+  Map<String, PdfSignature> get signatureByFieldName {
+    if (_signaturesByFieldRevision != _revisionId) {
+      _signaturesByFieldRevision = _revisionId;
+      _signaturesByField = {
+        for (final signature in PdfSignature.of(_document))
+          signature.field.name: signature,
+      };
+    }
+    return _signaturesByField!;
+  }
 
   PdfTrustStore? _trustStore;
 
-  /// The trust anchors [validateSignature] chains signer certificates up to,
-  /// so a signature can read as "trusted" rather than "validity unknown". The
+  /// The trust anchors [validationFor] chains signer certificates up to, so a
+  /// signature can read as "trusted" rather than "validity unknown". The
   /// library ships no built-in roots; a host supplies an AATL/EUTL or
   /// organisation bundle (e.g. `PdfTrustStore.trusting([...])`). Null leaves
   /// every signature's [PdfSignatureValidation.chainTrusted] null - crypto is
@@ -942,26 +964,67 @@ class PdfEditingController extends ChangeNotifier {
     if (identical(store, _trustStore)) return;
     _trustStore = store;
     _validationCache.clear();
+    _validating.clear();
     notifyListeners();
   }
 
-  /// [validateSignature] results for the current revision, keyed by the
-  /// signature field's fully qualified name. Dropped whenever the revision
-  /// moves (or the trust store changes) so it never reports a stale verdict.
+  /// [validationFor] results for the current revision, keyed by the signature
+  /// field's fully qualified name. Dropped whenever the revision moves (or the
+  /// trust store changes) so it never reports a stale verdict.
   final Map<String, PdfSignatureValidation> _validationCache = {};
+
+  /// Field names whose validation is in flight, so it is scheduled only once.
+  final Set<String> _validating = {};
   int _validationCacheRevision = -1;
 
-  /// Validates [signature] against the current [trustStore], caching the
-  /// result for the current revision. Validation walks the CMS/certificate
-  /// crypto, so it is cached per (revision, field) - repeated reads while the
-  /// signature panel rebuilds are free.
-  PdfSignatureValidation validateSignature(PdfSignature signature) {
+  void _dropStaleValidations() {
     if (_validationCacheRevision != _revisionId) {
       _validationCacheRevision = _revisionId;
       _validationCache.clear();
+      _validating.clear();
     }
+  }
+
+  /// The validation for [signature] at the current revision, or null when it
+  /// hasn't been computed yet. Validation walks the CMS/certificate crypto,
+  /// which can be slow, so it never runs on the caller's frame: when the
+  /// result isn't cached this schedules it off the current event-loop turn and
+  /// [notifyListeners] once it lands (the sidebar shows a "checking" state
+  /// until then). The result is cached per (revision, field), so repeated
+  /// reads while the panel rebuilds are free.
+  ///
+  /// Pass `schedule: false` to peek at the cache without kicking off work.
+  PdfSignatureValidation? validationFor(PdfSignature signature,
+      {bool schedule = true}) {
+    _dropStaleValidations();
     final key = signature.field.name;
-    return _validationCache[key] ??= signature.validate(trustStore: _trustStore);
+    final cached = _validationCache[key];
+    if (cached != null) return cached;
+    if (schedule && _validating.add(key)) {
+      final revision = _revisionId;
+      final store = _trustStore;
+      // Off the current frame: opening the panel stays instant even when the
+      // signer's certificate chain is expensive to verify.
+      Future(() {
+        // The document may have moved on while this was queued.
+        if (_revisionId != revision) {
+          _validating.remove(key);
+          return;
+        }
+        PdfSignatureValidation? result;
+        try {
+          result = signature.validate(trustStore: store);
+        } catch (_) {
+          // A signature we can't validate simply stays "checking"-free; the
+          // panel falls back to showing it without a verdict.
+        }
+        _validating.remove(key);
+        if (_revisionId != revision || result == null) return;
+        _validationCache[key] = result;
+        notifyListeners();
+      });
+    }
+    return null;
   }
 
   /// Removes a digital signature as one undoable revision: drops its signature

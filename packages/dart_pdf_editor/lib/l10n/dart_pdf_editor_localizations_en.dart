@@ -868,6 +868,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   }
 
   @override
+  String get sidebarSignatureChecking => 'Checking…';
+
+  @override
   String get sidebarSignatureTrusted => 'Valid — trusted';
 
   @override

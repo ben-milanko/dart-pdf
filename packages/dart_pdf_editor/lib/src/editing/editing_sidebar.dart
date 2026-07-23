@@ -405,10 +405,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
         annotation.fieldName == null) {
       return null;
     }
-    for (final signature in widget.controller.signatures) {
-      if (signature.field.name == annotation.fieldName) return signature;
-    }
-    return null;
+    return widget.controller.signatureByFieldName[annotation.fieldName];
   }
 
   Future<void> _confirmRemoveSignature(
@@ -439,7 +436,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
   /// The inline validation section under a signed signature-field row: a
   /// status pill (valid & trusted / valid but unverified / invalid) and the
   /// signer, signing time, trust, timestamp and PAdES-level details drawn from
-  /// [PdfEditingController.validateSignature]. Trust reads as "trusted" only
+  /// [PdfEditingController.validationFor]. Trust reads as "trusted" only
   /// when the controller carries a [PdfTrustStore] the signer chains to;
   /// without one, an otherwise-valid signature is "unverified".
   List<Widget> _signatureSection(BuildContext context, PdfSignature signature) {
@@ -447,7 +444,23 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
     final l10n = pdfL10n(context);
     final cs = Theme.of(context).colorScheme;
 
-    final validation = widget.controller.validateSignature(signature);
+    // Validation walks CMS/certificate crypto off the build frame; until it
+    // lands the row shows a "checking" pill rather than blocking the panel.
+    final validation = widget.controller.validationFor(signature);
+    if (validation == null) {
+      return [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(56, 0, 12, 8),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: _Pill(
+              label: l10n.sidebarSignatureChecking,
+              color: cs.outline,
+            ),
+          ),
+        ),
+      ];
+    }
     final intact = validation.intact;
     final trusted = validation.chainTrusted == true;
 
