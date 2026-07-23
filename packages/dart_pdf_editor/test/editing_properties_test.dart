@@ -628,6 +628,56 @@ void main() {
       );
     });
 
+    testWidgets('a section header collapses and re-expands its rows',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 600, 220, 660));
+      addTearDown(editing.dispose);
+      await pumpPanel(tester, editing);
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      // groups start expanded, so the position rows are visible
+      final header = find.byKey(const ValueKey('pdf-prop-section-position-size'));
+      expect(header, findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-prop-x')), findsOneWidget);
+
+      // collapsing the group hides its rows but keeps the header
+      await tester.tap(header);
+      await tester.pump();
+      expect(header, findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-prop-x')), findsNothing);
+
+      // and re-expanding brings them back
+      await tester.tap(header);
+      await tester.pump();
+      expect(find.byKey(const ValueKey('pdf-prop-x')), findsOneWidget);
+    });
+
+    testWidgets('a collapsed group stays collapsed across selection changes',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 600, 220, 660))
+        ..addEllipse(0, const PdfRect(250, 600, 350, 660));
+      addTearDown(editing.dispose);
+      await pumpPanel(tester, editing);
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-prop-section-appearance')));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('pdf-prop-stroke')), findsNothing);
+
+      // selecting a different annotation keeps the group collapsed - the
+      // choice is per-group, not per-annotation
+      editing.selectAnnotation(0, 1);
+      await tester.pump();
+      expect(find.byKey(const ValueKey('pdf-prop-section-appearance')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-prop-stroke')), findsNothing);
+    });
+
     testWidgets('the dragged width persists as a preference', (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
