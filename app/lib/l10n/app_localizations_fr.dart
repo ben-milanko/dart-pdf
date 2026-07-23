@@ -438,16 +438,16 @@ class AppLocalizationsFr extends AppLocalizations {
   String get editorMenuSaveAs => 'Enregistrer sous…';
 
   @override
-  String get editorMenuScanDocument => 'Scan to new document…';
+  String get editorMenuScanDocument => 'Numériser vers un nouveau document…';
 
   @override
-  String get editorMenuInsertScan => 'Insert scan…';
+  String get editorMenuInsertScan => 'Insérer une numérisation…';
 
   @override
-  String get editorScanFailed => 'Couldn\'t scan the document.';
+  String get editorScanFailed => 'Impossible de numériser le document.';
 
   @override
-  String get editorInsertedScan => 'Inserted scanned pages.';
+  String get editorInsertedScan => 'Pages numérisées insérées.';
 
   @override
   String get editorMenuSettings => 'Paramètres';

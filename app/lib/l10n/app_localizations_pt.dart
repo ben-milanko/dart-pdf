@@ -436,16 +436,16 @@ class AppLocalizationsPt extends AppLocalizations {
   String get editorMenuSaveAs => 'Salvar como…';
 
   @override
-  String get editorMenuScanDocument => 'Scan to new document…';
+  String get editorMenuScanDocument => 'Digitalizar para novo documento…';
 
   @override
-  String get editorMenuInsertScan => 'Insert scan…';
+  String get editorMenuInsertScan => 'Inserir digitalização…';
 
   @override
-  String get editorScanFailed => 'Couldn\'t scan the document.';
+  String get editorScanFailed => 'Não foi possível digitalizar o documento.';
 
   @override
-  String get editorInsertedScan => 'Inserted scanned pages.';
+  String get editorInsertedScan => 'Páginas digitalizadas inseridas.';
 
   @override
   String get editorMenuSettings => 'Configurações';

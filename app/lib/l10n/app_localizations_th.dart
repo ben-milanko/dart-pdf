@@ -432,16 +432,16 @@ class AppLocalizationsTh extends AppLocalizations {
   String get editorMenuSaveAs => 'บันทึกเป็น…';
 
   @override
-  String get editorMenuScanDocument => 'Scan to new document…';
+  String get editorMenuScanDocument => 'สแกนเป็นเอกสารใหม่…';
 
   @override
-  String get editorMenuInsertScan => 'Insert scan…';
+  String get editorMenuInsertScan => 'แทรกสแกน…';
 
   @override
-  String get editorScanFailed => 'Couldn\'t scan the document.';
+  String get editorScanFailed => 'ไม่สามารถสแกนเอกสารได้';
 
   @override
-  String get editorInsertedScan => 'Inserted scanned pages.';
+  String get editorInsertedScan => 'แทรกหน้าที่สแกนแล้ว';
 
   @override
   String get editorMenuSettings => 'การตั้งค่า';

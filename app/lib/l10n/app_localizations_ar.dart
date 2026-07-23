@@ -449,16 +449,16 @@ class AppLocalizationsAr extends AppLocalizations {
   String get editorMenuSaveAs => 'حفظ باسم…';
 
   @override
-  String get editorMenuScanDocument => 'Scan to new document…';
+  String get editorMenuScanDocument => 'مسح إلى مستند جديد…';
 
   @override
-  String get editorMenuInsertScan => 'Insert scan…';
+  String get editorMenuInsertScan => 'إدراج مسح ضوئي…';
 
   @override
-  String get editorScanFailed => 'Couldn\'t scan the document.';
+  String get editorScanFailed => 'تعذّر مسح المستند.';
 
   @override
-  String get editorInsertedScan => 'Inserted scanned pages.';
+  String get editorInsertedScan => 'تمت إضافة الصفحات الممسوحة ضوئيًا.';
 
   @override
   String get editorMenuSettings => 'الإعدادات';

@@ -427,16 +427,16 @@ class AppLocalizationsJa extends AppLocalizations {
   String get editorMenuSaveAs => '名前を付けて保存…';
 
   @override
-  String get editorMenuScanDocument => 'Scan to new document…';
+  String get editorMenuScanDocument => '新しいドキュメントにスキャン…';
 
   @override
-  String get editorMenuInsertScan => 'Insert scan…';
+  String get editorMenuInsertScan => 'スキャンを挿入…';
 
   @override
-  String get editorScanFailed => 'Couldn\'t scan the document.';
+  String get editorScanFailed => 'ドキュメントをスキャンできませんでした。';
 
   @override
-  String get editorInsertedScan => 'Inserted scanned pages.';
+  String get editorInsertedScan => 'スキャンしたページを挿入しました。';
 
   @override
   String get editorMenuSettings => '設定';

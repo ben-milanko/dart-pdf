@@ -438,16 +438,16 @@ class AppLocalizationsNl extends AppLocalizations {
   String get editorMenuSaveAs => 'Opslaan als…';
 
   @override
-  String get editorMenuScanDocument => 'Scan to new document…';
+  String get editorMenuScanDocument => 'Scannen naar nieuw document…';
 
   @override
-  String get editorMenuInsertScan => 'Insert scan…';
+  String get editorMenuInsertScan => 'Scan invoegen…';
 
   @override
-  String get editorScanFailed => 'Couldn\'t scan the document.';
+  String get editorScanFailed => 'Kan het document niet scannen.';
 
   @override
-  String get editorInsertedScan => 'Inserted scanned pages.';
+  String get editorInsertedScan => 'Gescande pagina\'s ingevoegd.';
 
   @override
   String get editorMenuSettings => 'Instellingen';
