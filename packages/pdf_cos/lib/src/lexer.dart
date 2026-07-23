@@ -343,8 +343,53 @@ class CosLexer {
       }
       position++;
     }
-    return CosToken(
-        CosTokenType.name, start, String.fromCharCodes(bytes, nameStart, position));
+    return CosToken(CosTokenType.name, start, _internName(nameStart, position));
+  }
+
+  /// Interned strings for escape-free names, mirroring [_internKeyword] (#523).
+  /// Names and dictionary keys (`/Type`, `/Font`, `/MediaBox`, `/F1`…) repeat
+  /// massively across a document, and String.fromCharCodes per occurrence is
+  /// comparatively expensive under dart2js. Two tiers: names up to 6 bytes
+  /// pack losslessly into one int (regular bytes are never zero, so no length
+  /// tag is needed; 48 bits stays within dart2js's 53 safe bits), longer names
+  /// go through an FNV-1a hash whose hit is verified byte-for-byte before the
+  /// shared string is returned (a colliding name just allocates fresh). Both
+  /// maps share [_keywordIntern]'s bounded-size guard so unbounded distinct
+  /// names (mass-produced subset tags, hashes as keys) can't leak.
+  static final Map<int, String> _shortNameIntern = {};
+  static final Map<int, String> _longNameIntern = {};
+
+  String _internName(int start, int end) {
+    final len = end - start;
+    if (len <= 6) {
+      var packed = 0;
+      for (var i = end - 1; i >= start; i--) {
+        packed = packed * 256 + bytes[i];
+      }
+      final hit = _shortNameIntern[packed];
+      if (hit != null) return hit;
+      final s = String.fromCharCodes(bytes, start, end);
+      if (_shortNameIntern.length < 4096) _shortNameIntern[packed] = s;
+      return s;
+    }
+    var hash = 0x811c9dc5;
+    for (var i = start; i < end; i++) {
+      hash = ((hash ^ bytes[i]) * 0x01000193) & 0xFFFFFFFF;
+    }
+    final hit = _longNameIntern[hash];
+    if (hit != null && hit.length == len) {
+      var same = true;
+      for (var i = 0; i < len; i++) {
+        if (hit.codeUnitAt(i) != bytes[start + i]) {
+          same = false;
+          break;
+        }
+      }
+      if (same) return hit;
+    }
+    final s = String.fromCharCodes(bytes, start, end);
+    if (hit == null && _longNameIntern.length < 4096) _longNameIntern[hash] = s;
+    return s;
   }
 
   CosToken _nameWithEscapes(int start, int nameStart) {
