@@ -1,5 +1,15 @@
 {
   "@@locale": "pl",
+  "tbCropImage": "Przytnij obraz",
+  "tbCroppingImage": "Przycinanie obrazu",
+  "tbCropApply": "Zastosuj przycięcie",
+  "tbCropCancel": "Anuluj przycięcie",
+  "tbCropReset": "Resetuj przycięcie",
+  "menuLock": "Zablokuj",
+  "menuUnlock": "Odblokuj",
+  "searchAnnotations": "Szukaj w adnotacjach",
+  "sidebarLockAnnotation": "Zablokuj",
+  "sidebarUnlockAnnotation": "Odblokuj",
   "add": "Dodaj",
   "annotCaret": "Znak wstawiania",
   "annotCircle": "Okrąg",
@@ -559,15 +569,5 @@
   "viewerMarkupSquiggly": "Faliste",
   "viewerMarkupStrikeOut": "Przekreślenie",
   "viewerMarkupUnderline": "Podkreślenie",
-  "viewerSelectAll": "Zaznacz wszystko",
-  "searchAnnotations": "Szukaj adnotacji",
-  "menuLock": "Zablokuj",
-  "menuUnlock": "Odblokuj",
-  "sidebarLockAnnotation": "Zablokuj",
-  "sidebarUnlockAnnotation": "Odblokuj",
-  "tbCropApply": "Zastosuj przycięcie",
-  "tbCropCancel": "Anuluj przycięcie",
-  "tbCropImage": "Przytnij obraz",
-  "tbCropReset": "Resetuj przycięcie",
-  "tbCroppingImage": "Przycinanie obrazu"
+  "viewerSelectAll": "Zaznacz wszystko"
 }

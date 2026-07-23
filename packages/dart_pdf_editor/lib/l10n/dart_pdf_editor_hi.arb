@@ -1,5 +1,15 @@
 {
   "@@locale": "hi",
+  "tbCropImage": "छवि क्रॉप करें",
+  "tbCroppingImage": "छवि क्रॉप हो रही है",
+  "tbCropApply": "क्रॉप लागू करें",
+  "tbCropCancel": "क्रॉप रद्द करें",
+  "tbCropReset": "क्रॉप रीसेट करें",
+  "menuLock": "लॉक करें",
+  "menuUnlock": "अनलॉक करें",
+  "searchAnnotations": "एनोटेशन खोजें",
+  "sidebarLockAnnotation": "लॉक करें",
+  "sidebarUnlockAnnotation": "अनलॉक करें",
   "add": "जोड़ें",
   "annotCaret": "कैरेट",
   "annotCircle": "वृत्त",
@@ -559,15 +569,5 @@
   "viewerMarkupSquiggly": "लहरदार",
   "viewerMarkupStrikeOut": "स्ट्राइक आउट",
   "viewerMarkupUnderline": "रेखांकन",
-  "viewerSelectAll": "सभी चुनें",
-  "searchAnnotations": "एनोटेशन खोजें",
-  "menuLock": "लॉक करें",
-  "menuUnlock": "अनलॉक करें",
-  "sidebarLockAnnotation": "लॉक करें",
-  "sidebarUnlockAnnotation": "अनलॉक करें",
-  "tbCropApply": "क्रॉप लागू करें",
-  "tbCropCancel": "क्रॉप रद्द करें",
-  "tbCropImage": "छवि क्रॉप करें",
-  "tbCropReset": "क्रॉप रीसेट करें",
-  "tbCroppingImage": "छवि क्रॉप हो रही है"
+  "viewerSelectAll": "सभी चुनें"
 }

@@ -1259,10 +1259,10 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => '文档上的勾选标记';
 
   @override
-  String get tbCropImage => '裁剪图片';
+  String get tbCropImage => '裁剪图像';
 
   @override
-  String get tbCroppingImage => '正在裁剪图片';
+  String get tbCroppingImage => '正在裁剪图像';
 
   @override
   String get tbCropApply => '应用裁剪';
@@ -3174,10 +3174,10 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get tbCheckMarksOnDocument => '文件上的勾選標記';
 
   @override
-  String get tbCropImage => '裁剪圖片';
+  String get tbCropImage => '裁剪影像';
 
   @override
-  String get tbCroppingImage => '正在裁剪圖片';
+  String get tbCroppingImage => '正在裁剪影像';
 
   @override
   String get tbCropApply => '套用裁剪';

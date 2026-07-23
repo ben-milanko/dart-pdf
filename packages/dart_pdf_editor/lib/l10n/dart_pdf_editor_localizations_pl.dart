@@ -836,7 +836,7 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get sbarStateUnmarked => 'Nieoznaczono';
 
   @override
-  String get searchAnnotations => 'Szukaj adnotacji';
+  String get searchAnnotations => 'Szukaj w adnotacjach';
 
   @override
   String get searchClearSearch => 'Wyczyść wyszukiwanie';

@@ -1,5 +1,15 @@
 {
   "@@locale": "ja",
+  "tbCropImage": "画像をトリミング",
+  "tbCroppingImage": "画像をトリミング中",
+  "tbCropApply": "トリミングを適用",
+  "tbCropCancel": "トリミングをキャンセル",
+  "tbCropReset": "トリミングをリセット",
+  "menuLock": "ロック",
+  "menuUnlock": "ロック解除",
+  "searchAnnotations": "注釈を検索",
+  "sidebarLockAnnotation": "ロック",
+  "sidebarUnlockAnnotation": "ロック解除",
   "add": "追加",
   "annotCaret": "カレット",
   "annotCircle": "円",
@@ -559,15 +569,5 @@
   "viewerMarkupSquiggly": "波線",
   "viewerMarkupStrikeOut": "取り消し線",
   "viewerMarkupUnderline": "下線",
-  "viewerSelectAll": "すべて選択",
-  "searchAnnotations": "注釈を検索",
-  "menuLock": "ロック",
-  "menuUnlock": "ロック解除",
-  "sidebarLockAnnotation": "ロック",
-  "sidebarUnlockAnnotation": "ロック解除",
-  "tbCropApply": "切り抜きを適用",
-  "tbCropCancel": "切り抜きをキャンセル",
-  "tbCropImage": "画像を切り抜く",
-  "tbCropReset": "切り抜きをリセット",
-  "tbCroppingImage": "画像を切り抜き中"
+  "viewerSelectAll": "すべて選択"
 }

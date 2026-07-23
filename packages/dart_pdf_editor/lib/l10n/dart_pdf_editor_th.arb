@@ -1,5 +1,15 @@
 {
   "@@locale": "th",
+  "tbCropImage": "ครอบตัดรูปภาพ",
+  "tbCroppingImage": "กำลังครอบตัดรูปภาพ",
+  "tbCropApply": "ใช้การครอบตัด",
+  "tbCropCancel": "ยกเลิกการครอบตัด",
+  "tbCropReset": "รีเซ็ตการครอบตัด",
+  "menuLock": "ล็อก",
+  "menuUnlock": "ปลดล็อก",
+  "searchAnnotations": "ค้นหาคำอธิบายประกอบ",
+  "sidebarLockAnnotation": "ล็อก",
+  "sidebarUnlockAnnotation": "ปลดล็อก",
   "add": "เพิ่ม",
   "annotCaret": "เครื่องหมายแทรก",
   "annotCircle": "วงกลม",
@@ -559,15 +569,5 @@
   "viewerMarkupSquiggly": "เส้นหยัก",
   "viewerMarkupStrikeOut": "ขีดฆ่า",
   "viewerMarkupUnderline": "ขีดเส้นใต้",
-  "viewerSelectAll": "เลือกทั้งหมด",
-  "searchAnnotations": "ค้นหาคำอธิบายประกอบ",
-  "menuLock": "ล็อก",
-  "menuUnlock": "ปลดล็อก",
-  "sidebarLockAnnotation": "ล็อก",
-  "sidebarUnlockAnnotation": "ปลดล็อก",
-  "tbCropApply": "ใช้การครอบตัด",
-  "tbCropCancel": "ยกเลิกการครอบตัด",
-  "tbCropImage": "ครอบตัดรูปภาพ",
-  "tbCropReset": "รีเซ็ตการครอบตัด",
-  "tbCroppingImage": "กำลังครอบตัดรูปภาพ"
+  "viewerSelectAll": "เลือกทั้งหมด"
 }

@@ -1261,19 +1261,19 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'ドキュメント上のチェックマーク';
 
   @override
-  String get tbCropImage => '画像を切り抜く';
+  String get tbCropImage => '画像をトリミング';
 
   @override
-  String get tbCroppingImage => '画像を切り抜き中';
+  String get tbCroppingImage => '画像をトリミング中';
 
   @override
-  String get tbCropApply => '切り抜きを適用';
+  String get tbCropApply => 'トリミングを適用';
 
   @override
-  String get tbCropCancel => '切り抜きをキャンセル';
+  String get tbCropCancel => 'トリミングをキャンセル';
 
   @override
-  String get tbCropReset => '切り抜きをリセット';
+  String get tbCropReset => 'トリミングをリセット';
 
   @override
   String get tbColorLabel => 'カラー';

@@ -1,5 +1,15 @@
 {
   "@@locale": "it",
+  "tbCropImage": "Ritaglia immagine",
+  "tbCroppingImage": "Ritaglio immagine in corso",
+  "tbCropApply": "Applica ritaglio",
+  "tbCropCancel": "Annulla ritaglio",
+  "tbCropReset": "Reimposta ritaglio",
+  "menuLock": "Blocca",
+  "menuUnlock": "Sblocca",
+  "searchAnnotations": "Cerca annotazioni",
+  "sidebarLockAnnotation": "Blocca",
+  "sidebarUnlockAnnotation": "Sblocca",
   "add": "Aggiungi",
   "annotCaret": "Cursore",
   "annotCircle": "Cerchio",
@@ -559,15 +569,5 @@
   "viewerMarkupSquiggly": "Ondulato",
   "viewerMarkupStrikeOut": "Barra",
   "viewerMarkupUnderline": "Sottolinea",
-  "viewerSelectAll": "Seleziona tutto",
-  "searchAnnotations": "Cerca annotazioni",
-  "menuLock": "Blocca",
-  "menuUnlock": "Sblocca",
-  "sidebarLockAnnotation": "Blocca",
-  "sidebarUnlockAnnotation": "Sblocca",
-  "tbCropApply": "Applica ritaglio",
-  "tbCropCancel": "Annulla ritaglio",
-  "tbCropImage": "Ritaglia immagine",
-  "tbCropReset": "Reimposta ritaglio",
-  "tbCroppingImage": "Ritaglio immagine"
+  "viewerSelectAll": "Seleziona tutto"
 }

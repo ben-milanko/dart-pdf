@@ -1,5 +1,15 @@
 {
   "@@locale": "de",
+  "tbCropImage": "Bild zuschneiden",
+  "tbCroppingImage": "Bild wird zugeschnitten",
+  "tbCropApply": "Zuschnitt anwenden",
+  "tbCropCancel": "Zuschnitt abbrechen",
+  "tbCropReset": "Zuschnitt zurücksetzen",
+  "menuLock": "Sperren",
+  "menuUnlock": "Entsperren",
+  "searchAnnotations": "Anmerkungen durchsuchen",
+  "sidebarLockAnnotation": "Sperren",
+  "sidebarUnlockAnnotation": "Entsperren",
   "add": "Hinzufügen",
   "annotCaret": "Einfügemarke",
   "annotCircle": "Kreis",
@@ -559,15 +569,5 @@
   "viewerMarkupSquiggly": "Wellenlinie",
   "viewerMarkupStrikeOut": "Durchstreichen",
   "viewerMarkupUnderline": "Unterstreichen",
-  "viewerSelectAll": "Alles auswählen",
-  "searchAnnotations": "Anmerkungen durchsuchen",
-  "menuLock": "Sperren",
-  "menuUnlock": "Entsperren",
-  "sidebarLockAnnotation": "Sperren",
-  "sidebarUnlockAnnotation": "Entsperren",
-  "tbCropApply": "Zuschnitt anwenden",
-  "tbCropCancel": "Zuschnitt abbrechen",
-  "tbCropImage": "Bild zuschneiden",
-  "tbCropReset": "Zuschnitt zurücksetzen",
-  "tbCroppingImage": "Bild wird zugeschnitten"
+  "viewerSelectAll": "Alles auswählen"
 }

@@ -1,5 +1,15 @@
 {
   "@@locale": "ar",
+  "tbCropImage": "اقتصاص الصورة",
+  "tbCroppingImage": "جارٍ اقتصاص الصورة",
+  "tbCropApply": "تطبيق الاقتصاص",
+  "tbCropCancel": "إلغاء الاقتصاص",
+  "tbCropReset": "إعادة تعيين الاقتصاص",
+  "menuLock": "قفل",
+  "menuUnlock": "إلغاء القفل",
+  "searchAnnotations": "البحث في التعليقات التوضيحية",
+  "sidebarLockAnnotation": "قفل",
+  "sidebarUnlockAnnotation": "إلغاء القفل",
   "add": "إضافة",
   "annotCaret": "علامة إقحام",
   "annotCircle": "دائرة",
@@ -559,15 +569,5 @@
   "viewerMarkupSquiggly": "متموّج",
   "viewerMarkupStrikeOut": "شطب",
   "viewerMarkupUnderline": "تسطير",
-  "viewerSelectAll": "تحديد الكل",
-  "searchAnnotations": "البحث في التعليقات التوضيحية",
-  "menuLock": "قفل",
-  "menuUnlock": "إلغاء القفل",
-  "sidebarLockAnnotation": "قفل",
-  "sidebarUnlockAnnotation": "إلغاء القفل",
-  "tbCropApply": "تطبيق الاقتصاص",
-  "tbCropCancel": "إلغاء الاقتصاص",
-  "tbCropImage": "اقتصاص الصورة",
-  "tbCropReset": "إعادة تعيين الاقتصاص",
-  "tbCroppingImage": "جارٍ اقتصاص الصورة"
+  "viewerSelectAll": "تحديد الكل"
 }

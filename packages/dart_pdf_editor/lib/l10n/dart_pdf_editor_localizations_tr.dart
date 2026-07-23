@@ -1267,10 +1267,10 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get tbCheckMarksOnDocument => 'Belge üzerindeki onay işaretleri';
 
   @override
-  String get tbCropImage => 'Resmi kırp';
+  String get tbCropImage => 'Görseli kırp';
 
   @override
-  String get tbCroppingImage => 'Resim kırpılıyor';
+  String get tbCroppingImage => 'Görsel kırpılıyor';
 
   @override
   String get tbCropApply => 'Kırpmayı uygula';

@@ -1,5 +1,15 @@
 {
   "@@locale": "ru",
+  "tbCropImage": "Обрезать изображение",
+  "tbCroppingImage": "Обрезка изображения",
+  "tbCropApply": "Применить обрезку",
+  "tbCropCancel": "Отменить обрезку",
+  "tbCropReset": "Сбросить обрезку",
+  "menuLock": "Заблокировать",
+  "menuUnlock": "Разблокировать",
+  "searchAnnotations": "Поиск по аннотациям",
+  "sidebarLockAnnotation": "Заблокировать",
+  "sidebarUnlockAnnotation": "Разблокировать",
   "add": "Добавить",
   "annotCaret": "Знак вставки",
   "annotCircle": "Круг",
@@ -559,15 +569,5 @@
   "viewerMarkupSquiggly": "Волнистое",
   "viewerMarkupStrikeOut": "Зачеркнуть",
   "viewerMarkupUnderline": "Подчёркивание",
-  "viewerSelectAll": "Выбрать всё",
-  "searchAnnotations": "Поиск по аннотациям",
-  "menuLock": "Заблокировать",
-  "menuUnlock": "Разблокировать",
-  "sidebarLockAnnotation": "Заблокировать",
-  "sidebarUnlockAnnotation": "Разблокировать",
-  "tbCropApply": "Применить обрезку",
-  "tbCropCancel": "Отменить обрезку",
-  "tbCropImage": "Обрезать изображение",
-  "tbCropReset": "Сбросить обрезку",
-  "tbCroppingImage": "Обрезка изображения"
+  "viewerSelectAll": "Выбрать всё"
 }

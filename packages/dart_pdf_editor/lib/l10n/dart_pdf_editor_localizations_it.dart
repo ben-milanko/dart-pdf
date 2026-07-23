@@ -1274,7 +1274,7 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   String get tbCropImage => 'Ritaglia immagine';
 
   @override
-  String get tbCroppingImage => 'Ritaglio immagine';
+  String get tbCroppingImage => 'Ritaglio immagine in corso';
 
   @override
   String get tbCropApply => 'Applica ritaglio';

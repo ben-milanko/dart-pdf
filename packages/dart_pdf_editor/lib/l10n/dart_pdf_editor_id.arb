@@ -1,5 +1,15 @@
 {
   "@@locale": "id",
+  "tbCropImage": "Pangkas gambar",
+  "tbCroppingImage": "Memangkas gambar",
+  "tbCropApply": "Terapkan pangkas",
+  "tbCropCancel": "Batalkan pangkas",
+  "tbCropReset": "Atur ulang pangkas",
+  "menuLock": "Kunci",
+  "menuUnlock": "Buka kunci",
+  "searchAnnotations": "Cari anotasi",
+  "sidebarLockAnnotation": "Kunci",
+  "sidebarUnlockAnnotation": "Buka kunci",
   "add": "Tambah",
   "annotCaret": "Sisipan",
   "annotCircle": "Lingkaran",
@@ -559,15 +569,5 @@
   "viewerMarkupSquiggly": "Bergelombang",
   "viewerMarkupStrikeOut": "Coret",
   "viewerMarkupUnderline": "Garis bawah",
-  "viewerSelectAll": "Pilih semua",
-  "searchAnnotations": "Cari anotasi",
-  "menuLock": "Kunci",
-  "menuUnlock": "Buka kunci",
-  "sidebarLockAnnotation": "Kunci",
-  "sidebarUnlockAnnotation": "Buka kunci",
-  "tbCropApply": "Terapkan pangkas",
-  "tbCropCancel": "Batalkan pangkas",
-  "tbCropImage": "Pangkas gambar",
-  "tbCropReset": "Atur ulang pangkas",
-  "tbCroppingImage": "Memangkas gambar"
+  "viewerSelectAll": "Pilih semua"
 }

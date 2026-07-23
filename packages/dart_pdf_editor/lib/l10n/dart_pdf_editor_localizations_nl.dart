@@ -1282,7 +1282,7 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get tbCropCancel => 'Bijsnijden annuleren';
 
   @override
-  String get tbCropReset => 'Bijsnijden opnieuw instellen';
+  String get tbCropReset => 'Bijsnijden herstellen';
 
   @override
   String get tbColorLabel => 'Kleur';

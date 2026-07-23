@@ -1,5 +1,15 @@
 {
   "@@locale": "uk",
+  "tbCropImage": "Обрізати зображення",
+  "tbCroppingImage": "Обрізання зображення",
+  "tbCropApply": "Застосувати обрізання",
+  "tbCropCancel": "Скасувати обрізання",
+  "tbCropReset": "Скинути обрізання",
+  "menuLock": "Заблокувати",
+  "menuUnlock": "Розблокувати",
+  "searchAnnotations": "Пошук в анотаціях",
+  "sidebarLockAnnotation": "Заблокувати",
+  "sidebarUnlockAnnotation": "Розблокувати",
   "add": "Додати",
   "annotCaret": "Каретка",
   "annotCircle": "Коло",
@@ -559,15 +569,5 @@
   "viewerMarkupSquiggly": "Хвиляста лінія",
   "viewerMarkupStrikeOut": "Закреслити",
   "viewerMarkupUnderline": "Підкреслення",
-  "viewerSelectAll": "Виділити все",
-  "searchAnnotations": "Пошук в анотаціях",
-  "menuLock": "Заблокувати",
-  "menuUnlock": "Розблокувати",
-  "sidebarLockAnnotation": "Заблокувати",
-  "sidebarUnlockAnnotation": "Розблокувати",
-  "tbCropApply": "Застосувати обрізання",
-  "tbCropCancel": "Скасувати обрізання",
-  "tbCropImage": "Обрізати зображення",
-  "tbCropReset": "Скинути обрізання",
-  "tbCroppingImage": "Обрізання зображення"
+  "viewerSelectAll": "Виділити все"
 }

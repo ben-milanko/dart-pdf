@@ -1,5 +1,15 @@
 {
   "@@locale": "ko",
+  "tbCropImage": "이미지 자르기",
+  "tbCroppingImage": "이미지 자르는 중",
+  "tbCropApply": "자르기 적용",
+  "tbCropCancel": "자르기 취소",
+  "tbCropReset": "자르기 재설정",
+  "menuLock": "잠금",
+  "menuUnlock": "잠금 해제",
+  "searchAnnotations": "주석 검색",
+  "sidebarLockAnnotation": "잠금",
+  "sidebarUnlockAnnotation": "잠금 해제",
   "add": "추가",
   "annotCaret": "캐럿",
   "annotCircle": "원",
@@ -559,15 +569,5 @@
   "viewerMarkupSquiggly": "물결 밑줄",
   "viewerMarkupStrikeOut": "취소선",
   "viewerMarkupUnderline": "밑줄",
-  "viewerSelectAll": "모두 선택",
-  "searchAnnotations": "주석 검색",
-  "menuLock": "잠금",
-  "menuUnlock": "잠금 해제",
-  "sidebarLockAnnotation": "잠금",
-  "sidebarUnlockAnnotation": "잠금 해제",
-  "tbCropApply": "자르기 적용",
-  "tbCropCancel": "자르기 취소",
-  "tbCropImage": "이미지 자르기",
-  "tbCropReset": "자르기 재설정",
-  "tbCroppingImage": "이미지 자르는 중"
+  "viewerSelectAll": "모두 선택"
 }

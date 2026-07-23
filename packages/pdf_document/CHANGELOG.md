@@ -1,6 +1,9 @@
 # Changelog
 
-## 2.1.0
+## 3.0.0
+
+Lockstep major release (a breaking change in `dart_pdf_editor` moves the whole
+suite to 3.0.0). `pdf_document`'s own public API is additive.
 
 - Add `PdfEditor.saveSignedExternal`: delegates the RSA operation to a
   `PdfExternalSigner` callback so the private key can stay in a hardware keystore
@@ -8,6 +11,11 @@
   `signedByLabel`/`dateLabel`/`reasonLabel`/`locationLabel`, and the visible `/M`
   and signature-box date now preserve a non-UTC `signingTime`'s offset (UTC
   input unchanged) (#507).
+- Fix signature appearance detail text being clipped at the top of the
+  signature box (#468).
+
+## 2.1.0
+
 - Cache `PdfPage` instances instead of rebuilding them per access, resolving
   inherited attributes live: a page holds only ancestor-derived values and
   reads its own `/Rotate`, `/MediaBox`, `/CropBox`, and `/Resources` from the
