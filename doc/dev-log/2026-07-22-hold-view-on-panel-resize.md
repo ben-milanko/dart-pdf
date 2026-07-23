@@ -31,6 +31,14 @@ _layoutZoom = (_layoutZoom * oldCross / newCross).clamp(widget.minZoom, 1.0);
   regression, holding scale there would need to rescale the transform during
   build, which risks a mid-build notifier mutation).
 
+The zoom-hold is **scoped to a pure cross-axis resize** — a side panel, which
+leaves the main (scroll) axis untouched. The `LayoutBuilder` passes
+`holdScale: newMain == oldMain`; a window resize moves both axes, clears the
+flag, and keeps the pre-existing re-fit-to-width behavior (the page grows to
+fill on maximize) with only the reading position pinned. This keeps the change
+surgical to the reported "panels resize" scenario rather than altering
+window-resize behavior.
+
 The call is also now skipped while a `_pendingViewport` restore is in flight —
 that explicit restore sets its own layout zoom and scroll and should win.
 
@@ -41,4 +49,7 @@ reading position" test uses `PdfViewerFit.width` (where `_layoutZoom` is pinned
 at 1), so it exercises the unchanged path. A new test, "resizing a side panel
 below fit-width holds the zoom", rests the viewer at fit-page (`_layoutZoom <
 1`), widens the panel, and asserts `controller.zoom` is unchanged (scale held)
-and the reading anchor still holds.
+and the reading anchor still holds. A third test, "a window resize still re-fits
+to width…", shrinks both axes and asserts the zoom tracks the width ratio (not
+held) while the reading position is still preserved — locking in the
+panel-vs-window scoping.
