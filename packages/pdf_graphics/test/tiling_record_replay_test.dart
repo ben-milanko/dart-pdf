@@ -148,6 +148,70 @@ void main() {
     expect(replayed.strokes.length, direct.strokes.length);
   });
 
+  test('repeated Type3 glyphs share one recorded cell (#535)', () {
+    final doc = CosDocument.open(buildClassicPdf());
+    final charProc = CosStream(
+      CosDictionary({'Length': const CosInteger(0)}),
+      Uint8List.fromList('600 0 d0 0.2 g 50 50 400 500 re f'.codeUnits),
+    );
+    final type3 = CosDictionary({
+      'Type': const CosName('Font'),
+      'Subtype': const CosName('Type3'),
+      'FontBBox': CosArray([
+        const CosInteger(0),
+        const CosInteger(0),
+        const CosInteger(600),
+        const CosInteger(700),
+      ]),
+      'FontMatrix': CosArray([
+        const CosReal(0.001),
+        const CosInteger(0),
+        const CosInteger(0),
+        const CosReal(0.001),
+        const CosInteger(0),
+        const CosInteger(0),
+      ]),
+      'FirstChar': const CosInteger(0x58),
+      'LastChar': const CosInteger(0x58),
+      'Widths': CosArray([const CosInteger(600)]),
+      'Encoding': CosDictionary({
+        'Differences': CosArray([const CosInteger(0x58), const CosName('X')]),
+      }),
+      'CharProcs': CosDictionary({'X': charProc}),
+    });
+    final resources = CosDictionary({
+      'Font': CosDictionary({'T3': type3}),
+    });
+
+    // Through a sink device, five occurrences of the same glyph at the same
+    // size become five single-origin tiled commands sharing ONE recorded
+    // cell list - the identity a canvas keys its cached sub-picture on.
+    final recorder = RecordingPdfDevice();
+    PdfInterpreter(cos: doc, device: recorder).run(
+      ContentStreamParser.parse(
+          Uint8List.fromList('BT /T3 10 Tf (XXXXX) Tj ET'.codeUnits)),
+      resources,
+    );
+    final tiled =
+        recorder.commands.whereType<PdfDrawTiledCellCommand>().toList();
+    expect(tiled, hasLength(5));
+    for (final t in tiled) {
+      expect(t.originsX, hasLength(1));
+      expect(identical(t.cellCommands, tiled.first.cellCommands), isTrue,
+          reason: 'occurrences must share one recorded cell');
+    }
+    // Successive glyphs advance by 6 pt (600/1000 em at 10 pt).
+    expect(tiled[1].originsX[0] - tiled[0].originsX[0], closeTo(6, 1e-9));
+
+    // And the expansion through a plain device matches per-glyph geometry.
+    final expanded = RecordingDevice();
+    replayCommands(recorder.commands, expanded);
+    expect(expanded.fills, hasLength(5));
+    final x0 = (expanded.fills[0].$1.segments[0] as PdfMoveTo).x;
+    final x1 = (expanded.fills[1].$1.segments[0] as PdfMoveTo).x;
+    expect(x1 - x0, closeTo(6, 1e-9));
+  });
+
   test('unpainted cell segments do not leak into later content', () {
     // A cell that builds a path but never paints it must not prepend those
     // segments to the path the enclosing stream draws next.

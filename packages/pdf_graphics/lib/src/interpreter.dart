@@ -1992,40 +1992,109 @@ class PdfInterpreter {
             .concat(_textMatrix)
             .concat(_state.ctm);
 
-        final savedState = _state;
-        final savedStackDepth = _stateStack.length;
-        // A CharProc is its own content stream and usually opens its own
-        // BT..ET (this font draws each glyph with a nested text object). Save
-        // the outer text-object state so the inner BT/Tm/ET can't clobber the
-        // caller's text matrix - otherwise every glyph after the first lands
-        // at the wrong position (§9.6.5: the glyph description executes in
-        // glyph space and must not disturb the text object that invoked it).
-        final savedTextMatrix = _textMatrix;
-        final savedLineMatrix = _lineMatrix;
-        final savedClipPending = _textClipPending;
-        final savedClipSegments = List.of(_textClipSegments);
-        device.save();
-        try {
-          _state = _GraphicsState.from(savedState)
-            ..ctm = ctm
-            ..font = null
-            ..softMask = savedState.softMask;
-          _run(ops, resources, _currentFormDepth + 1);
-        } finally {
-          while (_stateStack.length > savedStackDepth) {
-            _stateStack.removeLast();
+        // Record-once/stamp-per-occurrence (#535, the #524 sibling; PDFium's
+        // CPDF_Type3Cache shape). Occurrences of the same glyph whose
+        // composed CTMs share a linear part differ by a pure page-space
+        // translation - one recorded cell serves them all, keyed by
+        // everything else the recording bakes in (the paint state a d1 proc
+        // inherits). Pattern fills and soft masks are page-anchored, not
+        // translation-invariant, so those (rare) states bypass the cache.
+        if (_state.softMask == null && _state.fillPattern == null) {
+          final key = (
+            font,
+            code,
+            ctm.a,
+            ctm.b,
+            ctm.c,
+            ctm.d,
+            _state.fillColor,
+            _state.strokeColor,
+            _state.fillAlpha,
+            _state.strokeAlpha,
+            _state.stroke.width,
+          );
+          var cell = _type3Cells[key];
+          if (cell == null && _type3Cells.length < _maxType3Cells) {
+            final recorder = RecordingPdfDevice();
+            final outer = device;
+            device = recorder;
+            try {
+              _executeType3Proc(ops, resources, ctm);
+            } finally {
+              device = outer;
+            }
+            cell = (recorder.commands, ctm.e, ctm.f);
+            _type3Cells[key] = cell;
           }
-          _state = savedState;
-          _textMatrix = savedTextMatrix;
-          _lineMatrix = savedLineMatrix;
-          _textClipPending = savedClipPending;
-          _textClipSegments
-            ..clear()
-            ..addAll(savedClipSegments);
-          device.restore();
+          if (cell != null) {
+            final dx = ctm.e - cell.$2, dy = ctm.f - cell.$3;
+            final sink = device;
+            if (sink is PdfTiledCellSink) {
+              (sink as PdfTiledCellSink).drawTiledCell(PdfDrawTiledCellCommand(
+                  cell.$1,
+                  Float64List(1)..[0] = dx,
+                  Float64List(1)..[0] = dy));
+            } else if (dx == 0 && dy == 0) {
+              replayCommands(cell.$1, device);
+            } else {
+              replayCommands(cell.$1, TranslatingPdfDevice(device, dx, dy));
+            }
+            return;
+          }
         }
+        _executeType3Proc(ops, resources, ctm);
       },
     );
+  }
+
+  /// Recorded Type3 glyph cells for this interpreter, keyed by glyph and the
+  /// full non-translation state the recording depends on. Bounded so a
+  /// pathological document (every glyph at a unique scale) degrades to the
+  /// direct path instead of growing without limit.
+  final Map<Object, (List<PdfRenderCommand>, double, double)> _type3Cells = {};
+  static const _maxType3Cells = 1024;
+
+  /// The direct Type3 CharProc execution behind [_drawType3Glyph]: fresh
+  /// state at [ctm], the §9.6.5 text-object isolation, and its own path
+  /// builder (a proc's unpainted trailing segments must not leak into the
+  /// enclosing stream - same guard as [_runPatternCell]).
+  void _executeType3Proc(
+      List<ContentOperation> ops, CosDictionary resources, PdfMatrix ctm) {
+    final savedState = _state;
+    final savedStackDepth = _stateStack.length;
+    // A CharProc is its own content stream and usually opens its own
+    // BT..ET (this font draws each glyph with a nested text object). Save
+    // the outer text-object state so the inner BT/Tm/ET can't clobber the
+    // caller's text matrix - otherwise every glyph after the first lands
+    // at the wrong position (§9.6.5: the glyph description executes in
+    // glyph space and must not disturb the text object that invoked it).
+    final savedTextMatrix = _textMatrix;
+    final savedLineMatrix = _lineMatrix;
+    final savedClipPending = _textClipPending;
+    final savedClipSegments = List.of(_textClipSegments);
+    final savedSegments = _segments;
+    _segments = [];
+    device.save();
+    try {
+      _state = _GraphicsState.from(savedState)
+        ..ctm = ctm
+        ..font = null
+        ..softMask = savedState.softMask;
+      _run(ops, resources, _currentFormDepth + 1);
+    } finally {
+      while (_stateStack.length > savedStackDepth) {
+        _stateStack.removeLast();
+      }
+      _state = savedState;
+      _textMatrix = savedTextMatrix;
+      _lineMatrix = savedLineMatrix;
+      _textClipPending = savedClipPending;
+      _textClipSegments
+        ..clear()
+        ..addAll(savedClipSegments);
+      _segments = savedSegments;
+      device.restore();
+    }
   }
 
   // ---------- patterns and shadings ----------

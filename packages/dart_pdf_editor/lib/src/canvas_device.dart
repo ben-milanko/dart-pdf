@@ -297,14 +297,14 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
     // from this device's [images] at record time; the transcript cache
     // replaces image-bearing commands wholesale on re-decode, so the cached
     // picture can never hold a stale image.)
-    var picture = _tiledCellPictures[command];
+    var picture = _tiledCellPictures[command.cellCommands];
     if (picture == null) {
       final recorder = ui.PictureRecorder();
       final cell = CanvasPdfDevice(Canvas(recorder),
           images: images, pixelRatio: pixelRatio);
       replayCommands(command.cellCommands, cell);
       picture = recorder.endRecording();
-      _tiledCellPictures[command] = picture;
+      _tiledCellPictures[command.cellCommands] = picture;
     }
     for (var t = 0; t < command.originsX.length; t++) {
       canvas.save();
@@ -314,10 +314,13 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
     }
   }
 
-  /// Cell sub-pictures keyed by the tiled command that produced them. An
-  /// [Expando] so a picture lives exactly as long as its command does -
-  /// transcripts are already budgeted by the retained-record caches, and a
-  /// cell picture (a handful of ops) is negligible next to its command list.
+  /// Cell sub-pictures keyed by the *cell command list* (not the command):
+  /// Type3 glyph stamping (#535) emits one single-origin command per glyph
+  /// occurrence, all sharing one recorded cell - keying by the list gives
+  /// every occurrence the same picture. An [Expando] so a picture lives
+  /// exactly as long as the transcript retaining the list does - transcripts
+  /// are already budgeted by the retained-record caches, and a cell picture
+  /// (a handful of ops) is negligible next to its command list.
   static final Expando<ui.Picture> _tiledCellPictures = Expando();
 
   @override
