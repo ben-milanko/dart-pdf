@@ -1,73 +1,72 @@
-# Hold the view put when a side panel is resized
+# Make the viewer invariant to the panels (panels overlay, don't squeeze)
 
-Resizing a docked side panel changes the viewer's `Expanded` width, which is a
-vertical layout's **cross axis**. On-screen scale is `_fitScale × _layoutZoom`
-and `_fitScale = _crossView / _maxCrossPoint`, so a width change rescales every
-page. The existing `_preserveReadingAnchor` pinned the scroll-axis reading
-position but let the pages keep rescaling, so while the resize grip was dragged
-the document still visibly **zoomed** under the reader.
+The editor's side panels (Pages, Search, Bookmarks, Annotations, Properties,
+Dev tools) were **push** panels: laid out beside the viewer as siblings in a
+`Row`/`Column` (`PdfShellPanelLayout`, `shell_chrome.dart`), with the viewer in
+the flex `Expanded` slot. So opening, closing, or resizing a panel resized the
+viewer. And the viewer's render scale (`_fitScale = viewerWidth / pageWidth`)
+and its page centering are both tied to that width, so any width change
+rescaled *and* re-centered the page — the document visibly jumped/zoomed as
+panels toggled (most obvious while zoomed in: closing a panel widened the
+viewport, grew the fit scale, and zoomed the page from ~286% to ~690%).
 
-## Change
+## What didn't work: compensating in the viewer
 
-`_preserveReadingAnchor` → `_preserveViewOnResize(oldCross, newCross)`
-(`pdf_viewer.dart`). In addition to pinning the reading anchor (page + fraction
-at the viewport top), it now **counter-scales `_layoutZoom`** so the on-screen
-scale stays constant across the width change:
+The first attempts tried to *cancel* the width change inside `PdfViewer` —
+counter-scaling `_layoutZoom` (at/below fit-width) and the `InteractiveViewer`
+transform (zoomed in past fit-width), plus pinning the reading anchor. These
+held the zoom in unit tests but not reliably in the app, and couldn't address
+the horizontal re-centering. The core problem is architectural: with push
+panels the viewport genuinely changes size, and both scale and centering are
+functions of that size, so after-the-fact compensation is a losing game (the
+transform tier also can't be corrected during build without a mid-build
+notifier mutation, leaving a one-frame lag).
+
+## The fix: overlay the panels
+
+`PdfShellPanelLayout` now lays the **viewer full-size** (`Positioned.fill`) and
+floats the docked panels *over* it at the edges, instead of squeezing it:
 
 ```dart
-_layoutZoom = (_layoutZoom * oldCross / newCross).clamp(widget.minZoom, 1.0);
+final panelsOverlay = Column([
+  ...topPanels,
+  Expanded(child: Row([
+    ...leadingPanels,
+    const Expanded(child: SizedBox.expand()),  // transparent gap: viewer shows through
+    ...trailingPanels,
+  ])),
+  ...bottomPanels,
+]);
+Stack([
+  Positioned.fill(child: viewer),        // always the whole content area
+  Positioned.fill(child: panelsOverlay), // panels at the edges, middle transparent
+  ...overlays, floatingToolbar, bottomSheets, dropZones,
+]);
 ```
 
-- `_layoutZoom` is assigned **directly during build** (a plain field write, no
-  `setState`), so the same build lays the pages out at the held scale — no
-  one-frame flicker while the grip is dragged. This mirrors the initial-fit
-  branch a few lines below, which also writes `_layoutZoom` during build.
-- Capped at fit-width (1.0): past that the page already fills the viewport and
-  growing further would overflow the now-narrower width, so filling the width
-  is the natural stopping point for a resize.
-- The zoom sits in one of two tiers and **both** are compensated so the hold
-  works wherever the user is:
-  - at/below fit-width the pages lay out at `_layoutZoom` (transform ≈
-    identity) — counter-scaled during build (same frame, no flicker).
-  - **zoomed in past fit-width** the `_transform` scale carries the zoom
-    (`_layoutZoom == 1`) — counter-scaled in the post-frame callback by
-    rescaling the transform `oldCross / newCross` about the viewport centre.
-    This is the common editing case, and the one that shipped broken first:
-    reading at e.g. 286% and closing a panel widened the viewport, grew the fit
-    scale, and — with the transform untouched — zoomed the page in to 400%+.
-    (The transform is set post-frame, not during build, to avoid mutating its
-    `ValueNotifier` mid-build; a discrete panel toggle self-corrects in one
-    frame.)
+The panels keep their **exact original nesting** (top/bottom columns spanning
+the width, a middle band of leading · gap · trailing), so their arrangement,
+resize grips, drop zones, and tab groups are unchanged — only the viewer's old
+flex slot becomes a transparent `Expanded(SizedBox.expand())` gap. An empty box
+takes no pointer input, so taps in the gap fall through the `Stack` to the
+viewer beneath; taps on a panel hit the panel. Result: the viewer always
+receives the full content-area constraints, so a panel opening/closing/resizing
+**never changes the viewer's size** — the document view is invariant to the
+panels by construction (no zoom or position jump); the panel simply reveals or
+covers a strip of the page beside it.
 
-The scale is held for **any** cross-axis change, whatever moves it (a resize
-grip, a panel opening/closing, or a window resize).
+## Viewer revert
 
-> **Follow-up correction.** A first pass tried to scope the hold to a "pure
-> cross-axis" resize by passing `holdScale: newMain == oldMain`, the idea being
-> that a side panel leaves the main (scroll) axis untouched while a window
-> resize moves both. In the real app that backfired: opening or closing a panel
-> also nudges the viewer's main axis a hair (the surrounding toolbar/header
-> chrome reflows), so `newMain == oldMain` was false and the zoom jumped on
-> exactly the case the feature protects. The byte-exact gate was removed — the
-> hold now fires on any cross-axis change. The only cost is that a window resize
-> also holds the on-screen scale instead of re-fitting to width, which is
-> consistent with "don't shift the view" anyway.
-
-The call is also skipped while a `_pendingViewport` restore is in flight —
-that explicit restore sets its own layout zoom and scroll and should win.
+The viewer's `_preserveViewOnResize` experiments were reverted to the original
+`_preserveReadingAnchor` — it now only pins the scroll reading position across a
+*genuine* viewport resize (a window/pane resize), which no longer includes panel
+toggles.
 
 ## Tests
 
-`pdf_viewer_test.dart`: the existing "resizing a side panel preserves the
-reading position" test uses `PdfViewerFit.width` (where `_layoutZoom` is pinned
-at 1), so it exercises the unchanged path. "resizing a side panel below
-fit-width holds the zoom" rests the viewer at fit-page (`_layoutZoom < 1`),
-widens the panel, and asserts `controller.zoom` is unchanged (scale held) and
-the reading anchor still holds. "closing a panel holds the zoom even when the
-main axis also nudges" is the regression test for the byte-exact-gate
-follow-up: it closes a panel (viewer widens) while a stand-in bottom chrome
-also shifts the height, and asserts the zoom still holds. "closing a panel
-holds the zoom while zoomed in past fit-width" is the regression test for the
-transform tier: it zooms to 2.5 px/pt (well past fit-width, so the transform is
-active), closes the panel, and asserts the zoom holds — this fails without the
-transform counter-scale and passes now.
+- `panel_dock_test.dart` → group "viewer is invariant to the panels": asserts
+  the viewer fills the whole area, and that opening a panel and resizing a panel
+  both leave the viewer's measured size unchanged.
+- `pdf_viewer_test.dart` keeps "resizing a side panel preserves the reading
+  position" for the genuine-resize path; the three zoom-hold tests from the
+  compensation attempts were removed with that code.

@@ -311,4 +311,59 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
     });
   });
+
+  group('viewer is invariant to the panels', () {
+    // Panels overlay the viewer rather than squeezing it, so opening, closing,
+    // or resizing a panel must not change the viewer's size - the document view
+    // can't zoom or shift under the reader when a panel toggles.
+    Widget shell({List<Widget> leading = const [], double panelWidth = 260}) =>
+        PdfShellPanelLayout(
+          viewer: const SizedBox.expand(
+            key: ValueKey('test-viewer'),
+            child: ColoredBox(color: Color(0xFF000000)),
+          ),
+          leadingPanels: [
+            for (final _ in leading)
+              SizedBox(
+                key: const ValueKey('test-panel'),
+                width: panelWidth,
+                height: double.infinity,
+                child: const ColoredBox(color: Color(0xFF888888)),
+              ),
+          ],
+        );
+
+    testWidgets('the viewer fills the whole area with no panels open',
+        (tester) async {
+      await pump(tester, shell());
+      final full = tester.getSize(find.byKey(const ValueKey('test-viewer')));
+      expect(full.width, greaterThan(0));
+      expect(full.height, greaterThan(0));
+    });
+
+    testWidgets('opening a panel does not resize the viewer', (tester) async {
+      await pump(tester, shell());
+      final before = tester.getSize(find.byKey(const ValueKey('test-viewer')));
+
+      // open a leading panel
+      await pump(tester, shell(leading: const [SizedBox()]));
+      expect(find.byKey(const ValueKey('test-panel')), findsOneWidget);
+      final after = tester.getSize(find.byKey(const ValueKey('test-viewer')));
+
+      expect(after, before,
+          reason: 'the viewer keeps the full content area - the panel '
+              'overlays it rather than pushing it');
+    });
+
+    testWidgets('resizing a panel does not resize the viewer', (tester) async {
+      await pump(tester, shell(leading: const [SizedBox()], panelWidth: 200));
+      final before = tester.getSize(find.byKey(const ValueKey('test-viewer')));
+
+      await pump(tester, shell(leading: const [SizedBox()], panelWidth: 360));
+      final after = tester.getSize(find.byKey(const ValueKey('test-viewer')));
+
+      expect(after, before,
+          reason: 'a wider panel still overlays the viewer, size unchanged');
+    });
+  });
 }
