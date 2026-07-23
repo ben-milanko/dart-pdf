@@ -603,7 +603,7 @@ static void my_application_activate(GApplication* application) {
 // `dartpdf file.pdf` command line, or a second launch while already running
 // (G_APPLICATION_HANDLES_OPEN routes those into this primary instance).
 static void my_application_open(GApplication* application, GFile** files,
-                               gint n_files, const gchar* hint) {
+                                gint n_files, const gchar* hint) {
   MyApplication* self = MY_APPLICATION(application);
 
   // Take the first argument that resolves to a local path; skip non-file URIs
