@@ -1341,6 +1341,18 @@ abstract class AppLocalizations {
   /// **'Tap to reopen'**
   String get welcomeTapToReopen;
 
+  /// Tooltip on the toggle that shows recent documents as a thumbnail grid.
+  ///
+  /// In en, this message translates to:
+  /// **'Grid view'**
+  String get welcomeViewAsGrid;
+
+  /// Tooltip on the toggle that shows recent documents as a list.
+  ///
+  /// In en, this message translates to:
+  /// **'List view'**
+  String get welcomeViewAsList;
+
   /// One-line hint on the Settings row explaining how to make DartPDF the default PDF app; the arm is chosen by the running platform.
   ///
   /// In en, this message translates to:

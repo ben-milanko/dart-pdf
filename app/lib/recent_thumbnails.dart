@@ -28,7 +28,7 @@ typedef RecentBytesReader = Future<Uint8List> Function(String path,
 class RecentThumbnailCache {
   RecentThumbnailCache({
     this.readBytes = readPdfAtPath,
-    this.longestSide = 96,
+    this.longestSide = 240,
     this.maxEntries = 32,
   }) : assert(longestSide > 0);
 
@@ -37,8 +37,8 @@ class RecentThumbnailCache {
   final RecentBytesReader readBytes;
 
   /// Longest side of a rendered thumbnail, in pixels. The list draws it at
-  /// ~40 px, so a modest raster stays crisp on high-DPI screens without paying
-  /// for a full-page render.
+  /// ~40 px and the grid at ~150 px, so a modest raster stays crisp on
+  /// high-DPI screens in both without paying for a full-page render.
   final double longestSide;
 
   /// Cap on retained thumbnails; the least-recently-requested entry is dropped

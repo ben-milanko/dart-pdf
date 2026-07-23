@@ -1110,6 +1110,14 @@
   "@welcomeTapToReopen": {
     "description": "Subtitle for a recent file that can be reopened directly from a saved snapshot."
   },
+  "welcomeViewAsGrid": "Grid view",
+  "@welcomeViewAsGrid": {
+    "description": "Tooltip on the toggle that shows recent documents as a thumbnail grid."
+  },
+  "welcomeViewAsList": "List view",
+  "@welcomeViewAsList": {
+    "description": "Tooltip on the toggle that shows recent documents as a list."
+  },
   "settingsDefaultAppSubtitle": "{platform, select, web{Install the web app, then choose it for PDF files.} windows{Open Windows default apps settings for PDFs.} macos{Follow Finder’s “Always Open With” steps.} linux{Use your desktop’s default applications settings.} android{Choose DartPDF when opening a PDF, then tap Always.} ios{Use Share or Open In from Files to send PDFs here.} other{Configure your system’s PDF file handler.}}",
   "@settingsDefaultAppSubtitle":   {
       "description": "One-line hint on the Settings row explaining how to make DartPDF the default PDF app; the arm is chosen by the running platform.",
