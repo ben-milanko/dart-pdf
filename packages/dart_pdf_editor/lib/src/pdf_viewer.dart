@@ -1106,8 +1106,15 @@ class PdfViewer extends StatefulWidget {
   final PdfFontPicker? fontPicker;
 
   /// How the image tool ([PdfEditTool.image]) asks for the picture to
-  /// insert - typically a file picker returning PNG or JPEG bytes. With
-  /// none, the image tool does nothing.
+  /// insert - typically a file picker returning PNG or JPEG bytes.
+  ///
+  /// This callback is what makes the image tool work: **you must supply it**
+  /// for the Insert group's image tool to do anything. When it is null the
+  /// stock [PdfEditingToolbar] hides the image tool entirely (so users never
+  /// meet a button that silently no-ops), and arming [PdfEditTool.image]
+  /// directly through the controller becomes a no-op on tap/drag. A typical
+  /// wiring returns bytes from `file_selector`/`image_picker` (or a system
+  /// clipboard read); return null from the callback to mean "user cancelled".
   final PdfImagePicker? imagePicker;
 
   /// Supplies image bytes for ⌘V/Ctrl+V when the in-app annotation/vector

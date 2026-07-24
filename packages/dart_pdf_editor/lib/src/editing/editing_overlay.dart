@@ -524,7 +524,9 @@ class EditingPageOverlay extends StatefulWidget {
   final PdfFormImagePicker? formImagePicker;
 
   /// How the image tool ([PdfEditTool.image]) asks for the picture to
-  /// insert. With none, the image tool does nothing.
+  /// insert. With none, arming the image tool is a no-op on tap/drag - the
+  /// stock [PdfEditingToolbar] hides the tool in that case so users don't
+  /// meet a dead button. See [PdfViewer.imagePicker].
   final PdfImagePicker? imagePicker;
 
   /// Receives a region captured by the snapshot tool

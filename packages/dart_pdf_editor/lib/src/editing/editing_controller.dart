@@ -178,7 +178,9 @@ enum PdfEditTool {
 
   /// Insert a raster image (PNG or JPEG). Tapping places it at a default
   /// size; dragging out a box fits it within the box. The picked image
-  /// comes from [PdfViewer.imagePicker]; with none the tool does nothing.
+  /// comes from [PdfViewer.imagePicker] - **that callback must be wired**
+  /// for this tool to do anything. Without it the stock [PdfEditingToolbar]
+  /// hides the tool, and arming it directly is a no-op on tap/drag.
   /// The image becomes a /Stamp annotation, so it can be moved, resized,
   /// rotated, and deleted like any other annotation.
   image,

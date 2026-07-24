@@ -105,7 +105,13 @@ class PdfEditingToolbar extends StatefulWidget {
   /// rich-text overrides (colour, size, bold, italic).
   final PdfStyledTextPrompt styledTextPrompt;
 
-  /// How selected page-content images are replaced from the element strip.
+  /// How the image tool ([PdfEditTool.image]) sources a picture to insert,
+  /// and how selected page-content images are replaced from the element
+  /// strip. Typically a file picker returning PNG or JPEG bytes.
+  ///
+  /// When null the image tool is dropped from the Insert group (rather than
+  /// left as a button that no-ops) and the element strip's replace-image
+  /// action is hidden. See [PdfViewer.imagePicker].
   final PdfImagePicker? imagePicker;
 
   /// How the selected push-button field's toolbar action obtains an image.
@@ -450,7 +456,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
 
   bool _entryVisible(_GroupTool entry) {
     final tool = entry.tool;
-    if (tool != null) return _shows(tool);
+    if (tool != null) {
+      // The image tool can't insert anything without an [imagePicker] to
+      // source the picture, so drop it from the Insert group rather than
+      // show a button that silently no-ops. Wire [imagePicker] to offer it.
+      if (tool == PdfEditTool.image && widget.imagePicker == null) return false;
+      return _shows(tool);
+    }
     if (entry.markup != null) return widget.showMarkup;
     return true;
   }
