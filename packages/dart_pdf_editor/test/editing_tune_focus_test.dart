@@ -106,6 +106,57 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('a popup value field keeps the keyboard - no reclaim',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final editing = PdfEditingController(buildMultiPagePdf(2));
+    final viewer = PdfViewerController();
+    final valueField = FocusNode();
+    addTearDown(editing.dispose);
+    addTearDown(viewer.dispose);
+    addTearDown(valueField.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Stack(children: [
+          Positioned.fill(
+            child: ListenableBuilder(
+              listenable: editing,
+              builder: (context, _) => PdfViewer(
+                initialFit: PdfViewerFit.width,
+                document: editing.document,
+                controller: viewer,
+                editing: editing,
+              ),
+            ),
+          ),
+          // stands in for a tune-popup value field - a real text input the
+          // user taps to type an exact number
+          Positioned(width: 1, height: 1, child: TextField(focusNode: valueField)),
+        ]),
+      ),
+    ));
+    await tester.pump();
+
+    final field = await openEditorWithSelection(tester, editing);
+    editing.beginEditingTextFocusHold();
+    editing.beginKeepEditingTextFocused();
+
+    // focus moves to the popup's value field: the editor must NOT snatch it
+    // back, or the user could never type into the popup
+    valueField.requestFocus();
+    await tester.pump();
+    await tester.pump();
+    expect(valueField.hasFocus, isTrue,
+        reason: 'the popup value field keeps the keyboard');
+    expect(field.focusNode!.hasFocus, isFalse);
+    expect(find.byKey(editorKey), findsOneWidget,
+        reason: 'the session stays open (held), just not focused');
+
+    editing.endKeepEditingTextFocused();
+    editing.endEditingTextFocusHold();
+    await tester.pump();
+  });
+
   testWidgets('keeping focus is only active while editing text',
       (tester) async {
     final (editing, _) = await pumpEditor(tester);

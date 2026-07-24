@@ -2971,14 +2971,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     });
   }
 
-  /// Whether the primary focus is a real text input (an [EditableText]) - used
-  /// to tell "a popup button stole focus, reclaim it" from "the user tapped a
-  /// value field to type, leave it be". A focused field attaches its node to
-  /// its own [EditableText] context, so the node's widget is the tell; a bare
-  /// [FocusScopeNode] (what a plain unfocus lands on) is not a text input even
-  /// though text fields sit under it.
-  static bool _primaryFocusIsEditable() =>
-      FocusManager.instance.primaryFocus?.context?.widget is EditableText;
+  /// Whether the primary focus is a real text input - used to tell "a popup
+  /// button stole focus, reclaim it" from "the user tapped a value field to
+  /// type, leave it be". A focused field's node is attached to the `Focus`
+  /// [EditableText] builds around itself, so that node's context has an
+  /// [EditableText] ancestor; a bare [FocusScopeNode] (what a plain unfocus
+  /// lands on) does not, even though text fields sit under it elsewhere.
+  static bool _primaryFocusIsEditable() {
+    final ctx = FocusManager.instance.primaryFocus?.context;
+    return ctx != null &&
+        ctx.findAncestorWidgetOfExactType<EditableText>() != null;
+  }
 
   /// Holds the inline editor's focus while a pointer is down on the style
   /// chip, so a chip tap on mobile (which blurs the field) can't trip the
