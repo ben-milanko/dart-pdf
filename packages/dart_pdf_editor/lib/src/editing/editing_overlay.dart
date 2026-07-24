@@ -875,7 +875,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   int _textEditStyleRevision = 0;
   int _editSelectedTextRevision = 0;
   int _textEditFocusHoldRevision = 0;
-  int _refocusEditingTextRevision = 0;
 
   // form-tool text fill: when set, the inline editor commits into this
   // field's /V instead of creating a free-text annotation
@@ -2322,18 +2321,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         });
       }
     }
-    final refocusRevision = _controller.refocusEditingTextRevision;
-    if (refocusRevision != _refocusEditingTextRevision) {
-      _refocusEditingTextRevision = refocusRevision;
-      // a toolbar menu (the tune popup) opened over this editing session and
-      // may have stolen focus, hiding the selection - claim it straight back
-      // so the highlight stays on. A top-level MenuAnchor stays open when
-      // focus moves to the field, and pointer-driven sliders don't blur it.
-      if (_textEditRect != null && !_textEditFocus.hasFocus) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && _textEditRect != null) _textEditFocus.requestFocus();
-        });
-      }
+    if (_controller.shouldKeepEditingTextFocused &&
+        _textEditRect != null &&
+        !_textEditFocus.hasFocus) {
+      // the tune popup just opened over this session and may have stolen
+      // focus - reclaim it so the selection highlight comes straight back
+      _reclaimEditingTextFocus();
     }
     final editRevision = _controller.editSelectedTextRevision;
     if (editRevision != _editSelectedTextRevision) {
@@ -2944,12 +2937,48 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// (Escape cancels first, so by the time the unfocus arrives the
   /// session is already gone and this is a no-op.)
   void _onTextEditFocus() {
-    if (!_textEditFocus.hasFocus &&
-        !_textEditStyleMenuOpen &&
-        !_controller.isEditingTextFocusCommitHeld) {
-      _commitTextEdit();
+    if (_textEditFocus.hasFocus || _textEditStyleMenuOpen) return;
+    // While the tune popup is open we keep the field focused so its selection
+    // highlight (which a TextField only paints when focused) stays on - both
+    // as the popup opens and after each control tap, so the user keeps seeing
+    // the run they're restyling. A control tap steals focus; take it straight
+    // back. But if the popup's own value field took focus (the user is typing
+    // an exact number), leave the keyboard there.
+    if (_controller.shouldKeepEditingTextFocused) {
+      if (_textEditRect != null && !_primaryFocusIsEditable()) {
+        _reclaimEditingTextFocus();
+      }
+      return;
     }
+    if (_controller.isEditingTextFocusCommitHeld) return;
+    _commitTextEdit();
   }
+
+  /// Pulls keyboard focus back to the in-place editor before the next paint,
+  /// so the selection highlight never blanks for a frame (no flash). Guarded
+  /// against the field having meanwhile committed or a popup value field
+  /// having claimed the keyboard.
+  void _reclaimEditingTextFocus() {
+    scheduleMicrotask(() {
+      if (!mounted ||
+          _textEditRect == null ||
+          !_controller.shouldKeepEditingTextFocused ||
+          _textEditFocus.hasFocus ||
+          _primaryFocusIsEditable()) {
+        return;
+      }
+      _textEditFocus.requestFocus();
+    });
+  }
+
+  /// Whether the primary focus is a real text input (an [EditableText]) - used
+  /// to tell "a popup button stole focus, reclaim it" from "the user tapped a
+  /// value field to type, leave it be". A focused field attaches its node to
+  /// its own [EditableText] context, so the node's widget is the tell; a bare
+  /// [FocusScopeNode] (what a plain unfocus lands on) is not a text input even
+  /// though text fields sit under it.
+  static bool _primaryFocusIsEditable() =>
+      FocusManager.instance.primaryFocus?.context?.widget is EditableText;
 
   /// Holds the inline editor's focus while a pointer is down on the style
   /// chip, so a chip tap on mobile (which blurs the field) can't trip the

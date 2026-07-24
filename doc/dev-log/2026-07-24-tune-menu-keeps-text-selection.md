@@ -4,48 +4,59 @@
 
 With a run of text selected inside an open free-text editor, opening the tune
 popup (the toolbar's Stroke/opacity/font gear, rendered as the font chip for a
-selected text box) dropped the selection highlight. The controls still applied
-to the selected run, but the user could no longer *see* what they were about to
-restyle.
+selected text box) dropped the selection highlight, and applying an option
+(font/size/colour/underline) dropped it again — so the user couldn't see what
+they were about to restyle, nor keep restyling the same run.
 
 ## Cause
 
-The inline editor is a plain `TextField`; Flutter only paints its selection
-highlight while the field holds focus. Opening the tune popup can blur the field
-on desktop/web (tapping a non-text widget / the menu overlay taking over). The
-existing `beginEditingTextFocusHold()` the popup already used keeps the *session*
-alive — `_onTextEditFocus` won't commit while the hold is up — but it never
-brought focus back, so the highlight vanished for as long as the popup was open.
+The inline editor is a plain `TextField`, and Flutter's `TextField` hard-gates
+its selection highlight on focus:
 
-The overlay already re-focuses the field when that hold is *released*
-(`editingTextFocusHoldRevision`, `_onControllerChanged`), which is what keeps the
-box in edit mode after the popup closes. It just did nothing on open.
+```dart
+// material/text_field.dart
+selectionColor: focusNode.hasFocus ? selectionColor : null,
+```
+
+Opening the tune popup can blur the field on desktop/web (the popup's controls
+take focus on tap), and each control tap blurs it again. The existing
+`beginEditingTextFocusHold()` the popup already used keeps the *session* alive
+(`_onTextEditFocus` won't commit while held) but never brought focus back, so the
+highlight blanked for as long as the popup was open.
 
 ## Fix
 
-A dedicated one-shot signal rather than overloading the commit-hold, so the
-inline style chip's own hold (which must *not* re-focus mid-press — a synchronous
-re-focus there collapses the selection before the button's style applies, see
-2026-07-16-text-box-features-fixes.md) is untouched:
+Keep the field focused for the whole popup session and reclaim focus the instant
+a control steals it, so the highlight never blanks:
 
-- `PdfEditingController.refocusEditingText()` bumps `refocusEditingTextRevision`
-  (no-op when no editor is open).
-- `_StyleMenu.toggle()` calls it right after `menu.open()`.
-- `EditingPageOverlay._onControllerChanged` watches the revision and, if the
-  editor is open and unfocused, reclaims focus in a post-frame callback — the
-  same shape as the release path.
+- `PdfEditingController.shouldKeepEditingTextFocused` — a reference-counted window
+  (`beginKeepEditingTextFocused()`/`endKeepEditingTextFocused()`), only live while
+  a text editor is open. The tune popup's `_StyleMenu` opens/closes it alongside
+  its existing commit-hold.
+- `EditingPageOverlay._onTextEditFocus` — while the window is open, a blur
+  reclaims focus for the field instead of committing, **unless** the primary
+  focus is a real text input (a popup value field the user tapped to type an
+  exact number — `_primaryFocusIsEditable`, which checks the focused node's own
+  widget so a bare `FocusScopeNode` from a plain unfocus doesn't count).
+- The reclaim runs on a **microtask** (`_reclaimEditingTextFocus`), so focus is
+  restored before the next paint — no one-frame flash.
 
-A top-level `MenuAnchor` doesn't close when focus leaves its scope (only
-`SubmenuButton` does that), so re-focusing the field keeps the popup open. And
-Material `Slider` doesn't request focus on pointer drag (`_startInteraction`
-never calls `requestFocus`), so dragging the popup's sliders won't re-blur the
-field; only tapping a numeric readout deliberately moves focus, as expected.
+Two framework facts make this safe: a top-level `MenuAnchor` doesn't close when
+focus leaves its scope (only `SubmenuButton` does), and Material `Slider` doesn't
+request focus on pointer drag (`_startInteraction` never calls `requestFocus`),
+so dragging the popup's sliders won't blur the field.
+
+This is deliberately kept off the inline style chip's own commit-hold: the chip
+must *not* reclaim focus mid-press (a re-focus there collapses the selection
+before its button's style applies — see 2026-07-16-text-box-features-fixes.md),
+so it uses the plain hold, not the keep-focused window.
 
 ## Test
 
-`test/editing_tune_focus_test.dart`: with the hold up, a simulated blur keeps the
-editor open; `refocusEditingText()` then restores focus with the selection range
-intact; and tapping the real tune trigger bumps the revision while the popup
-opens. The focus-reclaim is not reproducible from a synthetic tap alone (the test
-harness doesn't blur the field on menu-open, the same limitation noted for the
-chip), so the blur is simulated explicitly.
+`test/editing_tune_focus_test.dart`: with the window open, repeated simulated
+blurs (standing in for control taps) each reclaim focus with the selection range
+intact and never commit; the window is inert with no editor open; and opening the
+real tune trigger turns the window on, closing it turns it off. The blur/reclaim
+isn't reproducible from a synthetic tap alone (the harness doesn't blur the field
+on menu-open, same limitation noted for the chip), so the blur is simulated
+explicitly.

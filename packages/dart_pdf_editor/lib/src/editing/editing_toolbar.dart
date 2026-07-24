@@ -3280,12 +3280,17 @@ class _StyleMenuState extends State<_StyleMenu> {
     if (_holdingTextEditFocus || !controller.isEditingText) return;
     _holdingTextEditFocus = true;
     controller.beginEditingTextFocusHold();
+    // keep the in-place editor focused for the whole popup session so its
+    // selection highlight stays on - both when the popup opens and after each
+    // control tap, so the user can see (and keep restyling) the same run
+    controller.beginKeepEditingTextFocused();
   }
 
   void _endTextEditFocusHold() {
     if (!_holdingTextEditFocus) return;
     _holdingTextEditFocus = false;
     controller.endEditingTextFocusHold();
+    controller.endKeepEditingTextFocused();
   }
 
   void _setFont(PdfStandardFont font) {
@@ -3900,11 +3905,6 @@ class _StyleMenuState extends State<_StyleMenu> {
             }
             _beginTextEditFocusHold();
             menu.open();
-            // keep the in-place text editor focused so its selection highlight
-            // stays visible while the popup is open - the user sees which text
-            // the tune controls will restyle (no-op unless a box is being
-            // edited; the hold above already keeps that session alive)
-            controller.refocusEditingText();
           }
 
           final tip = widget.fields.eraser

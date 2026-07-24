@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -68,58 +69,72 @@ void main() {
     return field;
   }
 
-  testWidgets('the editor reclaims focus (and its selection) when asked',
+  testWidgets('the editor reclaims focus while the tune popup keeps it',
       (tester) async {
     final (editing, _) = await pumpEditor(tester);
     final field = await openEditorWithSelection(tester, editing);
     expect(field.focusNode!.hasFocus, isTrue);
 
-    // Simulate the tune popup opening: the hold keeps the session alive while
-    // the field blurs (as it can on desktop/web), so no commit fires.
+    // The tune popup opens: it keeps the editor focused for the whole session
+    // (both the commit-hold and the keep-focused window).
     editing.beginEditingTextFocusHold();
-    field.focusNode!.unfocus();
-    await tester.pump();
-    expect(field.focusNode!.hasFocus, isFalse);
-    expect(find.byKey(editorKey), findsOneWidget,
-        reason: 'the hold keeps the editor open through the blur');
+    editing.beginKeepEditingTextFocused();
+    expect(editing.shouldKeepEditingTextFocused, isTrue);
 
-    // The refocus request pulls the keyboard back to the field.
-    editing.refocusEditingText();
+    // A control tap steals focus (as it does on desktop/web). The field takes
+    // it straight back, so the selection - and its highlight - survives.
+    field.focusNode!.unfocus();
     await tester.pump();
     await tester.pump();
     expect(field.focusNode!.hasFocus, isTrue,
         reason: 'the editor reclaims focus so the selection stays visible');
+    expect(find.byKey(editorKey), findsOneWidget,
+        reason: 'reclaiming focus never commits the box');
     expect(editing.hasEditingTextSelection, isTrue);
     expect(field.controller!.selection,
         const TextSelection(baseOffset: 6, extentOffset: 11));
 
+    // A second control tap (e.g. applying another style) must keep it too.
+    field.focusNode!.unfocus();
+    await tester.pump();
+    await tester.pump();
+    expect(field.focusNode!.hasFocus, isTrue,
+        reason: 'the highlight survives repeated edits from the popup');
+
+    editing.endKeepEditingTextFocused();
     editing.endEditingTextFocusHold();
     await tester.pump();
   });
 
-  testWidgets('refocusEditingText is a no-op with no editor open',
+  testWidgets('keeping focus is only active while editing text',
       (tester) async {
     final (editing, _) = await pumpEditor(tester);
-    final before = editing.refocusEditingTextRevision;
-    editing.refocusEditingText();
-    expect(editing.refocusEditingTextRevision, before,
-        reason: 'nothing to refocus when no text editor is open');
+    // no editor open: the window is inert
+    editing.beginKeepEditingTextFocused();
+    expect(editing.shouldKeepEditingTextFocused, isFalse,
+        reason: 'nothing to keep focused when no text editor is open');
+    editing.endKeepEditingTextFocused();
   });
 
-  testWidgets('opening the tune popup asks the editor to reclaim focus',
+  testWidgets('opening the tune popup keeps the editor focused',
       (tester) async {
     final (editing, _) = await pumpEditor(tester, withToolbar: true);
     await openEditorWithSelection(tester, editing);
 
-    final before = editing.refocusEditingTextRevision;
+    expect(editing.shouldKeepEditingTextFocused, isFalse);
     // the selected free text's tune trigger is the font chip ("Aa …")
     await tester.tap(find.text('Aa'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    // the tune popup is open and it requested a refocus so the selection
-    // highlight survives the open on platforms that blur the field
+    // the tune popup is open and it holds the editing field's focus so the
+    // selection highlight survives the open on platforms that blur the field
     expect(find.byKey(const ValueKey('pdf-text-fill-1')), findsOneWidget);
-    expect(editing.refocusEditingTextRevision, greaterThan(before));
+    expect(editing.shouldKeepEditingTextFocused, isTrue);
+
+    // closing the popup releases the window
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(editing.shouldKeepEditingTextFocused, isFalse);
   });
 }
