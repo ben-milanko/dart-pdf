@@ -25,6 +25,18 @@ class PdfRenderWorkerHost {
   final int Function()? _workerCount;
   final VoidCallback? _onGeneration;
 
+  /// Test seam: when set, a fresh generation spawns through this instead of
+  /// [startPdfRenderWorker], so the lifecycle state machine (no-op / in-place
+  /// revision / restart / dispose) can be exercised with a fake worker and no
+  /// real isolate. Null in production.
+  @visibleForTesting
+  static PdfRenderWorker Function(
+    Uint8List bytes, {
+    required int pageCount,
+    int? workerCount,
+    bool copySource,
+  })? debugSpawnOverride;
+
   PdfRenderWorker? _worker;
   Object? _workerDocument;
   int _generations = 0;
@@ -76,7 +88,8 @@ class PdfRenderWorkerHost {
     // The session's grow-only buffer is replaced on edit, never mutated in
     // place, so the pool can seed from it directly - no defensive copy of a
     // possibly-huge document (#359).
-    _worker = startPdfRenderWorker(bytes,
+    final spawn = debugSpawnOverride ?? startPdfRenderWorker;
+    _worker = spawn(bytes,
         pageCount: pageCount,
         workerCount: _workerCount?.call(),
         copySource: false);

@@ -39,6 +39,7 @@ import 'preview_cache.dart';
 import 'raster_cache.dart';
 import 'render_scheduler.dart';
 import 'render_worker.dart';
+import 'render_worker_host.dart';
 import 'renderer.dart';
 import 'retained_scene.dart';
 import 'scrollbar.dart';
@@ -860,6 +861,12 @@ class PdfViewer extends StatefulWidget {
   /// above any ordinary text page and well below a heavy vector drawing.
   static int hoverTextExtractMaxRawContentBytes = 512 * 1024;
 
+  /// Test seam: set false to suppress the owned default worker
+  /// ([autoRenderWorker]) suite-wide, so widget tests keep the deterministic,
+  /// isolate-free on-thread render path. The package's `flutter_test_config.dart`
+  /// turns it off for every test; production leaves it true.
+  static bool debugAutoRenderWorkerEnabled = true;
+
   const PdfViewer({
     super.key,
     this.document,
@@ -903,6 +910,7 @@ class PdfViewer extends StatefulWidget {
     this.predictStrokes = true,
     this.toolShortcuts = pdfEditToolShortcuts,
     this.renderWorker,
+    this.autoRenderWorker = true,
     this.performance,
     this.rasterCache,
     this.textCache,
@@ -964,6 +972,22 @@ class PdfViewer extends StatefulWidget {
   /// always render locally. Null and the web fallback keep today's
   /// on-thread behavior.
   final PdfRenderWorker? renderWorker;
+
+  /// When no [renderWorker] is provided, the viewer starts and owns a single
+  /// default one so page interpretation runs off the UI thread instead of
+  /// freezing frames (#396). It is kept in step with the document - an editing
+  /// session's per-revision updates stream in incrementally - and disposed with
+  /// the viewer, so a host embedding a bare [PdfViewer] gets off-thread
+  /// rendering for free.
+  ///
+  /// Set false to force on-thread interpretation (the pre-#396 behavior) - e.g.
+  /// a host that mounts many viewers and does not want an isolate each, or one
+  /// that manages its own worker pool. An explicit [renderWorker] always wins
+  /// over this; on web without a worker script the default worker is inactive
+  /// and rendering stays on-thread regardless. A pooled multi-worker backend
+  /// for a long document still requires an explicit [renderWorker] (via the
+  /// shell) - the default is deliberately a single worker.
+  final bool autoRenderWorker;
 
   /// Optional adaptive performance policy. Worker counts are applied by the
   /// owning shell when it starts [renderWorker]; the viewer consumes its
@@ -1373,6 +1397,66 @@ class _PdfViewerState extends State<PdfViewer>
   /// controller advancing to the next revision) is detected against this.
   PdfDocument? _loadedDocument;
 
+  /// The default render worker the viewer owns when the host passes none and
+  /// [PdfViewer.autoRenderWorker] is on (#396). Kept in step with [_document]
+  /// by [_syncDefaultWorker]; null when a host [PdfViewer.renderWorker] is used
+  /// or auto-worker is off.
+  PdfRenderWorkerHost? _defaultWorkerHost;
+
+  /// The render worker pages should use: the host-provided one, else the
+  /// viewer's own default. Read everywhere in place of `widget.renderWorker` so
+  /// the default transparently fills in.
+  PdfRenderWorker? get _effectiveRenderWorker =>
+      widget.renderWorker ?? _defaultWorkerHost?.worker;
+
+  /// A single-worker count for the owned default. The pooled multi-worker
+  /// backend is reserved for an explicit host worker (the shell), so a bare
+  /// viewer - possibly one of many on screen - costs at most one isolate.
+  static int _oneDefaultWorker() => 1;
+
+  /// Brings the owned default worker in line with the current document: creates
+  /// it on demand, streams an editing session's incremental revisions in place
+  /// (so it never renders stale pages), and tears it down when a host worker
+  /// takes over or auto-worker is switched off. A no-op when the document is
+  /// already the loaded one, so calling it per revision / rebuild is cheap.
+  void _syncDefaultWorker() {
+    if (widget.renderWorker != null ||
+        !widget.autoRenderWorker ||
+        !PdfViewer.debugAutoRenderWorkerEnabled) {
+      _defaultWorkerHost?.dispose();
+      _defaultWorkerHost = null;
+      return;
+    }
+    final host =
+        _defaultWorkerHost ??= PdfRenderWorkerHost(workerCount: _oneDefaultWorker);
+    final controller = _revisionController;
+    if (controller != null) {
+      // Editing/form session: revision-aware bytes and the incremental delta.
+      final delta = controller.lastRevisionDelta;
+      host.sync(
+        document: controller.document,
+        bytes: controller.bytes,
+        pageCount: controller.document.pageCount,
+        revision: delta == null
+            ? null
+            : (
+                baseLength: delta.baseLength,
+                newLength: delta.newLength,
+                changedPages: delta.changedPages,
+              ),
+      );
+    } else {
+      // Read-only document: its source bytes, no revisions.
+      final document = _document;
+      host.sync(
+        document: document,
+        bytes: document.cos.bytes,
+        pageCount: document.pageCount,
+        revision: null,
+      );
+    }
+  }
+
   /// Displayed width of each page in PDF points (after /Rotate + view
   /// rotation). Pages lay out at this width times [_fitScale] (and the
   /// layout zoom), so they keep their true sizes relative to one another
@@ -1641,6 +1725,7 @@ class _PdfViewerState extends State<PdfViewer>
     // it notifies, instead of leaning on the host to rebuild with a matching
     // document (the old unchecked invariant).
     _revisionController?.addListener(_onRevisionControllerChanged);
+    _syncDefaultWorker();
     _zoomAnimator = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 200))
       ..addListener(() {
@@ -1989,7 +2074,7 @@ class _PdfViewerState extends State<PdfViewer>
     _prerendering = true;
     try {
       while (mounted && widget.pagePreviews && widget.active) {
-        final workerActive = widget.renderWorker?.isActive ?? false;
+        final workerActive = _effectiveRenderWorker?.isActive ?? false;
         final motionVector = _vectorFirstPrefetch && workerActive;
         final policyVector = !motionVector &&
             workerActive &&
@@ -2024,7 +2109,7 @@ class _PdfViewerState extends State<PdfViewer>
         await _previews.renderPreview(index, page,
             pageColor: widget.pageColor,
             annotations: _pageImagesShowAnnotations,
-            worker: widget.renderWorker,
+            worker: _effectiveRenderWorker,
             rotation: _effectiveRotation(index),
             decodeImages: !vectorOnly,
             commandLimit: vectorOnly ? _jumpPreviewOperationLimit : null,
@@ -2124,7 +2209,7 @@ class _PdfViewerState extends State<PdfViewer>
       window = math.min(window, 4);
     }
 
-    final worker = widget.renderWorker;
+    final worker = _effectiveRenderWorker;
     if (worker is PdfCachingRenderWorker) {
       final pressure = worker.cachePressure;
       if (pressure >= 0.85) {
@@ -2156,7 +2241,7 @@ class _PdfViewerState extends State<PdfViewer>
       _scrollBurstStart = now;
       _scrollSamples.add((now, pixels));
       _beginMotionRenderHold();
-      _vectorFirstPrefetch = widget.renderWorker?.isActive ?? false;
+      _vectorFirstPrefetch = _effectiveRenderWorker?.isActive ?? false;
       return;
     }
     if (_scrollSamples.last.$1 == now) {
@@ -2187,7 +2272,7 @@ class _PdfViewerState extends State<PdfViewer>
     final activeMotion = _motionRenderHoldActive;
     final hold =
         activeMotion || opening || velocity > math.max(800, 2 * viewport);
-    _vectorFirstPrefetch = hold && (widget.renderWorker?.isActive ?? false);
+    _vectorFirstPrefetch = hold && (_effectiveRenderWorker?.isActive ?? false);
     PdfPerfLog.log('scroll page=${_controller.currentPage} '
         'v=${velocity.toStringAsFixed(0)}px/s '
         'threshold=${math.max(800, 2 * viewport).toStringAsFixed(0)} '
@@ -2225,6 +2310,9 @@ class _PdfViewerState extends State<PdfViewer>
     // a revision (handled directly in _onRevisionControllerChanged)
     final documentSwapped = !identical(_loadedDocument, _document);
     if (documentSwapped) _swapDocument();
+    // Re-evaluate the owned default worker: a host worker may have been
+    // supplied/removed, autoRenderWorker toggled, or the document swapped.
+    _syncDefaultWorker();
     final oldPageImagesShowAnnotations = oldWidget.showAnnotations &&
         _pageImagesShowAnnotationsFor(
           editing: oldWidget.editing,
@@ -2287,6 +2375,9 @@ class _PdfViewerState extends State<PdfViewer>
   /// itself so the displayed document can't lag the controller.
   void _onRevisionControllerChanged() {
     if (!mounted) return;
+    // Stream the new revision into the owned worker before the rebuild reads
+    // the effective worker, so a resumed render sees current pages, not stale.
+    _syncDefaultWorker();
     if (!identical(_loadedDocument, _document)) {
       _swapDocument();
     } else {
@@ -2528,6 +2619,7 @@ class _PdfViewerState extends State<PdfViewer>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _defaultWorkerHost?.dispose();
     _revisionController?.removeListener(_onRevisionControllerChanged);
     widget.performance?.removeListener(_onPerformanceChanged);
     if (widget.performance != null) {
@@ -5508,7 +5600,7 @@ class _PdfViewerState extends State<PdfViewer>
                 transformChanges: _transform,
                 renderScheduler: _renderScheduler,
                 previewCache: widget.pagePreviews ? _previews : null,
-                renderWorker: widget.renderWorker,
+                renderWorker: _effectiveRenderWorker,
                 performance: widget.performance,
                 predictStrokes: widget.predictStrokes,
               ),
@@ -5889,7 +5981,7 @@ class _PdfViewerState extends State<PdfViewer>
 
   void _warmJumpTargetPreview(int index) {
     if (!widget.pagePreviews) return;
-    final worker = widget.renderWorker;
+    final worker = _effectiveRenderWorker;
     if (worker == null ||
         !worker.isActive ||
         index < 0 ||
