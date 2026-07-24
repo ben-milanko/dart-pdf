@@ -288,6 +288,44 @@ void runPdfRenderWorker() {
       return;
     }
 
+    if (kind == 'extractText') {
+      final id = (data.getProperty('id'.toJS) as JSNumber).toDartInt;
+      final page = (data.getProperty('page'.toJS) as JSNumber).toDartInt;
+      // Text extraction has no cancellation seam and runs synchronously; it
+      // still lands off the UI thread here, which is the point (#396).
+      activeToken = null;
+      activeRequestId = id;
+      () async {
+        final timings = collectTimings ? PdfWorkerPhaseTimings() : null;
+        final workerClock = collectTimings ? (Stopwatch()..start()) : null;
+        Uint8List? out;
+        String? error;
+        final doc = document;
+        try {
+          if (doc != null && page >= 0 && page < doc.pageCount) {
+            out = serializePageText(PdfTextExtractor.extract(doc, page));
+          }
+        } catch (e, st) {
+          out = null;
+          error = '$e\n$st';
+        }
+        if (activeRequestId == id) {
+          activeToken = null;
+          activeRequestId = null;
+        }
+        workerClock?.stop();
+        _postResult(
+          scope,
+          id,
+          out,
+          error,
+          timings,
+          workerClock?.elapsedMicroseconds,
+        );
+      }();
+      return;
+    }
+
     if (kind != 'record') return;
     final id = (data.getProperty('id'.toJS) as JSNumber).toDartInt;
     final page = (data.getProperty('page'.toJS) as JSNumber).toDartInt;
