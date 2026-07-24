@@ -290,6 +290,38 @@ Future<String?> _ensureDocumentFontPreview(PdfEmbeddedFont font) async {
   }
 }
 
+/// Bundled font labels already registered with the engine for menu previews
+/// (see [_ensureBundledFontPreview]), so each registers once per session.
+final Set<String> _bundledPreviewFamilies = <String>{};
+
+/// Registers a bundled font's program bytes with the engine under its own
+/// label so its menu row previews in that face, returning the family name
+/// (null when the bytes can't load or the engine can't register them, e.g. a
+/// headless test - the row then previews in the default UI face and the font
+/// still embeds fine on pick).
+///
+/// The bundled faces used to be declared in `dart_pdf_editor_assets`'s pubspec
+/// `fonts:` block, which registered every one of them at startup (a real
+/// fetch-and-parse before the first frame under CanvasKit web) for previews
+/// most sessions never open. Registering here, on first font-menu open, keeps
+/// that cost off cold start. DejaVu Sans stays pubspec-declared - the renderer
+/// names it as a script fallback and needs it from the first paint - and
+/// re-registering it under its bare label here is harmless.
+Future<String?> _ensureBundledFontPreview(PdfBundledFont font) async {
+  final family = font.label;
+  if (_bundledPreviewFamilies.contains(family)) return family;
+  try {
+    final bytes = await loadBundledFont(font);
+    await (FontLoader(family)
+          ..addFont(Future.value(ByteData.sublistView(bytes))))
+        .load();
+    _bundledPreviewFamilies.add(family);
+    return family;
+  } catch (_) {
+    return null; // preview only - the font still embeds fine on pick
+  }
+}
+
 class _FontEntry {
   const _FontEntry({
     required this.key,
@@ -298,7 +330,6 @@ class _FontEntry {
     required this.choice,
     this.subtitle,
     this.fontFamily,
-    this.package,
     this.recentKey,
     this.section,
     this.limited = false,
@@ -310,7 +341,6 @@ class _FontEntry {
   final String searchText;
   final _FontChoice choice;
   final String? fontFamily;
-  final String? package;
 
   /// Whether this is a document subset font that can't cover the basic Latin
   /// alphabet, so typing new text in it would drop unavailable characters -
@@ -426,7 +456,6 @@ class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 fontFamily: entry.fontFamily,
-                                package: entry.package,
                               ),
                             ),
                             subtitle: entry.subtitle == null
@@ -508,12 +537,21 @@ Future<void> showPdfFontMenu({
   // characters the file already used, so flag it "limited".
   final limited = [for (final f in inDocument) !f.canRender(_typeableProbe)];
   final previewFamilies = <int, String>{};
+  // Bundled faces (except DejaVu Sans) are no longer declared in the assets
+  // package's pubspec `fonts:` block, so register them with the engine here -
+  // lazily, on menu open - to preview each row in its own face. This keeps
+  // their parse cost off cold start (see [_ensureBundledFontPreview]).
+  final bundledPreviewFamilies = <int, String>{};
   await Future.wait([
     for (var i = 0; i < inDocument.length; i++)
       if (inDocument[i].canRender(inDocument[i].displayName))
         _ensureDocumentFontPreview(inDocument[i]).then((family) {
           if (family != null) previewFamilies[i] = family;
         }),
+    for (var i = 0; i < bundledFonts.length; i++)
+      _ensureBundledFontPreview(bundledFonts[i]).then((family) {
+        if (family != null) bundledPreviewFamilies[i] = family;
+      }),
   ]);
   if (!context.mounted) return;
 
@@ -573,8 +611,7 @@ Future<void> showPdfFontMenu({
         subtitle: pdfL10n(context).propBundledFont,
         searchText: '${bundledFonts[i].label} bundled font'.toLowerCase(),
         choice: _BundledChoice(bundledFonts[i]),
-        fontFamily: bundledFonts[i].label,
-        package: bundledFonts[i].package,
+        fontFamily: bundledPreviewFamilies[i],
         recentKey: 'bundled:${bundledFonts[i].label}',
         section: pdfL10n(context).propSectionAllFonts,
       ),
@@ -620,7 +657,6 @@ Future<void> showPdfFontMenu({
       searchText: match.searchText,
       choice: match.choice,
       fontFamily: match.fontFamily,
-      package: match.package,
       recentKey: match.recentKey,
       section: match.section,
       limited: match.limited,

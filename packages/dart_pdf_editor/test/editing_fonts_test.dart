@@ -344,6 +344,27 @@ void main() {
       expect(title.style?.fontFamily, startsWith('pdf-doc-font::'));
     });
 
+    testWidgets('a bundled font row previews in its own lazily-registered face',
+        (tester) async {
+      // The bundled faces (except DejaVu Sans) are no longer declared in the
+      // assets package's pubspec `fonts:` block; the menu registers them with
+      // the engine on open and previews each row in its own label. Spectral is
+      // the fifth bundled entry.
+      final c = PdfEditingController(buildMultiPagePdf(1));
+      await pumpButton(tester, c);
+      await tester.tap(find.byKey(const ValueKey('pdf-font-menu')));
+      await tester.pumpAndSettle();
+      // Filter to the single Spectral row so the lazy list builds it on screen.
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-font-search')), 'spectral');
+      await tester.pumpAndSettle();
+      final title = tester.widget<Text>(find.descendant(
+        of: find.byKey(const ValueKey('pdf-font-bundled-4')),
+        matching: find.text('Spectral'),
+      ));
+      expect(title.style?.fontFamily, 'Spectral');
+    });
+
     testWidgets('a picked font shows up under "Recently used" next time',
         (tester) async {
       final c = PdfEditingController(buildMultiPagePdf(1));
