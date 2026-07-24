@@ -16,9 +16,15 @@ import 'render_worker.dart';
 import 'render_worker_transcript_cache.dart'
     show compactTranscriptSourceCommands, retainedCommandGraphsWeight;
 
-/// Test hook: hold a requested cancellation until the cancelled job answers
-/// and the next queued request is dispatched. That deterministically recreates
-/// the late-signal race request-scoped cancellation must reject.
+/// Test hook: inside the worker isolate, hold a cancel that targets the
+/// currently-active request and replay it only once the *next* request has
+/// gone active. That deterministically recreates the late-signal race
+/// request-scoped cancellation must reject (issue #220) - all ordering happens
+/// on the worker's single event loop, so there is no wall-clock guess.
+///
+/// Read once, at spawn, into [_WorkerInit.deferStaleCancel] - so a test must
+/// set this true BEFORE constructing the worker (the spawn reads globals
+/// synchronously). Setting it has no effect on an already-spawned worker.
 bool debugDeferPdfRenderWorkerCancelUntilNextRequest = false;
 
 /// Number of stale request-scoped cancel messages ignored by native workers.
@@ -82,7 +88,6 @@ class _IsolateRenderWorker extends PdfRenderWorker {
   int _seq = 0;
   bool _disposed = false;
   bool _spawnFailed = false;
-  int? _deferredCancelId;
 
   @override
   bool get isActive => !_disposed && !_spawnFailed;
@@ -177,12 +182,12 @@ class _IsolateRenderWorker extends PdfRenderWorker {
                 data.materialize().asUint8List(),
             ]);
       _pump();
-      _deliverDeferredCancelToNextRequest();
     });
     final isolate = await Isolate.spawn(
       _workerMain,
       _WorkerInit(_fromWorker.sendPort, TransferableTypedData.fromList([bytes]),
-          perfEnabled: PdfPerfLog.enabled),
+          perfEnabled: PdfPerfLog.enabled,
+          deferStaleCancel: debugDeferPdfRenderWorkerCancelUntilNextRequest),
       debugName: 'pdf-render-worker',
       errorsAreFatal: false,
     );
@@ -474,26 +479,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
   }
 
   void _cancelRequest(_PendingRequest request) {
-    if (debugDeferPdfRenderWorkerCancelUntilNextRequest) {
-      _deferredCancelId = request.id;
-      return;
-    }
     _toCancelPort?.send(request.id);
-  }
-
-  void _deliverDeferredCancelToNextRequest() {
-    final id = _deferredCancelId;
-    if (!debugDeferPdfRenderWorkerCancelUntilNextRequest ||
-        id == null ||
-        _inFlight == null) {
-      return;
-    }
-    _deferredCancelId = null;
-    // Give the worker event loop time to enter the just-dispatched request;
-    // this branch exists only for the deterministic late-delivery test hook.
-    Timer(const Duration(milliseconds: 5), () {
-      if (!_disposed) _toCancelPort?.send(id);
-    });
   }
 
   @override
@@ -669,7 +655,8 @@ class _PendingRequest {
 }
 
 class _WorkerInit {
-  _WorkerInit(this.reply, this.bytes, {this.perfEnabled = false});
+  _WorkerInit(this.reply, this.bytes,
+      {this.perfEnabled = false, this.deferStaleCancel = false});
 
   /// The port the worker sends its own command port (and every response) on.
   final SendPort reply;
@@ -679,6 +666,11 @@ class _WorkerInit {
 
   /// Switch on the worker isolate's own (isolate-local) PdfPerf facade.
   final bool perfEnabled;
+
+  /// Test hook (see [debugDeferPdfRenderWorkerCancelUntilNextRequest]): hold a
+  /// cancel that targets the active request and replay it once the next request
+  /// goes active, recreating issue #220's late-arrival ordering deterministically.
+  final bool deferStaleCancel;
 }
 
 /// Isolate entrypoint: open the document once, then serve record and bin
@@ -713,15 +705,35 @@ void _workerMain(_WorkerInit init) {
 
   PdfCancellationToken? activeToken;
   int? activeRequestId;
-  cancelPort.listen((message) {
-    // A cancel can arrive after its target already replied and the next job
-    // became active. Ignore that stale id instead of aborting the next (often
-    // urgent) page. This is the native half of issue #220.
-    if (message is int && message == activeRequestId) {
+
+  // Act on a cancel id: abort it if it targets the request currently holding
+  // the slot, otherwise report it ignored (issue #220 - a signal that arrived
+  // after its target replied must not abort the next, often urgent, page).
+  void handleCancel(int id) {
+    if (id == activeRequestId) {
       activeToken?.cancelled = true;
-    } else if (message is int) {
-      init.reply.send(['cancelIgnored', message, activeRequestId]);
+    } else {
+      init.reply.send(['cancelIgnored', id, activeRequestId]);
     }
+  }
+
+  // Test hook (see [debugDeferPdfRenderWorkerCancelUntilNextRequest]): when set,
+  // a cancel that targets the *active* request is stashed rather than acted on,
+  // then replayed the instant the next request goes active (below). That stages
+  // a stale cancel landing while a different request owns the slot, with all
+  // ordering on this one event loop - no cross-isolate wall-clock race.
+  final deferStaleCancel = init.deferStaleCancel;
+  int? deferredStaleCancelId;
+
+  cancelPort.listen((message) {
+    if (message is! int) return;
+    if (deferStaleCancel &&
+        deferredStaleCancelId == null &&
+        message == activeRequestId) {
+      deferredStaleCancelId = message;
+      return;
+    }
+    handleCancel(message);
   });
 
   requests.listen((message) async {
@@ -783,6 +795,14 @@ void _workerMain(_WorkerInit init) {
     final token = PdfCancellationToken();
     activeToken = token;
     activeRequestId = id;
+    // A different request now owns the slot: replay any cancel the defer test
+    // hook withheld. It targets the previous id, so handleCancel reports it
+    // ignored - the #220 path, reached deterministically.
+    final staleId = deferredStaleCancelId;
+    if (staleId != null) {
+      deferredStaleCancelId = null;
+      handleCancel(staleId);
+    }
     Uint8List? buffer;
     Uint8List? detailPlanBuffer;
     // Snapshot the (reassignable) document so an 'update' arriving between
