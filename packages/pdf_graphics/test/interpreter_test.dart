@@ -1442,5 +1442,102 @@ void main() {
           .drawPageOperations(page, ops);
       expect(device.calls, isNotEmpty);
     });
+
+    // The resumable walk (beginPageContent) is the primitive behind recording a
+    // heavy page in visible increments and behind a cancelled record keeping
+    // its work. drawPageContentAsync is implemented on top of it, so the whole
+    // corpus already exercises the unbounded path; these pin the chunked one.
+    group('resumable page walk', () {
+      Future<List<String>> fullCalls(Uint8List bytes) async {
+        final doc = PdfDocument.open(bytes);
+        final page = doc.page(0);
+        final device = RecordingDevice();
+        await PdfInterpreter(cos: doc.cos, device: device)
+            .drawPageContentAsync(page, page.contentBytes());
+        return device.calls;
+      }
+
+      test('a chunked walk records exactly what one full walk records',
+          () async {
+        final bytes = heavyPdf();
+        final expected = await fullCalls(bytes);
+
+        final doc = PdfDocument.open(bytes);
+        final page = doc.page(0);
+        final device = RecordingDevice();
+        final walk = PdfInterpreter(cos: doc.cos, device: device)
+            .beginPageContent(page, page.contentBytes());
+        var chunks = 0;
+        while (!await walk.advance(operations: 100)) {
+          chunks++;
+          expect(chunks, lessThan(1000), reason: 'walk did not terminate');
+        }
+        expect(chunks, greaterThan(1),
+            reason: 'the fixture must actually span several chunks');
+        expect(walk.isComplete, isTrue);
+        expect(walk.isFinished, isTrue);
+        expect(device.calls, expected);
+      });
+
+      test('resuming continues rather than re-walking the prefix', () async {
+        final bytes = heavyPdf();
+        final doc = PdfDocument.open(bytes);
+        final page = doc.page(0);
+        final device = RecordingDevice();
+        final walk = PdfInterpreter(cos: doc.cos, device: device)
+            .beginPageContent(page, page.contentBytes());
+
+        expect(await walk.advance(operations: 100), isFalse);
+        final afterFirst = List<String>.from(device.calls);
+        expect(afterFirst, isNotEmpty);
+
+        await walk.advance(operations: 100);
+        // The already-recorded calls must still be there, unchanged and not
+        // duplicated: a restart would re-emit them from the top.
+        expect(device.calls.length, greaterThan(afterFirst.length));
+        expect(device.calls.sublist(0, afterFirst.length), afterFirst);
+      });
+
+      test('abandon releases the device exactly once and is idempotent',
+          () async {
+        final bytes = heavyPdf();
+        final doc = PdfDocument.open(bytes);
+        final page = doc.page(0);
+        final device = RecordingDevice();
+        final walk = PdfInterpreter(cos: doc.cos, device: device)
+            .beginPageContent(page, page.contentBytes());
+        await walk.advance(operations: 50);
+
+        int restores() => device.calls.where((c) => c == 'restore').length;
+        // Stopping mid-page can leave the *content's* own q unmatched by its Q
+        // - inherent to not finishing, and the same thing a cancelled
+        // drawPageContentAsync has always done. What must hold is that the walk
+        // emits the single restore balancing beginPageContent's save.
+        final before = restores();
+        walk.abandon();
+        expect(restores(), before + 1,
+            reason: 'abandon must emit the one restore that balances '
+                "beginPageContent's save");
+
+        walk.abandon(); // idempotent: no second restore
+        expect(restores(), before + 1);
+        expect(walk.isFinished, isTrue);
+        expect(walk.isComplete, isFalse);
+      });
+
+      test('advancing a finished walk is a no-op', () async {
+        final bytes = heavyPdf();
+        final doc = PdfDocument.open(bytes);
+        final page = doc.page(0);
+        final device = RecordingDevice();
+        final walk = PdfInterpreter(cos: doc.cos, device: device)
+            .beginPageContent(page, page.contentBytes());
+        expect(await walk.advance(), isTrue); // unbounded: runs to completion
+        final calls = List<String>.from(device.calls);
+
+        expect(await walk.advance(operations: 100), isTrue);
+        expect(device.calls, calls);
+      });
+    });
   });
 }
