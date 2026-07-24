@@ -702,6 +702,7 @@ void _workerMain(_WorkerInit init) {
   }
 
   final binCommands = _BinCommandCache();
+  final suspendedRecord = _SuspendedRecordCache();
 
   PdfCancellationToken? activeToken;
   int? activeRequestId;
@@ -779,8 +780,10 @@ void _workerMain(_WorkerInit init) {
         workerBytes = rebuilt;
         // On the in-place fast path only the changed pages' cached commands are
         // stale; a re-open makes a fresh document, so every cached command
-        // (which referenced the old one) must go.
+        // (which referenced the old one) must go. A suspended record walks the
+        // old document too, so it follows the same eviction.
         binCommands.evictPages(incremental ? changed : null);
+        suspendedRecord.evict(incremental ? changed : null);
       } catch (_) {
         // Malformed update: leave the document and buffer as they were and just
         // free the worker slot below so it keeps serving other pages.
@@ -861,6 +864,7 @@ void _workerMain(_WorkerInit init) {
               : null;
           buffer = await _recordPageAsync(
               doc,
+              suspendedRecord,
               pageIndex,
               annotations,
               imagePixelRatio,
@@ -898,8 +902,16 @@ void _workerMain(_WorkerInit init) {
 
 /// Records one page into a serialized command buffer, yielding periodically
 /// so the cancel port's listener can fire and set [token.cancelled].
+///
+/// The full-page record (the heavy case a scroll preempts and then requeues)
+/// runs through [_recordResumablePage], which keeps a cancelled walk in
+/// [suspended] so the requeued render continues from where it stopped instead
+/// of re-interpreting the prefix (#530). Bounded preview/prefix records
+/// (`decodeImages` false) stay on the simple discard-on-cancel path - they are
+/// already cheap and their operation cap makes resume pointless.
 Future<Uint8List?> _recordPageAsync(
     PdfDocument document,
+    _SuspendedRecordCache suspended,
     int pageIndex,
     bool annotations,
     double? imagePixelRatio,
@@ -908,22 +920,149 @@ Future<Uint8List?> _recordPageAsync(
     PdfRect? imageDecodeRegion,
     PdfCancellationToken token) async {
   if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
+
+  if (decodeImages) {
+    return _recordResumablePage(document, suspended, pageIndex, annotations,
+        imagePixelRatio, commandLimit, imageDecodeRegion, token);
+  }
+
   final page = document.page(pageIndex);
-  final previewOperationLimit = decodeImages ? null : commandLimit;
   final recorder = RecordingPdfDevice();
   final interpreter =
       PdfInterpreter(cos: document.cos, device: recorder, cancellation: token);
   await interpreter.drawPageContentAsync(page, page.contentBytes(),
-      operationLimit: previewOperationLimit);
+      operationLimit: commandLimit);
   if (annotations) interpreter.drawAnnotations(page);
   return serializeCommands(recorder.commands,
       cos: document.cos,
-      decodeImages: decodeImages,
+      decodeImages: false,
       maxImagePixelRatio: imagePixelRatio,
       imageDecodeRegion: imageDecodeRegion,
-      imagePlaceholders: !decodeImages,
+      imagePlaceholders: true,
       commandLimit: commandLimit,
       compactStateScopes: true);
+}
+
+/// Operations recorded per [PdfPageContentWalk.advance] chunk on the resumable
+/// record path. Bounds how much extra interpretation runs after a cancel before
+/// the walk suspends (the walk carries no cancellation token, so it cannot abort
+/// mid-chunk - see [_recordResumablePage]); small enough that the post-cancel
+/// overshoot is a sliver of a heavy page, large enough that the per-chunk cost
+/// stays noise. The walk still yields internally every 512 ops, so the isolate
+/// keeps servicing the cancel port within a chunk.
+const int _resumeRecordChunkOperations = 4096;
+
+/// The full-page record that survives preemption. Resumes a walk [suspended] by
+/// an earlier cancel of this same page, or starts a fresh one, then advances in
+/// bounded chunks. On cancel it stashes the partial walk and rethrows (the
+/// caller replies null and the main side requeues the record); on completion it
+/// draws annotations and serializes exactly as the one-shot path did.
+///
+/// The interpreter deliberately carries no cancellation token: a token makes
+/// [PdfPageContentWalk.advance] throw mid-chunk, which finishes the walk and
+/// restores the device - discarding the partial. Driving bounded chunks and
+/// checking the token between them is what keeps the recording resumable.
+Future<Uint8List?> _recordResumablePage(
+    PdfDocument document,
+    _SuspendedRecordCache suspended,
+    int pageIndex,
+    bool annotations,
+    double? imagePixelRatio,
+    int? commandLimit,
+    PdfRect? imageDecodeRegion,
+    PdfCancellationToken token) async {
+  var entry = suspended.take(pageIndex, annotations);
+  if (entry == null) {
+    final page = document.page(pageIndex);
+    final recorder = RecordingPdfDevice();
+    final interpreter = PdfInterpreter(cos: document.cos, device: recorder);
+    final walk = interpreter.beginPageContent(page, page.contentBytes());
+    entry = _SuspendedRecord(
+        pageIndex, annotations, page, recorder, interpreter, walk);
+  }
+
+  final walk = entry.walk;
+  while (!await walk.advance(operations: _resumeRecordChunkOperations)) {
+    if (token.cancelled) {
+      // Keep the partial recording so the requeued render resumes here rather
+      // than re-walking the prefix.
+      suspended.keep(entry);
+      throw const PdfCancelledException();
+    }
+  }
+
+  if (annotations) entry.interpreter.drawAnnotations(entry.page);
+  return serializeCommands(entry.recorder.commands,
+      cos: document.cos,
+      decodeImages: true,
+      maxImagePixelRatio: imagePixelRatio,
+      imageDecodeRegion: imageDecodeRegion,
+      imagePlaceholders: false,
+      commandLimit: commandLimit,
+      compactStateScopes: true);
+}
+
+/// A full-page record cancelled mid-walk, held so the next record of the same
+/// page resumes it (#530). Bundles everything the resumed walk needs: the walk
+/// cursor, the interpreter holding the graphics state, the recorder holding the
+/// commands drawn so far, and the page for the closing annotation pass.
+class _SuspendedRecord {
+  _SuspendedRecord(this.pageIndex, this.annotations, this.page, this.recorder,
+      this.interpreter, this.walk);
+  final int pageIndex;
+  final bool annotations;
+  final PdfPage page;
+  final RecordingPdfDevice recorder;
+  final PdfInterpreter interpreter;
+  final PdfPageContentWalk walk;
+}
+
+/// A one-slot cache of the most recently suspended full-page record.
+///
+/// One slot is enough for the workload this targets: a page is preempted by an
+/// urgent neighbour, that neighbour records fresh (which leaves this page's
+/// suspended walk untouched in the slot - [take] only removes it on a matching
+/// page), then the page requeues and resumes. Nested preemption of a second
+/// page evicts the first ([keep] abandons the previous), degrading it to
+/// today's restart-from-scratch - a bounded-memory trade, not a correctness
+/// issue, since the abandoned walk's partial recording is simply discarded.
+class _SuspendedRecordCache {
+  _SuspendedRecord? _entry;
+
+  /// Removes and returns the suspended record for ([pageIndex], [annotations]),
+  /// or null when the slot holds a different page (which is left in place, so a
+  /// fresh record of an urgent neighbour does not evict the page waiting to
+  /// resume).
+  _SuspendedRecord? take(int pageIndex, bool annotations) {
+    final entry = _entry;
+    if (entry != null &&
+        entry.pageIndex == pageIndex &&
+        entry.annotations == annotations) {
+      _entry = null;
+      return entry;
+    }
+    return null;
+  }
+
+  /// Stashes [entry] to resume on the next record of its page, abandoning any
+  /// previously stashed walk so the balancing device restore runs.
+  void keep(_SuspendedRecord entry) {
+    final previous = _entry;
+    if (previous != null && !identical(previous, entry)) previous.walk.abandon();
+    _entry = entry;
+  }
+
+  /// Drops the stashed walk after a revision update (or shutdown). [pages]
+  /// limits eviction to the changed pages, matching [_BinCommandCache.evictPages];
+  /// null clears the slot unconditionally (a re-open replaced the document).
+  void evict(Set<int>? pages) {
+    final entry = _entry;
+    if (entry == null) return;
+    if (pages == null || pages.contains(entry.pageIndex)) {
+      entry.walk.abandon();
+      _entry = null;
+    }
+  }
 }
 
 /// Bins one page's strips for the requested device geometry and returns the
