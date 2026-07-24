@@ -274,6 +274,12 @@ void main() {
         );
     expect(wire(resumed!.sourceCommands), equals(wire(reference!.sourceCommands)),
         reason: 'resuming must reproduce the one-shot transcript exactly');
+
+    // A resumed record is cached like any completed one: the next request hits.
+    final hit =
+        await cache.transcriptFor(document, 0, false, PdfCancellationToken());
+    expect(identical(hit, resumed), isTrue,
+        reason: 'the resumed transcript must be cached, not re-recorded');
   });
 
   test('a revision update evicts a suspended record (#530)', () async {
