@@ -330,6 +330,7 @@ class _FontEntry {
     required this.choice,
     this.subtitle,
     this.fontFamily,
+    this.bundledFont,
     this.recentKey,
     this.section,
     this.limited = false,
@@ -340,7 +341,16 @@ class _FontEntry {
   final String? subtitle;
   final String searchText;
   final _FontChoice choice;
+
+  /// The engine font-family name to preview this row in, if one is registered.
+  /// For bundled fonts this fills in lazily once [bundledFont] registers (see
+  /// [_PdfFontPickerDialogState]); null previews in the default UI face.
   final String? fontFamily;
+
+  /// The bundled face this row offers, when it is one. The picker dialog
+  /// registers it with the engine on open (off the cold-start path) to preview
+  /// the row in its own face; null for every non-bundled row.
+  final PdfBundledFont? bundledFont;
 
   /// Whether this is a document subset font that can't cover the basic Latin
   /// alphabet, so typing new text in it would drop unavailable characters -
@@ -375,6 +385,43 @@ class _PdfFontPickerDialog extends StatefulWidget {
 class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
   late final TextEditingController _search = TextEditingController()
     ..addListener(() => setState(() {}));
+
+  /// Bundled preview families resolved for this open, keyed by font label.
+  /// Seeded synchronously from the cache and filled in as each lazy
+  /// registration completes, so the dialog appears immediately and each
+  /// bundled row swaps into its own face without ever blocking the open.
+  final Map<String, String> _bundledPreview = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _registerBundledPreviews();
+  }
+
+  /// Registers the bundled faces this menu offers with the engine so their
+  /// rows can preview in their own face. Already-registered faces resolve
+  /// synchronously (an instant re-open); the rest register in the background
+  /// and [setState] their row when ready. Never awaited by [showPdfFontMenu],
+  /// which is what keeps the ~1.85 MB of bundled parsing off the click that
+  /// opens the dialog (and off cold start).
+  void _registerBundledPreviews() {
+    final fonts = <String, PdfBundledFont>{};
+    for (final entry in [...widget.entries, ...widget.recent]) {
+      final font = entry.bundledFont;
+      if (font != null) fonts[font.label] = font;
+    }
+    for (final font in fonts.values) {
+      if (_bundledPreviewFamilies.contains(font.label)) {
+        _bundledPreview[font.label] = font.label; // already registered
+        continue;
+      }
+      _ensureBundledFontPreview(font).then((family) {
+        if (family != null && mounted) {
+          setState(() => _bundledPreview[font.label] = family);
+        }
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -448,6 +495,12 @@ class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
                           final row = rows[index];
                           if (row is String) return _sectionHeader(context, row);
                           final entry = row as _FontEntry;
+                          // Bundled rows preview in the family the dialog
+                          // registered on open (once ready); everything else
+                          // uses the family resolved when the entry was built.
+                          final previewFamily = entry.bundledFont != null
+                              ? _bundledPreview[entry.bundledFont!.label]
+                              : entry.fontFamily;
                           return ListTile(
                             key: entry.key,
                             dense: true,
@@ -455,7 +508,7 @@ class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
                               entry.label,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                fontFamily: entry.fontFamily,
+                                fontFamily: previewFamily,
                               ),
                             ),
                             subtitle: entry.subtitle == null
@@ -537,21 +590,12 @@ Future<void> showPdfFontMenu({
   // characters the file already used, so flag it "limited".
   final limited = [for (final f in inDocument) !f.canRender(_typeableProbe)];
   final previewFamilies = <int, String>{};
-  // Bundled faces (except DejaVu Sans) are no longer declared in the assets
-  // package's pubspec `fonts:` block, so register them with the engine here -
-  // lazily, on menu open - to preview each row in its own face. This keeps
-  // their parse cost off cold start (see [_ensureBundledFontPreview]).
-  final bundledPreviewFamilies = <int, String>{};
   await Future.wait([
     for (var i = 0; i < inDocument.length; i++)
       if (inDocument[i].canRender(inDocument[i].displayName))
         _ensureDocumentFontPreview(inDocument[i]).then((family) {
           if (family != null) previewFamilies[i] = family;
         }),
-    for (var i = 0; i < bundledFonts.length; i++)
-      _ensureBundledFontPreview(bundledFonts[i]).then((family) {
-        if (family != null) bundledPreviewFamilies[i] = family;
-      }),
   ]);
   if (!context.mounted) return;
 
@@ -611,7 +655,13 @@ Future<void> showPdfFontMenu({
         subtitle: pdfL10n(context).propBundledFont,
         searchText: '${bundledFonts[i].label} bundled font'.toLowerCase(),
         choice: _BundledChoice(bundledFonts[i]),
-        fontFamily: bundledPreviewFamilies[i],
+        // Seed the preview face from the cache so a re-open is instant; a
+        // first open shows the default face and the dialog swaps it in as the
+        // lazy registration completes (see [_PdfFontPickerDialogState]).
+        fontFamily: _bundledPreviewFamilies.contains(bundledFonts[i].label)
+            ? bundledFonts[i].label
+            : null,
+        bundledFont: bundledFonts[i],
         recentKey: 'bundled:${bundledFonts[i].label}',
         section: pdfL10n(context).propSectionAllFonts,
       ),
@@ -657,6 +707,7 @@ Future<void> showPdfFontMenu({
       searchText: match.searchText,
       choice: match.choice,
       fontFamily: match.fontFamily,
+      bundledFont: match.bundledFont,
       recentKey: match.recentKey,
       section: match.section,
       limited: match.limited,

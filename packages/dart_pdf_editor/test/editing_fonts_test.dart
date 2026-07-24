@@ -365,6 +365,22 @@ void main() {
       expect(title.style?.fontFamily, 'Spectral');
     });
 
+    testWidgets('the menu opens without waiting on bundled font registration',
+        (tester) async {
+      // Regression guard: bundled previews register in the dialog's initState
+      // and are never awaited before the dialog is shown, so the menu appears
+      // immediately (previously the ~1.85 MB parse blocked the opening click).
+      // The bundled rows are present up front; their own-face previews fill in
+      // afterwards.
+      final c = PdfEditingController(buildMultiPagePdf(1));
+      await pumpButton(tester, c);
+      await tester.tap(find.byKey(const ValueKey('pdf-font-menu')));
+      await tester.pump(); // one frame: enough for the dialog to appear
+      expect(find.byKey(const ValueKey('pdf-font-search')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-font-bundled-0')), findsOneWidget);
+      await tester.pumpAndSettle();
+    });
+
     testWidgets('a picked font shows up under "Recently used" next time',
         (tester) async {
       final c = PdfEditingController(buildMultiPagePdf(1));

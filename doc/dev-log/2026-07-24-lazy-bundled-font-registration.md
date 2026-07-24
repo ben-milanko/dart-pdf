@@ -45,6 +45,20 @@ the other five are preview-only.
   (the pubspec `package:` qualification was its only source).
 - New test: `a bundled font row previews in its own lazily-registered face`.
 
+## Follow-up: don't block the dialog on registration
+
+First cut registered the bundled previews inside the `await Future.wait([...])`
+that runs *before* `showDialog` — so the first click on the font button
+stalled while ~1.85 MB parsed, then the menu popped open with everything at
+once. Moved registration into `_PdfFontPickerDialogState.initState`, fired but
+never awaited: the dialog opens immediately, already-registered faces preview
+synchronously (instant re-open), and first-time faces `setState` their row
+into their own face as each `FontLoader.load()` completes. `_FontEntry` gained
+a `bundledFont` reference so the dialog knows which rows to register and can
+map results back (recents included). Regression guard: `the menu opens without
+waiting on bundled font registration` asserts the dialog is present after a
+single frame.
+
 ## Net
 
 ~1.85 MB of font fetch/parse moves off cold start to first font-menu open
