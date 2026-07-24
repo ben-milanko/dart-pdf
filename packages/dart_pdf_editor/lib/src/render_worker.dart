@@ -384,6 +384,17 @@ abstract class PdfRenderWorker {
   }) async =>
       null;
 
+  /// Extracts [pageIndex]'s text off the UI isolate for search and hover (#396).
+  /// [PdfTextExtractor.extract] is pure Dart, so a heavy page's extraction (a
+  /// full content walk) freezes a frame when it runs on the UI thread; a worker
+  /// moves it off. [priority] shares the queue ordering with [record].
+  ///
+  /// The base implementation declines. The native isolate backend overrides it;
+  /// unsupported platforms (and the web worker until its twin lands) keep the
+  /// caller's in-isolate extraction.
+  Future<PdfPageText?> extractText(int pageIndex, {int priority = 0}) async =>
+      null;
+
   /// Drops any QUEUED (not yet started) [binStrips] request for [pageIndex]
   /// at [priority], completing its future with null - and, on the native
   /// isolate backend, also preempts a matching IN-FLIGHT bin cooperatively
@@ -804,6 +815,11 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
       );
 
   @override
+  Future<PdfPageText?> extractText(int pageIndex, {int priority = 0}) =>
+      _workers[_workerForPage(pageIndex)]
+          .extractText(pageIndex, priority: priority);
+
+  @override
   bool get supportsRevisionUpdate =>
       _workers.every((worker) => worker.supportsRevisionUpdate);
 
@@ -1185,6 +1201,10 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
         buildGrid: buildGrid,
         priority: priority,
       );
+
+  @override
+  Future<PdfPageText?> extractText(int pageIndex, {int priority = 0}) =>
+      _inner.extractText(pageIndex, priority: priority);
 
   @override
   void dispose() {
