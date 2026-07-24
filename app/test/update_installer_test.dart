@@ -149,15 +149,26 @@ void main() {
       final bytes = _bytes(1024);
       final installer = UpdateInstaller(ops: ops, clientFactory: _okClient(bytes));
 
+      var applyingBeforeWrite = false;
+      var onApplyingCalls = 0;
+
       await expectLater(
         installer.downloadAndApply(
           url: 'https://example.test/appimage',
           assetName: appImageAsset,
           expectedSize: bytes.length,
+          onApplying: () {
+            onApplyingCalls++;
+            // Fires after the download but before anything is written to disk.
+            applyingBeforeWrite = ops.written.isEmpty;
+          },
         ),
         throwsA(isA<_ExitCalled>()),
       );
 
+      // onApplying fired once, right after the verified download.
+      expect(onApplyingCalls, 1);
+      expect(applyingBeforeWrite, isTrue);
       // Staged next to the target (same directory) and marked executable.
       expect(ops.written.keys.single, '/apps/.dartpdf-update.AppImage.part');
       expect(ops.written.values.single, bytes);
@@ -240,10 +251,32 @@ void main() {
       );
 
       await expectLater(
-        installer.downloadAndApply(url: 'u', assetName: dmgAsset),
+        installer.downloadAndApply(url: 'https://example.test/dmg', assetName: dmgAsset),
         throwsA(isA<UpdateInstallException>()),
       );
       expect(ops.opened, isNull);
+    });
+
+    test('refuses a non-https artifact URL before downloading', () async {
+      final ops = _FakeOps(platform: TargetPlatform.macOS);
+      var built = false;
+      final installer = UpdateInstaller(
+        ops: ops,
+        clientFactory: () {
+          built = true;
+          return MockClient((_) async => http.Response('x', 200));
+        },
+      );
+
+      await expectLater(
+        installer.downloadAndApply(
+          url: 'http://example.test/dmg', // not https
+          assetName: dmgAsset,
+        ),
+        throwsA(isA<UpdateInstallException>()),
+      );
+      expect(built, isFalse, reason: 'must reject before any network use');
+      expect(ops.written, isEmpty);
     });
 
     test('a non-200 response fails', () async {
@@ -255,7 +288,7 @@ void main() {
       );
 
       await expectLater(
-        installer.downloadAndApply(url: 'u', assetName: dmgAsset),
+        installer.downloadAndApply(url: 'https://example.test/dmg', assetName: dmgAsset),
         throwsA(isA<UpdateInstallException>()),
       );
     });
@@ -268,7 +301,7 @@ void main() {
 
       await expectLater(
         installer.downloadAndApply(
-          url: 'u',
+          url: 'https://example.test/dmg',
           assetName: dmgAsset,
           isCancelled: () => true,
         ),
@@ -290,7 +323,7 @@ void main() {
       final received = <int>[];
       int? seenTotal;
       await installer.downloadAndApply(
-        url: 'u',
+        url: 'https://example.test/dmg',
         assetName: dmgAsset,
         expectedSize: bytes.length,
         onProgress: (r, t) {

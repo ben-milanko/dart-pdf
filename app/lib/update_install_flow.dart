@@ -31,12 +31,14 @@ Future<void> startUpdateInstall(
 
   // No in-app apply path (mobile, a release page only, a Linux tarball): keep
   // the old behaviour and open the download in the browser.
-  if (installer.modeFor(assetName) == UpdateApplyMode.unsupported) {
+  final mode = installer.modeFor(assetName);
+  if (mode == UpdateApplyMode.unsupported) {
     await _openInBrowser(messenger, l10n, url);
     return;
   }
 
-  final progress = ValueNotifier<double?>(null);
+  final progress =
+      ValueNotifier<_UpdateProgress>(const _UpdateProgress(fraction: null));
   var cancelled = false;
 
   final dialogFuture = showDialog<void>(
@@ -57,9 +59,14 @@ Future<void> startUpdateInstall(
       expectedSize: updates.downloadAssetSize,
       isCancelled: () => cancelled,
       onProgress: (received, total) {
-        progress.value =
-            (total != null && total > 0) ? received / total : null;
+        progress.value = _UpdateProgress(
+            fraction: (total != null && total > 0) ? received / total : null);
       },
+      // The AppImage path relaunches immediately after applying; show a
+      // "restarting" state so the dialog isn't frozen at 100% before exit.
+      onApplying: mode == UpdateApplyMode.inPlaceRelaunch
+          ? () => progress.value = const _UpdateProgress(applying: true)
+          : null,
     );
   } on UpdateCancelledException {
     // User cancelled - close the dialog quietly, no toast.
@@ -112,11 +119,20 @@ Future<void> _openInBrowser(
   }
 }
 
+/// The progress dialog's state: download [fraction] (null before it's known),
+/// or [applying] once the download is done and the update is being applied
+/// (the AppImage restart).
+class _UpdateProgress {
+  const _UpdateProgress({this.fraction, this.applying = false});
+  final double? fraction;
+  final bool applying;
+}
+
 /// Modal progress dialog for an in-app update download, with a cancel button.
 class _UpdateProgressDialog extends StatelessWidget {
   const _UpdateProgressDialog({required this.progress, required this.onCancel});
 
-  final ValueListenable<double?> progress;
+  final ValueListenable<_UpdateProgress> progress;
   final VoidCallback onCancel;
 
   @override
@@ -124,19 +140,25 @@ class _UpdateProgressDialog extends StatelessWidget {
     return AlertDialog(
       key: const ValueKey('update-progress-dialog'),
       title: Text(appL10n(context).updateDownloadingTitle),
-      content: ValueListenableBuilder<double?>(
+      content: ValueListenableBuilder<_UpdateProgress>(
         valueListenable: progress,
-        builder: (context, fraction, _) {
+        builder: (context, value, _) {
+          final l10n = appL10n(context);
+          final label = value.applying
+              ? l10n.updateRestarting
+              : value.fraction == null
+                  ? l10n.updatePreparing
+                  : l10n.updateDownloadingPercent((value.fraction! * 100)
+                      .round());
           return Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(fraction == null
-                  ? appL10n(context).updatePreparing
-                  : appL10n(context)
-                      .updateDownloadingPercent((fraction * 100).round())),
+              Text(label),
               const SizedBox(height: 16),
-              LinearProgressIndicator(value: fraction),
+              // Indeterminate bar (null value) while applying/restarting.
+              LinearProgressIndicator(
+                  value: value.applying ? null : value.fraction),
             ],
           );
         },

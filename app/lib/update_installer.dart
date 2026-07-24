@@ -93,7 +93,10 @@ class UpdateInstaller {
   ///
   /// [onProgress] reports `(received, total)` bytes (total null until known).
   /// [isCancelled] is polled while streaming so a UI cancel button can abort
-  /// (throwing [UpdateCancelledException]).
+  /// (throwing [UpdateCancelledException]). [onApplying] fires once the download
+  /// has landed and verified, just before the artifact is applied - the cue for
+  /// a UI to switch from download progress to an "applying / restarting" state
+  /// (the AppImage path relaunches immediately after).
   ///
   /// Returns [UpdateInstallOutcome.unsupported] without downloading when the
   /// platform has no apply path. Throws [UpdateInstallException] on failure.
@@ -103,10 +106,20 @@ class UpdateInstaller {
     int? expectedSize,
     void Function(int received, int? total)? onProgress,
     bool Function()? isCancelled,
+    void Function()? onApplying,
   }) async {
     final mode = modeFor(assetName);
     if (mode == UpdateApplyMode.unsupported) {
       return UpdateInstallOutcome.unsupported;
+    }
+
+    // We are about to write (and, for the AppImage, execute) whatever comes
+    // back, so refuse anything but a plain HTTPS URL. GitHub release assets are
+    // always https; a non-https URL means something upstream is wrong.
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.scheme != 'https') {
+      throw const UpdateInstallException(
+          'Refusing to download an update over an insecure URL');
     }
 
     final bytes = await _download(
@@ -116,6 +129,7 @@ class UpdateInstaller {
       isCancelled: isCancelled,
     );
 
+    onApplying?.call();
     switch (mode) {
       case UpdateApplyMode.inPlaceRelaunch:
         await _applyInPlace(bytes);
