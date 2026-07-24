@@ -99,4 +99,37 @@ void main() {
     expect(ops.opened, '/downloads/dartpdf-macos.dmg');
     expect(find.byKey(const ValueKey('update-handed-off')), findsOneWidget);
   });
+
+  testWidgets('a download failure surfaces a snackbar with a fallback action',
+      (tester) async {
+    final updates = UpdateService(
+      currentVersion: '1.2.0',
+      platform: TargetPlatform.macOS,
+      fetcher: () async => [_dmgRelease()],
+    );
+    addTearDown(updates.dispose);
+
+    // A 404 makes downloadAndApply throw UpdateInstallException, driving the
+    // flow's failure branch (dismiss dialog, show the failed snackbar).
+    final installer = UpdateInstaller(
+      ops: _FakeOps(platform: TargetPlatform.macOS),
+      clientFactory: () => MockClient((_) async => http.Response('no', 404)),
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(
+        prefs: prefs,
+        updateService: updates,
+        updateInstaller: installer,
+        autoCheckUpdates: true,
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('update-banner-download')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('update-progress-dialog')), findsNothing);
+    expect(find.byKey(const ValueKey('update-install-failed')), findsOneWidget);
+  });
 }
