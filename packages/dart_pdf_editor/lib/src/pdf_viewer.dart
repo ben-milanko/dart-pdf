@@ -3079,10 +3079,16 @@ class _PdfViewerState extends State<PdfViewer>
       if (options.searchAnnotations) {
         _searchAnnotations(i, query, options, results);
       }
-      // Yield to the event loop every few pages so frames paint and the
-      // superseding search gets a chance to run (a microtask wouldn't let
-      // timers/rendering in, so this is a Duration.zero delay).
-      if (i % 5 == 4) await Future<void>.delayed(Duration.zero);
+      // Yield to the event loop after every page so a frame can paint and the
+      // superseding search can run (updating _controller._query, which the
+      // check at the top of the next iteration reads to bail). Each page's
+      // extraction still interprets a full content stream on the UI thread
+      // (100-420ms on a heavy page - #396 moves that off-thread), so yielding
+      // per page rather than every fifth keeps the worst uninterruptible span
+      // to one page instead of five, and lets a keystroke cancel that much
+      // sooner. A microtask wouldn't let timers/rendering in, so this is a
+      // Duration.zero delay.
+      await Future<void>.delayed(Duration.zero);
     }
     return results;
   }
