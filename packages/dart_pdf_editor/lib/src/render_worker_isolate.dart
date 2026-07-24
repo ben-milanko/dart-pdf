@@ -972,6 +972,12 @@ Future<Uint8List?> _recordResumablePage(
     PdfRect? imageDecodeRegion,
     PdfCancellationToken token) async {
   var entry = suspended.take(pageIndex, annotations);
+  // Defensive: a finished walk cannot be resumed - its advance is a no-op that
+  // reports incomplete, which would spin the completion loop below forever and
+  // hang the worker. The cache only ever stashes a live walk (evict/displace
+  // finish a walk as they remove it), so this is unreachable today; keep it so
+  // a future change can't turn that invariant into a hang.
+  if (entry != null && entry.walk.isFinished) entry = null;
   if (entry == null) {
     final page = document.page(pageIndex);
     final recorder = RecordingPdfDevice();
