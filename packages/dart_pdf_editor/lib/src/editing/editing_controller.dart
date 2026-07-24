@@ -1765,6 +1765,7 @@ class PdfEditingController extends ChangeNotifier {
   int _editSelectedTextRevision = 0;
   int _editingTextFocusHoldCount = 0;
   int _editingTextFocusHoldRevision = 0;
+  int _refocusEditingTextRevision = 0;
 
   /// Whether an in-place text editor (the free-text tool's box) is open
   /// on a page. While it is, the viewer releases its keyboard shortcuts -
@@ -1787,6 +1788,19 @@ class PdfEditingController extends ChangeNotifier {
   bool get isEditingTextFocusCommitHeld => _editingTextFocusHoldCount > 0;
 
   int get editingTextFocusHoldRevision => _editingTextFocusHoldRevision;
+
+  int get refocusEditingTextRevision => _refocusEditingTextRevision;
+
+  /// Asks the open in-place text editor to reclaim keyboard focus. The tune
+  /// popup opens over a live text-editing session; on some platforms that
+  /// blurs the field, dropping its selection highlight. Re-focusing keeps the
+  /// highlight on so the user can see which text the popup's controls apply
+  /// to. A no-op when no text editor is open.
+  void refocusEditingText() {
+    if (!_editingText) return;
+    _refocusEditingTextRevision++;
+    notifyListeners();
+  }
 
   /// Marks an in-place text editor open/closed. Called by the page
   /// overlay that owns the editor.

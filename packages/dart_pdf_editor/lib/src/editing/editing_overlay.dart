@@ -875,6 +875,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   int _textEditStyleRevision = 0;
   int _editSelectedTextRevision = 0;
   int _textEditFocusHoldRevision = 0;
+  int _refocusEditingTextRevision = 0;
 
   // form-tool text fill: when set, the inline editor commits into this
   // field's /V instead of creating a free-text annotation
@@ -2316,6 +2317,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       if (_textEditRect != null &&
           !_controller.isEditingTextFocusCommitHeld &&
           !_textEditFocus.hasFocus) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _textEditRect != null) _textEditFocus.requestFocus();
+        });
+      }
+    }
+    final refocusRevision = _controller.refocusEditingTextRevision;
+    if (refocusRevision != _refocusEditingTextRevision) {
+      _refocusEditingTextRevision = refocusRevision;
+      // a toolbar menu (the tune popup) opened over this editing session and
+      // may have stolen focus, hiding the selection - claim it straight back
+      // so the highlight stays on. A top-level MenuAnchor stays open when
+      // focus moves to the field, and pointer-driven sliders don't blur it.
+      if (_textEditRect != null && !_textEditFocus.hasFocus) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && _textEditRect != null) _textEditFocus.requestFocus();
         });

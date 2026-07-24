@@ -3900,6 +3900,11 @@ class _StyleMenuState extends State<_StyleMenu> {
             }
             _beginTextEditFocusHold();
             menu.open();
+            // keep the in-place text editor focused so its selection highlight
+            // stays visible while the popup is open - the user sees which text
+            // the tune controls will restyle (no-op unless a box is being
+            // edited; the hold above already keeps that session alive)
+            controller.refocusEditingText();
           }
 
           final tip = widget.fields.eraser
