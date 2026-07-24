@@ -228,5 +228,12 @@
   "appSigErrorKeyCertificateMismatch": "คีย์ส่วนตัวไม่ตรงกับใบรับรอง RSA ที่เลือกใด ๆ",
   "appSigErrorEncryptedKeyUnsupported": "ไม่รองรับคีย์ส่วนตัวที่เข้ารหัส เลือกคีย์ RSA PKCS#1 หรือ PKCS#8 ที่ไม่ได้เข้ารหัส",
   "appSigErrorKeyNotRsa": "คีย์ส่วนตัวไม่ใช่คีย์ RSA PKCS#1 หรือ PKCS#8 ที่ไม่ได้เข้ารหัส",
-  "appSigErrorNoCertificateFound": "ไม่พบใบรับรอง X.509"
+  "appSigErrorNoCertificateFound": "ไม่พบใบรับรอง X.509",
+  "updateInstallNow": "อัปเดตทันที",
+  "updateDownloadingTitle": "กำลังดาวน์โหลดการอัปเดต",
+  "updatePreparing": "กำลังเตรียม…",
+  "updateDownloadingPercent": "กำลังดาวน์โหลด… {percent}%",
+  "updateRestarting": "กำลังรีสตาร์ทเพื่อสิ้นสุดการอัปเดต…",
+  "updateHandedOff": "ดาวน์โหลดการอัปเดตแล้ว กำลังเปิดตัวติดตั้ง…",
+  "updateFailed": "การอัปเดตล้มเหลว: {error}"
 }

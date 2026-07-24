@@ -228,5 +228,12 @@
   "appSigErrorKeyCertificateMismatch": "Özel anahtar, seçilen hiçbir RSA sertifikasıyla eşleşmiyor.",
   "appSigErrorEncryptedKeyUnsupported": "Şifrelenmiş özel anahtarlar desteklenmiyor. Şifrelenmemiş bir RSA PKCS#1 veya PKCS#8 anahtarı seçin.",
   "appSigErrorKeyNotRsa": "Özel anahtar, şifrelenmemiş bir RSA PKCS#1 veya PKCS#8 anahtarı değil.",
-  "appSigErrorNoCertificateFound": "Hiç X.509 sertifikası bulunamadı."
+  "appSigErrorNoCertificateFound": "Hiç X.509 sertifikası bulunamadı.",
+  "updateInstallNow": "Şimdi güncelle",
+  "updateDownloadingTitle": "Güncelleme indiriliyor",
+  "updatePreparing": "Hazırlanıyor…",
+  "updateDownloadingPercent": "İndiriliyor… {percent}%",
+  "updateRestarting": "Güncellemeyi tamamlamak için yeniden başlatılıyor…",
+  "updateHandedOff": "Güncelleme indirildi. Yükleyici açılıyor…",
+  "updateFailed": "Güncelleme başarısız: {error}"
 }

@@ -228,5 +228,12 @@
   "appSigErrorKeyCertificateMismatch": "Закрытый ключ не соответствует ни одному выбранному сертификату RSA.",
   "appSigErrorEncryptedKeyUnsupported": "Зашифрованные закрытые ключи не поддерживаются. Выберите незашифрованный ключ RSA PKCS#1 или PKCS#8.",
   "appSigErrorKeyNotRsa": "Закрытый ключ не является незашифрованным ключом RSA PKCS#1 или PKCS#8.",
-  "appSigErrorNoCertificateFound": "Сертификаты X.509 не найдены."
+  "appSigErrorNoCertificateFound": "Сертификаты X.509 не найдены.",
+  "updateInstallNow": "Обновить сейчас",
+  "updateDownloadingTitle": "Загрузка обновления",
+  "updatePreparing": "Подготовка…",
+  "updateDownloadingPercent": "Загрузка… {percent}%",
+  "updateRestarting": "Перезапуск для завершения обновления…",
+  "updateHandedOff": "Обновление загружено. Открытие установщика…",
+  "updateFailed": "Не удалось обновить: {error}"
 }

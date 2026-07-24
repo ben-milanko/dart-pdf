@@ -109,6 +109,8 @@ class _TranscriptDevice implements PdfDevice {
       '${_matrix(run.transform)} ${_color(run.color)} w=${run.width} '
       'font=${run.fontName} size=${run.fontSize} fill=${run.fill} '
       'invisible=${run.invisible} sw=${run.strokeWidth} '
+      'ls=${run.letterSpacing} ws=${run.wordSpacing} '
+      'ld=${run.leadingSpace} vw=${run.visibleWidth} '
       'glyphs=${run.glyphs?.length}');
 
   @override
@@ -172,6 +174,10 @@ void main() {
       'dashed stroke': '[3 2] 1.5 d 1 w 10 10 m 90 90 l S',
       'clip then fill': '0 0 5 5 re W n 0 0 1 rg 0 0 10 10 re f',
       'text': 'BT /F1 24 Tf 72 720 Td (Hello, world!) Tj ET',
+      // Word spacing (Tw) with leading and trailing spaces exercises the
+      // letterSpacing/wordSpacing/leadingSpace/visibleWidth wire fields.
+      'word-spaced tabular text':
+          'BT /F1 10 Tf 5 Tw 0.2 Tc 72 700 Td ( ab ) Tj ET',
       'nested q/Q': 'q q 0 0 1 1 re f Q q 1 1 2 2 re f Q Q',
       'curves': '10 10 m 20 30 40 30 50 10 c f',
       'even-odd fill': '0 0 10 10 re 2 2 6 6 re f*',

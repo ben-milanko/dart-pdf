@@ -211,6 +211,43 @@ void main() {
       expect(shown, isNot(contains('Location:')));
     });
 
+    test('the box shows the signing time in the local offset, not UTC', () {
+      // A local (non-UTC) signingTime keeps its own offset in the visible box
+      // and the /M date; the CMS signingTime attribute is still UTC.
+      final localTime = DateTime(2026, 6, 10, 12, 0, 0); // terminal's local zone
+      final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
+      final signed = editor.saveSigned(
+        privateKey: key,
+        certificates: [cert],
+        signingTime: localTime,
+        appearance: const PdfSignatureAppearance(
+          rect: PdfRect(72, 600, 320, 700),
+        ),
+      );
+      final doc = PdfDocument.open(signed);
+      final signature = PdfSignature.of(doc).single;
+      expect(signature.validate().intact, isTrue);
+
+      String two(int v) => v.toString().padLeft(2, '0');
+      final off = localTime.timeZoneOffset;
+      final sign = off.isNegative ? '-' : '+';
+      final offset =
+          "$sign${two(off.abs().inHours)}'${two(off.abs().inMinutes % 60)}'";
+      final shown = shownText(appearanceContent(doc, signature.field)!);
+      expect(shown, contains('Date: 2026.06.10 12:00:00 $offset'));
+
+      // the /M entry carries the same local offset, not a UTC Z
+      final text = String.fromCharCodes(signed);
+      if (off == Duration.zero) {
+        expect(text, contains('D:20260610120000Z'));
+      } else {
+        expect(text, contains('D:20260610120000$offset'));
+      }
+
+      // the CMS signingTime attribute normalises to the equivalent UTC instant
+      expect(signature.signingTime, localTime.toUtc());
+    });
+
     test('a graphic renders in the left panel as an image XObject', () {
       final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
       final signed = editor.saveSigned(

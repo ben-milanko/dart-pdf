@@ -413,21 +413,60 @@ class PdfInterpreter {
     if (yieldInterval <= 0) {
       throw ArgumentError.value(yieldInterval, 'yieldInterval', 'must be > 0');
     }
+    // Expressed through the resumable walk so the two share one implementation
+    // - this path is exercised by the whole corpus, which is what keeps the
+    // chunked form honest.
+    final walk = beginPageContent(page, content, operationLimit: operationLimit);
+    await walk.advance(yieldInterval: yieldInterval);
+  }
+
+  /// Begins a **resumable** walk of this page's content.
+  ///
+  /// [PdfPageContentWalk.advance] records a bounded number of operations and
+  /// can be called again to continue from where it stopped, appending to the
+  /// same device instead of restarting - the cursor holds the parse position
+  /// and this interpreter holds the graphics state. That is the difference
+  /// from calling [drawPageContentAsync] twice with a larger `operationLimit`,
+  /// which re-walks the prefix and re-emits everything it already drew.
+  ///
+  /// The caller owns the walk: it must either run it to completion (advance
+  /// returns true) or call [PdfPageContentWalk.abandon], so the balancing
+  /// `device.restore()` always happens.
+  PdfPageContentWalk beginPageContent(PdfPage page, Uint8List content,
+      {int? operationLimit}) {
     _state = _GraphicsState();
     _visibilityStack.clear();
     _mcidStack.clear();
     _pageBox = page.mediaBox;
     device.save();
+    final walk = PdfPageContentWalk._(
+      this,
+      ContentStreamParser.cursor(content, operationLimit: operationLimit),
+      page.resources,
+      _currentFormDepth,
+      _visibilityStack.length,
+    );
+    _currentFormDepth = 0;
+    return walk;
+  }
+
+  /// Unwinds the page-level bookkeeping [beginPageContent] set up. Runs
+  /// exactly once per walk (see [PdfPageContentWalk._finish]).
+  void _endPageContent(
+      int previousFormDepth, int previousVisibilityDepth, bool completed) {
     try {
-      await _runCursorAsync(
-        ContentStreamParser.cursor(content, operationLimit: operationLimit),
-        page.resources,
-        0,
-        yieldInterval,
-      );
-      final mask = _state.softMask;
-      if (mask != null) _finalizeSoftMask(mask);
+      if (completed) {
+        final mask = _state.softMask;
+        if (mask != null) _finalizeSoftMask(mask);
+      }
     } finally {
+      while (_visibilityStack.length > previousVisibilityDepth) {
+        _visibilityStack.removeLast();
+      }
+      while (_mcidStack.length > previousVisibilityDepth) {
+        _mcidStack.removeLast();
+      }
+      _currentFormDepth = previousFormDepth;
       device.restore();
     }
   }
@@ -436,6 +475,11 @@ class PdfInterpreter {
   void run(List<ContentOperation> operations, CosDictionary resources) {
     _run(operations, resources, 0);
   }
+
+  /// Default operations per [PdfPageContentWalk.advance] chunk when the caller
+  /// does not choose one. Large enough that the per-chunk overhead is noise on
+  /// a dense sheet, small enough that a chunk is a fraction of a heavy page.
+  static const int defaultWalkChunkOperations = 20000;
 
   /// Draws the page's annotation appearance streams, normally called after
   /// [drawPage] so they paint over the content (§12.5.5).
@@ -1163,24 +1207,6 @@ class PdfInterpreter {
     }
   }
 
-  Future<void> _runCursorAsync(ContentOperationCursor cursor,
-      CosDictionary resources, int formDepth, int yieldInterval) async {
-    final previousDepth = _currentFormDepth;
-    final previousVisibilityDepth = _visibilityStack.length;
-    _currentFormDepth = formDepth;
-    try {
-      await _runCursorOpsAsync(cursor, resources, formDepth, yieldInterval);
-    } finally {
-      while (_visibilityStack.length > previousVisibilityDepth) {
-        _visibilityStack.removeLast();
-      }
-      while (_mcidStack.length > previousVisibilityDepth) {
-        _mcidStack.removeLast();
-      }
-      _currentFormDepth = previousDepth;
-    }
-  }
-
   Future<void> _runOpsAsync(List<ContentOperation> ops, CosDictionary resources,
       int formDepth, int yieldInterval) async {
     final token = cancellation;
@@ -1200,13 +1226,26 @@ class PdfInterpreter {
     }
   }
 
-  Future<void> _runCursorOpsAsync(ContentOperationCursor cursor,
-      CosDictionary resources, int formDepth, int yieldInterval) async {
+  /// Runs at most [maxOperations] more operations from [cursor] (null runs to
+  /// exhaustion), returning true once the cursor is spent.
+  ///
+  /// The bounded form is what makes a page walk *resumable*: the cursor holds
+  /// the parse position and this interpreter holds the graphics state, so a
+  /// later call picks up exactly where this one stopped instead of re-walking
+  /// from the top. Chunk boundaries land only between top-level operations -
+  /// a form XObject runs to completion inside one [_execOp] - so the state is
+  /// always at page level in between. See [PdfPageContentWalk].
+  Future<bool> _advanceCursorAsync(
+      ContentOperationCursor cursor,
+      CosDictionary resources,
+      int formDepth,
+      int yieldInterval,
+      int? maxOperations) async {
     final token = cancellation;
     var opCount = 0;
-    while (true) {
+    while (maxOperations == null || opCount < maxOperations) {
       final op = cursor.nextOperation();
-      if (op == null) return;
+      if (op == null) return true;
       if (++opCount % yieldInterval == 0) {
         await Future<void>.delayed(Duration.zero);
         if (token != null && token.cancelled) {
@@ -1219,6 +1258,7 @@ class PdfInterpreter {
       }
       _execOp(op, resources, formDepth);
     }
+    return false;
   }
 
   void _runOps(
@@ -2078,9 +2118,26 @@ class PdfInterpreter {
     final vertical = font.isVertical;
     final hScale = _state.horizontalScale == 0 ? 1.0 : _state.horizontalScale;
     var advance = 0.0; // text-space along the writing direction (x or y)
+    // Pen advance bracketing the visible (non-whitespace) glyphs: [leadingAdv]
+    // to the start of the first visible glyph, [visibleAdvance] to the end of
+    // the last. Edge whitespace (common in tabular content, where a space
+    // carries a large Tw to reach the next column) stays in [advance] for
+    // positioning but is handed to substituting devices separately so it opens
+    // a real gap instead of stretching the visible glyphs - see
+    // PdfTextRun.leadingSpace / .visibleWidth.
+    var visibleAdvance = 0.0;
+    var leadingAdv = 0.0;
+    var sawVisible = false;
     for (final code in codes) {
       final text = font.charFor(code);
       buffer.write(text);
+      // Non-allocating equivalent of `text.trim().isNotEmpty` - this runs once
+      // per glyph on the hot text path, so avoid the per-glyph String.trim().
+      final visible = !_isBlankText(text);
+      if (visible && !sawVisible) {
+        leadingAdv = advance;
+        sawVisible = true;
+      }
       if (glyphs != null) {
         if (vertical) {
           final v = font.verticalOriginOf(code);
@@ -2114,6 +2171,7 @@ class PdfInterpreter {
         if (!font.isCid && code == 0x20) tx += _state.wordSpacing;
         advance += tx * _state.horizontalScale;
       }
+      if (visible) visibleAdvance = advance;
     }
 
     if (size != 0 && _contentVisible && !_scanImages) {
@@ -2198,6 +2256,16 @@ class PdfInterpreter {
               ? _gradientOfPattern(pattern)
               : null,
           width: emScale == 0 ? 0 : advance / emScale,
+          visibleWidth: emScale == 0 || visibleAdvance == advance
+              ? null
+              : visibleAdvance / emScale,
+          leadingSpace: emScale == 0 ? 0 : leadingAdv / emScale,
+          // Tc/Tw are unscaled text-space units; the run transform already
+          // carries size and Th, so normalise to em (divide by size) - Th
+          // cancels. Tw never applies to composite fonts (§9.3.3).
+          letterSpacing: size == 0 ? 0 : _state.charSpacing / size,
+          wordSpacing:
+              size == 0 || font.isCid ? 0 : _state.wordSpacing / size,
           fontName: font.baseFont,
           fontSize: size,
           glyphs: glyphs,
@@ -2957,4 +3025,110 @@ class PdfInterpreter {
 
   static PdfMatrix _matrixFrom(List<CosObject> o) => PdfMatrix(
       _num(o, 0), _num(o, 1), _num(o, 2), _num(o, 3), _num(o, 4), _num(o, 5));
+}
+
+/// Whether [s] is empty or entirely whitespace - a non-allocating equivalent of
+/// `s.trim().isEmpty` using Dart's own trim whitespace set (Unicode White_Space
+/// plus U+FEFF), so it matches the `String.trim()` a device applies to the run.
+bool _isBlankText(String s) {
+  for (var i = 0; i < s.length; i++) {
+    if (!_isTrimWhitespace(s.codeUnitAt(i))) return false;
+  }
+  return true;
+}
+
+bool _isTrimWhitespace(int c) =>
+    c == 0x20 ||
+    (c >= 0x09 && c <= 0x0D) ||
+    c == 0x85 ||
+    c == 0xA0 ||
+    c == 0x1680 ||
+    (c >= 0x2000 && c <= 0x200A) ||
+    c == 0x2028 ||
+    c == 0x2029 ||
+    c == 0x202F ||
+    c == 0x205F ||
+    c == 0x3000 ||
+    c == 0xFEFF;
+
+/// A resumable walk of one page's content stream, from
+/// [PdfInterpreter.beginPageContent].
+///
+/// [advance] records a bounded number of operations and can be called again to
+/// continue from where it stopped - the cursor holds the parse position and the
+/// interpreter holds the graphics state, so nothing is re-walked and nothing is
+/// re-emitted. That is what lets a heavy page be recorded in visible increments,
+/// and lets a cancelled record keep the work it already did instead of starting
+/// over.
+///
+/// The caller must finish the walk exactly one of two ways: run it until
+/// [advance] returns true, or call [abandon]. Either way the balancing
+/// `device.restore()` runs once. A throwing [advance] (including
+/// [PdfCancelledException]) finishes the walk itself, so a cancelled walk needs
+/// no cleanup - but [abandon] is idempotent, so calling it anyway is safe.
+class PdfPageContentWalk {
+  PdfPageContentWalk._(
+    this._interpreter,
+    this._cursor,
+    this._resources,
+    this._previousFormDepth,
+    this._previousVisibilityDepth,
+  );
+
+  final PdfInterpreter _interpreter;
+  final ContentOperationCursor _cursor;
+  final CosDictionary _resources;
+  final int _previousFormDepth;
+  final int _previousVisibilityDepth;
+
+  bool _complete = false;
+  bool _finished = false;
+
+  /// True once the content stream has been walked to the end.
+  bool get isComplete => _complete;
+
+  /// True once the walk has released the device, by completion or [abandon].
+  bool get isFinished => _finished;
+
+  /// Records up to [operations] more operations (null runs to completion),
+  /// returning true when the page is complete.
+  ///
+  /// Calling this after the walk has finished is a no-op that returns
+  /// [isComplete].
+  Future<bool> advance({
+    int? operations,
+    int yieldInterval = PdfInterpreter._yieldInterval,
+  }) async {
+    if (yieldInterval <= 0) {
+      throw ArgumentError.value(yieldInterval, 'yieldInterval', 'must be > 0');
+    }
+    if (_finished) return _complete;
+    try {
+      _complete = await _interpreter._advanceCursorAsync(
+        _cursor,
+        _resources,
+        0,
+        yieldInterval,
+        operations,
+      );
+    } catch (_) {
+      // A cancelled or failed chunk still has to unwind the device stack; the
+      // walk is not complete, so the soft mask is deliberately not finalized.
+      _finish();
+      rethrow;
+    }
+    if (_complete) _finish();
+    return _complete;
+  }
+
+  /// Ends the walk without completing it - the cancelled-render path.
+  /// Idempotent.
+  void abandon() => _finish();
+
+  void _finish() {
+    if (_finished) return;
+    _finished = true;
+    _interpreter._endPageContent(
+        _previousFormDepth, _previousVisibilityDepth, _complete);
+  }
 }

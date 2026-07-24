@@ -549,6 +549,31 @@ class AppLocalizationsZh extends AppLocalizations {
   String get editorUpdateLater => '稍后';
 
   @override
+  String get updateInstallNow => '立即更新';
+
+  @override
+  String get updateDownloadingTitle => '正在下载更新';
+
+  @override
+  String get updatePreparing => '正在准备…';
+
+  @override
+  String updateDownloadingPercent(int percent) {
+    return '正在下载… $percent%';
+  }
+
+  @override
+  String get updateRestarting => '正在重启以完成更新…';
+
+  @override
+  String get updateHandedOff => '更新已下载。正在打开安装程序…';
+
+  @override
+  String updateFailed(String error) {
+    return '更新失败：$error';
+  }
+
+  @override
   String get editorViewAllTabs => '查看所有标签页';
 
   @override
@@ -1445,6 +1470,31 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get editorUpdateLater => '稍後';
+
+  @override
+  String get updateInstallNow => '立即更新';
+
+  @override
+  String get updateDownloadingTitle => '正在下載更新';
+
+  @override
+  String get updatePreparing => '正在準備…';
+
+  @override
+  String updateDownloadingPercent(int percent) {
+    return '正在下載… $percent%';
+  }
+
+  @override
+  String get updateRestarting => '正在重新啟動以完成更新…';
+
+  @override
+  String get updateHandedOff => '更新已下載。正在開啟安裝程式…';
+
+  @override
+  String updateFailed(String error) {
+    return '更新失敗：$error';
+  }
 
   @override
   String get editorViewAllTabs => '檢視所有分頁';

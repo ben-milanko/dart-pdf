@@ -728,17 +728,31 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
     // Per-glyph composition (#454) applies only to plain fills of simple-script
     // runs; a gradient, a stroke, or complex text keeps whole-run shaping so the
     // fresh gradient/stroke painters and the layout stay width-consistent.
+    // Edge whitespace (a leading/trailing space carrying a large Tw to reach a
+    // table column) must open a real gap, not stretch the visible glyphs.
+    // TextPainter drops leading/trailing whitespace from both placement and
+    // layout.width, so paint a run trimmed to its visible core and shift it
+    // right by the leading-whitespace advance; the original run's
+    // width/transform stay full so extraction still sees the true gap. The
+    // common no-edge-whitespace run is used as-is.
+    final paintRun = run.leadingSpace != 0 || run.visibleWidth != null
+        ? _trimmedForPaint(run)
+        : run;
+
     final compose = perGlyphSubstitutedText &&
-        run.gradient == null &&
-        run.strokeColor == null &&
-        _composableRun(run.text);
-    final layout = _measureLayout(run, compose: compose);
+        paintRun.gradient == null &&
+        paintRun.strokeColor == null &&
+        paintRun.letterSpacing == 0 &&
+        paintRun.wordSpacing == 0 &&
+        _composableRun(paintRun.text);
+    final layout = _measureLayout(paintRun, compose: compose);
 
     canvas.save();
     canvas.transform(_toFloat64(run.transform));
-    // unflip: the page transform is y-up, text rasterizes y-down
-    final targetWidth = run.width * renderSize;
-    final scaleX = run.width > 0 && layout.width > 0
+    // unflip: the page transform is y-up, text rasterizes y-down.
+    if (run.leadingSpace != 0) canvas.translate(run.leadingSpace, 0);
+    final targetWidth = paintRun.width * renderSize;
+    final scaleX = paintRun.width > 0 && layout.width > 0
         ? targetWidth / layout.width
         : 1.0;
 
@@ -747,8 +761,8 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
     // shader, which can't be cached because the shader depends on this run's
     // own transform. The cached/composed layout serves every plain fill.
     TextPainter? gradientFill;
-    if (run.fill) {
-      final gradient = run.gradient;
+    if (paintRun.fill) {
+      final gradient = paintRun.gradient;
       if (gradient != null) {
         final localToPage =
             PdfMatrix.scaled(scaleX / renderSize, -1 / renderSize)
@@ -757,9 +771,9 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
         if (pageToLocal != null) {
           gradientFill = TextPainter(
             text: TextSpan(
-                text: run.text,
+                text: paintRun.text,
                 style: _styleFor(
-                    run,
+                    paintRun,
                     foreground: Paint()
                       ..shader = _shaderFor(gradient,
                           transform: gradient.transform.concat(pageToLocal))
@@ -774,18 +788,18 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
     // The line width is page-space; map it into the painter's 100px-per-em
     // space (canvas is scaled by run.transform then 1/renderSize).
     TextPainter? strokePainter;
-    if (run.strokeColor != null) {
+    if (paintRun.strokeColor != null) {
       final ts = run.transform.scaleFactor;
-      final w = run.strokeWidth > 0 ? run.strokeWidth : ts / renderSize;
+      final w = paintRun.strokeWidth > 0 ? paintRun.strokeWidth : ts / renderSize;
       strokePainter = TextPainter(
         text: TextSpan(
-          text: run.text,
+          text: paintRun.text,
           style: _styleFor(
-            run,
+            paintRun,
             foreground: Paint()
               ..style = PaintingStyle.stroke
               ..strokeWidth = ts > 0 ? w * renderSize / ts : w
-              ..color = _toColor(run.strokeColor!, 1)
+              ..color = _toColor(paintRun.strokeColor!, 1)
               ..blendMode = _elementBlend,
           ),
         ),
@@ -794,7 +808,7 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
     }
 
     canvas.scale(scaleX / renderSize, -1 / renderSize);
-    if (run.fill) {
+    if (paintRun.fill) {
       if (gradientFill != null) {
         gradientFill.paint(canvas, Offset(0, -layout.baseline));
       } else {
@@ -805,6 +819,36 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
     canvas.restore();
   }
 
+  /// A copy of [run] trimmed to its visible core for painting: edge whitespace
+  /// removed from the text, and the width reduced to the visible-glyph advance
+  /// (`visibleWidth - leadingSpace`). [leadingSpace] itself is applied by the
+  /// caller as a canvas translation, so it is zeroed here. Everything else -
+  /// transform, colour, spacing, stroke, gradient - is carried through unchanged.
+  static PdfTextRun _trimmedForPaint(PdfTextRun run) {
+    final core = _trimEdges(run.text);
+    final coreWidth = (run.visibleWidth ?? run.width) - run.leadingSpace;
+    return PdfTextRun(
+      text: core,
+      transform: run.transform,
+      color: run.color,
+      width: coreWidth,
+      gradient: run.gradient,
+      fontName: run.fontName,
+      fontSize: run.fontSize,
+      fill: run.fill,
+      strokeColor: run.strokeColor,
+      strokeWidth: run.strokeWidth,
+      letterSpacing: run.letterSpacing,
+      wordSpacing: run.wordSpacing,
+      mcid: run.mcid,
+    );
+  }
+
+  /// Strips leading and trailing Unicode whitespace, matching the interpreter's
+  /// `text.trim().isNotEmpty` visibility test that produced leadingSpace /
+  /// visibleWidth.
+  static String _trimEdges(String s) => s.trim();
+
   /// A laid-out painter (+ width/baseline) for a substituted-font run, served
   /// from the process-wide cache. The key is (text, font, colour) — everything
   /// [_styleFor] reads — so the cached painter and its metrics are exact.
@@ -814,7 +858,8 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
     if (compose) return _composeLayout(run);
     final c = run.color;
     final key = '${run.text} ${run.fontName ?? ''} '
-        '${c.red},${c.green},${c.blue}';
+        '${c.red},${c.green},${c.blue} '
+        '${run.letterSpacing},${run.wordSpacing}';
     if (!PdfPerfLog.enabled) {
       return _textCache.getOrAdd(key, () => _shapeLayout(run));
     }
@@ -1031,8 +1076,14 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
       fontStyle: name.contains('Italic') || name.contains('Oblique')
           ? FontStyle.italic
           : FontStyle.normal,
-      // metric scaling handles placement; kill extra spacing sources
-      letterSpacing: 0,
+      // Reproduce the PDF's Tc/Tw as real tracking/word spacing (em → the 100px
+      // render em) so the substitute's own advances match run.width. Without
+      // this the layout is tight and run.width's spacing is recovered by
+      // stretching the glyph shapes - which explodes when a space carries a
+      // large Tw (issue: over-wide table digits). letterSpacing/wordSpacing 0
+      // (the common case) is a no-op, so unspaced runs are unchanged.
+      letterSpacing: run.letterSpacing * 100,
+      wordSpacing: run.wordSpacing * 100,
       height: 1,
     );
   }

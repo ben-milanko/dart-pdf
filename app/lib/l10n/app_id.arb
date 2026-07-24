@@ -228,5 +228,12 @@
   "appSigErrorKeyCertificateMismatch": "Kunci privat tidak cocok dengan sertifikat RSA yang dipilih mana pun.",
   "appSigErrorEncryptedKeyUnsupported": "Kunci privat terenkripsi tidak didukung. Pilih kunci RSA PKCS#1 atau PKCS#8 yang tidak terenkripsi.",
   "appSigErrorKeyNotRsa": "Kunci privat bukan kunci RSA PKCS#1 atau PKCS#8 yang tidak terenkripsi.",
-  "appSigErrorNoCertificateFound": "Tidak ada sertifikat X.509 yang ditemukan."
+  "appSigErrorNoCertificateFound": "Tidak ada sertifikat X.509 yang ditemukan.",
+  "updateInstallNow": "Perbarui sekarang",
+  "updateDownloadingTitle": "Mengunduh pembaruan",
+  "updatePreparing": "Menyiapkan…",
+  "updateDownloadingPercent": "Mengunduh… {percent}%",
+  "updateRestarting": "Memulai ulang untuk menyelesaikan pembaruan…",
+  "updateHandedOff": "Pembaruan diunduh. Membuka penginstal…",
+  "updateFailed": "Pembaruan gagal: {error}"
 }

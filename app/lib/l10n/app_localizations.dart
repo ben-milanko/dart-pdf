@@ -973,6 +973,48 @@ abstract class AppLocalizations {
   /// **'Later'**
   String get editorUpdateLater;
 
+  /// Button that downloads and installs the newer release in place (desktop), instead of opening a browser download.
+  ///
+  /// In en, this message translates to:
+  /// **'Update now'**
+  String get updateInstallNow;
+
+  /// Title of the dialog shown while an in-app update is downloading.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading update'**
+  String get updateDownloadingTitle;
+
+  /// Status shown before download progress is known.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing…'**
+  String get updatePreparing;
+
+  /// Download progress line with the percentage complete.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading… {percent}%'**
+  String updateDownloadingPercent(int percent);
+
+  /// Status shown after the AppImage is replaced, just before the app relaunches.
+  ///
+  /// In en, this message translates to:
+  /// **'Restarting to finish the update…'**
+  String get updateRestarting;
+
+  /// Snackbar shown after a macOS/Windows update is downloaded and handed to the OS installer.
+  ///
+  /// In en, this message translates to:
+  /// **'Update downloaded. Opening the installer…'**
+  String get updateHandedOff;
+
+  /// Snackbar shown when an in-app update download or install fails.
+  ///
+  /// In en, this message translates to:
+  /// **'Update failed: {error}'**
+  String updateFailed(String error);
+
   /// Tooltip on the desktop button that opens the all-tabs grid dialog.
   ///
   /// In en, this message translates to:

@@ -558,6 +558,32 @@ class AppLocalizationsVi extends AppLocalizations {
   String get editorUpdateLater => 'Để sau';
 
   @override
+  String get updateInstallNow => 'Cập nhật ngay';
+
+  @override
+  String get updateDownloadingTitle => 'Đang tải xuống bản cập nhật';
+
+  @override
+  String get updatePreparing => 'Đang chuẩn bị…';
+
+  @override
+  String updateDownloadingPercent(int percent) {
+    return 'Đang tải xuống… $percent%';
+  }
+
+  @override
+  String get updateRestarting => 'Đang khởi động lại để hoàn tất cập nhật…';
+
+  @override
+  String get updateHandedOff =>
+      'Đã tải xuống bản cập nhật. Đang mở trình cài đặt…';
+
+  @override
+  String updateFailed(String error) {
+    return 'Cập nhật thất bại: $error';
+  }
+
+  @override
   String get editorViewAllTabs => 'Xem tất cả các thẻ';
 
   @override

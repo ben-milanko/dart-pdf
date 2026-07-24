@@ -387,6 +387,70 @@ void main() {
       expect(run.width, closeTo(5.501, 1e-9));
     });
 
+    test('word/char spacing and edge whitespace feed the substitute geometry',
+        () {
+      // A Type1 Helvetica resource (built-in AFM widths: a=b=0.556, space=0.278
+      // em) so we can predict the advances exactly.
+      final doc = CosDocument.open(buildClassicPdf());
+      final resources = CosDictionary({
+        'Font': CosDictionary({
+          'F1': CosDictionary({
+            'Type': const CosName('Font'),
+            'Subtype': const CosName('Type1'),
+            'BaseFont': const CosName('Helvetica'),
+            'Encoding': const CosName('WinAnsiEncoding'),
+          }),
+        }),
+      });
+
+      // Trailing space carrying a large Tw (the tabular-column pattern): the gap
+      // stays in width for positioning but is excluded from visibleWidth so a
+      // substituting device does not stretch "ab" across it.
+      final trailing = RecordingDevice();
+      PdfInterpreter(cos: doc, device: trailing).run(
+        ContentStreamParser.parse(Uint8List.fromList(
+            'BT /F1 10 Tf 5 Tw 0 700 Td (ab ) Tj ET'.codeUnits)),
+        resources,
+      );
+      final t = trailing.texts.single;
+      expect(t.wordSpacing, closeTo(0.5, 1e-9)); // Tw 5 / size 10
+      expect(t.letterSpacing, 0);
+      expect(t.leadingSpace, 0);
+      expect(t.width, closeTo(1.890, 1e-6)); // a+b+space(0.278)+Tw(0.5)
+      // visibleWidth = a+b only; the trailing space's 0.778 em is dropped.
+      expect(t.visibleWidth, closeTo(1.112, 1e-6));
+      expect(t.width - t.visibleWidth!, closeTo(0.778, 1e-6));
+
+      // Leading space carrying the same Tw: the gap becomes leadingSpace (a
+      // device shifts the trimmed glyphs right by it), width stays full, and
+      // visibleWidth is null because nothing trails the last visible glyph.
+      final leading = RecordingDevice();
+      PdfInterpreter(cos: doc, device: leading).run(
+        ContentStreamParser.parse(Uint8List.fromList(
+            'BT /F1 10 Tf 5 Tw 0 700 Td ( ab) Tj ET'.codeUnits)),
+        resources,
+      );
+      final l = leading.texts.single;
+      expect(l.leadingSpace, closeTo(0.778, 1e-6)); // space(0.278)+Tw(0.5)
+      expect(l.width, closeTo(1.890, 1e-6));
+      expect(l.visibleWidth, isNull);
+
+      // No word spacing: width, visibleWidth, spacing all reduce to the plain
+      // metric advance, so ordinary runs are untouched.
+      final plain = RecordingDevice();
+      PdfInterpreter(cos: doc, device: plain).run(
+        ContentStreamParser.parse(Uint8List.fromList(
+            'BT /F1 10 Tf 0 700 Td (ab) Tj ET'.codeUnits)),
+        resources,
+      );
+      final p = plain.texts.single;
+      expect(p.wordSpacing, 0);
+      expect(p.letterSpacing, 0);
+      expect(p.leadingSpace, 0);
+      expect(p.visibleWidth, isNull);
+      expect(p.width, closeTo(1.112, 1e-6));
+    });
+
     test('a Type3 glyph that shows text does not corrupt the outer run', () {
       // A Type3 CharProc is an arbitrary content stream and may itself show
       // text, which re-enters _showText mid-loop. The run-text buffer is reused
@@ -1607,6 +1671,103 @@ void main() {
       PdfInterpreter(cos: doc.cos, device: device)
           .drawPageOperations(page, ops);
       expect(device.calls, isNotEmpty);
+    });
+
+    // The resumable walk (beginPageContent) is the primitive behind recording a
+    // heavy page in visible increments and behind a cancelled record keeping
+    // its work. drawPageContentAsync is implemented on top of it, so the whole
+    // corpus already exercises the unbounded path; these pin the chunked one.
+    group('resumable page walk', () {
+      Future<List<String>> fullCalls(Uint8List bytes) async {
+        final doc = PdfDocument.open(bytes);
+        final page = doc.page(0);
+        final device = RecordingDevice();
+        await PdfInterpreter(cos: doc.cos, device: device)
+            .drawPageContentAsync(page, page.contentBytes());
+        return device.calls;
+      }
+
+      test('a chunked walk records exactly what one full walk records',
+          () async {
+        final bytes = heavyPdf();
+        final expected = await fullCalls(bytes);
+
+        final doc = PdfDocument.open(bytes);
+        final page = doc.page(0);
+        final device = RecordingDevice();
+        final walk = PdfInterpreter(cos: doc.cos, device: device)
+            .beginPageContent(page, page.contentBytes());
+        var chunks = 0;
+        while (!await walk.advance(operations: 100)) {
+          chunks++;
+          expect(chunks, lessThan(1000), reason: 'walk did not terminate');
+        }
+        expect(chunks, greaterThan(1),
+            reason: 'the fixture must actually span several chunks');
+        expect(walk.isComplete, isTrue);
+        expect(walk.isFinished, isTrue);
+        expect(device.calls, expected);
+      });
+
+      test('resuming continues rather than re-walking the prefix', () async {
+        final bytes = heavyPdf();
+        final doc = PdfDocument.open(bytes);
+        final page = doc.page(0);
+        final device = RecordingDevice();
+        final walk = PdfInterpreter(cos: doc.cos, device: device)
+            .beginPageContent(page, page.contentBytes());
+
+        expect(await walk.advance(operations: 100), isFalse);
+        final afterFirst = List<String>.from(device.calls);
+        expect(afterFirst, isNotEmpty);
+
+        await walk.advance(operations: 100);
+        // The already-recorded calls must still be there, unchanged and not
+        // duplicated: a restart would re-emit them from the top.
+        expect(device.calls.length, greaterThan(afterFirst.length));
+        expect(device.calls.sublist(0, afterFirst.length), afterFirst);
+      });
+
+      test('abandon releases the device exactly once and is idempotent',
+          () async {
+        final bytes = heavyPdf();
+        final doc = PdfDocument.open(bytes);
+        final page = doc.page(0);
+        final device = RecordingDevice();
+        final walk = PdfInterpreter(cos: doc.cos, device: device)
+            .beginPageContent(page, page.contentBytes());
+        await walk.advance(operations: 50);
+
+        int restores() => device.calls.where((c) => c == 'restore').length;
+        // Stopping mid-page can leave the *content's* own q unmatched by its Q
+        // - inherent to not finishing, and the same thing a cancelled
+        // drawPageContentAsync has always done. What must hold is that the walk
+        // emits the single restore balancing beginPageContent's save.
+        final before = restores();
+        walk.abandon();
+        expect(restores(), before + 1,
+            reason: 'abandon must emit the one restore that balances '
+                "beginPageContent's save");
+
+        walk.abandon(); // idempotent: no second restore
+        expect(restores(), before + 1);
+        expect(walk.isFinished, isTrue);
+        expect(walk.isComplete, isFalse);
+      });
+
+      test('advancing a finished walk is a no-op', () async {
+        final bytes = heavyPdf();
+        final doc = PdfDocument.open(bytes);
+        final page = doc.page(0);
+        final device = RecordingDevice();
+        final walk = PdfInterpreter(cos: doc.cos, device: device)
+            .beginPageContent(page, page.contentBytes());
+        expect(await walk.advance(), isTrue); // unbounded: runs to completion
+        final calls = List<String>.from(device.calls);
+
+        expect(await walk.advance(operations: 100), isTrue);
+        expect(device.calls, calls);
+      });
     });
   });
 }

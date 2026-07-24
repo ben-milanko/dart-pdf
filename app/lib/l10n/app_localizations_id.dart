@@ -564,6 +564,31 @@ class AppLocalizationsId extends AppLocalizations {
   String get editorUpdateLater => 'Nanti';
 
   @override
+  String get updateInstallNow => 'Perbarui sekarang';
+
+  @override
+  String get updateDownloadingTitle => 'Mengunduh pembaruan';
+
+  @override
+  String get updatePreparing => 'Menyiapkan…';
+
+  @override
+  String updateDownloadingPercent(int percent) {
+    return 'Mengunduh… $percent%';
+  }
+
+  @override
+  String get updateRestarting => 'Memulai ulang untuk menyelesaikan pembaruan…';
+
+  @override
+  String get updateHandedOff => 'Pembaruan diunduh. Membuka penginstal…';
+
+  @override
+  String updateFailed(String error) {
+    return 'Pembaruan gagal: $error';
+  }
+
+  @override
   String get editorViewAllTabs => 'Lihat semua tab';
 
   @override

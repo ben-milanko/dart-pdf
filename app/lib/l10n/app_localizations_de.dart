@@ -566,6 +566,32 @@ class AppLocalizationsDe extends AppLocalizations {
   String get editorUpdateLater => 'Später';
 
   @override
+  String get updateInstallNow => 'Jetzt aktualisieren';
+
+  @override
+  String get updateDownloadingTitle => 'Update wird heruntergeladen';
+
+  @override
+  String get updatePreparing => 'Wird vorbereitet…';
+
+  @override
+  String updateDownloadingPercent(int percent) {
+    return 'Wird heruntergeladen… $percent%';
+  }
+
+  @override
+  String get updateRestarting => 'Neustart, um das Update abzuschließen…';
+
+  @override
+  String get updateHandedOff =>
+      'Update heruntergeladen. Installationsprogramm wird geöffnet…';
+
+  @override
+  String updateFailed(String error) {
+    return 'Update fehlgeschlagen: $error';
+  }
+
+  @override
   String get editorViewAllTabs => 'Alle Tabs anzeigen';
 
   @override

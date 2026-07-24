@@ -565,6 +565,32 @@ class AppLocalizationsNl extends AppLocalizations {
   String get editorUpdateLater => 'Later';
 
   @override
+  String get updateInstallNow => 'Nu bijwerken';
+
+  @override
+  String get updateDownloadingTitle => 'Update downloaden';
+
+  @override
+  String get updatePreparing => 'Voorbereiden…';
+
+  @override
+  String updateDownloadingPercent(int percent) {
+    return 'Downloaden… $percent%';
+  }
+
+  @override
+  String get updateRestarting => 'Opnieuw opstarten om de update te voltooien…';
+
+  @override
+  String get updateHandedOff =>
+      'Update gedownload. Installatieprogramma wordt geopend…';
+
+  @override
+  String updateFailed(String error) {
+    return 'Bijwerken mislukt: $error';
+  }
+
+  @override
   String get editorViewAllTabs => 'Alle tabbladen weergeven';
 
   @override

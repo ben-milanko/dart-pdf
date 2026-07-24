@@ -228,5 +228,12 @@
   "appSigErrorKeyCertificateMismatch": "Khóa riêng tư không khớp với bất kỳ chứng chỉ RSA nào đã chọn.",
   "appSigErrorEncryptedKeyUnsupported": "Không hỗ trợ khóa riêng tư được mã hóa. Hãy chọn khóa RSA PKCS#1 hoặc PKCS#8 chưa mã hóa.",
   "appSigErrorKeyNotRsa": "Khóa riêng tư không phải là khóa RSA PKCS#1 hoặc PKCS#8 chưa mã hóa.",
-  "appSigErrorNoCertificateFound": "Không tìm thấy chứng chỉ X.509 nào."
+  "appSigErrorNoCertificateFound": "Không tìm thấy chứng chỉ X.509 nào.",
+  "updateInstallNow": "Cập nhật ngay",
+  "updateDownloadingTitle": "Đang tải xuống bản cập nhật",
+  "updatePreparing": "Đang chuẩn bị…",
+  "updateDownloadingPercent": "Đang tải xuống… {percent}%",
+  "updateRestarting": "Đang khởi động lại để hoàn tất cập nhật…",
+  "updateHandedOff": "Đã tải xuống bản cập nhật. Đang mở trình cài đặt…",
+  "updateFailed": "Cập nhật thất bại: {error}"
 }

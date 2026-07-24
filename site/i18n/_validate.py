@@ -11,8 +11,11 @@ html_keys = {k: v for k, v in en.items() if '<' in v}
 tag_re = re.compile(r'<[^>]+>')
 
 def tags(s):
-    # normalized multiset of tags (opening tag name + closing), order-insensitive
-    return sorted(tag_re.findall(s))
+    # normalized multiset of tags (opening tag name + closing), order-insensitive.
+    # Collapse whitespace *inside* each tag so cosmetic differences (en.json keeps
+    # the source HTML's line-wrapped attributes; translations single-line the same
+    # tag) don't read as a structural mismatch.
+    return sorted(re.sub(r'\s+', ' ', t) for t in tag_re.findall(s))
 
 locales = ['ar','de','es','fr','hi','id','it','ja','ko','nl','pl','pt','ru','th','tr','uk','vi','zh','zh-Hant']
 ok = True

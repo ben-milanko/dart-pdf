@@ -579,6 +579,32 @@ class AppLocalizationsPl extends AppLocalizations {
   String get editorUpdateLater => 'Później';
 
   @override
+  String get updateInstallNow => 'Aktualizuj teraz';
+
+  @override
+  String get updateDownloadingTitle => 'Pobieranie aktualizacji';
+
+  @override
+  String get updatePreparing => 'Przygotowywanie…';
+
+  @override
+  String updateDownloadingPercent(int percent) {
+    return 'Pobieranie… $percent%';
+  }
+
+  @override
+  String get updateRestarting =>
+      'Ponowne uruchamianie, aby dokończyć aktualizację…';
+
+  @override
+  String get updateHandedOff => 'Pobrano aktualizację. Otwieranie instalatora…';
+
+  @override
+  String updateFailed(String error) {
+    return 'Aktualizacja nie powiodła się: $error';
+  }
+
+  @override
   String get editorViewAllTabs => 'Wyświetl wszystkie karty';
 
   @override
