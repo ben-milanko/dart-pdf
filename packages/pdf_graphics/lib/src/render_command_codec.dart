@@ -49,7 +49,7 @@ import 'shading.dart';
 /// Format: little notion of versioning beyond a leading byte; the producer and
 /// consumer are the same build, shipped together, so a version mismatch is a
 /// programming error, asserted on read.
-const int _formatVersion = 2;
+const int _formatVersion = 3;
 
 /// Microseconds spent reconstructing worker command buffers on the consuming
 /// isolate. Accumulated for performance probes; this is the UI-thread half of
@@ -1151,6 +1151,18 @@ void _writeTextRun(_Writer w, PdfTextRun run) {
     _writeColor(w, run.strokeColor!);
   }
   w.f64(run.strokeWidth);
+  // Substitute-font spacing geometry (Tc/Tw and the visible-glyph advance): a
+  // painting consumer needs these to reproduce word/char spacing and to keep
+  // edge whitespace from stretching the visible glyphs.
+  w.f64(run.letterSpacing);
+  w.f64(run.wordSpacing);
+  w.f64(run.leadingSpace);
+  if (run.visibleWidth == null) {
+    w.boolean(false);
+  } else {
+    w.boolean(true);
+    w.f64(run.visibleWidth!);
+  }
 }
 
 PdfTextRun _readTextRun(_Reader r) {
@@ -1182,6 +1194,10 @@ PdfTextRun _readTextRun(_Reader r) {
   final fill = r.boolean();
   final strokeColor = r.boolean() ? _readColor(r) : null;
   final strokeWidth = r.f64();
+  final letterSpacing = r.f64();
+  final wordSpacing = r.f64();
+  final leadingSpace = r.f64();
+  final visibleWidth = r.boolean() ? r.f64() : null;
   return PdfTextRun(
     text: text,
     transform: transform,
@@ -1195,6 +1211,10 @@ PdfTextRun _readTextRun(_Reader r) {
     fill: fill,
     strokeColor: strokeColor,
     strokeWidth: strokeWidth,
+    letterSpacing: letterSpacing,
+    wordSpacing: wordSpacing,
+    leadingSpace: leadingSpace,
+    visibleWidth: visibleWidth,
   );
 }
 

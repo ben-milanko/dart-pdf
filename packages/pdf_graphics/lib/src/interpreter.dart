@@ -1829,9 +1829,26 @@ class PdfInterpreter {
     final vertical = font.isVertical;
     final hScale = _state.horizontalScale == 0 ? 1.0 : _state.horizontalScale;
     var advance = 0.0; // text-space along the writing direction (x or y)
+    // Pen advance bracketing the visible (non-whitespace) glyphs: [leadingAdv]
+    // to the start of the first visible glyph, [visibleAdvance] to the end of
+    // the last. Edge whitespace (common in tabular content, where a space
+    // carries a large Tw to reach the next column) stays in [advance] for
+    // positioning but is handed to substituting devices separately so it opens
+    // a real gap instead of stretching the visible glyphs - see
+    // PdfTextRun.leadingSpace / .visibleWidth.
+    var visibleAdvance = 0.0;
+    var leadingAdv = 0.0;
+    var sawVisible = false;
     for (final code in codes) {
       final text = font.charFor(code);
       buffer.write(text);
+      // Non-allocating equivalent of `text.trim().isNotEmpty` - this runs once
+      // per glyph on the hot text path, so avoid the per-glyph String.trim().
+      final visible = !_isBlankText(text);
+      if (visible && !sawVisible) {
+        leadingAdv = advance;
+        sawVisible = true;
+      }
       if (glyphs != null) {
         if (vertical) {
           final v = font.verticalOriginOf(code);
@@ -1865,6 +1882,7 @@ class PdfInterpreter {
         if (!font.isCid && code == 0x20) tx += _state.wordSpacing;
         advance += tx * _state.horizontalScale;
       }
+      if (visible) visibleAdvance = advance;
     }
 
     if (size != 0 && _contentVisible && !_scanImages) {
@@ -1949,6 +1967,16 @@ class PdfInterpreter {
               ? _gradientOfPattern(pattern)
               : null,
           width: emScale == 0 ? 0 : advance / emScale,
+          visibleWidth: emScale == 0 || visibleAdvance == advance
+              ? null
+              : visibleAdvance / emScale,
+          leadingSpace: emScale == 0 ? 0 : leadingAdv / emScale,
+          // Tc/Tw are unscaled text-space units; the run transform already
+          // carries size and Th, so normalise to em (divide by size) - Th
+          // cancels. Tw never applies to composite fonts (§9.3.3).
+          letterSpacing: size == 0 ? 0 : _state.charSpacing / size,
+          wordSpacing:
+              size == 0 || font.isCid ? 0 : _state.wordSpacing / size,
           fontName: font.baseFont,
           fontSize: size,
           glyphs: glyphs,
@@ -2701,3 +2729,27 @@ class PdfInterpreter {
   static PdfMatrix _matrixFrom(List<CosObject> o) => PdfMatrix(
       _num(o, 0), _num(o, 1), _num(o, 2), _num(o, 3), _num(o, 4), _num(o, 5));
 }
+
+/// Whether [s] is empty or entirely whitespace - a non-allocating equivalent of
+/// `s.trim().isEmpty` using Dart's own trim whitespace set (Unicode White_Space
+/// plus U+FEFF), so it matches the `String.trim()` a device applies to the run.
+bool _isBlankText(String s) {
+  for (var i = 0; i < s.length; i++) {
+    if (!_isTrimWhitespace(s.codeUnitAt(i))) return false;
+  }
+  return true;
+}
+
+bool _isTrimWhitespace(int c) =>
+    c == 0x20 ||
+    (c >= 0x09 && c <= 0x0D) ||
+    c == 0x85 ||
+    c == 0xA0 ||
+    c == 0x1680 ||
+    (c >= 0x2000 && c <= 0x200A) ||
+    c == 0x2028 ||
+    c == 0x2029 ||
+    c == 0x202F ||
+    c == 0x205F ||
+    c == 0x3000 ||
+    c == 0xFEFF;
