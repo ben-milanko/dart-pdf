@@ -9630,7 +9630,7 @@ A.yX(c1,a0)
 break A}s=null
 a=c2 instanceof A.bf
 if(a)s=c2.a
-if(a){if(s.c||c3==null){if(!c7)throw A.d(B.aT)
+if(a){if(s.c&&!s.f||c3==null){if(!c7)throw A.d(B.aT)
 A.t9(c1,s,$.q6(),c0)}else{r=c3
 q=null
 if(c5)q=A.xT(r,s,c8,c4,c6)

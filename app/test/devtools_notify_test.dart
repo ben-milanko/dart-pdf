@@ -1,6 +1,9 @@
 // The devtools log/timing capture must not let its own notify machinery drive
-// the frames it measures: high-volume perf-trace lines record silently, and
-// nothing schedules a rebuild while the panel is closed.
+// the frames it measures: high-volume perf-trace lines record silently, nothing
+// schedules a rebuild while the panel is closed, and a frame-timings batch never
+// notifies (a panel rebuild is a frame, which would self-sustain - #452).
+import 'dart:ui' show FrameTiming;
+
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -70,5 +73,31 @@ void main() {
     // History is read from the log itself, not pushed through a notify.
     expect(tools.log.map((e) => e.message),
         contains('before the panel opened'));
+  });
+
+  test('a frame-timings batch accumulates the window but does not notify (#452)',
+      () async {
+    var notifies = 0;
+    void listener() => notifies++;
+    tools.addListener(listener);
+    addTearDown(() => tools.removeListener(listener));
+
+    // Even with a listener attached (panel open), the timings callback must not
+    // schedule a rebuild - a rebuild is a frame, which would fire this again.
+    FrameTiming frame(int buildMicros) => FrameTiming(
+          vsyncStart: 0,
+          buildStart: 0,
+          buildFinish: buildMicros,
+          rasterStart: buildMicros,
+          rasterFinish: buildMicros + 1000,
+          rasterFinishWallTime: buildMicros + 1000,
+        );
+
+    tools.debugAddTimings([frame(20000), frame(30000)]);
+    await pumpEventQueue();
+
+    expect(notifies, 0, reason: 'the timings callback must not self-drive');
+    // The window still accumulated, so the stats the 1 s poll reads are fresh.
+    expect(tools.frameStats().frames, 2);
   });
 }

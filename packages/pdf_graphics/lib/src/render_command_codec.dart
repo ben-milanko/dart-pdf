@@ -40,11 +40,13 @@ import 'shading.dart';
 /// interpret synchronously on the UI thread.
 ///
 /// Two cases still decline (the buffer serializes to `null`, and the caller
-/// renders the page on the owning isolate): an INLINE image (`BI .. ID .. EI`),
-/// whose `/CS` may name a page-resource colour space that isn't reachable from
-/// the stream alone; and any image when no `cos` is supplied. Image-free pages
-/// - the dense vector/text pages that also dominate the interpret cost -
-/// serialize regardless.
+/// renders the page on the owning isolate): a COLOUR inline image
+/// (`BI .. ID .. EI`), whose `/CS` may name a page-resource colour space that
+/// isn't reachable from the stream alone; and any image when no `cos` is
+/// supplied. An ImageMask (stencil) inline image has no colour space and
+/// serializes fine (#554), so Type3 bitmap-glyph pages reach the worker.
+/// Image-free pages - the dense vector/text pages that also dominate the
+/// interpret cost - serialize regardless.
 ///
 /// Format: little notion of versioning beyond a leading byte; the producer and
 /// consumer are the same build, shipped together, so a version mismatch is a
@@ -464,12 +466,17 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
       w.u8(_tDrawText);
       _writeTextRun(w, run);
     case PdfDrawImageCommand(:final request):
-      // Inline images can name a page-resource colour space unreachable from
-      // the stream alone; decline them. XObjects serialize as a self-contained
-      // (inline-resolved, decrypted) stream subgraph - any failure inlining or
-      // decrypting it declines too, so the page falls back to a local render
-      // rather than shipping a broken image.
-      if (request.isInline || cos == null) {
+      // A COLOUR inline image can name a page-resource colour space unreachable
+      // from the stream alone; decline it. An ImageMask (stencil) inline image
+      // has no colour space - its paint is the stencil colour on the request -
+      // so its stream is fully self-contained and serializes like any other
+      // stencil (XObject ImageMasks already take the else branch). This is what
+      // lets Type3 bitmap-glyph pages reach the worker (#554). XObjects serialize
+      // as a self-contained (inline-resolved, decrypted) stream subgraph - any
+      // failure inlining or decrypting it declines too, so the page falls back
+      // to a local render rather than shipping a broken image.
+      final declineInline = request.isInline && !request.isStencil;
+      if (declineInline || cos == null) {
         if (!imagePlaceholders) throw const _UnserializableImage();
         _writeImageCommand(w, request, _imagePlaceholderStream, null);
       } else {
