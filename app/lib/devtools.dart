@@ -269,8 +269,19 @@ class AppDevTools extends ChangeNotifier {
     while (_timings.length > frameWindow) {
       _timings.removeFirst();
     }
-    _scheduleNotify();
+    // Deliberately does NOT notify (#452). A notify rebuilds the panel, and a
+    // panel rebuild is itself a frame, which fires this callback again - a
+    // self-sustaining ~1 Hz rebuild loop that keeps the app producing janky
+    // frames while it sits idle, and makes the measurement drive the thing it
+    // measures. The panel's own 1 s poll (devtools_panel.dart) refreshes the
+    // frame stats instead; the window keeps accumulating here regardless.
   }
+
+  /// Test seam (#452): drive the frame-timings path directly, to assert it
+  /// accumulates the sample window without scheduling a notify (which would
+  /// self-sustain a rebuild loop).
+  @visibleForTesting
+  void debugAddTimings(List<FrameTiming> timings) => _onTimings(timings);
 
   /// Aggregates over the retained frame window.
   DevFrameStats frameStats() {
