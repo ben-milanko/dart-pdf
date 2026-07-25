@@ -46,6 +46,7 @@ GRAFT=(
 "$(dirname "$0")/gen_perf_docs.sh"
 CAD_CACHE="tool/perf/cache/cad-138-6000-20260718.pdf"
 IMG_CACHE_DIR="tool/perf/cache/image-heavy"
+JBIG2_CACHE_DIR="tool/perf/cache/jbig2-scanned"
 
 ok=0; skipped=""
 for ref in "$@"; do
@@ -67,6 +68,9 @@ for ref in "$@"; do
   fi
   if [ -d "$ROOT/$IMG_CACHE_DIR" ]; then
     mkdir -p "$wt/$IMG_CACHE_DIR"; cp "$ROOT/$IMG_CACHE_DIR"/*.pdf "$wt/$IMG_CACHE_DIR/" 2>/dev/null || true
+  fi
+  if [ -d "$ROOT/$JBIG2_CACHE_DIR" ]; then
+    mkdir -p "$wt/$JBIG2_CACHE_DIR"; cp "$ROOT/$JBIG2_CACHE_DIR"/*.pdf "$wt/$JBIG2_CACHE_DIR/" 2>/dev/null || true
   fi
   if ! ( cd "$wt" && $FLUTTER pub get ) >/dev/null 2>&1; then
     echo "  pub get failed (dep drift); skip"; skipped="$skipped $ref"

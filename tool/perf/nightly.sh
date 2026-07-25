@@ -35,6 +35,7 @@ sweep save-incremental
 sweep cad-138p-sweep
 sweep cad-wide-1p-sweep
 sweep image-heavy
+sweep jbig2-scanned-sweep
 
 # Render trend (Flutter rasterization: interpret + paint + toImage). Captures
 # the paint- and image-decode-path gains the NullDevice vm-sweep can't see.
@@ -51,6 +52,7 @@ render_bench() { # render_bench <scenario> <corpus-rel-to-dart_pdf_editor> <scal
 render_bench ghent-render "../../test_corpora/ghent" 2 3
 render_bench image-render "../../tool/perf/cache/image-heavy" 1.5 4
 render_bench devicen-render "../../tool/perf/cache/devicen" 1 2
+render_bench jbig2-scanned-render "../../tool/perf/cache/jbig2-scanned" 1 4
 
 # Progressive first-paint: bytes a remote reader pulls to paint page 1 through
 # the ranged PdfByteSource vs a full read (#328/#359). PdfDocument.openSource is

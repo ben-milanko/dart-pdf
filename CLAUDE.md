@@ -41,7 +41,10 @@ open/search/edit) live in `app/tool/perf/scenarios.json`; add one for the
 workload your change touches if none fits (harness method + JSON entry —
 no driver change, see `app/tool/perf/README.md`). VM-layer changes still
 A/B through `tool/perf.sh diff`; the web harness catches dart2js-only and
-render/decode/memory effects the NullDevice VM sweep can't.
+render/memory effects the NullDevice VM sweep can't. Image-codec changes do
+have a VM window: a scenario can opt into the `decodeImages` measure
+(`"measures"` in scenarios.json), which times `decodePdfImagePixels` over
+every image the pages draw and reports `decodeMs`.
 
 ## Layering rules (strict)
 
