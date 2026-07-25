@@ -10,19 +10,46 @@
 //   * [runDartPdfApp] falls back to the classic single-window `runApp`, and
 //   * [openRegularWindow] is a no-op.
 //
-// To try it, build/run with the windowing feature flag on:
+// **You cannot try this on the stable channel** - the repo's pinned SDK
+// (`.fvmrc`) is stable, so on a normal checkout the affordances are hidden by
+// design, not broken. `windowingFeature` in flutter_tools declares
+// `master: FeatureChannelSetting(available: true)` and nothing for beta/stable
+// (unspecified channels default to `available: false`), and `isEnabled` returns
+// early on availability *before* reading any setting. So all three routes are
+// dead ends on stable:
 //
-//   fvm flutter config --enable-windowing        # once, persists in config
-//   fvm flutter run -d macos                      # (or windows / linux)
+//   * `flutter config --enable-windowing` - writes the value, never takes effect
+//   * `--dart-define=FLUTTER_ENABLED_FEATURE_FLAGS=windowing` - the tool
+//     rejects this outright ("used by the framework and cannot be set using
+//     --dart-define")
+//   * the `FLUTTER_WINDOWING` env override - same availability gate
 //
-// or pass it inline for a single run:
+// Trying it therefore needs a master-channel SDK (e.g. `fvm install master`,
+// then run with that SDK directly so `.fvmrc` stays pinned). Two things block
+// it there as of 2026-07-25, both verified:
 //
-//   fvm flutter run -d macos \
-//     --dart-define=FLUTTER_ENABLED_FEATURE_FLAGS=windowing
+//   1. This file does not compile against master. The API was renamed/reshaped
+//      after it was written: `RegularWindowController(preferredSize:)` ->
+//      `WindowController(size:)`, `RegularWindow` -> `Window`,
+//      `RegularWindowControllerDelegate` -> `WindowControllerDelegate`, and
+//      `WindowManager({child})` -> `WindowManager({initialWindows})` (the
+//      manager now renders each registered entry itself, so the primary window
+//      becomes the first `WindowEntry`). The stable and master shapes are
+//      mutually exclusive - porting breaks the build on stable, and therefore CI.
+//   2. Even ported, it crashes at launch on macOS:
+//      "Multiview can only be enabled before adding any view controllers."
+//      `WindowController(...)` asks the engine to enable multiview, but
+//      `macos/Runner/MainFlutterWindow.swift` has already created a
+//      `FlutterViewController` from the NIB. Making this run needs the macOS
+//      embedding reworked to own a `FlutterEngine` directly and rehost every
+//      method channel + `RegisterGeneratedPlugins` on it. That native work is
+//      NOT part of this feature, so multi-window has never actually run - the
+//      tests cover only the Dart-side wiring.
 //
 // The API is documented as unstable ("Flutter will make breaking changes to
-// this API, even in patch versions"), which is why this stays behind the flag
-// and is not wired into any released build. See
+// this API, even in patch versions") - it broke within 8 days of this file
+// being written - which is why this stays behind the flag and is not wired
+// into any released build. Revisit when windowing reaches beta/stable. See
 // https://github.com/flutter/flutter/issues/30701.
 
 // The windowing API is @internal and lives under src/; importing it trips two
