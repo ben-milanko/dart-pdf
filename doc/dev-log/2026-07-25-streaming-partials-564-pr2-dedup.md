@@ -7,12 +7,17 @@ called out on the issue as "the hard part / main source of subtle bugs." This
 session lands it.
 
 Note the original three-PR plan bundled the dedup redesign **with** the web twin
-+ worker-bundle rebuild. I split them: the web twin is gated on the
-`WORKER_REGEN_TOKEN` secret (unset — it fails the worker-bundle CI job, the same
-blocker that parked the earlier web-worker PRs) and needs browser validation, so
-it stays ahead. The dedup redesign is **pure Dart in the platform-agnostic
-caching wrapper, VM-unit-testable, needs no bundle rebuild** — so it lands now,
-CI-safe, still inert in production.
++ worker-bundle rebuild. I split them: the web twin still needs browser
+validation, so it stays ahead. The dedup redesign is **pure Dart in the
+platform-agnostic caching wrapper, VM-unit-testable, needs no bundle rebuild** —
+so it lands now, CI-safe, still inert in production.
+
+(An earlier draft of this note claimed the web twin was blocked on a
+`WORKER_REGEN_TOKEN` secret. That is stale: #582 — closed the same day — stopped
+committing the generated web-worker bundle and deleted the whole regen-and-push
+machinery, including that token. A web-worker PR is no longer gated on it; the
+`worker-compiles` CI job just proves the worker still compiles and keeps the
+committed asset a placeholder. The web twin is gated only on browser validation.)
 
 ## What changed (all in `render_worker.dart`)
 
