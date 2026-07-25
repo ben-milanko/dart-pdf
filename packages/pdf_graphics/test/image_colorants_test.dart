@@ -165,6 +165,78 @@ void main() {
           reason: 'a DCT stream does not carry its samples in its own bytes');
     });
 
+    test('unpacks sub-byte and 16-bit samples', () {
+      // 4-bit gray, two pixels per byte, with a row that needs padding: 3 wide
+      // is 2 bytes per row (12 bits rounded up), so the reader must not walk
+      // straight through the buffer.
+      CosStream packed(int bits, List<int> bytes, {int width = 3}) => CosStream(
+          CosDictionary({
+            'Subtype': const CosName('Image'),
+            'Width': CosInteger(width),
+            'Height': const CosInteger(2),
+            'BitsPerComponent': CosInteger(bits),
+            'ColorSpace': const CosName('DeviceGray'),
+          }),
+          Uint8List.fromList(bytes));
+
+      // Every sample 0xF (white): rows are [0xFF, 0xF0], the low nibble of the
+      // second byte being padding the reader must ignore.
+      expect(
+          pdfImageColorants(cos, packed(4, [0xFF, 0xF0, 0xFF, 0xF0]))!
+              .uniformInk!
+              .colorants,
+          PdfColorants(0, 0, 0, 0),
+          reason: 'DeviceGray 1.0 writes no colorant');
+      // Padding that differs must not read as a differing sample.
+      expect(
+          pdfImageColorants(cos, packed(4, [0xFF, 0xF0, 0xFF, 0xF7]))!
+              .uniformInk,
+          isNotNull);
+      // ...but a real sample that differs must.
+      expect(
+          pdfImageColorants(cos, packed(4, [0xFF, 0xF0, 0x0F, 0xF0]))!
+              .uniformInk,
+          isNull);
+      // 1-bit: 8 samples per byte.
+      expect(
+          pdfImageColorants(cos, packed(1, [0x00, 0x00], width: 8))!
+              .uniformInk!
+              .colorants,
+          PdfColorants(0, 0, 0, 1),
+          reason: 'DeviceGray 0.0 writes full black');
+      // 16-bit: big-endian pairs, and 0xFFFF is full scale.
+      expect(
+          pdfImageColorants(
+                  cos,
+                  packed(16, [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, //
+                    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]))!
+              .uniformInk!
+              .colorants,
+          PdfColorants(0, 0, 0, 0));
+    });
+
+    test('a truncated or unreadable raster has no reading', () {
+      // Fewer bytes than width * height * components.
+      expect(
+          pdfImageColorants(
+              cos, image(const CosName('DeviceCMYK'), List.filled(8, 0))),
+          isNull);
+      // A bit depth the sample reader does not model.
+      expect(
+          pdfImageColorants(
+              cos,
+              CosStream(
+                  CosDictionary({
+                    'Subtype': const CosName('Image'),
+                    'Width': const CosInteger(2),
+                    'Height': const CosInteger(2),
+                    'BitsPerComponent': const CosInteger(12),
+                    'ColorSpace': const CosName('DeviceGray'),
+                  }),
+                  Uint8List(6))),
+          isNull);
+    });
+
     test('/Decode is applied to the samples', () {
       // GWG031 states the /Decode an /Indexed image would default to anyway;
       // an inverting one must actually invert.
@@ -289,6 +361,49 @@ void main() {
             ]),
           });
       expect(substitute(source), isNull);
+    });
+
+    test('a raster with no packable tuple still composites, just unmemoised',
+        () {
+      // 16-bit samples do not pack into the 32-bit memo key, so every pixel
+      // converts. The result must be the same as the 8-bit path's.
+      final source = CosStream(
+          CosDictionary({
+            'Subtype': const CosName('Image'),
+            'Width': const CosInteger(2),
+            'Height': const CosInteger(1),
+            'BitsPerComponent': const CosInteger(16),
+            'ColorSpace': const CosName('DeviceGray'),
+          }),
+          Uint8List.fromList([0xFF, 0xFF, 0xFF, 0xFF]));
+      final pixels = decodePdfImagePixels(cos, substitute(source)!)!;
+      // White gray writes no colorant, so the spot backdrop survives whole.
+      expect(pixels.rgba.sublist(0, 3), [
+        for (final c in [
+          backdropColor.red,
+          backdropColor.green,
+          backdropColor.blue
+        ])
+          (c * 255).round()
+      ]);
+    });
+
+    test('stops building past a handful of distinct backdrops', () {
+      // One raster overprinted onto many different backdrops would otherwise
+      // pin a full-size composited copy per backdrop for the document's life.
+      final source = image(const CosName('DeviceCMYK'), List.filled(16, 32));
+      var built = 0;
+      for (var i = 1; i <= 8; i++) {
+        final result = pdfImageOverprintStream(cos, source,
+            backdrop: PdfColorants(i / 10, 0, 0, 0),
+            backdropColor: const PdfColor(0.5, 0.5, 0.5),
+            mode: 0,
+            spotEquivalents: const {});
+        if (result != null) built++;
+      }
+      expect(built, lessThan(8),
+          reason: 'the per-raster memo is capped; past it the buffer declines '
+              'rather than serving a substitute built for another backdrop');
     });
 
     test('the same (raster, backdrop, mode) returns the same stream object',
