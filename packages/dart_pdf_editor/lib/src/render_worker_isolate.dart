@@ -1050,6 +1050,7 @@ Future<Uint8List?> _recordPageAsync(
       cos: document.cos,
       decodeImages: false,
       maxImagePixelRatio: imagePixelRatio,
+      pageRasterPixels: pdfPageRasterPixels(page.cropBox, imagePixelRatio),
       imageDecodeRegion: imageDecodeRegion,
       imagePlaceholders: true,
       commandLimit: commandLimit,
@@ -1132,6 +1133,8 @@ Future<Uint8List?> _recordResumablePage(
         cos: document.cos,
         decodeImages: false,
         maxImagePixelRatio: imagePixelRatio,
+        pageRasterPixels:
+            pdfPageRasterPixels(entry.page.cropBox, imagePixelRatio),
         imageDecodeRegion: imageDecodeRegion,
         imagePlaceholders: true,
         compactStateScopes: true);
@@ -1150,6 +1153,8 @@ Future<Uint8List?> _recordResumablePage(
       cos: document.cos,
       decodeImages: decodeImages,
       maxImagePixelRatio: imagePixelRatio,
+      pageRasterPixels:
+          pdfPageRasterPixels(entry.page.cropBox, imagePixelRatio),
       imageDecodeRegion: imageDecodeRegion,
       imagePlaceholders: !decodeImages,
       commandLimit: commandLimit,

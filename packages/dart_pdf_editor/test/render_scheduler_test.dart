@@ -99,4 +99,60 @@ void main() {
     expect(reached, isTrue);
     expect(scheduler.hasPending, isFalse);
   });
+  // #603: the thumbnail warm builds its pictures on the platform thread, so it
+  // needs a signal for "the viewer still wants that thread". `busy` is it, and
+  // `activity` is how a gated pass learns the answer changed without polling
+  // frames.
+  testWidgets('busy tracks the hold and the queue, and pings activity',
+      (tester) async {
+    final scheduler = PdfPageRenderScheduler();
+    addTearDown(scheduler.dispose);
+    var pings = 0;
+    scheduler.activity.addListener(() => pings++);
+
+    expect(scheduler.busy, isFalse);
+
+    scheduler.holding = true;
+    expect(scheduler.busy, isTrue);
+    expect(pings, 1);
+
+    scheduler.request('a', 0, () {});
+    expect(pings, 2);
+    scheduler.holding = false;
+    expect(scheduler.busy, isTrue, reason: 'the request is still queued');
+
+    for (var i = 0; i < 4; i++) {
+      await tester.pump();
+    }
+    expect(scheduler.busy, isFalse);
+    expect(pings, greaterThan(2), reason: 'the drain must announce going idle');
+
+    // a request withdrawn before its turn also lands the scheduler idle
+    scheduler.holding = true;
+    scheduler.request('b', 0, () {});
+    scheduler.cancel('b');
+    scheduler.holding = false;
+    expect(scheduler.busy, isFalse);
+  });
+
+  testWidgets('a parked viewer reads idle however much it is holding',
+      (tester) async {
+    // PdfViewer.active false (the full-area page grid overlaid it) holds every
+    // render forever. That is not competition for the platform thread - and
+    // gating the grid's own thumbnails behind it would deadlock the warm.
+    final scheduler = PdfPageRenderScheduler()..holding = true;
+    addTearDown(scheduler.dispose);
+    scheduler.request('a', 0, () {});
+    expect(scheduler.busy, isTrue);
+
+    var pings = 0;
+    scheduler.activity.addListener(() => pings++);
+    scheduler.parked = true;
+    expect(scheduler.busy, isFalse);
+    expect(pings, 1);
+
+    scheduler.parked = false;
+    expect(scheduler.busy, isTrue);
+    expect(pings, 2);
+  });
 }

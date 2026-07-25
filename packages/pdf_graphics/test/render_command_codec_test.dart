@@ -847,6 +847,164 @@ void main() {
       });
     }
   });
+
+  // #603: a thumbnail warm shipped ~10 MB records to fill a 256px tile,
+  // because the page image budget was a multiple of the full-page raster CAP
+  // (17 MP) rather than of the raster the buffer is actually drawn into. Every
+  // one of those pixels is then paid for again as main-thread ui.Image work at
+  // replay, which is the half of the cost no worker priority can move.
+  group('pageRasterPixels', () {
+    test('is page area x ratio^2, and declines degenerate input', () {
+      expect(pdfPageRasterPixels(const PdfRect(0, 0, 200, 400), 1.0), 80000);
+      expect(pdfPageRasterPixels(const PdfRect(0, 0, 200, 400), 0.5), 20000);
+      // 256px wide tile of a US-Letter page: ~85 Kpx, against the 17 MP cap
+      // the budget used to assume for it.
+      expect(pdfPageRasterPixels(const PdfRect(0, 0, 612, 792), 256 / 612),
+          lessThan(90000));
+      expect(pdfPageRasterPixels(const PdfRect(0, 0, 200, 200), null), isNull);
+      expect(pdfPageRasterPixels(const PdfRect(0, 0, 200, 200), 0), isNull);
+      expect(pdfPageRasterPixels(const PdfRect(0, 0, 200, 200), -1), isNull);
+      expect(pdfPageRasterPixels(const PdfRect(0, 0, 0, 200), 1.0), isNull);
+    });
+
+    test('holds a layered page to what the tile can show', () {
+      // Four full-bleed 512x512 images on a 200pt page - the layered shape a
+      // scanned book page has, and the one the per-image cap cannot bound
+      // (each image IS its own footprint; only their sum is the problem).
+      final doc = PdfDocument.open(_layeredImagePdf(draws: 4));
+      final page = doc.page(0);
+      final recorder = RecordingPdfDevice();
+      PdfInterpreter(cos: doc.cos, device: recorder).drawPageOperations(
+          page, ContentStreamParser.parse(page.contentBytes()));
+
+      // A 256px-wide tile, exactly what the thumbnail warm asks for.
+      final box = page.cropBox;
+      final ratio = 256 / box.width;
+      final raster = pdfPageRasterPixels(box, ratio)!;
+
+      final unbudgeted = serializeCommands(recorder.commands,
+          cos: doc.cos, decodeImages: true, maxImagePixelRatio: ratio)!;
+      final budgeted = serializeCommands(recorder.commands,
+          cos: doc.cos,
+          decodeImages: true,
+          maxImagePixelRatio: ratio,
+          pageRasterPixels: raster)!;
+
+      // Pixels only - the command stream is identical either way, so the tile
+      // replays the same drawing at a resolution it can actually show.
+      expect(_transcript(deserializeCommands(budgeted)),
+          equals(_transcript(deserializeCommands(unbudgeted))));
+
+      final before = _decodedPixelSum(deserializeCommands(unbudgeted));
+      final after = _decodedPixelSum(deserializeCommands(budgeted));
+      // The per-image 2x headroom alone ships 4 raster-fulls PER image; the
+      // page budget is that headroom squared for the whole page.
+      expect(before, 4 * 512 * 512);
+      expect(after, lessThanOrEqualTo(4 * raster + 4 * 16 + 64));
+      expect(after * 4, lessThanOrEqualTo(before),
+          reason: 'the tile-sized budget did not bind');
+      // The record crossing the worker seam sheds every one of those pixels
+      // (4 bytes of premultiplied RGBA each). What it does NOT shed is the
+      // source streams written beside them to key the decode by content -
+      // that floor is #451's, not this one's.
+      expect(unbudgeted.length - budgeted.length,
+          greaterThanOrEqualTo(4 * (before - after) - 1024));
+    });
+
+    test('never scales a lone underlay a page render legitimately wants', () {
+      final doc = PdfDocument.open(_layeredImagePdf(draws: 1));
+      final page = doc.page(0);
+      final recorder = RecordingPdfDevice();
+      PdfInterpreter(cos: doc.cos, device: recorder).drawPageOperations(
+          page, ContentStreamParser.parse(page.contentBytes()));
+      final box = page.cropBox;
+      for (final ratio in const [2.0, 1.28, 0.5]) {
+        final plain = serializeCommands(recorder.commands,
+            cos: doc.cos, decodeImages: true, maxImagePixelRatio: ratio);
+        final budgeted = serializeCommands(recorder.commands,
+            cos: doc.cos,
+            decodeImages: true,
+            maxImagePixelRatio: ratio,
+            pageRasterPixels: pdfPageRasterPixels(box, ratio));
+        expect(budgeted, equals(plain),
+            reason: 'ratio $ratio: the raster-derived budget must leave the '
+                'per-image cap alone for a single full-bleed image');
+      }
+    });
+
+    test('is a floor under the 17 MP cap, never a raise', () {
+      final doc = PdfDocument.open(_layeredImagePdf(draws: 4));
+      final page = doc.page(0);
+      final recorder = RecordingPdfDevice();
+      PdfInterpreter(cos: doc.cos, device: recorder).drawPageOperations(
+          page, ContentStreamParser.parse(page.contentBytes()));
+      final plain = serializeCommands(recorder.commands,
+          cos: doc.cos, decodeImages: true, maxImagePixelRatio: 1e6);
+      final huge = serializeCommands(recorder.commands,
+          cos: doc.cos,
+          decodeImages: true,
+          maxImagePixelRatio: 1e6,
+          pageRasterPixels: 1 << 30);
+      expect(huge, equals(plain));
+    });
+  });
+}
+
+/// A one-page 200x200 pt PDF that draws one 512x512 raw DeviceRGB image
+/// [draws] times, full bleed. The layered-raster shape the page image budget
+/// exists to bound: every draw is at its own on-screen footprint, so only
+/// their SUM is out of proportion to the raster.
+Uint8List _layeredImagePdf({required int draws}) {
+  const size = 512;
+  final pixels = Uint8List(size * size * 3);
+  for (var i = 0; i < pixels.length; i++) {
+    pixels[i] = (i * 7) & 0xff;
+  }
+  final content = StringBuffer();
+  for (var i = 0; i < draws; i++) {
+    content.write('q 200 0 0 200 0 0 cm /Im0 Do Q\n');
+  }
+  final contentBytes = Uint8List.fromList(content.toString().codeUnits);
+
+  final out = BytesBuilder();
+  final offsets = <int>[];
+  void obj(int number, String head, [Uint8List? stream]) {
+    offsets.add(out.length);
+    out.add(Uint8List.fromList('$number 0 obj\n$head\n'.codeUnits));
+    if (stream != null) {
+      out.add(Uint8List.fromList('stream\n'.codeUnits));
+      out.add(stream);
+      out.add(Uint8List.fromList('\nendstream\n'.codeUnits));
+    }
+    out.add(Uint8List.fromList('endobj\n'.codeUnits));
+  }
+
+  out.add(Uint8List.fromList('%PDF-1.4\n'.codeUnits));
+  obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
+  obj(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+  obj(
+      3,
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] '
+          '/Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>');
+  obj(4, '<< /Length ${contentBytes.length} >>', contentBytes);
+  obj(
+      5,
+      '<< /Type /XObject /Subtype /Image /Width $size /Height $size '
+          '/ColorSpace /DeviceRGB /BitsPerComponent 8 '
+          '/Length ${pixels.length} >>',
+      pixels);
+
+  final xref = out.length;
+  final tail = StringBuffer('xref\n0 ${offsets.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final off in offsets) {
+    tail.write('${off.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  tail
+    ..write('trailer << /Size ${offsets.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xref\n%%EOF\n');
+  out.add(Uint8List.fromList(tail.toString().codeUnits));
+  return out.takeBytes();
 }
 
 /// Sum of decoded pixels across every image draw (DFS, soft-mask groups too).

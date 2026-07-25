@@ -108,6 +108,14 @@ class _UnserializableImage implements Exception {
 /// re-rasters the page. Null leaves images at native resolution (the historic
 /// behavior). Only consulted when [decodeImages] is true.
 ///
+/// [pageRasterPixels] is how many pixels the raster this buffer will be drawn
+/// into actually has (page area x [maxImagePixelRatio]^2, or the tile's own
+/// width x height). It bounds the *total* decoded image pixels the buffer may
+/// carry to a small multiple of what the raster can ever show. Null falls back
+/// to the full-page raster cap, which is 17 MP - right for a page render,
+/// wildly generous for a 256px thumbnail tile (#603). Only consulted when
+/// [decodeImages] is true.
+///
 /// [imageDecodeRegion], when supplied, is a PDF page-space rectangle for the
 /// visible detail patch. Axis-aligned image draws are decoded only for the
 /// intersecting source pixels and their image transform is retargeted to the
@@ -124,23 +132,43 @@ class _UnserializableImage implements Exception {
 /// isolate; the default stays false so the public codec remains a lossless
 /// command-transcript round trip.
 /// The page raster never exceeds this many pixels (the viewer's full-page
-/// raster cap), so it is also the natural unit for the page image budget.
+/// raster cap), so it is the ceiling on the page image budget - the fallback
+/// unit when the caller does not say what raster the buffer is drawn into.
 const int _maxImagePixels = 1 << 24;
 
-/// Total decoded image pixels per page are bounded to this multiple of
-/// [_maxImagePixels]. The per-image cap keeps each image near its own
-/// on-screen footprint, but a sheet layered from dozens of overlapping raster
-/// tiles can still sum to many times the page raster - only the topmost layer
-/// per pixel is ever shown, so the rest is decoded, shipped, and cached for
-/// nothing. This ceiling (~17 MP at the default) scales every image down to
-/// fit, bounding the command buffer and the decoded-image cache no matter how
-/// the sheet is layered. Larger keeps more sharpness on heavy overlap at the
-/// cost of a bigger payload.
+/// Total decoded image pixels per page are bounded to this multiple of the
+/// raster the buffer is drawn into. The per-image cap keeps each image near
+/// its own on-screen footprint, but a sheet layered from dozens of overlapping
+/// raster tiles can still sum to many times the page raster - only the topmost
+/// layer per pixel is ever shown, so the rest is decoded, shipped, and cached
+/// for nothing. This ceiling scales every image down to fit, bounding the
+/// command buffer and the decoded-image cache no matter how the sheet is
+/// layered. Larger keeps more sharpness on heavy overlap at the cost of a
+/// bigger payload.
 const double _imageBudgetFactor = 1.0;
 
+/// The per-image cap ([cappedImagePixelSize]) keeps this much linear headroom
+/// over an image's on-screen footprint, so ONE full-bleed image legitimately
+/// carries this squared times the raster's pixels. The page budget starts
+/// there, otherwise a single underlay would trip it on its own.
+const double _imageBudgetHeadroom = 2.0;
+
 int _imageBudgetPixels(double ratio, double factor,
-    {PdfRect? imageDecodeRegion}) {
+    {PdfRect? imageDecodeRegion, int? pageRasterPixels}) {
   var budget = (factor * _maxImagePixels).round();
+  // What the buffer is actually drawn into. `_maxImagePixels` is only the
+  // *cap* on a full-page raster; a 256px thumbnail tile rasterizes ~85k
+  // pixels, and budgeting it 17 MP of decoded images (200x what it can ever
+  // show) is what let warm thumbnails ship ~10 MB records - and pay for every
+  // one of those pixels again as main-thread `ui.Image` work at replay (#603).
+  if (pageRasterPixels != null && pageRasterPixels > 0) {
+    final scaled = (factor *
+            _imageBudgetHeadroom *
+            _imageBudgetHeadroom *
+            pageRasterPixels)
+        .round();
+    if (scaled > 0 && scaled < budget) budget = scaled;
+  }
   if (imageDecodeRegion != null &&
       imageDecodeRegion.width > 0 &&
       imageDecodeRegion.height > 0 &&
@@ -155,12 +183,33 @@ int _imageBudgetPixels(double ratio, double factor,
   return budget;
 }
 
+/// How many pixels a page whose media/crop box is [box] rasterizes into at
+/// [ratio] screen pixels per page point - `serializeCommands`'s
+/// `pageRasterPixels`.
+///
+/// The render worker calls this for every record it serializes: it knows both
+/// the page box and the ratio the caller asked for, so the buffer's image
+/// budget can follow the raster the caller will actually draw (a 256px
+/// thumbnail tile, a full-resolution page) instead of the worst-case full-page
+/// raster cap. Null when [ratio] or the box is degenerate - the codec then
+/// falls back to that cap, the historic behaviour.
+int? pdfPageRasterPixels(PdfRect box, double? ratio) {
+  if (ratio == null || !(ratio > 0)) return null;
+  final width = box.width * ratio;
+  final height = box.height * ratio;
+  if (!(width > 0) || !(height > 0)) return null;
+  final pixels = width * height;
+  if (!pixels.isFinite) return null;
+  return pixels.ceil();
+}
+
 Uint8List? serializeCommands(List<PdfRenderCommand> commands,
     {CosDocument? cos,
     bool decodeImages = false,
     double? maxImagePixelRatio,
     PdfRect? imageDecodeRegion,
     double imageBudgetFactor = _imageBudgetFactor,
+    int? pageRasterPixels,
     bool imagePlaceholders = false,
     int? commandLimit,
     bool compactStateScopes = false}) {
@@ -180,7 +229,8 @@ Uint8List? serializeCommands(List<PdfRenderCommand> commands,
         cos,
         maxImagePixelRatio,
         _imageBudgetPixels(maxImagePixelRatio, imageBudgetFactor,
-            imageDecodeRegion: imageDecodeRegion),
+            imageDecodeRegion: imageDecodeRegion,
+            pageRasterPixels: pageRasterPixels),
         imageDecodeRegion: imageDecodeRegion);
   }
   try {

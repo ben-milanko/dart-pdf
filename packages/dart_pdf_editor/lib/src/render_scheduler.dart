@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 
 import 'perf_log.dart';
@@ -28,6 +29,40 @@ class PdfPageRenderScheduler {
   int _focus = 0;
   bool _draining = false;
   bool _disposed = false;
+  final _activity = _Activity();
+
+  /// Notifies whenever [busy] may have changed - a hold raised or lowered, a
+  /// request queued, the queue drained. Background work that must not compete
+  /// with the viewer for the platform thread (the thumbnail warm) listens here
+  /// to know when to stand down and when to resume, instead of polling frames.
+  Listenable get activity => _activity;
+
+  /// Whether the viewer still has foreground page work in flight: a scroll is
+  /// holding renders back, or pages are queued for their first interpret.
+  ///
+  /// This is the *platform-thread* gate. The render worker's own priorities
+  /// order the isolate's queue, but the picture build and rasterization that
+  /// follow every record run here, on the one thread the visible page's build
+  /// also needs - so a background pass that only lowers its worker priority
+  /// still lands its replay on top of a foreground frame (#603).
+  ///
+  /// A [parked] viewer reads idle however much it has queued: it is overlaid
+  /// by another view and will not render any of it, so it is not competing for
+  /// anything. Without that the full-area page grid - which parks the viewer
+  /// it covers - would gate its own thumbnails behind a hold that never lifts.
+  bool get busy => !_parked && (_holding || _pending.isNotEmpty);
+
+  bool _parked = false;
+
+  /// True while the viewer is overlaid by another view and renders nothing
+  /// (`PdfViewer.active` false). Distinct from [holding], which is a *live*
+  /// viewer deferring work it still intends to do.
+  bool get parked => _parked;
+  set parked(bool value) {
+    if (_parked == value || _disposed) return;
+    _parked = value;
+    _activity.ping();
+  }
 
   /// True while a fast scroll is in flight: the viewer raises it from its
   /// velocity estimate. No request is granted while held; lowering it
@@ -39,6 +74,7 @@ class PdfPageRenderScheduler {
     PdfPerfLog.log('renderHold ${_holding ? 'ON' : 'off'} '
         '(pending=${_pending.length} focus=$_focus)');
     if (!_holding) _scheduleDrain();
+    _activity.ping();
   }
 
   /// The page index nearest the viewport. Pending requests closest to it
@@ -69,12 +105,15 @@ class PdfPageRenderScheduler {
     }
     _pending.add(_RenderRequest(token, priority, render));
     _scheduleDrain();
+    _activity.ping();
   }
 
   /// Withdraws [token]'s pending request - its page rendered another way,
   /// or was disposed before its turn.
   void cancel(Object token) {
+    final before = _pending.length;
     _pending.removeWhere((r) => identical(r.token, token));
+    if (_pending.length != before) _activity.ping();
   }
 
   void _scheduleDrain() {
@@ -116,14 +155,36 @@ class PdfPageRenderScheduler {
       }
     } finally {
       _draining = false;
+      _activity.ping();
     }
   }
 
   /// Drops all pending requests and stops granting. Safe to call more
   /// than once.
   void dispose() {
+    if (_disposed) return;
     _disposed = true;
     _pending.clear();
+    _activity.ping();
+    _activity.dispose();
+  }
+}
+
+/// A bare [Listenable] the scheduler pings when [PdfPageRenderScheduler.busy]
+/// may have moved. Deliberately not a value notifier: listeners re-read [busy]
+/// themselves, so a redundant ping is harmless and no state can go stale.
+class _Activity extends ChangeNotifier {
+  void ping() {
+    if (!_alive) return;
+    notifyListeners();
+  }
+
+  bool _alive = true;
+
+  @override
+  void dispose() {
+    _alive = false;
+    super.dispose();
   }
 }
 

@@ -55,6 +55,61 @@ void main() {
     });
   });
 
+  // #603: the warm already yields to on-screen TILES and renders at a lower
+  // worker priority, but its replay and rasterize still run on the platform
+  // thread - the one the visible page's build needs, and the one a worker
+  // priority cannot reach. The gate is what makes it stand down for the viewer.
+  group('PdfThumbnailCache foreground gate', () {
+    testWidgets('the warm stands down while the viewer renders, and resumes '
+        'when it goes idle', (tester) async {
+      final cache = PdfThumbnailCache();
+      addTearDown(cache.dispose);
+      final activity = _TestActivity();
+      var viewerBusy = true;
+      cache.bindForegroundGate(activity, () => viewerBusy);
+
+      final warmed = <int>[];
+      cache.setWarm(Object(), 3, 'k', (page) async => warmed.add(page));
+      for (var i = 0; i < 5; i++) {
+        await tester.pump();
+      }
+      expect(warmed, isEmpty, reason: 'the viewer is still rendering');
+
+      // the viewer went idle: its activity ping re-kicks the loop - the warm
+      // must not be waiting on a frame poll that never comes
+      viewerBusy = false;
+      activity.ping();
+      for (var i = 0; i < 8; i++) {
+        await tester.pump();
+      }
+      expect(warmed, [0, 1, 2]);
+    });
+
+    testWidgets('an unbound cache warms exactly as before', (tester) async {
+      final cache = PdfThumbnailCache();
+      addTearDown(cache.dispose);
+      final warmed = <int>[];
+      cache.setWarm(Object(), 2, 'k', (page) async => warmed.add(page));
+      for (var i = 0; i < 8; i++) {
+        await tester.pump();
+      }
+      expect(warmed, [0, 1]);
+    });
+
+    testWidgets('withdrawing the warm releases the gate', (tester) async {
+      final cache = PdfThumbnailCache();
+      addTearDown(cache.dispose);
+      final activity = _TestActivity();
+      final owner = Object();
+      cache.bindForegroundGate(activity, () => true);
+      cache.setWarm(owner, 2, 'k', (page) async {});
+      expect(activity.listeners, 1);
+      cache.clearWarm(owner);
+      expect(activity.listeners, 0,
+          reason: 'a disposed panel must not keep the viewer subscribed');
+    });
+  });
+
   group('PdfThumbnailCache raster store', () {
     Future<ui.Image> solid(int w, int h) {
       final px = Uint8List(w * h * 4)..fillRange(0, w * h * 4, 255);
@@ -189,6 +244,43 @@ void main() {
       await tester.pump();
       expect(PdfThumbnailSidebar.debugRasterizations, 3);
     });
+
+    testWidgets('a parked viewer does not gate the warm', (tester) async {
+      // The full-area page grid overlays the viewer and parks it
+      // (PdfViewer.active false), which holds its renders forever. Gating the
+      // warm on that hold would mean the grid never fills in - so a parked
+      // viewer must read idle (#603).
+      final bytes = buildMultiPagePdf(4);
+      final editing = PdfEditingController(bytes);
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            PdfThumbnailSidebar(controller: editing, viewerController: viewer),
+            Expanded(
+              child: PdfViewer(
+                active: false,
+                document: PdfDocument.open(bytes),
+                controller: viewer,
+              ),
+            ),
+          ]),
+        ),
+      ));
+      expect(viewer.isPageRenderBusy, isFalse);
+
+      for (var i = 0;
+          i < 300 && PdfThumbnailSidebar.debugRasterizations < 4;
+          i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)));
+        await tester.pump();
+      }
+      expect(PdfThumbnailSidebar.debugRasterizations, 4);
+    });
   });
 
   group('thumbnail disk persistence', () {
@@ -273,4 +365,24 @@ void main() {
       fromDisk!.dispose();
     });
   });
+}
+
+/// A [Listenable] whose subscriptions are observable - the gate must let go of
+/// the viewer when its panel does, or a disposed strip keeps waking the warm.
+class _TestActivity implements Listenable {
+  final _callbacks = <VoidCallback>[];
+
+  int get listeners => _callbacks.length;
+
+  @override
+  void addListener(VoidCallback listener) => _callbacks.add(listener);
+
+  @override
+  void removeListener(VoidCallback listener) => _callbacks.remove(listener);
+
+  void ping() {
+    for (final callback in List<VoidCallback>.of(_callbacks)) {
+      callback();
+    }
+  }
 }

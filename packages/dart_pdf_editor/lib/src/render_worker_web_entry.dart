@@ -607,6 +607,7 @@ Future<Uint8List?> _recordPageAsync(
     cos: document.cos,
     decodeImages: decodeImages,
     maxImagePixelRatio: imagePixelRatio,
+    pageRasterPixels: pdfPageRasterPixels(page.cropBox, imagePixelRatio),
     imageDecodeRegion: imageDecodeRegion,
     imagePlaceholders: !decodeImages,
     commandLimit: commandLimit,

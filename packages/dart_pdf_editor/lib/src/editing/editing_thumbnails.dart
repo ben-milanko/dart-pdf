@@ -419,6 +419,11 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     if (mounted) setState(() {});
   }
 
+  /// The gate the shared cache's background warm consults: true while the
+  /// viewer still has foreground page work in flight. See
+  /// [PdfThumbnailCache.bindForegroundGate].
+  bool _viewerRenderBusy() => widget.viewerController.isPageRenderBusy;
+
   /// Pushes the strip's scroll position into the shared cache as the render
   /// focus, so the tiles nearest the visible band render before the rest.
   void _onScroll() {
@@ -543,6 +548,11 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     // yields to every visible tile, so it never delays one.
     final pixelWidth =
         _thumbnailBucket(_tileWidth * MediaQuery.devicePixelRatioOf(context));
+    // ...and hold it off entirely while the viewer is rendering: the warm's
+    // replay/rasterize run on the platform thread, so a lower worker priority
+    // alone still lets it land on the frame the visible page needs (#603).
+    _cache.bindForegroundGate(
+        widget.viewerController.pageRenderActivity, _viewerRenderBusy);
     _cache.setWarm(
       this,
       controller.document.pageCount,
@@ -1180,6 +1190,11 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
     if (mounted) setState(() {});
   }
 
+  /// The gate the shared cache's background warm consults: true while the
+  /// viewer still has foreground page work in flight. See
+  /// [PdfThumbnailCache.bindForegroundGate].
+  bool _viewerRenderBusy() => widget.viewerController.isPageRenderBusy;
+
   /// Pushes the grid's scroll position into the shared cache as the render
   /// focus, so the rows on screen render before the rest of the document and
   /// scrolling re-prioritizes toward what just came into view.
@@ -1358,6 +1373,9 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
     // paced loop that yields to every visible cell, so it never delays one.
     final pixelWidth = _thumbnailBucket(
         (tileWidth - 21) * MediaQuery.devicePixelRatioOf(context));
+    // see the strip's copy: the warm stands down while the viewer renders
+    _cache.bindForegroundGate(
+        widget.viewerController.pageRenderActivity, _viewerRenderBusy);
     _cache.setWarm(
       this,
       controller.document.pageCount,
@@ -2652,8 +2670,18 @@ Future<ui.Image?> rasterizeThumbnail({
       trace.instant('worker.record',
           arguments: {'ms': recordMs, 'commands': commands.length});
       sw.reset();
-      final picture = await PdfPageRenderer.pictureFromCommands(page, commands,
-          pageColor: pageColor);
+      // The replay is the one part of a thumbnail that CANNOT leave the
+      // platform thread, so it gets the tile's own resolution too: any image
+      // the worker's codec declined arrives un-decoded, and without the cap it
+      // would decode at native size here - a 10-megapixel scan run through the
+      // pure-Dart codec to fill a 256px tile (#603). Sliced into the timeline
+      // as its own span so a trace attributes it to the thumbnail rather than
+      // to whatever frame it lands in.
+      final picture = await _timedReplay(
+          pageIndex,
+          reason,
+          () => PdfPageRenderer.pictureFromCommands(page, commands,
+              pageColor: pageColor, maxImagePixelRatio: ratio));
       final replayMs = sw.elapsedMicroseconds / 1000.0;
       sw.reset();
       try {
@@ -2700,6 +2728,25 @@ Future<ui.Image?> rasterizeThumbnail({
 }
 
 String _traceMs(double v) => '${v.toStringAsFixed(1)}ms';
+
+/// Wraps a thumbnail's command replay in its own async timeline slice.
+///
+/// The replay builds a `ui.Picture` on the platform thread - the same thread
+/// the visible page's build needs - so in a DevTools capture it is otherwise
+/// indistinguishable from foreground work. A named slice per page/reason is
+/// what lets a trace say "this frame went to warming page 47's thumbnail"
+/// (#603). Free when nothing is recording.
+Future<T> _timedReplay<T>(
+    int pageIndex, String reason, Future<T> Function() replay) async {
+  final flow = TimelineTask()
+    ..start('thumbnail replay',
+        arguments: {'page': pageIndex, 'reason': reason});
+  try {
+    return await replay();
+  } finally {
+    flow.finish();
+  }
+}
 
 /// Marks the viewer's viewport on a thumbnail: [region] is the visible
 /// part of the page as fractions of its area.
