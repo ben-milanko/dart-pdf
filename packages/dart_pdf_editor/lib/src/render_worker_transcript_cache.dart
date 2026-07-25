@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
@@ -151,6 +153,12 @@ class _SuspendedTranscriptWalk {
   final RecordingPdfDevice recorder;
   final PdfInterpreter interpreter;
   final PdfPageContentWalk walk;
+
+  // Progressive-partial schedule (#564), carried across a preempt/resume so the
+  // doubling cadence continues rather than restarting: chunks advanced so far
+  // and the chunk count at which the next partial is emitted (1, 2, 4, ...).
+  int chunksAdvanced = 0;
+  int nextEmitAtChunk = 1;
 }
 
 class PdfWorkerTranscriptCache {
@@ -211,6 +219,7 @@ class PdfWorkerTranscriptCache {
     PdfCancellationToken token, {
     int? yieldInterval,
     PdfWorkerPhaseTimings? timings,
+    void Function(Uint8List)? onPartial,
   }) async {
     if (token.cancelled) throw const PdfCancelledException();
     final key = (pageIndex, annotations);
@@ -250,6 +259,24 @@ class PdfWorkerTranscriptCache {
         _keepSuspended(entry);
         throw const PdfCancelledException();
       }
+      // Progressive linework partials (#564), on a doubling chunk schedule so
+      // the serialize cost stays O(commands) across the page (see the isolate
+      // twin). A chunk boundary is page-level graphics state, so the prefix is a
+      // valid replayable buffer; images ride as placeholders like the final
+      // transcript below.
+      entry.chunksAdvanced++;
+      if (onPartial == null || entry.chunksAdvanced < entry.nextEmitAtChunk) {
+        continue;
+      }
+      entry.nextEmitAtChunk *= 2;
+      final partial = serializeCommands(
+        entry.recorder.commands,
+        cos: document.cos,
+        decodeImages: false,
+        imagePlaceholders: true,
+        compactStateScopes: true,
+      );
+      if (partial != null) onPartial(partial);
     }
     if (streamClock != null) {
       streamClock.stop();

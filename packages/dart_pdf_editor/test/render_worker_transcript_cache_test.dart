@@ -75,6 +75,47 @@ void main() {
     expect(cache.misses, 3);
   });
 
+  test('transcriptFor streams progressive partials on a doubling schedule '
+      '(#564 web twin core)', () async {
+    // A dense linework page spans many chunks; the transcript walk (shared by the
+    // web worker record path) emits interim linework prefixes on a doubling
+    // schedule (chunks 1, 2, 4, ...), so the partial count is logarithmic in the
+    // chunk count, each a strictly larger prefix buffer.
+    final document =
+        PdfDocument.open(buildSyntheticCadStrip(ops: 20000, streams: 2));
+    final cache = PdfWorkerTranscriptCache(capacity: 2);
+    final partials = <Uint8List>[];
+    final transcript = await cache.transcriptFor(
+      document,
+      0,
+      false,
+      PdfCancellationToken(),
+      onPartial: partials.add,
+    );
+    expect(transcript, isNotNull);
+    expect(partials.length, greaterThanOrEqualTo(2));
+    expect(partials.length, lessThanOrEqualTo(8),
+        reason: 'doubling schedule keeps emits logarithmic, got '
+            '${partials.length}');
+    for (var i = 1; i < partials.length; i++) {
+      expect(partials[i].length, greaterThan(partials[i - 1].length),
+          reason: 'each partial buffer should be a larger prefix');
+    }
+
+    // A cache HIT does no walk, so it must not stream.
+    final hitPartials = <Uint8List>[];
+    final hit = await cache.transcriptFor(
+      document,
+      0,
+      false,
+      PdfCancellationToken(),
+      onPartial: hitPartials.add,
+    );
+    expect(identical(hit, transcript), isTrue);
+    expect(hitPartials, isEmpty,
+        reason: 'a transcript cache hit does no walk and streams nothing');
+  });
+
   test('cancelled transcript construction is not cached', () async {
     final document = PdfDocument.open(buildVectorPdf());
     final cache = PdfWorkerTranscriptCache();

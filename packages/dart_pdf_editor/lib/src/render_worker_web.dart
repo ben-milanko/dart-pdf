@@ -292,6 +292,21 @@ class _WebRenderWorker extends PdfRenderWorker {
       _wlog('ignored stale cancel target=$target active=$active');
       return;
     }
+    if (kind == 'partial') {
+      // A progressive linework prefix of a record still in flight (#564).
+      // Forward it to the request's sink WITHOUT clearing _inFlight or completing
+      // the completer; the final decoded buffer still arrives on the ordinary
+      // 'result' path. Drop a partial for a request that is no longer in flight
+      // (disposed, or requeued under a new id after preemption).
+      final id = (data.getProperty('id'.toJS) as JSNumber).toDartInt;
+      final request = _inFlight;
+      if (request == null || request.id != id) return;
+      final buffer = data.getProperty('buffer'.toJS) as JSArrayBuffer?;
+      if (buffer != null) {
+        request.onPartialBytes?.call(buffer.toDart.asUint8List());
+      }
+      return;
+    }
     if (kind != 'result') return;
     final id = (data.getProperty('id'.toJS) as JSNumber).toDartInt;
     final request = _inFlight;
@@ -344,9 +359,6 @@ class _WebRenderWorker extends PdfRenderWorker {
     bool decodeImages = true,
     int? commandLimit,
     PdfRect? imageDecodeRegion,
-    // Partial streaming is the web twin's follow-up (#564 PR2); the web backend
-    // records whole pages, so this sink is accepted for interface parity and
-    // never called.
     PdfPartialRecordSink? onPartial,
   }) async {
     if (_disposed || _failed) {
@@ -365,6 +377,20 @@ class _WebRenderWorker extends PdfRenderWorker {
       decodeImages,
       commandLimit,
       imageDecodeRegion,
+      // Deserialize each interim linework buffer on arrival and hand the caller
+      // real commands (#564). A corrupt partial is dropped - the final still
+      // arrives through the completer.
+      onPartial == null
+          ? null
+          : (bytes) {
+              final List<PdfRenderCommand> commands;
+              try {
+                commands = deserializeCommands(bytes);
+              } catch (_) {
+                return;
+              }
+              onPartial(commands);
+            },
     );
     _trace(request);
     _queue.add(request);
@@ -614,6 +640,9 @@ class _WebRenderWorker extends PdfRenderWorker {
       ..setProperty('annotations'.toJS, request.annotations.toJS);
     if (request.kind == _WebRequestKind.record) {
       message.setProperty('decodeImages'.toJS, request.decodeImages.toJS);
+      if (request.onPartialBytes != null) {
+        message.setProperty('wantsPartials'.toJS, true.toJS); // #564
+      }
       final ratio = request.imagePixelRatio;
       if (ratio != null) message.setProperty('imageRatio'.toJS, ratio.toJS);
       final limit = request.commandLimit;
@@ -789,8 +818,9 @@ class _WebPending {
     this.imagePixelRatio,
     this.decodeImages,
     this.commandLimit,
-    this.imageDecodeRegion,
-  ) : kind = _WebRequestKind.record,
+    this.imageDecodeRegion, [
+    this.onPartialBytes,
+  ]) : kind = _WebRequestKind.record,
       pageToDevice = null,
       deviceWidth = 0,
       deviceHeight = 0,
@@ -815,7 +845,8 @@ class _WebPending {
       commandLimit = null,
       imageDecodeRegion = null,
       regionMaxCommands = 0,
-      regionBuildGrid = false;
+      regionBuildGrid = false,
+      onPartialBytes = null;
 
   _WebPending.detail(
     this.priority,
@@ -833,7 +864,8 @@ class _WebPending {
       commandLimit = null,
       slugGlyphs = false,
       regionMaxCommands = 0,
-      regionBuildGrid = false;
+      regionBuildGrid = false,
+      onPartialBytes = null;
 
   _WebPending.regionIndex(
     this.priority,
@@ -851,7 +883,8 @@ class _WebPending {
       deviceWidth = 0,
       deviceHeight = 0,
       binPixelRatio = 0,
-      slugGlyphs = false;
+      slugGlyphs = false,
+      onPartialBytes = null;
 
   _WebPending.extractText(this.priority, this.seq, this.pageIndex)
       : kind = _WebRequestKind.extractText,
@@ -866,7 +899,8 @@ class _WebPending {
         binPixelRatio = 0,
         slugGlyphs = false,
         regionMaxCommands = 0,
-        regionBuildGrid = false;
+        regionBuildGrid = false,
+        onPartialBytes = null;
 
   final _WebRequestKind kind;
   final int priority;
@@ -884,6 +918,9 @@ class _WebPending {
   final bool slugGlyphs;
   final int regionMaxCommands;
   final bool regionBuildGrid;
+  // record-only: forwards each interim linework buffer (#564) to the caller's
+  // sink. Null on every other kind and on records that opted out of partials.
+  final void Function(Uint8List)? onPartialBytes;
   final completer = Completer<List<Uint8List>?>();
   bool requeueAfterPreemption = false;
   int id = -1;

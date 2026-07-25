@@ -353,10 +353,21 @@ void runPdfRenderWorker() {
             regionTop != null
         ? PdfRect(regionLeft, regionBottom, regionRight, regionTop)
         : null;
+    final wantsPartials =
+        (data.getProperty('wantsPartials'.toJS) as JSBoolean?)?.toDart ?? false;
 
     final token = PdfCancellationToken();
     activeToken = token;
     activeRequestId = id;
+    // Progressive partials (#564): stream each interim linework prefix only while
+    // this record still owns the slot and has not been cancelled, so a preempted
+    // record stops immediately (the main thread drops any partial whose id no
+    // longer matches its in-flight request anyway).
+    void emitPartial(Uint8List bytes) {
+      if (activeRequestId == id && !token.cancelled) {
+        _postPartial(scope, id, bytes);
+      }
+    }
     // Fire-and-forget: launch the cancellable walk without awaiting it here, so
     // the message handler returns void (see the note above) while a subsequent
     // 'cancel' message can still flip token.cancelled mid-walk.
@@ -380,6 +391,7 @@ void runPdfRenderWorker() {
             imageDecodeRegion,
             token,
             timings: timings,
+            onPartial: wantsPartials ? emitPartial : null,
           );
         }
       } on PdfCancelledException {
@@ -430,6 +442,23 @@ void _postResult(
   final jsBuffer = Uint8List.fromList(out).buffer.toJS;
   result.setProperty('buffer'.toJS, jsBuffer);
   scope.postMessage(result, <JSAny>[jsBuffer].toJS);
+}
+
+/// Posts one interim progressive linework prefix (#564) for record [id], without
+/// the timings/`result` envelope: the main thread forwards it to the record's
+/// onPartial sink and keeps waiting for the `result`. The buffer is transferred
+/// zero-copy like a result.
+void _postPartial(
+  web.DedicatedWorkerGlobalScope scope,
+  int id,
+  Uint8List partial,
+) {
+  final jsBuffer = Uint8List.fromList(partial).buffer.toJS;
+  final message = JSObject()
+    ..setProperty('kind'.toJS, 'partial'.toJS)
+    ..setProperty('id'.toJS, id.toJS)
+    ..setProperty('buffer'.toJS, jsBuffer);
+  scope.postMessage(message, <JSAny>[jsBuffer].toJS);
 }
 
 void _postDetailResult(
@@ -502,6 +531,7 @@ Future<Uint8List?> _recordPageAsync(
   PdfRect? imageDecodeRegion,
   PdfCancellationToken token, {
   PdfWorkerPhaseTimings? timings,
+  void Function(Uint8List)? onPartial,
 }) async {
   if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
   final page = document.page(pageIndex);
@@ -543,6 +573,7 @@ Future<Uint8List?> _recordPageAsync(
       token,
       yieldInterval: 4096,
       timings: timings,
+      onPartial: onPartial,
     );
     if (transcript == null) return null;
     commands = transcript.sourceCommands;
