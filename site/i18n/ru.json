@@ -211,5 +211,24 @@
   "sdkPkgVlm_d": "Опциональный HTTP OCR-движок для веба, мобильных устройств и десктопа. Направьте его на любой сервис, возвращающий текстовые области.",
   "sdk_foot_dartpdfApp": "Приложение DartPDF",
 
+  "nf_metaTitle": "Страница не найдена - DartPDF",
+  "nf_metaDesc": "Такой страницы нет. Вернитесь в DartPDF - приватный локальный редактор PDF для любого устройства.",
+  "nf_h1": "Эта страница <span class=\"hl\">не найдена.</span>",
+  "nf_lede": "Возможно, ссылка устарела или страницу перенесли. С вашими PDF всё в порядке - они и не покидали устройство.",
+  "nf_ctaHome": "На главную",
+  "nf_linksH2": "Популярные страницы",
+  "nf_linkFeatures": "Возможности",
+  "nf_linkFeaturesDesc": "Аннотирование, OCR, формы, подписи, скрытие данных и правка текста.",
+  "nf_linkDownload": "Скачать",
+  "nf_linkDownloadDesc": "DartPDF для Windows, macOS, Linux, iOS и Android.",
+  "nf_linkSupport": "Поддержка",
+  "nf_linkSupportDesc": "Частые вопросы и как сообщить нам об ошибке.",
+  "nf_linkSdk": "Flutter PDF SDK",
+  "nf_linkSdkDesc": "Встройте просмотрщик и редактор в собственное приложение на Dart или Flutter.",
+  "nf_linkPrivacy": "Конфиденциальность",
+  "nf_linkPrivacyDesc": "Ни аккаунтов, ни аналитики, ни загрузок на сервер - вот политика.",
+  "nf_linkSource": "Исходный код",
+  "nf_linkSourceDesc": "Весь движок и приложение с открытым кодом под лицензией Apache-2.0.",
+
   "lang_label": "Язык"
 }

@@ -211,5 +211,24 @@
   "sdkPkgVlm_d": "웹, 모바일, 데스크톱을 위한 선택형 HTTP OCR 엔진. 텍스트 박스를 반환하는 모든 서비스에 연결하세요.",
   "sdk_foot_dartpdfApp": "DartPDF 앱",
 
+  "nf_metaTitle": "페이지를 찾을 수 없습니다 - DartPDF",
+  "nf_metaDesc": "해당 페이지가 없습니다. 모든 기기를 위한 프라이빗 로컬 PDF 편집기 DartPDF로 돌아가세요.",
+  "nf_h1": "이 페이지를 <span class=\"hl\">찾을 수 없습니다.</span>",
+  "nf_lede": "링크가 오래되었거나 페이지가 이동했을 수 있습니다. PDF는 안전합니다 - 애초에 기기를 떠난 적이 없으니까요.",
+  "nf_ctaHome": "홈으로 돌아가기",
+  "nf_linksH2": "많이 찾는 페이지",
+  "nf_linkFeatures": "기능",
+  "nf_linkFeaturesDesc": "주석, OCR, 양식, 서명, 편집 삭제, 텍스트 편집.",
+  "nf_linkDownload": "다운로드",
+  "nf_linkDownloadDesc": "Windows, macOS, Linux, iOS, Android용 DartPDF를 받으세요.",
+  "nf_linkSupport": "지원",
+  "nf_linkSupportDesc": "자주 묻는 질문과 버그 문의 방법.",
+  "nf_linkSdk": "Flutter PDF SDK",
+  "nf_linkSdkDesc": "뷰어와 편집기를 직접 만든 Dart 또는 Flutter 앱에 넣으세요.",
+  "nf_linkPrivacy": "개인정보",
+  "nf_linkPrivacyDesc": "계정도, 분석도, 업로드도 없습니다 - 처리방침을 확인하세요.",
+  "nf_linkSource": "소스 코드",
+  "nf_linkSourceDesc": "엔진과 앱 전체가 Apache-2.0 오픈 소스입니다.",
+
   "lang_label": "언어"
 }

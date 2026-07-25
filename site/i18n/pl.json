@@ -211,5 +211,24 @@
   "sdkPkgVlm_d": "Opcjonalny silnik OCR przez HTTP dla sieci, urządzeń mobilnych i komputerów. Skieruj go na dowolną usługę zwracającą pola tekstowe.",
   "sdk_foot_dartpdfApp": "Aplikacja DartPDF",
 
+  "nf_metaTitle": "Nie znaleziono strony - DartPDF",
+  "nf_metaDesc": "Ta strona nie istnieje. Wróć do DartPDF - prywatnego, lokalnego edytora PDF na każde urządzenie.",
+  "nf_h1": "Tej strony <span class=\"hl\">nie znaleziono.</span>",
+  "nf_lede": "Link może być nieaktualny albo strona została przeniesiona. Twoim plikom PDF nic nie jest - i tak nigdy nie opuściły Twojego urządzenia.",
+  "nf_ctaHome": "Wróć na stronę główną",
+  "nf_linksH2": "Popularne strony",
+  "nf_linkFeatures": "Funkcje",
+  "nf_linkFeaturesDesc": "Adnotacje, OCR, formularze, podpisy, redagowanie i edycja tekstu.",
+  "nf_linkDownload": "Pobierz",
+  "nf_linkDownloadDesc": "Pobierz DartPDF na Windows, macOS, Linux, iOS i Android.",
+  "nf_linkSupport": "Wsparcie",
+  "nf_linkSupportDesc": "Częste pytania i sposób zgłoszenia nam błędu.",
+  "nf_linkSdk": "Flutter PDF SDK",
+  "nf_linkSdkDesc": "Osadź przeglądarkę i edytor we własnej aplikacji Dart lub Flutter.",
+  "nf_linkPrivacy": "Prywatność",
+  "nf_linkPrivacyDesc": "Bez kont, bez analityki, bez wysyłania plików - oto polityka.",
+  "nf_linkSource": "Kod źródłowy",
+  "nf_linkSourceDesc": "Cały silnik i aplikacja, open source na licencji Apache-2.0.",
+
   "lang_label": "Język"
 }

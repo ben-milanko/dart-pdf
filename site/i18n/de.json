@@ -211,5 +211,24 @@
   "sdkPkgVlm_d": "Optionale HTTP-OCR-Engine für Web, Mobilgeräte und Desktop. Richten Sie sie auf einen beliebigen Dienst aus, der Textboxen zurückgibt.",
   "sdk_foot_dartpdfApp": "DartPDF-App",
 
+  "nf_metaTitle": "Seite nicht gefunden - DartPDF",
+  "nf_metaDesc": "Diese Seite gibt es nicht. Zurück zu DartPDF - dem privaten, lokalen PDF-Editor für jedes Gerät.",
+  "nf_h1": "Diese Seite wurde <span class=\"hl\">nicht gefunden.</span>",
+  "nf_lede": "Der Link ist womöglich veraltet oder die Seite wurde verschoben. Ihren PDFs fehlt nichts - sie haben Ihr Gerät ohnehin nie verlassen.",
+  "nf_ctaHome": "Zurück zur Startseite",
+  "nf_linksH2": "Beliebte Seiten",
+  "nf_linkFeatures": "Funktionen",
+  "nf_linkFeaturesDesc": "Kommentieren, OCR, Formulare, Signaturen, Schwärzen und Textbearbeitung.",
+  "nf_linkDownload": "Herunterladen",
+  "nf_linkDownloadDesc": "DartPDF für Windows, macOS, Linux, iOS und Android holen.",
+  "nf_linkSupport": "Support",
+  "nf_linkSupportDesc": "Häufige Fragen - und wie Sie uns einen Fehler melden.",
+  "nf_linkSdk": "Flutter PDF SDK",
+  "nf_linkSdkDesc": "Betten Sie Viewer und Editor in Ihre eigene Dart- oder Flutter-App ein.",
+  "nf_linkPrivacy": "Datenschutz",
+  "nf_linkPrivacyDesc": "Keine Konten, keine Analysen, keine Uploads - hier ist die Richtlinie.",
+  "nf_linkSource": "Quellcode",
+  "nf_linkSourceDesc": "Engine und App vollständig quelloffen unter Apache-2.0.",
+
   "lang_label": "Sprache"
 }

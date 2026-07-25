@@ -211,5 +211,24 @@
   "sdkPkgVlm_d": "Moteur OCR HTTP optionnel pour le web, le mobile et le bureau. Pointez-le vers tout service qui renvoie des boîtes de texte.",
   "sdk_foot_dartpdfApp": "App DartPDF",
 
+  "nf_metaTitle": "Page introuvable - DartPDF",
+  "nf_metaDesc": "Cette page n'existe pas. Revenez à DartPDF, l'éditeur PDF privé et local pour tous vos appareils.",
+  "nf_h1": "Cette page est <span class=\"hl\">introuvable.</span>",
+  "nf_lede": "Le lien est peut-être obsolète ou la page a été déplacée. Vos PDF, eux, vont bien : ils n'ont jamais quitté votre appareil.",
+  "nf_ctaHome": "Retour à l'accueil",
+  "nf_linksH2": "Pages populaires",
+  "nf_linkFeatures": "Fonctionnalités",
+  "nf_linkFeaturesDesc": "Annotation, OCR, formulaires, signatures, caviardage et édition de texte.",
+  "nf_linkDownload": "Télécharger",
+  "nf_linkDownloadDesc": "Obtenez DartPDF pour Windows, macOS, Linux, iOS et Android.",
+  "nf_linkSupport": "Assistance",
+  "nf_linkSupportDesc": "Questions fréquentes et comment nous signaler un bug.",
+  "nf_linkSdk": "SDK PDF Flutter",
+  "nf_linkSdkDesc": "Intégrez la visionneuse et l'éditeur dans votre propre application Dart ou Flutter.",
+  "nf_linkPrivacy": "Confidentialité",
+  "nf_linkPrivacyDesc": "Aucun compte, aucune analyse, aucun téléversement : voici la politique.",
+  "nf_linkSource": "Code source",
+  "nf_linkSourceDesc": "Le moteur et l'application au complet, open source sous licence Apache-2.0.",
+
   "lang_label": "Langue"
 }
