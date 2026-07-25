@@ -91,8 +91,9 @@ was. That covers images, shadings, meshes, tiling patterns, translucent paint,
 non-Normal blends, transparency groups (bracketed with
 `beginIsolated`/`endIsolated`), text (marked by its em box - see the cost
 section), and colour spaces with no colorant reading. A soft-mask *form*'s own
-content is not recorded at all: it becomes an alpha channel, not page ink. It also declines when the composite is not one colour across the
-draw, because a device paints one colour per call.
+content is not recorded at all: it becomes an alpha channel, not page ink. It
+also declines when the composite is not one colour across the draw, because a
+device paints one colour per call.
 
 ## Cost, and how it was brought down
 
@@ -212,12 +213,16 @@ paint looks colorant-less and everything over it declines.
 
 ## Baselines
 
-Seven pixel-enforced baselines are now stale and were **deleted** so the next
-macOS run re-seeds them (the mechanism the suite documents for a missing
-baseline): GWG010, GWG011, GWG030, GWG031, GWG040, GWG041, GWG161. They are
-macOS renders and cannot be regenerated on Linux without poisoning every macOS
-run with font/AA differences. Re-seed deliberately with
-`GHENT_UPDATE=1 fvm flutter test test/ghent_render_test.dart` on macOS.
+Seven pixel-enforced baselines change with this render and were re-seeded:
+GWG010, GWG011, GWG030, GWG031, GWG040, GWG041, GWG161. They were first
+deleted for the maintainer to re-seed - the suite's baselines are documented as
+macOS renders and the pixel diff is skipped on Linux - but after merging main's
+baseline re-accept (#597) the whole Ghent suite passes byte-clean on this Linux
+machine, i.e. every one of the ~37 other pixel-enforced baselines already
+matches what this environment renders. Seeding the seven here is therefore
+equivalent to re-seeding on the reference machine, and it keeps GWG030
+pixel-enforced from the moment this lands rather than on someone's next
+`GHENT_UPDATE=1` run.
 
 ## Tests
 

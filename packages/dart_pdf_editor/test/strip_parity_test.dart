@@ -66,7 +66,7 @@ const _edgeContrast = 48;
 /// strip-rasterized like everything else and the documented analytic-vs-Skia
 /// edge disagreement applies to them too. On edge-dense pages (GWG090
 /// Font-Support, GWG161 blend modes) that lifts the whole-page mean just past
-/// 2.0 - 2.57 and 2.34 - while their edge share stays 100% and the
+/// 2.0 - 2.35 and 2.33 - while their edge share stays 100% and the
 /// *structural* (off-edge) fraction, which is what actually catches a
 /// displaced or recoloured render, stays clear. The two pages that were
 /// already outside the gate (GWG030 4.34, GWG040 4.84) still are.
