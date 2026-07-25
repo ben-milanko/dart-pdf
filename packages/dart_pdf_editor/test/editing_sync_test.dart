@@ -156,6 +156,33 @@ void main() {
       expect(change.kind, PdfAnnotationChangeKind.modified);
       expect(change.name, edited);
     });
+
+    test('removing a page emits a removal, and re-pages the survivors',
+        () async {
+      // Structural edits carry a null annotationPages, so the baseline is
+      // rebuilt over the whole document (#416's pages == null branch). Dropping
+      // page 0 must diff its annotation as a removal; the page-1 annotation
+      // shifts down to page 0, so — as with the old re-open path — its changed
+      // pageIndex reads as a modification the peer needs to re-place it.
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(100, 600, 200, 700));
+      editing.selectAnnotation(0, 0);
+      final onPage0 = editing.selectedAnnotation!.name;
+      editing.addRectangle(1, const PdfRect(100, 600, 200, 700));
+      editing.selectAnnotation(1, 0);
+      final onPage1 = editing.selectedAnnotation!.name;
+
+      final (batches, _) = listen(editing);
+      editing.removePage(0);
+      await pumpEventQueue();
+
+      expect(batches, hasLength(1));
+      final byName = {for (final c in batches[0]) c.name: c};
+      expect(byName[onPage0]!.kind, PdfAnnotationChangeKind.removed);
+      expect(byName[onPage1]!.kind, PdfAnnotationChangeKind.modified);
+      expect(byName[onPage1]!.pageIndex, 0); // shifted 1 -> 0
+    });
   });
 
   group('remote replay', () {
