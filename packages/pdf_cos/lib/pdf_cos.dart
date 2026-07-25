@@ -4,6 +4,7 @@ library;
 
 export 'src/builder.dart';
 export 'src/byte_source.dart';
+export 'src/compactor.dart';
 export 'src/content_parser.dart';
 export 'src/crypto/aes.dart';
 export 'src/crypto/asn1.dart';
