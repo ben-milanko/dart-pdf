@@ -265,6 +265,47 @@ void main() {
       }
     });
   });
+
+  testWidgets('GWG020 grades its image and stencil patches as passing',
+      (tester) async {
+    final file =
+        File('../../test_corpora/ghent/2-SPOT/GWG020_CMYKSpot_OP_x1a.pdf');
+    if (!file.existsSync()) {
+      markTestSkipped('test_corpora/ghent not found');
+      return;
+    }
+    await tester.runAsync(() async {
+      await loadSystemFonts();
+      final doc = PdfDocument.open(file.readAsBytesSync());
+
+      // Ten patches in two rows of five (font / vector / image / mask /
+      // shading), each a spot-green square with a white X that must vanish
+      // when overprint is honoured. The two image patches and the two "mask"
+      // (/ImageMask stencil) patches are what issue #604 moved; the font
+      // patches keep their marker, because the buffer marks a text run by its
+      // em box rather than its glyph outlines (issue #502's deliberate
+      // trade - see doc/dev-log/2026-07-25-overprint-colorant-buffer.md).
+      const patches = <String, (int, int, int, int)>{
+        'c: image, cmyk over spot': (249, 81, 284, 117),
+        'd: mask, cmyk over spot': (335, 81, 370, 117),
+        'h: image, spot over cmyk': (249, 162, 284, 198),
+        'i: mask, spot over cmyk': (335, 162, 370, 198),
+      };
+      final colorants = await _measure(doc.page(0), _Mode.colorants, patches);
+      final none = await _measure(doc.page(0), _Mode.none, patches);
+      for (final name in patches.keys) {
+        expect(colorants[name]!.spread, lessThan(60),
+            reason: '"$name" should render flat '
+                '(spread ${colorants[name]!.spread})');
+        expect(colorants[name]!.isGreen, isTrue,
+            reason: '"$name" should settle on the spot green, got '
+                '${colorants[name]!.dominant}');
+        expect(none[name]!.spread, greaterThan(150),
+            reason: 'without overprint "$name" should show its white X '
+                '(spread ${none[name]!.spread})');
+      }
+    });
+  });
 }
 
 /// A Ghent DeviceN overprint page: four self-grading patches, two painted with

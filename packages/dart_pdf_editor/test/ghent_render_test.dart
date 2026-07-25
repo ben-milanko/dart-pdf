@@ -88,6 +88,15 @@ const _pixelRatio = 2.0;
 /// OPM-1 row and is still knocked out to flat pink in the OPM-0 row, which is
 /// the contrast the page exists to draw. (Its "image" patch straddles two
 /// backdrops at once and still declines; see the dev log.)
+///
+/// `GWG020_CMYKSpot_OP` stays in the set but was re-seeded: six more of its ten
+/// self-grading patches now pass - the two image and two shading patches (a
+/// uniform raster is a backdrop the buffer can composite against) and the two
+/// /ImageMask "mask" patches (a stencil paints the fill colour through its own
+/// alpha, so only that colour needs resolving). Its two *font* patches still
+/// show their marker, because the buffer marks a text run by its em box rather
+/// than its glyph outlines - issue #502's deliberate cost trade - so the page
+/// remains a tolerated deviation.
 const _knownBaselineDeviations = <String>{
   '1-CMYK/Ghent_PDF-Output-Test-V50_CMYK_X4.pdf',
   '2-SPOT/Ghent_PDF-Output-Test-V50_SPOT_X4.pdf',

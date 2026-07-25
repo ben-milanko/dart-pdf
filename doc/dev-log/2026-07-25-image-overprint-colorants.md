@@ -29,7 +29,8 @@ Three pieces, all pure Dart in `pdf_graphics`:
   whose colours are the result.
 - **`PdfOverprintCompositor.image`** - the policy: rasterize the image's quad,
   read the backdrop under it, offer it to the caller, and record what the image
-  leaves behind.
+  leaves behind. Its sibling **`.stencil`** handles the one image kind that
+  needs no substitute (below).
 
 The substitute is a plain unfiltered `/DeviceRGB` 8-bit XObject of the same
 dimensions carrying the source's `/SMask`, stencil `/Mask`, `/Interpolate` and
@@ -71,10 +72,6 @@ of the Ghent corpus and the overwhelming majority of those draws land on white.
 - **A colour-key `/Mask`** - its ranges are stated in source-sample space and
   mean nothing against DeviceRGB samples; dropping the mask would paint pixels
   that must not appear.
-- **A stencil (`/ImageMask`)** - it carries no colour of its own, it paints the
-  *fill* colour through its alpha. Resolving it means reading the backdrop
-  under the stencil's coverage rather than its quad, which the buffer does not
-  model.
 - **More than one backdrop under the raster.** One substitute composites
   against one backdrop; a raster straddling two would need one per region. This
   is the one visible incompleteness - see GWG010 below.
@@ -92,6 +89,22 @@ which is why `PdfImageColorants` separates `uniformInk` from `backdropInk`.
 Uniformity is compared on raw sample tuples with an early exit, so a
 non-uniform raster costs a handful of samples, and the answer is memoised per
 stream.
+
+## Stencils need no substitute
+
+An `/ImageMask` carries no colour of its own: it paints the *fill* colour
+through its own alpha (§8.9.6.2), so its ink is ordinary vector ink with an
+ordinary colorant reading, and the only thing to resolve is the colour on the
+request. What the buffer cannot model is a stencil's **coverage** - the mask,
+not the quad. `PdfOverprintCompositor.stencil` therefore resolves only when the
+backdrop is a single vector across the whole quad, where "wherever the mask
+paints" and "anywhere in the quad" composite to the same colour and painting
+that colour through the mask is exact. The quad records as unknown either way,
+because the backdrop survives wherever the mask is clear.
+
+That is a handful of lines and it clears GWG020's two "mask" patches, so the
+interpreter's image path now returns a `(stream, stencilColor)` pair rather
+than just a stream.
 
 ## The identity of the substitute is load-bearing
 
@@ -117,7 +130,7 @@ colour.
 
 ## Measured effect on the Ghent suite
 
-Rendered every page before and after and diffed. **Five pages change**, and the
+Rendered every page before and after and diffed. **Six pages change**, and the
 suite goes from 41 to 44 pixel-enforced pages:
 
 | page | before → after |
@@ -127,6 +140,7 @@ suite goes from 41 to 44 pixel-enforced pages:
 | GWG192 DeviceN Overprint (White) | same |
 | GWG031 Gray Image Overprint | the "Wrong" white box around the drop shadow → the **"Correct"** green |
 | GWG010 CMYK Overprint Test | its OPM-1 "mask" patch now shows the backdrop through |
+| GWG020 Spot to CMYK Overprint | 4 of 10 patches graded as passing → **8 of 10** |
 
 GWG190/191/192's own legends state the grading exactly: "a + b must be rendered
 to solid Black (100C100K) rectangles… a faint X means that OP is not honored
@@ -135,6 +149,18 @@ Cyan rectangles". Patch d is the OPM trap - the mode-1 zero rule is DeviceCMYK's
 alone (§8.6.7.3), so a DeviceN `100C0Y0K` must still knock the backdrop's black
 out - and it is flat under both a right and a wrong overprint, so what pins it
 is the *colour* assertion, not flatness.
+
+### GWG020, which was not on the acceptance list
+
+GWG020 is ten self-grading patches - font / vector / image / mask / shading, in
+two rows - each a spot-green square with a white X that must vanish. Six of
+them moved: the two image patches and the two shading patches, because a
+uniform raster is now a *backdrop* the buffer can composite against (the
+shadings sit on one), and the two stencil patches from `.stencil`. Only the two
+**font** patches still show their marker: the buffer marks a text run by its em
+box rather than its glyph outlines, which is #502's deliberate cost trade, so
+an overprint landing on text still declines. GWG020 stays in
+`_knownBaselineDeviations` for those two; its baseline was re-seeded.
 
 ### GWG010, honestly
 
@@ -181,15 +207,26 @@ counter gate (`tool/perf.sh gate`) is the other half.
 
 - `pdf_graphics/test/image_colorants_test.dart` (new): the `/Indexed` colorant
   reading, what `pdfImageColorants` reads and refuses, the substitute's two
-  exact-answer branches and its per-sample composite, the bare-paper
-  short-circuit, the colour-key refusal, the memo's stable identity, and
-  `PdfOverprintCompositor.image`'s decisions (backdrop offered, two backdrops
-  declined, a uniform raster recorded as a backdrop, a varying one not).
+  exact-answer branches and its per-sample composite, the spot equivalent an
+  image contributes on its own, the bare-paper short-circuit, the colour-key
+  refusal, the memo's stable identity, `PdfOverprintCompositor.image`'s
+  decisions (backdrop offered, two backdrops declined, a uniform raster
+  recorded as a backdrop, a varying one not), and `.stencil`'s (resolves over
+  one backdrop, declines over two, never becomes a backdrop itself).
 - `dart_pdf_editor/test/overprint_render_test.dart`: extended from GWG030 to
   GWG190/191/192 (four patches each, flatness plus the graded colour, with the
-  no-overprint control showing the marker the fixture describes) and GWG031
-  (the panel margins keep the spot green under the raster's white background,
-  and are knocked out to white without overprint). `_measure` now takes the box
-  set so all four pages share one measure.
+  no-overprint control showing the marker the fixture describes), GWG031 (the
+  panel margins keep the spot green under the raster's white background, and
+  are knocked out to white without overprint) and GWG020 (its image and stencil
+  patches). `_measure` now takes the box set so every page shares one measure,
+  and GWG031 is additionally rendered through the **two-walk** path, which is
+  the guard for the collect/paint stream agreement above - it fails as a blank
+  panel, not a wrong colour, so nothing else would catch it.
 - `ghent_render_test.dart`: GWG190/191/192 removed from
-  `_knownBaselineDeviations`; the GWG010 re-seed documented there.
+  `_knownBaselineDeviations`; the GWG010 and GWG020 re-seeds documented there.
+- `tool/perf/baselines/counters.json`: GWG010 and GWG020 decode more streams
+  now - the images' own samples, and the tint-transform streams of the colour
+  spaces that give them a colorant reading. Both are pages that declare
+  overprint *and* draw colorant-bearing images, and on both the reads are used
+  (a substitute is built), so this is the feature's own cost rather than
+  speculative work. The other ten gate inputs are unmoved.

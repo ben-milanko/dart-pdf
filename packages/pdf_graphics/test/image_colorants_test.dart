@@ -403,5 +403,87 @@ void main() {
       expect(resolveOver(c, rect(20, 20, 80, 80)), isNull);
       c.endIsolated();
     });
+
+    group('stencils', () {
+      /// Paints a spot-green backdrop and stencils [ink] over part of it.
+      PdfColor? stencilOver(PdfInkColorants? ink,
+          {bool overprint = true, PdfPath? backdrop}) {
+        final c = buffer();
+        final spot = PdfColorSpace.parse(
+            cos,
+            CosArray([
+              const CosName('Separation'),
+              const CosName('GWG Green'),
+              const CosName('DeviceCMYK'),
+              exponential(const [0.5, 0, 1, 0]),
+            ]));
+        const green = PdfColor(0.53, 0.79, 0.27);
+        c.fill(backdrop ?? rect(0, 0, 100, 100), PdfFillRule.nonzero, green,
+            spot.inkColorants(const [1.0]),
+            overprint: false, mode: 0, opaque: true);
+        return c.stencil(rect(20, 20, 80, 80), const PdfColor(0, 0, 0), ink,
+            overprint: overprint, mode: 1, opaque: true);
+      }
+
+      test('a stencil paints the fill colour composited over the backdrop', () {
+        // 50% K through the mask over a spot green: DeviceCMYK writes the
+        // process colorants, the spot survives, and the result is a colour the
+        // page never painted - so it converts through the separations model.
+        final resolved = stencilOver(PdfInkColorants.deviceCmyk(0, 0, 0, 0.5));
+        expect(resolved, isNotNull);
+        expect(resolved, isNot(const PdfColor(0, 0, 0)),
+            reason: 'the stencil must not knock the spot backdrop out');
+      });
+
+      test('a stencil writing nothing new repaints the backdrop exactly', () {
+        // The GWG020 shape: the stencil colour is the backdrop's own spot at
+        // the same tint, so a faithful overprint is invisible.
+        final spot = PdfColorSpace.parse(
+            cos,
+            CosArray([
+              const CosName('Separation'),
+              const CosName('GWG Green'),
+              const CosName('DeviceCMYK'),
+              exponential(const [0.5, 0, 1, 0]),
+            ]));
+        expect(stencilOver(spot.inkColorants(const [1.0])),
+            const PdfColor(0.53, 0.79, 0.27));
+      });
+
+      test('declines without overprint, without ink, and over two backdrops',
+          () {
+        expect(
+            stencilOver(PdfInkColorants.deviceCmyk(0, 0, 0, 0.5),
+                overprint: false),
+            isNull);
+        expect(stencilOver(null), isNull,
+            reason: 'an RGB fill colour has no colorant reading');
+        expect(
+            stencilOver(PdfInkColorants.deviceCmyk(0, 0, 0, 0.5),
+                backdrop: rect(0, 0, 50, 100)),
+            isNull,
+            reason: 'half the quad is bare paper, so "wherever the mask '
+                'paints" is not one colour');
+      });
+
+      test('never becomes a backdrop of its own', () {
+        final c = buffer();
+        c.fill(rect(0, 0, 100, 100), PdfFillRule.nonzero,
+            const PdfColor(0.31, 0.45, 0.13),
+            PdfInkColorants.deviceCmyk(0.5, 0, 1, 0.5),
+            overprint: false, mode: 0, opaque: true);
+        c.stencil(rect(0, 0, 100, 100), const PdfColor(0, 0, 0),
+            PdfInkColorants.deviceCmyk(0, 0, 0, 1),
+            overprint: false, mode: 0, opaque: true);
+        expect(
+            c.fill(rect(20, 20, 80, 80), PdfFillRule.nonzero,
+                const PdfColor(0, 0.7, 0.9),
+                PdfInkColorants.deviceCmyk(1, 0, 0, 0),
+                overprint: true, mode: 1, opaque: true),
+            isNull,
+            reason: 'the backdrop survives wherever the mask is clear, so the '
+                'quad reads as unknown');
+      });
+    });
   });
 }

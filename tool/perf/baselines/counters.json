@@ -75,10 +75,10 @@
     "xrefOffsetRescue": 0
   },
   "ghent:1-CMYK/GWG010_CMYK_OP_x3.pdf": {
-    "objectsLoaded": 51,
+    "objectsLoaded": 53,
     "objectStreamsLoaded": 0,
-    "streamsDecoded": 14,
-    "bytesDecodedFlate": 20752,
+    "streamsDecoded": 15,
+    "bytesDecodedFlate": 29777,
     "bytesDecodedOther": 0,
     "contentOps": 1728,
     "contentBytes": 29874,
@@ -120,10 +120,10 @@
     "xrefOffsetRescue": 0
   },
   "ghent:2-SPOT/GWG020_CMYKSpot_OP_x1a.pdf": {
-    "objectsLoaded": 41,
+    "objectsLoaded": 47,
     "objectStreamsLoaded": 0,
-    "streamsDecoded": 7,
-    "bytesDecodedFlate": 11810,
+    "streamsDecoded": 11,
+    "bytesDecodedFlate": 26280,
     "bytesDecodedOther": 0,
     "contentOps": 668,
     "contentBytes": 10370,

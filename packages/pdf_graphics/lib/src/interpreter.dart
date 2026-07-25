@@ -21,6 +21,11 @@ import 'render_command.dart';
 import 'shading.dart';
 import 'translating_device.dart';
 
+/// What an image draw resolves to once overprint has been applied: the stream
+/// the device should draw, and the colour a stencil paints through its mask
+/// (issue #604).
+typedef PdfImageDraw = ({CosStream stream, PdfColor stencilColor});
+
 /// Graphics state, mirroring §8.4. Text state parameters live here too
 /// because `Tf`, `Tc` etc. are saved and restored by `q`/`Q`.
 class _GraphicsState {
@@ -2530,7 +2535,7 @@ class PdfInterpreter {
       ]);
 
   /// Records an image draw in the colorant buffer and resolves its overprint,
-  /// returning the stream the device should actually draw (issue #604).
+  /// returning what the device should actually draw (issue #604).
   ///
   /// An overprinting raster over a known backdrop is drawn as a **substitute**
   /// stream whose samples are already composited in ink space
@@ -2541,38 +2546,42 @@ class PdfInterpreter {
   /// an open transparency group) the original stream is drawn exactly as
   /// before.
   ///
-  /// Stencils are excluded: an /ImageMask carries no colour of its own, it
-  /// paints the *fill* colour through its alpha, and resolving that would mean
-  /// reading the backdrop under the stencil's coverage rather than its quad.
-  CosStream _imageStreamFor(
+  /// A stencil (/ImageMask) carries no colour of its own - it paints the fill
+  /// colour through its alpha - so it keeps its stream and gets a resolved
+  /// [PdfImageDraw.stencilColor] instead (see [PdfOverprintCompositor.stencil]).
+  PdfImageDraw _imageDrawFor(
       CosStream stream, CosDictionary? resources, bool isStencil) {
     final overprint = _overprint;
-    if (overprint == null) return stream;
+    final stencilColor = _state.fillColor;
+    if (overprint == null) return (stream: stream, stencilColor: stencilColor);
     final quad = _imageQuad(_state.ctm);
     if (isStencil) {
-      overprint.markUnknownPath(quad, PdfFillRule.nonzero);
-      return stream;
-    }
-    final reading = pdfImageColorants(cos, stream, resources: resources);
-    return overprint.image<CosStream>(
-          quad,
-          ink: reading?.backdropInk,
-          color: reading?.uniformColor ?? PdfColor.black,
-          hasColorants: reading != null,
+      final resolved = overprint.stencil(quad, stencilColor, _state.fillInk,
           overprint: _state.fillOverprint,
           mode: _state.overprintMode,
-          opaque: _opaquePaint(_state.fillAlpha),
-          resolve: (backdrop, backdropColor) => pdfImageOverprintStream(
-            cos,
-            stream,
-            resources: resources,
-            backdrop: backdrop,
-            backdropColor: backdropColor,
-            mode: _state.overprintMode,
-            spotEquivalents: overprint.spotEquivalents,
-          ),
-        ) ??
-        stream;
+          opaque: _opaquePaint(_state.fillAlpha));
+      return (stream: stream, stencilColor: resolved ?? stencilColor);
+    }
+    final reading = pdfImageColorants(cos, stream, resources: resources);
+    final resolved = overprint.image<CosStream>(
+      quad,
+      ink: reading?.backdropInk,
+      color: reading?.uniformColor ?? PdfColor.black,
+      hasColorants: reading != null,
+      overprint: _state.fillOverprint,
+      mode: _state.overprintMode,
+      opaque: _opaquePaint(_state.fillAlpha),
+      resolve: (backdrop, backdropColor) => pdfImageOverprintStream(
+        cos,
+        stream,
+        resources: resources,
+        backdrop: backdrop,
+        backdropColor: backdropColor,
+        mode: _state.overprintMode,
+        spotEquivalents: overprint.spotEquivalents,
+      ),
+    );
+    return (stream: resolved ?? stream, stencilColor: stencilColor);
   }
 
   /// Executes a Type3 glyph procedure: a tiny content stream in glyph space,
@@ -3167,12 +3176,13 @@ class PdfInterpreter {
     if (name == 'Image') {
       final isStencil = cos.resolve(xobject.dictionary['ImageMask']) ==
           const CosBoolean(true);
+      final draw = _imageDrawFor(xobject, resources, isStencil);
       device.drawImage(PdfImageRequest(
-        stream: _imageStreamFor(xobject, resources, isStencil),
+        stream: draw.stream,
         transform: _state.ctm,
         alpha: _state.fillAlpha,
         isStencil: isStencil,
-        stencilColor: _state.fillColor,
+        stencilColor: draw.stencilColor,
       ));
       return;
     }
@@ -3336,16 +3346,17 @@ class PdfInterpreter {
       dict[expansions[key] ?? key] = value;
     });
     final isStencil = dict['ImageMask'] == const CosBoolean(true);
+    // An inline image's stream is synthesized fresh on every pass, so consumers
+    // key it by value - which a substitute (also fresh each pass) satisfies
+    // exactly as the original does.
+    final draw = _imageDrawFor(
+        CosStream(dict, (o[1] as CosString).bytes), resources, isStencil);
     device.drawImage(PdfImageRequest(
-      // An inline image's stream is synthesized fresh on every pass, so
-      // consumers key it by value - which a substitute (also fresh each pass)
-      // satisfies exactly as the original does.
-      stream: _imageStreamFor(
-          CosStream(dict, (o[1] as CosString).bytes), resources, isStencil),
+      stream: draw.stream,
       transform: _state.ctm,
       alpha: _state.fillAlpha,
       isStencil: isStencil,
-      stencilColor: _state.fillColor,
+      stencilColor: draw.stencilColor,
       isInline: true,
     ));
   }

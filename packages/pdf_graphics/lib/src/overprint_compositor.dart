@@ -275,6 +275,48 @@ class PdfOverprintCompositor {
     return resolved;
   }
 
+  /// Resolves a stencil (/ImageMask) draw covering [path], the quad of its
+  /// unit square.
+  ///
+  /// A stencil carries no colour of its own: it paints the *fill* colour
+  /// through its own alpha (§8.9.6.2), so the ink is ordinary vector ink with
+  /// an ordinary colorant reading. What the buffer cannot model is its
+  /// **coverage** - the mask, not the quad. So resolving is allowed only when
+  /// the backdrop is a single vector across the whole quad, where every pixel
+  /// the mask does paint composites to the same colour and painting that colour
+  /// through the mask is exact.
+  ///
+  /// The quad is recorded as unknown either way: the backdrop survives wherever
+  /// the mask is clear, so the stencil is not a backdrop of its own.
+  PdfColor? stencil(PdfPath path, PdfColor color, PdfInkColorants? ink,
+      {required bool overprint, required int mode, required bool opaque}) {
+    if (_exhausted || _muted != 0) return null;
+    _draws++;
+    final spans = _raster.fillSpans(path, evenOdd: false);
+    if (spans.isEmpty) return null;
+    if (!overprint ||
+        !opaque ||
+        _suspended != 0 ||
+        ink == null ||
+        ink.writesNothing) {
+      _raster.paintFlat(spans, _unknownIndex);
+      return null;
+    }
+    final backdrops = _raster.backdropUnder(spans);
+    if (backdrops == null ||
+        backdrops.length != 1 ||
+        backdrops.first == _unknownIndex) {
+      _raster.paintFlat(spans, _unknownIndex);
+      return null;
+    }
+    final backdrop = backdrops.first;
+    _learnSpots(ink);
+    final composite = ink.over(_paletteColorants[backdrop], mode);
+    final resolved = _srgbFor(composite, backdrop, ink, color);
+    _raster.paintFlat(spans, _unknownIndex);
+    return resolved;
+  }
+
   /// Records an image's own coverage: its colorants when the raster carries one
   /// vector throughout and paints opaquely, else unknown.
   void _recordImage(ColorantSpans spans, PdfInkColorants? ink, PdfColor color) {
