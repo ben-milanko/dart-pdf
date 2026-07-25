@@ -326,6 +326,21 @@ class _IsolateRenderWorker extends PdfRenderWorker {
     }
   }
 
+  @override
+  Future<PdfPageText?> extractText(int pageIndex, {int priority = 0}) async {
+    if (_disposed || _spawnFailed) return null;
+    final request = _PendingRequest.extractText(priority, _seq++, pageIndex);
+    _queue.add(request);
+    _pump();
+    final buffers = await request.completer.future;
+    if (buffers == null) return null;
+    try {
+      return deserializePageText(buffers.single);
+    } catch (_) {
+      return null; // corrupt buffer → extract in-isolate rather than crash
+    }
+  }
+
   /// Sends the highest-priority queued request to the worker when it is idle
   /// and spawned. Lower [priority] wins; ties break by submission order, so a
   /// freshly-requested visible page (priority 0) preempts pending prefetch.
@@ -413,6 +428,10 @@ class _IsolateRenderWorker extends PdfRenderWorker {
         request.regionMaxCommands,
         request.regionBuildGrid,
       ]);
+    } else if (request.kind == _RequestKind.extractText) {
+      // The 4th slot (annotations) is unused by text extraction but keeps the
+      // worker's shared pageIndex/annotations decode uniform across kinds.
+      port.send(['extractText', request.id, request.pageIndex, false]);
     } else {
       port.send([
         'detail',
@@ -506,7 +525,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
   }
 }
 
-enum _RequestKind { record, bin, detail, update, regionIndex }
+enum _RequestKind { record, bin, detail, update, regionIndex, extractText }
 
 /// One queued request (a page record or a strip bin) and its pending result.
 class _PendingRequest {
@@ -597,6 +616,25 @@ class _PendingRequest {
         appendedBytes = null,
         newLength = 0,
         changedPages = null;
+
+  _PendingRequest.extractText(this.priority, this.seq, this.pageIndex)
+      : kind = _RequestKind.extractText,
+        annotations = false,
+        imagePixelRatio = null,
+        decodeImages = false,
+        commandLimit = null,
+        imageDecodeRegion = null,
+        pageToDevice = null,
+        deviceWidth = 0,
+        deviceHeight = 0,
+        binPixelRatio = 0,
+        slugGlyphs = false,
+        baseLength = 0,
+        appendedBytes = null,
+        newLength = 0,
+        changedPages = null,
+        regionMaxCommands = 0,
+        regionBuildGrid = false;
 
   _PendingRequest.update(
       this.priority,
@@ -851,6 +889,8 @@ void _workerMain(_WorkerInit init) {
               request[4] as int,
               request[5] as bool,
               token);
+        } else if (kind == 'extractText') {
+          buffer = _extractTextForWorker(doc, pageIndex);
         } else {
           final imagePixelRatio = request[4] as double?;
           final decodeImages = request[5] as bool;
@@ -898,6 +938,16 @@ void _workerMain(_WorkerInit init) {
       ]);
     }
   });
+}
+
+/// Extracts one page's text off the UI isolate and serializes it for the wire
+/// (#396). Synchronous - [PdfTextExtractor.extract] is a single content walk
+/// with no cancellation seam - but it runs on the worker isolate, so a heavy
+/// page's extraction no longer freezes the frame; a superseded search just
+/// discards the result. Null (a bad index) declines to a local extraction.
+Uint8List? _extractTextForWorker(PdfDocument document, int pageIndex) {
+  if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
+  return serializePageText(PdfTextExtractor.extract(document, pageIndex));
 }
 
 /// Records one page into a serialized command buffer, yielding periodically

@@ -3145,12 +3145,26 @@ class _PdfViewerState extends State<PdfViewer>
     final textCache = widget.textCache;
     final key = widget.documentId;
     if (textCache != null && key != null && widget.editing == null) {
-      final text = await textCache.get(
-          key, index, () => PdfTextExtractor.extract(_document, index));
+      final text = await textCache.get(key, index, () => _extractPageText(index));
       return _textCache.putIfAbsent(index, () => text);
     }
-    return _textCache.putIfAbsent(
-        index, () => PdfTextExtractor.extract(_document, index));
+    final text = await _extractPageText(index);
+    return _textCache.putIfAbsent(index, () => text);
+  }
+
+  /// Extracts page [index]'s text off the UI isolate through the render worker
+  /// when one is active, falling back to a local (on-thread) extraction (#396).
+  /// A full content walk on a heavy page is a multi-hundred-ms freeze when it
+  /// runs on the UI thread; the worker - kept in step with the current revision
+  /// like the render path - moves it off. Search drives this; hover keeps its
+  /// synchronous [_pageText] path, already gated by content size.
+  Future<PdfPageText> _extractPageText(int index) async {
+    final worker = _effectiveRenderWorker;
+    if (worker != null && worker.isActive) {
+      final text = await worker.extractText(index);
+      if (text != null) return text;
+    }
+    return PdfTextExtractor.extract(_document, index);
   }
 
   Future<List<PdfSearchResult>> _searchAllPages(

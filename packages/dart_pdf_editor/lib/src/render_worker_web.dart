@@ -524,6 +524,22 @@ class _WebRenderWorker extends PdfRenderWorker {
     }
   }
 
+  @override
+  Future<PdfPageText?> extractText(int pageIndex, {int priority = 0}) async {
+    if (_disposed || _failed) return null;
+    final request = _WebPending.extractText(priority, _seq++, pageIndex);
+    _trace(request);
+    _queue.add(request);
+    _pump();
+    final buffers = await request.completer.future;
+    if (buffers == null || buffers.length != 1) return null;
+    try {
+      return deserializePageText(buffers.single);
+    } catch (_) {
+      return null; // corrupt buffer → extract in-isolate rather than crash
+    }
+  }
+
   void _trace(_WebPending request) {
     final clock = _perfClock;
     if (clock == null) return;
@@ -756,7 +772,7 @@ class _WebRenderWorker extends PdfRenderWorker {
   }
 }
 
-enum _WebRequestKind { record, bin, detail, regionIndex }
+enum _WebRequestKind { record, bin, detail, regionIndex, extractText }
 
 /// One queued record or strip-bin request (mirrors the isolate backend's
 /// `_PendingRequest`).
@@ -832,6 +848,21 @@ class _WebPending {
       deviceHeight = 0,
       binPixelRatio = 0,
       slugGlyphs = false;
+
+  _WebPending.extractText(this.priority, this.seq, this.pageIndex)
+      : kind = _WebRequestKind.extractText,
+        annotations = false,
+        imagePixelRatio = null,
+        decodeImages = false,
+        commandLimit = null,
+        imageDecodeRegion = null,
+        pageToDevice = null,
+        deviceWidth = 0,
+        deviceHeight = 0,
+        binPixelRatio = 0,
+        slugGlyphs = false,
+        regionMaxCommands = 0,
+        regionBuildGrid = false;
 
   final _WebRequestKind kind;
   final int priority;

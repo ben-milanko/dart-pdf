@@ -12,6 +12,7 @@ import 'mesh.dart';
 import 'path.dart';
 import 'render_command.dart';
 import 'shading.dart';
+import 'text_extraction.dart';
 
 /// Binary (de)serialization for a recorded [PdfRenderCommand] buffer.
 ///
@@ -368,6 +369,61 @@ List<PdfRenderCommand> deserializeCommands(Uint8List bytes) {
   final commands = _readCommands(r);
   deserializeCommandsMicros += sw.elapsedMicroseconds;
   return commands;
+}
+
+/// Serializes an extracted [PdfPageText] for the render worker → UI-isolate hop
+/// (#396: off-thread text extraction). It is plain data - the page index, the
+/// page text, and each run's geometry - so it crosses the boundary as a compact
+/// byte buffer instead of a graph copy. The search quads/rects a match needs are
+/// recomputed from the runs on the UI isolate, so they are not serialized.
+Uint8List serializePageText(PdfPageText page) {
+  final w = _Writer();
+  w.u8(_formatVersion);
+  w.u32(page.pageIndex);
+  w.str(page.text);
+  w.u32(page.runs.length);
+  for (final run in page.runs) {
+    w.str(run.text);
+    w.u32(run.startIndex);
+    w.boolean(run.mcid != null);
+    w.u32(run.mcid ?? 0);
+    _writeMatrix(w, run.transform);
+    w.f64(run.width);
+    _writeRect(w, run.bounds);
+    w.boolean(run.isRightToLeft);
+  }
+  return w.takeBytes();
+}
+
+/// Reconstructs the [PdfPageText] written by [serializePageText].
+PdfPageText deserializePageText(Uint8List bytes) {
+  final r = _Reader(bytes);
+  final version = r.u8();
+  assert(version == _formatVersion, 'page-text codec version mismatch');
+  final pageIndex = r.u32();
+  final text = r.str();
+  final count = r.u32();
+  final runs = <PdfExtractedRun>[];
+  for (var i = 0; i < count; i++) {
+    final runText = r.str();
+    final startIndex = r.u32();
+    final hasMcid = r.boolean();
+    final mcid = r.u32();
+    final transform = _readMatrix(r);
+    final width = r.f64();
+    final bounds = _readRect(r);
+    final isRightToLeft = r.boolean();
+    runs.add(PdfExtractedRun(
+      text: runText,
+      startIndex: startIndex,
+      mcid: hasMcid ? mcid : null,
+      transform: transform,
+      width: width,
+      bounds: bounds,
+      isRightToLeft: isRightToLeft,
+    ));
+  }
+  return PdfPageText(pageIndex: pageIndex, text: text, runs: runs);
 }
 
 void _writeCommands(
