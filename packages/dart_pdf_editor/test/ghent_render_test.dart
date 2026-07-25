@@ -63,29 +63,30 @@ const _pixelRatio = 2.0;
 /// deviation. The dedicated JPX decode guard (pdf_graphics
 /// ghent_jpx_indexed_test.dart) pins both images to their palette colour so a
 /// regression back to the black square cannot hide behind this tolerance.
+///
+/// `GWG030_Gray_K_black_OP_X1` used to be here and is now pixel-enforced: the
+/// CMYK/spot colorant buffer (issue #502) makes overprint subtractive, so all
+/// twelve of its self-grading patches come out uniform - including the three
+/// where a neutral ink must knock a DeviceCMYK backdrop's process colorants out
+/// to grey while a spot backdrop of the same RGB colour survives, which no RGB
+/// compositor could separate. `overprint_render_test.dart` pins the per-patch
+/// result platform-independently.
 const _knownBaselineDeviations = <String>{
   '1-CMYK/Ghent_PDF-Output-Test-V50_CMYK_X4.pdf',
+  // The three DeviceN overprint patches each grade four cases: two vector and
+  // two image. The colorant buffer (issue #502) fixed both vector cases on all
+  // three pages - a DeviceN ink now writes exactly the colorants it names, so
+  // "100C over CMYK black" renders solid black and "100C0Y0K over CMYK black"
+  // solid cyan (the latter is the page's own OPM-1 trap: the mode-1 zero rule
+  // is DeviceCMYK's alone, §8.6.7.3). The image cases still show their marker -
+  // decoded pixels carry no colorant reading, so an image neither overprints
+  // nor is overprinted onto - which keeps these pages out of pixel
+  // enforcement.
   '1-CMYK/GWG190_DeviceN_Overprint_Black_X1a.pdf',
   '1-CMYK/GWG191_DeviceN_Overprint_Yellow_X1a.pdf',
   '1-CMYK/GWG192_DeviceN_Overprint_White_X1a.pdf',
   '2-SPOT/Ghent_PDF-Output-Test-V50_SPOT_X4.pdf',
   '2-SPOT/GWG020_CMYKSpot_OP_x1a.pdf',
-  // GWG030 self-grades gray/K/separation overprint over spot/CMYK backgrounds
-  // (issue #502). Overprint is consumed: /op /OP fills and strokes darken
-  // (BlendMode.darken) onto the backdrop instead of knocking it out, which
-  // flattens the fail-marker "X" on every "over spot" patch and on the "over
-  // CMYK" patches whose neutral ink only darkens (K under OPM 1, separation
-  // black) - the darken approximation is the RGB optimum here (empirically no
-  // OPM-keyed blend beats it). Three patches remain non-uniform: 50% K over
-  // CMYK under OPM 0 (d) and 50% gray over CMYK under either mode (e, k), where
-  // a neutral ink knocks the DeviceCMYK backdrop's process colorants out to
-  // grey. Reproducing that - versus a spot backdrop of the same RGB colour that
-  // must survive - needs a colorant buffer this RGB compositor does not have,
-  // so the page stays out of pixel enforcement, same missing-feature class as
-  // the DeviceN GWG190/191/192 patches above. The per-patch behaviour (which
-  // markers flatten, which remain) is pinned platform-independently by
-  // overprint_render_test.dart; see doc/dev-log/2026-07-23-overprint-rgb-ceiling.md.
-  '2-SPOT/GWG030_Gray_K_black_OP_X1.pdf',
   '3-ICC-CMS/Ghent_PDF-Output-Test-V50_ICC-CMS_X4.pdf',
   '3-ICC-CMS/GWG172_JPEG2000_compression_ICCBasedRGB_x4.pdf',
   '3-ICC-CMS/GWG182_16Bit_Images_ICCbasedGray_x4.pdf',

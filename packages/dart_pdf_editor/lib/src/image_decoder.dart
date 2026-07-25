@@ -25,13 +25,23 @@ import 'performance_policy.dart';
 /// evict and stand in for the other (a blurry page, or a needlessly huge
 /// preview); the dimensions disambiguate them so each caches on its own.
 Object pdfImageKey(PdfImageRequest request) {
-  if (!request.isInline) return request.stream;
-  final content = PdfInlineImageKey(request.stream);
+  final content = pdfImageContentKey(request);
+  if (!request.isInline) return content;
   final decoded = request.decoded;
   return decoded == null
       ? content
       : PdfSizedImageKey(content, decoded.width, decoded.height);
 }
+
+/// Identifies [request]'s source image irrespective of the resolution anything
+/// decoded it at: stream identity for an XObject, a value key for an inline
+/// image (whose stream is synthesized fresh on every interpretation pass).
+///
+/// This is the base the shared cache's key is built on - see [decodeImages],
+/// which qualifies it with the size the image actually ends up at so every
+/// path addressing the same pixels agrees on one entry.
+Object pdfImageContentKey(PdfImageRequest request) =>
+    request.isInline ? PdfInlineImageKey(request.stream) : request.stream;
 
 /// A content key qualified by a decoded resolution - see [pdfImageKey].
 ///
@@ -274,38 +284,102 @@ Future<Map<Object, ui.Image>> decodeImages(
     CosDocument cos, Iterable<PdfImageRequest> requests,
     {PdfImageCache? cache, double? maxImagePixelRatio}) async {
   final out = <Object, ui.Image>{};
+  // Plan the work synchronously first: dedup by key, resolve cache hits, and
+  // collect the misses. Deciding all of this before the first await is what
+  // makes the concurrent decode below safe - a repeated image is decoded once
+  // and two tasks never race the cache on the same key (#454).
+  final pending = <_PendingDecode>[];
+  final seen = <Object>{};
   for (final request in requests) {
     final key = pdfImageKey(request);
-    if (out.containsKey(key)) continue;
+    if (!seen.add(key)) continue;
     // Worker-decoded pixels are already sized; only a local decode is capped.
     final target = request.decoded != null
         ? null
         : _decodeTarget(cos, request, maxImagePixelRatio);
     // The returned map keys by the ratio-independent [pdfImageKey] so the paint
-    // side (which has no ratio) always matches. The shared cache keys by the
-    // target size too, so two zoom levels of the same image cache separately.
-    final cacheKey =
-        target == null ? key : PdfSizedImageKey(key, target.$1, target.$2);
+    // side (which has no ratio) always matches.
+    //
+    // The shared cache keys by the resolution the image *ends up at*, built on
+    // the content key rather than on [key], and it does so on every path. That
+    // is what lets a record carrying worker-decoded pixels and one that decodes
+    // the same image locally address a single entry (#451). Before, the two
+    // disagreed by shape: worker pixels produced a bare content key while a
+    // capped local decode produced a sized one, so the same pixels could be
+    // cached twice under different keys - and a record whose pixels were
+    // dropped would miss the entry its own decode had populated. They happened
+    // to coincide whenever the cap was a no-op, which hid it.
+    final size = _decodedSize(cos, request, target);
+    final cacheKey = size == null
+        ? key
+        : PdfSizedImageKey(pdfImageContentKey(request), size.$1, size.$2);
     final hit = cache?.take(cacheKey);
     if (hit != null) {
       out[key] = hit;
       continue;
     }
+    pending.add(_PendingDecode(key, cacheKey, request, target));
+  }
+  // Decode the misses concurrently. `instantiateImageCodec` / the browser codec
+  // hand the work to a codec thread, so awaiting each image serially left that
+  // thread idle between them - on an image-heavy page that serialisation was a
+  // large slice of the first-paint wait (#454). Overlapping them keeps the
+  // codec busy; the results land in a shared map and the distinct-key cache,
+  // so single-threaded interleaving at the awaits cannot collide.
+  await Future.wait(pending.map((p) async {
     try {
-      final decoded = request.decoded;
+      final decoded = p.request.decoded;
       final image = decoded != null
           ? await _imageFromPremultiplied(
               decoded.rgba, decoded.width, decoded.height)
-          : await _decodeOne(cos, request.stream,
-              targetWidth: target?.$1, targetHeight: target?.$2);
+          : await _decodeOne(cos, p.request.stream,
+              targetWidth: p.target?.$1, targetHeight: p.target?.$2);
       if (image != null) {
-        out[key] = cache == null ? image : cache.put(cacheKey, image);
+        out[p.key] = cache == null ? image : cache.put(p.cacheKey, image);
       }
     } on Exception {
       // undecodable image: the device will skip it
     }
-  }
+  }));
   return out;
+}
+
+/// One image whose decode was deferred so [decodeImages] can run the misses
+/// concurrently. Holds everything the synchronous planning pass resolved.
+class _PendingDecode {
+  _PendingDecode(this.key, this.cacheKey, this.request, this.target);
+  final Object key;
+  final Object cacheKey;
+  final PdfImageRequest request;
+  final (int, int)? target;
+}
+
+/// The resolution [request]'s image ends up at, whichever path produced it:
+/// the pixels a worker already decoded, an explicit local [target], or the
+/// image's native size when nothing caps it. Null when the source declares no
+/// usable dimensions and there are no decoded pixels to measure.
+///
+/// [decodeImages] folds this into the shared cache key so all three paths
+/// address one entry - see the note there. Deliberately separate from
+/// [_decodeTarget]: that one answers "what should I ask the codec for" and
+/// keeps returning null for a no-op cap (so those images keep their
+/// byte-identical native decode), while this answers "what size will the
+/// result be", which is the question the cache key needs.
+(int, int)? _decodedSize(
+    CosDocument cos, PdfImageRequest request, (int, int)? target) {
+  final decoded = request.decoded;
+  if (decoded != null) return (decoded.width, decoded.height);
+  if (target != null) return target;
+  return _nativeSize(cos, request);
+}
+
+/// [request]'s declared source dimensions, or null when absent or degenerate.
+(int, int)? _nativeSize(CosDocument cos, PdfImageRequest request) {
+  final dict = request.stream.dictionary;
+  final w = _intOrNull(cos.resolve(dict['Width']));
+  final h = _intOrNull(cos.resolve(dict['Height']));
+  if (w == null || h == null || w < 1 || h < 1) return null;
+  return (w, h);
 }
 
 /// The display-capped decode size for [request]'s image, or null to decode at
@@ -318,10 +392,9 @@ Future<Map<Object, ui.Image>> decodeImages(
 /// their byte-identical native decode and a bare cache key.
 (int, int)? _decodeTarget(
     CosDocument cos, PdfImageRequest request, double? ratio) {
-  final dict = request.stream.dictionary;
-  final w = _intOrNull(cos.resolve(dict['Width']));
-  final h = _intOrNull(cos.resolve(dict['Height']));
-  if (w == null || h == null || w < 1 || h < 1) return null;
+  final native = _nativeSize(cos, request);
+  if (native == null) return null;
+  final (w, h) = native;
   final t = request.transform;
   // The unit image square maps to page space through [transform]; the edge
   // lengths in points are the column norms.

@@ -110,6 +110,50 @@ file. You can either:
 Either way, if the custom file is missing or stale-by-absence the app just
 renders locally. A forgotten rebuild degrades gracefully; it never breaks.
 
+## Working on this repository
+
+The real bundled worker asset
+(`packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js`) is a
+~1 MB `dart compile js` output that is **not committed** (issue #582) - two
+`dart2js` outputs can't be merged textually, so committing a bundle that almost
+every source change regenerates was a constant source of unmergeable diffs, and
+its `.js.deps` sibling leaked absolute local pub-cache paths.
+
+Because that path is a *declared Flutter asset* (it has to be, so it ships in
+the pub.dev package and loads at the `assets/packages/...` URL), it can't simply
+be absent: `dart analyze` and **every** `flutter build` - web *and native*,
+since Flutter bundles a package's declared assets on every target - fail on a
+missing declared asset. So a small, stable **placeholder** is committed in its
+place, and the real bundle is generated over it at the points that actually
+serve it to the web:
+
+- **Publishing:** `tool/release.sh` runs `build_web_worker` before
+  `pub publish` (and restores the placeholder afterward), so the pub.dev archive
+  ships the real worker.
+- **Deploying / previewing / releasing the web app:** the deploy, preview, and
+  release workflows already run `build_web_worker --out .../pdf_render_worker.dart.js`
+  before `flutter build web`.
+- **Local web builds:** `app/tool/build_web.sh` regenerates it first.
+
+The placeholder throws on load, so if it is ever the file actually served on the
+web (e.g. a bare `flutter run -d chrome` straight from a clone, without
+`build_web.sh`), the client's worker `onerror` handler falls back to main-thread
+rendering - the same graceful degradation as an unset worker URL. To get real
+off-thread rendering in that inner loop, generate the bundle once (only needed
+again when you change worker-linked source):
+
+```sh
+dart run dart_pdf_editor:build_web_worker \
+  --out packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
+```
+
+or just route local web work through `app/tool/build_web.sh`, which does this
+for you. That leaves the ~1 MB bundle in your working tree as an uncommitted
+modification of the placeholder; `git checkout` the path to restore it (CI's
+`worker-compiles` job guards that the committed file stays the small
+placeholder, and also compiles the worker to catch `dart2js`/`.toJS` errors
+`dart analyze` misses).
+
 ## Status
 
 The backend is wired end to end. `render_worker_web.dart` (main-side worker) and

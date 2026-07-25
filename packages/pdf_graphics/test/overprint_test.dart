@@ -1,13 +1,19 @@
 // Overprint state parsing + delivery guard (issue #502).
 //
-// This pins the interpreter half of overprint (§8.6.7): the /OP (stroke),
-// /op (fill) and /OPM (mode) ExtGState keys are parsed into the graphics state,
-// survive q/Q, and are delivered to the device. The RGB canvas then approximates
-// the composite with `darken` (see dart_pdf_editor overprint_render_test.dart);
-// faithful subtractive overprint still needs a CMYK/spot colorant buffer, so
-// Ghent GWG030 stays a tolerated raster baseline deviation like the DeviceN
-// GWG190/191/192 patches. It sits alongside ghent_jpx_indexed_test.dart: pinning
-// a low-level operation directly rather than relying on the tolerated baseline.
+// This pins the state half of overprint (§8.6.7): the /OP (stroke), /op (fill)
+// and /OPM (mode) ExtGState keys are parsed into the graphics state, survive
+// q/Q, and are delivered to the device. What is done with them lives in two
+// other guards - colorant_buffer_test.dart for the ink-space composite the
+// interpreter now resolves (issue #502), and dart_pdf_editor's
+// overprint_render_test.dart for the rendered GWG030 result. It sits alongside
+// ghent_jpx_indexed_test.dart: pinning a low-level operation directly rather
+// than relying on a tolerated raster baseline.
+//
+// These tests interpret with `resolveOverprint: false`, so the tuples recorded
+// here are the parsed state itself. With the colorant buffer on, a draw whose
+// overprint it resolved is deliberately delivered with the flag cleared (the
+// composite is already in the colour), which is that path's contract to pin,
+// not this one's.
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -73,7 +79,11 @@ List<(bool, bool, int)> _run(
   gsEntries.forEach((name, dict) => extGState[name] = dict);
   final resources = CosDictionary()..['ExtGState'] = extGState;
   final device = _OverprintRecorder();
-  PdfInterpreter(cos: CosDocument.open(_minimalPdf), device: device).run(
+  PdfInterpreter(
+          cos: CosDocument.open(_minimalPdf),
+          device: device,
+          resolveOverprint: false)
+      .run(
     ContentStreamParser.parse(Uint8List.fromList(content.codeUnits)),
     resources,
   );
@@ -143,7 +153,8 @@ void main() {
       }
       final doc = PdfDocument.open(file.readAsBytesSync());
       final device = _OverprintRecorder();
-      PdfInterpreter(cos: doc.cos, device: device).drawPage(doc.page(0));
+      PdfInterpreter(cos: doc.cos, device: device, resolveOverprint: false)
+          .drawPage(doc.page(0));
 
       // The page drives overprint through many ExtGStates (probed: GS0..GS10
       // carry OP/op/OPM). If overprint were still parsed nowhere the device

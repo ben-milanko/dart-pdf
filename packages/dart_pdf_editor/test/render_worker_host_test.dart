@@ -36,7 +36,7 @@ class _FakeWorker extends PdfRenderWorker {
           double? imagePixelRatio,
           bool decodeImages = true,
           int? commandLimit,
-          PdfRect? imageDecodeRegion}) async =>
+          PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async =>
       null;
 
   @override

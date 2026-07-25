@@ -28,6 +28,7 @@ const preferred = [
   'p50OpenMs', 'p95OpenMs', 'p50FirstPageMs',
   'p50InterpretMsPerPage', 'p95InterpretMsPerPage',
   'p50ExtractMsPerPage', 'p50SaveMs', 'p95SaveMs',
+  'p50DecodeMsPerPage', 'p95DecodeMsPerPage',
   'maxPeakRssBytes', 'errors',
   'jankCount', 'buildP50', 'buildP95', 'buildOver50',
 ];

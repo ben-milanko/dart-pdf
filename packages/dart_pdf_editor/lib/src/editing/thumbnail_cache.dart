@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:developer' show Timeline;
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../budgeted_cache.dart';
@@ -73,6 +74,36 @@ class PdfThumbnailCache {
   bool _draining = false;
   int _focus = 0;
 
+  Listenable? _gateActivity;
+  bool Function()? _gateBusy;
+
+  /// Binds the *viewer's* foreground-render signal to the background warm.
+  ///
+  /// [isBusy] is polled before every warm page and [activity] re-kicks the
+  /// loop when it may have gone idle - so a warm pass stands down for the whole
+  /// time the viewer is scrolling or has pages queued for their first
+  /// interpret, not just while another thumbnail tile is rendering.
+  ///
+  /// The gate exists because the warm's cost is not where its throttles are.
+  /// It already renders at a lower worker priority and declines the UI-thread
+  /// fallback, but the record it gets back still has to be replayed into a
+  /// `ui.Picture` and rasterized *here*, on the platform thread the visible
+  /// page's build needs and the one thing that cannot move to an isolate. A
+  /// 20 s scroll measured ~6.7 s of that replay landing on foreground frames
+  /// (#603); a worker priority cannot govern it, only not starting can.
+  ///
+  /// Passing nulls unbinds. Rebinding the same [activity] just refreshes
+  /// [isBusy], so calling this from a build is cheap.
+  void bindForegroundGate(Listenable? activity, bool Function()? isBusy) {
+    if (_disposed) return;
+    _gateBusy = isBusy;
+    if (identical(_gateActivity, activity)) return;
+    _gateActivity?.removeListener(_kickWarm);
+    _gateActivity = activity;
+    _gateActivity?.addListener(_kickWarm);
+    _kickWarm();
+  }
+
   /// The page index nearest the viewport. Foreground tasks (and the warm
   /// loop) closest to it are served first; pushing a new focus (a panel
   /// scrolled) re-orders the work toward what just came into view.
@@ -88,6 +119,11 @@ class PdfThumbnailCache {
   /// Whether any on-screen tile is queued or rendering - the warm loop holds
   /// off while this is true so the visible pages always win the worker.
   bool get _foregroundBusy => _draining || _pending.isNotEmpty;
+
+  /// Whether the viewer itself is still rendering pages (see
+  /// [bindForegroundGate]). Unbound - a panel with no viewer - reads false, so
+  /// the warm behaves exactly as it did before the gate existed.
+  bool get _viewerBusy => _gateBusy?.call() ?? false;
 
   /// Registers (or refreshes) [token]'s request to render on-screen tile
   /// [pageIndex]. [run] is invoked when the task's turn comes - the queue
@@ -200,6 +236,7 @@ class PdfThumbnailCache {
   /// swapped). A no-op if another owner has since taken over.
   void clearWarm(Object owner) {
     if (!identical(_warmOwner, owner)) return;
+    bindForegroundGate(null, null);
     _warmOwner = null;
     _warmRenderer = null;
     _warmSignature = null;
@@ -222,6 +259,15 @@ class PdfThumbnailCache {
         if (_foregroundBusy) {
           PdfPerfLog.log('thumbnail warm yields - foreground busy '
               '(pending=${_pending.length} draining=$_draining)');
+          return;
+        }
+        // ...and never while the VIEWER is rendering: the warm's replay and
+        // rasterize run on the platform thread, so starting one mid-scroll
+        // buys a background thumbnail at the cost of the page the user is
+        // actually looking at (#603). The gate's activity listener re-kicks
+        // this loop when the viewer goes idle.
+        if (_viewerBusy) {
+          PdfPerfLog.log('thumbnail warm yields - viewer rendering');
           return;
         }
         final page = _nextWarmPage();
@@ -289,6 +335,9 @@ class PdfThumbnailCache {
     _disposed = true;
     _pending.clear();
     _warmRenderer = null;
+    _gateActivity?.removeListener(_kickWarm);
+    _gateActivity = null;
+    _gateBusy = null;
     _images.dispose(); // clears every raster and unregisters from the registry
   }
 }

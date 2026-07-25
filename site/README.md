@@ -12,6 +12,10 @@ up against the real product facts.
   web font from Google Fonts.
 - `privacy.html` is the privacy policy, mirroring `app/PRIVACY.md`. This is the
   URL to use for the App Store / Play Store "privacy policy" listing field.
+- `404.html` is the not-found page. Firebase Hosting serves it automatically
+  (with a 404 status) for any URL that doesn't match a file. Because it can be
+  served at *any* path depth, every link on it is root-absolute (`/support`,
+  not `support.html`), and it is `noindex` and kept out of `sitemap.xml`.
 - `assets/editor-screenshot.png` is the hero screenshot of the editor.
 - `firebase.json` / `.firebaserc` are the Firebase Hosting config.
 

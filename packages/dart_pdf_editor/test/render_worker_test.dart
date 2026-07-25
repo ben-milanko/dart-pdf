@@ -48,7 +48,7 @@ class _SyncWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion}) async {
+      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async {
     if (_disposed || pageIndex < 0 || pageIndex >= _doc.pageCount) return null;
     final page = _doc.page(pageIndex);
     final previewOperationLimit = decodeImages ? null : commandLimit;
@@ -222,6 +222,50 @@ void main() {
           lessThan(native!.width * native.height),
           reason: 'a tiny display ratio must downsample the shipped pixels');
       expect(capped.rgba.length, capped.width * capped.height * 4);
+    });
+  });
+
+  testWidgets('a thumbnail-ratio record is budgeted to the tile it fills '
+      '(#603)', (tester) async {
+    await tester.runAsync(() async {
+      // The warm pass asks for a page at ~0.4 px per point to fill a 256px
+      // tile. Before this the buffer it got back was budgeted against the
+      // FULL-PAGE raster cap (17 MP) - so a layered sheet shipped megabytes of
+      // decoded pixels the tile can never show, and the main thread paid for
+      // every one of them again turning them into ui.Images at replay.
+      final bytes = buildSyntheticRasterUnderlaySheet(
+        underlays: const [
+          PdfUnderlaySpec(width: 1400, height: 1000),
+          PdfUnderlaySpec(width: 1400, height: 1000),
+          PdfUnderlaySpec(width: 1400, height: 1000),
+        ],
+        layers: 2,
+        ops: 40,
+      );
+      final worker = PdfRenderWorker.start(bytes);
+      addTearDown(worker.dispose);
+      final size = PdfPageRenderer.pageSize(PdfDocument.open(bytes).page(0));
+
+      const tilePixels = 256.0;
+      final tileRatio = tilePixels / size.width;
+      final commands = await worker.record(0, imagePixelRatio: tileRatio);
+      expect(commands, isNotNull, reason: 'the sheet must offload');
+      final (count, pixels) = PdfPageRenderer.decodedImageStats(commands!);
+      expect(count, greaterThan(0), reason: 'nothing decoded - proves nothing');
+
+      // The tile's own raster, times the per-image resolution headroom (2x
+      // linear) squared. Slop: every image rounds its scaled edges up, so a
+      // page of them lands a hair over the budget by construction.
+      final raster = tilePixels * (size.height * tileRatio);
+      expect(pixels, lessThanOrEqualTo((4 * raster * 1.02).ceil()),
+          reason: '$pixels decoded pixels shipped to fill a '
+              '${raster.round()}-pixel tile');
+
+      // ...and the same page at its own resolution is not squeezed by it: the
+      // budget follows the raster, it is not a blanket tightening.
+      final full = await worker.record(0, imagePixelRatio: 2.0);
+      final (_, fullPixels) = PdfPageRenderer.decodedImageStats(full!);
+      expect(fullPixels, greaterThan(pixels * 8));
     });
   });
 
@@ -1113,7 +1157,7 @@ class _SeedWorker extends PdfRenderWorker {
           double? imagePixelRatio,
           bool decodeImages = true,
           int? commandLimit,
-          PdfRect? imageDecodeRegion}) async =>
+          PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async =>
       null;
 
   @override
@@ -1149,7 +1193,7 @@ class _CountingWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion}) async {
+      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async {
     calls.add((pageIndex, annotations, decodeImages, imagePixelRatio));
     commandLimits.add(commandLimit);
     if (returnNull || !active) return null;
@@ -1198,7 +1242,7 @@ class _ManualWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion}) {
+      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) {
     calls.add((pageIndex, annotations, decodeImages, imagePixelRatio));
     priorities.add(priority);
     final completer = Completer<List<PdfRenderCommand>?>();
@@ -1249,7 +1293,7 @@ class _HangingWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion}) {
+      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) {
     if (!active) return Future.value(null);
     callsByKey[(pageIndex, priority)] =
         (callsByKey[(pageIndex, priority)] ?? 0) + 1;

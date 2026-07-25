@@ -211,5 +211,24 @@
   "sdkPkgVlm_d": "Optional HTTP OCR engine for web, mobile, and desktop. Point it at any service that returns text boxes.",
   "sdk_foot_dartpdfApp": "DartPDF app",
 
+  "nf_metaTitle": "Page not found - DartPDF",
+  "nf_metaDesc": "That page doesn't exist. Head back to DartPDF - the private, local PDF editor for every device.",
+  "nf_h1": "This page didn't make the <span class=\"hl\">final draft.</span>",
+  "nf_lede": "The link may be out of date, or the page may have moved. Nothing is wrong with your PDFs - they never left your device in the first place.",
+  "nf_ctaHome": "Back to home",
+  "nf_linksH2": "Popular pages",
+  "nf_linkFeatures": "Features",
+  "nf_linkFeaturesDesc": "Annotate, OCR, forms, signatures, redaction, and text editing.",
+  "nf_linkDownload": "Download",
+  "nf_linkDownloadDesc": "Get DartPDF for Windows, macOS, Linux, iOS, and Android.",
+  "nf_linkSupport": "Support",
+  "nf_linkSupportDesc": "Common questions, and how to reach us about a bug.",
+  "nf_linkSdk": "Flutter PDF SDK",
+  "nf_linkSdkDesc": "Embed the viewer and editor in your own Dart or Flutter app.",
+  "nf_linkPrivacy": "Privacy",
+  "nf_linkPrivacyDesc": "No accounts, no analytics, no uploads - here's the policy.",
+  "nf_linkSource": "Source code",
+  "nf_linkSourceDesc": "The whole engine and app, open source under Apache-2.0.",
+
   "lang_label": "Language"
 }

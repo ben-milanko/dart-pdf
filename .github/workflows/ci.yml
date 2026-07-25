@@ -5,14 +5,6 @@ on:
     branches: [main, deploy]
   pull_request:
 
-# Cancel superseded PR runs so two quick pushes can't leave two `worker-bundle`
-# jobs racing to push the regenerated bundle (issue #422, defect 1). Keyed by PR
-# number on pull_request and by commit SHA otherwise, so every push to main/deploy
-# gets its own group and is never cancelled - each landed commit keeps its record.
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -20,7 +12,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.44.4
+          flutter-version: 3.44.8
           channel: stable
           cache: true
       - run: flutter pub get
@@ -131,44 +123,47 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
-  # Keep the checked-in web render worker bundle in sync with source. The bundle
+  # The real bundled web render worker
   # (`packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js`) is a
-  # `dart compile js` output that links most of the stack, so almost any change
-  # can make it stale - and it must stay in git because it ships in the pub.dev
-  # package and a fresh clone-and-run needs it. This job compiles it (which also
-  # catches `.toJS`-conversion errors `dart analyze` misses) and, on a same-repo
-  # PR, regenerates and pushes it instead of failing; forks and push events fall
-  # back to verify-and-fail. See issue #411 and tool/ci/regen_web_worker.sh.
-  worker-bundle:
+  # ~1 MB `dart compile js` artifact that is NO LONGER committed (issue #582):
+  # only a small stable placeholder is checked in (so the declared Flutter asset
+  # always exists for analyze + every native/web build), and the real bundle is
+  # regenerated over it at publish (tool/release.sh), at every web deploy/
+  # preview/release, and for local web builds (app/tool/build_web.sh). There is
+  # therefore nothing to keep in sync, and the old regenerate-and-push machinery
+  # (issues #411/#422: the concurrency group, tool/ci/regen_web_worker.sh, and
+  # WORKER_REGEN_TOKEN) is gone. This job keeps that machinery's one real value -
+  # proving the worker still COMPILES, catching `.toJS`-conversion / dart2js
+  # errors `dart analyze` misses (async message handlers) - and guards that the
+  # committed file stays the placeholder, so the real blob is never re-committed.
+  worker-compiles:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v7
-        with:
-          # Full history + credentials so the script can move onto the PR head
-          # branch and push the regenerated bundle.
-          fetch-depth: 0
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.44.4
+          flutter-version: 3.44.8
           channel: stable
           cache: true
+      # Guard: the checked-in worker asset must stay the small placeholder, not
+      # a committed ~1 MB build (the whole point of #582). 8 KB is far above the
+      # ~1.5 KB placeholder and far below the ~1 MB real bundle.
+      - name: Guard the committed worker stays a placeholder
+        run: |
+          asset=packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
+          size=$(wc -c < "$asset")
+          echo "committed worker placeholder is ${size} bytes"
+          if [ "$size" -gt 8192 ]; then
+            echo "::error::$asset is ${size} bytes - the real dart2js bundle was" \
+              "committed. Restore the placeholder (git checkout $asset); the real" \
+              "worker is generated at publish/deploy/build, never committed (#582)."
+            exit 1
+          fi
       - run: flutter pub get
-      - name: Regenerate bundled web render worker
-        env:
-          ASSET: packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
-          EVENT_NAME: ${{ github.event_name }}
-          IS_SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          # A dedicated token (PAT or GitHub App) so the auto-regen commit
-          # RE-TRIGGERS CI - a default GITHUB_TOKEN push does not, which left PR
-          # heads with zero checks (issue #422, defect 3). If this secret is
-          # absent the script does NOT push (a bare, unchecked head is worse than
-          # a visible failure); it fails with the exact rebuild command instead.
-          REGEN_TOKEN: ${{ secrets.WORKER_REGEN_TOKEN }}
-        run: bash tool/ci/regen_web_worker.sh
+      - name: Compile the bundled web render worker (output discarded)
+        run: |
+          dart run dart_pdf_editor:build_web_worker \
+            --out "${RUNNER_TEMP}/pdf_render_worker.dart.js"
 
   # Build the Linux desktop target and validate its desktop-integration files.
   # Mirrors the release-app.yml linux job's build deps (GTK + libsecret for
@@ -187,7 +182,7 @@ jobs:
             desktop-file-utils appstream xvfb
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.44.4
+          flutter-version: 3.44.8
           channel: stable
           cache: true
       - run: flutter pub get
@@ -230,3 +225,65 @@ jobs:
             cat /tmp/dartpdf-smoke.log || true
             exit 1
           fi
+
+  # Static validation of the Microsoft Store packaging scripts. The real
+  # submission needs a Windows runner and Partner Center credentials
+  # (release-windows-store.yml), so this keeps the PowerShell and the
+  # `msix_config` block from rotting without paying for either. `pwsh` is
+  # preinstalled on ubuntu-latest.
+  windows-store-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Parse-check the packaging PowerShell
+        shell: pwsh
+        run: |
+          $failed = $false
+          Get-ChildItem app/packaging/msstore -Filter *.ps1 | ForEach-Object {
+            $errors = $null
+            $tokens = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors -and $errors.Count -gt 0) {
+              $failed = $true
+              $errors | ForEach-Object {
+                Write-Host "::error file=app/packaging/msstore/$($_.Extent.File | Split-Path -Leaf),line=$($_.Extent.StartLineNumber)::$($_.Message)"
+              }
+            } else {
+              Write-Host "OK $($_.Name)"
+            }
+          }
+          if ($failed) { exit 1 }
+      - name: Check the Store MSIX config stays complete
+        shell: pwsh
+        run: |
+          $pubspec = Get-Content app/pubspec.yaml -Raw
+          if ($pubspec -notmatch '(?m)^msix_config:') {
+            Write-Host '::error::app/pubspec.yaml lost its msix_config block'
+            exit 1
+          }
+          # `store` true is what makes msix skip signing; a signed package is
+          # rejected by the Store, so losing it silently breaks submissions.
+          # Anchor to the real YAML key - the prose comments in pubspec.yaml
+          # mention these settings by name, so a substring match would pass
+          # even with the key flipped or deleted.
+          $required = @{
+            'store'          = '(?m)^\s+store:\s*true\s*$'
+            'file_extension' = '(?m)^\s+file_extension:\s*\.pdf\s*$'
+            'architecture'   = '(?m)^\s+architecture:\s*x64\s*$'
+          }
+          foreach ($key in $required.Keys) {
+            if ($pubspec -notmatch $required[$key]) {
+              Write-Host "::error::app/pubspec.yaml msix_config is missing or changed '$key'"
+              exit 1
+            }
+          }
+          # The identity values must NOT be checked in - they are account
+          # specific and a stale copy builds a package the Store refuses.
+          foreach ($key in @('identity_name:', 'publisher:', 'publisher_display_name:')) {
+            if ($pubspec -match "(?m)^\s+$([regex]::Escape($key))") {
+              Write-Host "::error::app/pubspec.yaml pins '$key' - pass it via build-msix.ps1 env instead"
+              exit 1
+            }
+          }
+          Write-Host 'msix_config OK'

@@ -211,5 +211,24 @@
   "sdkPkgVlm_d": "Mesin HTTP OCR opsional untuk web, ponsel, dan desktop. Arahkan ke layanan apa pun yang mengembalikan kotak teks.",
   "sdk_foot_dartpdfApp": "Aplikasi DartPDF",
 
+  "nf_metaTitle": "Halaman tidak ditemukan - DartPDF",
+  "nf_metaDesc": "Halaman itu tidak ada. Kembali ke DartPDF - editor PDF lokal yang privat untuk setiap perangkat.",
+  "nf_h1": "Halaman ini <span class=\"hl\">tidak ditemukan.</span>",
+  "nf_lede": "Tautannya mungkin sudah usang atau halamannya telah dipindahkan. PDF Anda baik-baik saja - berkas itu memang tidak pernah meninggalkan perangkat Anda.",
+  "nf_ctaHome": "Kembali ke beranda",
+  "nf_linksH2": "Halaman populer",
+  "nf_linkFeatures": "Fitur",
+  "nf_linkFeaturesDesc": "Anotasi, OCR, formulir, tanda tangan, redaksi, dan pengeditan teks.",
+  "nf_linkDownload": "Unduh",
+  "nf_linkDownloadDesc": "Dapatkan DartPDF untuk Windows, macOS, Linux, iOS, dan Android.",
+  "nf_linkSupport": "Dukungan",
+  "nf_linkSupportDesc": "Pertanyaan umum dan cara menghubungi kami soal bug.",
+  "nf_linkSdk": "Flutter PDF SDK",
+  "nf_linkSdkDesc": "Sematkan penampil dan editor ke aplikasi Dart atau Flutter Anda sendiri.",
+  "nf_linkPrivacy": "Privasi",
+  "nf_linkPrivacyDesc": "Tanpa akun, tanpa analitik, tanpa unggahan - ini kebijakannya.",
+  "nf_linkSource": "Kode sumber",
+  "nf_linkSourceDesc": "Seluruh mesin dan aplikasinya, open source di bawah Apache-2.0.",
+
   "lang_label": "Bahasa"
 }

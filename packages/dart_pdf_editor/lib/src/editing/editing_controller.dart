@@ -581,7 +581,6 @@ class PdfEditingController extends ChangeNotifier {
 
   void undo() {
     if (!canUndo) return;
-    final beforeLength = _revisions[_cursor];
     final impact = _revisionImpacts[_cursor];
     // reverting revision N un-renders exactly the pages N touched
     _bumpRenderStamps(impact.visualPages);
@@ -596,7 +595,7 @@ class PdfEditingController extends ChangeNotifier {
             changedPages: impact.visualPages,
           );
     _reopen();
-    _emitAnnotationChanges(beforeLength, impact.annotationPages);
+    _emitAnnotationChanges(impact.annotationPages);
   }
 
   void redo() {
@@ -617,7 +616,7 @@ class PdfEditingController extends ChangeNotifier {
           );
     // redo re-extends to a revision already in the buffer: an append
     _reopen(grew: true);
-    _emitAnnotationChanges(beforeLength, impact.annotationPages);
+    _emitAnnotationChanges(impact.annotationPages);
   }
 
   void _reopen({bool grew = false}) {
@@ -825,7 +824,7 @@ class PdfEditingController extends ChangeNotifier {
       _pageSelectionAnchor = null;
     }
     _invalidateElements();
-    _emitAnnotationChanges(beforeLength, impact.annotationPages);
+    _emitAnnotationChanges(impact.annotationPages);
     notifyListeners();
   }
 
@@ -1258,29 +1257,45 @@ class PdfEditingController extends ChangeNotifier {
   /// local edits made afterward can still be undone, while older local
   /// history remains in the document below that checkpoint.
   Stream<List<PdfAnnotationChange>> get annotationChanges =>
-      (_changeFeed ??= StreamController.broadcast()).stream;
+      (_changeFeed ??= StreamController.broadcast(
+        // Seed the diff baseline from the clean current document the moment a
+        // listener attaches, and drop it when the last one leaves. Every emit
+        // then diffs against this cached state instead of re-opening the
+        // pre-edit bytes into a second full document (#416).
+        onListen: () => _annotationBaseline =
+            pdfCollectAnnotationStates(_document),
+        onCancel: () => _annotationBaseline = null,
+      )).stream;
 
-  /// Diffs the revision that was [beforeLength] bytes long against the
-  /// current document and emits the result. The before state reopens
-  /// from its bytes (a prefix of the live buffer): the editor mutates
-  /// the in-memory COS of the document it ran on, so the pre-edit
-  /// [PdfDocument] object is already contaminated with the edit.
-  void _emitAnnotationChanges(
-    int beforeLength,
-    Iterable<int>? annotationPages,
-  ) {
+  /// The annotation states of [_document] as of the last emit, kept live only
+  /// while [annotationChanges] has a listener. The pre-edit side of each diff,
+  /// so no second [PdfDocument.open] is needed per commit (#416).
+  PdfAnnotationStates? _annotationBaseline;
+
+  /// Diffs the current document's annotations against the cached pre-edit
+  /// baseline and emits the result, then advances the baseline.
+  ///
+  /// [annotationPages] limits the walk to the pages an edit touched (null for
+  /// structural edits, which can move any annotation). The pre-edit side comes
+  /// from [_annotationBaseline] — seeded when a listener attaches and advanced
+  /// here every revision — so this pays no second [PdfDocument.open] (#416).
+  /// A remote apply still advances the baseline (so its change is not echoed
+  /// back on the next local edit) but emits nothing.
+  void _emitAnnotationChanges(Iterable<int>? annotationPages) {
     final feed = _changeFeed;
-    if (feed == null || !feed.hasListener || _applyingRemote) return;
+    if (feed == null || !feed.hasListener) return;
     if (annotationPages != null && annotationPages.isEmpty) return;
-    final before = PdfDocument.open(
-      Uint8List.sublistView(_bytes, 0, beforeLength),
-      password: _password,
-    );
-    final changes = pdfDiffAnnotations(
-      before,
-      _document,
-      pages: annotationPages,
-    );
+    final baseline = _annotationBaseline;
+    if (baseline == null) return; // no listener was attached at seed time
+
+    final pages = annotationPages?.toSet();
+    final after = pdfCollectAnnotationStates(_document, pages: pages);
+    final before = pages == null ? baseline : baseline.restrictedTo(pages);
+    _annotationBaseline =
+        pages == null ? after : baseline.withPagesReplaced(pages, after);
+
+    if (_applyingRemote) return; // baseline advanced; don't echo the remote edit
+    final changes = pdfDiffAnnotationStates(before, after);
     if (changes.isNotEmpty) feed.add(changes);
   }
 

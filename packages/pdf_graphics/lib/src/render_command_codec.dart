@@ -12,6 +12,7 @@ import 'mesh.dart';
 import 'path.dart';
 import 'render_command.dart';
 import 'shading.dart';
+import 'text_extraction.dart';
 
 /// Binary (de)serialization for a recorded [PdfRenderCommand] buffer.
 ///
@@ -51,7 +52,7 @@ import 'shading.dart';
 /// Format: little notion of versioning beyond a leading byte; the producer and
 /// consumer are the same build, shipped together, so a version mismatch is a
 /// programming error, asserted on read.
-const int _formatVersion = 3;
+const int _formatVersion = 4;
 
 /// Microseconds spent reconstructing worker command buffers on the consuming
 /// isolate. Accumulated for performance probes; this is the UI-thread half of
@@ -107,6 +108,14 @@ class _UnserializableImage implements Exception {
 /// re-rasters the page. Null leaves images at native resolution (the historic
 /// behavior). Only consulted when [decodeImages] is true.
 ///
+/// [pageRasterPixels] is how many pixels the raster this buffer will be drawn
+/// into actually has (page area x [maxImagePixelRatio]^2, or the tile's own
+/// width x height). It bounds the *total* decoded image pixels the buffer may
+/// carry to a small multiple of what the raster can ever show. Null falls back
+/// to the full-page raster cap, which is 17 MP - right for a page render,
+/// wildly generous for a 256px thumbnail tile (#603). Only consulted when
+/// [decodeImages] is true.
+///
 /// [imageDecodeRegion], when supplied, is a PDF page-space rectangle for the
 /// visible detail patch. Axis-aligned image draws are decoded only for the
 /// intersecting source pixels and their image transform is retargeted to the
@@ -123,23 +132,43 @@ class _UnserializableImage implements Exception {
 /// isolate; the default stays false so the public codec remains a lossless
 /// command-transcript round trip.
 /// The page raster never exceeds this many pixels (the viewer's full-page
-/// raster cap), so it is also the natural unit for the page image budget.
+/// raster cap), so it is the ceiling on the page image budget - the fallback
+/// unit when the caller does not say what raster the buffer is drawn into.
 const int _maxImagePixels = 1 << 24;
 
-/// Total decoded image pixels per page are bounded to this multiple of
-/// [_maxImagePixels]. The per-image cap keeps each image near its own
-/// on-screen footprint, but a sheet layered from dozens of overlapping raster
-/// tiles can still sum to many times the page raster - only the topmost layer
-/// per pixel is ever shown, so the rest is decoded, shipped, and cached for
-/// nothing. This ceiling (~17 MP at the default) scales every image down to
-/// fit, bounding the command buffer and the decoded-image cache no matter how
-/// the sheet is layered. Larger keeps more sharpness on heavy overlap at the
-/// cost of a bigger payload.
+/// Total decoded image pixels per page are bounded to this multiple of the
+/// raster the buffer is drawn into. The per-image cap keeps each image near
+/// its own on-screen footprint, but a sheet layered from dozens of overlapping
+/// raster tiles can still sum to many times the page raster - only the topmost
+/// layer per pixel is ever shown, so the rest is decoded, shipped, and cached
+/// for nothing. This ceiling scales every image down to fit, bounding the
+/// command buffer and the decoded-image cache no matter how the sheet is
+/// layered. Larger keeps more sharpness on heavy overlap at the cost of a
+/// bigger payload.
 const double _imageBudgetFactor = 1.0;
 
+/// The per-image cap ([cappedImagePixelSize]) keeps this much linear headroom
+/// over an image's on-screen footprint, so ONE full-bleed image legitimately
+/// carries this squared times the raster's pixels. The page budget starts
+/// there, otherwise a single underlay would trip it on its own.
+const double _imageBudgetHeadroom = 2.0;
+
 int _imageBudgetPixels(double ratio, double factor,
-    {PdfRect? imageDecodeRegion}) {
+    {PdfRect? imageDecodeRegion, int? pageRasterPixels}) {
   var budget = (factor * _maxImagePixels).round();
+  // What the buffer is actually drawn into. `_maxImagePixels` is only the
+  // *cap* on a full-page raster; a 256px thumbnail tile rasterizes ~85k
+  // pixels, and budgeting it 17 MP of decoded images (200x what it can ever
+  // show) is what let warm thumbnails ship ~10 MB records - and pay for every
+  // one of those pixels again as main-thread `ui.Image` work at replay (#603).
+  if (pageRasterPixels != null && pageRasterPixels > 0) {
+    final scaled = (factor *
+            _imageBudgetHeadroom *
+            _imageBudgetHeadroom *
+            pageRasterPixels)
+        .round();
+    if (scaled > 0 && scaled < budget) budget = scaled;
+  }
   if (imageDecodeRegion != null &&
       imageDecodeRegion.width > 0 &&
       imageDecodeRegion.height > 0 &&
@@ -154,12 +183,33 @@ int _imageBudgetPixels(double ratio, double factor,
   return budget;
 }
 
+/// How many pixels a page whose media/crop box is [box] rasterizes into at
+/// [ratio] screen pixels per page point - `serializeCommands`'s
+/// `pageRasterPixels`.
+///
+/// The render worker calls this for every record it serializes: it knows both
+/// the page box and the ratio the caller asked for, so the buffer's image
+/// budget can follow the raster the caller will actually draw (a 256px
+/// thumbnail tile, a full-resolution page) instead of the worst-case full-page
+/// raster cap. Null when [ratio] or the box is degenerate - the codec then
+/// falls back to that cap, the historic behaviour.
+int? pdfPageRasterPixels(PdfRect box, double? ratio) {
+  if (ratio == null || !(ratio > 0)) return null;
+  final width = box.width * ratio;
+  final height = box.height * ratio;
+  if (!(width > 0) || !(height > 0)) return null;
+  final pixels = width * height;
+  if (!pixels.isFinite) return null;
+  return pixels.ceil();
+}
+
 Uint8List? serializeCommands(List<PdfRenderCommand> commands,
     {CosDocument? cos,
     bool decodeImages = false,
     double? maxImagePixelRatio,
     PdfRect? imageDecodeRegion,
     double imageBudgetFactor = _imageBudgetFactor,
+    int? pageRasterPixels,
     bool imagePlaceholders = false,
     int? commandLimit,
     bool compactStateScopes = false}) {
@@ -179,7 +229,8 @@ Uint8List? serializeCommands(List<PdfRenderCommand> commands,
         cos,
         maxImagePixelRatio,
         _imageBudgetPixels(maxImagePixelRatio, imageBudgetFactor,
-            imageDecodeRegion: imageDecodeRegion),
+            imageDecodeRegion: imageDecodeRegion,
+            pageRasterPixels: pageRasterPixels),
         imageDecodeRegion: imageDecodeRegion);
   }
   try {
@@ -368,6 +419,61 @@ List<PdfRenderCommand> deserializeCommands(Uint8List bytes) {
   final commands = _readCommands(r);
   deserializeCommandsMicros += sw.elapsedMicroseconds;
   return commands;
+}
+
+/// Serializes an extracted [PdfPageText] for the render worker → UI-isolate hop
+/// (#396: off-thread text extraction). It is plain data - the page index, the
+/// page text, and each run's geometry - so it crosses the boundary as a compact
+/// byte buffer instead of a graph copy. The search quads/rects a match needs are
+/// recomputed from the runs on the UI isolate, so they are not serialized.
+Uint8List serializePageText(PdfPageText page) {
+  final w = _Writer();
+  w.u8(_formatVersion);
+  w.u32(page.pageIndex);
+  w.str(page.text);
+  w.u32(page.runs.length);
+  for (final run in page.runs) {
+    w.str(run.text);
+    w.u32(run.startIndex);
+    w.boolean(run.mcid != null);
+    w.u32(run.mcid ?? 0);
+    _writeMatrix(w, run.transform);
+    w.f64(run.width);
+    _writeRect(w, run.bounds);
+    w.boolean(run.isRightToLeft);
+  }
+  return w.takeBytes();
+}
+
+/// Reconstructs the [PdfPageText] written by [serializePageText].
+PdfPageText deserializePageText(Uint8List bytes) {
+  final r = _Reader(bytes);
+  final version = r.u8();
+  assert(version == _formatVersion, 'page-text codec version mismatch');
+  final pageIndex = r.u32();
+  final text = r.str();
+  final count = r.u32();
+  final runs = <PdfExtractedRun>[];
+  for (var i = 0; i < count; i++) {
+    final runText = r.str();
+    final startIndex = r.u32();
+    final hasMcid = r.boolean();
+    final mcid = r.u32();
+    final transform = _readMatrix(r);
+    final width = r.f64();
+    final bounds = _readRect(r);
+    final isRightToLeft = r.boolean();
+    runs.add(PdfExtractedRun(
+      text: runText,
+      startIndex: startIndex,
+      mcid: hasMcid ? mcid : null,
+      transform: transform,
+      width: width,
+      bounds: bounds,
+      isRightToLeft: isRightToLeft,
+    ));
+  }
+  return PdfPageText(pageIndex: pageIndex, text: text, runs: runs);
 }
 
 void _writeCommands(
@@ -965,6 +1071,54 @@ PdfRenderCommand _readCommand(_Reader r) {
 // pixel-identically to shipping the original double (verified against the Ghent
 // baselines). Everything that needs full precision - transforms, colours,
 // stroke widths, text placement - stays float64.
+/// Writes one glyph placement's outline, by reference when its geometry has
+/// already been written to this record.
+///
+/// Text dominates a record's bytes, and the outline rides on every *placement*
+/// (`PdfGlyphPlacement.outline`), so a letter set 500 times used to serialize
+/// its geometry 500 times. Measured over a 62-page book at ratio 2.0, glyph
+/// outlines were 151.7 MB of 394 MB of records and 85% of that was literal
+/// repetition - more than the entire decoded-RGBA payload (83 MB). Records are
+/// held in a byte-budgeted LRU, so this is cache capacity, and capacity is what
+/// decides how often a page has to be re-recorded (#451).
+///
+/// Tag byte: 0 = no outline, 1 = geometry follows (and takes the next id),
+/// 2 = a u32 id of an outline already defined in this record.
+void _writeGlyphOutline(_Writer w, PdfPath? outline) {
+  if (outline == null) {
+    w.u8(0);
+    return;
+  }
+  final existing = w._outlineIds[outline];
+  if (existing != null) {
+    w.u8(2);
+    w.u32(existing);
+    return;
+  }
+  w._outlineIds[outline] = w._outlineIds.length;
+  w.u8(1);
+  _writePath(w, outline);
+}
+
+PdfPath? _readGlyphOutline(_Reader r) {
+  switch (r.u8()) {
+    case 0:
+      return null;
+    case 1:
+      final path = _readPath(r);
+      r._outlines.add(path);
+      return path;
+    case 2:
+      final id = r.u32();
+      if (id >= r._outlines.length) {
+        throw FormatException('glyph outline id $id out of range');
+      }
+      return r._outlines[id];
+    default:
+      throw const FormatException('unknown glyph outline tag');
+  }
+}
+
 void _writePath(_Writer w, PdfPath path) {
   w.u32(path.segments.length);
   for (final s in path.segments) {
@@ -1141,12 +1295,7 @@ void _writeTextRun(_Writer w, PdfTextRun run) {
       w.f64(g.offset);
       w.f64(g.offsetY);
       w.strOpt(g.text);
-      if (g.outline == null) {
-        w.boolean(false);
-      } else {
-        w.boolean(true);
-        _writePath(w, g.outline!);
-      }
+      _writeGlyphOutline(w, g.outline);
     }
   }
   w.boolean(run.invisible);
@@ -1192,7 +1341,7 @@ PdfTextRun _readTextRun(_Reader r) {
       final offset = r.f64();
       final offsetY = r.f64();
       final text = r.strOpt();
-      final outline = r.boolean() ? _readPath(r) : null;
+      final outline = _readGlyphOutline(r);
       glyphs[i] = PdfGlyphPlacement(
           offset: offset, offsetY: offsetY, outline: outline, text: text);
     }
@@ -1377,6 +1526,13 @@ class _Writer {
   late ByteData _view = ByteData.view(_buf.buffer);
   int _len = 0;
 
+  /// Glyph outlines already written, so a repeated glyph costs an index
+  /// instead of its geometry ([_writeGlyphOutline]). Keyed by object
+  /// identity - [PdfPath] does not override `==`, and the font engine hands
+  /// the same instance back for every placement of a glyph, so identity
+  /// catches essentially all of the repetition with no hashing of geometry.
+  final Map<PdfPath, int> _outlineIds = {};
+
   void _ensure(int extra) {
     final need = _len + extra;
     if (need <= _buf.length) return;
@@ -1479,6 +1635,12 @@ class _Reader {
   final Uint8List _bytes;
   final ByteData _data;
   int _o = 0;
+
+  /// Glyph outlines seen so far, indexed as the writer numbered them
+  /// ([_readGlyphOutline]). Repeated glyphs share one [PdfPath] instance -
+  /// which is also how they arrive from the font engine before serialization,
+  /// so the replayed commands hold no more copies than a local render.
+  final List<PdfPath> _outlines = [];
 
   int u8() => _data.getUint8(_o++);
 

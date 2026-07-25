@@ -4,6 +4,7 @@ export 'src/cad_image_strip.dart';
 export 'src/cad_strip.dart';
 export 'src/encrypted.dart';
 export 'src/icc_profiles.dart';
+export 'src/jbig2_encoder.dart';
 export 'src/pkix_ltv.dart';
 export 'src/raster_underlay_sheet.dart';
 export 'src/rtl_text.dart';

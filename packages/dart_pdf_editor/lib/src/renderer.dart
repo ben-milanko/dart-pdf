@@ -235,16 +235,25 @@ class PdfPageRenderer {
   /// every image. This is the fast first pass of progressive rendering: a heavy
   /// raster underlay can take many seconds to decode, so the page paints its
   /// linework immediately and the images drop in on a later full pass.
+  ///
+  /// [maxImagePixelRatio] caps those decodes to the resolution the picture is
+  /// about to be rasterized at, exactly as in [pictureFromCommandsWithPlan].
+  /// Pass it whenever the buffer may carry un-decoded images (the worker's
+  /// codec declined them) and the target is smaller than the page: without it
+  /// a 256px thumbnail decodes a declined image at its native size, on the
+  /// platform thread (#603).
   static Future<ui.Picture> pictureFromCommands(
       PdfPage page, List<PdfRenderCommand> commands,
       {Color pageColor = const Color(0xFFFFFFFF),
       int? rotation,
-      bool includeImages = true}) async {
+      bool includeImages = true,
+      double? maxImagePixelRatio}) async {
     return pictureFromCommandsWithPlan(
       page,
       commands,
       PdfPageRenderPlan(pageColor: pageColor, rotation: rotation),
       includeImages: includeImages,
+      maxImagePixelRatio: maxImagePixelRatio,
     );
   }
 

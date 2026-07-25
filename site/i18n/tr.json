@@ -211,5 +211,24 @@
   "sdkPkgVlm_d": "Web, mobil ve masaüstü için isteğe bağlı HTTP OCR motoru. Metin kutuları döndüren herhangi bir hizmete yönlendirin.",
   "sdk_foot_dartpdfApp": "DartPDF uygulaması",
 
+  "nf_metaTitle": "Sayfa bulunamadı - DartPDF",
+  "nf_metaDesc": "Bu sayfa mevcut değil. Her cihaz için özel, yerel PDF düzenleyici DartPDF'e geri dönün.",
+  "nf_h1": "Bu sayfa <span class=\"hl\">bulunamadı.</span>",
+  "nf_lede": "Bağlantı eskimiş ya da sayfa taşınmış olabilir. PDF'lerinizde bir sorun yok - zaten hiçbir zaman cihazınızdan çıkmadılar.",
+  "nf_ctaHome": "Ana sayfaya dön",
+  "nf_linksH2": "Popüler sayfalar",
+  "nf_linkFeatures": "Özellikler",
+  "nf_linkFeaturesDesc": "Not ekleme, OCR, formlar, imzalar, karartma ve metin düzenleme.",
+  "nf_linkDownload": "İndir",
+  "nf_linkDownloadDesc": "Windows, macOS, Linux, iOS ve Android için DartPDF'i edinin.",
+  "nf_linkSupport": "Destek",
+  "nf_linkSupportDesc": "Sık sorulan sorular ve bir hatayı bize nasıl bildireceğiniz.",
+  "nf_linkSdk": "Flutter PDF SDK",
+  "nf_linkSdkDesc": "Görüntüleyiciyi ve düzenleyiciyi kendi Dart veya Flutter uygulamanıza ekleyin.",
+  "nf_linkPrivacy": "Gizlilik",
+  "nf_linkPrivacyDesc": "Hesap yok, analiz yok, yükleme yok - politika burada.",
+  "nf_linkSource": "Kaynak kodu",
+  "nf_linkSourceDesc": "Motorun ve uygulamanın tamamı Apache-2.0 ile açık kaynak.",
+
   "lang_label": "Dil"
 }

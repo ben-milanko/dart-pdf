@@ -211,5 +211,24 @@
   "sdkPkgVlm_d": "Motore OCR HTTP opzionale per web, mobile e desktop. Puntalo verso qualsiasi servizio che restituisce box di testo.",
   "sdk_foot_dartpdfApp": "App DartPDF",
 
+  "nf_metaTitle": "Pagina non trovata - DartPDF",
+  "nf_metaDesc": "Questa pagina non esiste. Torna a DartPDF, l'editor PDF privato e locale per ogni dispositivo.",
+  "nf_h1": "Questa pagina <span class=\"hl\">non esiste.</span>",
+  "nf_lede": "Il link potrebbe non essere più valido oppure la pagina è stata spostata. I tuoi PDF stanno benissimo: non hanno mai lasciato il tuo dispositivo.",
+  "nf_ctaHome": "Torna alla home",
+  "nf_linksH2": "Pagine più visitate",
+  "nf_linkFeatures": "Funzionalità",
+  "nf_linkFeaturesDesc": "Annotazioni, OCR, moduli, firme, oscuramento e modifica del testo.",
+  "nf_linkDownload": "Scarica",
+  "nf_linkDownloadDesc": "Scarica DartPDF per Windows, macOS, Linux, iOS e Android.",
+  "nf_linkSupport": "Assistenza",
+  "nf_linkSupportDesc": "Domande frequenti e come segnalarci un problema.",
+  "nf_linkSdk": "Flutter PDF SDK",
+  "nf_linkSdkDesc": "Integra visualizzatore ed editor nella tua app Dart o Flutter.",
+  "nf_linkPrivacy": "Privacy",
+  "nf_linkPrivacyDesc": "Nessun account, nessuna analisi, nessun caricamento: ecco l'informativa.",
+  "nf_linkSource": "Codice sorgente",
+  "nf_linkSourceDesc": "Motore e app completi, open source con licenza Apache-2.0.",
+
   "lang_label": "Lingua"
 }

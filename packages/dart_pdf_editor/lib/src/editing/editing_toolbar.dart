@@ -2256,6 +2256,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             visualDensity: VisualDensity.compact,
             onPressed: () => _editSelectedText(context),
           ),
+        // the tune popup restyles the selection (stroke/opacity/font/colour) -
+        // reachable from the dock, mirroring the desktop selection strip
+        ..._tuneTrailing(context, _selectionStyleFields()),
       ];
     }
     if (controller.selectedElement != null) {
@@ -2320,18 +2323,32 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           ),
       ];
     }
+    final tune = _mobileTuneTrailing(context);
     if (widget.showColor && controller.toolUsesColor) {
-      return _mobileSwatches(context);
+      // The tune popup carries the full palette, so a couple of quick swatches
+      // beside it are enough - and dropping the third keeps the whole cluster
+      // (swatches + tune) inside the narrow dock without overflowing.
+      return [..._mobileSwatches(context, count: tune.isEmpty ? 3 : 2), ...tune];
     }
-    return const [];
+    return tune;
   }
 
-  /// The first three palette swatches, sized for the mobile dock.
-  List<Widget> _mobileSwatches(BuildContext context) {
+  /// The tune popup trigger for the mobile dock's armed tool, or empty when
+  /// no tool is armed or its controls carry nothing to tune. Mirrors the
+  /// desktop strip's [_tuneTrailing] so the same stroke/opacity/font sliders
+  /// are one tap away on a phone.
+  List<Widget> _mobileTuneTrailing(BuildContext context) {
+    final group = _groupForTool(controller.tool);
+    if (group == null) return const [];
+    return _tuneTrailing(context, _groupStyleFields(group));
+  }
+
+  /// The first [count] palette swatches, sized for the mobile dock.
+  List<Widget> _mobileSwatches(BuildContext context, {int count = 3}) {
     final scheme = Theme.of(context).colorScheme;
     var i = 0;
     return [
-      for (final color in widget.palette.take(3))
+      for (final color in widget.palette.take(count))
         Padding(
           key: ValueKey('pdf-mobile-swatch-${i++}'),
           padding: const EdgeInsets.symmetric(horizontal: 3),

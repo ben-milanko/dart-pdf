@@ -22,6 +22,9 @@
 //   edit    - apply a batch of annotations (highlight/rectangle/ink) through
 //             the real PdfEditingController; incremental-save + appearance-gen
 //             cost, revision count, and session-buffer growth.
+//   hover   - mouse-move over the page with an editing tool armed: synthetic
+//             PointerHoverEvents at frame cadence, measuring the build-phase
+//             cost each one provokes (the cursor-overlay work of #403).
 //
 // Adding a scenario going forward = add one `_drive<Kind>()` method + a `case`
 // in `_drive()`, and emit numbers with `_metric(name, value)`. The driver reads
@@ -40,6 +43,8 @@
 //   query      search: text to search for        (default "the")
 //   repeat     search: best-of-N internal runs   (default 3)
 //   ops        edit: annotations to apply        (default 24)
+//   events     hover: pointer-hover events        (default 240)
+//   tool       hover: armed tool                  (default ink)
 //   imageCacheMb  decoded-image cache budget, MB (default 0 = platform default)
 //
 // The driver reads these JS globals this installs:
@@ -53,12 +58,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
+import 'dart:math' as math;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 // PdfRect isn't in the dart_pdf_editor barrel's `show` list; pull it directly
 // (app depends on pdf_document). Only the edit scenario's annotation coords.
 import 'package:pdf_document/pdf_document.dart' show PdfRect;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
@@ -108,6 +115,16 @@ final int _searchRepeat =
 /// `?ops=`: how many annotations the `edit` scenario applies.
 final int _editOps =
     _qInt('ops', const int.fromEnvironment('PERF_OPS', defaultValue: 24));
+
+/// `?events=` / `?tool=`: how many pointer-hover events the `hover` scenario
+/// dispatches, and which editing tool is armed while they land (the tools with
+/// a painted cursor - ink, eraser, count, stamp - are the interesting ones;
+/// `none` arms nothing, for the plain-viewer baseline).
+final int _hoverEvents =
+    _qInt('events', const int.fromEnvironment('PERF_EVENTS', defaultValue: 240));
+final String _hoverToolName = (_q['tool'] ??
+        const String.fromEnvironment('PERF_TOOL', defaultValue: 'ink'))
+    .toLowerCase();
 
 /// Decoded-image cache budget, MB. 0 leaves the platform default in place; the
 /// driver sweeps it to measure what each budget costs a real tab (issue #281).
@@ -201,6 +218,19 @@ void main() {
   _record('[perf] HARNESS workerPool=$_workerPool');
   CanvasPdfDevice.perGlyphSubstitutedText = _perGlyph;
   _record('[perf] HARNESS perGlyph=$_perGlyph');
+  // `?progressive=1`: light up the #564 progressive top-down reveal (the
+  // vector-first record streams growing linework prefixes into the preview),
+  // so an `open` A/B can measure its first-content win vs the bounded prefix.
+  PdfPageView.progressiveStreamingPaint = _qBool('progressive', false);
+  _record('[perf] HARNESS progressive=${PdfPageView.progressiveStreamingPaint}');
+  // `?earlyPrefixMin=<bytes>`: lower the density gate that both the #527 bounded
+  // early prefix and the #564 reveal share, so a portable-corpus page that sits
+  // just under the 512 KB production default still engages both - letting the
+  // A/B compare them on the same page. 0 leaves the default.
+  final earlyMin = _qInt('earlyPrefixMin', 0);
+  if (earlyMin > 0) PdfPageView.earlyPrefixMinContentBytes = earlyMin;
+  _record('[perf] HARNESS earlyPrefixMin='
+      '${PdfPageView.earlyPrefixMinContentBytes}');
   debugPrint = (String? message, {int? wrapWidth}) {
     if (message != null) _record(message);
   };
@@ -246,7 +276,8 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
   PdfEditingController? _editing;
   String? _error;
 
-  bool get _isEdit => _scenario == 'edit';
+  /// Both scenarios that touch the editor mount the editing stack.
+  bool get _isEdit => _scenario == 'edit' || _scenario == 'hover';
 
   @override
   void initState() {
@@ -325,6 +356,8 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
           await _driveSearch(coldOpen);
         case 'edit':
           await _driveEdit(coldOpen);
+        case 'hover':
+          await _driveHover(coldOpen);
         case 'scroll':
         default:
           await _driveScroll(coldOpen);
@@ -486,6 +519,85 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
         'buffer=${editing.sessionBufferBytes}B revisions=${editing.revisionCount}');
     // Let the last repaint settle.
     await Future<void>.delayed(const Duration(milliseconds: 500));
+  }
+
+  // ----- hover: what a mouse-move costs with an editing tool armed ---------
+  //
+  // The workload behind #403: with ink/eraser/count/stamp armed the overlay
+  // paints its own cursor, and every pointer-hover event has to move it. The
+  // question this answers is whether that move costs a *rebuild* of the
+  // overlay subtree or a repaint of one small layer, and the frame timings
+  // captured across the hover window answer it directly - build-phase ms is
+  // the rebuild, raster ms is the repaint.
+  Future<void> _driveHover(Stopwatch coldOpen) async {
+    final count = await _awaitPageCount(coldOpen);
+    if (count <= 0) throw StateError('pageCount never became positive');
+    final editing = _editing!;
+    // Let the first page paint before the pointer starts moving over it.
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    // A typo'd ?tool= must not quietly arm nothing and then report numbers for
+    // a workload that never happened - only the explicit 'none' disarms.
+    editing.tool = switch (_hoverToolName) {
+      'ink' => PdfEditTool.ink,
+      'eraser' => PdfEditTool.eraser,
+      'count' => PdfEditTool.count,
+      'stamp' => PdfEditTool.stamp,
+      'select' => PdfEditTool.select,
+      'none' => null,
+      _ => throw StateError('unknown ?tool=$_hoverToolName '
+          '(ink|eraser|count|stamp|select|none)'),
+    };
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+
+    final view = WidgetsBinding.instance.platformDispatcher.implicitView!;
+    final size = view.physicalSize / view.devicePixelRatio;
+    final center = Offset(size.width / 2, size.height / 2);
+    // a circle well inside the page, so every event lands on the overlay
+    final radius = math.min(size.width, size.height) * 0.22;
+    final events = _hoverEvents.clamp(1, 4000);
+    _record('[perf] HARNESS HOVER tool=$_hoverToolName events=$events '
+        'view=${size.width.toStringAsFixed(0)}x${size.height.toStringAsFixed(0)}');
+
+    const device = 77; // any id the engine won't also be using
+    GestureBinding.instance.handlePointerEvent(PointerAddedEvent(
+        position: center, kind: PointerDeviceKind.mouse, device: device));
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    final framesBefore = _frames.length;
+    final sw = Stopwatch()..start();
+    for (var i = 0; i < events; i++) {
+      // an irrational-ish step so no two consecutive events repeat a position
+      // (the overlay short-circuits an unchanged one, which would flatter us)
+      final angle = i * 0.37;
+      GestureBinding.instance.handlePointerEvent(PointerHoverEvent(
+        position: center + Offset(math.cos(angle), math.sin(angle)) * radius,
+        kind: PointerDeviceKind.mouse,
+        device: device,
+        timeStamp: Duration(microseconds: sw.elapsedMicroseconds),
+      ));
+      // one event per frame: a real mouse at 60Hz, the cadence the cost is
+      // paid at
+      await Future<void>.delayed(const Duration(milliseconds: 16));
+    }
+    sw.stop();
+    // let the trailing frames land in the timing callback
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+
+    final builds = <double>[
+      for (final f in _frames.skip(framesBefore))
+        f.buildDuration.inMicroseconds / 1000.0,
+    ];
+    final total = builds.fold<double>(0, (a, b) => a + b);
+    builds.sort();
+    _metric('hoverEvents', events);
+    _metric('hoverFrames', builds.length);
+    _metric('hoverBuildMsTotal', total);
+    _metric('hoverBuildMsPerEvent', total / events);
+    if (builds.isNotEmpty) {
+      _metric('hoverBuildMsP50', builds[builds.length ~/ 2]);
+      _metric('hoverBuildMsP95', builds[((builds.length - 1) * 0.95).round()]);
+      _metric('hoverBuildMsMax', builds.last);
+    }
   }
 
   @override

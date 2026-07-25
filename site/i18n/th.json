@@ -211,5 +211,24 @@
   "sdkPkgVlm_d": "เอนจิน OCR แบบ HTTP เสริมสำหรับเว็บ มือถือ และเดสก์ท็อป ชี้ไปยังบริการใดก็ได้ที่คืนกล่องข้อความ",
   "sdk_foot_dartpdfApp": "แอป DartPDF",
 
+  "nf_metaTitle": "ไม่พบหน้านี้ - DartPDF",
+  "nf_metaDesc": "ไม่มีหน้านี้อยู่ กลับไปที่ DartPDF - โปรแกรมแก้ไข PDF แบบส่วนตัวที่ทำงานในเครื่องสำหรับทุกอุปกรณ์",
+  "nf_h1": "<span class=\"hl\">ไม่พบหน้านี้</span>",
+  "nf_lede": "ลิงก์อาจล้าสมัยหรือหน้านี้อาจถูกย้ายไปแล้ว ไฟล์ PDF ของคุณยังปลอดภัยดี - เพราะไฟล์เหล่านั้นไม่เคยออกจากเครื่องของคุณเลย",
+  "nf_ctaHome": "กลับสู่หน้าแรก",
+  "nf_linksH2": "หน้ายอดนิยม",
+  "nf_linkFeatures": "ฟีเจอร์",
+  "nf_linkFeaturesDesc": "คำอธิบายประกอบ OCR ฟอร์ม ลายเซ็น การปกปิดข้อมูล และการแก้ไขข้อความ",
+  "nf_linkDownload": "ดาวน์โหลด",
+  "nf_linkDownloadDesc": "รับ DartPDF สำหรับ Windows, macOS, Linux, iOS และ Android",
+  "nf_linkSupport": "การสนับสนุน",
+  "nf_linkSupportDesc": "คำถามที่พบบ่อย และวิธีติดต่อเราเพื่อแจ้งข้อผิดพลาด",
+  "nf_linkSdk": "Flutter PDF SDK",
+  "nf_linkSdkDesc": "ฝังโปรแกรมดูและตัวแก้ไขลงในแอป Dart หรือ Flutter ของคุณเอง",
+  "nf_linkPrivacy": "ความเป็นส่วนตัว",
+  "nf_linkPrivacyDesc": "ไม่มีบัญชี ไม่มีการวิเคราะห์ ไม่มีการอัปโหลด - อ่านนโยบายได้ที่นี่",
+  "nf_linkSource": "ซอร์สโค้ด",
+  "nf_linkSourceDesc": "ทั้งเอนจินและแอปเป็นโอเพนซอร์สภายใต้ Apache-2.0",
+
   "lang_label": "ภาษา"
 }

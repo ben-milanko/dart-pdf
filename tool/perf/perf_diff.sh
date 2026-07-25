@@ -44,16 +44,27 @@ else
   echo "reusing cached worktree $WORKTREE"
 fi
 
-# Bootstrap refs that predate the perf tooling: copy the harness (and the
-# PdfPerf facade it imports) into the worktree when absent. All additive
-# files - the ref still measures its own library code.
-BOOTSTRAP=(
-  packages/pdf_cos/lib/perf.dart
-  packages/pdf_cos/lib/src/perf/perf.dart
+# The measuring apparatus itself - harness scripts and the workload list, none
+# of it library code. Both sides must run the SAME harness or the comparison is
+# apples to oranges, and a measure or scenario added after the ref exists only
+# here, so these are always overwritten (backfill.sh grafts them the same way).
+HARNESS=(
   packages/pdf_cos/tool/gen_cad_pdf.dart
   packages/pdf_graphics/tool/perf_sweep.dart
   packages/pdf_graphics/tool/perf_run_context.dart
   tool/perf/scenarios.json
+)
+for f in "${HARNESS[@]}"; do
+  mkdir -p "$WORKTREE/$(dirname "$f")"
+  cp "$ROOT/$f" "$WORKTREE/$f"
+done
+
+# Bootstrap refs that predate the perf tooling with the PdfPerf facade the
+# harness imports - but only when absent: this one lives in lib/, and the ref
+# must keep measuring its own library code.
+BOOTSTRAP=(
+  packages/pdf_cos/lib/perf.dart
+  packages/pdf_cos/lib/src/perf/perf.dart
 )
 for f in "${BOOTSTRAP[@]}"; do
   if [ ! -e "$WORKTREE/$f" ]; then
@@ -61,6 +72,13 @@ for f in "${BOOTSTRAP[@]}"; do
     cp "$ROOT/$f" "$WORKTREE/$f"
   fi
 done
+
+# Pre-seed the generated corpora so both sides read byte-identical input and
+# the ref needs no generator. -n keeps the reused-worktree path cheap.
+if [ -d "$ROOT/tool/perf/cache" ]; then
+  mkdir -p "$WORKTREE/tool/perf/cache"
+  cp -Rn "$ROOT/tool/perf/cache/." "$WORKTREE/tool/perf/cache/" 2>/dev/null || true
+fi
 
 OUT="${TMPDIR:-/tmp}/dart-pdf-perf-ab/results-$SHA-$$"
 mkdir -p "$OUT"

@@ -24,16 +24,23 @@ void main() {
   late int prevLimit;
   late int prevMin;
   late bool prevOn;
+  late bool prevProgressive;
 
   setUp(() {
     prevLimit = PdfPageView.earlyPrefixCommandLimit;
     prevMin = PdfPageView.earlyPrefixMinContentBytes;
     prevOn = PdfPageView.earlyPrefixPaint;
+    prevProgressive = PdfPageView.progressiveStreamingPaint;
+    // The #564 reveal, on by default, deliberately REPLACES the single bounded
+    // prefix on a dense page. This suite covers the fallback path, so pin it
+    // off; progressive_streaming_paint_test.dart covers the default.
+    PdfPageView.progressiveStreamingPaint = false;
   });
   tearDown(() {
     PdfPageView.earlyPrefixCommandLimit = prevLimit;
     PdfPageView.earlyPrefixMinContentBytes = prevMin;
     PdfPageView.earlyPrefixPaint = prevOn;
+    PdfPageView.progressiveStreamingPaint = prevProgressive;
   });
 
   testWidgets('a dense page records a bounded prefix before the full pass',
@@ -118,7 +125,7 @@ class _RecordingWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion}) {
+      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) {
     // Only the base record ladder is interesting; deep-zoom detail records
     // carry a region and would be noise.
     if (imageDecodeRegion == null) commandLimits.add(commandLimit);

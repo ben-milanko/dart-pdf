@@ -2,7 +2,7 @@
 
 Monorepo using **pub workspaces** (root `pubspec.yaml` lists members under
 `packages/`). Flutter is managed with **fvm** (see `.fvmrc`); use
-`fvm flutter` / `fvm dart`, or the binaries in `~/fvm/versions/3.44.4/bin/`.
+`fvm flutter` / `fvm dart`, or the binaries in `~/fvm/versions/3.44.8/bin/`.
 
 ## Commands
 

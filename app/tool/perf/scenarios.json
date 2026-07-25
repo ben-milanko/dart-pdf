@@ -1,5 +1,5 @@
 {
-  "_readme": "Declarative registry for the reusable web perf harness. Each scenario names a workload kind (scroll|open|search|edit), a repo-relative PDF (portable, from the CC0 test_corpora/dartpdf corpus so any checkout - and any git worktree in an A/B diff - can run it), and kind-specific params passed to the harness via URL query. The driver (driver.mjs) serves `pdf` at /perf.pdf, sets the query from `params`, and merges whatever window.__perfMetrics() returns into the run envelope - so adding a scenario needs NO driver change. Pick one with `node driver.mjs --scenario <name>` or `tool/perf.sh web <name>`; A/B two revisions with `tool/perf.sh webdiff <ref> <name>`.",
+  "_readme": "Declarative registry for the reusable web perf harness. Each scenario names a workload kind (scroll|open|search|edit|hover), a repo-relative PDF (portable, from the CC0 test_corpora/dartpdf corpus so any checkout - and any git worktree in an A/B diff - can run it), and kind-specific params passed to the harness via URL query. The driver (driver.mjs) serves `pdf` at /perf.pdf, sets the query from `params`, and merges whatever window.__perfMetrics() returns into the run envelope - so adding a scenario needs NO driver change. Pick one with `node driver.mjs --scenario <name>` or `tool/perf.sh web <name>`; A/B two revisions with `tool/perf.sh webdiff <ref> <name>`.",
   "default": "scroll-plan",
   "scenarios": {
     "scroll-plan": {
@@ -44,13 +44,43 @@
       "params": { "targetPage": 0 },
       "note": "Cold-open of a 40p office-text doc: page-tree walk + first paint."
     },
+    "open-diagram": {
+      "kind": "open",
+      "pdf": "test_corpora/dartpdf/diagram-dense-3p.pdf",
+      "params": { "targetPage": 0, "earlyPrefixMin": 262144 },
+      "note": "Cold-open first-content on a ~270k-op/~450KB-content dense diagram: the #527 bounded-early-prefix BASELINE. A/B vs open-diagram-progressive for the #564 reveal (earlyPrefixMin lowered so this just-under-512KB page engages both)."
+    },
+    "open-diagram-progressive": {
+      "kind": "open",
+      "pdf": "test_corpora/dartpdf/diagram-dense-3p.pdf",
+      "params": { "targetPage": 0, "earlyPrefixMin": 262144, "progressive": 1 },
+      "note": "Same cold-open as open-diagram but with the #564 progressive top-down reveal on: the vector-first record streams growing linework prefixes. openFirstContentMs vs open-diagram is the first-content A/B."
+    },
     "search-text": {
       "kind": "search",
       "pdf": "test_corpora/dartpdf/text-report-40p.pdf",
       "params": { "query": "Page", "repeat": 3 },
       "note": "Full-document text search latency + match count on a 40p text report (best-of-3). 'Page' hits ~1.1k times, spread across every page - a stable, comparable workload."
     },
-    "edit-annotate": {
+    "hover-ink": {
+   "kind": "hover",
+   "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",
+   "params": {
+    "events": 240,
+    "tool": "ink"
+   },
+   "note": "240 pointer-hover events over a dense vector sheet with the ink tool armed - the painted pen cursor has to follow the mouse. Measures whether that costs a rebuild of the editing overlay's subtree or a repaint of the cursor layer (#403): watch hoverBuildMsTotal / hoverBuildMsPerEvent."
+  },
+  "hover-eraser": {
+   "kind": "hover",
+   "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",
+   "params": {
+    "events": 240,
+    "tool": "eraser"
+   },
+   "note": "Same hover sweep with the eraser armed (the ring cursor). Same metrics as hover-ink; a second armed tool so a regression in one cursor path doesn't hide behind the other."
+  },
+  "edit-annotate": {
       "kind": "edit",
       "pdf": "test_corpora/dartpdf/styled-booklet-24p.pdf",
       "params": { "ops": 24 },

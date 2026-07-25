@@ -452,7 +452,9 @@ class PdfTextExtractor {
 
   static _ExtractionDevice _interpret(PdfDocument document, int pageIndex) {
     final device = _ExtractionDevice();
-    PdfInterpreter(cos: document.cos, device: device)
+    // Extraction reads geometry and Unicode, never colour, so the overprint
+    // colorant buffer (§8.6.7) would be pure cost on a page that uses it.
+    PdfInterpreter(cos: document.cos, device: device, resolveOverprint: false)
         .drawPage(document.page(pageIndex));
     return device;
   }

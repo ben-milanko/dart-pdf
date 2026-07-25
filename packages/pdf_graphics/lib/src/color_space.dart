@@ -2,6 +2,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 
 import 'calibrated_color.dart';
 import 'color.dart';
+import 'colorants.dart';
 import 'function.dart';
 import 'icc.dart';
 
@@ -48,6 +49,19 @@ abstract class PdfColorSpace {
   /// overrides it with its L*/a*/b* ranges.
   PdfColor toSrgbFromSamples(List<int> samples) =>
       toSrgb([for (final s in samples) s / 255]);
+
+  /// The device colorants painting [values] in this space writes, with the
+  /// overprint semantics of the space (§8.6.7) - or null when the space has no
+  /// colorant reading, in which case overprint cannot be resolved and the
+  /// painting device's approximation stands.
+  ///
+  /// Implemented for the spaces overprint is defined over: DeviceGray and
+  /// DeviceCMYK (process colorants) and Separation/DeviceN (the colorants they
+  /// name). DeviceRGB, ICCBased, Lab/CalRGB/CalGray, Indexed and Pattern
+  /// return null: an RGB-ish colour has no colorant decomposition, and
+  /// inventing one would knock backdrops out that a real separations device
+  /// leaves alone.
+  PdfInkColorants? inkColorants(List<double> values) => null;
 
   /// Resolves a colour-space object. [object] may be a device or
   /// abbreviation name, a `Pattern` name, an array space (`[/ICCBased …]`,
@@ -111,7 +125,7 @@ abstract class PdfColorSpace {
             return _IndexedColorSpace.parse(cos, resolved, resources, iccCache) ??
                 const _DeviceColorSpace('DeviceRGB', 3);
           case 'Separation':
-            return _TintColorSpace.parse(cos, resolved, 1, resources, iccCache) ??
+            return _TintColorSpace.parse(cos, resolved, resources, iccCache) ??
                 const _DeviceColorSpace('DeviceGray', 1);
           case 'DeviceN':
             return _TintColorSpace.parseDeviceN(
@@ -185,6 +199,17 @@ class _DeviceColorSpace extends PdfColorSpace {
 
   @override
   PdfColor toSrgb(List<double> values) => colorFromComponents(values, channels);
+
+  @override
+  PdfInkColorants? inkColorants(List<double> values) {
+    double at(int i) =>
+        i < values.length ? values[i].clamp(0.0, 1.0).toDouble() : 0.0;
+    return switch (family) {
+      'DeviceCMYK' => PdfInkColorants.deviceCmyk(at(0), at(1), at(2), at(3)),
+      'DeviceGray' => PdfInkColorants.deviceGray(at(0)),
+      _ => null,
+    };
+  }
 }
 
 /// The Pattern space: colours come from the pattern, not from components.
@@ -310,13 +335,17 @@ class _IndexedColorSpace extends PdfColorSpace {
 /// A Separation or DeviceN space: colorant values run through a tint
 /// transform ([function]) into the [alternate] space (§8.6.6.4).
 class _TintColorSpace extends PdfColorSpace {
-  _TintColorSpace(this.family, this.channels, this._function, this._alternate);
+  _TintColorSpace(
+      this.family, this.colorantNames, this._function, this._alternate);
 
   @override
   final String family;
 
+  /// The colorant each component names (§8.6.6.4). A Separation has one.
+  final List<String> colorantNames;
+
   @override
-  final int channels;
+  int get channels => colorantNames.length;
 
   final PdfFunction _function;
   final PdfColorSpace _alternate;
@@ -325,15 +354,116 @@ class _TintColorSpace extends PdfColorSpace {
   PdfColor toSrgb(List<double> values) =>
       _alternate.toSrgb(_function.evaluateAt(values));
 
-  /// `[/Separation name alternate tint]`. [channels] is 1 for Separation.
-  static _TintColorSpace? parse(CosDocument cos, CosArray space, int channels,
+  @override
+  PdfInkColorants? inkColorants(List<double> values) {
+    double at(int i) =>
+        i < values.length ? values[i].clamp(0.0, 1.0).toDouble() : 0.0;
+    var c = 0.0, m = 0.0, y = 0.0, k = 0.0;
+    var mask = 0;
+    final spots = <String>[];
+    final tints = <double>[];
+    final equivalents = <List<double>>[];
+    for (var i = 0; i < colorantNames.length; i++) {
+      final tint = at(i);
+      switch (colorantNames[i]) {
+        case 'All':
+          // Every colorant on the device takes the tint (§8.6.6.4). Modelled
+          // as an all-writing ink; [PdfInkColorants.over] carries the tint to
+          // whatever spots the backdrop holds.
+          return PdfInkColorants(
+            colorants: PdfColorants(tint, tint, tint, tint),
+            processMask: kColorantProcessAll,
+            overprintModeApplies: false,
+            writesAll: true,
+          );
+        case 'None':
+          continue;
+        case 'Cyan':
+          c = tint;
+          mask |= kColorantCyan;
+        case 'Magenta':
+          m = tint;
+          mask |= kColorantMagenta;
+        case 'Yellow':
+          y = tint;
+          mask |= kColorantYellow;
+        case 'Black':
+          k = tint;
+          mask |= kColorantBlack;
+        default:
+          spots.add(colorantNames[i]);
+          tints.add(tint);
+          equivalents.add(_spotEquivalent(i));
+      }
+    }
+    // [PdfColorants] keeps spot names sorted so two vectors naming the same
+    // colorants compare equal whatever order the space listed them in.
+    final order = [for (var i = 0; i < spots.length; i++) i]
+      ..sort((a, b) => spots[a].compareTo(spots[b]));
+    return PdfInkColorants(
+      colorants: PdfColorants(c, m, y, k,
+          spots: [for (final i in order) spots[i]],
+          tints: [for (final i in order) tints[i]]),
+      processMask: mask,
+      // §8.6.7.3 scopes the overprint-mode-1 zero rule to DeviceCMYK. Applying
+      // it to a Separation/DeviceN space instead is precisely the failure
+      // GWG190's patch c grades ("X means the colour space might have been
+      // converted to DeviceCMYK upfront (OPM 1)"): its DeviceN 100C/0Y/0K over
+      // CMYK black must knock the black out to solid cyan under either mode.
+      overprintModeApplies: false,
+      spotEquivalents: [for (final i in order) equivalents[i]],
+    );
+  }
+
+  /// The CMYK a full tint of colorant [index] alone renders as - what a
+  /// composite vector naming this spot converts through when no single paint
+  /// produced it. Evaluated through the space's own tint transform, so a
+  /// DeviceN's per-colorant appearance comes from the document, not a guess.
+  List<double> _spotEquivalent(int index) {
+    final cached = _spotEquivalents[index];
+    if (cached != null) return cached;
+    final probe = List<double>.filled(colorantNames.length, 0)..[index] = 1;
+    List<double> cmyk;
+    try {
+      final alternate = _function.evaluateAt(probe);
+      cmyk = _alternate.family == 'DeviceCMYK' && alternate.length >= 4
+          ? [
+              for (var i = 0; i < 4; i++) alternate[i].clamp(0.0, 1.0).toDouble()
+            ]
+          : _cmykFromSrgb(_alternate.toSrgb(alternate));
+    } on Exception {
+      cmyk = const [0, 0, 0, 1];
+    }
+    return _spotEquivalents[index] = cmyk;
+  }
+
+  final Map<int, List<double>> _spotEquivalents = {};
+
+  /// Naive sRGB → CMYK for an alternate space that is not DeviceCMYK. Only
+  /// feeds the fallback conversion of a colorant combination no paint
+  /// produced, never a colour the renderer shows directly.
+  static List<double> _cmykFromSrgb(PdfColor color) {
+    final k = 1 - [color.red, color.green, color.blue].reduce((a, b) => a > b ? a : b);
+    if (k >= 1) return const [0, 0, 0, 1];
+    return [
+      (1 - color.red - k) / (1 - k),
+      (1 - color.green - k) / (1 - k),
+      (1 - color.blue - k) / (1 - k),
+      k,
+    ];
+  }
+
+  /// `[/Separation name alternate tint]`.
+  static _TintColorSpace? parse(CosDocument cos, CosArray space,
       CosDictionary? resources, Map<CosStream, IccProfile?>? iccCache) {
     if (space.length < 4) return null;
     final function = PdfFunction.parse(cos, space[3]);
     if (function == null) return null;
     final alternate = PdfColorSpace.parse(cos, space[2],
         resources: resources, iccCache: iccCache);
-    return _TintColorSpace('Separation', channels, function, alternate);
+    final name = cos.resolve(space[1]);
+    return _TintColorSpace('Separation',
+        [name is CosName ? name.value : ''], function, alternate);
   }
 
   /// `[/DeviceN names alternate tint attributes]`; the colorant count is the
@@ -347,6 +477,16 @@ class _TintColorSpace extends PdfColorSpace {
     if (function == null) return null;
     final alternate = PdfColorSpace.parse(cos, space[2],
         resources: resources, iccCache: iccCache);
-    return _TintColorSpace('DeviceN', names.length, function, alternate);
+    return _TintColorSpace(
+        'DeviceN',
+        [
+          for (final item in names.items)
+            switch (cos.resolve(item)) {
+              CosName(:final value) => value,
+              _ => '',
+            },
+        ],
+        function,
+        alternate);
   }
 }

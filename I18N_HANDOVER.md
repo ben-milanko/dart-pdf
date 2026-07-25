@@ -85,7 +85,7 @@ gotchas, and the deferred no-context inventory.
 `dart analyze lib`:
 
 - `pubspec.yaml`: added `flutter_localizations` (sdk), `intl: ^0.20.2`
-  (matches the flutter_localizations pin of Flutter 3.44.4), and
+  (matches the flutter_localizations pin of Flutter 3.44.8), and
   `generate: true` under `flutter:`.
 - `l10n.yaml`: arb-dir `lib/l10n`, template `dart_pdf_editor_en.arb`,
   output-class `DartPdfEditorLocalizations`. Do NOT re-add
@@ -94,7 +94,7 @@ gotchas, and the deferred no-context inventory.
   first two keys (`cancel`, `ok`) with `@key` descriptions.
 - `lib/l10n/dart_pdf_editor_localizations{,_en}.dart`: **generated,
   checked in**. Regenerate after every ARB edit:
-  `cd packages/dart_pdf_editor && ~/fvm/versions/3.44.4/bin/flutter gen-l10n`
+  `cd packages/dart_pdf_editor && ~/fvm/versions/3.44.8/bin/flutter gen-l10n`
   (use the fvm binary; `fvm flutter gen-l10n` also works if fvm is set up).
 - `lib/src/l10n/pdf_l10n.dart`: the fallback wrapper —
   `pdfL10n(context)` returns the ambient localizations or the English
@@ -212,9 +212,9 @@ into the generated demo PDF = document content, leave it.
 
 ## Verification commands
 
-- `cd packages/dart_pdf_editor && ~/fvm/versions/3.44.4/bin/dart analyze`
-  and `~/fvm/versions/3.44.4/bin/flutter test`
-- Root: `~/fvm/versions/3.44.4/bin/flutter pub get` (workspace), then the
+- `cd packages/dart_pdf_editor && ~/fvm/versions/3.44.8/bin/dart analyze`
+  and `~/fvm/versions/3.44.8/bin/flutter test`
+- Root: `~/fvm/versions/3.44.8/bin/flutter pub get` (workspace), then the
   same analyze/test in `app/` and `packages/dart_pdf_editor/example/`.
 - The four corpus suites are rendering-only and shouldn't be affected;
   run them only if something non-string changed (see AGENTS.md).

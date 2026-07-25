@@ -438,6 +438,25 @@ class PdfViewerController extends ChangeNotifier {
   @visibleForTesting
   bool get debugRenderHold => _state?._renderScheduler.holding ?? false;
 
+  /// Whether the attached viewer still has foreground page work in flight: a
+  /// scroll holding renders back, or pages queued for their first interpret.
+  /// False when no viewer is attached.
+  ///
+  /// Background passes that build pictures on the platform thread - the page
+  /// thumbnail panels' whole-document warm - stand down while this is true, so
+  /// they cannot land a replay on top of the frame the visible page needs. A
+  /// lower render-worker priority does not cover this: the worker orders the
+  /// isolate's queue, but the replay that follows every record runs here (#603).
+  /// Pair it with [pageRenderActivity] to know when to resume.
+  bool get isPageRenderBusy => _state?._renderScheduler.busy ?? false;
+
+  /// Notifies whenever [isPageRenderBusy] may have changed. Never null - it
+  /// forwards whichever viewer is attached, so a listener survives the viewer
+  /// being swapped underneath it.
+  Listenable get pageRenderActivity => _pageRenderActivity;
+  final _PdfForwardingListenable _pageRenderActivity =
+      _PdfForwardingListenable();
+
   String _selectedText = '';
 
   /// The currently selected text, '' with no selection. Drag with a mouse
@@ -633,6 +652,7 @@ class PdfViewerController extends ChangeNotifier {
   @override
   void dispose() {
     _viewport.dispose();
+    _pageRenderActivity.dispose();
     super.dispose();
   }
 
@@ -741,6 +761,33 @@ class PdfViewerController extends ChangeNotifier {
 /// way to hand out a bare [Listenable] the viewer can fire.
 class _ViewportNotifier extends ChangeNotifier {
   void notify() => notifyListeners();
+}
+
+/// A [Listenable] that relays whichever [source] is currently attached.
+///
+/// The controller outlives the viewer state it drives (and can be handed a new
+/// one when the host reparents the viewer), so a listener that subscribed to
+/// the live render scheduler directly would be left holding a disposed object.
+/// This sits in between: swapping [source] moves the subscription and fires
+/// once, so listeners re-read through the controller and see the new truth.
+class _PdfForwardingListenable extends ChangeNotifier {
+  Listenable? _source;
+
+  Listenable? get source => _source;
+  set source(Listenable? next) {
+    if (identical(_source, next)) return;
+    _source?.removeListener(notifyListeners);
+    _source = next;
+    _source?.addListener(notifyListeners);
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _source?.removeListener(notifyListeners);
+    _source = null;
+    super.dispose();
+  }
 }
 
 /// How [PdfViewer] zooms the document when it first appears.
@@ -1544,6 +1591,7 @@ class _PdfViewerState extends State<PdfViewer>
 
   void _settleRenderHold() {
     _renderScheduler.holding = _motionRenderHoldActive || !widget.active;
+    _renderScheduler.parked = !widget.active;
   }
 
   void _beginMotionRenderHold() {
@@ -1719,6 +1767,7 @@ class _PdfViewerState extends State<PdfViewer>
     _controller = widget.controller ?? PdfViewerController();
     _ownsController = widget.controller == null;
     _controller._state = this;
+    _controller._pageRenderActivity.source = _renderScheduler.activity;
     widget.performance?.addListener(_onPerformanceChanged);
     if (widget.performance != null) {
       SchedulerBinding.instance.addTimingsCallback(_onPerformanceTimings);
@@ -1726,6 +1775,7 @@ class _PdfViewerState extends State<PdfViewer>
     // mounted already paused (overlaid by another view) - hold rendering from
     // the first frame so covered pages never interpret
     if (!widget.active) _renderScheduler.holding = true;
+    _renderScheduler.parked = !widget.active;
     _pendingViewport = widget.initialViewport;
     // subscribe to the revision controller directly: it owns the document
     // revisions, so the viewer reads the current one and rebuilds itself when
@@ -2288,6 +2338,7 @@ class _PdfViewerState extends State<PdfViewer>
         'hold=${hold ? 'ON' : 'off'}');
     // a paused viewer (overlaid by another view) holds unconditionally
     _renderScheduler.holding = hold || !widget.active;
+    _renderScheduler.parked = !widget.active;
   }
 
   @override
@@ -2364,6 +2415,7 @@ class _PdfViewerState extends State<PdfViewer>
     // the viewer was paused (e.g. the full-area page grid overlaid it) and is
     // foreground again - release the render hold and resume the prerender
     if (oldWidget.active != widget.active) {
+      _renderScheduler.parked = !widget.active;
       if (!widget.active) {
         _renderScheduler.holding = true;
       } else {
@@ -2644,7 +2696,12 @@ class _PdfViewerState extends State<PdfViewer>
     // controller still points here, or the new viewer is severed and every
     // controller call (jumpToPage, visiblePageRegion, search) silently
     // no-ops
-    if (identical(_controller._state, this)) _controller._state = null;
+    if (identical(_controller._state, this)) {
+      _controller._state = null;
+      // the scheduler is about to be disposed; stop forwarding it, and tell
+      // anyone gated on it that nothing is busy any more
+      _controller._pageRenderActivity.source = null;
+    }
     if (_ownsController) _controller.dispose();
     _scroll.dispose();
     _transform.dispose();
@@ -3145,12 +3202,26 @@ class _PdfViewerState extends State<PdfViewer>
     final textCache = widget.textCache;
     final key = widget.documentId;
     if (textCache != null && key != null && widget.editing == null) {
-      final text = await textCache.get(
-          key, index, () => PdfTextExtractor.extract(_document, index));
+      final text = await textCache.get(key, index, () => _extractPageText(index));
       return _textCache.putIfAbsent(index, () => text);
     }
-    return _textCache.putIfAbsent(
-        index, () => PdfTextExtractor.extract(_document, index));
+    final text = await _extractPageText(index);
+    return _textCache.putIfAbsent(index, () => text);
+  }
+
+  /// Extracts page [index]'s text off the UI isolate through the render worker
+  /// when one is active, falling back to a local (on-thread) extraction (#396).
+  /// A full content walk on a heavy page is a multi-hundred-ms freeze when it
+  /// runs on the UI thread; the worker - kept in step with the current revision
+  /// like the render path - moves it off. Search drives this; hover keeps its
+  /// synchronous [_pageText] path, already gated by content size.
+  Future<PdfPageText> _extractPageText(int index) async {
+    final worker = _effectiveRenderWorker;
+    if (worker != null && worker.isActive) {
+      final text = await worker.extractText(index);
+      if (text != null) return text;
+    }
+    return PdfTextExtractor.extract(_document, index);
   }
 
   Future<List<PdfSearchResult>> _searchAllPages(

@@ -73,7 +73,8 @@ The web build is always served fresh, so it skips the check.
 | Android | `app-release.apk`, `app-release.aab` | Debug keys unless a release keystore is configured (below) |
 | iOS | `…-ios-unsigned.zip` (`.app`) | **No**, not installable; needs your Apple signing |
 | macOS | `…-macos.dmg` | Ad-hoc signed for internal consistency; needs Developer ID signing + notarization for public distribution |
-| Windows | `…-windows-installer.exe`, `…-windows-portable.exe`, `…-windows-x64.zip` | **No**, needs an Authenticode cert / MSIX |
+| Windows | `…-windows-installer.exe`, `…-windows-portable.exe`, `…-windows-x64.zip` | **No**, needs an Authenticode cert for non-Store distribution |
+| Windows (Store) | `dartpdf-windows-store.msix` (separate workflow, see below) | Intentionally unsigned - Microsoft re-signs Store submissions |
 | Linux | `…-linux-x64.tar.gz` | n/a |
 | Web | `…-web.zip` | n/a |
 
@@ -150,10 +151,26 @@ membership needed). What that means concretely:
 - CI produces an unsigned per-user NSIS installer. It installs under
   `%LOCALAPPDATA%\Programs\DartPDF`, creates Start Menu shortcuts, registers
   uninstall metadata, and adds DartPDF to the PDF "Open with" list.
-- For public distribution, sign the NSIS installer with an Authenticode
-  code-signing certificate, or package as MSIX (add the `msix` dev-dependency +
-  `msix_config`, which also declares the `.pdf` file association) and sign with
-  your cert.
+- For distribution **outside** the Store, sign that installer with an
+  Authenticode code-signing certificate.
+- **Microsoft Store** shipping is automated and entirely CLI-driven:
+  `.github/workflows/release-windows-store.yml` builds the Store MSIX
+  (`dart run msix:create --store`, configured by `msix_config` in
+  `app/pubspec.yaml` — which also declares the `.pdf` file association) and
+  uploads it with the Microsoft Store Developer CLI. Store submissions are
+  **unsigned**; Microsoft re-signs them, so no Authenticode cert is needed for
+  this channel. An `app-v*` tag uploads a **draft** submission; committing to
+  certification is an explicit manual workflow run.
+
+  The one-time account setup is *not* scriptable — the app must be created and
+  its name reserved in Partner Center by hand, an Azure AD app has to be
+  associated with the account, and the first submission's listing/age-rating
+  must be completed in the UI (the same boundary as Play and the App Store
+  above). Registration itself is free as of 2026. Configuration is four
+  repository **variables** (the public MSIX identity values + Store ID) and four
+  **secrets** (the Azure AD credentials); until they are set the workflow
+  **skips** rather than fails.
+  See [`packaging/msstore/README.md`](packaging/msstore/README.md).
 
 ### Linux
 - The tarball runs as-is. For distribution, wrap as AppImage / Flatpak / Snap /
@@ -170,8 +187,9 @@ The receive side ships in the app (see Phase 2). OS registration is per
 platform: macOS/iOS via the bundled Info.plist `CFBundleDocumentTypes`,
 Android via the manifest intent-filters, web via `manifest.json`
 `file_handlers`. Windows and Linux register the association at **install**
-time. Declare it in the MSIX manifest / `.desktop` file when you build those
-installers.
+time: the NSIS installer writes the ProgID registry keys, the Store MSIX
+declares it via `msix_config`'s `file_extension: .pdf`, and Linux ships it in
+the `.desktop` file's `MimeType`.
 
 ### Document (file) icon
 

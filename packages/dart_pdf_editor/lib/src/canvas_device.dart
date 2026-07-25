@@ -147,9 +147,14 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
   @visibleForTesting
   static bool debugDrawSimpleLines = true;
 
-  /// Overprint compositing kill switch (the A/B baseline is "off"). Off,
-  /// [setOverprint] still records the state but fills/strokes composite
+  /// Overprint fallback-compositing kill switch (the A/B baseline is "off").
+  /// Off, [setOverprint] still records the state but fills/strokes composite
   /// normally, exactly as before overprint was consumed.
+  ///
+  /// This governs only the RGB stand-in below. Faithful overprint is resolved
+  /// upstream in the interpreter's colorant buffer (issue #502), which hands
+  /// this device an already-composited colour with the overprint flag cleared;
+  /// `PdfInterpreter.debugResolveOverprint` is that path's switch.
   @visibleForTesting
   static bool debugOverprintCompositing = true;
 
@@ -229,26 +234,32 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
   @override
   void setOverprint(
       {required bool fill, required bool stroke, required int mode}) {
-    // [mode] (OPM 0/1) only distinguishes which DeviceCMYK components a
-    // colorant buffer would write; the RGB `darken` approximation below cannot
-    // act on it, so it is intentionally not stored. Empirically (issue #502)
-    // no fixed RGB blend that keys off OPM beats darken-always here: gating
-    // OPM-0 to a knockout fixes the "over CMYK" patches but reintroduces the
-    // fail-marker on the "over spot" patches (a separation colorant must
-    // survive the knockout), and vice-versa - the two only diverge in colorant
-    // space. See doc/dev-log/2026-07-23-overprint-rgb-ceiling.md.
+    // [mode] (OPM 0/1) only distinguishes which DeviceCMYK components are
+    // written, which is a colorant-space question: it is acted on by
+    // PdfOverprintCompositor upstream and cannot be acted on here, so it is
+    // intentionally not stored. Empirically (issue #502) no fixed RGB blend
+    // that keys off OPM beats darken-always in this device: gating OPM-0 to a
+    // knockout fixes the "over CMYK" patches but reintroduces the fail-marker
+    // on the "over spot" patches (a separation colorant must survive the
+    // knockout), and vice-versa. See
+    // doc/dev-log/2026-07-23-overprint-rgb-ceiling.md.
     _fillOverprint = fill;
     _strokeOverprint = stroke;
   }
 
   /// Overprint (§8.6.7) is a subtractive colorant operation this RGB canvas
-  /// cannot reproduce exactly. While the nonstroking flag (/op) is set, a fill
-  /// composites with [BlendMode.darken] (per-channel min): over a coloured
-  /// backdrop it preserves the darker colorant channels and clips the lighter
-  /// ones - a passable stand-in for "the ink darkens what it covers instead of
-  /// knocking it out" - and over white it is a no-op, so pages that set
-  /// overprint defensively over the page background are unaffected. An explicit
-  /// blend mode (/BM) or a knockout group takes precedence.
+  /// cannot reproduce exactly, so it is normally resolved before reaching here:
+  /// the interpreter's colorant buffer composites the draw in ink space and
+  /// delivers the resulting colour with the flag cleared (issue #502).
+  ///
+  /// The flag only survives to this device when the buffer declined - the
+  /// backdrop was an image, a gradient, a transparency group, or a colour space
+  /// with no colorant reading. Then the historical stand-in applies: the fill
+  /// composites with [BlendMode.darken] (per-channel min), which over a
+  /// coloured backdrop preserves the darker colorant channels and clips the
+  /// lighter ones, and over white is a no-op, so pages that set overprint
+  /// defensively over the page background are unaffected. An explicit blend
+  /// mode (/BM) or a knockout group takes precedence.
   BlendMode get _fillElementBlend {
     if (_knockoutActive) return BlendMode.src;
     if (debugOverprintCompositing &&

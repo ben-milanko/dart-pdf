@@ -588,7 +588,7 @@ class _BinLogWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion}) async {
+      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async {
     recordCalls.add((pageIndex, priority));
     return null;
   }
@@ -653,7 +653,7 @@ class _DefaultWorker extends PdfRenderWorker {
           double? imagePixelRatio,
           bool decodeImages = true,
           int? commandLimit,
-          PdfRect? imageDecodeRegion}) async =>
+          PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async =>
       null;
 
   @override

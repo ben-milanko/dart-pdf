@@ -193,6 +193,30 @@ function parse(lines, frames) {
     if (warm) r.workerWarmMax = Math.max(r.workerWarmMax, Number(warm[1]));
     const pre = line.match(/prerender page=\d+ (?:worker )?(vector|full) /);
     if (pre) r.prerender[pre[1]]++;
+    // The #527 bounded early prefix is real ink on the target page too, so it
+    // counts as first content for the baseline (progressive off) - otherwise the
+    // A/B would credit the reveal for a win the bounded prefix already delivers.
+    const early = line.match(/early-prefix page=(\d+)/);
+    if (early &&
+      atMs != null &&
+      r.target.startMs != null &&
+      r.target.firstContentMs == null &&
+      Number(early[1]) === r.target.page) {
+      r.target.firstContentMs = atMs - r.target.startMs;
+      r.target.kind = 'early-prefix';
+    }
+    // A #564 progressive partial is real ink on the target page - the top-down
+    // reveal - so it counts as first content, earlier than the vector-first
+    // full raster it precedes.
+    const partial = line.match(/progressive-partial page=(\d+)/);
+    if (partial &&
+      atMs != null &&
+      r.target.startMs != null &&
+      r.target.firstContentMs == null &&
+      Number(partial[1]) === r.target.page) {
+      r.target.firstContentMs = atMs - r.target.startMs;
+      r.target.kind = 'progressive-partial';
+    }
     const vector = line.match(/vector-first page=(\d+)/);
     if (vector &&
       atMs != null &&

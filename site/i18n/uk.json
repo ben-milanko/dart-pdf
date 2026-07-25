@@ -211,5 +211,24 @@
   "sdkPkgVlm_d": "Опційний HTTP-рушій OCR для Web, мобільних і комп'ютерів. Спрямуйте його на будь-який сервіс, що повертає текстові рамки.",
   "sdk_foot_dartpdfApp": "Застосунок DartPDF",
 
+  "nf_metaTitle": "Сторінку не знайдено - DartPDF",
+  "nf_metaDesc": "Такої сторінки немає. Поверніться до DartPDF - приватного локального редактора PDF для будь-якого пристрою.",
+  "nf_h1": "Цю сторінку <span class=\"hl\">не знайдено.</span>",
+  "nf_lede": "Можливо, посилання застаріло або сторінку перенесли. З вашими PDF усе гаразд - вони й не залишали пристрій.",
+  "nf_ctaHome": "На головну",
+  "nf_linksH2": "Популярні сторінки",
+  "nf_linkFeatures": "Можливості",
+  "nf_linkFeaturesDesc": "Анотації, OCR, форми, підписи, приховування даних і правка тексту.",
+  "nf_linkDownload": "Завантажити",
+  "nf_linkDownloadDesc": "DartPDF для Windows, macOS, Linux, iOS та Android.",
+  "nf_linkSupport": "Підтримка",
+  "nf_linkSupportDesc": "Часті запитання та як повідомити нам про помилку.",
+  "nf_linkSdk": "Flutter PDF SDK",
+  "nf_linkSdkDesc": "Вбудуйте переглядач і редактор у власний застосунок на Dart або Flutter.",
+  "nf_linkPrivacy": "Приватність",
+  "nf_linkPrivacyDesc": "Без облікових записів, без аналітики, без вивантажень - ось політика.",
+  "nf_linkSource": "Вихідний код",
+  "nf_linkSourceDesc": "Увесь рушій і застосунок з відкритим кодом за ліцензією Apache-2.0.",
+
   "lang_label": "Мова"
 }
