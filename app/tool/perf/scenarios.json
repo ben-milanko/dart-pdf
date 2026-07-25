@@ -44,6 +44,18 @@
       "params": { "targetPage": 0 },
       "note": "Cold-open of a 40p office-text doc: page-tree walk + first paint."
     },
+    "open-diagram": {
+      "kind": "open",
+      "pdf": "test_corpora/dartpdf/diagram-dense-3p.pdf",
+      "params": { "targetPage": 0, "earlyPrefixMin": 262144 },
+      "note": "Cold-open first-content on a ~270k-op/~450KB-content dense diagram: the #527 bounded-early-prefix BASELINE. A/B vs open-diagram-progressive for the #564 reveal (earlyPrefixMin lowered so this just-under-512KB page engages both)."
+    },
+    "open-diagram-progressive": {
+      "kind": "open",
+      "pdf": "test_corpora/dartpdf/diagram-dense-3p.pdf",
+      "params": { "targetPage": 0, "earlyPrefixMin": 262144, "progressive": 1 },
+      "note": "Same cold-open as open-diagram but with the #564 progressive top-down reveal on: the vector-first record streams growing linework prefixes. openFirstContentMs vs open-diagram is the first-content A/B."
+    },
     "search-text": {
       "kind": "search",
       "pdf": "test_corpora/dartpdf/text-report-40p.pdf",

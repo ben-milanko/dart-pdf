@@ -201,6 +201,19 @@ void main() {
   _record('[perf] HARNESS workerPool=$_workerPool');
   CanvasPdfDevice.perGlyphSubstitutedText = _perGlyph;
   _record('[perf] HARNESS perGlyph=$_perGlyph');
+  // `?progressive=1`: light up the #564 progressive top-down reveal (the
+  // vector-first record streams growing linework prefixes into the preview),
+  // so an `open` A/B can measure its first-content win vs the bounded prefix.
+  PdfPageView.progressiveStreamingPaint = _qBool('progressive', false);
+  _record('[perf] HARNESS progressive=${PdfPageView.progressiveStreamingPaint}');
+  // `?earlyPrefixMin=<bytes>`: lower the density gate that both the #527 bounded
+  // early prefix and the #564 reveal share, so a portable-corpus page that sits
+  // just under the 512 KB production default still engages both - letting the
+  // A/B compare them on the same page. 0 leaves the default.
+  final earlyMin = _qInt('earlyPrefixMin', 0);
+  if (earlyMin > 0) PdfPageView.earlyPrefixMinContentBytes = earlyMin;
+  _record('[perf] HARNESS earlyPrefixMin='
+      '${PdfPageView.earlyPrefixMinContentBytes}');
   debugPrint = (String? message, {int? wrapWidth}) {
     if (message != null) _record(message);
   };
