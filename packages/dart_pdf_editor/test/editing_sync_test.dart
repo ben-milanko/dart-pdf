@@ -132,6 +132,30 @@ void main() {
       expect(batches, hasLength(1));
       expect(batches[0].single.kind, PdfAnnotationChangeKind.modified);
     });
+
+    test('a listener attaching mid-session sees only the edit, not the '
+        'pre-existing annotations', () async {
+      // The baseline is seeded from the clean document when the listener
+      // attaches (#416, replacing the per-commit re-open); editing one of
+      // several pre-existing annotations must diff as a lone modification,
+      // never re-announce the untouched ones as creations.
+      final editing = PdfEditingController(buildClassicPdf());
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(100, 600, 200, 700));
+      editing.addRectangle(0, const PdfRect(100, 400, 200, 500));
+      editing.addFreeText(0, const PdfRect(100, 200, 280, 260), 'note');
+      editing.selectAnnotation(0, 0);
+      final edited = editing.selectedAnnotation!.name;
+
+      final (batches, _) = listen(editing); // seeds the baseline with all three
+      expect(editing.setSelectedAuthor('Ben'), isTrue);
+      await pumpEventQueue();
+
+      expect(batches, hasLength(1));
+      final change = batches[0].single;
+      expect(change.kind, PdfAnnotationChangeKind.modified);
+      expect(change.name, edited);
+    });
   });
 
   group('remote replay', () {
