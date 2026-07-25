@@ -115,6 +115,44 @@ void main() {
         [180, 142, 105]);
   });
 
+  test('a LUT profile stays correct across interleaved calls (#451)', () {
+    // The LUT pipeline reuses per-profile scratch buffers instead of
+    // allocating five lists per pixel. That is only sound if nothing survives
+    // one call into the next, and a leak would be invisible to a test that
+    // converts a single colour: the first call would still be right.
+    //
+    // So drive the profile the way an image does - the same instance, many
+    // colours, out of order, revisited - and require the pinned littleCMS
+    // values to hold every time regardless of what was converted in between.
+    final profile = IccProfile.parse(genericCmykIcc())!;
+    const cases = <(List<double>, List<int>)>[
+      ([1, 0, 0, 0], [0, 164, 219]), // cyan
+      ([0, 0, 0, 1], [25, 26, 25]), // rich black
+      ([50 / 255, 100 / 255, 150 / 255, 20 / 255], [180, 142, 105]),
+    ];
+
+    for (var round = 0; round < 4; round++) {
+      // Interleave in both directions, and push unrelated colours through
+      // between the pinned ones so any retained state would be the wrong one.
+      for (final (input, want) in cases) {
+        profile.toSrgb([0.2, 0.4, 0.6, 0.8]);
+        expectSrgb(profile.toSrgb(input), want);
+      }
+      for (final (input, want) in cases.reversed) {
+        expectSrgb(profile.toSrgb(input), want);
+      }
+    }
+
+    // The caller passes a reused buffer too; the profile must not retain it.
+    final scratch = Float64List(4);
+    for (final (input, want) in cases) {
+      scratch.setAll(0, input);
+      final color = profile.toSrgb(scratch);
+      scratch.fillRange(0, 4, 0); // clobber after the call
+      expectSrgb(color, want);
+    }
+  });
+
   test('sRGB-equivalent profiles are detected and bypassed (#531)', () {
     final profile = IccProfile.parse(buildSrgbIccProfile())!;
     expect(profile.channels, 3);

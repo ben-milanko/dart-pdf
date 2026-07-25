@@ -1625,23 +1625,21 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
 /// and the VM's do not, so two different tuples would compare equal on the web
 /// and silently take each other's colour.
 class _ColorMemo {
-  _ColorMemo._(this._components)
-      : _keys = Uint8List(_slots * _components),
-        _rgb = Int32List(_slots)..fillRange(0, _slots, _empty);
-
-  /// 16 K slots: ~128 KB of tables, small against the megabytes of RGBA an
-  /// image this size decodes to, and enough that a page's ink palette lands
-  /// essentially collision-free.
-  static const int _bits = 14;
-  static const int _slots = 1 << _bits;
-  static const int _mask = _slots - 1;
+  _ColorMemo._(this._components, int slots)
+      : _mask = slots - 1,
+        _keys = Uint8List(slots * _components),
+        _rgb = Int32List(slots)..fillRange(0, slots, _empty);
 
   /// Packed sRGB is never negative, so -1 marks a slot that was never filled.
   static const int _empty = -1;
 
-  /// Below this the tables cost more to allocate than the conversions they
-  /// would save, so small images convert straight through.
-  static const int _minPixels = 1 << 13;
+  /// Slot-count bounds. The floor is 256 because that is the number of
+  /// distinct samples a single-colorant space can produce at all, so a
+  /// Separation image is collision-free at the smallest table worth
+  /// allocating. The ceiling keeps a large image's tables (~128 KB at four
+  /// components) small against the megabytes of RGBA it decodes to.
+  static const int _minSlots = 1 << 8;
+  static const int _maxSlots = 1 << 14;
 
   /// Per-component multipliers for the slot hash. Every partial sum stays far
   /// inside the 53-bit range dart2js gives a plain int, so a tuple maps to the
@@ -1651,6 +1649,7 @@ class _ColorMemo {
   ];
 
   final int _components;
+  final int _mask;
   final Uint8List _keys;
   final Int32List _rgb;
 
@@ -1658,13 +1657,23 @@ class _ColorMemo {
   int _slot = 0;
 
   /// A memo for an image of [pixels] pixels in a [components]-channel space,
-  /// or null when it is too small, or too wide, to be worth one.
-  static _ColorMemo? forPixels(int pixels, int components) =>
-      pixels >= _minPixels &&
-              components > 0 &&
-              components <= _hashPrimes.length
-          ? _ColorMemo._(components)
-          : null;
+  /// or null when the space is wider than the hash can key.
+  ///
+  /// The table is sized to the image rather than gated behind a minimum pixel
+  /// count. A fixed floor looks reasonable and gets the trade backwards: the
+  /// case it excludes is the small image, which is exactly where a memo is
+  /// most effective - a 90x90 spot-colour logo has at most 256 distinct
+  /// samples and an expensive type 4 tint transform to evaluate for each, so
+  /// a floor would make it pay 8100 evaluations to avoid allocating a table
+  /// that only ever needed to be a couple of kilobytes.
+  static _ColorMemo? forPixels(int pixels, int components) {
+    if (components <= 0 || components > _hashPrimes.length) return null;
+    var slots = _minSlots;
+    while (slots < pixels && slots < _maxSlots) {
+      slots <<= 1;
+    }
+    return _ColorMemo._(components, slots);
+  }
 
   /// The packed sRGB remembered for the [_components] samples starting at
   /// [base] in [data], or -1 on a miss. After a miss the caller converts and
