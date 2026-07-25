@@ -452,7 +452,10 @@ class PdfEditorView extends StatefulWidget {
   /// See [PdfViewer.formImagePicker].
   final PdfFormImagePicker? formImagePicker;
 
-  /// See [PdfViewer.imagePicker].
+  /// How the Insert group's image tool ([PdfEditTool.image]) sources a
+  /// picture to insert. Supply this to enable the tool; when null it is
+  /// hidden from the toolbar rather than left as a no-op button. See
+  /// [PdfViewer.imagePicker].
   final PdfImagePicker? imagePicker;
 
   /// See [PdfViewer.systemImagePasteProvider].

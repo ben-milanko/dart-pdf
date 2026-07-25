@@ -24,9 +24,21 @@ class JpxImage {
 /// vertical causal, segmentation symbols), region of interest, and
 /// depths above 16 bits.
 class JpxDecoder {
-  static JpxImage? decode(Uint8List bytes) {
+  /// Decodes a JPXDecode stream to 8-bit samples.
+  ///
+  /// [reduceLevels] is PDFium's `cp_reduce` / OpenJPEG resolution skip: when
+  /// >0 and the codestream decomposes uniformly, the decoder synthesizes the
+  /// image at a resolution level `reduceLevels` steps below full, i.e. 2^N
+  /// smaller in each dimension. It stops the inverse wavelet N synthesis steps
+  /// early and skips the tier-1 (MQ) decode of the finest N resolutions' code
+  /// blocks — the dominant cost — while still parsing every packet so the
+  /// bitstream stays in sync. `reduceLevels: 0` is byte-for-byte the full
+  /// decode. The actual reduction is clamped to the available decomposition
+  /// levels, so an over-large request simply yields the smallest resolution.
+  static JpxImage? decode(Uint8List bytes, {int reduceLevels = 0}) {
     try {
-      return _JpxParser(_codestreamOf(bytes)).decode();
+      return _JpxParser(_codestreamOf(bytes), reduceLevels: reduceLevels)
+          .decode();
     } on Object {
       return null;
     }
@@ -99,10 +111,16 @@ class _Quantization {
 }
 
 class _JpxParser {
-  _JpxParser(this.data) : view = ByteData.sublistView(data);
+  _JpxParser(this.data, {this.reduceLevels = 0})
+      : view = ByteData.sublistView(data);
 
   final Uint8List data;
   final ByteData view;
+
+  /// Requested resolution-level skip (see [JpxDecoder.decode]); the effective
+  /// reduction actually applied is [_reduce], resolved once geometry is known.
+  final int reduceLevels;
+  int _reduce = 0;
 
   late int width, height, x0, y0;
   late int tileWidth, tileHeight, tileX0, tileY0;
@@ -177,10 +195,14 @@ class _JpxParser {
       if (c.depth > 16) throw const FormatException('depth > 16');
     }
 
-    // decode every tile into the full-image component planes
+    _reduce = _effectiveReduce();
+
+    // decode every tile into the (possibly reduced) image component planes
+    final outWidth = _ceilDivPow2(width, _reduce) - _ceilDivPow2(x0, _reduce);
+    final outHeight = _ceilDivPow2(height, _reduce) - _ceilDivPow2(y0, _reduce);
     final planes = [
       for (var c = 0; c < components.length; c++)
-        Float32List((width - x0) * (height - y0)),
+        Float32List(outWidth * outHeight),
     ];
     final tilesX = ((width - tileX0) / tileWidth).ceil();
     final tilesY = ((height - tileY0) / tileHeight).ceil();
@@ -191,8 +213,6 @@ class _JpxParser {
     }
 
     // DC level shift, clamp, interleave to 8 bits
-    final outWidth = width - x0;
-    final outHeight = height - y0;
     final out = Uint8List(outWidth * outHeight * components.length);
     for (var c = 0; c < components.length; c++) {
       final depth = components[c].depth;
@@ -303,6 +323,21 @@ class _JpxParser {
   _CodingStyle _styleFor(int c) => codPerComponent[c] ?? cod;
   _Quantization _quantFor(int c) => qcdPerComponent[c] ?? qcd;
 
+  /// Resolves [reduceLevels] against the codestream. A resolution skip is only
+  /// applied when every component decomposes to the same number of levels, so
+  /// the kept resolution index (and therefore the reduced plane dimensions) is
+  /// uniform and the multiple-component transform stays dimension-aligned. The
+  /// result is clamped to the shared level count. Non-uniform decompositions
+  /// (rare in PDF JPX) fall back to a full decode.
+  int _effectiveReduce() {
+    if (reduceLevels <= 0 || components.isEmpty) return 0;
+    final levels = _styleFor(0).levels;
+    for (var c = 1; c < components.length; c++) {
+      if (_styleFor(c).levels != levels) return 0;
+    }
+    return reduceLevels.clamp(0, levels);
+  }
+
   // ---------- tile decoding ----------
 
   void _decodeTile(int index, Uint8List bitstream, List<Float32List> planes) {
@@ -321,13 +356,19 @@ class _JpxParser {
     ];
 
     _decodePackets(bitstream, tileComponents);
+    final reduce = _reduce;
     final results = [
-      for (final tc in tileComponents) tc.reconstruct(),
+      for (final tc in tileComponents) tc.reconstruct(reduce),
     ];
 
-    // multiple component transform over the first three components
-    final w = tx1 - tx0;
-    final h = ty1 - ty0;
+    // When a resolution skip is applied, reconstruct returns each tile
+    // component at its kept resolution (2^reduce smaller); the plane geometry
+    // below follows suit. reduce == 0 keeps the finest resolution, so w/h and
+    // the offsets collapse to the original full-size arithmetic.
+    final keptRes = tileComponents[0].resolutions[
+        (tileComponents[0].style.levels - reduce).clamp(0, tileComponents[0].style.levels)];
+    final w = keptRes.x1 - keptRes.x0;
+    final h = keptRes.y1 - keptRes.y0;
     if (cod.mct == 1 && results.length >= 3) {
       final a = results[0], b = results[1], c = results[2];
       if (tileComponents[0].style.transform == 1) {
@@ -348,12 +389,19 @@ class _JpxParser {
       }
     }
 
+    final stride = _ceilDivPow2(width, reduce) - _ceilDivPow2(x0, reduce);
+    final canvasX0 = _ceilDivPow2(x0, reduce);
+    final canvasY0 = _ceilDivPow2(y0, reduce);
     for (var c = 0; c < results.length; c++) {
       final plane = planes[c];
-      final rowOffset = (ty0 - y0) * (width - x0) + (tx0 - x0);
+      final res = tileComponents[c].resolutions[
+          (tileComponents[c].style.levels - reduce)
+              .clamp(0, tileComponents[c].style.levels)];
+      final rowOffset =
+          (res.y0 - canvasY0) * stride + (res.x0 - canvasX0);
       for (var yy = 0; yy < h; yy++) {
-        plane.setRange(rowOffset + yy * (width - x0),
-            rowOffset + yy * (width - x0) + w, results[c], yy * w);
+        plane.setRange(rowOffset + yy * stride,
+            rowOffset + yy * stride + w, results[c], yy * w);
       }
     }
   }
@@ -443,8 +491,14 @@ class _TileComponent {
   /// Tier-1 decodes every code-block, dequantizes, and runs the inverse
   /// wavelet. Returns the tile-component samples (still centered around
   /// zero - the DC shift happens later).
-  Float32List reconstruct() {
+  Float32List reconstruct([int reduce = 0]) {
+    // Keep resolutions r0..keptR; the finest [reduce] levels are skipped
+    // entirely — neither their code blocks (tier-1 MQ decode) nor their
+    // inverse-wavelet synthesis step run. keptR == levels (reduce 0) restores
+    // the full decode.
+    final keptR = (style.levels - reduce).clamp(0, style.levels);
     for (final resolution in resolutions) {
+      if (resolution.r > keptR) break; // resolutions are in ascending r order
       for (final band in resolution.bands) {
         for (final block in band.blocks) {
           block.decode(band.mb, band.family, style.cbStyle);
@@ -457,7 +511,7 @@ class _TileComponent {
     var current = resolutions[0].bands[0].dequantize(this, reversible);
     var x0 = resolutions[0].x0, y0 = resolutions[0].y0;
     var x1 = resolutions[0].x1, y1 = resolutions[0].y1;
-    for (var r = 1; r < resolutions.length; r++) {
+    for (var r = 1; r <= keptR; r++) {
       final resolution = resolutions[r];
       current = _inverseDwt(
         ll: current,
@@ -619,6 +673,11 @@ class _Band {
 }
 
 int _ceilDiv(int a, int b) => (a / b).ceil();
+
+/// `ceil(a / 2^s)` for non-negative [a] with integer shifts (T.800 ceildivpow2)
+/// — avoids the floating divide in [_ceilDiv] on the resolution-skip hot path
+/// and stays exact for the large dimensions a reduced JPX can carry.
+int _ceilDivPow2(int a, int s) => (a + ((1 << s) - 1)) >> s;
 
 // ---------------------------------------------------------------------
 // packets

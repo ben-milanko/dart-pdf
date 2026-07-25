@@ -576,6 +576,32 @@ class AppLocalizationsEs extends AppLocalizations {
   String get editorUpdateLater => 'Más tarde';
 
   @override
+  String get updateInstallNow => 'Actualizar ahora';
+
+  @override
+  String get updateDownloadingTitle => 'Descargando actualización';
+
+  @override
+  String get updatePreparing => 'Preparando…';
+
+  @override
+  String updateDownloadingPercent(int percent) {
+    return 'Descargando… $percent%';
+  }
+
+  @override
+  String get updateRestarting => 'Reiniciando para completar la actualización…';
+
+  @override
+  String get updateHandedOff =>
+      'Actualización descargada. Abriendo el instalador…';
+
+  @override
+  String updateFailed(String error) {
+    return 'Error en la actualización: $error';
+  }
+
+  @override
   String get editorViewAllTabs => 'Ver todas las pestañas';
 
   @override
@@ -841,6 +867,12 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get welcomeTapToReopen => 'Toca para volver a abrir';
+
+  @override
+  String get welcomeViewAsGrid => 'Vista de cuadrícula';
+
+  @override
+  String get welcomeViewAsList => 'Vista de lista';
 
   @override
   String settingsDefaultAppSubtitle(String platform) {

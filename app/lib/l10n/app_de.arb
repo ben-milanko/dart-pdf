@@ -214,6 +214,8 @@
   "welcomeRecent": "Zuletzt verwendet",
   "welcomeRemoveFromRecent": "Aus zuletzt verwendet entfernen",
   "welcomeTapToReopen": "Zum erneuten Öffnen tippen",
+  "welcomeViewAsGrid": "Rasteransicht",
+  "welcomeViewAsList": "Listenansicht",
   "settingsDefaultAppSubtitle": "{platform, select, web{Installieren Sie die Web-App und wählen Sie sie dann für PDF-Dateien aus.} windows{Öffnen Sie die Windows-Standard-App-Einstellungen für PDFs.} macos{Folgen Sie den „Immer öffnen mit“-Schritten im Finder.} linux{Verwenden Sie die Einstellungen für Standardanwendungen Ihres Desktops.} android{Wählen Sie DartPDF beim Öffnen eines PDFs und tippen Sie dann auf Immer.} ios{Verwenden Sie Teilen oder Öffnen in in der Dateien-App, um PDFs hierher zu senden.} other{Konfigurieren Sie den PDF-Dateihandler Ihres Systems.}}",
   "settingsDefaultAppInstructions": "{platform, select, web{Installieren Sie DartPDF zuerst über Ihren Browser. Verwenden Sie dann die Dateihandler-Einstellungen des Browsers oder Betriebssystems, um PDF-Dateien mit der installierten App zu verknüpfen.} windows{Die Windows-Einstellungen öffnen sich unter Standard-Apps. Suchen Sie nach „.pdf“ oder „PDF“, wählen Sie die aktuelle PDF-App und dann DartPDF.} macos{Wählen Sie im Finder ein beliebiges PDF, wählen Sie Ablage > Informationen, erweitern Sie „Öffnen mit“, wählen Sie DartPDF und klicken Sie dann auf „Alle ändern…“.} linux{Öffnen Sie Ihre Desktop-Einstellungen für Standardanwendungen oder klicken Sie mit der rechten Maustaste auf ein PDF in Dateien, wählen Sie Eigenschaften und legen Sie DartPDF als Standard für PDF-Dokumente fest.} android{Öffnen Sie ein PDF aus Dateien oder Downloads, wählen Sie DartPDF in der App-Auswahl und dann Immer. Wenn bereits eine andere App PDFs öffnet, löschen Sie zuerst deren Standardeinstellungen in den Android-Einstellungen.} ios{iOS bietet keinen globalen Standard-PDF-Editor. Verwenden Sie Dateien > Teilen oder drücken Sie lange auf ein PDF und wählen Sie Teilen/Öffnen in, dann DartPDF.} other{Verwenden Sie die Systemeinstellungen für Dateihandler, um PDF-Dokumente mit DartPDF zu verknüpfen.}}",
   "ocrChipDownloadingModel": "OCR-Modell wird heruntergeladen…",
@@ -230,5 +232,12 @@
   "appSigErrorKeyCertificateMismatch": "Der private Schlüssel passt zu keinem ausgewählten RSA-Zertifikat.",
   "appSigErrorEncryptedKeyUnsupported": "Verschlüsselte private Schlüssel werden nicht unterstützt. Wählen Sie einen unverschlüsselten RSA-PKCS#1- oder PKCS#8-Schlüssel.",
   "appSigErrorKeyNotRsa": "Der private Schlüssel ist kein unverschlüsselter RSA-PKCS#1- oder PKCS#8-Schlüssel.",
-  "appSigErrorNoCertificateFound": "Es wurden keine X.509-Zertifikate gefunden."
+  "appSigErrorNoCertificateFound": "Es wurden keine X.509-Zertifikate gefunden.",
+  "updateInstallNow": "Jetzt aktualisieren",
+  "updateDownloadingTitle": "Update wird heruntergeladen",
+  "updatePreparing": "Wird vorbereitet…",
+  "updateDownloadingPercent": "Wird heruntergeladen… {percent}%",
+  "updateRestarting": "Neustart, um das Update abzuschließen…",
+  "updateHandedOff": "Update heruntergeladen. Installationsprogramm wird geöffnet…",
+  "updateFailed": "Update fehlgeschlagen: {error}"
 }

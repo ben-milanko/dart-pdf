@@ -11,7 +11,9 @@ class FlateFilter extends CosFilter {
 
   @override
   Uint8List decode(Uint8List data, CosDictionary? params) {
-    final inflated = Uint8List.fromList(const ZLibDecoder().decodeBytes(data));
+    // decodeBytes already returns a Uint8List; copying it again would double
+    // the allocation for every inflated stream in the document (#533).
+    final inflated = const ZLibDecoder().decodeBytes(data);
     return applyPredictor(inflated, params);
   }
 }

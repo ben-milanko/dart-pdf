@@ -13,22 +13,37 @@ import 'recents.dart';
 typedef RecentBytesReader = Future<Uint8List> Function(String path,
     {String? bookmark});
 
+/// A rendered first-page thumbnail: the PNG bytes plus the source page's
+/// aspect ratio, so the grid can shape each tile to the real page instead of
+/// letterboxing it into a fixed box.
+class RecentThumbnail {
+  const RecentThumbnail({required this.pngBytes, required this.aspectRatio})
+      : assert(aspectRatio > 0);
+
+  /// First-page raster as PNG bytes.
+  final Uint8List pngBytes;
+
+  /// Source page width / height. Portrait pages are < 1, landscape > 1.
+  final double aspectRatio;
+}
+
 /// Renders and memoizes small first-page thumbnails for the recent-documents
 /// list on the welcome screen.
 ///
 /// [thumbnailFor] reads an entry's bytes, opens the PDF, and rasterizes its
-/// first page to PNG bytes sized to [longestSide] px, keyed by the entry's
-/// [RecentFile.id] so a welcome-screen rebuild (recents changing, the list
-/// scrolling) never re-renders the same page. Entries with no readable source
-/// (a web pick with no snapshot) or a file that fails to open resolve to null,
-/// and the list falls back to its generic document icon.
+/// first page to a [RecentThumbnail] (PNG bytes + page aspect ratio) sized so
+/// its longest side is [longestSide] px, keyed by the entry's [RecentFile.id]
+/// so a welcome-screen rebuild (recents changing, the list scrolling) never
+/// re-renders the same page. Entries with no readable source (a web pick with
+/// no snapshot) or a file that fails to open resolve to null, and the list
+/// falls back to its generic document icon.
 ///
 /// Owned by the editor screen alongside the recents store; lives for the app
 /// session and is bounded to [maxEntries] retained thumbnails.
 class RecentThumbnailCache {
   RecentThumbnailCache({
     this.readBytes = readPdfAtPath,
-    this.longestSide = 96,
+    this.longestSide = 240,
     this.maxEntries = 32,
   }) : assert(longestSide > 0);
 
@@ -37,8 +52,8 @@ class RecentThumbnailCache {
   final RecentBytesReader readBytes;
 
   /// Longest side of a rendered thumbnail, in pixels. The list draws it at
-  /// ~40 px, so a modest raster stays crisp on high-DPI screens without paying
-  /// for a full-page render.
+  /// ~40 px and the grid at ~150 px, so a modest raster stays crisp on
+  /// high-DPI screens in both without paying for a full-page render.
   final double longestSide;
 
   /// Cap on retained thumbnails; the least-recently-requested entry is dropped
@@ -48,13 +63,13 @@ class RecentThumbnailCache {
   // Insertion-ordered so the first key is the least-recently-touched. A cached
   // null (the entry has no readable/renderable source) is retained too, so a
   // failed render isn't retried on every rebuild.
-  final Map<String, Uint8List?> _cache = {};
-  final Map<String, Future<Uint8List?>> _inflight = {};
+  final Map<String, RecentThumbnail?> _cache = {};
+  final Map<String, Future<RecentThumbnail?>> _inflight = {};
   bool _disposed = false;
 
-  /// The first-page thumbnail for [entry] as PNG bytes, rendered once and
-  /// memoized. Null when the entry has no readable source or the render fails.
-  Future<Uint8List?> thumbnailFor(RecentFile entry) {
+  /// The first-page thumbnail for [entry], rendered once and memoized. Null
+  /// when the entry has no readable source or the render fails.
+  Future<RecentThumbnail?> thumbnailFor(RecentFile entry) {
     final key = entry.id;
     if (_cache.containsKey(key)) {
       // Touch: move to the most-recently-used end.
@@ -64,23 +79,23 @@ class RecentThumbnailCache {
     }
     final pending = _inflight[key];
     if (pending != null) return pending;
-    final future = _render(entry).then((bytes) {
+    final future = _render(entry).then((thumb) {
       _inflight.remove(key);
-      if (!_disposed) _store(key, bytes);
-      return bytes;
+      if (!_disposed) _store(key, thumb);
+      return thumb;
     });
     _inflight[key] = future;
     return future;
   }
 
-  void _store(String key, Uint8List? bytes) {
-    _cache[key] = bytes;
+  void _store(String key, RecentThumbnail? thumb) {
+    _cache[key] = thumb;
     while (_cache.length > maxEntries) {
       _cache.remove(_cache.keys.first);
     }
   }
 
-  Future<Uint8List?> _render(RecentFile entry) async {
+  Future<RecentThumbnail?> _render(RecentFile entry) async {
     final path = entry.readPath;
     if (path == null) return null;
     try {
@@ -91,7 +106,11 @@ class RecentThumbnailCache {
       final size = PdfPageRenderer.pageSize(page);
       final longest = math.max(size.width, size.height);
       final scale = longest <= 0 ? 1.0 : longestSide / longest;
-      return await PdfPageExport.exportPage(page, scale: scale);
+      final png = await PdfPageExport.exportPage(page, scale: scale);
+      final aspect = (size.width > 0 && size.height > 0)
+          ? size.width / size.height
+          : 1.0;
+      return RecentThumbnail(pngBytes: png, aspectRatio: aspect);
     } catch (e) {
       AppDevTools.instance.addLog('recent thumbnail render failed: $e',
           level: DevLogLevel.error);

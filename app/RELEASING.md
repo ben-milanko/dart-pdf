@@ -44,10 +44,19 @@ with a version input; that builds artifacts but only creates a Release on a tag.
 ## In-app update checker
 
 The app checks these Releases for a newer build (`app/lib/update.dart`,
-surfaced in Settings → Updates and a startup banner). It is a *checker*, not a
-silent updater: it points the user at the matching artifact for their platform
-(or the release page), since the desktop bundles are unsigned and the store
-builds update through their own channels. For it to work the published Release
+surfaced in Settings → Updates and a startup banner). On **desktop** the
+check is followed by a user-initiated *in-place update*
+(`app/lib/update_installer.dart`): "Update now" downloads the matching
+artifact in-app (with a progress dialog and a byte-size integrity check
+against the release metadata) and then applies it. A **Linux AppImage** is a
+single executable, so the new image is written next to the running one and
+atomically renamed over it before the app relaunches. On **macOS and
+Windows** — where swapping a running, unsigned bundle is fragile — the
+artifact is downloaded and handed to the OS installer (the `.dmg` mounts, the
+`.exe` runs). Anywhere without an in-app apply path (a Linux tarball install,
+mobile, a release page with no matching artifact) falls back to the old
+browser download. The apply and hand-off are still user-confirmed, not a
+silent background swap. For it to work the published Release
 must keep the **`app-v<version>` tag** (other tags, e.g. the pub-package
 release tags in this repo, are ignored) and keep the artifact file names CI
 produces (`dartpdf-macos.dmg`, `dartpdf-windows-portable.exe` /

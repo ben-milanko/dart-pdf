@@ -20,6 +20,7 @@ import 'editing/editing_controller.dart';
 import 'editing/editing_fonts.dart';
 import 'editing/editing_form_layer.dart';
 import 'editing/editing_interaction.dart';
+import 'editing/editing_link.dart';
 import 'editing/editing_menu.dart';
 import 'editing/editing_overlay.dart';
 import 'editing/text_prompt.dart';
@@ -38,6 +39,7 @@ import 'preview_cache.dart';
 import 'raster_cache.dart';
 import 'render_scheduler.dart';
 import 'render_worker.dart';
+import 'render_worker_host.dart';
 import 'renderer.dart';
 import 'retained_scene.dart';
 import 'scrollbar.dart';
@@ -859,6 +861,12 @@ class PdfViewer extends StatefulWidget {
   /// above any ordinary text page and well below a heavy vector drawing.
   static int hoverTextExtractMaxRawContentBytes = 512 * 1024;
 
+  /// Test seam: set false to suppress the owned default worker
+  /// ([autoRenderWorker]) suite-wide, so widget tests keep the deterministic,
+  /// isolate-free on-thread render path. The package's `flutter_test_config.dart`
+  /// turns it off for every test; production leaves it true.
+  static bool debugAutoRenderWorkerEnabled = true;
+
   const PdfViewer({
     super.key,
     this.document,
@@ -902,6 +910,7 @@ class PdfViewer extends StatefulWidget {
     this.predictStrokes = true,
     this.toolShortcuts = pdfEditToolShortcuts,
     this.renderWorker,
+    this.autoRenderWorker = true,
     this.performance,
     this.rasterCache,
     this.textCache,
@@ -963,6 +972,22 @@ class PdfViewer extends StatefulWidget {
   /// always render locally. Null and the web fallback keep today's
   /// on-thread behavior.
   final PdfRenderWorker? renderWorker;
+
+  /// When no [renderWorker] is provided, the viewer starts and owns a single
+  /// default one so page interpretation runs off the UI thread instead of
+  /// freezing frames (#396). It is kept in step with the document - an editing
+  /// session's per-revision updates stream in incrementally - and disposed with
+  /// the viewer, so a host embedding a bare [PdfViewer] gets off-thread
+  /// rendering for free.
+  ///
+  /// Set false to force on-thread interpretation (the pre-#396 behavior) - e.g.
+  /// a host that mounts many viewers and does not want an isolate each, or one
+  /// that manages its own worker pool. An explicit [renderWorker] always wins
+  /// over this; on web without a worker script the default worker is inactive
+  /// and rendering stays on-thread regardless. A pooled multi-worker backend
+  /// for a long document still requires an explicit [renderWorker] (via the
+  /// shell) - the default is deliberately a single worker.
+  final bool autoRenderWorker;
 
   /// Optional adaptive performance policy. Worker counts are applied by the
   /// owning shell when it starts [renderWorker]; the viewer consumes its
@@ -1105,8 +1130,15 @@ class PdfViewer extends StatefulWidget {
   final PdfFontPicker? fontPicker;
 
   /// How the image tool ([PdfEditTool.image]) asks for the picture to
-  /// insert - typically a file picker returning PNG or JPEG bytes. With
-  /// none, the image tool does nothing.
+  /// insert - typically a file picker returning PNG or JPEG bytes.
+  ///
+  /// This callback is what makes the image tool work: **you must supply it**
+  /// for the Insert group's image tool to do anything. When it is null the
+  /// stock [PdfEditingToolbar] hides the image tool entirely (so users never
+  /// meet a button that silently no-ops), and arming [PdfEditTool.image]
+  /// directly through the controller becomes a no-op on tap/drag. A typical
+  /// wiring returns bytes from `file_selector`/`image_picker` (or a system
+  /// clipboard read); return null from the callback to mean "user cancelled".
   final PdfImagePicker? imagePicker;
 
   /// Supplies image bytes for ⌘V/Ctrl+V when the in-app annotation/vector
@@ -1371,6 +1403,66 @@ class _PdfViewerState extends State<PdfViewer>
   /// swap (a host rebuild with a new [PdfViewer.document], or the revision
   /// controller advancing to the next revision) is detected against this.
   PdfDocument? _loadedDocument;
+
+  /// The default render worker the viewer owns when the host passes none and
+  /// [PdfViewer.autoRenderWorker] is on (#396). Kept in step with [_document]
+  /// by [_syncDefaultWorker]; null when a host [PdfViewer.renderWorker] is used
+  /// or auto-worker is off.
+  PdfRenderWorkerHost? _defaultWorkerHost;
+
+  /// The render worker pages should use: the host-provided one, else the
+  /// viewer's own default. Read everywhere in place of `widget.renderWorker` so
+  /// the default transparently fills in.
+  PdfRenderWorker? get _effectiveRenderWorker =>
+      widget.renderWorker ?? _defaultWorkerHost?.worker;
+
+  /// A single-worker count for the owned default. The pooled multi-worker
+  /// backend is reserved for an explicit host worker (the shell), so a bare
+  /// viewer - possibly one of many on screen - costs at most one isolate.
+  static int _oneDefaultWorker() => 1;
+
+  /// Brings the owned default worker in line with the current document: creates
+  /// it on demand, streams an editing session's incremental revisions in place
+  /// (so it never renders stale pages), and tears it down when a host worker
+  /// takes over or auto-worker is switched off. A no-op when the document is
+  /// already the loaded one, so calling it per revision / rebuild is cheap.
+  void _syncDefaultWorker() {
+    if (widget.renderWorker != null ||
+        !widget.autoRenderWorker ||
+        !PdfViewer.debugAutoRenderWorkerEnabled) {
+      _defaultWorkerHost?.dispose();
+      _defaultWorkerHost = null;
+      return;
+    }
+    final host =
+        _defaultWorkerHost ??= PdfRenderWorkerHost(workerCount: _oneDefaultWorker);
+    final controller = _revisionController;
+    if (controller != null) {
+      // Editing/form session: revision-aware bytes and the incremental delta.
+      final delta = controller.lastRevisionDelta;
+      host.sync(
+        document: controller.document,
+        bytes: controller.bytes,
+        pageCount: controller.document.pageCount,
+        revision: delta == null
+            ? null
+            : (
+                baseLength: delta.baseLength,
+                newLength: delta.newLength,
+                changedPages: delta.changedPages,
+              ),
+      );
+    } else {
+      // Read-only document: its source bytes, no revisions.
+      final document = _document;
+      host.sync(
+        document: document,
+        bytes: document.cos.bytes,
+        pageCount: document.pageCount,
+        revision: null,
+      );
+    }
+  }
 
   /// Displayed width of each page in PDF points (after /Rotate + view
   /// rotation). Pages lay out at this width times [_fitScale] (and the
@@ -1640,6 +1732,7 @@ class _PdfViewerState extends State<PdfViewer>
     // it notifies, instead of leaning on the host to rebuild with a matching
     // document (the old unchecked invariant).
     _revisionController?.addListener(_onRevisionControllerChanged);
+    _syncDefaultWorker();
     _zoomAnimator = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 200))
       ..addListener(() {
@@ -1988,7 +2081,7 @@ class _PdfViewerState extends State<PdfViewer>
     _prerendering = true;
     try {
       while (mounted && widget.pagePreviews && widget.active) {
-        final workerActive = widget.renderWorker?.isActive ?? false;
+        final workerActive = _effectiveRenderWorker?.isActive ?? false;
         final motionVector = _vectorFirstPrefetch && workerActive;
         final policyVector = !motionVector &&
             workerActive &&
@@ -2023,7 +2116,7 @@ class _PdfViewerState extends State<PdfViewer>
         await _previews.renderPreview(index, page,
             pageColor: widget.pageColor,
             annotations: _pageImagesShowAnnotations,
-            worker: widget.renderWorker,
+            worker: _effectiveRenderWorker,
             rotation: _effectiveRotation(index),
             decodeImages: !vectorOnly,
             commandLimit: vectorOnly ? _jumpPreviewOperationLimit : null,
@@ -2123,7 +2216,7 @@ class _PdfViewerState extends State<PdfViewer>
       window = math.min(window, 4);
     }
 
-    final worker = widget.renderWorker;
+    final worker = _effectiveRenderWorker;
     if (worker is PdfCachingRenderWorker) {
       final pressure = worker.cachePressure;
       if (pressure >= 0.85) {
@@ -2155,7 +2248,7 @@ class _PdfViewerState extends State<PdfViewer>
       _scrollBurstStart = now;
       _scrollSamples.add((now, pixels));
       _beginMotionRenderHold();
-      _vectorFirstPrefetch = widget.renderWorker?.isActive ?? false;
+      _vectorFirstPrefetch = _effectiveRenderWorker?.isActive ?? false;
       return;
     }
     if (_scrollSamples.last.$1 == now) {
@@ -2186,7 +2279,7 @@ class _PdfViewerState extends State<PdfViewer>
     final activeMotion = _motionRenderHoldActive;
     final hold =
         activeMotion || opening || velocity > math.max(800, 2 * viewport);
-    _vectorFirstPrefetch = hold && (widget.renderWorker?.isActive ?? false);
+    _vectorFirstPrefetch = hold && (_effectiveRenderWorker?.isActive ?? false);
     PdfPerfLog.log('scroll page=${_controller.currentPage} '
         'v=${velocity.toStringAsFixed(0)}px/s '
         'threshold=${math.max(800, 2 * viewport).toStringAsFixed(0)} '
@@ -2224,6 +2317,9 @@ class _PdfViewerState extends State<PdfViewer>
     // a revision (handled directly in _onRevisionControllerChanged)
     final documentSwapped = !identical(_loadedDocument, _document);
     if (documentSwapped) _swapDocument();
+    // Re-evaluate the owned default worker: a host worker may have been
+    // supplied/removed, autoRenderWorker toggled, or the document swapped.
+    _syncDefaultWorker();
     final oldPageImagesShowAnnotations = oldWidget.showAnnotations &&
         _pageImagesShowAnnotationsFor(
           editing: oldWidget.editing,
@@ -2286,6 +2382,9 @@ class _PdfViewerState extends State<PdfViewer>
   /// itself so the displayed document can't lag the controller.
   void _onRevisionControllerChanged() {
     if (!mounted) return;
+    // Stream the new revision into the owned worker before the rebuild reads
+    // the effective worker, so a resumed render sees current pages, not stale.
+    _syncDefaultWorker();
     if (!identical(_loadedDocument, _document)) {
       _swapDocument();
     } else {
@@ -2527,6 +2626,7 @@ class _PdfViewerState extends State<PdfViewer>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _defaultWorkerHost?.dispose();
     _revisionController?.removeListener(_onRevisionControllerChanged);
     widget.performance?.removeListener(_onPerformanceChanged);
     if (widget.performance != null) {
@@ -2690,13 +2790,17 @@ class _PdfViewerState extends State<PdfViewer>
   }
 
   /// Page heights scale with [_viewWidth] (see [_pageHeight]), so when the
-  /// viewport width changes - most visibly while a side panel's resize grip
-  /// is dragged - a fixed scroll offset maps to a different page and the
-  /// document appears to scroll under the reader. This pins the reading
+  /// viewport width changes a fixed scroll offset maps to a different page and
+  /// the document appears to scroll under the reader. This pins the reading
   /// position: capture the page (and fraction within it) at the viewport top
   /// under the OLD geometry, then re-derive the scroll offset once the new
   /// width has laid out. Called from build while [_viewWidth] still holds the
   /// previous width.
+  ///
+  /// In the editor the side panels overlay the viewer rather than resizing it
+  /// (see PdfShellPanelLayout), so a panel opening or closing no longer changes
+  /// the viewport at all - the view is invariant to it by construction. This
+  /// now only fires for a genuine viewport resize (a window/pane resize).
   void _preserveReadingAnchor() {
     final top = _scroll.offset;
     var acc = 0.0;
@@ -3074,10 +3178,16 @@ class _PdfViewerState extends State<PdfViewer>
       if (options.searchAnnotations) {
         _searchAnnotations(i, query, options, results);
       }
-      // Yield to the event loop every few pages so frames paint and the
-      // superseding search gets a chance to run (a microtask wouldn't let
-      // timers/rendering in, so this is a Duration.zero delay).
-      if (i % 5 == 4) await Future<void>.delayed(Duration.zero);
+      // Yield to the event loop after every page so a frame can paint and the
+      // superseding search can run (updating _controller._query, which the
+      // check at the top of the next iteration reads to bail). Each page's
+      // extraction still interprets a full content stream on the UI thread
+      // (100-420ms on a heavy page - #396 moves that off-thread), so yielding
+      // per page rather than every fifth keeps the worst uninterruptible span
+      // to one page instead of five, and lets a keystroke cancel that much
+      // sooner. A microtask wouldn't let timers/rendering in, so this is a
+      // Duration.zero delay.
+      await Future<void>.delayed(Duration.zero);
     }
     return results;
   }
@@ -3653,6 +3763,12 @@ class _PdfViewerState extends State<PdfViewer>
             child: _textMenuRow(
                 Icons.gesture, pdfL10n(context).viewerMarkupSquiggly, true),
           ),
+          PopupMenuItem<_TextMenuAction>(
+            key: const ValueKey('pdf-text-menu-link'),
+            value: _TextMenuAction.addLink,
+            child: _textMenuRow(
+                Icons.link, pdfL10n(context).linkDialogTitle, true),
+          ),
         ],
         if (canEdit || canMarkup) const PopupMenuDivider(),
         PopupMenuItem<_TextMenuAction>(
@@ -3681,6 +3797,8 @@ class _PdfViewerState extends State<PdfViewer>
         _markupTextSelection(PdfMarkupKind.strikeOut);
       case _TextMenuAction.squiggly:
         _markupTextSelection(PdfMarkupKind.squiggly);
+      case _TextMenuAction.addLink:
+        await _addLinkToTextSelection();
       case _TextMenuAction.copy:
         await _controller.copySelection();
       case _TextMenuAction.selectAll:
@@ -3767,6 +3885,30 @@ class _PdfViewerState extends State<PdfViewer>
     };
     editing.useMarkupStyleScope();
     editing.addMarkup(kind, quadsByPage);
+    _clearSelection();
+  }
+
+  /// Turns the current text selection into a hyperlink: collects its quads
+  /// per page, asks for the target (an external URL or an in-document page),
+  /// and creates one /Link annotation per page over the selected glyphs.
+  Future<void> _addLinkToTextSelection() async {
+    final editing = widget.editing;
+    if (editing == null || _selRange == null) return;
+    final quadsByPage = {
+      for (final page in _controller.selectionPages)
+        page: _selectionRectsOn(page),
+    };
+    if (quadsByPage.values.every((quads) => quads.isEmpty)) return;
+    final firstPage = _controller.selectionPages.isEmpty
+        ? 0
+        : _controller.selectionPages.first;
+    final target = await showPdfAddLinkDialog(
+      context,
+      pageCount: editing.document.pageCount,
+      currentPage: firstPage,
+    );
+    if (target == null) return;
+    editing.addLinkToSelection(quadsByPage, target);
     _clearSelection();
   }
 
@@ -4587,6 +4729,9 @@ class _PdfViewerState extends State<PdfViewer>
       onMarkup: widget.editing != null && widget.textSelectionMarkup
           ? _markupTextSelection
           : null,
+      onAddLink: widget.editing != null && widget.textSelectionMarkup
+          ? _addLinkToTextSelection
+          : null,
     );
   }
 
@@ -5324,14 +5469,15 @@ class _PdfViewerState extends State<PdfViewer>
     return LayoutBuilder(builder: (context, constraints) {
       // _viewWidth/_viewHeight still hold the previous layout's size here; a
       // change to the cross (fit) dimension rescales every page, so pin the
-      // reading position before adopting it (skips the very first layout,
-      // where there is nothing to preserve).
+      // reading position before adopting it (skips the very first layout, where
+      // there is nothing to preserve, and any pending restore, which wins).
       final newCross =
           _horizontal ? constraints.maxHeight : constraints.maxWidth;
       final oldCross = _horizontal ? _viewHeight : _viewWidth;
       if (_viewWidth > 0 &&
           _viewHeight > 0 &&
           newCross != oldCross &&
+          _pendingViewport == null &&
           _scroll.hasClients &&
           _pages.isNotEmpty) {
         _preserveReadingAnchor();
@@ -5467,7 +5613,7 @@ class _PdfViewerState extends State<PdfViewer>
                 transformChanges: _transform,
                 renderScheduler: _renderScheduler,
                 previewCache: widget.pagePreviews ? _previews : null,
-                renderWorker: widget.renderWorker,
+                renderWorker: _effectiveRenderWorker,
                 performance: widget.performance,
                 predictStrokes: widget.predictStrokes,
               ),
@@ -5848,7 +5994,7 @@ class _PdfViewerState extends State<PdfViewer>
 
   void _warmJumpTargetPreview(int index) {
     if (!widget.pagePreviews) return;
-    final worker = widget.renderWorker;
+    final worker = _effectiveRenderWorker;
     if (worker == null ||
         !worker.isActive ||
         index < 0 ||
@@ -6754,6 +6900,7 @@ enum _TextMenuAction {
   underline,
   strikeOut,
   squiggly,
+  addLink,
   copy,
   selectAll,
 }
@@ -6930,6 +7077,7 @@ class _PageTextSelection {
     required this.onSelectAll,
     required this.onEdit,
     required this.onMarkup,
+    required this.onAddLink,
   });
 
   /// The selection's first rect on this page (PDF coordinates) when the
@@ -6957,6 +7105,10 @@ class _PageTextSelection {
   final VoidCallback onSelectAll;
   final Future<void> Function()? onEdit;
   final void Function(PdfMarkupKind kind)? onMarkup;
+
+  /// Turns the current selection into a hyperlink (opens the Add-link
+  /// dialog), or null when link authoring isn't available.
+  final Future<void> Function()? onAddLink;
 }
 
 /// The touch selection chrome on one page: iOS-style lollipop handles
@@ -7089,6 +7241,15 @@ class _TextSelectionChrome extends StatelessWidget {
                       ),
                     ),
                   ],
+                ),
+              ],
+              if (selection.onAddLink != null) ...[
+                const SizedBox(height: 24, child: VerticalDivider(width: 1)),
+                IconButton(
+                  key: const ValueKey('pdf-text-selection-chip-link'),
+                  tooltip: pdfL10n(context).linkDialogTitle,
+                  icon: const Icon(Icons.link, size: 20),
+                  onPressed: selection.onAddLink,
                 ),
               ],
               const SizedBox(height: 24, child: VerticalDivider(width: 1)),

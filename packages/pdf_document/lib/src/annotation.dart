@@ -83,6 +83,11 @@ class PdfAnnotation {
   bool get isHidden => flags & 2 != 0;
   bool get isNoView => flags & 32 != 0;
 
+  /// The Print flag (§12.5.3 bit 3): the annotation is printed when the
+  /// page is printed. When clear, the annotation shows on screen but is
+  /// omitted from print output.
+  bool get isPrint => flags & 4 != 0;
+
   /// The ReadOnly flag (§12.5.3 bit 7): no interaction with the
   /// annotation at all.
   bool get isReadOnly => flags & 64 != 0;

@@ -457,6 +457,24 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get overlayStampText => 'Văn bản con dấu';
 
   @override
+  String get linkDialogTitle => 'Thêm liên kết';
+
+  @override
+  String get linkKindWeb => 'Địa chỉ web';
+
+  @override
+  String get linkKindPage => 'Trang trong tài liệu';
+
+  @override
+  String get linkUrlLabel => 'URL';
+
+  @override
+  String get linkPageLabel => 'Số trang';
+
+  @override
+  String get toolLink => 'Liên kết';
+
+  @override
   String get overlayUnderline => 'Gạch chân';
 
   @override
@@ -1052,6 +1070,57 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
       one: 'Đã chọn $count',
     );
     return '$_temp0';
+  }
+
+  @override
+  String get sidebarSignatureChecking => 'Checking…';
+
+  @override
+  String get sidebarSignatureTrusted => 'Valid — trusted';
+
+  @override
+  String get sidebarSignatureUnverified => 'Valid — unverified';
+
+  @override
+  String get sidebarSignatureInvalid => 'Invalid';
+
+  @override
+  String sidebarSignatureSignedBy(String name) {
+    return 'Signed by $name';
+  }
+
+  @override
+  String sidebarSignatureSignedAt(String time) {
+    return 'Signed $time';
+  }
+
+  @override
+  String sidebarSignatureTrustedVia(String authority) {
+    return 'Trusted via $authority';
+  }
+
+  @override
+  String get sidebarSignatureUntrustedDetail =>
+      'Signer is not from a trusted authority';
+
+  @override
+  String get sidebarSignatureNoAnchors =>
+      'No trusted authorities are configured';
+
+  @override
+  String get sidebarSignatureModified => 'Document was changed after signing';
+
+  @override
+  String get sidebarSignatureRevoked => 'The signer\'s certificate was revoked';
+
+  @override
+  String sidebarSignatureTimestamped(String time) {
+    return 'Timestamped $time';
+  }
+
+  @override
+  String sidebarSignatureLevel(String level) {
+    return 'PAdES $level';
   }
 
   @override

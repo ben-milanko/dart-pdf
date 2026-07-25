@@ -577,6 +577,32 @@ class AppLocalizationsFr extends AppLocalizations {
   String get editorUpdateLater => 'Plus tard';
 
   @override
+  String get updateInstallNow => 'Mettre à jour maintenant';
+
+  @override
+  String get updateDownloadingTitle => 'Téléchargement de la mise à jour';
+
+  @override
+  String get updatePreparing => 'Préparation…';
+
+  @override
+  String updateDownloadingPercent(int percent) {
+    return 'Téléchargement… $percent%';
+  }
+
+  @override
+  String get updateRestarting => 'Redémarrage pour terminer la mise à jour…';
+
+  @override
+  String get updateHandedOff =>
+      'Mise à jour téléchargée. Ouverture du programme d’installation…';
+
+  @override
+  String updateFailed(String error) {
+    return 'Échec de la mise à jour : $error';
+  }
+
+  @override
   String get editorViewAllTabs => 'Afficher tous les onglets';
 
   @override
@@ -841,6 +867,12 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get welcomeTapToReopen => 'Appuyez pour rouvrir';
+
+  @override
+  String get welcomeViewAsGrid => 'Vue en grille';
+
+  @override
+  String get welcomeViewAsList => 'Vue en liste';
 
   @override
   String settingsDefaultAppSubtitle(String platform) {

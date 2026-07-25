@@ -598,6 +598,7 @@ final Map<PdfEditTool, PdfEditToolBehavior> _behaviors = {
     const _SimpleTool(PdfEditTool.redact),
     const _SimpleTool(PdfEditTool.snapshot),
     const _SimpleTool(PdfEditTool.signatureBox),
+    const _SimpleTool(PdfEditTool.link),
   ])
     b.tool: b,
 };

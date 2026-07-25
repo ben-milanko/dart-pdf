@@ -1,0 +1,46 @@
+name: Deploy Site
+
+# Publishes the marketing site (site/) to the `dartpdf` Firebase Hosting site's
+# live channel (dart-pdf.com) on every main push that touches it. Until now the
+# site had NO automated deploy — deploy-app-web.yml and deploy-demo-web.yml cover
+# app.dart-pdf.com and the demo, but site/ was a manual `firebase deploy`, so it
+# silently drifted behind merged PRs (e.g. the localization work in #541 and the
+# Windows-installer change in #545 shipped to git but not to the live site). This
+# gives it the same shape as the other two. The site is static, so there is no
+# Flutter/build step; the locale JSONs are validated before the deploy.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/deploy-site.yml
+      - site/**
+
+concurrency:
+  group: site-web
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Gate the deploy on locale parity + HTML-tag integrity so a broken
+      # translation JSON can never reach dart-pdf.com. Self-contained (stdlib),
+      # exits non-zero on any problem.
+      - name: Validate locale JSONs
+        run: python3 site/i18n/_validate.py
+
+      # site/firebase.json pins "site": "dartpdf"; channelId live -> the
+      # production channel behind dart-pdf.com. No build: the site is static.
+      - uses: FirebaseExtended/action-hosting-deploy@500ac625ca2dd40cbd15f7659af953801858032a
+        with:
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DART_PDF_DEMO }}
+          projectId: dart-pdf-demo
+          channelId: live
+          entryPoint: site

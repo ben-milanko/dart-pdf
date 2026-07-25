@@ -576,6 +576,31 @@ class AppLocalizationsId extends AppLocalizations {
   String get editorUpdateLater => 'Nanti';
 
   @override
+  String get updateInstallNow => 'Perbarui sekarang';
+
+  @override
+  String get updateDownloadingTitle => 'Mengunduh pembaruan';
+
+  @override
+  String get updatePreparing => 'Menyiapkan…';
+
+  @override
+  String updateDownloadingPercent(int percent) {
+    return 'Mengunduh… $percent%';
+  }
+
+  @override
+  String get updateRestarting => 'Memulai ulang untuk menyelesaikan pembaruan…';
+
+  @override
+  String get updateHandedOff => 'Pembaruan diunduh. Membuka penginstal…';
+
+  @override
+  String updateFailed(String error) {
+    return 'Pembaruan gagal: $error';
+  }
+
+  @override
   String get editorViewAllTabs => 'Lihat semua tab';
 
   @override
@@ -836,6 +861,12 @@ class AppLocalizationsId extends AppLocalizations {
 
   @override
   String get welcomeTapToReopen => 'Ketuk untuk membuka kembali';
+
+  @override
+  String get welcomeViewAsGrid => 'Tampilan kisi';
+
+  @override
+  String get welcomeViewAsList => 'Tampilan daftar';
 
   @override
   String settingsDefaultAppSubtitle(String platform) {

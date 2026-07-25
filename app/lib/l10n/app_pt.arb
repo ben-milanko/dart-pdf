@@ -214,6 +214,8 @@
   "welcomeRecent": "Recentes",
   "welcomeRemoveFromRecent": "Remover dos recentes",
   "welcomeTapToReopen": "Toque para reabrir",
+  "welcomeViewAsGrid": "Visualização em grade",
+  "welcomeViewAsList": "Visualização em lista",
   "settingsDefaultAppSubtitle": "{platform, select, web{Instale o aplicativo web e depois escolha-o para arquivos PDF.} windows{Abra as configurações de aplicativos padrão do Windows para PDFs.} macos{Siga as etapas “Sempre abrir com” do Finder.} linux{Use as configurações de aplicativos padrão da sua área de trabalho.} android{Escolha o DartPDF ao abrir um PDF e depois toque em Sempre.} ios{Use Compartilhar ou Abrir em, no app Arquivos, para enviar PDFs para cá.} other{Configure o manipulador de arquivos PDF do seu sistema.}}",
   "settingsDefaultAppInstructions": "{platform, select, web{Instale o DartPDF pelo seu navegador primeiro. Depois use as configurações de manipulador de arquivos do navegador ou do sistema operacional para associar arquivos PDF ao aplicativo instalado.} windows{As Configurações do Windows abrirão em Aplicativos padrão. Pesquise por “.pdf” ou “PDF”, escolha o app de PDF atual e depois selecione o DartPDF.} macos{No Finder, selecione qualquer PDF, escolha Arquivo > Obter informações, expanda “Abrir com”, escolha o DartPDF e depois clique em “Alterar tudo…”.} linux{Abra as configurações de Aplicativos padrão da sua área de trabalho ou clique com o botão direito em um PDF no Arquivos, escolha Propriedades e defina o DartPDF como padrão para documentos PDF.} android{Abra um PDF pelo Arquivos ou Downloads, escolha o DartPDF no seletor de apps e depois selecione Sempre. Se outro app já abrir PDFs, limpe primeiro os padrões desse app nas Configurações do Android.} ios{O iOS não oferece um editor de PDF padrão global. Use Arquivos > Compartilhar ou pressione e segure um PDF e escolha Compartilhar/Abrir em, depois selecione o DartPDF.} other{Use as configurações do sistema para manipuladores de arquivos para associar documentos PDF ao DartPDF.}}",
   "ocrChipDownloadingModel": "Baixando modelo de OCR…",
@@ -230,5 +232,12 @@
   "appSigErrorKeyCertificateMismatch": "A chave privada não corresponde a nenhum certificado RSA selecionado.",
   "appSigErrorEncryptedKeyUnsupported": "Chaves privadas criptografadas não são suportadas. Escolha uma chave RSA PKCS#1 ou PKCS#8 não criptografada.",
   "appSigErrorKeyNotRsa": "A chave privada não é uma chave RSA PKCS#1 ou PKCS#8 não criptografada.",
-  "appSigErrorNoCertificateFound": "Nenhum certificado X.509 foi encontrado."
+  "appSigErrorNoCertificateFound": "Nenhum certificado X.509 foi encontrado.",
+  "updateInstallNow": "Atualizar agora",
+  "updateDownloadingTitle": "Baixando atualização",
+  "updatePreparing": "Preparando…",
+  "updateDownloadingPercent": "Baixando… {percent}%",
+  "updateRestarting": "Reiniciando para concluir a atualização…",
+  "updateHandedOff": "Atualização baixada. Abrindo o instalador…",
+  "updateFailed": "Falha na atualização: {error}"
 }

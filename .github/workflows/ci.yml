@@ -5,6 +5,14 @@ on:
     branches: [main, deploy]
   pull_request:
 
+# Cancel superseded PR runs so two quick pushes can't leave two `worker-bundle`
+# jobs racing to push the regenerated bundle (issue #422, defect 1). Keyed by PR
+# number on pull_request and by commit SHA otherwise, so every push to main/deploy
+# gets its own group and is never cancelled - each landed commit keeps its record.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -153,4 +161,72 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           IS_SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          # A dedicated token (PAT or GitHub App) so the auto-regen commit
+          # RE-TRIGGERS CI - a default GITHUB_TOKEN push does not, which left PR
+          # heads with zero checks (issue #422, defect 3). If this secret is
+          # absent the script does NOT push (a bare, unchecked head is worse than
+          # a visible failure); it fails with the exact rebuild command instead.
+          REGEN_TOKEN: ${{ secrets.WORKER_REGEN_TOKEN }}
         run: bash tool/ci/regen_web_worker.sh
+
+  # Build the Linux desktop target and validate its desktop-integration files.
+  # Mirrors the release-app.yml linux job's build deps (GTK + libsecret for
+  # flutter_secure_storage; libjsoncpp for the desktop_drop/secure_storage
+  # toolchain) and adds desktop-file/AppStream validation plus a headless
+  # smoke launch under Xvfb. Kept green so `flutter build linux` can't rot.
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Linux desktop build + validation deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ninja-build libgtk-3-dev libsecret-1-dev libjsoncpp-dev \
+            desktop-file-utils appstream xvfb
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.4
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Build Linux (release)
+        working-directory: app
+        run: flutter build linux --release
+      - name: Validate .desktop entry
+        run: desktop-file-validate app/linux/dev.milanko.dartpdf.desktop
+      - name: Validate AppStream metainfo
+        run: appstreamcli validate --no-net app/linux/dev.milanko.dartpdf.metainfo.xml
+      - name: Confirm desktop files landed in the bundle
+        working-directory: app
+        run: |
+          set -euo pipefail
+          bundle=build/linux/x64/release/bundle
+          test -f "$bundle/share/applications/dev.milanko.dartpdf.desktop"
+          test -f "$bundle/share/metainfo/dev.milanko.dartpdf.metainfo.xml"
+          for sz in 64 128 256 512; do
+            test -f "$bundle/share/icons/hicolor/${sz}x${sz}/apps/dev.milanko.dartpdf.png"
+          done
+      # Headless smoke launch: catch immediate startup crashes (plugin
+      # registration, a missing .so) that a compile can't. Non-blocking - a GUI
+      # under Xvfb can be flaky in CI, so a launch failure warns rather than
+      # fails the job. Surviving ~8s without exiting is treated as success.
+      - name: Smoke launch under Xvfb (non-blocking)
+        working-directory: app
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          bin=build/linux/x64/release/bundle/dart_pdf_editor_app
+          xvfb-run -a "$bin" >/tmp/dartpdf-smoke.log 2>&1 &
+          pid=$!
+          sleep 8
+          if kill -0 "$pid" 2>/dev/null; then
+            echo "App still running after 8s - startup OK."
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+          else
+            echo "::warning::App exited within 8s during headless smoke launch."
+            cat /tmp/dartpdf-smoke.log || true
+            exit 1
+          fi

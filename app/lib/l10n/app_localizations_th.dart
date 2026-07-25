@@ -570,6 +570,31 @@ class AppLocalizationsTh extends AppLocalizations {
   String get editorUpdateLater => 'ภายหลัง';
 
   @override
+  String get updateInstallNow => 'อัปเดตทันที';
+
+  @override
+  String get updateDownloadingTitle => 'กำลังดาวน์โหลดการอัปเดต';
+
+  @override
+  String get updatePreparing => 'กำลังเตรียม…';
+
+  @override
+  String updateDownloadingPercent(int percent) {
+    return 'กำลังดาวน์โหลด… $percent%';
+  }
+
+  @override
+  String get updateRestarting => 'กำลังรีสตาร์ทเพื่อสิ้นสุดการอัปเดต…';
+
+  @override
+  String get updateHandedOff => 'ดาวน์โหลดการอัปเดตแล้ว กำลังเปิดตัวติดตั้ง…';
+
+  @override
+  String updateFailed(String error) {
+    return 'การอัปเดตล้มเหลว: $error';
+  }
+
+  @override
   String get editorViewAllTabs => 'ดูแท็บทั้งหมด';
 
   @override
@@ -829,6 +854,12 @@ class AppLocalizationsTh extends AppLocalizations {
 
   @override
   String get welcomeTapToReopen => 'แตะเพื่อเปิดใหม่';
+
+  @override
+  String get welcomeViewAsGrid => 'มุมมองตาราง';
+
+  @override
+  String get welcomeViewAsList => 'มุมมองรายการ';
 
   @override
   String settingsDefaultAppSubtitle(String platform) {

@@ -178,7 +178,9 @@ enum PdfEditTool {
 
   /// Insert a raster image (PNG or JPEG). Tapping places it at a default
   /// size; dragging out a box fits it within the box. The picked image
-  /// comes from [PdfViewer.imagePicker]; with none the tool does nothing.
+  /// comes from [PdfViewer.imagePicker] - **that callback must be wired**
+  /// for this tool to do anything. Without it the stock [PdfEditingToolbar]
+  /// hides the tool, and arming it directly is a no-op on tap/drag.
   /// The image becomes a /Stamp annotation, so it can be moved, resized,
   /// rotated, and deleted like any other annotation.
   image,
@@ -219,10 +221,50 @@ enum PdfEditTool {
   /// (via [PdfEditingController.addKeylessSignature] et al. with a
   /// [PdfSignatureAppearance]). With no handler the tool does nothing.
   signatureBox,
+
+  /// Drag out a rectangle (or use the current text selection) to add a
+  /// hyperlink. On release the Add-link dialog collects the target - an
+  /// external URL or a page in this same document - and a /Link annotation
+  /// is created over the region ([PdfEditingController.addLink]).
+  link,
 }
 
 /// Text-markup kinds for [PdfEditingController.addMarkup].
 enum PdfMarkupKind { highlight, underline, strikeOut, squiggly }
+
+/// Where a hyperlink created by the link tool points: either an external
+/// [PdfLinkTarget.uri] (a web address, `mailto:`, or app scheme) or an
+/// in-document jump to a [PdfLinkTarget.page] (a whole-page fit) or a more
+/// specific [PdfLinkTarget.destination] (a position, zoom, or rectangle).
+///
+/// Consumed by [PdfEditingController.addLink] and
+/// [PdfEditingController.addLinkToSelection]; produced by the Add-link dialog
+/// ([showPdfAddLinkDialog]).
+class PdfLinkTarget {
+  const PdfLinkTarget._(this.uri, this.page, this.destination);
+
+  /// An external link to [uri].
+  const PdfLinkTarget.uri(String uri) : this._(uri, null, null);
+
+  /// An internal link to the top of [page] (zero-based), fit to the window.
+  const PdfLinkTarget.page(int page) : this._(null, page, null);
+
+  /// An internal link to an explicit [destination] (a specific view).
+  const PdfLinkTarget.destination(PdfExplicitDestination destination)
+      : this._(null, null, destination);
+
+  /// The external URI, or null for an internal link.
+  final String? uri;
+
+  /// The zero-based target page for a whole-page internal link, or null.
+  final int? page;
+
+  /// The explicit destination for a precise internal link, or null.
+  final PdfExplicitDestination? destination;
+
+  /// Whether this points outside the document (a [uri]).
+  bool get isExternal => uri != null;
+}
 
 /// Host veto over which annotations the editing UI may change - see
 /// [PdfEditingController.canEditAnnotation].
@@ -333,11 +375,13 @@ class PdfEditingController extends ChangeNotifier {
     PdfEditingPreferences? preferences,
     PdfPageClipboard? pageClipboard,
     PdfSnapshotClipboard? snapshotClipboard,
+    PdfTrustStore? trustStore,
   })  : _bytes = bytes,
         _used = bytes.length,
         _password = password,
         _revisions = [bytes.length],
         _document = PdfDocument.open(bytes, password: password),
+        _trustStore = trustStore,
         preferences = preferences ?? PdfEditingPreferences(),
         pageClipboard = pageClipboard ?? PdfPageClipboard.instance,
         snapshotClipboard =
@@ -920,7 +964,110 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// The signatures present in the current revision (`PdfSignature.of`).
+  ///
+  /// This recomputes the AcroForm walk on every read; to look one up by field
+  /// name repeatedly (e.g. per annotation row), use [signatureByFieldName],
+  /// which caches the map for the current revision.
   List<PdfSignature> get signatures => PdfSignature.of(_document);
+
+  Map<String, PdfSignature>? _signaturesByField;
+  int _signaturesByFieldRevision = -1;
+
+  /// The current revision's signatures keyed by their field's fully qualified
+  /// name, computed once per revision. Avoids re-walking the whole AcroForm for
+  /// every annotation the sidebar lists (which is quadratic on a form-heavy
+  /// document).
+  Map<String, PdfSignature> get signatureByFieldName {
+    if (_signaturesByFieldRevision != _revisionId) {
+      _signaturesByFieldRevision = _revisionId;
+      _signaturesByField = {
+        for (final signature in PdfSignature.of(_document))
+          signature.field.name: signature,
+      };
+    }
+    return _signaturesByField!;
+  }
+
+  PdfTrustStore? _trustStore;
+
+  /// The trust anchors [validationFor] chains signer certificates up to, so a
+  /// signature can read as "trusted" rather than "validity unknown". The
+  /// library ships no built-in roots; a host supplies an AATL/EUTL or
+  /// organisation bundle (e.g. `PdfTrustStore.trusting([...])`). Null leaves
+  /// every signature's [PdfSignatureValidation.chainTrusted] null - crypto is
+  /// still checked, but the signer is never vouched for.
+  ///
+  /// Setting it re-validates on the next read (the cache is dropped) and
+  /// notifies listeners, so a bundle loaded asynchronously lights up the
+  /// signature panel when it arrives.
+  PdfTrustStore? get trustStore => _trustStore;
+
+  set trustStore(PdfTrustStore? store) {
+    if (identical(store, _trustStore)) return;
+    _trustStore = store;
+    _validationCache.clear();
+    _validating.clear();
+    notifyListeners();
+  }
+
+  /// [validationFor] results for the current revision, keyed by the signature
+  /// field's fully qualified name. Dropped whenever the revision moves (or the
+  /// trust store changes) so it never reports a stale verdict.
+  final Map<String, PdfSignatureValidation> _validationCache = {};
+
+  /// Field names whose validation is in flight, so it is scheduled only once.
+  final Set<String> _validating = {};
+  int _validationCacheRevision = -1;
+
+  void _dropStaleValidations() {
+    if (_validationCacheRevision != _revisionId) {
+      _validationCacheRevision = _revisionId;
+      _validationCache.clear();
+      _validating.clear();
+    }
+  }
+
+  /// The validation for [signature] at the current revision, or null when it
+  /// hasn't been computed yet. Validation walks the CMS/certificate crypto,
+  /// which can be slow, so it never runs on the caller's frame: when the
+  /// result isn't cached this schedules it off the current event-loop turn and
+  /// [notifyListeners] once it lands (the sidebar shows a "checking" state
+  /// until then). The result is cached per (revision, field), so repeated
+  /// reads while the panel rebuilds are free.
+  ///
+  /// Pass `schedule: false` to peek at the cache without kicking off work.
+  PdfSignatureValidation? validationFor(PdfSignature signature,
+      {bool schedule = true}) {
+    _dropStaleValidations();
+    final key = signature.field.name;
+    final cached = _validationCache[key];
+    if (cached != null) return cached;
+    if (schedule && _validating.add(key)) {
+      final revision = _revisionId;
+      final store = _trustStore;
+      // Off the current frame: opening the panel stays instant even when the
+      // signer's certificate chain is expensive to verify.
+      Future(() {
+        // The document may have moved on while this was queued.
+        if (_revisionId != revision) {
+          _validating.remove(key);
+          return;
+        }
+        PdfSignatureValidation? result;
+        try {
+          result = signature.validate(trustStore: store);
+        } catch (_) {
+          // A signature we can't validate simply stays "checking"-free; the
+          // panel falls back to showing it without a verdict.
+        }
+        _validating.remove(key);
+        if (_revisionId != revision || result == null) return;
+        _validationCache[key] = result;
+        notifyListeners();
+      });
+    }
+    return null;
+  }
 
   /// Removes a digital signature as one undoable revision: drops its signature
   /// field (and its widget) and every "apply to pages" appearance copy - the
@@ -1620,6 +1767,7 @@ class PdfEditingController extends ChangeNotifier {
   int _editSelectedTextRevision = 0;
   int _editingTextFocusHoldCount = 0;
   int _editingTextFocusHoldRevision = 0;
+  int _keepEditingTextFocusedCount = 0;
 
   /// Whether an in-place text editor (the free-text tool's box) is open
   /// on a page. While it is, the viewer releases its keyboard shortcuts -
@@ -1642,6 +1790,29 @@ class PdfEditingController extends ChangeNotifier {
   bool get isEditingTextFocusCommitHeld => _editingTextFocusHoldCount > 0;
 
   int get editingTextFocusHoldRevision => _editingTextFocusHoldRevision;
+
+  /// Whether an open in-place text editor should hold on to keyboard focus.
+  /// Set while the tune popup is open over a text-editing session: a
+  /// `TextField` only paints its selection highlight while focused, so the
+  /// popup's controls (which steal focus on tap on some platforms) would
+  /// otherwise hide the very selection they restyle. The overlay reclaims
+  /// focus for the field while this is true. Only meaningful while editing.
+  bool get shouldKeepEditingTextFocused =>
+      _editingText && _keepEditingTextFocusedCount > 0;
+
+  /// Begins a keep-focused window (see [shouldKeepEditingTextFocused]).
+  /// Balanced by [endKeepEditingTextFocused]; reference-counted so nested
+  /// popups don't drop the guard early.
+  void beginKeepEditingTextFocused() {
+    _keepEditingTextFocusedCount++;
+    notifyListeners();
+  }
+
+  void endKeepEditingTextFocused() {
+    if (_keepEditingTextFocusedCount == 0) return;
+    _keepEditingTextFocusedCount--;
+    notifyListeners();
+  }
 
   /// Marks an in-place text editor open/closed. Called by the page
   /// overlay that owns the editor.
@@ -1996,6 +2167,100 @@ class PdfEditingController extends ChangeNotifier {
           }
         });
       },
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // links
+
+  /// Adds a hyperlink over [quads] on [pageIndex] pointing at [target] - an
+  /// external URI or an in-document jump (see [PdfLinkTarget]). [quads] is
+  /// one rectangle per line of a text run, or a single box.
+  ///
+  /// By default a link over a dragged box is drawn with a visible border so
+  /// it can be seen, while a link over selected text is drawn with a subtle
+  /// underline; override with [borderColor] / [underlineColor] (pass a
+  /// negative value to suppress that decoration and leave the region
+  /// invisible, the Acrobat convention for linking existing text).
+  void addLink(
+    int pageIndex,
+    List<PdfRect> quads,
+    PdfLinkTarget target, {
+    int? borderColor,
+    int? underlineColor,
+  }) {
+    if (quads.isEmpty) return;
+    apply((e) => _emitLink(
+          e,
+          pageIndex,
+          quads,
+          target,
+          borderColor: borderColor,
+          underlineColor: underlineColor,
+        ));
+  }
+
+  /// Adds one hyperlink per page in [quadsByPage] pointing at [target],
+  /// e.g. from a multi-page text selection. Mirrors [addMarkup]; links over
+  /// selected text default to an underline decoration.
+  void addLinkToSelection(
+    Map<int, List<PdfRect>> quadsByPage,
+    PdfLinkTarget target, {
+    int? underlineColor,
+    int? borderColor,
+  }) {
+    if (quadsByPage.values.every((quads) => quads.isEmpty)) return;
+    apply((editor) {
+      quadsByPage.forEach((page, quads) {
+        if (quads.isEmpty) return;
+        _emitLink(
+          editor,
+          page,
+          quads,
+          target,
+          underlineColor:
+              underlineColor ?? PdfAnnotationEditing.defaultLinkColor,
+          borderColor: borderColor,
+        );
+      });
+    });
+  }
+
+  /// Emits one link annotation for [target] over [quads]. When neither
+  /// decoration is specified a border is drawn (so a bare box link is
+  /// visible); a negative colour clears that decoration.
+  void _emitLink(
+    PdfEditor editor,
+    int pageIndex,
+    List<PdfRect> quads,
+    PdfLinkTarget target, {
+    int? borderColor,
+    int? underlineColor,
+  }) {
+    final resolvedBorder = borderColor == null && underlineColor == null
+        ? PdfAnnotationEditing.defaultLinkColor
+        : (borderColor != null && borderColor >= 0 ? borderColor : null);
+    final resolvedUnderline =
+        underlineColor != null && underlineColor >= 0 ? underlineColor : null;
+    final uri = target.uri;
+    if (uri != null) {
+      editor.addLinkToUri(
+        pageIndex,
+        quads,
+        uri: uri,
+        borderColor: resolvedBorder,
+        underlineColor: resolvedUnderline,
+      );
+      return;
+    }
+    final destination = target.destination ??
+        PdfExplicitDestination.fit(target.page ?? pageIndex);
+    editor.addLinkToDestination(
+      pageIndex,
+      quads,
+      destination: destination,
+      borderColor: resolvedBorder,
+      underlineColor: resolvedUnderline,
     );
   }
 

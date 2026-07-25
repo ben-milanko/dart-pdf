@@ -214,6 +214,8 @@
   "welcomeRecent": "Recientes",
   "welcomeRemoveFromRecent": "Quitar de recientes",
   "welcomeTapToReopen": "Toca para volver a abrir",
+  "welcomeViewAsGrid": "Vista de cuadrícula",
+  "welcomeViewAsList": "Vista de lista",
   "settingsDefaultAppSubtitle": "{platform, select, web{Instala la aplicación web y luego elígela para los archivos PDF.} windows{Abre la configuración de aplicaciones predeterminadas de Windows para los PDF.} macos{Sigue los pasos «Abrir siempre con» del Finder.} linux{Usa la configuración de aplicaciones predeterminadas de tu escritorio.} android{Elige DartPDF al abrir un PDF y luego toca Siempre.} ios{Usa Compartir o Abrir en desde Archivos para enviar los PDF aquí.} other{Configura el gestor de archivos PDF de tu sistema.}}",
   "settingsDefaultAppInstructions": "{platform, select, web{Instala DartPDF desde tu navegador primero. Luego usa la configuración del gestor de archivos del navegador o del sistema operativo para asociar los archivos PDF con la aplicación instalada.} windows{La configuración de Windows se abrirá en Aplicaciones predeterminadas. Busca «.pdf» o «PDF», elige la aplicación de PDF actual y luego selecciona DartPDF.} macos{En el Finder, selecciona cualquier PDF, elige Archivo > Obtener información, expande «Abrir con», elige DartPDF y luego haz clic en «Cambiar todo…».} linux{Abre la configuración de tu escritorio para Aplicaciones predeterminadas, o haz clic derecho en un PDF en Archivos, elige Propiedades y establece DartPDF como predeterminada para los documentos PDF.} android{Abre un PDF desde Archivos o Descargas, elige DartPDF en el selector de aplicaciones y luego selecciona Siempre. Si otra aplicación ya abre los PDF, borra primero los valores predeterminados de esa aplicación en la configuración de Android.} ios{iOS no ofrece un editor de PDF predeterminado global. Usa Archivos > Compartir, o mantén pulsado un PDF y elige Compartir/Abrir en, luego selecciona DartPDF.} other{Usa la configuración del sistema para gestores de archivos y asociar los documentos PDF con DartPDF.}}",
   "ocrChipDownloadingModel": "Descargando el modelo de OCR…",
@@ -230,5 +232,12 @@
   "appSigErrorKeyCertificateMismatch": "La clave privada no coincide con ningún certificado RSA seleccionado.",
   "appSigErrorEncryptedKeyUnsupported": "Las claves privadas cifradas no son compatibles. Elige una clave RSA PKCS#1 o PKCS#8 sin cifrar.",
   "appSigErrorKeyNotRsa": "La clave privada no es una clave RSA PKCS#1 o PKCS#8 sin cifrar.",
-  "appSigErrorNoCertificateFound": "No se encontraron certificados X.509."
+  "appSigErrorNoCertificateFound": "No se encontraron certificados X.509.",
+  "updateInstallNow": "Actualizar ahora",
+  "updateDownloadingTitle": "Descargando actualización",
+  "updatePreparing": "Preparando…",
+  "updateDownloadingPercent": "Descargando… {percent}%",
+  "updateRestarting": "Reiniciando para completar la actualización…",
+  "updateHandedOff": "Actualización descargada. Abriendo el instalador…",
+  "updateFailed": "Error en la actualización: {error}"
 }

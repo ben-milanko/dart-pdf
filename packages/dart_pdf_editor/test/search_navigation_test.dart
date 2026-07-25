@@ -186,7 +186,9 @@ void main() {
       await pumpViewer(tester, controller, buildMultiPagePdf(3));
 
       unawaited(controller.search('Page'));
-      await tester.pump();
+      // Search yields to a timer after every page (#396), so drain those timers
+      // before asserting rather than a single microtask-only pump.
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
       expect(controller.searchResults, hasLength(3));
       final first = controller.searchResults.first;
       expect(first.pageIndex, 0);
@@ -210,7 +212,7 @@ void main() {
 
       // case-insensitive search; the snippet shows the page's own case
       unawaited(controller.search('SENTINEL'));
-      await tester.pump();
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
       expect(controller.searchResults, hasLength(1));
       final result = controller.searchResults.single;
       expect(result.matchText, 'sentinel');
@@ -761,7 +763,7 @@ void main() {
           beside: PdfSearchResultsPanel(controller: controller));
 
       unawaited(controller.search('zzz'));
-      await tester.pump();
+      await tester.pumpAndSettle(const Duration(milliseconds: 100));
       expect(find.text('No matches for “zzz”'), findsOneWidget);
     });
 

@@ -578,6 +578,31 @@ class AppLocalizationsUk extends AppLocalizations {
   String get editorUpdateLater => 'Пізніше';
 
   @override
+  String get updateInstallNow => 'Оновити зараз';
+
+  @override
+  String get updateDownloadingTitle => 'Завантаження оновлення';
+
+  @override
+  String get updatePreparing => 'Підготовка…';
+
+  @override
+  String updateDownloadingPercent(int percent) {
+    return 'Завантаження… $percent%';
+  }
+
+  @override
+  String get updateRestarting => 'Перезапуск для завершення оновлення…';
+
+  @override
+  String get updateHandedOff => 'Оновлення завантажено. Відкриття інсталятора…';
+
+  @override
+  String updateFailed(String error) {
+    return 'Не вдалося оновити: $error';
+  }
+
+  @override
   String get editorViewAllTabs => 'Переглянути всі вкладки';
 
   @override
@@ -850,6 +875,12 @@ class AppLocalizationsUk extends AppLocalizations {
 
   @override
   String get welcomeTapToReopen => 'Торкніться, щоб повторно відкрити';
+
+  @override
+  String get welcomeViewAsGrid => 'Перегляд сіткою';
+
+  @override
+  String get welcomeViewAsList => 'Перегляд списком';
 
   @override
   String settingsDefaultAppSubtitle(String platform) {

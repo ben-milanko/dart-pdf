@@ -7,6 +7,7 @@ import 'perf_log.dart';
 import 'performance_policy.dart';
 import 'pdf_viewer.dart';
 import 'render_worker.dart';
+import 'render_worker_host.dart';
 import 'shell_chrome.dart';
 
 typedef PdfShellPrepareSession = void Function(PdfEditingController session);
@@ -65,9 +66,10 @@ class PdfShellSessionLifecycle {
   PdfViewerController? _ownedViewer;
   PdfPerformanceController? _ownedPerformance;
   PdfViewportMemory? _viewportMemory;
-  PdfRenderWorker? _worker;
-  Object? _workerDocument;
-  int _workerGenerations = 0;
+  late final PdfRenderWorkerHost _workerHost = PdfRenderWorkerHost(
+    workerCount: performance.beginWorkerGeneration,
+    onGeneration: () => PdfPerfLog.log(performance.diagnostics.toString()),
+  );
 
   final TextEditingController searchController = TextEditingController();
   final FocusNode searchFocus = FocusNode();
@@ -83,13 +85,13 @@ class PdfShellSessionLifecycle {
       _externalPerformance ??
       (_ownedPerformance ??= PdfPerformanceController());
 
-  PdfRenderWorker? get worker => _worker;
+  PdfRenderWorker? get worker => _workerHost.worker;
 
   String? get documentKey =>
       _documentId ?? (_bytes == null ? null : pdfDocumentKey(_bytes!));
 
   /// Number of actual worker generations started by this lifecycle.
-  int get debugWorkerGenerations => _workerGenerations;
+  int get debugWorkerGenerations => _workerHost.generations;
   bool get debugOwnsSession => _ownedSession != null;
   bool get debugOwnsPreferences => _ownedPreferences != null;
   bool get debugOwnsViewer => _ownedViewer != null;
@@ -117,9 +119,7 @@ class PdfShellSessionLifecycle {
 
   void _closeSession() {
     session.removeListener(_handleSessionChanged);
-    _worker?.dispose();
-    _worker = null;
-    _workerDocument = null;
+    _workerHost.dispose();
     _ownedSession?.dispose();
     _ownedSession = null;
   }
@@ -130,48 +130,22 @@ class PdfShellSessionLifecycle {
   }
 
   void _syncWorker() {
-    if (identical(session.document, _workerDocument)) return;
-
-    // Revision-aware fast path: revisions are byte prefixes of one growing
-    // buffer, so an edit to one page leaves every other page byte-identical.
-    // Feed the incremental append into the live worker and evict only the
-    // changed pages' cached renders instead of tearing down the whole pool and
-    // re-parsing N private documents from cold. See issue #308.
-    final worker = _worker;
+    // The worker state machine (incremental revision update vs a fresh
+    // generation, per issue #308) lives in [PdfRenderWorkerHost] so the bare
+    // [PdfViewer] default worker drives the identical logic - see #396.
     final delta = session.lastRevisionDelta;
-    if (worker != null &&
-        worker.supportsRevisionUpdate &&
-        delta != null &&
-        delta.newLength == session.bytes.length) {
-      final appended = delta.newLength > delta.baseLength
-          ? Uint8List.fromList(
-              Uint8List.sublistView(session.bytes, delta.baseLength))
-          : Uint8List(0);
-      worker.updateRevision(
-        delta.baseLength,
-        appended,
-        delta.newLength,
-        delta.changedPages,
-      );
-      _workerDocument = session.document;
-      return;
-    }
-
-    // Fresh open, a backend that can't update in place (web/null), or a
-    // non-incremental transition (a structural edit or a redaction burn that
-    // replaced the buffer): start a new worker generation.
-    _worker?.dispose();
-    final workerCount = performance.beginWorkerGeneration();
-    // The session's grow-only buffer is replaced on edit, never mutated in
-    // place, so the pool can seed from it directly - no defensive copy of a
-    // possibly-huge document (#359).
-    _worker = startPdfRenderWorker(session.bytes,
-        pageCount: session.document.pageCount,
-        workerCount: workerCount,
-        copySource: false);
-    _workerDocument = session.document;
-    _workerGenerations++;
-    PdfPerfLog.log(performance.diagnostics.toString());
+    _workerHost.sync(
+      document: session.document,
+      bytes: session.bytes,
+      pageCount: session.document.pageCount,
+      revision: delta == null
+          ? null
+          : (
+              baseLength: delta.baseLength,
+              newLength: delta.newLength,
+              changedPages: delta.changedPages,
+            ),
+    );
   }
 
   void _bindViewportMemory({required bool recreate}) {

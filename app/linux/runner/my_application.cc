@@ -15,11 +15,17 @@
 struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
-  // The top-level window, used to anchor the print dialog.
+  // The top-level window, used to anchor the print dialog and to know whether
+  // the UI has already been built (non-null once activated).
   GtkWindow* window;
   // Native printing (no bundled PDF engine): the Dart side streams JPEG page
   // images over this channel; endJob spools them through GtkPrintOperation.
   FlMethodChannel* native_print_channel;
+  // Warm-start OS file opens, bridged to the Dart IncomingFileService (the
+  // reverse-DNS channel every runner shares) as `openFile`. Cold-start opens
+  // arrive as Dart entrypoint arguments instead (see my_application_open), the
+  // way the Dart side expects on Windows and Linux.
+  FlMethodChannel* incoming_channel;
   GPtrArray* print_pages;  // GBytes* per accumulated page image
   char* print_job_name;
 };
@@ -472,6 +478,39 @@ static void native_print_method_call_cb(FlMethodChannel* channel,
   }
 }
 
+// Builds the {name, path} payload the Dart side's IncomingFileService decodes,
+// matching the Windows/macOS runners.
+static FlValue* file_payload(const char* path) {
+  g_autofree char* base = g_path_get_basename(path);
+  FlValue* map = fl_value_new_map();
+  fl_value_set_string_take(map, "name", fl_value_new_string(base));
+  fl_value_set_string_take(map, "path", fl_value_new_string(path));
+  return map;
+}
+
+// Handles the dev.milanko.dartpdf/incoming channel. On Linux the cold-start
+// file arrives as a Dart entrypoint argument (handled by the app itself), so
+// `getInitialFile` has nothing to hand back; warm-start opens are pushed from
+// the GApplication `open` handler as `openFile`.
+static void incoming_method_call_cb(FlMethodChannel* channel,
+                                    FlMethodCall* method_call,
+                                    gpointer user_data) {
+  const gchar* method = fl_method_call_get_name(method_call);
+  g_autoptr(FlMethodResponse) response = nullptr;
+
+  if (strcmp(method, "getInitialFile") == 0) {
+    g_autoptr(FlValue) nothing = fl_value_new_null();
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nothing));
+  } else {
+    response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
+  }
+
+  g_autoptr(GError) error = nullptr;
+  if (!fl_method_call_respond(method_call, response, &error)) {
+    g_warning("Failed to send incoming response: %s", error->message);
+  }
+}
+
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
@@ -480,6 +519,14 @@ static void first_frame_cb(MyApplication* self, FlView* view) {
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
+
+  // Single-instance: a second launch (the `open` handler activates us, or the
+  // user re-runs the binary) reuses the window that already exists.
+  if (self->window != nullptr) {
+    gtk_window_present(self->window);
+    return;
+  }
+
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
@@ -543,28 +590,50 @@ static void my_application_activate(GApplication* application) {
   fl_method_channel_set_method_call_handler(
       self->native_print_channel, native_print_method_call_cb, self, nullptr);
 
+  // Bridge OS file opens to the Dart IncomingFileService.
+  self->incoming_channel = fl_method_channel_new(
+      messenger, "dev.milanko.dartpdf/incoming", FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(
+      self->incoming_channel, incoming_method_call_cb, self, nullptr);
+
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
 
-// Implements GApplication::local_command_line.
-static gboolean my_application_local_command_line(GApplication* application,
-                                                  gchar*** arguments,
-                                                  int* exit_status) {
+// Implements GApplication::open. Fires for a file-manager "Open With", a
+// `dartpdf file.pdf` command line, or a second launch while already running
+// (G_APPLICATION_HANDLES_OPEN routes those into this primary instance).
+static void my_application_open(GApplication* application, GFile** files,
+                                gint n_files, const gchar* hint) {
   MyApplication* self = MY_APPLICATION(application);
-  // Strip out the first argument as it is the binary name.
-  self->dart_entrypoint_arguments = g_strdupv(*arguments + 1);
 
-  g_autoptr(GError) error = nullptr;
-  if (!g_application_register(application, nullptr, &error)) {
-    g_warning("Failed to register: %s", error->message);
-    *exit_status = 1;
-    return TRUE;
+  // Take the first argument that resolves to a local path; skip non-file URIs
+  // (g_file_get_path returns null for those). We open a single document.
+  char* path = nullptr;
+  for (gint i = 0; i < n_files && path == nullptr; i++) {
+    path = g_file_get_path(files[i]);
   }
 
-  g_application_activate(application);
-  *exit_status = 0;
-
-  return TRUE;
+  if (self->window == nullptr) {
+    // Cold start: deliver the file the way the Dart side reads it on Linux -
+    // as an entrypoint argument (see editor_screen.dart's _openLaunchArgs) -
+    // then build the UI. dart_entrypoint_arguments is consumed in activate.
+    g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
+    if (path != nullptr) {
+      char* argv[] = {path, nullptr};
+      self->dart_entrypoint_arguments = g_strdupv(argv);
+    }
+    g_free(path);
+    g_application_activate(application);
+  } else {
+    // Warm start into the running instance: hand the file to Dart and raise.
+    if (path != nullptr && self->incoming_channel != nullptr) {
+      g_autoptr(FlValue) payload = file_payload(path);
+      fl_method_channel_invoke_method(self->incoming_channel, "openFile",
+                                      payload, nullptr, nullptr, nullptr);
+    }
+    g_free(path);
+    gtk_window_present(self->window);
+  }
 }
 
 // Implements GApplication::startup.
@@ -590,6 +659,7 @@ static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
   g_clear_object(&self->native_print_channel);
+  g_clear_object(&self->incoming_channel);
   g_clear_pointer(&self->print_pages, g_ptr_array_unref);
   g_clear_pointer(&self->print_job_name, g_free);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
@@ -597,8 +667,7 @@ static void my_application_dispose(GObject* object) {
 
 static void my_application_class_init(MyApplicationClass* klass) {
   G_APPLICATION_CLASS(klass)->activate = my_application_activate;
-  G_APPLICATION_CLASS(klass)->local_command_line =
-      my_application_local_command_line;
+  G_APPLICATION_CLASS(klass)->open = my_application_open;
   G_APPLICATION_CLASS(klass)->startup = my_application_startup;
   G_APPLICATION_CLASS(klass)->shutdown = my_application_shutdown;
   G_OBJECT_CLASS(klass)->dispose = my_application_dispose;
@@ -616,7 +685,11 @@ MyApplication* my_application_new() {
   // the application to be recognized beyond its binary name.
   g_set_prgname(APPLICATION_ID);
 
+  // HANDLES_OPEN: the OS hands us files (a "dartpdf file.pdf" launch or a file
+  // manager's "Open With") through the `open` vfunc, and a second invocation
+  // is routed into this already-running instance rather than starting a new
+  // process (see my_application_open / my_application_activate).
   return MY_APPLICATION(g_object_new(my_application_get_type(),
                                      "application-id", APPLICATION_ID, "flags",
-                                     G_APPLICATION_NON_UNIQUE, nullptr));
+                                     G_APPLICATION_HANDLES_OPEN, nullptr));
 }

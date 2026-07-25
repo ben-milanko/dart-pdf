@@ -151,7 +151,9 @@ extension PdfSigning on PdfEditor {
     if (certificates.isEmpty) {
       throw ArgumentError('the signer certificate is required');
     }
-    final time = (signingTime ?? DateTime.now()).toUtc();
+    // Keep the signer's own offset for the visible box and the /M date (see
+    // saveSignedExternal); the CMS signingTime attribute is always UTC.
+    final time = signingTime ?? DateTime.now();
     final revision = _emitSignatureRevision(
       subFilter: 'adbe.pkcs7.detached',
       capacity: _cmsCapacity(certificates),
@@ -168,7 +170,7 @@ extension PdfSigning on PdfEditor {
       contentDigest: revision.digestSha256(),
       privateKey: privateKey,
       certificates: certificates,
-      signingTime: time,
+      signingTime: time.toUtc(),
     );
     _writeContents(revision, cms);
     return revision.saved;
@@ -239,7 +241,9 @@ extension PdfSigning on PdfEditor {
     if (certificates.isEmpty) {
       throw ArgumentError('the signer certificate is required');
     }
-    final time = (signingTime ?? DateTime.now()).toUtc();
+    // Keep the signer's own offset for the visible box and the /M date (see
+    // saveSignedExternal); the CMS signingTime attribute is always UTC.
+    final time = signingTime ?? DateTime.now();
     final revision = _emitSignatureRevision(
       subFilter: 'adbe.pkcs7.detached',
       capacity: _cmsCapacity(certificates),
@@ -256,7 +260,7 @@ extension PdfSigning on PdfEditor {
       contentDigest: revision.digestSha256(),
       privateKey: privateKey,
       certificates: certificates,
-      signingTime: time,
+      signingTime: time.toUtc(),
     );
     _writeContents(revision, cms);
     return revision.saved;

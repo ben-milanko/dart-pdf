@@ -9,6 +9,8 @@ import 'l10n/app_localizations.dart';
 import 'language_names.dart';
 import 'recents.dart';
 import 'update.dart';
+import 'update_install_flow.dart';
+import 'update_installer.dart';
 
 // The platform-specific default-app help lives in the ARB as one ICU `select`
 // key each (branches: web/windows/macos/linux/android/ios/other), resolved from
@@ -80,6 +82,7 @@ Future<void> showAppSettings(
   required PdfEditingPreferences prefs,
   required RecentsStore recents,
   UpdateService? updates,
+  UpdateInstaller? updateInstaller,
   VoidCallback? onOpenDevTools,
 }) {
   return showDialog<void>(
@@ -88,6 +91,7 @@ Future<void> showAppSettings(
       prefs: prefs,
       recents: recents,
       updates: updates,
+      updateInstaller: updateInstaller,
       onOpenDevTools: onOpenDevTools,
     ),
   );
@@ -150,12 +154,14 @@ class _SettingsDialog extends StatefulWidget {
     required this.prefs,
     required this.recents,
     this.updates,
+    this.updateInstaller,
     this.onOpenDevTools,
   });
 
   final PdfEditingPreferences prefs;
   final RecentsStore recents;
   final UpdateService? updates;
+  final UpdateInstaller? updateInstaller;
 
   /// Non-null in debug/profile builds: closes the dialog and opens the
   /// developer tools panel (same as F12).
@@ -251,9 +257,12 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                       widget.onOpenDevTools!();
                     },
                   ),
-                if (widget.updates != null && UpdateService.supported) ...[
+                if (widget.updates != null && widget.updates!.supported) ...[
                   const Divider(height: 32),
-                  _UpdateSection(updates: widget.updates!),
+                  _UpdateSection(
+                    updates: widget.updates!,
+                    installer: widget.updateInstaller,
+                  ),
                 ],
                 const Divider(height: 32),
                 Text(appL10n(context).settingsAbout,
@@ -302,23 +311,18 @@ class _SettingsDialogState extends State<_SettingsDialog> {
 /// button (opening the platform artifact or release page) when a newer build
 /// is available.
 class _UpdateSection extends StatelessWidget {
-  const _UpdateSection({required this.updates});
+  const _UpdateSection({required this.updates, this.installer});
 
   final UpdateService updates;
 
-  Future<void> _openDownload(BuildContext context) async {
-    final url = updates.downloadUrl;
-    if (url == null) return;
-    final opened = await launchUrl(
-      Uri.parse(url),
-      mode: LaunchMode.externalApplication,
-    );
-    if (!opened && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(appL10n(context).settingsCouldNotOpenDownload),
-      ));
-    }
-  }
+  /// The in-app updater; null defaults to a real one (tests inject a fake).
+  final UpdateInstaller? installer;
+
+  Future<void> _install(BuildContext context) => startUpdateInstall(
+        context,
+        updates: updates,
+        installer: installer ?? UpdateInstaller(),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -361,7 +365,7 @@ class _UpdateSection extends StatelessWidget {
                   icon: const Icon(Icons.download_outlined, size: 18),
                   label: Text(appL10n(context).settingsDownloadVersion(
                       updates.latest!.version.toString())),
-                  onPressed: () => _openDownload(context),
+                  onPressed: () => _install(context),
                 ),
               ),
             ],

@@ -4,8 +4,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Flutter PDF SDK: pure-Dart PDF viewer, editor & renderer | DartPDF</title>
-  <meta name="description"
+  <title data-i18n="sdk_metaTitle">Flutter PDF SDK: pure-Dart PDF viewer, editor & renderer | DartPDF</title>
+  <meta name="description" data-i18n-attr="content:sdk_metaDesc"
     content="Open-source Flutter PDF SDK written entirely in Dart. Viewer, annotations, forms, digital signatures, redaction, text editing, and OCR on iOS, Android, macOS, Windows, Linux, and web. No PDFium, no platform views." />
   <link rel="canonical" href="https://dart-pdf.com/sdk" />
 
@@ -13,8 +13,8 @@
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="DartPDF" />
   <meta property="og:url" content="https://dart-pdf.com/sdk" />
-  <meta property="og:title" content="Flutter PDF SDK: pure-Dart PDF viewer, editor & renderer" />
-  <meta property="og:description"
+  <meta property="og:title" data-i18n-attr="content:sdk_metaTitle" content="Flutter PDF SDK: pure-Dart PDF viewer, editor & renderer" />
+  <meta property="og:description" data-i18n-attr="content:sdk_metaDesc"
     content="An open-source alternative to commercial PDF SDKs: rendering written entirely in Dart, one engine on all six Flutter platforms. Apache-2.0." />
   <meta property="og:image" content="https://dart-pdf.com/assets/og-image.png" />
   <meta property="og:image:width" content="1200" />
@@ -23,8 +23,8 @@
 
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="Flutter PDF SDK: pure-Dart PDF viewer, editor & renderer" />
-  <meta name="twitter:description"
+  <meta name="twitter:title" data-i18n-attr="content:sdk_metaTitle" content="Flutter PDF SDK: pure-Dart PDF viewer, editor & renderer" />
+  <meta name="twitter:description" data-i18n-attr="content:sdk_metaDesc"
     content="Open-source Flutter PDF SDK written entirely in Dart. One engine on iOS, Android, macOS, Windows, Linux, and web." />
   <meta name="twitter:image" content="https://dart-pdf.com/assets/og-image.png" />
 
@@ -617,14 +617,15 @@
           DartPDF
         </a>
         <div class="nav-links">
-          <a href="#features">Features</a>
-          <a href="#performance">Performance</a>
-          <a href="#compare">Compare</a>
-          <a href="#packages">Packages</a>
+          <a href="#features" data-i18n="sdk_nav_features">Features</a>
+          <a href="#performance" data-i18n="sdk_nav_performance">Performance</a>
+          <a href="#compare" data-i18n="sdk_nav_compare">Compare</a>
+          <a href="#packages" data-i18n="sdk_nav_packages">Packages</a>
           <a href="https://github.com/ben-milanko/dart-pdf" target="_blank" rel="noopener">GitHub</a>
+          <span data-i18n-switcher></span>
         </div>
         <a class="btn btn-primary" href="https://pub.dev/packages/dart_pdf_editor" target="_blank"
-          rel="noopener">Get it on pub.dev</a>
+          rel="noopener" data-i18n="sdk_nav_getpub">Get it on pub.dev</a>
       </nav>
     </div>
   </header>
@@ -633,9 +634,9 @@
   <section class="hero">
     <div class="wrap">
       <p class="eyebrow">Flutter PDF SDK</p>
-      <h1 style="margin-top:16px;">A PDF viewer and editor for Flutter, <span class="hl">written entirely in
+      <h1 style="margin-top:16px;" data-i18n-html="sdk_hero_h1">A PDF viewer and editor for Flutter, <span class="hl">written entirely in
           Dart.</span></h1>
-      <p class="sub">
+      <p class="sub" data-i18n-html="sdk_hero_sub">
         <code style="font-family:ui-monospace,'SF Mono',Menlo,monospace;">dart_pdf_editor</code> renders PDFs with no
         PDFium and no platform views. The parser, content-stream interpreter, font engine, image decoders, and color
         management are one engine that runs the same on iOS, Android, macOS, Windows, Linux, and Flutter web.
@@ -643,10 +644,10 @@
       </p>
       <div class="hero-cta">
         <a class="btn btn-primary" href="https://pub.dev/packages/dart_pdf_editor" target="_blank"
-          rel="noopener">pub.dev package</a>
-        <a class="btn btn-ghost" href="https://github.com/ben-milanko/dart-pdf" target="_blank" rel="noopener">View on
+          rel="noopener" data-i18n="sdk_hero_cta1">pub.dev package</a>
+        <a class="btn btn-ghost" href="https://github.com/ben-milanko/dart-pdf" target="_blank" rel="noopener" data-i18n="sdk_hero_cta2">View on
           GitHub</a>
-        <a class="btn btn-ghost" href="https://dart-pdf-demo.web.app" target="_blank" rel="noopener">Live demo</a>
+        <a class="btn btn-ghost" href="https://dart-pdf-demo.web.app" target="_blank" rel="noopener" data-i18n="sdk_hero_cta3">Live demo</a>
       </div>
       <pre class="code"><span class="c"># Add the editor to your Flutter app</span>
 flutter pub add dart_pdf_editor</pre>
@@ -667,55 +668,55 @@ PdfReader(bytes: pdfBytes)</pre>
   <section class="section" id="features">
     <div class="wrap">
       <div class="sec-head">
-        <p class="eyebrow">Features</p>
-        <h2>The commercial-SDK feature set, open source.</h2>
-        <p>Viewing, annotating, forms, signing, redaction, page management, text editing, and OCR. In other words, the
+        <p class="eyebrow" data-i18n="sdk_feat_eyebrow">Features</p>
+        <h2 data-i18n="sdk_feat_h2">The commercial-SDK feature set, open source.</h2>
+        <p data-i18n="sdk_feat_intro">Viewing, annotating, forms, signing, redaction, page management, text editing, and OCR. In other words, the
           things apps actually license a PDF SDK for.</p>
       </div>
       <div class="features">
         <article class="feature">
-          <h3>PDF viewer</h3>
-          <p>Zoom and pan with fit modes, deep-zoom detail rendering, text selection, full-text search, links,
+          <h3 data-i18n="sdkFeatViewer_t">PDF viewer</h3>
+          <p data-i18n="sdkFeatViewer_d">Zoom and pan with fit modes, deep-zoom detail rendering, text selection, full-text search, links,
             outlines, dark mode, and theming.</p>
         </article>
         <article class="feature">
-          <h3>Annotations</h3>
-          <p>Markup, pressure-sensitive ink, shapes, callouts, notes, stamps, and measurement tools, all with generated
+          <h3 data-i18n="sdkFeatAnnot_t">Annotations</h3>
+          <p data-i18n="sdkFeatAnnot_d">Markup, pressure-sensitive ink, shapes, callouts, notes, stamps, and measurement tools, all with generated
             appearance streams. Select, move, resize, rotate, copy/paste, undo/redo.</p>
         </article>
         <article class="feature">
-          <h3>Forms</h3>
-          <p>Fill AcroForm text, checkbox, radio, and choice fields with regenerated appearances. You can also author
+          <h3 data-i18n="sdkFeatForms_t">Forms</h3>
+          <p data-i18n="sdkFeatForms_d">Fill AcroForm text, checkbox, radio, and choice fields with regenerated appearances. You can also author
             fields: create, rename, retype, delete, flatten.</p>
         </article>
         <article class="feature">
-          <h3>Digital signatures</h3>
-          <p>Sign and validate up to PAdES B-LTA with RFC 3161 timestamps and long-term validation. Output validates in
+          <h3 data-i18n="sdkFeatSign_t">Digital signatures</h3>
+          <p data-i18n="sdkFeatSign_d">Sign and validate up to PAdES B-LTA with RFC 3161 timestamps and long-term validation. Output validates in
             pyHanko, OpenSSL, and poppler.</p>
         </article>
         <article class="feature">
-          <h3>Redaction</h3>
-          <p>True redaction per the PDF spec: covered text and images are removed from the file bytes, not painted
+          <h3 data-i18n="sdkFeatRedact_t">Redaction</h3>
+          <p data-i18n="sdkFeatRedact_d">True redaction per the PDF spec: covered text and images are removed from the file bytes, not painted
             over.</p>
         </article>
         <article class="feature">
-          <h3>Text editing</h3>
-          <p>Rewrite existing page text in place with width-compensated metrics, and reflow whole paragraphs when the
+          <h3 data-i18n="sdkFeatText_t">Text editing</h3>
+          <p data-i18n="sdkFeatText_d">Rewrite existing page text in place with width-compensated metrics, and reflow whole paragraphs when the
             line count changes.</p>
         </article>
         <article class="feature">
-          <h3>Pages</h3>
-          <p>Reorder, delete, merge across documents, and split to new files, with drag-and-drop thumbnail UI included.
+          <h3 data-i18n="sdkFeatPages_t">Pages</h3>
+          <p data-i18n="sdkFeatPages_d">Reorder, delete, merge across documents, and split to new files, with drag-and-drop thumbnail UI included.
           </p>
         </article>
         <article class="feature">
-          <h3>OCR</h3>
-          <p>Pluggable engines add an invisible, selectable text layer to scans: on-device PP-OCR via ONNX, or any HTTP
+          <h3 data-i18n="sdkFeatOcr_t">OCR</h3>
+          <p data-i18n="sdkFeatOcr_d">Pluggable engines add an invisible, selectable text layer to scans: on-device PP-OCR via ONNX, or any HTTP
             OCR service, including on Flutter web.</p>
         </article>
         <article class="feature">
-          <h3>Robust parsing</h3>
-          <p>Encrypted files (RC4/AES), broken real-world PDFs, CCITT/JBIG2/JPEG 2000 images, and ICC color, with
+          <h3 data-i18n="sdkFeatParse_t">Robust parsing</h3>
+          <p data-i18n="sdkFeatParse_d">Encrypted files (RC4/AES), broken real-world PDFs, CCITT/JBIG2/JPEG 2000 images, and ICC color, with
             conformance pinned against the Ghent suite and the PDF.js test corpus.</p>
         </article>
       </div>
@@ -726,35 +727,35 @@ PdfReader(bytes: pdfBytes)</pre>
   <section class="band" id="performance">
     <div class="wrap band-inner">
       <div>
-        <p class="eyebrow" style="color:#6fd0ff;">Performance</p>
-        <h2 style="margin-top:14px;">Pure Dart is not a compromise on speed.</h2>
-        <p>On a real-world corpus of 49 files and 255 pages (CAD drawings, scans, reports, forms), the parse and
+        <p class="eyebrow" style="color:#6fd0ff;" data-i18n="sdk_perf_eyebrow">Performance</p>
+        <h2 style="margin-top:14px;" data-i18n="sdk_perf_h2">Pure Dart is not a compromise on speed.</h2>
+        <p data-i18n="sdk_perf_p1">On a real-world corpus of 49 files and 255 pages (CAD drawings, scans, reports, forms), the parse and
           content-stream interpreter runs about 1.9× faster than PDFium, the C++ engine Chrome uses. Full Flutter
           rasterization is currently about 2× slower end to end; the gap is image decoding and GPU raster, not the
           interpreter.</p>
-        <p>The <a href="https://github.com/ben-milanko/dart-pdf/tree/main/benchmark" target="_blank"
+        <p data-i18n-html="sdk_perf_p2">The <a href="https://github.com/ben-milanko/dart-pdf/tree/main/benchmark" target="_blank"
             rel="noopener">benchmark harness</a> diffs dart-pdf against PDFium file by file, so you can check the
           numbers yourself.</p>
       </div>
       <div>
         <div class="bench">
           <div class="b-top">
-            <span class="b-title">ms per page, lower is better</span>
-            <span class="b-pill">49 files · 255 pages</span>
+            <span class="b-title" data-i18n="sdk_bench_title">ms per page, lower is better</span>
+            <span class="b-pill" data-i18n="sdk_bench_pill">49 files · 255 pages</span>
           </div>
           <div class="bar-row">
-            <div class="bl"><span>dart-pdf interpret (pure Dart)</span><span class="v">13.3 ms</span></div>
+            <div class="bl"><span data-i18n="sdk_bar1">dart-pdf interpret (pure Dart)</span><span class="v">13.3 ms</span></div>
             <div class="bar dart"><i style="width:26%"></i></div>
           </div>
           <div class="bar-row">
-            <div class="bl"><span>PDFium (open + rasterize)</span><span class="v">24.9 ms</span></div>
+            <div class="bl"><span data-i18n="sdk_bar2">PDFium (open + rasterize)</span><span class="v">24.9 ms</span></div>
             <div class="bar other"><i style="width:48%"></i></div>
           </div>
           <div class="bar-row">
-            <div class="bl"><span>dart-pdf render (full Flutter raster)</span><span class="v">52.0 ms</span></div>
+            <div class="bl"><span data-i18n="sdk_bar3">dart-pdf render (full Flutter raster)</span><span class="v">52.0 ms</span></div>
             <div class="bar other"><i style="width:100%"></i></div>
           </div>
-          <p class="b-note">Scale 2, PDFium via pypdfium2. Methodology and per-file results in the repo's
+          <p class="b-note" data-i18n-html="sdk_bench_note">Scale 2, PDFium via pypdfium2. Methodology and per-file results in the repo's
             <code>benchmark/</code> directory.</p>
         </div>
       </div>
@@ -765,9 +766,9 @@ PdfReader(bytes: pdfBytes)</pre>
   <section class="section" id="compare">
     <div class="wrap">
       <div class="sec-head">
-        <p class="eyebrow">Compare</p>
-        <h2>How it compares to commercial PDF SDKs.</h2>
-        <p>Nutrient (formerly PSPDFKit) and Syncfusion are mature, well-supported commercial products. The difference
+        <p class="eyebrow" data-i18n="sdk_cmp_eyebrow">Compare</p>
+        <h2 data-i18n="sdk_cmp_h2">How it compares to commercial PDF SDKs.</h2>
+        <p data-i18n="sdk_cmp_intro">Nutrient (formerly PSPDFKit) and Syncfusion are mature, well-supported commercial products. The difference
           is architecture and licensing: dart-pdf is one open-source Dart engine on every platform Flutter ships to.
         </p>
       </div>
@@ -780,44 +781,44 @@ PdfReader(bytes: pdfBytes)</pre>
             <th>Syncfusion Flutter PDF Viewer</th>
           </tr>
           <tr>
-            <td>License</td>
-            <td class="hero-col">Apache-2.0, free and open source</td>
-            <td>Commercial, contact sales</td>
-            <td>Commercial or free community license</td>
+            <td data-i18n="sdk_cmp_rowLicense">License</td>
+            <td class="hero-col" data-i18n="sdk_cmp_licenseA">Apache-2.0, free and open source</td>
+            <td data-i18n="sdk_cmp_licenseB">Commercial, contact sales</td>
+            <td data-i18n="sdk_cmp_licenseC">Commercial or free community license</td>
           </tr>
           <tr>
-            <td>Flutter platforms</td>
+            <td data-i18n="sdk_cmp_rowPlatforms">Flutter platforms</td>
             <td class="hero-col">iOS, Android, macOS, Windows, Linux, Web</td>
             <td>iOS, Android, Web</td>
             <td>iOS, Android, macOS, Windows, Web</td>
           </tr>
           <tr>
-            <td>Rendering engine</td>
-            <td class="hero-col">Pure Dart, same engine everywhere</td>
-            <td>Native engine per platform</td>
-            <td>Native rendering; PDF.js on web</td>
+            <td data-i18n="sdk_cmp_rowEngine">Rendering engine</td>
+            <td class="hero-col" data-i18n="sdk_cmp_engineA">Pure Dart, same engine everywhere</td>
+            <td data-i18n="sdk_cmp_engineB">Native engine per platform</td>
+            <td data-i18n="sdk_cmp_engineC">Native rendering; PDF.js on web</td>
           </tr>
           <tr>
-            <td>Annotations &amp; forms</td>
-            <td class="hero-col">Yes, authoring + filling</td>
-            <td>Yes</td>
-            <td>Yes</td>
+            <td data-i18n="sdk_cmp_rowAnnot">Annotations &amp; forms</td>
+            <td class="hero-col" data-i18n="sdk_cmp_annotA">Yes, authoring + filling</td>
+            <td data-i18n="sdk_cmp_yes">Yes</td>
+            <td data-i18n="sdk_cmp_yes">Yes</td>
           </tr>
           <tr>
-            <td>Digital signatures</td>
-            <td class="hero-col">Sign + validate, PAdES up to B-LTA</td>
-            <td>Yes</td>
-            <td>Yes (via PDF library)</td>
+            <td data-i18n="sdk_cmp_rowSign">Digital signatures</td>
+            <td class="hero-col" data-i18n="sdk_cmp_signA">Sign + validate, PAdES up to B-LTA</td>
+            <td data-i18n="sdk_cmp_yes">Yes</td>
+            <td data-i18n="sdk_cmp_signC">Yes (via PDF library)</td>
           </tr>
           <tr>
-            <td>Source code</td>
-            <td class="hero-col">Open, on GitHub</td>
-            <td>Closed</td>
-            <td>Source-available with license</td>
+            <td data-i18n="sdk_cmp_rowSource">Source code</td>
+            <td class="hero-col" data-i18n="sdk_cmp_sourceA">Open, on GitHub</td>
+            <td data-i18n="sdk_cmp_sourceB">Closed</td>
+            <td data-i18n="sdk_cmp_sourceC">Source-available with license</td>
           </tr>
         </table>
       </div>
-      <p class="cmp-note">Vendor capabilities summarized from their public documentation as of July 2026. Always check
+      <p class="cmp-note" data-i18n="sdk_cmp_note">Vendor capabilities summarized from their public documentation as of July 2026. Always check
         the vendors' current docs. No performance comparisons are made against commercial SDKs.</p>
     </div>
   </section>
@@ -826,35 +827,35 @@ PdfReader(bytes: pdfBytes)</pre>
   <section class="section" id="packages" style="padding-top:0;">
     <div class="wrap">
       <div class="sec-head">
-        <p class="eyebrow">Packages</p>
-        <h2>Strictly layered, use what you need.</h2>
-        <p>The Flutter widgets sit on three pure-Dart packages that run on the VM, in CLIs and servers, and on the
+        <p class="eyebrow" data-i18n="sdk_pkg_eyebrow">Packages</p>
+        <h2 data-i18n="sdk_pkg_h2">Strictly layered, use what you need.</h2>
+        <p data-i18n="sdk_pkg_intro">The Flutter widgets sit on three pure-Dart packages that run on the VM, in CLIs and servers, and on the
           web. There is no Flutter dependency below the widget layer.</p>
       </div>
       <div class="pkg-grid">
         <a class="pkg-card" href="https://pub.dev/packages/dart_pdf_editor" target="_blank" rel="noopener">
           <code>dart_pdf_editor</code>
-          <p>Flutter PDF viewer and editing UI: PdfEditorView, PdfReader, tools, panels, forms, theming.</p>
+          <p data-i18n="sdkPkgEditor_d">Flutter PDF viewer and editing UI: PdfEditorView, PdfReader, tools, panels, forms, theming.</p>
         </a>
         <a class="pkg-card" href="https://pub.dev/packages/pdf_document" target="_blank" rel="noopener">
           <code>pdf_document</code>
-          <p>Document semantics: page tree, annotations, AcroForm, digital signatures, incremental-save editor.</p>
+          <p data-i18n="sdkPkgDoc_d">Document semantics: page tree, annotations, AcroForm, digital signatures, incremental-save editor.</p>
         </a>
         <a class="pkg-card" href="https://pub.dev/packages/pdf_graphics" target="_blank" rel="noopener">
           <code>pdf_graphics</code>
-          <p>Content-stream interpreter, font engine, ICC color, and text extraction. Renders to any device.</p>
+          <p data-i18n="sdkPkgGfx_d">Content-stream interpreter, font engine, ICC color, and text extraction. Renders to any device.</p>
         </a>
         <a class="pkg-card" href="https://pub.dev/packages/pdf_cos" target="_blank" rel="noopener">
           <code>pdf_cos</code>
-          <p>The PDF file format itself: parser, filters, encryption, xref machinery, serializer, crypto.</p>
+          <p data-i18n="sdkPkgCos_d">The PDF file format itself: parser, filters, encryption, xref machinery, serializer, crypto.</p>
         </a>
         <a class="pkg-card" href="https://pub.dev/packages/pdf_ocr_ondevice" target="_blank" rel="noopener">
           <code>pdf_ocr_ondevice</code>
-          <p>Optional on-device OCR engine: downloads a small PP-OCR model once, then runs offline.</p>
+          <p data-i18n="sdkPkgOndevice_d">Optional on-device OCR engine: downloads a small PP-OCR model once, then runs offline.</p>
         </a>
         <a class="pkg-card" href="https://pub.dev/packages/pdf_ocr_vlm" target="_blank" rel="noopener">
           <code>pdf_ocr_vlm</code>
-          <p>Optional HTTP OCR engine for web, mobile, and desktop. Point it at any service that returns text boxes.</p>
+          <p data-i18n="sdkPkgVlm_d">Optional HTTP OCR engine for web, mobile, and desktop. Point it at any service that returns text boxes.</p>
         </a>
       </div>
     </div>
@@ -863,11 +864,12 @@ PdfReader(bytes: pdfBytes)</pre>
   <!-- ============ FOOTER ============ -->
   <footer>
     <div class="wrap foot-bottom">
-      <span>© Railway Engineering Solutions · <a href="/">DartPDF app</a> · <a href="/support">Support</a> · <a
-          href="/privacy">Privacy</a></span>
-      <span>Free and open source under Apache-2.0.</span>
+      <span>© Railway Engineering Solutions · <a href="/" data-i18n="sdk_foot_dartpdfApp">DartPDF app</a> · <a href="/support" data-i18n="foot_support">Support</a> · <a
+          href="/privacy" data-i18n="foot_privacy">Privacy</a></span>
+      <span data-i18n="foot_oss">Free and open source under Apache-2.0.</span>
     </div>
   </footer>
+  <script src="/i18n.js" defer></script>
 </body>
 
 </html>

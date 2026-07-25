@@ -214,6 +214,8 @@
   "welcomeRecent": "Son kullanılanlar",
   "welcomeRemoveFromRecent": "Son kullanılanlardan kaldır",
   "welcomeTapToReopen": "Yeniden açmak için dokunun",
+  "welcomeViewAsGrid": "Izgara görünümü",
+  "welcomeViewAsList": "Liste görünümü",
   "settingsDefaultAppSubtitle": "{platform, select, web{Web uygulamasını yükleyin, ardından PDF dosyaları için seçin.} windows{PDF'ler için Windows varsayılan uygulama ayarlarını açın.} macos{Finder'ın \"Her Zaman Şununla Aç\" adımlarını izleyin.} linux{Masaüstünüzün varsayılan uygulama ayarlarını kullanın.} android{Bir PDF açarken DartPDF'yi seçin, ardından Her Zaman'a dokunun.} ios{PDF'leri buraya göndermek için Dosyalar'dan Paylaş veya İçinde Aç seçeneğini kullanın.} other{Sisteminizin PDF dosya işleyicisini yapılandırın.}}",
   "settingsDefaultAppInstructions": "{platform, select, web{Önce DartPDF'yi tarayıcınızdan yükleyin. Ardından PDF dosyalarını yüklü uygulamayla ilişkilendirmek için tarayıcı veya işletim sistemi dosya işleyici ayarlarını kullanın.} windows{Windows Ayarları, Varsayılan uygulamalar bölümünü açacak. \".pdf\" veya \"PDF\" araması yapın, mevcut PDF uygulamasını seçin, ardından DartPDF'yi seçin.} macos{Finder'da herhangi bir PDF seçin, Dosya > Bilgi Al'ı seçin, \"Şununla aç\" bölümünü genişletin, DartPDF'yi seçin, ardından \"Tümünü Değiştir…\"e tıklayın.} linux{Masaüstü ayarlarınızı Varsayılan Uygulamalar için açın veya Dosyalar'da bir PDF'ye sağ tıklayın, Özellikler'i seçin ve DartPDF'yi PDF belgeleri için varsayılan olarak ayarlayın.} android{Dosyalar veya İndirilenler'den bir PDF açın, uygulama seçicide DartPDF'yi seçin, ardından Her Zaman'ı seçin. Başka bir uygulama zaten PDF'leri açıyorsa, önce Android Ayarları'nda o uygulamanın varsayılanlarını temizleyin.} ios{iOS küresel bir varsayılan PDF düzenleyici sağlamaz. Dosyalar > Paylaş'ı kullanın veya bir PDF'ye uzun basıp Paylaş/İçinde Aç'ı seçin, ardından DartPDF'yi seçin.} other{PDF belgelerini DartPDF ile ilişkilendirmek için sistem dosya işleyici ayarlarını kullanın.}}",
   "ocrChipDownloadingModel": "OCR modeli indiriliyor…",
@@ -230,5 +232,12 @@
   "appSigErrorKeyCertificateMismatch": "Özel anahtar, seçilen hiçbir RSA sertifikasıyla eşleşmiyor.",
   "appSigErrorEncryptedKeyUnsupported": "Şifrelenmiş özel anahtarlar desteklenmiyor. Şifrelenmemiş bir RSA PKCS#1 veya PKCS#8 anahtarı seçin.",
   "appSigErrorKeyNotRsa": "Özel anahtar, şifrelenmemiş bir RSA PKCS#1 veya PKCS#8 anahtarı değil.",
-  "appSigErrorNoCertificateFound": "Hiç X.509 sertifikası bulunamadı."
+  "appSigErrorNoCertificateFound": "Hiç X.509 sertifikası bulunamadı.",
+  "updateInstallNow": "Şimdi güncelle",
+  "updateDownloadingTitle": "Güncelleme indiriliyor",
+  "updatePreparing": "Hazırlanıyor…",
+  "updateDownloadingPercent": "İndiriliyor… {percent}%",
+  "updateRestarting": "Güncellemeyi tamamlamak için yeniden başlatılıyor…",
+  "updateHandedOff": "Güncelleme indirildi. Yükleyici açılıyor…",
+  "updateFailed": "Güncelleme başarısız: {error}"
 }

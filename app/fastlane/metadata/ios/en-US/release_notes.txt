@@ -1,0 +1,18 @@
+New in 3.0.0
+
+LANGUAGES
+• DartPDF is now available in 10 languages, with full right-to-left layout for Arabic.
+
+RENDERING
+• More accurate overprint, blend-mode and soft-mask rendering, so print-oriented PDFs look closer to their intended output.
+• Transparency groups drawn under a blend mode now composite correctly, fixing stray opaque boxes on some files.
+
+EDITING
+• Hold Shift while drawing to constrain ink and lines to straight strokes.
+• Set a default style for annotations and reuse it with one tap.
+• Redesigned document tabs that stay readable as you open more files.
+
+SPEED
+• Faster rendering and lower memory use, with the biggest gains on large or image-heavy files.
+
+Thank you for using DartPDF. Feedback and bug reports are always welcome.

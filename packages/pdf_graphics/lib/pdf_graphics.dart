@@ -22,6 +22,7 @@ export 'src/mesh.dart';
 export 'src/path.dart';
 export 'src/recording_device.dart';
 export 'src/render_command.dart';
+export 'src/translating_device.dart';
 export 'src/render_command_codec.dart';
 export 'src/text_cache.dart';
 export 'src/text_diff.dart';

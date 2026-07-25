@@ -17,7 +17,7 @@ import 'perf_log.dart';
 /// fonts, horizontally scaled to the PDF's own metrics, until the font
 /// engine produces real glyph outlines. Images must be pre-decoded into
 /// [images] (painting is synchronous).
-class CanvasPdfDevice implements PdfDevice {
+class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
   CanvasPdfDevice(this.canvas,
       {this.images = const {}, this.pixelRatio = 1});
 
@@ -269,6 +269,59 @@ class CanvasPdfDevice implements PdfDevice {
     }
     return _blend;
   }
+
+  @override
+  void drawTiledCell(PdfDrawTiledCellCommand command) {
+    // Record the cell once as a sub-picture and stamp it per origin -
+    // PDFium's DrawPatternBitmap shape, on Skia's terms. Only when plain
+    // srcOver compositing is in effect: an active blend mode, knockout
+    // group, or overprint approximation must apply per paint primitive,
+    // which drawPicture cannot express - those (rare) states take the exact
+    // per-tile expansion instead.
+    if (_blend != BlendMode.srcOver ||
+        _knockoutActive ||
+        _fillOverprint ||
+        _strokeOverprint) {
+      for (var t = 0; t < command.originsX.length; t++) {
+        final dx = command.originsX[t], dy = command.originsY[t];
+        replayCommands(command.cellCommands,
+            dx == 0 && dy == 0 ? this : TranslatingPdfDevice(this, dx, dy));
+      }
+      return;
+    }
+    // The retained transcript replays this same command object every frame
+    // (and at every zoom bucket), so the sub-picture is cached against the
+    // command's identity: recorded once for its lifetime, GC'd with it.
+    // A picture is vector - stamping it is resolution-independent, so one
+    // recording serves every scale. (Cells with decoded images resolve them
+    // from this device's [images] at record time; the transcript cache
+    // replaces image-bearing commands wholesale on re-decode, so the cached
+    // picture can never hold a stale image.)
+    var picture = _tiledCellPictures[command.cellCommands];
+    if (picture == null) {
+      final recorder = ui.PictureRecorder();
+      final cell = CanvasPdfDevice(Canvas(recorder),
+          images: images, pixelRatio: pixelRatio);
+      replayCommands(command.cellCommands, cell);
+      picture = recorder.endRecording();
+      _tiledCellPictures[command.cellCommands] = picture;
+    }
+    for (var t = 0; t < command.originsX.length; t++) {
+      canvas.save();
+      canvas.translate(command.originsX[t], command.originsY[t]);
+      canvas.drawPicture(picture);
+      canvas.restore();
+    }
+  }
+
+  /// Cell sub-pictures keyed by the *cell command list* (not the command):
+  /// Type3 glyph stamping (#535) emits one single-origin command per glyph
+  /// occurrence, all sharing one recorded cell - keying by the list gives
+  /// every occurrence the same picture. An [Expando] so a picture lives
+  /// exactly as long as the transcript retaining the list does - transcripts
+  /// are already budgeted by the retained-record caches, and a cell picture
+  /// (a handful of ops) is negligible next to its command list.
+  static final Expando<ui.Picture> _tiledCellPictures = Expando();
 
   @override
   void beginGroup(double alpha, {bool knockout = false}) {
@@ -675,17 +728,31 @@ class CanvasPdfDevice implements PdfDevice {
     // Per-glyph composition (#454) applies only to plain fills of simple-script
     // runs; a gradient, a stroke, or complex text keeps whole-run shaping so the
     // fresh gradient/stroke painters and the layout stay width-consistent.
+    // Edge whitespace (a leading/trailing space carrying a large Tw to reach a
+    // table column) must open a real gap, not stretch the visible glyphs.
+    // TextPainter drops leading/trailing whitespace from both placement and
+    // layout.width, so paint a run trimmed to its visible core and shift it
+    // right by the leading-whitespace advance; the original run's
+    // width/transform stay full so extraction still sees the true gap. The
+    // common no-edge-whitespace run is used as-is.
+    final paintRun = run.leadingSpace != 0 || run.visibleWidth != null
+        ? _trimmedForPaint(run)
+        : run;
+
     final compose = perGlyphSubstitutedText &&
-        run.gradient == null &&
-        run.strokeColor == null &&
-        _composableRun(run.text);
-    final layout = _measureLayout(run, compose: compose);
+        paintRun.gradient == null &&
+        paintRun.strokeColor == null &&
+        paintRun.letterSpacing == 0 &&
+        paintRun.wordSpacing == 0 &&
+        _composableRun(paintRun.text);
+    final layout = _measureLayout(paintRun, compose: compose);
 
     canvas.save();
     canvas.transform(_toFloat64(run.transform));
-    // unflip: the page transform is y-up, text rasterizes y-down
-    final targetWidth = run.width * renderSize;
-    final scaleX = run.width > 0 && layout.width > 0
+    // unflip: the page transform is y-up, text rasterizes y-down.
+    if (run.leadingSpace != 0) canvas.translate(run.leadingSpace, 0);
+    final targetWidth = paintRun.width * renderSize;
+    final scaleX = paintRun.width > 0 && layout.width > 0
         ? targetWidth / layout.width
         : 1.0;
 
@@ -694,8 +761,8 @@ class CanvasPdfDevice implements PdfDevice {
     // shader, which can't be cached because the shader depends on this run's
     // own transform. The cached/composed layout serves every plain fill.
     TextPainter? gradientFill;
-    if (run.fill) {
-      final gradient = run.gradient;
+    if (paintRun.fill) {
+      final gradient = paintRun.gradient;
       if (gradient != null) {
         final localToPage =
             PdfMatrix.scaled(scaleX / renderSize, -1 / renderSize)
@@ -704,9 +771,9 @@ class CanvasPdfDevice implements PdfDevice {
         if (pageToLocal != null) {
           gradientFill = TextPainter(
             text: TextSpan(
-                text: run.text,
+                text: paintRun.text,
                 style: _styleFor(
-                    run,
+                    paintRun,
                     foreground: Paint()
                       ..shader = _shaderFor(gradient,
                           transform: gradient.transform.concat(pageToLocal))
@@ -721,18 +788,18 @@ class CanvasPdfDevice implements PdfDevice {
     // The line width is page-space; map it into the painter's 100px-per-em
     // space (canvas is scaled by run.transform then 1/renderSize).
     TextPainter? strokePainter;
-    if (run.strokeColor != null) {
+    if (paintRun.strokeColor != null) {
       final ts = run.transform.scaleFactor;
-      final w = run.strokeWidth > 0 ? run.strokeWidth : ts / renderSize;
+      final w = paintRun.strokeWidth > 0 ? paintRun.strokeWidth : ts / renderSize;
       strokePainter = TextPainter(
         text: TextSpan(
-          text: run.text,
+          text: paintRun.text,
           style: _styleFor(
-            run,
+            paintRun,
             foreground: Paint()
               ..style = PaintingStyle.stroke
               ..strokeWidth = ts > 0 ? w * renderSize / ts : w
-              ..color = _toColor(run.strokeColor!, 1)
+              ..color = _toColor(paintRun.strokeColor!, 1)
               ..blendMode = _elementBlend,
           ),
         ),
@@ -741,7 +808,7 @@ class CanvasPdfDevice implements PdfDevice {
     }
 
     canvas.scale(scaleX / renderSize, -1 / renderSize);
-    if (run.fill) {
+    if (paintRun.fill) {
       if (gradientFill != null) {
         gradientFill.paint(canvas, Offset(0, -layout.baseline));
       } else {
@@ -752,6 +819,36 @@ class CanvasPdfDevice implements PdfDevice {
     canvas.restore();
   }
 
+  /// A copy of [run] trimmed to its visible core for painting: edge whitespace
+  /// removed from the text, and the width reduced to the visible-glyph advance
+  /// (`visibleWidth - leadingSpace`). [leadingSpace] itself is applied by the
+  /// caller as a canvas translation, so it is zeroed here. Everything else -
+  /// transform, colour, spacing, stroke, gradient - is carried through unchanged.
+  static PdfTextRun _trimmedForPaint(PdfTextRun run) {
+    final core = _trimEdges(run.text);
+    final coreWidth = (run.visibleWidth ?? run.width) - run.leadingSpace;
+    return PdfTextRun(
+      text: core,
+      transform: run.transform,
+      color: run.color,
+      width: coreWidth,
+      gradient: run.gradient,
+      fontName: run.fontName,
+      fontSize: run.fontSize,
+      fill: run.fill,
+      strokeColor: run.strokeColor,
+      strokeWidth: run.strokeWidth,
+      letterSpacing: run.letterSpacing,
+      wordSpacing: run.wordSpacing,
+      mcid: run.mcid,
+    );
+  }
+
+  /// Strips leading and trailing Unicode whitespace, matching the interpreter's
+  /// `text.trim().isNotEmpty` visibility test that produced leadingSpace /
+  /// visibleWidth.
+  static String _trimEdges(String s) => s.trim();
+
   /// A laid-out painter (+ width/baseline) for a substituted-font run, served
   /// from the process-wide cache. The key is (text, font, colour) — everything
   /// [_styleFor] reads — so the cached painter and its metrics are exact.
@@ -761,7 +858,8 @@ class CanvasPdfDevice implements PdfDevice {
     if (compose) return _composeLayout(run);
     final c = run.color;
     final key = '${run.text} ${run.fontName ?? ''} '
-        '${c.red},${c.green},${c.blue}';
+        '${c.red},${c.green},${c.blue} '
+        '${run.letterSpacing},${run.wordSpacing}';
     if (!PdfPerfLog.enabled) {
       return _textCache.getOrAdd(key, () => _shapeLayout(run));
     }
@@ -978,8 +1076,14 @@ class CanvasPdfDevice implements PdfDevice {
       fontStyle: name.contains('Italic') || name.contains('Oblique')
           ? FontStyle.italic
           : FontStyle.normal,
-      // metric scaling handles placement; kill extra spacing sources
-      letterSpacing: 0,
+      // Reproduce the PDF's Tc/Tw as real tracking/word spacing (em → the 100px
+      // render em) so the substitute's own advances match run.width. Without
+      // this the layout is tight and run.width's spacing is recovered by
+      // stretching the glyph shapes - which explodes when a space carries a
+      // large Tw (issue: over-wide table digits). letterSpacing/wordSpacing 0
+      // (the common case) is a no-op, so unspaced runs are unchanged.
+      letterSpacing: run.letterSpacing * 100,
+      wordSpacing: run.wordSpacing * 100,
       height: 1,
     );
   }

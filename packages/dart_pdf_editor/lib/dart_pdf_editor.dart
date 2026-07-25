@@ -27,6 +27,7 @@ export 'src/editing/digital_signature.dart';
 export 'src/editing/signing_identity_store.dart';
 export 'src/editing/editing_fonts.dart';
 export 'src/editing/editing_interaction.dart';
+export 'src/editing/editing_link.dart';
 export 'src/editing/editing_measure.dart';
 export 'src/editing/editing_menu.dart';
 export 'src/editing/editing_page_clipboard.dart';

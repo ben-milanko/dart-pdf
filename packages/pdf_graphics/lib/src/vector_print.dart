@@ -139,7 +139,7 @@ Future<Uint8List> encodeVectorPrintPage(
   final recorder = RecordingPdfDevice();
   final interpreter = PdfInterpreter(cos: cos, device: recorder)
     ..drawPageContent(page, page.contentBytes());
-  if (annotations) interpreter.drawAnnotations(page);
+  if (annotations) interpreter.drawAnnotations(page, forPrint: true);
 
   final images = await decodeImages(cos, recorder.imageRequests);
 

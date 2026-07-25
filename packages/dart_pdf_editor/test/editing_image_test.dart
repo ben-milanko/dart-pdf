@@ -176,6 +176,47 @@ void main() {
     });
   });
 
+  group('image tool visibility in the toolbar', () {
+    // Anything whose tooltip starts with the image tool's - it carries a
+    // trailing " (I)" shortcut hint we don't want to hard-code.
+    final imageTool = find.byWidgetPredicate((w) =>
+        w is IconButton &&
+        (w.tooltip?.startsWith('Image - tap to place') ?? false));
+
+    Future<PdfEditingController> pumpToolbar(WidgetTester tester,
+        {PdfImagePicker? imagePicker}) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfEditingToolbar(
+            controller: editing,
+            viewerController: viewer,
+            imagePicker: imagePicker,
+          ),
+        ),
+      ));
+      // Arm a tool that's always in the Insert group to raise its strip.
+      editing.tool = PdfEditTool.freeText;
+      await tester.pump();
+      return editing;
+    }
+
+    testWidgets('is hidden from the Insert group when no picker is wired',
+        (tester) async {
+      await pumpToolbar(tester);
+      expect(imageTool, findsNothing);
+    });
+
+    testWidgets('appears once an imagePicker is supplied', (tester) async {
+      await pumpToolbar(tester, imagePicker: (context) => Future.value(_png));
+      expect(imageTool, findsOneWidget);
+    });
+  });
+
   group('PdfEditingController image cropping', () {
     PdfEditingController placedImage() {
       SharedPreferences.setMockInitialValues({});

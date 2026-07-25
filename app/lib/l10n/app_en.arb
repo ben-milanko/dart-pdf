@@ -777,6 +777,44 @@
   "@editorUpdateLater": {
     "description": "Update banner action to dismiss the update notice for now."
   },
+  "updateInstallNow": "Update now",
+  "@updateInstallNow": {
+    "description": "Button that downloads and installs the newer release in place (desktop), instead of opening a browser download."
+  },
+  "updateDownloadingTitle": "Downloading update",
+  "@updateDownloadingTitle": {
+    "description": "Title of the dialog shown while an in-app update is downloading."
+  },
+  "updatePreparing": "Preparing…",
+  "@updatePreparing": {
+    "description": "Status shown before download progress is known."
+  },
+  "updateDownloadingPercent": "Downloading… {percent}%",
+  "@updateDownloadingPercent": {
+    "description": "Download progress line with the percentage complete.",
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "updateRestarting": "Restarting to finish the update…",
+  "@updateRestarting": {
+    "description": "Status shown after the AppImage is replaced, just before the app relaunches."
+  },
+  "updateHandedOff": "Update downloaded. Opening the installer…",
+  "@updateHandedOff": {
+    "description": "Snackbar shown after a macOS/Windows update is downloaded and handed to the OS installer."
+  },
+  "updateFailed": "Update failed: {error}",
+  "@updateFailed": {
+    "description": "Snackbar shown when an in-app update download or install fails.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "editorViewAllTabs": "View all tabs",
   "@editorViewAllTabs": {
     "description": "Tooltip on the desktop button that opens the all-tabs grid dialog."
@@ -1133,6 +1171,14 @@
   "welcomeTapToReopen": "Tap to reopen",
   "@welcomeTapToReopen": {
     "description": "Subtitle for a recent file that can be reopened directly from a saved snapshot."
+  },
+  "welcomeViewAsGrid": "Grid view",
+  "@welcomeViewAsGrid": {
+    "description": "Tooltip on the toggle that shows recent documents as a thumbnail grid."
+  },
+  "welcomeViewAsList": "List view",
+  "@welcomeViewAsList": {
+    "description": "Tooltip on the toggle that shows recent documents as a list."
   },
   "settingsDefaultAppSubtitle": "{platform, select, web{Install the web app, then choose it for PDF files.} windows{Open Windows default apps settings for PDFs.} macos{Follow Finder’s “Always Open With” steps.} linux{Use your desktop’s default applications settings.} android{Choose DartPDF when opening a PDF, then tap Always.} ios{Use Share or Open In from Files to send PDFs here.} other{Configure your system’s PDF file handler.}}",
   "@settingsDefaultAppSubtitle":   {

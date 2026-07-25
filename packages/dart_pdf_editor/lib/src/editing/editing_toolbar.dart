@@ -105,7 +105,13 @@ class PdfEditingToolbar extends StatefulWidget {
   /// rich-text overrides (colour, size, bold, italic).
   final PdfStyledTextPrompt styledTextPrompt;
 
-  /// How selected page-content images are replaced from the element strip.
+  /// How the image tool ([PdfEditTool.image]) sources a picture to insert,
+  /// and how selected page-content images are replaced from the element
+  /// strip. Typically a file picker returning PNG or JPEG bytes.
+  ///
+  /// When null the image tool is dropped from the Insert group (rather than
+  /// left as a button that no-ops) and the element strip's replace-image
+  /// action is hidden. See [PdfViewer.imagePicker].
   final PdfImagePicker? imagePicker;
 
   /// How the selected push-button field's toolbar action obtains an image.
@@ -357,6 +363,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     _ToolGroup('edit', Icons.design_services, [
       _GroupTool.tool(PdfEditTool.content, Icons.format_shapes),
       _GroupTool.tool(PdfEditTool.form, Icons.ballot_outlined),
+      _GroupTool.tool(PdfEditTool.link, Icons.link),
       _GroupTool.tool(PdfEditTool.redact, Icons.gradient),
       _GroupTool.tool(PdfEditTool.snapshot, Icons.crop),
     ]),
@@ -395,6 +402,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       PdfEditTool.image => l.tbNameImage,
       PdfEditTool.content => l.tbToolContent,
       PdfEditTool.form => l.tbToolForm,
+      PdfEditTool.link => l.toolLink,
       PdfEditTool.redact => l.tbToolRedact,
       PdfEditTool.snapshot => l.tbToolSnapshot,
       PdfEditTool.signatureBox => l.tbNameDigitalSignature,
@@ -448,7 +456,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
 
   bool _entryVisible(_GroupTool entry) {
     final tool = entry.tool;
-    if (tool != null) return _shows(tool);
+    if (tool != null) {
+      // The image tool can't insert anything without an [imagePicker] to
+      // source the picture, so drop it from the Insert group rather than
+      // show a button that silently no-ops. Wire [imagePicker] to offer it.
+      if (tool == PdfEditTool.image && widget.imagePicker == null) return false;
+      return _shows(tool);
+    }
     if (entry.markup != null) return widget.showMarkup;
     return true;
   }
@@ -3278,12 +3292,17 @@ class _StyleMenuState extends State<_StyleMenu> {
     if (_holdingTextEditFocus || !controller.isEditingText) return;
     _holdingTextEditFocus = true;
     controller.beginEditingTextFocusHold();
+    // keep the in-place editor focused for the whole popup session so its
+    // selection highlight stays on - both when the popup opens and after each
+    // control tap, so the user can see (and keep restyling) the same run
+    controller.beginKeepEditingTextFocused();
   }
 
   void _endTextEditFocusHold() {
     if (!_holdingTextEditFocus) return;
     _holdingTextEditFocus = false;
     controller.endEditingTextFocusHold();
+    controller.endKeepEditingTextFocused();
   }
 
   void _setFont(PdfStandardFont font) {

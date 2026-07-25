@@ -35,6 +35,9 @@ import 'recents.dart';
 import 'session_store.dart';
 import 'settings_screen.dart';
 import 'update.dart';
+import 'update_install_flow.dart';
+import 'update_installer.dart';
+import 'update_platform.dart';
 import 'web_launch.dart';
 import 'welcome_screen.dart';
 
@@ -76,6 +79,7 @@ class EditorScreen extends StatefulWidget {
     this.launchArgs = const [],
     this.initialDocument,
     this.updateService,
+    this.updateInstaller,
     this.autoCheckUpdates = false,
     this.printDocument,
     this.digitalSignatureOptionsProvider,
@@ -102,6 +106,10 @@ class EditorScreen extends StatefulWidget {
   /// An update checker to use instead of the one the screen builds itself -
   /// the seam tests use to inject a fake without real network.
   final UpdateService? updateService;
+
+  /// The in-app updater used to download and apply a newer release (desktop).
+  /// Injected by tests with fake platform ops / HTTP; defaults to a real one.
+  final UpdateInstaller? updateInstaller;
 
   /// Whether to check for a newer release on startup (and show a banner if one
   /// is found). The host (production) sets this true; it defaults to false so
@@ -210,6 +218,10 @@ class _EditorScreenState extends State<EditorScreen>
       widget.updateService ?? UpdateService(currentVersion: AppInfo.version);
   bool get _ownsUpdates => widget.updateService == null;
 
+  /// The in-app updater that downloads and applies a newer release.
+  late final UpdateInstaller _updateInstaller =
+      widget.updateInstaller ?? UpdateInstaller();
+
   /// True once the "update available" banner has been shown this session, so a
   /// later check (or rebuild) doesn't stack a second copy.
   bool _updateBannerShown = false;
@@ -268,7 +280,7 @@ class _EditorScreenState extends State<EditorScreen>
     // Re-open the documents that were open when the app last closed, unless the
     // app was launched to open a specific file (that explicit target wins).
     unawaited(_restoreSession());
-    if (widget.autoCheckUpdates && UpdateService.supported) {
+    if (widget.autoCheckUpdates && _updates.supported) {
       _updates.addListener(_onUpdateStatus);
       unawaited(_startupUpdateCheck());
     }
@@ -310,10 +322,17 @@ class _EditorScreenState extends State<EditorScreen>
           key: const ValueKey('update-banner-download'),
           onPressed: () {
             messenger.hideCurrentMaterialBanner();
-            final url = _updates.downloadUrl;
-            if (url != null) unawaited(_openExternal(Uri.parse(url)));
+            unawaited(startUpdateInstall(
+              context,
+              updates: _updates,
+              installer: _updateInstaller,
+            ));
           },
-          child: Text(appL10n(context).editorDownload),
+          child: Text(_updates.downloadAssetName != null &&
+                  _updateInstaller.modeFor(_updates.downloadAssetName) !=
+                      UpdateApplyMode.unsupported
+              ? appL10n(context).updateInstallNow
+              : appL10n(context).editorDownload),
         ),
       ],
     ));
@@ -2309,6 +2328,7 @@ class _EditorScreenState extends State<EditorScreen>
             prefs: _prefs,
             recents: _recents,
             updates: _updates,
+            updateInstaller: _updateInstaller,
             onOpenDevTools: kDevToolsEnabled ? _toggleDevTools : null,
           ),
           child: _appMenuTile(

@@ -462,6 +462,24 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get overlayStampText => 'Текст штампа';
 
   @override
+  String get linkDialogTitle => 'Додати посилання';
+
+  @override
+  String get linkKindWeb => 'Веб-адреса';
+
+  @override
+  String get linkKindPage => 'Сторінка в документі';
+
+  @override
+  String get linkUrlLabel => 'URL';
+
+  @override
+  String get linkPageLabel => 'Номер сторінки';
+
+  @override
+  String get toolLink => 'Посилання';
+
+  @override
   String get overlayUnderline => 'Підкреслення';
 
   @override
@@ -1065,6 +1083,57 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
       one: 'Вибрано $count',
     );
     return '$_temp0';
+  }
+
+  @override
+  String get sidebarSignatureChecking => 'Checking…';
+
+  @override
+  String get sidebarSignatureTrusted => 'Valid — trusted';
+
+  @override
+  String get sidebarSignatureUnverified => 'Valid — unverified';
+
+  @override
+  String get sidebarSignatureInvalid => 'Invalid';
+
+  @override
+  String sidebarSignatureSignedBy(String name) {
+    return 'Signed by $name';
+  }
+
+  @override
+  String sidebarSignatureSignedAt(String time) {
+    return 'Signed $time';
+  }
+
+  @override
+  String sidebarSignatureTrustedVia(String authority) {
+    return 'Trusted via $authority';
+  }
+
+  @override
+  String get sidebarSignatureUntrustedDetail =>
+      'Signer is not from a trusted authority';
+
+  @override
+  String get sidebarSignatureNoAnchors =>
+      'No trusted authorities are configured';
+
+  @override
+  String get sidebarSignatureModified => 'Document was changed after signing';
+
+  @override
+  String get sidebarSignatureRevoked => 'The signer\'s certificate was revoked';
+
+  @override
+  String sidebarSignatureTimestamped(String time) {
+    return 'Timestamped $time';
+  }
+
+  @override
+  String sidebarSignatureLevel(String level) {
+    return 'PAdES $level';
   }
 
   @override

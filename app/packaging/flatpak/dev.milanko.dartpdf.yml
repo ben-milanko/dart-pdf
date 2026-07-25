@@ -1,0 +1,68 @@
+# Flathub binary manifest for DartPDF.
+#
+# Binary-manifest style (like most Flutter apps on Flathub): rather than build
+# the Flutter toolchain inside the Flatpak sandbox, we unpack the release
+# tarball produced by .github/workflows/release-app.yml (the `linux` job's
+# dartpdf-linux-x64.tar.gz, which already carries the .desktop / metainfo /
+# icon files installed by app/linux/CMakeLists.txt).
+#
+# Before each submission: bump `url` to the tag you are publishing and replace
+# `sha256` with the real digest (`sha256sum dartpdf-linux-x64.tar.gz`). See
+# README.md in this directory.
+app-id: dev.milanko.dartpdf
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: dartpdf
+
+finish-args:
+  # Rendering + windowing. Wayland preferred, X11 as fallback.
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  # flutter_secure_storage stores signing-identity keys via libsecret, which
+  # talks to the Secret Service over D-Bus. Without a running keyring the store
+  # degrades gracefully (identity creation surfaces an error), so this is the
+  # only D-Bus name we request.
+  - --talk-name=org.freedesktop.secrets
+  # Keyless signing (Sigstore/Fulcio), RFC 3161 timestamps, and OCSP/CRL
+  # revocation checks are network transports; the in-app update check also
+  # polls GitHub Releases. No server handles document content - files stay
+  # local.
+  - --share=network
+  # NOTE: intentionally no blanket --filesystem. Files reach the sandbox
+  # through the XDG portals: "Open With" / launch arguments via file
+  # forwarding (Exec carries %U), and the in-app open/save dialogs via
+  # file_selector_linux, which uses GtkFileChooserNative and is therefore
+  # routed through the FileChooser portal under Flatpak.
+
+modules:
+  - name: dartpdf
+    buildsystem: simple
+    build-commands:
+      # Unpack the whole Flutter bundle under /app/dartpdf and expose the
+      # runner as `dartpdf`. The binary's RPATH is $ORIGIN/lib and it locates
+      # its data/ dir relative to the resolved executable path, so a symlink in
+      # /app/bin works without moving the bundle apart.
+      - install -d /app/dartpdf
+      - cp -r ./* /app/dartpdf/
+      - install -d /app/bin
+      - ln -s /app/dartpdf/dart_pdf_editor_app /app/bin/dartpdf
+      # Desktop integration files (already in the tarball's share/ tree).
+      - install -Dm644 share/applications/dev.milanko.dartpdf.desktop
+        /app/share/applications/dev.milanko.dartpdf.desktop
+      - install -Dm644 share/metainfo/dev.milanko.dartpdf.metainfo.xml
+        /app/share/metainfo/dev.milanko.dartpdf.metainfo.xml
+      - for sz in 64 128 256 512; do
+        install -Dm644 "share/icons/hicolor/${sz}x${sz}/apps/dev.milanko.dartpdf.png"
+        "/app/share/icons/hicolor/${sz}x${sz}/apps/dev.milanko.dartpdf.png";
+        done
+    sources:
+      - type: archive
+        # Update the tag and sha256 for the release you are submitting.
+        url: https://github.com/ben-milanko/dart-pdf/releases/download/app-v2.1.0/dartpdf-linux-x64.tar.gz
+        sha256: 0000000000000000000000000000000000000000000000000000000000000000
+        # Optional: add an x-checker-data block so Flathub's external-data
+        # checker auto-proposes updates when a new app-v* release ships. See the
+        # README for the GitHub-releases checker snippet.

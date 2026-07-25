@@ -37,3 +37,11 @@ site/.firebase/hosting..cache
 # perf tooling artifacts (tool/perf.sh)
 tool/perf/history/
 tool/perf/cache/
+
+# Store screenshots. The standalone-app marketing tree (doc/marketing/app/,
+# English + localized) IS tracked so AppStream metainfo can reference stable
+# raw-URL screenshots. The example/SDK showcase localized subdirs and the
+# staged store copies are regenerable (screenshots.sh compose from the tracked
+# raw captures + captions), so they stay out.
+doc/marketing/example/*/*/
+app/fastlane/metadata/*/*/images/

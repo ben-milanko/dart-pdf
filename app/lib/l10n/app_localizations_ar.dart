@@ -592,6 +592,31 @@ class AppLocalizationsAr extends AppLocalizations {
   String get editorUpdateLater => 'لاحقًا';
 
   @override
+  String get updateInstallNow => 'التحديث الآن';
+
+  @override
+  String get updateDownloadingTitle => 'جارٍ تنزيل التحديث';
+
+  @override
+  String get updatePreparing => 'جارٍ التحضير…';
+
+  @override
+  String updateDownloadingPercent(int percent) {
+    return 'جارٍ التنزيل… $percent%';
+  }
+
+  @override
+  String get updateRestarting => 'جارٍ إعادة التشغيل لإكمال التحديث…';
+
+  @override
+  String get updateHandedOff => 'تم تنزيل التحديث. جارٍ فتح المُثبِّت…';
+
+  @override
+  String updateFailed(String error) {
+    return 'فشل التحديث: $error';
+  }
+
+  @override
   String get editorViewAllTabs => 'عرض جميع علامات التبويب';
 
   @override
@@ -859,6 +884,12 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get welcomeTapToReopen => 'انقر لإعادة الفتح';
+
+  @override
+  String get welcomeViewAsGrid => 'عرض شبكي';
+
+  @override
+  String get welcomeViewAsList => 'عرض القائمة';
 
   @override
   String settingsDefaultAppSubtitle(String platform) {

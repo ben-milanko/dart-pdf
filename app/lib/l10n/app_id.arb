@@ -214,6 +214,8 @@
   "welcomeRecent": "Terkini",
   "welcomeRemoveFromRecent": "Hapus dari terkini",
   "welcomeTapToReopen": "Ketuk untuk membuka kembali",
+  "welcomeViewAsGrid": "Tampilan kisi",
+  "welcomeViewAsList": "Tampilan daftar",
   "settingsDefaultAppSubtitle": "{platform, select, web{Pasang aplikasi web, lalu pilih untuk berkas PDF.} windows{Buka pengaturan aplikasi bawaan Windows untuk PDF.} macos{Ikuti langkah “Always Open With” di Finder.} linux{Gunakan pengaturan aplikasi bawaan desktop Anda.} android{Pilih DartPDF saat membuka PDF, lalu ketuk Selalu.} ios{Gunakan Bagikan atau Buka Di dari Files untuk mengirim PDF ke sini.} other{Konfigurasikan penangan berkas PDF sistem Anda.}}",
   "settingsDefaultAppInstructions": "{platform, select, web{Pasang DartPDF dari peramban Anda terlebih dahulu. Kemudian gunakan pengaturan penangan berkas peramban atau sistem operasi untuk mengaitkan berkas PDF dengan aplikasi yang terpasang.} windows{Pengaturan Windows akan terbuka ke Aplikasi bawaan. Cari “.pdf” atau “PDF”, pilih aplikasi PDF saat ini, lalu pilih DartPDF.} macos{Di Finder, pilih PDF apa pun, pilih File > Get Info, perluas “Open with”, pilih DartPDF, lalu klik “Change All…”.} linux{Buka pengaturan desktop Anda untuk Aplikasi Bawaan, atau klik kanan PDF di Files, pilih Properties, dan atur DartPDF sebagai bawaan untuk dokumen PDF.} android{Buka PDF dari Files atau Downloads, pilih DartPDF di pemilih aplikasi, lalu pilih Selalu. Jika aplikasi lain sudah membuka PDF, hapus dulu bawaan aplikasi itu di Pengaturan Android.} ios{iOS tidak menyediakan editor PDF bawaan global. Gunakan Files > Bagikan, atau tekan lama PDF dan pilih Bagikan/Buka Di, lalu pilih DartPDF.} other{Gunakan pengaturan sistem untuk penangan berkas guna mengaitkan dokumen PDF dengan DartPDF.}}",
   "ocrChipDownloadingModel": "Mengunduh model OCR…",
@@ -230,5 +232,12 @@
   "appSigErrorKeyCertificateMismatch": "Kunci privat tidak cocok dengan sertifikat RSA yang dipilih mana pun.",
   "appSigErrorEncryptedKeyUnsupported": "Kunci privat terenkripsi tidak didukung. Pilih kunci RSA PKCS#1 atau PKCS#8 yang tidak terenkripsi.",
   "appSigErrorKeyNotRsa": "Kunci privat bukan kunci RSA PKCS#1 atau PKCS#8 yang tidak terenkripsi.",
-  "appSigErrorNoCertificateFound": "Tidak ada sertifikat X.509 yang ditemukan."
+  "appSigErrorNoCertificateFound": "Tidak ada sertifikat X.509 yang ditemukan.",
+  "updateInstallNow": "Perbarui sekarang",
+  "updateDownloadingTitle": "Mengunduh pembaruan",
+  "updatePreparing": "Menyiapkan…",
+  "updateDownloadingPercent": "Mengunduh… {percent}%",
+  "updateRestarting": "Memulai ulang untuk menyelesaikan pembaruan…",
+  "updateHandedOff": "Pembaruan diunduh. Membuka penginstal…",
+  "updateFailed": "Pembaruan gagal: {error}"
 }

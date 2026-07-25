@@ -214,6 +214,8 @@
   "welcomeRecent": "हाल ही में",
   "welcomeRemoveFromRecent": "हाल से हटाएँ",
   "welcomeTapToReopen": "फिर से खोलने के लिए टैप करें",
+  "welcomeViewAsGrid": "ग्रिड दृश्य",
+  "welcomeViewAsList": "सूची दृश्य",
   "settingsDefaultAppSubtitle": "{platform, select, web{वेब ऐप इंस्टॉल करें, फिर इसे PDF फ़ाइलों के लिए चुनें।} windows{PDF के लिए Windows डिफ़ॉल्ट ऐप्स सेटिंग्स खोलें।} macos{Finder के “Always Open With” चरणों का पालन करें।} linux{अपने डेस्कटॉप की डिफ़ॉल्ट एप्लिकेशन सेटिंग्स का उपयोग करें।} android{PDF खोलते समय DartPDF चुनें, फिर Always टैप करें।} ios{PDF यहाँ भेजने के लिए Files से Share या Open In का उपयोग करें।} other{अपने सिस्टम का PDF फ़ाइल हैंडलर कॉन्फ़िगर करें।}}",
   "settingsDefaultAppInstructions": "{platform, select, web{पहले अपने ब्राउज़र से DartPDF इंस्टॉल करें। फिर PDF फ़ाइलों को इंस्टॉल किए गए ऐप से जोड़ने के लिए ब्राउज़र या ऑपरेटिंग सिस्टम की फ़ाइल-हैंडलर सेटिंग्स का उपयोग करें।} windows{Windows सेटिंग्स Default apps पर खुलेंगी। “.pdf” या “PDF” खोजें, वर्तमान PDF ऐप चुनें, फिर DartPDF चुनें।} macos{Finder में, कोई भी PDF चुनें, File > Get Info चुनें, “Open with” विस्तृत करें, DartPDF चुनें, फिर “Change All…” पर क्लिक करें।} linux{Default Applications के लिए अपनी डेस्कटॉप सेटिंग्स खोलें, या Files में किसी PDF पर राइट-क्लिक करें, Properties चुनें, और DartPDF को PDF दस्तावेज़ों के लिए डिफ़ॉल्ट के रूप में सेट करें।} android{Files या Downloads से कोई PDF खोलें, ऐप पिकर में DartPDF चुनें, फिर Always चुनें। यदि कोई अन्य ऐप पहले से PDF खोलता है, तो पहले Android सेटिंग्स में उस ऐप के डिफ़ॉल्ट साफ़ करें।} ios{iOS कोई वैश्विक डिफ़ॉल्ट PDF संपादक प्रदान नहीं करता। Files > Share का उपयोग करें, या किसी PDF को लंबे समय तक दबाएँ और Share/Open In चुनें, फिर DartPDF चुनें।} other{PDF दस्तावेज़ों को DartPDF से जोड़ने के लिए फ़ाइल हैंडलर की सिस्टम सेटिंग्स का उपयोग करें।}}",
   "ocrChipDownloadingModel": "OCR मॉडल डाउनलोड हो रहा है…",
@@ -230,5 +232,12 @@
   "appSigErrorKeyCertificateMismatch": "निजी कुंजी किसी भी चयनित RSA प्रमाणपत्र से मेल नहीं खाती।",
   "appSigErrorEncryptedKeyUnsupported": "एन्क्रिप्टेड निजी कुंजियाँ समर्थित नहीं हैं। कोई अनएन्क्रिप्टेड RSA PKCS#1 या PKCS#8 कुंजी चुनें।",
   "appSigErrorKeyNotRsa": "निजी कुंजी अनएन्क्रिप्टेड RSA PKCS#1 या PKCS#8 कुंजी नहीं है।",
-  "appSigErrorNoCertificateFound": "कोई X.509 प्रमाणपत्र नहीं मिला।"
+  "appSigErrorNoCertificateFound": "कोई X.509 प्रमाणपत्र नहीं मिला।",
+  "updateInstallNow": "अभी अपडेट करें",
+  "updateDownloadingTitle": "अपडेट डाउनलोड हो रहा है",
+  "updatePreparing": "तैयार हो रहा है…",
+  "updateDownloadingPercent": "डाउनलोड हो रहा है… {percent}%",
+  "updateRestarting": "अपडेट पूरा करने के लिए पुनरारंभ हो रहा है…",
+  "updateHandedOff": "अपडेट डाउनलोड हो गया. इंस्टॉलर खोला जा रहा है…",
+  "updateFailed": "अपडेट विफल: {error}"
 }

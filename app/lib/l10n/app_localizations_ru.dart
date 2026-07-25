@@ -577,6 +577,31 @@ class AppLocalizationsRu extends AppLocalizations {
   String get editorUpdateLater => 'Позже';
 
   @override
+  String get updateInstallNow => 'Обновить сейчас';
+
+  @override
+  String get updateDownloadingTitle => 'Загрузка обновления';
+
+  @override
+  String get updatePreparing => 'Подготовка…';
+
+  @override
+  String updateDownloadingPercent(int percent) {
+    return 'Загрузка… $percent%';
+  }
+
+  @override
+  String get updateRestarting => 'Перезапуск для завершения обновления…';
+
+  @override
+  String get updateHandedOff => 'Обновление загружено. Открытие установщика…';
+
+  @override
+  String updateFailed(String error) {
+    return 'Не удалось обновить: $error';
+  }
+
+  @override
   String get editorViewAllTabs => 'Показать все вкладки';
 
   @override
@@ -848,6 +873,12 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get welcomeTapToReopen => 'Коснитесь, чтобы открыть заново';
+
+  @override
+  String get welcomeViewAsGrid => 'Сетка';
+
+  @override
+  String get welcomeViewAsList => 'Список';
 
   @override
   String settingsDefaultAppSubtitle(String platform) {

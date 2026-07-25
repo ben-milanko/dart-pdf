@@ -214,6 +214,8 @@
   "welcomeRecent": "最近",
   "welcomeRemoveFromRecent": "从最近中移除",
   "welcomeTapToReopen": "点按以重新打开",
+  "welcomeViewAsGrid": "网格视图",
+  "welcomeViewAsList": "列表视图",
   "settingsDefaultAppSubtitle": "{platform, select, web{安装网页应用，然后将其选为 PDF 文件的打开方式。} windows{打开 Windows 的 PDF 默认应用设置。} macos{按照访达的“始终打开方式”步骤操作。} linux{使用桌面环境的默认应用程序设置。} android{打开 PDF 时选择 DartPDF，然后点按“始终”。} ios{在“文件”中使用“共享”或“打开方式”将 PDF 发送到此处。} other{配置系统的 PDF 文件处理程序。}}",
   "settingsDefaultAppInstructions": "{platform, select, web{请先从浏览器安装 DartPDF。然后使用浏览器或操作系统的文件处理程序设置，将 PDF 文件关联到已安装的应用。} windows{Windows 设置将打开到“默认应用”。搜索“.pdf”或“PDF”，选择当前的 PDF 应用，然后选择 DartPDF。} macos{在访达中，选择任意 PDF，选择“文件”>“显示简介”，展开“打开方式”，选择 DartPDF，然后点按“全部更改…”。} linux{打开桌面环境的“默认应用程序”设置，或在“文件”中右键单击某个 PDF，选择“属性”，并将 DartPDF 设为 PDF 文档的默认应用。} android{从“文件”或“下载”中打开 PDF，在应用选择器中选择 DartPDF，然后选择“始终”。如果已有其他应用打开 PDF，请先在 Android 设置中清除该应用的默认设置。} ios{iOS 不提供全局默认 PDF 编辑器。请使用“文件”>“共享”，或长按 PDF 并选择“共享/打开方式”，然后选择 DartPDF。} other{使用系统的文件处理程序设置，将 PDF 文档关联到 DartPDF。}}",
   "ocrChipDownloadingModel": "正在下载 OCR 模型…",
@@ -230,5 +232,12 @@
   "appSigErrorKeyCertificateMismatch": "私钥与所选的任何 RSA 证书都不匹配。",
   "appSigErrorEncryptedKeyUnsupported": "不支持加密的私钥。请选择未加密的 RSA PKCS#1 或 PKCS#8 密钥。",
   "appSigErrorKeyNotRsa": "私钥不是未加密的 RSA PKCS#1 或 PKCS#8 密钥。",
-  "appSigErrorNoCertificateFound": "未找到 X.509 证书。"
+  "appSigErrorNoCertificateFound": "未找到 X.509 证书。",
+  "updateInstallNow": "立即更新",
+  "updateDownloadingTitle": "正在下载更新",
+  "updatePreparing": "正在准备…",
+  "updateDownloadingPercent": "正在下载… {percent}%",
+  "updateRestarting": "正在重启以完成更新…",
+  "updateHandedOff": "更新已下载。正在打开安装程序…",
+  "updateFailed": "更新失败：{error}"
 }

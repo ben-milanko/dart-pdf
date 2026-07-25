@@ -591,6 +591,30 @@
   "@overlayStampText": {
     "description": "Title of the prompt asking for the caption of a text stamp being placed on a page."
   },
+  "linkDialogTitle": "Add link",
+  "@linkDialogTitle": {
+    "description": "Title of the dialog that collects a hyperlink's target when adding a link annotation."
+  },
+  "linkKindWeb": "Web address",
+  "@linkKindWeb": {
+    "description": "Label of the choice for an external (URL) hyperlink target in the Add-link dialog."
+  },
+  "linkKindPage": "Page in document",
+  "@linkKindPage": {
+    "description": "Label of the choice for an internal (jump to a page) hyperlink target in the Add-link dialog."
+  },
+  "linkUrlLabel": "URL",
+  "@linkUrlLabel": {
+    "description": "Text field label for the web address of an external hyperlink in the Add-link dialog."
+  },
+  "linkPageLabel": "Page number",
+  "@linkPageLabel": {
+    "description": "Text field label for the target page number of an internal hyperlink in the Add-link dialog."
+  },
+  "toolLink": "Link",
+  "@toolLink": {
+    "description": "Label and tooltip for the link tool in the editing toolbar."
+  },
   "overlayUnderline": "Underline",
   "@overlayUnderline": {
     "description": "Tooltip on the inline text-style chip button that toggles underline."
@@ -1380,6 +1404,83 @@
     "placeholders": {
       "count": {
         "type": "int"
+      }
+    }
+  },
+  "sidebarSignatureChecking": "Checking…",
+  "@sidebarSignatureChecking": {
+    "description": "Status pill on a signature-field row while its validation is still being computed."
+  },
+  "sidebarSignatureTrusted": "Valid — trusted",
+  "@sidebarSignatureTrusted": {
+    "description": "Status pill on a signature-field row when the signature is cryptographically intact and chains to a trusted authority."
+  },
+  "sidebarSignatureUnverified": "Valid — unverified",
+  "@sidebarSignatureUnverified": {
+    "description": "Status pill when the signature is cryptographically intact but its signer does not chain to a configured trust anchor."
+  },
+  "sidebarSignatureInvalid": "Invalid",
+  "@sidebarSignatureInvalid": {
+    "description": "Status pill when the signature fails its cryptographic check (digest or signature mismatch)."
+  },
+  "sidebarSignatureSignedBy": "Signed by {name}",
+  "@sidebarSignatureSignedBy": {
+    "description": "Detail line naming the certificate subject that signed.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarSignatureSignedAt": "Signed {time}",
+  "@sidebarSignatureSignedAt": {
+    "description": "Detail line giving the signing time.",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarSignatureTrustedVia": "Trusted via {authority}",
+  "@sidebarSignatureTrustedVia": {
+    "description": "Detail line naming the trusted authority the signer chains to.",
+    "placeholders": {
+      "authority": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarSignatureUntrustedDetail": "Signer is not from a trusted authority",
+  "@sidebarSignatureUntrustedDetail": {
+    "description": "Detail line when the signer does not chain to any configured trust anchor."
+  },
+  "sidebarSignatureNoAnchors": "No trusted authorities are configured",
+  "@sidebarSignatureNoAnchors": {
+    "description": "Detail line when no trust anchors are configured, so trust can't be judged."
+  },
+  "sidebarSignatureModified": "Document was changed after signing",
+  "@sidebarSignatureModified": {
+    "description": "Detail line when the document was changed after this signature was applied."
+  },
+  "sidebarSignatureRevoked": "The signer's certificate was revoked",
+  "@sidebarSignatureRevoked": {
+    "description": "Detail line when the signer's certificate is listed as revoked by embedded material."
+  },
+  "sidebarSignatureTimestamped": "Timestamped {time}",
+  "@sidebarSignatureTimestamped": {
+    "description": "Detail line giving the trusted timestamp time.",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarSignatureLevel": "PAdES {level}",
+  "@sidebarSignatureLevel": {
+    "description": "Detail line naming the PAdES baseline level the signature reaches.",
+    "placeholders": {
+      "level": {
+        "type": "String"
       }
     }
   },

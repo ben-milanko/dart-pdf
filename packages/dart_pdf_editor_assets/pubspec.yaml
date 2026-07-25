@@ -42,22 +42,18 @@ flutter:
     - assets/fonts/FiraSans-Regular.ttf
     - assets/fonts/Spectral-Regular.ttf
     - assets/fonts/Lobster-Regular.ttf
+  # Only DejaVu Sans is declared as an engine font family here, because the
+  # renderer names it as a script fallback (`CanvasPdfDevice`'s
+  # `_defaultFontFallbacks` - Arabic/Hebrew/Greek/Cyrillic in arbitrary PDFs)
+  # and needs it registered from the first paint. Declaring a family puts it in
+  # FontManifest.json, which CanvasKit fetches and parses at web startup before
+  # the first frame - so the other five faces, used only to preview their own
+  # menu rows, are deliberately NOT declared here. They stay listed under
+  # `assets:` above (loaded as raw bytes for embedding, and for composite-text
+  # fallback) and are registered lazily with the engine the first time the font
+  # menu opens (`_ensureBundledFontPreview` in editing_fonts.dart), keeping
+  # ~1.85 MB of font parsing off cold start.
   fonts:
     - family: DejaVu Sans
       fonts:
         - asset: assets/fonts/DejaVuSans.ttf
-    - family: DejaVu Serif
-      fonts:
-        - asset: assets/fonts/DejaVuSerif.ttf
-    - family: DejaVu Sans Mono
-      fonts:
-        - asset: assets/fonts/DejaVuSansMono.ttf
-    - family: Fira Sans
-      fonts:
-        - asset: assets/fonts/FiraSans-Regular.ttf
-    - family: Spectral
-      fonts:
-        - asset: assets/fonts/Spectral-Regular.ttf
-    - family: Lobster
-      fonts:
-        - asset: assets/fonts/Lobster-Regular.ttf
