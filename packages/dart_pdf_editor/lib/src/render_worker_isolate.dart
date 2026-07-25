@@ -1109,6 +1109,12 @@ Future<Uint8List?> _recordResumablePage(
     // valid, replayable buffer. Images are left as placeholders (decodeImages
     // false) - the prefix is the fast top-down reveal; the final decoded buffer
     // follows when the walk completes. Each partial is a superset of the last.
+    //
+    // Note this re-serializes the whole accumulated prefix every chunk, so the
+    // streaming path is O(commands^2) in serialize work across a page (and the
+    // main side re-deserializes each partial). Harmless while off-by-default
+    // (no consumer reaches here), but the host-facing PR3 must throttle emission
+    // or ship suffix-only deltas rather than the full prefix each time.
     if (onPartial != null) {
       final partial = serializeCommands(entry.recorder.commands,
           cos: document.cos,

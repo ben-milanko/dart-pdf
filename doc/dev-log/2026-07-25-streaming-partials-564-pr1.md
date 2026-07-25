@@ -60,11 +60,30 @@ subsystem before is web-only dart2js/`.toJS` hangs, and PR1 makes no web change.
 ## Cost / correctness
 
 - The partial serialize is `decodeImages: false` (no image decode) — the cheap
-  linework pass, not a re-decode — so a page with images pays only prefix
-  serialization per chunk, and only when a sink is attached (off by default).
+  linework pass, not a re-decode — and runs only when a sink is attached (off by
+  default).
+- **Caveat (found in adversarial review):** each incomplete chunk re-serializes
+  the *whole accumulated* `recorder.commands`, not just the new suffix, so the
+  streaming path is **O(commands²)** in serialize work across a page (and the
+  main side re-`deserializeCommands` each partial). That is genuinely inert today
+  — nothing reaches it in production — but it is the exact heavy page the feature
+  targets, so **PR3 must throttle emission or ship suffix-only deltas** rather
+  than the full prefix per chunk. Flagged in a code comment at the emit site.
 - A chunk boundary is page-level graphics state, so a prefix of
   `recorder.commands` is a valid replayable buffer (same call the final uses,
   earlier and without decode). Each partial is a superset of the last.
+
+## Adversarial review
+
+A reviewer scrutinized the diff for misrouting, preemption/requeue, and the
+inertness claim and found **no shipping bug**: the listener's type-check ordering
+means a `['partial', …]` message can never reach the `response[0] as int` cast;
+monotonic ids + the single in-flight slot make stale-partial misrouting
+impossible; production is byte-identical (the caching wrapper never references
+`onPartial`, so `wantsPartials` is always false on the wire); and the ordering
+test genuinely proves partials arrive *during* the record (per-port FIFO). The
+only finding was the O(commands²) cost above, addressed as a documented PR3
+follow-up.
 
 ## Measurement
 
