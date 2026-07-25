@@ -110,6 +110,40 @@ file. You can either:
 Either way, if the custom file is missing or stale-by-absence the app just
 renders locally. A forgotten rebuild degrades gracefully; it never breaks.
 
+## Working on this repository
+
+The bundled worker asset
+(`packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js`) is a
+`dart compile js` output. Like the app's and example's own web workers, it is
+**gitignored, not committed** (issue #582) - two `dart2js` outputs can't be
+merged textually, so committing a ~1 MB bundle that almost every source change
+regenerates was a constant source of unmergeable diffs. It is regenerated at the
+three points that actually consume it:
+
+- **Publishing:** `tool/release.sh` runs `build_web_worker` before
+  `pub publish`, and the package's `.pubignore` re-includes the (gitignored)
+  output in the published archive, so pub.dev consumers still get the prebuilt
+  worker.
+- **Deploying / previewing / releasing the web app:** the deploy, preview, and
+  release workflows already run `build_web_worker --out .../pdf_render_worker.dart.js`
+  before `flutter build web`.
+- **Local web builds:** `app/tool/build_web.sh` regenerates it first.
+
+The one manual case is a **bare `flutter run -d chrome` / `flutter build web`**
+straight from a fresh clone: Flutter fails with "asset not found" because the
+asset is declared in `pubspec.yaml` but absent. Generate it once (it only needs
+re-running when you change worker-linked source):
+
+```sh
+dart run dart_pdf_editor:build_web_worker \
+  --out packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
+```
+
+or just route local web work through `app/tool/build_web.sh`, which does this
+for you. CI still compiles the worker on every PR (the `worker-compiles` job) to
+catch `dart2js`/`.toJS` errors `dart analyze` misses - it just discards the
+output instead of committing it.
+
 ## Status
 
 The backend is wired end to end. `render_worker_web.dart` (main-side worker) and

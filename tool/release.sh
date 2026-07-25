@@ -125,6 +125,17 @@ echo "==> Resolving workspace"
 echo "==> Static analysis"
 "${DART[@]}" analyze --fatal-infos
 
+# Regenerate the bundled web render worker so dart_pdf_editor_assets ships a
+# fresh bundle. It is a `dart compile js` artifact that is NOT committed to git
+# (issue #582); the deploy workflows already regenerate it before every web
+# build, and this is the publish-side equivalent. The assets package's
+# .pubignore re-includes the (gitignored) output in the published archive.
+# Done before the dry-run too, so `pub publish --dry-run` sees the declared
+# asset. Mirrors app/tool/build_web.sh and the deploy workflows.
+echo "==> Regenerating the bundled web render worker asset"
+"${DART[@]}" run dart_pdf_editor:build_web_worker \
+  --out packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
+
 validate_package_list
 
 echo

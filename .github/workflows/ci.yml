@@ -5,14 +5,6 @@ on:
     branches: [main, deploy]
   pull_request:
 
-# Cancel superseded PR runs so two quick pushes can't leave two `worker-bundle`
-# jobs racing to push the regenerated bundle (issue #422, defect 1). Keyed by PR
-# number on pull_request and by commit SHA otherwise, so every push to main/deploy
-# gets its own group and is never cancelled - each landed commit keeps its record.
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -131,44 +123,30 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
-  # Keep the checked-in web render worker bundle in sync with source. The bundle
+  # The bundled web render worker
   # (`packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js`) is a
-  # `dart compile js` output that links most of the stack, so almost any change
-  # can make it stale - and it must stay in git because it ships in the pub.dev
-  # package and a fresh clone-and-run needs it. This job compiles it (which also
-  # catches `.toJS`-conversion errors `dart analyze` misses) and, on a same-repo
-  # PR, regenerates and pushes it instead of failing; forks and push events fall
-  # back to verify-and-fail. See issue #411 and tool/ci/regen_web_worker.sh.
-  worker-bundle:
+  # `dart compile js` artifact that is NOT committed to git (issue #582): it is
+  # regenerated at publish (tool/release.sh), at every web deploy/preview/release,
+  # and for local web builds (app/tool/build_web.sh). There is therefore nothing
+  # to keep in sync, and the old regenerate-and-push machinery (issues #411/#422:
+  # the concurrency group, tool/ci/regen_web_worker.sh, and WORKER_REGEN_TOKEN) is
+  # gone. This job keeps the one real value that machinery had: proving the worker
+  # still COMPILES, which catches `.toJS`-conversion / dart2js errors that
+  # `dart analyze` misses (async message handlers). The output is discarded.
+  worker-compiles:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v7
-        with:
-          # Full history + credentials so the script can move onto the PR head
-          # branch and push the regenerated bundle.
-          fetch-depth: 0
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: 3.44.4
           channel: stable
           cache: true
       - run: flutter pub get
-      - name: Regenerate bundled web render worker
-        env:
-          ASSET: packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
-          EVENT_NAME: ${{ github.event_name }}
-          IS_SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          # A dedicated token (PAT or GitHub App) so the auto-regen commit
-          # RE-TRIGGERS CI - a default GITHUB_TOKEN push does not, which left PR
-          # heads with zero checks (issue #422, defect 3). If this secret is
-          # absent the script does NOT push (a bare, unchecked head is worse than
-          # a visible failure); it fails with the exact rebuild command instead.
-          REGEN_TOKEN: ${{ secrets.WORKER_REGEN_TOKEN }}
-        run: bash tool/ci/regen_web_worker.sh
+      - name: Compile the bundled web render worker (output discarded)
+        run: |
+          dart run dart_pdf_editor:build_web_worker \
+            --out "${RUNNER_TEMP}/pdf_render_worker.dart.js"
 
   # Build the Linux desktop target and validate its desktop-integration files.
   # Mirrors the release-app.yml linux job's build deps (GTK + libsecret for
