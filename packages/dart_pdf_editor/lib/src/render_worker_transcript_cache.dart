@@ -268,7 +268,13 @@ class PdfWorkerTranscriptCache {
       if (onPartial == null || entry.chunksAdvanced < entry.nextEmitAtChunk) {
         continue;
       }
-      entry.nextEmitAtChunk *= 2;
+      // Re-base the next threshold off CURRENT progress rather than doubling a
+      // possibly-stale value. The suspended walk is shared by (page, annotations)
+      // with the non-streaming bin/detail paths, which advance chunksAdvanced
+      // without emitting; deriving from chunksAdvanced keeps the doubling cadence
+      // (1, 2, 4, 8 ... for a fresh walk) yet never fires a catch-up burst when a
+      // record resumes streaming after such a path jumped the counter ahead.
+      entry.nextEmitAtChunk = entry.chunksAdvanced * 2;
       final partial = serializeCommands(
         entry.recorder.commands,
         cos: document.cos,
