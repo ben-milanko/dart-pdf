@@ -48,7 +48,7 @@ class _SyncWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion}) async {
+      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async {
     if (_disposed || pageIndex < 0 || pageIndex >= _doc.pageCount) return null;
     final page = _doc.page(pageIndex);
     final previewOperationLimit = decodeImages ? null : commandLimit;
@@ -1113,7 +1113,7 @@ class _SeedWorker extends PdfRenderWorker {
           double? imagePixelRatio,
           bool decodeImages = true,
           int? commandLimit,
-          PdfRect? imageDecodeRegion}) async =>
+          PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async =>
       null;
 
   @override
@@ -1149,7 +1149,7 @@ class _CountingWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion}) async {
+      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async {
     calls.add((pageIndex, annotations, decodeImages, imagePixelRatio));
     commandLimits.add(commandLimit);
     if (returnNull || !active) return null;
@@ -1198,7 +1198,7 @@ class _ManualWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion}) {
+      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) {
     calls.add((pageIndex, annotations, decodeImages, imagePixelRatio));
     priorities.add(priority);
     final completer = Completer<List<PdfRenderCommand>?>();
@@ -1249,7 +1249,7 @@ class _HangingWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion}) {
+      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) {
     if (!active) return Future.value(null);
     callsByKey[(pageIndex, priority)] =
         (callsByKey[(pageIndex, priority)] ?? 0) + 1;

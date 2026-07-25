@@ -118,7 +118,7 @@ class _RecordingWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion}) {
+      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) {
     // Only the base record ladder is interesting; deep-zoom detail records
     // carry a region and would be noise.
     if (imageDecodeRegion == null) commandLimits.add(commandLimit);

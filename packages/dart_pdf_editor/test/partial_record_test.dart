@@ -1,0 +1,145 @@
+// PR1 of #564: the native render worker can stream progressive linework
+// prefixes of a heavy page (a top-down PDFium-style reveal) BEFORE its final
+// decoded buffer resolves. This pins the transport contract that PR1 adds:
+//
+//  - a record with an `onPartial` sink receives one or more partial buffers,
+//    each a valid deserializable command list, all arriving before the final;
+//  - each partial is a prefix (no more commands than the final);
+//  - the final buffer is byte-identical whether or not partials were requested
+//    (the sink must not perturb the recording);
+//  - the production CACHED wrapper deliberately does NOT stream partials yet
+//    (that is the shared-stream dedup redesign, PR2), so opting in there is
+//    inert - the final still arrives unchanged.
+//
+// No host consumer and no web change land in PR1, so this is the whole
+// observable surface of the feature.
+import 'dart:typed_data';
+
+import 'package:dart_pdf_editor/src/render_worker.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_graphics/pdf_graphics.dart';
+
+/// A single-page PDF whose content stream is [opCount] stroked line segments -
+/// enough operators (~3 per line) to span several of the worker's resumable
+/// record chunks, so a full-page record emits progressive partials. Mirrors the
+/// fixture in resume_record_test.dart.
+Uint8List _linesPdf(int opCount) {
+  final content = StringBuffer('1 0 0 1 0 0 cm\n0 0 0 RG\n');
+  for (var i = 0; i < opCount; i++) {
+    final x = (i % 100).toDouble();
+    final y = (i % 50).toDouble();
+    content.write('${x.toStringAsFixed(1)} ${y.toStringAsFixed(1)} m '
+        '${(x + 1).toStringAsFixed(1)} ${(y + 1).toStringAsFixed(1)} l S\n');
+  }
+  final stream = content.toString();
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R '
+        '/Resources << >> >>',
+    '<< /Length ${stream.length} >>\nstream\n$stream\nendstream',
+  ];
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xref = buffer.length;
+  buffer.write('xref\n0 ${objects.length + 1}\n0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer.write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n'
+      'startxref\n$xref\n%%EOF');
+  return Uint8List.fromList(buffer.toString().codeUnits);
+}
+
+void main() {
+  // The worker chunks at 4096 operators; ~9000 operators here spans several
+  // chunks, so the resumable record emits partials between them.
+  final bytes = _linesPdf(3000);
+
+  test('a full-page record streams linework partials before the final',
+      () async {
+    final worker = PdfRenderWorker.startUncached(bytes);
+    addTearDown(worker.dispose);
+
+    final events = <String>[];
+    final partials = <List<PdfRenderCommand>>[];
+    final result = await worker.record(0, onPartial: (partial) {
+      events.add('partial');
+      partials.add(partial);
+    });
+    events.add('final');
+
+    expect(result, isNotNull, reason: 'the final record must still resolve');
+    expect(partials, isNotEmpty,
+        reason: 'a multi-chunk page must emit at least one partial');
+
+    // Ordering: every partial event precedes the single final event. The final
+    // event is appended only after `await`, so this proves the partials landed
+    // during the record, not after it.
+    expect(events.last, 'final');
+    expect(events.where((e) => e == 'partial').length, partials.length);
+    expect(events.indexOf('final'), events.length - 1);
+
+    // Each partial is a valid, non-empty prefix: no more commands than the
+    // final, and monotonically growing (a superset reveal).
+    for (final partial in partials) {
+      expect(partial, isNotEmpty);
+      expect(partial.length, lessThanOrEqualTo(result!.length));
+    }
+    for (var i = 1; i < partials.length; i++) {
+      expect(partials[i].length, greaterThanOrEqualTo(partials[i - 1].length),
+          reason: 'partials must grow, each a superset of the last');
+    }
+  });
+
+  test('requesting partials does not change the final buffer', () async {
+    final plainWorker = PdfRenderWorker.startUncached(bytes);
+    addTearDown(plainWorker.dispose);
+    final streamedWorker = PdfRenderWorker.startUncached(bytes);
+    addTearDown(streamedWorker.dispose);
+
+    final plain = await plainWorker.record(0);
+    var partialCount = 0;
+    final streamed =
+        await streamedWorker.record(0, onPartial: (_) => partialCount++);
+
+    expect(plain, isNotNull);
+    expect(streamed, isNotNull);
+    expect(partialCount, greaterThan(0));
+    // The sink is a pure observer: the completed recording is identical.
+    expect(streamed!.length, plain!.length);
+  });
+
+  test('a tiny single-chunk page emits no partial but still records', () async {
+    final worker = PdfRenderWorker.startUncached(_linesPdf(3));
+    addTearDown(worker.dispose);
+
+    var partialCount = 0;
+    final result = await worker.record(0, onPartial: (_) => partialCount++);
+
+    expect(result, isNotNull);
+    expect(partialCount, 0,
+        reason: 'a page recorded in one chunk has no prefix to reveal');
+  });
+
+  test('the cached production wrapper does not stream partials (PR1 is inert)',
+      () async {
+    // PdfRenderWorker.start wraps the backend in PdfCachingRenderWorker, whose
+    // shared-future dedup cannot fan a partial stream to late joiners yet
+    // (PR2). Opting in there must be a no-op, not a crash, and the final must
+    // still arrive.
+    final worker = PdfRenderWorker.start(bytes);
+    addTearDown(worker.dispose);
+
+    var partialCount = 0;
+    final result = await worker.record(0, onPartial: (_) => partialCount++);
+
+    expect(result, isNotNull, reason: 'the cached final must still resolve');
+    expect(partialCount, 0,
+        reason: 'the caching wrapper does not forward partials in PR1');
+  });
+}

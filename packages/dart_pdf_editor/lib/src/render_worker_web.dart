@@ -344,6 +344,10 @@ class _WebRenderWorker extends PdfRenderWorker {
     bool decodeImages = true,
     int? commandLimit,
     PdfRect? imageDecodeRegion,
+    // Partial streaming is the web twin's follow-up (#564 PR2); the web backend
+    // records whole pages, so this sink is accepted for interface parity and
+    // never called.
+    PdfPartialRecordSink? onPartial,
   }) async {
     if (_disposed || _failed) {
       _wlog(

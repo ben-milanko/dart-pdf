@@ -103,6 +103,18 @@ bool pdfRenderWorkerReuseTranscripts = true;
 /// guard covers native and pooled workers.
 Duration pdfRenderWorkerRecordTimeout = const Duration(seconds: 90);
 
+/// Sink for progressive partial recordings (#564).
+///
+/// While the worker records a heavy page it can deliver spatially-growing
+/// *linework* prefixes of that page - each a superset of the last, image draws
+/// left as placeholders - before [PdfRenderWorker.record]'s future resolves with
+/// the final decoded buffer. The caller replays each partial with
+/// `PdfPageRenderer.pictureFromCommands(includeImages: false)` for a top-down
+/// progressive reveal, then swaps in the final buffer when it arrives. A page
+/// small enough to record in one chunk emits no partial; the future still
+/// resolves normally.
+typedef PdfPartialRecordSink = void Function(List<PdfRenderCommand> partial);
+
 /// One combined deep-zoom worker result.
 ///
 /// [commands] carry images decoded for the requested visible region and
@@ -261,6 +273,13 @@ abstract class PdfRenderWorker {
   /// draws and retarget their transforms to that crop. Full-page cached
   /// renders must leave this null; a region-specific buffer is only correct
   /// for rasterizing that same visible slice.
+  ///
+  /// [onPartial], when supplied on a full-page decoding record ([decodeImages]
+  /// true), receives progressive linework prefixes as the worker walks the page
+  /// (#564) - see [PdfPartialRecordSink]. Backends that do not stream partials
+  /// (the null fallback, the web worker until its twin lands, and - until the
+  /// caching wrapper's shared-stream dedup is in - a [PdfCachingRenderWorker])
+  /// simply never call it; the final result is unaffected either way.
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
     bool annotations = true,
@@ -269,6 +288,7 @@ abstract class PdfRenderWorker {
     bool decodeImages = true,
     int? commandLimit,
     PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
   });
 
   /// Drops any QUEUED (not yet started) [record] request for [pageIndex] at
@@ -698,6 +718,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
     bool decodeImages = true,
     int? commandLimit,
     PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
   }) async {
     final urgent = _urgentWorkerFor(priority);
     if (urgent != null) {
@@ -709,6 +730,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
         decodeImages: decodeImages,
         commandLimit: commandLimit,
         imageDecodeRegion: imageDecodeRegion,
+        onPartial: onPartial,
       );
     }
     final worker = _lease(pageIndex, priority);
@@ -721,6 +743,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
         decodeImages: decodeImages,
         commandLimit: commandLimit,
         imageDecodeRegion: imageDecodeRegion,
+        onPartial: onPartial,
       );
     } finally {
       _release(pageIndex, priority, worker);
@@ -1019,6 +1042,14 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
     return (_cache.weight / _budgetBytes).clamp(0.0, 1.0).toDouble();
   }
 
+  /// [onPartial] is intentionally NOT forwarded through the cache: this wrapper
+  /// collapses concurrent callers for one key onto a single shared future, and a
+  /// progressive stream shared across late joiners (a caller that joins after
+  /// some partials have already been emitted, and must replay them) is the
+  /// caching-dedup redesign tracked as the next step of #564. Until that lands
+  /// the production (cached) path records exactly as before and streams no
+  /// partials; the raw backend ([PdfRenderWorker.startUncached]) and the pool do
+  /// stream them.
   @override
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
@@ -1028,6 +1059,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
     bool decodeImages = true,
     int? commandLimit,
     PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
   }) {
     if (!_inner.isActive) {
       return _inner.record(

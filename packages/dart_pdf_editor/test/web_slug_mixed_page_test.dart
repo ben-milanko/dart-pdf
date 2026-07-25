@@ -229,7 +229,7 @@ class _DeferredFullRecordWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion}) {
+      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) {
     if (decodeImages && imageDecodeRegion != null) {
       if (!regionRecordStarted.isCompleted) regionRecordStarted.complete();
       return _regionRecord.future;
