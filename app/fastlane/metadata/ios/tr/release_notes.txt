@@ -1,0 +1,18 @@
+3.0.0'daki yenilikler
+
+DİLLER
+• DartPDF artık Arapça için tam sağdan sola düzen desteğiyle 10 dilde kullanılabilir.
+
+İŞLEME
+• Daha isabetli üst baskı, karışım modu ve yumuşak maske işleme sayesinde baskıya yönelik PDF'ler amaçlanan çıktıya daha yakın görünür.
+• Bir karışım modu altında çizilen saydamlık grupları artık doğru şekilde birleştiriliyor; bu, bazı dosyalardaki gelişigüzel opak kutuları giderir.
+
+DÜZENLEME
+• Çizim yaparken kalem ve çizgileri düz vuruşlarla sınırlamak için Shift'e basılı tutun.
+• Açıklamalar için varsayılan bir stil ayarlayın ve tek dokunuşla yeniden kullanın.
+• Yeniden tasarlanan belge sekmeleri, daha fazla dosya açtıkça okunaklı kalır.
+
+HIZ
+• Daha hızlı işleme ve daha az bellek kullanımı; en büyük kazanımlar büyük veya görsel yoğunluklu dosyalarda.
+
+DartPDF'yi kullandığınız için teşekkürler. Geri bildirimler ve hata raporları her zaman memnuniyetle karşılanır.

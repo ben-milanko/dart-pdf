@@ -1,0 +1,21 @@
+DartPDF adalah editor PDF yang berjalan sepenuhnya di perangkat Anda.
+
+Buka PDF apa pun untuk memberinya anotasi, mengisi formulir, menandatanganinya, meredaksi konten, mengatur ulang halaman, atau mengedit teks dan gambar pada halaman. Perubahan disimpan kembali ke berkas asli.
+
+Tidak ada yang diunggah. Tanpa akun, tanpa sinkronisasi, dan tanpa iklan.
+
+Fitur:
+
+• Sorot, garis bawah, coret, dan tinta gambar bebas
+• Bentuk, panah, kotak teks, catatan, dan stempel
+• Edit teks yang ada dan tambahkan gambar
+• Redaksi yang menghapus teks dan gambar tertutup dari berkas, bukan hanya dari tampilan
+• Isi bidang formulir (teks, kotak centang, tombol radio, menu tarik-turun), atau tambahkan sendiri
+• Tanda tangan gambar yang ditempatkan di mana saja, plus tanda tangan digital PAdES berbasis sertifikat
+• OCR PDF hasil pindai agar teks dapat dipilih dan dicari
+• Urutkan ulang, hapus, dan ekspor halaman ke berkas baru
+• Pencarian teks lengkap, pemilihan teks, dan tautan
+• Bandingkan dua versi secara berdampingan
+• Buka berkas yang dilindungi kata sandi
+
+Berjalan di Android, iPhone, iPad, dan Mac, plus Windows, Linux, dan web. Membuka PDF dari pengelola berkas Anda, lembar Bagikan, atau seret-dan-lepas. Tema terang dan gelap.

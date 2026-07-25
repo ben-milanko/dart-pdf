@@ -178,7 +178,9 @@ enum PdfEditTool {
 
   /// Insert a raster image (PNG or JPEG). Tapping places it at a default
   /// size; dragging out a box fits it within the box. The picked image
-  /// comes from [PdfViewer.imagePicker]; with none the tool does nothing.
+  /// comes from [PdfViewer.imagePicker] - **that callback must be wired**
+  /// for this tool to do anything. Without it the stock [PdfEditingToolbar]
+  /// hides the tool, and arming it directly is a no-op on tap/drag.
   /// The image becomes a /Stamp annotation, so it can be moved, resized,
   /// rotated, and deleted like any other annotation.
   image,
@@ -219,10 +221,50 @@ enum PdfEditTool {
   /// (via [PdfEditingController.addKeylessSignature] et al. with a
   /// [PdfSignatureAppearance]). With no handler the tool does nothing.
   signatureBox,
+
+  /// Drag out a rectangle (or use the current text selection) to add a
+  /// hyperlink. On release the Add-link dialog collects the target - an
+  /// external URL or a page in this same document - and a /Link annotation
+  /// is created over the region ([PdfEditingController.addLink]).
+  link,
 }
 
 /// Text-markup kinds for [PdfEditingController.addMarkup].
 enum PdfMarkupKind { highlight, underline, strikeOut, squiggly }
+
+/// Where a hyperlink created by the link tool points: either an external
+/// [PdfLinkTarget.uri] (a web address, `mailto:`, or app scheme) or an
+/// in-document jump to a [PdfLinkTarget.page] (a whole-page fit) or a more
+/// specific [PdfLinkTarget.destination] (a position, zoom, or rectangle).
+///
+/// Consumed by [PdfEditingController.addLink] and
+/// [PdfEditingController.addLinkToSelection]; produced by the Add-link dialog
+/// ([showPdfAddLinkDialog]).
+class PdfLinkTarget {
+  const PdfLinkTarget._(this.uri, this.page, this.destination);
+
+  /// An external link to [uri].
+  const PdfLinkTarget.uri(String uri) : this._(uri, null, null);
+
+  /// An internal link to the top of [page] (zero-based), fit to the window.
+  const PdfLinkTarget.page(int page) : this._(null, page, null);
+
+  /// An internal link to an explicit [destination] (a specific view).
+  const PdfLinkTarget.destination(PdfExplicitDestination destination)
+      : this._(null, null, destination);
+
+  /// The external URI, or null for an internal link.
+  final String? uri;
+
+  /// The zero-based target page for a whole-page internal link, or null.
+  final int? page;
+
+  /// The explicit destination for a precise internal link, or null.
+  final PdfExplicitDestination? destination;
+
+  /// Whether this points outside the document (a [uri]).
+  bool get isExternal => uri != null;
+}
 
 /// Host veto over which annotations the editing UI may change - see
 /// [PdfEditingController.canEditAnnotation].
@@ -333,11 +375,13 @@ class PdfEditingController extends ChangeNotifier {
     PdfEditingPreferences? preferences,
     PdfPageClipboard? pageClipboard,
     PdfSnapshotClipboard? snapshotClipboard,
+    PdfTrustStore? trustStore,
   })  : _bytes = bytes,
         _used = bytes.length,
         _password = password,
         _revisions = [bytes.length],
         _document = PdfDocument.open(bytes, password: password),
+        _trustStore = trustStore,
         preferences = preferences ?? PdfEditingPreferences(),
         pageClipboard = pageClipboard ?? PdfPageClipboard.instance,
         snapshotClipboard =
@@ -920,7 +964,110 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// The signatures present in the current revision (`PdfSignature.of`).
+  ///
+  /// This recomputes the AcroForm walk on every read; to look one up by field
+  /// name repeatedly (e.g. per annotation row), use [signatureByFieldName],
+  /// which caches the map for the current revision.
   List<PdfSignature> get signatures => PdfSignature.of(_document);
+
+  Map<String, PdfSignature>? _signaturesByField;
+  int _signaturesByFieldRevision = -1;
+
+  /// The current revision's signatures keyed by their field's fully qualified
+  /// name, computed once per revision. Avoids re-walking the whole AcroForm for
+  /// every annotation the sidebar lists (which is quadratic on a form-heavy
+  /// document).
+  Map<String, PdfSignature> get signatureByFieldName {
+    if (_signaturesByFieldRevision != _revisionId) {
+      _signaturesByFieldRevision = _revisionId;
+      _signaturesByField = {
+        for (final signature in PdfSignature.of(_document))
+          signature.field.name: signature,
+      };
+    }
+    return _signaturesByField!;
+  }
+
+  PdfTrustStore? _trustStore;
+
+  /// The trust anchors [validationFor] chains signer certificates up to, so a
+  /// signature can read as "trusted" rather than "validity unknown". The
+  /// library ships no built-in roots; a host supplies an AATL/EUTL or
+  /// organisation bundle (e.g. `PdfTrustStore.trusting([...])`). Null leaves
+  /// every signature's [PdfSignatureValidation.chainTrusted] null - crypto is
+  /// still checked, but the signer is never vouched for.
+  ///
+  /// Setting it re-validates on the next read (the cache is dropped) and
+  /// notifies listeners, so a bundle loaded asynchronously lights up the
+  /// signature panel when it arrives.
+  PdfTrustStore? get trustStore => _trustStore;
+
+  set trustStore(PdfTrustStore? store) {
+    if (identical(store, _trustStore)) return;
+    _trustStore = store;
+    _validationCache.clear();
+    _validating.clear();
+    notifyListeners();
+  }
+
+  /// [validationFor] results for the current revision, keyed by the signature
+  /// field's fully qualified name. Dropped whenever the revision moves (or the
+  /// trust store changes) so it never reports a stale verdict.
+  final Map<String, PdfSignatureValidation> _validationCache = {};
+
+  /// Field names whose validation is in flight, so it is scheduled only once.
+  final Set<String> _validating = {};
+  int _validationCacheRevision = -1;
+
+  void _dropStaleValidations() {
+    if (_validationCacheRevision != _revisionId) {
+      _validationCacheRevision = _revisionId;
+      _validationCache.clear();
+      _validating.clear();
+    }
+  }
+
+  /// The validation for [signature] at the current revision, or null when it
+  /// hasn't been computed yet. Validation walks the CMS/certificate crypto,
+  /// which can be slow, so it never runs on the caller's frame: when the
+  /// result isn't cached this schedules it off the current event-loop turn and
+  /// [notifyListeners] once it lands (the sidebar shows a "checking" state
+  /// until then). The result is cached per (revision, field), so repeated
+  /// reads while the panel rebuilds are free.
+  ///
+  /// Pass `schedule: false` to peek at the cache without kicking off work.
+  PdfSignatureValidation? validationFor(PdfSignature signature,
+      {bool schedule = true}) {
+    _dropStaleValidations();
+    final key = signature.field.name;
+    final cached = _validationCache[key];
+    if (cached != null) return cached;
+    if (schedule && _validating.add(key)) {
+      final revision = _revisionId;
+      final store = _trustStore;
+      // Off the current frame: opening the panel stays instant even when the
+      // signer's certificate chain is expensive to verify.
+      Future(() {
+        // The document may have moved on while this was queued.
+        if (_revisionId != revision) {
+          _validating.remove(key);
+          return;
+        }
+        PdfSignatureValidation? result;
+        try {
+          result = signature.validate(trustStore: store);
+        } catch (_) {
+          // A signature we can't validate simply stays "checking"-free; the
+          // panel falls back to showing it without a verdict.
+        }
+        _validating.remove(key);
+        if (_revisionId != revision || result == null) return;
+        _validationCache[key] = result;
+        notifyListeners();
+      });
+    }
+    return null;
+  }
 
   /// Removes a digital signature as one undoable revision: drops its signature
   /// field (and its widget) and every "apply to pages" appearance copy - the
@@ -1276,6 +1423,8 @@ class PdfEditingController extends ChangeNotifier {
     _tool = value;
     if (value != PdfEditTool.select) _selected.clear();
     if (value != PdfEditTool.content) _selectedElement = null;
+    _cropModeArmed = false;
+    _cropDraft = null;
     // each annotation tool remembers its own colour, stroke, opacity, … -
     // arming one restores its saved style and routes further style changes
     // back into its slot (see [PdfEditingPreferences.beginStyleScope])
@@ -1550,6 +1699,16 @@ class PdfEditingController extends ChangeNotifier {
   /// placeholders. Override in tests or when a host app needs a fixed clock.
   DateTime Function() stampTemplateClock = DateTime.now;
 
+  /// The UI locale used to localize the built-in `date`/`datetime` stamp
+  /// fields (month names, AM/PM). Kept fresh by the editing overlay from its
+  /// ambient [Localizations]; falls back to [PdfEditingPreferences.locale]
+  /// (the persisted Settings choice) and finally English. Purely an output
+  /// detail of the resolved stamp text - setting it never notifies listeners.
+  ui.Locale? uiLocale;
+
+  String? get _stampLocaleName =>
+      (uiLocale ?? preferences.locale)?.toString();
+
   /// Field names the stamp editor should offer for insertion.
   ///
   /// This includes the built-ins plus the current custom value keys.
@@ -1578,8 +1737,9 @@ class PdfEditingController extends ChangeNotifier {
 
   Map<String, String> _resolvedStampTemplateValues() {
     final now = stampTemplateClock();
-    final date = preferences.stampDateFormat.format(now);
-    final time = preferences.stampTimeFormat.format(now);
+    final localeName = _stampLocaleName;
+    final date = preferences.stampDateFormat.format(now, localeName: localeName);
+    final time = preferences.stampTimeFormat.format(now, localeName: localeName);
     return {
       'date': date,
       'time': time,
@@ -1607,6 +1767,7 @@ class PdfEditingController extends ChangeNotifier {
   int _editSelectedTextRevision = 0;
   int _editingTextFocusHoldCount = 0;
   int _editingTextFocusHoldRevision = 0;
+  int _keepEditingTextFocusedCount = 0;
 
   /// Whether an in-place text editor (the free-text tool's box) is open
   /// on a page. While it is, the viewer releases its keyboard shortcuts -
@@ -1629,6 +1790,29 @@ class PdfEditingController extends ChangeNotifier {
   bool get isEditingTextFocusCommitHeld => _editingTextFocusHoldCount > 0;
 
   int get editingTextFocusHoldRevision => _editingTextFocusHoldRevision;
+
+  /// Whether an open in-place text editor should hold on to keyboard focus.
+  /// Set while the tune popup is open over a text-editing session: a
+  /// `TextField` only paints its selection highlight while focused, so the
+  /// popup's controls (which steal focus on tap on some platforms) would
+  /// otherwise hide the very selection they restyle. The overlay reclaims
+  /// focus for the field while this is true. Only meaningful while editing.
+  bool get shouldKeepEditingTextFocused =>
+      _editingText && _keepEditingTextFocusedCount > 0;
+
+  /// Begins a keep-focused window (see [shouldKeepEditingTextFocused]).
+  /// Balanced by [endKeepEditingTextFocused]; reference-counted so nested
+  /// popups don't drop the guard early.
+  void beginKeepEditingTextFocused() {
+    _keepEditingTextFocusedCount++;
+    notifyListeners();
+  }
+
+  void endKeepEditingTextFocused() {
+    if (_keepEditingTextFocusedCount == 0) return;
+    _keepEditingTextFocusedCount--;
+    notifyListeners();
+  }
 
   /// Marks an in-place text editor open/closed. Called by the page
   /// overlay that owns the editor.
@@ -1983,6 +2167,100 @@ class PdfEditingController extends ChangeNotifier {
           }
         });
       },
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // links
+
+  /// Adds a hyperlink over [quads] on [pageIndex] pointing at [target] - an
+  /// external URI or an in-document jump (see [PdfLinkTarget]). [quads] is
+  /// one rectangle per line of a text run, or a single box.
+  ///
+  /// By default a link over a dragged box is drawn with a visible border so
+  /// it can be seen, while a link over selected text is drawn with a subtle
+  /// underline; override with [borderColor] / [underlineColor] (pass a
+  /// negative value to suppress that decoration and leave the region
+  /// invisible, the Acrobat convention for linking existing text).
+  void addLink(
+    int pageIndex,
+    List<PdfRect> quads,
+    PdfLinkTarget target, {
+    int? borderColor,
+    int? underlineColor,
+  }) {
+    if (quads.isEmpty) return;
+    apply((e) => _emitLink(
+          e,
+          pageIndex,
+          quads,
+          target,
+          borderColor: borderColor,
+          underlineColor: underlineColor,
+        ));
+  }
+
+  /// Adds one hyperlink per page in [quadsByPage] pointing at [target],
+  /// e.g. from a multi-page text selection. Mirrors [addMarkup]; links over
+  /// selected text default to an underline decoration.
+  void addLinkToSelection(
+    Map<int, List<PdfRect>> quadsByPage,
+    PdfLinkTarget target, {
+    int? underlineColor,
+    int? borderColor,
+  }) {
+    if (quadsByPage.values.every((quads) => quads.isEmpty)) return;
+    apply((editor) {
+      quadsByPage.forEach((page, quads) {
+        if (quads.isEmpty) return;
+        _emitLink(
+          editor,
+          page,
+          quads,
+          target,
+          underlineColor:
+              underlineColor ?? PdfAnnotationEditing.defaultLinkColor,
+          borderColor: borderColor,
+        );
+      });
+    });
+  }
+
+  /// Emits one link annotation for [target] over [quads]. When neither
+  /// decoration is specified a border is drawn (so a bare box link is
+  /// visible); a negative colour clears that decoration.
+  void _emitLink(
+    PdfEditor editor,
+    int pageIndex,
+    List<PdfRect> quads,
+    PdfLinkTarget target, {
+    int? borderColor,
+    int? underlineColor,
+  }) {
+    final resolvedBorder = borderColor == null && underlineColor == null
+        ? PdfAnnotationEditing.defaultLinkColor
+        : (borderColor != null && borderColor >= 0 ? borderColor : null);
+    final resolvedUnderline =
+        underlineColor != null && underlineColor >= 0 ? underlineColor : null;
+    final uri = target.uri;
+    if (uri != null) {
+      editor.addLinkToUri(
+        pageIndex,
+        quads,
+        uri: uri,
+        borderColor: resolvedBorder,
+        underlineColor: resolvedUnderline,
+      );
+      return;
+    }
+    final destination = target.destination ??
+        PdfExplicitDestination.fit(target.page ?? pageIndex);
+    editor.addLinkToDestination(
+      pageIndex,
+      quads,
+      destination: destination,
+      borderColor: resolvedBorder,
+      underlineColor: resolvedUnderline,
     );
   }
 
@@ -3720,10 +3998,41 @@ class PdfEditingController extends ChangeNotifier {
       !annotation.isLocked &&
       (_canEditAnnotation?.call(annotation) ?? true);
 
+  /// The /F Locked flag (§12.5.3 bit 8): the annotation may not be moved,
+  /// resized, or deleted. The bit conforming viewers - Acrobat, Bluebeam
+  /// Revu - set when a markup is locked.
+  static const int _annotationLockedFlag = 1 << 7; // 128
+
+  /// The /F LockedContents flag (§12.5.3 bit 10): the annotation's
+  /// contents may not change. [lockAnnotation] sets it alongside Locked so
+  /// a locked markup can't be retyped either, matching Acrobat/Bluebeam.
+  static const int _annotationLockedContentsFlag = 1 << 9; // 512
+
+  /// Whether the lock state of [annotation] may be toggled - the way in to
+  /// *unlock* it, which [isAnnotationEditable] itself forbids (a locked
+  /// annotation is by definition not editable, so unlocking can't route
+  /// through the normal edit gate). Only selectable markup annotations
+  /// qualify; the document's /F ReadOnly flag and the host's
+  /// [canEditAnnotation] predicate still veto it, but the Locked flag
+  /// deliberately does not, so a lock can always be lifted.
+  bool isAnnotationLockManageable(PdfAnnotation annotation) =>
+      annotation.behavior.selectable &&
+      !annotation.isReadOnly &&
+      (_canEditAnnotation?.call(annotation) ?? true);
+
   /// Selected (page, /Annots slot) pairs in selection order; the last
   /// one is the primary selection (the one handles and text edits act
   /// on when exactly one is selected).
   final List<(int page, int index)> _selected = [];
+
+  /// True while the interactive image-crop tool is armed on the selection.
+  /// See [beginImageCrop].
+  bool _cropModeArmed = false;
+
+  /// The pending crop rectangle (page space) the crop overlay is dragging,
+  /// or null when not cropping. Always a sub-rectangle of the selected image
+  /// stamp's /Rect.
+  PdfRect? _cropDraft;
 
   /// Pages cached per revision: [PdfDocument.page] rebuilds the page
   /// (and its lazily parsed annotation list) on every call, and the
@@ -3835,6 +4144,26 @@ class PdfEditingController extends ChangeNotifier {
       selectedAnnotation?.behavior.textEditable == true &&
       selectedAnnotation?.isLockedContents != true;
 
+  /// Whether the selection is a single upright image stamp that the crop
+  /// tool can operate on. Rotated image stamps are excluded: cropping shrinks
+  /// the box to an axis-aligned sub-rectangle, which cannot describe a
+  /// rotated frame.
+  bool get canCropSelected {
+    final annotation = selectedAnnotation;
+    if (_selected.length != 1 ||
+        annotation == null ||
+        !annotation.isImageStamp ||
+        annotation.normalAppearance == null) {
+      return false;
+    }
+    final quad = annotation.appearanceQuad;
+    if (quad == null || quad.length < 2) return true;
+    final (x0, y0) = quad[0];
+    final (x1, y1) = quad[1];
+    // Upright when the picture's bottom edge is horizontal.
+    return (y1 - y0).abs() <= 1e-3 * math.max(1.0, (x1 - x0).abs());
+  }
+
   /// The topmost selectable annotation under ([x], [y]) on [pageIndex],
   /// with its /Annots slot - the select tool's hit test (later entries
   /// draw on top, so they win).
@@ -3849,6 +4178,29 @@ class PdfEditingController extends ChangeNotifier {
       if (annotation.isHidden ||
           !annotation.behavior.selectable ||
           !isAnnotationEditable(annotation)) {
+        continue;
+      }
+      if (annotation.rect.contains(x, y)) return (i, annotation);
+    }
+    return null;
+  }
+
+  /// The topmost *locked* lock-manageable annotation under ([x], [y]) on
+  /// [pageIndex], with its /Annots slot - the right-click "Unlock" hit
+  /// test. Unlike [selectableAnnotationAt] it deliberately reaches locked
+  /// annotations (which can't be selected), so a mouse user can lift the
+  /// lock the same way the sidebar row's button does. Skips hidden ones.
+  (int index, PdfAnnotation)? lockedAnnotationAt(
+    int pageIndex,
+    double x,
+    double y,
+  ) {
+    final annotations = _page(pageIndex).annotations;
+    for (var i = annotations.length - 1; i >= 0; i--) {
+      final annotation = annotations[i];
+      if (annotation.isHidden ||
+          !annotation.isLocked ||
+          !isAnnotationLockManageable(annotation)) {
         continue;
       }
       if (annotation.rect.contains(x, y)) return (i, annotation);
@@ -4168,6 +4520,86 @@ class PdfEditingController extends ChangeNotifier {
         }
       },
     );
+  }
+
+  // ---------------------------------------------------------------------
+  // locking (§12.5.3 /F Locked + LockedContents)
+
+  /// Sets or clears the lock on the annotation in slot [index] of
+  /// [pageIndex]'s /Annots.
+  ///
+  /// Locking sets the /F Locked (bit 8) and LockedContents (bit 10) flags
+  /// (§12.5.3) together - the same pair Acrobat and Bluebeam Revu write
+  /// when a markup is locked - so conforming viewers refuse to move,
+  /// resize, delete, or retype it. Unlocking clears just those two bits,
+  /// leaving Print/Hidden/NoView and any other flag untouched.
+  ///
+  /// This is the *unlock* entry point: it bypasses [isAnnotationEditable]
+  /// (a locked annotation is never editable, so it could otherwise never
+  /// be reached) but still honours [isAnnotationLockManageable]. Locking
+  /// drops the annotation from the selection, since it's no longer
+  /// editable. Returns whether the flag word changed.
+  bool setAnnotationLocked(int pageIndex, int index, bool locked) {
+    final annotation = _annotationAt((pageIndex, index));
+    if (annotation == null || !isAnnotationLockManageable(annotation)) {
+      return false;
+    }
+    const lockBits = _annotationLockedFlag | _annotationLockedContentsFlag;
+    final next =
+        locked ? annotation.flags | lockBits : annotation.flags & ~lockBits;
+    if (next == annotation.flags) return false;
+    // A locked annotation is no longer selectable; drop it so stale
+    // resize/rotate handles don't linger over it (resizable is a
+    // capability, not a permission, so the overlay wouldn't hide them).
+    if (locked) _selected.remove((pageIndex, index));
+    return apply((e) => e.setAnnotationFlags(pageIndex, annotation, next));
+  }
+
+  /// Flips the lock on the annotation in slot [index] of [pageIndex]'s
+  /// /Annots - the annotation sidebar's per-row lock button, and the
+  /// reliable way to unlock (a locked annotation can't be selected).
+  /// Returns the lock state it was set to, or the unchanged state when
+  /// the annotation isn't lock-manageable.
+  bool toggleAnnotationLock(int pageIndex, int index) {
+    final annotation = _annotationAt((pageIndex, index));
+    if (annotation == null) return false;
+    final target = !annotation.isLocked;
+    return setAnnotationLocked(pageIndex, index, target)
+        ? target
+        : annotation.isLocked;
+  }
+
+  /// Whether [lockSelectedAnnotations] would lock anything: something is
+  /// selected and every selected slot is an unlocked, lock-manageable
+  /// markup annotation.
+  bool get canLockSelected =>
+      _selected.isNotEmpty &&
+      _selected.every((slot) {
+        final annotation = _annotationAt(slot);
+        return annotation != null &&
+            !annotation.isLocked &&
+            isAnnotationLockManageable(annotation);
+      });
+
+  /// Locks every selected annotation (see [setAnnotationLocked]) as one
+  /// revision, then clears the selection since a locked annotation is no
+  /// longer editable - the context menu's Lock action. Already-locked or
+  /// non-lock-manageable members are skipped; a no-op when none qualify.
+  void lockSelectedAnnotations() {
+    final targets = <(int, PdfAnnotation)>[
+      for (final slot in _selected)
+        if (_annotationAt(slot) case final annotation?
+            when !annotation.isLocked && isAnnotationLockManageable(annotation))
+          (slot.$1, annotation),
+    ];
+    if (targets.isEmpty) return;
+    _selected.clear();
+    const lockBits = _annotationLockedFlag | _annotationLockedContentsFlag;
+    apply((e) {
+      for (final (page, annotation) in targets) {
+        e.setAnnotationFlags(page, annotation, annotation.flags | lockBits);
+      }
+    });
   }
 
   // ---------------------------------------------------------------------
@@ -4693,6 +5125,129 @@ class PdfEditingController extends ChangeNotifier {
     return annotation.hasCloudyBorder ? annotation.cloudBorderScale : null;
   }
 
+  // ---------------------------------------------------------------------
+  // Set-as-default: seed a creation tool's remembered style from an
+  // existing annotation (the right-click "Set as default" action).
+
+  /// The creation tool that draws [annotation]'s subtype, or null when no
+  /// tool authors it (links, widgets, popups, and the appearance-only
+  /// subtypes). Used to pick which persisted style scope "set as default"
+  /// writes into.
+  static PdfEditTool? _creatingToolFor(PdfAnnotation annotation) {
+    switch (annotation.subtype) {
+      case 'Square':
+        return PdfEditTool.rectangle;
+      case 'Circle':
+        return PdfEditTool.ellipse;
+      case 'Line':
+        final endings = pdfLineEndings(annotation);
+        const arrows = {
+          PdfLineEnding.openArrow,
+          PdfLineEnding.closedArrow,
+          PdfLineEnding.rOpenArrow,
+          PdfLineEnding.rClosedArrow,
+        };
+        final isArrow = endings != null &&
+            (arrows.contains(endings.$1) || arrows.contains(endings.$2));
+        return isArrow ? PdfEditTool.arrow : PdfEditTool.line;
+      case 'PolyLine':
+        return PdfEditTool.polyline;
+      case 'Polygon':
+        return annotation.hasCloudyBorder
+            ? PdfEditTool.cloudPolygon
+            : PdfEditTool.polygon;
+      case 'Ink':
+        return PdfEditTool.ink;
+      case 'FreeText':
+        return annotation.isCallout ? PdfEditTool.callout : PdfEditTool.freeText;
+      case 'Text':
+        return PdfEditTool.note;
+      case 'Stamp':
+        return PdfEditTool.stamp;
+      default:
+        return null;
+    }
+  }
+
+  /// The persisted style scope "set as default" would write [annotation]'s
+  /// style into, and the fields that scope remembers, or null when the
+  /// subtype has no creation default to seed. Text markup (highlight /
+  /// underline / strike-out / squiggly) acts on a text selection rather than
+  /// arming a tool, so it maps to its own shared `markup` scope.
+  static ({String scope, Set<String> fields})? _defaultStyleTargetFor(
+      PdfAnnotation annotation) {
+    switch (annotation.subtype) {
+      case 'Highlight' || 'Underline' || 'StrikeOut' || 'Squiggly':
+        return (scope: 'markup', fields: const {'color', 'opacity'});
+    }
+    final tool = _creatingToolFor(annotation);
+    if (tool == null) return null;
+    final behavior = PdfEditToolBehavior.of(tool);
+    final scope = behavior.styleScopeKey;
+    final fields = behavior.styleScopeFields;
+    if (scope == null || fields.isEmpty) return null;
+    return (scope: scope, fields: fields);
+  }
+
+  /// The full set of captured style values for [annotation], keyed by the
+  /// same field names the persisted style scopes use.
+  /// [PdfEditingPreferences.writeScopedStyle] keeps only the fields the
+  /// target scope actually remembers.
+  Map<String, Object?> _capturedStyleOf(PdfAnnotation annotation) {
+    final style = annotation.behavior.style;
+    final endings = pdfLineEndings(annotation);
+    int? argb(int? rgb) => rgb == null ? null : 0xFF000000 | rgb;
+    final values = <String, Object?>{
+      if (style.color != null) 'color': argb(style.color),
+      if (style.strokeWidth != null) 'strokeWidth': style.strokeWidth,
+      'opacity': style.opacity,
+      'lineStyle': PdfLineStyle.ofDashArray(annotation.borderDash).name,
+      // shapes bake their pattern scale into the dash array; only a cloud
+      // exposes a readable scallop scale to seed
+      if (annotation.hasCloudyBorder) 'lineScale': annotation.cloudBorderScale,
+      'shapeFillColor': argb(style.fillColor),
+      if (endings != null) 'lineStartEnding': endings.$1.name,
+      if (endings != null) 'lineEndEnding': endings.$2.name,
+    };
+    if (annotation.subtype == 'FreeText') {
+      final text = _freeTextStyleOf(annotation);
+      values['fontSize'] = text.size;
+      values['fontFamily'] = text.font.name;
+      final align = annotation.freeTextStyle?.alignment;
+      values['textAlign'] = align?.name;
+      // for a text box /C is the background and /DA border colour is separate;
+      // the box's tint is its text colour, already captured as `color`
+      values['textFillColor'] = argb(style.fillColor);
+      values['textBorderColor'] = argb(style.borderColor);
+    }
+    return values;
+  }
+
+  /// Whether the primary selected annotation has a creation style that
+  /// [applySelectedStyleAsDefault] can capture as the default for new
+  /// annotations of its kind.
+  bool get canApplySelectedStyleAsDefault {
+    final annotation = selectedAnnotation;
+    return annotation != null && _defaultStyleTargetFor(annotation) != null;
+  }
+
+  /// Captures the primary selected annotation's appearance (colour, stroke
+  /// width, opacity, fill, line style, and - for free text - font, size,
+  /// and alignment) as the creation default for the tool that draws its
+  /// subtype, so subsequent annotations of that kind inherit it. The
+  /// right-click "Set as default" action. Returns whether a default was
+  /// captured.
+  bool applySelectedStyleAsDefault() {
+    final annotation = selectedAnnotation;
+    if (annotation == null) return false;
+    final target = _defaultStyleTargetFor(annotation);
+    if (target == null) return false;
+    preferences.writeScopedStyle(
+        target.scope, target.fields, _capturedStyleOf(annotation));
+    notifyListeners();
+    return true;
+  }
+
   /// Restyles every selected annotation in place - one revision, one
   /// undo, and the selection survives (annotations keep their /Annots
   /// slots). Parameters follow [PdfEditor.restyleAnnotation]: [color]
@@ -5022,6 +5577,127 @@ class PdfEditingController extends ChangeNotifier {
         pageRotation: _page(_selected.last.$1).rotation,
       ),
     );
+  }
+
+  /// Crops the selected image stamp so only the picture currently shown
+  /// inside [visibleRect] (page space) survives, shrinking the annotation's
+  /// box to that rectangle. [visibleRect] is clamped to the current box, and
+  /// the crop composes with any crop already applied, so it always narrows
+  /// towards the source picture. A no-op unless [canCropSelected].
+  void cropSelectedImage(PdfRect visibleRect) {
+    final annotation = selectedAnnotation;
+    if (annotation == null || !canCropSelected) return;
+    final rect = annotation.rect;
+    if (rect.width <= 0 || rect.height <= 0) return;
+    final v = visibleRect.intersect(rect);
+    if (v.width < 1 || v.height < 1) return;
+    // Untouched box → nothing to crop.
+    if ((v.left - rect.left).abs() < 0.5 &&
+        (v.bottom - rect.bottom).abs() < 0.5 &&
+        (v.right - rect.right).abs() < 0.5 &&
+        (v.top - rect.top).abs() < 0.5) {
+      return;
+    }
+    final current = annotation.imageStampCrop ?? const PdfRect(0, 0, 1, 1);
+    // Fractions of the current box the visible rect covers, composed into the
+    // source picture's normalized coordinates.
+    final fx0 = (v.left - rect.left) / rect.width;
+    final fx1 = (v.right - rect.left) / rect.width;
+    final fy0 = (v.bottom - rect.bottom) / rect.height;
+    final fy1 = (v.top - rect.bottom) / rect.height;
+    final crop = PdfRect(
+      current.left + fx0 * current.width,
+      current.bottom + fy0 * current.height,
+      current.left + fx1 * current.width,
+      current.bottom + fy1 * current.height,
+    );
+    apply(
+      (e) => e.cropImageStamp(
+        _selected.last.$1,
+        annotation,
+        crop: crop,
+        rect: v,
+      ),
+    );
+  }
+
+  /// Removes any crop from the selected image stamp, restoring the whole
+  /// picture. The box grows back to the picture's full extent at the current
+  /// scale. A no-op unless [canCropSelected] and a crop is applied.
+  void resetSelectedImageCrop() {
+    final annotation = selectedAnnotation;
+    if (annotation == null || !canCropSelected) return;
+    final current = annotation.imageStampCrop;
+    if (current == null) return;
+    // Grow the box back so the retained pixels keep their scale: the current
+    // box shows `current`, so the full picture spans box / current.
+    final rect = annotation.rect;
+    final fullWidth = rect.width / current.width;
+    final fullHeight = rect.height / current.height;
+    final left = rect.left - current.left * fullWidth;
+    final bottom = rect.bottom - current.bottom * fullHeight;
+    final full = PdfRect(left, bottom, left + fullWidth, bottom + fullHeight);
+    apply(
+      (e) => e.cropImageStamp(
+        _selected.last.$1,
+        annotation,
+        crop: const PdfRect(0, 0, 1, 1),
+        rect: full,
+      ),
+    );
+  }
+
+  /// Whether the interactive image-crop tool is armed. The overlay renders
+  /// its crop rectangle and handles while this is true, absorbing gestures;
+  /// the toolbar shows Done/Cancel. Auto-clears if the selection stops being
+  /// a croppable image stamp.
+  bool get isCroppingImage => _cropModeArmed && canCropSelected;
+
+  /// The crop rectangle the overlay is currently dragging (page space), or
+  /// null when [isCroppingImage] is false. Sub-rectangle of the selected
+  /// image stamp's /Rect.
+  PdfRect? get imageCropDraft => isCroppingImage ? _cropDraft : null;
+
+  /// Arms the interactive crop tool on the selected image stamp, seeding the
+  /// crop rectangle to the whole picture. A no-op unless [canCropSelected].
+  void beginImageCrop() {
+    final annotation = selectedAnnotation;
+    if (annotation == null || !canCropSelected) return;
+    _cropModeArmed = true;
+    _cropDraft = annotation.rect;
+    notifyListeners();
+  }
+
+  /// Updates the pending crop rectangle as the overlay drags a handle,
+  /// clamped to the selected image stamp's /Rect. A no-op unless cropping.
+  void updateImageCropDraft(PdfRect draft) {
+    if (!isCroppingImage) return;
+    final rect = selectedAnnotation!.rect;
+    final clamped = draft.intersect(rect);
+    if (clamped.width < 1 || clamped.height < 1) return;
+    if (clamped == _cropDraft) return;
+    _cropDraft = clamped;
+    notifyListeners();
+  }
+
+  /// Applies the pending crop and disarms the tool. A no-op (just disarms)
+  /// when the draft still covers the whole picture.
+  void commitImageCrop() {
+    final region = imageCropDraft;
+    _cropModeArmed = false;
+    _cropDraft = null;
+    if (region != null) cropSelectedImage(region);
+    // cropSelectedImage may no-op (unchanged box); repaint either way so the
+    // crop chrome disappears.
+    notifyListeners();
+  }
+
+  /// Disarms the crop tool, discarding the pending crop.
+  void cancelImageCrop() {
+    if (!_cropModeArmed && _cropDraft == null) return;
+    _cropModeArmed = false;
+    _cropDraft = null;
+    notifyListeners();
   }
 
   /// Moves a selected callout's arrow terminus to [target] (page space),

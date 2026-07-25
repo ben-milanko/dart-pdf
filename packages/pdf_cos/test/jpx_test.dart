@@ -370,4 +370,83 @@ void main() {
     final mid = (image.height ~/ 2) * image.width + image.width ~/ 2;
     expect(s[mid * 3], lessThan(120));
   });
+
+  // ---- resolution-level skip (PDFium cp_reduce) ----
+
+  Uint8List boxDownsample(
+      List<int> src, int w, int h, int comps, int factor) {
+    final dw = (w / factor).ceil(), dh = (h / factor).ceil();
+    final out = Uint8List(dw * dh * comps);
+    for (var Y = 0; Y < dh; Y++) {
+      for (var X = 0; X < dw; X++) {
+        for (var c = 0; c < comps; c++) {
+          var sum = 0, n = 0;
+          for (var dy = 0; dy < factor; dy++) {
+            for (var dx = 0; dx < factor; dx++) {
+              final sx = X * factor + dx, sy = Y * factor + dy;
+              if (sx >= w || sy >= h) continue;
+              sum += src[(sy * w + sx) * comps + c];
+              n++;
+            }
+          }
+          out[(Y * dw + X) * comps + c] = (sum / n).round();
+        }
+      }
+    }
+    return out;
+  }
+
+  test('reduceLevels: 0 is byte-identical to a full decode', () {
+    final full = JpxDecoder.decode(Uint8List.fromList(_rgbJ2k))!;
+    final r0 = JpxDecoder.decode(Uint8List.fromList(_rgbJ2k), reduceLevels: 0)!;
+    expect(r0.width, full.width);
+    expect(r0.height, full.height);
+    expect(r0.samples, full.samples);
+  });
+
+  test('a resolution skip halves each dimension per level', () {
+    final r1 =
+        JpxDecoder.decode(Uint8List.fromList(_grayJ2k), reduceLevels: 1)!;
+    expect(r1.width, 8);
+    expect(r1.height, 8);
+    expect(r1.components, 1);
+
+    final r2 =
+        JpxDecoder.decode(Uint8List.fromList(_grayJ2k), reduceLevels: 2)!;
+    expect(r2.width, 4);
+    expect(r2.height, 4);
+  });
+
+  test('an over-large resolution skip clamps to the decomposition depth', () {
+    // this codestream carries 2 decomposition levels, so reduce 2 is the floor
+    final r2 =
+        JpxDecoder.decode(Uint8List.fromList(_grayJ2k), reduceLevels: 2)!;
+    final r9 =
+        JpxDecoder.decode(Uint8List.fromList(_grayJ2k), reduceLevels: 9)!;
+    expect(r9.width, r2.width);
+    expect(r9.height, r2.height);
+    expect(r9.samples, r2.samples);
+  });
+
+  test('a reduced RGB decode approximates the downsampled full image', () {
+    // The RGB fixture is a linear ramp (R=16x, G=16y, B=8x), so the wavelet
+    // low-pass and a box average agree closely - a garbage or desynced decode
+    // would not. This also confirms the RCT still runs at the reduced size
+    // (a skipped MCT would tint the neutrals).
+    final full = JpxDecoder.decode(Uint8List.fromList(_rgbJ2k))!;
+    final reduced =
+        JpxDecoder.decode(Uint8List.fromList(_rgbJ2k), reduceLevels: 1)!;
+    expect(reduced.width, 8);
+    expect(reduced.height, 8);
+    expect(reduced.components, 3);
+    final box = boxDownsample(full.samples, 16, 16, 3, 2);
+    var maxDiff = 0, total = 0;
+    for (var i = 0; i < box.length; i++) {
+      final d = (reduced.samples[i] - box[i]).abs();
+      maxDiff = math.max(maxDiff, d);
+      total += d;
+    }
+    expect(maxDiff, lessThanOrEqualTo(24), reason: 'max channel diff');
+    expect(total / box.length, lessThan(8), reason: 'mean channel diff');
+  });
 }

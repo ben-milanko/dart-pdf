@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.0.0
+
+Lockstep major release: a breaking change in `dart_pdf_editor` moves the whole
+suite to 3.0.0. `pdf_cos`'s own public API is unchanged.
+
+- Cache decoded stream bytes on `CosDocument` so a stream inflated once (xref
+  reconstruction, content parsing, image extraction) is not re-decoded on the
+  next access (#392).
+- Perf micro-batch: chunked message-digest hashing, an in-place JPX inverse
+  DWT, and predictor/lexer/regex fast-path fixes (#407).
+
 ## 2.1.0
 
 - Append incremental saves to the existing bytes instead of rebuilding the

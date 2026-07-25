@@ -1,0 +1,18 @@
+Mới trong 3.0.0
+
+NGÔN NGỮ
+• DartPDF hiện có 10 ngôn ngữ, hỗ trợ đầy đủ bố cục từ phải sang trái cho tiếng Ả Rập.
+
+HIỂN THỊ
+• Hiển thị in đè, chế độ hòa trộn và mặt nạ mềm chính xác hơn, giúp các tệp PDF hướng đến in ấn trông sát với kết quả mong muốn hơn.
+• Các nhóm trong suốt được vẽ dưới một chế độ hòa trộn giờ đây hợp thành đúng cách, khắc phục những ô mờ đục thừa trên một số tệp.
+
+CHỈNH SỬA
+• Giữ Shift trong khi vẽ để giới hạn nét mực và đường vẽ thành các nét thẳng.
+• Đặt một kiểu mặc định cho chú thích và tái sử dụng chỉ với một lần chạm.
+• Thẻ tài liệu được thiết kế lại, luôn dễ đọc khi bạn mở thêm nhiều tệp.
+
+TỐC ĐỘ
+• Hiển thị nhanh hơn và dùng ít bộ nhớ hơn, cải thiện rõ rệt nhất trên các tệp lớn hoặc nhiều hình ảnh.
+
+Cảm ơn bạn đã sử dụng DartPDF. Chúng tôi luôn hoan nghênh mọi ý kiến phản hồi và báo cáo lỗi.

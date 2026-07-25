@@ -1,10 +1,29 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart' as intl;
 
-import 'app_localizations_en.dart' deferred as app_localizations_en;
+import 'app_localizations_ar.dart';
+import 'app_localizations_de.dart';
+import 'app_localizations_en.dart';
+import 'app_localizations_es.dart';
+import 'app_localizations_fr.dart';
+import 'app_localizations_hi.dart';
+import 'app_localizations_id.dart';
+import 'app_localizations_it.dart';
+import 'app_localizations_ja.dart';
+import 'app_localizations_ko.dart';
+import 'app_localizations_nl.dart';
+import 'app_localizations_pl.dart';
+import 'app_localizations_pt.dart';
+import 'app_localizations_ru.dart';
+import 'app_localizations_th.dart';
+import 'app_localizations_tr.dart';
+import 'app_localizations_uk.dart';
+import 'app_localizations_vi.dart';
+import 'app_localizations_zh.dart';
 
 // ignore_for_file: type=lint
 
@@ -91,7 +110,28 @@ abstract class AppLocalizations {
   ];
 
   /// A list of this localizations delegate's supported locales.
-  static const List<Locale> supportedLocales = <Locale>[Locale('en')];
+  static const List<Locale> supportedLocales = <Locale>[
+    Locale('ar'),
+    Locale('de'),
+    Locale('en'),
+    Locale('es'),
+    Locale('fr'),
+    Locale('hi'),
+    Locale('id'),
+    Locale('it'),
+    Locale('ja'),
+    Locale('ko'),
+    Locale('nl'),
+    Locale('pl'),
+    Locale('pt'),
+    Locale('ru'),
+    Locale('th'),
+    Locale('tr'),
+    Locale('uk'),
+    Locale('vi'),
+    Locale('zh'),
+    Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant')
+  ];
 
   /// Generic button that adds a new item.
   ///
@@ -933,6 +973,48 @@ abstract class AppLocalizations {
   /// **'Later'**
   String get editorUpdateLater;
 
+  /// Button that downloads and installs the newer release in place (desktop), instead of opening a browser download.
+  ///
+  /// In en, this message translates to:
+  /// **'Update now'**
+  String get updateInstallNow;
+
+  /// Title of the dialog shown while an in-app update is downloading.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading update'**
+  String get updateDownloadingTitle;
+
+  /// Status shown before download progress is known.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing…'**
+  String get updatePreparing;
+
+  /// Download progress line with the percentage complete.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading… {percent}%'**
+  String updateDownloadingPercent(int percent);
+
+  /// Status shown after the AppImage is replaced, just before the app relaunches.
+  ///
+  /// In en, this message translates to:
+  /// **'Restarting to finish the update…'**
+  String get updateRestarting;
+
+  /// Snackbar shown after a macOS/Windows update is downloaded and handed to the OS installer.
+  ///
+  /// In en, this message translates to:
+  /// **'Update downloaded. Opening the installer…'**
+  String get updateHandedOff;
+
+  /// Snackbar shown when an in-app update download or install fails.
+  ///
+  /// In en, this message translates to:
+  /// **'Update failed: {error}'**
+  String updateFailed(String error);
+
   /// Tooltip on the desktop button that opens the all-tabs grid dialog.
   ///
   /// In en, this message translates to:
@@ -1179,6 +1261,18 @@ abstract class AppLocalizations {
   /// **'Check now'**
   String get settingsCheckNow;
 
+  /// Section header / label for the UI language picker in settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Language'**
+  String get settingsLanguage;
+
+  /// Language picker option that follows the device's language instead of a fixed choice.
+  ///
+  /// In en, this message translates to:
+  /// **'System default'**
+  String get settingsLanguageSystem;
+
   /// Status line shown while an update check is in progress.
   ///
   /// In en, this message translates to:
@@ -1340,6 +1434,120 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Tap to reopen'**
   String get welcomeTapToReopen;
+
+  /// Tooltip on the toggle that shows recent documents as a thumbnail grid.
+  ///
+  /// In en, this message translates to:
+  /// **'Grid view'**
+  String get welcomeViewAsGrid;
+
+  /// Tooltip on the toggle that shows recent documents as a list.
+  ///
+  /// In en, this message translates to:
+  /// **'List view'**
+  String get welcomeViewAsList;
+
+  /// One-line hint on the Settings row explaining how to make DartPDF the default PDF app; the arm is chosen by the running platform.
+  ///
+  /// In en, this message translates to:
+  /// **'{platform, select, web{Install the web app, then choose it for PDF files.} windows{Open Windows default apps settings for PDFs.} macos{Follow Finder’s “Always Open With” steps.} linux{Use your desktop’s default applications settings.} android{Choose DartPDF when opening a PDF, then tap Always.} ios{Use Share or Open In from Files to send PDFs here.} other{Configure your system’s PDF file handler.}}'**
+  String settingsDefaultAppSubtitle(String platform);
+
+  /// Full platform-specific steps for making DartPDF the default PDF app, shown in the setup dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'{platform, select, web{Install DartPDF from your browser first. Then use the browser or operating system file-handler settings to associate PDF files with the installed app.} windows{Windows Settings will open to Default apps. Search for “.pdf” or “PDF”, choose the current PDF app, then select DartPDF.} macos{In Finder, select any PDF, choose File > Get Info, expand “Open with”, pick DartPDF, then click “Change All…”.} linux{Open your desktop settings for Default Applications, or right-click a PDF in Files, choose Properties, and set DartPDF as the default for PDF documents.} android{Open a PDF from Files or Downloads, choose DartPDF in the app picker, then select Always. If another app already opens PDFs, clear that app’s defaults in Android Settings first.} ios{iOS does not provide a global default PDF editor. Use Files > Share, or long-press a PDF and choose Share/Open In, then pick DartPDF.} other{Use the system settings for file handlers to associate PDF documents with DartPDF.}}'**
+  String settingsDefaultAppInstructions(String platform);
+
+  /// OCR progress chip while the recognition model downloads (size unknown).
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading OCR model…'**
+  String get ocrChipDownloadingModel;
+
+  /// OCR progress chip while the recognition model downloads, with percent.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading model {percent}%'**
+  String ocrChipDownloadingModelPercent(int percent);
+
+  /// OCR progress chip while recognizing text, showing page of total.
+  ///
+  /// In en, this message translates to:
+  /// **'OCR {page}/{pageCount}'**
+  String ocrChipRecognising(int page, int pageCount);
+
+  /// OCR progress chip while assembling the recognized PDF after the last page.
+  ///
+  /// In en, this message translates to:
+  /// **'Finishing OCR…'**
+  String get ocrChipFinishing;
+
+  /// File-picker filter label for PDF files.
+  ///
+  /// In en, this message translates to:
+  /// **'PDF documents'**
+  String get fileTypePdf;
+
+  /// File-picker filter label for PNG/JPEG image files.
+  ///
+  /// In en, this message translates to:
+  /// **'Images'**
+  String get fileTypeImages;
+
+  /// File-picker filter label for exported custom-stamp JSON bundles.
+  ///
+  /// In en, this message translates to:
+  /// **'DartPDF stamps'**
+  String get fileTypeStampBundle;
+
+  /// File-picker filter label when choosing a private key to sign with.
+  ///
+  /// In en, this message translates to:
+  /// **'RSA private keys'**
+  String get appSigKeyFileType;
+
+  /// File-picker filter label when choosing signing certificates.
+  ///
+  /// In en, this message translates to:
+  /// **'X.509 certificates'**
+  String get appSigCertificateFileType;
+
+  /// Signing error: the user picked a key but no certificate.
+  ///
+  /// In en, this message translates to:
+  /// **'Select at least one X.509 certificate.'**
+  String get appSigErrorNoCertificateSelected;
+
+  /// Signing error: a chosen certificate file could not be parsed as X.509.
+  ///
+  /// In en, this message translates to:
+  /// **'Certificate {index} is not valid X.509.'**
+  String appSigErrorInvalidCertificate(int index);
+
+  /// Signing error: the key pairs with none of the chosen certificates.
+  ///
+  /// In en, this message translates to:
+  /// **'The private key does not match any selected RSA certificate.'**
+  String get appSigErrorKeyCertificateMismatch;
+
+  /// Signing error: the chosen private key is an encrypted PEM.
+  ///
+  /// In en, this message translates to:
+  /// **'Encrypted private keys are not supported. Choose an unencrypted RSA PKCS#1 or PKCS#8 key.'**
+  String get appSigErrorEncryptedKeyUnsupported;
+
+  /// Signing error: the chosen private key could not be read as RSA.
+  ///
+  /// In en, this message translates to:
+  /// **'The private key is not an unencrypted RSA PKCS#1 or PKCS#8 key.'**
+  String get appSigErrorKeyNotRsa;
+
+  /// Signing error: the chosen files contained no X.509 certificate.
+  ///
+  /// In en, this message translates to:
+  /// **'No X.509 certificates were found.'**
+  String get appSigErrorNoCertificateFound;
 }
 
 class _AppLocalizationsDelegate
@@ -1348,24 +1556,89 @@ class _AppLocalizationsDelegate
 
   @override
   Future<AppLocalizations> load(Locale locale) {
-    return lookupAppLocalizations(locale);
+    return SynchronousFuture<AppLocalizations>(lookupAppLocalizations(locale));
   }
 
   @override
-  bool isSupported(Locale locale) =>
-      <String>['en'].contains(locale.languageCode);
+  bool isSupported(Locale locale) => <String>[
+        'ar',
+        'de',
+        'en',
+        'es',
+        'fr',
+        'hi',
+        'id',
+        'it',
+        'ja',
+        'ko',
+        'nl',
+        'pl',
+        'pt',
+        'ru',
+        'th',
+        'tr',
+        'uk',
+        'vi',
+        'zh'
+      ].contains(locale.languageCode);
 
   @override
   bool shouldReload(_AppLocalizationsDelegate old) => false;
 }
 
-Future<AppLocalizations> lookupAppLocalizations(Locale locale) {
+AppLocalizations lookupAppLocalizations(Locale locale) {
+  // Lookup logic when language+script codes are specified.
+  switch (locale.languageCode) {
+    case 'zh':
+      {
+        switch (locale.scriptCode) {
+          case 'Hant':
+            return AppLocalizationsZhHant();
+        }
+        break;
+      }
+  }
+
   // Lookup logic when only language code is specified.
   switch (locale.languageCode) {
+    case 'ar':
+      return AppLocalizationsAr();
+    case 'de':
+      return AppLocalizationsDe();
     case 'en':
-      return app_localizations_en
-          .loadLibrary()
-          .then((dynamic _) => app_localizations_en.AppLocalizationsEn());
+      return AppLocalizationsEn();
+    case 'es':
+      return AppLocalizationsEs();
+    case 'fr':
+      return AppLocalizationsFr();
+    case 'hi':
+      return AppLocalizationsHi();
+    case 'id':
+      return AppLocalizationsId();
+    case 'it':
+      return AppLocalizationsIt();
+    case 'ja':
+      return AppLocalizationsJa();
+    case 'ko':
+      return AppLocalizationsKo();
+    case 'nl':
+      return AppLocalizationsNl();
+    case 'pl':
+      return AppLocalizationsPl();
+    case 'pt':
+      return AppLocalizationsPt();
+    case 'ru':
+      return AppLocalizationsRu();
+    case 'th':
+      return AppLocalizationsTh();
+    case 'tr':
+      return AppLocalizationsTr();
+    case 'uk':
+      return AppLocalizationsUk();
+    case 'vi':
+      return AppLocalizationsVi();
+    case 'zh':
+      return AppLocalizationsZh();
   }
 
   throw FlutterError(

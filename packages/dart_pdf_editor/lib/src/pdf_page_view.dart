@@ -13,6 +13,7 @@ import 'package:pdf_graphics/pdf_graphics.dart'
         PdfMatrix,
         PdfRenderCommand;
 
+import 'canvas_device.dart';
 import 'debug_overlays.dart';
 import 'live_raster_budget.dart';
 import 'perf_log.dart';
@@ -335,6 +336,25 @@ class PdfPageView extends StatefulWidget {
   /// this additionally prevents the full decode from starting while the main
   /// thread turns the returned detail commands into the sharp on-screen patch.
   static bool deferFullRenderUntilDetailPaint = true;
+
+  /// Paints a bounded command *prefix* before the full vector record, so a
+  /// dense sheet shows real ink instead of blank paper while its whole-page
+  /// transcript is still being built.
+  ///
+  /// The worker maps `commandLimit` to the parse cursor's `operationLimit`, so
+  /// a limited record genuinely stops early rather than recording everything
+  /// and trimming. See [_paintEarlyPrefix]; set false to disable.
+  static bool earlyPrefixPaint = true;
+
+  /// Commands in that first bounded record - large enough for the prefix to be
+  /// recognizable, small enough to land in a fraction of a dense page's walk.
+  static int earlyPrefixCommandLimit = 20000;
+
+  /// Only pages whose raw (still-encoded) content exceeds this pay the extra
+  /// record. [PdfPage.rawContentLength] is an O(streams) size proxy that costs
+  /// no decode, so an ordinary few-KB page skips the prefix entirely and is
+  /// never charged a second worker job.
+  static int earlyPrefixMinContentBytes = 512 * 1024;
 
   /// Composite deep-zoom detail from the [PdfTileStore] zoom-bucket pyramid
   /// instead of the single unbudgeted detail patch. When true (and the page
@@ -1197,6 +1217,9 @@ class _PdfPageViewState extends State<PdfPageView>
       // signal; both fields stay null and the line omits them.
       _lastInterpretDecodeMs = null;
       _lastInterpretReplayMs = null;
+      _lastInterpretTextShapeMs = null;
+      _lastInterpretTextShapeMiss = null;
+      _lastInterpretTextShapeHit = null;
       return (picture, null);
     }
     // The record shipped platform-codec images (JPEGs the worker can't decode)
@@ -1210,11 +1233,18 @@ class _PdfPageViewState extends State<PdfPageView>
       timing: timing,
       maxImagePixelRatio: maxImagePixelRatio,
     );
+    if (timing != null) CanvasPdfDevice.debugResetTextShape();
     final replayClock = timing == null ? null : (Stopwatch()..start());
     final picture = scene.replay(pixelRatio: 1);
     _lastInterpretDecodeMs = timing?.decodeMs;
     _lastInterpretReplayMs =
         replayClock == null ? null : replayClock.elapsedMicroseconds / 1000.0;
+    _lastInterpretTextShapeMs =
+        timing == null ? null : CanvasPdfDevice.debugTextShapeUs / 1000.0;
+    _lastInterpretTextShapeMiss =
+        timing == null ? null : CanvasPdfDevice.debugTextShapeMiss;
+    _lastInterpretTextShapeHit =
+        timing == null ? null : CanvasPdfDevice.debugTextShapeHit;
     return (picture, scene);
   }
 
@@ -1226,6 +1256,89 @@ class _PdfPageViewState extends State<PdfPageView>
   ///
   /// When the page draws no images the fast buffer is the whole page, so it is
   /// cached as [_picture] for the full pass to reuse - no second record.
+  /// Rasterizes a bounded command prefix into the preview slot before the full
+  /// vector record runs.
+  ///
+  /// On a dense sheet the `worker.record` in [_paintVectorFirst] walks the
+  /// whole page, which can take seconds - and until it returns the page is
+  /// blank paper. A `commandLimit`'d record stops the parse cursor early, so
+  /// this lands in a small fraction of that time and puts real ink on screen;
+  /// the vector and full passes replace it as they arrive.
+  ///
+  /// This is deliberately a *painter-order prefix*, not PDFium's spatial
+  /// top-down band: our worker protocol is strictly one-request-one-response,
+  /// so a true streaming band is a much larger change (tracked as #564). On a
+  /// sheet authored in region order the prefix reads naturally; on one authored
+  /// by layer it is a partial drawing. Either way it is strictly more
+  /// information than blank paper, and it is transient.
+  ///
+  /// Only dense pages pay the extra record - see [earlyPrefixMinContentBytes].
+  Future<void> _paintEarlyPrefix(
+    int generation,
+    int pageIndex,
+    PdfRenderWorker worker,
+    int priority,
+  ) async {
+    if (!PdfPageView.earlyPrefixPaint || _renderPaused) return;
+    // Something is already on screen for this page; there is nothing to
+    // improve on, and overwriting it would be a downgrade.
+    if (_image != null || _preview != null || _slugPicture != null) return;
+    if (widget.page.rawContentLength < PdfPageView.earlyPrefixMinContentBytes) return;
+
+    final commands = await worker.record(
+      pageIndex,
+      // The prefix is transient, so keep it pure page content: annotations are
+      // drawn after the (truncated) content walk and the full passes bring
+      // them in anyway.
+      annotations: false,
+      priority: priority,
+      decodeImages: false,
+      commandLimit: PdfPageView.earlyPrefixCommandLimit,
+    );
+    if (commands == null ||
+        commands.isEmpty ||
+        _superseded(generation, pageIndex) ||
+        _renderPaused ||
+        // A full pass may have overtaken us while the prefix was recording.
+        _image != null) {
+      return;
+    }
+
+    final picture = await PdfPageRenderer.pictureFromCommandsWithPlan(
+      widget.page,
+      commands,
+      _renderPlan,
+      includeImages: false,
+    );
+    if (_superseded(generation, pageIndex) || _renderPaused || _image != null) {
+      picture.dispose();
+      return;
+    }
+    // _vectorFirstRatio is already bounded by _previewMaxPixels, so a large
+    // sheet cannot turn this into an expensive fill.
+    final ratio = _vectorFirstRatio();
+    final image = await PdfPageRenderer.rasterize(
+      picture,
+      PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation),
+      ratio,
+    );
+    picture.dispose();
+    if (_superseded(generation, pageIndex) || _image != null) {
+      image.dispose();
+      return;
+    }
+    if (!mounted) {
+      image.dispose();
+      return;
+    }
+    setState(() {
+      _preview?.dispose();
+      _preview = image;
+    });
+    PdfPerfLog.log('early-prefix page=$pageIndex commands=${commands.length} '
+        'limit=${PdfPageView.earlyPrefixCommandLimit}${PdfPerfLog.rssSuffix()}');
+  }
+
   Future<Completer<bool>?> _paintVectorFirst(
       int generation, int pageIndex) async {
     final worker = widget.renderWorker;
@@ -1236,12 +1349,17 @@ class _PdfPageViewState extends State<PdfPageView>
     // the scheduler drains the cache window around it.
     final visibleDetailRequested =
         _detailGeometryAt(widget.scale, force: true, inflation: 0.125) != null;
+    final priority = visibleDetailRequested
+        ? widget.renderPriority - 100
+        : widget.renderPriority;
+    // On a dense sheet the full record below is a multi-second wait on blank
+    // paper; put a bounded prefix on screen first. No-ops on ordinary pages.
+    await _paintEarlyPrefix(generation, pageIndex, worker, priority);
+    if (_superseded(generation, pageIndex) || _renderPaused) return null;
     final commands = await worker.record(
       pageIndex,
       annotations: widget.showAnnotations,
-      priority: visibleDetailRequested
-          ? widget.renderPriority - 100
-          : widget.renderPriority,
+      priority: priority,
       decodeImages: false,
     );
     if (_superseded(generation, pageIndex) ||
@@ -1447,6 +1565,14 @@ class _PdfPageViewState extends State<PdfPageView>
   double? _lastInterpretDecodeMs;
   double? _lastInterpretReplayMs;
 
+  /// The within-replay substituted-text shaping split (#454): shaping wall time
+  /// and run-cache miss/hit counts, filled only when [PdfPerfLog.enabled] on the
+  /// retained-scene replay path; null everywhere else, like the decode/replay
+  /// pair above.
+  double? _lastInterpretTextShapeMs;
+  int? _lastInterpretTextShapeMiss;
+  int? _lastInterpretTextShapeHit;
+
   /// The actual interpret + rasterize, run once the first render is no
   /// longer gated (or directly for re-rasters of a cached picture).
   Future<void> _renderNow() async {
@@ -1459,6 +1585,9 @@ class _PdfPageViewState extends State<PdfPageView>
       _lastInterpretBuildMs = null;
       _lastInterpretDecodeMs = null;
       _lastInterpretReplayMs = null;
+      _lastInterpretTextShapeMs = null;
+      _lastInterpretTextShapeMiss = null;
+      _lastInterpretTextShapeHit = null;
     }
     final sw = Stopwatch()..start();
     if (_renderPaused) {
@@ -1537,6 +1666,9 @@ class _PdfPageViewState extends State<PdfPageView>
         buildMs: _lastInterpretBuildMs,
         decodeMs: _lastInterpretDecodeMs,
         replayMs: _lastInterpretReplayMs,
+        textShapeMs: _lastInterpretTextShapeMs,
+        textShapeMiss: _lastInterpretTextShapeMiss,
+        textShapeHit: _lastInterpretTextShapeHit,
         first: true,
       );
       widget.performance?.observe(
@@ -1961,7 +2093,8 @@ class _PdfPageViewState extends State<PdfPageView>
       }
       if (widget.renderHold?.value ?? false) return false;
     }
-    final picture = await (_picture ??= PdfPageRenderer.renderPictureWithPlan(
+    final picture =
+        await (_picture ??= PdfPageRenderer.renderPictureRecordedWithPlan(
       widget.page,
       _renderPlan,
     ));

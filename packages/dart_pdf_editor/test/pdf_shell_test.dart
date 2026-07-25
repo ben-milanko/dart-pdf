@@ -350,10 +350,19 @@ void main() {
       await tester.pumpAndSettle();
     }
 
+    // Filters the (now full) tool list down to a single tool so its tile is
+    // on-screen and tappable regardless of list length.
+    Future<void> filterShortcuts(WidgetTester tester, String query) async {
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-shell-shortcuts-search')), query);
+      await tester.pumpAndSettle();
+    }
+
     testWidgets('rebinding a shortcut updates the label and persists on Done',
         (tester) async {
       await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
       await openShortcutsSheet(tester);
+      await filterShortcuts(tester, 'Rectangle');
 
       // Capture a new key for the rectangle tool.
       await tester
@@ -372,6 +381,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-shell-shortcuts-done')));
       await tester.pumpAndSettle();
       await openShortcutsSheet(tester);
+      await filterShortcuts(tester, 'Rectangle');
       expect(find.text('B'), findsOneWidget);
     });
 
@@ -379,6 +389,7 @@ void main() {
         (tester) async {
       await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
       await openShortcutsSheet(tester);
+      await filterShortcuts(tester, 'Rectangle');
 
       await tester
           .tap(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')));
@@ -397,6 +408,7 @@ void main() {
         (tester) async {
       await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
       await openShortcutsSheet(tester);
+      await filterShortcuts(tester, 'Rectangle');
 
       await tester
           .tap(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')));
@@ -407,6 +419,83 @@ void main() {
 
       expect(find.text('Press a key'), findsNothing);
       expect(find.text('R'), findsOneWidget);
+    });
+
+    testWidgets('shortcuts are grouped under tool-category headers',
+        (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+      await openShortcutsSheet(tester);
+
+      // The Shapes header sits above the rectangle tool it groups.
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-group-shapes')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')),
+          findsOneWidget);
+      expect(find.text('R'), findsOneWidget);
+      final headerY = tester
+          .getTopLeft(
+              find.byKey(const ValueKey('pdf-shell-shortcut-group-shapes')))
+          .dy;
+      final rectY = tester
+          .getTopLeft(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')))
+          .dy;
+      expect(headerY, lessThan(rectY));
+
+      // A group lower down builds once scrolled into view.
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('pdf-shell-shortcut-group-insert')),
+        200,
+        scrollable: find
+            .descendant(
+              of: find.byType(ListView),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-group-insert')),
+          findsOneWidget);
+    });
+
+    testWidgets('searching filters the shortcut list and its group headers',
+        (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+      await openShortcutsSheet(tester);
+
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-shell-shortcuts-search')), 'rect');
+      await tester.pumpAndSettle();
+
+      // Only the rectangle tool (and its Shapes header) survives the filter.
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-ellipse')),
+          findsNothing);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-group-shapes')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-group-insert')),
+          findsNothing);
+    });
+
+    testWidgets('searching by key label matches, and a miss shows a message',
+        (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+      await openShortcutsSheet(tester);
+
+      // The rectangle tool is bound to "R" - searching the key finds it.
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-shell-shortcuts-search')), 'r');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')),
+          findsOneWidget);
+
+      // A query no tool matches shows the empty-state message instead.
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-shell-shortcuts-search')), 'zzzz');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pdf-shell-shortcuts-no-matches')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')),
+          findsNothing);
     });
 
     testWidgets('view options can switch the editor to reflow text',
@@ -795,7 +884,7 @@ void main() {
       expect(editing.tool, PdfEditTool.ink);
       expect(editing.color, const Color(0xFF123456));
 
-      await tester.tap(find.byTooltip('Highlight - draw freehand'));
+      await tester.tap(find.byTooltip('Highlight - draw freehand (⇧H)'));
       await tester.pump();
       expect(editing.tool, PdfEditTool.highlight);
       expect(editing.color, const Color(0xFF123456));
@@ -1277,8 +1366,8 @@ void main() {
   group('floating toast margin', () {
     testWidgets('lifts the toast above the dock and the safe-area inset',
         (tester) async {
-      late EdgeInsets withoutInset;
-      late EdgeInsets withInset;
+      late EdgeInsetsGeometry withoutInset;
+      late EdgeInsetsGeometry withInset;
       await tester.pumpWidget(MaterialApp(
         home: MediaQuery(
           data: const MediaQueryData(size: Size(800, 600)),
@@ -1300,10 +1389,12 @@ void main() {
           }),
         ),
       ));
+      final withoutInsetLtr = withoutInset.resolve(TextDirection.ltr);
+      final withInsetLtr = withInset.resolve(TextDirection.ltr);
       // clears the floating editing toolbar dock…
-      expect(withoutInset.bottom, greaterThanOrEqualTo(84));
+      expect(withoutInsetLtr.bottom, greaterThanOrEqualTo(84));
       // …and adds the device's bottom safe-area inset on top
-      expect(withInset.bottom, withoutInset.bottom + 34);
+      expect(withInsetLtr.bottom, withoutInsetLtr.bottom + 34);
     });
   });
 

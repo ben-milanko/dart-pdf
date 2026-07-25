@@ -27,6 +27,7 @@ void main() {
     // Touch logging is a process-global singleton; reset it (and the viewer
     // sink it installs) so it never leaks into another test.
     AppDevTools.instance.logTouchInput = false;
+    AppDevTools.instance.localeOverride.value = null;
     AppDevTools.instance.clearLog();
   });
 
@@ -86,6 +87,25 @@ void main() {
     await tapMode('patch');
     expect(PdfPageView.tileStoreDetail, isFalse);
     expect(PdfPageView.debugTileStoreOverride, isNull);
+  });
+
+  testWidgets('the Locale section sets a testing override', (tester) async {
+    await pumpWithDoc(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.f12);
+    await tester.pump();
+
+    expect(AppDevTools.instance.localeOverride.value, isNull);
+
+    final dropdown = find.byKey(const ValueKey('devtools-locale-dropdown'));
+    await tester.ensureVisible(dropdown);
+    await tester.pump();
+    await tester.tap(dropdown);
+    await tester.pumpAndSettle();
+    // Pick Arabic (RTL) from the opened menu.
+    await tester.tap(find.text('العربية (Arabic) — RTL').last);
+    await tester.pumpAndSettle();
+
+    expect(AppDevTools.instance.localeOverride.value, const Locale('ar'));
   });
 
   testWidgets('captured logs appear and the filter narrows them',

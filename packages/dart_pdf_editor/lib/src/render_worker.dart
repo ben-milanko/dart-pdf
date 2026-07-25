@@ -1240,6 +1240,9 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
           if (d != null) bytes += d.width * d.height * 4;
         } else if (c is PdfEndSoftMaskedCommand) {
           walk(c.maskCommands);
+        } else if (c is PdfDrawTiledCellCommand) {
+          // The cell's decoded images are retained once, not per tile.
+          walk(c.cellCommands);
         }
       }
     }

@@ -196,4 +196,37 @@ void main() {
         reason: 'a decode without a replay must not print half a split');
   });
 
+  test('interpret splits substituted-text shaping out of replay', () {
+    final lines = capturePrints(() {
+      PdfPerfLog.enabled = true;
+      PdfPerfLog.interpret(0,
+          path: 'worker',
+          interpretMs: 48.0,
+          waitMs: 4.0,
+          buildMs: 44.0,
+          decodeMs: 0.0,
+          replayMs: 43.5,
+          textShapeMs: 33.0,
+          textShapeMiss: 660,
+          textShapeHit: 0);
+      // Call sites without the split (no retained-scene replay, or the log's
+      // off) pass no textShapeMs, and the shape fields stay off the line.
+      PdfPerfLog.interpret(1,
+          path: 'worker',
+          interpretMs: 10.0,
+          waitMs: 1.0,
+          buildMs: 9.0,
+          decodeMs: 0.0,
+          replayMs: 9.0);
+    });
+
+    expect(lines[0], contains('replay=43.5ms'));
+    expect(lines[0], contains('shape=33.0ms'));
+    expect(lines[0], contains('shaped=660'));
+    expect(lines[0], contains('cached=0'));
+
+    expect(lines[1], contains('replay=9.0ms'));
+    expect(lines[1], isNot(contains('shape=')));
+    expect(lines[1], isNot(contains('shaped=')));
+  });
 }

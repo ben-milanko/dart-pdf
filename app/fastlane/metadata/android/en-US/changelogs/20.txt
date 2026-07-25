@@ -1,0 +1,7 @@
+New in 3.0.0
+
+• The app is now available in 10 languages, with full right-to-left layout.
+• More accurate overprint, blend-mode and soft-mask rendering.
+• Hold Shift to draw straight lines, and set a default style for annotations.
+• Redesigned, smoother document tabs.
+• Faster rendering and lower memory use on large files.

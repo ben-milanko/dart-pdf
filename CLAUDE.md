@@ -203,8 +203,16 @@ gray TRC, matrix/TRC, mft1/mft2/mAB LUTs, validated vs littleCMS;
 wired into sc/scn and image decoding). RSASSA-PSS verification is in
 (`rsaVerifyPss` in pdf_cos rsa.dart - MGF1 + EMSA-PSS with salt-length
 recovery, KAT vs OpenSSL; PSS-params parsing and dispatch in cms.dart's
-`cmsVerify` and `X509Certificate.isSignedBy`). Remaining gaps:
-JPX subsampling + PCRL/CPRL, rendering intents/BPC in ICC.
+`cmsVerify` and `X509Certificate.isSignedBy`). Overprint (/OP, /op, /OPM;
+§8.6.7) is parsed into the graphics state and delivered via
+`PdfDevice.setOverprint`; `CanvasPdfDevice` approximates it with a `darken`
+(per-channel min) composite for the common neutral-ink-over-colour case (a
+no-op over white, so defensive `op` pages are unaffected - see
+doc/dev-log/2026-07-23-overprint-compositing.md). Remaining gaps:
+faithful subtractive overprint (DeviceCMYK-backdrop knockout, OPM 0/1,
+text/image overprint) needs a CMYK/spot colorant buffer, so GWG030's
+"over CMYK" patches stay a tolerated Ghent deviation; JPX subsampling +
+PCRL/CPRL, rendering intents/BPC in ICC.
 The decoded-image cache budget (`PdfImageCache.maxBytes`, settable) is
 platform-aware: `pdfDefaultImageCacheBytes()` in performance_policy.dart -
 desktop 256 MB, mobile/web 128 MB, 64 MB on a <=2 GB browser device

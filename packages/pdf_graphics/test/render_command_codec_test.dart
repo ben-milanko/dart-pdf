@@ -109,6 +109,8 @@ class _TranscriptDevice implements PdfDevice {
       '${_matrix(run.transform)} ${_color(run.color)} w=${run.width} '
       'font=${run.fontName} size=${run.fontSize} fill=${run.fill} '
       'invisible=${run.invisible} sw=${run.strokeWidth} '
+      'ls=${run.letterSpacing} ws=${run.wordSpacing} '
+      'ld=${run.leadingSpace} vw=${run.visibleWidth} '
       'glyphs=${run.glyphs?.length}');
 
   @override
@@ -117,6 +119,10 @@ class _TranscriptDevice implements PdfDevice {
 
   @override
   void setBlendMode(PdfBlendMode mode) => log.add('blend ${mode.name}');
+  @override
+  void setOverprint(
+          {required bool fill, required bool stroke, required int mode}) =>
+      log.add('overprint $fill $stroke $mode');
 
   @override
   void beginGroup(double alpha, {bool knockout = false}) =>
@@ -168,6 +174,10 @@ void main() {
       'dashed stroke': '[3 2] 1.5 d 1 w 10 10 m 90 90 l S',
       'clip then fill': '0 0 5 5 re W n 0 0 1 rg 0 0 10 10 re f',
       'text': 'BT /F1 24 Tf 72 720 Td (Hello, world!) Tj ET',
+      // Word spacing (Tw) with leading and trailing spaces exercises the
+      // letterSpacing/wordSpacing/leadingSpace/visibleWidth wire fields.
+      'word-spaced tabular text':
+          'BT /F1 10 Tf 5 Tw 0.2 Tc 72 700 Td ( ab ) Tj ET',
       'nested q/Q': 'q q 0 0 1 1 re f Q q 1 1 2 2 re f Q Q',
       'curves': '10 10 m 20 30 40 30 50 10 c f',
       'even-odd fill': '0 0 10 10 re 2 2 6 6 re f*',
@@ -254,6 +264,20 @@ void main() {
       expect(restored[0], isA<PdfSetBlendModeCommand>());
       expect(restored[1], isA<PdfFillPathCommand>());
       expect(restored[2], isA<PdfSetBlendModeCommand>());
+    });
+
+    test('round-trips overprint state (fill/stroke/mode) through the codec', () {
+      final commands = <PdfRenderCommand>[
+        const PdfSetOverprintCommand(fill: true, stroke: false, mode: 1),
+        const PdfSetOverprintCommand(fill: false, stroke: true, mode: 0),
+      ];
+      final restored = deserializeCommands(serializeCommands(commands)!);
+      expect(restored, hasLength(2));
+      expect(restored[0], isA<PdfSetOverprintCommand>());
+      final first = restored[0] as PdfSetOverprintCommand;
+      expect((first.fill, first.stroke, first.mode), (true, false, 1));
+      final second = restored[1] as PdfSetOverprintCommand;
+      expect((second.fill, second.stroke, second.mode), (false, true, 0));
     });
 
     test('compacts soft-mask callback commands recursively', () {
@@ -359,6 +383,46 @@ void main() {
     final restored = deserializeCommands(bytes!);
     expect(_transcript(restored), equals(_transcript(recorder.commands)));
     expect(_imageCommands(restored).single.request.decoded, isNull);
+  });
+
+  test('an inline ImageMask (stencil) serializes - Type3 pages reach the '
+      'worker (#554)', () {
+    final doc = PdfDocument.open(_inlineStencilPdf());
+    final page = doc.page(0);
+    final ops = ContentStreamParser.parse(page.contentBytes());
+    final recorder = RecordingPdfDevice();
+    PdfInterpreter(cos: doc.cos, device: recorder).drawPageOperations(page, ops);
+    final request = recorder.imageRequests.single;
+    expect(request.isInline, isTrue);
+    expect(request.isStencil, isTrue);
+
+    // Unlike a colour inline image, a stencil has no /CS to resolve, so it does
+    // NOT decline - the whole point of #554 (Type3 bitmap-glyph pages).
+    final bytes = serializeCommands(recorder.commands, cos: doc.cos);
+    expect(bytes, isNotNull,
+        reason: 'a self-contained stencil inline image must not decline');
+
+    final restored = _imageCommands(deserializeCommands(bytes!)).single.request;
+    expect(restored.isStencil, isTrue);
+    expect(restored.isInline, isTrue);
+    expect(restored.stencilColor, request.stencilColor,
+        reason: 'the stencil paint colour round-trips');
+  });
+
+  test('the stencil inline image also decodes off-thread (#554)', () {
+    final doc = PdfDocument.open(_inlineStencilPdf());
+    final page = doc.page(0);
+    final ops = ContentStreamParser.parse(page.contentBytes());
+    final recorder = RecordingPdfDevice();
+    PdfInterpreter(cos: doc.cos, device: recorder).drawPageOperations(page, ops);
+
+    final bytes = serializeCommands(recorder.commands,
+        cos: doc.cos, decodeImages: true);
+    expect(bytes, isNotNull);
+    final restored = _imageCommands(deserializeCommands(bytes!)).single.request;
+    expect(restored.isStencil, isTrue);
+    expect(restored.decoded, isNotNull,
+        reason: 'the worker embeds the decoded stencil mask');
   });
 
   // The worker path: serializeCommands(decodeImages: true) decodes each image
@@ -814,13 +878,20 @@ List<PdfDrawImageCommand> _imageCommands(List<PdfRenderCommand> commands) {
 }
 
 /// A one-page PDF whose only content is a 4x4 inline image (BI .. ID .. EI).
-Uint8List _inlineImagePdf() {
-  const content = 'q 100 0 0 100 50 50 cm '
-      'BI /W 4 /H 4 /CS /RGB /BPC 8 /F /AHx ID\n'
-      'e63030 ffffff e63030 ffffff\n'
-      'ffffff e63030 ffffff e63030\n'
-      'e63030 ffffff e63030 ffffff\n'
-      'ffffff e63030 ffffff e63030 >\nEI Q\n';
+Uint8List _inlineImagePdf() => _inlinePdf('q 100 0 0 100 50 50 cm '
+    'BI /W 4 /H 4 /CS /RGB /BPC 8 /F /AHx ID\n'
+    'e63030 ffffff e63030 ffffff\n'
+    'ffffff e63030 ffffff e63030\n'
+    'e63030 ffffff e63030 ffffff\n'
+    'ffffff e63030 ffffff e63030 >\nEI Q\n');
+
+// A 4x4 1-bit ImageMask (stencil) inline image painted in blue. No /CS, so its
+// stream is self-contained (#554).
+Uint8List _inlineStencilPdf() => _inlinePdf('q 0 0 1 rg 100 0 0 100 50 50 cm '
+    'BI /W 4 /H 4 /IM true /BPC 1 /F /AHx ID\n'
+    'f0f0f0f0 >\nEI Q\n');
+
+Uint8List _inlinePdf(String content) {
   final objects = <String>[
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',

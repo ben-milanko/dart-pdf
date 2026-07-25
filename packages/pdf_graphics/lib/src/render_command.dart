@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:pdf_document/pdf_document.dart';
 
 import 'color.dart';
@@ -6,6 +8,7 @@ import 'interpreter.dart' show PdfCancellationToken, PdfCancelledException;
 import 'mesh.dart';
 import 'path.dart';
 import 'shading.dart';
+import 'translating_device.dart';
 
 /// A flattened, replayable record of one [PdfDevice] call.
 ///
@@ -100,6 +103,15 @@ class PdfSetBlendModeCommand extends PdfRenderCommand {
   final PdfBlendMode mode;
 }
 
+/// [PdfDevice.setOverprint].
+class PdfSetOverprintCommand extends PdfRenderCommand {
+  const PdfSetOverprintCommand(
+      {required this.fill, required this.stroke, required this.mode});
+  final bool fill;
+  final bool stroke;
+  final int mode;
+}
+
 /// [PdfDevice.beginGroup].
 class PdfBeginGroupCommand extends PdfRenderCommand {
   const PdfBeginGroupCommand(this.alpha, {this.knockout = false});
@@ -135,6 +147,31 @@ class PdfEndSoftMaskedCommand extends PdfRenderCommand {
   final double backdropLuminance;
   final double transferScale;
   final double transferOffset;
+}
+
+/// A tiling-pattern (or Type3-glyph) cell recorded once and replayed at many
+/// page-space positions (#524). [cellCommands] is the cell's full device
+/// transcript at the base position; [originsX]/[originsY] are the page-space
+/// deltas of every repeat, base first at (0, 0). Devices that understand the
+/// command natively implement [PdfTiledCellSink] (a canvas backend can build
+/// one sub-picture and stamp it per origin); everything else gets the exact
+/// per-tile expansion from [replayCommands] via [TranslatingPdfDevice].
+///
+/// Keeping the cell nested instead of flattening it per tile is what shrinks
+/// a hatched sheet's transcript from O(tiles x cell) to O(cell + tiles).
+class PdfDrawTiledCellCommand extends PdfRenderCommand {
+  const PdfDrawTiledCellCommand(this.cellCommands, this.originsX, this.originsY)
+      : assert(originsX.length == originsY.length);
+  final List<PdfRenderCommand> cellCommands;
+  final Float64List originsX;
+  final Float64List originsY;
+}
+
+/// Optional capability interface for devices that can consume a
+/// [PdfDrawTiledCellCommand] natively instead of replaying its per-tile
+/// expansion. The interpreter and [replayCommands] probe for it with `is`.
+abstract interface class PdfTiledCellSink {
+  void drawTiledCell(PdfDrawTiledCellCommand command);
 }
 
 /// Replays [commands] into [device], reproducing the original interpreter
@@ -179,6 +216,8 @@ void replayCommands(List<PdfRenderCommand> commands, PdfDevice device,
         device.drawImage(request);
       case PdfSetBlendModeCommand(:final mode):
         device.setBlendMode(mode);
+      case PdfSetOverprintCommand(:final fill, :final stroke, :final mode):
+        device.setOverprint(fill: fill, stroke: stroke, mode: mode);
       case PdfBeginGroupCommand(:final alpha, :final knockout):
         device.beginGroup(alpha, knockout: knockout);
       case PdfEndGroupCommand():
@@ -201,6 +240,21 @@ void replayCommands(List<PdfRenderCommand> commands, PdfDevice device,
           transferOffset: transferOffset,
           drawMask: () => replayCommands(maskCommands, device),
         );
+      case PdfDrawTiledCellCommand():
+        if (device is PdfTiledCellSink) {
+          (device as PdfTiledCellSink).drawTiledCell(command);
+        } else {
+          // Exact per-tile expansion: the base repeat replays verbatim,
+          // every other repeat through a page-space translation wrapper.
+          for (var t = 0; t < command.originsX.length; t++) {
+            final dx = command.originsX[t], dy = command.originsY[t];
+            replayCommands(
+                command.cellCommands,
+                dx == 0 && dy == 0
+                    ? device
+                    : TranslatingPdfDevice(device, dx, dy));
+          }
+        }
     }
   }
 }

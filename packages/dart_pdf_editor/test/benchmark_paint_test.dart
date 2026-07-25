@@ -61,6 +61,11 @@ class _TimingDevice implements PdfDevice {
   @override
   void setBlendMode(PdfBlendMode m) => _timed('blend', () => inner.setBlendMode(m));
   @override
+  void setOverprint(
+          {required bool fill, required bool stroke, required int mode}) =>
+      _timed('overprint',
+          () => inner.setOverprint(fill: fill, stroke: stroke, mode: mode));
+  @override
   void fillPath(PdfPath p, PdfColor c, PdfFillRule r, double a) =>
       _timed('fillPath', () => inner.fillPath(p, c, r, a));
   @override

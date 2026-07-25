@@ -126,3 +126,25 @@ if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")
   install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endif()
+
+# === Desktop integration ===
+# Ship the freedesktop .desktop entry, AppStream metainfo, and hicolor icons in
+# the bundle's share/ tree (relative to the bundle prefix, so the release
+# tarball carries them and packaging - Flatpak, AUR, .deb - can install them to
+# the system data dirs). See app/packaging/flatpak/ and the desktop dev-log.
+set(INSTALL_BUNDLE_SHARE_DIR "${CMAKE_INSTALL_PREFIX}/share")
+
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/dev.milanko.dartpdf.desktop"
+  DESTINATION "${INSTALL_BUNDLE_SHARE_DIR}/applications"
+  COMPONENT Runtime)
+
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/dev.milanko.dartpdf.metainfo.xml"
+  DESTINATION "${INSTALL_BUNDLE_SHARE_DIR}/metainfo"
+  COMPONENT Runtime)
+
+foreach(icon_size 64 128 256 512)
+  install(FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/icons/hicolor/${icon_size}x${icon_size}/apps/dev.milanko.dartpdf.png"
+    DESTINATION "${INSTALL_BUNDLE_SHARE_DIR}/icons/hicolor/${icon_size}x${icon_size}/apps"
+    COMPONENT Runtime)
+endforeach()

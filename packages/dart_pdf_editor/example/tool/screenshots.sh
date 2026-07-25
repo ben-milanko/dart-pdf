@@ -122,6 +122,13 @@ esac; }
 
 # compose <target> <platform> - frames the raw captures onto the gradient
 # marketing canvas. Skipped when SKIP_COMPOSE=1 or rsvg-convert is missing.
+#
+# LOCALES (space-separated app-locale codes, e.g. "en de ja ar") renders one
+# localized set per locale, pulling headline/subtitle from
+# doc/screenshots/captions/<locale>.json (English fallback per key). The default
+# ("en") writes the English shots straight into doc/marketing/<target>/<platform>/;
+# any other locale gets its own <locale>/ subfolder so the store upload can map
+# each folder to a store listing language.
 compose() {
   local target="$1" platform="$2"
   [[ "${SKIP_COMPOSE:-0}" == "1" ]] && return 0
@@ -130,10 +137,16 @@ compose() {
   local raw="$OUT_ROOT/$target/$platform"
   [[ -d "$raw" ]] || { warn "no raw shots at $raw; skipping compose"; return 0; }
   read -r orient w h <<<"$(platform_geom "$platform")"
-  log "[$target] composing $platform marketing ($orient ${w}x${h}) → doc/marketing/$target/$platform/"
-  "${DART_CMD[@]}" run "$SCRIPT_DIR/compose_marketing.dart" \
-    --in "$raw" --out "$MKT_ROOT/$target/$platform" \
-    --orientation "$orient" --width "$w" --height "$h" --target "$target"
+  local locale
+  for locale in ${LOCALES:-en}; do
+    local out="$MKT_ROOT/$target/$platform"
+    [[ "$locale" != "en" ]] && out="$out/$locale"
+    log "[$target] composing $platform marketing [$locale] ($orient ${w}x${h}) → ${out#$REPO_ROOT/}/"
+    "${DART_CMD[@]}" run "$SCRIPT_DIR/compose_marketing.dart" \
+      --in "$raw" --out "$out" \
+      --orientation "$orient" --width "$w" --height "$h" \
+      --target "$target" --locale "$locale"
+  done
 }
 
 # Compose-only mode: re-frame whatever raw shots exist, no device boots.

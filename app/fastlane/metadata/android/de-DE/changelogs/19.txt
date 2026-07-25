@@ -1,0 +1,7 @@
+Neu in 2.1.0
+
+• Umbruch-Leseansicht: Dokumente als fließenden Text lesen, mit flüssigem Scrollen, gemerkter Position und Abbildungsansicht.
+• Schnelleres Öffnen und Rendern, besonders bei großen oder bildlastigen Dateien, und geringerer Speicherbedarf bei sehr breiten Zeichnungen.
+• Schärfere Haarlinien, sodass feine Linien beim Herauszoomen lesbar bleiben.
+• Bessere Farben bei Farbverläufen und indizierten Bildern.
+• Symbol- und ZapfDingbats-Zeichen erscheinen statt Kästchen.

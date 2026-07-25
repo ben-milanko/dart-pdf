@@ -630,6 +630,192 @@ extension PdfAnnotationEditing on PdfEditor {
     );
   }
 
+  /// The default colour a visible link decoration (border or underline) is
+  /// drawn in - the conventional web-link blue.
+  static const int defaultLinkColor = 0x0563C1;
+
+  /// Adds a /Link annotation (§12.5.6.5) over [quads] that opens the external
+  /// [uri] when activated - a web address (`https://…`), a `mailto:`, or any
+  /// app-defined scheme the viewer dispatches (see [PdfUriAction]).
+  ///
+  /// [quads] is one rectangle per marked word, line, or column slice, exactly
+  /// like the text-markup creators - pass the quads of a text selection to
+  /// turn that run of text into a hyperlink. The annotation's /Rect is their
+  /// bounding box and each quad becomes an active region in /QuadPoints, so a
+  /// multi-line link is only clickable over the glyphs, not the ragged
+  /// rectangle around them.
+  ///
+  /// A link is invisible by default (a bare clickable region, the convention
+  /// for linking existing text). Pass [underlineColor] to draw a hyperlink
+  /// underline beneath each quad, or [borderColor] (with [borderWidth]) to
+  /// stroke a box around the region; either one generates an appearance
+  /// stream so the decoration shows in every viewer.
+  void addLinkToUri(
+    int pageIndex,
+    List<PdfRect> quads, {
+    required String uri,
+    int? underlineColor,
+    int? borderColor,
+    double borderWidth = 1,
+    String? contents,
+    String? name,
+  }) {
+    if (uri.isEmpty) {
+      throw ArgumentError.value(uri, 'uri', 'must not be empty');
+    }
+    _addLink(
+      pageIndex,
+      quads,
+      action: CosDictionary({
+        'Type': const CosName('Action'),
+        'S': const CosName('URI'),
+        'URI': CosString.fromText(uri),
+      }),
+      underlineColor: underlineColor,
+      borderColor: borderColor,
+      borderWidth: borderWidth,
+      contents: contents,
+      name: name,
+    );
+  }
+
+  /// Adds a /Link annotation over [quads] that jumps to [destination]
+  /// elsewhere in *this same document* (§12.3.2.2) - the internal
+  /// cross-reference link. Build the destination with the
+  /// [PdfExplicitDestination] constructors (`.fit`, `.xyz`, `.fitR`, …);
+  /// [addLinkToPage] is the fit-the-whole-page shortcut.
+  ///
+  /// The quad and decoration semantics match [addLinkToUri].
+  void addLinkToDestination(
+    int pageIndex,
+    List<PdfRect> quads, {
+    required PdfExplicitDestination destination,
+    int? underlineColor,
+    int? borderColor,
+    double borderWidth = 1,
+    String? contents,
+    String? name,
+  }) {
+    _addLink(
+      pageIndex,
+      quads,
+      action: CosDictionary({
+        'Type': const CosName('Action'),
+        'S': const CosName('GoTo'),
+        'D': destination.toCosArray(_linkPageReference(destination.pageIndex)),
+      }),
+      underlineColor: underlineColor,
+      borderColor: borderColor,
+      borderWidth: borderWidth,
+      contents: contents,
+      name: name,
+    );
+  }
+
+  /// Adds an internal /Link over [quads] that navigates to [targetPage]
+  /// (zero-based) fitted to the window - the common "jump to page N" link.
+  /// For a more specific view (a position, a zoom, a rectangle) use
+  /// [addLinkToDestination] with the matching [PdfExplicitDestination].
+  void addLinkToPage(
+    int pageIndex,
+    List<PdfRect> quads, {
+    required int targetPage,
+    int? underlineColor,
+    int? borderColor,
+    double borderWidth = 1,
+    String? contents,
+    String? name,
+  }) =>
+      addLinkToDestination(
+        pageIndex,
+        quads,
+        destination: PdfExplicitDestination.fit(targetPage),
+        underlineColor: underlineColor,
+        borderColor: borderColor,
+        borderWidth: borderWidth,
+        contents: contents,
+        name: name,
+      );
+
+  /// Builds and links a /Link annotation carrying [action] (a /URI or /GoTo
+  /// action dictionary). Shared by the URI and destination creators.
+  ///
+  /// The /Border is `[0 0 0]` - no visible border - unless [borderColor] asks
+  /// for one, matching how conforming writers suppress the ugly default link
+  /// rectangle. A visible border or [underlineColor] underline is baked into
+  /// an /AP appearance stream so it renders identically everywhere.
+  void _addLink(
+    int pageIndex,
+    List<PdfRect> quads, {
+    required CosDictionary action,
+    int? underlineColor,
+    int? borderColor,
+    double borderWidth = 1,
+    String? contents,
+    String? name,
+  }) {
+    final rect = _boundsOf(quads);
+    final hasBorder = borderColor != null && borderWidth > 0;
+    final dict = CosDictionary({
+      'Type': const CosName('Annot'),
+      'Subtype': const CosName('Link'),
+      'Rect': _rectArray(rect),
+      'F': const CosInteger(4),
+      'A': action,
+      // suppress the default 1pt border unless a visible one is requested;
+      // the width lives in the appearance too, this keeps /Border in step.
+      'Border': CosArray([
+        const CosInteger(0),
+        const CosInteger(0),
+        CosReal(hasBorder ? borderWidth : 0),
+      ]),
+      'QuadPoints': _quadPoints(quads),
+    });
+    if (hasBorder) dict['C'] = _colorComponents(borderColor);
+    if (contents != null) dict['Contents'] = CosString.fromText(contents);
+    dict['NM'] = CosString.fromText(name ?? _generateAnnotationName());
+
+    if (underlineColor != null || hasBorder) {
+      final w = ContentWriter();
+      if (underlineColor != null) {
+        w.strokeColor(underlineColor);
+        for (final q in quads) {
+          final y = q.bottom + q.height * 0.08;
+          w
+            ..lineWidth((q.height * 0.06).clamp(0.5, 3.0))
+            ..moveTo(q.left, y)
+            ..lineTo(q.right, y)
+            ..stroke();
+        }
+      }
+      if (hasBorder) {
+        w
+          ..strokeColor(borderColor)
+          ..lineWidth(borderWidth);
+        for (final q in quads) {
+          w
+            ..rect(q.left + borderWidth / 2, q.bottom + borderWidth / 2,
+                q.width - borderWidth, q.height - borderWidth)
+            ..stroke();
+        }
+      }
+      dict['AP'] = CosDictionary({'N': _updater.addObject(_form(rect, w))});
+    }
+
+    _linkAnnotation(pageIndex, _updater.addObject(dict));
+  }
+
+  /// The indirect reference to page [index], for a /GoTo destination array.
+  /// (A local twin of the outline editor's page-reference helper, kept here
+  /// so the link creators don't reach across extensions.)
+  CosReference _linkPageReference(int index) {
+    final ref = document.cos.referenceTo(document.page(index).dict);
+    if (ref == null) {
+      throw StateError('page $index has no object reference');
+    }
+    return ref;
+  }
+
   /// Adds a freehand ink annotation. Each stroke is a polyline of
   /// `(x, y)` points in page space.
   ///
@@ -3455,6 +3641,7 @@ extension PdfAnnotationEditing on PdfEditor {
     int? pageRotation,
     String? author,
     String? name,
+    PdfRect? crop,
   }) {
     final effectivePageRotation = _appearancePageRotation(
       pageIndex,
@@ -3463,16 +3650,19 @@ extension PdfAnnotationEditing on PdfEditor {
     final imageRef = _updater.addObject(
       image.toXObject((smask) => _updater.addObject(smask)),
     );
+    final effectiveCrop = _normalizeImageCrop(crop);
     final (w, resources) = _imageStampContent(
       rect,
       imageRef,
       opacity,
       pageRotation: effectivePageRotation,
+      crop: effectiveCrop,
     );
     // Mark it a picture stamp so the restyle path re-bakes only its alpha
     // over this image, and never mistakes it for a text/template stamp.
     final dict = _markupDict('Stamp', rect, 0xC03030, null, author)
       ..['DartPdfImageStamp'] = const CosBoolean(true);
+    _writeImageCropMarker(dict, effectiveCrop);
     _addAnnotation(
       pageIndex,
       dict,
@@ -3481,17 +3671,58 @@ extension PdfAnnotationEditing on PdfEditor {
     );
   }
 
+  /// Clamps [crop] to the unit square and normalizes its corners; null or a
+  /// degenerate crop becomes the whole image `[0,0,1,1]`.
+  static PdfRect _normalizeImageCrop(PdfRect? crop) {
+    if (crop == null) return const PdfRect(0, 0, 1, 1);
+    double c(double v) => v < 0 ? 0 : (v > 1 ? 1 : v);
+    final r = PdfRect.normalized(
+      c(crop.left),
+      c(crop.bottom),
+      c(crop.right),
+      c(crop.top),
+    );
+    if (r.width <= 0 || r.height <= 0) return const PdfRect(0, 0, 1, 1);
+    return r;
+  }
+
+  /// Records (or clears) an image stamp's crop on its annotation dict as the
+  /// private `/DartPdfImageCrop` marker. A full-image crop drops the marker so
+  /// an uncropped picture carries none. Read back by [PdfAnnotation.imageStampCrop].
+  static void _writeImageCropMarker(CosDictionary dict, PdfRect crop) {
+    final full = crop.left <= 0 &&
+        crop.bottom <= 0 &&
+        crop.right >= 1 &&
+        crop.top >= 1;
+    if (full) {
+      dict.entries.remove('DartPdfImageCrop');
+    } else {
+      dict['DartPdfImageCrop'] = CosArray([
+        CosReal(crop.left),
+        CosReal(crop.bottom),
+        CosReal(crop.right),
+        CosReal(crop.top),
+      ]);
+    }
+  }
+
   /// Builds an image stamp's appearance: a unit image (1×1 at the origin)
   /// mapped onto [rect]'s oriented visual box, gated by [opacity]'s alpha.
   /// The form's BBox stays the page-space rect, so unrotated appearances fit
   /// as an identity mapping. Shared by [addImageStamp] and the opacity
   /// restyle path so a pasted picture keeps its image when its transparency
   /// changes.
+  ///
+  /// [crop] is the normalized sub-region of the source picture to show
+  /// (origin bottom-left, `[0,0,1,1]` is the whole image). When it is less
+  /// than the full image, the visual box is clipped and the picture is scaled
+  /// so that sub-region fills the box - only the cropped part paints.
   (ContentWriter, CosDictionary?) _imageStampContent(
     PdfRect rect,
     CosObject imageRef,
     double opacity, {
     int pageRotation = 0,
+    PdfRect crop = const PdfRect(0, 0, 1, 1),
   }) {
     final w = ContentWriter();
     final gs = _alphaState(opacity);
@@ -3501,9 +3732,34 @@ extension PdfAnnotationEditing on PdfEditor {
       w.save();
       _orientedCounterRotation(w, rect, pageRotation);
     }
+    final cropped = crop.width < 1 || crop.height < 1 ||
+        crop.left > 0 || crop.bottom > 0;
+    w.save();
+    if (cropped) {
+      // The scaled-up picture overflows the visual box; the box clips it so
+      // only the cropped sub-region shows. (The form BBox also clips, but an
+      // explicit clip keeps the appearance correct under a non-identity
+      // BBox->Rect fit and matches the counter-rotated frame.)
+      w
+        ..rect(vr.left, vr.bottom, vr.width, vr.height)
+        ..clip();
+      // Map the crop's sub-rect of the unit image onto the visual box:
+      // (crop.left, crop.bottom) lands at the box origin, the crop's span
+      // fills the box.
+      final sx = vr.width / crop.width;
+      final sy = vr.height / crop.height;
+      w.concatMatrix(
+        sx,
+        0,
+        0,
+        sy,
+        vr.left - crop.left * sx,
+        vr.bottom - crop.bottom * sy,
+      );
+    } else {
+      w.concatMatrix(vr.width, 0, 0, vr.height, vr.left, vr.bottom);
+    }
     w
-      ..save()
-      ..concatMatrix(vr.width, 0, 0, vr.height, vr.left, vr.bottom)
       ..drawXObject('Img0')
       ..restore();
     if (pageRotation != 0) w.restore();
@@ -3532,6 +3788,63 @@ extension PdfAnnotationEditing on PdfEditor {
       if (subtype is CosName && subtype.value == 'Image') return entry;
     }
     return null;
+  }
+
+  /// Crops the image stamp [annotation] (one placed by [addImageStamp]) to
+  /// show only [crop] - the normalized sub-region of its source picture,
+  /// origin bottom-left, `[0,0,1,1]` being the whole image. The crop composes
+  /// against the *source* picture, so passing `[0,0,1,1]` restores the full
+  /// image regardless of any earlier crop.
+  ///
+  /// When [rect] is supplied it becomes the annotation's new page-space
+  /// /Rect. Size it to the visible sub-region (the on-page footprint of
+  /// [crop] within the current box) so the retained pixels keep their scale
+  /// instead of stretching to refill the old box - the standard "crop shrinks
+  /// the frame" behaviour. Omit [rect] to crop in place, stretching the
+  /// sub-region across the unchanged box.
+  ///
+  /// The picture is preserved (the same image XObject is re-referenced), as
+  /// are the current opacity and any baked-in rotation. Returns false when
+  /// [annotation] is not a restyleable image stamp. A [rect] argument is
+  /// ignored for a rotated image stamp (the crop still applies, in place),
+  /// because an axis-aligned page rect cannot express the rotated frame.
+  bool cropImageStamp(
+    int pageIndex,
+    PdfAnnotation annotation, {
+    required PdfRect crop,
+    PdfRect? rect,
+  }) {
+    if (!annotation.isImageStamp) return false;
+    final form = annotation.normalAppearance;
+    if (form == null) return false;
+    if (_stampImageRef(form) == null) return false;
+    final effectiveCrop = _normalizeImageCrop(crop);
+    final dict = annotation.dict;
+    // Record the crop first so the regeneration below (which reads it back
+    // off the dict via PdfAnnotation.imageStampCrop) bakes the new region.
+    _writeImageCropMarker(dict, effectiveCrop);
+    final quad = annotation.appearanceQuad;
+    final rotated = quad != null && _quadRotation(quad).abs() > 1e-9;
+    if (rect == null || rotated) {
+      // Crop in place at the current geometry, preserving rotation. Re-wrap
+      // so the just-written marker is visible to the regenerator.
+      return _restyleRegenerate(
+        pageIndex,
+        dict,
+        pageRotation: _appearancePageRotation(pageIndex, null),
+      );
+    }
+    // Shrink the box to the cropped sub-region (upright stamp only).
+    dict['Rect'] = _rectArray(rect);
+    if (!_regenerateStyledAppearance(
+      PdfAnnotation.fromDict(document, dict),
+      rect,
+      pageRotation: _appearancePageRotation(pageIndex, null),
+    )) {
+      return false;
+    }
+    _markAnnotationChanged(pageIndex, dict);
+    return true;
   }
 
   /// Removes [annotation] from the page, along with its popup, if any.
@@ -4862,6 +5175,7 @@ extension PdfAnnotationEditing on PdfEditor {
               imageRef,
               opacity ?? _appearanceOpacity(form),
               pageRotation: pageRotation,
+              crop: annotation.imageStampCrop ?? const PdfRect(0, 0, 1, 1),
             );
             _replaceAppearance(
               annotation.dict,

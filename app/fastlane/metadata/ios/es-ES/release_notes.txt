@@ -1,0 +1,18 @@
+Novedades de la versión 3.0.0
+
+IDIOMAS
+• DartPDF ya está disponible en 10 idiomas, con diseño completo de derecha a izquierda para el árabe.
+
+RENDERIZADO
+• Renderizado más preciso de la sobreimpresión, los modos de fusión y las máscaras suaves, para que los PDF pensados para imprimir se acerquen más al resultado previsto.
+• Los grupos de transparencia dibujados bajo un modo de fusión ahora se componen correctamente, lo que corrige los recuadros opacos que aparecían en algunos archivos.
+
+EDICIÓN
+• Mantén Mayús mientras dibujas para limitar el trazo a mano alzada y las líneas a trazos rectos.
+• Define un estilo predeterminado para las anotaciones y reutilízalo con un solo toque.
+• Pestañas de documento rediseñadas que siguen siendo legibles a medida que abres más archivos.
+
+VELOCIDAD
+• Renderizado más rápido y menor uso de memoria, con las mayores mejoras en archivos grandes o con muchas imágenes.
+
+Gracias por usar DartPDF. Siempre son bienvenidos los comentarios y los informes de errores.

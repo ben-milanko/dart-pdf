@@ -1,0 +1,7 @@
+3.0.0'daki yenilikler
+
+• Uygulama artık tam sağdan sola düzen desteğiyle 10 dilde kullanılabilir.
+• Daha isabetli üst baskı, karışım modu ve yumuşak maske işleme.
+• Düz çizgiler çizmek için Shift'e basılı tutun ve açıklamalar için varsayılan bir stil ayarlayın.
+• Yeniden tasarlanmış, daha akıcı belge sekmeleri.
+• Büyük dosyalarda daha hızlı işleme ve daha az bellek kullanımı.

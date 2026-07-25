@@ -321,6 +321,24 @@ void main() {
       await drain(tester);
     });
 
+    testWidgets('Delete removes the grid selection', (tester) async {
+      wideScreen(tester);
+      final refs = await pumpGrid(tester, pages: 4);
+      await tester.tap(find.text('Page 2'));
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shift);
+      await tester.tap(find.text('Page 3'));
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shift);
+      await tester.pump();
+      expect(refs.editing.selectedPages, [1, 2]);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+      await tester.pump();
+      expect(labelsOf(refs.editing.document), ['Page 1', 'Page 4']);
+      expect(refs.editing.hasPageSelection, isFalse);
+      await drain(tester);
+    });
+
     testWidgets('the header page-actions menu pastes', (tester) async {
       wideScreen(tester);
       final refs = await pumpGrid(tester, pages: 2);

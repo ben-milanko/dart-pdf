@@ -164,7 +164,9 @@ extension PdfPadesSigning on PdfEditor {
       throw ArgumentError(
           'PAdES ${level.name} requires a timestampClient for the timestamp');
     }
-    final time = (signingTime ?? DateTime.now()).toUtc();
+    // Keep the signer's own offset for the visible box and the /M date; the
+    // CMS signingTime attribute is always UTC.
+    final time = signingTime ?? DateTime.now();
     final signerCert = X509Certificate.parse(certificates.first);
     final signerChain = [for (final c in certificates) X509Certificate.parse(c)];
 
@@ -185,7 +187,7 @@ extension PdfPadesSigning on PdfEditor {
     );
     final signedAttrs = cmsSignedAttributes(
       contentDigest: revision.digestSha256(),
-      signingTime: time,
+      signingTime: time.toUtc(),
       essCertificate: signerCert,
     );
     final signature =

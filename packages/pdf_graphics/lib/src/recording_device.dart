@@ -23,7 +23,7 @@ import 'shading.dart';
 /// decodes them as it does today. [imageRequests] exposes them in encounter
 /// order for callers that want to drive decoding off the recording rather
 /// than a separate scan pass.
-class RecordingPdfDevice implements PdfDevice {
+class RecordingPdfDevice implements PdfDevice, PdfTiledCellSink {
   /// The recorded top-level command sequence.
   final List<PdfRenderCommand> commands = [];
 
@@ -38,6 +38,27 @@ class RecordingPdfDevice implements PdfDevice {
 
   @override
   void save() => _target.add(const PdfSaveCommand());
+
+  @override
+  void drawTiledCell(PdfDrawTiledCellCommand command) {
+    _target.add(command);
+    // The cell's images enter [imageRequests] once, in the depth-first order
+    // the wire codec serializes them, so consumers that pair the wire
+    // transcript's images with this list stay aligned.
+    void walk(List<PdfRenderCommand> cmds) {
+      for (final c in cmds) {
+        if (c is PdfDrawImageCommand) {
+          imageRequests.add(c.request);
+        } else if (c is PdfEndSoftMaskedCommand) {
+          walk(c.maskCommands);
+        } else if (c is PdfDrawTiledCellCommand) {
+          walk(c.cellCommands);
+        }
+      }
+    }
+
+    walk(command.cellCommands);
+  }
 
   @override
   void restore() => _target.add(const PdfRestoreCommand());
@@ -76,6 +97,12 @@ class RecordingPdfDevice implements PdfDevice {
   @override
   void setBlendMode(PdfBlendMode mode) =>
       _target.add(PdfSetBlendModeCommand(mode));
+
+  @override
+  void setOverprint(
+          {required bool fill, required bool stroke, required int mode}) =>
+      _target.add(
+          PdfSetOverprintCommand(fill: fill, stroke: stroke, mode: mode));
 
   @override
   void beginGroup(double alpha, {bool knockout = false}) =>

@@ -461,10 +461,36 @@ PdfRect? pdfRenderCommandBounds(PdfRenderCommand command) {
       return bounds;
     case PdfDrawImageCommand(:final request):
       return _matrixBounds(request.transform, 0, 0, 1, 1);
+    case PdfDrawTiledCellCommand(
+        :final cellCommands,
+        :final originsX,
+        :final originsY
+      ):
+      // Conservative: the cell's painted bounds (clip commands inside the
+      // cell contribute nothing, so overrunning content is included - safe
+      // for culling) swept across the origin extent. One rect for the whole
+      // repeat lattice; a hatch fill is genuinely region-spanning.
+      PdfRect? cell;
+      for (final c in cellCommands) {
+        final b = pdfRenderCommandBounds(c);
+        if (b != null) cell = cell == null ? b : _union(cell, b);
+      }
+      if (cell == null || originsX.isEmpty) return null;
+      var minX = originsX[0], maxX = originsX[0];
+      var minY = originsY[0], maxY = originsY[0];
+      for (var t = 1; t < originsX.length; t++) {
+        minX = math.min(minX, originsX[t]);
+        maxX = math.max(maxX, originsX[t]);
+        minY = math.min(minY, originsY[t]);
+        maxY = math.max(maxY, originsY[t]);
+      }
+      return PdfRect(cell.left + minX, cell.bottom + minY, cell.right + maxX,
+          cell.top + maxY);
     case PdfSaveCommand() ||
           PdfRestoreCommand() ||
           PdfClipPathCommand() ||
           PdfSetBlendModeCommand() ||
+          PdfSetOverprintCommand() ||
           PdfBeginGroupCommand() ||
           PdfEndGroupCommand() ||
           PdfBeginSoftMaskedCommand() ||

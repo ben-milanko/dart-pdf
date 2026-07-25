@@ -491,6 +491,67 @@ void main() {
       expect(xs.reduce((a, b) => a > b ? a : b), closeTo(180, 1e-6));
     });
 
+    test('a small flat patch subdivides far less than 8 (#536)', () {
+      // A 6x6-unit patch whose four corners are the same colour: nothing to
+      // resolve geometrically or chromatically, so it collapses toward one
+      // cell instead of 128 triangles.
+      final shading = PdfShading.parse(
+          cos,
+          meshStream(6, [
+            0,
+            0, 0, 0, 2, 0, 4, 0, 6, //
+            2, 6, 4, 6, 6, 6, //
+            6, 4, 6, 2, 6, 0, //
+            4, 0, 2, 0, //
+            128, 128, 128, // c1
+            128, 128, 128, // c2
+            128, 128, 128, // c3
+            128, 128, 128, // c4
+          ]))!;
+      final mesh = shading.toMesh(PdfMatrix.identity)!;
+      // n == 1: a 2x2 vertex grid, one cell, two triangles.
+      expect(mesh.vertices, hasLength(4));
+      expect(mesh.triangles, hasLength(2 * 3));
+    });
+
+    test('a large flat patch still tessellates finely for geometry (#536)', () {
+      // Same flat colour but a big patch: the size metric keeps the division
+      // count high so a curved surface is not under-tessellated - the
+      // fidelity guard. Corners span 90 units -> 8 cells.
+      final shading = PdfShading.parse(
+          cos,
+          meshStream(6, [
+            0,
+            0, 0, 0, 30, 0, 60, 0, 90, //
+            30, 90, 60, 90, 90, 90, //
+            90, 60, 90, 30, 90, 0, //
+            60, 0, 30, 0, //
+            200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200,
+          ]))!;
+      final mesh = shading.toMesh(PdfMatrix.identity)!;
+      expect(mesh.triangles, hasLength(128 * 3),
+          reason: 'large patch keeps the full division count');
+    });
+
+    test('a small patch with a hard colour transition stays subdivided (#536)',
+        () {
+      // Tiny but full-range corner colours: the colour metric alone keeps the
+      // count high so the gradient is not banded.
+      final shading = PdfShading.parse(
+          cos,
+          meshStream(6, [
+            0,
+            0, 0, 0, 2, 0, 4, 0, 6, //
+            2, 6, 4, 6, 6, 6, //
+            6, 4, 6, 2, 6, 0, //
+            4, 0, 2, 0, //
+            255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255,
+          ]))!;
+      final mesh = shading.toMesh(PdfMatrix.identity)!;
+      expect(mesh.triangles, hasLength(128 * 3),
+          reason: 'a full-range colour transition needs the full count');
+    });
+
     test('non-mesh types return no mesh', () {
       final shading = PdfShading.parse(
         cos,

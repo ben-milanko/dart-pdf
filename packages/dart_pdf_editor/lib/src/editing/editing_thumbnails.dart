@@ -34,8 +34,10 @@ import 'thumbnail_cache.dart';
 /// clipboard, so pages copied here paste into a different document tab),
 /// insert a blank page before or after, export (when [onExportPages] is
 /// given), delete - that acts on the strip's selection when the tile
-/// belongs to it. Copy/cut/paste are also bound to ⌘/Ctrl+C/X/V. All of
-/// this (export aside) needs [allowPageEditing].
+/// belongs to it. Copy/cut/paste are also bound to ⌘/Ctrl+C/X/V, and
+/// Delete/Backspace removes the strip's selection (or the keyboard/current
+/// page when nothing is selected). All of this (export aside) needs
+/// [allowPageEditing].
 ///
 /// Built to stay light on large documents: thumbnails are rasterized at
 /// tile resolution and cached, keyed by
@@ -286,7 +288,27 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     final at = base + 1;
     if (!widget.controller.pastePages(at: at)) return;
     _focusPage(at);
-    if (widget.followsViewer) _revealPage(at);
+    if (widget.followsViewer) {
+      // A paste inserts pages, so the viewer resets its scroll to the top in
+      // a post-frame callback (a geometry-changing revision). A following
+      // strip chases that reset via [_onViewerChanged] and scrolls back to
+      // the top, burying the pages that just landed. Drive the viewer to the
+      // paste target after its reset settles so the strip reveals the new
+      // pages instead - the same route the menu/header paste paths take.
+      unawaited(_jumpToInsertedPage(widget.viewerController, at));
+    } else {
+      _revealPage(at);
+    }
+  }
+
+  /// Deletes the strip's selection, or the keyboard/current page when
+  /// nothing is selected - the last remaining page is kept either way.
+  void _deletePages() {
+    if (widget.controller.hasPageSelection) {
+      widget.controller.removeSelectedPages();
+    } else if (widget.controller.document.pageCount > 0) {
+      widget.controller.removePage(_keyboardBase());
+    }
   }
 
   Map<ShortcutActivator, VoidCallback> get _keyboardShortcuts => {
@@ -318,6 +340,8 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
               _pastePages,
           const SingleActivator(LogicalKeyboardKey.keyV, control: true):
               _pastePages,
+          const SingleActivator(LogicalKeyboardKey.delete): _deletePages,
+          const SingleActivator(LogicalKeyboardKey.backspace): _deletePages,
         },
       };
 
@@ -1232,6 +1256,16 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
     _revealPage(at);
   }
 
+  /// Deletes the grid's selection, or the keyboard/current page when
+  /// nothing is selected - the last remaining page is kept either way.
+  void _deletePages() {
+    if (widget.controller.hasPageSelection) {
+      widget.controller.removeSelectedPages();
+    } else if (widget.controller.document.pageCount > 0) {
+      widget.controller.removePage(_keyboardBase());
+    }
+  }
+
   Map<ShortcutActivator, VoidCallback> _keyboardShortcuts(int columns) => {
         const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
             _moveKeyboardSelection(-1),
@@ -1261,6 +1295,8 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
               _pastePages,
           const SingleActivator(LogicalKeyboardKey.keyV, control: true):
               _pastePages,
+          const SingleActivator(LogicalKeyboardKey.delete): _deletePages,
+          const SingleActivator(LogicalKeyboardKey.backspace): _deletePages,
         },
       };
 

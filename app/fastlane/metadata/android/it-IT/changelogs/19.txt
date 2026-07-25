@@ -1,0 +1,7 @@
+Novità nella versione 2.1.0
+
+• Vista di lettura a ridisposizione: leggi come testo scorrevole, con scorrimento pigro, posizione salvata e visualizzatore di figure.
+• Apertura e rendering più veloci, soprattutto su file grandi o ricchi di immagini, e minore uso di memoria sui disegni grandi.
+• Linee sottili più nitide, restano leggibili con lo zoom ridotto.
+• Colori migliori su gradienti e immagini indicizzate.
+• I caratteri Symbol e ZapfDingbats vengono visualizzati invece dei riquadri.

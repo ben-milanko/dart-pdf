@@ -177,6 +177,10 @@ jobs:
         run: flutter build linux --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
       - name: Tar bundle (portable folder)
         working-directory: app
+        # The bundle now carries the desktop-integration files under share/
+        # (app/linux/CMakeLists.txt installs the .desktop, AppStream metainfo,
+        # and hicolor icons), so this tarball is what app/packaging/flatpak
+        # unpacks. Archiving the whole bundle dir includes them automatically.
         run: tar czf dartpdf-linux-x64.tar.gz -C build/linux/x64/release/bundle .
       - name: Build AppImage (single portable file)
         working-directory: app
