@@ -1097,6 +1097,14 @@ Future<Uint8List?> _recordResumablePage(
   }
 
   final walk = entry.walk;
+  // Emit partials on a DOUBLING chunk schedule (after chunks 1, 2, 4, 8, ...)
+  // rather than every chunk. Each partial re-serializes the whole accumulated
+  // prefix, so emitting every chunk is O(commands^2) across a page; a doubling
+  // schedule is O(log n) emits whose serialize work is a geometric series
+  // dominated by the last (full-page) prefix - i.e. O(commands) total, ~2x one
+  // full serialize. It also fronts the reveals: dense early (1,2,4...), when a
+  // top-down reveal matters most, sparse late. `entry.emittedChunks` persists
+  // across a preempt/resume so the schedule doesn't restart on requeue.
   while (!await walk.advance(operations: _resumeRecordChunkOperations)) {
     if (token.cancelled) {
       // Keep the partial recording so the requeued render resumes here rather
@@ -1104,29 +1112,26 @@ Future<Uint8List?> _recordResumablePage(
       suspended.keep(entry);
       throw const PdfCancelledException();
     }
-    // Emit a progressive linework prefix (#564): a chunk boundary is always at
-    // page-level graphics state, so the commands recorded so far serialize to a
-    // valid, replayable buffer. Images are left as placeholders (decodeImages
-    // false) - the prefix is the fast top-down reveal; the final decoded buffer
-    // follows when the walk completes. Each partial is a superset of the last.
-    //
-    // Note this re-serializes the whole accumulated prefix every chunk, so the
-    // streaming path is O(commands^2) in serialize work across a page (and the
-    // main side re-deserializes each partial). Harmless while off-by-default
-    // (no consumer reaches here), but the host-facing PR3 must throttle emission
-    // or ship suffix-only deltas rather than the full prefix each time.
-    if (onPartial != null) {
-      final partial = serializeCommands(entry.recorder.commands,
-          cos: document.cos,
-          decodeImages: false,
-          maxImagePixelRatio: imagePixelRatio,
-          imageDecodeRegion: imageDecodeRegion,
-          imagePlaceholders: true,
-          compactStateScopes: true);
-      // Null only on an unserializable image, which placeholders preclude here;
-      // if it ever happens, skip this partial - the final buffer still arrives.
-      if (partial != null) onPartial(partial);
+    entry.chunksAdvanced++;
+    if (onPartial == null || entry.chunksAdvanced < entry.nextEmitAtChunk) {
+      continue;
     }
+    entry.nextEmitAtChunk *= 2;
+    // A chunk boundary is always at page-level graphics state, so the commands
+    // recorded so far serialize to a valid, replayable buffer. Images are left
+    // as placeholders (decodeImages false) - the prefix is the fast top-down
+    // reveal; the final decoded buffer follows when the walk completes. Each
+    // partial is a superset of the last.
+    final partial = serializeCommands(entry.recorder.commands,
+        cos: document.cos,
+        decodeImages: false,
+        maxImagePixelRatio: imagePixelRatio,
+        imageDecodeRegion: imageDecodeRegion,
+        imagePlaceholders: true,
+        compactStateScopes: true);
+    // Null only on an unserializable image, which placeholders preclude here;
+    // if it ever happens, skip this partial - the final buffer still arrives.
+    if (partial != null) onPartial(partial);
   }
 
   if (annotations) entry.interpreter.drawAnnotations(entry.page);
@@ -1153,6 +1158,12 @@ class _SuspendedRecord {
   final RecordingPdfDevice recorder;
   final PdfInterpreter interpreter;
   final PdfPageContentWalk walk;
+
+  // Progressive-partial schedule (#564), carried across a preempt/resume so the
+  // doubling cadence continues rather than restarting: total chunks advanced so
+  // far, and the chunk count at which the next partial is emitted (1, 2, 4, ...).
+  int chunksAdvanced = 0;
+  int nextEmitAtChunk = 1;
 }
 
 /// A one-slot cache of the most recently suspended full-page record.

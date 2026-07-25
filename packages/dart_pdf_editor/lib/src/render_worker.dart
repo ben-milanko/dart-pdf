@@ -1336,27 +1336,32 @@ class _CachedRecord {
 ///
 /// Concurrent callers for the same page share this: each that passed an
 /// `onPartial` sink [subscribe]s, and every partial the backend [emit]s reaches
-/// them all. A caller that joins after some partials landed replays the buffered
-/// prefixes on subscribe, so it is caught up before the live ones resume. When
-/// the dispatcher opted out of streaming, no partials are ever emitted and the
-/// buffer stays empty - joiners then simply await [future].
+/// them all. A caller that joins after some partials landed replays the most
+/// recent prefix on subscribe, so it is caught up before the live ones resume.
+/// When the dispatcher opted out of streaming, no partials are ever emitted and
+/// there is nothing to replay - joiners then simply await [future].
 class _InflightRecord {
   final _completer = Completer<List<PdfRenderCommand>?>();
 
-  /// Prefixes emitted so far, kept so a late [subscribe] can replay them. Held
-  /// only until the decode completes (this record is then dropped from the map).
-  final _partials = <List<PdfRenderCommand>>[];
+  /// The most recent partial, kept so a late [subscribe] can catch a joiner up.
+  /// Only the latest is retained, not the whole history: every partial is a
+  /// cumulative superset of its predecessors (#564), so the newest one alone
+  /// brings a joiner fully current - O(1) memory instead of O(chunks). Present
+  /// subscribers still receive every partial live through [emit]. Cleared when
+  /// the decode completes (this record is then dropped from the map).
+  List<PdfRenderCommand>? _latest;
   final _sinks = <PdfPartialRecordSink>[];
   var _done = false;
 
   Future<List<PdfRenderCommand>?> get future => _completer.future;
 
-  /// Delivers a partial to every current subscriber and buffers it for late
-  /// joiners. A no-op once the record has completed (a stray late partial from a
-  /// backend that raced its own final must not reach a caller after its future).
+  /// Delivers a partial to every current subscriber and retains it as the latest
+  /// for late joiners. A no-op once the record has completed (a stray late
+  /// partial from a backend that raced its own final must not reach a caller
+  /// after its future).
   void emit(List<PdfRenderCommand> partial) {
     if (_done) return;
-    _partials.add(partial);
+    _latest = partial;
     // Iterate a copy: a sink that itself calls record() (subscribing another) on
     // this key would otherwise mutate _sinks mid-iteration.
     for (final sink in _sinks.toList(growable: false)) {
@@ -1364,32 +1369,27 @@ class _InflightRecord {
     }
   }
 
-  /// Adds [sink], first replaying every partial already emitted so the joiner is
-  /// not behind. Replays synchronously - the caller passed the sink into
+  /// Adds [sink], first replaying the latest partial (if any) so the joiner is
+  /// caught up. Replays synchronously - the caller passed the sink into
   /// record(), so it may fire before that call returns its future.
   void subscribe(PdfPartialRecordSink sink) {
     if (_done) return;
-    // Iterate a copy for the same reason [emit] copies _sinks: if a replayed
-    // sink synchronously drove the backend to emit (growing _partials), a bare
-    // loop would throw ConcurrentModificationError. Not reachable while the
-    // backend is suspended during replay, but PR3 wires a real consumer.
-    for (final partial in _partials.toList(growable: false)) {
-      sink(partial);
-    }
+    final latest = _latest;
+    if (latest != null) sink(latest);
     _sinks.add(sink);
   }
 
   void complete(List<PdfRenderCommand>? commands) {
     _done = true;
     _sinks.clear();
-    _partials.clear();
+    _latest = null;
     if (!_completer.isCompleted) _completer.complete(commands);
   }
 
   void completeError(Object error, StackTrace stackTrace) {
     _done = true;
     _sinks.clear();
-    _partials.clear();
+    _latest = null;
     if (!_completer.isCompleted) _completer.completeError(error, stackTrace);
   }
 }

@@ -96,6 +96,35 @@ void main() {
     }
   });
 
+  test('the doubling emit schedule keeps partial count logarithmic (#564 pt3)',
+      () async {
+    // A large page spans many worker chunks (4096 ops each). Emitting a partial
+    // every chunk would re-serialize the whole growing prefix each time -
+    // O(commands^2). The doubling schedule (emit after chunks 1, 2, 4, 8, ...)
+    // caps the emit count at O(log chunks), so a page with ~15 chunks yields a
+    // handful of partials, not fifteen. This pins that bound.
+    final big = _linesPdf(20000); // ~60k ops -> ~15 worker chunks
+    final worker = PdfRenderWorker.startUncached(big);
+    addTearDown(worker.dispose);
+
+    final partials = <List<PdfRenderCommand>>[];
+    final result = await worker.record(0, onPartial: partials.add);
+
+    expect(result, isNotNull);
+    // ~15 chunks -> emits at chunks 1,2,4,8 = 4 partials. Bound generously to
+    // stay robust to chunk-count drift while still proving it is logarithmic,
+    // not linear (linear would be ~15).
+    expect(partials.length, greaterThanOrEqualTo(2));
+    expect(partials.length, lessThanOrEqualTo(6),
+        reason: 'doubling schedule must keep emits logarithmic in chunks, '
+            'got ${partials.length}');
+    // Each doubling step is a strictly larger prefix (a real reveal, not repeats).
+    for (var i = 1; i < partials.length; i++) {
+      expect(partials[i].length, greaterThan(partials[i - 1].length),
+          reason: 'each scheduled partial should cover more of the page');
+    }
+  });
+
   test('requesting partials does not change the final buffer', () async {
     final plainWorker = PdfRenderWorker.startUncached(bytes);
     addTearDown(plainWorker.dispose);
