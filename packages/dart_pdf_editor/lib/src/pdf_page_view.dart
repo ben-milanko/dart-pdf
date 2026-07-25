@@ -364,12 +364,14 @@ class PdfPageView extends StatefulWidget {
   /// of prefixes rather than one snapshot - and lands *before* the vector-first
   /// full raster, so it is strictly more information sooner.
   ///
-  /// Default **off**: only the native isolate backend streams partials today (the
-  /// web worker twin is the follow-up), and the reveal's smoothness is a visual
-  /// judgement, so this is opt-in until validated. Gated on the same
-  /// [earlyPrefixMinContentBytes] density proxy. Backends that don't stream make
-  /// it a no-op - the page renders exactly as before.
-  static bool progressiveStreamingPaint = false;
+  /// Default **on**: both backends stream (isolate and web worker), and the
+  /// reveal measured ~25% faster first ink than the bounded prefix it replaces
+  /// on a dense sheet in real Chrome (`tool/perf.sh web open-diagram` vs
+  /// `open-diagram-progressive`). Gated on the same [earlyPrefixMinContentBytes]
+  /// density proxy, so an ordinary page is untouched. Backends that don't stream
+  /// (the null worker) make it a no-op - the page renders exactly as before.
+  /// Set false to fall back to the single bounded [earlyPrefixPaint] snapshot.
+  static bool progressiveStreamingPaint = true;
 
   /// Composite deep-zoom detail from the [PdfTileStore] zoom-bucket pyramid
   /// instead of the single unbudgeted detail patch. When true (and the page

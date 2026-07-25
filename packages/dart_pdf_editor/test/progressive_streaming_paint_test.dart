@@ -77,8 +77,8 @@ void main() {
             'flag is on and the page is dense: ${worker.baseRecordHadPartial}');
   });
 
-  testWidgets('the default-off flag streams nothing', (tester) async {
-    PdfPageView.progressiveStreamingPaint = false; // the shipped default
+  testWidgets('opting the flag back off streams nothing', (tester) async {
+    PdfPageView.progressiveStreamingPaint = false; // the documented opt-out
     PdfPageView.earlyPrefixMinContentBytes = 0;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetDevicePixelRatio);
