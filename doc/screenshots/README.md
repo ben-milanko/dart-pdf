@@ -95,9 +95,33 @@ Useful env: `FLUTTER` (flutter binary; defaults to fvm then PATH),
 
 ## Editing the copy
 
-The headline + subtitle per scene live in one map, `_captions`, at the top of
-`tool/compose_marketing.dart`, keyed `<target>/<basename>`. The gradient and
-layout are in `_composeSvg` in the same file.
+The **English** headline + subtitle per scene live in one map, `_captions`, at
+the top of `tool/compose_marketing.dart`, keyed `<target>/<basename>`. Those are
+the source of truth. The gradient and layout are in `_composeSvg` in the same
+file.
+
+## Localized captions
+
+Translations live in `doc/screenshots/captions/<locale>.json` (one file per app
+locale, e.g. `de.json`, `ja.json`, `ar.json`), mirroring `en.json`'s keys. Each
+entry overrides the English `headline`/`subtitle` for that scene; any key a
+translation omits falls back to the English string, so a partial file is safe.
+
+`compose_marketing.dart --locale <locale>` overlays the matching JSON. The
+driver renders per-locale sets when `LOCALES` is set:
+
+```sh
+# English only (default) → doc/marketing/<target>/<platform>/
+tool/screenshots.sh compose app
+
+# Localized sets → English at the base path, each other locale in its own
+# <locale>/ subfolder (doc/marketing/app/ios/de/, .../ja/, …)
+LOCALES="en de ja ar zh" tool/screenshots.sh compose app
+```
+
+Same App Store Guideline 2.3.10 rule as the listings: `app/*` captions must not
+name another platform, in any language. The store copy these mirror is under
+`app/fastlane/metadata/` (see its README).
 
 The drawn-on markup flourishes live in the `_annotations` map just below
 `_captions` (same key scheme; only `app/*` entries are set). Each builder gets

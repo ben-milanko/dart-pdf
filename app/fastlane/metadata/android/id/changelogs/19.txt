@@ -1,0 +1,7 @@
+Baru di 2.1.0
+
+• Tampilan baca alir ulang: baca dokumen sebagai teks mengalir, dengan gulir malas, posisi tersimpan, dan penampil gambar.
+• Pembukaan dan render lebih cepat, terutama pada berkas besar atau padat gambar, dan penggunaan memori lebih rendah pada gambar yang sangat lebar.
+• Garis rambut lebih tajam, sehingga garis halus tetap terbaca saat diperkecil.
+• Warna lebih baik pada gradien dan gambar terindeks.
+• Karakter Symbol dan ZapfDingbats dirender alih-alih kotak.

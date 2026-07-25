@@ -47,45 +47,50 @@ PdfByteSource Function(Uri uri) remoteByteSourceFactory =
 /// One filter, every platform: desktop and web match on the extension,
 /// Android on the MIME type, iOS/macOS on the uniform type identifier -
 /// a type group missing the field a platform filters by throws there.
-const _pdfTypeGroup = XTypeGroup(
-  label: 'PDF documents',
-  extensions: ['pdf'],
-  mimeTypes: ['application/pdf'],
-  uniformTypeIdentifiers: ['com.adobe.pdf'],
-);
+// The `label` is the file-dialog filter name and is localized; the caller (it
+// always has a BuildContext) passes the resolved string in.
+XTypeGroup _pdfTypeGroup(String label) => XTypeGroup(
+      label: label,
+      extensions: const ['pdf'],
+      mimeTypes: const ['application/pdf'],
+      uniformTypeIdentifiers: const ['com.adobe.pdf'],
+    );
 
 /// Images the form tool's push-button fill accepts.
-const _imageTypeGroup = XTypeGroup(
-  label: 'Images',
-  extensions: ['png', 'jpg', 'jpeg'],
-  mimeTypes: ['image/png', 'image/jpeg'],
-  uniformTypeIdentifiers: ['public.png', 'public.jpeg'],
-);
+XTypeGroup _imageTypeGroup(String label) => XTypeGroup(
+      label: label,
+      extensions: const ['png', 'jpg', 'jpeg'],
+      mimeTypes: const ['image/png', 'image/jpeg'],
+      uniformTypeIdentifiers: const ['public.png', 'public.jpeg'],
+    );
 
 /// The form tool's image picker: tapped push-button fields (signature
 /// and logo slots in templates) fill with the chosen PNG or JPEG.
 Future<Uint8List?> _pickFormImage(BuildContext context, PdfFormField field) =>
-    openFile(acceptedTypeGroups: const [_imageTypeGroup])
+    openFile(acceptedTypeGroups: [_imageTypeGroup(appL10n(context).exFileTypeImages)])
         .then((file) => file?.readAsBytes());
 
 /// The image tool's picker: inserts the chosen PNG or JPEG as a stamp
 /// annotation the user can move, resize, and rotate.
 Future<Uint8List?> _pickImage(BuildContext context) =>
-    openFile(acceptedTypeGroups: const [_imageTypeGroup])
+    openFile(acceptedTypeGroups: [_imageTypeGroup(appL10n(context).exFileTypeImages)])
         .then((file) => file?.readAsBytes());
 
 /// Fonts the "Load font…" entry accepts.
-const _fontTypeGroup = XTypeGroup(
-  label: 'Fonts',
-  extensions: ['ttf', 'otf'],
-  mimeTypes: ['font/ttf', 'font/otf'],
-  uniformTypeIdentifiers: ['public.truetype-ttf-font', 'public.opentype-font'],
-);
+XTypeGroup _fontTypeGroup(String label) => XTypeGroup(
+      label: label,
+      extensions: const ['ttf', 'otf'],
+      mimeTypes: const ['font/ttf', 'font/otf'],
+      uniformTypeIdentifiers: const [
+        'public.truetype-ttf-font',
+        'public.opentype-font',
+      ],
+    );
 
 /// The font menu's "Load font…" picker: embeds the chosen TrueType or
 /// OpenType file so new text can use any font.
 Future<Uint8List?> _pickFont(BuildContext context) =>
-    openFile(acceptedTypeGroups: const [_fontTypeGroup])
+    openFile(acceptedTypeGroups: [_fontTypeGroup(appL10n(context).exFileTypeFonts)])
         .then((file) => file?.readAsBytes());
 
 @visibleForTesting
@@ -811,7 +816,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
   }
 
   Future<void> _pickFile() async {
-    final file = await openFile(acceptedTypeGroups: const [_pdfTypeGroup]);
+    final file =
+        await openFile(acceptedTypeGroups: [_pdfTypeGroup(appL10n(context).exFileTypePdf)]);
     if (file == null) return;
     final loading = _openLoading(file.name);
     try {
@@ -910,7 +916,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// Picks a PDF and returns its bytes (null when cancelled) - the source
   /// for the editor's "Insert PDF…" action.
   Future<Uint8List?> _pickPdfBytes() async {
-    final file = await openFile(acceptedTypeGroups: const [_pdfTypeGroup]);
+    final file =
+        await openFile(acceptedTypeGroups: [_pdfTypeGroup(appL10n(context).exFileTypePdf)]);
     return file?.readAsBytes();
   }
 
@@ -921,7 +928,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
     final current = tab?.session?.bytes;
     if (current == null) return;
     final l10n = appL10n(context);
-    final file = await openFile(acceptedTypeGroups: const [_pdfTypeGroup]);
+    final file =
+        await openFile(acceptedTypeGroups: [_pdfTypeGroup(appL10n(context).exFileTypePdf)]);
     if (file == null) return;
     try {
       final other = await file.readAsBytes();
@@ -1047,7 +1055,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
       default:
         final location = await getSaveLocation(
           suggestedName: name,
-          acceptedTypeGroups: const [_pdfTypeGroup],
+          acceptedTypeGroups: [_pdfTypeGroup(l10n.exFileTypePdf)],
         );
         if (location == null) return;
         try {
@@ -1088,7 +1096,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
       default:
         final location = await getSaveLocation(
           suggestedName: name,
-          acceptedTypeGroups: const [_imageTypeGroup],
+          acceptedTypeGroups: [_imageTypeGroup(l10n.exFileTypeImages)],
         );
         if (location == null) return;
         try {
@@ -1164,7 +1172,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
       default:
         final location = await getSaveLocation(
           suggestedName: name,
-          acceptedTypeGroups: const [_imageTypeGroup],
+          acceptedTypeGroups: [_imageTypeGroup(l10n.exFileTypeImages)],
         );
         if (location == null) return;
         try {
@@ -1562,7 +1570,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
           borderRadius: BorderRadius.circular(8),
           onTap: () => setState(() => _activeIndex = index),
           child: Padding(
-            padding: const EdgeInsets.only(left: 12, right: 2),
+            padding: const EdgeInsetsDirectional.only(start: 12, end: 2),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1903,7 +1911,7 @@ class _OcrSettingsDialogState extends State<_OcrSettingsDialog> {
             ),
             const SizedBox(height: 8),
             Align(
-              alignment: Alignment.centerLeft,
+              alignment: AlignmentDirectional.centerStart,
               child: TextButton.icon(
                 icon: const Icon(Icons.help_outline, size: 18),
                 label: Text(appL10n(context).exHowToSetupOcr),

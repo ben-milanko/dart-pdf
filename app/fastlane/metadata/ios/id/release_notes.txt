@@ -1,0 +1,18 @@
+Baru di 3.0.0
+
+BAHASA
+• DartPDF kini tersedia dalam 10 bahasa, dengan tata letak kanan-ke-kiri penuh untuk bahasa Arab.
+
+RENDER
+• Render overprint, mode campuran, dan soft mask yang lebih akurat, sehingga PDF untuk cetak tampil lebih dekat dengan hasil yang dimaksud.
+• Grup transparansi yang digambar di bawah mode campuran kini dikomposit dengan benar, memperbaiki kotak buram tak diinginkan pada beberapa berkas.
+
+MENGEDIT
+• Tahan Shift saat menggambar untuk membatasi tinta dan garis menjadi goresan lurus.
+• Tetapkan gaya default untuk anotasi dan gunakan kembali dengan satu ketukan.
+• Tab dokumen yang didesain ulang dan tetap mudah dibaca saat Anda membuka lebih banyak berkas.
+
+KECEPATAN
+• Render lebih cepat dan penggunaan memori lebih rendah, dengan peningkatan terbesar pada berkas besar atau padat gambar.
+
+Terima kasih telah menggunakan DartPDF. Masukan dan laporan bug selalu kami terima.

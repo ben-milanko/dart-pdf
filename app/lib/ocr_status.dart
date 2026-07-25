@@ -48,12 +48,6 @@ class OcrJobStatus {
         OcrPhase.finishing => null,
       };
 
-  /// A short label for the chip.
-  String get label => switch (phase) {
-        OcrPhase.downloading => downloadFraction == null
-            ? 'Downloading OCR model…'
-            : 'Downloading model ${(downloadFraction! * 100).round()}%',
-        OcrPhase.recognising => 'OCR $page/$pageCount',
-        OcrPhase.finishing => 'Finishing OCR…',
-      };
+  // The short chip label lives in the presentation layer (`ocrStatusLabel` in
+  // `ocr_status_label.dart`) so this model stays locale-free.
 }

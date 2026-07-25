@@ -83,6 +83,11 @@ class PdfAnnotation {
   bool get isHidden => flags & 2 != 0;
   bool get isNoView => flags & 32 != 0;
 
+  /// The Print flag (§12.5.3 bit 3): the annotation is printed when the
+  /// page is printed. When clear, the annotation shows on screen but is
+  /// omitted from print output.
+  bool get isPrint => flags & 4 != 0;
+
   /// The ReadOnly flag (§12.5.3 bit 7): no interaction with the
   /// annotation at all.
   bool get isReadOnly => flags & 64 != 0;
@@ -159,6 +164,32 @@ class PdfAnnotation {
     if (subtype != 'Stamp') return false;
     final value = document.cos.resolve(dict['DartPdfImageStamp']);
     return value is CosBoolean && value.value;
+  }
+
+  /// The cropped sub-region of an image stamp's source picture that its
+  /// appearance draws, in normalized image coordinates (origin bottom-left,
+  /// `[0,0,1,1]` is the whole image). Null when this is not an image stamp
+  /// or the whole picture is shown (no crop applied).
+  ///
+  /// The editor writes this private marker when an image stamp is cropped
+  /// ([PdfAnnotationEditing.cropImageStamp]) so the crop survives saves,
+  /// copies, and reopens, and is re-baked whenever the appearance is
+  /// regenerated (opacity restyle). Absent on an uncropped picture.
+  PdfRect? get imageStampCrop {
+    if (!isImageStamp) return null;
+    final value = document.cos.resolve(dict['DartPdfImageCrop']);
+    if (value is! CosArray || value.length < 4) return null;
+    final crop = pdfRectFrom(document.cos, value);
+    if (crop == null) return null;
+    // A degenerate or full-image marker reads as "no crop".
+    if (crop.width <= 0 || crop.height <= 0) return null;
+    if (crop.left <= 0 &&
+        crop.bottom <= 0 &&
+        crop.right >= 1 &&
+        crop.top >= 1) {
+      return null;
+    }
+    return crop;
   }
 
   /// App-defined labels attached to a custom stamp annotation.

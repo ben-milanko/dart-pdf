@@ -1,0 +1,7 @@
+Novedades de la versión 3.0.0
+
+• La app ya está disponible en 10 idiomas, con diseño completo de derecha a izquierda.
+• Renderizado más preciso de la sobreimpresión, los modos de fusión y las máscaras suaves.
+• Mantén Mayús para trazar líneas rectas y define un estilo predeterminado para las anotaciones.
+• Pestañas de documento rediseñadas y más fluidas.
+• Renderizado más rápido y menor uso de memoria en archivos grandes.

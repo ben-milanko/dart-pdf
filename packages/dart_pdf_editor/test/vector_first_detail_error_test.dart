@@ -156,7 +156,7 @@ class _FailingDetailWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion}) {
+      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) {
     if (decodeImages && imageDecodeRegion != null && _detailShouldFail) {
       detailRecordFailed = true;
       return Future.error(StateError('detail record failed'));

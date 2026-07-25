@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 3.0.0
 
 - The keyboard-shortcuts editor (Settings → Keyboard shortcuts…) now groups
   tools under tool-category headers (Select, Draw, Shapes, Insert, Measure,
@@ -24,6 +24,48 @@
   logged pointing at `registerBundledEditorAssets()`, so an app that forgot to
   opt into the worker asset notices the silent performance cliff. Release and
   profile builds stay silent.
+
+### Internationalization
+
+- The editor is now fully localized: every user-facing string is extracted to
+  ARB message catalogs and looked up through generated localizations, with an
+  RTL layout sweep and a DevTools locale override for testing (#477, #499,
+  #512). Ships tier-1 locales — Spanish, German, French, Portuguese, Russian,
+  Japanese, Chinese, Hindi, Arabic — alongside a Settings language picker and an
+  ARB coverage gate (#516, #519). Web builds load non-active locales lazily
+  (#483).
+
+### Editing
+
+- Replace document-identity checks with an explicit revision token so the viewer
+  and controller track edits by revision rather than object identity, fixing
+  stale state after same-geometry document swaps (#414).
+- Add `contextMenuEnabled` to suppress the built-in annotation/text context
+  menus for hosts that supply their own (#463).
+- Hold Shift while drawing to constrain ink/line strokes to straight lines
+  (#494), and right-click an annotation to "Set as default style" (#492).
+- Group large context menus with dividers (#488).
+- Paste now works on web (text via the browser clipboard) (#476), the Snapshot
+  vector clipboard is shared across document tabs (#474), and a pasted image's
+  opacity can be changed after the fact (#466).
+- Signature pad gains predictive ink and a touch more stroke width (#484).
+- Show a paste-location indicator on thumbnail-strip hover and keep the strip on
+  the pasted page instead of scrolling to the top (#491, #489).
+- Counter-rotate a pasted annotation for the destination page's `/Rotate` so it
+  is not spun when moved across pages of differing rotation (#460).
+- Key the annotation appearance cache on `/Rect` so a move repaints the
+  annotation (#467), and fix stray dots in reduced-opacity ink annotations
+  (#482).
+
+### Performance
+
+- Make the recorded single-walk render path the default (#394), split
+  substituted-text shaping out of the replay phase and compose it per glyph
+  (#454), and cap UI-thread and browser JPEG image decode to display resolution
+  (#458).
+- Add a global live-raster memory budget (#405), memoize per-build
+  search/selection rescans (#403), prewarm the render worker at app boot (#450),
+  and cap prefetched off-focus pages' image resolution (#451).
 
 ## 2.1.0
 

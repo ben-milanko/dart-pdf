@@ -139,7 +139,7 @@ Future<Uint8List> encodeVectorPrintPage(
   final recorder = RecordingPdfDevice();
   final interpreter = PdfInterpreter(cos: cos, device: recorder)
     ..drawPageContent(page, page.contentBytes());
-  if (annotations) interpreter.drawAnnotations(page);
+  if (annotations) interpreter.drawAnnotations(page, forPrint: true);
 
   final images = await decodeImages(cos, recorder.imageRequests);
 
@@ -380,6 +380,13 @@ class _EncodingDevice implements PdfDevice {
     // lowering subsequent paint alpha (see [_flattenAlpha]). Other modes still
     // flatten to normal.
     _blend = mode;
+  }
+
+  @override
+  void setOverprint(
+      {required bool fill, required bool stroke, required int mode}) {
+    // Overprint (§8.6.7) is a subtractive colorant operation with no
+    // equivalent in this print device's op set yet (issue #502).
   }
 
   @override

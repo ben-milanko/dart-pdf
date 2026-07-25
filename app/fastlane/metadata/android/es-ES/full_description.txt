@@ -1,0 +1,21 @@
+DartPDF es un editor de PDF que funciona por completo en tu dispositivo.
+
+Abre cualquier PDF para marcarlo, rellenar formularios, firmarlo, censurar contenido, reorganizar páginas o editar el texto y las imágenes de la página. Los cambios se guardan en el archivo original.
+
+No se sube nada. Sin cuenta, sin sincronización y sin anuncios.
+
+Funciones:
+
+• Resaltado, subrayado, tachado y trazo a mano alzada
+• Formas, flechas, cuadros de texto, notas y sellos
+• Edita el texto existente y añade imágenes
+• Censura que elimina del archivo el texto y las imágenes cubiertos, no solo de la vista
+• Rellena campos de formulario (texto, casillas, botones de opción, listas desplegables) o añade los tuyos
+• Firmas dibujadas en cualquier lugar, además de firmas digitales PAdES respaldadas por certificado
+• OCR de PDF escaneados para poder seleccionar y buscar el texto
+• Reordena, elimina y exporta páginas a un archivo nuevo
+• Búsqueda de texto completo, selección de texto y enlaces
+• Compara dos versiones en paralelo
+• Abre archivos protegidos con contraseña
+
+Funciona en Android, iPhone, iPad y Mac, además de Windows, Linux y la web. Abre PDF desde tu gestor de archivos, hojas para compartir o arrastrando y soltando. Temas claro y oscuro.

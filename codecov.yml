@@ -27,6 +27,14 @@ flags:
 
 ignore:
   - "**/test/**"
+  # gen-l10n output: the generated localization delegate and per-locale string
+  # tables (`*_localizations.dart`, `*_localizations_<locale>.dart`). These are
+  # code-generated from the ARB files, and translated string getters aren't
+  # unit-tested per key - so every new locale would otherwise tank patch
+  # coverage with hundreds of untested generated lines. Their correctness is
+  # guarded structurally by tool/check_arb_coverage.dart (ARB key parity) plus
+  # the l10n wiring tests, not by line coverage of the generated tables.
+  - "**/l10n/*_localizations*.dart"
   # Experimental multi-window glue built on Flutter's flag-gated, @internal
   # windowing API. Its windowing branches throw UnsupportedError unless the
   # `windowing` feature flag is on and cannot create real OS windows in the

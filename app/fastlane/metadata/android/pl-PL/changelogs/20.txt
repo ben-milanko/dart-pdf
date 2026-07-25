@@ -1,0 +1,7 @@
+Nowości w 3.0.0
+
+• Aplikacja jest teraz dostępna w 10 językach, z pełną obsługą układu od prawej do lewej.
+• Dokładniejsze renderowanie nadruku, trybów mieszania i miękkich masek.
+• Przytrzymaj Shift, aby rysować proste linie, i ustaw domyślny styl adnotacji.
+• Przeprojektowane, płynniejsze karty dokumentów.
+• Szybsze renderowanie i mniejsze zużycie pamięci w dużych plikach.

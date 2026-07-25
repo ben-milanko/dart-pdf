@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:dart_pdf_editor/src/render_worker_transcript_cache.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -71,6 +73,47 @@ void main() {
     expect(identical(reloaded, first), isFalse);
     expect(cache.evictions, 2);
     expect(cache.misses, 3);
+  });
+
+  test('transcriptFor streams progressive partials on a doubling schedule '
+      '(#564 web twin core)', () async {
+    // A dense linework page spans many chunks; the transcript walk (shared by the
+    // web worker record path) emits interim linework prefixes on a doubling
+    // schedule (chunks 1, 2, 4, ...), so the partial count is logarithmic in the
+    // chunk count, each a strictly larger prefix buffer.
+    final document =
+        PdfDocument.open(buildSyntheticCadStrip(ops: 20000, streams: 2));
+    final cache = PdfWorkerTranscriptCache(capacity: 2);
+    final partials = <Uint8List>[];
+    final transcript = await cache.transcriptFor(
+      document,
+      0,
+      false,
+      PdfCancellationToken(),
+      onPartial: partials.add,
+    );
+    expect(transcript, isNotNull);
+    expect(partials.length, greaterThanOrEqualTo(2));
+    expect(partials.length, lessThanOrEqualTo(8),
+        reason: 'doubling schedule keeps emits logarithmic, got '
+            '${partials.length}');
+    for (var i = 1; i < partials.length; i++) {
+      expect(partials[i].length, greaterThan(partials[i - 1].length),
+          reason: 'each partial buffer should be a larger prefix');
+    }
+
+    // A cache HIT does no walk, so it must not stream.
+    final hitPartials = <Uint8List>[];
+    final hit = await cache.transcriptFor(
+      document,
+      0,
+      false,
+      PdfCancellationToken(),
+      onPartial: hitPartials.add,
+    );
+    expect(identical(hit, transcript), isTrue);
+    expect(hitPartials, isEmpty,
+        reason: 'a transcript cache hit does no walk and streams nothing');
   });
 
   test('cancelled transcript construction is not cached', () async {
@@ -233,5 +276,68 @@ void main() {
     expect(cache.length, 2);
     cache.evictPages(null);
     expect(cache.length, 0);
+  });
+
+  // A record preempted mid-walk keeps its partial and resumes on the requeue,
+  // producing exactly the transcript a one-shot record would (#530, the web twin
+  // of the isolate worker's resume - see resume_record_test.dart for the walk
+  // composition proof).
+  test('a preempted record resumes instead of restarting (#530)', () async {
+    final document = PdfDocument.open(buildVectorPdf());
+
+    // One-shot reference: a normal, un-preempted record.
+    final reference = await PdfWorkerTranscriptCache(deduplicateCommands: false)
+        .transcriptFor(document, 0, false, PdfCancellationToken());
+    expect(reference, isNotNull);
+
+    // A tiny chunk so buildVectorPdf's several ops span multiple chunks; the walk
+    // yields at each 2-op boundary, handing control back before the between-chunk
+    // cancel check so the cancel below lands deterministically.
+    final cache = PdfWorkerTranscriptCache(
+        deduplicateCommands: false, resumeChunkOperations: 2);
+    final token = PdfCancellationToken();
+    final preempted =
+        cache.transcriptFor(document, 0, false, token, yieldInterval: 2);
+    token.cancelled = true; // trips the first between-chunk check -> suspend
+    await expectLater(preempted, throwsA(isA<PdfCancelledException>()));
+
+    // Resume: a fresh token, same page - continues from the cursor to completion.
+    final resumed =
+        await cache.transcriptFor(document, 0, false, PdfCancellationToken());
+    expect(resumed, isNotNull);
+
+    Uint8List? wire(List<PdfRenderCommand> commands) => serializeCommands(
+          commands,
+          cos: document.cos,
+          decodeImages: false,
+          imagePlaceholders: true,
+          compactStateScopes: true,
+        );
+    expect(wire(resumed!.sourceCommands), equals(wire(reference!.sourceCommands)),
+        reason: 'resuming must reproduce the one-shot transcript exactly');
+
+    // A resumed record is cached like any completed one: the next request hits.
+    final hit =
+        await cache.transcriptFor(document, 0, false, PdfCancellationToken());
+    expect(identical(hit, resumed), isTrue,
+        reason: 'the resumed transcript must be cached, not re-recorded');
+  });
+
+  test('a revision update evicts a suspended record (#530)', () async {
+    final document = PdfDocument.open(buildVectorPdf());
+    final cache = PdfWorkerTranscriptCache(
+        deduplicateCommands: false, resumeChunkOperations: 2);
+    final token = PdfCancellationToken();
+    final preempted =
+        cache.transcriptFor(document, 0, false, token, yieldInterval: 2);
+    token.cancelled = true;
+    await expectLater(preempted, throwsA(isA<PdfCancelledException>()));
+
+    // The edit drops the suspended page's partial; the next record starts fresh
+    // and still completes to a valid transcript.
+    cache.evictPages({0});
+    final fresh =
+        await cache.transcriptFor(document, 0, false, PdfCancellationToken());
+    expect(fresh, isNotNull);
   });
 }

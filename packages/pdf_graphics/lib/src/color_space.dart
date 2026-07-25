@@ -78,6 +78,30 @@ abstract class PdfColorSpace {
       return const _DeviceColorSpace('DeviceRGB', 3);
     }
     if (resolved is CosArray && resolved.length > 0) {
+      // Doc-level parse cache (#534, PDFium's CPDF_DocPageData shape): a
+      // `cs`/`CS` operator re-selects the same colour space object on every
+      // occurrence, every render, every zoom bucket - and a Separation /
+      // DeviceN space re-reads its tint sample stream each time. Parsed
+      // spaces are immutable, and keying by the resolved array's identity
+      // makes invalidation free: an edit builds new COS objects, so a stale
+      // entry is simply never looked up again (the same argument as the
+      // decoded-stream cache). An Expando ties each entry's lifetime to its
+      // document's objects.
+      final hit = _parsed[resolved];
+      if (hit != null) return hit;
+      final space = _parseArray(cos, resolved, resources, iccCache);
+      _parsed[resolved] = space;
+      return space;
+    }
+    // Unresolved / malformed: a single-component gray keeps something visible.
+    return const _DeviceColorSpace('DeviceGray', 1);
+  }
+
+  static final Expando<PdfColorSpace> _parsed = Expando();
+
+  static PdfColorSpace _parseArray(CosDocument cos, CosArray resolved,
+      CosDictionary? resources, Map<CosStream, IccProfile?>? iccCache) {
+    {
       final family = cos.resolve(resolved[0]);
       if (family is CosName) {
         switch (family.value) {
@@ -219,6 +243,8 @@ class _IccColorSpace extends PdfColorSpace {
   PdfColor toSrgb(List<double> values) {
     final profile = _profile;
     if (profile != null && values.length == profile.channels) {
+      // sRGB-equivalent: components pass through unmanaged (#531).
+      if (profile.isSrgb) return colorFromComponents(values, channels);
       return profile.toSrgb(values);
     }
     return colorFromComponents(values, channels);

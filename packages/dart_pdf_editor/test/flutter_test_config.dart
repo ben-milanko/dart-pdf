@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:dart_pdf_editor/dart_pdf_editor.dart' show PdfViewer;
 import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -19,6 +20,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   TestWidgetsFlutterBinding.ensureInitialized();
   SharedPreferences.setMockInitialValues({});
+  // Keep the deterministic, isolate-free on-thread render path for the suite:
+  // the owned default worker (#396) would otherwise spawn a real isolate per
+  // viewer and turn synchronous render assertions async. Tests that exercise the
+  // default worker re-enable it (see default_worker_test.dart).
+  PdfViewer.debugAutoRenderWorkerEnabled = false;
   await _registerBundledDejaVu();
   await testMain();
 }

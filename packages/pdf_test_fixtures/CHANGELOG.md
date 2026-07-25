@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.0.0
+
+- Lockstep major release to align with `dart_pdf_editor` 3.0.0. No public API
+  changes since 2.1.0.
+
 ## 2.1.0
 
 - Add an image-heavy wide CAD sheet fixture in two profiles, for exercising

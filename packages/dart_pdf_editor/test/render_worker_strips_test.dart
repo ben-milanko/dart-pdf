@@ -437,16 +437,19 @@ void main() {
       (tester) async {
     await tester.runAsync(() async {
       final bytes = _buildTwoPageDenseVectorPdf();
-      final worker = PdfRenderWorker.startUncached(bytes);
-      addTearDown(worker.dispose);
+      // Enable the defer hook BEFORE spawning: the worker reads the global into
+      // its init synchronously as it starts, so a later assignment is too late.
       isolate_worker.debugDeferPdfRenderWorkerCancelUntilNextRequest = true;
-      isolate_worker.debugPdfRenderWorkerIgnoredStaleCancels = 0;
       addTearDown(() => isolate_worker
           .debugDeferPdfRenderWorkerCancelUntilNextRequest = false);
+      isolate_worker.debugPdfRenderWorkerIgnoredStaleCancels = 0;
+      final worker = PdfRenderWorker.startUncached(bytes);
+      addTearDown(worker.dispose);
 
       // Warm the handshake, then let page 1 request preemption while page 0
-      // is already running. The test hook withholds page 0's cancel until its
-      // response has dispatched page 1, recreating the old cross-request race.
+      // is already running. The worker withholds page 0's cancel until page 1
+      // goes active, then replays it - recreating the old cross-request race
+      // deterministically, on the worker's own event loop.
       expect(await worker.record(1), isNotNull);
       final first = worker.record(0, priority: 10);
       final next = worker.record(1, priority: 0);
@@ -585,7 +588,7 @@ class _BinLogWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion}) async {
+      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async {
     recordCalls.add((pageIndex, priority));
     return null;
   }
@@ -650,7 +653,7 @@ class _DefaultWorker extends PdfRenderWorker {
           double? imagePixelRatio,
           bool decodeImages = true,
           int? commandLimit,
-          PdfRect? imageDecodeRegion}) async =>
+          PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async =>
       null;
 
   @override

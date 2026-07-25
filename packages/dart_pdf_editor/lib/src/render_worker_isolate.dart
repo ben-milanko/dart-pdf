@@ -16,9 +16,15 @@ import 'render_worker.dart';
 import 'render_worker_transcript_cache.dart'
     show compactTranscriptSourceCommands, retainedCommandGraphsWeight;
 
-/// Test hook: hold a requested cancellation until the cancelled job answers
-/// and the next queued request is dispatched. That deterministically recreates
-/// the late-signal race request-scoped cancellation must reject.
+/// Test hook: inside the worker isolate, hold a cancel that targets the
+/// currently-active request and replay it only once the *next* request has
+/// gone active. That deterministically recreates the late-signal race
+/// request-scoped cancellation must reject (issue #220) - all ordering happens
+/// on the worker's single event loop, so there is no wall-clock guess.
+///
+/// Read once, at spawn, into [_WorkerInit.deferStaleCancel] - so a test must
+/// set this true BEFORE constructing the worker (the spawn reads globals
+/// synchronously). Setting it has no effect on an already-spawned worker.
 bool debugDeferPdfRenderWorkerCancelUntilNextRequest = false;
 
 /// Number of stale request-scoped cancel messages ignored by native workers.
@@ -82,7 +88,6 @@ class _IsolateRenderWorker extends PdfRenderWorker {
   int _seq = 0;
   bool _disposed = false;
   bool _spawnFailed = false;
-  int? _deferredCancelId;
 
   @override
   bool get isActive => !_disposed && !_spawnFailed;
@@ -145,6 +150,22 @@ class _IsolateRenderWorker extends PdfRenderWorker {
         );
         return;
       }
+      // ['partial', int id, TransferableTypedData data] - a progressive linework
+      // prefix of a record still in flight (#564). Forward it to the request's
+      // sink WITHOUT clearing _inFlight or completing the completer: the final
+      // decoded buffer still arrives on the ordinary response path. A partial for
+      // a request that is no longer the one in flight (disposed, or requeued
+      // under a new id after preemption) is dropped.
+      if (message is List<Object?> &&
+          message.isNotEmpty &&
+          message.first == 'partial') {
+        final id = message[1] as int;
+        final request = _inFlight;
+        if (request == null || request.id != id) return;
+        final data = (message[2] as TransferableTypedData);
+        request.onPartialBytes?.call(data.materialize().asUint8List());
+        return;
+      }
       // [int id, TransferableTypedData? data, ...] - null means "render
       // locally". Combined strip-detail responses carry command and plan
       // buffers as two separately transferable payloads.
@@ -177,12 +198,12 @@ class _IsolateRenderWorker extends PdfRenderWorker {
                 data.materialize().asUint8List(),
             ]);
       _pump();
-      _deliverDeferredCancelToNextRequest();
     });
     final isolate = await Isolate.spawn(
       _workerMain,
       _WorkerInit(_fromWorker.sendPort, TransferableTypedData.fromList([bytes]),
-          perfEnabled: PdfPerfLog.enabled),
+          perfEnabled: PdfPerfLog.enabled,
+          deferStaleCancel: debugDeferPdfRenderWorkerCancelUntilNextRequest),
       debugName: 'pdf-render-worker',
       errorsAreFatal: false,
     );
@@ -207,7 +228,8 @@ class _IsolateRenderWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion}) async {
+      PdfRect? imageDecodeRegion,
+      PdfPartialRecordSink? onPartial}) async {
     if (_disposed || _spawnFailed) return null;
     final request = _PendingRequest.record(
         priority,
@@ -217,7 +239,21 @@ class _IsolateRenderWorker extends PdfRenderWorker {
         imagePixelRatio,
         decodeImages,
         commandLimit,
-        imageDecodeRegion);
+        imageDecodeRegion,
+        // Deserialize each interim linework buffer on arrival and hand the caller
+        // real commands. A corrupt partial is dropped silently - the final buffer
+        // still arrives through the completer.
+        onPartial == null
+            ? null
+            : (bytes) {
+                final List<PdfRenderCommand> commands;
+                try {
+                  commands = deserializeCommands(bytes);
+                } catch (_) {
+                  return;
+                }
+                onPartial(commands);
+              });
     _queue.add(request);
     _pump();
     final buffers = await request.completer.future;
@@ -321,6 +357,21 @@ class _IsolateRenderWorker extends PdfRenderWorker {
     }
   }
 
+  @override
+  Future<PdfPageText?> extractText(int pageIndex, {int priority = 0}) async {
+    if (_disposed || _spawnFailed) return null;
+    final request = _PendingRequest.extractText(priority, _seq++, pageIndex);
+    _queue.add(request);
+    _pump();
+    final buffers = await request.completer.future;
+    if (buffers == null) return null;
+    try {
+      return deserializePageText(buffers.single);
+    } catch (_) {
+      return null; // corrupt buffer → extract in-isolate rather than crash
+    }
+  }
+
   /// Sends the highest-priority queued request to the worker when it is idle
   /// and spawned. Lower [priority] wins; ties break by submission order, so a
   /// freshly-requested visible page (priority 0) preempts pending prefetch.
@@ -386,6 +437,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
         request.imageDecodeRegion?.bottom,
         request.imageDecodeRegion?.right,
         request.imageDecodeRegion?.top,
+        request.onPartialBytes != null, // wantsPartials (#564)
       ]);
     } else if (request.kind == _RequestKind.bin) {
       port.send([
@@ -408,6 +460,10 @@ class _IsolateRenderWorker extends PdfRenderWorker {
         request.regionMaxCommands,
         request.regionBuildGrid,
       ]);
+    } else if (request.kind == _RequestKind.extractText) {
+      // The 4th slot (annotations) is unused by text extraction but keeps the
+      // worker's shared pageIndex/annotations decode uniform across kinds.
+      port.send(['extractText', request.id, request.pageIndex, false]);
     } else {
       port.send([
         'detail',
@@ -474,26 +530,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
   }
 
   void _cancelRequest(_PendingRequest request) {
-    if (debugDeferPdfRenderWorkerCancelUntilNextRequest) {
-      _deferredCancelId = request.id;
-      return;
-    }
     _toCancelPort?.send(request.id);
-  }
-
-  void _deliverDeferredCancelToNextRequest() {
-    final id = _deferredCancelId;
-    if (!debugDeferPdfRenderWorkerCancelUntilNextRequest ||
-        id == null ||
-        _inFlight == null) {
-      return;
-    }
-    _deferredCancelId = null;
-    // Give the worker event loop time to enter the just-dispatched request;
-    // this branch exists only for the deterministic late-delivery test hook.
-    Timer(const Duration(milliseconds: 5), () {
-      if (!_disposed) _toCancelPort?.send(id);
-    });
   }
 
   @override
@@ -520,7 +557,7 @@ class _IsolateRenderWorker extends PdfRenderWorker {
   }
 }
 
-enum _RequestKind { record, bin, detail, update, regionIndex }
+enum _RequestKind { record, bin, detail, update, regionIndex, extractText }
 
 /// One queued request (a page record or a strip bin) and its pending result.
 class _PendingRequest {
@@ -532,7 +569,8 @@ class _PendingRequest {
       this.imagePixelRatio,
       this.decodeImages,
       this.commandLimit,
-      this.imageDecodeRegion)
+      this.imageDecodeRegion,
+      [this.onPartialBytes])
       : kind = _RequestKind.record,
         pageToDevice = null,
         deviceWidth = 0,
@@ -566,7 +604,8 @@ class _PendingRequest {
         newLength = 0,
         changedPages = null,
         regionMaxCommands = 0,
-        regionBuildGrid = false;
+        regionBuildGrid = false,
+        onPartialBytes = null;
 
   _PendingRequest.detail(
       this.priority,
@@ -588,7 +627,8 @@ class _PendingRequest {
         newLength = 0,
         changedPages = null,
         regionMaxCommands = 0,
-        regionBuildGrid = false;
+        regionBuildGrid = false,
+        onPartialBytes = null;
 
   _PendingRequest.regionIndex(
       this.priority,
@@ -610,7 +650,28 @@ class _PendingRequest {
         baseLength = 0,
         appendedBytes = null,
         newLength = 0,
-        changedPages = null;
+        changedPages = null,
+        onPartialBytes = null;
+
+  _PendingRequest.extractText(this.priority, this.seq, this.pageIndex)
+      : kind = _RequestKind.extractText,
+        annotations = false,
+        imagePixelRatio = null,
+        decodeImages = false,
+        commandLimit = null,
+        imageDecodeRegion = null,
+        pageToDevice = null,
+        deviceWidth = 0,
+        deviceHeight = 0,
+        binPixelRatio = 0,
+        slugGlyphs = false,
+        baseLength = 0,
+        appendedBytes = null,
+        newLength = 0,
+        changedPages = null,
+        regionMaxCommands = 0,
+        regionBuildGrid = false,
+        onPartialBytes = null;
 
   _PendingRequest.update(
       this.priority,
@@ -632,7 +693,8 @@ class _PendingRequest {
         binPixelRatio = 0,
         slugGlyphs = false,
         regionMaxCommands = 0,
-        regionBuildGrid = false;
+        regionBuildGrid = false,
+        onPartialBytes = null;
 
   final _RequestKind kind;
   final int priority;
@@ -663,13 +725,18 @@ class _PendingRequest {
   final int regionMaxCommands;
   final bool regionBuildGrid;
 
+  // record-only: forwards each interim linework buffer (#564) to the caller's
+  // sink. Null on every other kind and on records that opted out of partials.
+  final void Function(Uint8List)? onPartialBytes;
+
   final completer = Completer<List<Uint8List>?>();
   bool requeueAfterPreemption = false;
   int id = -1;
 }
 
 class _WorkerInit {
-  _WorkerInit(this.reply, this.bytes, {this.perfEnabled = false});
+  _WorkerInit(this.reply, this.bytes,
+      {this.perfEnabled = false, this.deferStaleCancel = false});
 
   /// The port the worker sends its own command port (and every response) on.
   final SendPort reply;
@@ -679,6 +746,11 @@ class _WorkerInit {
 
   /// Switch on the worker isolate's own (isolate-local) PdfPerf facade.
   final bool perfEnabled;
+
+  /// Test hook (see [debugDeferPdfRenderWorkerCancelUntilNextRequest]): hold a
+  /// cancel that targets the active request and replay it once the next request
+  /// goes active, recreating issue #220's late-arrival ordering deterministically.
+  final bool deferStaleCancel;
 }
 
 /// Isolate entrypoint: open the document once, then serve record and bin
@@ -710,18 +782,39 @@ void _workerMain(_WorkerInit init) {
   }
 
   final binCommands = _BinCommandCache();
+  final suspendedRecord = _SuspendedRecordCache();
 
   PdfCancellationToken? activeToken;
   int? activeRequestId;
-  cancelPort.listen((message) {
-    // A cancel can arrive after its target already replied and the next job
-    // became active. Ignore that stale id instead of aborting the next (often
-    // urgent) page. This is the native half of issue #220.
-    if (message is int && message == activeRequestId) {
+
+  // Act on a cancel id: abort it if it targets the request currently holding
+  // the slot, otherwise report it ignored (issue #220 - a signal that arrived
+  // after its target replied must not abort the next, often urgent, page).
+  void handleCancel(int id) {
+    if (id == activeRequestId) {
       activeToken?.cancelled = true;
-    } else if (message is int) {
-      init.reply.send(['cancelIgnored', message, activeRequestId]);
+    } else {
+      init.reply.send(['cancelIgnored', id, activeRequestId]);
     }
+  }
+
+  // Test hook (see [debugDeferPdfRenderWorkerCancelUntilNextRequest]): when set,
+  // a cancel that targets the *active* request is stashed rather than acted on,
+  // then replayed the instant the next request goes active (below). That stages
+  // a stale cancel landing while a different request owns the slot, with all
+  // ordering on this one event loop - no cross-isolate wall-clock race.
+  final deferStaleCancel = init.deferStaleCancel;
+  int? deferredStaleCancelId;
+
+  cancelPort.listen((message) {
+    if (message is! int) return;
+    if (deferStaleCancel &&
+        deferredStaleCancelId == null &&
+        message == activeRequestId) {
+      deferredStaleCancelId = message;
+      return;
+    }
+    handleCancel(message);
   });
 
   requests.listen((message) async {
@@ -767,8 +860,10 @@ void _workerMain(_WorkerInit init) {
         workerBytes = rebuilt;
         // On the in-place fast path only the changed pages' cached commands are
         // stale; a re-open makes a fresh document, so every cached command
-        // (which referenced the old one) must go.
+        // (which referenced the old one) must go. A suspended record walks the
+        // old document too, so it follows the same eviction.
         binCommands.evictPages(incremental ? changed : null);
+        suspendedRecord.evict(incremental ? changed : null);
       } catch (_) {
         // Malformed update: leave the document and buffer as they were and just
         // free the worker slot below so it keeps serving other pages.
@@ -783,6 +878,14 @@ void _workerMain(_WorkerInit init) {
     final token = PdfCancellationToken();
     activeToken = token;
     activeRequestId = id;
+    // A different request now owns the slot: replay any cancel the defer test
+    // hook withheld. It targets the previous id, so handleCancel reports it
+    // ignored - the #220 path, reached deterministically.
+    final staleId = deferredStaleCancelId;
+    if (staleId != null) {
+      deferredStaleCancelId = null;
+      handleCancel(staleId);
+    }
     Uint8List? buffer;
     Uint8List? detailPlanBuffer;
     // Snapshot the (reassignable) document so an 'update' arriving between
@@ -828,6 +931,8 @@ void _workerMain(_WorkerInit init) {
               request[4] as int,
               request[5] as bool,
               token);
+        } else if (kind == 'extractText') {
+          buffer = _extractTextForWorker(doc, pageIndex);
         } else {
           final imagePixelRatio = request[4] as double?;
           final decodeImages = request[5] as bool;
@@ -839,15 +944,30 @@ void _workerMain(_WorkerInit init) {
               ? PdfRect(request[7] as double, request[8] as double,
                   request[9] as double, request[10] as double)
               : null;
+          // Progressive partials (#564): the main side sets this when the caller
+          // passed an onPartial sink. Send each interim linework buffer only
+          // while this request still owns the slot and has not been cancelled, so
+          // a preempted/superseded record stops streaming immediately (the main
+          // side drops any partial whose id no longer matches _inFlight anyway).
+          final wantsPartials = request.length > 11 && request[11] == true;
+          void emitPartial(Uint8List bytes) {
+            if (activeRequestId == id && !token.cancelled) {
+              init.reply
+                  .send(['partial', id, TransferableTypedData.fromList([bytes])]);
+            }
+          }
+
           buffer = await _recordPageAsync(
               doc,
+              suspendedRecord,
               pageIndex,
               annotations,
               imagePixelRatio,
               decodeImages,
               commandLimit,
               imageDecodeRegion,
-              token);
+              token,
+              onPartial: wantsPartials ? emitPartial : null);
         }
       }
     } on PdfCancelledException {
@@ -876,27 +996,157 @@ void _workerMain(_WorkerInit init) {
   });
 }
 
+/// Extracts one page's text off the UI isolate and serializes it for the wire
+/// (#396). Synchronous - [PdfTextExtractor.extract] is a single content walk
+/// with no cancellation seam - but it runs on the worker isolate, so a heavy
+/// page's extraction no longer freezes the frame; a superseded search just
+/// discards the result. Null (a bad index) declines to a local extraction.
+Uint8List? _extractTextForWorker(PdfDocument document, int pageIndex) {
+  if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
+  return serializePageText(PdfTextExtractor.extract(document, pageIndex));
+}
+
 /// Records one page into a serialized command buffer, yielding periodically
 /// so the cancel port's listener can fire and set [token.cancelled].
+///
+/// The full-page record (the heavy case a scroll preempts and then requeues)
+/// runs through [_recordResumablePage], which keeps a cancelled walk in
+/// [suspended] so the requeued render continues from where it stopped instead
+/// of re-interpreting the prefix (#530). Bounded preview/prefix records
+/// (`decodeImages` false) stay on the simple discard-on-cancel path - they are
+/// already cheap and their operation cap makes resume pointless.
 Future<Uint8List?> _recordPageAsync(
     PdfDocument document,
+    _SuspendedRecordCache suspended,
     int pageIndex,
     bool annotations,
     double? imagePixelRatio,
     bool decodeImages,
     int? commandLimit,
     PdfRect? imageDecodeRegion,
-    PdfCancellationToken token) async {
+    PdfCancellationToken token,
+    {void Function(Uint8List)? onPartial}) async {
   if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
+
+  // The resumable path (chunked walk + partial emission + preempt resume) serves
+  // the decoding full record as before, and now also a NON-decoding full record
+  // that wants partials - the progressive linework reveal streams while that
+  // record builds (#564 pt4). A bounded prefix (commandLimit set) stays on the
+  // simple one-shot path; it is already cheap and does not stream.
+  if (decodeImages || (onPartial != null && commandLimit == null)) {
+    return _recordResumablePage(document, suspended, pageIndex, annotations,
+        imagePixelRatio, commandLimit, imageDecodeRegion, token,
+        decodeImages: decodeImages, onPartial: onPartial);
+  }
+
   final page = document.page(pageIndex);
-  final previewOperationLimit = decodeImages ? null : commandLimit;
   final recorder = RecordingPdfDevice();
   final interpreter =
       PdfInterpreter(cos: document.cos, device: recorder, cancellation: token);
   await interpreter.drawPageContentAsync(page, page.contentBytes(),
-      operationLimit: previewOperationLimit);
+      operationLimit: commandLimit);
   if (annotations) interpreter.drawAnnotations(page);
   return serializeCommands(recorder.commands,
+      cos: document.cos,
+      decodeImages: false,
+      maxImagePixelRatio: imagePixelRatio,
+      imageDecodeRegion: imageDecodeRegion,
+      imagePlaceholders: true,
+      commandLimit: commandLimit,
+      compactStateScopes: true);
+}
+
+/// Operations recorded per [PdfPageContentWalk.advance] chunk on the resumable
+/// record path. Bounds how much extra interpretation runs after a cancel before
+/// the walk suspends (the walk carries no cancellation token, so it cannot abort
+/// mid-chunk - see [_recordResumablePage]); small enough that the post-cancel
+/// overshoot is a sliver of a heavy page, large enough that the per-chunk cost
+/// stays noise. The walk still yields internally every 512 ops, so the isolate
+/// keeps servicing the cancel port within a chunk.
+const int _resumeRecordChunkOperations = 4096;
+
+/// The full-page record that survives preemption. Resumes a walk [suspended] by
+/// an earlier cancel of this same page, or starts a fresh one, then advances in
+/// bounded chunks. On cancel it stashes the partial walk and rethrows (the
+/// caller replies null and the main side requeues the record); on completion it
+/// draws annotations and serializes exactly as the one-shot path did.
+///
+/// The interpreter deliberately carries no cancellation token: a token makes
+/// [PdfPageContentWalk.advance] throw mid-chunk, which finishes the walk and
+/// restores the device - discarding the partial. Driving bounded chunks and
+/// checking the token between them is what keeps the recording resumable.
+Future<Uint8List?> _recordResumablePage(
+    PdfDocument document,
+    _SuspendedRecordCache suspended,
+    int pageIndex,
+    bool annotations,
+    double? imagePixelRatio,
+    int? commandLimit,
+    PdfRect? imageDecodeRegion,
+    PdfCancellationToken token,
+    {bool decodeImages = true,
+    void Function(Uint8List)? onPartial}) async {
+  var entry = suspended.take(pageIndex, annotations);
+  // Defensive: a finished walk cannot be resumed - its advance is a no-op that
+  // reports incomplete, which would spin the completion loop below forever and
+  // hang the worker. The cache only ever stashes a live walk (evict/displace
+  // finish a walk as they remove it), so this is unreachable today; keep it so
+  // a future change can't turn that invariant into a hang.
+  if (entry != null && entry.walk.isFinished) entry = null;
+  if (entry == null) {
+    final page = document.page(pageIndex);
+    final recorder = RecordingPdfDevice();
+    final interpreter = PdfInterpreter(cos: document.cos, device: recorder);
+    final walk = interpreter.beginPageContent(page, page.contentBytes());
+    entry = _SuspendedRecord(
+        pageIndex, annotations, page, recorder, interpreter, walk);
+  }
+
+  final walk = entry.walk;
+  // Emit partials on a DOUBLING chunk schedule (after chunks 1, 2, 4, 8, ...)
+  // rather than every chunk. Each partial re-serializes the whole accumulated
+  // prefix, so emitting every chunk is O(commands^2) across a page; a doubling
+  // schedule is O(log n) emits whose serialize work is a geometric series
+  // dominated by the last (full-page) prefix - i.e. O(commands) total, ~2x one
+  // full serialize. It also fronts the reveals: dense early (1,2,4...), when a
+  // top-down reveal matters most, sparse late. `entry.emittedChunks` persists
+  // across a preempt/resume so the schedule doesn't restart on requeue.
+  while (!await walk.advance(operations: _resumeRecordChunkOperations)) {
+    if (token.cancelled) {
+      // Keep the partial recording so the requeued render resumes here rather
+      // than re-walking the prefix.
+      suspended.keep(entry);
+      throw const PdfCancelledException();
+    }
+    entry.chunksAdvanced++;
+    if (onPartial == null || entry.chunksAdvanced < entry.nextEmitAtChunk) {
+      continue;
+    }
+    entry.nextEmitAtChunk *= 2;
+    // A chunk boundary is always at page-level graphics state, so the commands
+    // recorded so far serialize to a valid, replayable buffer. Images are left
+    // as placeholders (decodeImages false) - the prefix is the fast top-down
+    // reveal; the final decoded buffer follows when the walk completes. Each
+    // partial is a superset of the last.
+    final partial = serializeCommands(entry.recorder.commands,
+        cos: document.cos,
+        decodeImages: false,
+        maxImagePixelRatio: imagePixelRatio,
+        imageDecodeRegion: imageDecodeRegion,
+        imagePlaceholders: true,
+        compactStateScopes: true);
+    // Null only on an unserializable image, which placeholders preclude here;
+    // if it ever happens, skip this partial - the final buffer still arrives.
+    if (partial != null) onPartial(partial);
+  }
+
+  if (annotations) entry.interpreter.drawAnnotations(entry.page);
+  // The final serialize honours the record's own decodeImages: a decoding record
+  // decodes and embeds pixels; a non-decoding (vector-first) record ships image
+  // placeholders. This matches the one-shot path's output byte-for-byte, so
+  // routing a streaming vector-first record through here does not change what a
+  // non-streaming one produced.
+  return serializeCommands(entry.recorder.commands,
       cos: document.cos,
       decodeImages: decodeImages,
       maxImagePixelRatio: imagePixelRatio,
@@ -904,6 +1154,75 @@ Future<Uint8List?> _recordPageAsync(
       imagePlaceholders: !decodeImages,
       commandLimit: commandLimit,
       compactStateScopes: true);
+}
+
+/// A full-page record cancelled mid-walk, held so the next record of the same
+/// page resumes it (#530). Bundles everything the resumed walk needs: the walk
+/// cursor, the interpreter holding the graphics state, the recorder holding the
+/// commands drawn so far, and the page for the closing annotation pass.
+class _SuspendedRecord {
+  _SuspendedRecord(this.pageIndex, this.annotations, this.page, this.recorder,
+      this.interpreter, this.walk);
+  final int pageIndex;
+  final bool annotations;
+  final PdfPage page;
+  final RecordingPdfDevice recorder;
+  final PdfInterpreter interpreter;
+  final PdfPageContentWalk walk;
+
+  // Progressive-partial schedule (#564), carried across a preempt/resume so the
+  // doubling cadence continues rather than restarting: total chunks advanced so
+  // far, and the chunk count at which the next partial is emitted (1, 2, 4, ...).
+  int chunksAdvanced = 0;
+  int nextEmitAtChunk = 1;
+}
+
+/// A one-slot cache of the most recently suspended full-page record.
+///
+/// One slot is enough for the workload this targets: a page is preempted by an
+/// urgent neighbour, that neighbour records fresh (which leaves this page's
+/// suspended walk untouched in the slot - [take] only removes it on a matching
+/// page), then the page requeues and resumes. Nested preemption of a second
+/// page evicts the first ([keep] abandons the previous), degrading it to
+/// today's restart-from-scratch - a bounded-memory trade, not a correctness
+/// issue, since the abandoned walk's partial recording is simply discarded.
+class _SuspendedRecordCache {
+  _SuspendedRecord? _entry;
+
+  /// Removes and returns the suspended record for ([pageIndex], [annotations]),
+  /// or null when the slot holds a different page (which is left in place, so a
+  /// fresh record of an urgent neighbour does not evict the page waiting to
+  /// resume).
+  _SuspendedRecord? take(int pageIndex, bool annotations) {
+    final entry = _entry;
+    if (entry != null &&
+        entry.pageIndex == pageIndex &&
+        entry.annotations == annotations) {
+      _entry = null;
+      return entry;
+    }
+    return null;
+  }
+
+  /// Stashes [entry] to resume on the next record of its page, abandoning any
+  /// previously stashed walk so the balancing device restore runs.
+  void keep(_SuspendedRecord entry) {
+    final previous = _entry;
+    if (previous != null && !identical(previous, entry)) previous.walk.abandon();
+    _entry = entry;
+  }
+
+  /// Drops the stashed walk after a revision update (or shutdown). [pages]
+  /// limits eviction to the changed pages, matching [_BinCommandCache.evictPages];
+  /// null clears the slot unconditionally (a re-open replaced the document).
+  void evict(Set<int>? pages) {
+    final entry = _entry;
+    if (entry == null) return;
+    if (pages == null || pages.contains(entry.pageIndex)) {
+      entry.walk.abandon();
+      _entry = null;
+    }
+  }
 }
 
 /// Bins one page's strips for the requested device geometry and returns the

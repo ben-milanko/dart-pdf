@@ -25,6 +25,11 @@ import '../l10n/pdf_l10n.dart';
 /// mixed values read "Varies", and compatible edits act on the whole
 /// selection at once; with none it invites a selection.
 ///
+/// The rows are gathered under collapsible section headers (Appearance,
+/// Text, Content, Position & size, …) - tap a header to fold a group away
+/// and keep the panel legible as it fills up. The fold state is per-group,
+/// held for the panel's lifetime and shared across selections.
+///
 /// The inner edge is draggable ([resizable]); the chosen width persists
 /// via [PdfEditingPreferences.propertiesPanelWidth].
 ///
@@ -126,6 +131,13 @@ class _PdfAnnotationPropertiesPanelState
   double? _draggingCharSpacing;
   double? _draggingFontWidth;
 
+  /// Whether each collapsible property group is open, keyed by the group's
+  /// stable id. Absent means open - groups start expanded, so nothing is
+  /// hidden until the user collapses it. The choice is per-group (not
+  /// per-annotation), so a collapsed group stays collapsed across selection
+  /// changes for the panel's lifetime.
+  final Map<String, bool> _expanded = {};
+
   PdfEditingController get _controller => widget.controller;
 
   PdfEditingPreferences get _preferences => _controller.preferences;
@@ -163,20 +175,6 @@ class _PdfAnnotationPropertiesPanelState
     if (mounted) setState(() {});
   }
 
-  String _endingLabel(PdfLineEnding ending) => switch (ending) {
-        PdfLineEnding.none => pdfL10n(context).none,
-        PdfLineEnding.square => pdfL10n(context).propLineEndingSquare,
-        PdfLineEnding.circle => pdfL10n(context).propLineEndingCircle,
-        PdfLineEnding.diamond => pdfL10n(context).propLineEndingDiamond,
-        PdfLineEnding.openArrow => pdfL10n(context).propLineEndingOpenArrow,
-        PdfLineEnding.closedArrow => pdfL10n(context).propLineEndingClosedArrow,
-        PdfLineEnding.butt => pdfL10n(context).propLineEndingButt,
-        PdfLineEnding.rOpenArrow => pdfL10n(context).propLineEndingOpenArrowRev,
-        PdfLineEnding.rClosedArrow =>
-          pdfL10n(context).propLineEndingClosedArrowRev,
-        PdfLineEnding.slash => pdfL10n(context).propLineEndingSlash,
-      };
-
   Widget _lineEndingRow({
     required String label,
     required Key key,
@@ -198,7 +196,7 @@ class _PdfAnnotationPropertiesPanelState
               for (final ending in PdfLineEnding.values)
                 DropdownMenuItem(
                   value: ending,
-                  child: Text(_endingLabel(ending),
+                  child: Text(pdfLineEndingLabel(context, ending),
                       overflow: TextOverflow.ellipsis),
                 ),
             ],
@@ -339,10 +337,35 @@ class _PdfAnnotationPropertiesPanelState
     }
   }
 
-  Widget _section(String title) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-        child: Text(title, style: Theme.of(context).textTheme.labelLarge),
-      );
+  /// A collapsible titled group of property rows. Tapping the header toggles
+  /// [_expanded] for [id]; groups start expanded. Grouping keeps the panel
+  /// legible as it fills up - a collapsed group hides its rows and just
+  /// leaves its header behind.
+  Widget _group(String id, String title, List<Widget> children) {
+    final expanded = _expanded[id] ?? true;
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        InkWell(
+          key: ValueKey('pdf-prop-section-$id'),
+          onTap: () => setState(() => _expanded[id] = !expanded),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 8, 4),
+            child: Row(children: [
+              Expanded(
+                child: Text(title,
+                    style: Theme.of(context).textTheme.labelLarge),
+              ),
+              Icon(expanded ? Icons.expand_more : Icons.chevron_right,
+                  size: 20, color: scheme.onSurfaceVariant),
+            ]),
+          ),
+        ),
+        if (expanded) ...children,
+      ],
+    );
+  }
 
   Widget _swatchRow(String label, Color? color,
       {required Key key,
@@ -406,7 +429,7 @@ class _PdfAnnotationPropertiesPanelState
       bool varies = false}) {
     final base = key is ValueKey ? '${key.value}' : '$key';
     return Padding(
-      padding: const EdgeInsets.only(left: 16, right: 8),
+      padding: const EdgeInsetsDirectional.only(start: 16, end: 8),
       child: Row(children: [
         Text(label),
         Expanded(
@@ -534,7 +557,6 @@ class _PdfAnnotationPropertiesPanelState
     ];
     final style = _controller.selectedAnnotationStyle;
     if (style == null) return children;
-    children.add(_section(pdfL10n(context).propSectionAppearance));
     // An image stamp (a pasted picture) has no tintable colour - only its
     // opacity applies - so the swatch is hidden for it while opacity stays.
     if (_allSelected((behavior) => behavior.supportsColor)) {
@@ -599,7 +621,7 @@ class _PdfAnnotationPropertiesPanelState
                 DropdownMenuItem(
                     value: style,
                     key: ValueKey('pdf-prop-line-type-${style.name}'),
-                    child: Text(style.label)),
+                    child: Text(pdfLineStyleLabel(context, style))),
             ],
             onChanged: (style) {
               if (style != null) _controller.restyleSelected(lineStyle: style);
@@ -683,7 +705,6 @@ class _PdfAnnotationPropertiesPanelState
     final border = annotation.behavior.style.borderColor;
     final borderColor = border == null ? null : Color(0xFF000000 | border);
     return [
-      _section(pdfL10n(context).propSectionText),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Row(children: [
@@ -817,7 +838,6 @@ class _PdfAnnotationPropertiesPanelState
     final style = _controller.selectedFormFieldStyle;
     if (name == null || style == null) return const [];
     return [
-      _section(pdfL10n(context).propSectionText),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Row(children: [
@@ -902,31 +922,38 @@ class _PdfAnnotationPropertiesPanelState
 
   List<Widget> _buildSingle(PdfAnnotation annotation) {
     final slot = _controller.selectedAnnotationSlot!;
-    return [
+    final l = pdfL10n(context);
+    final sections = <Widget>[
       ListTile(
         leading: Icon(annotation.isCallout
             ? Icons.chat_bubble_outline
             : pdfAnnotationIcon(annotation.subtype)),
         title: Text(annotation.isCallout
-            ? pdfL10n(context).propCallout
-            : pdfAnnotationLabel(annotation.subtype)),
-        subtitle: Text(pdfL10n(context).propPageNumber(slot.$1 + 1)),
+            ? l.propCallout
+            : pdfAnnotationLabel(context, annotation.subtype)),
+        subtitle: Text(l.propPageNumber(slot.$1 + 1)),
       ),
-      ..._styleControls(),
-      ..._textStyleControls(annotation),
-      // a form widget's /T is its field name, not an author, and /V (not
-      // /Contents) is its value - so widgets get a "Field name" row instead
-      // of the generic Contents/Author section
-      if (annotation.subtype == 'Widget') ...[
-        if (_controller.selectedWidgetFieldName != null) ...[
-          _section(pdfL10n(context).propSectionFormField),
-          _textRow(pdfL10n(context).propFieldName, _fieldName,
+    ];
+
+    void addGroup(String id, String title, List<Widget> rows) {
+      if (rows.isNotEmpty) sections.add(_group(id, title, rows));
+    }
+
+    addGroup('appearance', l.propSectionAppearance, _styleControls());
+    addGroup('text', l.propSectionText, _textStyleControls(annotation));
+    // a form widget's /T is its field name, not an author, and /V (not
+    // /Contents) is its value - so widgets get a "Field name" group instead
+    // of the generic Contents/Author group
+    if (annotation.subtype == 'Widget') {
+      if (_controller.selectedWidgetFieldName != null) {
+        addGroup('form-field', l.propSectionFormField, [
+          _textRow(l.propFieldName, _fieldName,
               key: const ValueKey('pdf-prop-field-name'),
               onCommit: _commitFieldName),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Row(children: [
-              Expanded(child: Text(pdfL10n(context).propType)),
+              Expanded(child: Text(l.propType)),
               PdfSelectedFormFieldTypeMenu(
                 controller: _controller,
                 buttonKey: const ValueKey('pdf-prop-form-type'),
@@ -935,46 +962,45 @@ class _PdfAnnotationPropertiesPanelState
               ),
             ]),
           ),
-        ],
-        ..._formFieldControls(),
-      ] else ...[
-        ..._formFieldControls(),
-        _section(pdfL10n(context).propSectionContent),
-        _textRow(pdfL10n(context).propContents, _contents,
+        ]);
+      }
+      addGroup('form-text', l.propSectionText, _formFieldControls());
+    } else {
+      addGroup('form-text', l.propSectionText, _formFieldControls());
+      addGroup('content', l.propSectionContent, [
+        _textRow(l.propContents, _contents,
             key: const ValueKey('pdf-prop-contents'),
             onCommit: _commitContents,
             maxLines: 4),
         if (widget.showAuthor)
-          _textRow(pdfL10n(context).propAuthor, _author,
+          _textRow(l.propAuthor, _author,
               key: const ValueKey('pdf-prop-author'), onCommit: _commitAuthor),
-      ],
-      _section(pdfL10n(context).propSectionPositionSize),
+      ]);
+    }
+    addGroup('position-size', l.propSectionPositionSize, [
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Row(children: [
-          _geometryField(pdfL10n(context).propGeometryX, _x,
-              const ValueKey('pdf-prop-x'),
+          _geometryField(l.propGeometryX, _x, const ValueKey('pdf-prop-x'),
               enabled: true),
           const SizedBox(width: 8),
-          _geometryField(pdfL10n(context).propGeometryY, _y,
-              const ValueKey('pdf-prop-y'),
+          _geometryField(l.propGeometryY, _y, const ValueKey('pdf-prop-y'),
               enabled: true),
         ]),
       ),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Row(children: [
-          _geometryField(pdfL10n(context).propGeometryWidth, _w,
-              const ValueKey('pdf-prop-w'),
+          _geometryField(l.propGeometryWidth, _w, const ValueKey('pdf-prop-w'),
               enabled: _controller.canResizeSelected),
           const SizedBox(width: 8),
-          _geometryField(pdfL10n(context).propGeometryHeight, _h,
-              const ValueKey('pdf-prop-h'),
+          _geometryField(l.propGeometryHeight, _h, const ValueKey('pdf-prop-h'),
               enabled: _controller.canResizeSelected),
         ]),
       ),
-      const SizedBox(height: 16),
-    ];
+    ]);
+    sections.add(const SizedBox(height: 16));
+    return sections;
   }
 
   List<Widget> _buildMulti(int count) {
@@ -983,34 +1009,42 @@ class _PdfAnnotationPropertiesPanelState
       for (final annotation in annotations)
         annotation.isCallout
             ? pdfL10n(context).propCallout
-            : pdfAnnotationLabel(annotation.subtype),
+            : pdfAnnotationLabel(context, annotation.subtype),
     ]);
     final page = _common<int>([
       for (final (page, _) in _controller.selectedAnnotationSlots) page + 1,
     ]);
     final hasWidget = annotations.any((a) => a.subtype == 'Widget');
-    return [
+    final l = pdfL10n(context);
+    final sections = <Widget>[
       ListTile(
         leading: const Icon(Icons.select_all),
-        title: Text(pdfL10n(context).propAnnotationCount(count)),
-        subtitle: Text(pdfL10n(context).propEditsApplyToAll),
+        title: Text(l.propAnnotationCount(count)),
+        subtitle: Text(l.propEditsApplyToAll),
       ),
-      _section(pdfL10n(context).propSectionSelection),
+    ];
+
+    void addGroup(String id, String title, List<Widget> rows) {
+      if (rows.isNotEmpty) sections.add(_group(id, title, rows));
+    }
+
+    addGroup('selection', l.propSectionSelection, [
       _readOnlyRow(
-        pdfL10n(context).propType,
-        type.varies ? pdfL10n(context).propVaries : type.value,
+        l.propType,
+        type.varies ? l.propVaries : type.value,
         const ValueKey('pdf-prop-type-value'),
       ),
       _readOnlyRow(
-        pdfL10n(context).propPageLabel,
-        page.varies ? pdfL10n(context).propVaries : '${page.value}',
+        l.propPageLabel,
+        page.varies ? l.propVaries : '${page.value}',
         const ValueKey('pdf-prop-page-value'),
       ),
-      ..._styleControls(),
-      if (!hasWidget) ...[
-        _section(pdfL10n(context).propSectionContent),
+    ]);
+    addGroup('appearance', l.propSectionAppearance, _styleControls());
+    if (!hasWidget) {
+      addGroup('content', l.propSectionContent, [
         _textRow(
-          pdfL10n(context).propContents,
+          l.propContents,
           _contents,
           key: const ValueKey('pdf-prop-contents'),
           onCommit: _commitContents,
@@ -1020,16 +1054,17 @@ class _PdfAnnotationPropertiesPanelState
         ),
         if (widget.showAuthor)
           _textRow(
-            pdfL10n(context).propAuthor,
+            l.propAuthor,
             _author,
             key: const ValueKey('pdf-prop-author'),
             onCommit: _commitAuthor,
             enabled: _controller.canSetSelectedAuthor,
             varies: _authorVaries,
           ),
-      ],
-      const SizedBox(height: 16),
-    ];
+      ]);
+    }
+    sections.add(const SizedBox(height: 16));
+    return sections;
   }
 
   @override

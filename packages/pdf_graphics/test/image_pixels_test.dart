@@ -127,6 +127,41 @@ void main() {
     expect(pixels.rgba.sublist(4, 8), [0, 0, 0, 0]);
   });
 
+  test('/SMask /Matte un-preblends the base against the matte colour', () {
+    // A white pixel preblended over a red matte at coverage 0.5 stores
+    // c' = m + a·(c − m) = (255, 128, 128). With /Matte [1 0 0] the decoder
+    // must recover the true white before premultiplying, so the result is a
+    // neutral grey (128,128,128,128) - not the reddish (128,64,64,128) a
+    // naïve decode would give.
+    final smask = image({
+      'Width': const CosInteger(1),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceGray'),
+      'Matte': CosArray([
+        const CosInteger(1),
+        const CosInteger(0),
+        const CosInteger(0),
+      ]),
+    }, [
+      128
+    ]);
+    final stream = image({
+      'Width': const CosInteger(1),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceRGB'),
+      'SMask': smask,
+    }, [
+      255,
+      128,
+      128
+    ]);
+
+    final pixels = decodePdfImagePixels(cos, stream)!;
+    expect(pixels.rgba.sublist(0, 4), [128, 128, 128, 128]);
+  });
+
   test('color-key /Mask turns matching samples transparent', () {
     final stream = image({
       'Width': const CosInteger(2),
@@ -932,4 +967,64 @@ void main() {
       expect(cropDownsamplePdfDecodedPixels(full, 1, 1, 2, 2, 2, 2), isNull);
     });
   });
+
+  group('a small-displayed JPX takes the resolution-reduced decode', () {
+    CosStream jpxImage(int tw, int th) => image({
+          'Width': const CosInteger(16),
+          'Height': const CosInteger(16),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'Filter': const CosName('JPXDecode'),
+        }, _rgbJ2kFixture);
+
+    test('reduced-path output matches the full-decode downsample', () {
+      // The reduced JPX decode (finest wavelet levels skipped) is not byte-
+      // identical to decoding all 16x16 and box-averaging, but on this linear
+      // ramp the two agree closely. The point is that the scaled façade routed
+      // through the reduced path and produced the right pixels at target size.
+      final stream = jpxImage(4, 4);
+      final full = decodePdfImagePixels(cos, stream)!;
+      final expected = downsamplePdfDecodedPixels(full, 4, 4);
+      final scaled = decodePdfImagePixelsScaled(cos, stream, 4, 4)!;
+
+      expect(scaled.width, 4);
+      expect(scaled.height, 4);
+      var maxDiff = 0;
+      for (var i = 0; i < expected.rgba.length; i++) {
+        maxDiff = maxDiff > (scaled.rgba[i] - expected.rgba[i]).abs()
+            ? maxDiff
+            : (scaled.rgba[i] - expected.rgba[i]).abs();
+      }
+      expect(maxDiff, lessThanOrEqualTo(24));
+    });
+
+    test('a target no smaller than native is left to the full path', () {
+      // ratio < 2 → no reduce; the scaled façade declines and the caller
+      // full-decodes. (16x16 asked for 16x16.)
+      expect(decodePdfImagePixelsScaled(cos, jpxImage(16, 16), 16, 16), isNull);
+    });
+  });
 }
+
+/// The 16x16 lossless RGB (RCT + 5/3) JPEG 2000 codestream from pdf_cos's
+/// jpx_test - a linear ramp (R=16x, G=16y, B=8x). Duplicated here (the two
+/// test suites are independent) to exercise the JPX branch of the scaled decode
+/// façade end to end.
+const _rgbJ2kFixture = [
+  255, 79, 255, 81, 0, 47, 0, 0, 0, 0, 0, 16, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 16, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 7, 1, 1, 7,
+  1, 1, 7, 1, 1, 255, 82, 0, 12, 0, 0, 0, 1, 1, 2, 4, 4, 0, 1, 255, 92, 0,
+  10, 64, 64, 72, 72, 80, 72, 72, 80, 255, 100, 0, 37, 0, 1, 67, 114, 101,
+  97, 116, 101, 100, 32, 98, 121, 32, 79, 112, 101, 110, 74, 80, 69, 71, 32,
+  118, 101, 114, 115, 105, 111, 110, 32, 50, 46, 53, 46, 52, 255, 144, 0,
+  10, 0, 0, 0, 0, 0, 158, 0, 1, 255, 147, 223, 128, 128, 18, 15, 51, 220,
+  41, 248, 240, 83, 215, 233, 92, 255, 7, 107, 224, 63, 207, 180, 52, 6, 65,
+  148, 140, 180, 7, 54, 238, 103, 24, 210, 232, 251, 223, 128, 112, 6, 65,
+  148, 140, 180, 7, 54, 238, 103, 24, 211, 235, 51, 111, 192, 249, 2, 65,
+  243, 131, 0, 34, 24, 119, 191, 3, 127, 191, 193, 243, 133, 131, 231, 8,
+  34, 26, 8, 93, 127, 0, 207, 213, 81, 195, 234, 5, 135, 212, 10, 34, 26, 8,
+  93, 127, 0, 207, 213, 82, 63, 192, 124, 34, 64, 249, 3, 0, 54, 161, 132,
+  63, 61, 166, 52, 47, 249, 83, 192, 249, 2, 64, 249, 2, 0, 54, 161, 153,
+  207, 62, 98, 162, 175, 193, 243, 132, 131, 231, 10, 54, 161, 153, 207, 62,
+  98, 162, 176, 63, 255, 217,
+];

@@ -8,6 +8,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import 'browser_jpeg_decode.dart';
 import 'budgeted_cache.dart';
 import 'performance_policy.dart';
 
@@ -189,11 +190,16 @@ class PdfImageCache {
 }
 
 /// Collects every image a page references, without painting anything.
-class ImageCollector implements PdfDevice {
+class ImageCollector implements PdfDevice, PdfTiledCellSink {
   final List<PdfImageRequest> streams = [];
 
   @override
   void drawImage(PdfImageRequest request) => streams.add(request);
+
+  @override
+  void drawTiledCell(PdfDrawTiledCellCommand command) =>
+      // A cell's images decode once however many tiles stamp it.
+      replayCommands(command.cellCommands, this);
 
   @override
   void save() {}
@@ -214,6 +220,9 @@ class ImageCollector implements PdfDevice {
   void drawText(PdfTextRun run) {}
   @override
   void setBlendMode(PdfBlendMode mode) {}
+  @override
+  void setOverprint(
+      {required bool fill, required bool stroke, required int mode}) {}
   @override
   void beginGroup(double alpha, {bool knockout = false}) {}
   @override
@@ -265,9 +274,15 @@ Future<Map<Object, ui.Image>> decodeImages(
     CosDocument cos, Iterable<PdfImageRequest> requests,
     {PdfImageCache? cache, double? maxImagePixelRatio}) async {
   final out = <Object, ui.Image>{};
+  // Plan the work synchronously first: dedup by key, resolve cache hits, and
+  // collect the misses. Deciding all of this before the first await is what
+  // makes the concurrent decode below safe - a repeated image is decoded once
+  // and two tasks never race the cache on the same key (#454).
+  final pending = <_PendingDecode>[];
+  final seen = <Object>{};
   for (final request in requests) {
     final key = pdfImageKey(request);
-    if (out.containsKey(key)) continue;
+    if (!seen.add(key)) continue;
     // Worker-decoded pixels are already sized; only a local decode is capped.
     final target = request.decoded != null
         ? null
@@ -282,21 +297,40 @@ Future<Map<Object, ui.Image>> decodeImages(
       out[key] = hit;
       continue;
     }
+    pending.add(_PendingDecode(key, cacheKey, request, target));
+  }
+  // Decode the misses concurrently. `instantiateImageCodec` / the browser codec
+  // hand the work to a codec thread, so awaiting each image serially left that
+  // thread idle between them - on an image-heavy page that serialisation was a
+  // large slice of the first-paint wait (#454). Overlapping them keeps the
+  // codec busy; the results land in a shared map and the distinct-key cache,
+  // so single-threaded interleaving at the awaits cannot collide.
+  await Future.wait(pending.map((p) async {
     try {
-      final decoded = request.decoded;
+      final decoded = p.request.decoded;
       final image = decoded != null
           ? await _imageFromPremultiplied(
               decoded.rgba, decoded.width, decoded.height)
-          : await _decodeOne(cos, request.stream,
-              targetWidth: target?.$1, targetHeight: target?.$2);
+          : await _decodeOne(cos, p.request.stream,
+              targetWidth: p.target?.$1, targetHeight: p.target?.$2);
       if (image != null) {
-        out[key] = cache == null ? image : cache.put(cacheKey, image);
+        out[p.key] = cache == null ? image : cache.put(p.cacheKey, image);
       }
     } on Exception {
       // undecodable image: the device will skip it
     }
-  }
+  }));
   return out;
+}
+
+/// One image whose decode was deferred so [decodeImages] can run the misses
+/// concurrently. Holds everything the synchronous planning pass resolved.
+class _PendingDecode {
+  _PendingDecode(this.key, this.cacheKey, this.request, this.target);
+  final Object key;
+  final Object cacheKey;
+  final PdfImageRequest request;
+  final (int, int)? target;
 }
 
 /// The display-capped decode size for [request]'s image, or null to decode at
@@ -400,14 +434,27 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream,
 
   // undo any wrapping filters (e.g. [/FlateDecode /DCTDecode])
   final jpeg = cos.decodeStreamData(stream, stopBeforeFilter: dctName);
+  // On web, decode through the browser's native codec first: it is far faster
+  // than the engine's WASM codec under CanvasKit (a ~640 ms main-thread cost on
+  // the reported doc) and lands a GPU image with no readback. The worker
+  // already does this off-thread; this recovers the win on the main thread when
+  // the worker declined - e.g. its scope lacked OffscreenCanvas. Returns null
+  // off web and on any failure, falling through to the engine codec. #458.
+  //
   // The platform codec downscales during decode when a target is given -
   // decisive on the web, where the alternative is decoding 100+ MP and reading
   // it back off the GPU for the soft-mask multiply.
-  final codec = scaled
-      ? await ui.instantiateImageCodec(jpeg,
+  var base = scaled
+      ? await decodeJpegWithBrowser(jpeg,
           targetWidth: targetWidth, targetHeight: targetHeight)
-      : await ui.instantiateImageCodec(jpeg);
-  final base = (await codec.getNextFrame()).image;
+      : await decodeJpegWithBrowser(jpeg);
+  if (base == null) {
+    final codec = scaled
+        ? await ui.instantiateImageCodec(jpeg,
+            targetWidth: targetWidth, targetHeight: targetHeight)
+        : await ui.instantiateImageCodec(jpeg);
+    base = (await codec.getNextFrame()).image;
+  }
   final mask = await _resolveDartUiMask(cos, dict,
       targetWidth: base.width, targetHeight: base.height);
   // /Decode and color-key /Mask apply to the decoded samples; gray

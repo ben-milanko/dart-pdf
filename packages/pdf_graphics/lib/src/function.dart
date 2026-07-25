@@ -22,6 +22,21 @@ abstract class PdfFunction {
 
   static PdfFunction? parse(CosDocument cos, CosObject? object) {
     final resolved = cos.resolve(object);
+    if (resolved is CosNull) return null;
+    // Doc-level parse cache (#534): functions are re-parsed per selection
+    // (tint transforms, shadings, /TR transfers) and a type-0 parse decodes
+    // its whole sample stream. Parsed functions are immutable; identity
+    // keying makes invalidation free (edits build new COS objects).
+    final hit = _parsed[resolved];
+    if (hit != null) return hit;
+    final function = _parse(cos, resolved);
+    if (function != null) _parsed[resolved] = function;
+    return function;
+  }
+
+  static final Expando<PdfFunction> _parsed = Expando();
+
+  static PdfFunction? _parse(CosDocument cos, CosObject resolved) {
     if (resolved is CosArray) {
       // one single-output function per color component
       final parts = <PdfFunction>[];
@@ -287,6 +302,17 @@ class _SampledFunction extends PdfFunction {
   }
 
   double _sampleAt(int sampleIndex) {
+    // 8- and 16-bit samples - the overwhelmingly common encodings for tint
+    // transforms and shading functions - are byte-aligned direct reads
+    // (#534); odd widths keep the exact bit loop.
+    if (bitsPerSample == 8) {
+      return sampleIndex < data.length ? data[sampleIndex].toDouble() : 0;
+    }
+    if (bitsPerSample == 16) {
+      final byte = sampleIndex * 2;
+      if (byte + 1 >= data.length) return 0;
+      return ((data[byte] << 8) | data[byte + 1]).toDouble();
+    }
     final bitOffset = sampleIndex * bitsPerSample;
     var value = 0;
     for (var i = 0; i < bitsPerSample; i++) {

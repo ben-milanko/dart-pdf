@@ -71,6 +71,10 @@ class PdfTextRun {
     this.fill = true,
     this.strokeColor,
     this.strokeWidth = 0,
+    this.letterSpacing = 0,
+    this.wordSpacing = 0,
+    this.visibleWidth,
+    this.leadingSpace = 0,
     this.mcid,
   });
 
@@ -115,8 +119,45 @@ class PdfTextRun {
   final PdfGradient? gradient;
 
   /// Advance width in em units, from the PDF's font metrics. Devices should
-  /// scale their substituted font's output to match, so columns line up.
+  /// scale their substituted font's output to match, so columns line up. This
+  /// total already includes the character/word spacing described by
+  /// [letterSpacing]/[wordSpacing].
   final double width;
+
+  /// Character spacing (Tc, §9.3.2) in em units - the extra advance added after
+  /// every glyph. A device substituting a system font should reproduce it as
+  /// real tracking so the substitute's own advances match [width] instead of
+  /// stretching the glyph shapes to fill it.
+  final double letterSpacing;
+
+  /// Word spacing (Tw, §9.3.3) in em units - the extra advance added after each
+  /// single-byte space (code 32) on a simple font; 0 for composite (CID) fonts,
+  /// which Tw never touches. Like [letterSpacing], a substituting device should
+  /// apply it as real spacing so a space carrying a large Tw opens a genuine gap
+  /// rather than stretching the surrounding glyphs across it.
+  final double wordSpacing;
+
+  /// Advance in em units up to the end of the last non-whitespace glyph -
+  /// [width] minus any trailing-whitespace advance. Null means "same as
+  /// [width]" (no trailing whitespace, or the emitter didn't distinguish).
+  ///
+  /// A substituting device stretches its system font to a target width to make
+  /// advances line up; that target must be this visible width, because the
+  /// layout engines it measures against (e.g. Flutter's [TextPainter]) drop
+  /// trailing whitespace from their reported width. Using [width] there would
+  /// stretch the visible glyphs to swallow a trailing space's advance - which a
+  /// large Tw makes enormous. [width] itself stays whitespace-inclusive so text
+  /// extraction still sees the true inter-run gap.
+  final double? visibleWidth;
+
+  /// Advance in em units from the run origin to the start of the first
+  /// non-whitespace glyph - the leading-whitespace advance (a leading space
+  /// carrying a large Tw is a common way tabular content reaches its column).
+  /// A substituting device draws its trimmed text shifted right by this much,
+  /// because the layout engines it measures against also drop leading
+  /// whitespace and would otherwise place the first visible glyph at the origin.
+  /// [transform] itself keeps the untrimmed origin, so extraction is unaffected.
+  final double leadingSpace;
 
   /// The /BaseFont name, e.g. `ABCDEF+Helvetica-Bold`.
   final String? fontName;
@@ -209,6 +250,22 @@ abstract interface class PdfDevice {
   /// Sets the blend mode for subsequent painting (gs /BM). Non-compositing
   /// devices can ignore it.
   void setBlendMode(PdfBlendMode mode);
+
+  /// Sets the overprint state for subsequent painting (gs /OP, /op, /OPM;
+  /// PDF §8.6.7). [fill] is nonstroking overprint (/op), [stroke] is stroking
+  /// overprint (/OP), and [mode] is the overprint mode (/OPM, 0 or 1).
+  ///
+  /// Overprint is a subtractive (CMYK/spot colorant) operation: an
+  /// overprinting colorant that is not written leaves the underlying colorant
+  /// untouched instead of knocking it out. A faithful reproduction needs a
+  /// CMYK/spot colorant buffer this RGB compositor does not have; painting
+  /// devices approximate the common case (a neutral/dark ink over a coloured
+  /// backdrop) with a `darken` (per-channel min) composite while the flag is
+  /// set - over a white backdrop that is a no-op, so it only affects ink laid
+  /// over ink (issue #502). [mode] is threaded for a future colorant-buffer
+  /// path; the RGB approximation cannot act on the OPM-0/1 zero-component
+  /// distinction. Non-compositing devices can ignore all three.
+  void setOverprint({required bool fill, required bool stroke, required int mode});
 
   /// Brackets a transparency-group form (§11.6.6) whose composite result
   /// paints at [alpha]. Inside the group, alpha starts over at 1.0; the

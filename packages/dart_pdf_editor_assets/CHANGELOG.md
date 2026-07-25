@@ -1,4 +1,6 @@
-## 2.1.0
+# Changelog
+
+## 3.0.0
 
 - Initial release. Holds the optional `dart_pdf_editor` bundled assets - the six
   editor fonts and the prebuilt web render worker - split out of

@@ -110,21 +110,34 @@ class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
 
   @override
   Widget build(BuildContext context) {
-    final row = Row(children: [
-      ...widget.leadingPanels,
-      Expanded(
-        key: const ValueKey('pdf-shell-viewer'),
-        child: widget.viewer,
-      ),
-      ...widget.trailingPanels,
-    ]);
-    final stacked = Column(children: [
+    // The panels OVERLAY the viewer rather than squeezing it: the viewer fills
+    // the whole content area and the docked panels float at its edges over the
+    // top. So opening, closing, or resizing a panel never changes the viewer's
+    // size - the document view is invariant to the panels (no zoom or position
+    // jump), and the panel simply reveals or covers a strip of the page beside
+    // it. The panels keep their original nesting - a column of top panels, a
+    // middle band of leading · gap · trailing, then a column of bottom panels -
+    // so their arrangement, resize grips, and drop zones are unchanged; only the
+    // viewer's old flex slot becomes a transparent gap the viewer shows through.
+    final panelsOverlay = Column(children: [
       ...widget.topPanels,
-      Expanded(child: row),
+      Expanded(
+        child: Row(children: [
+          ...widget.leadingPanels,
+          // the viewer shows through here; an empty box takes no pointer input,
+          // so taps in the gap reach the viewer beneath in the stack
+          const Expanded(child: SizedBox.expand()),
+          ...widget.trailingPanels,
+        ]),
+      ),
       ...widget.bottomPanels,
     ]);
     final content = Stack(children: [
-      Positioned.fill(child: stacked),
+      Positioned.fill(
+        key: const ValueKey('pdf-shell-viewer'),
+        child: widget.viewer,
+      ),
+      Positioned.fill(child: panelsOverlay),
       ...widget.overlays,
       if (widget.floatingToolbar != null)
         Positioned(
@@ -413,7 +426,7 @@ class _PanelTab extends StatelessWidget {
               size: 16,
               color: selected ? scheme.primary : scheme.onSurfaceVariant),
           const SizedBox(width: 6),
-          Text(panel.label,
+          Text(panel.label(context),
               style: TextStyle(
                 color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
                 fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
@@ -1199,8 +1212,8 @@ Future<void> _selectViewOption(
   required PdfEditingPreferences preferences,
   required bool pageColor,
   required VoidCallback? onAuthorPressed,
-  Map<PdfEditTool, LogicalKeyboardKey>? toolShortcuts,
-  ValueChanged<Map<PdfEditTool, LogicalKeyboardKey>>? onToolShortcutsChanged,
+  Map<PdfEditTool, PdfToolShortcut>? toolShortcuts,
+  ValueChanged<Map<PdfEditTool, PdfToolShortcut>>? onToolShortcutsChanged,
   Set<PdfEditTool>? tools,
 }) async {
   switch (option) {
@@ -1243,20 +1256,20 @@ Future<void> _selectViewOption(
   }
 }
 
-Future<Map<PdfEditTool, LogicalKeyboardKey>?> showPdfShellShortcutsSheet(
+Future<Map<PdfEditTool, PdfToolShortcut>?> showPdfShellShortcutsSheet(
   BuildContext context, {
-  required Map<PdfEditTool, LogicalKeyboardKey> shortcuts,
+  required Map<PdfEditTool, PdfToolShortcut> shortcuts,
   Set<PdfEditTool>? tools,
 }) {
   final visibleTools = [
     for (final entry in pdfEditToolShortcuts.entries)
       if (tools == null || tools.contains(entry.key)) entry.key,
   ];
-  var draft = Map<PdfEditTool, LogicalKeyboardKey>.of(shortcuts);
+  var draft = Map<PdfEditTool, PdfToolShortcut>.of(shortcuts);
   var searchQuery = '';
 
-  Future<LogicalKeyboardKey?> captureKey(BuildContext context) {
-    return showDialog<LogicalKeyboardKey>(
+  Future<PdfToolShortcut?> captureKey(BuildContext context) {
+    return showDialog<PdfToolShortcut>(
       context: context,
       builder: (context) {
         final focusNode = FocusNode(debugLabel: 'PdfShortcutCapture');
@@ -1277,11 +1290,16 @@ Future<Map<PdfEditTool, LogicalKeyboardKey>?> showPdfShellShortcutsSheet(
               }
               if (key == LogicalKeyboardKey.delete ||
                   key == LogicalKeyboardKey.backspace) {
-                Navigator.of(context).pop(const LogicalKeyboardKey(0));
+                Navigator.of(context)
+                    .pop(const PdfToolShortcut(LogicalKeyboardKey(0)));
                 return;
               }
+              // Hold Shift to record a Shift-extended shortcut; bare Shift
+              // (and other modifier keys) carry a multi-character keyLabel,
+              // so the letter/digit filter below skips them.
               if (key.keyLabel.isNotEmpty && key.keyLabel.length == 1) {
-                Navigator.of(context).pop(key);
+                Navigator.of(context).pop(PdfToolShortcut(key,
+                    shift: HardwareKeyboard.instance.isShiftPressed));
               }
             },
             child: Text(pdfL10n(context).shellPressLetterKeyHint),
@@ -1297,7 +1315,7 @@ Future<Map<PdfEditTool, LogicalKeyboardKey>?> showPdfShellShortcutsSheet(
     );
   }
 
-  return showModalBottomSheet<Map<PdfEditTool, LogicalKeyboardKey>>(
+  return showModalBottomSheet<Map<PdfEditTool, PdfToolShortcut>>(
     context: context,
     showDragHandle: true,
     isScrollControlled: true,
@@ -1322,7 +1340,7 @@ Future<Map<PdfEditTool, LogicalKeyboardKey>?> showPdfShellShortcutsSheet(
                     TextButton(
                       key: const ValueKey('pdf-shell-shortcuts-reset'),
                       onPressed: () => setSheetState(() => draft =
-                          Map<PdfEditTool, LogicalKeyboardKey>.of(
+                          Map<PdfEditTool, PdfToolShortcut>.of(
                               pdfEditToolShortcuts)),
                       child: Text(pdfL10n(context).reset),
                     ),
@@ -1391,14 +1409,15 @@ Future<Map<PdfEditTool, LogicalKeyboardKey>?> showPdfShellShortcutsSheet(
                             pdfEditToolShortcutLabel(tool, shortcuts: draft) ??
                                 l10n.shellUnbound),
                         onTap: () async {
-                          final key = await captureKey(context);
-                          if (key == null) return;
+                          final shortcut = await captureKey(context);
+                          if (shortcut == null) return;
                           setSheetState(() {
-                            draft.removeWhere((_, value) => value == key);
-                            if (key.keyId == 0) {
+                            // steal the combo from whatever tool held it
+                            draft.removeWhere((_, value) => value == shortcut);
+                            if (shortcut.trigger.keyId == 0) {
                               draft.remove(tool);
                             } else {
-                              draft[tool] = key;
+                              draft[tool] = shortcut;
                             }
                           });
                         },
@@ -1493,8 +1512,8 @@ Future<void> showPdfShellViewOptionsSheet(
   bool author = false,
   String? authorName,
   VoidCallback? onAuthorPressed,
-  Map<PdfEditTool, LogicalKeyboardKey>? toolShortcuts,
-  ValueChanged<Map<PdfEditTool, LogicalKeyboardKey>>? onToolShortcutsChanged,
+  Map<PdfEditTool, PdfToolShortcut>? toolShortcuts,
+  ValueChanged<Map<PdfEditTool, PdfToolShortcut>>? onToolShortcutsChanged,
   Set<PdfEditTool>? tools,
 }) {
   String hex(Color color) {
@@ -1702,8 +1721,8 @@ class PdfShellViewOptionsButton extends StatelessWidget {
   /// Opens the host prompt for editing the default annotation author.
   final VoidCallback? onAuthorPressed;
 
-  final Map<PdfEditTool, LogicalKeyboardKey>? toolShortcuts;
-  final ValueChanged<Map<PdfEditTool, LogicalKeyboardKey>>?
+  final Map<PdfEditTool, PdfToolShortcut>? toolShortcuts;
+  final ValueChanged<Map<PdfEditTool, PdfToolShortcut>>?
       onToolShortcutsChanged;
   final Set<PdfEditTool>? tools;
 
@@ -1847,7 +1866,7 @@ class PdfShellPanelSwitch extends StatelessWidget {
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         if (items.length > 1)
           Padding(
-            padding: const EdgeInsets.only(left: 4, right: 6),
+            padding: const EdgeInsetsDirectional.only(start: 4, end: 6),
             child: Text(
               pdfL10n(context).shellPanels,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(

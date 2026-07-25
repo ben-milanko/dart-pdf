@@ -13,12 +13,15 @@ import 'package:pdf_document/pdf_document.dart';
 import '../debug_overlays.dart';
 import '../l10n/pdf_l10n.dart';
 import '../page_geometry.dart';
+import '../platform_cursors.dart';
 import '../renderer.dart';
 import '../theme.dart';
 import 'editing_color_pick.dart';
 import 'editing_controller.dart';
 import 'editing_fonts.dart';
+import 'editing_image_crop.dart';
 import 'editing_interaction.dart';
+import 'editing_link.dart';
 import 'editing_measure.dart';
 import 'editing_tool_behavior.dart';
 import 'handle_layout.dart';
@@ -484,6 +487,7 @@ class EditingPageOverlay extends StatefulWidget {
     required this.pageIndex,
     required this.geometry,
     required this.textPrompt,
+    this.linkPrompt = showPdfAddLinkDialog,
     this.pageColor = const Color(0xFFFFFFFF),
     this.showAnnotations = true,
     this.interactionHost,
@@ -511,12 +515,18 @@ class EditingPageOverlay extends StatefulWidget {
   final PdfPageGeometry geometry;
   final PdfTextPrompt textPrompt;
 
+  /// How the link tool ([PdfEditTool.link]) and the text-selection "Add link"
+  /// action collect a hyperlink's target. Defaults to [showPdfAddLinkDialog].
+  final PdfLinkPrompt linkPrompt;
+
   /// How the form tool asks for a push-button field's image. With none,
   /// tapping a push button does nothing.
   final PdfFormImagePicker? formImagePicker;
 
   /// How the image tool ([PdfEditTool.image]) asks for the picture to
-  /// insert. With none, the image tool does nothing.
+  /// insert. With none, arming the image tool is a no-op on tap/drag - the
+  /// stock [PdfEditingToolbar] hides the tool in that case so users don't
+  /// meet a dead button. See [PdfViewer.imagePicker].
   final PdfImagePicker? imagePicker;
 
   /// Receives a region captured by the snapshot tool
@@ -1058,6 +1068,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _controller.addListener(_onControllerChanged);
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Keep the controller's stamp-locale in sync with the ambient UI locale so
+    // the built-in {{date}}/{{datetime}} stamp fields localize their month
+    // names and AM/PM markers. Runs on mount and whenever the locale changes.
+    _controller.uiLocale = Localizations.localeOf(context);
+  }
+
   void _adoptInteraction() {
     _ownsInteraction = widget.interactionSession == null;
     _interaction =
@@ -1228,6 +1247,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// stream, stylus detection for palm rejection, multi-touch bail, and
   /// - with ink or the eraser armed - the stroke itself.
   void _onPointerDown(PointerDownEvent event) {
+    // the crop overlay owns all input while a crop is armed
+    if (_controller.isCroppingImage) return;
     _pointerPressure = _normalizedPressure(event);
     if (_lastPointerKind != event.kind) {
       // the selection action chip shows for touch/stylus input only
@@ -2302,6 +2323,13 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         });
       }
     }
+    if (_controller.shouldKeepEditingTextFocused &&
+        _textEditRect != null &&
+        !_textEditFocus.hasFocus) {
+      // the tune popup just opened over this session and may have stolen
+      // focus - reclaim it so the selection highlight comes straight back
+      _reclaimEditingTextFocus();
+    }
     final editRevision = _controller.editSelectedTextRevision;
     if (editRevision != _editSelectedTextRevision) {
       _editSelectedTextRevision = editRevision;
@@ -2911,11 +2939,50 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// (Escape cancels first, so by the time the unfocus arrives the
   /// session is already gone and this is a no-op.)
   void _onTextEditFocus() {
-    if (!_textEditFocus.hasFocus &&
-        !_textEditStyleMenuOpen &&
-        !_controller.isEditingTextFocusCommitHeld) {
-      _commitTextEdit();
+    if (_textEditFocus.hasFocus || _textEditStyleMenuOpen) return;
+    // While the tune popup is open we keep the field focused so its selection
+    // highlight (which a TextField only paints when focused) stays on - both
+    // as the popup opens and after each control tap, so the user keeps seeing
+    // the run they're restyling. A control tap steals focus; take it straight
+    // back. But if the popup's own value field took focus (the user is typing
+    // an exact number), leave the keyboard there.
+    if (_controller.shouldKeepEditingTextFocused) {
+      if (_textEditRect != null && !_primaryFocusIsEditable()) {
+        _reclaimEditingTextFocus();
+      }
+      return;
     }
+    if (_controller.isEditingTextFocusCommitHeld) return;
+    _commitTextEdit();
+  }
+
+  /// Pulls keyboard focus back to the in-place editor before the next paint,
+  /// so the selection highlight never blanks for a frame (no flash). Guarded
+  /// against the field having meanwhile committed or a popup value field
+  /// having claimed the keyboard.
+  void _reclaimEditingTextFocus() {
+    scheduleMicrotask(() {
+      if (!mounted ||
+          _textEditRect == null ||
+          !_controller.shouldKeepEditingTextFocused ||
+          _textEditFocus.hasFocus ||
+          _primaryFocusIsEditable()) {
+        return;
+      }
+      _textEditFocus.requestFocus();
+    });
+  }
+
+  /// Whether the primary focus is a real text input - used to tell "a popup
+  /// button stole focus, reclaim it" from "the user tapped a value field to
+  /// type, leave it be". A focused field's node is attached to the `Focus`
+  /// [EditableText] builds around itself, so that node's context has an
+  /// [EditableText] ancestor; a bare [FocusScopeNode] (what a plain unfocus
+  /// lands on) does not, even though text fields sit under it elsewhere.
+  static bool _primaryFocusIsEditable() {
+    final ctx = FocusManager.instance.primaryFocus?.context;
+    return ctx != null &&
+        ctx.findAncestorWidgetOfExactType<EditableText>() != null;
   }
 
   /// Holds the inline editor's focus while a pointer is down on the style
@@ -2944,6 +3011,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   void _panStart(DragStartDetails details) {
+    // while cropping, the crop overlay owns every pointer over the page
+    if (_controller.isCroppingImage) return;
     // raw-driven pointers own their gesture: the pan recognizer still
     // claims the arena (keeping the viewer's pan/zoom from fighting the
     // stroke) but its callbacks must not double-drive it
@@ -3005,7 +3074,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             PdfEditTool.image ||
             PdfEditTool.redact ||
             PdfEditTool.snapshot ||
-            PdfEditTool.signatureBox:
+            PdfEditTool.signatureBox ||
+            PdfEditTool.link:
         _beginInteraction(PdfEditingInteractionIntent.create, details.kind);
         setState(() {
           _dragStart = position;
@@ -3225,6 +3295,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   void _panUpdate(DragUpdateDetails details) {
+    if (_controller.isCroppingImage) return;
     if (_pointers.gestureBailed || _pointers.rawPointer != null) return;
     final position = details.localPosition;
     _interaction.sample();
@@ -3362,6 +3433,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   }
 
   void _panEnd(DragEndDetails details) {
+    if (_controller.isCroppingImage) return;
     if (_pointers.rawPointer != null) return; // the raw pointer-up commits
     final before = _controller.revisionId;
     final transition = _interaction.state.transition;
@@ -3876,6 +3948,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             _controller.newFormFieldKind, widget.pageIndex, rect);
       case PdfEditTool.redact:
         _controller.addRedaction(widget.pageIndex, rect);
+      case PdfEditTool.link:
+        final target = await widget.linkPrompt(
+          context,
+          pageCount: _controller.document.pageCount,
+          currentPage: widget.pageIndex,
+          initialUrl: '',
+        );
+        if (target == null) return;
+        _controller.addLink(widget.pageIndex, [rect], target);
       case PdfEditTool.signatureBox:
         final placer = widget.onPlaceSignature;
         if (placer == null) return;
@@ -4039,6 +4120,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       _endRawPointer(event, canceled: true);
 
   Future<void> _onTapUp(TapUpDetails details) async {
+    // the crop overlay owns taps while a crop is armed
+    if (_controller.isCroppingImage) return;
     // the eyedropper commits from the raw pointer-up instead
     if (_controller.isPickingColor) return;
     if (_pointers.gestureBailed) return;
@@ -4216,7 +4299,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   _rotatePoint(
                       event.localPosition, chrome.$1.center, -resting));
       if (vertex != null) {
-        cursor = SystemMouseCursors.grab;
+        cursor = grabCursor;
       } else if (handle != null) {
         cursor = _resizeCursorFor(handle);
       } else if (chrome != null &&
@@ -4919,6 +5002,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // instead of waiting for the full-page raster. Dragging keeps using the
     // normal ghost path, and explicit commit afterimages take precedence.
     final selectedAnnotation = _controller.selectedAnnotation;
+    final cropping = _controller.isCroppingImage &&
+        _controller.selectedPage == widget.pageIndex;
     final washRestGhost = selectedAnnotation?.subtype == 'FreeText';
     final _AfterGhost? restGhost = !widget.rasterCurrent &&
             !dragging &&
@@ -5060,20 +5145,25 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // anchor drags at the press point, not where the recognizer won the
         // arena - a shape should start exactly where the pointer went down
         dragStartBehavior: DragStartBehavior.down,
-        onPanStart: _panStart,
-        onPanUpdate: _panUpdate,
-        onPanEnd: _panEnd,
-        onTapUp: _onTapUp,
-        onDoubleTapDown:
-            _polyTool || _tool == PdfEditTool.cloudPolygon ||
-                    _tool == PdfEditTool.form
-                ? _onDoubleTapDown
-                : null,
-        onDoubleTap:
-            _polyTool || _tool == PdfEditTool.cloudPolygon ||
-                    _tool == PdfEditTool.form
-                ? _onDoubleTap
-                : null,
+        // while cropping, the crop overlay owns the page: drop this detector's
+        // recognizers entirely so they never win the gesture arena over the
+        // crop rectangle's own handles and confirm/cancel chips
+        onPanStart: cropping ? null : _panStart,
+        onPanUpdate: cropping ? null : _panUpdate,
+        onPanEnd: cropping ? null : _panEnd,
+        onTapUp: cropping ? null : _onTapUp,
+        onDoubleTapDown: !cropping &&
+                (_polyTool ||
+                    _tool == PdfEditTool.cloudPolygon ||
+                    _tool == PdfEditTool.form)
+            ? _onDoubleTapDown
+            : null,
+        onDoubleTap: !cropping &&
+                (_polyTool ||
+                    _tool == PdfEditTool.cloudPolygon ||
+                    _tool == PdfEditTool.form)
+            ? _onDoubleTap
+            : null,
         child: MouseRegion(
           cursor: _cursor,
           onHover: _onHover,
@@ -5480,6 +5570,23 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                 _buildReadoutChip(text, anchor),
               if (_styleReadout() case (final text, final anchor))
                 _buildReadoutChip(text, anchor, keyValue: 'pdf-style-readout'),
+              if (_controller.isCroppingImage &&
+                  _controller.selectedPage == widget.pageIndex &&
+                  selectedAnnotation != null)
+                PdfImageCropOverlay(
+                  key: const ValueKey('pdf-image-crop-overlay'),
+                  bounds: _geometry.toViewRect(selectedAnnotation.rect),
+                  initialCrop: _geometry.toViewRect(
+                      _controller.imageCropDraft ?? selectedAnnotation.rect),
+                  chromeScale: _chromeScale,
+                  accentColor: PdfViewerTheme.of(context)
+                          .annotationChromeColor ??
+                      const Color(0xFF1E88E5),
+                  onChanged: (viewRect) => _controller
+                      .updateImageCropDraft(_geometry.toPageRect(viewRect)),
+                  onCommit: _controller.commitImageCrop,
+                  onCancel: _controller.cancelImageCrop,
+                ),
             ]),
           ),
         ),
@@ -5994,9 +6101,12 @@ class _EditingPreviewPainter extends CustomPainter {
               ..strokeWidth = 1 * chromeScale);
       case PdfEditTool.redact:
         paintRedactionHatch(canvas, rect, chromeScale: chromeScale);
-      case PdfEditTool.snapshot || PdfEditTool.signatureBox:
-        // a selection marquee: the region grab in a screenshot tool, and the
-        // "draw where the signature goes" box in Acrobat/Bluebeam
+      case PdfEditTool.snapshot ||
+            PdfEditTool.signatureBox ||
+            PdfEditTool.link:
+        // a selection marquee: the region grab in a screenshot tool, the
+        // "draw where the signature goes" box in Acrobat/Bluebeam, and the
+        // region a hyperlink is being drawn over
         canvas.drawRect(rect, Paint()..color = _chrome.withAlpha(0x1A));
         canvas.drawRect(
             rect,

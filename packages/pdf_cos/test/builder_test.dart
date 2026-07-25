@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:test/test.dart';
 
@@ -71,6 +73,87 @@ void main() {
       final reopened = CosDocument.open(bytes);
       final infoDict = reopened.resolve(reopened.trailer['Info']);
       expect((infoDict as CosDictionary)['Title'], CosString.fromText('Doc'));
+    });
+  });
+
+  group('CosDocumentBuilder object streams', () {
+    CosReference buildOnePage(CosDocumentBuilder builder, {String? title}) {
+      final pages = CosDictionary({'Type': const CosName('Pages')});
+      final pagesRef = builder.add(pages);
+      final page = builder.add(CosDictionary({
+        'Type': const CosName('Page'),
+        'Parent': pagesRef,
+        'MediaBox': CosArray([
+          const CosInteger(0),
+          const CosInteger(0),
+          const CosInteger(200),
+          const CosInteger(300),
+        ]),
+      }));
+      pages['Kids'] = CosArray([page]);
+      pages['Count'] = const CosInteger(1);
+      return builder.add(CosDictionary({
+        'Type': const CosName('Catalog'),
+        'Pages': pagesRef,
+      }));
+    }
+
+    test('packs non-stream objects into a compressed xref-stream file', () {
+      final builder = CosDocumentBuilder();
+      final catalog = buildOnePage(builder);
+      final bytes = builder.build(root: catalog, objectStreams: true);
+
+      final text = String.fromCharCodes(bytes.sublist(0, 16));
+      // object streams force a >= 1.5 header
+      expect(text, startsWith('%PDF-1.7\n'));
+      // no classic table; the cross-reference is itself a stream
+      expect(String.fromCharCodes(bytes), isNot(contains('\ntrailer\n')));
+
+      final reopened = CosDocument.open(bytes);
+      expect(reopened.trailer.typeName, 'XRef');
+      // the catalog and page came back out of an object stream
+      expect(reopened.catalog.typeName, 'Catalog');
+      final pages = reopened.resolve(reopened.catalog['Pages']) as CosDictionary;
+      final kids = reopened.resolve(pages['Kids']) as CosArray;
+      final page = reopened.resolve(kids[0]) as CosDictionary;
+      expect(page.typeName, 'Page');
+    });
+
+    test('keeps streams top-level and addressable', () {
+      final builder = CosDocumentBuilder();
+      final pages = CosDictionary({'Type': const CosName('Pages')});
+      final pagesRef = builder.add(pages);
+      final content = builder.add(CosStream(
+        CosDictionary(),
+        Uint8List.fromList('BT /F1 12 Tf (hi) Tj ET'.codeUnits),
+      ));
+      final page = builder.add(CosDictionary({
+        'Type': const CosName('Page'),
+        'Parent': pagesRef,
+        'Contents': content,
+        'MediaBox': CosArray([
+          const CosInteger(0),
+          const CosInteger(0),
+          const CosInteger(200),
+          const CosInteger(300),
+        ]),
+      }));
+      pages['Kids'] = CosArray([page]);
+      pages['Count'] = const CosInteger(1);
+      final catalog = builder.add(CosDictionary({
+        'Type': const CosName('Catalog'),
+        'Pages': pagesRef,
+      }));
+
+      final bytes = builder.build(root: catalog, objectStreams: true);
+      final reopened = CosDocument.open(bytes);
+      final page2 = reopened.resolve(
+              (reopened.resolve((reopened.resolve(reopened.catalog['Pages'])
+                      as CosDictionary)['Kids']) as CosArray)[0])
+          as CosDictionary;
+      final stream = reopened.resolve(page2['Contents']) as CosStream;
+      expect(String.fromCharCodes(reopened.decodeStreamData(stream)),
+          'BT /F1 12 Tf (hi) Tj ET');
     });
   });
 }

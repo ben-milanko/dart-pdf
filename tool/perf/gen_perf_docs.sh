@@ -15,6 +15,7 @@ IMG="$ROOT/tool/perf/cache/image-heavy/image-heavy-24p.pdf"
 DN="$ROOT/tool/perf/cache/devicen/devicen-8p.pdf"
 CADIMG="$ROOT/tool/perf/cache/cad-images/cad-images-1386-20260720.pdf"
 CADIMGMIX="$ROOT/tool/perf/cache/cad-images/cad-images-mixed-200-20260720.pdf"
+JBIG2="$ROOT/tool/perf/cache/jbig2-scanned/jbig2-scanned-32p-20260725.pdf"
 
 if [ ! -f "$CAD" ]; then
   echo "gen cad-138p -> $CAD"
@@ -53,6 +54,17 @@ if [ ! -f "$CADIMGMIX" ]; then
   else
     echo "skip cad-images-mixed: cjpeg/opj_compress not on PATH" >&2
   fi
+fi
+
+# Scanned book: one shared /JBIG2Globals symbol dictionary across every page
+# image (#557). No corpus file has that shape, and producing one normally needs
+# jbig2enc - the pure-Dart encoder in pdf_test_fixtures stands in, so this one
+# IS generated in CI like the rest.
+if [ ! -f "$JBIG2" ]; then
+  echo "gen jbig2-scanned (shared /JBIG2Globals, 32 pages) -> $JBIG2"
+  mkdir -p "$(dirname "$JBIG2")"
+  ( cd "$ROOT" && $DART run packages/pdf_test_fixtures/tool/gen_jbig2_scanned_pdf.dart \
+      "$JBIG2" 32 900 1700 2200 20260725 )
 fi
 
 if [ ! -f "$DN" ]; then

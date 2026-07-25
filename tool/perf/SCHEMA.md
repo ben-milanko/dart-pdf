@@ -37,6 +37,8 @@ unknown keys).
       "openMs": 1.2,           // best-of-N (matches legacy tools)
       "firstPageMs": 8.0, "interpretMs": 30.1, "renderMs": 45.6,
       "extractMs": 4.0, "saveMs": 2.1, "peakRssBytes": 91234304,
+      "decodeMs": 210.4,       // only with the `decodeImages` measure
+      "imagesDecoded": 32,     // images the pages drew, alongside decodeMs
       "error": null,
       "perf": { "phases": {}, "counts": {}, "events": {} } // PdfPerf
                                // snapshot when the run passed --phases

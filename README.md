@@ -39,9 +39,12 @@ Live demo: <https://dart-pdf-demo.web.app> (the example app built for
 the web; it opens onto a six-page feature showcase, and the open button
 loads your own PDF).
 
-Visual render results: the checked-in
+Visual render results, browsable directly in GitHub: the checked-in
 [PDF.js corpus comparison gallery](test_corpora/pdfjs/_renders/README.md)
-shows PDF.js baselines, Dart renders, and diffs directly in GitHub.
+shows PDF.js baselines, Dart renders, and diffs side by side, and the
+[Ghent Output Suite render gallery](test_corpora/ghent/_baselines/README.md)
+shows every print-conformance page we rasterize (our own renders, which
+are the baselines - so no diff column).
 
 ## Performance
 
@@ -328,7 +331,7 @@ subsampling/PCRL-CPRL progressions.
 
 ## Development
 
-This repo uses [fvm](https://fvm.app) (Flutter 3.44.4) and pub workspaces.
+This repo uses [fvm](https://fvm.app) (Flutter 3.44.8) and pub workspaces.
 
 ```sh
 fvm flutter pub get          # resolve the whole workspace
@@ -366,6 +369,14 @@ compression. Two layers run over it:
   compares it pixel-wise against checked-in baseline renders;
   regressions dump actual/diff images for inspection, and
   `GHENT_UPDATE=1` re-baselines after an intentional change.
+
+Those baselines are browsable as the
+[Ghent Output Suite render gallery](test_corpora/ghent/_baselines/README.md).
+Note what it is: with no external reference renderer for this corpus, our
+renders *are* the baselines, so the gallery has no diff or pass/fail column
+and a green `ghent_render_test` means "unchanged", not "conformant". Several
+patches print their own pass criterion on the page. Regenerate the gallery
+with `fvm dart packages/dart_pdf_editor/tool/rebuild_ghent_render_index.dart`.
 
 `test_corpora/pdfjs/` carries 171 real-world edge-case PDFs curated from
 the [mozilla/pdf.js](https://github.com/mozilla/pdf.js) test suite:

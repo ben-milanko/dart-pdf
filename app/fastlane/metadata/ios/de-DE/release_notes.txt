@@ -1,0 +1,18 @@
+Neu in 3.0.0
+
+SPRACHEN
+• DartPDF ist jetzt in 10 Sprachen verfügbar, mit vollständigem Rechts-nach-links-Layout für Arabisch.
+
+RENDERING
+• Genaueres Rendering von Überdrucken, Mischmodi und weichen Masken, damit druckorientierte PDFs ihrem beabsichtigten Ergebnis näherkommen.
+• Transparenzgruppen, die unter einem Mischmodus gezeichnet werden, werden jetzt korrekt zusammengesetzt – störende undurchsichtige Kästen in manchen Dateien verschwinden.
+
+BEARBEITEN
+• Halten Sie beim Zeichnen die Umschalttaste gedrückt, um Freihand und Linien auf gerade Striche zu beschränken.
+• Legen Sie einen Standardstil für Anmerkungen fest und verwenden Sie ihn mit einem Tippen wieder.
+• Überarbeitete Dokument-Tabs, die auch beim Öffnen weiterer Dateien lesbar bleiben.
+
+TEMPO
+• Schnelleres Rendering und geringerer Speicherverbrauch, mit den größten Vorteilen bei großen oder bildreichen Dateien.
+
+Vielen Dank, dass Sie DartPDF verwenden. Feedback und Fehlerberichte sind jederzeit willkommen.

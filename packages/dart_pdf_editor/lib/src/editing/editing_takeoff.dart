@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import '../l10n/pdf_l10n.dart';
+import 'annotation_presentation.dart';
 import 'editing_controller.dart';
 
 /// A compact takeoff register: the per-tool running totals over the live
@@ -70,7 +71,7 @@ class PdfTakeoffPanel extends StatelessWidget {
                     dense: true,
                     leading: Icon(_iconFor(g.kind), size: 20),
                     title: Text(g.label),
-                    subtitle: Text(_kindLabel(g.kind)),
+                    subtitle: Text(pdfMeasurementKindLabel(context, g.kind)),
                     trailing: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.end,
@@ -123,18 +124,6 @@ class PdfTakeoffPanel extends StatelessWidget {
         PdfMeasurementKind.angle => Icons.architecture,
         PdfMeasurementKind.arc => Icons.gesture,
         PdfMeasurementKind.slope => Icons.trending_up,
-      };
-
-  static String _kindLabel(PdfMeasurementKind kind) => switch (kind) {
-        PdfMeasurementKind.count => 'Count',
-        PdfMeasurementKind.distance => 'Length',
-        PdfMeasurementKind.perimeter => 'Perimeter',
-        PdfMeasurementKind.area => 'Area',
-        PdfMeasurementKind.areaCutout => 'Net area',
-        PdfMeasurementKind.volume => 'Volume',
-        PdfMeasurementKind.angle => 'Angle',
-        PdfMeasurementKind.arc => 'Arc',
-        PdfMeasurementKind.slope => 'Slope',
       };
 }
 

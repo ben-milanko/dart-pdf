@@ -10,7 +10,7 @@ library;
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
-import 'dart:ui' show FramePhase;
+import 'dart:ui' show FramePhase, Locale;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
@@ -104,6 +104,15 @@ class AppDevTools extends ChangeNotifier {
 
   /// Mirrored into [MaterialApp.showPerformanceOverlay] by the app root.
   final ValueNotifier<bool> showPerformanceOverlay = ValueNotifier(false);
+
+  /// Forces the whole app onto a locale for testing, bypassing the normal
+  /// [MaterialApp] resolution against `supportedLocales`. `null` follows the
+  /// platform. Set from the DevTools panel's Locale section; session-only (not
+  /// persisted, so a forced RTL locale never survives a restart). The main use
+  /// is exercising the RTL layout sweep by picking an RTL locale like Arabic —
+  /// even before its translations land, the Material delegates translate their
+  /// own strings and `Directionality` flips.
+  final ValueNotifier<Locale?> localeOverride = ValueNotifier(null);
 
   final ListQueue<DevLogEntry> _log = ListQueue();
   final ListQueue<FrameTiming> _timings = ListQueue();
@@ -260,8 +269,19 @@ class AppDevTools extends ChangeNotifier {
     while (_timings.length > frameWindow) {
       _timings.removeFirst();
     }
-    _scheduleNotify();
+    // Deliberately does NOT notify (#452). A notify rebuilds the panel, and a
+    // panel rebuild is itself a frame, which fires this callback again - a
+    // self-sustaining ~1 Hz rebuild loop that keeps the app producing janky
+    // frames while it sits idle, and makes the measurement drive the thing it
+    // measures. The panel's own 1 s poll (devtools_panel.dart) refreshes the
+    // frame stats instead; the window keeps accumulating here regardless.
   }
+
+  /// Test seam (#452): drive the frame-timings path directly, to assert it
+  /// accumulates the sample window without scheduling a notify (which would
+  /// self-sustain a rebuild loop).
+  @visibleForTesting
+  void debugAddTimings(List<FrameTiming> timings) => _onTimings(timings);
 
   /// Aggregates over the retained frame window.
   DevFrameStats frameStats() {

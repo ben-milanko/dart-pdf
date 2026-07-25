@@ -264,10 +264,17 @@ class _WebRenderWorker extends PdfRenderWorker {
       final shared =
           (data.getProperty('shared'.toJS) as JSBoolean?)?.toDart ?? false;
       final openUs = (data.getProperty('openUs'.toJS) as JSNumber?)?.toDartInt;
+      final browserImageDecode =
+          (data.getProperty('browserImageDecode'.toJS) as JSBoolean?)?.toDart;
+      final browserImageDecodeMissing =
+          (data.getProperty('browserImageDecodeMissing'.toJS) as JSString?)
+              ?.toDart;
       final startupUs = _perfClock?.elapsedMicroseconds;
       _wlog(
         'ready worker=$_workerNumber '
         '(worker opened the document, sharedBytes=$shared)'
+        '${browserImageDecode == null ? '' : ' browserImageDecode=$browserImageDecode'}'
+        '${browserImageDecodeMissing == null ? '' : ' missing=$browserImageDecodeMissing'}'
         '${startupUs == null ? '' : ' startup=${_traceMs(startupUs)}'}'
         '${openUs == null ? '' : ' open=${_traceMs(openUs)}'}',
       );
@@ -283,6 +290,21 @@ class _WebRenderWorker extends PdfRenderWorker {
       final active =
           (data.getProperty('activeId'.toJS) as JSNumber?)?.toDartInt;
       _wlog('ignored stale cancel target=$target active=$active');
+      return;
+    }
+    if (kind == 'partial') {
+      // A progressive linework prefix of a record still in flight (#564).
+      // Forward it to the request's sink WITHOUT clearing _inFlight or completing
+      // the completer; the final decoded buffer still arrives on the ordinary
+      // 'result' path. Drop a partial for a request that is no longer in flight
+      // (disposed, or requeued under a new id after preemption).
+      final id = (data.getProperty('id'.toJS) as JSNumber).toDartInt;
+      final request = _inFlight;
+      if (request == null || request.id != id) return;
+      final buffer = data.getProperty('buffer'.toJS) as JSArrayBuffer?;
+      if (buffer != null) {
+        request.onPartialBytes?.call(buffer.toDart.asUint8List());
+      }
       return;
     }
     if (kind != 'result') return;
@@ -337,6 +359,7 @@ class _WebRenderWorker extends PdfRenderWorker {
     bool decodeImages = true,
     int? commandLimit,
     PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
   }) async {
     if (_disposed || _failed) {
       _wlog(
@@ -354,6 +377,20 @@ class _WebRenderWorker extends PdfRenderWorker {
       decodeImages,
       commandLimit,
       imageDecodeRegion,
+      // Deserialize each interim linework buffer on arrival and hand the caller
+      // real commands (#564). A corrupt partial is dropped - the final still
+      // arrives through the completer.
+      onPartial == null
+          ? null
+          : (bytes) {
+              final List<PdfRenderCommand> commands;
+              try {
+                commands = deserializeCommands(bytes);
+              } catch (_) {
+                return;
+              }
+              onPartial(commands);
+            },
     );
     _trace(request);
     _queue.add(request);
@@ -517,6 +554,22 @@ class _WebRenderWorker extends PdfRenderWorker {
     }
   }
 
+  @override
+  Future<PdfPageText?> extractText(int pageIndex, {int priority = 0}) async {
+    if (_disposed || _failed) return null;
+    final request = _WebPending.extractText(priority, _seq++, pageIndex);
+    _trace(request);
+    _queue.add(request);
+    _pump();
+    final buffers = await request.completer.future;
+    if (buffers == null || buffers.length != 1) return null;
+    try {
+      return deserializePageText(buffers.single);
+    } catch (_) {
+      return null; // corrupt buffer → extract in-isolate rather than crash
+    }
+  }
+
   void _trace(_WebPending request) {
     final clock = _perfClock;
     if (clock == null) return;
@@ -587,6 +640,9 @@ class _WebRenderWorker extends PdfRenderWorker {
       ..setProperty('annotations'.toJS, request.annotations.toJS);
     if (request.kind == _WebRequestKind.record) {
       message.setProperty('decodeImages'.toJS, request.decodeImages.toJS);
+      if (request.onPartialBytes != null) {
+        message.setProperty('wantsPartials'.toJS, true.toJS); // #564
+      }
       final ratio = request.imagePixelRatio;
       if (ratio != null) message.setProperty('imageRatio'.toJS, ratio.toJS);
       final limit = request.commandLimit;
@@ -749,7 +805,7 @@ class _WebRenderWorker extends PdfRenderWorker {
   }
 }
 
-enum _WebRequestKind { record, bin, detail, regionIndex }
+enum _WebRequestKind { record, bin, detail, regionIndex, extractText }
 
 /// One queued record or strip-bin request (mirrors the isolate backend's
 /// `_PendingRequest`).
@@ -762,8 +818,9 @@ class _WebPending {
     this.imagePixelRatio,
     this.decodeImages,
     this.commandLimit,
-    this.imageDecodeRegion,
-  ) : kind = _WebRequestKind.record,
+    this.imageDecodeRegion, [
+    this.onPartialBytes,
+  ]) : kind = _WebRequestKind.record,
       pageToDevice = null,
       deviceWidth = 0,
       deviceHeight = 0,
@@ -788,7 +845,8 @@ class _WebPending {
       commandLimit = null,
       imageDecodeRegion = null,
       regionMaxCommands = 0,
-      regionBuildGrid = false;
+      regionBuildGrid = false,
+      onPartialBytes = null;
 
   _WebPending.detail(
     this.priority,
@@ -806,7 +864,8 @@ class _WebPending {
       commandLimit = null,
       slugGlyphs = false,
       regionMaxCommands = 0,
-      regionBuildGrid = false;
+      regionBuildGrid = false,
+      onPartialBytes = null;
 
   _WebPending.regionIndex(
     this.priority,
@@ -824,7 +883,24 @@ class _WebPending {
       deviceWidth = 0,
       deviceHeight = 0,
       binPixelRatio = 0,
-      slugGlyphs = false;
+      slugGlyphs = false,
+      onPartialBytes = null;
+
+  _WebPending.extractText(this.priority, this.seq, this.pageIndex)
+      : kind = _WebRequestKind.extractText,
+        annotations = false,
+        imagePixelRatio = null,
+        decodeImages = false,
+        commandLimit = null,
+        imageDecodeRegion = null,
+        pageToDevice = null,
+        deviceWidth = 0,
+        deviceHeight = 0,
+        binPixelRatio = 0,
+        slugGlyphs = false,
+        regionMaxCommands = 0,
+        regionBuildGrid = false,
+        onPartialBytes = null;
 
   final _WebRequestKind kind;
   final int priority;
@@ -842,6 +918,9 @@ class _WebPending {
   final bool slugGlyphs;
   final int regionMaxCommands;
   final bool regionBuildGrid;
+  // record-only: forwards each interim linework buffer (#564) to the caller's
+  // sink. Null on every other kind and on records that opted out of partials.
+  final void Function(Uint8List)? onPartialBytes;
   final completer = Completer<List<Uint8List>?>();
   bool requeueAfterPreemption = false;
   int id = -1;
@@ -864,6 +943,7 @@ class _WebRequestTrace {
   int deserializeUs = 0;
   bool transcriptHit = false;
   String? cosStatsJson;
+  String? imageDecodeSummary;
 
   void receive(JSObject data, int nowUs) {
     receivedUs = nowUs;
@@ -877,6 +957,8 @@ class _WebRequestTrace {
     transcriptHit =
         (data.getProperty('transcriptHit'.toJS) as JSBoolean?)?.toDart ?? false;
     cosStatsJson = (data.getProperty('cosStats'.toJS) as JSString?)?.toDart;
+    imageDecodeSummary =
+        (data.getProperty('imageDecode'.toJS) as JSString?)?.toDart;
   }
 
   /// Assembles this request's collected halves into one unified [PdfRenderTrace]
@@ -896,6 +978,7 @@ class _WebRequestTrace {
       ..transferUs = math.max(0, roundTripUs - workerUs)
       ..deserializeUs = deserializeUs
       ..transcriptHit = transcriptHit
+      ..imageDecodeSummary = imageDecodeSummary
       ..cosStats = cosStatsJson == null
           ? null
           : PdfPerfStats.fromJson(
@@ -916,7 +999,8 @@ class _WebRequestTrace {
       'decode=${_traceMs(decodeUs)} serialize=${_traceMs(serializeUs)} '
       'bin=${_traceMs(binUs)} transfer=${_traceMs(transferUs)} '
       'deserialize=${_traceMs(deserializeUs)} total=${_traceMs(totalUs)} '
-      'transcript=${transcriptHit ? 'hit' : 'miss'}',
+      'transcript=${transcriptHit ? 'hit' : 'miss'}'
+      '${imageDecodeSummary == null ? '' : ' imageDecode=$imageDecodeSummary'}',
     );
   }
 }

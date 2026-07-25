@@ -1,0 +1,18 @@
+Nieuw in 3.0.0
+
+TALEN
+• DartPDF is nu beschikbaar in 10 talen, met volledige rechts-naar-links lay-out voor Arabisch.
+
+WEERGAVE
+• Nauwkeurigere weergave van overprint, overvloeimodi en zachte maskers, zodat PDF's die voor druk zijn bedoeld dichter bij het beoogde resultaat blijven.
+• Transparantiegroepen die onder een overvloeimodus worden getekend, worden nu correct samengesteld, waardoor losse ondoorzichtige vlakken in sommige bestanden verdwijnen.
+
+BEWERKEN
+• Houd Shift ingedrukt tijdens het tekenen om inkt en lijnen tot rechte streken te beperken.
+• Stel een standaardstijl voor annotaties in en gebruik die opnieuw met één tik.
+• Vernieuwde documenttabbladen die leesbaar blijven naarmate u meer bestanden opent.
+
+SNELHEID
+• Snellere weergave en lager geheugengebruik, met de grootste winst bij grote of afbeeldingsrijke bestanden.
+
+Bedankt voor het gebruik van DartPDF. Feedback en foutmeldingen zijn altijd welkom.

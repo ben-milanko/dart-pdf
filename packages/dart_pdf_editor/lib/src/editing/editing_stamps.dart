@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:intl/intl.dart' as intl;
 import 'package:pdf_document/pdf_document.dart';
 
 import '../l10n/pdf_l10n.dart';
@@ -33,6 +34,35 @@ const _monthNames = [
   'Dec',
 ];
 
+/// The abbreviated month name for [month] (1-12) in [localeName], falling back
+/// to the bundled English abbreviations.
+///
+/// `localeName == null` keeps the English default (the behavior for hosts that
+/// never register the localization delegate). When a locale is given but its
+/// `intl` date symbols aren't loaded yet - e.g. a plain unit test that never
+/// registered `flutter_localizations` - the lookup throws and we fall back to
+/// English rather than crash the stamp.
+String _monthAbbr(int month, String? localeName) {
+  if (localeName == null) return _monthNames[month - 1];
+  try {
+    return intl.DateFormat.MMM(localeName).format(DateTime(2000, month));
+  } catch (_) {
+    return _monthNames[month - 1];
+  }
+}
+
+/// The localized AM/PM marker for [value] in [localeName], falling back to
+/// English `AM`/`PM` (see [_monthAbbr] for the fallback rationale).
+String _dayPeriod(DateTime value, String? localeName) {
+  final fallback = value.hour < 12 ? 'AM' : 'PM';
+  if (localeName == null) return fallback;
+  try {
+    return intl.DateFormat('a', localeName).format(value);
+  } catch (_) {
+    return fallback;
+  }
+}
+
 /// Date formats used by the built-in `{{date}}` and `{{datetime}}` stamp
 /// template fields.
 enum PdfStampDateFormat {
@@ -42,11 +72,17 @@ enum PdfStampDateFormat {
   dayMonthNameYear,
   monthNameDayYear;
 
-  String format(DateTime value) {
+  /// Formats [value] for the stamp `{{date}}` field.
+  ///
+  /// [localeName] localizes the spelled-out month name (`dayMonthNameYear` /
+  /// `monthNameDayYear`); null keeps English. Numeric shapes ([iso] and the
+  /// slash forms) stay ASCII digits regardless - `iso` in particular is a
+  /// fixed technical format, not a localized one.
+  String format(DateTime value, {String? localeName}) {
     final year = _fourDigits(value.year);
     final month = _twoDigits(value.month);
     final day = _twoDigits(value.day);
-    final monthName = _monthNames[value.month - 1];
+    final monthName = _monthAbbr(value.month, localeName);
     return switch (this) {
       PdfStampDateFormat.iso => '$year-$month-$day',
       PdfStampDateFormat.dayMonthYear => '$day/$month/$year',
@@ -65,11 +101,15 @@ enum PdfStampTimeFormat {
   twentyFourHourSeconds,
   twelveHourSeconds;
 
-  String format(DateTime value) {
+  /// Formats [value] for the stamp `{{time}}` field.
+  ///
+  /// [localeName] localizes the AM/PM marker on the 12-hour shapes; null keeps
+  /// English. The 24-hour shapes carry no marker and are locale-independent.
+  String format(DateTime value, {String? localeName}) {
     final hour = _twoDigits(value.hour);
     final minute = _twoDigits(value.minute);
     final second = _twoDigits(value.second);
-    final suffix = value.hour < 12 ? 'AM' : 'PM';
+    final suffix = _dayPeriod(value, localeName);
     final hour12 = value.hour % 12 == 0 ? 12 : value.hour % 12;
     return switch (this) {
       PdfStampTimeFormat.twentyFourHour => '$hour:$minute',
@@ -269,7 +309,7 @@ class PdfStampPickerDialog extends StatelessWidget {
                 for (final stamp in controller.customStamps)
                   ListTile(
                     title: Align(
-                      alignment: Alignment.centerLeft,
+                      alignment: AlignmentDirectional.centerStart,
                       child: PdfStampPreview(
                           stamp: stamp,
                           templateValues:
@@ -347,21 +387,24 @@ class _StampDateTimeFormatControls extends StatelessWidget {
 
   final PdfEditingController controller;
 
-  static String _timePreview(PdfStampTimeFormat format, DateTime sample) {
+  static String _timePreview(
+      BuildContext context, PdfStampTimeFormat format, DateTime sample) {
     final suffix = switch (format) {
       PdfStampTimeFormat.twentyFourHour ||
       PdfStampTimeFormat.twentyFourHourSeconds =>
-        '24 hr',
+        pdfL10n(context).stampTime24Hour,
       PdfStampTimeFormat.twelveHour ||
       PdfStampTimeFormat.twelveHourSeconds =>
-        '12 hr',
+        pdfL10n(context).stampTime12Hour,
     };
-    return '${format.format(sample)} ($suffix)';
+    final localeName = Localizations.localeOf(context).toString();
+    return '${format.format(sample, localeName: localeName)} ($suffix)';
   }
 
   @override
   Widget build(BuildContext context) {
     final sample = controller.stampTemplateClock();
+    final localeName = Localizations.localeOf(context).toString();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -378,7 +421,7 @@ class _StampDateTimeFormatControls extends StatelessWidget {
                 DropdownMenuItem<PdfStampDateFormat>(
                   key: ValueKey('pdf-stamp-date-format-${format.name}'),
                   value: format,
-                  child: Text(format.format(sample)),
+                  child: Text(format.format(sample, localeName: localeName)),
                 ),
             ],
             onChanged: (value) {
@@ -400,7 +443,7 @@ class _StampDateTimeFormatControls extends StatelessWidget {
                 DropdownMenuItem<PdfStampTimeFormat>(
                   key: ValueKey('pdf-stamp-time-format-${format.name}'),
                   value: format,
-                  child: Text(_timePreview(format, sample)),
+                  child: Text(_timePreview(context, format, sample)),
                 ),
             ],
             onChanged: (value) {
@@ -511,7 +554,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
         return component.text.trim();
       }
     }
-    return 'Custom stamp';
+    return pdfL10n(context).stampCustomCaption;
   }
 
   int get _primaryColor =>
@@ -888,7 +931,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                             key: ValueKey('pdf-stamp-field-$field'),
                             value: field,
                             height: 34,
-                            child: Text(_fieldLabel(field)),
+                            child: Text(_fieldLabel(context, field)),
                           ),
                       ],
                     ),
@@ -906,7 +949,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
                             value: font,
                             height: 34,
                             child: Text(
-                              _fontLabel(font),
+                              _fontLabel(context, font),
                               style: TextStyle(
                                 fontFamily: _uiFamily(font),
                                 fontWeight: font.isBold
@@ -927,7 +970,7 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
               Row(children: [
                 for (final ink in _inks)
                   Padding(
-                    padding: const EdgeInsets.only(right: 8),
+                    padding: const EdgeInsetsDirectional.only(end: 8),
                     child: InkWell(
                       onTap: () => _setSelectedColor(ink),
                       customBorder: const CircleBorder(),
@@ -1615,11 +1658,12 @@ String? _stampDetail(PdfCustomStamp stamp) {
   return parts.isEmpty ? null : parts.join(' · ');
 }
 
-String _fontLabel(PdfStandardFont font) {
+String _fontLabel(BuildContext context, PdfStandardFont font) {
   final family = font.family.label;
+  final l = pdfL10n(context);
   final style = [
-    if (font.isBold) 'Bold',
-    if (font.isItalic) 'Italic',
+    if (font.isBold) l.stampFontBold,
+    if (font.isItalic) l.stampFontItalic,
   ].join(' ');
   return style.isEmpty ? family : '$family $style';
 }
@@ -1641,11 +1685,11 @@ List<String> _normalizeFields(Iterable<String> fields) {
   return List.unmodifiable(normalized);
 }
 
-String _fieldLabel(String field) => switch (field) {
-      'date' => 'Date',
-      'time' => 'Time',
-      'datetime' => 'Date & time',
-      'username' => 'Username',
+String _fieldLabel(BuildContext context, String field) => switch (field) {
+      'date' => pdfL10n(context).stampFieldDate,
+      'time' => pdfL10n(context).stampFieldTime,
+      'datetime' => pdfL10n(context).stampFieldDateTime,
+      'username' => pdfL10n(context).stampFieldUsername,
       _ => field
           .split(RegExp(r'[_\s]+'))
           .where((part) => part.isNotEmpty)

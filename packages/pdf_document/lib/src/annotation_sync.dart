@@ -55,9 +55,61 @@ List<PdfAnnotationChange> pdfDiffAnnotations(
   PdfDocument before,
   PdfDocument after, {
   Iterable<int>? pages,
-}) {
-  final old = _collectAnnotations(before, pages);
-  final now = _collectAnnotations(after, pages);
+}) =>
+    pdfDiffAnnotationStates(
+      pdfCollectAnnotationStates(before, pages: pages),
+      pdfCollectAnnotationStates(after, pages: pages),
+    );
+
+/// An opaque snapshot of a document's annotation states, keyed on identity
+/// (/NM, or serialized content for anonymous annotations).
+///
+/// Capturing this (proportional to annotation count) lets a caller diff a
+/// later document state against an earlier one *without* re-opening the
+/// earlier bytes — the editing controller keeps one as a live baseline so a
+/// sync session pays no second [PdfDocument.open] per commit (#416).
+class PdfAnnotationStates {
+  const PdfAnnotationStates._(this._byKey);
+
+  final Map<String, _AnnotationState> _byKey;
+
+  /// The number of tracked annotations.
+  int get length => _byKey.length;
+
+  /// The subset of these states that live on any of [pages] — the pre-edit
+  /// side of a page-limited diff.
+  PdfAnnotationStates restrictedTo(Set<int> pages) => PdfAnnotationStates._({
+        for (final entry in _byKey.entries)
+          if (pages.contains(entry.value.pageIndex)) entry.key: entry.value,
+      });
+
+  /// These states with every annotation on [pages] dropped and [replacement]'s
+  /// entries added in — how the baseline advances after a page-limited edit.
+  /// [replacement] must have been collected for exactly [pages].
+  PdfAnnotationStates withPagesReplaced(
+          Set<int> pages, PdfAnnotationStates replacement) =>
+      PdfAnnotationStates._({
+        for (final entry in _byKey.entries)
+          if (!pages.contains(entry.value.pageIndex)) entry.key: entry.value,
+        ...replacement._byKey,
+      });
+}
+
+/// Captures the annotation states of [document] (optionally limited to
+/// [pages]) as an identity-keyed snapshot for later diffing. See
+/// [PdfAnnotationStates].
+PdfAnnotationStates pdfCollectAnnotationStates(PdfDocument document,
+        {Iterable<int>? pages}) =>
+    PdfAnnotationStates._(_collectAnnotations(document, pages));
+
+/// Diffs two annotation-state snapshots ([pdfCollectAnnotationStates]),
+/// keyed on identity — the state-level core of [pdfDiffAnnotations].
+List<PdfAnnotationChange> pdfDiffAnnotationStates(
+  PdfAnnotationStates before,
+  PdfAnnotationStates after,
+) {
+  final old = before._byKey;
+  final now = after._byKey;
   final changes = <PdfAnnotationChange>[];
 
   now.forEach((key, entry) {
