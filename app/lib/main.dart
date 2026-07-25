@@ -5,7 +5,7 @@ import 'dart:async';
 // would drag the whole editor stack into the initial web download that the
 // deferred split exists to keep small.
 import 'package:dart_pdf_editor/dart_pdf_editor.dart'
-    show DartPdfEditorLocalizations;
+    show DartPdfEditorLocalizations, PdfPageView;
 import 'package:dart_pdf_editor/perf_log.dart';
 import 'package:flutter/material.dart';
 
@@ -19,6 +19,8 @@ import 'app_info.dart' deferred as app_info;
 Future<void> main(List<String> args) async {
   // PackageInfo (loaded below) needs the binding; ensure it before awaiting.
   WidgetsFlutterBinding.ensureInitialized();
+
+  PdfPageView.progressiveStreamingPaint = true;
 
   // Diagnostics: turn on the in-app performance trace (interpret times,
   // render-hold/scheduler transitions, prerender warms, and frame JANK,

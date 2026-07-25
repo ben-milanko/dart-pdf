@@ -484,10 +484,17 @@ class _PdfPageViewState extends State<PdfPageView>
   /// raster exists, dropped (to free the buffer) the moment one lands.
   ui.Image? _preview;
 
-  /// Highest progressive-partial sequence painted into [_preview] so far
-  /// (#564), so an out-of-order rasterize of an earlier partial can't clobber a
-  /// later one. Reset to 0 when a streaming vector-first record starts; every
-  /// partial's async rasterize applies only if its seq still exceeds this.
+  /// Monotonic sequence assigned to each streamed progressive partial (#564),
+  /// never reset - so partials from a newer render pass always outrank an older
+  /// pass's, not just later partials within one record. Two `_renderNow` passes
+  /// for one page can briefly overlap on first interpret (see the generation
+  /// note in `_renderNow`); a shared, ever-increasing counter plus the
+  /// generation guard in [_paintProgressivePartial] keeps the reveal ordered.
+  int _progressiveSeqCounter = 0;
+
+  /// Highest progressive-partial sequence actually painted into [_preview], so
+  /// an out-of-order async rasterize of an earlier partial can't clobber a later
+  /// one. Only advances; a partial applies only if its seq exceeds this.
   int _progressiveAppliedSeq = 0;
 
   // Full-page rasters stay within GPU texture limits and sane memory:
@@ -1368,15 +1375,22 @@ class _PdfPageViewState extends State<PdfPageView>
   /// partial is a superset of the last, so replacing the preview outright is
   /// correct.
   Future<void> _paintProgressivePartial(
+    int generation,
     int pageIndex,
     List<PdfRenderCommand> commands,
     int seq,
   ) async {
     if (!PdfPageView.progressiveStreamingPaint) return;
+    // Bail on anything that outranks a preview in the paint stack, matching
+    // _paintEarlyPrefix: a landed full raster (_image), a slug picture, or a
+    // superseded/recycled render. _superseded (not just _abandoned) also drops
+    // an older overlapping pass so its smaller prefix can't flicker over a
+    // newer pass's larger one.
     if (commands.isEmpty ||
-        _abandoned(pageIndex) ||
+        _superseded(generation, pageIndex) ||
         _renderPaused ||
         _image != null ||
+        _slugPicture != null ||
         seq <= _progressiveAppliedSeq) {
       return;
     }
@@ -1386,11 +1400,12 @@ class _PdfPageViewState extends State<PdfPageView>
       _renderPlan,
       includeImages: false,
     );
-    // Re-check after each await: the full raster may have landed, the page may
-    // have been recycled, or a newer partial may already be applied.
-    if (_abandoned(pageIndex) ||
+    // Re-check after each await: the full raster or a slug may have landed, the
+    // page may have been recycled, or a newer partial may already be applied.
+    if (_superseded(generation, pageIndex) ||
         _renderPaused ||
         _image != null ||
+        _slugPicture != null ||
         seq <= _progressiveAppliedSeq) {
       picture.dispose();
       return;
@@ -1402,8 +1417,10 @@ class _PdfPageViewState extends State<PdfPageView>
     );
     picture.dispose();
     if (!mounted ||
-        _abandoned(pageIndex) ||
+        _superseded(generation, pageIndex) ||
+        _renderPaused ||
         _image != null ||
+        _slugPicture != null ||
         seq <= _progressiveAppliedSeq) {
       image.dispose();
       return;
@@ -1440,10 +1457,7 @@ class _PdfPageViewState extends State<PdfPageView>
     if (!progressive) {
       await _paintEarlyPrefix(generation, pageIndex, worker, priority);
       if (_superseded(generation, pageIndex) || _renderPaused) return null;
-    } else {
-      _progressiveAppliedSeq = 0;
     }
-    var progressiveSeq = 0;
     final commands = await worker.record(
       pageIndex,
       annotations: widget.showAnnotations,
@@ -1452,8 +1466,9 @@ class _PdfPageViewState extends State<PdfPageView>
       onPartial: !progressive
           ? null
           : (partial) {
-              final seq = ++progressiveSeq;
-              unawaited(_paintProgressivePartial(pageIndex, partial, seq));
+              final seq = ++_progressiveSeqCounter;
+              unawaited(
+                  _paintProgressivePartial(generation, pageIndex, partial, seq));
             },
     );
     if (_superseded(generation, pageIndex) ||
