@@ -5,11 +5,24 @@
 Lockstep major release (a breaking change in `dart_pdf_editor` moves the whole
 suite to 3.0.0). `pdf_graphics`'s own public API is unchanged.
 
-- Parse overprint state (`/OP`, `/op`, `/OPM`) into the graphics state and
-  deliver it via `PdfDevice.setOverprint`; `CanvasPdfDevice` approximates
-  overprint with a `darken` (per-channel min) composite for the common
-  neutral-ink-over-colour case — a no-op over white, so pages that set the flags
-  defensively over the page background are unaffected (#502).
+- Render overprint (`/OP`, `/op`, `/OPM`, §8.6.7) faithfully, as the
+  subtractive colorant operation it is. State parses into the graphics state
+  and is delivered via `PdfDevice.setOverprint`, and the interpreter composites
+  an overprinting draw in a real CMYK/spot **colorant buffer**
+  (`PdfOverprintCompositor`) before any device sees it, so a DeviceCMYK
+  backdrop and a spot backdrop of the same RGB colour — indistinguishable to
+  any RGB compositor — now overprint differently. New public
+  `PdfColorants`/`PdfInkColorants` and `PdfColorSpace.inkColorants`; new
+  `PdfInterpreter(resolveOverprint:)`. The buffer is built only for pages whose
+  ExtGStates declare overprint, and declines over content it cannot read
+  (images, shadings, transparency groups, translucent paint, ICC/RGB colour),
+  where `CanvasPdfDevice`'s `darken` stand-in still applies. Ghent GWG030 now
+  grades all twelve of its patches as passing, and the DeviceN overprint
+  patches GWG190/191/192 pass both vector cases (#502).
+- Re-synchronise the overprint state before every fill and stroke: it was
+  delivered only from `gs` and `Q`, so overprint switched on inside a form
+  XObject, a tiling-pattern cell or a soft-mask group leaked out and darkened
+  everything drawn afterwards (#502).
 - Composite a transparency-group form XObject drawn under a non-Normal blend
   mode into its own layer so the group blends onto the backdrop as a single
   object (§11.6.6); previously the outer blend mode leaked and an opaque group

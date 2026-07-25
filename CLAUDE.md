@@ -207,14 +207,22 @@ wired into sc/scn and image decoding). RSASSA-PSS verification is in
 (`rsaVerifyPss` in pdf_cos rsa.dart - MGF1 + EMSA-PSS with salt-length
 recovery, KAT vs OpenSSL; PSS-params parsing and dispatch in cms.dart's
 `cmsVerify` and `X509Certificate.isSignedBy`). Overprint (/OP, /op, /OPM;
-§8.6.7) is parsed into the graphics state and delivered via
-`PdfDevice.setOverprint`; `CanvasPdfDevice` approximates it with a `darken`
-(per-channel min) composite for the common neutral-ink-over-colour case (a
-no-op over white, so defensive `op` pages are unaffected - see
-doc/dev-log/2026-07-23-overprint-compositing.md). Remaining gaps:
-faithful subtractive overprint (DeviceCMYK-backdrop knockout, OPM 0/1,
-text/image overprint) needs a CMYK/spot colorant buffer, so GWG030's
-"over CMYK" patches stay a tolerated Ghent deviation; JPX subsampling +
+§8.6.7) is faithful and subtractive: state parses into the graphics state,
+and the interpreter resolves the composite in a real CMYK/spot **colorant
+buffer** before any device sees it (`PdfOverprintCompositor` +
+`PdfColorants`/`PdfInkColorants` + `raster/colorant_raster.dart`, all pure
+Dart in pdf_graphics, so VM/worker/web and the canvas/strip devices agree by
+construction). `PdfColorSpace.inkColorants` is the colorant reading
+(DeviceGray/DeviceCMYK → process, Separation/DeviceN → the colorants they
+name, everything else null); the buffer is built only for a page whose
+ExtGStates declare `/OP` or `/op`, and `PdfInterpreter.debugResolveOverprint`
+is the kill switch. A resolved draw reaches the device with its overprint
+flag **cleared**; where the buffer declines (images, shadings, groups,
+translucent paint, ICC/RGB colour) `CanvasPdfDevice`'s `darken` stand-in
+still applies. GWG030 is pixel-enforced with all 12 patches uniform - see
+doc/dev-log/2026-07-25-overprint-colorant-buffer.md. Remaining gaps: image
+overprint (decoded pixels carry no colorant reading, so GWG031 and the image
+halves of GWG190/191/192 stay tolerated Ghent deviations); JPX subsampling +
 PCRL/CPRL, rendering intents/BPC in ICC.
 The decoded-image cache budget (`PdfImageCache.maxBytes`, settable) is
 platform-aware: `pdfDefaultImageCacheBytes()` in performance_policy.dart -

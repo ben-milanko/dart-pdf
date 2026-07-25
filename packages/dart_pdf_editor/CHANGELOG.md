@@ -2,6 +2,12 @@
 
 ## 3.0.0
 
+- Overprint (§8.6.7) now renders faithfully: the interpreter resolves it in a
+  CMYK/spot colorant buffer and hands `CanvasPdfDevice` the composited colour,
+  so a neutral ink knocks a DeviceCMYK backdrop's process colorants out to grey
+  while a spot backdrop of the same colour survives. `CanvasPdfDevice`'s
+  `darken` approximation remains only for draws the buffer declines (#502).
+
 - The keyboard-shortcuts editor (Settings → Keyboard shortcuts…) now groups
   tools under tool-category headers (Select, Draw, Shapes, Insert, Measure,
   Edit) and adds a search box that filters by tool name or bound key. New
