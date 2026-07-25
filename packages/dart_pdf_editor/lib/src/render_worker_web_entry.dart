@@ -49,6 +49,12 @@ import 'render_worker_transcript_cache.dart';
 void runPdfRenderWorker() {
   final scope = globalContext as web.DedicatedWorkerGlobalScope;
   PdfDocument? document;
+  // One decoded-image cache per open document. A worker records the same page
+  // several times in a scroll (vector-first, full, prerender warm, thumbnail)
+  // and each record re-decoded every image; #451's device trace showed one page
+  // paying ~900ms of pure-Dart CMYK decode three times. Reuse is exact-match on
+  // (stream, target size), so it cannot change what a record renders.
+  var imageCache = PdfImageDecodeCache();
   var reuseTranscripts = true;
   var collectTimings = false;
   PdfCancellationToken? activeToken;
@@ -89,6 +95,7 @@ void runPdfRenderWorker() {
             ? _jsUint8View(buffer).toDart
             : (buffer as JSArrayBuffer).toDart.asUint8List();
         document = PdfDocument.open(bytes);
+        imageCache = PdfImageDecodeCache(); // new document, new streams
       } catch (_) {
         document = null; // bad transfer / broken document → local renders
       }
@@ -171,6 +178,7 @@ void runPdfRenderWorker() {
               );
               final detail = await _recordStripDetailAsync(
                 doc,
+                imageCache,
                 transcriptCache,
                 page,
                 annotations,
@@ -381,6 +389,7 @@ void runPdfRenderWorker() {
         if (doc != null) {
           out = await _recordPageAsync(
             doc,
+            imageCache,
             transcriptCache,
             reuseTranscripts,
             page,
@@ -521,6 +530,7 @@ JSUint8Array _jsUint8View(JSObject buffer) {
 /// `dart:isolate`, which does not exist on web, so this entry can't share it.
 Future<Uint8List?> _recordPageAsync(
   PdfDocument document,
+  PdfImageDecodeCache imageCache,
   PdfWorkerTranscriptCache cache,
   bool reuseTranscripts,
   int pageIndex,
@@ -611,6 +621,7 @@ Future<Uint8List?> _recordPageAsync(
     imageDecodeRegion: imageDecodeRegion,
     imagePlaceholders: !decodeImages,
     commandLimit: commandLimit,
+    imageCache: imageCache,
     compactStateScopes: true,
   );
   if (serializeClock != null) {
@@ -671,6 +682,7 @@ Future<Uint8List?> _binStripsAsync(
 /// replays it.
 Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
   PdfDocument document,
+  PdfImageDecodeCache imageCache,
   PdfWorkerTranscriptCache cache,
   int pageIndex,
   bool annotations,
@@ -717,6 +729,7 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
     decodeImages: true,
     maxImagePixelRatio: pixelRatio,
     imageDecodeRegion: imageDecodeRegion,
+    imageCache: imageCache,
     compactStateScopes: true,
   );
   if (serializeClock != null) {

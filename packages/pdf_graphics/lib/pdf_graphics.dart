@@ -16,6 +16,7 @@ export 'src/font_info.dart';
 export 'src/function.dart';
 export 'src/icc.dart';
 export 'src/image_colorants.dart';
+export 'src/image_decode_cache.dart';
 export 'src/image_pixels.dart';
 export 'src/interpreter.dart';
 export 'src/shading.dart';

@@ -575,6 +575,49 @@ void main() {
       expect(restored.request.decoded!.rgba, decoded.rgba);
     });
 
+    test('a shared image cache makes a re-record byte-identical and free', () {
+      // The worker records the same page several times in one scroll and each
+      // serialize re-decoded every image - one device page paid ~900ms of
+      // pure-Dart CMYK decode three times (#451). Pins that the codec actually
+      // consults the cache it is handed, and that reuse changes nothing.
+      final cos = CosDocument.open(buildClassicPdf());
+      // 2x2 DeviceRGB, uncompressed: decoded by the pure-Dart path, so it goes
+      // through the cache rather than declining to the platform codec.
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(2),
+          'Height': const CosInteger(2),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+        }),
+        Uint8List.fromList(<int>[
+          10, 20, 30, 40, 50, 60, //
+          70, 80, 90, 100, 110, 120,
+        ]),
+      );
+      final command = PdfDrawImageCommand(PdfImageRequest(
+        stream: stream,
+        transform: PdfMatrix(64, 0, 0, 64, 0, 0),
+      ));
+
+      final uncached =
+          serializeCommands([command], cos: cos, decodeImages: true);
+      final cache = PdfImageDecodeCache();
+      final first = serializeCommands([command],
+          cos: cos, decodeImages: true, imageCache: cache);
+      final second = serializeCommands([command],
+          cos: cos, decodeImages: true, imageCache: cache);
+
+      expect(cache.misses, greaterThan(0),
+          reason: 'the codec must route its decode through the cache');
+      expect(cache.hits, greaterThan(0),
+          reason: 'the second record must reuse the first decode');
+      // The whole safety argument: reuse is byte-identical to decoding again,
+      // so the cache can never change what a record renders.
+      expect(second, first);
+      expect(first, uncached);
+    });
+
     test('large decoded pixel planes stay zero-copy on deserialize', () {
       final cos = CosDocument.open(buildClassicPdf());
       final stream = CosStream(

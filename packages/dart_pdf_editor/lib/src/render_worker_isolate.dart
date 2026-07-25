@@ -775,6 +775,11 @@ void _workerMain(_WorkerInit init) {
   // document parses from stays valid across edits.
   var workerBytes = init.bytes.materialize().asUint8List();
   PdfDocument? document;
+  // One decoded-image cache per open document, mirroring the web backend: a
+  // page recorded several times in a scroll reuses its image decodes instead of
+  // paying for them again (#451). Exact-match on (stream, target size), so it
+  // cannot change what a record renders.
+  var imageCache = PdfImageDecodeCache();
   try {
     document = PdfDocument.open(workerBytes);
   } catch (_) {
@@ -852,6 +857,7 @@ void _workerMain(_WorkerInit init) {
         if (!incremental) {
           try {
             document = PdfDocument.open(live);
+            imageCache = PdfImageDecodeCache(); // new document, new streams
           } catch (_) {
             document = null;
           }
@@ -909,6 +915,7 @@ void _workerMain(_WorkerInit init) {
         } else if (kind == 'detail') {
           final result = await _recordStripDetailAsync(
             doc,
+            imageCache,
             binCommands,
             pageIndex,
             annotations,
@@ -959,6 +966,7 @@ void _workerMain(_WorkerInit init) {
 
           buffer = await _recordPageAsync(
               doc,
+              imageCache,
               suspendedRecord,
               pageIndex,
               annotations,
@@ -1017,6 +1025,7 @@ Uint8List? _extractTextForWorker(PdfDocument document, int pageIndex) {
 /// already cheap and their operation cap makes resume pointless.
 Future<Uint8List?> _recordPageAsync(
     PdfDocument document,
+    PdfImageDecodeCache imageCache,
     _SuspendedRecordCache suspended,
     int pageIndex,
     bool annotations,
@@ -1034,7 +1043,8 @@ Future<Uint8List?> _recordPageAsync(
   // record builds (#564 pt4). A bounded prefix (commandLimit set) stays on the
   // simple one-shot path; it is already cheap and does not stream.
   if (decodeImages || (onPartial != null && commandLimit == null)) {
-    return _recordResumablePage(document, suspended, pageIndex, annotations,
+    return _recordResumablePage(
+        document, imageCache, suspended, pageIndex, annotations,
         imagePixelRatio, commandLimit, imageDecodeRegion, token,
         decodeImages: decodeImages, onPartial: onPartial);
   }
@@ -1078,6 +1088,7 @@ const int _resumeRecordChunkOperations = 4096;
 /// checking the token between them is what keeps the recording resumable.
 Future<Uint8List?> _recordResumablePage(
     PdfDocument document,
+    PdfImageDecodeCache imageCache,
     _SuspendedRecordCache suspended,
     int pageIndex,
     bool annotations,
@@ -1157,6 +1168,7 @@ Future<Uint8List?> _recordResumablePage(
           pdfPageRasterPixels(entry.page.cropBox, imagePixelRatio),
       imageDecodeRegion: imageDecodeRegion,
       imagePlaceholders: !decodeImages,
+      imageCache: imageCache,
       commandLimit: commandLimit,
       compactStateScopes: true);
 }
@@ -1265,6 +1277,7 @@ Future<Uint8List?> _binStripsAsync(
 /// cancellable bin replay repeat as the viewport moves.
 Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
   PdfDocument document,
+  PdfImageDecodeCache imageCache,
   _BinCommandCache cache,
   int pageIndex,
   bool annotations,
@@ -1286,6 +1299,7 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
     decodeImages: true,
     maxImagePixelRatio: pixelRatio,
     imageDecodeRegion: imageDecodeRegion,
+    imageCache: imageCache,
     compactStateScopes: true,
   );
   if (commandBuffer == null) return null;
