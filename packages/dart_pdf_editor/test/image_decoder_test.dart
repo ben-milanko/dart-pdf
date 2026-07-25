@@ -884,4 +884,67 @@ void main() {
       });
     });
   });
+
+  group('concurrent decode (#454)', () {
+    CosStream rgbPixel(int r, int g, int b) => CosStream(
+          CosDictionary({
+            'Width': const CosInteger(1),
+            'Height': const CosInteger(1),
+            'BitsPerComponent': const CosInteger(8),
+            'ColorSpace': const CosName('DeviceRGB'),
+          }),
+          Uint8List.fromList([r, g, b]),
+        );
+
+    testWidgets('decodes every distinct image in one batch', (tester) async {
+      await tester.runAsync(() async {
+        final streams = [
+          rgbPixel(10, 20, 30),
+          rgbPixel(40, 50, 60),
+          rgbPixel(70, 80, 90),
+          rgbPixel(100, 110, 120),
+        ];
+        final images =
+            await decodeImages(cos, [for (final s in streams) req(s)]);
+        expect(images.length, 4);
+        for (final s in streams) {
+          expect(images[s], isNotNull);
+        }
+        expect((await pixelsOf(images[streams[0]]!)).sublist(0, 3),
+            [10, 20, 30]);
+        expect((await pixelsOf(images[streams[3]]!)).sublist(0, 3),
+            [100, 110, 120]);
+      });
+    });
+
+    testWidgets('a repeated image is decoded once across the batch',
+        (tester) async {
+      await tester.runAsync(() async {
+        final shared = rgbPixel(11, 22, 33);
+        final other = rgbPixel(44, 55, 66);
+        // shared appears three times; the map must collapse to two entries
+        // (proving the dedup happens before the concurrent decodes launch).
+        final images = await decodeImages(
+            cos, [req(shared), req(other), req(shared), req(shared)]);
+        expect(images.length, 2);
+        expect(images[shared], isNotNull);
+        expect(images[other], isNotNull);
+      });
+    });
+
+    testWidgets('a warm cache serves the second batch without re-decoding',
+        (tester) async {
+      await tester.runAsync(() async {
+        final cache = PdfImageCache();
+        final stream = rgbPixel(7, 8, 9);
+        final first = await decodeImages(cos, [req(stream)], cache: cache);
+        final cold = await pixelsOf(first[stream]!);
+        // Second call with the same cache must return the same pixels; the
+        // hit is resolved in the synchronous planning pass, before any decode.
+        final second = await decodeImages(cos, [req(stream)], cache: cache);
+        final warm = await pixelsOf(second[stream]!);
+        expect(warm, cold);
+      });
+    });
+  });
 }

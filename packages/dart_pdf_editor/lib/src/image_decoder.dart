@@ -274,9 +274,15 @@ Future<Map<Object, ui.Image>> decodeImages(
     CosDocument cos, Iterable<PdfImageRequest> requests,
     {PdfImageCache? cache, double? maxImagePixelRatio}) async {
   final out = <Object, ui.Image>{};
+  // Plan the work synchronously first: dedup by key, resolve cache hits, and
+  // collect the misses. Deciding all of this before the first await is what
+  // makes the concurrent decode below safe - a repeated image is decoded once
+  // and two tasks never race the cache on the same key (#454).
+  final pending = <_PendingDecode>[];
+  final seen = <Object>{};
   for (final request in requests) {
     final key = pdfImageKey(request);
-    if (out.containsKey(key)) continue;
+    if (!seen.add(key)) continue;
     // Worker-decoded pixels are already sized; only a local decode is capped.
     final target = request.decoded != null
         ? null
@@ -291,21 +297,40 @@ Future<Map<Object, ui.Image>> decodeImages(
       out[key] = hit;
       continue;
     }
+    pending.add(_PendingDecode(key, cacheKey, request, target));
+  }
+  // Decode the misses concurrently. `instantiateImageCodec` / the browser codec
+  // hand the work to a codec thread, so awaiting each image serially left that
+  // thread idle between them - on an image-heavy page that serialisation was a
+  // large slice of the first-paint wait (#454). Overlapping them keeps the
+  // codec busy; the results land in a shared map and the distinct-key cache,
+  // so single-threaded interleaving at the awaits cannot collide.
+  await Future.wait(pending.map((p) async {
     try {
-      final decoded = request.decoded;
+      final decoded = p.request.decoded;
       final image = decoded != null
           ? await _imageFromPremultiplied(
               decoded.rgba, decoded.width, decoded.height)
-          : await _decodeOne(cos, request.stream,
-              targetWidth: target?.$1, targetHeight: target?.$2);
+          : await _decodeOne(cos, p.request.stream,
+              targetWidth: p.target?.$1, targetHeight: p.target?.$2);
       if (image != null) {
-        out[key] = cache == null ? image : cache.put(cacheKey, image);
+        out[p.key] = cache == null ? image : cache.put(p.cacheKey, image);
       }
     } on Exception {
       // undecodable image: the device will skip it
     }
-  }
+  }));
   return out;
+}
+
+/// One image whose decode was deferred so [decodeImages] can run the misses
+/// concurrently. Holds everything the synchronous planning pass resolved.
+class _PendingDecode {
+  _PendingDecode(this.key, this.cacheKey, this.request, this.target);
+  final Object key;
+  final Object cacheKey;
+  final PdfImageRequest request;
+  final (int, int)? target;
 }
 
 /// The display-capped decode size for [request]'s image, or null to decode at
