@@ -52,7 +52,7 @@ import 'text_extraction.dart';
 /// Format: little notion of versioning beyond a leading byte; the producer and
 /// consumer are the same build, shipped together, so a version mismatch is a
 /// programming error, asserted on read.
-const int _formatVersion = 3;
+const int _formatVersion = 4;
 
 /// Microseconds spent reconstructing worker command buffers on the consuming
 /// isolate. Accumulated for performance probes; this is the UI-thread half of
@@ -1021,6 +1021,54 @@ PdfRenderCommand _readCommand(_Reader r) {
 // pixel-identically to shipping the original double (verified against the Ghent
 // baselines). Everything that needs full precision - transforms, colours,
 // stroke widths, text placement - stays float64.
+/// Writes one glyph placement's outline, by reference when its geometry has
+/// already been written to this record.
+///
+/// Text dominates a record's bytes, and the outline rides on every *placement*
+/// (`PdfGlyphPlacement.outline`), so a letter set 500 times used to serialize
+/// its geometry 500 times. Measured over a 62-page book at ratio 2.0, glyph
+/// outlines were 151.7 MB of 394 MB of records and 85% of that was literal
+/// repetition - more than the entire decoded-RGBA payload (83 MB). Records are
+/// held in a byte-budgeted LRU, so this is cache capacity, and capacity is what
+/// decides how often a page has to be re-recorded (#451).
+///
+/// Tag byte: 0 = no outline, 1 = geometry follows (and takes the next id),
+/// 2 = a u32 id of an outline already defined in this record.
+void _writeGlyphOutline(_Writer w, PdfPath? outline) {
+  if (outline == null) {
+    w.u8(0);
+    return;
+  }
+  final existing = w._outlineIds[outline];
+  if (existing != null) {
+    w.u8(2);
+    w.u32(existing);
+    return;
+  }
+  w._outlineIds[outline] = w._outlineIds.length;
+  w.u8(1);
+  _writePath(w, outline);
+}
+
+PdfPath? _readGlyphOutline(_Reader r) {
+  switch (r.u8()) {
+    case 0:
+      return null;
+    case 1:
+      final path = _readPath(r);
+      r._outlines.add(path);
+      return path;
+    case 2:
+      final id = r.u32();
+      if (id >= r._outlines.length) {
+        throw FormatException('glyph outline id $id out of range');
+      }
+      return r._outlines[id];
+    default:
+      throw const FormatException('unknown glyph outline tag');
+  }
+}
+
 void _writePath(_Writer w, PdfPath path) {
   w.u32(path.segments.length);
   for (final s in path.segments) {
@@ -1197,12 +1245,7 @@ void _writeTextRun(_Writer w, PdfTextRun run) {
       w.f64(g.offset);
       w.f64(g.offsetY);
       w.strOpt(g.text);
-      if (g.outline == null) {
-        w.boolean(false);
-      } else {
-        w.boolean(true);
-        _writePath(w, g.outline!);
-      }
+      _writeGlyphOutline(w, g.outline);
     }
   }
   w.boolean(run.invisible);
@@ -1248,7 +1291,7 @@ PdfTextRun _readTextRun(_Reader r) {
       final offset = r.f64();
       final offsetY = r.f64();
       final text = r.strOpt();
-      final outline = r.boolean() ? _readPath(r) : null;
+      final outline = _readGlyphOutline(r);
       glyphs[i] = PdfGlyphPlacement(
           offset: offset, offsetY: offsetY, outline: outline, text: text);
     }
@@ -1433,6 +1476,13 @@ class _Writer {
   late ByteData _view = ByteData.view(_buf.buffer);
   int _len = 0;
 
+  /// Glyph outlines already written, so a repeated glyph costs an index
+  /// instead of its geometry ([_writeGlyphOutline]). Keyed by object
+  /// identity - [PdfPath] does not override `==`, and the font engine hands
+  /// the same instance back for every placement of a glyph, so identity
+  /// catches essentially all of the repetition with no hashing of geometry.
+  final Map<PdfPath, int> _outlineIds = {};
+
   void _ensure(int extra) {
     final need = _len + extra;
     if (need <= _buf.length) return;
@@ -1535,6 +1585,12 @@ class _Reader {
   final Uint8List _bytes;
   final ByteData _data;
   int _o = 0;
+
+  /// Glyph outlines seen so far, indexed as the writer numbered them
+  /// ([_readGlyphOutline]). Repeated glyphs share one [PdfPath] instance -
+  /// which is also how they arrive from the font engine before serialization,
+  /// so the replayed commands hold no more copies than a local render.
+  final List<PdfPath> _outlines = [];
 
   int u8() => _data.getUint8(_o++);
 
