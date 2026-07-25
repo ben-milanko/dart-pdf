@@ -108,10 +108,17 @@ void main(List<String> args) {
       '(the pre-#451 format)');
   stdout.writeln('  ${_round(deduped)} MB collapsed by shape, across '
       '$distinct distinct outlines');
-  stdout.writeln('  -> ${_round(outline - deduped)} MB '
-      '(${((1 - deduped / outline) * 100).round()}%) is repetition.');
-  stdout.writeln('  Distinct by object identity (what a writer-side table '
-      'would see without hashing): $ident vs $distinct by value.');
+  if (outline > 0) {
+    stdout.writeln('  -> ${_round(outline - deduped)} MB '
+        '(${((1 - deduped / outline) * 100).round()}%) is repetition.');
+    stdout.writeln('  Distinct by object identity (what a writer-side table '
+        'would see without hashing): $ident vs $distinct by value.');
+  } else {
+    // Scanned and CAD documents reach here: no embedded font yields outlines,
+    // so the dedup has nothing to collapse and the record is dominated by the
+    // decoded RGBA above.
+    stdout.writeln('  (no glyph outlines on these pages)');
+  }
 
   // What the cache can hold. The viewer caches whole records, so a page's
   // image payload occupies the record budget for as long as the record is
