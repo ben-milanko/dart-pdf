@@ -1148,6 +1148,7 @@ class PdfInterpreter {
       while (_mcidStack.length > savedVisibilityDepth) {
         _mcidStack.removeLast();
       }
+      _restoreDeviceBlend(savedState);
       _state = savedState;
       device.restore();
     }
@@ -2058,6 +2059,7 @@ class PdfInterpreter {
       while (_stateStack.length > savedStackDepth) {
         _stateStack.removeLast();
       }
+      _restoreDeviceBlend(savedState);
       _state = savedState;
       device.restore();
     }
@@ -2410,6 +2412,11 @@ class PdfInterpreter {
       while (_stateStack.length > savedStackDepth) {
         _stateStack.removeLast();
       }
+      // A blend mode a CharProc set (via its own gs) is not on the canvas save
+      // stack, so device.restore() below won't undo it - re-sync it like the
+      // other scope exits (#462/#503). When recording a cell the reset is
+      // captured into the cell too, so a stamped glyph can't leak its blend.
+      _restoreDeviceBlend(savedState);
       _state = savedState;
       _textMatrix = savedTextMatrix;
       _lineMatrix = savedLineMatrix;
@@ -2704,6 +2711,7 @@ class PdfInterpreter {
       while (_stateStack.length > savedStackDepth) {
         _stateStack.removeLast();
       }
+      _restoreDeviceBlend(savedState);
       _state = savedState;
       device.restore();
     }
@@ -2905,14 +2913,24 @@ class PdfInterpreter {
       }
       if (groupLayer) device.endGroup();
       final restored = _stateStack.removeLast();
-      // The device blend mode is not part of canvas save/restore state, and the
-      // group's inner content may have changed it (or we reset it to Normal for
-      // a blended group above); re-sync it to the state we are restoring.
-      if (_state.blendMode != restored.blendMode) {
-        device.setBlendMode(restored.blendMode);
-      }
+      _restoreDeviceBlend(restored);
       _state = restored;
       device.restore();
+    }
+  }
+
+  /// Re-issues the blend mode when leaving a form / appearance / transparency
+  /// group / tiling-pattern scope, mirroring the `q`/`Q` handler.
+  ///
+  /// `device.restore()` pops the canvas graphics stack, but a device's blend
+  /// mode is not part of that stack (e.g. `CanvasPdfDevice` holds it in a plain
+  /// field), so a non-Normal blend set inside the scope leaks out and applies
+  /// to whatever is painted next - an opaque object after a Multiply one would
+  /// render multiplied against the backdrop. Restoring [restored]'s blend on
+  /// the way out prevents the leak (issue #462).
+  void _restoreDeviceBlend(_GraphicsState restored) {
+    if (_state.blendMode != restored.blendMode) {
+      device.setBlendMode(restored.blendMode);
     }
   }
 
