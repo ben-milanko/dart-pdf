@@ -1,13 +1,14 @@
 # Flathub packaging for DartPDF
 
-This directory holds the Flatpak manifest used to publish DartPDF on
-[Flathub](https://flathub.org). It is a **binary manifest**: instead of
-compiling Flutter inside the Flatpak sandbox, it unpacks the release tarball
-built by CI (`.github/workflows/release-app.yml`, the `linux` job →
-`dartpdf-linux-x64.tar.gz`). That tarball already carries the `.desktop`,
-AppStream `metainfo`, and hicolor icons that `app/linux/CMakeLists.txt`
-installs into the bundle, so the manifest only has to relocate them into
-`/app`.
+This directory is the **payload for the `flathub/flathub` submission**: the
+Flatpak manifest plus the desktop-integration files it installs. Copy the whole
+directory's tracked contents into the Flathub PR (see "Submit to Flathub").
+
+It is a **binary manifest**: instead of compiling Flutter inside the Flatpak
+sandbox, it unpacks the release tarball built by CI
+(`.github/workflows/release-app.yml`, the `linux` job → `dartpdf-linux-x64.tar.gz`)
+and installs the `.desktop`, AppStream `metainfo`, and hicolor icons from the
+copies staged in [`desktop-assets/`](desktop-assets/).
 
 The app id, `.desktop`, `metainfo`, and icons are all named
 `dev.milanko.dartpdf`, matching the GTK `application-id` in
@@ -16,9 +17,33 @@ The app id, `.desktop`, `metainfo`, and icons are all named
 ## Files
 
 - `dev.milanko.dartpdf.yml` — the Flatpak manifest.
+- `desktop-assets/` — staged copies of the `.desktop`, `metainfo.xml`, and the
+  four hicolor icons, installed by the manifest.
+- `sync-desktop-assets.sh` — regenerates `desktop-assets/` from `app/linux/`.
 
-The `.desktop`, `metainfo`, and icon sources live in `app/linux/` (one copy,
-shared by the raw bundle, the tarball, and this manifest).
+### Desktop assets: one source of truth
+
+`app/linux/` is authoritative for the `.desktop` entry, the metainfo, and the
+icons (one copy, shared by the raw bundle and the release tarball). The copies
+in `desktop-assets/` exist only because they must be committed into the
+*separate* `flathub/flathub` repo next to the manifest. **After any change under
+`app/linux/`, run `./sync-desktop-assets.sh`** so the staged copies do not drift
+(CI could assert this later).
+
+### Known: the app-v3.0.0 tarball has no `share/` tree
+
+The CMake rules that install the desktop files into the bundle's `share/` tree
+(so the release tarball carries them) landed in **#547**, which merged *after*
+`app-v3.0.0` was tagged. So the published `app-v3.0.0` tarball contains only
+`dart_pdf_editor_app`, `data/`, and `lib/` — no `share/`. That is exactly why
+this manifest installs the desktop files from `desktop-assets/` rather than from
+the tarball: it stays correct against the current release.
+
+**Once a release is cut from a tree that includes #547**, its tarball *will*
+carry `share/applications`, `share/metainfo`, and `share/icons`. At that point
+you may simplify the manifest to install straight from the unpacked tarball and
+drop the `desktop-assets/` sources — but the staged approach keeps working
+either way, so it is not required.
 
 ## Sandbox permissions (why each `finish-arg`)
 
@@ -38,15 +63,14 @@ through the XDG portals:
   sandbox without a host-filesystem hole.
 - **In-app open/save dialogs.** `file_selector_linux` uses
   `GtkFileChooserNative`, which GTK automatically routes through the
-  **FileChooser portal** when running under Flatpak. So the file picker is
-  portal-backed with no extra work.
+  **FileChooser portal** when running under Flatpak.
 
   **Known limitation:** a file opened this way is granted access through the
   document portal for that document. Opening a PDF from a file manager and
   saving in place works; if a save-in-place is ever refused by the portal,
   "Save As" through the picker always works. If you find an in-place-save case
-  that the portal blocks, revisit whether a narrower `--filesystem=xdg-*`
-  grant is warranted — but do not add a blanket `--filesystem=host`.
+  the portal blocks, revisit whether a narrower `--filesystem=xdg-*` grant is
+  warranted — but do not add a blanket `--filesystem=host`.
 
 If the Secret Service is unavailable (no keyring running), identity storage
 degrades gracefully: the signing dialog shows an empty identity list and
@@ -63,63 +87,73 @@ flatpak remote-add --if-not-exists --user flathub \
   https://flathub.org/repo/flathub.flatpakrepo
 flatpak install --user flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08
 
-# Fill in a real tarball URL + sha256 first (see below), then build & install.
+# Build & install from this directory (the pinned tarball is fetched over HTTP).
 cd app/packaging/flatpak
 flatpak-builder --user --install --force-clean build-dir dev.milanko.dartpdf.yml
 
 # Run it, or open a file with it.
 flatpak run dev.milanko.dartpdf
 flatpak run dev.milanko.dartpdf /path/to/file.pdf
+
+# Lint the manifest and the built repo the way Flathub CI does.
+pip install --user flatpak-builder-lint    # or: flatpak run org.flatpak.Builder ...
+flatpak-builder-lint manifest dev.milanko.dartpdf.yml
+flatpak-builder-lint repo build-dir      # after a --repo build
 ```
 
-To build against a locally-built tarball instead of a published release,
-point the manifest's `source` at a `type: file`/`path:` (or a `file://` URL)
-of a `dartpdf-linux-x64.tar.gz` you produced with
+To build against a locally-built tarball instead of a published release, point
+the manifest's archive `source` at a `type: file`/`path:` (or `file://` URL) of
+a `dartpdf-linux-x64.tar.gz` you produced with
 `flutter build linux --release && tar czf dartpdf-linux-x64.tar.gz -C build/linux/x64/release/bundle .`.
 
-## Update the pinned tarball for a release
+## Update for a new release
 
-The manifest pins one release tarball by URL + sha256. For each new
-`app-v<version>` release:
+For each new `app-v<version>` release:
 
-1. Set `sources[0].url` to
+1. Set the archive `sources[0].url` to
    `https://github.com/ben-milanko/dart-pdf/releases/download/app-v<version>/dartpdf-linux-x64.tar.gz`.
-2. Set `sources[0].sha256` to the tarball's digest:
-   `sha256sum dartpdf-linux-x64.tar.gz`.
-3. Bump the `<release>` entry in `app/linux/dev.milanko.dartpdf.metainfo.xml`
-   to match (Flathub requires a current `<releases>` entry).
+2. Set `sources[0].sha256` to `sha256sum dartpdf-linux-x64.tar.gz`.
+3. Add a matching `<release>` entry at the top of
+   `app/linux/dev.milanko.dartpdf.metainfo.xml`, then run
+   `./sync-desktop-assets.sh`. (Flathub wants a current `<releases>` entry.)
 
-Optionally add an external-data checker so Flathub proposes updates
-automatically. For GitHub releases:
-
-```yaml
-        x-checker-data:
-          type: json
-          url: https://api.github.com/repos/ben-milanko/dart-pdf/releases/latest
-          version-query: .tag_name | sub("^app-v"; "")
-          url-query: >-
-            .assets[] | select(.name == "dartpdf-linux-x64.tar.gz")
-            | .browser_download_url
-```
+The `x-checker-data` block on the archive source lets Flathub's external-data
+checker open the update PR for step 1–2 automatically once a new `app-v*`
+release ships; you still do step 3.
 
 ## Submit to Flathub
 
 Flathub submissions live in a **separate repo** (`flathub/flathub`), not this
-one — that is why this directory only scaffolds the manifest.
+one — that is why this directory only stages the payload.
 
-1. **Verify the app id domain.** Flathub requires that you control the domain
-   in the app id (`dev.milanko` → `milanko.dev`) *or* use the code-hosting id
-   form. Verification is done in the Flathub web UI, typically by adding a DNS
-   `TXT` record (or a well-known file) for the domain — the homepage is
-   `https://dart-pdf.com`, so coordinate the app-id domain and the
-   verification method accordingly.
-2. Fork `https://github.com/flathub/flathub`.
-3. Create a branch named after the app id: `new-pr` is the base; push a branch
+### 1. Decide + verify the app-id domain
+
+The app id is `dev.milanko.dartpdf`, so the id domain is **`milanko.dev`**
+(reverse-DNS), *not* the homepage `dart-pdf.com`. Flathub verification (in the
+Flathub web UI, after the app is accepted) can be done by:
+
+- a DNS `TXT` record on **`milanko.dev`**, or
+- a `.well-known` file served from `https://milanko.dev`, or
+- linking the GitHub account that owns `github.com/ben-milanko`.
+
+You control `milanko.dev`, so the DNS-TXT route on `milanko.dev` is the path of
+least resistance and keeps the existing app id (which is already baked into the
+`.desktop`, metainfo, icons, GTK application-id, and the platform channel names
+in `app/linux/runner/`). **Do not** rename the app id to a `dart-pdf.com` form —
+that would touch every one of those and re-key the installed app.
+
+### 2. Open the PR
+
+1. Fork `https://github.com/flathub/flathub`.
+2. Create a branch named after the app id: base is `new-pr`; push a branch
    `dev.milanko.dartpdf`.
-4. Add `dev.milanko.dartpdf.yml` (this manifest, with a real URL + sha256) at
-   the repo root.
-5. Open a PR against the `new-pr` branch of `flathub/flathub`. The Flathub bot
+3. At the repo root add the manifest **and** the `desktop-assets/` directory
+   (the manifest's `type: file` sources are relative to it). The simplest way:
+   `cp -r app/packaging/flatpak/{dev.milanko.dartpdf.yml,desktop-assets} <flathub-clone>/`.
+4. Open a PR against the `new-pr` branch of `flathub/flathub`. The Flathub bot
    builds it and a reviewer checks the manifest.
-6. Once merged, Flathub creates the per-app repo and the build goes live.
+5. Once merged, Flathub creates the per-app repo, the build goes live, and you
+   verify the `milanko.dev` domain in the Flathub web UI to get the blue
+   verified badge.
 
 See the Flathub docs: <https://docs.flathub.org/docs/for-app-authors/submission>.
