@@ -7,6 +7,7 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -1210,14 +1211,26 @@ class _EditorScreenState extends State<EditorScreen>
       return;
     }
     if (!mounted || bytes == null) return;
+    final insertedAt = (tab.viewer?.currentPage ?? 0) + 1;
     try {
-      session.insertPagesFromBytes(bytes,
-          at: (tab.viewer?.currentPage ?? 0) + 1);
+      session.insertPagesFromBytes(bytes, at: insertedAt);
     } catch (e) {
       AppDevTools.instance
           .addLog('scan insert failed: $e', level: DevLogLevel.error);
       if (mounted) _toast(appL10n(context).editorScanFailed);
       return;
+    }
+    // Reveal the first inserted page. The revision swap rebuilds the viewer and
+    // a geometry-changing revision resets its scroll to the top in a post-frame
+    // callback, so navigate after two frames - once the new page metrics and
+    // that reset have both landed (mirrors the thumbnail insert/paste flow).
+    final viewer = tab.viewer;
+    if (viewer != null) {
+      unawaited(() async {
+        await SchedulerBinding.instance.endOfFrame;
+        await SchedulerBinding.instance.endOfFrame;
+        await viewer.jumpToPage(insertedAt);
+      }());
     }
     if (mounted) _toast(appL10n(context).editorInsertedScan);
   }
