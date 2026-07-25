@@ -53,22 +53,6 @@ class PdfColorants {
   /// Tints parallel to [spots].
   final Float64List tints;
 
-  bool get isProcessOnly => spots.isEmpty;
-
-  double tintOf(String spot) {
-    final i = _indexOf(spots, spot);
-    return i < 0 ? 0 : tints[i];
-  }
-
-  static int _indexOf(List<String> names, String name) {
-    // Sorted, and always short (a page rarely carries more than a handful of
-    // spot colorants), so a linear scan beats a binary search's overhead.
-    for (var i = 0; i < names.length; i++) {
-      if (names[i] == name) return i;
-    }
-    return -1;
-  }
-
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;

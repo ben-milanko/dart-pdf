@@ -109,6 +109,64 @@ void main() {
       final none = separation('None', const [0, 0, 0, 1]).inkColorants([0.7])!;
       expect(none.writesNothing, isTrue);
     });
+
+    test('an ink and a backdrop naming different spots keep both', () {
+      // The merge of two sorted spot lists, which is what lets a page's
+      // second spot colour overprint the first without either erasing it.
+      final ink = PdfInkColorants(
+        colorants: PdfColorants(0, 0, 0, 0,
+            spots: const ['Spot B'], tints: const [0.6]),
+        processMask: 0,
+        overprintModeApplies: false,
+      );
+      expect(
+          ink.over(
+              PdfColorants(0.1, 0, 0, 0,
+                  spots: const ['Spot A'], tints: const [0.3]),
+              0),
+          PdfColorants(0.1, 0, 0, 0,
+              spots: const ['Spot A', 'Spot B'], tints: const [0.3, 0.6]),
+          reason: 'neither spot is the other\'s to write');
+      // Where they name the same colorant, the ink wins - that is the one
+      // channel it is painting.
+      expect(
+          ink.over(
+              PdfColorants(0, 0, 0, 0,
+                  spots: const ['Spot B'], tints: const [0.3]),
+              0),
+          PdfColorants(0, 0, 0, 0,
+              spots: const ['Spot B'], tints: const [0.6]));
+    });
+  });
+
+  group('converting a composite back to sRGB', () {
+    // Only reached for a colorant combination no single paint produced - the
+    // compositor reuses the backdrop's or the ink's own rendered colour
+    // otherwise - so nothing else exercises it.
+    test('a spot contributes its CMYK equivalent, scaled by tint', () {
+      final vector = PdfColorants(0, 0, 0, 0.2,
+          spots: const ['GWG Green'], tints: const [0.5]);
+      // Half a tint of a spot that is full yellow + half cyan, over 20% black.
+      final rendered = colorantsToSrgb(vector, {
+        'GWG Green': const [1.0, 0, 1.0, 0],
+      });
+      expect(rendered, PdfColor.cmyk(0.5, 0, 0.5, 0.2));
+    });
+
+    test('overlapping inks accumulate and clamp at full ink', () {
+      final vector = PdfColorants(0.7, 0, 0, 0,
+          spots: const ['Spot'], tints: const [1.0]);
+      expect(colorantsToSrgb(vector, {'Spot': const [0.8, 0, 0, 0]}),
+          PdfColor.cmyk(1, 0, 0, 0));
+    });
+
+    test('a spot with no known equivalent contributes nothing', () {
+      // A composite can name a spot whose space never reached this compositor
+      // (it came from the backdrop). Dropping it is the honest fallback.
+      final vector =
+          PdfColorants(0, 0, 0, 0.4, spots: const ['Unknown'], tints: const [1]);
+      expect(colorantsToSrgb(vector, const {}), PdfColor.cmyk(0, 0, 0, 0.4));
+    });
   });
 
   group('colorant readings of colour spaces', () {

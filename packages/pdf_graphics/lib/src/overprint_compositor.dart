@@ -114,9 +114,6 @@ class PdfOverprintCompositor {
   static const int _maxDraws = 20000;
   bool get _exhausted => _draws >= _maxDraws;
 
-  /// Distinct colorant vectors interned so far - test hook.
-  int get debugPaletteLength => _paletteColorants.length;
-
   /// Pushes the clip, mirroring `q` (and every nested-content bracket the
   /// interpreter saves the device across: form XObjects, tiling-pattern cells,
   /// Type3 CharProcs, soft-mask forms, appearance streams). A `W n` inside one
