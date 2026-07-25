@@ -31,6 +31,18 @@ dynamic overlayPainter(WidgetTester tester) => tester
         .first)
     .painter;
 
+/// The overlay's hover-cursor layer - the pen dot, eraser ring, count/stamp
+/// previews and rotate glyph, which read live state and repaint without a
+/// rebuild. Read through a dynamic cast (the painter class is private).
+dynamic cursorPainter(WidgetTester tester) => tester
+    .widgetList<CustomPaint>(find.descendant(
+      of: find.byType(EditingPageOverlay),
+      matching: find.byType(CustomPaint),
+    ))
+    .map((paint) => paint.painter)
+    .firstWhere(
+        (painter) => painter.runtimeType.toString() == '_HoverCursorPainter');
+
 (int r, int g, int b, int a) pixelAt(ByteData pixels, int width, int x, int y) {
   final i = (y * width + x) * 4;
   return (
@@ -902,7 +914,7 @@ void main() {
       await tester.pump();
 
       expect(editing.document.page(0).annotations, isEmpty);
-      final preview = overlayPainter(tester).stampPreview;
+      final preview = cursorPainter(tester).stampPreview;
       expect(preview, isNotNull);
       expect(preview.text, 'PAID');
       expect(preview.template, isNotNull);
@@ -913,7 +925,7 @@ void main() {
 
       await mouse.moveTo(origin + const Offset(-20, -20));
       await tester.pump();
-      expect(overlayPainter(tester).stampPreview, isNull);
+      expect(cursorPainter(tester).stampPreview, isNull);
     });
 
     testWidgets('stamp hover previews a TEXT placeholder without an active stamp',
@@ -960,7 +972,7 @@ void main() {
       // hovering shows the placeholder; nothing is committed until a click
       // prompts for the real caption.
       expect(editing.document.page(0).annotations, isEmpty);
-      final preview = overlayPainter(tester).stampPreview;
+      final preview = cursorPainter(tester).stampPreview;
       expect(preview, isNotNull);
       expect(preview.text, 'TEXT');
       expect(preview.rect.center.dx, moreOrLessEquals(local(300, 400).dx));
@@ -968,7 +980,7 @@ void main() {
 
       await mouse.moveTo(origin + const Offset(-20, -20));
       await tester.pump();
-      expect(overlayPainter(tester).stampPreview, isNull);
+      expect(cursorPainter(tester).stampPreview, isNull);
     });
 
     testWidgets('adding a stamp keeps existing annotations painted',

@@ -25,7 +25,7 @@ measures.
 Declared in [`scenarios.json`](scenarios.json) — a name → `{kind, pdf, params}`
 registry. `pdf` is a repo-relative file from the CC0 `test_corpora/dartpdf`
 corpus, so **any checkout (and any A/B worktree) can run every scenario** with
-no magic local file. Four workload kinds ship:
+no magic local file. Five workload kinds ship:
 
 | kind | what it measures | headline metrics |
 |---|---|---|
@@ -33,9 +33,11 @@ no magic local file. Four workload kinds ship:
 | `open` | cold-open profile: bytes → `PdfDocument.open` → `pageCount` → first painted content on a target page | `openBytesMs`, `openDocMs`, `openPageCountMs`, `openFirstContentMs` |
 | `search` | full-document text search latency + hit count (best-of-N) | `searchMs`, `searchMatches` |
 | `edit` | apply a batch of annotations through the real `PdfEditingController`: incremental-save + appearance-gen cost | `editApplyMs`, `editApplyMsPerOp`, `editRevisions`, `editBufferGrowthKb` |
+| `hover` | mouse-move over a page with an editing tool armed: what following the painted cursor costs per pointer event | `hoverBuildMsTotal`, `hoverBuildMsPerEvent`, `hoverBuildMsP50/P95/Max`, `hoverFrames` |
 
 Stock scenarios: `scroll-plan`, `scroll-scan`, `scroll-diagram`, `open-plan`,
-`open-text`, `search-text`, `edit-annotate` (default `scroll-plan`).
+`open-text`, `search-text`, `edit-annotate`, `hover-ink`, `hover-eraser`
+(default `scroll-plan`).
 
 ### Adding a scenario going forward
 
@@ -123,6 +125,7 @@ searchMs                52.30       38.10       -27.2%    ✓ faster
 | `PERF_TARGET_PAGE` | scenario | open/scroll target page |
 | `PERF_QUERY` / `PERF_REPEAT` | scenario | search needle / best-of-N |
 | `PERF_OPS` | scenario | edit: annotations to apply |
+| `PERF_EVENTS` / `PERF_TOOL` | scenario | hover: pointer events to dispatch / the armed tool |
 | `PERF_IMAGE_CACHE_MB` | `0` | decoded-image cache budget, MB |
 | `PERF_HEADLESS` | `true` | `false` for a visible window |
 | `PERF_TIMEOUT` | `300` | overall budget, seconds |

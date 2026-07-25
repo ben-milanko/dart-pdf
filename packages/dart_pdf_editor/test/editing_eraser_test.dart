@@ -21,6 +21,18 @@ dynamic overlayPainter(WidgetTester tester) => tester
         .first)
     .painter;
 
+/// The overlay's hover-cursor layer - the pen dot, eraser ring, count/stamp
+/// previews and rotate glyph, which read live state and repaint without a
+/// rebuild. Read through a dynamic cast (the painter class is private).
+dynamic cursorPainter(WidgetTester tester) => tester
+    .widgetList<CustomPaint>(find.descendant(
+      of: find.byType(EditingPageOverlay),
+      matching: find.byType(CustomPaint),
+    ))
+    .map((paint) => paint.painter)
+    .firstWhere(
+        (painter) => painter.runtimeType.toString() == '_HoverCursorPainter');
+
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -351,8 +363,10 @@ void main() {
       expect(extraInk, hasLength(1));
       expect((extraInk.single.strokes as List), hasLength(2));
       // the ring cursor rides the pointer at the page-space radius
-      expect(painter.eraserCursor, isNotNull);
-      expect(painter.eraserRadius, closeTo(editing.preferences.eraserRadius * scale, 1e-6));
+      final cursors = cursorPainter(tester);
+      expect(cursors.eraserCursor, isNotNull);
+      expect(cursors.eraserRadius,
+          closeTo(editing.preferences.eraserRadius * scale, 1e-6));
 
       await g.up();
       await tester.pump();
@@ -390,7 +404,7 @@ void main() {
       await gesture.moveTo(view(300, 400));
       await tester.pump();
 
-      final painter = overlayPainter(tester);
+      final painter = cursorPainter(tester);
       expect(painter.eraserCursor, isNotNull);
       expect(painter.eraserRadius, greaterThan(0));
     });

@@ -22,14 +22,19 @@ dynamic overlayPainter(WidgetTester tester) => tester
         .first)
     .painter;
 
-dynamic activeStrokePainter(WidgetTester tester) => tester
+/// The overlay's hover-cursor layer: the pen dot, eraser ring, count/stamp
+/// previews and the rotation glyph all live here, read off the live overlay
+/// state and repainted from a notifier - a hover moves them without
+/// rebuilding the overlay, so the *painter instance* may predate the hover
+/// and its getters must be read fresh.
+dynamic cursorPainter(WidgetTester tester) => tester
     .widgetList<CustomPaint>(find.descendant(
       of: find.byType(EditingPageOverlay),
       matching: find.byType(CustomPaint),
     ))
     .map((paint) => paint.painter)
     .singleWhere(
-      (painter) => painter.runtimeType.toString() == '_ActiveStrokePainter',
+      (painter) => painter.runtimeType.toString() == '_HoverCursorPainter',
     );
 
 /// The overlay's own MouseRegion cursor (the one wrapping the preview
@@ -134,7 +139,7 @@ void main() {
     final top = view(225, 550);
     await hoverAt(tester, Offset(top.dx, top.dy - 22));
     expect(regionCursor(tester), SystemMouseCursors.none);
-    expect(overlayPainter(tester).rotateCursor, isNotNull);
+    expect(cursorPainter(tester).rotateCursor, isNotNull);
   });
 
   testWidgets('the ink tool paints a pen-preview dot in place of the cursor',
@@ -147,10 +152,9 @@ void main() {
 
     await hoverAt(tester, view(300, 400));
     expect(regionCursor(tester), SystemMouseCursors.none);
-    final painter = overlayPainter(tester);
-    expect(painter.penCursor, isNotNull);
+    expect(cursorPainter(tester).penCursor, isNotNull);
     // the dot draws in the selected pen colour
-    expect((painter.color as Color).toARGB32(), 0xFF1565C0);
+    expect((overlayPainter(tester).color as Color).toARGB32(), 0xFF1565C0);
   });
 
   testWidgets('the ink cursor follows a mouse-drawn stroke', (tester) async {
@@ -168,11 +172,11 @@ void main() {
 
     await g.moveTo(end);
     await tester.pump();
-    expect(activeStrokePainter(tester).debugPenCursor, end);
+    expect(cursorPainter(tester).penCursor, end);
     await g.up();
     await tester.pump();
 
-    expect(overlayPainter(tester).penCursor, end);
+    expect(cursorPainter(tester).penCursor, end);
   });
 
   testWidgets('leaving the page retracts the painted pen dot', (tester) async {
@@ -181,10 +185,87 @@ void main() {
     await tester.pump();
 
     final g = await hoverAt(tester, view(300, 400));
-    expect(overlayPainter(tester).penCursor, isNotNull);
+    expect(cursorPainter(tester).penCursor, isNotNull);
     // move far outside the viewer to fire MouseRegion.onExit
     await g.moveTo(const Offset(-50, -50));
     await tester.pump();
-    expect(overlayPainter(tester).penCursor, isNull);
+    expect(cursorPainter(tester).penCursor, isNull);
+  });
+
+  // #403: the cursors used to be snapshot arguments of the heavy preview
+  // painter, so every mouse-move setState'd the overlay - rebuilding its
+  // whole subtree through exactly the moment the user is about to draw.
+  // They now live on a repaint-only layer. The tell is the preview painter's
+  // identity: a rebuild constructs a fresh one from new arguments, so the
+  // same instance still being mounted after a move means no rebuild ran.
+  group('hover moves cursors without rebuilding the overlay', () {
+    Future<void> expectNoRebuildOnHover(
+      WidgetTester tester,
+      PdfEditTool tool,
+      Object? Function(dynamic cursors) read, {
+      void Function(PdfEditingController editing)? setUp,
+    }) async {
+      final editing = await pumpViewer(tester);
+      setUp?.call(editing);
+      editing.tool = tool;
+      await tester.pump();
+
+      final from = view(300, 400);
+      final to = view(340, 420);
+      final g = await hoverAt(tester, from);
+      expect(read(cursorPainter(tester)), isNotNull,
+          reason: '$tool arms a painted cursor');
+      final painterBefore = overlayPainter(tester);
+
+      await g.moveTo(to);
+      await tester.pump();
+
+      expect(read(cursorPainter(tester)), isNotNull,
+          reason: '$tool cursor still painted after the move');
+      expect(identical(overlayPainter(tester), painterBefore), isTrue,
+          reason: 'a $tool hover rebuilt the overlay');
+
+      // ...and the identity check is sensitive: a change the overlay really
+      // does rebuild for swaps the painter out
+      editing.color = const Color(0xFF7B1FA2);
+      await tester.pump();
+      expect(identical(overlayPainter(tester), painterBefore), isFalse);
+    }
+
+    testWidgets('ink', (tester) async {
+      await expectNoRebuildOnHover(
+          tester, PdfEditTool.ink, (cursors) => cursors.penCursor);
+    });
+
+    testWidgets('eraser', (tester) async {
+      await expectNoRebuildOnHover(
+          tester, PdfEditTool.eraser, (cursors) => cursors.eraserCursor);
+    });
+
+    testWidgets('count', (tester) async {
+      await expectNoRebuildOnHover(
+          tester, PdfEditTool.count, (cursors) => cursors.countPreview);
+    });
+
+    testWidgets('stamp', (tester) async {
+      await expectNoRebuildOnHover(
+          tester, PdfEditTool.stamp, (cursors) => cursors.stampPreview);
+    });
+
+    testWidgets('signature', (tester) async {
+      await expectNoRebuildOnHover(
+        tester,
+        PdfEditTool.signature,
+        (cursors) => cursors.signaturePreview,
+        setUp: (editing) => editing.preferences.signature = PdfInkSignature(
+          strokes: const [
+            [(0.0, 0.0), (1.0, 0.5), (0.0, 1.0)],
+          ],
+          pressures: const [null],
+          color: 0x1A237E,
+          aspect: 2,
+        ),
+      );
+    });
   });
 }
