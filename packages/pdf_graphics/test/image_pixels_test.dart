@@ -251,6 +251,56 @@ void main() {
     });
   });
 
+  test('the CMYK colour memo survives eviction and collision', () {
+    // The decode path memoizes sample-tuple → sRGB (issue #451), which is only
+    // sound if a hit is always the colour that tuple really converts to. The
+    // danger is the two ways a fixed-size direct-mapped table can lie: an
+    // eviction that leaves a stale colour behind, and two different tuples
+    // hashing to one slot.
+    //
+    // So make the table thrash on purpose. 256x256 = 65536 pixels, every one a
+    // distinct CMYK tuple, against a table an order of magnitude smaller: the
+    // slot for any given tuple is overwritten many times over. Then check every
+    // pixel against the conversion computed independently. A table that ever
+    // returned a neighbour's colour cannot pass this.
+    const size = 256;
+    final samples = Uint8List(size * size * 4);
+    for (var y = 0; y < size; y++) {
+      for (var x = 0; x < size; x++) {
+        final i = (y * size + x) * 4;
+        samples[i] = x;
+        samples[i + 1] = y;
+        samples[i + 2] = (x * 7 + y * 13) & 0xff;
+        samples[i + 3] = (x ^ y) & 0xff;
+      }
+    }
+
+    final stream = flateImage({
+      'Width': const CosInteger(size),
+      'Height': const CosInteger(size),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceCMYK'),
+    }, samples);
+
+    final pixels = decodePdfImagePixels(cos, stream)!;
+    expect(pixels.width, size);
+    expect(pixels.height, size);
+
+    var mismatches = 0;
+    for (var p = 0; p < size * size; p++) {
+      final s = p * 4;
+      final expected = PdfColor.cmyk(samples[s] / 255, samples[s + 1] / 255,
+          samples[s + 2] / 255, samples[s + 3] / 255);
+      if (pixels.rgba[s] != (expected.red * 255).round() ||
+          pixels.rgba[s + 1] != (expected.green * 255).round() ||
+          pixels.rgba[s + 2] != (expected.blue * 255).round()) {
+        mismatches++;
+      }
+    }
+    expect(mismatches, 0,
+        reason: 'the memo handed back a colour belonging to another tuple');
+  });
+
   test('scaled DeviceRGB Flate decodes directly to target size', () {
     final stream = image({
       'Width': const CosInteger(4),
