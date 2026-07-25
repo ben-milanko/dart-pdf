@@ -1320,8 +1320,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // hold the auto-commit while this stroke is on the page
         _controller.beginInkStroke();
         final pressure = _pointerPressure;
+        // no setState: the stroke and the pen dot each live on their own
+        // repaint layer, and each needs its own tick. Nothing here is
+        // currently *visible* if the cursor tick is missed - the one-point
+        // stroke below paints its own dot at this exact spot, in the same
+        // colour - but the invariant has to hold locally rather than lean on
+        // that coincidence.
         _penCursor = event.localPosition;
-        // no setState: the active stroke lives on its own repaint layer
+        _bumpCursor();
         _activeStroke = [_geometry.toPagePoint(event.localPosition)];
         _activeStrokePressures = pressure == null ? null : [pressure];
         _bumpActiveStroke();
@@ -3073,9 +3079,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         final pressure = _pointerPressure;
         // While the mouse is pressed, hover events stop. Keep the painted
         // pen cursor's stored position moving with the drag so it reappears
-        // at the stroke end, not where the stroke started.
+        // at the stroke end, not where the stroke started. No setState: the
+        // stroke and the pen dot each live on their own repaint layer, and
+        // each needs its own tick.
         _penCursor = position;
-        // no setState: the active stroke lives on its own repaint layer
+        _bumpCursor();
         _activeStroke = [_geometry.toPagePoint(position)];
         // the first event decides: a pressure device varies the whole
         // stroke, anything else stays uniform
@@ -5788,6 +5796,11 @@ void _paintInkStrokes(
 /// the repaint Listenable is the sole driver (the start, every point, and the
 /// clear on commit/bail all tick it), and the buffers are mutated in place so
 /// the painter always sees the current points.
+///
+/// The pen dot is NOT here - it belongs to [_HoverCursorPainter], because it
+/// shows with the tool merely armed, not only mid-stroke. Any site that moves
+/// [_EditingPageOverlayState._penCursor] therefore has to tick
+/// [_EditingPageOverlayState._cursorRepaint] as well as this one.
 class _ActiveStrokePainter extends CustomPainter {
   _ActiveStrokePainter(this._state)
       : super(repaint: _state._activeStrokeRepaint);

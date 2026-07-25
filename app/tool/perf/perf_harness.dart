@@ -535,13 +535,17 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
     final editing = _editing!;
     // Let the first page paint before the pointer starts moving over it.
     await Future<void>.delayed(const Duration(milliseconds: 1200));
+    // A typo'd ?tool= must not quietly arm nothing and then report numbers for
+    // a workload that never happened - only the explicit 'none' disarms.
     editing.tool = switch (_hoverToolName) {
       'ink' => PdfEditTool.ink,
       'eraser' => PdfEditTool.eraser,
       'count' => PdfEditTool.count,
       'stamp' => PdfEditTool.stamp,
       'select' => PdfEditTool.select,
-      _ => null,
+      'none' => null,
+      _ => throw StateError('unknown ?tool=$_hoverToolName '
+          '(ink|eraser|count|stamp|select|none)'),
     };
     await Future<void>.delayed(const Duration(milliseconds: 300));
 

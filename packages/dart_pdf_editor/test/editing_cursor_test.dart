@@ -179,6 +179,29 @@ void main() {
     expect(cursorPainter(tester).penCursor, end);
   });
 
+  // A stylus never hovers, so pointer-down is the only thing that positions
+  // the pen dot for it. This pins that the raw-pointer stroke path sets it -
+  // it asserts the *state*, not that the cursor layer was repainted (a widget
+  // test reading the painter's getter can't see repaint scheduling, and the
+  // one-point stroke paints its own dot at the same spot anyway).
+  testWidgets('a stylus press positions the pen cursor with no hover first',
+      (tester) async {
+    final editing = await pumpViewer(tester);
+    editing
+      ..inkCommitDelay = null
+      ..tool = PdfEditTool.ink;
+    await tester.pump();
+
+    final start = view(250, 450);
+    final g = await tester.startGesture(start, kind: PointerDeviceKind.stylus);
+    await tester.pump();
+
+    expect(cursorPainter(tester).penCursor, start);
+
+    await g.up();
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('leaving the page retracts the painted pen dot', (tester) async {
     final editing = await pumpViewer(tester);
     editing.tool = PdfEditTool.ink;

@@ -106,6 +106,35 @@ ms *is* the rebuild cost, so the metric names the thing the fix removes.
   paint frame, which this change cannot touch. The in-window max is
   `hoverBuildMsMax` above.
 
+## Review follow-up: the `_penCursor` tick invariant
+
+Self-review caught two stroke-start sites (`_onPointerDown`'s raw/stylus path
+and `_panStart`'s ink case) that assign `_penCursor` and then tick only
+`_activeStrokeRepaint`. That was correct before this change - the pen dot was
+painted by `_ActiveStrokePainter`, so the stroke tick repainted it - and is
+stale now that the dot lives on the cursor layer. Both now call `_bumpCursor()`
+too, and `_ActiveStrokePainter`'s doc states the invariant: *any site that moves
+`_penCursor` ticks `_cursorRepaint` as well as this one.*
+
+**This is hygiene, not a bug fix, and the distinction is worth recording** so
+nobody "simplifies" the bumps back out on the grounds that nothing broke:
+
+- The *field* is assigned correctly either way; only the repaint scheduling was
+  missing.
+- It isn't observable today. Both sites immediately set a one-point
+  `_activeStroke` and tick the stroke layer, and `_paintInkStrokes` draws a
+  single point as a dot - at the same position, in the same colour, in the same
+  frame as the pen cursor would have. The dot you see is the stroke's.
+- It becomes observable the moment either of those coincidences stops holding
+  (the stroke layer skipping single-point strokes, the cursor gaining a
+  distinct look, a stroke start that doesn't seed a point).
+
+Two attempts to write a failing test both proved the point rather than the bug:
+a getter-based assertion can't see repaint scheduling at all, and a pixel
+assertion at the press point sees the stroke's dot. The test that landed
+(`a stylus press positions the pen cursor with no hover first`) is honest about
+asserting *state*, and is worth keeping for the raw-pointer path regardless.
+
 ## Not done here
 
 - The async/off-thread hover text extraction (part 2's remaining half) is still
