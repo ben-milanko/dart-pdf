@@ -125,6 +125,30 @@ void main() {
     }
   });
 
+  test('a streaming vector-first (decodeImages:false) record matches the '
+      'one-shot final (#564 pt4)', () async {
+    // pt4 routes the full non-decoding record through the resumable path when it
+    // wants partials, so the progressive linework reveal can stream while it
+    // builds. Its final buffer must be byte-equivalent to the one-shot
+    // non-decoding record that produced it before.
+    final streamWorker = PdfRenderWorker.startUncached(bytes);
+    addTearDown(streamWorker.dispose);
+    final oneShotWorker = PdfRenderWorker.startUncached(bytes);
+    addTearDown(oneShotWorker.dispose);
+
+    final partials = <List<PdfRenderCommand>>[];
+    final streamed =
+        await streamWorker.record(0, decodeImages: false, onPartial: partials.add);
+    final oneShot = await oneShotWorker.record(0, decodeImages: false);
+
+    expect(streamed, isNotNull);
+    expect(oneShot, isNotNull);
+    expect(partials, isNotEmpty,
+        reason: 'the vector-first record should now stream partials');
+    expect(streamed!.length, oneShot!.length,
+        reason: 'streaming must not change the final command buffer');
+  });
+
   test('requesting partials does not change the final buffer', () async {
     final plainWorker = PdfRenderWorker.startUncached(bytes);
     addTearDown(plainWorker.dispose);

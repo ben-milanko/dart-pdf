@@ -1028,10 +1028,15 @@ Future<Uint8List?> _recordPageAsync(
     {void Function(Uint8List)? onPartial}) async {
   if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
 
-  if (decodeImages) {
+  // The resumable path (chunked walk + partial emission + preempt resume) serves
+  // the decoding full record as before, and now also a NON-decoding full record
+  // that wants partials - the progressive linework reveal streams while that
+  // record builds (#564 pt4). A bounded prefix (commandLimit set) stays on the
+  // simple one-shot path; it is already cheap and does not stream.
+  if (decodeImages || (onPartial != null && commandLimit == null)) {
     return _recordResumablePage(document, suspended, pageIndex, annotations,
         imagePixelRatio, commandLimit, imageDecodeRegion, token,
-        onPartial: onPartial);
+        decodeImages: decodeImages, onPartial: onPartial);
   }
 
   final page = document.page(pageIndex);
@@ -1079,7 +1084,8 @@ Future<Uint8List?> _recordResumablePage(
     int? commandLimit,
     PdfRect? imageDecodeRegion,
     PdfCancellationToken token,
-    {void Function(Uint8List)? onPartial}) async {
+    {bool decodeImages = true,
+    void Function(Uint8List)? onPartial}) async {
   var entry = suspended.take(pageIndex, annotations);
   // Defensive: a finished walk cannot be resumed - its advance is a no-op that
   // reports incomplete, which would spin the completion loop below forever and
@@ -1135,12 +1141,17 @@ Future<Uint8List?> _recordResumablePage(
   }
 
   if (annotations) entry.interpreter.drawAnnotations(entry.page);
+  // The final serialize honours the record's own decodeImages: a decoding record
+  // decodes and embeds pixels; a non-decoding (vector-first) record ships image
+  // placeholders. This matches the one-shot path's output byte-for-byte, so
+  // routing a streaming vector-first record through here does not change what a
+  // non-streaming one produced.
   return serializeCommands(entry.recorder.commands,
       cos: document.cos,
-      decodeImages: true,
+      decodeImages: decodeImages,
       maxImagePixelRatio: imagePixelRatio,
       imageDecodeRegion: imageDecodeRegion,
-      imagePlaceholders: false,
+      imagePlaceholders: !decodeImages,
       commandLimit: commandLimit,
       compactStateScopes: true);
 }

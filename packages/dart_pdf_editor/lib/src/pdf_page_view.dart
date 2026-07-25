@@ -356,6 +356,21 @@ class PdfPageView extends StatefulWidget {
   /// never charged a second worker job.
   static int earlyPrefixMinContentBytes = 512 * 1024;
 
+  /// Progressively reveals a dense page top-down (#564): the vector-first record
+  /// streams the growing linework prefix the worker records, and each prefix is
+  /// rasterized into the preview slot, so the page fills in as it records instead
+  /// of appearing all at once when the whole-page walk finishes. This replaces
+  /// the single bounded [earlyPrefixPaint] on a dense page - a growing sequence
+  /// of prefixes rather than one snapshot - and lands *before* the vector-first
+  /// full raster, so it is strictly more information sooner.
+  ///
+  /// Default **off**: only the native isolate backend streams partials today (the
+  /// web worker twin is the follow-up), and the reveal's smoothness is a visual
+  /// judgement, so this is opt-in until validated. Gated on the same
+  /// [earlyPrefixMinContentBytes] density proxy. Backends that don't stream make
+  /// it a no-op - the page renders exactly as before.
+  static bool progressiveStreamingPaint = false;
+
   /// Composite deep-zoom detail from the [PdfTileStore] zoom-bucket pyramid
   /// instead of the single unbudgeted detail patch. When true (and the page
   /// retains a region-cullable scene), the visible slice is tiled: panning at
@@ -468,6 +483,12 @@ class _PdfPageViewState extends State<PdfPageView>
   /// Clone of this page's cached low-res preview; painted while no full
   /// raster exists, dropped (to free the buffer) the moment one lands.
   ui.Image? _preview;
+
+  /// Highest progressive-partial sequence painted into [_preview] so far
+  /// (#564), so an out-of-order rasterize of an earlier partial can't clobber a
+  /// later one. Reset to 0 when a streaming vector-first record starts; every
+  /// partial's async rasterize applies only if its seq still exceeds this.
+  int _progressiveAppliedSeq = 0;
 
   // Full-page rasters stay within GPU texture limits and sane memory:
   // at most ~16.7M px (64 MB RGBA) and 8192 px per side. Past these caps
@@ -1339,6 +1360,63 @@ class _PdfPageViewState extends State<PdfPageView>
         'limit=${PdfPageView.earlyPrefixCommandLimit}${PdfPerfLog.rssSuffix()}');
   }
 
+  /// Rasterizes one streamed linework prefix ([commands]) into [_preview] as the
+  /// vector-first record walks the page (#564), giving a top-down reveal before
+  /// that record's own full raster lands. [seq] is the partial's monotonic order
+  /// within this record; the guards keep the newest applied and drop anything a
+  /// landed full raster ([_image]) or a superseded render has overtaken. Each
+  /// partial is a superset of the last, so replacing the preview outright is
+  /// correct.
+  Future<void> _paintProgressivePartial(
+    int pageIndex,
+    List<PdfRenderCommand> commands,
+    int seq,
+  ) async {
+    if (!PdfPageView.progressiveStreamingPaint) return;
+    if (commands.isEmpty ||
+        _abandoned(pageIndex) ||
+        _renderPaused ||
+        _image != null ||
+        seq <= _progressiveAppliedSeq) {
+      return;
+    }
+    final picture = await PdfPageRenderer.pictureFromCommandsWithPlan(
+      widget.page,
+      commands,
+      _renderPlan,
+      includeImages: false,
+    );
+    // Re-check after each await: the full raster may have landed, the page may
+    // have been recycled, or a newer partial may already be applied.
+    if (_abandoned(pageIndex) ||
+        _renderPaused ||
+        _image != null ||
+        seq <= _progressiveAppliedSeq) {
+      picture.dispose();
+      return;
+    }
+    final image = await PdfPageRenderer.rasterize(
+      picture,
+      PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation),
+      _vectorFirstRatio(),
+    );
+    picture.dispose();
+    if (!mounted ||
+        _abandoned(pageIndex) ||
+        _image != null ||
+        seq <= _progressiveAppliedSeq) {
+      image.dispose();
+      return;
+    }
+    _progressiveAppliedSeq = seq;
+    setState(() {
+      _preview?.dispose();
+      _preview = image;
+    });
+    PdfPerfLog.log('progressive-partial page=$pageIndex seq=$seq '
+        'commands=${commands.length}${PdfPerfLog.rssSuffix()}');
+  }
+
   Future<Completer<bool>?> _paintVectorFirst(
       int generation, int pageIndex) async {
     final worker = widget.renderWorker;
@@ -1353,14 +1431,30 @@ class _PdfPageViewState extends State<PdfPageView>
         ? widget.renderPriority - 100
         : widget.renderPriority;
     // On a dense sheet the full record below is a multi-second wait on blank
-    // paper; put a bounded prefix on screen first. No-ops on ordinary pages.
-    await _paintEarlyPrefix(generation, pageIndex, worker, priority);
-    if (_superseded(generation, pageIndex) || _renderPaused) return null;
+    // paper. Progressive streaming (#564) reveals the growing linework prefix as
+    // the record walks the page - a sequence of prefixes that supersedes the
+    // single bounded early prefix, so skip that when it is on. Otherwise put one
+    // bounded prefix on screen first. Both no-op on ordinary pages.
+    final progressive = PdfPageView.progressiveStreamingPaint &&
+        widget.page.rawContentLength >= PdfPageView.earlyPrefixMinContentBytes;
+    if (!progressive) {
+      await _paintEarlyPrefix(generation, pageIndex, worker, priority);
+      if (_superseded(generation, pageIndex) || _renderPaused) return null;
+    } else {
+      _progressiveAppliedSeq = 0;
+    }
+    var progressiveSeq = 0;
     final commands = await worker.record(
       pageIndex,
       annotations: widget.showAnnotations,
       priority: priority,
       decodeImages: false,
+      onPartial: !progressive
+          ? null
+          : (partial) {
+              final seq = ++progressiveSeq;
+              unawaited(_paintProgressivePartial(pageIndex, partial, seq));
+            },
     );
     if (_superseded(generation, pageIndex) ||
         _renderPaused ||
