@@ -225,3 +225,65 @@ jobs:
             cat /tmp/dartpdf-smoke.log || true
             exit 1
           fi
+
+  # Static validation of the Microsoft Store packaging scripts. The real
+  # submission needs a Windows runner and Partner Center credentials
+  # (release-windows-store.yml), so this keeps the PowerShell and the
+  # `msix_config` block from rotting without paying for either. `pwsh` is
+  # preinstalled on ubuntu-latest.
+  windows-store-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Parse-check the packaging PowerShell
+        shell: pwsh
+        run: |
+          $failed = $false
+          Get-ChildItem app/packaging/msstore -Filter *.ps1 | ForEach-Object {
+            $errors = $null
+            $tokens = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors -and $errors.Count -gt 0) {
+              $failed = $true
+              $errors | ForEach-Object {
+                Write-Host "::error file=app/packaging/msstore/$($_.Extent.File | Split-Path -Leaf),line=$($_.Extent.StartLineNumber)::$($_.Message)"
+              }
+            } else {
+              Write-Host "OK $($_.Name)"
+            }
+          }
+          if ($failed) { exit 1 }
+      - name: Check the Store MSIX config stays complete
+        shell: pwsh
+        run: |
+          $pubspec = Get-Content app/pubspec.yaml -Raw
+          if ($pubspec -notmatch '(?m)^msix_config:') {
+            Write-Host '::error::app/pubspec.yaml lost its msix_config block'
+            exit 1
+          }
+          # `store` true is what makes msix skip signing; a signed package is
+          # rejected by the Store, so losing it silently breaks submissions.
+          # Anchor to the real YAML key - the prose comments in pubspec.yaml
+          # mention these settings by name, so a substring match would pass
+          # even with the key flipped or deleted.
+          $required = @{
+            'store'          = '(?m)^\s+store:\s*true\s*$'
+            'file_extension' = '(?m)^\s+file_extension:\s*\.pdf\s*$'
+            'architecture'   = '(?m)^\s+architecture:\s*x64\s*$'
+          }
+          foreach ($key in $required.Keys) {
+            if ($pubspec -notmatch $required[$key]) {
+              Write-Host "::error::app/pubspec.yaml msix_config is missing or changed '$key'"
+              exit 1
+            }
+          }
+          # The identity values must NOT be checked in - they are account
+          # specific and a stale copy builds a package the Store refuses.
+          foreach ($key in @('identity_name:', 'publisher:', 'publisher_display_name:')) {
+            if ($pubspec -match "(?m)^\s+$([regex]::Escape($key))") {
+              Write-Host "::error::app/pubspec.yaml pins '$key' - pass it via build-msix.ps1 env instead"
+              exit 1
+            }
+          }
+          Write-Host 'msix_config OK'
