@@ -20,17 +20,31 @@ scanning is available.
   conditional export - `doc_scan_io.dart` on native, `doc_scan_stub.dart` on
   web (and anywhere without `dart:io`), so the plugin is never referenced on
   the web build.
-- `doc_scan_io.dart` launches the scanner, pulls the pages back **as images**,
-  and stitches them into a PDF with our own pure-Dart
-  `PdfImageDocument.fromImageBytes` (one page per shot, JPEGs pass through
-  verbatim) so page sizing stays under our control. If the image route yields
-  nothing it falls back to the scanner's own PDF export.
-- The plugin's result shape varies by version/platform (a `Map` keyed by
-  `images`/`pdfUri`, or a bare path/URI, or a list), and page locations can be
-  `file://` URIs or bare paths. Extraction and file reads are deliberately
-  lenient; `content://` URIs (unreadable via `dart:io`) and missing files are
-  skipped, and any failure degrades to `null` so the caller toasts
-  "couldn't scan" rather than throwing.
+- `doc_scan_io.dart` launches the scanner **once** and returns the pages as a
+  PDF. **One scan session is the whole design constraint:** every
+  `FlutterDocScanner` method (`getScannedDocumentAsImages`,
+  `getScannedDocumentAsPdf`, …) launches its *own* camera, so calling more than
+  one re-opens the scanner after the user has already accepted their pages. We
+  call exactly `getScannedDocumentAsPdf()` and read the returned file back with
+  `readScannedFile`.
+- The plugin (0.0.21) returns **typed models**, not raw maps:
+  `getScannedDocumentAsPdf()` → `PdfScanResult?` with `.pdfUri` (null on
+  cancel). The location is a bare filesystem path on iOS
+  (`pdfFilePath.path`) and a `file://` URI on Android (ML Kit writes the PDF to
+  the app cache); `readScannedFile` normalises `file://` → path and reads it.
+  A `content://` URI (unreadable via `dart:io`) or a missing file degrades to
+  `null`, so the caller toasts "couldn't scan" rather than throwing.
+- **Gotcha that cost a device round-trip:** an earlier version parsed the
+  result leniently (Map/List/String) and, when the *images* route came back
+  "empty", fell back to a *second* `getScannedDocumentAsPdf()` call. Because the
+  plugin actually returns typed `ImageScanResult`/`PdfScanResult` objects, the
+  lenient parser never matched, so the images route was always "empty" and the
+  fallback re-opened the camera after every accepted scan (and inserted
+  nothing). The fix is to use the typed API and make exactly one scan call.
+- iOS needs `NSCameraUsageDescription` in `app/ios/Runner/Info.plist` -
+  VisionKit opens the camera and iOS hard-aborts (`abort_with_payload`) if the
+  privacy string is missing. Android's ML Kit scanner runs in Play Services and
+  needs no host camera permission.
 
 ## Injection seam
 
