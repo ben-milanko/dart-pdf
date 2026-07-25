@@ -1369,7 +1369,11 @@ class _InflightRecord {
   /// record(), so it may fire before that call returns its future.
   void subscribe(PdfPartialRecordSink sink) {
     if (_done) return;
-    for (final partial in _partials) {
+    // Iterate a copy for the same reason [emit] copies _sinks: if a replayed
+    // sink synchronously drove the backend to emit (growing _partials), a bare
+    // loop would throw ConcurrentModificationError. Not reachable while the
+    // backend is suspended during replay, but PR3 wires a real consumer.
+    for (final partial in _partials.toList(growable: false)) {
       sink(partial);
     }
     _sinks.add(sink);

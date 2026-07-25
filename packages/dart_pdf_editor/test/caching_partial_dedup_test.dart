@@ -19,6 +19,10 @@ class _FakeBackend extends PdfRenderWorker {
   final List<bool> streamRequested = [];
   final gate = Completer<void>();
 
+  /// The sink the cache handed us (`_InflightRecord.emit`), captured so a test
+  /// can fire a stray partial AFTER the final has resolved.
+  PdfPartialRecordSink? capturedSink;
+
   static List<PdfRenderCommand> _cmds(int n) =>
       List.generate(n, (_) => const PdfSaveCommand());
 
@@ -38,6 +42,7 @@ class _FakeBackend extends PdfRenderWorker {
   }) async {
     recordCalls++;
     streamRequested.add(onPartial != null);
+    capturedSink = onPartial;
     if (onPartial != null) {
       onPartial(_cmds(1)); // partial 1
       await gate.future; // held open until a late joiner has subscribed
@@ -141,10 +146,14 @@ void main() {
     final future = worker.record(0, onPartial: (p) => partials.add(p.length));
     backend.gate.complete();
     await future;
-
-    // The record has completed and been dropped from the in-flight map; a stray
-    // late partial (a backend racing its own final) must not reach the sink. We
-    // can only assert the observable outcome: exactly the two real partials.
     expect(partials, [1, 2]);
+
+    // The record has completed and been dropped from the in-flight map. Fire a
+    // stray partial through the exact sink the cache handed the backend
+    // (_InflightRecord.emit), simulating a backend that races its own final: the
+    // _done guard must drop it so it never reaches the caller's sink.
+    backend.capturedSink!(_FakeBackend._cmds(9));
+    expect(partials, [1, 2],
+        reason: 'a partial after completion must not reach the caller');
   });
 }
