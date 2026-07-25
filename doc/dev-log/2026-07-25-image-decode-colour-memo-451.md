@@ -33,7 +33,7 @@ outliers appear, and they are disproportionate to output bytes:
 ## What the shape breakdown showed
 
 Across the Ghent + PDF.js corpora at ratio 2.0 (155 images), before any
-change:
+change (single-shot run — see the caveat under *Result* about interleaving):
 
 ```
      732.7ms    30 images  DeviceCMYK/8b      <- 65% of all image-decode time
@@ -95,8 +95,17 @@ Two deliberate choices worth keeping:
 - **Slot hash by small multiplies** (`s0*7 + s1*31 + …`), not shift-and-mix:
   every partial sum stays far inside the 53-bit range dart2js gives a plain
   int, so a tuple lands in the same slot on the VM and on the web.
-- **A pixel-count floor** (`_minPixels`, 8192): below it the tables cost more
-  to allocate than the conversions they save, so small images are untouched.
+- **A table sized to the image** — the next power of two at or above the
+  pixel count, floored at 256 and capped at 16384. The first version of this
+  gated the memo behind a *minimum pixel count* instead, which got the trade
+  backwards: the case a floor excludes is the small image, which is where a
+  memo is most effective. A 90x90 spot-colour logo has at most 256 distinct
+  samples and a type 4 tint transform to evaluate for each, so the floor made
+  it pay 8100 PostScript evaluations to avoid allocating a couple of
+  kilobytes — and since `_alternateToRgba` memoized unconditionally before
+  this branch, that was a straight regression. Codecov caught it by flagging
+  `memo?.store` as unreachable: the floor had left every Separation/DeviceN
+  unit test running with no memo at all.
 
 ### Allocation-free `_Lut.apply`
 
@@ -108,14 +117,22 @@ returned PCS values on the next line, so one set serves a whole image.
 
 ## Result
 
-Best of 5, same corpora, versus the pre-#451 baseline:
+Best of 5 per image, and — after a first pass produced numbers that moved
+between runs — measured by **interleaving** the two revisions in one session
+(A, B, A, B) rather than trusting figures taken minutes apart. That matters:
+a non-interleaved run gave DeviceCMYK a 732.7 ms baseline where the
+interleaved one gives 624 ms, purely from machine state. The interleaved
+figures are the honest ones, and two rounds agreed to within 1%:
 
 | shape | before | after | |
 |---|---|---|---|
-| DeviceCMYK/8b | 732.7 ms | **213.5 ms** | −71% |
-| Separation/8b | 14.5 ms | 6.4 ms | −56% |
-| DeviceN/8b | 167.6 ms | 140.7 ms | −16% |
-| **total** | **1125 ms** | **561 ms** | **−50%** |
+| DeviceCMYK/8b | 623.6 / 624.0 ms | **211.2 / 208.9 ms** | −66% |
+| Separation/8b | 10.3 / 10.4 ms | 6.5 / 6.3 ms | −38% |
+| DeviceN/8b | 167.8 / 166.1 ms | 138.4 / 139.6 ms | −17% |
+
+The lesson is worth keeping for the next perf change in this area: on this
+machine a single-shot before/after can be off by 15% in either direction, so
+interleave.
 
 ## Why this is safe, and how that was checked rather than asserted
 
@@ -131,15 +148,26 @@ trusted:
   [the #550 finding](2026-07-25-ghent-baseline-drift-550.md) that a green
   Ghent run is not by itself proof of correctness. Here the stronger claim
   (zero baseline movement) is available, so it is the one being made.
-- Full suites: pdf_cos 356, pdf_document 805, pdf_graphics 927,
+- Full suites: pdf_cos 356, pdf_document 805, pdf_graphics 929,
   dart_pdf_editor 1969, app 321.
 
-The new unit test targets the one way this could go wrong. A fixed-size
-direct-mapped table can lie in exactly two ways — a stale eviction, and two
-tuples hashing to one slot — so the test makes it thrash on purpose: 65536
-distinct CMYK tuples through 16384 slots, every pixel checked against an
-independently computed conversion. It was confirmed to **fail** when the key
-comparison is deleted.
+Three unit tests, each aimed at a specific way this could go wrong, and each
+confirmed to fail when that specific bug is introduced:
+
+- **Memo eviction and collision.** A fixed-size direct-mapped table can lie
+  in exactly two ways — a stale eviction, and two tuples hashing to one slot
+  — so the test makes it thrash on purpose: 65536 distinct CMYK tuples
+  through 16384 slots, every pixel checked against an independently computed
+  conversion. Fails when the key comparison is deleted.
+- **The ICC-managed CMYK image path**, decoded end to end with every pixel
+  checked against the profile itself. This is the 0.85 µs/px path, and the
+  one now feeding a reused `Float64List` to the transform. Fails when an
+  input component is left stale between pixels.
+- **LUT scratch reuse**, driving one profile the way an image does: many
+  colours, out of order, revisited, with unrelated colours pushed through in
+  between. A single-colour test cannot catch this because the first call is
+  still right. Fails when the accumulator is not re-zeroed — precisely the
+  bug reusing a buffer introduces.
 
 ## What is left, and why it was not bundled
 
