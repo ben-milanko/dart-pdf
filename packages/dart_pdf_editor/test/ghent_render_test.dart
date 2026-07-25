@@ -71,20 +71,25 @@ const _pixelRatio = 2.0;
 /// to grey while a spot backdrop of the same RGB colour survives, which no RGB
 /// compositor could separate. `overprint_render_test.dart` pins the per-patch
 /// result platform-independently.
+///
+/// The three `GWG19x_DeviceN_Overprint` pages left the set with issue #604,
+/// which gave a decoded raster the same colorant reading vector paint has: an
+/// overprinting image is now drawn as a substitute raster whose samples are the
+/// subtractive composite, so all four patches on each page (two vector, two
+/// image) come out uniform. `overprint_render_test.dart` pins those per patch
+/// too, alongside GWG031 - whose whole subject is an overprinting grayscale
+/// raster over a spot green, and which now matches its own "Correct" thumbnail
+/// rather than its "Wrong" one.
+///
+/// `GWG010_CMYK_OP` (never in this set) moved with the same change and was
+/// re-seeded: its "mask" patch draws an /Indexed-over-DeviceCMYK 50%-magenta
+/// raster over a rich-black X, and under OPM 1 that raster's zero components
+/// leave the backdrop's C/Y/K standing - so the X now shows through in the
+/// OPM-1 row and is still knocked out to flat pink in the OPM-0 row, which is
+/// the contrast the page exists to draw. (Its "image" patch straddles two
+/// backdrops at once and still declines; see the dev log.)
 const _knownBaselineDeviations = <String>{
   '1-CMYK/Ghent_PDF-Output-Test-V50_CMYK_X4.pdf',
-  // The three DeviceN overprint patches each grade four cases: two vector and
-  // two image. The colorant buffer (issue #502) fixed both vector cases on all
-  // three pages - a DeviceN ink now writes exactly the colorants it names, so
-  // "100C over CMYK black" renders solid black and "100C0Y0K over CMYK black"
-  // solid cyan (the latter is the page's own OPM-1 trap: the mode-1 zero rule
-  // is DeviceCMYK's alone, §8.6.7.3). The image cases still show their marker -
-  // decoded pixels carry no colorant reading, so an image neither overprints
-  // nor is overprinted onto - which keeps these pages out of pixel
-  // enforcement.
-  '1-CMYK/GWG190_DeviceN_Overprint_Black_X1a.pdf',
-  '1-CMYK/GWG191_DeviceN_Overprint_Yellow_X1a.pdf',
-  '1-CMYK/GWG192_DeviceN_Overprint_White_X1a.pdf',
   '2-SPOT/Ghent_PDF-Output-Test-V50_SPOT_X4.pdf',
   '2-SPOT/GWG020_CMYKSpot_OP_x1a.pdf',
   '3-ICC-CMS/Ghent_PDF-Output-Test-V50_ICC-CMS_X4.pdf',

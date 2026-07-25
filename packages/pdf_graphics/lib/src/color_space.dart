@@ -303,6 +303,26 @@ class _IndexedColorSpace extends PdfColorSpace {
         [for (var i = 0; i < n; i++) _table[offset + i]]);
   }
 
+  /// An Indexed space writes whatever colorants its *base* space writes for
+  /// the selected palette entry - the index itself is not a tint (§8.6.6.3).
+  /// Null when the base has no colorant reading, which is every RGB-ish
+  /// palette. This is what gives an /Indexed image the colorant reading image
+  /// overprint needs (issue #604): the Ghent gray-image overprint fixture
+  /// (GWG031) is an Indexed-over-DeviceCMYK raster.
+  @override
+  PdfInkColorants? inkColorants(List<double> values) {
+    var index = (values.isEmpty ? 0.0 : values[0]).round();
+    if (index < 0) index = 0;
+    if (index > _hival) index = _hival;
+    final n = _base.channels;
+    final offset = index * n;
+    if (n <= 0 || offset + n > _table.length) return null;
+    // Palette entries are raw 8-bit samples over the base's default decode,
+    // which is [0, 1] for every family that has a colorant reading.
+    return _base
+        .inkColorants([for (var i = 0; i < n; i++) _table[offset + i] / 255]);
+  }
+
   static _IndexedColorSpace? parse(CosDocument cos, CosArray space,
       CosDictionary? resources, Map<CosStream, IccProfile?>? iccCache) {
     if (space.length < 4) return null;

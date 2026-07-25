@@ -92,6 +92,11 @@ class PdfOverprintCompositor {
   /// CMYK equivalents of the spot colorants seen on the page, by name.
   final Map<String, List<double>> _spotEquivalents = {};
 
+  /// The spot equivalents learned so far, for a caller that has to convert a
+  /// composite vector back to sRGB itself (image overprint builds its
+  /// substitute raster outside the buffer - see `image_colorants.dart`).
+  Map<String, List<double>> get spotEquivalents => _spotEquivalents;
+
   /// Nesting depth of transparency groups and soft-mask captures. Their
   /// contents composite through a separate buffer, so the page's colorants
   /// are unknowable while one is open - draws inside still mark their
@@ -200,8 +205,89 @@ class PdfOverprintCompositor {
           mode: mode,
           opaque: opaque);
 
-  /// Marks the area a draw with no colorant reading covers - images, shading
-  /// fills, meshes, tiling patterns - as unknown, so a later overprint over it
+  /// Resolves an image draw covering [path] (the image's unit square mapped
+  /// through its transform), and records what it leaves behind (issue #604).
+  ///
+  /// [ink] is the image's colorant reading when every sample carries the same
+  /// colorants, [color] the sRGB it renders as; [hasColorants] says whether the
+  /// raster has a colorant reading *at all* (false for a DeviceRGB/ICC raster,
+  /// an encoding whose samples cannot be read, or a stencil - see
+  /// `pdfImageColorants`).
+  ///
+  /// When the image overprints onto a single known backdrop, [resolve] is
+  /// called with that backdrop and returns the substitute the interpreter will
+  /// draw - a raster whose colours are already the composite - or null when it
+  /// cannot build one. The image is recorded as leaving the composite behind
+  /// only if [resolve] succeeded, so a declined substitute leaves the buffer
+  /// describing what is actually on screen.
+  ///
+  /// Unlike [fill], this needs the backdrop to be *one* vector: the substitute
+  /// composites the whole raster against a single backdrop, and a draw straddling
+  /// two of them would need one substitute per region.
+  T? image<T>(
+    PdfPath path, {
+    required PdfInkColorants? ink,
+    required PdfColor color,
+    required bool hasColorants,
+    required bool overprint,
+    required int mode,
+    required bool opaque,
+    required T? Function(PdfColorants backdrop, PdfColor backdropColor) resolve,
+  }) {
+    if (_exhausted || _muted != 0) return null;
+    _draws++;
+    final spans = _raster.fillSpans(path, evenOdd: false);
+    if (spans.isEmpty) return null;
+    final paintable = opaque && _suspended == 0;
+    if (!overprint || !paintable || !hasColorants) {
+      _recordImage(spans, paintable ? ink : null, color);
+      return null;
+    }
+    final backdrops = _raster.backdropUnder(spans);
+    if (backdrops == null ||
+        backdrops.length != 1 ||
+        backdrops.first == _unknownIndex) {
+      _raster.paintFlat(spans, _unknownIndex);
+      return null;
+    }
+    final backdrop = backdrops.first;
+    final resolved = resolve(_paletteColorants[backdrop], _paletteColor[backdrop]);
+    if (resolved == null) {
+      // Either the backdrop is bare paper (overprinting onto no colorant is
+      // the identity, so the source raster already *is* the composite) or no
+      // substitute could be built. Recording the image's own colorants is
+      // right in the first case and the honest "unknown" in the second, which
+      // is what [_recordImage] does with a null ink.
+      _recordImage(spans,
+          _paletteColorants[backdrop] == PdfColorants.none ? ink : null, color);
+      return null;
+    }
+    if (ink == null) {
+      // A varying raster leaves a varying composite behind; the buffer stores
+      // one vector per cell, so it can only say "unknown" here.
+      _raster.paintFlat(spans, _unknownIndex);
+      return resolved;
+    }
+    _learnSpots(ink);
+    final composite = ink.over(_paletteColorants[backdrop], mode);
+    _raster.paintFlat(spans,
+        _intern(composite, _srgbFor(composite, backdrop, ink, color)));
+    return resolved;
+  }
+
+  /// Records an image's own coverage: its colorants when the raster carries one
+  /// vector throughout and paints opaquely, else unknown.
+  void _recordImage(ColorantSpans spans, PdfInkColorants? ink, PdfColor color) {
+    if (ink == null) {
+      _raster.paintFlat(spans, _unknownIndex);
+      return;
+    }
+    _learnSpots(ink);
+    _raster.paintFlat(spans, _intern(ink.colorants, color));
+  }
+
+  /// Marks the area a draw with no colorant reading covers - shading fills,
+  /// meshes, tiling patterns - as unknown, so a later overprint over it
   /// declines instead of compositing against a stale backdrop.
   void markUnknownPath(PdfPath path, PdfFillRule rule) {
     if (_exhausted || _muted != 0) return;

@@ -30,6 +30,11 @@
 // So the test measures, per patch, both how flat the interior is and which
 // colour it settled on, under three compositing modes: the colorant buffer,
 // the RGB `darken` approximation alone, and neither.
+//
+// Issue #604 extended the same guard to *image* overprint. GWG190/191/192 each
+// grade four patches - two vector, two image - and GWG031 grades an
+// overprinting grayscale raster over a spot green. Both are covered below,
+// against the same measure.
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -160,7 +165,176 @@ void main() {
       }
     });
   });
+
+  // --- image overprint (issue #604) ---
+
+  for (final page in _deviceNPages) {
+    testWidgets('${page.name} flattens its image patches as well as its vector '
+        'ones', (tester) async {
+      final file = File('../../test_corpora/ghent/1-CMYK/${page.file}');
+      if (!file.existsSync()) {
+        markTestSkipped('test_corpora/ghent not found');
+        return;
+      }
+      await tester.runAsync(() async {
+        await loadSystemFonts();
+        final doc = PdfDocument.open(file.readAsBytesSync());
+        final boxes = page.patchBoxes;
+
+        final colorants = await _measure(doc.page(0), _Mode.colorants, boxes);
+        final none = await _measure(doc.page(0), _Mode.none, boxes);
+
+        for (final entry in boxes.entries) {
+          final patch = colorants[entry.key]!;
+          // Each patch is a rectangle with an X-shaped hole through which the
+          // overprinting paint shows; when overprint is honoured the composite
+          // is the rectangle's own colour and the X vanishes.
+          expect(patch.spread, lessThan(60),
+              reason: '${page.name} "${entry.key}" should render flat '
+                  '(spread ${patch.spread})');
+          expect(_near(patch.dominant, page.reference(entry.key)), isTrue,
+              reason: '${page.name} "${entry.key}" should settle on '
+                  '${page.reference(entry.key)}, got ${patch.dominant}');
+        }
+
+        // Patch b is the one this issue moved: without overprint compositing
+        // the raster knocks the CMYK-black backdrop out and its X stands proud,
+        // which is the marker the fixture grades ("a faint X means that OP is
+        // not honored, or the image was converted to DeviceCMYK for b").
+        //
+        // Patch d is flat either way - its DeviceN ink and the reference
+        // rectangle are the same cyan - so what it grades is not overprint but
+        // the overprint *mode*: applying the OPM-1 zero rule to a DeviceN space
+        // (it is DeviceCMYK's alone, §8.6.7.3) would leave the backdrop's black
+        // standing. That is what the colour assertion above pins.
+        const marked = 'b: image over CMYK black';
+        expect(none[marked]!.spread, greaterThan(150),
+            reason: '${page.name} "$marked" should be marked without overprint '
+                '(spread ${none[marked]!.spread})');
+      });
+    });
+  }
+
+  testWidgets('GWG031 lets an overprinting gray raster keep the spot backdrop',
+      (tester) async {
+    final file = File(
+        '../../test_corpora/ghent/2-SPOT/GWG031_Gray Image Overprint_CMYK+Spot_X1a.pdf');
+    if (!file.existsSync()) {
+      markTestSkipped('test_corpora/ghent not found');
+      return;
+    }
+    await tester.runAsync(() async {
+      await loadSystemFonts();
+      final doc = PdfDocument.open(file.readAsBytesSync());
+
+      // Margins of the big panel: covered by the overprinting raster's *white*
+      // background over a Separation "GWG Green" backdrop, and clear of both
+      // the cyan rectangle and the drop shadow. Under overprint mode 1 a
+      // DeviceCMYK 0/0/0/0 sample writes no colorant at all, so the green must
+      // survive - the fixture's whole point ("Overprinting must be honored for
+      // the output"), and exactly what separates its own Correct and Wrong
+      // thumbnails: a white box around the drop shadow, or none.
+      const corners = <String, (int, int, int, int)>{
+        'panel right margin': (310, 110, 334, 118),
+        'panel bottom margin': (196, 202, 300, 207),
+      };
+      final colorants = await _measure(doc.page(0), _Mode.colorants, corners);
+      final none = await _measure(doc.page(0), _Mode.none, corners);
+      for (final name in corners.keys) {
+        expect(colorants[name]!.isGreen, isTrue,
+            reason: '"$name" should keep the spot green under the raster\'s '
+                'white background, got ${colorants[name]!.dominant}');
+        expect(none[name]!.isGreen, isFalse,
+            reason: 'without overprint "$name" is knocked out to the raster\'s '
+                'white, which is what the fixture grades as wrong');
+      }
+
+      // The same page through the two-walk render path, which discovers the
+      // images to decode in a *separate* scan before painting. An overprinting
+      // raster is drawn as a substitute stream the colorant buffer builds, so
+      // the two walks have to agree on which stream that is - otherwise the
+      // paint walk asks the decoded-image cache for something the collect walk
+      // never decoded and the image is silently skipped (a blank panel, not a
+      // wrong colour). See `_beginOverprint`'s scan-walk note.
+      final twoWalk =
+          await _measure(doc.page(0), _Mode.colorants, corners, false);
+      for (final name in corners.keys) {
+        expect(twoWalk[name]!.dominant, colorants[name]!.dominant,
+            reason: 'the collect walk and the paint walk must draw the same '
+                'stream for "$name"');
+      }
+    });
+  });
 }
+
+/// A Ghent DeviceN overprint page: four self-grading patches, two painted with
+/// vector art and two with an image XObject in the same colour space.
+class _DeviceNPage {
+  const _DeviceNPage(this.name, this.file, this.bottom, this.vector, this.image);
+
+  final String name;
+  final String file;
+
+  /// Bottom edge of the patch row in user space; the patches are 22.678 tall
+  /// and sit at four fixed columns.
+  final double bottom;
+
+  /// sRGB the first pair of patches (a/b, "over CMYK black") must settle on,
+  /// and the second pair (c/d, "0% channels").
+  final (int, int, int) vector;
+  final (int, int, int) image;
+
+  (int, int, int) reference(String patch) =>
+      patch.startsWith('a') || patch.startsWith('b') ? vector : image;
+
+  /// The four patch interiors as raster boxes, inset to clear their borders.
+  Map<String, (int, int, int, int)> get patchBoxes {
+    // Left edges of patches a-d, from the fixture's own `re` operands.
+    const lefts = <String, double>{
+      'a: vector over CMYK black': 0,
+      'b: image over CMYK black': 51.56,
+      'c: vector 0% channels': 103.12,
+      'd: image 0% channels': 154.96,
+    };
+    return {
+      for (final entry in lefts.entries)
+        entry.key: _patchPixels(_originX + entry.value, bottom),
+    };
+  }
+
+  /// Left edge of patch a; the pages differ by a hair (35.83 vs 36.00) and the
+  /// inset below absorbs it.
+  static const double _originX = 35.92;
+}
+
+const _deviceNPages = <_DeviceNPage>[
+  // "a + b must be rendered to solid Black (100C100K) rectangles"; "c + d must
+  // be rendered to solid Cyan rectangles".
+  _DeviceNPage('GWG190', 'GWG190_DeviceN_Overprint_Black_X1a.pdf', 80.34,
+      (0, 7, 39), (0, 185, 242)),
+  _DeviceNPage('GWG191', 'GWG191_DeviceN_Overprint_Yellow_X1a.pdf', 94.14,
+      (0, 171, 79), (0, 185, 242)),
+  _DeviceNPage('GWG192', 'GWG192_DeviceN_Overprint_White_X1a.pdf', 80.34,
+      (255, 46, 23), (255, 255, 255)),
+];
+
+/// A 22.678pt patch at ([left], [bottom]) in user space, as a raster box inset
+/// far enough to clear the patch border and its anti-aliasing.
+(int, int, int, int) _patchPixels(double left, double bottom) {
+  const size = 22.678, inset = 2.5, height = 141.732;
+  int px(double x) => ((x + inset) * _pixelRatio).round();
+  return (
+    px(left),
+    ((height - bottom - size + inset) * _pixelRatio).round(),
+    ((left + size - inset) * _pixelRatio).round(),
+    ((height - bottom - inset) * _pixelRatio).round(),
+  );
+}
+
+bool _near((int, int, int) a, (int, int, int) b, {int tolerance = 12}) =>
+    (a.$1 - b.$1).abs() <= tolerance &&
+    (a.$2 - b.$2).abs() <= tolerance &&
+    (a.$3 - b.$3).abs() <= tolerance;
 
 /// One patch interior, summarised.
 class _Patch {
@@ -183,11 +357,21 @@ class _Patch {
       dominant.$1 < 220;
 }
 
-/// Renders GWG030 under [mode] and summarises every patch interior.
-Future<Map<String, _Patch>> _measure(dynamic page, _Mode mode) async {
+/// The ratio every box in this file is stated at; the Ghent overprint pages are
+/// all 255.118 x 141.732 pt, so 511 x 284 raster pixels.
+const double _pixelRatio = 2.0;
+
+/// Renders [page] under [mode] and summarises each of [boxes].
+///
+/// [recorded] false takes the two-walk render path (a scan-only collect pass,
+/// then a paint pass) instead of the single recorded walk.
+Future<Map<String, _Patch>> _measure(dynamic page, _Mode mode,
+    [Map<String, (int, int, int, int)> boxes = _patches,
+    bool recorded = true]) async {
   PdfInterpreter.debugResolveOverprint = mode == _Mode.colorants;
   CanvasPdfDevice.debugOverprintCompositing = mode != _Mode.none;
-  final image = await PdfPageRenderer.renderImage(page, pixelRatio: 2.0);
+  final image = await PdfPageRenderer.renderImage(page,
+      pixelRatio: _pixelRatio, recorded: recorded);
   try {
     expect(image.width, 511);
     expect(image.height, 284);
@@ -196,7 +380,7 @@ Future<Map<String, _Patch>> _measure(dynamic page, _Mode mode) async {
             .buffer
             .asUint8List();
     return {
-      for (final entry in _patches.entries)
+      for (final entry in boxes.entries)
         entry.key: _summarise(rgba, image.width, entry.value),
     };
   } finally {
