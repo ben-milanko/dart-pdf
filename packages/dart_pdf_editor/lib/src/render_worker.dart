@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -972,8 +973,9 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
     clearsUnderMemoryPressure: true,
     debugLabel: 'render-record',
   );
-  // Keys whose decode is running now, so concurrent requests share one decode.
-  final _inflight = <_RecordCacheKey, Future<List<PdfRenderCommand>?>>{};
+  // Keys whose decode is running now, so concurrent requests share one decode
+  // (and, when the dispatcher opted in, one progressive partial stream - #564).
+  final _inflight = <_RecordCacheKey, _InflightRecord>{};
 
   // Revision-invalidation epochs. A decode dispatched before an edit that
   // touched its page must not store its now-stale result: the worker's document
@@ -1042,14 +1044,17 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
     return (_cache.weight / _budgetBytes).clamp(0.0, 1.0).toDouble();
   }
 
-  /// [onPartial] is intentionally NOT forwarded through the cache: this wrapper
-  /// collapses concurrent callers for one key onto a single shared future, and a
-  /// progressive stream shared across late joiners (a caller that joins after
-  /// some partials have already been emitted, and must replay them) is the
-  /// caching-dedup redesign tracked as the next step of #564. Until that lands
-  /// the production (cached) path records exactly as before and streams no
-  /// partials; the raw backend ([PdfRenderWorker.startUncached]) and the pool do
-  /// stream them.
+  /// [onPartial] streams the backend's progressive linework prefixes (#564)
+  /// through the dedup: the caller that *dispatches* a key's decode wires the
+  /// backend's partials into a shared [_InflightRecord], and every concurrent
+  /// caller for that key that also passed a sink is fanned the same stream. A
+  /// late joiner (one that arrives after some partials have already landed)
+  /// replays the buffered prefixes on subscribe, so it is never behind, then
+  /// receives the rest live. Streaming is enabled only when the *dispatching*
+  /// caller opts in: if the caller that starts the decode passes no sink, the
+  /// backend is never asked for partials (so an all-null production workload
+  /// stays byte-identical - the common visible-page record is the dispatcher and
+  /// carries the sink), and a later joiner then only awaits the shared final.
   @override
   Future<List<PdfRenderCommand>?> record(
     int pageIndex, {
@@ -1091,8 +1096,20 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
       if (reusable != null) return Future.value(reusable.commands);
     }
     final pending = _inflight[key];
-    if (pending != null) return pending; // a decode for this key is running
-    final future = _recordAndStore(
+    if (pending != null) {
+      // A decode for this key is already running: share its final future, and -
+      // if this caller wants partials and the dispatcher enabled streaming -
+      // subscribe (replaying any already-emitted prefixes first).
+      if (onPartial != null) pending.subscribe(onPartial);
+      return pending.future;
+    }
+    // Fresh dispatch. Register the record BEFORE starting the decode so a partial
+    // the backend emits synchronously (a fake, or a fast page) has a live sink
+    // target, and so a concurrent joiner on a later turn finds it.
+    final record = _InflightRecord();
+    _inflight[key] = record;
+    if (onPartial != null) record.subscribe(onPartial);
+    _recordAndStore(
       key,
       pageIndex,
       annotations: annotations,
@@ -1101,16 +1118,18 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
       decodeImages: decodeImages,
       imageDecodeRegion: effectiveRegion,
       dispatchEpoch: _epoch,
-    );
-    _inflight[key] = future;
-    // Clear the slot only if it still holds THIS future. An updateRevision may
+      // Ask the backend for partials only when the dispatcher opted in, so an
+      // all-null workload never pays the streaming path.
+      onPartial: onPartial == null ? null : record.emit,
+    ).then(record.complete, onError: record.completeError);
+    // Clear the slot only if it still holds THIS record. An updateRevision may
     // have dropped the entry mid-decode and a newer request re-populated it; a
-    // stale decode's completion must not evict the fresh in-flight future, or
+    // stale decode's completion must not evict the fresh in-flight record, or
     // the dedup breaks and the page is decoded redundantly.
-    future.whenComplete(() {
-      if (identical(_inflight[key], future)) _inflight.remove(key);
+    record.future.whenComplete(() {
+      if (identical(_inflight[key], record)) _inflight.remove(key);
     });
-    return future;
+    return record.future;
   }
 
   Future<List<PdfRenderCommand>?> _recordAndStore(
@@ -1122,6 +1141,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
     required bool decodeImages,
     required PdfRect? imageDecodeRegion,
     required int dispatchEpoch,
+    PdfPartialRecordSink? onPartial,
   }) async {
     final timeout = pdfRenderWorkerRecordTimeout;
     final commands = await _inner
@@ -1133,6 +1153,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
       decodeImages: decodeImages,
       commandLimit: key.$5,
       imageDecodeRegion: imageDecodeRegion,
+      onPartial: onPartial,
     )
         .timeout(
       timeout,
@@ -1308,6 +1329,65 @@ class _CachedRecord {
   _CachedRecord(this.commands, this.weight);
   final List<PdfRenderCommand> commands;
   final int weight;
+}
+
+/// One key's in-flight decode in [PdfCachingRenderWorker]: a single shared final
+/// future plus a fan-out of the backend's progressive partial prefixes (#564).
+///
+/// Concurrent callers for the same page share this: each that passed an
+/// `onPartial` sink [subscribe]s, and every partial the backend [emit]s reaches
+/// them all. A caller that joins after some partials landed replays the buffered
+/// prefixes on subscribe, so it is caught up before the live ones resume. When
+/// the dispatcher opted out of streaming, no partials are ever emitted and the
+/// buffer stays empty - joiners then simply await [future].
+class _InflightRecord {
+  final _completer = Completer<List<PdfRenderCommand>?>();
+
+  /// Prefixes emitted so far, kept so a late [subscribe] can replay them. Held
+  /// only until the decode completes (this record is then dropped from the map).
+  final _partials = <List<PdfRenderCommand>>[];
+  final _sinks = <PdfPartialRecordSink>[];
+  var _done = false;
+
+  Future<List<PdfRenderCommand>?> get future => _completer.future;
+
+  /// Delivers a partial to every current subscriber and buffers it for late
+  /// joiners. A no-op once the record has completed (a stray late partial from a
+  /// backend that raced its own final must not reach a caller after its future).
+  void emit(List<PdfRenderCommand> partial) {
+    if (_done) return;
+    _partials.add(partial);
+    // Iterate a copy: a sink that itself calls record() (subscribing another) on
+    // this key would otherwise mutate _sinks mid-iteration.
+    for (final sink in _sinks.toList(growable: false)) {
+      sink(partial);
+    }
+  }
+
+  /// Adds [sink], first replaying every partial already emitted so the joiner is
+  /// not behind. Replays synchronously - the caller passed the sink into
+  /// record(), so it may fire before that call returns its future.
+  void subscribe(PdfPartialRecordSink sink) {
+    if (_done) return;
+    for (final partial in _partials) {
+      sink(partial);
+    }
+    _sinks.add(sink);
+  }
+
+  void complete(List<PdfRenderCommand>? commands) {
+    _done = true;
+    _sinks.clear();
+    _partials.clear();
+    if (!_completer.isCompleted) _completer.complete(commands);
+  }
+
+  void completeError(Object error, StackTrace stackTrace) {
+    _done = true;
+    _sinks.clear();
+    _partials.clear();
+    if (!_completer.isCompleted) _completer.completeError(error, stackTrace);
+  }
 }
 
 class _RegionBucket {

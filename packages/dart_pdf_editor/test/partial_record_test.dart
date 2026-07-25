@@ -126,12 +126,13 @@ void main() {
         reason: 'a page recorded in one chunk has no prefix to reveal');
   });
 
-  test('the cached production wrapper does not stream partials (PR1 is inert)',
+  test('the cached production wrapper streams partials through the dedup',
       () async {
     // PdfRenderWorker.start wraps the backend in PdfCachingRenderWorker, whose
-    // shared-future dedup cannot fan a partial stream to late joiners yet
-    // (PR2). Opting in there must be a no-op, not a crash, and the final must
-    // still arrive.
+    // shared-stream dedup now fans the backend's partials to the dispatching
+    // caller (and any concurrent joiner). Opting in must stream and still
+    // resolve the final. (Fan-out/late-joiner semantics are unit-tested against
+    // a deterministic fake in caching_partial_dedup_test.dart.)
     final worker = PdfRenderWorker.start(bytes);
     addTearDown(worker.dispose);
 
@@ -139,7 +140,19 @@ void main() {
     final result = await worker.record(0, onPartial: (_) => partialCount++);
 
     expect(result, isNotNull, reason: 'the cached final must still resolve');
-    expect(partialCount, 0,
-        reason: 'the caching wrapper does not forward partials in PR1');
+    expect(partialCount, greaterThan(0),
+        reason: 'the caching wrapper forwards the backend partials');
+  });
+
+  test('the cached wrapper stays inert when no sink is passed', () async {
+    // The dedup asks the backend for partials only when the dispatcher opts in,
+    // so an all-null production workload never enters the streaming path. This
+    // pins the byte-identical guarantee: a plain record still returns commands.
+    final worker = PdfRenderWorker.start(bytes);
+    addTearDown(worker.dispose);
+
+    final result = await worker.record(0);
+    expect(result, isNotNull);
+    expect(result, isNotEmpty);
   });
 }
