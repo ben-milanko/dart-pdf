@@ -1,5 +1,28 @@
 # 2026-07-26 — #451: a page recorded four times decoded its images four times
 
+## Which build each trace is from
+
+Device traces here are quoted with the commit the web build was cut from.
+Without that, a trace is unattributable — and one already was: the 09:50
+trace below reads as "the fix did nothing" until you notice it predates the
+fix. Record the commit whenever you paste one.
+
+| trace (local time) | branch commit | contains |
+| --- | --- | --- |
+| 09:34 | `8b43e6ec` | exact-match cache only |
+| 09:50 | `8b43e6ec` | exact-match cache only — **not** the 09:46 fix |
+
+`49c6aac4` (cross-ratio reuse + browser-codec cache) was committed at
+09:46:37, ~4 minutes before the 09:50 capture, so that build did not include
+it. Both SHAs are pre-rebase; the rebase onto #608 renamed them to
+`ea82c0b6` and `14d4c970`, which is its own argument for logging the commit
+into the trace rather than reconstructing it from timestamps afterwards.
+
+How to tell without the SHA, if you have to: the current code cannot emit two
+identical `imageDecode=` tallies for the same page on the same worker — the
+second must carry `reused=N`. The 09:50 trace has three such pairs (p5/w2,
+p7/w1, p28/w1), so it is pre-fix by construction.
+
 The device trace on [#607](2026-07-26-scheduler-concurrent-grant-451.md)
 showed the scheduler race closed and left one cost standing above
 everything else — **≈6.9 s of `serialize=` across seven records, every one
@@ -85,13 +108,32 @@ ratio, the pair that actually occurs.
 through `serializeCommands` as an optional `imageCache:`, owned one-per-open-
 document by both render worker backends.
 
-It is deliberately **exact-match**: an entry is reused only for the same
-stream at the same requested target size, and it never downsamples a larger
-entry to serve a smaller request. For the formats that *do* have a scaled
-decode path that would substitute different pixels for the ones the decoder
-would have produced. As built, reuse is byte-identical to decoding again,
-so the cache cannot change what a record renders — which is the whole
-safety argument, and is asserted directly in both the tool and the tests.
+Reuse is reached two ways. **Exact match** — same stream, same requested
+target size. And **downsampled from a native-resolution entry**, but only
+for streams whose decoder ignores the target anyway
+(`pdfImageDecodeIgnoresTarget`, in practice DCTDecode): for those,
+`decodePdfImage(target)` already *is*
+`downsamplePdfDecodedPixels(decodePdfImagePixels(...), tw, th)`, so doing it
+from a retained native decode produces the same bytes. The second route is
+what makes the cache useful at all, since a page's repeat records are at
+different ratios by construction.
+
+The **native-entry** restriction is load-bearing: downsampling an entry that
+was itself a downsample would not equal downsampling the native pixels.
+Formats with a genuinely scaled decode path (Flate, CCITT, JPX reduced
+levels) keep exact-match, because serving them from a downsample would
+substitute different pixels for the ones their decoder produces.
+
+Either way reuse is byte-identical to decoding again, so the cache cannot
+change what a record renders — the whole safety argument, asserted directly
+in both the tool and the tests.
+
+The web worker's **browser-codec** decode is cached too, and that turned out
+to be the larger half: it ran at native resolution on every record and was
+entirely uncached, ~330–630 ms a time in the trace. No target means no size
+dimension, so it keys on the stream alone. Reuse reports as `reused=N`
+beside `codec=N`, so a trace shows it directly rather than as an unexplained
+drop in `codec=`.
 
 Keyed on `CosStream` **object identity**. That works because a worker opens
 its document once per session and `CosDocument` memoises loaded objects, so
