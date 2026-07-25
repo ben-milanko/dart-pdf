@@ -28,6 +28,18 @@ dynamic overlayPainter(WidgetTester tester) => tester
         .first)
     .painter;
 
+/// The overlay's hover-cursor layer - the pen dot, eraser ring, count/stamp
+/// previews and rotate glyph, which read live state and repaint without a
+/// rebuild. Read through a dynamic cast (the painter class is private).
+dynamic cursorPainter(WidgetTester tester) => tester
+    .widgetList<CustomPaint>(find.descendant(
+      of: find.byType(EditingPageOverlay),
+      matching: find.byType(CustomPaint),
+    ))
+    .map((paint) => paint.painter)
+    .firstWhere(
+        (painter) => painter.runtimeType.toString() == '_HoverCursorPainter');
+
 void main() {
   group('PdfEditingController check-marks', () {
     test('placeCheckMark drops a /Stamp /Check centered on the tap', () {
@@ -248,7 +260,7 @@ void main() {
       await gesture.moveTo(origin + local(240, 420));
       await tester.pump();
 
-      final preview = overlayPainter(tester).countPreview;
+      final preview = cursorPainter(tester).countPreview;
       expect(preview, isNotNull);
       expect(preview.check, isTrue);
       expect(preview.text, isNull);

@@ -211,5 +211,24 @@
   "sdkPkgVlm_d": "محرّك OCR اختياري عبر HTTP للويب والجوال وسطح المكتب. وجّهه إلى أي خدمة تُرجِع صناديق نص.",
   "sdk_foot_dartpdfApp": "تطبيق DartPDF",
 
+  "nf_metaTitle": "الصفحة غير موجودة - DartPDF",
+  "nf_metaDesc": "هذه الصفحة غير موجودة. عُد إلى DartPDF - محرّر PDF المحلّي والخاص لكل جهاز.",
+  "nf_h1": "هذه الصفحة <span class=\"hl\">غير موجودة.</span>",
+  "nf_lede": "قد يكون الرابط قديمًا أو نُقلت الصفحة إلى مكان آخر. ولا تقلق على ملفات PDF لديك - فهي لم تغادر جهازك أصلًا.",
+  "nf_ctaHome": "العودة إلى الصفحة الرئيسية",
+  "nf_linksH2": "صفحات شائعة",
+  "nf_linkFeatures": "الميزات",
+  "nf_linkFeaturesDesc": "التعليق والتعرّف الضوئي على النصوص والنماذج والتوقيع والحجب وتحرير النصوص.",
+  "nf_linkDownload": "تنزيل",
+  "nf_linkDownloadDesc": "احصل على DartPDF لأنظمة Windows وmacOS وLinux وiOS وAndroid.",
+  "nf_linkSupport": "الدعم",
+  "nf_linkSupportDesc": "الأسئلة الشائعة وكيفية التواصل معنا للإبلاغ عن خلل.",
+  "nf_linkSdk": "Flutter PDF SDK",
+  "nf_linkSdkDesc": "ادمج العارض والمحرّر في تطبيق Dart أو Flutter الخاص بك.",
+  "nf_linkPrivacy": "الخصوصية",
+  "nf_linkPrivacyDesc": "بلا حسابات ولا تحليلات ولا رفع للملفات - إليك السياسة.",
+  "nf_linkSource": "الكود المصدري",
+  "nf_linkSourceDesc": "المحرّك والتطبيق بالكامل، مفتوحا المصدر بموجب رخصة Apache-2.0.",
+
   "lang_label": "اللغة"
 }

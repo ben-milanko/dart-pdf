@@ -1542,28 +1542,50 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
           lut3 = _lutFor(ranges, 3);
       final cmykIcc = icc != null && icc.channels == 4 ? icc : null;
       final key = colorKey;
-      // CMYK→RGB is the heaviest per-pixel path (a quadratic polynomial, or an
-      // ICC LUT). The conversion math is unchanged, but the per-pixel sample
-      // and value lists - and the keyed() argument list - are gone, which is
-      // most of the old cost.
+      // CMYK→RGB is the heaviest per-pixel path by a wide margin: a quadratic
+      // polynomial, or - for an ICCBased CMYK press profile - a 4-D CLUT
+      // interpolation over 16 cell corners. Measured at ratio 2.0 on the Ghent
+      // suite, DeviceCMYK images are 55% of all image-decode time in a record
+      // serialize, at 0.15 µs/px unmanaged and 0.85 µs/px through an ICC v4
+      // profile (issue #451).
+      //
+      // The tuple → colour memo is the same trick [_alternateToRgba] already
+      // uses for tint transforms, and it pays here for the same reason: press
+      // artwork reuses a handful of inks, so the distinct-tuple count is a
+      // small fraction of the pixel count. A hit returns the value the
+      // conversion would have computed for that exact tuple, so the output is
+      // unchanged byte for byte - only the number of conversions falls.
+      final memo = _ColorMemo.forPixels(count, 4);
+      // Reused across pixels: the ICC transform reads its input and keeps no
+      // reference to it, so one buffer serves the whole image.
+      final iccValues = cmykIcc == null ? null : Float64List(4);
       for (var i = 0; i < count; i++) {
         final base = i * 4;
         final s0 = data[base],
             s1 = data[base + 1],
             s2 = data[base + 2],
             s3 = data[base + 3];
-        final color = cmykIcc != null
-            ? cmykIcc.toSrgb([
-                lut0[s0] / 255,
-                lut1[s1] / 255,
-                lut2[s2] / 255,
-                lut3[s3] / 255
-              ])
-            : PdfColor.cmyk(
+        var rgb = memo == null ? -1 : memo.lookup(data, base);
+        if (rgb < 0) {
+          final PdfColor color;
+          if (cmykIcc != null) {
+            iccValues![0] = lut0[s0] / 255;
+            iccValues[1] = lut1[s1] / 255;
+            iccValues[2] = lut2[s2] / 255;
+            iccValues[3] = lut3[s3] / 255;
+            color = cmykIcc.toSrgb(iccValues);
+          } else {
+            color = PdfColor.cmyk(
                 lut0[s0] / 255, lut1[s1] / 255, lut2[s2] / 255, lut3[s3] / 255);
-        out[base] = (color.red * 255).round();
-        out[base + 1] = (color.green * 255).round();
-        out[base + 2] = (color.blue * 255).round();
+          }
+          rgb = ((color.red * 255).round().clamp(0, 255) << 16) |
+              ((color.green * 255).round().clamp(0, 255) << 8) |
+              (color.blue * 255).round().clamp(0, 255);
+          memo?.store(data, base, rgb);
+        }
+        out[base] = (rgb >> 16) & 0xff;
+        out[base + 1] = (rgb >> 8) & 0xff;
+        out[base + 2] = rgb & 0xff;
         out[base + 3] = key != null &&
                 s0 >= key[0].$1 &&
                 s0 <= key[0].$2 &&
@@ -1581,12 +1603,107 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
   return null;
 }
 
-/// A packed sample tuple must fit an int key; wider spaces skip the table.
-const int _tintMemoMaxComponents = 8;
+/// A fixed-size, direct-mapped memo from an 8-bit sample tuple to the packed
+/// sRGB triple its colour conversion produces (issue #451).
+///
+/// Colour conversion is the dominant per-pixel cost of decoding a CMYK image
+/// or anything behind a tint transform, and the tuples repeat heavily: press
+/// artwork is built from a small ink palette, and even a photograph has strong
+/// local coherence. A hit returns the value the conversion computed for that
+/// **exact** tuple, so a decode is byte-identical with the memo on or off - it
+/// only converts less often.
+///
+/// Direct-mapped rather than a `Map`: a fixed pair of typed arrays means no
+/// hashing of boxed keys, no rehash growth, and no cliff when the working set
+/// exceeds capacity - a colliding tuple simply evicts and is recomputed, where
+/// a size-capped `Map` stops learning entirely and then pays a failed lookup
+/// on every remaining pixel.
+///
+/// Keys are compared as raw component bytes rather than packed into one int.
+/// A packed key is the obvious encoding and the wrong one here: past four
+/// 8-bit components it exceeds 32 bits, where dart2js's bitwise operators wrap
+/// and the VM's do not, so two different tuples would compare equal on the web
+/// and silently take each other's colour.
+class _ColorMemo {
+  _ColorMemo._(this._components, int slots)
+      : _mask = slots - 1,
+        _keys = Uint8List(slots * _components),
+        _rgb = Int32List(slots)..fillRange(0, slots, _empty);
 
-/// Ceiling on distinct tuples remembered, so a wide space whose tuples never
-/// repeat cannot grow the table with the pixel count.
-const int _tintMemoMaxEntries = 1 << 16;
+  /// Packed sRGB is never negative, so -1 marks a slot that was never filled.
+  static const int _empty = -1;
+
+  /// Slot-count bounds. The floor is 256 because that is the number of
+  /// distinct samples a single-colorant space can produce at all, so a
+  /// Separation image is collision-free at the smallest table worth
+  /// allocating. The ceiling keeps a large image's tables (~128 KB at four
+  /// components) small against the megabytes of RGBA it decodes to.
+  static const int _minSlots = 1 << 8;
+  static const int _maxSlots = 1 << 14;
+
+  /// Per-component multipliers for the slot hash. Every partial sum stays far
+  /// inside the 53-bit range dart2js gives a plain int, so a tuple maps to the
+  /// same slot on the VM and on the web.
+  static const List<int> _hashPrimes = [
+    7, 31, 127, 8191, 131071, 524287, 2097143, 8388593, //
+  ];
+
+  final int _components;
+  final int _mask;
+  final Uint8List _keys;
+  final Int32List _rgb;
+
+  /// The slot [lookup] last probed, so [store] fills it without rehashing.
+  int _slot = 0;
+
+  /// A memo for an image of [pixels] pixels in a [components]-channel space,
+  /// or null when the space is wider than the hash can key.
+  ///
+  /// The table is sized to the image rather than gated behind a minimum pixel
+  /// count. A fixed floor looks reasonable and gets the trade backwards: the
+  /// case it excludes is the small image, which is exactly where a memo is
+  /// most effective - a 90x90 spot-colour logo has at most 256 distinct
+  /// samples and an expensive type 4 tint transform to evaluate for each, so
+  /// a floor would make it pay 8100 evaluations to avoid allocating a table
+  /// that only ever needed to be a couple of kilobytes.
+  static _ColorMemo? forPixels(int pixels, int components) {
+    if (components <= 0 || components > _hashPrimes.length) return null;
+    var slots = _minSlots;
+    while (slots < pixels && slots < _maxSlots) {
+      slots <<= 1;
+    }
+    return _ColorMemo._(components, slots);
+  }
+
+  /// The packed sRGB remembered for the [_components] samples starting at
+  /// [base] in [data], or -1 on a miss. After a miss the caller converts and
+  /// hands the result to [store].
+  int lookup(Uint8List data, int base) {
+    var hash = 0;
+    for (var c = 0; c < _components; c++) {
+      hash += data[base + c] * _hashPrimes[c];
+    }
+    _slot = hash & _mask;
+    final rgb = _rgb[_slot];
+    if (rgb == _empty) return _empty;
+    final keyBase = _slot * _components;
+    for (var c = 0; c < _components; c++) {
+      if (_keys[keyBase + c] != data[base + c]) return _empty;
+    }
+    return rgb;
+  }
+
+  /// Remembers [rgb] as the colour of the tuple at [base], in the slot the
+  /// matching [lookup] probed. The tuple is re-read rather than cached because
+  /// a miss may be an eviction, which has to overwrite the resident key too.
+  void store(Uint8List data, int base, int rgb) {
+    final keyBase = _slot * _components;
+    for (var c = 0; c < _components; c++) {
+      _keys[keyBase + c] = data[base + c];
+    }
+    _rgb[_slot] = rgb;
+  }
+}
 
 /// Separation and DeviceN samples reach the alternate space through a tint
 /// transform, which - a type 4 calculator especially - costs orders of
@@ -1608,20 +1725,13 @@ Uint8List? _alternateToRgba(
   final components = alternate.channels;
   if (data.length < count * components) return null;
   final luts = [for (var c = 0; c < components; c++) _lutFor(ranges, c)];
-  final memo = components <= _tintMemoMaxComponents ? <int, int>{} : null;
+  final memo = _ColorMemo.forPixels(count, components);
   // Reused across pixels: evaluateAt reads its input and keeps no reference.
   final values = Float64List(components);
 
   for (var i = 0; i < count; i++) {
     final base = i * components;
-    var key = 0;
-    if (memo != null) {
-      for (var c = 0; c < components; c++) {
-        key = (key << 8) | data[base + c];
-      }
-    }
-    // Packed RGB is never negative, so -1 stands in for "not remembered".
-    var rgb = memo?[key] ?? -1;
+    var rgb = memo == null ? -1 : memo.lookup(data, base);
     if (rgb < 0) {
       for (var c = 0; c < components; c++) {
         values[c] = luts[c][data[base + c]] / 255;
@@ -1630,7 +1740,7 @@ Uint8List? _alternateToRgba(
       rgb = ((color.red * 255).round().clamp(0, 255) << 16) |
           ((color.green * 255).round().clamp(0, 255) << 8) |
           ((color.blue * 255).round().clamp(0, 255));
-      if (memo != null && memo.length < _tintMemoMaxEntries) memo[key] = rgb;
+      memo?.store(data, base, rgb);
     }
     out[i * 4] = (rgb >> 16) & 0xff;
     out[i * 4 + 1] = (rgb >> 8) & 0xff;

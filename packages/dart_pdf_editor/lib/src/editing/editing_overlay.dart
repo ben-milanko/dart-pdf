@@ -736,6 +736,24 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   void _bumpActiveStroke() => _activeStrokeRepaint.value++;
 
+  /// Repaint signal for the hover-cursor layer - the pen dot, eraser ring,
+  /// count/stamp/signature previews, the rotate glyph and the eyedropper
+  /// chip. A mouse-move with any of those armed used to `setState`, which
+  /// rebuilt this overlay's whole subtree (every annotation widget, the
+  /// snapshot-arg [_EditingPreviewPainter], the chrome) just to move a dot a
+  /// few pixels - continuous build-phase cost through exactly the moment the
+  /// user is about to draw (#403). The cursors now live on their own
+  /// RepaintBoundary'd [_HoverCursorPainter], which reads the fields straight
+  /// off this state and repaints when this ticks: a move is a repaint of one
+  /// small layer, not a rebuild. Every hover-driven mutation of
+  /// [_penCursor]/[_eraserCursor]/[_countCursor]/[_stampPreview]/
+  /// [_rotateCursor]/[_signaturePreview]/[_pickPosition]/[_pickPreview] must
+  /// call [_bumpCursor] (a plain `setState` still works - it rebuilds, and the
+  /// painter's shouldRepaint is true - so the rarer paths keep using it).
+  final ValueNotifier<int> _cursorRepaint = ValueNotifier<int>(0);
+
+  void _bumpCursor() => _cursorRepaint.value++;
+
   /// Extends the in-progress ink stroke to the view-space [localPosition].
   /// Normally each sample appends, tracing the freehand path; while Shift is
   /// held the stroke collapses to a single straight segment from where it
@@ -744,6 +762,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// and gesture-arena draw paths.
   void _extendActiveStroke(Offset localPosition) {
     _penCursor = localPosition;
+    _bumpCursor();
     final page = _geometry.toPagePoint(localPosition);
     final pressures = _activeStrokePressures;
     final pressure = _pointerPressure ?? pressures?.last;
@@ -1301,8 +1320,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         // hold the auto-commit while this stroke is on the page
         _controller.beginInkStroke();
         final pressure = _pointerPressure;
+        // no setState: the stroke and the pen dot each live on their own
+        // repaint layer, and each needs its own tick. Nothing here is
+        // currently *visible* if the cursor tick is missed - the one-point
+        // stroke below paints its own dot at this exact spot, in the same
+        // colour - but the invariant has to hold locally rather than lean on
+        // that coincidence.
         _penCursor = event.localPosition;
-        // no setState: the active stroke lives on its own repaint layer
+        _bumpCursor();
         _activeStroke = [_geometry.toPagePoint(event.localPosition)];
         _activeStrokePressures = pressure == null ? null : [pressure];
         _bumpActiveStroke();
@@ -2296,6 +2321,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     _clearSourceClean();
     _flashController.dispose();
     _activeStrokeRepaint.dispose();
+    _cursorRepaint.dispose();
     _autoScrollTicker.dispose();
     if (_interaction.isActive &&
         _interaction.state.pageIndex == widget.pageIndex) {
@@ -3024,7 +3050,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       return;
     }
     if (_stampPreview != null) {
-      setState(() => _stampPreview = null);
+      _stampPreview = null;
+      _bumpCursor();
     }
     if (_selectMode) {
       _selectPanStart(details);
@@ -3052,9 +3079,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         final pressure = _pointerPressure;
         // While the mouse is pressed, hover events stop. Keep the painted
         // pen cursor's stored position moving with the drag so it reappears
-        // at the stroke end, not where the stroke started.
+        // at the stroke end, not where the stroke started. No setState: the
+        // stroke and the pen dot each live on their own repaint layer, and
+        // each needs its own tick.
         _penCursor = position;
-        // no setState: the active stroke lives on its own repaint layer
+        _bumpCursor();
         _activeStroke = [_geometry.toPagePoint(position)];
         // the first event decides: a pressure device varies the whole
         // stroke, anything else stays uniform
@@ -3308,7 +3337,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       return;
     }
     if (_signatureDrag) {
-      setState(() => _signaturePreview = position);
+      // drag-frequency, and the preview is painted on the cursor layer:
+      // repaint it, don't rebuild the overlay
+      _signaturePreview = position;
+      _bumpCursor();
       return;
     }
     if (_activeStroke != null) {
@@ -4090,12 +4122,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     return _samplerFuture!;
   }
 
+  /// Moves the eyedropper's swatch. Hover-frequency, so it repaints the
+  /// cursor layer (and the chip, which rides its own ValueListenableBuilder)
+  /// instead of rebuilding the overlay - see [_cursorRepaint].
   void _updatePickPreview(Offset position) {
     unawaited(_ensureSampler());
-    setState(() {
-      _pickPosition = position;
-      _pickPreview = _sampler?.colorAt(position / _geometry.scale);
-    });
+    _pickPosition = position;
+    _pickPreview = _sampler?.colorAt(position / _geometry.scale);
+    _bumpCursor();
   }
 
   /// Releasing the pointer commits the raw gesture (stroke or erase
@@ -4306,7 +4340,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           _hitsRotateHandle(chrome.$1, resting, event.localPosition)) {
         // no system rotation cursor: hide it and paint a curved-arrow glyph
         if (_rotateCursor != event.localPosition) {
-          setState(() => _rotateCursor = event.localPosition);
+          _rotateCursor = event.localPosition;
+          _bumpCursor();
         }
         cursor = SystemMouseCursors.none;
       } else if (_selectedViewRects
@@ -4328,20 +4363,23 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       // the painted dot (pen colour at pen width) is the cursor, so the
       // chosen colour and stroke width are visible before drawing
       if (_penCursor != event.localPosition) {
-        setState(() => _penCursor = event.localPosition);
+        _penCursor = event.localPosition;
+        _bumpCursor();
       }
       cursor = SystemMouseCursors.none;
     } else if (_tool == PdfEditTool.eraser) {
       // the painted ring is the cursor
       if (_eraserCursor != event.localPosition) {
-        setState(() => _eraserCursor = event.localPosition);
+        _eraserCursor = event.localPosition;
+        _bumpCursor();
       }
       cursor = SystemMouseCursors.none;
     } else if (_tool == PdfEditTool.count) {
       // the painted check-mark is the cursor, showing exactly what a click
       // will place before the page gets a new annotation.
       if (_countCursor != event.localPosition) {
-        setState(() => _countCursor = event.localPosition);
+        _countCursor = event.localPosition;
+        _bumpCursor();
       }
       cursor = SystemMouseCursors.none;
     } else if (_tool == PdfEditTool.stamp) {
@@ -4351,16 +4389,21 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       // make the click target visible.
       final preview = _stampHoverAfterimageAt(event.localPosition);
       if (preview == null) {
-        if (_stampPreview != null) setState(() => _stampPreview = null);
+        if (_stampPreview != null) {
+          _stampPreview = null;
+          _bumpCursor();
+        }
       } else if (_stampPreview != event.localPosition) {
-        setState(() => _stampPreview = event.localPosition);
+        _stampPreview = event.localPosition;
+        _bumpCursor();
       }
       cursor = SystemMouseCursors.precise;
     } else if (_tool == PdfEditTool.signature) {
       // the live preview rides the mouse; a click commits it
       if (_controller.preferences.signature != null &&
           event.localPosition != _signaturePreview) {
-        setState(() => _signaturePreview = event.localPosition);
+        _signaturePreview = event.localPosition;
+        _bumpCursor();
       }
       cursor = SystemMouseCursors.precise;
     } else if (_polyTool || _tool == PdfEditTool.cloudPolygon) {
@@ -4401,18 +4444,27 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     // the rotate glyph shows only over the knob (the lone `none` in select
     // mode), the pen dot only with the ink tool armed
     final overKnob = _selectMode && cursor == SystemMouseCursors.none;
+    var retracted = false;
     if (!overKnob && _rotateCursor != null) {
-      setState(() => _rotateCursor = null);
+      _rotateCursor = null;
+      retracted = true;
     }
     if (!_inkTool && _penCursor != null) {
-      setState(() => _penCursor = null);
+      _penCursor = null;
+      retracted = true;
     }
     if (_tool != PdfEditTool.count && _countCursor != null) {
-      setState(() => _countCursor = null);
+      _countCursor = null;
+      retracted = true;
     }
     if (_tool != PdfEditTool.stamp && _stampPreview != null) {
-      setState(() => _stampPreview = null);
+      _stampPreview = null;
+      retracted = true;
     }
+    if (retracted) _bumpCursor();
+    // the system cursor lives on the MouseRegion, so a *kind* change is the
+    // one hover outcome that still needs a rebuild - it changes at tool and
+    // zone boundaries, not per event
     if (cursor != _cursor) setState(() => _cursor = cursor);
   }
 
@@ -5053,24 +5105,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         wrapResize == null && _resizeHandle != null && _resizeRect != null
             ? _shapeResizeStyle(_resizeRect!, _resizeAngle)
             : _afterShapeResize;
-    // strokes beyond the pending ink: the committed-ink afterimage (held
-    // until the new raster lands) and the signature tool's live preview
+    // strokes beyond the pending ink: the committed-ink afterimage, held
+    // until the new raster lands. (The signature tool's live preview is
+    // pointer-frequency, so it rides the cursor layer instead.)
     final committedInk = widget.rasterCurrent
         ? null
         : _controller.committedInkOn(widget.pageIndex);
-    _InkPaint? signaturePreview;
-    if (_signaturePreview != null && _tool == PdfEditTool.signature) {
-      final (x, y) = _geometry.toPagePoint(_signaturePreview!);
-      final placement = _controller.signaturePlacement(widget.pageIndex, x, y);
-      if (placement != null) {
-        signaturePreview = (
-          strokes: placement.strokes,
-          pressures: placement.pressures,
-          color: Color(0xFF000000 | placement.color).withValues(alpha: 0.55),
-          strokeWidth: placement.strokeWidth * _geometry.scale,
-        );
-      }
-    }
     final extraInk = <_InkPaint>[
       if (committedInk != null)
         (
@@ -5080,7 +5120,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
           strokeWidth: committedInk.strokeWidth * _geometry.scale,
         ),
       if (_afterSignature != null) _afterSignature!,
-      if (signaturePreview != null) signaturePreview,
       // the eraser's live remainders, then the committed slice held
       // until its raster lands - painted over the fade wash
       ..._eraseSliced.values,
@@ -5097,7 +5136,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     }
     // warm the eyedropper's raster so the first preview is instant-ish
     if (_controller.isPickingColor) unawaited(_ensureSampler());
-    final preview = _controller.isPickingColor ? _pickPosition : null;
     // placed vertices are already snapped; only the live rubber-band edge to
     // the hover point snaps here (and only while Shift is held)
     final polyPreview = _polyPoints == null
@@ -5286,26 +5324,11 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                       ...?_afterEraseFade,
                     ],
                     fadeColor: widget.pageColor.withValues(alpha: 0.72),
-                    eraserCursor:
-                        _tool == PdfEditTool.eraser || _pointers.rawErasing
-                            ? _eraserCursor
-                            : null,
-                    eraserRadius: _controller.preferences.eraserRadius * _geometry.scale,
-                    // the pen-preview dot (ink tool) and the rotation glyph
-                    // (rotate knob): painted in place of the system cursor
-                    penCursor:
-                        _inkTool && _activeStroke == null ? _penCursor : null,
-                    penOpacity: _controller.preferences.opacity,
-                    countPreview:
-                        _tool == PdfEditTool.count && _countCursor != null
-                            ? _countPreviewAt(_countCursor!)
-                            : null,
-                    stampPreview: _tool == PdfEditTool.stamp &&
-                            _dragStart == null &&
-                            _stampPreview != null
-                        ? _stampHoverAfterimageAt(_stampPreview!)
-                        : null,
-                    rotateCursor: _rotateCursor,
+                    // the pointer-tracking cursors (eraser ring, pen dot,
+                    // count/stamp/signature previews, rotate glyph) are NOT
+                    // here - they ride the _HoverCursorPainter layer below,
+                    // repainted from _cursorRepaint so a mouse-move never
+                    // rebuilds this painter's snapshot arguments (#403)
                     afterGhost: afterGhost,
                     afterShape: _afterShape,
                     afterStamp: _afterStamp,
@@ -5338,6 +5361,18 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                 child: RepaintBoundary(
                   child: CustomPaint(
                     painter: _ActiveStrokePainter(this),
+                    size: Size.infinite,
+                  ),
+                ),
+              ),
+              // The pointer-tracking cursors, on their own RepaintBoundary
+              // above the ink: a hover moves them by ticking _cursorRepaint,
+              // which repaints this layer alone (#403). Topmost of the
+              // painted layers, so a cursor is never buried under a preview.
+              Positioned.fill(
+                child: RepaintBoundary(
+                  child: CustomPaint(
+                    painter: _HoverCursorPainter(this),
                     size: Size.infinite,
                   ),
                 ),
@@ -5381,14 +5416,28 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   underline: after.underline,
                   lineSpacing: after.lineSpacing,
                 ),
-              if (preview != null)
-                Positioned(
-                  left: preview.dx + 14,
-                  top: preview.dy - 38,
-                  child: IgnorePointer(
-                    child: _EyedropperChip(color: _pickPreview),
+              // the eyedropper's swatch: a widget, so it can't join the
+              // cursor painter - it subscribes to the same notifier instead,
+              // rebuilding just the chip as the pointer moves
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: ValueListenableBuilder<int>(
+                    valueListenable: _cursorRepaint,
+                    builder: (context, _, __) {
+                      final preview =
+                          _controller.isPickingColor ? _pickPosition : null;
+                      if (preview == null) return const SizedBox.shrink();
+                      return Stack(children: [
+                        Positioned(
+                          left: preview.dx + 14,
+                          top: preview.dy - 38,
+                          child: _EyedropperChip(color: _pickPreview),
+                        ),
+                      ]);
+                    },
                   ),
                 ),
+              ),
               if (_textEditRect != null)
                 Positioned.fromRect(
                   rect: _textEditRect!.inflate(2),
@@ -5747,14 +5796,16 @@ void _paintInkStrokes(
 /// the repaint Listenable is the sole driver (the start, every point, and the
 /// clear on commit/bail all tick it), and the buffers are mutated in place so
 /// the painter always sees the current points.
+///
+/// The pen dot is NOT here - it belongs to [_HoverCursorPainter], because it
+/// shows with the tool merely armed, not only mid-stroke. Any site that moves
+/// [_EditingPageOverlayState._penCursor] therefore has to tick
+/// [_EditingPageOverlayState._cursorRepaint] as well as this one.
 class _ActiveStrokePainter extends CustomPainter {
   _ActiveStrokePainter(this._state)
       : super(repaint: _state._activeStrokeRepaint);
 
   final _EditingPageOverlayState _state;
-
-  @visibleForTesting
-  Offset? get debugPenCursor => _state._penCursor;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -5783,17 +5834,8 @@ class _ActiveStrokePainter extends CustomPainter {
       _state._controller.color,
       _state._controller.preferences.strokeWidth * geometry.scale,
     );
-    final cursor = _state._penCursor;
-    if (cursor != null && _state._inkTool) {
-      _paintPenCursor(
-        canvas,
-        cursor,
-        strokeWidth: _state._controller.preferences.strokeWidth * geometry.scale,
-        chromeScale: _state._chromeScale,
-        color: _state._controller.color,
-        opacity: _state._controller.preferences.opacity,
-      );
-    }
+    // the pen dot rides the sibling _HoverCursorPainter (it must show with
+    // the tool merely armed, not only mid-stroke)
   }
 
   @override
@@ -5820,6 +5862,434 @@ void _paintPenCursor(
         ..color = const Color(0xB3FFFFFF)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1 * chromeScale);
+}
+
+/// The pointer-tracking cursors and hover previews, on their own
+/// RepaintBoundary above the ink layer.
+///
+/// Every mark here follows the pointer, so it changes at pointer-event
+/// frequency; painting it from [_EditingPreviewPainter]'s snapshot arguments
+/// meant a `setState` per mouse-move, rebuilding the overlay's whole subtree
+/// (annotation widgets, chrome, the heavy preview painter) to move a dot a few
+/// pixels - through exactly the moment the user is about to draw (#403). Like
+/// [_ActiveStrokePainter], this reads the live fields straight off
+/// [_EditingPageOverlayState] and repaints from
+/// [_EditingPageOverlayState._cursorRepaint], so a move is one small layer's
+/// repaint. [shouldRepaint] stays true (unlike the stroke layer's): a fresh
+/// instance means the overlay rebuilt for some *other* reason - a tool, colour,
+/// zoom or geometry change the cursors also depend on - and this layer is a few
+/// circles and an arc, so repainting it then is cheaper than tracking which of
+/// those inputs moved.
+class _HoverCursorPainter extends CustomPainter {
+  _HoverCursorPainter(this._state) : super(repaint: _state._cursorRepaint);
+
+  final _EditingPageOverlayState _state;
+
+  /// The marks this layer would paint right now, as the old snapshot fields
+  /// exposed them. These *are* the paint gates (paint() reads them), so a
+  /// test asserting on them asserts on what is drawn - the state fields
+  /// themselves outlive their tool (nothing clears [_state._eraserCursor]
+  /// when the eraser is put away; the gate does).
+  @visibleForTesting
+  Offset? get eraserCursor =>
+      _state._tool == PdfEditTool.eraser || _state._pointers.rawErasing
+          ? _state._eraserCursor
+          : null;
+
+  /// The eraser ring's radius in view pixels - the page-space eraser radius
+  /// scaled, so the ring is exactly the area a swipe removes at any zoom.
+  @visibleForTesting
+  double get eraserRadius =>
+      _state._controller.preferences.eraserRadius * _state._geometry.scale;
+
+  /// The ink tool's pen dot - shown with the tool merely armed and kept
+  /// riding the tip mid-stroke.
+  @visibleForTesting
+  Offset? get penCursor => _state._inkTool ? _state._penCursor : null;
+
+  @visibleForTesting
+  _StampAfterimage? get countPreview {
+    final at = _state._countCursor;
+    if (at == null || _state._tool != PdfEditTool.count) return null;
+    return _state._countPreviewAt(at);
+  }
+
+  @visibleForTesting
+  _StampAfterimage? get stampPreview {
+    final at = _state._stampPreview;
+    if (at == null ||
+        _state._tool != PdfEditTool.stamp ||
+        _state._dragStart != null) {
+      return null;
+    }
+    return _state._stampHoverAfterimageAt(at);
+  }
+
+  @visibleForTesting
+  Offset? get rotateCursor => _state._rotateCursor;
+
+  /// Where the signature tool's live placement preview is anchored - the
+  /// stored signature is laid out from here exactly as a click would commit
+  /// it.
+  @visibleForTesting
+  Offset? get signaturePreview => _state._tool == PdfEditTool.signature
+      ? _state._signaturePreview
+      : null;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final state = _state;
+    final geometry = state._geometry;
+    final chromeScale = state._chromeScale;
+    final preferences = state._controller.preferences;
+
+    // the signature tool's live placement preview, under the cursors: the
+    // stored signature, laid out exactly where a click would commit it
+    final signatureAt = signaturePreview;
+    if (signatureAt != null) {
+      final (x, y) = geometry.toPagePoint(signatureAt);
+      final placement =
+          state._controller.signaturePlacement(state.widget.pageIndex, x, y);
+      if (placement != null) {
+        _paintInkStrokes(
+          canvas,
+          geometry,
+          placement.strokes,
+          placement.pressures,
+          Color(0xFF000000 | placement.color).withValues(alpha: 0.55),
+          placement.strokeWidth * geometry.scale,
+        );
+      }
+    }
+
+    // the eraser's ring cursor: page-space radius (it shows exactly what a
+    // swipe removes), screen-constant line weight - a light ring over a dark
+    // halo so it reads on any page color
+    final eraser = eraserCursor;
+    final eraserRadius = this.eraserRadius;
+    if (eraser != null && eraserRadius > 0) {
+      canvas.drawCircle(
+          eraser, eraserRadius, Paint()..color = const Color(0x14000000));
+      canvas.drawCircle(
+          eraser,
+          eraserRadius,
+          Paint()
+            ..color = const Color(0x66000000)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 3 * chromeScale);
+      canvas.drawCircle(
+          eraser,
+          eraserRadius,
+          Paint()
+            ..color = const Color(0xFFFFFFFF)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5 * chromeScale);
+    }
+
+    // the ink tool's pen-preview dot: the pen colour at its opacity, sized to
+    // the stroke width, with a halo + hairline so it reads on any page. Also
+    // painted mid-stroke, so the dot keeps riding the pen tip.
+    final pen = penCursor;
+    if (pen != null) {
+      _paintPenCursor(
+        canvas,
+        pen,
+        strokeWidth: preferences.strokeWidth * geometry.scale,
+        chromeScale: chromeScale,
+        color: state._controller.color,
+        opacity: preferences.opacity,
+      );
+    }
+
+    final count = countPreview;
+    if (count != null) {
+      _paintStampAfterimageAt(canvas, count, geometry.scale);
+    }
+
+    final stamp = stampPreview;
+    if (stamp != null) {
+      _paintStampAfterimageAt(canvas, stamp, geometry.scale);
+    }
+
+    // the rotate knob's cursor: a curved arrow (no system rotation cursor)
+    final rotate = rotateCursor;
+    if (rotate != null) {
+      final rr = 9 * chromeScale;
+      // a 290° arc, leaving a gap for the arrowhead at its end
+      const start = -math.pi / 2;
+      const sweep = 290 * math.pi / 180;
+      final box = Rect.fromCircle(center: rotate, radius: rr);
+      final halo = Paint()
+        ..color = const Color(0x66000000)
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = 4 * chromeScale;
+      final arc = Paint()
+        ..color = const Color(0xFFFFFFFF)
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = 2 * chromeScale;
+      canvas.drawArc(box, start, sweep, false, halo);
+      canvas.drawArc(box, start, sweep, false, arc);
+      // arrowhead tangent to the arc end
+      final end = start + sweep;
+      final tip = rotate + Offset(math.cos(end), math.sin(end)) * rr;
+      final tangent = end + math.pi / 2; // clockwise travel
+      final wing = 4 * chromeScale;
+      for (final a in [tangent + 2.5, tangent - 2.5]) {
+        final p = tip + Offset(math.cos(a), math.sin(a)) * wing;
+        canvas.drawLine(tip, p, halo);
+        canvas.drawLine(tip, p, arc);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_HoverCursorPainter oldDelegate) => true;
+}
+
+/// Paints a stamp/count afterimage (or hover preview) at its already
+/// view-space [_StampAfterimage.rect]. Top-level so both the snapshot-arg
+/// [_EditingPreviewPainter] and the pointer-frequency [_HoverCursorPainter]
+/// draw the identical mark; [scale] is the page geometry's view scale, the
+/// only geometry the mark needs (border weight, padding, corner radius).
+void _paintStampAfterimageAt(
+    Canvas canvas, _StampAfterimage stamp, double scale) {
+  final rect = stamp.rect;
+  if (rect.isEmpty) return;
+  final color = stamp.color.withValues(alpha: stamp.opacity);
+  final template = stamp.template;
+  if (template != null) {
+    _paintStampTemplateAfterimage(canvas, rect, template, stamp.opacity);
+    return;
+  }
+  if (stamp.check) {
+    final s = math.min(rect.width, rect.height);
+    if (s <= 0) return;
+    final ox = rect.left + (rect.width - s) / 2;
+    final oy = rect.top + (rect.height - s) / 2;
+    final path = Path()
+      ..moveTo(ox + s * 0.18, oy + s * 0.50)
+      ..lineTo(ox + s * 0.42, oy + s * 0.74)
+      ..lineTo(ox + s * 0.82, oy + s * 0.26);
+    canvas.drawPath(
+        path,
+        Paint()
+          ..color = color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = s * 0.16
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round);
+    return;
+  }
+
+  final borderWidth = math.max(0.5, 2 * scale);
+  final pad = 6 * scale;
+  final box = rect.deflate(borderWidth / 2);
+  if (box.width > 0 && box.height > 0) {
+    canvas.drawRRect(
+        RRect.fromRectAndRadius(box, Radius.circular(4 * scale)),
+        Paint()
+          ..color = color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = borderWidth);
+  }
+
+  final text = stamp.text;
+  if (text == null || text.isEmpty) return;
+  final availableWidth = math.max(0.0, rect.width - 2 * pad);
+  final availableHeight = math.max(0.0, rect.height - 2 * pad);
+  if (availableWidth == 0 || availableHeight == 0) return;
+  var fontSize = availableHeight * 0.72;
+  if (fontSize <= 0) return;
+
+  TextPainter painterFor(double size) => TextPainter(
+        text: TextSpan(
+          text: text,
+          style: TextStyle(
+            color: color,
+            fontFamily: 'Helvetica',
+            fontWeight: FontWeight.bold,
+            fontSize: size,
+            height: 1,
+          ),
+        ),
+        textDirection: _flutterTextDirection(text),
+        maxLines: 1,
+      )..layout(maxWidth: double.infinity);
+
+  var textPainter = painterFor(fontSize);
+  if (textPainter.width > availableWidth && textPainter.width > 0) {
+    fontSize *= availableWidth / textPainter.width;
+    textPainter = painterFor(fontSize);
+  }
+  textPainter.paint(
+      canvas,
+      Offset(rect.left + (rect.width - textPainter.width) / 2,
+          rect.top + (rect.height - textPainter.height) / 2));
+}
+
+void _paintStampTemplateAfterimage(
+    Canvas canvas, Rect rect, PdfStampTemplate template, double opacity) {
+  if (!template.isValid || rect.isEmpty) return;
+  canvas.saveLayer(
+      rect,
+      Paint()
+        ..color = const Color(0xFFFFFFFF)
+            .withValues(alpha: opacity.clamp(0.0, 1.0)));
+  final sx = rect.width / template.width;
+  final sy = rect.height / template.height;
+  final strokeScale = math.min(sx, sy);
+  for (final component in template.components) {
+    if (component.width <= 0 || component.height <= 0) continue;
+    final componentRect = Rect.fromLTWH(
+      rect.left + component.x * sx,
+      rect.top + component.y * sy,
+      component.width * sx,
+      component.height * sy,
+    );
+    _paintStampTemplateComponent(
+        canvas, component, componentRect, strokeScale);
+  }
+  canvas.restore();
+}
+
+void _paintStampTemplateComponent(Canvas canvas,
+    PdfStampTemplateComponent component, Rect rect, double strokeScale) {
+  final strokeWidth = math.max(0.1, component.strokeWidth * strokeScale);
+  switch (component.type) {
+    case PdfStampTemplateComponentType.rectangle:
+      final shape = rect.deflate(strokeWidth / 2);
+      if (shape.isEmpty) return;
+      final rrect = RRect.fromRectAndRadius(
+          shape, Radius.circular(component.radius * strokeScale));
+      if (component.fillColor != null) {
+        canvas.drawRRect(
+            rrect, Paint()..color = Color(0xFF000000 | component.fillColor!));
+      }
+      canvas.drawRRect(
+          rrect,
+          Paint()
+            ..color = Color(0xFF000000 | component.color)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = strokeWidth);
+    case PdfStampTemplateComponentType.ellipse:
+      final shape = rect.deflate(strokeWidth / 2);
+      if (shape.isEmpty) return;
+      if (component.fillColor != null) {
+        canvas.drawOval(
+            shape, Paint()..color = Color(0xFF000000 | component.fillColor!));
+      }
+      canvas.drawOval(
+          shape,
+          Paint()
+            ..color = Color(0xFF000000 | component.color)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = strokeWidth);
+    case PdfStampTemplateComponentType.text:
+      final text = component.text.trim();
+      if (text.isEmpty || rect.width <= 0 || rect.height <= 0) return;
+      var fontSize =
+          (component.fontSize ?? component.height * 0.72) * strokeScale;
+      fontSize = math.min(fontSize, rect.height * 0.9);
+      if (fontSize <= 0) return;
+      TextPainter painterFor(double size) => TextPainter(
+            text: TextSpan(
+              text: text,
+              style: TextStyle(
+                color: Color(0xFF000000 | component.color),
+                fontFamily: _textEditUiFamily(component.font),
+                fontWeight: component.font.isBold
+                    ? FontWeight.bold
+                    : FontWeight.normal,
+                fontStyle: component.font.isItalic
+                    ? FontStyle.italic
+                    : FontStyle.normal,
+                fontSize: size,
+                height: 1,
+              ),
+            ),
+            textDirection: _flutterTextDirection(text),
+            maxLines: 1,
+          )..layout(maxWidth: double.infinity);
+      var textPainter = painterFor(fontSize);
+      if (textPainter.width > rect.width && textPainter.width > 0) {
+        fontSize *= rect.width / textPainter.width;
+        textPainter = painterFor(fontSize);
+      }
+      textPainter.paint(
+          canvas,
+          Offset(rect.left + (rect.width - textPainter.width) / 2,
+              rect.top + (rect.height - textPainter.height) / 2));
+    case PdfStampTemplateComponentType.image:
+      canvas.drawRect(
+          rect, Paint()..color = const Color(0xFFE0E0E0).withAlpha(0x99));
+      canvas.drawRect(
+          rect.deflate(0.5),
+          Paint()
+            ..color = Color(0xFF000000 | component.color)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = math.max(0.5, strokeScale));
+    case PdfStampTemplateComponentType.signature:
+      _paintStampTemplateSignature(canvas, component, rect, strokeScale);
+  }
+}
+
+void _paintStampTemplateSignature(Canvas canvas,
+    PdfStampTemplateComponent component, Rect rect, double strokeScale) {
+  if (component.strokes.isEmpty || rect.width <= 0 || rect.height <= 0) {
+    return;
+  }
+  final baseWidth = math.max(0.1, component.strokeWidth * strokeScale);
+  final color = Color(0xFF000000 | component.color);
+  for (var i = 0; i < component.strokes.length; i++) {
+    final stroke = [
+      for (final (x, y) in component.strokes[i])
+        Offset(rect.left + x * rect.width, rect.top + y * rect.height),
+    ];
+    if (stroke.isEmpty) continue;
+    final controls =
+        pdfInkCurveControls([for (final p in stroke) (p.dx, p.dy)]);
+    final pressure =
+        i < component.pressures.length ? component.pressures[i] : null;
+    if (stroke.length == 1) {
+      canvas.drawCircle(
+          stroke.single,
+          pdfInkStrokeWidth(
+                  baseWidth,
+                  pressure == null || pressure.length != 1
+                      ? 0.5
+                      : pressure.first) /
+              2,
+          Paint()..color = color);
+      continue;
+    }
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    if (pressure == null || pressure.length != stroke.length) {
+      paint.strokeWidth = baseWidth;
+      final path = Path()..moveTo(stroke.first.dx, stroke.first.dy);
+      for (var j = 0; j < stroke.length - 1; j++) {
+        final ((c1x, c1y), (c2x, c2y)) = controls[j];
+        path.cubicTo(c1x, c1y, c2x, c2y, stroke[j + 1].dx, stroke[j + 1].dy);
+      }
+      canvas.drawPath(path, paint);
+      continue;
+    }
+    for (var j = 0; j < stroke.length - 1; j++) {
+      paint.strokeWidth =
+          pdfInkStrokeWidth(baseWidth, (pressure[j] + pressure[j + 1]) / 2);
+      final ((c1x, c1y), (c2x, c2y)) = controls[j];
+      canvas.drawPath(
+          Path()
+            ..moveTo(stroke[j].dx, stroke[j].dy)
+            ..cubicTo(c1x, c1y, c2x, c2y, stroke[j + 1].dx, stroke[j + 1].dy),
+          paint);
+    }
+  }
 }
 
 class _EditingPreviewPainter extends CustomPainter {
@@ -5860,13 +6330,6 @@ class _EditingPreviewPainter extends CustomPainter {
     this.fadeRects = const [],
     this.fadeInk = const [],
     this.fadeColor = const Color(0x00000000),
-    this.eraserCursor,
-    this.eraserRadius = 0,
-    this.penCursor,
-    this.penOpacity = 1,
-    this.countPreview,
-    this.stampPreview,
-    this.rotateCursor,
     required this.afterGhost,
     required this.afterShape,
     required this.afterStamp,
@@ -5986,32 +6449,6 @@ class _EditingPreviewPainter extends CustomPainter {
   /// around it or spilling off the page.
   final List<_InkPaint> fadeInk;
   final Color fadeColor;
-
-  /// The circle eraser's ring cursor: view position and radius (the
-  /// page-space eraser radius scaled into view pixels, so the ring is
-  /// exactly the area the eraser removes at any zoom).
-  final Offset? eraserCursor;
-  final double eraserRadius;
-
-  /// The ink tool's pen-preview cursor: a filled dot in [color] at
-  /// [penOpacity], sized to the pen width ([strokeWidth], view pixels),
-  /// painted in place of the system cursor so the colour and width that
-  /// will be drawn are visible before the stroke starts.
-  final Offset? penCursor;
-  final double penOpacity;
-
-  /// The count tool's hover preview: the check mark that a click will place,
-  /// already clamped to the same page-space rect as the committed annotation.
-  final _StampAfterimage? countPreview;
-
-  /// The stamp tool's hover preview: the active custom stamp that a click
-  /// will place, already clamped to the same rect as the committed annotation.
-  final _StampAfterimage? stampPreview;
-
-  /// The rotate knob's cursor: a small curved-arrow glyph painted here
-  /// (Flutter has no built-in rotation cursor, so the system cursor is
-  /// hidden over the knob and this tracks the pointer instead).
-  final Offset? rotateCursor;
 
   /// A just-committed move/resize/rotate, kept painted at full strength
   /// until the new revision's raster lands. [source] is the old
@@ -6235,243 +6672,9 @@ class _EditingPreviewPainter extends CustomPainter {
     return area / 2;
   }
 
-  void _paintStampAfterimage(Canvas canvas, _StampAfterimage stamp) {
-    final rect = stamp.rect;
-    if (rect.isEmpty) return;
-    final color = stamp.color.withValues(alpha: stamp.opacity);
-    final template = stamp.template;
-    if (template != null) {
-      _paintStampTemplateAfterimage(canvas, rect, template, stamp.opacity);
-      return;
-    }
-    if (stamp.check) {
-      final s = math.min(rect.width, rect.height);
-      if (s <= 0) return;
-      final ox = rect.left + (rect.width - s) / 2;
-      final oy = rect.top + (rect.height - s) / 2;
-      final path = Path()
-        ..moveTo(ox + s * 0.18, oy + s * 0.50)
-        ..lineTo(ox + s * 0.42, oy + s * 0.74)
-        ..lineTo(ox + s * 0.82, oy + s * 0.26);
-      canvas.drawPath(
-          path,
-          Paint()
-            ..color = color
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = s * 0.16
-            ..strokeCap = StrokeCap.round
-            ..strokeJoin = StrokeJoin.round);
-      return;
-    }
+  void _paintStampAfterimage(Canvas canvas, _StampAfterimage stamp) =>
+      _paintStampAfterimageAt(canvas, stamp, geometry.scale);
 
-    final borderWidth = math.max(0.5, 2 * geometry.scale);
-    final pad = 6 * geometry.scale;
-    final box = rect.deflate(borderWidth / 2);
-    if (box.width > 0 && box.height > 0) {
-      canvas.drawRRect(
-          RRect.fromRectAndRadius(box, Radius.circular(4 * geometry.scale)),
-          Paint()
-            ..color = color
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = borderWidth);
-    }
-
-    final text = stamp.text;
-    if (text == null || text.isEmpty) return;
-    final availableWidth = math.max(0.0, rect.width - 2 * pad);
-    final availableHeight = math.max(0.0, rect.height - 2 * pad);
-    if (availableWidth == 0 || availableHeight == 0) return;
-    var fontSize = availableHeight * 0.72;
-    if (fontSize <= 0) return;
-
-    TextPainter painterFor(double size) => TextPainter(
-          text: TextSpan(
-            text: text,
-            style: TextStyle(
-              color: color,
-              fontFamily: 'Helvetica',
-              fontWeight: FontWeight.bold,
-              fontSize: size,
-              height: 1,
-            ),
-          ),
-          textDirection: _flutterTextDirection(text),
-          maxLines: 1,
-        )..layout(maxWidth: double.infinity);
-
-    var textPainter = painterFor(fontSize);
-    if (textPainter.width > availableWidth && textPainter.width > 0) {
-      fontSize *= availableWidth / textPainter.width;
-      textPainter = painterFor(fontSize);
-    }
-    textPainter.paint(
-        canvas,
-        Offset(rect.left + (rect.width - textPainter.width) / 2,
-            rect.top + (rect.height - textPainter.height) / 2));
-  }
-
-  void _paintStampTemplateAfterimage(
-      Canvas canvas, Rect rect, PdfStampTemplate template, double opacity) {
-    if (!template.isValid || rect.isEmpty) return;
-    canvas.saveLayer(
-        rect,
-        Paint()
-          ..color = const Color(0xFFFFFFFF)
-              .withValues(alpha: opacity.clamp(0.0, 1.0)));
-    final sx = rect.width / template.width;
-    final sy = rect.height / template.height;
-    final strokeScale = math.min(sx, sy);
-    for (final component in template.components) {
-      if (component.width <= 0 || component.height <= 0) continue;
-      final componentRect = Rect.fromLTWH(
-        rect.left + component.x * sx,
-        rect.top + component.y * sy,
-        component.width * sx,
-        component.height * sy,
-      );
-      _paintStampTemplateComponent(
-          canvas, component, componentRect, strokeScale);
-    }
-    canvas.restore();
-  }
-
-  void _paintStampTemplateComponent(Canvas canvas,
-      PdfStampTemplateComponent component, Rect rect, double strokeScale) {
-    final strokeWidth = math.max(0.1, component.strokeWidth * strokeScale);
-    switch (component.type) {
-      case PdfStampTemplateComponentType.rectangle:
-        final shape = rect.deflate(strokeWidth / 2);
-        if (shape.isEmpty) return;
-        final rrect = RRect.fromRectAndRadius(
-            shape, Radius.circular(component.radius * strokeScale));
-        if (component.fillColor != null) {
-          canvas.drawRRect(
-              rrect, Paint()..color = Color(0xFF000000 | component.fillColor!));
-        }
-        canvas.drawRRect(
-            rrect,
-            Paint()
-              ..color = Color(0xFF000000 | component.color)
-              ..style = PaintingStyle.stroke
-              ..strokeWidth = strokeWidth);
-      case PdfStampTemplateComponentType.ellipse:
-        final shape = rect.deflate(strokeWidth / 2);
-        if (shape.isEmpty) return;
-        if (component.fillColor != null) {
-          canvas.drawOval(
-              shape, Paint()..color = Color(0xFF000000 | component.fillColor!));
-        }
-        canvas.drawOval(
-            shape,
-            Paint()
-              ..color = Color(0xFF000000 | component.color)
-              ..style = PaintingStyle.stroke
-              ..strokeWidth = strokeWidth);
-      case PdfStampTemplateComponentType.text:
-        final text = component.text.trim();
-        if (text.isEmpty || rect.width <= 0 || rect.height <= 0) return;
-        var fontSize =
-            (component.fontSize ?? component.height * 0.72) * strokeScale;
-        fontSize = math.min(fontSize, rect.height * 0.9);
-        if (fontSize <= 0) return;
-        TextPainter painterFor(double size) => TextPainter(
-              text: TextSpan(
-                text: text,
-                style: TextStyle(
-                  color: Color(0xFF000000 | component.color),
-                  fontFamily: _textEditUiFamily(component.font),
-                  fontWeight: component.font.isBold
-                      ? FontWeight.bold
-                      : FontWeight.normal,
-                  fontStyle: component.font.isItalic
-                      ? FontStyle.italic
-                      : FontStyle.normal,
-                  fontSize: size,
-                  height: 1,
-                ),
-              ),
-              textDirection: _flutterTextDirection(text),
-              maxLines: 1,
-            )..layout(maxWidth: double.infinity);
-        var textPainter = painterFor(fontSize);
-        if (textPainter.width > rect.width && textPainter.width > 0) {
-          fontSize *= rect.width / textPainter.width;
-          textPainter = painterFor(fontSize);
-        }
-        textPainter.paint(
-            canvas,
-            Offset(rect.left + (rect.width - textPainter.width) / 2,
-                rect.top + (rect.height - textPainter.height) / 2));
-      case PdfStampTemplateComponentType.image:
-        canvas.drawRect(
-            rect, Paint()..color = const Color(0xFFE0E0E0).withAlpha(0x99));
-        canvas.drawRect(
-            rect.deflate(0.5),
-            Paint()
-              ..color = Color(0xFF000000 | component.color)
-              ..style = PaintingStyle.stroke
-              ..strokeWidth = math.max(0.5, strokeScale));
-      case PdfStampTemplateComponentType.signature:
-        _paintStampTemplateSignature(canvas, component, rect, strokeScale);
-    }
-  }
-
-  void _paintStampTemplateSignature(Canvas canvas,
-      PdfStampTemplateComponent component, Rect rect, double strokeScale) {
-    if (component.strokes.isEmpty || rect.width <= 0 || rect.height <= 0) {
-      return;
-    }
-    final baseWidth = math.max(0.1, component.strokeWidth * strokeScale);
-    final color = Color(0xFF000000 | component.color);
-    for (var i = 0; i < component.strokes.length; i++) {
-      final stroke = [
-        for (final (x, y) in component.strokes[i])
-          Offset(rect.left + x * rect.width, rect.top + y * rect.height),
-      ];
-      if (stroke.isEmpty) continue;
-      final controls =
-          pdfInkCurveControls([for (final p in stroke) (p.dx, p.dy)]);
-      final pressure =
-          i < component.pressures.length ? component.pressures[i] : null;
-      if (stroke.length == 1) {
-        canvas.drawCircle(
-            stroke.single,
-            pdfInkStrokeWidth(
-                    baseWidth,
-                    pressure == null || pressure.length != 1
-                        ? 0.5
-                        : pressure.first) /
-                2,
-            Paint()..color = color);
-        continue;
-      }
-      final paint = Paint()
-        ..color = color
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round;
-      if (pressure == null || pressure.length != stroke.length) {
-        paint.strokeWidth = baseWidth;
-        final path = Path()..moveTo(stroke.first.dx, stroke.first.dy);
-        for (var j = 0; j < stroke.length - 1; j++) {
-          final ((c1x, c1y), (c2x, c2y)) = controls[j];
-          path.cubicTo(c1x, c1y, c2x, c2y, stroke[j + 1].dx, stroke[j + 1].dy);
-        }
-        canvas.drawPath(path, paint);
-        continue;
-      }
-      for (var j = 0; j < stroke.length - 1; j++) {
-        paint.strokeWidth =
-            pdfInkStrokeWidth(baseWidth, (pressure[j] + pressure[j + 1]) / 2);
-        final ((c1x, c1y), (c2x, c2y)) = controls[j];
-        canvas.drawPath(
-            Path()
-              ..moveTo(stroke[j].dx, stroke[j].dy)
-              ..cubicTo(c1x, c1y, c2x, c2y, stroke[j + 1].dx, stroke[j + 1].dy),
-            paint);
-      }
-    }
-  }
 
   /// Draws a Square/Circle at [s.rect] the way the editor regenerates it:
   /// a constant-width stroke inset by half its width (so it stays inside
@@ -6892,84 +7095,6 @@ class _EditingPreviewPainter extends CustomPainter {
             ..strokeWidth = 3 * chromeScale);
     }
 
-    // the eraser's ring cursor, topmost: page-space radius (it shows
-    // exactly what a stamp removes), screen-constant line weight - a
-    // light ring over a dark halo so it reads on any page color
-    final cursor = eraserCursor;
-    if (cursor != null && eraserRadius > 0) {
-      canvas.drawCircle(
-          cursor, eraserRadius, Paint()..color = const Color(0x14000000));
-      canvas.drawCircle(
-          cursor,
-          eraserRadius,
-          Paint()
-            ..color = const Color(0x66000000)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 3 * chromeScale);
-      canvas.drawCircle(
-          cursor,
-          eraserRadius,
-          Paint()
-            ..color = const Color(0xFFFFFFFF)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.5 * chromeScale);
-    }
-
-    // the ink tool's pen-preview dot: the pen colour at its opacity, sized
-    // to the stroke width, with a halo + hairline so it reads on any page
-    final pen = penCursor;
-    if (pen != null) {
-      _paintPenCursor(
-        canvas,
-        pen,
-        strokeWidth: strokeWidth,
-        chromeScale: chromeScale,
-        color: color,
-        opacity: penOpacity,
-      );
-    }
-
-    final count = countPreview;
-    if (count != null) {
-      _paintStampAfterimage(canvas, count);
-    }
-
-    final stamp = stampPreview;
-    if (stamp != null) {
-      _paintStampAfterimage(canvas, stamp);
-    }
-
-    // the rotate knob's cursor: a curved arrow (no system rotation cursor)
-    final rotate = rotateCursor;
-    if (rotate != null) {
-      final rr = 9 * chromeScale;
-      // a 290° arc, leaving a gap for the arrowhead at its end
-      const start = -math.pi / 2;
-      const sweep = 290 * math.pi / 180;
-      final box = Rect.fromCircle(center: rotate, radius: rr);
-      final halo = Paint()
-        ..color = const Color(0x66000000)
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeWidth = 4 * chromeScale;
-      final arc = Paint()
-        ..color = const Color(0xFFFFFFFF)
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeWidth = 2 * chromeScale;
-      canvas.drawArc(box, start, sweep, false, halo);
-      canvas.drawArc(box, start, sweep, false, arc);
-      // arrowhead tangent to the arc end
-      final end = start + sweep;
-      final tip = rotate + Offset(math.cos(end), math.sin(end)) * rr;
-      final tangent = end + math.pi / 2; // clockwise travel
-      final wing = 4 * chromeScale;
-      for (final a in [tangent + 2.5, tangent - 2.5]) {
-        final p = tip + Offset(math.cos(a), math.sin(a)) * wing;
-        canvas.drawLine(tip, p, halo);
-        canvas.drawLine(tip, p, arc);
-      }
-    }
   }
 
   /// Cheap inequality for the extra ink sets: counts plus each set's
@@ -7025,13 +7150,6 @@ class _EditingPreviewPainter extends CustomPainter {
       !listEquals(oldDelegate.fadeRects, fadeRects) ||
       _inkChanged(oldDelegate.fadeInk, fadeInk) ||
       oldDelegate.fadeColor != fadeColor ||
-      oldDelegate.eraserCursor != eraserCursor ||
-      oldDelegate.eraserRadius != eraserRadius ||
-      oldDelegate.penCursor != penCursor ||
-      oldDelegate.penOpacity != penOpacity ||
-      oldDelegate.countPreview != countPreview ||
-      oldDelegate.stampPreview != stampPreview ||
-      oldDelegate.rotateCursor != rotateCursor ||
       oldDelegate.afterGhost != afterGhost ||
       oldDelegate.afterShape != afterShape ||
       oldDelegate.afterStamp != afterStamp ||

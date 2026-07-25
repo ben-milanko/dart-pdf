@@ -211,5 +211,24 @@
   "sdkPkgVlm_d": "ウェブ、モバイル、デスクトップ向けのオプションのHTTP OCRエンジン。テキストボックスを返す任意のサービスに向けられます。",
   "sdk_foot_dartpdfApp": "DartPDFアプリ",
 
+  "nf_metaTitle": "ページが見つかりません - DartPDF",
+  "nf_metaDesc": "そのページは存在しません。あらゆるデバイスで使えるプライベートなローカルPDFエディター、DartPDFに戻りましょう。",
+  "nf_h1": "このページは<span class=\"hl\">見つかりませんでした。</span>",
+  "nf_lede": "リンクが古いか、ページが移動した可能性があります。PDFはご安心を - そもそもデバイスの外に出ていません。",
+  "nf_ctaHome": "ホームに戻る",
+  "nf_linksH2": "よく見られるページ",
+  "nf_linkFeatures": "機能",
+  "nf_linkFeaturesDesc": "注釈、OCR、フォーム、署名、墨消し、テキスト編集。",
+  "nf_linkDownload": "ダウンロード",
+  "nf_linkDownloadDesc": "Windows、macOS、Linux、iOS、Android版のDartPDFを入手。",
+  "nf_linkSupport": "サポート",
+  "nf_linkSupportDesc": "よくある質問と、不具合を報告する方法。",
+  "nf_linkSdk": "Flutter PDF SDK",
+  "nf_linkSdkDesc": "ビューアーとエディターを自作のDart／Flutterアプリに組み込めます。",
+  "nf_linkPrivacy": "プライバシー",
+  "nf_linkPrivacyDesc": "アカウントなし、解析なし、アップロードなし - ポリシーはこちら。",
+  "nf_linkSource": "ソースコード",
+  "nf_linkSourceDesc": "エンジンとアプリの全体をApache-2.0でオープンソース公開。",
+
   "lang_label": "言語"
 }

@@ -211,5 +211,24 @@
   "sdkPkgVlm_d": "Công cụ OCR HTTP tùy chọn cho web, di động và máy tính để bàn. Trỏ nó đến bất kỳ dịch vụ nào trả về các hộp văn bản.",
   "sdk_foot_dartpdfApp": "Ứng dụng DartPDF",
 
+  "nf_metaTitle": "Không tìm thấy trang - DartPDF",
+  "nf_metaDesc": "Trang này không tồn tại. Quay lại DartPDF - trình chỉnh sửa PDF riêng tư, cục bộ cho mọi thiết bị.",
+  "nf_h1": "Không tìm thấy <span class=\"hl\">trang này.</span>",
+  "nf_lede": "Có thể liên kết đã cũ hoặc trang đã được chuyển đi. Các tệp PDF của bạn vẫn ổn - chúng chưa bao giờ rời khỏi thiết bị của bạn.",
+  "nf_ctaHome": "Về trang chủ",
+  "nf_linksH2": "Trang phổ biến",
+  "nf_linkFeatures": "Tính năng",
+  "nf_linkFeaturesDesc": "Chú thích, OCR, biểu mẫu, chữ ký, biên tập ẩn và chỉnh sửa văn bản.",
+  "nf_linkDownload": "Tải xuống",
+  "nf_linkDownloadDesc": "Tải DartPDF cho Windows, macOS, Linux, iOS và Android.",
+  "nf_linkSupport": "Hỗ trợ",
+  "nf_linkSupportDesc": "Câu hỏi thường gặp và cách liên hệ để báo lỗi.",
+  "nf_linkSdk": "Flutter PDF SDK",
+  "nf_linkSdkDesc": "Nhúng trình xem và trình chỉnh sửa vào ứng dụng Dart hoặc Flutter của bạn.",
+  "nf_linkPrivacy": "Quyền riêng tư",
+  "nf_linkPrivacyDesc": "Không tài khoản, không phân tích, không tải lên - đây là chính sách.",
+  "nf_linkSource": "Mã nguồn",
+  "nf_linkSourceDesc": "Toàn bộ engine và ứng dụng, mã nguồn mở theo giấy phép Apache-2.0.",
+
   "lang_label": "Ngôn ngữ"
 }

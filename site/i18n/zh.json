@@ -211,5 +211,24 @@
   "sdkPkgVlm_d": "适用于网页、移动和桌面的可选 HTTP OCR 引擎。将其指向任何返回文本框的服务即可。",
   "sdk_foot_dartpdfApp": "DartPDF 应用",
 
+  "nf_metaTitle": "页面未找到 - DartPDF",
+  "nf_metaDesc": "该页面不存在。返回 DartPDF - 适用于各种设备的本地隐私 PDF 编辑器。",
+  "nf_h1": "<span class=\"hl\">页面未找到。</span>",
+  "nf_lede": "链接可能已过期，或页面已被移动。你的 PDF 一切安好 - 它们本来就没有离开过你的设备。",
+  "nf_ctaHome": "返回首页",
+  "nf_linksH2": "热门页面",
+  "nf_linkFeatures": "功能",
+  "nf_linkFeaturesDesc": "批注、OCR、表单、签名、密文遮盖和文本编辑。",
+  "nf_linkDownload": "下载",
+  "nf_linkDownloadDesc": "获取适用于 Windows、macOS、Linux、iOS 和 Android 的 DartPDF。",
+  "nf_linkSupport": "支持",
+  "nf_linkSupportDesc": "常见问题，以及如何联系我们报告缺陷。",
+  "nf_linkSdk": "Flutter PDF SDK",
+  "nf_linkSdkDesc": "把查看器和编辑器嵌入你自己的 Dart 或 Flutter 应用。",
+  "nf_linkPrivacy": "隐私",
+  "nf_linkPrivacyDesc": "没有账号、没有分析、没有上传 - 这是隐私政策。",
+  "nf_linkSource": "源代码",
+  "nf_linkSourceDesc": "整个引擎和应用均以 Apache-2.0 开源。",
+
   "lang_label": "语言"
 }

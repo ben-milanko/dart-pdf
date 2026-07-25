@@ -251,6 +251,105 @@ void main() {
     });
   });
 
+  test('the CMYK colour memo survives eviction and collision', () {
+    // The decode path memoizes sample-tuple → sRGB (issue #451), which is only
+    // sound if a hit is always the colour that tuple really converts to. The
+    // danger is the two ways a fixed-size direct-mapped table can lie: an
+    // eviction that leaves a stale colour behind, and two different tuples
+    // hashing to one slot.
+    //
+    // So make the table thrash on purpose. 256x256 = 65536 pixels, every one a
+    // distinct CMYK tuple, against a table an order of magnitude smaller: the
+    // slot for any given tuple is overwritten many times over. Then check every
+    // pixel against the conversion computed independently. A table that ever
+    // returned a neighbour's colour cannot pass this.
+    const size = 256;
+    final samples = Uint8List(size * size * 4);
+    for (var y = 0; y < size; y++) {
+      for (var x = 0; x < size; x++) {
+        final i = (y * size + x) * 4;
+        samples[i] = x;
+        samples[i + 1] = y;
+        samples[i + 2] = (x * 7 + y * 13) & 0xff;
+        samples[i + 3] = (x ^ y) & 0xff;
+      }
+    }
+
+    final stream = flateImage({
+      'Width': const CosInteger(size),
+      'Height': const CosInteger(size),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceCMYK'),
+    }, samples);
+
+    final pixels = decodePdfImagePixels(cos, stream)!;
+    expect(pixels.width, size);
+    expect(pixels.height, size);
+
+    var mismatches = 0;
+    for (var p = 0; p < size * size; p++) {
+      final s = p * 4;
+      final expected = PdfColor.cmyk(samples[s] / 255, samples[s + 1] / 255,
+          samples[s + 2] / 255, samples[s + 3] / 255);
+      if (pixels.rgba[s] != (expected.red * 255).round() ||
+          pixels.rgba[s + 1] != (expected.green * 255).round() ||
+          pixels.rgba[s + 2] != (expected.blue * 255).round()) {
+        mismatches++;
+      }
+    }
+    expect(mismatches, 0,
+        reason: 'the memo handed back a colour belonging to another tuple');
+  });
+
+  test('an ICC-managed CMYK image converts through the memo unchanged', () {
+    // The ICCBased CMYK branch is the one #451 measured at 0.85 us/px, and the
+    // one this change touches most: it now feeds a reused Float64List to the
+    // profile and reads its colours back through the memo. Both are chances to
+    // leak state between pixels, so decode an image whose every pixel has an
+    // independently known answer.
+    final profile = IccProfile.parse(genericCmykIcc())!;
+    const size = 64; // 4096 px: enough to exercise a real table
+    final samples = Uint8List(size * size * 4);
+    for (var p = 0; p < size * size; p++) {
+      final s = p * 4;
+      samples[s] = (p * 37) & 0xff;
+      samples[s + 1] = (p * 11) & 0xff;
+      samples[s + 2] = (p * 5) & 0xff;
+      samples[s + 3] = (p ~/ size) & 0xff;
+    }
+
+    final stream = flateImage({
+      'Width': const CosInteger(size),
+      'Height': const CosInteger(size),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': CosArray([
+        const CosName('ICCBased'),
+        CosStream(
+            CosDictionary({'N': const CosInteger(4)}), genericCmykIcc()),
+      ]),
+    }, samples);
+
+    final pixels = decodePdfImagePixels(cos, stream)!;
+
+    var mismatches = 0;
+    for (var p = 0; p < size * size; p++) {
+      final s = p * 4;
+      final expected = profile.toSrgb([
+        samples[s] / 255,
+        samples[s + 1] / 255,
+        samples[s + 2] / 255,
+        samples[s + 3] / 255,
+      ]);
+      if (pixels.rgba[s] != (expected.red * 255).round() ||
+          pixels.rgba[s + 1] != (expected.green * 255).round() ||
+          pixels.rgba[s + 2] != (expected.blue * 255).round()) {
+        mismatches++;
+      }
+    }
+    expect(mismatches, 0,
+        reason: 'the ICC CMYK path disagreed with the profile itself');
+  });
+
   test('scaled DeviceRGB Flate decodes directly to target size', () {
     final stream = image({
       'Width': const CosInteger(4),

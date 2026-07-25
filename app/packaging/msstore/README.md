@@ -24,22 +24,40 @@ create the app through the API** — Microsoft's own docs say you must create it
 Partner Center first, after which the API can manage its submissions. Same shape
 as the Play/App Store boundary in [`app/RELEASING.md`](../../RELEASING.md).
 
-The one-time setup, all in <https://partner.microsoft.com/dashboard>:
+## One-time setup checklist
 
-1. **Register a developer account.** As of 2026 registration is **free** for both
-   individual and company accounts (the old $19/$99 fees were dropped).
-2. **Reserve the app name** (`DartPDF`). This mints the identity values the MSIX
-   must carry.
-3. **Register an Azure AD application and associate it with the Partner Center
-   account** (*Account settings → User management → Azure AD applications*), then
-   create a client secret on it. This is what makes the CLI's non-interactive
-   auth work; without the association the credentials authenticate but see no
-   products.
-4. **Complete the first submission in the UI.** Listing description, screenshots,
-   category, privacy policy URL, and the age-rating questionnaire are required
-   before anything can pass certification, and the screenshot/age-rating parts
-   are not CLI-drivable. Expect the *first* release to be manual and every
-   release after it to be automated.
+Do this once, in order — steps 4-5 need the values that 2-3 mint, and step 7
+needs a package already uploaded by step 6. Partner Center is at
+<https://partner.microsoft.com/dashboard>.
+
+- [ ] **1. Register a developer account.** Free as of 2026 for both individual and
+      company accounts (the old $19/$99 fees were dropped). An *organization*
+      account shows the org as the seller name, the same trade-off RES already
+      carries on Apple/Play.
+- [ ] **2. Reserve the app name `DartPDF`.** This is the step the API cannot do,
+      and it mints the identity values the MSIX must carry.
+- [ ] **3. Register an Azure AD application, associate it with the Partner Center
+      account** (*Account settings → User management → Azure AD applications*),
+      and create a client secret on it. The **association** is the part that is
+      easy to miss: without it the credentials authenticate fine but see no
+      products, which reads like a permissions bug.
+- [ ] **4. Set the 4 repository variables** (*Settings → Secrets and variables →
+      Actions → Variables*). Values and dashboard paths: table below.
+- [ ] **5. Set the 4 repository secrets** (same page, *Secrets* tab).
+- [ ] **6. Dry-run the pipeline.** Actions → *Release Windows Store* → Run
+      workflow, **`commit` unchecked**. This builds the MSIX and uploads it as a
+      draft — the first end-to-end proof, since `makeappx`/`makepri` and the
+      upload cannot be tested off Windows. Check the `windows-store-msix`
+      artifact exists and the run didn't skip (a skip means a value from 4-5 is
+      missing; the log's `::notice::` names which).
+- [ ] **7. Complete the first submission in the UI.** Listing description,
+      screenshots, category, privacy policy URL (host `app/PRIVACY.md`, as Play
+      does) and the age-rating questionnaire. Screenshots and age rating are not
+      CLI-drivable, so the *first* release is manual — every one after is not.
+- [ ] **8. Submit for certification** and confirm it passes.
+- [ ] **9. Confirm the automated path** on the next release: push an `app-v*` tag,
+      check a draft submission appears, then run the workflow with `commit`
+      checked to send it.
 
 After that, `release-windows-store.yml` handles each release.
 

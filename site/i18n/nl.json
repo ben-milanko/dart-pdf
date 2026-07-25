@@ -211,5 +211,24 @@
   "sdkPkgVlm_d": "Optionele HTTP-OCR-engine voor web, mobiel en desktop. Richt het op elke service die tekstvakken retourneert.",
   "sdk_foot_dartpdfApp": "DartPDF-app",
 
+  "nf_metaTitle": "Pagina niet gevonden - DartPDF",
+  "nf_metaDesc": "Deze pagina bestaat niet. Ga terug naar DartPDF - de privé, lokale PDF-editor voor elk apparaat.",
+  "nf_h1": "Deze pagina is <span class=\"hl\">niet gevonden.</span>",
+  "nf_lede": "De link is misschien verouderd of de pagina is verplaatst. Met je PDF's is niets mis - die hebben je apparaat sowieso nooit verlaten.",
+  "nf_ctaHome": "Terug naar start",
+  "nf_linksH2": "Populaire pagina's",
+  "nf_linkFeatures": "Functies",
+  "nf_linkFeaturesDesc": "Annoteren, OCR, formulieren, handtekeningen, redigeren en tekst bewerken.",
+  "nf_linkDownload": "Downloaden",
+  "nf_linkDownloadDesc": "Download DartPDF voor Windows, macOS, Linux, iOS en Android.",
+  "nf_linkSupport": "Ondersteuning",
+  "nf_linkSupportDesc": "Veelgestelde vragen en hoe je een bug bij ons meldt.",
+  "nf_linkSdk": "Flutter PDF SDK",
+  "nf_linkSdkDesc": "Bouw de viewer en editor in je eigen Dart- of Flutter-app in.",
+  "nf_linkPrivacy": "Privacy",
+  "nf_linkPrivacyDesc": "Geen accounts, geen analytics, geen uploads - dit is het beleid.",
+  "nf_linkSource": "Broncode",
+  "nf_linkSourceDesc": "De hele engine en app, open source onder Apache-2.0.",
+
   "lang_label": "Taal"
 }

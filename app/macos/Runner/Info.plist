@@ -46,6 +46,32 @@
 				<string>com.adobe.pdf</string>
 			</array>
 		</dict>
+		<!--
+		  Generic-file fallback so the sandbox grants file access when the user
+		  explicitly picks DartPDF via "Open With" for a file that doesn't
+		  resolve to the com.adobe.pdf UTI - e.g. a PDF delivered without a
+		  .pdf extension (document-management/engineering exports) or with an
+		  unrecognised dynamic UTI. A sandboxed app only receives the implicit
+		  security-scoped grant for a Finder-opened file when the file's type
+		  matches one of its declared CFBundleDocumentTypes; without this entry
+		  such a file is refused with "does not have permission to open".
+		  LSHandlerRank "None" means we never advertise as a handler or become a
+		  default for arbitrary files - the grant is issued only on an explicit
+		  user "Open With".
+		-->
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Any file</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>None</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.data</string>
+				<string>public.content</string>
+			</array>
+		</dict>
 	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>

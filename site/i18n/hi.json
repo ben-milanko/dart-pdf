@@ -211,5 +211,24 @@
   "sdkPkgVlm_d": "Web, मोबाइल और डेस्कटॉप के लिए वैकल्पिक HTTP OCR इंजन। इसे किसी भी सेवा पर इंगित करें जो टेक्स्ट बॉक्स लौटाती है।",
   "sdk_foot_dartpdfApp": "DartPDF ऐप",
 
+  "nf_metaTitle": "पेज नहीं मिला - DartPDF",
+  "nf_metaDesc": "यह पेज मौजूद नहीं है। DartPDF पर लौटें - हर डिवाइस के लिए निजी, लोकल PDF एडिटर।",
+  "nf_h1": "यह पेज <span class=\"hl\">नहीं मिला।</span>",
+  "nf_lede": "हो सकता है लिंक पुराना हो या पेज कहीं और चला गया हो। आपकी PDF फ़ाइलें सुरक्षित हैं - वे कभी आपके डिवाइस से बाहर गई ही नहीं।",
+  "nf_ctaHome": "होम पर वापस जाएँ",
+  "nf_linksH2": "लोकप्रिय पेज",
+  "nf_linkFeatures": "विशेषताएँ",
+  "nf_linkFeaturesDesc": "एनोटेशन, OCR, फॉर्म, हस्ताक्षर, रिडैक्शन और टेक्स्ट एडिटिंग।",
+  "nf_linkDownload": "डाउनलोड",
+  "nf_linkDownloadDesc": "Windows, macOS, Linux, iOS और Android के लिए DartPDF पाएँ।",
+  "nf_linkSupport": "सहायता",
+  "nf_linkSupportDesc": "आम सवाल और बग बताने के लिए हमसे संपर्क कैसे करें।",
+  "nf_linkSdk": "Flutter PDF SDK",
+  "nf_linkSdkDesc": "व्यूअर और एडिटर को अपने Dart या Flutter ऐप में जोड़ें।",
+  "nf_linkPrivacy": "गोपनीयता",
+  "nf_linkPrivacyDesc": "कोई अकाउंट नहीं, कोई एनालिटिक्स नहीं, कोई अपलोड नहीं - यह रही नीति।",
+  "nf_linkSource": "सोर्स कोड",
+  "nf_linkSourceDesc": "पूरा इंजन और ऐप, Apache-2.0 के तहत ओपन सोर्स।",
+
   "lang_label": "भाषा"
 }

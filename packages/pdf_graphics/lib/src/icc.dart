@@ -331,6 +331,20 @@ class _Lut {
   /// mft2 stores Lab with the legacy 0xFF00 == 100.0 encoding.
   final bool legacyLab16;
 
+  /// Per-call scratch, allocated once per profile rather than per pixel.
+  /// [apply] runs on every pixel of an ICC-managed image - a CMYK press
+  /// profile made it the single most expensive step in a record serialize
+  /// (issue #451) - and it used to allocate four lists each time. It reads
+  /// its input and hands its output straight to the caller's conversion, so
+  /// one set of buffers serves the whole image. Not re-entrant, which
+  /// [apply]'s straight-line body guarantees.
+  late final Float64List _mapped = Float64List(inChannels);
+  late final Int32List _low = Int32List(inChannels);
+  late final Float64List _frac = Float64List(inChannels);
+  late final Float64List _out = Float64List(outChannels);
+  // The Lab branch writes three components regardless of outChannels.
+  late final Float64List _pcs = Float64List(math.max(outChannels, 3));
+
   static _Lut? parse(Uint8List bytes, int offset, {required bool pcsIsLab}) {
     final data = ByteData.sublistView(bytes);
     final type = String.fromCharCodes(bytes, offset, offset + 4);
@@ -468,21 +482,24 @@ class _Lut {
   /// Runs [values] through the pipeline; returns PCS values (Lab
   /// decoded to L 0..100 / a,b -128..127, or XYZ 0..~2).
   List<double> apply(List<double> values) {
-    final mapped = [
-      for (var c = 0; c < inChannels; c++)
-        _Curve._sample(inputCurves[c], values[c].clamp(0.0, 1.0)),
-    ];
+    final mapped = _mapped;
+    final low = _low;
+    final frac = _frac;
+    final out = _out;
+    for (var c = 0; c < inChannels; c++) {
+      mapped[c] = _Curve._sample(inputCurves[c], values[c].clamp(0.0, 1.0));
+    }
 
     // multilinear interpolation over the 2^n cell corners
-    final low = List<int>.filled(inChannels, 0);
-    final frac = List<double>.filled(inChannels, 0);
     for (var c = 0; c < inChannels; c++) {
       final g = gridPoints[c];
       final position = mapped[c] * (g - 1);
       low[c] = math.min(position.floor(), g - 2).clamp(0, g - 1);
       frac[c] = (position - low[c]).clamp(0.0, 1.0);
     }
-    final out = List<double>.filled(outChannels, 0);
+    for (var o = 0; o < outChannels; o++) {
+      out[o] = 0;
+    }
     final corners = 1 << inChannels;
     for (var corner = 0; corner < corners; corner++) {
       var weight = 1.0;
@@ -504,18 +521,24 @@ class _Lut {
       out[o] = _Curve._sample(outputCurves[o], out[o]);
     }
 
+    final pcs = _pcs;
     if (pcsIsLab) {
       if (legacyLab16) {
         // legacy 16-bit Lab: 0xFF00 is 100.0 / +127
-        return [
-          out[0] * 65535 / 652.80,
-          out[1] * 65535 / 256 - 128,
-          out[2] * 65535 / 256 - 128,
-        ];
+        pcs[0] = out[0] * 65535 / 652.80;
+        pcs[1] = out[1] * 65535 / 256 - 128;
+        pcs[2] = out[2] * 65535 / 256 - 128;
+        return pcs;
       }
-      return [out[0] * 100, out[1] * 255 - 128, out[2] * 255 - 128];
+      pcs[0] = out[0] * 100;
+      pcs[1] = out[1] * 255 - 128;
+      pcs[2] = out[2] * 255 - 128;
+      return pcs;
     }
     // XYZ: u16 0..0xFFFF spans 0..1.99997
-    return [for (final v in out) v * 65535 / 32768];
+    for (var o = 0; o < outChannels; o++) {
+      pcs[o] = out[o] * 65535 / 32768;
+    }
+    return pcs;
   }
 }
