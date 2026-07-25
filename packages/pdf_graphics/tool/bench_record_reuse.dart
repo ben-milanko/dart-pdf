@@ -5,9 +5,15 @@
 // device trace showed one page paying ~900ms of pure-Dart CMYK decode three
 // times, and ~6.9s of such decodes across seven records.
 //
-// This serializes each page twice with a shared PdfImageDecodeCache and once
-// without, and reports both the time and whether the bytes are identical -
-// reuse that changed a single byte would be a rendering change, not a
+// The records use DIFFERENT image pixel ratios, because that is what
+// production does: the repeat records of a page are a full-page pass and a
+// 128px thumbnail tile. An earlier version of this tool re-recorded at the
+// SAME ratio, which made an exact-match cache look like a 93% win and the
+// device trace then showed no win at all - the two records never asked for the
+// same target size.
+//
+// It reports the time and whether the bytes are identical to the uncached
+// record - reuse that changed a single byte would be a rendering change, not a
 // speed-up.
 //
 //   fvm dart tool/bench_record_reuse.dart <file.pdf> [--pages=2,3,29]
@@ -17,7 +23,10 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
-const _ratio = 2.0;
+/// The full-page record ratio, and the ratio a 128px thumbnail tile records
+/// at - the two a page actually gets recorded at within one scroll.
+const _pageRatio = 2.0;
+const _tilePx = 128.0;
 
 void main(List<String> args) {
   final paths = args.where((a) => !a.startsWith('--')).toList();
@@ -40,7 +49,7 @@ void main(List<String> args) {
   final doc = PdfDocument.open(bytes);
 
   stdout.writeln('\n${paths.first}\n');
-  stdout.writeln('   firstMs  secondMs  reuseMs   saved  identical  page');
+  stdout.writeln('    pageMs    tileMs  tileCachedMs   saved  identical  page');
 
   var totalFirst = 0.0, totalSecond = 0.0, totalReuse = 0.0;
   for (var i = 0; i < doc.pageCount; i++) {
@@ -57,43 +66,50 @@ void main(List<String> args) {
     final commands = recorder.commands;
     if (recorder.imageRequests.isEmpty) continue;
 
-    Uint8ListOrNull run(PdfImageDecodeCache? cache, void Function(double) sink) {
+    final box = page.cropBox;
+    final tileRatio = box.width > 0 ? _tilePx / box.width : _pageRatio;
+
+    Uint8ListOrNull run(
+        double ratio, PdfImageDecodeCache? cache, void Function(double) sink) {
       final sw = Stopwatch()..start();
       final out = serializeCommands(commands,
           cos: cos,
           decodeImages: true,
-          maxImagePixelRatio: _ratio,
+          maxImagePixelRatio: ratio,
+          pageRasterPixels: pdfPageRasterPixels(box, ratio),
           imageCache: cache);
       sw.stop();
       sink(sw.elapsedMicroseconds / 1000);
       return out;
     }
 
-    // Uncached: the cost every record pays today.
-    var firstMs = 0.0, secondMs = 0.0, reuseMs = 0.0;
-    final a = run(null, (ms) => firstMs = ms);
-    final b = run(null, (ms) => secondMs = ms);
-    // Cached: the first record fills it, the second reuses.
+    // Uncached, the production sequence: a full-page record, then the
+    // thumbnail tile record that follows it.
+    var pageMs = 0.0, tileMs = 0.0, cachedMs = 0.0;
+    run(_pageRatio, null, (ms) => pageMs = ms);
+    final tile = run(tileRatio, null, (ms) => tileMs = ms);
+    // Same sequence sharing one cache: the page record fills it, and the tile
+    // record - at a DIFFERENT ratio - is the one that has to reuse.
     final cache = PdfImageDecodeCache();
-    run(cache, (_) {});
-    final c = run(cache, (ms) => reuseMs = ms);
-    if (a == null || b == null || c == null) continue;
+    run(_pageRatio, cache, (_) {});
+    final tileCached = run(tileRatio, cache, (ms) => cachedMs = ms);
+    if (tile == null || tileCached == null) continue;
 
-    final identical = _sameBytes(b, c);
-    totalFirst += firstMs;
-    totalSecond += secondMs;
-    totalReuse += reuseMs;
-    stdout.writeln('  ${_ms(firstMs)} ${_ms(secondMs)} ${_ms(reuseMs)}  '
-        '${'${(100 - reuseMs / secondMs * 100).round()}%'.padLeft(6)}  '
+    final identical = _sameBytes(tile, tileCached);
+    totalFirst += pageMs;
+    totalSecond += tileMs;
+    totalReuse += cachedMs;
+    stdout.writeln('  ${_ms(pageMs)} ${_ms(tileMs)} ${_ms(cachedMs)}  '
+        '${'${(100 - cachedMs / tileMs * 100).round()}%'.padLeft(6)}  '
         '${(identical ? 'yes' : 'NO').padLeft(9)}  p$i '
         '(${recorder.imageRequests.length} images, '
         'cache ${cache.hits}h/${cache.misses}m)');
   }
 
-  stdout.writeln('\n  re-record uncached ${_round(totalSecond)}ms '
-      '-> cached ${_round(totalReuse)}ms '
-      '(${(100 - totalReuse / totalSecond * 100).round()}% less), '
-      'first record ${_round(totalFirst)}ms either way.');
+  stdout.writeln('\n  thumbnail record after a full-page record: '
+      '${_round(totalSecond)}ms uncached -> ${_round(totalReuse)}ms cached '
+      '(${(100 - totalReuse / totalSecond * 100).round()}% less). '
+      'The full-page record itself is ${_round(totalFirst)}ms either way.');
 }
 
 typedef Uint8ListOrNull = List<int>?;

@@ -6,6 +6,7 @@
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:test/test.dart';
 
@@ -156,6 +157,20 @@ void main() {
       expect(cache.bytes, 0);
     });
 
+    test('get/put serve the async browser-codec path', () {
+      // The web worker's codec decode is asynchronous, so it cannot run
+      // through decode()'s synchronous callback - it uses get/put around its
+      // own await. Native resolution, so one entry serves every record.
+      final cache = PdfImageDecodeCache();
+      final stream = _stream(1);
+      expect(cache.get(stream, null, null), isNull);
+      cache.put(stream, null, null, _pixels(9));
+      expect(cache.get(stream, null, null)!.rgba.first, 9);
+      // Re-putting the same key must not double-count the bytes.
+      cache.put(stream, null, null, _pixels(9));
+      expect(cache.bytes, 16);
+    });
+
     test('clear drops everything', () {
       final cache = PdfImageDecodeCache();
       final stream = _stream(1);
@@ -169,6 +184,46 @@ void main() {
         return _pixels(1);
       });
       expect(decodes, 1);
+    });
+  });
+
+  group('pdfImageDecodeIgnoresTarget (#451)', () {
+    CosStream streamWith(CosObject filter) => CosStream(
+          CosDictionary({
+            'Width': const CosInteger(4),
+            'Height': const CosInteger(4),
+            'Filter': filter,
+          }),
+          Uint8List(0),
+        );
+
+    // Decides whether a retained native decode may be downsampled to serve a
+    // smaller request. True only where the decoder has no scaled fast path and
+    // already does a full decode plus downsample itself.
+    test('true for DCTDecode - it has no scaled decode path', () {
+      final cos = CosDocument.open(buildClassicPdf());
+      expect(pdfImageDecodeIgnoresTarget(cos, streamWith(const CosName('DCTDecode'))),
+          isTrue);
+      expect(
+          pdfImageDecodeIgnoresTarget(
+              cos,
+              streamWith(CosArray([
+                const CosName('FlateDecode'),
+                const CosName('DCTDecode'),
+              ]))),
+          isTrue,
+          reason: 'a wrapped DCT stream still ends at the DCT decoder');
+    });
+
+    test('false where a scaled decode path exists', () {
+      // Serving these from a downsample would substitute different pixels for
+      // the ones their own scaled decoder produces.
+      final cos = CosDocument.open(buildClassicPdf());
+      for (final filter in ['FlateDecode', 'CCITTFaxDecode', 'JPXDecode']) {
+        expect(pdfImageDecodeIgnoresTarget(cos, streamWith(CosName(filter))),
+            isFalse,
+            reason: filter);
+      }
     });
   });
 }

@@ -52,7 +52,34 @@ the colour pass by ~25× too — but it needs a reduced-IDCT decode
 approximation shortcut (downsampling CMYK planes *before* the colour
 transform) changes pixels and wants its own decision.
 
-## What landed instead
+## First attempt: exact-match only, and it did nothing
+
+The cache first shipped **exact-match only** - reuse an entry solely for the
+same stream at the same requested target size, never downsampling a larger
+entry, on the grounds that formats with a genuinely scaled decode path would
+get different pixels. A bench re-recorded each page twice and reported
+**93% off the second record**.
+
+The device trace on that build showed **no win at all**:
+
+```
+[29994] p2 worker=2 serialize=876ms  decodedMpx=0.4  cmyk:1  transcript=miss
+[32677] p2 worker=2 serialize=884ms  decodedMpx=1.4  cmyk:1  transcript=hit
+```
+
+Same page, same worker, same declined CMYK image, ~880 ms twice. Look at
+`decodedMpx`: 0.4 against 1.4. A page's repeat records are a full-page pass
+and a 128 px thumbnail tile, **at different image pixel ratios by
+construction** - so they never ask for the same target and exact match never
+fires on the records that matter.
+
+The fault was in the bench, not the trace: it re-recorded at the *same*
+ratio, which is a sequence production never performs. A measurement that
+does not reproduce the shape of the real workload will confirm anything.
+`tool/bench_record_reuse.dart` now records at a page ratio and then a tile
+ratio, the pair that actually occurs.
+
+## What landed
 
 `PdfImageDecodeCache` (`image_decode_cache.dart`) — a bounded LRU threaded
 through `serializeCommands` as an optional `imageCache:`, owned one-per-open-
@@ -80,39 +107,52 @@ New tool **`tool/bench_record_reuse.dart`** serializes each page twice with
 a shared cache and twice without, and checks the bytes:
 
 ```
-   firstMs  secondMs  reuseMs   saved  identical  page
-      57.9      17.0       4.5     74%        yes  p1
-     251.8     224.6      10.1     95%        yes  p2
-     222.4     214.2      15.4     93%        yes  p3
-      17.7      25.4       4.4     83%        yes  p8
-     244.3     230.6       9.8     96%        yes  p29
-       8.1       7.4       2.8     62%        yes  p30
-       8.9      10.7       2.9     73%        yes  p31
+    pageMs    tileMs  tileCachedMs   saved  identical  page
+     105.4      12.1       10.5      13%        yes  p1
+     298.9     224.2        9.1      96%        yes  p2
+     223.6     220.5       21.3      90%        yes  p3
+      37.8      46.6       15.2      67%        yes  p8
+     287.5     249.4       22.9      91%        yes  p29
+      14.5      14.6        6.7      54%        yes  p30
+       9.2      30.1       26.6      12%        yes  p31
 
-  re-record uncached 729.8ms -> cached 49.9ms (93% less),
-  first record 811.2ms either way.
+  thumbnail record after a full-page record: 797.5ms uncached ->
+  112.4ms cached (86% less). The full-page record itself is 977.1ms
+  either way.
 ```
 
-**The saving lands exactly on the pages the device trace flagged** — 2, 3
-and 29, the CMYK ones, at 93–96%. The first record of a page is unchanged;
-this only removes repetition.
+**The saving lands exactly on the pages the device trace flagged** - 2, 3
+and 29, the CMYK ones, at 90-96%. The first record of a page is unchanged;
+this only removes repetition. Pages 1 and 31 barely move, which is the
+honest shape: their images are cheap and there is little to reuse.
 
 Byte-identical on every page, which is the claim that matters.
 
 ## Testing note
 
-Eight unit tests on the cache (reuse, size-keyed separation, native as its
-own key, identity not equality, declines uncached, LRU eviction, oversize
-bypass, clear) plus one codec-level test that pins the integration — the
-unit tests would all pass against a codec that never consulted the cache it
-was handed. That test was confirmed to fail against exactly that mutation.
+Eleven unit tests on the cache and the predicate, plus two codec-level tests
+that pin the integration - the unit tests would all pass against a codec that
+never consulted the cache it was handed.
 
-pdf_graphics 966, dart_pdf_editor 1989, analyzer clean.
+Both codec tests needed a second attempt, and both times for the same reason:
+**a fixture too small to trip the resolution cap**. A 2x2 image decodes
+identically at every ratio, so the cross-ratio test passed against a codec
+that applied the native-downsample route to *every* format. It now uses a
+64x64 gradient drawn into a 64pt box, where ratio 2.0 is a no-op and ratio
+0.2 binds - and it asserts the routing structurally (a non-DCT stream must
+never be retained natively) rather than hoping two formats disagree on
+pixels. Confirmed to fail against the dropped-predicate mutation.
+
+pdf_graphics 970, dart_pdf_editor 1989, zero Ghent baseline movement,
+analyzer clean.
 
 ## What is left
 
 1. **A scaled DCT decode** — the 69%/31% split above says it is the largest
    remaining single lever on this document, and it is the only thing that
    makes a 128 px thumbnail cheaper than a full-page record.
-2. The device trace's `wait=` is still 274–1883 ms; this change attacks the
+2. The device trace's `wait=` is still 274-2652 ms; this change attacks the
    worker's repeated work, not the queue depth that produces it.
+3. Both caches are per-worker, and the page-to-worker affinity that makes
+   them hit is incidental rather than guaranteed. A page that migrates
+   between workers pays full price again.

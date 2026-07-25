@@ -593,6 +593,7 @@ Future<Uint8List?> _recordPageAsync(
     final tally = timings == null ? null : _BrowserDecodeTally();
     commands = await _withBrowserDecodedImages(
       document.cos,
+      imageCache,
       commands,
       token,
       tally,
@@ -712,6 +713,7 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
   final tally = timings == null ? null : _BrowserDecodeTally();
   sourceCommands = await _withBrowserDecodedImages(
     document.cos,
+    imageCache,
     sourceCommands,
     token,
     tally,
@@ -796,6 +798,7 @@ Future<Uint8List?> _buildRegionIndexAsync(
 
 Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
   CosDocument cos,
+  PdfImageDecodeCache imageCache,
   List<PdfRenderCommand> commands,
   PdfCancellationToken token,
   _BrowserDecodeTally? tally,
@@ -810,8 +813,19 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
           out.add(command);
           continue;
         }
-        final decoded =
-            await _decodeWithBrowserCodec(cos, request.stream, tally);
+        // The browser codec decodes at native resolution with no target, so
+        // one entry per stream serves every record of the page. Uncached, a
+        // page recorded three times in a scroll ran the codec three times -
+        // ~330-630ms each in the device trace (#451).
+        var decoded = imageCache.get(request.stream, null, null);
+        if (decoded == null) {
+          decoded = await _decodeWithBrowserCodec(cos, request.stream, tally);
+          if (decoded != null) {
+            imageCache.put(request.stream, null, null, decoded);
+          }
+        } else {
+          tally?.reused();
+        }
         if (decoded == null) {
           out.add(command);
         } else {
@@ -828,6 +842,7 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
       ):
         final decodedMaskCommands = await _withBrowserDecodedImages(
           cos,
+          imageCache,
           maskCommands,
           token,
           tally,
@@ -1036,18 +1051,26 @@ List<String> _browserImageDecodeMissing() => <String>[
 /// phase log, which the perf harness scans for fatal-error markers.
 class _BrowserDecodeTally {
   int codec = 0;
+
+  /// Images served from a previous record's decode instead of re-running the
+  /// codec (#451). Reported separately so a trace shows the reuse directly
+  /// rather than as an unexplained drop in `codec=`.
+  int reusedCount = 0;
   final Map<String, int> _declined = <String, int>{};
 
   void decline(String reason) =>
       _declined[reason] = (_declined[reason] ?? 0) + 1;
 
+  void reused() => reusedCount++;
+
   String format() {
     final declined = _declined.values.fold(0, (a, b) => a + b);
-    if (codec == 0 && declined == 0) return 'none';
-    if (declined == 0) return 'codec=$codec';
+    if (codec == 0 && declined == 0 && reusedCount == 0) return 'none';
+    final reuse = reusedCount == 0 ? '' : ' reused=$reusedCount';
+    if (declined == 0) return 'codec=$codec$reuse';
     final reasons =
         _declined.entries.map((e) => '${e.key}:${e.value}').join(',');
-    return 'codec=$codec declined=$declined($reasons)';
+    return 'codec=$codec$reuse declined=$declined($reasons)';
   }
 }
 

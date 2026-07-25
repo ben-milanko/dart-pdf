@@ -725,17 +725,30 @@ _CommandImage? _decodeImageForCommand(
       // stream supports it, else a full decode downsampled to the target
       // (equivalent to a full decode through _capImageResolution, which caps
       // to the same cappedImagePixelSize).
-      // Cached by (stream, exact target), so the second record of a page
-      // reuses the first record's pixels instead of decoding again (#451).
-      final scaled = imageCache == null
-          ? decodePdfImage(document, request.stream,
-              targetWidth: target.$1, targetHeight: target.$2)
-          : imageCache.decode(
-              request.stream,
-              target.$1,
-              target.$2,
-              () => decodePdfImage(document, request.stream,
-                  targetWidth: target.$1, targetHeight: target.$2));
+      // Reuse a retained decode where one applies (#451). A page's repeat
+      // records use *different* image pixel ratios - a full-page pass and a
+      // 128px thumbnail tile - so exact-match reuse alone almost never fires
+      // on the records that matter. For a stream whose decoder ignores the
+      // target anyway, retain the native decode and downsample it here, which
+      // is precisely what decodePdfImage(target) does internally.
+      final PdfDecodedPixels? scaled;
+      if (imageCache == null) {
+        scaled = decodePdfImage(document, request.stream,
+            targetWidth: target.$1, targetHeight: target.$2);
+      } else if (pdfImageDecodeIgnoresTarget(document, request.stream)) {
+        final full = imageCache.decode(request.stream, null, null,
+            () => decodePdfImagePixels(document, request.stream));
+        scaled = full == null
+            ? null
+            : downsamplePdfDecodedPixels(full, target.$1, target.$2);
+      } else {
+        scaled = imageCache.decode(
+            request.stream,
+            target.$1,
+            target.$2,
+            () => decodePdfImage(document, request.stream,
+                targetWidth: target.$1, targetHeight: target.$2));
+      }
       if (scaled != null) {
         return _CommandImage(
             _copyImageRequest(request, decoded: scaled), scaled);

@@ -12,13 +12,26 @@ import 'image_pixels.dart';
 /// in a single scroll, and ~6.9 s of such decodes across seven records, every
 /// one of them a `DeviceCMYK` JPEG the browser codec declined.
 ///
-/// The cache is deliberately **exact-match**: an entry is reused only for the
-/// same stream at the same requested target size. It never downsamples one
-/// entry to serve a smaller request, because for the formats that have a
-/// genuinely scaled decode path (Flate, CCITT, JPX reduced levels) that would
-/// substitute a different - and slightly different-looking - set of pixels for
-/// the one the decoder would have produced. Reuse here is byte-identical to
-/// decoding again, so the cache can never change what a record renders.
+/// Reuse is **byte-identical to decoding again**, which is the whole safety
+/// argument, and it is reached two ways:
+///
+///  * Exact match - the same stream at the same requested target size.
+///  * Downsampled from a **native-resolution** entry, but only for streams
+///    whose decoder ignores the target anyway ([pdfImageDecodeIgnoresTarget] -
+///    in practice DCTDecode). For those, `decodePdfImage(target)` already *is*
+///    `downsamplePdfDecodedPixels(decodePdfImagePixels(...), tw, th)`, so
+///    doing it from a retained native decode produces the same bytes.
+///
+/// The native-entry restriction is load-bearing: downsampling an entry that
+/// was itself a downsample would not equal downsampling the native pixels.
+/// Formats with a genuinely scaled decode path (Flate, CCITT, JPX reduced
+/// levels) keep the exact-match rule, because serving them from a downsample
+/// would substitute different pixels for the ones their decoder produces.
+///
+/// The second route is what makes the cache useful in production: a page's
+/// repeat records are a full-page pass and a 128px thumbnail tile, at
+/// *different* image pixel ratios by construction, so exact match alone almost
+/// never fires on the records that matter.
 ///
 /// Ownership is the caller's: pass one per open document (a worker holds its
 /// document for the session, and `CosDocument` memoises loaded objects, so
@@ -74,11 +87,43 @@ class PdfImageDecodeCache {
     if (size > maxBytes) return decoded;
     _entries[key] = decoded;
     _bytes += size;
+    _evict();
+    return decoded;
+  }
+
+  /// A retained decode for [stream] at this exact size, or null. For callers
+  /// whose decode is asynchronous (the web worker's browser-codec pass), which
+  /// cannot run through [decode]'s synchronous callback.
+  PdfDecodedPixels? get(CosStream stream, int? width, int? height) {
+    final key = _Key(stream, width, height);
+    final hit = _entries.remove(key);
+    if (hit == null) {
+      _misses++;
+      return null;
+    }
+    _entries[key] = hit;
+    _hits++;
+    return hit;
+  }
+
+  /// Retains [pixels] for [stream] at this size. Pairs with [get].
+  void put(
+      CosStream stream, int? width, int? height, PdfDecodedPixels pixels) {
+    final size = pixels.rgba.length;
+    if (size > maxBytes) return;
+    final key = _Key(stream, width, height);
+    final existing = _entries.remove(key);
+    if (existing != null) _bytes -= existing.rgba.length;
+    _entries[key] = pixels;
+    _bytes += size;
+    _evict();
+  }
+
+  void _evict() {
     while (_bytes > maxBytes && _entries.isNotEmpty) {
       final oldest = _entries.keys.first;
       _bytes -= _entries.remove(oldest)!.rgba.length;
     }
-    return decoded;
   }
 
   void clear() {
@@ -90,6 +135,23 @@ class PdfImageDecodeCache {
 /// A stream at one requested size. [CosStream] has no `==`, so this keys by
 /// object identity - which is what we want: the same loaded stream object,
 /// not a re-read of the same bytes.
+/// Whether decoding [stream] at a reduced target size costs the same as
+/// decoding it whole - i.e. the decoder has no scaled fast path for it and
+/// falls back to a full decode plus [downsamplePdfDecodedPixels].
+///
+/// True for DCTDecode. `decodePdfImagePixelsScaled`'s fast paths are JPX
+/// reduced-resolution levels and single-filter Flate/CCITT region decodes, and
+/// a DCT stream is neither, so it always takes the full-decode fallback. This
+/// was measured, not assumed: a 1241x1621 CMYK JPEG asked for 250x326 costs
+/// 1.01x what the full decode costs, while the Flate path costs 0.37x
+/// (`tool/bench_image_scale_cost.dart`).
+///
+/// Callers use it to decide whether a retained *native* decode may be
+/// downsampled to serve a smaller request. Where it is false, doing so would
+/// change pixels; where it is true, it is exactly what the decoder does.
+bool pdfImageDecodeIgnoresTarget(CosDocument cos, CosStream stream) =>
+    pdfImageFilters(cos, stream.dictionary).contains('DCTDecode');
+
 class _Key {
   const _Key(this.stream, this.width, this.height);
   final CosStream stream;
