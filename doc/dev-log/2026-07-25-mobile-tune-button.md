@@ -24,7 +24,16 @@ quick swatches beside the gear (three when there's no gear). That keeps the
 whole cluster - undo/redo, tool label, swatches, tune, Tools handle -
 inside a narrow phone dock.
 
+A selected annotation gets it too: the dock's `hasAnnotationSelection`
+branch (delete + optional edit-text) now appends
+`_tuneTrailing(context, _selectionStyleFields())` - the same builder the
+desktop selection strip uses - so a selected shape/free-text can be
+restyled (stroke/opacity/font/colour) from the phone dock. Form-field
+selections already carried a style entry via their "more" sheet
+(`pdf-selected-form-style`), so that path is unchanged.
+
 Tests: `editing_mobile_tune_test.dart` (gear absent at rest, present once a
-stroke tool is armed, opens the sliders); the existing
+stroke tool is armed, present for a selected annotation, opens the sliders
+in both cases with no dock overflow); the existing
 `editing_mobile_toolbar_test.dart` swatch/selection assertions still hold
 (they only check swatch-0).

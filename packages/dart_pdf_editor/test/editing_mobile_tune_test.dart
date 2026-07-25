@@ -1,6 +1,7 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -48,6 +49,28 @@ void main() {
     expect(find.byIcon(Icons.tune), findsOneWidget);
 
     // and it opens the style popup's stroke/opacity sliders
+    await tester.tap(find.byIcon(Icons.tune));
+    await tester.pumpAndSettle();
+    expect(find.byType(Slider), findsWidgets);
+  });
+
+  testWidgets('the mobile dock shows the tune button for a selected annotation',
+      (tester) async {
+    final (editing, _) = await pumpMobileToolbar(tester);
+
+    // draw a shape and select it - the dock now carries delete + tune
+    editing.addEllipse(0, const PdfRect(100, 600, 300, 700));
+    await tester.pump();
+    expect(editing.selectAnnotation(0, 0), isTrue);
+    await tester.pump();
+
+    expect(find.byIcon(Icons.delete_outline), findsOneWidget);
+    expect(find.byIcon(Icons.tune), findsOneWidget,
+        reason: 'a selected annotation can be restyled from the dock');
+    expect(tester.takeException(), isNull,
+        reason: 'the selection actions + tune fit the narrow dock');
+
+    // the popup restyles the selection
     await tester.tap(find.byIcon(Icons.tune));
     await tester.pumpAndSettle();
     expect(find.byType(Slider), findsWidgets);

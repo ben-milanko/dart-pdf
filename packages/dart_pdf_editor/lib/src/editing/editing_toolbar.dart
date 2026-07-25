@@ -2256,6 +2256,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             visualDensity: VisualDensity.compact,
             onPressed: () => _editSelectedText(context),
           ),
+        // the tune popup restyles the selection (stroke/opacity/font/colour) -
+        // reachable from the dock, mirroring the desktop selection strip
+        ..._tuneTrailing(context, _selectionStyleFields()),
       ];
     }
     if (controller.selectedElement != null) {
