@@ -125,16 +125,21 @@ echo "==> Resolving workspace"
 echo "==> Static analysis"
 "${DART[@]}" analyze --fatal-infos
 
-# Regenerate the bundled web render worker so dart_pdf_editor_assets ships a
-# fresh bundle. It is a `dart compile js` artifact that is NOT committed to git
-# (issue #582); the deploy workflows already regenerate it before every web
-# build, and this is the publish-side equivalent. The assets package's
-# .pubignore re-includes the (gitignored) output in the published archive.
-# Done before the dry-run too, so `pub publish --dry-run` sees the declared
-# asset. Mirrors app/tool/build_web.sh and the deploy workflows.
+# Regenerate the real bundled web render worker so dart_pdf_editor_assets ships
+# it instead of the committed placeholder. The real worker is a ~1 MB
+# `dart compile js` artifact that is NOT committed (issue #582) - only a small
+# placeholder is, so the declared Flutter asset always exists; the deploy
+# workflows regenerate it before every web build and this is the publish-side
+# equivalent. Restore the placeholder on exit (`git checkout`) so a release run
+# never leaves the ~1 MB blob in the working tree. Mirrors app/tool/build_web.sh
+# and the deploy workflows.
+WORKER_ASSET=packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
+restore_worker_placeholder() {
+  git checkout -- "$WORKER_ASSET" 2>/dev/null || true
+}
+trap restore_worker_placeholder EXIT
 echo "==> Regenerating the bundled web render worker asset"
-"${DART[@]}" run dart_pdf_editor:build_web_worker \
-  --out packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
+"${DART[@]}" run dart_pdf_editor:build_web_worker --out "$WORKER_ASSET"
 
 validate_package_list
 

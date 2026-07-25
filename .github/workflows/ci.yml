@@ -123,16 +123,19 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
-  # The bundled web render worker
+  # The real bundled web render worker
   # (`packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js`) is a
-  # `dart compile js` artifact that is NOT committed to git (issue #582): it is
-  # regenerated at publish (tool/release.sh), at every web deploy/preview/release,
-  # and for local web builds (app/tool/build_web.sh). There is therefore nothing
-  # to keep in sync, and the old regenerate-and-push machinery (issues #411/#422:
-  # the concurrency group, tool/ci/regen_web_worker.sh, and WORKER_REGEN_TOKEN) is
-  # gone. This job keeps the one real value that machinery had: proving the worker
-  # still COMPILES, which catches `.toJS`-conversion / dart2js errors that
-  # `dart analyze` misses (async message handlers). The output is discarded.
+  # ~1 MB `dart compile js` artifact that is NO LONGER committed (issue #582):
+  # only a small stable placeholder is checked in (so the declared Flutter asset
+  # always exists for analyze + every native/web build), and the real bundle is
+  # regenerated over it at publish (tool/release.sh), at every web deploy/
+  # preview/release, and for local web builds (app/tool/build_web.sh). There is
+  # therefore nothing to keep in sync, and the old regenerate-and-push machinery
+  # (issues #411/#422: the concurrency group, tool/ci/regen_web_worker.sh, and
+  # WORKER_REGEN_TOKEN) is gone. This job keeps that machinery's one real value -
+  # proving the worker still COMPILES, catching `.toJS`-conversion / dart2js
+  # errors `dart analyze` misses (async message handlers) - and guards that the
+  # committed file stays the placeholder, so the real blob is never re-committed.
   worker-compiles:
     runs-on: ubuntu-latest
     steps:
@@ -142,6 +145,20 @@ jobs:
           flutter-version: 3.44.4
           channel: stable
           cache: true
+      # Guard: the checked-in worker asset must stay the small placeholder, not
+      # a committed ~1 MB build (the whole point of #582). 8 KB is far above the
+      # ~1.5 KB placeholder and far below the ~1 MB real bundle.
+      - name: Guard the committed worker stays a placeholder
+        run: |
+          asset=packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
+          size=$(wc -c < "$asset")
+          echo "committed worker placeholder is ${size} bytes"
+          if [ "$size" -gt 8192 ]; then
+            echo "::error::$asset is ${size} bytes - the real dart2js bundle was" \
+              "committed. Restore the placeholder (git checkout $asset); the real" \
+              "worker is generated at publish/deploy/build, never committed (#582)."
+            exit 1
+          fi
       - run: flutter pub get
       - name: Compile the bundled web render worker (output discarded)
         run: |

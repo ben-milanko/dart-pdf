@@ -23,16 +23,16 @@ test_corpora/ghent/_renders/
 packages/dart_pdf_editor/tool/pdfjs_baseline/node_modules/
 packages/dart_pdf_editor/tool/pdfjs_baseline/package-lock.json
 
-# Generated web render worker bundles (`dart compile js` output of
-# `dart run dart_pdf_editor:build_web_worker`). NOT committed - regenerated at
-# the three points that consume it: pub publish (tool/release.sh, with the
-# assets package .pubignore re-including it in the archive), the web deploy /
-# preview / release workflows, and local web builds (app/tool/build_web.sh).
-# See issue #582 and doc/render_worker_web.md.
-packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js
+# Build siblings of the web render worker (`dart compile js` output of
+# `dart run dart_pdf_editor:build_web_worker`). The `.js.deps` in particular
+# leaked absolute local pub-cache paths, and the `.js.map` is a large generated
+# artifact - neither is ever committed. The `.js` itself is NOT ignored: a small
+# stable placeholder is committed so the DECLARED Flutter asset always exists
+# (analyze + every native/web build need it), and the real ~1 MB bundle is
+# regenerated over it at publish/deploy/local-web-build, never committed. See
+# issue #582 and doc/render_worker_web.md.
 packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js.map
 packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js.deps
-packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
 packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js.map
 packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js.deps
 
