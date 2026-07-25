@@ -189,6 +189,10 @@ class _GraphCopier {
     if (ref != null) objectsWritten++;
     srcDict.entries.forEach((key, item) {
       if (key == 'Length') return; // recomputed below
+      // When we impose FlateDecode, drop any decode params the (unfiltered)
+      // source carried: a stray /DecodeParms would otherwise be paired with
+      // our fresh deflate output and mis-applied by the reader.
+      if (addFlate && (key == 'DecodeParms' || key == 'DP')) return;
       out.dictionary[key] = copyValue(item);
     });
     if (addFlate) out.dictionary['Filter'] = const CosName('FlateDecode');

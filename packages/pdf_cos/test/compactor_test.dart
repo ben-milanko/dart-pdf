@@ -87,6 +87,50 @@ void main() {
       expect(compacted.decodeStreamData(stream), payload);
     });
 
+    test('drops stale /DecodeParms when it imposes FlateDecode', () {
+      // an unfiltered stream that (malformed) also carries decode params: the
+      // params must not survive onto our re-deflated payload.
+      final payload = Uint8List.fromList(List.filled(4000, 0x42));
+      final builder = CosDocumentBuilder();
+      final pages = CosDictionary({'Type': const CosName('Pages')});
+      final pagesRef = builder.add(pages);
+      final content = builder.add(CosStream(
+        CosDictionary({
+          'DecodeParms': CosDictionary({'Predictor': const CosInteger(12)}),
+        }),
+        payload,
+      ));
+      final page = builder.add(CosDictionary({
+        'Type': const CosName('Page'),
+        'Parent': pagesRef,
+        'Contents': content,
+        'MediaBox': CosArray([
+          const CosInteger(0),
+          const CosInteger(0),
+          const CosInteger(200),
+          const CosInteger(300),
+        ]),
+      }));
+      pages['Kids'] = CosArray([page]);
+      pages['Count'] = const CosInteger(1);
+      final catalog = builder.add(CosDictionary(
+          {'Type': const CosName('Catalog'), 'Pages': pagesRef}));
+      final doc = CosDocument.open(builder.build(root: catalog));
+
+      final result = CosCompactor(doc).run();
+      expect(result.streamsDeflated, greaterThanOrEqualTo(1));
+
+      final compacted = CosDocument.open(result.bytes);
+      final leaf = compacted
+          .resolve((compacted.resolve((compacted.resolve(compacted
+                          .catalog['Pages']) as CosDictionary)['Kids'])
+                  as CosArray)[0])
+          as CosDictionary;
+      final stream = compacted.resolve(leaf['Contents']) as CosStream;
+      expect(stream.dictionary['DecodeParms'], isNull);
+      expect(compacted.decodeStreamData(stream), payload);
+    });
+
     test('shrinks a classic, uncompressed multi-page file', () {
       final original = buildMultiPagePdf(24);
       final doc = CosDocument.open(original);
