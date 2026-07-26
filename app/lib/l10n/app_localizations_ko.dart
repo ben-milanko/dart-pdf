@@ -953,4 +953,13 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get appSigErrorNoCertificateFound => 'X.509 인증서를 찾을 수 없습니다.';
+
+  @override
+  String get imageSourceTakePhoto => '사진 촬영';
+
+  @override
+  String get imageSourceChooseFile => '파일 선택';
+
+  @override
+  String get imageSourceCameraFailed => '사진을 촬영하지 못했습니다';
 }

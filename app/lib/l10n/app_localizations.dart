@@ -1578,6 +1578,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No X.509 certificates were found.'**
   String get appSigErrorNoCertificateFound;
+
+  /// Bottom-sheet option (mobile only) that photographs the picture to insert with the device camera.
+  ///
+  /// In en, this message translates to:
+  /// **'Take photo'**
+  String get imageSourceTakePhoto;
+
+  /// Bottom-sheet option (mobile only) that picks the picture to insert from a file instead of the camera.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose file'**
+  String get imageSourceChooseFile;
+
+  /// Toast shown when the camera cannot be opened - no camera on the device, or access refused.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t take a photo'**
+  String get imageSourceCameraFailed;
 }
 
 class _AppLocalizationsDelegate

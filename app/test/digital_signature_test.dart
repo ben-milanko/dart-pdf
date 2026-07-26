@@ -509,7 +509,7 @@ void main() {
                 createSelfSignedIdentity: (context, store) async =>
                     PdfSigningIdentity.generate(name: 'Ada Lovelace'),
                 placement: (page: 0, rect: const PdfRect(72, 640, 320, 720)),
-                logoPicker: () async => logo,
+                logoPicker: (_) async => logo,
                 pageCount: 4,
               );
             },
@@ -579,7 +579,7 @@ void main() {
                 createSelfSignedIdentity: (context, s) async =>
                     PdfSigningIdentity.generate(name: 'Ada Lovelace'),
                 placement: (page: 0, rect: const PdfRect(72, 640, 320, 720)),
-                logoPicker: () async => logo,
+                logoPicker: (_) async => logo,
                 appearanceStore: store,
               ),
               child: const Text('Open'),

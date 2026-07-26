@@ -986,4 +986,13 @@ class AppLocalizationsEs extends AppLocalizations {
   @override
   String get appSigErrorNoCertificateFound =>
       'No se encontraron certificados X.509.';
+
+  @override
+  String get imageSourceTakePhoto => 'Hacer foto';
+
+  @override
+  String get imageSourceChooseFile => 'Elegir archivo';
+
+  @override
+  String get imageSourceCameraFailed => 'No se pudo hacer la foto';
 }

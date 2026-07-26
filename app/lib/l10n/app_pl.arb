@@ -240,5 +240,8 @@
   "updateDownloadingPercent": "Pobieranie… {percent}%",
   "updateRestarting": "Ponowne uruchamianie, aby dokończyć aktualizację…",
   "updateHandedOff": "Pobrano aktualizację. Otwieranie instalatora…",
-  "updateFailed": "Aktualizacja nie powiodła się: {error}"
+  "updateFailed": "Aktualizacja nie powiodła się: {error}",
+  "imageSourceTakePhoto": "Zrób zdjęcie",
+  "imageSourceChooseFile": "Wybierz plik",
+  "imageSourceCameraFailed": "Nie udało się zrobić zdjęcia"
 }

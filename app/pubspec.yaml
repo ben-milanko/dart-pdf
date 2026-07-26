@@ -66,6 +66,14 @@ dependencies:
   # pubspec version above), so the About box can't drift from the release.
   package_info_plus: ^10.2.1
   web: ^1.1.1
+  # The camera source for the image tool on phones and tablets - the OS file
+  # picker cannot offer one (see lib/image_source_picker.dart). Needs
+  # NSCameraUsageDescription in ios/Runner/Info.plist.
+  image_picker: ^1.2.3
+  # Re-encodes a camera capture whose EXIF says it is rotated: PDF embeds JPEG
+  # bytes verbatim and has no orientation tag, so the rotation has to be baked
+  # into the pixels (lib/camera_capture.dart).
+  image: ^4.9.1
 
 dev_dependencies:
   flutter_test:
@@ -93,6 +101,9 @@ dev_dependencies:
   # behaviour can be tested against a real filesystem (see
   # test/unsaved_changes_store_io_test.dart).
   path_provider_platform_interface: ^2.1.0
+  # Lets the widget tests stand in for the camera the way they already stand in
+  # for the file picker.
+  image_picker_platform_interface: ^2.11.1
 
 # Microsoft Store MSIX packaging. Only the account-neutral settings live here;
 # the three Partner Center identity values (identity_name, publisher,

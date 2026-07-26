@@ -240,5 +240,8 @@
   "updateDownloadingPercent": "Завантаження… {percent}%",
   "updateRestarting": "Перезапуск для завершення оновлення…",
   "updateHandedOff": "Оновлення завантажено. Відкриття інсталятора…",
-  "updateFailed": "Не вдалося оновити: {error}"
+  "updateFailed": "Не вдалося оновити: {error}",
+  "imageSourceTakePhoto": "Зробити знімок",
+  "imageSourceChooseFile": "Вибрати файл",
+  "imageSourceCameraFailed": "Не вдалося зробити знімок"
 }

@@ -955,4 +955,13 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get appSigErrorNoCertificateFound => 'X.509 証明書が見つかりませんでした。';
+
+  @override
+  String get imageSourceTakePhoto => '写真を撮る';
+
+  @override
+  String get imageSourceChooseFile => 'ファイルを選択';
+
+  @override
+  String get imageSourceCameraFailed => '写真を撮影できませんでした';
 }

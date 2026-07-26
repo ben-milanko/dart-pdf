@@ -240,5 +240,8 @@
   "updateDownloadingPercent": "正在下載… {percent}%",
   "updateRestarting": "正在重新啟動以完成更新…",
   "updateHandedOff": "更新已下載。正在開啟安裝程式…",
-  "updateFailed": "更新失敗：{error}"
+  "updateFailed": "更新失敗：{error}",
+  "imageSourceTakePhoto": "拍照",
+  "imageSourceChooseFile": "選擇檔案",
+  "imageSourceCameraFailed": "無法拍照"
 }

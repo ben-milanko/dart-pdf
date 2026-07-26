@@ -968,4 +968,13 @@ class AppLocalizationsTh extends AppLocalizations {
 
   @override
   String get appSigErrorNoCertificateFound => 'ไม่พบใบรับรอง X.509';
+
+  @override
+  String get imageSourceTakePhoto => 'ถ่ายภาพ';
+
+  @override
+  String get imageSourceChooseFile => 'เลือกไฟล์';
+
+  @override
+  String get imageSourceCameraFailed => 'ถ่ายภาพไม่สำเร็จ';
 }

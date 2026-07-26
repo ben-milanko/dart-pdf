@@ -977,4 +977,13 @@ class AppLocalizationsId extends AppLocalizations {
   @override
   String get appSigErrorNoCertificateFound =>
       'Tidak ada sertifikat X.509 yang ditemukan.';
+
+  @override
+  String get imageSourceTakePhoto => 'Ambil foto';
+
+  @override
+  String get imageSourceChooseFile => 'Pilih berkas';
+
+  @override
+  String get imageSourceCameraFailed => 'Tidak dapat mengambil foto';
 }

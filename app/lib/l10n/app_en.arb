@@ -1284,5 +1284,17 @@
   "appSigErrorNoCertificateFound": "No X.509 certificates were found.",
   "@appSigErrorNoCertificateFound":   {
       "description": "Signing error: the chosen files contained no X.509 certificate."
+  },
+  "imageSourceTakePhoto": "Take photo",
+  "@imageSourceTakePhoto":   {
+      "description": "Bottom-sheet option (mobile only) that photographs the picture to insert with the device camera."
+  },
+  "imageSourceChooseFile": "Choose file",
+  "@imageSourceChooseFile":   {
+      "description": "Bottom-sheet option (mobile only) that picks the picture to insert from a file instead of the camera."
+  },
+  "imageSourceCameraFailed": "Couldn't take a photo",
+  "@imageSourceCameraFailed":   {
+      "description": "Toast shown when the camera cannot be opened - no camera on the device, or access refused."
   }
 }

@@ -240,5 +240,8 @@
   "updateDownloadingPercent": "Téléchargement… {percent}%",
   "updateRestarting": "Redémarrage pour terminer la mise à jour…",
   "updateHandedOff": "Mise à jour téléchargée. Ouverture du programme d’installation…",
-  "updateFailed": "Échec de la mise à jour : {error}"
+  "updateFailed": "Échec de la mise à jour : {error}",
+  "imageSourceTakePhoto": "Prendre une photo",
+  "imageSourceChooseFile": "Choisir un fichier",
+  "imageSourceCameraFailed": "Impossible de prendre une photo"
 }
