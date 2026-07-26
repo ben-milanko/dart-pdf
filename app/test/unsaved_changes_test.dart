@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -108,6 +110,66 @@ void main() {
     expect(records.single.length, tab.session!.bytes.length);
     // One pass over the final revision, not five.
     expect(store.bytesWritten, tab.session!.bytes.length);
+  });
+
+  testWidgets('an unbroken edit stream still gets written', (tester) async {
+    final store = InMemoryUnsavedChangesStore();
+    // A ceiling well inside the run below, so only the ceiling can fire.
+    final autosave = AutosaveController(
+      store: store,
+      debounce: _debounce,
+      maxDefer: const Duration(milliseconds: 60),
+    );
+    final tab = openTab();
+    addTearDown(tab.dispose);
+    autosave.track(tab);
+
+    // Keep editing faster than the debounce - dragging an annotation looks
+    // like this. Nothing would ever be written if the debounce could restart
+    // forever, which is exactly the stretch where a crash costs the most.
+    for (var i = 0; i < 8; i++) {
+      expect(tab.session!.addBookmark('b$i'), isTrue);
+      await tester.pump(const Duration(milliseconds: 15));
+    }
+    await tester.pump();
+    await tester.pump();
+
+    final records = await store.list();
+    expect(records, hasLength(1),
+        reason: 'the ceiling fired mid-stream, without waiting for a pause');
+    expect(records.single.length, lessThanOrEqualTo(tab.session!.bytes.length));
+  });
+
+  testWidgets('an edit landing mid-write is not lost', (tester) async {
+    final store = _BlockingStore();
+    final autosave = controllerOver(store);
+    final tab = openTab();
+    addTearDown(tab.dispose);
+    autosave.track(tab);
+
+    tab.session!.addBookmark('first');
+    await tester.pump(_debounce);
+    await tester.pump();
+    expect(store.inFlight, 1, reason: 'the first write is stuck in the store');
+
+    // A second edit lands while the first write is still in flight. Two
+    // appends to one record must not interleave, so this one waits - but it
+    // must not be dropped either.
+    tab.session!.addBookmark('second');
+    final expected = tab.session!.bytes.length;
+    await tester.pump(_debounce);
+    await tester.pump();
+
+    store.release();
+    await tester.pump(_debounce);
+    await tester.pump();
+    await tester.pump();
+    store.release();
+    await tester.pump();
+    await tester.pump();
+
+    expect(store.lastLength, expected,
+        reason: 'the revision that arrived mid-write still reached the store');
   });
 
   testWidgets('saving drops the record', (tester) async {
@@ -370,6 +432,31 @@ void main() {
     expect(UnsavedRecord.decode('{"t":"a.pdf","n":10}'), isNull);
     expect(UnsavedRecord.decode('{"i":"abc","n":0}'), isNull);
   });
+}
+
+/// A store whose writes hang until released, so a test can land an edit while
+/// one is still in flight.
+class _BlockingStore extends InMemoryUnsavedChangesStore {
+  final List<Completer<void>> _blocked = [];
+
+  /// Byte length of the most recently completed write.
+  int lastLength = 0;
+
+  int get inFlight => _blocked.length;
+
+  void release() {
+    if (_blocked.isEmpty) return;
+    _blocked.removeAt(0).complete();
+  }
+
+  @override
+  Future<void> write(UnsavedRecord record, Uint8List bytes) async {
+    final gate = Completer<void>();
+    _blocked.add(gate);
+    await gate.future;
+    await super.write(record, bytes);
+    lastLength = record.length;
+  }
 }
 
 /// A store where nothing works - a full disk, a denied sandbox, a browser with

@@ -47,10 +47,6 @@ class AutosaveController {
   /// a no-op and the editor exactly as it was before recovery existed.
   bool get enabled => _store != null;
 
-  /// The store, for tests that want to assert what was mirrored.
-  @visibleForTesting
-  UnsavedChangesStore? get store => _store;
-
   /// The document ids currently mirrored (or awaiting their first write).
   @visibleForTesting
   Set<String> get trackedIds => {for (final m in _mirrors.values) m.id};
@@ -148,9 +144,7 @@ class AutosaveController {
   Future<void> noteSaved(DocumentTab tab) async {
     final mirror = _mirrors[tab];
     if (mirror == null) return;
-    mirror.timer?.cancel();
-    mirror.timer = null;
-    mirror.deferredSince = null;
+    mirror.cancelTimers();
     if (mirror.written == null) return;
     mirror.written = null;
     await _delete(mirror.id);
@@ -163,8 +157,7 @@ class AutosaveController {
     for (final tab in _mirrors.keys.toList()) {
       final mirror = _mirrors[tab];
       if (mirror == null) continue;
-      mirror.timer?.cancel();
-      mirror.timer = null;
+      mirror.cancelTimers();
       await _write(tab);
     }
   }
@@ -175,8 +168,7 @@ class AutosaveController {
     for (final tab in _mirrors.keys.toList()) {
       final mirror = _mirrors[tab];
       if (mirror == null) continue;
-      mirror.timer?.cancel();
-      mirror.timer = null;
+      mirror.cancelTimers();
       if (mirror.written == null) continue;
       mirror.written = null;
       await _delete(mirror.id);
@@ -200,8 +192,7 @@ class AutosaveController {
       '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}-${_ids++}';
 
   void _detach(DocumentTab tab, _TabMirror mirror) {
-    mirror.timer?.cancel();
-    mirror.timer = null;
+    mirror.cancelTimers();
     final listener = mirror.listener;
     if (listener != null) tab.session?.removeListener(listener);
     mirror.listener = null;
@@ -246,24 +237,22 @@ class AutosaveController {
   void _schedule(DocumentTab tab) {
     final mirror = _mirrors[tab];
     if (mirror == null) return;
-    final now = DateTime.now();
-    // A continuous edit stream would otherwise push the debounce out forever;
-    // once it has been deferred this long, the next change writes immediately.
-    final since = mirror.deferredSince;
-    if (since != null && now.difference(since) >= maxDefer) {
-      mirror.timer?.cancel();
-      mirror.timer = null;
-      unawaited(_write(tab));
-      return;
-    }
-    mirror.deferredSince ??= now;
-    mirror.timer?.cancel();
-    mirror.timer = Timer(debounce, () {
-      final current = _mirrors[tab];
-      if (current == null) return;
-      current.timer = null;
-      unawaited(_write(tab));
-    });
+    // The debounce restarts on every change, so a burst of strokes or
+    // keystrokes lands as a single write.
+    mirror.debounce?.cancel();
+    mirror.debounce = Timer(debounce, () => _fire(tab));
+    // The ceiling does not restart. It starts with the first change of a run
+    // and survives every reset, so an unbroken edit stream - dragging an
+    // annotation for a minute - still reaches the store instead of deferring
+    // forever. That is exactly the stretch where a crash hurts most.
+    mirror.ceiling ??= Timer(maxDefer, () => _fire(tab));
+  }
+
+  void _fire(DocumentTab tab) {
+    final mirror = _mirrors[tab];
+    if (mirror == null) return;
+    mirror.cancelTimers();
+    unawaited(_write(tab));
   }
 
   Future<void> _write(DocumentTab tab) async {
@@ -280,7 +269,6 @@ class AutosaveController {
     final record = _recordFor(tab, mirror)!;
     final bytes = tab.session!.bytes;
     mirror.writing = true;
-    mirror.deferredSince = null;
     try {
       await store.write(record, bytes);
       mirror.written = record;
@@ -317,11 +305,20 @@ class _TabMirror {
   UnsavedRecord? written;
 
   VoidCallback? listener;
-  Timer? timer;
 
-  /// When the current run of deferred changes started, so an unbroken edit
-  /// stream still gets written every [AutosaveController.maxDefer].
-  DateTime? deferredSince;
+  /// Restarted by every change, so a burst coalesces into one write.
+  Timer? debounce;
+
+  /// Started by the first change of a run and never restarted, so a continuous
+  /// edit stream still gets written every [AutosaveController.maxDefer].
+  Timer? ceiling;
+
+  void cancelTimers() {
+    debounce?.cancel();
+    debounce = null;
+    ceiling?.cancel();
+    ceiling = null;
+  }
 
   bool writing = false;
   bool pending = false;

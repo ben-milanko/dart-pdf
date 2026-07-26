@@ -68,7 +68,13 @@ document exactly while it has unsaved work:
 - **Flushes early** on `didChangeAppLifecycleState` - on mobile and the
   web, backgrounding can be the last callback we get.
 - Writes are debounced 400 ms, with a 5 s ceiling so a continuous edit
-  stream (dragging an annotation) can't defer forever.
+  stream (dragging an annotation) can't defer forever. **Two timers, not
+  wall-clock arithmetic**: the debounce restarts on every change, the
+  ceiling starts with the first change of a run and never restarts. The
+  first cut compared `DateTime.now()` against the start of the run, which
+  `tester.pump(duration)` cannot advance - fake async moves timers, not
+  the clock - so the guarantee was untestable. Timers are simpler *and*
+  provable.
 
 So anything found in the store at launch is, by construction, work a
 previous run lost. `_recoverUnsavedChanges` runs *before* the session
@@ -93,6 +99,13 @@ reopened flat (the loop already skips paths that are open).
 - **iOS backups.** The store sits under Application Support (same place as
   the Recent-pick snapshots), which iOS backs up. Cache would be purgeable
   and defeat the point, so this is the deliberate trade.
+- **An edit landing mid-write must not be dropped.** Two appends to one
+  record can't interleave, so a change arriving while a write is in flight
+  sets `pending` and re-runs after. Deleting that re-run leaves the store
+  holding the *older* revision - the mid-write edit is silently lost,
+  which is precisely the failure this feature exists to prevent. Both this
+  and the ceiling above are mutation-tested: disable either and a test
+  goes red.
 - Every store method swallows its own failure. A safety net that throws
   into the editor is worse than no safety net; a full disk or a
   private-mode quota just means that document isn't recoverable.

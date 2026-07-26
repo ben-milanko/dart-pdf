@@ -61,26 +61,6 @@ class UnsavedRecord {
   /// recovered tabs the way they were last touched.
   final int updatedAt;
 
-  UnsavedRecord copyWith({
-    String? title,
-    int? length,
-    String? originPath,
-    String? originBookmark,
-    String? cachePath,
-    int? savedLength,
-    int? updatedAt,
-  }) =>
-      UnsavedRecord(
-        id: id,
-        title: title ?? this.title,
-        length: length ?? this.length,
-        originPath: originPath ?? this.originPath,
-        originBookmark: originBookmark ?? this.originBookmark,
-        cachePath: cachePath ?? this.cachePath,
-        savedLength: savedLength ?? this.savedLength,
-        updatedAt: updatedAt ?? this.updatedAt,
-      );
-
   /// True when [other] describes the same document state as this record, so a
   /// mirror pass with nothing new to say can skip the write entirely.
   bool sameAs(UnsavedRecord other) =>
