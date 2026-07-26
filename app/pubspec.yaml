@@ -47,6 +47,12 @@ dependencies:
   # broken-but-renderable inputs via its bundled PDFium (see lib/printing.dart,
   # lib/native_print*.dart, and the per-platform runners).
   shared_preferences: ^2.3.0
+  # On-device document scanner (phones/tablets only): Google ML Kit's Document
+  # Scanner on Android, VisionKit on iOS. Powers "Scan to new document" and
+  # "Insert scan"; captured pages are stitched into a PDF by our own
+  # PdfImageDocument. Guarded behind a mobile-only conditional import
+  # (doc_scan.dart) so desktop/web builds don't reference it.
+  flutter_doc_scanner: ^0.0.21
   # Snapshots mobile picks into the app's private store so Recent entries and
   # the last session can be reopened without a fresh pick (see pdf_cache.dart).
   path_provider: ^2.1.6

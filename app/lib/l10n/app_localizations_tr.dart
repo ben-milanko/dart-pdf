@@ -435,6 +435,18 @@ class AppLocalizationsTr extends AppLocalizations {
   String get editorMenuSaveAs => 'Farklı kaydet…';
 
   @override
+  String get editorMenuScanDocument => 'Yeni belgeye tara…';
+
+  @override
+  String get editorMenuInsertScan => 'Tarama ekle…';
+
+  @override
+  String get editorScanFailed => 'Belge taranamadı.';
+
+  @override
+  String get editorInsertedScan => 'Taranan sayfalar eklendi.';
+
+  @override
   String get editorMenuSettings => 'Ayarlar';
 
   @override

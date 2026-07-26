@@ -437,6 +437,18 @@ class AppLocalizationsEs extends AppLocalizations {
   String get editorMenuSaveAs => 'Guardar como…';
 
   @override
+  String get editorMenuScanDocument => 'Escanear a un nuevo documento…';
+
+  @override
+  String get editorMenuInsertScan => 'Insertar escaneo…';
+
+  @override
+  String get editorScanFailed => 'No se pudo escanear el documento.';
+
+  @override
+  String get editorInsertedScan => 'Páginas escaneadas insertadas.';
+
+  @override
   String get editorMenuSettings => 'Configuración';
 
   @override

@@ -89,5 +89,7 @@
 	<false/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSCameraUsageDescription</key>
+	<string>DartPDF uses the camera to scan documents into a PDF.</string>
 </dict>
 </plist>

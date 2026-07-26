@@ -72,6 +72,10 @@ void main() {
 
     await tester.tap(find.byTooltip('DartPDF menu'));
     await tester.pumpAndSettle();
+    // The app menu is tall (scan entries land above this on mobile), so the
+    // Print item can sit below the fold - scroll it into view before tapping.
+    await tester.ensureVisible(find.byKey(const ValueKey('menu-print')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('menu-print')));
     await tester.pumpAndSettle();
 
@@ -89,6 +93,10 @@ void main() {
     );
 
     await tester.tap(find.byTooltip('DartPDF menu'));
+    await tester.pumpAndSettle();
+    // The app menu is tall (scan entries land above this on mobile), so the
+    // Print item can sit below the fold - scroll it into view before tapping.
+    await tester.ensureVisible(find.byKey(const ValueKey('menu-print')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('menu-print')));
     await tester.pump(); // reject the future

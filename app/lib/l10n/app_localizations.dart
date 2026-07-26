@@ -787,6 +787,30 @@ abstract class AppLocalizations {
   /// **'Save as…'**
   String get editorMenuSaveAs;
 
+  /// App menu item (mobile/tablet) to scan pages with the device camera into a new document.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan to new document…'**
+  String get editorMenuScanDocument;
+
+  /// App menu item (mobile/tablet) to scan pages with the device camera and insert them into the open document.
+  ///
+  /// In en, this message translates to:
+  /// **'Insert scan…'**
+  String get editorMenuInsertScan;
+
+  /// Toast shown when a device document scan fails.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t scan the document.'**
+  String get editorScanFailed;
+
+  /// Toast shown after scanned pages are inserted into the open document.
+  ///
+  /// In en, this message translates to:
+  /// **'Inserted scanned pages.'**
+  String get editorInsertedScan;
+
   /// App menu item to open the settings screen.
   ///
   /// In en, this message translates to:

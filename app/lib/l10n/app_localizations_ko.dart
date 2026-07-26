@@ -425,6 +425,18 @@ class AppLocalizationsKo extends AppLocalizations {
   String get editorMenuSaveAs => '다른 이름으로 저장…';
 
   @override
+  String get editorMenuScanDocument => '새 문서로 스캔…';
+
+  @override
+  String get editorMenuInsertScan => '스캔 삽입…';
+
+  @override
+  String get editorScanFailed => '문서를 스캔할 수 없습니다.';
+
+  @override
+  String get editorInsertedScan => '스캔한 페이지를 삽입했습니다.';
+
+  @override
   String get editorMenuSettings => '설정';
 
   @override

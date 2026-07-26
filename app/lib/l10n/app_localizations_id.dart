@@ -438,6 +438,18 @@ class AppLocalizationsId extends AppLocalizations {
   String get editorMenuSaveAs => 'Simpan sebagai…';
 
   @override
+  String get editorMenuScanDocument => 'Pindai ke dokumen baru…';
+
+  @override
+  String get editorMenuInsertScan => 'Sisipkan pindaian…';
+
+  @override
+  String get editorScanFailed => 'Tidak dapat memindai dokumen.';
+
+  @override
+  String get editorInsertedScan => 'Halaman pindaian disisipkan.';
+
+  @override
   String get editorMenuSettings => 'Pengaturan';
 
   @override

@@ -424,6 +424,18 @@ class AppLocalizationsZh extends AppLocalizations {
   String get editorMenuSaveAs => '另存为…';
 
   @override
+  String get editorMenuScanDocument => '扫描为新文档…';
+
+  @override
+  String get editorMenuInsertScan => '插入扫描件…';
+
+  @override
+  String get editorScanFailed => '无法扫描文档。';
+
+  @override
+  String get editorInsertedScan => '已插入扫描的页面。';
+
+  @override
   String get editorMenuSettings => '设置';
 
   @override
@@ -1356,6 +1368,18 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get editorMenuSaveAs => '另存新檔…';
+
+  @override
+  String get editorMenuScanDocument => '掃描為新文件…';
+
+  @override
+  String get editorMenuInsertScan => '插入掃描件…';
+
+  @override
+  String get editorScanFailed => '無法掃描文件。';
+
+  @override
+  String get editorInsertedScan => '已插入掃描的頁面。';
 
   @override
   String get editorMenuSettings => '設定';

@@ -432,6 +432,18 @@ class AppLocalizationsVi extends AppLocalizations {
   String get editorMenuSaveAs => 'Lưu thành…';
 
   @override
+  String get editorMenuScanDocument => 'Quét thành tài liệu mới…';
+
+  @override
+  String get editorMenuInsertScan => 'Chèn bản quét…';
+
+  @override
+  String get editorScanFailed => 'Không thể quét tài liệu.';
+
+  @override
+  String get editorInsertedScan => 'Đã chèn các trang đã quét.';
+
+  @override
   String get editorMenuSettings => 'Cài đặt';
 
   @override

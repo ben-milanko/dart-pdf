@@ -448,6 +448,18 @@ class AppLocalizationsPl extends AppLocalizations {
   String get editorMenuSaveAs => 'Zapisz jako…';
 
   @override
+  String get editorMenuScanDocument => 'Skanuj do nowego dokumentu…';
+
+  @override
+  String get editorMenuInsertScan => 'Wstaw skan…';
+
+  @override
+  String get editorScanFailed => 'Nie można zeskanować dokumentu.';
+
+  @override
+  String get editorInsertedScan => 'Wstawiono zeskanowane strony.';
+
+  @override
   String get editorMenuSettings => 'Ustawienia';
 
   @override

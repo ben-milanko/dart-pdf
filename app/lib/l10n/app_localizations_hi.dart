@@ -434,6 +434,18 @@ class AppLocalizationsHi extends AppLocalizations {
   String get editorMenuSaveAs => 'इस रूप में सहेजें…';
 
   @override
+  String get editorMenuScanDocument => 'नए दस्तावेज़ में स्कैन करें…';
+
+  @override
+  String get editorMenuInsertScan => 'स्कैन डालें…';
+
+  @override
+  String get editorScanFailed => 'दस्तावेज़ स्कैन नहीं किया जा सका।';
+
+  @override
+  String get editorInsertedScan => 'स्कैन किए गए पृष्ठ जोड़े गए।';
+
+  @override
   String get editorMenuSettings => 'सेटिंग्स';
 
   @override
