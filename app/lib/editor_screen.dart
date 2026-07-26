@@ -516,7 +516,9 @@ class _EditorScreenState extends State<EditorScreen>
     if (recovered.isEmpty || !mounted) return;
     final count = recovered.length;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _toast(appL10n(context).editorRecoveredUnsavedChanges(count));
+      if (mounted) {
+        _toast(appL10n(context).editorRecoveredUnsavedChanges(count));
+      }
     });
   }
 
@@ -527,27 +529,16 @@ class _EditorScreenState extends State<EditorScreen>
     // restores from its private snapshot instead.
     final originPath = doc.path.isNotEmpty ? doc.path : null;
 
-    // Desktop origin: restore lazily and progressively. Probe the file length
-    // first - cheap metadata, no content read or cloud hydration - so a moved
-    // or deleted file is still dropped silently, then add a path-only tab that
-    // reads nothing until it is shown, when it opens progressively. This keeps
-    // launch cheap even when the last session held several big files: only the
-    // active tab pulls bytes, and it first-paints from ranges.
+    // Desktop origin: restore every tab immediately, without awaiting even a
+    // metadata probe. A cloud provider can stall file coordination for one
+    // origin; making the restore loop await it would hide every later tab until
+    // that provider responded. Path-only tabs read nothing until selected, so
+    // the user can switch to another restored document while a remote one is
+    // hydrating. A missing file is dropped when its lazy open fails.
     if (progressiveOpenSupported(originPath)) {
-      final source = pdfByteSourceForPath(originPath!, bookmark: doc.bookmark);
-      int? length;
-      try {
-        length = await source.length;
-      } catch (_) {
-        length = null;
-      } finally {
-        await source.close();
-      }
-      if (!mounted) return;
-      if (length == null || length <= 0) return; // gone: drop silently
       _addTab(DocumentTab.deferredPath(
         title: doc.title,
-        originPath: originPath,
+        originPath: originPath!,
         originBookmark: doc.bookmark,
         cachePath: doc.cachePath,
       ));
@@ -850,6 +841,16 @@ class _EditorScreenState extends State<EditorScreen>
         bookmark: tab.originBookmark,
         cachePath: tab.cachePath,
         into: tab,
+        onOpenFailed: (_) {
+          // Session restoration is best-effort. A source that disappeared
+          // since the previous run should vanish quietly rather than leave a
+          // permanent error tab. `_closeTabs` removes synchronously until its
+          // first await for these clean placeholders, so the fallback's later
+          // replacement sees that the tab is already gone.
+          if (mounted && _tabs.contains(tab)) {
+            unawaited(_closeTabs([tab]));
+          }
+        },
       );
     });
   }
