@@ -33,14 +33,13 @@ Future<void> main(List<String> args) async {
   // with `?perf=1`. Off otherwise - it's verbose and adds per-line print
   // overhead. `Uri.base` carries the page URL on web (and is harmless on
   // native, where there's no query string), so no `package:web` import.
+  // Stamp the build unconditionally, so it is already set whichever way the
+  // trace is later turned on - `?perf=1` here, or the devtools toggle, which
+  // is how a trace is usually captured on a device. Setting it does nothing on
+  // its own; PdfPerfLog emits it as the first line only once logging is on.
+  PdfPerfLog.buildTag = 'commit=$kBuildCommit';
   if (Uri.base.queryParameters['perf'] == '1') {
     PdfPerfLog.enabled = true;
-    // Stamp the build the trace came from, first line. A device trace is
-    // otherwise unattributable: a #451 trace captured 4 minutes after a fix
-    // commit turned out to predate the build and read as "the fix did
-    // nothing", which cost a round trip to work out (see
-    // doc/dev-log/2026-07-26-record-image-decode-reuse-451.md).
-    PdfPerfLog.log('build commit=$kBuildCommit');
   }
 
   runApp(_DeferredApp(launchArgs: args));

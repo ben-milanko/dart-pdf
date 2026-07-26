@@ -46,11 +46,20 @@ class PdfPerfLog {
 
   static set enabled(bool value) {
     _enabled = value;
+    if (value) _stampPending = true;
     _bridge(value);
   }
 
+  /// Identifies the build a trace came from - set by the host at startup, e.g.
+  /// `commit=<sha>` from a `--dart-define`. Emitted as the first line whenever
+  /// the log turns on, however it was turned on (URL flag, devtools toggle, or
+  /// dart-define). Empty means the host did not supply one, which is reported
+  /// honestly as no line rather than as a guess.
+  static String buildTag = '';
+
   static bool _enabled = const bool.fromEnvironment('PDF_PERF_LOG');
   static bool _bridged = false;
+  static bool _stampPending = const bool.fromEnvironment('PDF_PERF_LOG');
 
   static void _bridge(bool on) {
     _bridged = on;
@@ -80,6 +89,16 @@ class PdfPerfLog {
   /// Records a line (cheap; the no-op path is a single bool check).
   static void log(String message) {
     if (!enabled) return;
+    // Stamp the build as the first line of every trace. Emitted lazily on the
+    // first line rather than from the `enabled` setter because a host sets its
+    // [sink] AFTER flipping the switch, and a stamp written before that exists
+    // reaches only the console - not the devtools log the user actually
+    // exports. That is exactly how #451 lost several rounds: traces that could
+    // not be attributed to a build.
+    if (_stampPending) {
+      _stampPending = false;
+      if (buildTag.isNotEmpty) log('build $buildTag');
+    }
     _ensureHook();
     _buf.add('[perf ${_nowMs.toStringAsFixed(0)}] $message');
     // Flush every line immediately: the whole point of this trace is

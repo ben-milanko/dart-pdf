@@ -11,6 +11,14 @@ fix. Record the commit whenever you paste one.
 | --- | --- | --- |
 | 09:34 | `8b43e6ec` | exact-match cache only |
 | 09:50 | `8b43e6ec` | exact-match cache only — **not** the 09:46 fix |
+| 11:33, 14:10 | app current, **worker stale** | see the cache-bust bug below |
+
+Note the third row: the app bundle and the worker bundle are separate artifacts
+and can be at *different* commits, so "which build" is not one question. The
+`?perf=1`-only stamp also never fired, because a device trace is captured from
+the devtools toggle — `PdfPerfLog.buildTag` now stamps whichever way logging is
+turned on, emitted lazily on the first line so it lands in the host's sink and
+not just the console.
 
 `49c6aac4` (cross-ratio reuse + browser-codec cache) was committed at
 09:46:37, ~4 minutes before the 09:50 capture, so that build did not include
@@ -229,6 +237,42 @@ measuring an artifact that had not been rebuilt. A stale bundle and a broken
 feature produce identical evidence. Check the artifact, not the timestamp:
 `imageDecodeCache=yes|no` on the worker's `ready` line and `build commit=` on
 the app's first perf line both exist now for that reason.
+
+## The actual cause: the worker URL was never cache-busted
+
+The `imageDecodeCache=yes|no` flag found it on its first trace — **`no`, on all
+three workers**, from a deployment whose worker artifact provably *did* contain
+the code (`curl` + `grep reused=`). Server current, running worker old. The
+browser was holding a stale copy.
+
+`tool/web_cache_bust.sh` did two things in the wrong order:
+
+1. rename deferred parts to `main.dart.js_N.part.<hash>.js` (content-addressed,
+   because dart2js escapes `?` in part URIs), then
+2. cache-bust the worker URL, searching `-name 'main.dart.js_*.part.js'`.
+
+After the rename those files end `.<hash>.js`, so that search no longer matched
+them — and the app references the worker from `dart_pdf_editor`, which lives in
+a **deferred part**, not `main.dart.js`. The URL was therefore never rewritten
+at all. Verified on the live deploy: the part contained a bare
+`"…/pdf_render_worker.dart.js"` while every other entrypoint carried `?v=`.
+
+Firebase serves `assets/**.js` with a year max-age *precisely because* it is
+assumed cache-busted, so a returning browser kept one worker build across every
+deploy. **This was never specific to #451** — every worker-side change has been
+invisible to returning users for as long as the rename ran first, #603/#605/#607
+included. It also explains the whole confusing shape of this investigation:
+`curl` has no browser cache, so the artifact always looked current while the
+running worker was not.
+
+The fix is not simply swapping the two blocks. Part filenames *are* content
+hashes, so the worker URL has to be rewritten **before** the parts are hashed:
+otherwise the name stops matching the content, and a deploy that changes only
+the worker leaves the part hash — and so the part URL — identical, re-serving a
+stale part. Worker busting now runs first, and a new guard fails the build if
+any compiled unit still references the worker without `?v=` (mutation-tested:
+it exits 1). An un-busted reference is invisible otherwise — the app keeps
+working, on whatever worker the browser cached first.
 
 ## Diagnostics that came out of it
 
