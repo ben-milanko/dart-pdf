@@ -46,8 +46,15 @@ jobs:
           dart run dart_pdf_editor:build_web_worker
           --out ../packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
 
-      - run: flutter build web --release
+      # PDF_BUILD_COMMIT stamps the build into the `?perf=1` trace, so a device
+      # trace from a preview says which build produced it (#451). A preview
+      # builds the PR head, so the merge SHA would be the wrong answer.
+      - run: >-
+          flutter build web --release
+          --dart-define=PDF_BUILD_COMMIT=${PREVIEW_SHA::7}
         working-directory: app
+        env:
+          PREVIEW_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Cache-bust web build
         run: bash tool/web_cache_bust.sh app/build/web

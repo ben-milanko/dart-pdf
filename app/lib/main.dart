@@ -14,6 +14,13 @@ import 'l10n/app_localizations.dart';
 import 'app.dart' deferred as app;
 import 'app_info.dart' deferred as app_info;
 
+/// The git commit this build was compiled from, or `unknown` for a build that
+/// did not pass one. Supplied by the build scripts as
+/// `--dart-define=PDF_BUILD_COMMIT=$(git rev-parse --short HEAD)`; a plain
+/// `flutter run` leaves it unset, which is honest rather than misleading.
+const kBuildCommit =
+    String.fromEnvironment('PDF_BUILD_COMMIT', defaultValue: 'unknown');
+
 /// On Windows and Linux the OS launches the app with the opened file as a
 /// command-line argument; the Flutter runner forwards it here.
 Future<void> main(List<String> args) async {
@@ -28,6 +35,12 @@ Future<void> main(List<String> args) async {
   // native, where there's no query string), so no `package:web` import.
   if (Uri.base.queryParameters['perf'] == '1') {
     PdfPerfLog.enabled = true;
+    // Stamp the build the trace came from, first line. A device trace is
+    // otherwise unattributable: a #451 trace captured 4 minutes after a fix
+    // commit turned out to predate the build and read as "the fix did
+    // nothing", which cost a round trip to work out (see
+    // doc/dev-log/2026-07-26-record-image-decode-reuse-451.md).
+    PdfPerfLog.log('build commit=$kBuildCommit');
   }
 
   runApp(_DeferredApp(launchArgs: args));
