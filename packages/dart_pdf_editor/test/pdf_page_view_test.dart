@@ -358,4 +358,78 @@ void main() {
     expect(patch.width / patchPoints,
         moreOrLessEquals(10, epsilon: 0.5)); // the uncapped desired ratio
   });
+
+  testWidgets('detail guard band reuses the patch across small pan settles',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    PdfPageView.debugDetailPatchReuses = 0;
+    addTearDown(() => PdfPageView.debugDetailPatchReuses = 0);
+
+    final doc = PdfDocument.open(buildClassicPdf());
+    final page = doc.page(0);
+    const detailKey = ValueKey('pdf-page-detail-image');
+
+    Widget at(double dx, int generation, {int contentStamp = 0}) => Center(
+          child: Transform.translate(
+            offset: Offset(dx, 0),
+            child: OverflowBox(
+              maxWidth: double.infinity,
+              maxHeight: double.infinity,
+              child: SizedBox(
+                width: 6120,
+                child: PdfPageView(
+                  page: page,
+                  contentStamp: contentStamp,
+                  settleGeneration: generation,
+                ),
+              ),
+            ),
+          ),
+        );
+
+    Object detailImage() =>
+        tester.widget<RawImage>(find.byKey(detailKey)).image!;
+
+    Future<void> waitForDetail({Object? differentFrom}) async {
+      for (var i = 0; i < 200; i++) {
+        await tester.pump();
+        if (find.byKey(detailKey).evaluate().isNotEmpty) {
+          final image = detailImage();
+          if (differentFrom == null || !identical(image, differentFrom)) return;
+        }
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+      }
+      fail('detail patch did not reach the expected state');
+    }
+
+    await tester.pumpWidget(at(0, 0));
+    await waitForDetail();
+    final first = detailImage();
+
+    // The patch is inflated by half a viewport per side. A 100 px pan remains
+    // inside it, so the next settle must reuse the exact raster.
+    await tester.pumpWidget(at(-100, 1));
+    for (var i = 0; i < 20 && PdfPageView.debugDetailPatchReuses == 0; i++) {
+      await tester.pump();
+    }
+    expect(PdfPageView.debugDetailPatchReuses, 1);
+    expect(detailImage(), same(first));
+
+    // An additive edit leaves the old sharp patch painted while the
+    // replacement is rendering. It must not be mistaken for reusable current
+    // content even though its geometry still covers the viewport.
+    await tester.pumpWidget(at(-100, 2, contentStamp: 1));
+    await waitForDetail(differentFrom: first);
+    final edited = detailImage();
+    expect(PdfPageView.debugDetailPatchReuses, 1);
+
+    // Move farther than the guard band. The old patch no longer covers the
+    // viewport, so a replacement must land.
+    await tester.pumpWidget(at(-1000, 3, contentStamp: 1));
+    await waitForDetail(differentFrom: edited);
+    expect(PdfPageView.debugDetailPatchReuses, 1);
+  });
 }

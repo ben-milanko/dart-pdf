@@ -431,6 +431,11 @@ class PdfPageView extends StatefulWidget {
   /// Region-detail speculations that were stale, cancelled, or declined.
   static int debugSpeculativeDetailMisses = 0;
 
+  /// Single-patch scroll settles satisfied by the raster's retained guard
+  /// band instead of issuing another region render.
+  @visibleForTesting
+  static int debugDetailPatchReuses = 0;
+
   static void debugResetSpeculativeStats() {
     debugSpeculativePlanHits = 0;
     debugSpeculativePlanMisses = 0;
@@ -473,6 +478,8 @@ class _PdfPageViewState extends State<PdfPageView>
 
   ui.Image? _detailImage;
   Rect? _detailFraction; // patch placement as fractions of the page
+  double? _detailPixelRatio;
+  PdfPageRenderIntent? _detailIntent;
 
   /// Visible slice (fraction of the page) and desired ratio for the
   /// [PdfPageView.tileStoreDetail] tile layer, recomputed on each settle in
@@ -836,12 +843,41 @@ class _PdfPageViewState extends State<PdfPageView>
   void _dropDetail() {
     _invalidateTiles();
     _renderSession.invalidateDetail();
-    if (_detailImage != null) {
-      _detailImage?.dispose();
-      _detailImage = null;
-      _detailFraction = null;
-      if (mounted) setState(() {});
+    final hadImage = _detailImage != null;
+    _detailImage?.dispose();
+    _detailImage = null;
+    _detailFraction = null;
+    _detailPixelRatio = null;
+    _detailIntent = null;
+    if (hadImage && mounted) setState(() {});
+  }
+
+  void _adoptDetail(
+    ui.Image image,
+    Rect fraction,
+    double pixelRatio,
+  ) {
+    _detailImage?.dispose();
+    _detailImage = image;
+    _detailFraction = fraction;
+    _detailPixelRatio = pixelRatio;
+    _detailIntent = _renderIntent(widget);
+  }
+
+  bool _detailContentIsCurrent() {
+    final intent = _detailIntent;
+    if (intent == null ||
+        intent.pageIndex != widget.previewIndex ||
+        intent.pageEpoch != widget.pageEpoch ||
+        intent.contentStamp != widget.contentStamp ||
+        intent.destructiveStamp != widget.destructiveStamp ||
+        intent.trustContentStamp != widget.trustContentStamp ||
+        intent.rotation != widget.rotation ||
+        intent.pageColor != widget.pageColor ||
+        intent.showAnnotations != widget.showAnnotations) {
+      return false;
     }
+    return widget.trustContentStamp || identical(intent.page, widget.page);
   }
 
   /// The uncapped resolution at an explicit [scale], so speculation can price
@@ -2036,6 +2072,37 @@ class _PdfPageViewState extends State<PdfPageView>
     final region = detailGeometry.region;
     final ratio = detailGeometry.pixelRatio;
 
+    // The single-patch fallback deliberately rasterizes half a viewport of
+    // headroom on every side. Keep using those pixels while they still cover
+    // the live viewport instead of rebuilding an almost-identical 3-6 MP
+    // raster after every wheel-scroll settle. This is the fallback for pages
+    // that cannot use the reusable tile pyramid, so without this coverage
+    // check the guard band was pure extra work.
+    //
+    // Content identity is checked separately: additive edits intentionally
+    // leave the old patch painted until its replacement lands, but that stale
+    // patch must never satisfy this fast path. A higher-density request (zoom
+    // in, or a smaller cap-bound region) also gets a fresh raster.
+    final existingFraction = _detailFraction;
+    final existingRatio = _detailPixelRatio;
+    if (_detailImage != null &&
+        existingFraction != null &&
+        existingRatio != null &&
+        _detailContentIsCurrent() &&
+        existingRatio >= ratio * 0.99 &&
+        _detailPatchCovers(
+          existingFraction,
+          detailGeometry.visibleFraction,
+        )) {
+      PdfPageView.debugDetailPatchReuses++;
+      onPaint?.call();
+      PdfPerfLog.log(
+        'detail reuse page=${widget.previewIndex} '
+        'ratio=${existingRatio.toStringAsFixed(2)}',
+      );
+      return true;
+    }
+
     // Dense strip-routed pages ask for one combined worker result: commands
     // whose images were decoded for this region plus the StripPlan binned
     // from those exact commands. That keeps the flat strip replay, restores
@@ -2105,9 +2172,7 @@ class _PdfPageViewState extends State<PdfPageView>
           _renderSession.acceptsDetail(generation) &&
           !_renderPaused) {
         setState(() {
-          _detailImage?.dispose();
-          _detailImage = vectorImage;
-          _detailFraction = fraction;
+          _adoptDetail(vectorImage, fraction, ratio);
         });
         onPaint?.call();
         progressiveReady = true;
@@ -2137,9 +2202,7 @@ class _PdfPageViewState extends State<PdfPageView>
     }
     if (workerStripImage != null) {
       setState(() {
-        _detailImage?.dispose();
-        _detailImage = workerStripImage;
-        _detailFraction = fraction;
+        _adoptDetail(workerStripImage, fraction, ratio);
       });
       onPaint?.call();
       _logDetailPaintAfterFrame(
@@ -2175,9 +2238,7 @@ class _PdfPageViewState extends State<PdfPageView>
         return false;
       }
       setState(() {
-        _detailImage?.dispose();
-        _detailImage = image;
-        _detailFraction = fraction;
+        _adoptDetail(image, fraction, ratio);
       });
       onPaint?.call();
       _logDetailPaintAfterFrame(
@@ -2275,9 +2336,7 @@ class _PdfPageViewState extends State<PdfPageView>
       return false;
     }
     setState(() {
-      _detailImage?.dispose();
-      _detailImage = image;
-      _detailFraction = fraction;
+      _adoptDetail(image, fraction, ratio);
     });
     onPaint?.call();
     _logDetailPaintAfterFrame(generation, detailClock, source: 'local');
@@ -2376,20 +2435,22 @@ class _PdfPageViewState extends State<PdfPageView>
     // 50% per-side panning headroom. The progressive region-first request is
     // deliberately tighter: its job is to beat the still-warming full page,
     // and a large guard band would re-decode most of that page again.
-    final fraction = Rect.fromLTRB(
-      ((visible.left - pageRect.left - visible.width * inflation) /
-              pageRect.width)
-          .clamp(0.0, 1.0),
-      ((visible.top - pageRect.top - visible.height * inflation) /
-              pageRect.height)
-          .clamp(0.0, 1.0),
-      ((visible.right - pageRect.left + visible.width * inflation) /
-              pageRect.width)
-          .clamp(0.0, 1.0),
-      ((visible.bottom - pageRect.top + visible.height * inflation) /
-              pageRect.height)
-          .clamp(0.0, 1.0),
-    );
+    Rect fractionAt(double amount) => Rect.fromLTRB(
+          ((visible.left - pageRect.left - visible.width * amount) /
+                  pageRect.width)
+              .clamp(0.0, 1.0),
+          ((visible.top - pageRect.top - visible.height * amount) /
+                  pageRect.height)
+              .clamp(0.0, 1.0),
+          ((visible.right - pageRect.left + visible.width * amount) /
+                  pageRect.width)
+              .clamp(0.0, 1.0),
+          ((visible.bottom - pageRect.top + visible.height * amount) /
+                  pageRect.height)
+              .clamp(0.0, 1.0),
+        );
+    final visibleFraction = fractionAt(0);
+    final fraction = fractionAt(inflation);
     final size = _renderPlan.pageSize(widget.page);
     final region = Rect.fromLTRB(
       fraction.left * size.width,
@@ -2408,7 +2469,7 @@ class _PdfPageViewState extends State<PdfPageView>
       ratio,
       _maxDimension / math.max(region.width, region.height),
     );
-    return _DetailGeometry(fraction, region, ratio);
+    return _DetailGeometry(fraction, visibleFraction, region, ratio);
   }
 
   /// Whether the [PdfPageView.tileStoreDetail] tile path drives deep-zoom
@@ -3064,11 +3125,29 @@ class _SpeculativeStripPlan {
 }
 
 class _DetailGeometry {
-  const _DetailGeometry(this.fraction, this.region, this.pixelRatio);
+  const _DetailGeometry(
+    this.fraction,
+    this.visibleFraction,
+    this.region,
+    this.pixelRatio,
+  );
 
   final Rect fraction;
+  final Rect visibleFraction;
   final Rect region;
   final double pixelRatio;
+}
+
+/// Whether a retained detail patch fully covers the current visible slice.
+///
+/// Fractions come from independent render-tree projections and can differ by
+/// a few ulps at a shared edge, hence the tiny tolerance.
+bool _detailPatchCovers(Rect patch, Rect visible) {
+  const epsilon = 1e-9;
+  return patch.left <= visible.left + epsilon &&
+      patch.top <= visible.top + epsilon &&
+      patch.right + epsilon >= visible.right &&
+      patch.bottom + epsilon >= visible.bottom;
 }
 
 /// A combined region-detail job issued from the translated live viewport.
