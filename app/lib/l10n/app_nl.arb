@@ -130,6 +130,7 @@
   "editorPreviewCouldNotOpen": "Kan niet openen",
   "editorPreviewOpening": "Openen",
   "editorPreviewPdf": "PDF",
+  "editorRecoveredUnsavedChanges": "{count, plural, =1{Niet-opgeslagen wijzigingen van de vorige sessie hersteld.} other{Niet-opgeslagen wijzigingen in {count} documenten van de vorige sessie hersteld.}}",
   "editorSignatureRemoved": "Handtekening verwijderd",
   "editorSnapshotCopied": "Momentopname naar klembord gekopieerd",
   "editorSnapshotCopyFailed": "Kan momentopname niet naar klembord kopiëren",

@@ -130,6 +130,7 @@
   "editorPreviewCouldNotOpen": "Ouverture impossible",
   "editorPreviewOpening": "Ouverture",
   "editorPreviewPdf": "PDF",
+  "editorRecoveredUnsavedChanges": "{count, plural, =1{Modifications non enregistrées récupérées depuis la dernière session.} other{Modifications non enregistrées récupérées dans {count} documents depuis la dernière session.}}",
   "editorSignatureRemoved": "Signature retirée",
   "editorSnapshotCopied": "Capture copiée dans le presse-papiers",
   "editorSnapshotCopyFailed": "Impossible de copier la capture dans le presse-papiers",

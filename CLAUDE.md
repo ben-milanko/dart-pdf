@@ -233,6 +233,21 @@ guessed - see doc/dev-log/2026-07-16-image-cache-budget.md and
 `test/benchmark_image_cache_budget_test.dart`; re-run it before changing
 them. `didHaveMemoryPressure` on the viewer clears the image + preview
 caches.
+Crash recovery for unsaved edits is in (app): while a document is dirty its
+bytes are mirrored outside the process, so a crash/OOM kill/closed browser
+tab loses nothing. `AutosaveController` (`app/lib/autosave.dart`) tracks a
+tab from its first edit until it is saved, closed, or undone back to the
+baseline, debouncing writes; `UnsavedChangesStore`
+(`unsaved_changes.dart`, backends picked by conditional export in
+`unsaved_changes_store.dart` - private files on native, IndexedDB chunks on
+web via the shared `idb_web.dart`, nothing in the stub). Because revisions
+are byte prefixes of one buffer, a mirror pass **appends only the tail**;
+bytes are written first and the `UnsavedRecord` (carrying the committed
+`length`) second, so a crash mid-append recovers the previous whole
+revision. `EditorScreen._recoverUnsavedChanges` runs before session restore
+and reopens each record as a still-dirty tab pointed at its original save
+destination (the undo stack does not survive). See
+doc/dev-log/2026-07-26-unsaved-changes-crash-recovery.md.
 The editing UI is in (dart_pdf_editor `src/editing/`): `PdfEditingController`
 owns the edit session - every edit is an incremental save, so revisions
 are byte prefixes of one buffer and undo/redo is a stack of lengths;

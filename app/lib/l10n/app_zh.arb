@@ -130,6 +130,7 @@
   "editorPreviewCouldNotOpen": "无法打开",
   "editorPreviewOpening": "正在打开",
   "editorPreviewPdf": "PDF",
+  "editorRecoveredUnsavedChanges": "{count, plural, =1{已恢复上次会话中未保存的更改。} other{已恢复上次会话中 {count} 个文档的未保存更改。}}",
   "editorSignatureRemoved": "已移除签名",
   "editorSnapshotCopied": "快照已复制到剪贴板",
   "editorSnapshotCopyFailed": "无法将快照复制到剪贴板",

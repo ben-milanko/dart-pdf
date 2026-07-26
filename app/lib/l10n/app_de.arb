@@ -130,6 +130,7 @@
   "editorPreviewCouldNotOpen": "Konnte nicht geöffnet werden",
   "editorPreviewOpening": "Wird geöffnet",
   "editorPreviewPdf": "PDF",
+  "editorRecoveredUnsavedChanges": "{count, plural, =1{Nicht gespeicherte Änderungen aus der letzten Sitzung wiederhergestellt.} other{Nicht gespeicherte Änderungen in {count} Dokumenten aus der letzten Sitzung wiederhergestellt.}}",
   "editorSignatureRemoved": "Signatur entfernt",
   "editorSnapshotCopied": "Schnappschuss in die Zwischenablage kopiert",
   "editorSnapshotCopyFailed": "Schnappschuss konnte nicht in die Zwischenablage kopiert werden",

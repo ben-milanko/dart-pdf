@@ -130,6 +130,7 @@
   "editorPreviewCouldNotOpen": "Tidak dapat membuka",
   "editorPreviewOpening": "Membuka",
   "editorPreviewPdf": "PDF",
+  "editorRecoveredUnsavedChanges": "{count, plural, =1{Perubahan yang belum disimpan dari sesi terakhir telah dipulihkan.} other{Perubahan yang belum disimpan pada {count} dokumen dari sesi terakhir telah dipulihkan.}}",
   "editorSignatureRemoved": "Tanda tangan dihapus",
   "editorSnapshotCopied": "Cuplikan disalin ke papan klip",
   "editorSnapshotCopyFailed": "Tidak dapat menyalin cuplikan ke papan klip",

@@ -130,6 +130,7 @@
   "editorPreviewCouldNotOpen": "ไม่สามารถเปิดได้",
   "editorPreviewOpening": "กำลังเปิด",
   "editorPreviewPdf": "PDF",
+  "editorRecoveredUnsavedChanges": "{count, plural, =1{กู้คืนการเปลี่ยนแปลงที่ยังไม่ได้บันทึกจากเซสชันล่าสุดแล้ว} other{กู้คืนการเปลี่ยนแปลงที่ยังไม่ได้บันทึกใน {count} เอกสารจากเซสชันล่าสุดแล้ว}}",
   "editorSignatureRemoved": "นำลายเซ็นออกแล้ว",
   "editorSnapshotCopied": "คัดลอกสแนปช็อตไปยังคลิปบอร์ดแล้ว",
   "editorSnapshotCopyFailed": "ไม่สามารถคัดลอกสแนปช็อตไปยังคลิปบอร์ดได้",

@@ -130,6 +130,7 @@
   "editorPreviewCouldNotOpen": "تعذّر الفتح",
   "editorPreviewOpening": "جارٍ الفتح",
   "editorPreviewPdf": "PDF",
+  "editorRecoveredUnsavedChanges": "{count, plural, =1{تمت استعادة التغييرات غير المحفوظة من جلستك الأخيرة.} other{تمت استعادة التغييرات غير المحفوظة في {count} مستندات من جلستك الأخيرة.}}",
   "editorSignatureRemoved": "تمت إزالة التوقيع",
   "editorSnapshotCopied": "تم نسخ اللقطة إلى الحافظة",
   "editorSnapshotCopyFailed": "تعذّر نسخ اللقطة إلى الحافظة",

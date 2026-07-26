@@ -83,6 +83,10 @@ dev_dependencies:
   # the recognized layer is selectable (pdf_ocr_ondevice is a runtime dep).
   pdf_graphics: ^3.0.0
   file_selector_platform_interface: ^2.7.0
+  # Points the crash-recovery store at a temp directory so its append/truncate
+  # behaviour can be tested against a real filesystem (see
+  # test/unsaved_changes_store_io_test.dart).
+  path_provider_platform_interface: ^2.1.0
 
 # Microsoft Store MSIX packaging. Only the account-neutral settings live here;
 # the three Partner Center identity values (identity_name, publisher,

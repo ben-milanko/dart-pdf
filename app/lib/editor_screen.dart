@@ -12,6 +12,7 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_info.dart';
+import 'autosave.dart';
 import 'devtools.dart';
 import 'devtools_panel.dart';
 import 'digital_signature.dart';
@@ -33,6 +34,8 @@ import 'recent_thumbnails.dart';
 import 'recents.dart';
 import 'session_store.dart';
 import 'settings_screen.dart';
+import 'unsaved_changes.dart';
+import 'unsaved_changes_store.dart';
 import 'update.dart';
 import 'update_install_flow.dart';
 import 'update_installer.dart';
@@ -89,6 +92,7 @@ class EditorScreen extends StatefulWidget {
     this.imageClipboardWriter,
     this.imageClipboardReader,
     this.textClipboardReader,
+    this.unsavedChangesStore,
   });
 
   final PdfEditingPreferences prefs;
@@ -171,6 +175,12 @@ class EditorScreen extends StatefulWidget {
   /// `Clipboard.getData`).
   final TextClipboardReader? textClipboardReader;
 
+  /// Overrides the crash-recovery mirror for unsaved changes. Tests inject an
+  /// in-memory store to drive recovery without a real filesystem or IndexedDB;
+  /// production leaves this null and the screen opens the platform store
+  /// ([openUnsavedChangesStore]).
+  final UnsavedChangesStore? unsavedChangesStore;
+
   @override
   State<EditorScreen> createState() => _EditorScreenState();
 }
@@ -182,6 +192,13 @@ class _EditorScreenState extends State<EditorScreen>
   final _recents = RecentsStore();
   final _recentThumbnails = RecentThumbnailCache();
   final _session = SessionStore();
+
+  /// Mirrors dirty documents to durable storage (a private directory on
+  /// native, IndexedDB on the web) so a crash never costs unsaved work, and
+  /// hands back whatever a previous run lost. See autosave.dart.
+  late final AutosaveController _autosave = AutosaveController(
+      store: widget.unsavedChangesStore ?? openUnsavedChangesStore());
+
   final _incoming = IncomingFileService();
   final _ocr = OnDeviceOcr();
   StreamSubscription<IncomingFile>? _incomingSub;
@@ -347,6 +364,9 @@ class _EditorScreenState extends State<EditorScreen>
     _incomingSub?.cancel();
     _incoming.dispose();
     _ocr.dispose();
+    // Detaches only - the mirrored records stay, so an editor torn down with
+    // dirty tabs (a crash, a forced quit) can still hand the work back.
+    _autosave.dispose();
     for (final tab in _tabs) {
       tab.dispose();
     }
@@ -366,7 +386,25 @@ class _EditorScreenState extends State<EditorScreen>
     final proceed = await _confirmDiscard(
       appL10n(context).editorUnsavedChangesCount(dirty),
     );
-    return proceed ? ui.AppExitResponse.exit : ui.AppExitResponse.cancel;
+    if (!proceed) return ui.AppExitResponse.cancel;
+    // The user was asked and chose to throw the edits away - so drop the
+    // mirrored copies too, or the next launch would offer back work they
+    // already declined.
+    await _autosave.discardAll();
+    return ui.AppExitResponse.exit;
+  }
+
+  /// Mirrors pending edits when the app leaves the foreground. On mobile and
+  /// the web this can be the last callback we get before the process is
+  /// reclaimed, so it writes now rather than waiting out the debounce.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused) {
+      unawaited(_autosave.flushPending());
+    }
   }
 
   // --- session restore -----------------------------------------------------
@@ -384,6 +422,11 @@ class _EditorScreenState extends State<EditorScreen>
   /// set is captured for next time. Documents whose file has since moved or been
   /// deleted are dropped silently rather than surfacing an error tab.
   Future<void> _restoreSession() async {
+    // Unsaved work comes back first, so a document recovered with its edits
+    // wins over the same file restored flat from disk below (the loop skips
+    // paths already open).
+    await _recoverUnsavedChanges();
+    if (!mounted) return;
     final documents = await _session.load();
     if (mounted && !_hasExplicitLaunchTarget) {
       // Suppress lazy materialization while restoring: each tab is briefly the
@@ -410,6 +453,52 @@ class _EditorScreenState extends State<EditorScreen>
     }
     _sessionLoaded = true;
     unawaited(_persistSession());
+  }
+
+  /// Re-opens the documents that had unsaved edits when the app last went
+  /// away, at the revision they were on.
+  ///
+  /// The mirror holds a record only while a document has unsaved work (saving
+  /// or closing drops it), so anything here is by construction work a previous
+  /// run lost - to a crash, an OOM kill, or a browser tab closed out from under
+  /// us. Each comes back as a normal editable tab that is still dirty and still
+  /// points at its original save destination, so the user finishes the save
+  /// they were interrupted in.
+  ///
+  /// What is *not* recovered is the undo stack: the mirrored bytes are one flat
+  /// chain of incremental updates, so the recovered document opens as a single
+  /// revision. The edits survive; the history behind them does not.
+  Future<void> _recoverUnsavedChanges() async {
+    if (!_autosave.enabled) return;
+    final recovered = await _autosave.recover();
+    if (!mounted) return;
+    for (final doc in recovered) {
+      final record = doc.record;
+      final tab = DocumentTab.document(
+        title: record.title,
+        bytes: doc.bytes,
+        preferences: _prefs,
+        originPath: record.originPath.isEmpty ? null : record.originPath,
+        originBookmark: record.originBookmark,
+        cachePath: record.cachePath,
+        // Comes back dirty exactly as it was: the baseline is what had been
+        // written to the real destination, not the revision we recovered.
+        savedLength: record.savedLength,
+      );
+      // Adopt the existing record *before* the tab is tracked by the usual
+      // open path, so continued editing appends to it instead of mirroring the
+      // whole document again under a fresh id.
+      _autosave.track(tab, recovered: record);
+      _addTab(tab);
+    }
+    // Anything nothing adopted (bytes gone, a record we couldn't read) would
+    // otherwise be offered back on every launch forever.
+    await _autosave.pruneAfterRecovery();
+    if (recovered.isEmpty || !mounted) return;
+    final count = recovered.length;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _toast(appL10n(context).editorRecoveredUnsavedChanges(count));
+    });
   }
 
   Future<void> _reopenSessionDocument(SessionDocument doc) async {
@@ -497,6 +586,11 @@ class _EditorScreenState extends State<EditorScreen>
   /// launch can restore it. A no-op until the previous session has been read
   /// back, so early opens can't clobber the stored set before [_restoreSession].
   Future<void> _persistSession() async {
+    // Every tab-set mutation lands here, so this is also where the crash-
+    // recovery mirror learns which documents it should be watching. It runs
+    // ahead of the session-load gate below: a document opened before the last
+    // session has been read back still deserves its unsaved edits protected.
+    _autosave.syncTracking(_tabs);
     if (!_sessionLoaded) return;
     final documents = <SessionDocument>[];
     final seen = <String>{};
@@ -1640,6 +1734,10 @@ class _EditorScreenState extends State<EditorScreen>
           tab.cachePath = null;
         }
       });
+      // Saving never touches the edit session, so nothing notifies the mirror -
+      // tell it directly. The bytes are on the user's own disk now and the
+      // recovery copy has nothing left to protect.
+      unawaited(_autosave.noteSaved(tab));
       if (path != null) {
         _recents.add(
             title: tab.title, path: path, bookmark: tab.originBookmark);
@@ -2433,10 +2531,15 @@ class _EditorScreenState extends State<EditorScreen>
       onSave: (_) => unawaited(_save(tab)),
       onSaveAs: (_) => unawaited(_save(tab, saveAs: true)),
       showSaveButton: !compact,
-      // A brand-new untitled document has no on-disk origin yet, so keep
-      // Save (button + Ctrl/⌘+S) live even before the first edit - the first
-      // save writes the file via the Save As flow.
-      alwaysAllowSave: tab.isUnsaved,
+      // The shell enables Save off its *own* session history, which misses two
+      // cases the app knows about. A brand-new untitled document has no on-disk
+      // origin yet, so Save (button + Ctrl/⌘+S) stays live even before the
+      // first edit - the first save writes the file via the Save As flow. And a
+      // crash-recovered document opens at the revision it was lost on, so the
+      // session sees no edits of its own while the app knows the file on disk
+      // is still behind - without this the user could not save the very work we
+      // just handed back.
+      alwaysAllowSave: tab.isUnsaved || tab.isDirty,
       onPickPdfToInsert: () => pickPdfBytes(appL10n(context).fileTypePdf),
       onExportPages: (bytes) => unawaited(saveBytesAs(context, bytes, tab.title,
           pdfLabel: appL10n(context).fileTypePdf)),

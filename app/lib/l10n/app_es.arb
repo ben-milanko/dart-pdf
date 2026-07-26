@@ -130,6 +130,7 @@
   "editorPreviewCouldNotOpen": "No se pudo abrir",
   "editorPreviewOpening": "Abriendo",
   "editorPreviewPdf": "PDF",
+  "editorRecoveredUnsavedChanges": "{count, plural, =1{Se recuperaron los cambios sin guardar de la última sesión.} other{Se recuperaron los cambios sin guardar de {count} documentos de la última sesión.}}",
   "editorSignatureRemoved": "Firma eliminada",
   "editorSnapshotCopied": "Captura copiada al portapapeles",
   "editorSnapshotCopyFailed": "No se pudo copiar la captura al portapapeles",

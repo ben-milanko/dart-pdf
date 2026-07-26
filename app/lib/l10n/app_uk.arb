@@ -130,6 +130,7 @@
   "editorPreviewCouldNotOpen": "Не вдалося відкрити",
   "editorPreviewOpening": "Відкриття",
   "editorPreviewPdf": "PDF",
+  "editorRecoveredUnsavedChanges": "{count, plural, =1{Незбережені зміни з минулого сеансу відновлено.} other{Незбережені зміни у {count} документах з минулого сеансу відновлено.}}",
   "editorSignatureRemoved": "Підпис вилучено",
   "editorSnapshotCopied": "Знімок скопійовано в буфер обміну",
   "editorSnapshotCopyFailed": "Не вдалося скопіювати знімок у буфер обміну",

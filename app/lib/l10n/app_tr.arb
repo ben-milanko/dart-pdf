@@ -130,6 +130,7 @@
   "editorPreviewCouldNotOpen": "Açılamadı",
   "editorPreviewOpening": "Açılıyor",
   "editorPreviewPdf": "PDF",
+  "editorRecoveredUnsavedChanges": "{count, plural, =1{Son oturumdaki kaydedilmemiş değişiklikler kurtarıldı.} other{Son oturumdaki {count} belgede kaydedilmemiş değişiklikler kurtarıldı.}}",
   "editorSignatureRemoved": "İmza kaldırıldı",
   "editorSnapshotCopied": "Anlık görüntü panoya kopyalandı",
   "editorSnapshotCopyFailed": "Anlık görüntü panoya kopyalanamadı",

@@ -913,6 +913,12 @@ abstract class AppLocalizations {
   /// **'PDF'**
   String get editorPreviewPdf;
 
+  /// Toast shown at launch when documents with unsaved edits were restored after a crash.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Recovered unsaved changes from your last session.} other{Recovered unsaved changes in {count} documents from your last session.}}'**
+  String editorRecoveredUnsavedChanges(int count);
+
   /// Toast confirming a just-placed signature was undone.
   ///
   /// In en, this message translates to:

@@ -519,6 +519,18 @@ class AppLocalizationsId extends AppLocalizations {
   String get editorPreviewPdf => 'PDF';
 
   @override
+  String editorRecoveredUnsavedChanges(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Perubahan yang belum disimpan pada $count dokumen dari sesi terakhir telah dipulihkan.',
+      one: 'Perubahan yang belum disimpan dari sesi terakhir telah dipulihkan.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get editorSignatureRemoved => 'Tanda tangan dihapus';
 
   @override

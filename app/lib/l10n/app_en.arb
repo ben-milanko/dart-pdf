@@ -701,6 +701,15 @@
   "@editorPreviewPdf": {
     "description": "Tab preview placeholder label for a generic PDF with no rendered preview."
   },
+  "editorRecoveredUnsavedChanges": "{count, plural, =1{Recovered unsaved changes from your last session.} other{Recovered unsaved changes in {count} documents from your last session.}}",
+  "@editorRecoveredUnsavedChanges": {
+    "description": "Toast shown at launch when documents with unsaved edits were restored after a crash.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "editorSignatureRemoved": "Signature removed",
   "@editorSignatureRemoved": {
     "description": "Toast confirming a just-placed signature was undone."

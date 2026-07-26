@@ -130,6 +130,7 @@
   "editorPreviewCouldNotOpen": "Không thể mở",
   "editorPreviewOpening": "Đang mở",
   "editorPreviewPdf": "PDF",
+  "editorRecoveredUnsavedChanges": "{count, plural, =1{Đã khôi phục các thay đổi chưa lưu từ phiên trước.} other{Đã khôi phục các thay đổi chưa lưu trong {count} tài liệu từ phiên trước.}}",
   "editorSignatureRemoved": "Đã gỡ chữ ký",
   "editorSnapshotCopied": "Đã sao chép ảnh chụp vào bảng nhớ tạm",
   "editorSnapshotCopyFailed": "Không thể sao chép ảnh chụp vào bảng nhớ tạm",

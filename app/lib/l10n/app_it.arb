@@ -130,6 +130,7 @@
   "editorPreviewCouldNotOpen": "Impossibile aprire",
   "editorPreviewOpening": "Apertura",
   "editorPreviewPdf": "PDF",
+  "editorRecoveredUnsavedChanges": "{count, plural, =1{Modifiche non salvate recuperate dall'ultima sessione.} other{Modifiche non salvate recuperate in {count} documenti dall'ultima sessione.}}",
   "editorSignatureRemoved": "Firma rimossa",
   "editorSnapshotCopied": "Istantanea copiata negli appunti",
   "editorSnapshotCopyFailed": "Impossibile copiare l'istantanea negli appunti",

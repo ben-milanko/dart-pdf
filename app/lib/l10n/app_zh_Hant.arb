@@ -130,6 +130,7 @@
   "editorPreviewCouldNotOpen": "無法開啟",
   "editorPreviewOpening": "正在開啟",
   "editorPreviewPdf": "PDF",
+  "editorRecoveredUnsavedChanges": "{count, plural, =1{已復原上次工作階段中未儲存的變更。} other{已復原上次工作階段中 {count} 份文件的未儲存變更。}}",
   "editorSignatureRemoved": "已移除簽名",
   "editorSnapshotCopied": "已將快照複製到剪貼簿",
   "editorSnapshotCopyFailed": "無法將快照複製到剪貼簿",

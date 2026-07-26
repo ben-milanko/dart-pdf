@@ -516,6 +516,18 @@ class AppLocalizationsTr extends AppLocalizations {
   String get editorPreviewPdf => 'PDF';
 
   @override
+  String editorRecoveredUnsavedChanges(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Son oturumdaki $count belgede kaydedilmemiş değişiklikler kurtarıldı.',
+      one: 'Son oturumdaki kaydedilmemiş değişiklikler kurtarıldı.',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get editorSignatureRemoved => 'İmza kaldırıldı';
 
   @override

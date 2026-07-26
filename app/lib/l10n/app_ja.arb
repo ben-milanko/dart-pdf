@@ -130,6 +130,7 @@
   "editorPreviewCouldNotOpen": "開けませんでした",
   "editorPreviewOpening": "開いています",
   "editorPreviewPdf": "PDF",
+  "editorRecoveredUnsavedChanges": "{count, plural, =1{前回のセッションの未保存の変更を復元しました。} other{前回のセッションの {count} 件のドキュメントの未保存の変更を復元しました。}}",
   "editorSignatureRemoved": "署名を削除しました",
   "editorSnapshotCopied": "スナップショットをクリップボードにコピーしました",
   "editorSnapshotCopyFailed": "スナップショットをクリップボードにコピーできませんでした",

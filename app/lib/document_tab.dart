@@ -32,9 +32,14 @@ class DocumentTab {
     this.originToken,
     this.cachePath,
     bool initiallyDirty = false,
+    int? savedLength,
   })  : session = PdfEditingController(bytes, preferences: preferences),
         viewer = PdfViewerController(),
-        savedLength = initiallyDirty ? -1 : bytes.length,
+        // Normally the opened bytes *are* the saved baseline. Crash recovery is
+        // the exception: it reopens a document at the revision that was in
+        // flight, and passes the baseline the lost tab had, so the recovered
+        // tab comes back dirty in exactly the same way (see autosave.dart).
+        savedLength = savedLength ?? (initiallyDirty ? -1 : bytes.length),
         error = null,
         compareBefore = null,
         compareAfter = null,

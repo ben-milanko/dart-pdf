@@ -130,6 +130,7 @@
   "editorPreviewCouldNotOpen": "Nie udało się otworzyć",
   "editorPreviewOpening": "Otwieranie",
   "editorPreviewPdf": "PDF",
+  "editorRecoveredUnsavedChanges": "{count, plural, =1{Przywrócono niezapisane zmiany z poprzedniej sesji.} other{Przywrócono niezapisane zmiany w {count} dokumentach z poprzedniej sesji.}}",
   "editorSignatureRemoved": "Usunięto podpis",
   "editorSnapshotCopied": "Skopiowano migawkę do schowka",
   "editorSnapshotCopyFailed": "Nie udało się skopiować migawki do schowka",

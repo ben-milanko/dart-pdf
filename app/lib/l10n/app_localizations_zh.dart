@@ -505,6 +505,17 @@ class AppLocalizationsZh extends AppLocalizations {
   String get editorPreviewPdf => 'PDF';
 
   @override
+  String editorRecoveredUnsavedChanges(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '已恢复上次会话中 $count 个文档的未保存更改。',
+      one: '已恢复上次会话中未保存的更改。',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get editorSignatureRemoved => '已移除签名';
 
   @override
@@ -1426,6 +1437,17 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get editorPreviewPdf => 'PDF';
+
+  @override
+  String editorRecoveredUnsavedChanges(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '已復原上次工作階段中 $count 份文件的未儲存變更。',
+      one: '已復原上次工作階段中未儲存的變更。',
+    );
+    return '$_temp0';
+  }
 
   @override
   String get editorSignatureRemoved => '已移除簽名';

@@ -130,6 +130,7 @@
   "editorPreviewCouldNotOpen": "Não foi possível abrir",
   "editorPreviewOpening": "Abrindo",
   "editorPreviewPdf": "PDF",
+  "editorRecoveredUnsavedChanges": "{count, plural, =1{Alterações não guardadas da última sessão recuperadas.} other{Alterações não guardadas em {count} documentos da última sessão recuperadas.}}",
   "editorSignatureRemoved": "Assinatura removida",
   "editorSnapshotCopied": "Instantâneo copiado para a área de transferência",
   "editorSnapshotCopyFailed": "Não foi possível copiar o instantâneo para a área de transferência",
