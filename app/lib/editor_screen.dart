@@ -19,6 +19,7 @@ import 'document_tab.dart';
 import 'file_io.dart';
 import 'image_clipboard.dart';
 import 'image_export.dart';
+import 'image_source_picker.dart';
 import 'incoming_file.dart';
 import 'keyless_identity_cache.dart';
 import 'keyless_signing.dart';
@@ -1698,9 +1699,7 @@ class _EditorScreenState extends State<EditorScreen>
                         ? null
                         : (context) => _obtainKeyless(context, silentProvider),
                 placement: placement,
-                logoPicker: placement == null
-                    ? null
-                    : () => pickImageBytes(appL10n(context).fileTypeImages),
+                logoPicker: placement == null ? null : pickImageBytesFromSource,
                 pageCount: session.document.pageCount,
               ))(context);
       if (!mounted || options == null || !_tabs.contains(tab)) return;
@@ -2442,9 +2441,8 @@ class _EditorScreenState extends State<EditorScreen>
           pdfLabel: appL10n(context).fileTypePdf)),
       onAction: _onAction,
       annotationMenuBuilder: _annotationMenuActions,
-      formImagePicker: (context, field) =>
-          pickImageBytes(appL10n(context).fileTypeImages),
-      imagePicker: (context) => pickImageBytes(appL10n(context).fileTypeImages),
+      formImagePicker: (context, field) => pickImageBytesFromSource(context),
+      imagePicker: pickImageBytesFromSource,
       systemImagePasteProvider: (context) =>
           (widget.imageClipboardReader ?? readImageFromClipboard)(),
       systemTextPasteProvider: (context) =>

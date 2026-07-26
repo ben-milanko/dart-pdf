@@ -235,5 +235,8 @@
   "updateDownloadingPercent": "Download… {percent}%",
   "updateRestarting": "Riavvio per completare l’aggiornamento…",
   "updateHandedOff": "Aggiornamento scaricato. Apertura del programma di installazione…",
-  "updateFailed": "Aggiornamento non riuscito: {error}"
+  "updateFailed": "Aggiornamento non riuscito: {error}",
+  "imageSourceTakePhoto": "Scatta foto",
+  "imageSourceChooseFile": "Scegli file",
+  "imageSourceCameraFailed": "Impossibile scattare la foto"
 }

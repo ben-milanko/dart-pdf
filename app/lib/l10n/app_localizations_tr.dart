@@ -950,4 +950,13 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get appSigErrorNoCertificateFound =>
       'Hiç X.509 sertifikası bulunamadı.';
+
+  @override
+  String get imageSourceTakePhoto => 'Fotoğraf çek';
+
+  @override
+  String get imageSourceChooseFile => 'Dosya seç';
+
+  @override
+  String get imageSourceCameraFailed => 'Fotoğraf çekilemedi';
 }

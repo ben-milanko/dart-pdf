@@ -950,4 +950,13 @@ class AppLocalizationsVi extends AppLocalizations {
   @override
   String get appSigErrorNoCertificateFound =>
       'Không tìm thấy chứng chỉ X.509 nào.';
+
+  @override
+  String get imageSourceTakePhoto => 'Chụp ảnh';
+
+  @override
+  String get imageSourceChooseFile => 'Chọn tệp';
+
+  @override
+  String get imageSourceCameraFailed => 'Không thể chụp ảnh';
 }

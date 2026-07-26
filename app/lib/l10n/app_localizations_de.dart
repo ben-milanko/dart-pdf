@@ -964,4 +964,13 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String get appSigErrorNoCertificateFound =>
       'Es wurden keine X.509-Zertifikate gefunden.';
+
+  @override
+  String get imageSourceTakePhoto => 'Foto aufnehmen';
+
+  @override
+  String get imageSourceChooseFile => 'Datei auswählen';
+
+  @override
+  String get imageSourceCameraFailed => 'Foto konnte nicht aufgenommen werden';
 }

@@ -235,5 +235,8 @@
   "updateDownloadingPercent": "Downloaden… {percent}%",
   "updateRestarting": "Opnieuw opstarten om de update te voltooien…",
   "updateHandedOff": "Update gedownload. Installatieprogramma wordt geopend…",
-  "updateFailed": "Bijwerken mislukt: {error}"
+  "updateFailed": "Bijwerken mislukt: {error}",
+  "imageSourceTakePhoto": "Foto maken",
+  "imageSourceChooseFile": "Bestand kiezen",
+  "imageSourceCameraFailed": "Kan geen foto maken"
 }

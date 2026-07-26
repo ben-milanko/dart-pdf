@@ -235,5 +235,8 @@
   "updateDownloadingPercent": "جارٍ التنزيل… {percent}%",
   "updateRestarting": "جارٍ إعادة التشغيل لإكمال التحديث…",
   "updateHandedOff": "تم تنزيل التحديث. جارٍ فتح المُثبِّت…",
-  "updateFailed": "فشل التحديث: {error}"
+  "updateFailed": "فشل التحديث: {error}",
+  "imageSourceTakePhoto": "التقاط صورة",
+  "imageSourceChooseFile": "اختيار ملف",
+  "imageSourceCameraFailed": "تعذّر التقاط صورة"
 }

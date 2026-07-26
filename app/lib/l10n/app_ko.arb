@@ -235,5 +235,8 @@
   "updateDownloadingPercent": "다운로드 중… {percent}%",
   "updateRestarting": "업데이트를 완료하기 위해 다시 시작하는 중…",
   "updateHandedOff": "업데이트를 다운로드했습니다. 설치 프로그램을 여는 중…",
-  "updateFailed": "업데이트 실패: {error}"
+  "updateFailed": "업데이트 실패: {error}",
+  "imageSourceTakePhoto": "사진 촬영",
+  "imageSourceChooseFile": "파일 선택",
+  "imageSourceCameraFailed": "사진을 촬영하지 못했습니다"
 }

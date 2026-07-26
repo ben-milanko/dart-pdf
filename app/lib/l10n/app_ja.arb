@@ -235,5 +235,8 @@
   "updateDownloadingPercent": "ダウンロード中… {percent}%",
   "updateRestarting": "更新を完了するために再起動しています…",
   "updateHandedOff": "更新をダウンロードしました。インストーラーを開いています…",
-  "updateFailed": "更新に失敗しました: {error}"
+  "updateFailed": "更新に失敗しました: {error}",
+  "imageSourceTakePhoto": "写真を撮る",
+  "imageSourceChooseFile": "ファイルを選択",
+  "imageSourceCameraFailed": "写真を撮影できませんでした"
 }

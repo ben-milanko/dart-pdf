@@ -925,6 +925,15 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get appSigErrorNoCertificateFound => '未找到 X.509 证书。';
+
+  @override
+  String get imageSourceTakePhoto => '拍照';
+
+  @override
+  String get imageSourceChooseFile => '选择文件';
+
+  @override
+  String get imageSourceCameraFailed => '无法拍照';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -1849,4 +1858,13 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get appSigErrorNoCertificateFound => '找不到 X.509 憑證。';
+
+  @override
+  String get imageSourceTakePhoto => '拍照';
+
+  @override
+  String get imageSourceChooseFile => '選擇檔案';
+
+  @override
+  String get imageSourceCameraFailed => '無法拍照';
 }

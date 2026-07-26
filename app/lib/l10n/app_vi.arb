@@ -235,5 +235,8 @@
   "updateDownloadingPercent": "Đang tải xuống… {percent}%",
   "updateRestarting": "Đang khởi động lại để hoàn tất cập nhật…",
   "updateHandedOff": "Đã tải xuống bản cập nhật. Đang mở trình cài đặt…",
-  "updateFailed": "Cập nhật thất bại: {error}"
+  "updateFailed": "Cập nhật thất bại: {error}",
+  "imageSourceTakePhoto": "Chụp ảnh",
+  "imageSourceChooseFile": "Chọn tệp",
+  "imageSourceCameraFailed": "Không thể chụp ảnh"
 }

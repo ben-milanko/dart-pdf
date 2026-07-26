@@ -975,4 +975,13 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get appSigErrorNoCertificateFound => 'لم يُعثر على أي شهادات X.509.';
+
+  @override
+  String get imageSourceTakePhoto => 'التقاط صورة';
+
+  @override
+  String get imageSourceChooseFile => 'اختيار ملف';
+
+  @override
+  String get imageSourceCameraFailed => 'تعذّر التقاط صورة';
 }

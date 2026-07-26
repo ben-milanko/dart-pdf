@@ -235,5 +235,8 @@
   "updateDownloadingPercent": "डाउनलोड हो रहा है… {percent}%",
   "updateRestarting": "अपडेट पूरा करने के लिए पुनरारंभ हो रहा है…",
   "updateHandedOff": "अपडेट डाउनलोड हो गया. इंस्टॉलर खोला जा रहा है…",
-  "updateFailed": "अपडेट विफल: {error}"
+  "updateFailed": "अपडेट विफल: {error}",
+  "imageSourceTakePhoto": "फ़ोटो लें",
+  "imageSourceChooseFile": "फ़ाइल चुनें",
+  "imageSourceCameraFailed": "फ़ोटो नहीं ली जा सकी"
 }

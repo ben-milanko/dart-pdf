@@ -235,5 +235,8 @@
   "updateDownloadingPercent": "Загрузка… {percent}%",
   "updateRestarting": "Перезапуск для завершения обновления…",
   "updateHandedOff": "Обновление загружено. Открытие установщика…",
-  "updateFailed": "Не удалось обновить: {error}"
+  "updateFailed": "Не удалось обновить: {error}",
+  "imageSourceTakePhoto": "Сделать снимок",
+  "imageSourceChooseFile": "Выбрать файл",
+  "imageSourceCameraFailed": "Не удалось сделать снимок"
 }

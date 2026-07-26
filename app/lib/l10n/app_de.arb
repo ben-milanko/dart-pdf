@@ -235,5 +235,8 @@
   "updateDownloadingPercent": "Wird heruntergeladen… {percent}%",
   "updateRestarting": "Neustart, um das Update abzuschließen…",
   "updateHandedOff": "Update heruntergeladen. Installationsprogramm wird geöffnet…",
-  "updateFailed": "Update fehlgeschlagen: {error}"
+  "updateFailed": "Update fehlgeschlagen: {error}",
+  "imageSourceTakePhoto": "Foto aufnehmen",
+  "imageSourceChooseFile": "Datei auswählen",
+  "imageSourceCameraFailed": "Foto konnte nicht aufgenommen werden"
 }

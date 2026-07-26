@@ -966,4 +966,13 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get appSigErrorNoCertificateFound => 'Сертификаты X.509 не найдены.';
+
+  @override
+  String get imageSourceTakePhoto => 'Сделать снимок';
+
+  @override
+  String get imageSourceChooseFile => 'Выбрать файл';
+
+  @override
+  String get imageSourceCameraFailed => 'Не удалось сделать снимок';
 }

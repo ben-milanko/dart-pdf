@@ -969,4 +969,13 @@ class AppLocalizationsUk extends AppLocalizations {
 
   @override
   String get appSigErrorNoCertificateFound => 'Сертифікатів X.509 не знайдено.';
+
+  @override
+  String get imageSourceTakePhoto => 'Зробити знімок';
+
+  @override
+  String get imageSourceChooseFile => 'Вибрати файл';
+
+  @override
+  String get imageSourceCameraFailed => 'Не вдалося зробити знімок';
 }

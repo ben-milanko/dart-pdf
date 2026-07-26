@@ -235,5 +235,8 @@
   "updateDownloadingPercent": "Baixando… {percent}%",
   "updateRestarting": "Reiniciando para concluir a atualização…",
   "updateHandedOff": "Atualização baixada. Abrindo o instalador…",
-  "updateFailed": "Falha na atualização: {error}"
+  "updateFailed": "Falha na atualização: {error}",
+  "imageSourceTakePhoto": "Tirar foto",
+  "imageSourceChooseFile": "Escolher arquivo",
+  "imageSourceCameraFailed": "Não foi possível tirar a foto"
 }

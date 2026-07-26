@@ -983,4 +983,13 @@ class AppLocalizationsPl extends AppLocalizations {
   @override
   String get appSigErrorNoCertificateFound =>
       'Nie znaleziono certyfikatów X.509.';
+
+  @override
+  String get imageSourceTakePhoto => 'Zrób zdjęcie';
+
+  @override
+  String get imageSourceChooseFile => 'Wybierz plik';
+
+  @override
+  String get imageSourceCameraFailed => 'Nie udało się zrobić zdjęcia';
 }

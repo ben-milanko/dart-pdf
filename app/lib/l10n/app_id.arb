@@ -235,5 +235,8 @@
   "updateDownloadingPercent": "Mengunduh… {percent}%",
   "updateRestarting": "Memulai ulang untuk menyelesaikan pembaruan…",
   "updateHandedOff": "Pembaruan diunduh. Membuka penginstal…",
-  "updateFailed": "Pembaruan gagal: {error}"
+  "updateFailed": "Pembaruan gagal: {error}",
+  "imageSourceTakePhoto": "Ambil foto",
+  "imageSourceChooseFile": "Pilih berkas",
+  "imageSourceCameraFailed": "Tidak dapat mengambil foto"
 }
