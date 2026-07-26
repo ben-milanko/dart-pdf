@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
@@ -153,6 +154,71 @@ void main() {
 
     expect(find.textContaining('Recovered unsaved changes'), findsNothing);
     expect(tabTitle('crashed.pdf'), findsNothing);
+  });
+
+  /// The live edit session behind the one open tab.
+  PdfEditingController sessionOf(WidgetTester tester) => tester
+      .widget<PdfViewer>(find.byType(PdfViewer).first)
+      .editing as PdfEditingController;
+
+  testWidgets('backgrounding the app mirrors edits it has not written yet',
+      (tester) async {
+    final store = InMemoryUnsavedChangesStore();
+
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(
+        prefs: prefs,
+        unsavedChangesStore: store,
+        initialDocument: (bytes: buildClassicPdf(), title: 'live.pdf'),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    final session = sessionOf(tester);
+    expect(session.addBookmark('typed something'), isTrue);
+    expect(await store.list(), isEmpty, reason: 'still inside the debounce');
+
+    // On mobile and the web this callback can be the last one we get before
+    // the process is reclaimed, so it must not wait the debounce out.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    await tester.pump();
+
+    final records = await store.list();
+    expect(records, hasLength(1));
+    expect(records.single.length, session.bytes.length);
+  });
+
+  testWidgets('discarding on quit does not offer the work back',
+      (tester) async {
+    final store = InMemoryUnsavedChangesStore();
+
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(
+        prefs: prefs,
+        unsavedChangesStore: store,
+        initialDocument: (bytes: buildClassicPdf(), title: 'live.pdf'),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(sessionOf(tester).addBookmark('typed something'), isTrue);
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+    expect(await store.list(), hasLength(1));
+
+    final exit = tester.binding.handleRequestAppExit();
+    await tester.pumpAndSettle();
+    expect(find.text('Discard changes?'), findsOneWidget);
+    await tester.tap(find.text('Discard'));
+    await tester.pumpAndSettle();
+
+    expect(await exit, ui.AppExitResponse.exit);
+    // The user was asked and said throw it away - resurrecting it next launch
+    // would be the app overruling them.
+    expect(await store.list(), isEmpty);
   });
 
   testWidgets('editing a freshly opened document mirrors it', (tester) async {
