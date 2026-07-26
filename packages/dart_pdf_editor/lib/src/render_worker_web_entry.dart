@@ -109,6 +109,12 @@ void runPdfRenderWorker() {
       // discovered as an unexplained main-thread decode cost. See #458.
       final missing = _browserImageDecodeMissing();
       ready.setProperty('browserImageDecode'.toJS, missing.isEmpty.toJS);
+      // The worker ships as its own `dart compile js` bundle, separate from
+      // the app's main.dart.js, so the app being current is no evidence that
+      // the worker is. Report the decode-reuse capability (#451): a worker
+      // built before it simply omits the field, which is the only way a trace
+      // can distinguish "reuse found nothing" from "this worker cannot reuse".
+      ready.setProperty('imageDecodeCache'.toJS, true.toJS);
       if (missing.isNotEmpty) {
         ready.setProperty(
           'browserImageDecodeMissing'.toJS,
@@ -602,7 +608,15 @@ Future<Uint8List?> _recordPageAsync(
       decodeClock.stop();
       timings!.decodeUs += decodeClock.elapsedMicroseconds;
     }
-    if (tally != null) timings!.imageDecodeSummary = tally.format();
+    // Report the cache's own state, not just the decode tally: "no reuse" has
+    // two very different causes - nothing was ever stored (entries stays 0), or
+    // entries exist but the key never matches - and the tally alone cannot tell
+    // them apart. #451 burned several device traces on exactly that ambiguity.
+    if (tally != null) {
+      timings!.imageDecodeSummary = '${tally.format()} '
+          'cache=${imageCache.hits}h/${imageCache.misses}m'
+          '/${imageCache.length}e';
+    }
   }
   // Decode the page's images in the worker too: the buffer carries
   // premultiplied RGBA so the main thread only runs the engine codec. On web

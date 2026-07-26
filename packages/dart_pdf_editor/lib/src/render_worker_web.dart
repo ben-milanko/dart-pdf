@@ -269,12 +269,19 @@ class _WebRenderWorker extends PdfRenderWorker {
       final browserImageDecodeMissing =
           (data.getProperty('browserImageDecodeMissing'.toJS) as JSString?)
               ?.toDart;
+      // Absent on a worker bundle built before #451's decode reuse. Logged as
+      // `imageDecodeCache=no` rather than omitted, so the line answers the
+      // question instead of leaving it to be inferred from a missing field.
+      final imageDecodeCache =
+          (data.getProperty('imageDecodeCache'.toJS) as JSBoolean?)?.toDart ??
+              false;
       final startupUs = _perfClock?.elapsedMicroseconds;
       _wlog(
         'ready worker=$_workerNumber '
         '(worker opened the document, sharedBytes=$shared)'
         '${browserImageDecode == null ? '' : ' browserImageDecode=$browserImageDecode'}'
         '${browserImageDecodeMissing == null ? '' : ' missing=$browserImageDecodeMissing'}'
+        ' imageDecodeCache=${imageDecodeCache ? 'yes' : 'no'}'
         '${startupUs == null ? '' : ' startup=${_traceMs(startupUs)}'}'
         '${openUs == null ? '' : ' open=${_traceMs(openUs)}'}',
       );

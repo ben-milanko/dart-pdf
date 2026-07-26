@@ -188,6 +188,60 @@ pixels. Confirmed to fail against the dropped-predicate mutation.
 pdf_graphics 970, dart_pdf_editor 1989, zero Ghent baseline movement,
 analyzer clean.
 
+## Confirmed in real Chrome, and how much time it cost not to
+
+Four device traces in a row showed **no reuse at all**, and three rounds went
+into explaining them. Every explanation was wrong in an instructive way:
+
+1. *"Wrong build."* Right for the first two traces, wrong for the rest — and
+   diagnosed from commit timestamps rather than from the artifact. Settled it
+   properly by fetching the deployed worker bundle and grepping the minified
+   JS for the `reused=` literal: **present**, so the code was live.
+2. *"Stream identity breaks across re-interpretation."* Plausible, and the
+   reason `tool/probe_record_reuse.dart` exists — the older bench interprets
+   once and serializes twice, so it could never have caught it. Probe says
+   identity is stable (`14/14`, `11/11`, `8/8`).
+3. Also eliminated: per-request document opens, cache lifetime (`init` is sent
+   once), cache scope, transcript replay (source commands are memoised and
+   retain the original requests), LRU eviction (a page re-recorded 0.8 s later
+   with nothing between), `CosDocument` memo eviction (unbounded map), a stale
+   cached worker (cache-busted by content hash), and the `maxBytes` cap (the
+   images are 8.3 MB, the cap is 64 MB).
+
+Then the real-Chrome harness on the same 62-page file reproduced "no reuse"
+locally — and **that run was measuring a stale bundle too**: `tool/perf.sh web`
+only builds when `app/build/web/index.html` is *missing*, and it existed. After
+an explicit `app/tool/perf/build.sh`:
+
+```
+p1 w1  codec=2 reused=2  decode=232ms      →  codec=0 reused=4  decode=1ms
+p2 w2  codec=2 reused=1  serialize=887ms   →  codec=0 reused=4  serialize=177ms
+p3 w3  codec=3 reused=2  serialize=1064ms  →  codec=0 reused=6  serialize=121ms
+                                              cache=23h/109m/22e
+```
+
+Decode collapses to ~1 ms and serialize drops 5–8× on the repeat record. The
+feature works.
+
+**The lesson is about measurement hygiene, not about the cache.** Three of the
+five wrong conclusions here — two device traces and one harness run — came from
+measuring an artifact that had not been rebuilt. A stale bundle and a broken
+feature produce identical evidence. Check the artifact, not the timestamp:
+`imageDecodeCache=yes|no` on the worker's `ready` line and `build commit=` on
+the app's first perf line both exist now for that reason.
+
+## Diagnostics that came out of it
+
+`imageDecode=` now carries `cache=<hits>h/<misses>m/<entries>e`. "No reuse" has
+two causes that the decode tally alone cannot separate:
+
+* `…/0e` — nothing was **stored**: every decode declined, or each is larger
+  than the whole budget.
+* entries present but hits flat — stored fine, the **key** never matched.
+
+One device trace with that field says which, instead of another round of
+elimination.
+
 ## What is left
 
 1. **A scaled DCT decode** — the 69%/31% split above says it is the largest
