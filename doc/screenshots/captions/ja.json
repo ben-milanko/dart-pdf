@@ -1,0 +1,38 @@
+{
+  "locale": "ja",
+  "_comment": "ローカライズされたマーケティング用スクリーンショットのキャプション。キーは <target>/<basename> で、元のキャプチャPNG名と一致します。各エントリは tool/compose_marketing.dart によって枠付きストアショットに重ねられる見出しとサブタイトルです。見出しは短く保ち（大きなサイズで表示されます）、App Store ガイドライン 2.3.10 のルールを守ってください（app/* のキャプションには他プラットフォーム名を入れないこと）。",
+  "captions": {
+    "app/01-welcome": {
+      "headline": "プライベートなPDF編集",
+      "subtitle": "アカウント不要。アップロードなし。ファイルはデバイスに保存。"
+    },
+    "app/02-editor": {
+      "headline": "マークアップ、署名、墨消し",
+      "subtitle": "フォーム入力、ノート追加、ページ移動。"
+    },
+    "app/03-dark": {
+      "headline": "実際の書類のために",
+      "subtitle": "テキスト検索、OCR、バージョン比較、\n保護されたファイルも開けます。"
+    },
+    "example/01-document": {
+      "headline": "あらゆるPDFを開く",
+      "subtitle": "純粋なDartで、あらゆるプラットフォームで描画"
+    },
+    "example/02-graphics": {
+      "headline": "グラフィックス",
+      "subtitle": "グラデーション、シェーディング、透明度"
+    },
+    "example/03-annotations": {
+      "headline": "注釈",
+      "subtitle": "ハイライト、手書き、ノート、スタンプ、フォーム"
+    },
+    "example/04-markup": {
+      "headline": "マークアップツール",
+      "subtitle": "ページに描画、図形の追加、署名"
+    },
+    "example/05-reader": {
+      "headline": "読書ビュー",
+      "subtitle": "テキストを画面に合わせてリフロー"
+    }
+  }
+}

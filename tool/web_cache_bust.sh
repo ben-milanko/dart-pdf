@@ -62,7 +62,7 @@ replace_in_compiled_dart() {
   while IFS= read -r -d '' js_file; do
     perl_replace_string_url "$js_file" "$path" "$hash"
   done < <(find "$BUILD_DIR" -maxdepth 1 \
-    \( -name 'main.dart.js' -o -name 'main.dart.js_*.part.js' -o -name 'main.dart.mjs' \) \
+    \( -name 'main.dart.js' -o -name 'main.dart.js_*.js' -o -name 'main.dart.mjs' \) \
     -type f -print0)
 }
 
@@ -76,6 +76,39 @@ for path in main.dart.wasm main.dart.mjs main.dart.js; do
   perl_replace_string_url "$BOOTSTRAP" "$path" "$hash"
 done
 
+# The render-worker URLs must be rewritten BEFORE the deferred parts are hashed
+# and renamed below. The app references the worker from `dart_pdf_editor`, which
+# lives in a DEFERRED part rather than main.dart.js, and hashing a part before
+# its contents are final breaks two ways:
+#
+#   * the content-addressed filename no longer matches the content, and
+#   * a deploy that changes ONLY the worker leaves the part's hash - and so the
+#     part URL - identical, so browsers keep the old part and the old worker URL.
+#
+# That is not hypothetical: for as long as the rename ran first, the worker URL
+# was never busted at all (the rename left files ending `.<hash>.js`, which the
+# old `main.dart.js_*.part.js` search no longer matched). Firebase serves
+# assets/**.js with a year max-age precisely because it is assumed busted, so
+# returning users kept one worker build across every deploy and no worker-side
+# change reached them. See doc/dev-log/2026-07-26-record-image-decode-reuse-451.md.
+if [[ -f "$MAIN_JS" ]]; then
+  worker="$BUILD_DIR/pdf_render_worker.dart.js"
+  if [[ -f "$worker" ]]; then
+    hash="$(hash_file "$worker")"
+    echo "  pdf_render_worker.dart.js  ?v=$hash"
+    replace_in_compiled_dart "pdf_render_worker.dart.js" "$hash"
+  fi
+fi
+
+asset_worker_path="assets/packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js"
+asset_worker="$BUILD_DIR/$asset_worker_path"
+if [[ -f "$asset_worker" ]]; then
+  hash="$(hash_file "$asset_worker")"
+  echo "  $asset_worker_path  ?v=$hash"
+  replace_in_compiled_dart "$asset_worker_path" "$hash"
+fi
+
+# Only now, with every in-part URL final, hash and rename the deferred parts.
 if [[ -f "$MAIN_JS" ]]; then
   while IFS= read -r -d '' file; do
     path="$(basename "$file")"
@@ -93,21 +126,6 @@ if [[ -f "$MAIN_JS" ]]; then
       s/"$path(?:\?v=[0-9a-f]+)?"/"$hashed"/g;
     ' "$MAIN_JS"
   done < <(find "$BUILD_DIR" -maxdepth 1 -name 'main.dart.js_*.part.js' -type f -print0 | sort -z)
-
-  worker="$BUILD_DIR/pdf_render_worker.dart.js"
-  if [[ -f "$worker" ]]; then
-    hash="$(hash_file "$worker")"
-    echo "  pdf_render_worker.dart.js  ?v=$hash"
-    replace_in_compiled_dart "pdf_render_worker.dart.js" "$hash"
-  fi
-fi
-
-asset_worker_path="assets/packages/dart_pdf_editor/assets/web/pdf_render_worker.dart.js"
-asset_worker="$BUILD_DIR/$asset_worker_path"
-if [[ -f "$asset_worker" ]]; then
-  hash="$(hash_file "$asset_worker")"
-  echo "  $asset_worker_path  ?v=$hash"
-  replace_in_compiled_dart "$asset_worker_path" "$hash"
 fi
 
 if grep -qE '"main\.dart\.(wasm|mjs|js)"' "$BOOTSTRAP"; then
@@ -121,6 +139,23 @@ if [[ -f "$MAIN_JS" ]] && grep -qE '"main\.dart\.js_[0-9]+\.part\.js"' "$MAIN_JS
   grep -nE '"main\.dart\.js_[0-9]+\.part\.js"' "$MAIN_JS" >&2
   exit 1
 fi
+
+# The render worker is a separate ~1 MB bundle that the app fetches by URL. An
+# un-busted reference is invisible - the app keeps working, on whatever worker
+# build the browser cached first - so assert rather than trust. Checks every
+# compiled unit, including the renamed deferred parts, because the reference
+# lives in a part and not in main.dart.js.
+while IFS= read -r -d '' js_file; do
+  if grep -qE '"[^"]*pdf_render_worker\.dart\.js"' "$js_file"; then
+    echo "ERROR: $(basename "$js_file") references the render worker without a" \
+      "?v= hash. Browsers cache it for a year, so worker-side changes would" \
+      "never reach a returning user:" >&2
+    grep -oE '"[^"]*pdf_render_worker\.dart\.js"' "$js_file" | sort -u >&2
+    exit 1
+  fi
+done < <(find "$BUILD_DIR" -maxdepth 1 \
+  \( -name 'main.dart.js' -o -name 'main.dart.js_*.js' -o -name 'main.dart.mjs' \) \
+  -type f -print0)
 
 if [[ -f "$FONT_MANIFEST" ]]; then
   echo "Cache-busting fonts in assets/FontManifest.json"

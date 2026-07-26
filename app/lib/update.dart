@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'devtools.dart';
+
 /// A parsed semantic version (`major.minor.patch`), tolerant of the leading
 /// `app-v` / `v` that the release tags carry, an optional `+build` metadata
 /// suffix (ignored for ordering, per semver), and an optional `-prerelease`
@@ -88,6 +90,7 @@ class ReleaseInfo {
     required this.notes,
     required this.htmlUrl,
     required this.assets,
+    this.assetSizes = const {},
   });
 
   final AppVersion version;
@@ -99,6 +102,11 @@ class ReleaseInfo {
   /// Asset file name → `browser_download_url`.
   final Map<String, String> assets;
 
+  /// Asset file name → byte size, from the GitHub release metadata. Used to
+  /// verify an in-app update download landed complete (a truncated download
+  /// is rejected rather than written over the running install).
+  final Map<String, int> assetSizes;
+
   /// Builds a release from one element of the GitHub `/releases` array,
   /// returning null when the tag isn't a parseable version (so non-app tags
   /// and malformed entries are simply skipped).
@@ -108,13 +116,18 @@ class ReleaseInfo {
     final version = AppVersion.tryParse(tag);
     if (version == null) return null;
     final assets = <String, String>{};
+    final assetSizes = <String, int>{};
     final rawAssets = json['assets'];
     if (rawAssets is List) {
       for (final asset in rawAssets) {
         if (asset is! Map) continue;
         final name = asset['name'];
         final url = asset['browser_download_url'];
-        if (name is String && url is String) assets[name] = url;
+        if (name is String && url is String) {
+          assets[name] = url;
+          final size = asset['size'];
+          if (size is int && size > 0) assetSizes[name] = size;
+        }
       }
     }
     return ReleaseInfo(
@@ -126,6 +139,7 @@ class ReleaseInfo {
       notes: (json['body'] as String?)?.trim() ?? '',
       htmlUrl: (json['html_url'] as String?) ?? '',
       assets: assets,
+      assetSizes: assetSizes,
     );
   }
 }
@@ -224,12 +238,35 @@ class UpdateService extends ChangeNotifier {
   String? _dismissedTag;
   Future<void> _restored = Future.value();
 
-  /// Whether update checks make sense on this platform. The web build is always
-  /// served fresh (and an installed PWA refreshes through its service worker),
-  /// so there is nothing to check there.
-  static bool get supported => !kIsWeb;
-
   TargetPlatform get _targetPlatform => _platform ?? defaultTargetPlatform;
+
+  /// Whether update checks make sense on this platform.
+  ///
+  /// Only the desktop builds are distributed as direct downloads from GitHub
+  /// Releases, so only they benefit from a "newer build available, download it"
+  /// nudge. Two platforms opt out:
+  ///
+  /// * The web build is always served fresh (and an installed PWA refreshes
+  ///   through its service worker), so there is nothing to check.
+  /// * The Android/iOS builds update through their app stores, and a GitHub
+  ///   release routinely lands *before* the store review clears. Checking
+  ///   GitHub there would nag mobile users about a version they can't install
+  ///   yet, and the "Download" button would only send them to a GitHub page
+  ///   that isn't their update channel - exactly the confusing dead end we
+  ///   want to avoid.
+  ///
+  /// This is an instance getter (not static) so the injected [platform] is
+  /// honoured and the gate is testable.
+  bool get supported {
+    if (kIsWeb) return false;
+    return switch (_targetPlatform) {
+      TargetPlatform.macOS ||
+      TargetPlatform.windows ||
+      TargetPlatform.linux =>
+        true,
+      _ => false,
+    };
+  }
 
   AppVersion? get _current => AppVersion.tryParse(currentVersion);
 
@@ -249,13 +286,34 @@ class UpdateService extends ChangeNotifier {
       );
 
   /// The best download URL for [latest] on the current platform: the matching
-  /// release asset when there is one, else the release page (iOS, and anything
-  /// without a direct artifact, send the user to the page).
+  /// release asset when there is one, else the release page (a desktop build
+  /// with no direct artifact falls back to the page). Only resolved on the
+  /// desktop platforms where updates are [supported].
   String? get downloadUrl {
     final release = _latest;
     if (release == null) return null;
-    final asset = _platformAsset(release.assets);
+    final name = _platformAssetName(release.assets);
+    final asset = name == null ? null : release.assets[name];
     return asset ?? (release.htmlUrl.isEmpty ? null : release.htmlUrl);
+  }
+
+  /// The file name of the platform artifact for [latest], or null when there
+  /// is no direct artifact (so only the release page is available). The
+  /// in-app installer needs the name to decide how to apply the update and
+  /// where to stage the download.
+  String? get downloadAssetName {
+    final release = _latest;
+    if (release == null) return null;
+    return _platformAssetName(release.assets);
+  }
+
+  /// The expected byte size of [downloadAssetName], when GitHub reported one,
+  /// for verifying an in-app download landed complete.
+  int? get downloadAssetSize {
+    final release = _latest;
+    final name = downloadAssetName;
+    if (release == null || name == null) return null;
+    return release.assetSizes[name];
   }
 
   /// Queries GitHub for a newer release. Throttled to [_checkInterval] unless
@@ -288,6 +346,8 @@ class UpdateService extends ChangeNotifier {
         _status = UpdateStatus.upToDate;
       }
     } catch (e) {
+      AppDevTools.instance
+          .addLog('update check failed: $e', level: DevLogLevel.error);
       _error = e;
       _status = UpdateStatus.failed;
     }
@@ -308,7 +368,7 @@ class UpdateService extends ChangeNotifier {
     return last != null && _now().difference(last) < _checkInterval;
   }
 
-  String? _platformAsset(Map<String, String> assets) {
+  String? _platformAssetName(Map<String, String> assets) {
     if (assets.isEmpty) return null;
     final patterns = switch (_targetPlatform) {
       TargetPlatform.macOS => ['dartpdf-macos.dmg'],
@@ -321,12 +381,14 @@ class UpdateService extends ChangeNotifier {
           'dartpdf-linux-x86_64.AppImage',
           'dartpdf-linux-x64.tar.gz',
         ],
-      TargetPlatform.android => ['app-release.apk'],
+      // Mobile (Android/iOS) never reaches here: those platforms opt out of
+      // update checks (see [supported]) because they update through their app
+      // stores, so downloadUrl is only ever resolved for the desktop builds.
       _ => const <String>[],
     };
     for (final pattern in patterns) {
       for (final entry in assets.entries) {
-        if (entry.key == pattern) return entry.value;
+        if (entry.key == pattern) return entry.key;
       }
     }
     return null;

@@ -1,0 +1,6 @@
+Mới trong 3.1.1
+
+CUỘN MƯỢT HƠN
+• Các tệp PDF lớn hoặc có nhiều chi tiết giờ phản hồi tốt hơn khi cuộn nhanh.
+• Bản xem trước trang vẫn hiển thị khi bạn di chuyển nhanh qua tài liệu, sau đó trở lại sắc nét với đầy đủ chi tiết.
+• Công việc kết xuất được lên lịch đều hơn, giúp giảm hiện tượng giật khung hình không thường xuyên.

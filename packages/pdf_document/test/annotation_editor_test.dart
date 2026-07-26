@@ -150,6 +150,82 @@ void main() {
     expect(pdfInkStrokeWidth(4, 1), closeTo(6.4, 1e-9));
   });
 
+  test('reduced-opacity ink fades as one isolated transparency group', () {
+    // A pressure (trackpad/stylus) stroke paints each segment separately
+    // with round caps that overlap at every join. Compositing them
+    // individually at partial alpha double-paints those overlaps into
+    // visible dots, so the strokes are drawn opaquely inside a
+    // transparency group the /N form fades as a whole.
+    String innerDrawing(PdfDocument d, PdfAnnotation a) {
+      final resources =
+          d.cos.resolve(a.normalAppearance!.dictionary['Resources'])
+              as CosDictionary;
+      final xObjects = d.cos.resolve(resources['XObject']) as CosDictionary;
+      final inner =
+          d.cos.resolve(xObjects.entries.values.single) as CosStream;
+      return latin1.decode(d.cos.decodeStreamData(inner));
+    }
+
+    final doc = roundTrip((e) => e.addInk(
+          0,
+          [
+            [(100, 100), (150, 130), (200, 100)],
+          ],
+          strokeWidth: 4,
+          opacity: 0.5,
+          pressures: [
+            [0.0, 0.5, 1.0],
+          ],
+        ));
+    final ink = doc.page(0).annotations.single;
+    final form = ink.normalAppearance!;
+
+    // the /N form just fades and paints the group - no stroke ops leak
+    // out where the constant alpha would compound them
+    final outer = latin1.decode(doc.cos.decodeStreamData(form));
+    expect(outer, contains('/GS0 gs'));
+    expect(outer, contains('Do'));
+    expect(outer, isNot(contains(' S')));
+
+    // /GS0 carries the constant alpha; the inner form is an isolated
+    // transparency group
+    final resources =
+        doc.cos.resolve(form.dictionary['Resources']) as CosDictionary;
+    final gstates = doc.cos.resolve(resources['ExtGState']) as CosDictionary;
+    final gs0 = doc.cos.resolve(gstates['GS0']) as CosDictionary;
+    expect((doc.cos.resolve(gs0['ca']) as CosReal).value, closeTo(0.5, 1e-9));
+    expect((doc.cos.resolve(gs0['CA']) as CosReal).value, closeTo(0.5, 1e-9));
+
+    final xObjects = doc.cos.resolve(resources['XObject']) as CosDictionary;
+    final inner = doc.cos.resolve(xObjects.entries.values.single) as CosStream;
+    final group = doc.cos.resolve(inner.dictionary['Group']) as CosDictionary;
+    expect((doc.cos.resolve(group['S']) as CosName).value, 'Transparency');
+    expect(doc.cos.resolve(group['I']), const CosBoolean(true));
+
+    // the per-segment stroking lives inside the group, at full alpha
+    final drawing = innerDrawing(doc, ink);
+    expect(drawing, contains('2.8 w'));
+    expect(drawing, contains('5.2 w'));
+    expect('S'.allMatches(drawing).length, greaterThanOrEqualTo(2));
+    expect(drawing, isNot(contains('gs')));
+
+    // restyling recovers the pressures through the group wrapper, so a
+    // recolor stays per-segment instead of collapsing to a uniform pen
+    final editor = PdfEditor(doc)
+      ..restyleAnnotation(0, ink, color: 0x1E88E5);
+    final out = PdfDocument.open(editor.save());
+    final after = out.page(0).annotations.single;
+    expect(after.color, 0x1E88E5);
+    final afterDrawing = innerDrawing(out, after);
+    expect(afterDrawing, contains('RG'), reason: 'recolored');
+    // still per-segment: recovery inverts the group's segment widths back
+    // to pressures (a lossy re-average, 2.8/5.2 → 3.4/4.6) rather than
+    // flattening to a single uniform pen
+    expect(afterDrawing, contains('3.4 w'),
+        reason: 'pressures recovered through the group wrapper');
+    expect(afterDrawing, contains('4.6 w'));
+  });
+
   test('ink appearances smooth the polyline into Bézier curves', () {
     final doc = roundTrip((e) => e.addInk(0, [
           [(100, 100), (150, 130), (200, 100)],
@@ -224,6 +300,60 @@ void main() {
     final circle = appearanceText(doc, annots[1]);
     expect(circle, contains('c')); // Bézier arcs
     expect(circle, contains('S'));
+  });
+
+  test('rounded rectangle curves its corners and records /Border', () {
+    final doc = roundTrip((e) => e.addSquare(
+          0,
+          const PdfRect(100, 100, 300, 200),
+          strokeWidth: 2,
+          cornerRadius: 12,
+        ));
+    final square = doc.page(0).annotations.single;
+    expect(square.subtype, 'Square');
+    expect(square.cornerRadius, 12);
+
+    final content = appearanceText(doc, square);
+    // roundedRect draws corners as Bézier curves rather than a single `re`.
+    expect(content, contains('c'));
+    expect(content, isNot(contains(' re')));
+
+    // §12.5.4 /Border = [hCornerRadius vCornerRadius width].
+    final border = doc.cos.resolve(square.dict['Border']) as CosArray;
+    expect(border.length, 3);
+    expect((doc.cos.resolve(border[0]) as CosReal).value, 12);
+    expect((doc.cos.resolve(border[1]) as CosReal).value, 12);
+  });
+
+  test('a plain rectangle keeps square corners and no /Border radius', () {
+    final doc = roundTrip((e) => e.addSquare(
+          0,
+          const PdfRect(100, 100, 300, 200),
+          strokeWidth: 2,
+        ));
+    final square = doc.page(0).annotations.single;
+    expect(square.cornerRadius, 0);
+    expect(appearanceText(doc, square), contains(' re'));
+  });
+
+  test('resizing a rounded rectangle keeps its corner radius', () {
+    final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+    editor.addSquare(
+      0,
+      const PdfRect(100, 100, 300, 200),
+      strokeWidth: 2,
+      cornerRadius: 12,
+    );
+    final doc = PdfDocument.open(editor.save());
+    final editor2 = PdfEditor(doc);
+    final square = doc.page(0).annotations.single;
+    editor2.resizeAnnotation(0, square, const PdfRect(100, 100, 500, 400));
+    final resized = PdfDocument.open(editor2.save());
+    final annot = resized.page(0).annotations.single;
+    expect(annot.cornerRadius, 12);
+    final content = appearanceText(resized, annot);
+    expect(content, contains('c'));
+    expect(content, isNot(contains(' re')));
   });
 
   test('free text wraps to the rect and records /DA', () {
@@ -1103,8 +1233,10 @@ void main() {
     expect(annotation.rect.right, greaterThan(220));
     final content = appearanceText(doc, annotation);
     expect(content, contains(' c\n'));
-    expect(content, contains('f\n'));
-    expect(content, contains('S\n'));
+    // The scalloped cloud outline is filled and stroked in one pass (B), so
+    // the interior colour reaches the puffed edges rather than stopping at
+    // the straight polygon footprint.
+    expect(content, contains('B\n'));
   });
 
   test('cloud scallops stay inside the form BBox (no clipped puffs)', () {
@@ -1130,6 +1262,7 @@ void main() {
         _ => throw StateError('not a number: $r'),
       };
     }
+
     final bx0 = num(bbox[0]);
     final by0 = num(bbox[1]);
     final bx1 = num(bbox[2]);
@@ -1180,6 +1313,76 @@ void main() {
     // and the puffs really do bulge out past the polygon vertices
     expect(maxY, greaterThan(640));
     expect(minY, lessThan(500));
+  });
+
+  test('a cloud scale rides on /BE /I and bulges bigger scallops', () {
+    // The scallop size is driven by cloudScale, independent of the pen.
+    Iterable<double> puffExtent(double scale) {
+      final doc = roundTrip((e) {
+        e.addPolygon(
+          0,
+          [(120, 500), (420, 500), (420, 640), (120, 640)],
+          strokeWidth: 2,
+          cloudy: true,
+          cloudScale: scale,
+        );
+      });
+      final annotation = doc.page(0).annotations.single;
+      expect(annotation.cloudBorderScale, closeTo(scale, 1e-9));
+      final be = doc.cos.resolve(annotation.dict['BE']) as CosDictionary;
+      expect((doc.cos.resolve(be['I']) as CosReal).value, closeTo(scale, 1e-9));
+      // how far the /Rect balloons past the polygon footprint - a proxy for
+      // the scallop bulge
+      return [
+        120 - annotation.rect.left,
+        annotation.rect.right - 420,
+        annotation.rect.top - 640,
+      ];
+    }
+
+    final small = puffExtent(1).toList();
+    final big = puffExtent(2.5).toList();
+    for (var i = 0; i < small.length; i++) {
+      expect(big[i], greaterThan(small[i]));
+    }
+  });
+
+  test('restyling a cloud preserves its scale across a colour change', () {
+    final doc = roundTrip((e) {
+      e.addPolygon(
+        0,
+        [(120, 500), (420, 500), (420, 640), (120, 640)],
+        strokeWidth: 2,
+        cloudy: true,
+        cloudScale: 2.5,
+      );
+    });
+    final editor = PdfEditor(doc)
+      ..restyleAnnotation(0, doc.page(0).annotations.single, color: 0x123456);
+    final reopened = PdfDocument.open(editor.save());
+    final annotation = reopened.page(0).annotations.single;
+    expect(annotation.hasCloudyBorder, isTrue);
+    expect(annotation.cloudBorderScale, closeTo(2.5, 1e-9));
+    // and the puffs are still the wider ones the scale asked for
+    expect(annotation.rect.top - 640, greaterThan(20));
+  });
+
+  test('restyleAnnotation cloudScale resizes the scallops', () {
+    final doc = roundTrip((e) {
+      e.addPolygon(
+        0,
+        [(120, 500), (420, 500), (420, 640), (120, 640)],
+        strokeWidth: 2,
+        cloudy: true,
+      );
+    });
+    final before = doc.page(0).annotations.single.rect.top - 640;
+    final editor = PdfEditor(doc)
+      ..restyleAnnotation(0, doc.page(0).annotations.single, cloudScale: 3);
+    final reopened = PdfDocument.open(editor.save());
+    final annotation = reopened.page(0).annotations.single;
+    expect(annotation.cloudBorderScale, closeTo(3, 1e-9));
+    expect(annotation.rect.top - 640, greaterThan(before));
   });
 
   test('resizing a dashed arrow regenerates with scaled endpoints', () {
@@ -1397,6 +1600,91 @@ void main() {
     final content = appearanceText(reopened, box);
     final m = RegExp(r'(-?[\d.]+) -?[\d.]+ Td').firstMatch(content);
     expect(double.parse(m!.group(1)!), greaterThan(150));
+  });
+
+  test('free text line/character spacing and width round-trip and emit', () {
+    final doc = roundTrip((e) => e.addFreeText(
+          0,
+          const PdfRect(100, 600, 400, 660),
+          'Spaced out text',
+          lineSpacing: 2.0,
+          charSpacing: 3,
+          horizontalScale: 150,
+        ));
+    final box = doc.page(0).annotations.single;
+    final style = box.freeTextStyle!;
+    expect(style.lineSpacing, closeTo(2.0, 1e-9));
+    expect(style.charSpacing, closeTo(3, 1e-9));
+    expect(style.horizontalScale, closeTo(150, 1e-9));
+
+    final content = appearanceText(doc, box);
+    expect(content, contains('3 Tc'));
+    expect(content, contains('150 Tz'));
+    // leading is fontSize (12) * lineSpacing (2) = 24
+    expect(content, contains('24 TL'));
+
+    // the values survive a resize (which regenerates the appearance)
+    final editor = PdfEditor(doc)
+      ..resizeAnnotation(0, box, const PdfRect(100, 600, 520, 660));
+    final reopened = PdfDocument.open(editor.save());
+    final resized = reopened.page(0).annotations.single.freeTextStyle!;
+    expect(resized.lineSpacing, closeTo(2.0, 1e-9));
+    expect(resized.charSpacing, closeTo(3, 1e-9));
+    expect(resized.horizontalScale, closeTo(150, 1e-9));
+    expect(appearanceText(reopened, reopened.page(0).annotations.single),
+        contains('150 Tz'));
+  });
+
+  test('a plain free text box writes no spacing keys', () {
+    final doc = roundTrip(
+        (e) => e.addFreeText(0, const PdfRect(100, 600, 400, 640), 'Plain'));
+    final dict = doc.page(0).annotations.single.dict;
+    expect(dict[kPdfFreeTextLineSpacingKey], isNull);
+    expect(dict[kPdfFreeTextCharSpacingKey], isNull);
+    expect(dict[kPdfFreeTextHScaleKey], isNull);
+    expect(dict[kPdfFreeTextUnderlineKey], isNull);
+  });
+
+  test('underlined free text draws a rule and round-trips the flag', () {
+    final doc = roundTrip((e) => e.addFreeText(
+          0,
+          const PdfRect(100, 600, 400, 640),
+          'Underlined',
+          underline: true,
+        ));
+    final box = doc.page(0).annotations.single;
+    expect(box.freeTextStyle!.underline, isTrue);
+    // the underline is a filled rectangle drawn after the text object
+    final content = appearanceText(doc, box);
+    expect(content, contains('ET'));
+    expect(content.lastIndexOf(' re'), greaterThan(content.lastIndexOf('ET')));
+
+    // it survives a resize
+    final editor = PdfEditor(doc)
+      ..resizeAnnotation(0, box, const PdfRect(100, 600, 500, 640));
+    final reopened = PdfDocument.open(editor.save());
+    expect(
+        reopened.page(0).annotations.single.freeTextStyle!.underline, isTrue);
+  });
+
+  test('rich free text carries per-run underline through /RC', () {
+    final doc = roundTrip((e) => e.addFreeTextRich(
+          0,
+          const PdfRect(100, 600, 400, 640),
+          const [
+            PdfFreeTextRun('plain '),
+            PdfFreeTextRun('under', underline: true),
+          ],
+        ));
+    final box = doc.page(0).annotations.single;
+    final rc = box.richContent!;
+    expect(rc, contains('text-decoration:underline'));
+    final runs = PdfAnnotationEditing.parseFreeTextRichContent(rc);
+    expect(runs.where((r) => r.underline).map((r) => r.text).join(),
+        contains('under'));
+    // the appearance draws one underline rule (a re after the text object)
+    final content = appearanceText(doc, box);
+    expect(content.lastIndexOf('ET'), lessThan(content.lastIndexOf(' re')));
   });
 
   test('resizeAnnotation rejects degenerate rects', () {
@@ -1695,5 +1983,134 @@ void main() {
     final doc =
         roundTrip((e) => e.addHighlight(0, const [PdfRect(72, 700, 200, 712)]));
     expect(doc.page(0).annotations.single.flags & 4, 4);
+  });
+
+  group('link annotations', () {
+    PdfDocument roundTripLink(
+      void Function(PdfEditor) edit, {
+      int pages = 1,
+    }) {
+      final editor = PdfEditor(PdfDocument.open(
+          pages == 1 ? buildClassicPdf() : buildMultiPagePdf(pages)));
+      edit(editor);
+      return PdfDocument.open(editor.save());
+    }
+
+    test('URI link round-trips as a /Link with a /URI action', () {
+      final doc = roundTripLink((e) => e.addLinkToUri(
+            0,
+            const [PdfRect(72, 700, 200, 712)],
+            uri: 'https://example.com/docs',
+            contents: 'docs',
+          ));
+      final link = doc.page(0).annotations.single;
+      expect(link, isA<PdfLinkAnnotation>());
+      expect(link.subtype, 'Link');
+      expect(link.rect, const PdfRect(72, 700, 200, 712));
+
+      final action = link.action;
+      expect(action, isA<PdfUriAction>());
+      expect((action as PdfUriAction).uri, 'https://example.com/docs');
+
+      // invisible by default: no border, no appearance stream
+      final border = doc.cos.resolve(link.dict['Border']) as CosArray;
+      expect((doc.cos.resolve(border[2]) as CosReal).value, 0);
+      expect(link.normalAppearance, isNull);
+      expect(link.name, isNotNull);
+      expect(
+          (doc.cos.resolve(link.dict['Contents']) as CosString).text, 'docs');
+    });
+
+    test('a multi-line selection becomes one link with per-quad regions', () {
+      final doc = roundTripLink((e) => e.addLinkToUri(
+            0,
+            const [PdfRect(72, 700, 200, 712), PdfRect(72, 686, 150, 698)],
+            uri: 'mailto:team@example.com',
+          ));
+      final link = doc.page(0).annotations.single;
+      // /Rect is the bounding box of both quads
+      expect(link.rect, const PdfRect(72, 686, 200, 712));
+      final quads = doc.cos.resolve(link.dict['QuadPoints']) as CosArray;
+      expect(quads.length, 16);
+    });
+
+    test('internal link jumps to a page via a /GoTo destination', () {
+      final doc = roundTripLink(
+        (e) => e.addLinkToPage(
+          0,
+          const [PdfRect(72, 700, 200, 712)],
+          targetPage: 2,
+        ),
+        pages: 3,
+      );
+      final action = doc.page(0).annotations.single.action;
+      expect(action, isA<PdfGoToAction>());
+      final destination = (action as PdfGoToAction).destination;
+      expect(destination.pageIndex, 2);
+      expect(destination.fit, 'Fit');
+    });
+
+    test('addLinkToDestination preserves an XYZ view target', () {
+      final doc = roundTripLink(
+        (e) => e.addLinkToDestination(
+          0,
+          const [PdfRect(72, 700, 200, 712)],
+          destination:
+              PdfExplicitDestination.xyz(1, left: 50, top: 400, zoom: 2),
+        ),
+        pages: 2,
+      );
+      final action = doc.page(0).annotations.single.action as PdfGoToAction;
+      expect(action.destination.pageIndex, 1);
+      expect(action.destination.fit, 'XYZ');
+      expect(action.destination.left, 50);
+      expect(action.destination.top, 400);
+      expect(action.destination.zoom, 2);
+    });
+
+    test('underline decoration bakes an appearance stream', () {
+      final doc = roundTripLink((e) => e.addLinkToUri(
+            0,
+            const [PdfRect(72, 700, 200, 712)],
+            uri: 'https://example.com',
+            underlineColor: 0x0000EE,
+          ));
+      final link = doc.page(0).annotations.single;
+      final content = appearanceText(doc, link);
+      expect(content, contains('S')); // a stroked underline
+    });
+
+    test('a visible border sets /C, a non-zero /Border, and an appearance', () {
+      final doc = roundTripLink((e) => e.addLinkToUri(
+            0,
+            const [PdfRect(72, 700, 200, 712)],
+            uri: 'https://example.com',
+            borderColor: 0xFF0000,
+            borderWidth: 2,
+          ));
+      final link = doc.page(0).annotations.single;
+      expect(link.color, 0xFF0000);
+      final border = doc.cos.resolve(link.dict['Border']) as CosArray;
+      expect((doc.cos.resolve(border[2]) as CosReal).value, 2);
+      final content = appearanceText(doc, link);
+      expect(content, contains('re'));
+    });
+
+    test('an empty URI is rejected', () {
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+      expect(
+        () => editor.addLinkToUri(0, const [PdfRect(0, 0, 10, 10)], uri: ''),
+        throwsArgumentError,
+      );
+    });
+
+    test('links carry the print flag', () {
+      final doc = roundTripLink((e) => e.addLinkToUri(
+            0,
+            const [PdfRect(72, 700, 200, 712)],
+            uri: 'https://example.com',
+          ));
+      expect(doc.page(0).annotations.single.flags & 4, 4);
+    });
   });
 }

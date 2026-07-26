@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../l10n/pdf_l10n.dart';
+
 /// The value-entry formats [PdfColorPicker] can show: hex (the default),
 /// RGB (0–255), HSL (degrees and percentages), and CMYK (percentages -
 /// a naive device conversion for entry and display; the committed color
@@ -20,9 +22,11 @@ enum PdfColorFormat {
 }
 
 /// A compact full-spectrum color picker: a saturation/value area, a hue
-/// slider, and a value row - hex, RGB, HSL, or CMYK, switchable - kept
-/// in sync. Annotation opacity is a separate controller property, so
-/// the picker deals in opaque colors.
+/// slider, a value row - hex, RGB, HSL, or CMYK, switchable - kept in
+/// sync, and a grid of quick-pick swatches (a fixed palette plus, when
+/// supplied, the colours recently chosen and the colours already used in
+/// the document). Annotation opacity is a separate controller property,
+/// so the picker deals in opaque colors.
 ///
 /// Used by [showPdfColorPicker]; embed it directly for custom chrome.
 class PdfColorPicker extends StatefulWidget {
@@ -32,6 +36,9 @@ class PdfColorPicker extends StatefulWidget {
     required this.onChanged,
     this.initialFormat = PdfColorFormat.hex,
     this.onFormatChanged,
+    this.swatches = defaultSwatches,
+    this.recentColors = const [],
+    this.documentColors = const [],
   });
 
   final Color color;
@@ -43,6 +50,41 @@ class PdfColorPicker extends StatefulWidget {
   /// Reports format switches so the host can persist the choice (see
   /// [showPdfColorPicker]).
   final ValueChanged<PdfColorFormat>? onFormatChanged;
+
+  /// The fixed palette shown in the "Palette" swatch grid. Defaults to
+  /// [defaultSwatches]; pass an empty list to hide the row.
+  final List<Color> swatches;
+
+  /// Colours the user picked recently, most-recent first - shown in a
+  /// "Recent" grid when non-empty. See `PdfEditingPreferences.recentColors`.
+  final List<Color> recentColors;
+
+  /// Colours already used in the open document (annotation strokes and
+  /// fills) - shown in an "In document" grid when non-empty.
+  final List<Color> documentColors;
+
+  /// A general-purpose palette: a grayscale ramp plus a spread of hues.
+  /// Alpha is ignored - the picker deals in opaque colours.
+  static const defaultSwatches = [
+    Color(0xFF000000),
+    Color(0xFF5F6368),
+    Color(0xFF9AA0A6),
+    Color(0xFFDADCE0),
+    Color(0xFFFFFFFF),
+    Color(0xFFD32F2F),
+    Color(0xFFE53935),
+    Color(0xFFF4511E),
+    Color(0xFFFB8C00),
+    Color(0xFFFDD835),
+    Color(0xFFC0CA33),
+    Color(0xFF43A047),
+    Color(0xFF00897B),
+    Color(0xFF1E88E5),
+    Color(0xFF3949AB),
+    Color(0xFF8E24AA),
+    Color(0xFFD81B60),
+    Color(0xFF6D4C41),
+  ];
 
   @override
   State<PdfColorPicker> createState() => _PdfColorPickerState();
@@ -165,6 +207,14 @@ class _PdfColorPickerState extends State<PdfColorPicker> {
     widget.onChanged(_color);
   }
 
+  /// From a swatch tap: adopt the swatch's (opaque) colour into the model
+  /// and refresh the SV area, hue slider, and value fields.
+  void _selectSwatch(Color color) {
+    setState(() => _hsv = HSVColor.fromColor(color.withValues(alpha: 1)));
+    _syncFields();
+    widget.onChanged(_color);
+  }
+
   /// Any channel edit: parse the whole visible row (the other fields
   /// already show their values). Incomplete input - an emptied field
   /// mid-edit - leaves the model alone.
@@ -269,7 +319,7 @@ class _PdfColorPickerState extends State<PdfColorPicker> {
               height: 38,
               child: PopupMenuButton<PdfColorFormat>(
                 key: const ValueKey('pdf-color-format'),
-                tooltip: 'Color format',
+                tooltip: pdfL10n(context).colorColorFormat,
                 initialValue: _format,
                 onSelected: _switchFormat,
                 itemBuilder: (context) => [
@@ -287,8 +337,98 @@ class _PdfColorPickerState extends State<PdfColorPicker> {
               ),
             ),
           ]),
+          ..._gridSections(context),
         ],
       ),
+    );
+  }
+
+  /// The swatch grids shown below the value row: the fixed palette, then
+  /// (when supplied) recents and the document's own colours. Each is a
+  /// labelled [_SwatchGrid]; empty inputs drop out entirely.
+  List<Widget> _gridSections(BuildContext context) {
+    final currentRgb = _color.toARGB32() & 0xFFFFFF;
+    final l10n = pdfL10n(context);
+    final sections = <(String, String, List<Color>)>[
+      (l10n.colorPalette, 'palette', widget.swatches),
+      (l10n.colorRecent, 'recent', widget.recentColors),
+      (l10n.colorInDocument, 'document', widget.documentColors),
+    ];
+    final grids = <Widget>[];
+    for (final (label, keyPart, colors) in sections) {
+      if (colors.isEmpty) continue;
+      grids
+        ..add(const SizedBox(height: 12))
+        ..add(_SwatchGrid(
+          key: ValueKey('pdf-color-grid-$keyPart'),
+          label: label,
+          keyPart: keyPart,
+          colors: colors,
+          selectedRgb: currentRgb,
+          onSelected: _selectSwatch,
+        ));
+    }
+    return grids;
+  }
+}
+
+/// A labelled row of quick-pick colour swatches that wraps to fit the
+/// picker's width. Deduplicates by RGB (alpha is ignored) so a colour
+/// never appears twice in one grid, and rings the swatch matching the
+/// picker's current colour.
+class _SwatchGrid extends StatelessWidget {
+  const _SwatchGrid({
+    super.key,
+    required this.label,
+    required this.keyPart,
+    required this.colors,
+    required this.selectedRgb,
+    required this.onSelected,
+  });
+
+  final String label;
+  final String keyPart;
+  final List<Color> colors;
+  final int selectedRgb;
+  final ValueChanged<Color> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final seen = <int>{};
+    final swatches = <Widget>[];
+    for (final color in colors) {
+      final rgb = color.toARGB32() & 0xFFFFFF;
+      if (!seen.add(rgb)) continue;
+      final hex = rgb.toRadixString(16).toUpperCase().padLeft(6, '0');
+      swatches.add(Tooltip(
+        message: '#$hex',
+        child: InkWell(
+          key: ValueKey('pdf-color-swatch-$keyPart-$hex'),
+          onTap: () => onSelected(Color(0xFF000000 | rgb)),
+          customBorder: const CircleBorder(),
+          child: Container(
+            width: 24,
+            height: 24,
+            decoration: BoxDecoration(
+              color: Color(0xFF000000 | rgb),
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: rgb == selectedRgb ? scheme.primary : scheme.outline,
+                width: rgb == selectedRgb ? 3 : 1,
+              ),
+            ),
+          ),
+        ),
+      ));
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: Theme.of(context).textTheme.labelSmall),
+        const SizedBox(height: 6),
+        Wrap(spacing: 6, runSpacing: 6, children: swatches),
+      ],
     );
   }
 }
@@ -433,32 +573,40 @@ class _HuePainter extends CustomPainter {
 /// Pass [initialFormat]/[onFormatChanged] to keep the value row's format
 /// across openings - the stock chrome wires them to
 /// `PdfEditingPreferences.colorPickerFormat` so the choice persists on
-/// the device.
+/// the device. [recentColors] and [documentColors] feed the picker's
+/// quick-pick grids (see [PdfColorPicker]); `pickEditingColor` wires
+/// them from the controller and preferences.
 Future<Color?> showPdfColorPicker(
   BuildContext context, {
   required Color initial,
   PdfColorFormat initialFormat = PdfColorFormat.hex,
   ValueChanged<PdfColorFormat>? onFormatChanged,
+  List<Color> recentColors = const [],
+  List<Color> documentColors = const [],
 }) {
   var current = initial;
   return showDialog<Color>(
     context: context,
     builder: (context) => AlertDialog(
-      title: const Text('Color'),
-      content: PdfColorPicker(
-        color: initial,
-        onChanged: (color) => current = color,
-        initialFormat: initialFormat,
-        onFormatChanged: onFormatChanged,
+      title: Text(pdfL10n(context).colorColorTitle),
+      content: SingleChildScrollView(
+        child: PdfColorPicker(
+          color: initial,
+          onChanged: (color) => current = color,
+          initialFormat: initialFormat,
+          onFormatChanged: onFormatChanged,
+          recentColors: recentColors,
+          documentColors: documentColors,
+        ),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(pdfL10n(context).cancel),
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(current),
-          child: const Text('OK'),
+          child: Text(pdfL10n(context).ok),
         ),
       ],
     ),

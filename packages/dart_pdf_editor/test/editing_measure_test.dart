@@ -22,17 +22,30 @@ void main() {
       editing.calibrateScale((100, 100), (316, 100), 60, 'ft');
 
       expect(editing.hasMeasurementScale, isTrue);
-      final scale = editing.measurementScale!;
+      final scale = editing.preferences.measurementScale!;
       expect(scale.unitLabel, 'ft');
       expect(scale.unitsPerPoint, closeTo(60 / 216, 1e-9));
       // 1 in = 72 pt → 72 × (60/216) = 20 ft
       expect(scale.ratioLabel, '1 in = 20 ft');
     });
 
+    test('the controller measurementScale forwarder round-trips preferences',
+        () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      expect(editing.measurementScale, isNull);
+
+      final scale = PdfMeasurementScale(unitsPerPoint: 20 / 72, unitLabel: 'ft');
+      editing.measurementScale = scale;
+      // The getter reads through to preferences; the setter wrote it there.
+      expect(editing.measurementScale, same(scale));
+      expect(editing.preferences.measurementScale, same(scale));
+    });
+
     test('live readouts compute distance, perimeter, and area', () {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
-      editing.measurementScale =
+      editing.preferences.measurementScale =
           PdfMeasurementScale(unitsPerPoint: 20 / 72, unitLabel: 'ft');
 
       expect(editing.measuredDistance((100, 100), (316, 100)), '60 ft');
@@ -49,7 +62,7 @@ void main() {
         () {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
-      editing.measurementScale =
+      editing.preferences.measurementScale =
           PdfMeasurementScale(unitsPerPoint: 20 / 72, unitLabel: 'ft');
 
       editing.addMeasurement(
@@ -65,12 +78,12 @@ void main() {
         () {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
-      editing.measurementScale =
+      editing.preferences.measurementScale =
           PdfMeasurementScale(unitsPerPoint: 20 / 72, unitLabel: 'ft');
       editing.fontFamily = PdfStandardFont.times;
-      editing.fontSize = 14;
-      editing.lineStartEnding = PdfLineEnding.openArrow;
-      editing.lineEndEnding = PdfLineEnding.closedArrow;
+      editing.preferences.fontSize = 14;
+      editing.preferences.lineStartEnding = PdfLineEnding.openArrow;
+      editing.preferences.lineEndEnding = PdfLineEnding.closedArrow;
 
       editing.addMeasurement(
           0, PdfMeasurementKind.distance, const [(100, 100), (316, 100)]);
@@ -86,7 +99,7 @@ void main() {
     test('changing a selected measurement keeps its caption visible', () {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
-      editing.measurementScale =
+      editing.preferences.measurementScale =
           PdfMeasurementScale(unitsPerPoint: 20 / 72, unitLabel: 'ft');
       editing.addMeasurement(
           0, PdfMeasurementKind.distance, const [(100, 100), (316, 100)]);
@@ -106,7 +119,7 @@ void main() {
     test('the panel can restyle a selected measurement caption font', () {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
-      editing.measurementScale =
+      editing.preferences.measurementScale =
           PdfMeasurementScale(unitsPerPoint: 20 / 72, unitLabel: 'ft');
       editing.addMeasurement(
           0, PdfMeasurementKind.distance, const [(100, 100), (316, 100)]);
@@ -378,7 +391,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(editing.hasMeasurementScale, isTrue);
-      final result = editing.measurementScale!;
+      final result = editing.preferences.measurementScale!;
       expect(result.unitLabel, 'ft');
       // 50 ft over 200 page points
       expect(result.unitsPerPoint, closeTo(50 / 200, 1e-6));
@@ -435,7 +448,7 @@ void main() {
         WidgetTester tester) async {
       SharedPreferences.setMockInitialValues({});
       final editing = PdfEditingController(buildMultiPagePdf(2))
-        ..measurementScale =
+        ..preferences.measurementScale =
             PdfMeasurementScale(unitsPerPoint: 20 / 72, unitLabel: 'ft');
       final viewer = PdfViewerController();
       addTearDown(editing.dispose);

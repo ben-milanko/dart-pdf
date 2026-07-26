@@ -1,0 +1,38 @@
+{
+  "locale": "vi",
+  "_comment": "Localized marketing-screenshot captions. Keyed <target>/<basename>, matching the raw capture PNG names. Each entry is the headline and subtitle overlaid on the framed store shot by tool/compose_marketing.dart. Keep headlines short (they set at a large size) and honour the App Store Guideline 2.3.10 rule: no other-platform names in app/* captions.",
+  "captions": {
+    "app/01-welcome": {
+      "headline": "Chỉnh sửa PDF riêng tư",
+      "subtitle": "Không tài khoản. Không tải lên. Tệp ở lại trên thiết bị của bạn."
+    },
+    "app/02-editor": {
+      "headline": "Đánh dấu, ký, che thông tin",
+      "subtitle": "Điền biểu mẫu, thêm ghi chú và di chuyển trang."
+    },
+    "app/03-dark": {
+      "headline": "Dành cho tài liệu thực tế",
+      "subtitle": "Tìm kiếm văn bản, chạy OCR, so sánh phiên bản,\nvà mở tệp được bảo vệ."
+    },
+    "example/01-document": {
+      "headline": "Mở bất kỳ tệp PDF nào",
+      "subtitle": "Kết xuất bằng Dart thuần, trên mọi nền tảng"
+    },
+    "example/02-graphics": {
+      "headline": "Đồ họa",
+      "subtitle": "Dải màu chuyển, tô bóng và trong suốt"
+    },
+    "example/03-annotations": {
+      "headline": "Chú thích",
+      "subtitle": "Tô sáng, nét mực, ghi chú, con dấu và biểu mẫu"
+    },
+    "example/04-markup": {
+      "headline": "Công cụ đánh dấu",
+      "subtitle": "Vẽ, thêm hình khối và ký trên trang"
+    },
+    "example/05-reader": {
+      "headline": "Chế độ đọc",
+      "subtitle": "Sắp xếp lại văn bản cho vừa màn hình"
+    }
+  }
+}

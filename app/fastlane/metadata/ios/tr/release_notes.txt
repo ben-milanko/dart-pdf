@@ -1,0 +1,6 @@
+3.1.1’deki yenilikler
+
+DAHA AKICI KAYDIRMA
+• Büyük veya görsel açıdan yoğun PDF’ler hızlı kaydırma sırasında artık daha iyi tepki veriyor.
+• Belgede hızla ilerlerken sayfa önizlemeleri görünür kalır, ardından tam ayrıntılı ve net biçimde işlenir.
+• İşleme görevleri daha dengeli planlanarak aralıklı kare kayıpları azaltıldı.

@@ -1,0 +1,7 @@
+Novedades de la versión 2.1.0
+
+• Vista de lectura con reajuste: lee un documento como texto continuo, con desplazamiento diferido, posición guardada y visor de figuras.
+• Apertura y renderizado más rápidos en archivos grandes o con muchas imágenes, y menor uso de memoria en dibujos muy anchos.
+• Trazos finos más nítidos, legibles al alejar el zoom.
+• Mejor color en degradados e imágenes indexadas.
+• Los caracteres Symbol y ZapfDingbats se representan en lugar de cuadros.

@@ -1,0 +1,6 @@
+Novidades da 3.1.1
+
+ROLAGEM MAIS SUAVE
+• PDFs grandes ou visualmente densos agora respondem melhor durante a rolagem rápida.
+• As prévias continuam visíveis enquanto você percorre o documento e depois voltam com todos os detalhes.
+• O trabalho de renderização é distribuído de forma mais uniforme, reduzindo perdas ocasionais de quadros.

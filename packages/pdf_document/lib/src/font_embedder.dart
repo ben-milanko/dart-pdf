@@ -6,6 +6,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 
 import 'annotation.dart';
 import 'content_writer.dart';
+import 'document.dart';
 
 /// A TrueType/OpenType font program, parsed and ready to embed in a PDF as
 /// a full-Unicode composite (Type0) font.
@@ -58,6 +59,15 @@ class PdfEmbeddedFont implements PdfTextFont {
 
   /// A human-friendly family name (name table id 1), for font menus.
   final String familyName;
+
+  /// [familyName] with the six-letter subset tag PDF producers prepend to a
+  /// subsetted font stripped (e.g. `XAAPZZ+HorbseTextured` ->
+  /// `HorbseTextured`) - what a font menu should show for a font recovered
+  /// from a document.
+  String get displayName {
+    final match = RegExp(r'^[A-Z]{6}\+').firstMatch(familyName);
+    return match == null ? familyName : familyName.substring(match.end);
+  }
 
   /// The raw font program (the TrueType/OpenType bytes this was parsed
   /// from). Exposed so a host can register the same outline data with a
@@ -268,8 +278,157 @@ class PdfEmbeddedFont implements PdfTextFont {
     }
   }
 
+  /// Reparses the embedded program of any [fontDict] already in a document -
+  /// a simple font (/TrueType or /Type1 carrying a /FontDescriptor with a
+  /// /FontFile2 or /FontFile3 program) or a composite /Type0 font (whose
+  /// descriptor lives on its descendant CIDFont) - into a re-embeddable
+  /// [PdfEmbeddedFont]. Unlike [fromFontDict] it isn't limited to /Type0.
+  ///
+  /// Returns null when the dict carries no reparsable sfnt (TrueType /
+  /// OpenType) program: a bare-CFF /FontFile3, a Type1 /FontFile, or a
+  /// subset stripped of its cmap all disqualify it - which conveniently
+  /// leaves only fonts whose glyphs new text can actually be mapped onto.
+  static PdfEmbeddedFont? fromEmbeddedProgram(
+      CosDocument cos, CosDictionary fontDict,
+      {String resourceName = 'F0'}) {
+    try {
+      var descriptorHost = fontDict;
+      final sub = cos.resolve(fontDict['Subtype']);
+      if (sub is CosName && sub.value == 'Type0') {
+        final desc = cos.resolve(fontDict['DescendantFonts']);
+        if (desc is! CosArray || desc.items.isEmpty) return null;
+        final cid = cos.resolve(desc.items.first);
+        if (cid is! CosDictionary) return null;
+        descriptorHost = cid;
+      }
+      final fd = cos.resolve(descriptorHost['FontDescriptor']);
+      if (fd is! CosDictionary) return null;
+      var file = cos.resolve(fd['FontFile2']);
+      if (file is! CosStream) file = cos.resolve(fd['FontFile3']);
+      if (file is! CosStream) return null;
+      final bytes = cos.decodeStreamData(file);
+      return PdfEmbeddedFont.parse(Uint8List.fromList(bytes),
+          resourceName: resourceName);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The distinct embeddable fonts [document] already uses - the faces its
+  /// page /Font resources (and the AcroForm's /DR) reference, each reparsed
+  /// via [fromEmbeddedProgram] into a re-embeddable [PdfEmbeddedFont] so
+  /// authored text can reuse a font the file already carries without
+  /// bundling a new one.
+  ///
+  /// Deduplicated by PostScript name (so the same face subset onto several
+  /// pages appears once); fonts with no reparsable sfnt program are skipped.
+  /// Order is first appearance walking the pages (their content fonts, then
+  /// their annotations' appearance fonts) then the AcroForm. Reads page,
+  /// annotation-appearance and form resources, not fonts nested deeper
+  /// inside Form XObjects.
+  static List<PdfEmbeddedFont> usedIn(PdfDocument document) {
+    final cos = document.cos;
+    final dicts = <CosDictionary>[];
+    void collect(CosObject? fontsRef) {
+      final fonts = cos.resolve(fontsRef);
+      if (fonts is! CosDictionary) return;
+      for (final value in fonts.entries.values) {
+        final dict = cos.resolve(value);
+        if (dict is CosDictionary && !dicts.any((d) => identical(d, dict))) {
+          dicts.add(dict);
+        }
+      }
+    }
+
+    void collectResources(CosObject? resourcesRef) {
+      final res = cos.resolve(resourcesRef);
+      if (res is CosDictionary) collect(res['Font']);
+    }
+
+    for (var i = 0; i < document.pageCount; i++) {
+      final page = document.page(i);
+      collect(page.resources['Font']);
+      for (final annotation in page.annotations) {
+        collectResources(annotation.normalAppearance?.dictionary['Resources']);
+      }
+    }
+    final acroForm = cos.resolve(document.catalog['AcroForm']);
+    if (acroForm is CosDictionary) {
+      final dr = cos.resolve(acroForm['DR']);
+      if (dr is CosDictionary) collect(dr['Font']);
+    }
+
+    final result = <PdfEmbeddedFont>[];
+    final seen = <String>{};
+    for (final dict in dicts) {
+      final font = fromEmbeddedProgram(cos, dict);
+      if (font == null) continue;
+      if (!seen.add(font.postScriptName)) continue;
+      result.add(font);
+    }
+    return result;
+  }
+
   /// The glyph id for [rune], or 0 (.notdef) when the font lacks it.
   int glyphForRune(int rune) => _cmap.gidFor(rune);
+
+  /// Whether [gid]'s TrueType outline actually has contours - i.e. its `glyf`
+  /// entry is non-empty.
+  ///
+  /// Subsetters keep a font's full `cmap` but empty the `glyf` of every glyph
+  /// the document never draws, so [glyphForRune] can map a character to a
+  /// glyph that renders blank. This distinguishes a real glyph from a
+  /// stripped one. Returns true for CFF/OpenType outlines (not checkable this
+  /// cheaply) and whenever the tables can't be read, so callers only ever
+  /// *suppress* a preview they can prove is blank, never a real one.
+  bool glyphHasOutline(int gid) {
+    if (_isCff || gid < 0) return true;
+    try {
+      final data = ByteData.sublistView(_bytes);
+      final numTables = data.getUint16(4);
+      int? headOffset, locaOffset, locaLength, glyfOffset;
+      for (var i = 0; i < numTables; i++) {
+        final rec = 12 + i * 16;
+        final tag = String.fromCharCodes(_bytes, rec, rec + 4);
+        final offset = data.getUint32(rec + 8);
+        switch (tag) {
+          case 'head':
+            headOffset = offset;
+          case 'loca':
+            locaOffset = offset;
+            locaLength = data.getUint32(rec + 12);
+          case 'glyf':
+            glyfOffset = offset;
+        }
+      }
+      if (headOffset == null || locaOffset == null || glyfOffset == null) {
+        return true; // no glyf-based outlines to check
+      }
+      // indexToLocFormat (head + 50): 0 = short (2-byte, *2), 1 = long (4-byte)
+      final longLoca = data.getInt16(headOffset + 50) != 0;
+      final entries = longLoca ? locaLength! ~/ 4 : locaLength! ~/ 2;
+      if (gid + 1 >= entries) return true; // out of range - don't second-guess
+      int locaAt(int g) => longLoca
+          ? data.getUint32(locaOffset! + g * 4)
+          : data.getUint16(locaOffset! + g * 2) * 2;
+      // An empty glyf entry has zero length (start == end offset).
+      return locaAt(gid + 1) > locaAt(gid);
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// Whether this font can draw every non-space character of [text] with a
+  /// real (non-empty) glyph - so [text] can be previewed in this face without
+  /// missing letters. Spaces are ignored (their empty glyf is expected).
+  bool canRender(String text) {
+    for (final rune in text.runes) {
+      if (rune == 0x20) continue;
+      final gid = glyphForRune(rune);
+      if (gid == 0 || !glyphHasOutline(gid)) return false;
+    }
+    return true;
+  }
 
   /// Advance width of [gid] in thousandths of an em.
   int advanceForGlyph(int gid) {

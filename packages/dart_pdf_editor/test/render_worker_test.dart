@@ -48,7 +48,7 @@ class _SyncWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion}) async {
+      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async {
     if (_disposed || pageIndex < 0 || pageIndex >= _doc.pageCount) return null;
     final page = _doc.page(pageIndex);
     final previewOperationLimit = decodeImages ? null : commandLimit;
@@ -222,6 +222,50 @@ void main() {
           lessThan(native!.width * native.height),
           reason: 'a tiny display ratio must downsample the shipped pixels');
       expect(capped.rgba.length, capped.width * capped.height * 4);
+    });
+  });
+
+  testWidgets('a thumbnail-ratio record is budgeted to the tile it fills '
+      '(#603)', (tester) async {
+    await tester.runAsync(() async {
+      // The warm pass asks for a page at ~0.4 px per point to fill a 256px
+      // tile. Before this the buffer it got back was budgeted against the
+      // FULL-PAGE raster cap (17 MP) - so a layered sheet shipped megabytes of
+      // decoded pixels the tile can never show, and the main thread paid for
+      // every one of them again turning them into ui.Images at replay.
+      final bytes = buildSyntheticRasterUnderlaySheet(
+        underlays: const [
+          PdfUnderlaySpec(width: 1400, height: 1000),
+          PdfUnderlaySpec(width: 1400, height: 1000),
+          PdfUnderlaySpec(width: 1400, height: 1000),
+        ],
+        layers: 2,
+        ops: 40,
+      );
+      final worker = PdfRenderWorker.start(bytes);
+      addTearDown(worker.dispose);
+      final size = PdfPageRenderer.pageSize(PdfDocument.open(bytes).page(0));
+
+      const tilePixels = 256.0;
+      final tileRatio = tilePixels / size.width;
+      final commands = await worker.record(0, imagePixelRatio: tileRatio);
+      expect(commands, isNotNull, reason: 'the sheet must offload');
+      final (count, pixels) = PdfPageRenderer.decodedImageStats(commands!);
+      expect(count, greaterThan(0), reason: 'nothing decoded - proves nothing');
+
+      // The tile's own raster, times the per-image resolution headroom (2x
+      // linear) squared. Slop: every image rounds its scaled edges up, so a
+      // page of them lands a hair over the budget by construction.
+      final raster = tilePixels * (size.height * tileRatio);
+      expect(pixels, lessThanOrEqualTo((4 * raster * 1.02).ceil()),
+          reason: '$pixels decoded pixels shipped to fill a '
+              '${raster.round()}-pixel tile');
+
+      // ...and the same page at its own resolution is not squeezed by it: the
+      // budget follows the raster, it is not a blanket tightening.
+      final full = await worker.record(0, imagePixelRatio: 2.0);
+      final (_, fullPixels) = PdfPageRenderer.decodedImageStats(full!);
+      expect(fullPixels, greaterThan(pixels * 8));
     });
   });
 
@@ -776,6 +820,84 @@ void main() {
       expect(inner.calls.length, 2, reason: 'a declined page must re-ask');
     });
 
+    test('the record count is bounded so weight-0 pages cannot grow unbounded',
+        () async {
+      // Every record weighs 0 (image-free), so the byte budget never trips.
+      // Without the entry cap these would pile up one-per-page for the whole
+      // life of the worker - the unbounded growth issue #283 measured.
+      final inner = _CountingWorker();
+      final worker = PdfCachingRenderWorker(inner, maxEntries: 3);
+      addTearDown(worker.dispose);
+      for (var page = 0; page < 10; page++) {
+        await worker.record(page, decodeImages: false);
+      }
+      expect(worker.cachedEntryCount, 3,
+          reason: 'the cache is capped, not one entry per page scrolled');
+      expect(inner.calls.length, 10);
+      // The oldest pages were evicted, so page 0 must re-record.
+      await worker.record(0, decodeImages: false);
+      expect(inner.calls.length, 11, reason: 'the evicted page 0 re-records');
+      // The most-recent survivors still hit.
+      await worker.record(9, decodeImages: false);
+      await worker.record(8, decodeImages: false);
+      expect(inner.calls.length, 11, reason: 'recent pages stayed cached');
+    });
+
+    test('count eviction removes the least-recently-used record', () async {
+      final inner = _CountingWorker();
+      final worker = PdfCachingRenderWorker(inner, maxEntries: 3);
+      addTearDown(worker.dispose);
+      await worker.record(0, decodeImages: false); // {0}
+      await worker.record(1, decodeImages: false); // {0,1}
+      await worker.record(2, decodeImages: false); // {0,1,2}
+      await worker.record(0, decodeImages: false); // hit: 0 now MRU -> {1,2,0}
+      expect(inner.calls.length, 3);
+      await worker.record(3, decodeImages: false); // count 4>3: evict LRU (1)
+      expect(inner.calls.length, 4);
+      expect(worker.cachedEntryCount, 3);
+      await worker.record(0, decodeImages: false); // still cached
+      await worker.record(2, decodeImages: false); // still cached
+      expect(inner.calls.length, 4, reason: 'touched pages survived');
+      await worker.record(1, decodeImages: false); // 1 was the LRU eviction
+      expect(inner.calls.length, 5, reason: 'the least-recently-used page went');
+    });
+
+    test('count eviction of a heavy record frees its decoded bytes', () async {
+      final inner = _CountingWorker(decodedPixels: 64); // 256 bytes each
+      // A byte budget wide enough to never trip, so only the count cap evicts.
+      final worker =
+          PdfCachingRenderWorker(inner, budgetBytes: 1 << 20, maxEntries: 2);
+      addTearDown(worker.dispose);
+      await worker.record(0, imagePixelRatio: 2.0); // {0} bytes=256
+      await worker.record(1, imagePixelRatio: 2.0); // {0,1} bytes=512
+      await worker.record(2, imagePixelRatio: 2.0); // evict LRU 0, bytes=512
+      expect(worker.cachedEntryCount, 2);
+      expect(worker.cachedBytes, 256 * 2,
+          reason: 'evicting the LRU heavy record decremented the byte total');
+    });
+
+    test('uses the runtime default cache max entries when not overridden', () {
+      final previous = pdfRenderWorkerCacheMaxEntries;
+      addTearDown(() => pdfRenderWorkerCacheMaxEntries = previous);
+
+      pdfRenderWorkerCacheMaxEntries = 7;
+      final worker = PdfCachingRenderWorker(_CountingWorker());
+      addTearDown(worker.dispose);
+
+      expect(worker.cacheMaxEntries, 7);
+    });
+
+    test('explicit max entries overrides the runtime default', () {
+      final previous = pdfRenderWorkerCacheMaxEntries;
+      addTearDown(() => pdfRenderWorkerCacheMaxEntries = previous);
+
+      pdfRenderWorkerCacheMaxEntries = 7;
+      final worker = PdfCachingRenderWorker(_CountingWorker(), maxEntries: 9);
+      addTearDown(worker.dispose);
+
+      expect(worker.cacheMaxEntries, 9);
+    });
+
     test('record bypasses the cache while the inner worker is inactive',
         () async {
       final inner = _CountingWorker()..active = false;
@@ -895,7 +1017,154 @@ void main() {
       expect(only.calls.single.$1, 5);
       expect(only.cancels.single, (5, 0));
     });
+
+    test('a page keeps its sticky worker while loads are equal', () async {
+      final workers = [_ManualWorker(), _ManualWorker()];
+      final pool = PdfPooledRenderWorker.fromWorkers(workers);
+      // Page 0 sticks to worker 0; page 1 loads worker 1 to the same level.
+      final first = pool.record(0, priority: 1);
+      final other = pool.record(1, priority: 1);
+      final repeat = pool.record(0, priority: 0);
+      expect(workers[0].calls.map((c) => c.$1), [0, 0],
+          reason: 'equal load keeps the sticky worker (the transcript hit '
+              'is never traded away to break a tie)');
+      expect(workers[1].calls.map((c) => c.$1), [1]);
+      for (final worker in workers) {
+        worker.completeAll();
+      }
+      await Future.wait([first, other, repeat]);
+    });
+
+    test('a page re-routes to an idle worker when its sticky worker is busier',
+        () async {
+      final workers = [_ManualWorker(), _ManualWorker()];
+      final pool = PdfPooledRenderWorker.fromWorkers(workers);
+      // A background prefetch occupies page 0's sticky worker; the on-screen
+      // record (another priority, so a fresh lease) must not queue behind it.
+      final background = pool.record(0, priority: 1);
+      final onScreen = pool.record(0, priority: 0);
+      expect(workers[0].calls.map((c) => c.$1), [0]);
+      expect(workers[1].calls.map((c) => c.$1), [0],
+          reason: 'a strictly-less-loaded active worker wins over stickiness');
+      for (final worker in workers) {
+        worker.completeAll();
+      }
+      await Future.wait([background, onScreen]);
+    });
+
+    test('a re-routed page follows its new worker afterwards', () async {
+      final workers = [_ManualWorker(), _ManualWorker()];
+      final pool = PdfPooledRenderWorker.fromWorkers(workers);
+      final background = pool.record(0, priority: 1);
+      final onScreen = pool.record(0, priority: 0); // re-routes to worker 1
+      for (final worker in workers) {
+        worker.completeAll();
+      }
+      await Future.wait([background, onScreen]);
+
+      final revisit = pool.record(0);
+      expect(workers[1].calls.map((c) => c.$1), [0, 0],
+          reason: 'the page sticks to the worker it was re-routed to');
+      expect(workers[0].calls, hasLength(1));
+      workers[1].completeAll();
+      await revisit;
+    });
+
+    test('a single-worker pool always routes to worker 0', () async {
+      final only = _ManualWorker();
+      final pool = PdfPooledRenderWorker.fromWorkers([only]);
+      final first = pool.record(3, priority: 1);
+      final second = pool.record(3, priority: 0);
+      expect(only.calls.map((c) => c.$1), [3, 3],
+          reason: 'with one worker there is no alternative to re-route to');
+      only.completeAll();
+      await Future.wait([first, second]);
+    });
+
+    test('every worker is seeded from one shared byte snapshot, not a '
+        'per-worker copy', () {
+      final source = Uint8List.fromList(List.generate(64, (i) => i & 0xff));
+      final seeds = <Uint8List>[];
+      final pool = PdfPooledRenderWorker.withSpawner(source, 3, (bytes) {
+        seeds.add(bytes);
+        return _SeedWorker(bytes);
+      });
+      addTearDown(pool.dispose);
+
+      expect(seeds, hasLength(3), reason: 'three workers were spawned');
+      // All three got the very same instance - no private per-worker copy.
+      expect(identical(seeds[0], seeds[1]), isTrue);
+      expect(identical(seeds[1], seeds[2]), isTrue);
+      // And it is the pool's own snapshot, decoupled from the caller's bytes.
+      expect(identical(seeds[0], source), isFalse);
+      expect(seeds[0], equals(source));
+    });
+
+    test('the urgent one-off lane shares the same snapshot as the workers',
+        () async {
+      final source = Uint8List.fromList(List.generate(64, (i) => i & 0xff));
+      final seeds = <Uint8List>[];
+      final pool = PdfPooledRenderWorker.withSpawner(source, 2, (bytes) {
+        seeds.add(bytes);
+        return _SeedWorker(bytes);
+      });
+      addTearDown(pool.dispose);
+
+      final workerSeed = seeds.first;
+      // Priority -2000 routes past the pool into the lazily-spawned urgent
+      // worker, which must reuse the snapshot rather than copy again.
+      await pool.record(0, priority: -2000);
+      expect(seeds, hasLength(3), reason: 'the urgent worker was spawned');
+      expect(identical(seeds.last, workerSeed), isTrue);
+    });
+
+    test('copySource: false seeds directly from the caller buffer, no copy',
+        () {
+      final source = Uint8List.fromList(List.generate(64, (i) => i & 0xff));
+      final seeds = <Uint8List>[];
+      final pool = PdfPooledRenderWorker.withSpawner(source, 3, (bytes) {
+        seeds.add(bytes);
+        return _SeedWorker(bytes);
+      }, copySource: false);
+      addTearDown(pool.dispose);
+
+      // Every worker is seeded from the caller's very buffer - no per-pool
+      // snapshot allocation (#359: skip a full-document copy on stable bytes).
+      expect(seeds, hasLength(3));
+      expect(identical(seeds[0], source), isTrue);
+      expect(identical(seeds[1], source), isTrue);
+      expect(identical(seeds[2], source), isTrue);
+    });
   });
+}
+
+/// A [PdfRenderWorker] that records the byte view it was constructed with, for
+/// asserting the pool seeds every worker from one shared snapshot. Declines
+/// every record (null → local), which is all the sharing tests need.
+class _SeedWorker extends PdfRenderWorker {
+  _SeedWorker(this.seed);
+
+  final Uint8List seed;
+  bool disposed = false;
+
+  @override
+  bool get isActive => !disposed;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(int pageIndex,
+          {bool annotations = true,
+          int priority = 0,
+          double? imagePixelRatio,
+          bool decodeImages = true,
+          int? commandLimit,
+          PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async =>
+      null;
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {}
+
+  @override
+  void dispose() => disposed = true;
 }
 
 /// A [PdfRenderWorker] that records each [record] call and returns a synthetic
@@ -924,7 +1193,7 @@ class _CountingWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion}) async {
+      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async {
     calls.add((pageIndex, annotations, decodeImages, imagePixelRatio));
     commandLimits.add(commandLimit);
     if (returnNull || !active) return null;
@@ -973,7 +1242,7 @@ class _ManualWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion}) {
+      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) {
     calls.add((pageIndex, annotations, decodeImages, imagePixelRatio));
     priorities.add(priority);
     final completer = Completer<List<PdfRenderCommand>?>();
@@ -1024,7 +1293,7 @@ class _HangingWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion}) {
+      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) {
     if (!active) return Future.value(null);
     callsByKey[(pageIndex, priority)] =
         (callsByKey[(pageIndex, priority)] ?? 0) + 1;

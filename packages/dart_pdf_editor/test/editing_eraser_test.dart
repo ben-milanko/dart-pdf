@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/editing/editing_overlay.dart';
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -19,6 +20,18 @@ dynamic overlayPainter(WidgetTester tester) => tester
             matching: find.byType(CustomPaint))
         .first)
     .painter;
+
+/// The overlay's hover-cursor layer - the pen dot, eraser ring, count/stamp
+/// previews and rotate glyph, which read live state and repaint without a
+/// rebuild. Read through a dynamic cast (the painter class is private).
+dynamic cursorPainter(WidgetTester tester) => tester
+    .widgetList<CustomPaint>(find.descendant(
+      of: find.byType(EditingPageOverlay),
+      matching: find.byType(CustomPaint),
+    ))
+    .map((paint) => paint.painter)
+    .firstWhere(
+        (painter) => painter.runtimeType.toString() == '_HoverCursorPainter');
 
 void main() {
   setUp(() {
@@ -61,7 +74,7 @@ void main() {
         ..finishInk()
         ..addInkStroke(0, [(150, 450), (250, 450)])
         ..finishInk();
-      editing.eraserRadius = 30;
+      editing.preferences.eraserRadius = 30;
 
       expect(
         editing.sliceErase(0, const [(200, 550), (200, 420)]),
@@ -111,7 +124,7 @@ void main() {
         ..finishInk();
       editing
         ..tool = PdfEditTool.eraser
-        ..eraserRadius = 30;
+        ..preferences.eraserRadius = 30;
       await tester.pump();
 
       final g = await tester.startGesture(view(200, 550),
@@ -140,7 +153,7 @@ void main() {
         ..finishInk();
       editing
         ..tool = PdfEditTool.eraser
-        ..eraserRadius = 30;
+        ..preferences.eraserRadius = 30;
       await tester.pump();
 
       final g = await tester.startGesture(view(200, 550),
@@ -169,7 +182,7 @@ void main() {
         ..finishInk();
       editing
         ..tool = PdfEditTool.eraser
-        ..eraserRadius = 30;
+        ..preferences.eraserRadius = 30;
       await tester.pump();
 
       const pointer = 17;
@@ -213,7 +226,7 @@ void main() {
         ..finishInk();
       editing
         ..tool = PdfEditTool.eraser
-        ..eraserRadius = 30;
+        ..preferences.eraserRadius = 30;
       await tester.pump();
 
       const pointer = 18;
@@ -255,7 +268,7 @@ void main() {
         ..addInkStroke(0, [(195, 500), (205, 500)])
         ..finishInk();
       editing.tool = PdfEditTool.eraser;
-      editing.eraserRadius = 30;
+      editing.preferences.eraserRadius = 30;
       await tester.pump();
 
       await tester.tapAt(view(200, 500), kind: PointerDeviceKind.mouse);
@@ -272,7 +285,7 @@ void main() {
         ..addInkStroke(0, [(150, 400), (250, 400)])
         ..finishInk();
       editing.tool = PdfEditTool.eraser;
-      editing.eraserRadius = 30;
+      editing.preferences.eraserRadius = 30;
       await tester.pump();
 
       // sweep along the whole upper stroke
@@ -293,6 +306,38 @@ void main() {
   });
 
   group('live preview', () {
+    testWidgets('locked ink is excluded from the live preview and commit',
+        (tester) async {
+      final (editing, _) = await pumpViewer(tester);
+      editing
+        ..addInkStroke(0, [(150, 500), (250, 500)])
+        ..finishInk();
+      final ink = editing.annotationAt(0, 0)!;
+      editing.apply(
+        (editor) => editor.setAnnotationFlags(0, ink, 128),
+      );
+      editing.tool = PdfEditTool.eraser;
+      await tester.pump();
+
+      final g = await tester.startGesture(view(200, 520),
+          kind: PointerDeviceKind.mouse);
+      for (var i = 0; i < 4; i++) {
+        await g.moveBy(Offset(0, 10 * scale));
+        await tester.pump();
+      }
+
+      final painter = overlayPainter(tester);
+      expect((painter.fadeInk as List), isEmpty);
+      expect((painter.extraInk as List), isEmpty);
+
+      await g.up();
+      await tester.pump();
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.isLocked, isTrue);
+      expect(annotation.inkList, hasLength(1));
+      expect(annotation.inkList!.single, [(150.0, 500.0), (250.0, 500.0)]);
+    });
+
     testWidgets('mid-swipe the original fades and the remainder paints',
         (tester) async {
       final (editing, _) = await pumpViewer(tester);
@@ -318,8 +363,10 @@ void main() {
       expect(extraInk, hasLength(1));
       expect((extraInk.single.strokes as List), hasLength(2));
       // the ring cursor rides the pointer at the page-space radius
-      expect(painter.eraserCursor, isNotNull);
-      expect(painter.eraserRadius, closeTo(editing.eraserRadius * scale, 1e-6));
+      final cursors = cursorPainter(tester);
+      expect(cursors.eraserCursor, isNotNull);
+      expect(cursors.eraserRadius,
+          closeTo(editing.preferences.eraserRadius * scale, 1e-6));
 
       await g.up();
       await tester.pump();
@@ -357,7 +404,7 @@ void main() {
       await gesture.moveTo(view(300, 400));
       await tester.pump();
 
-      final painter = overlayPainter(tester);
+      final painter = cursorPainter(tester);
       expect(painter.eraserCursor, isNotNull);
       expect(painter.eraserRadius, greaterThan(0));
     });
@@ -400,7 +447,7 @@ void main() {
               matching: find.byType(Slider)),
           const Offset(200, 0));
       await tester.pump();
-      expect(editing.eraserRadius, greaterThan(8));
+      expect(editing.preferences.eraserRadius, greaterThan(8));
       await tester.pumpAndSettle();
     });
 

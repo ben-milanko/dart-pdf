@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_cos/perf.dart';
 
 import 'annotation.dart';
 import 'comments.dart';
@@ -14,16 +15,20 @@ import 'document.dart';
 import 'font_embedder.dart';
 import 'form.dart';
 import 'image.dart';
+import 'matrix_geometry.dart';
 import 'measure.dart';
 import 'outline.dart';
 import 'pades.dart';
 import 'page.dart';
 import 'page_labels.dart';
 import 'rect.dart';
+import 'signing_identity.dart';
 import 'stamp_template.dart';
 import 'struct_tree.dart';
 import 'takeoff.dart';
-import 'type0_metrics.dart';
+import 'content_run_rewriter.dart';
+import 'text_box_appearance.dart';
+import 'type0_font.dart';
 import 'xmp.dart';
 
 part 'annotation_clipboard.dart';
@@ -297,4 +302,85 @@ class PdfEditor {
 
   /// The full bytes of the edited file (original + incremental update).
   Uint8List save() => _updater.save();
+
+  /// Only the bytes to append to the source document to form the edited file
+  /// (see [CosIncrementalUpdater.saveTail]).
+  ///
+  /// For a caller that already holds the source bytes and keeps revisions as
+  /// prefixes of one buffer, this avoids re-materialising the whole file per
+  /// save. The bytes are only valid appended directly to the document this
+  /// editor was built over.
+  Uint8List saveTail() => _updater.saveTail();
+
+  /// Rewrites the document as a compacted PDF and returns the result plus a
+  /// before/after report - the lossless structural pass of the file-size
+  /// optimiser (#368).
+  ///
+  /// The rewrite drops the dead objects that incremental edits accumulate,
+  /// packs objects into compressed object streams, and re-deflates streams
+  /// that were stored uncompressed - all lossless for rendered output.
+  /// Pending unsaved edits are included. Because it is a from-scratch file
+  /// (no `/Prev`), it does not preserve prior-revision history and it
+  /// invalidates any existing signature - hence an explicit action, not part
+  /// of [save].
+  ///
+  /// If the compacted file would not be smaller (an already object-stream
+  /// document, or one small enough that framing dominates), the current bytes
+  /// are returned unchanged and [PdfCompressionResult.compacted] is false.
+  /// Throws if the document is encrypted (decrypt it first).
+  PdfCompressionResult compress({int deflateLevel = 9}) {
+    final current =
+        _updater.hasChanges ? _updater.save() : document.cos.bytes;
+    final snapshot =
+        _updater.hasChanges ? PdfDocument.open(current).cos : document.cos;
+    final result =
+        CosCompactor(snapshot, deflateLevel: deflateLevel).run();
+    final smaller = result.bytes.length < current.length;
+    return PdfCompressionResult(
+      bytes: smaller ? result.bytes : Uint8List.fromList(current),
+      bytesBefore: current.length,
+      bytesAfter: smaller ? result.bytes.length : current.length,
+      objectsBefore: result.objectsBefore,
+      objectsAfter: result.objectsAfter,
+      streamsDeflated: result.streamsDeflated,
+      compacted: smaller,
+    );
+  }
+}
+
+/// The outcome of [PdfEditor.compress]: the (possibly rewritten) bytes and a
+/// before/after accounting hosts can surface as "saved N%".
+class PdfCompressionResult {
+  const PdfCompressionResult({
+    required this.bytes,
+    required this.bytesBefore,
+    required this.bytesAfter,
+    required this.objectsBefore,
+    required this.objectsAfter,
+    required this.streamsDeflated,
+    required this.compacted,
+  });
+
+  /// The file to keep: the compacted bytes when smaller, otherwise a copy of
+  /// the input unchanged.
+  final Uint8List bytes;
+  final int bytesBefore;
+  final int bytesAfter;
+
+  /// Object slots the source cross-reference declared, versus live objects
+  /// written to the compacted file.
+  final int objectsBefore;
+  final int objectsAfter;
+
+  /// Previously uncompressed streams that were re-deflated.
+  final int streamsDeflated;
+
+  /// Whether the compacted output was actually smaller and was kept.
+  final bool compacted;
+
+  /// Bytes removed (0 when the input was kept).
+  int get bytesSaved => bytesBefore - bytesAfter;
+
+  /// Fraction of the original size removed, in `[0, 1)`.
+  double get ratio => bytesBefore == 0 ? 0 : bytesSaved / bytesBefore;
 }

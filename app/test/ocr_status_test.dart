@@ -1,9 +1,15 @@
 // The app-bar OCR chip is driven by OcrJobStatus - its fraction (determinate
-// where we know it, indeterminate otherwise) and short label per phase.
+// where we know it, indeterminate otherwise) and the short label per phase. The
+// label itself now lives in the presentation layer (`ocrStatusLabel`), resolved
+// from the localizations; here we drive it through the English bundle.
+import 'package:dart_pdf_editor_app/l10n/app_localizations_en.dart';
 import 'package:dart_pdf_editor_app/ocr_status.dart';
+import 'package:dart_pdf_editor_app/ocr_status_label.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  final l10n = AppLocalizationsEn();
+
   test('downloading: fraction follows the download, label shows percent', () {
     const s = OcrJobStatus(
       phase: OcrPhase.downloading,
@@ -11,13 +17,13 @@ void main() {
       downloadFraction: 0.42,
     );
     expect(s.fraction, 0.42);
-    expect(s.label, 'Downloading model 42%');
+    expect(ocrStatusLabel(l10n, s), 'Downloading model 42%');
   });
 
   test('downloading with unknown total is indeterminate', () {
     const s = OcrJobStatus(phase: OcrPhase.downloading, title: 'Scan.pdf');
     expect(s.fraction, isNull);
-    expect(s.label, 'Downloading OCR model…');
+    expect(ocrStatusLabel(l10n, s), 'Downloading OCR model…');
   });
 
   test('recognising: fraction is page/pageCount and label counts pages', () {
@@ -28,7 +34,7 @@ void main() {
       pageCount: 12,
     );
     expect(s.fraction, closeTo(0.25, 1e-9));
-    expect(s.label, 'OCR 3/12');
+    expect(ocrStatusLabel(l10n, s), 'OCR 3/12');
   });
 
   test('recognising with no pages yet is indeterminate (no divide-by-zero)',
@@ -40,6 +46,6 @@ void main() {
   test('finishing is indeterminate with a finishing label', () {
     const s = OcrJobStatus(phase: OcrPhase.finishing, title: 'Scan.pdf');
     expect(s.fraction, isNull);
-    expect(s.label, 'Finishing OCR…');
+    expect(ocrStatusLabel(l10n, s), 'Finishing OCR…');
   });
 }

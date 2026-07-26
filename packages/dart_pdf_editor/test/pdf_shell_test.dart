@@ -239,7 +239,10 @@ void main() {
 
       expect(prefs.showReflowView, isTrue);
       expect(find.byType(PdfViewer), findsNothing);
-      expect(find.byType(PdfThumbnailSidebar), findsNothing);
+      // The Pages strip stays available in reflow - it drives the reading view
+      // (page taps scroll it) - while the canvas-bound search and page-number
+      // controls, which have no page to act on, drop away.
+      expect(find.byType(PdfThumbnailSidebar), findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-search-field')), findsNothing);
       expect(find.byKey(const ValueKey('pdf-page-number-field')), findsNothing);
       expect(find.byType(PdfReflowView), findsOneWidget);
@@ -347,10 +350,19 @@ void main() {
       await tester.pumpAndSettle();
     }
 
+    // Filters the (now full) tool list down to a single tool so its tile is
+    // on-screen and tappable regardless of list length.
+    Future<void> filterShortcuts(WidgetTester tester, String query) async {
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-shell-shortcuts-search')), query);
+      await tester.pumpAndSettle();
+    }
+
     testWidgets('rebinding a shortcut updates the label and persists on Done',
         (tester) async {
       await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
       await openShortcutsSheet(tester);
+      await filterShortcuts(tester, 'Rectangle');
 
       // Capture a new key for the rectangle tool.
       await tester
@@ -369,6 +381,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('pdf-shell-shortcuts-done')));
       await tester.pumpAndSettle();
       await openShortcutsSheet(tester);
+      await filterShortcuts(tester, 'Rectangle');
       expect(find.text('B'), findsOneWidget);
     });
 
@@ -376,6 +389,7 @@ void main() {
         (tester) async {
       await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
       await openShortcutsSheet(tester);
+      await filterShortcuts(tester, 'Rectangle');
 
       await tester
           .tap(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')));
@@ -394,6 +408,7 @@ void main() {
         (tester) async {
       await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
       await openShortcutsSheet(tester);
+      await filterShortcuts(tester, 'Rectangle');
 
       await tester
           .tap(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')));
@@ -404,6 +419,83 @@ void main() {
 
       expect(find.text('Press a key'), findsNothing);
       expect(find.text('R'), findsOneWidget);
+    });
+
+    testWidgets('shortcuts are grouped under tool-category headers',
+        (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+      await openShortcutsSheet(tester);
+
+      // The Shapes header sits above the rectangle tool it groups.
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-group-shapes')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')),
+          findsOneWidget);
+      expect(find.text('R'), findsOneWidget);
+      final headerY = tester
+          .getTopLeft(
+              find.byKey(const ValueKey('pdf-shell-shortcut-group-shapes')))
+          .dy;
+      final rectY = tester
+          .getTopLeft(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')))
+          .dy;
+      expect(headerY, lessThan(rectY));
+
+      // A group lower down builds once scrolled into view.
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('pdf-shell-shortcut-group-insert')),
+        200,
+        scrollable: find
+            .descendant(
+              of: find.byType(ListView),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-group-insert')),
+          findsOneWidget);
+    });
+
+    testWidgets('searching filters the shortcut list and its group headers',
+        (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+      await openShortcutsSheet(tester);
+
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-shell-shortcuts-search')), 'rect');
+      await tester.pumpAndSettle();
+
+      // Only the rectangle tool (and its Shapes header) survives the filter.
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-ellipse')),
+          findsNothing);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-group-shapes')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-group-insert')),
+          findsNothing);
+    });
+
+    testWidgets('searching by key label matches, and a miss shows a message',
+        (tester) async {
+      await pump(tester, PdfEditorView(bytes: buildMultiPagePdf(2)));
+      await openShortcutsSheet(tester);
+
+      // The rectangle tool is bound to "R" - searching the key finds it.
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-shell-shortcuts-search')), 'r');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')),
+          findsOneWidget);
+
+      // A query no tool matches shows the empty-state message instead.
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-shell-shortcuts-search')), 'zzzz');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pdf-shell-shortcuts-no-matches')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')),
+          findsNothing);
     });
 
     testWidgets('view options can switch the editor to reflow text',
@@ -792,12 +884,12 @@ void main() {
       expect(editing.tool, PdfEditTool.ink);
       expect(editing.color, const Color(0xFF123456));
 
-      await tester.tap(find.byTooltip('Highlight - draw freehand'));
+      await tester.tap(find.byTooltip('Highlight - draw freehand (⇧H)'));
       await tester.pump();
       expect(editing.tool, PdfEditTool.highlight);
       expect(editing.color, const Color(0xFF123456));
-      expect(editing.strokeWidth, 12);
-      expect(editing.opacity, 0.45);
+      expect(editing.preferences.strokeWidth, 12);
+      expect(editing.preferences.opacity, 0.45);
     });
 
     testWidgets('color controls are present by default', (tester) async {
@@ -1149,7 +1241,7 @@ void main() {
       final editing =
           PdfEditingController(buildMultiPagePdf(1), preferences: prefs);
       addTearDown(editing.dispose);
-      editing.author = 'A. Reviewer';
+      editing.preferences.author = 'A. Reviewer';
 
       await pump(
         tester,
@@ -1274,8 +1366,8 @@ void main() {
   group('floating toast margin', () {
     testWidgets('lifts the toast above the dock and the safe-area inset',
         (tester) async {
-      late EdgeInsets withoutInset;
-      late EdgeInsets withInset;
+      late EdgeInsetsGeometry withoutInset;
+      late EdgeInsetsGeometry withInset;
       await tester.pumpWidget(MaterialApp(
         home: MediaQuery(
           data: const MediaQueryData(size: Size(800, 600)),
@@ -1297,10 +1389,12 @@ void main() {
           }),
         ),
       ));
+      final withoutInsetLtr = withoutInset.resolve(TextDirection.ltr);
+      final withInsetLtr = withInset.resolve(TextDirection.ltr);
       // clears the floating editing toolbar dock…
-      expect(withoutInset.bottom, greaterThanOrEqualTo(84));
+      expect(withoutInsetLtr.bottom, greaterThanOrEqualTo(84));
       // …and adds the device's bottom safe-area inset on top
-      expect(withInset.bottom, withoutInset.bottom + 34);
+      expect(withInsetLtr.bottom, withoutInsetLtr.bottom + 34);
     });
   });
 
@@ -1679,6 +1773,32 @@ void main() {
         expect(iconColorOf(tester, find.byKey(ValueKey(key))), expected,
             reason: '$key icon colour should match the others');
       }
+    });
+
+    testWidgets('the overflow scroller never drag-scrolls, so its controls '
+        'stay tappable (macOS trackpad)', (tester) async {
+      await pump(
+          tester, PdfEditorView(bytes: buildMultiPagePdf(2), onSave: (_) {}));
+
+      // The header wraps its controls in a horizontal scroll view for narrow
+      // windows. If that scroller accepts pointer *drags* (Flutter's default
+      // dragDevices include the trackpad), a trackpad click - which carries a
+      // little motion - is claimed by the drag recognizer and the tap on the
+      // control underneath is swallowed, leaving the whole bar hover-only on
+      // macOS while every other bar works. It must scroll only on the wheel /
+      // trackpad scroll signal, i.e. with no drag devices at all.
+      final scroller = find
+          .ancestor(
+            of: find.byKey(const ValueKey('pdf-shell-panels')),
+            matching: find.byType(SingleChildScrollView),
+          )
+          .first;
+      final config = tester.widget<ScrollConfiguration>(
+        find
+            .ancestor(of: scroller, matching: find.byType(ScrollConfiguration))
+            .first,
+      );
+      expect(config.behavior.dragDevices, isEmpty);
     });
   });
 }

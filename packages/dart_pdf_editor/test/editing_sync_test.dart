@@ -29,6 +29,22 @@ void main() {
     return (batches, sub);
   }
 
+  PdfAnnotationChange remoteRectangle({bool locked = false}) {
+    final source = PdfEditingController(buildClassicPdf());
+    try {
+      source.addRectangle(0, const PdfRect(100, 600, 200, 700));
+      if (locked) {
+        final annotation = source.annotationAt(0, 0)!;
+        source.apply(
+          (editor) => editor.setAnnotationFlags(0, annotation, 128),
+        );
+      }
+      return source.annotationBaseline().single;
+    } finally {
+      source.dispose();
+    }
+  }
+
   group('change feed', () {
     test('create, modify, delete each emit one named change', () async {
       final editing = PdfEditingController(buildClassicPdf());
@@ -116,9 +132,118 @@ void main() {
       expect(batches, hasLength(1));
       expect(batches[0].single.kind, PdfAnnotationChangeKind.modified);
     });
+
+    test('a listener attaching mid-session sees only the edit, not the '
+        'pre-existing annotations', () async {
+      // The baseline is seeded from the clean document when the listener
+      // attaches (#416, replacing the per-commit re-open); editing one of
+      // several pre-existing annotations must diff as a lone modification,
+      // never re-announce the untouched ones as creations.
+      final editing = PdfEditingController(buildClassicPdf());
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(100, 600, 200, 700));
+      editing.addRectangle(0, const PdfRect(100, 400, 200, 500));
+      editing.addFreeText(0, const PdfRect(100, 200, 280, 260), 'note');
+      editing.selectAnnotation(0, 0);
+      final edited = editing.selectedAnnotation!.name;
+
+      final (batches, _) = listen(editing); // seeds the baseline with all three
+      expect(editing.setSelectedAuthor('Ben'), isTrue);
+      await pumpEventQueue();
+
+      expect(batches, hasLength(1));
+      final change = batches[0].single;
+      expect(change.kind, PdfAnnotationChangeKind.modified);
+      expect(change.name, edited);
+    });
+
+    test('removing a page emits a removal, and re-pages the survivors',
+        () async {
+      // Structural edits carry a null annotationPages, so the baseline is
+      // rebuilt over the whole document (#416's pages == null branch). Dropping
+      // page 0 must diff its annotation as a removal; the page-1 annotation
+      // shifts down to page 0, so — as with the old re-open path — its changed
+      // pageIndex reads as a modification the peer needs to re-place it.
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(100, 600, 200, 700));
+      editing.selectAnnotation(0, 0);
+      final onPage0 = editing.selectedAnnotation!.name;
+      editing.addRectangle(1, const PdfRect(100, 600, 200, 700));
+      editing.selectAnnotation(1, 0);
+      final onPage1 = editing.selectedAnnotation!.name;
+
+      final (batches, _) = listen(editing);
+      editing.removePage(0);
+      await pumpEventQueue();
+
+      expect(batches, hasLength(1));
+      final byName = {for (final c in batches[0]) c.name: c};
+      expect(byName[onPage0]!.kind, PdfAnnotationChangeKind.removed);
+      expect(byName[onPage1]!.kind, PdfAnnotationChangeKind.modified);
+      expect(byName[onPage1]!.pageIndex, 0); // shifted 1 -> 0
+    });
   });
 
   group('remote replay', () {
+    test('a remote locked creation is a non-crossable undo checkpoint', () {
+      final editing = PdfEditingController(buildClassicPdf());
+      addTearDown(editing.dispose);
+      final change = remoteRectangle(locked: true);
+
+      expect(editing.applyRemoteChange(change), isTrue);
+      expect(editing.canUndo, isFalse);
+      final length = editing.bytes.length;
+
+      editing.undo();
+
+      expect(editing.bytes.length, length);
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.name, change.name);
+      expect(annotation.isLocked, isTrue);
+    });
+
+    test('a local edit after a remote change undoes to the checkpoint', () {
+      final editing = PdfEditingController(buildClassicPdf());
+      addTearDown(editing.dispose);
+      final remote = remoteRectangle(locked: true);
+      editing.applyRemoteChange(remote);
+
+      editing.addEllipse(0, const PdfRect(300, 600, 400, 700));
+      expect(editing.canUndo, isTrue);
+      expect(editing.document.page(0).annotations, hasLength(2));
+
+      editing.undo();
+      expect(editing.canUndo, isFalse);
+      expect(editing.canRedo, isTrue);
+      expect(editing.document.page(0).annotations.single.name, remote.name);
+
+      editing.redo();
+      expect(editing.document.page(0).annotations, hasLength(2));
+      expect(
+        editing.document.page(0).annotations.first.name,
+        remote.name,
+      );
+    });
+
+    test('a later remote change seals older local history in place', () {
+      final editing = PdfEditingController(buildClassicPdf());
+      addTearDown(editing.dispose);
+      editing.addEllipse(0, const PdfRect(300, 600, 400, 700));
+      final localName = editing.document.page(0).annotations.single.name;
+      final remote = remoteRectangle(locked: true);
+
+      expect(editing.applyRemoteChange(remote), isTrue);
+      expect(editing.canUndo, isFalse,
+          reason: 'history before a remote checkpoint is sealed');
+
+      editing.undo();
+      final annotations = editing.document.page(0).annotations;
+      expect(annotations, hasLength(2));
+      expect(annotations.map((annotation) => annotation.name),
+          containsAll([localName, remote.name]));
+    });
+
     test('applyRemoteChange lands the annotation and never echoes', () async {
       // device A authors; device B replays
       final a = PdfEditingController(buildClassicPdf());

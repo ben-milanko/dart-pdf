@@ -1,0 +1,7 @@
+Nieuw in 2.1.0
+
+• Herschikte leesweergave: lees een document als doorlopende tekst, met soepel scrollen, een onthouden leespositie en een afbeeldingsviewer.
+• Sneller openen en renderen, vooral bij grote bestanden, en lager geheugengebruik bij zeer brede tekeningen.
+• Scherpere haarlijnen, zodat fijn lijnwerk leesbaar blijft bij uitzoomen.
+• Betere kleur op kleurverlopen en op geïndexeerde afbeeldingen.
+• Symbol- en ZapfDingbats-tekens worden weergegeven in plaats van vakjes.

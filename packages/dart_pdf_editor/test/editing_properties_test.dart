@@ -2,6 +2,8 @@
 // edits them through the controller - plus the controller's contents and
 // author setters it relies on.
 
+import 'dart:convert';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -258,6 +260,60 @@ void main() {
       expect(editing.selectedAnnotation!.borderWidth, width);
     });
 
+    testWidgets('a placed image gets a working opacity slider, no colour',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      // 2x2 RGBA PNG (shared with the image tests)
+      expect(
+          editing.placeImage(
+              0,
+              300,
+              400,
+              base64.decode(
+                  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0k'
+                  'AAAAGUlEQVR4nGP4z8DwHwgbWBgZ/jNyicr7AgA3BAUOTnqjAAAAAABJRU5ErkJggg==')),
+          isTrue);
+      await pumpPanel(tester, editing);
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      // the pasted picture has no tint, so the colour swatch is hidden...
+      expect(find.byKey(const ValueKey('pdf-prop-color')), findsNothing);
+      // ...but its opacity is editable, and dragging it takes effect
+      final opacity = find.byKey(const ValueKey('pdf-prop-opacity'));
+      expect(opacity, findsOneWidget);
+      await tester.drag(opacity, const Offset(-60, 0));
+      await tester.pump();
+      final stamp = editing.selectedAnnotation!;
+      expect(stamp.appearanceOpacity, lessThan(1));
+      expect(stamp.appearanceOpacity, greaterThan(0));
+      // the picture survived the restyle
+      final content = latin1
+          .decode(editing.document.cos.decodeStreamData(stamp.normalAppearance!));
+      expect(content, contains('/Img0 Do'));
+    });
+
+    testWidgets('the pattern-scale slider rescales a selected cloud',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addCloudPolygon(0, const PdfRect(100, 500, 300, 620));
+      addTearDown(editing.dispose);
+      await pumpPanel(tester, editing);
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      // the scale row shows the cloud's current /BE /I (1×) and drives it
+      final scale = find.byKey(const ValueKey('pdf-prop-line-scale'));
+      expect(scale, findsOneWidget);
+      expect(editing.selectedLineScale, closeTo(1, 1e-9));
+
+      await tester.drag(scale, const Offset(60, 0));
+      await tester.pump();
+      expect(editing.selectedLineScale, greaterThan(1));
+      expect(editing.selectedAnnotation!.hasCloudyBorder, isTrue);
+    });
+
     testWidgets('typing an exact value into a slider readout commits it',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1))
@@ -275,11 +331,19 @@ void main() {
       await tester.pump();
       expect(editing.selectedAnnotation!.borderWidth, 9);
 
-      // out-of-range input clamps to the slider's max (16)
-      await tester.enterText(field, '500');
+      // the typed field is looser than the slider's scale: a value past the
+      // slider max (16) is accepted, up to the safety cap
+      await tester.enterText(field, '80');
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pump();
-      expect(editing.selectedAnnotation!.borderWidth, 16);
+      expect(editing.selectedAnnotation!.borderWidth, 80);
+
+      // absurd input still clamps to the safety cap (kPdfTypedSizeMax = 1000)
+      // so nothing blows up
+      await tester.enterText(field, '999999');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(editing.selectedAnnotation!.borderWidth, 1000);
 
       // opacity reads back as a percentage and round-trips through it
       final opacity = find.byKey(const ValueKey('pdf-prop-opacity-input'));
@@ -288,6 +352,13 @@ void main() {
       await tester.pump();
       expect(
           editing.selectedAnnotation!.appearanceOpacity, closeTo(0.4, 0.001));
+
+      // opacity is a true ratio: an over-100% entry still clamps to 100%
+      await tester.enterText(opacity, '150');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(
+          editing.selectedAnnotation!.appearanceOpacity, closeTo(1, 0.001));
     });
 
     testWidgets('the fill clear button removes a shape fill', (tester) async {
@@ -555,6 +626,56 @@ void main() {
         editing.document.page(0).annotations.map((a) => a.borderWidth),
         everyElement(7),
       );
+    });
+
+    testWidgets('a section header collapses and re-expands its rows',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 600, 220, 660));
+      addTearDown(editing.dispose);
+      await pumpPanel(tester, editing);
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      // groups start expanded, so the position rows are visible
+      final header = find.byKey(const ValueKey('pdf-prop-section-position-size'));
+      expect(header, findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-prop-x')), findsOneWidget);
+
+      // collapsing the group hides its rows but keeps the header
+      await tester.tap(header);
+      await tester.pump();
+      expect(header, findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-prop-x')), findsNothing);
+
+      // and re-expanding brings them back
+      await tester.tap(header);
+      await tester.pump();
+      expect(find.byKey(const ValueKey('pdf-prop-x')), findsOneWidget);
+    });
+
+    testWidgets('a collapsed group stays collapsed across selection changes',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 600, 220, 660))
+        ..addEllipse(0, const PdfRect(250, 600, 350, 660));
+      addTearDown(editing.dispose);
+      await pumpPanel(tester, editing);
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      await tester
+          .tap(find.byKey(const ValueKey('pdf-prop-section-appearance')));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('pdf-prop-stroke')), findsNothing);
+
+      // selecting a different annotation keeps the group collapsed - the
+      // choice is per-group, not per-annotation
+      editing.selectAnnotation(0, 1);
+      await tester.pump();
+      expect(find.byKey(const ValueKey('pdf-prop-section-appearance')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-prop-stroke')), findsNothing);
     });
 
     testWidgets('the dragged width persists as a preference', (tester) async {

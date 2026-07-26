@@ -88,13 +88,113 @@ void main() {
     });
   });
 
+  group('locking', () {
+    test('lockSelectedAnnotations sets both lock bits and clears selection',
+        () {
+      final editing = PdfEditingController(buildClassicPdf());
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(100, 600, 200, 700));
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      expect(editing.canLockSelected, isTrue);
+
+      editing.lockSelectedAnnotations();
+
+      // the lock drops it from the selection (it's no longer editable)
+      expect(editing.hasAnnotationSelection, isFalse);
+      final locked = editing.annotationAt(0, 0)!;
+      expect(locked.isLocked, isTrue, reason: '/F Locked (bit 8)');
+      expect(locked.isLockedContents, isTrue, reason: '/F LockedContents (10)');
+
+      // and every mutating path now refuses it
+      expect(editing.selectableAnnotationAt(0, 150, 650), isNull);
+      expect(editing.selectAnnotation(0, 0), isFalse);
+      editing.deleteAnnotation(0, 0);
+      expect(editing.pageAt(0).annotations, hasLength(1));
+    });
+
+    test('setAnnotationLocked unlocks a locked annotation it cannot select',
+        () {
+      final editing = PdfEditingController(buildClassicPdf());
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(100, 600, 200, 700));
+      flag(editing, 0, 128 | 512); // locked, as our lock writes it
+
+      // it can't be selected...
+      expect(editing.selectAnnotation(0, 0), isFalse);
+      // ...but the slot-based unlock still reaches it
+      expect(editing.setAnnotationLocked(0, 0, false), isTrue);
+      final annotation = editing.annotationAt(0, 0)!;
+      expect(annotation.isLocked, isFalse);
+      expect(annotation.isLockedContents, isFalse);
+      expect(editing.selectAnnotation(0, 0), isTrue,
+          reason: 'unlocked annotations select again');
+    });
+
+    test('unlocking preserves unrelated /F bits (Print)', () {
+      final editing = PdfEditingController(buildClassicPdf());
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(100, 600, 200, 700));
+      flag(editing, 0, 4 | 128 | 512); // Print + locked
+
+      expect(editing.setAnnotationLocked(0, 0, false), isTrue);
+      final annotation = editing.annotationAt(0, 0)!;
+      expect(annotation.isLocked, isFalse);
+      expect(annotation.isLockedContents, isFalse);
+      expect(annotation.flags & 4, 4, reason: 'Print (bit 3) survives');
+    });
+
+    test('toggleAnnotationLock flips the lock state', () {
+      final editing = PdfEditingController(buildClassicPdf());
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(100, 600, 200, 700));
+
+      expect(editing.toggleAnnotationLock(0, 0), isTrue);
+      expect(editing.annotationAt(0, 0)!.isLocked, isTrue);
+      expect(editing.toggleAnnotationLock(0, 0), isFalse);
+      expect(editing.annotationAt(0, 0)!.isLocked, isFalse);
+    });
+
+    test('lock management honours ReadOnly and the host predicate', () {
+      final editing = PdfEditingController(buildClassicPdf());
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(100, 600, 200, 700));
+
+      // ReadOnly is truly hands-off - not even lockable/unlockable
+      flag(editing, 0, 64);
+      expect(
+          editing.isAnnotationLockManageable(editing.annotationAt(0, 0)!),
+          isFalse);
+      expect(editing.setAnnotationLocked(0, 0, true), isFalse);
+
+      // clear ReadOnly, then a host predicate that disowns it also vetoes
+      flag(editing, 0, 0);
+      editing.canEditAnnotation = (_) => false;
+      expect(editing.setAnnotationLocked(0, 0, true), isFalse);
+      expect(editing.annotationAt(0, 0)!.isLocked, isFalse);
+    });
+
+    test('canLockSelected tracks the selection', () {
+      final editing = PdfEditingController(buildClassicPdf());
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(100, 600, 200, 700));
+
+      expect(editing.canLockSelected, isFalse, reason: 'nothing selected');
+      editing.selectAnnotation(0, 0);
+      expect(editing.canLockSelected, isTrue);
+      editing.lockSelectedAnnotations();
+      // the now-locked annotation left the selection, so there's nothing
+      // more to lock
+      expect(editing.canLockSelected, isFalse);
+    });
+  });
+
   group('canEditAnnotation predicate', () {
     test('gates selection by author', () {
       final editing = PdfEditingController(buildClassicPdf());
       addTearDown(editing.dispose);
-      editing.author = 'Alice';
+      editing.preferences.author = 'Alice';
       editing.addRectangle(0, const PdfRect(100, 600, 200, 700));
-      editing.author = 'Bob';
+      editing.preferences.author = 'Bob';
       editing.addEllipse(0, const PdfRect(300, 600, 400, 700));
 
       editing.canEditAnnotation = (a) => a.author == 'Bob';
@@ -112,9 +212,9 @@ void main() {
     test('setting the predicate drops newly ineligible selections', () {
       final editing = PdfEditingController(buildClassicPdf());
       addTearDown(editing.dispose);
-      editing.author = 'Alice';
+      editing.preferences.author = 'Alice';
       editing.addRectangle(0, const PdfRect(100, 600, 200, 700));
-      editing.author = 'Bob';
+      editing.preferences.author = 'Bob';
       editing.addEllipse(0, const PdfRect(300, 600, 400, 700));
       expect(editing.selectAllAnnotationsOn(0), 2);
 
@@ -132,7 +232,7 @@ void main() {
     test('remote applies bypass the gate - sync is not user editing', () {
       final editing = PdfEditingController(buildClassicPdf());
       addTearDown(editing.dispose);
-      editing.author = 'Alice';
+      editing.preferences.author = 'Alice';
       editing.addRectangle(0, const PdfRect(100, 600, 200, 700));
       editing.canEditAnnotation = (_) => false;
 

@@ -99,8 +99,8 @@ void main() {
     test('deleting one text run leaves its sibling in place', () {
       final doc = PdfDocument.open(buildContentPdf(richContent));
       final elements = PdfPageElements.of(doc, 0);
-      final second = elements.elements
-          .firstWhere((e) => e.text == 'second line');
+      final second =
+          elements.elements.firstWhere((e) => e.text == 'second line');
       final editor = PdfEditor(doc)..deleteElements(elements, [second.id]);
       final out = PdfDocument.open(editor.save());
       expect(pageText(out), contains('(first line) Tj'));
@@ -113,8 +113,7 @@ void main() {
       final doc = PdfDocument.open(buildContentPdf(
           "BT /F1 12 Tf 14 TL 72 700 Td (one) Tj (two) ' (three) ' ET"));
       final elements = PdfPageElements.of(doc, 0);
-      final two =
-          elements.elements.firstWhere((e) => e.text == 'two');
+      final two = elements.elements.firstWhere((e) => e.text == 'two');
       final editor = PdfEditor(doc)..deleteElements(elements, [two.id]);
       final out = PdfDocument.open(editor.save());
       final text = pageText(out);
@@ -122,14 +121,12 @@ void main() {
       expect(text, contains('T*'));
       // 'three' still lands two leadings below 700
       final reparsed = PdfPageElements.of(out, 0);
-      final three =
-          reparsed.elements.firstWhere((e) => e.text == 'three');
+      final three = reparsed.elements.firstWhere((e) => e.text == 'three');
       expect(three.bounds!.bottom, closeTo(700 - 28 - 2.4, 0.01));
     });
 
     test('inline images round-trip through a rewrite', () {
-      final doc = PdfDocument.open(buildContentPdf(
-          '100 100 10 10 re f\n'
+      final doc = PdfDocument.open(buildContentPdf('100 100 10 10 re f\n'
           'q 5 0 0 5 10 10 cm BI /W 2 /H 1 /CS /G /BPC 8 ID \xa0\xa1 EI Q\n'));
       final elements = PdfPageElements.of(doc, 0);
       expect(elements.elements[1].kind, PdfElementKind.inlineImage);
@@ -138,8 +135,7 @@ void main() {
       final out = PdfDocument.open(editor.save());
       final reparsed = PdfPageElements.of(out, 0);
       expect(reparsed.elements.single.kind, PdfElementKind.inlineImage);
-      final bi = reparsed.operations[
-          reparsed.elements.single.start];
+      final bi = reparsed.operations[reparsed.elements.single.start];
       expect((bi.operands[1] as CosString).bytes, [0xa0, 0xa1]);
     });
   });
@@ -155,6 +151,90 @@ void main() {
       expect(pageText(out, 1), contains('(Page 2) Tj'));
     });
 
+    test('replaceElementText changes only the selected operation', () {
+      final doc = PdfDocument.open(buildContentPdf(
+          'BT /F1 12 Tf 72 700 Td (Page 1) Tj 0 -20 Td (Page 2) Tj ET'));
+      final elements = PdfPageElements.of(doc, 0);
+      final texts = elements.elements
+          .where((element) => element.kind == PdfElementKind.text)
+          .toList();
+      final editor = PdfEditor(doc);
+
+      expect(
+          editor.replaceElementText(elements, texts.first, 'Page', 'Sheet'), 1);
+
+      final reopened = PdfDocument.open(editor.save());
+      final text = PdfPageElements.of(reopened, 0)
+          .elements
+          .where((element) => element.kind == PdfElementKind.text)
+          .map((element) => element.text)
+          .toList();
+      expect(text, ['Sheet 1', 'Page 2']);
+    });
+
+    test('repeated edits through one snapshot compose', () {
+      // replaceElementText reuses the caller's PdfPageElements to skip a
+      // second decode + tokenization (#402). Edits mutate that snapshot's
+      // operation list in place, so successive edits through the SAME
+      // snapshot stay consistent - this pins that contract.
+      final doc = PdfDocument.open(buildContentPdf(
+          'BT /F1 12 Tf 72 700 Td (Page 1) Tj 0 -20 Td (Page 2) Tj ET'));
+      final elements = PdfPageElements.of(doc, 0);
+      final texts = elements.elements
+          .where((element) => element.kind == PdfElementKind.text)
+          .toList();
+      final editor = PdfEditor(doc);
+
+      expect(
+          editor.replaceElementText(elements, texts.first, 'Page', 'Sheet'), 1);
+      expect(
+          editor.replaceElementText(elements, texts[1], 'Page', 'Folio'), 1);
+
+      final reopened = PdfDocument.open(editor.save());
+      final text = PdfPageElements.of(reopened, 0)
+          .elements
+          .where((element) => element.kind == PdfElementKind.text)
+          .map((element) => element.text)
+          .toList();
+      expect(text, ['Sheet 1', 'Folio 2'],
+          reason: 'the first edit must survive the second');
+    });
+
+    test('an edit made through another snapshot is not clobbered', () {
+      // The hazard the snapshot reuse actually introduces: a DIFFERENT
+      // snapshot rewrites the page in between, so the held one no longer
+      // describes the document. Reusing it there would serialize operations
+      // that predate the other edit and silently undo it.
+      final doc = PdfDocument.open(buildContentPdf('BT /F1 12 Tf 72 700 Td '
+          '(Page 1) Tj 0 -20 Td (Page 2) Tj 0 -20 Td (Page 3) Tj ET'));
+      final held = PdfPageElements.of(doc, 0);
+      final texts = held.elements
+          .where((element) => element.kind == PdfElementKind.text)
+          .toList();
+      final editor = PdfEditor(doc);
+
+      expect(editor.replaceElementText(held, texts.first, 'Page', 'Sheet'), 1);
+
+      // A separate snapshot deletes the third run.
+      final fresh = PdfPageElements.of(doc, 0);
+      final freshTexts = fresh.elements
+          .where((element) => element.kind == PdfElementKind.text)
+          .toList();
+      editor.deleteElements(fresh, [freshTexts.last.id]);
+
+      // Back to the held snapshot, which knows nothing of that delete.
+      expect(editor.replaceElementText(held, texts[1], 'Page', 'Folio'), 1);
+
+      final reopened = PdfDocument.open(editor.save());
+      final text = PdfPageElements.of(reopened, 0)
+          .elements
+          .where((element) => element.kind == PdfElementKind.text)
+          .map((element) => element.text)
+          .toList();
+      expect(text, ['Sheet 1', 'Folio 2'],
+          reason: 'the delete made through the other snapshot must survive');
+    });
+
     test('a miss returns zero and queues nothing', () {
       final editor = PdfEditor(PdfDocument.open(buildMultiPagePdf(1)));
       expect(editor.replaceText(0, 'absent text', 'x'), 0);
@@ -162,16 +242,16 @@ void main() {
     });
 
     test('replaces within a single TJ element', () {
-      final doc = PdfDocument.open(buildContentPdf(
-          'BT /F1 12 Tf 72 700 Td [(spli) -20 (t run)] TJ ET'));
+      final doc = PdfDocument.open(
+          buildContentPdf('BT /F1 12 Tf 72 700 Td [(spli) -20 (t run)] TJ ET'));
       final editor = PdfEditor(doc);
       expect(editor.replaceText(0, 't run', 't sprint'), 1);
       expect(pageText(PdfDocument.open(editor.save())), contains('(t sprint)'));
     });
 
     test('matches across TJ array elements and their kern', () {
-      final doc = PdfDocument.open(buildContentPdf(
-          'BT /F1 12 Tf 72 700 Td [(spli) -20 (t run)] TJ ET'));
+      final doc = PdfDocument.open(
+          buildContentPdf('BT /F1 12 Tf 72 700 Td [(spli) -20 (t run)] TJ ET'));
       final editor = PdfEditor(doc);
       // 'split' spans both strings and the -20 kern between them
       expect(editor.replaceText(0, 'split', 'joined'), 1);
@@ -182,8 +262,8 @@ void main() {
     });
 
     test('a width change inserts a compensating adjustment', () {
-      final doc = PdfDocument.open(buildContentPdf(
-          'BT /F1 12 Tf 72 700 Td [(AAA) (BBB)] TJ ET'));
+      final doc = PdfDocument.open(
+          buildContentPdf('BT /F1 12 Tf 72 700 Td [(AAA) (BBB)] TJ ET'));
       final editor = PdfEditor(doc);
       expect(editor.replaceText(0, 'AAA', 'AA'), 1);
       // Helvetica 'A' is 667/1000 em; dropping one shifts 'BBB' back by 667,
@@ -193,8 +273,8 @@ void main() {
     });
 
     test('a match can span consecutive show operators', () {
-      final doc = PdfDocument.open(buildContentPdf(
-          'BT /F1 12 Tf 72 700 Td (foo) Tj (bar) Tj ET'));
+      final doc = PdfDocument.open(
+          buildContentPdf('BT /F1 12 Tf 72 700 Td (foo) Tj (bar) Tj ET'));
       final editor = PdfEditor(doc);
       expect(editor.replaceText(0, 'ooba', 'X'), 1);
       final text = pageText(PdfDocument.open(editor.save()));
@@ -204,8 +284,7 @@ void main() {
     });
 
     test('composite Type0 runs are skipped', () {
-      final bytes = buildContentPdf(
-          'BT /F1 12 Tf 72 700 Td (find me) Tj ET');
+      final bytes = buildContentPdf('BT /F1 12 Tf 72 700 Td (find me) Tj ET');
       // rewrite the font to claim /Subtype /Type0
       final doc = PdfDocument.open(ascii(latin1
           .decode(bytes)
@@ -230,8 +309,8 @@ void main() {
       expect(text, contains('(APPROVED) Tj'));
       expect(text.indexOf('APPROVED'), greaterThan(text.indexOf('Hello')));
 
-      final fonts = out.cos.resolve(out.page(0).resources['Font'])
-          as CosDictionary;
+      final fonts =
+          out.cos.resolve(out.page(0).resources['Font']) as CosDictionary;
       final stampFont = out.cos.resolve(fonts['StF1']) as CosDictionary;
       expect(stampFont['BaseFont'], const CosName('Helvetica-Bold'));
       // the original font reference is untouched
@@ -254,14 +333,13 @@ void main() {
     test('rotated text writes a rotation matrix', () {
       final doc = PdfDocument.open(buildClassicPdf());
       final editor = PdfEditor(doc)
-        ..stampPage(0,
-            (s) => s.text('DRAFT', x: 100, y: 100, angleDegrees: 45));
+        ..stampPage(
+            0, (s) => s.text('DRAFT', x: 100, y: 100, angleDegrees: 45));
       final out = PdfDocument.open(editor.save());
       expect(pageText(out), contains('0.707'));
     });
 
-    test('stamping a page with inherited resources copies them privately',
-        () {
+    test('stamping a page with inherited resources copies them privately', () {
       final doc = PdfDocument.open(buildNestedPageTreePdf());
       final editor = PdfEditor(doc)
         ..stampPage(0, (s) => s.text('stamp', x: 5, y: 5));
@@ -289,11 +367,10 @@ void main() {
       ]);
       final doc = PdfDocument.open(buildClassicPdf());
       final editor = PdfEditor(doc)
-        ..stampPage(0,
-            (s) => s.jpegImage(jpeg, x: 100, y: 500, width: 200));
+        ..stampPage(0, (s) => s.jpegImage(jpeg, x: 100, y: 500, width: 200));
       final out = PdfDocument.open(editor.save());
-      final xobjects = out.cos.resolve(out.page(0).resources['XObject'])
-          as CosDictionary;
+      final xobjects =
+          out.cos.resolve(out.page(0).resources['XObject']) as CosDictionary;
       final image = out.cos.resolve(xobjects['Im1']) as CosStream;
       expect(image.dictionary['Width'], const CosInteger(4));
       expect(image.dictionary['Height'], const CosInteger(3));
@@ -316,8 +393,8 @@ void main() {
             (s) => s.image(PdfEmbeddableImage.decode(png),
                 x: 50, y: 60, height: 100));
       final out = PdfDocument.open(editor.save());
-      final xobjects = out.cos.resolve(out.page(0).resources['XObject'])
-          as CosDictionary;
+      final xobjects =
+          out.cos.resolve(out.page(0).resources['XObject']) as CosDictionary;
       final image = out.cos.resolve(xobjects['Im1']) as CosStream;
       expect(image.dictionary['Width'], const CosInteger(2));
       expect(image.dictionary['Height'], const CosInteger(2));
@@ -325,8 +402,7 @@ void main() {
       expect(image.dictionary['ColorSpace'], const CosName('DeviceRGB'));
       expect(out.cos.decodeStreamData(image),
           [255, 0, 0, 0, 255, 0, 0, 0, 255, 10, 20, 30]);
-      final smask =
-          out.cos.resolve(image.dictionary['SMask']) as CosStream;
+      final smask = out.cos.resolve(image.dictionary['SMask']) as CosStream;
       expect(smask.dictionary['ColorSpace'], const CosName('DeviceGray'));
       expect(out.cos.decodeStreamData(smask), [255, 128, 0, 77]);
       // square pixels, height 100 → width 100
@@ -348,20 +424,16 @@ void main() {
   });
 
   group('styled replacement', () {
-    PdfDocument styledEdit(String content, String find, String replace,
-        PdfTextStyle style) {
+    PdfDocument styledEdit(
+        String content, String find, String replace, PdfTextStyle style) {
       final doc = PdfDocument.open(buildContentPdf(content));
-      final editor = PdfEditor(doc)
-        ..replaceStyledText(0, find, replace, style);
+      final editor = PdfEditor(doc)..replaceStyledText(0, find, replace, style);
       return PdfDocument.open(editor.save());
     }
 
     test('recolours the replacement and restores the prior colour', () {
-      final out = styledEdit(
-          'BT /F1 12 Tf 72 700 Td (Hello World) Tj ET',
-          'Hello',
-          'Hi',
-          const PdfTextStyle(color: 0xFF0000));
+      final out = styledEdit('BT /F1 12 Tf 72 700 Td (Hello World) Tj ET',
+          'Hello', 'Hi', const PdfTextStyle(color: 0xFF0000));
       final text = pageText(out);
       // the replacement is drawn red, then black is restored for " World"
       expect(text, contains('1 0 0 rg'));
@@ -390,11 +462,8 @@ void main() {
     });
 
     test('changes font size with a Tf switch and restores it', () {
-      final out = styledEdit(
-          'BT /F1 12 Tf 72 700 Td (Hello World) Tj ET',
-          'Hello',
-          'Hi',
-          const PdfTextStyle(fontSize: 24));
+      final out = styledEdit('BT /F1 12 Tf 72 700 Td (Hello World) Tj ET',
+          'Hello', 'Hi', const PdfTextStyle(fontSize: 24));
       final text = pageText(out);
       expect(text, contains('/F1 24 Tf'));
       expect(text, contains('(Hi) Tj'));
@@ -404,11 +473,8 @@ void main() {
     });
 
     test('bold substitutes a base-14 variant font resource', () {
-      final out = styledEdit(
-          'BT /F1 12 Tf 72 700 Td (Hello World) Tj ET',
-          'Hello',
-          'Hi',
-          const PdfTextStyle(bold: true));
+      final out = styledEdit('BT /F1 12 Tf 72 700 Td (Hello World) Tj ET',
+          'Hello', 'Hi', const PdfTextStyle(bold: true));
       final fonts =
           out.cos.resolve(out.page(0).resources['Font']) as CosDictionary;
       final bold = fonts.entries.values
@@ -423,21 +489,15 @@ void main() {
     });
 
     test('keeps following text in place when the width changes', () {
-      final out = styledEdit(
-          'BT /F1 12 Tf 72 700 Td (Hello World) Tj ET',
-          'Hello',
-          'Hi',
-          const PdfTextStyle(fontSize: 24));
+      final out = styledEdit('BT /F1 12 Tf 72 700 Td (Hello World) Tj ET',
+          'Hello', 'Hi', const PdfTextStyle(fontSize: 24));
       // a compensating TJ adjustment follows the restored-size replacement
       expect(pageText(out), contains('] TJ'));
     });
 
     test('italic substitutes the oblique base-14 variant', () {
-      final out = styledEdit(
-          'BT /F1 12 Tf 72 700 Td (Hello World) Tj ET',
-          'Hello',
-          'Hi',
-          const PdfTextStyle(italic: true));
+      final out = styledEdit('BT /F1 12 Tf 72 700 Td (Hello World) Tj ET',
+          'Hello', 'Hi', const PdfTextStyle(italic: true));
       final fonts =
           out.cos.resolve(out.page(0).resources['Font']) as CosDictionary;
       final oblique = fonts.entries.values
@@ -544,11 +604,8 @@ void main() {
     });
 
     test('an empty style behaves like a plain replaceText', () {
-      final out = styledEdit(
-          'BT /F1 12 Tf 72 700 Td (Hello World) Tj ET',
-          'Hello',
-          'Hi',
-          const PdfTextStyle());
+      final out = styledEdit('BT /F1 12 Tf 72 700 Td (Hello World) Tj ET',
+          'Hello', 'Hi', const PdfTextStyle());
       final text = pageText(out);
       expect(text, contains('(Hi)'));
       expect(text, isNot(contains(' rg')));
@@ -560,15 +617,11 @@ void main() {
       expect(reader, contains('Hi World'));
     });
 
-    test('leaves composite runs unstyled but still replaced is skipped',
-        () {
+    test('leaves composite runs unstyled but still replaced is skipped', () {
       // simple-font restyle applies; nothing here to assert about Type0,
       // but a plain simple replacement must not emit stray style ops.
-      final out = styledEdit(
-          'BT /F1 12 Tf 72 700 Td (Hello World) Tj ET',
-          'World',
-          'Earth',
-          const PdfTextStyle(color: 0x00FF00));
+      final out = styledEdit('BT /F1 12 Tf 72 700 Td (Hello World) Tj ET',
+          'World', 'Earth', const PdfTextStyle(color: 0x00FF00));
       final text = pageText(out);
       expect(text, contains('0 1 0 rg'));
       expect(text, contains('(Earth) Tj'));

@@ -1,13 +1,16 @@
+import 'dart:convert';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart';
 import 'package:web/web.dart' as web;
 
+import 'region_replay_index.dart';
 import 'render_worker_transcript_cache.dart';
 
 /// Runs the render worker inside a dedicated Web Worker.
@@ -46,6 +49,12 @@ import 'render_worker_transcript_cache.dart';
 void runPdfRenderWorker() {
   final scope = globalContext as web.DedicatedWorkerGlobalScope;
   PdfDocument? document;
+  // One decoded-image cache per open document. A worker records the same page
+  // several times in a scroll (vector-first, full, prerender warm, thumbnail)
+  // and each record re-decoded every image; #451's device trace showed one page
+  // paying ~900ms of pure-Dart CMYK decode three times. Reuse is exact-match on
+  // (stream, target size), so it cannot change what a record renders.
+  var imageCache = PdfImageDecodeCache();
   var reuseTranscripts = true;
   var collectTimings = false;
   PdfCancellationToken? activeToken;
@@ -77,12 +86,16 @@ void runPdfRenderWorker() {
             true;
         collectTimings =
             (data.getProperty('timings'.toJS) as JSBoolean?)?.toDart ?? false;
+        // Light up the COS-layer facade alongside the trace timings; each
+        // result attaches (and resets) its per-job snapshot.
+        PdfPerf.enabled = collectTimings;
         if (collectTimings) openClock = Stopwatch()..start();
         final buffer = data.getProperty('bytes'.toJS) as JSObject;
         final bytes = shared
             ? _jsUint8View(buffer).toDart
             : (buffer as JSArrayBuffer).toDart.asUint8List();
         document = PdfDocument.open(bytes);
+        imageCache = PdfImageDecodeCache(); // new document, new streams
       } catch (_) {
         document = null; // bad transfer / broken document → local renders
       }
@@ -91,6 +104,23 @@ void runPdfRenderWorker() {
       final ready = JSObject()
         ..setProperty('kind'.toJS, 'ready'.toJS)
         ..setProperty('shared'.toJS, shared.toJS);
+      // Report the browser-codec capability so a worker that will decline every
+      // image (no OffscreenCanvas, etc.) is visible up front rather than
+      // discovered as an unexplained main-thread decode cost. See #458.
+      final missing = _browserImageDecodeMissing();
+      ready.setProperty('browserImageDecode'.toJS, missing.isEmpty.toJS);
+      // The worker ships as its own `dart compile js` bundle, separate from
+      // the app's main.dart.js, so the app being current is no evidence that
+      // the worker is. Report the decode-reuse capability (#451): a worker
+      // built before it simply omits the field, which is the only way a trace
+      // can distinguish "reuse found nothing" from "this worker cannot reuse".
+      ready.setProperty('imageDecodeCache'.toJS, true.toJS);
+      if (missing.isNotEmpty) {
+        ready.setProperty(
+          'browserImageDecodeMissing'.toJS,
+          missing.join('+').toJS,
+        );
+      }
       if (openClock != null) {
         ready.setProperty('openUs'.toJS, openClock.elapsedMicroseconds.toJS);
       }
@@ -154,6 +184,7 @@ void runPdfRenderWorker() {
               );
               final detail = await _recordStripDetailAsync(
                 doc,
+                imageCache,
                 transcriptCache,
                 page,
                 annotations,
@@ -217,6 +248,98 @@ void runPdfRenderWorker() {
       return;
     }
 
+    if (kind == 'regionIndex') {
+      final id = (data.getProperty('id'.toJS) as JSNumber).toDartInt;
+      final page = (data.getProperty('page'.toJS) as JSNumber).toDartInt;
+      final annotations =
+          (data.getProperty('annotations'.toJS) as JSBoolean).toDart;
+      final maxCommands =
+          (data.getProperty('maxCommands'.toJS) as JSNumber).toDartInt;
+      final buildGrid =
+          (data.getProperty('buildGrid'.toJS) as JSBoolean?)?.toDart ?? false;
+      final token = PdfCancellationToken();
+      activeToken = token;
+      activeRequestId = id;
+      () async {
+        final timings = collectTimings ? PdfWorkerPhaseTimings() : null;
+        final workerClock = collectTimings ? (Stopwatch()..start()) : null;
+        Uint8List? out;
+        String? error;
+        final doc = document;
+        try {
+          if (doc != null) {
+            out = await _buildRegionIndexAsync(
+              doc,
+              transcriptCache,
+              page,
+              annotations,
+              maxCommands,
+              buildGrid,
+              token,
+              timings: timings,
+            );
+          }
+        } on PdfCancelledException {
+          out = null;
+        } catch (e, st) {
+          out = null;
+          error = '$e\n$st';
+        }
+        if (identical(activeToken, token)) {
+          activeToken = null;
+          activeRequestId = null;
+        }
+        workerClock?.stop();
+        _postResult(
+          scope,
+          id,
+          out,
+          error,
+          timings,
+          workerClock?.elapsedMicroseconds,
+        );
+      }();
+      return;
+    }
+
+    if (kind == 'extractText') {
+      final id = (data.getProperty('id'.toJS) as JSNumber).toDartInt;
+      final page = (data.getProperty('page'.toJS) as JSNumber).toDartInt;
+      // Text extraction has no cancellation seam and runs synchronously; it
+      // still lands off the UI thread here, which is the point (#396).
+      activeToken = null;
+      activeRequestId = id;
+      () async {
+        final timings = collectTimings ? PdfWorkerPhaseTimings() : null;
+        final workerClock = collectTimings ? (Stopwatch()..start()) : null;
+        Uint8List? out;
+        String? error;
+        final doc = document;
+        try {
+          if (doc != null && page >= 0 && page < doc.pageCount) {
+            out = serializePageText(PdfTextExtractor.extract(doc, page));
+          }
+        } catch (e, st) {
+          out = null;
+          error = '$e\n$st';
+        }
+        if (activeRequestId == id) {
+          activeToken = null;
+          activeRequestId = null;
+        }
+        workerClock?.stop();
+        _postResult(
+          scope,
+          id,
+          out,
+          error,
+          timings,
+          workerClock?.elapsedMicroseconds,
+        );
+      }();
+      return;
+    }
+
     if (kind != 'record') return;
     final id = (data.getProperty('id'.toJS) as JSNumber).toDartInt;
     final page = (data.getProperty('page'.toJS) as JSNumber).toDartInt;
@@ -244,10 +367,21 @@ void runPdfRenderWorker() {
             regionTop != null
         ? PdfRect(regionLeft, regionBottom, regionRight, regionTop)
         : null;
+    final wantsPartials =
+        (data.getProperty('wantsPartials'.toJS) as JSBoolean?)?.toDart ?? false;
 
     final token = PdfCancellationToken();
     activeToken = token;
     activeRequestId = id;
+    // Progressive partials (#564): stream each interim linework prefix only while
+    // this record still owns the slot and has not been cancelled, so a preempted
+    // record stops immediately (the main thread drops any partial whose id no
+    // longer matches its in-flight request anyway).
+    void emitPartial(Uint8List bytes) {
+      if (activeRequestId == id && !token.cancelled) {
+        _postPartial(scope, id, bytes);
+      }
+    }
     // Fire-and-forget: launch the cancellable walk without awaiting it here, so
     // the message handler returns void (see the note above) while a subsequent
     // 'cancel' message can still flip token.cancelled mid-walk.
@@ -261,6 +395,7 @@ void runPdfRenderWorker() {
         if (doc != null) {
           out = await _recordPageAsync(
             doc,
+            imageCache,
             transcriptCache,
             reuseTranscripts,
             page,
@@ -271,6 +406,7 @@ void runPdfRenderWorker() {
             imageDecodeRegion,
             token,
             timings: timings,
+            onPartial: wantsPartials ? emitPartial : null,
           );
         }
       } on PdfCancelledException {
@@ -323,6 +459,23 @@ void _postResult(
   scope.postMessage(result, <JSAny>[jsBuffer].toJS);
 }
 
+/// Posts one interim progressive linework prefix (#564) for record [id], without
+/// the timings/`result` envelope: the main thread forwards it to the record's
+/// onPartial sink and keeps waiting for the `result`. The buffer is transferred
+/// zero-copy like a result.
+void _postPartial(
+  web.DedicatedWorkerGlobalScope scope,
+  int id,
+  Uint8List partial,
+) {
+  final jsBuffer = Uint8List.fromList(partial).buffer.toJS;
+  final message = JSObject()
+    ..setProperty('kind'.toJS, 'partial'.toJS)
+    ..setProperty('id'.toJS, id.toJS)
+    ..setProperty('buffer'.toJS, jsBuffer);
+  scope.postMessage(message, <JSAny>[jsBuffer].toJS);
+}
+
 void _postDetailResult(
   web.DedicatedWorkerGlobalScope scope,
   int id,
@@ -348,6 +501,13 @@ void _attachTimings(
   int? workerUs,
 ) {
   if (timings == null || workerUs == null) return;
+  if (PdfPerf.enabled) {
+    // Per-job COS-layer delta (reset after attach). The very first job also
+    // carries the document-open phases - fine for a diagnostics surface.
+    result.setProperty(
+        'cosStats'.toJS, jsonEncode(PdfPerf.snapshot().toJson()).toJS);
+    PdfPerf.reset();
+  }
   result
     ..setProperty('workerUs'.toJS, workerUs.toJS)
     ..setProperty('parseUs'.toJS, timings.parseUs.toJS)
@@ -357,6 +517,10 @@ void _attachTimings(
     ..setProperty('decodeUs'.toJS, timings.decodeUs.toJS)
     ..setProperty('binUs'.toJS, timings.binUs.toJS)
     ..setProperty('transcriptHit'.toJS, timings.transcriptHit.toJS);
+  final imageDecode = timings.imageDecodeSummary;
+  if (imageDecode != null) {
+    result.setProperty('imageDecode'.toJS, imageDecode.toJS);
+  }
 }
 
 JSUint8Array _jsUint8View(JSObject buffer) {
@@ -372,6 +536,7 @@ JSUint8Array _jsUint8View(JSObject buffer) {
 /// `dart:isolate`, which does not exist on web, so this entry can't share it.
 Future<Uint8List?> _recordPageAsync(
   PdfDocument document,
+  PdfImageDecodeCache imageCache,
   PdfWorkerTranscriptCache cache,
   bool reuseTranscripts,
   int pageIndex,
@@ -382,6 +547,7 @@ Future<Uint8List?> _recordPageAsync(
   PdfRect? imageDecodeRegion,
   PdfCancellationToken token, {
   PdfWorkerPhaseTimings? timings,
+  void Function(Uint8List)? onPartial,
 }) async {
   if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
   final page = document.page(pageIndex);
@@ -423,16 +589,33 @@ Future<Uint8List?> _recordPageAsync(
       token,
       yieldInterval: 4096,
       timings: timings,
+      onPartial: onPartial,
     );
     if (transcript == null) return null;
     commands = transcript.sourceCommands;
   }
   if (decodeImages) {
     final decodeClock = timings == null ? null : (Stopwatch()..start());
-    commands = await _withBrowserDecodedImages(document.cos, commands, token);
+    final tally = timings == null ? null : _BrowserDecodeTally();
+    commands = await _withBrowserDecodedImages(
+      document.cos,
+      imageCache,
+      commands,
+      token,
+      tally,
+    );
     if (decodeClock != null) {
       decodeClock.stop();
       timings!.decodeUs += decodeClock.elapsedMicroseconds;
+    }
+    // Report the cache's own state, not just the decode tally: "no reuse" has
+    // two very different causes - nothing was ever stored (entries stays 0), or
+    // entries exist but the key never matches - and the tally alone cannot tell
+    // them apart. #451 burned several device traces on exactly that ambiguity.
+    if (tally != null) {
+      timings!.imageDecodeSummary = '${tally.format()} '
+          'cache=${imageCache.hits}h/${imageCache.misses}m'
+          '/${imageCache.length}e';
     }
   }
   // Decode the page's images in the worker too: the buffer carries
@@ -449,9 +632,11 @@ Future<Uint8List?> _recordPageAsync(
     cos: document.cos,
     decodeImages: decodeImages,
     maxImagePixelRatio: imagePixelRatio,
+    pageRasterPixels: pdfPageRasterPixels(page.cropBox, imagePixelRatio),
     imageDecodeRegion: imageDecodeRegion,
     imagePlaceholders: !decodeImages,
     commandLimit: commandLimit,
+    imageCache: imageCache,
     compactStateScopes: true,
   );
   if (serializeClock != null) {
@@ -512,6 +697,7 @@ Future<Uint8List?> _binStripsAsync(
 /// replays it.
 Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
   PdfDocument document,
+  PdfImageDecodeCache imageCache,
   PdfWorkerTranscriptCache cache,
   int pageIndex,
   bool annotations,
@@ -538,15 +724,19 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
   // DCT images use the browser codec on web. Other image formats continue
   // through serializeCommands' pure-Dart, region-aware decoder.
   final decodeClock = timings == null ? null : (Stopwatch()..start());
+  final tally = timings == null ? null : _BrowserDecodeTally();
   sourceCommands = await _withBrowserDecodedImages(
     document.cos,
+    imageCache,
     sourceCommands,
     token,
+    tally,
   );
   if (decodeClock != null) {
     decodeClock.stop();
     timings!.decodeUs += decodeClock.elapsedMicroseconds;
   }
+  if (tally != null) timings!.imageDecodeSummary = tally.format();
   if (token.cancelled) throw const PdfCancelledException();
   final serializeClock = timings == null ? null : (Stopwatch()..start());
   final commandBuffer = serializeCommands(
@@ -555,6 +745,7 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
     decodeImages: true,
     maxImagePixelRatio: pixelRatio,
     imageDecodeRegion: imageDecodeRegion,
+    imageCache: imageCache,
     compactStateScopes: true,
   );
   if (serializeClock != null) {
@@ -587,10 +778,44 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
   return (commandBuffer, encodeStripPlan(binner.finish()));
 }
 
+/// Builds the region-replay spatial index from the page's cached wire
+/// transcript and serializes it, or null when the page can't be offloaded.
+/// Mirrors the isolate backend's `_buildRegionIndexAsync`; duplicated because
+/// this entry can't import `dart:isolate`.
+Future<Uint8List?> _buildRegionIndexAsync(
+  PdfDocument document,
+  PdfWorkerTranscriptCache cache,
+  int pageIndex,
+  bool annotations,
+  int maxCommands,
+  bool buildGrid,
+  PdfCancellationToken token, {
+  PdfWorkerPhaseTimings? timings,
+}) async {
+  final transcript = await cache.transcriptFor(
+    document,
+    pageIndex,
+    annotations,
+    token,
+    yieldInterval: 4096,
+    timings: timings,
+  );
+  if (transcript == null) return null;
+  if (token.cancelled) throw const PdfCancelledException();
+  final index = PdfRegionReplayIndex.build(
+    transcript.wireCommands,
+    maxCommands: maxCommands,
+    buildGrid: buildGrid,
+  );
+  return serializeRegionReplayIndex(index);
+}
+
 Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
   CosDocument cos,
+  PdfImageDecodeCache imageCache,
   List<PdfRenderCommand> commands,
   PdfCancellationToken token,
+  _BrowserDecodeTally? tally,
 ) async {
   var changed = false;
   final out = <PdfRenderCommand>[];
@@ -602,7 +827,19 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
           out.add(command);
           continue;
         }
-        final decoded = await _decodeWithBrowserCodec(cos, request.stream);
+        // The browser codec decodes at native resolution with no target, so
+        // one entry per stream serves every record of the page. Uncached, a
+        // page recorded three times in a scroll ran the codec three times -
+        // ~330-630ms each in the device trace (#451).
+        var decoded = imageCache.get(request.stream, null, null);
+        if (decoded == null) {
+          decoded = await _decodeWithBrowserCodec(cos, request.stream, tally);
+          if (decoded != null) {
+            imageCache.put(request.stream, null, null, decoded);
+          }
+        } else {
+          tally?.reused();
+        }
         if (decoded == null) {
           out.add(command);
         } else {
@@ -619,8 +856,10 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
       ):
         final decodedMaskCommands = await _withBrowserDecodedImages(
           cos,
+          imageCache,
           maskCommands,
           token,
+          tally,
         );
         if (!identical(decodedMaskCommands, maskCommands)) changed = true;
         out.add(
@@ -656,10 +895,17 @@ PdfImageRequest _withDecodedPixels(
 Future<PdfDecodedPixels?> _decodeWithBrowserCodec(
   CosDocument cos,
   CosStream stream,
+  _BrowserDecodeTally? tally,
 ) async {
-  if (!_browserImageDecodeAvailable) return null;
+  if (!_browserImageDecodeAvailable) {
+    tally?.decline('noCapability');
+    return null;
+  }
   final dict = stream.dictionary;
-  if (cos.resolve(dict['ImageMask']) == const CosBoolean(true)) return null;
+  if (cos.resolve(dict['ImageMask']) == const CosBoolean(true)) {
+    tally?.decline('imageMask');
+    return null;
+  }
 
   final filters = pdfImageFilters(cos, dict);
   final dctName = filters.contains('DCTDecode')
@@ -668,7 +914,10 @@ Future<PdfDecodedPixels?> _decodeWithBrowserCodec(
       ? 'DCT'
       : null;
   final dctMaskBytes = pdfImageDctSoftMaskBytes(cos, dict);
-  if (dctName == null && dctMaskBytes == null) return null;
+  if (dctName == null && dctMaskBytes == null) {
+    tally?.decline('notDct');
+    return null;
+  }
 
   final PdfImageBase? base;
   if (dctName != null) {
@@ -676,7 +925,10 @@ Future<PdfDecodedPixels?> _decodeWithBrowserCodec(
     if (family == 'DeviceCMYK') {
       // CMYK JPEG bases already decode in pure Dart. Only intervene when the
       // soft mask is DCT-encoded and therefore needs the browser codec.
-      if (dctMaskBytes == null) return null;
+      if (dctMaskBytes == null) {
+        tally?.decline('cmyk');
+        return null;
+      }
       base = decodePdfImageBase(cos, stream);
     } else {
       final jpeg = cos.decodeStreamData(stream, stopBeforeFilter: dctName);
@@ -687,7 +939,11 @@ Future<PdfDecodedPixels?> _decodeWithBrowserCodec(
     // mask through the browser codec.
     base = decodePdfImageBase(cos, stream);
   }
-  if (base == null) return null;
+  if (base == null) {
+    tally?.decline('decodeNull');
+    return null;
+  }
+  tally?.codec++;
 
   PdfImageSoftMask? mask;
   if (dctMaskBytes != null) {
@@ -786,10 +1042,51 @@ Future<_BrowserDecodedImage?> _decodeBrowserJpegRgba(Uint8List jpeg) async {
   }
 }
 
-bool get _browserImageDecodeAvailable =>
-    globalContext.has('Blob') &&
-    globalContext.has('createImageBitmap') &&
-    globalContext.has('OffscreenCanvas');
+bool get _browserImageDecodeAvailable => _browserImageDecodeMissing().isEmpty;
+
+/// The browser-codec prerequisites absent from this worker scope, or empty when
+/// all are present. Reported on the `ready` line (#458): a worker that silently
+/// declines every image because, say, its scope has no `OffscreenCanvas` is
+/// otherwise indistinguishable in a trace from one whose codec ran.
+List<String> _browserImageDecodeMissing() => <String>[
+  if (!globalContext.has('Blob')) 'Blob',
+  if (!globalContext.has('createImageBitmap')) 'createImageBitmap',
+  if (!globalContext.has('OffscreenCanvas')) 'OffscreenCanvas',
+];
+
+/// Per-job tally of how the browser image codec fared, folded into
+/// [PdfWorkerPhaseTimings.imageDecodeSummary] for the phase log (#458). Only
+/// allocated when the job collects timings, so production pays nothing.
+///
+/// Reasons: `noCapability` (the scope lacks the codec — the #458 case),
+/// `imageMask`/`cmyk`/`notDct` (expected declines the pure-Dart decoder
+/// handles), and `decodeNull` (`createImageBitmap` threw or returned empty).
+/// The reason strings avoid the words "fail"/"error" on purpose: they ride the
+/// phase log, which the perf harness scans for fatal-error markers.
+class _BrowserDecodeTally {
+  int codec = 0;
+
+  /// Images served from a previous record's decode instead of re-running the
+  /// codec (#451). Reported separately so a trace shows the reuse directly
+  /// rather than as an unexplained drop in `codec=`.
+  int reusedCount = 0;
+  final Map<String, int> _declined = <String, int>{};
+
+  void decline(String reason) =>
+      _declined[reason] = (_declined[reason] ?? 0) + 1;
+
+  void reused() => reusedCount++;
+
+  String format() {
+    final declined = _declined.values.fold(0, (a, b) => a + b);
+    if (codec == 0 && declined == 0 && reusedCount == 0) return 'none';
+    final reuse = reusedCount == 0 ? '' : ' reused=$reusedCount';
+    if (declined == 0) return 'codec=$codec$reuse';
+    final reasons =
+        _declined.entries.map((e) => '${e.key}:${e.value}').join(',');
+    return 'codec=$codec$reuse declined=$declined($reasons)';
+  }
+}
 
 class _BrowserDecodedImage {
   const _BrowserDecodedImage(this.rgba, this.width, this.height);

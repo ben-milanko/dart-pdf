@@ -25,7 +25,7 @@ final bool _impeller = Platform.environment['SLUG_IMPELLER'] == '1';
 
 TrueTypeFont? _font;
 TrueTypeFont get font => _font ??=
-    TrueTypeFont.parse(File('assets/fonts/DejaVuSans.ttf').readAsBytesSync())!;
+    TrueTypeFont.parse(File('../dart_pdf_editor_assets/assets/fonts/DejaVuSans.ttf').readAsBytesSync())!;
 
 PdfPath outlineOf(String char) =>
     font.outlineForGlyph(font.gidForUnicode(char.codeUnitAt(0)))!;

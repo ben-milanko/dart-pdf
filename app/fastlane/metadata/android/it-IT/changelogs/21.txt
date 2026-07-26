@@ -1,0 +1,7 @@
+Novità della 3.1.0
+
+• Scansiona documenti cartacei direttamente in un PDF o scatta una foto con la fotocamera.
+• Le modifiche non salvate vengono duplicate e ripristinate dopo un arresto anomalo.
+• Nuovi strumenti: collegamenti ipertestuali, ritaglio delle immagini, blocco delle annotazioni e scorciatoie per ogni strumento.
+• Sovrastampa fedele; visualizzazione delle pagine più rapida e progressiva.
+• Riduci le dimensioni di un PDF senza perdite durante il salvataggio.

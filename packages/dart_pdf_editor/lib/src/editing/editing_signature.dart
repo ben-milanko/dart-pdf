@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart'
     show pdfInkCurveControls, pdfInkStrokeWidth;
 
+import '../l10n/pdf_l10n.dart';
+import 'stroke_prediction.dart';
+
 /// A hand-drawn signature, stored device-side and stamped onto pages as
 /// an Ink annotation ([PdfEditingController.placeSignature]).
 ///
@@ -107,18 +110,27 @@ class PdfInkSignature {
 }
 
 /// Shows the signature pad dialog; resolves to the drawn signature, or
-/// null on cancel.
-Future<PdfInkSignature?> showPdfSignatureDialog(BuildContext context) =>
+/// null on cancel. [predictStrokes] forward-extrapolates the in-progress
+/// stroke to mask input latency, exactly like the ink tool (see
+/// [PdfViewer.predictStrokes]); display only, never committed.
+Future<PdfInkSignature?> showPdfSignatureDialog(BuildContext context,
+        {bool predictStrokes = true}) =>
     showDialog<PdfInkSignature>(
       context: context,
-      builder: (context) => const PdfSignatureDialog(),
+      builder: (context) => PdfSignatureDialog(predictStrokes: predictStrokes),
     );
 
 /// A dialog with a drawing pad for capturing a signature: draw with
 /// mouse, finger, or stylus (pressure is recorded and rendered as
 /// variable width, like the ink tool), pick an ink color, clear, done.
 class PdfSignatureDialog extends StatefulWidget {
-  const PdfSignatureDialog({super.key});
+  const PdfSignatureDialog({super.key, this.predictStrokes = true});
+
+  /// Forward-extrapolates a short speculative lead beyond the pen tip on
+  /// the in-progress stroke, the same predictive ink the ink tool uses
+  /// ([PdfViewer.predictStrokes]). Display only - the lead is redrawn each
+  /// frame and never enters the captured signature.
+  final bool predictStrokes;
 
   @override
   State<PdfSignatureDialog> createState() => _PdfSignatureDialogState();
@@ -175,10 +187,33 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
     });
   }
 
+  /// The in-progress stroke with a display-only predicted lead appended
+  /// (and its last pressure carried onto the lead), recomputed each build
+  /// so the next real sample replaces it - the pad's analogue of the ink
+  /// tool's live prediction. Null when no stroke is active.
+  ({List<Offset> points, List<double>? pressures})? get _activeDisplay {
+    final active = _active;
+    if (active == null) return null;
+    var pressures = _activePressures;
+    if (widget.predictStrokes) {
+      final lead =
+          pdfPredictStrokeLead([for (final p in active) (p.dx, p.dy)]);
+      if (lead.isNotEmpty) {
+        final points = [...active, for (final (x, y) in lead) Offset(x, y)];
+        if (pressures != null) {
+          pressures = [...pressures, for (final _ in lead) pressures.last];
+        }
+        return (points: points, pressures: pressures);
+      }
+    }
+    return (points: active, pressures: pressures);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final activeDisplay = _activeDisplay;
     return AlertDialog(
-      title: const Text('Signature'),
+      title: Text(pdfL10n(context).sigTitle),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -207,10 +242,13 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
                     key: const ValueKey('pdf-signature-pad'),
                     size: const Size(360, 180),
                     painter: _SignaturePadPainter(
-                      strokes: [..._strokes, if (_active != null) _active!],
+                      strokes: [
+                        ..._strokes,
+                        if (activeDisplay != null) activeDisplay.points
+                      ],
                       pressures: [
                         ..._pressures,
-                        if (_active != null) _activePressures
+                        if (activeDisplay != null) activeDisplay.pressures
                       ],
                       color: _ink,
                     ),
@@ -223,7 +261,7 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
           Row(children: [
             for (final ink in _inks)
               Padding(
-                padding: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsetsDirectional.only(end: 8),
                 child: InkWell(
                   onTap: () => setState(() => _ink = ink),
                   customBorder: const CircleBorder(),
@@ -253,7 +291,7 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
                         _active = null;
                         _activePressures = null;
                       }),
-              child: const Text('Clear'),
+              child: Text(pdfL10n(context).clear),
             ),
           ]),
         ],
@@ -261,14 +299,14 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(pdfL10n(context).cancel),
         ),
         FilledButton(
           onPressed: _isEmpty
               ? null
               : () => Navigator.of(context)
                   .pop(PdfInkSignature.fromPad(_strokes, _pressures, _ink)),
-          child: const Text('Done'),
+          child: Text(pdfL10n(context).done),
         ),
       ],
     );
@@ -286,7 +324,7 @@ class _SignaturePadPainter extends CustomPainter {
   final List<List<double>?> pressures;
   final Color color;
 
-  static const _baseWidth = 2.5;
+  static const _baseWidth = 3.0;
 
   @override
   void paint(Canvas canvas, Size size) {

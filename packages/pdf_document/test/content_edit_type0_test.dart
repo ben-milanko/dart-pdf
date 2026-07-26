@@ -261,7 +261,83 @@ void main() {
       expect(tfFonts, containsAll(['F0', 'Fbk0']));
       expect(pageText(doc), 'Hello ${ch}rld');
     });
+
+    test('a non-matching fallback replacement reserves no resource', () {
+      // When `find` is absent, the fallback path must allocate nothing and
+      // leave the document unchanged - the fallback font is embedded (and its
+      // glyphs recorded) only once a match is actually rewritten. The page's
+      // /Resources is stored by reference so materializing it (which the old
+      // eager allocation did) would mark the page changed.
+      final lib = PdfEmbeddedFont.parse(liberationBytes);
+      int? missing;
+      for (final r in const [0x2605, 0x263A, 0x4E2D, 0x0416, 0x2660, 0x266B]) {
+        if (lib.glyphForRune(r) == 0 && font.glyphForRune(r) != 0) {
+          missing = r;
+          break;
+        }
+      }
+      final ch = String.fromCharCode(missing!);
+      final pdf = buildType0PdfIndirectResources('Hello world', liberationBytes);
+      final fallback = PdfEmbeddedFont.parse(fontBytes);
+
+      final editor = PdfEditor(PdfDocument.open(pdf));
+      final n = editor.replaceText(0, 'absent', '${ch}x',
+          fallbackFonts: [fallback]);
+      expect(n, 0);
+      expect(editor.hasChanges, isFalse,
+          reason: 'nothing matched, so nothing should be allocated or marked');
+
+      // a matching fallback replacement on the same shape still works.
+      final editor2 = PdfEditor(PdfDocument.open(pdf));
+      final n2 = editor2.replaceText(0, 'world', '${ch}rld',
+          fallbackFonts: [fallback]);
+      expect(n2, 1);
+      final doc = PdfDocument.open(editor2.save());
+      final fonts =
+          doc.cos.resolve(doc.page(0).resources['Font']) as CosDictionary;
+      expect(fonts.entries.keys.where((k) => k.startsWith('Fbk')), isNotEmpty);
+    });
   });
+}
+
+/// Like [buildType0Pdf] but stores the page `/Resources` as an indirect
+/// reference (as many real producers do), so materializing it marks the page
+/// changed - exercising the "no side effects on a non-match" invariant.
+Uint8List buildType0PdfIndirectResources(String text, Uint8List fontBytes) {
+  final font = PdfEmbeddedFont.parse(fontBytes);
+  final hex = font.encodeHex(text);
+  final builder = CosDocumentBuilder();
+
+  final content = latin1.encode('BT /F0 24 Tf 72 700 Td <$hex> Tj ET');
+  final contentRef = builder.add(CosStream(
+      CosDictionary({'Length': CosInteger(content.length)}),
+      Uint8List.fromList(content)));
+  final fontRef = builder.add(font.buildResource(builder.add)['F0']!);
+  final resourcesRef = builder.add(CosDictionary({
+    'Font': CosDictionary({'F0': fontRef})
+  }));
+
+  final pageDict = CosDictionary({
+    'Type': const CosName('Page'),
+    'MediaBox': CosArray(const [
+      CosInteger(0),
+      CosInteger(0),
+      CosInteger(612),
+      CosInteger(792),
+    ]),
+    'Contents': contentRef,
+    'Resources': resourcesRef,
+  });
+  final pageRef = builder.add(pageDict);
+  final pagesRef = builder.add(CosDictionary({
+    'Type': const CosName('Pages'),
+    'Kids': CosArray([pageRef]),
+    'Count': const CosInteger(1),
+  }));
+  pageDict['Parent'] = pagesRef;
+  final catalogRef = builder
+      .add(CosDictionary({'Type': const CosName('Catalog'), 'Pages': pagesRef}));
+  return builder.build(root: catalogRef);
 }
 
 Map<int, double> _parseW(PdfDocument doc, CosDictionary cidFont) {

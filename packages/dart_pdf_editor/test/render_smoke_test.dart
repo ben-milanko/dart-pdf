@@ -8,7 +8,6 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
@@ -29,6 +28,7 @@ Future<void> loadSystemFonts() async {
       '/System/Library/Fonts/Supplemental/Times New Roman.ttf'
     ],
     'Courier': ['/System/Library/Fonts/Supplemental/Courier New.ttf'],
+    'Geeza Pro': ['/System/Library/Fonts/GeezaPro.ttc'],
     'Apple Symbols': ['/System/Library/Fonts/Apple Symbols.ttf'],
     'Symbol': ['/System/Library/Fonts/Symbol.ttf'],
     'Zapf Dingbats': ['/System/Library/Fonts/ZapfDingbats.ttf'],

@@ -4,6 +4,52 @@ import 'dart:typed_data';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+/// Why [PdfDigitalSignatureIdentity.fromFiles] rejected the chosen files.
+///
+/// [PdfSignatureIdentityException.message] carries an English explanation for
+/// hosts that don't localize; a UI can switch on the [code] instead to show a
+/// translated message at the point it surfaces the error.
+enum PdfSignatureIdentityError {
+  /// No certificate files were selected.
+  noCertificateSelected,
+
+  /// A selected certificate is not valid X.509 (see
+  /// [PdfSignatureIdentityException.certificateIndex] for which one).
+  invalidCertificate,
+
+  /// The private key matches none of the selected RSA certificates.
+  keyCertificateMismatch,
+
+  /// The private key is an encrypted PEM, which is not supported.
+  encryptedKeyUnsupported,
+
+  /// The private key is not an unencrypted RSA PKCS#1 / PKCS#8 key.
+  keyNotRsa,
+
+  /// No X.509 certificate was found in the selected files.
+  noCertificateFound,
+}
+
+/// A [FormatException] raised while parsing signing key/certificate files,
+/// tagged with a machine-readable [code] so a host can localize the message.
+///
+/// It extends [FormatException] so existing `on FormatException` handlers keep
+/// working and `message` stays available as an English fallback.
+class PdfSignatureIdentityException extends FormatException {
+  const PdfSignatureIdentityException(
+    this.code,
+    String message, {
+    this.certificateIndex,
+  }) : super(message);
+
+  /// Which validation failed.
+  final PdfSignatureIdentityError code;
+
+  /// The 1-based index of the offending certificate for
+  /// [PdfSignatureIdentityError.invalidCertificate]; null otherwise.
+  final int? certificateIndex;
+}
+
 /// A certificate-backed identity used to create a cryptographic PDF
 /// signature.
 ///
@@ -27,7 +73,10 @@ class PdfDigitalSignatureIdentity {
     required List<Uint8List> certificates,
   }) {
     if (certificates.isEmpty) {
-      throw const FormatException('Select at least one X.509 certificate.');
+      throw const PdfSignatureIdentityException(
+        PdfSignatureIdentityError.noCertificateSelected,
+        'Select at least one X.509 certificate.',
+      );
     }
     final key = _parsePrivateKey(privateKey);
     final ders = _parseCertificates(certificates);
@@ -36,7 +85,11 @@ class PdfDigitalSignatureIdentity {
       try {
         parsed.add(X509Certificate.parse(ders[i]));
       } catch (_) {
-        throw FormatException('Certificate ${i + 1} is not valid X.509.');
+        throw PdfSignatureIdentityException(
+          PdfSignatureIdentityError.invalidCertificate,
+          'Certificate ${i + 1} is not valid X.509.',
+          certificateIndex: i + 1,
+        );
       }
     }
 
@@ -51,7 +104,8 @@ class PdfDigitalSignatureIdentity {
       }
     }
     if (signerIndex < 0) {
-      throw const FormatException(
+      throw const PdfSignatureIdentityException(
+        PdfSignatureIdentityError.keyCertificateMismatch,
         'The private key does not match any selected RSA certificate.',
       );
     }
@@ -95,6 +149,7 @@ class PdfDigitalSignatureIdentity {
     String? location,
     String? contactInfo,
     DateTime? signingTime,
+    PdfSignatureAppearance? appearance,
   }) {
     final editor = PdfEditor(PdfDocument.open(bytes, password: password));
     return editor.saveSignedPades(
@@ -107,6 +162,7 @@ class PdfDigitalSignatureIdentity {
       location: _nonEmpty(location),
       contactInfo: _nonEmpty(contactInfo),
       signingTime: signingTime,
+      appearance: appearance,
     );
   }
 }
@@ -115,7 +171,8 @@ RsaPrivateKey _parsePrivateKey(Uint8List bytes) {
   try {
     final text = utf8.decode(bytes, allowMalformed: true);
     if (text.contains('BEGIN ENCRYPTED PRIVATE KEY')) {
-      throw const FormatException(
+      throw const PdfSignatureIdentityException(
+        PdfSignatureIdentityError.encryptedKeyUnsupported,
         'Encrypted private keys are not supported. Choose an unencrypted '
         'RSA PKCS#1 or PKCS#8 key.',
       );
@@ -128,7 +185,8 @@ RsaPrivateKey _parsePrivateKey(Uint8List bytes) {
   } on FormatException {
     rethrow;
   } catch (_) {
-    throw const FormatException(
+    throw const PdfSignatureIdentityException(
+      PdfSignatureIdentityError.keyNotRsa,
       'The private key is not an unencrypted RSA PKCS#1 or PKCS#8 key.',
     );
   }
@@ -151,7 +209,10 @@ List<Uint8List> _parseCertificates(List<Uint8List> files) {
     }
   }
   if (out.isEmpty) {
-    throw const FormatException('No X.509 certificates were found.');
+    throw const PdfSignatureIdentityException(
+      PdfSignatureIdentityError.noCertificateFound,
+      'No X.509 certificates were found.',
+    );
   }
   return out;
 }

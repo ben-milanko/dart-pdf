@@ -1,0 +1,7 @@
+Nouveautés de la version 3.0.0
+
+• L'application est désormais disponible en 10 langues, avec une mise en page entièrement de droite à gauche.
+• Rendu plus précis de la surimpression, des modes de fusion et des masques doux.
+• Maintenez Maj pour tracer des lignes droites, et définissez un style par défaut pour les annotations.
+• Onglets de document repensés et plus fluides.
+• Rendu plus rapide et consommation mémoire réduite sur les gros fichiers.

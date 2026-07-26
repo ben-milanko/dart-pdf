@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart'
     show PdfFormField, PdfRect, PdfVectorSnapshot;
 
+import '../l10n/pdf_l10n.dart';
+
 /// Supplies the image a tapped push-button field should be filled with
 /// - typically a file picker. Return null to leave the button alone.
 /// PNG and JPEG bytes are accepted
@@ -19,6 +21,14 @@ typedef PdfImagePicker = Future<Uint8List?> Function(BuildContext context);
 /// clipboard does not currently carry a pasteable image. PNG and JPEG bytes
 /// are accepted ([PdfEditingController.placeImage]).
 typedef PdfSystemImagePasteProvider = Future<Uint8List?> Function(
+    BuildContext context);
+
+/// Supplies plain text for a system clipboard paste, used in preference to
+/// Flutter's [Clipboard] when set. Return null when the clipboard carries no
+/// text. Exists mainly for the web, where Flutter's `Clipboard.getData` is
+/// unreliable: the host injects a reader built on the browser Async Clipboard
+/// API so ⌘V/Ctrl+V can paste text into a [PdfEditTool.freeText] box.
+typedef PdfSystemTextPasteProvider = Future<String?> Function(
     BuildContext context);
 
 /// A selected page-content image exported by the Content tool.
@@ -87,6 +97,21 @@ class PdfSnapshot {
 typedef PdfSnapshotHandler = Future<void> Function(
     BuildContext context, PdfSnapshot snapshot);
 
+/// Receives a signature box the user drew with the Signature-box tool
+/// ([PdfEditTool.signatureBox]) - Acrobat/Bluebeam-style placement. The host
+/// collects an identity and appearance (reason, location, a hand-drawn mark,
+/// a logo backdrop) and cryptographically signs into [pageRect] on [pageIndex]
+/// via [PdfEditingController.addKeylessSignature] / addSelfSignedSignature /
+/// addDigitalSignature with a `PdfSignatureAppearance(page: pageIndex,
+/// rect: pageRect, …)`. With no handler ([PdfViewer.onPlaceSignature]) the
+/// tool does nothing. [pageRect] is in PDF user space (points, origin
+/// bottom-left).
+typedef PdfSignaturePlacer = Future<void> Function(
+  BuildContext context, {
+  required int pageIndex,
+  required PdfRect pageRect,
+});
+
 /// Signature of the prompt the editing UI uses to ask for annotation text
 /// (free text, notes, stamps). Returns null when the user cancels.
 typedef PdfTextPrompt = Future<String?> Function(
@@ -117,11 +142,11 @@ Future<String?> showPdfTextPrompt(
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(pdfL10n(context).cancel),
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(field.text),
-          child: const Text('OK'),
+          child: Text(pdfL10n(context).ok),
         ),
       ],
     ),

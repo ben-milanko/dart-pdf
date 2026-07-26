@@ -7,26 +7,51 @@ import 'document.dart';
 import 'measure.dart';
 import 'rect.dart';
 
-/// A single page, with inheritable attributes already resolved.
+/// A single page, resolving inheritable attributes (§7.7.3.4) on access.
+///
+/// The values carried here are the ones inherited from **ancestors only**;
+/// the page's own `/Resources`, `/MediaBox`, `/CropBox`, and `/Rotate` are
+/// read from [dict] every time, so they always reflect the live dictionary.
+///
+/// That distinction is load-bearing. [PdfEditor] mutates page dictionaries in
+/// place (`page.dict['Rotate'] = ...` then `markChanged`), so a page that
+/// snapshotted its merged values at construction reported pre-edit state for
+/// the rest of its life. That was survivable only because
+/// [PdfDocument.page] built a fresh instance per call - which in turn made
+/// [annotations]' cache unreachable. Reading through to [dict] removes the
+/// hazard instead of trading one for the other (#418).
+///
+/// Inherited values change only on structural edits to the page tree, which
+/// already go through [PdfDocument.invalidatePageCache].
 class PdfPage {
   PdfPage({
     required this.document,
     required this.dict,
-    CosDictionary? resources,
-    CosArray? mediaBoxArray,
-    CosArray? cropBoxArray,
-    int? rotate,
-  })  : _resources = resources,
-        _mediaBoxArray = mediaBoxArray,
-        _cropBoxArray = cropBoxArray,
-        _rotate = rotate;
+    CosDictionary? inheritedResources,
+    CosArray? inheritedMediaBox,
+    CosArray? inheritedCropBox,
+    int? inheritedRotate,
+  })  : _inheritedResources = inheritedResources,
+        _inheritedMediaBox = inheritedMediaBox,
+        _inheritedCropBox = inheritedCropBox,
+        _inheritedRotate = inheritedRotate;
 
   final PdfDocument document;
   final CosDictionary dict;
-  final CosDictionary? _resources;
-  final CosArray? _mediaBoxArray;
-  final CosArray? _cropBoxArray;
-  final int? _rotate;
+  final CosDictionary? _inheritedResources;
+  final CosArray? _inheritedMediaBox;
+  final CosArray? _inheritedCropBox;
+  final int? _inheritedRotate;
+
+  /// This page's own entry for [key], or the value inherited from its
+  /// ancestors when the page does not carry one.
+  T? _own<T extends CosObject>(String key, T? inherited) {
+    final value = document.cos.resolve(dict[key]);
+    return value is T ? value : inherited;
+  }
+
+  CosArray? get _mediaBoxArray => _own<CosArray>('MediaBox', _inheritedMediaBox);
+  CosArray? get _cropBoxArray => _own<CosArray>('CropBox', _inheritedCropBox);
 
   /// US Letter, the conventional fallback for broken pages with no MediaBox
   /// anywhere on their tree path.
@@ -47,25 +72,52 @@ class PdfPage {
 
   /// Clockwise display rotation: always 0, 90, 180, or 270.
   int get rotation {
-    final r = (_rotate ?? 0) % 360;
+    final own = document.cos.resolve(dict['Rotate']);
+    final rotate = own is CosInteger ? own.value : _inheritedRotate;
+    final r = (rotate ?? 0) % 360;
     final positive = r < 0 ? r + 360 : r;
     return positive - positive % 90;
   }
 
-  CosDictionary get resources => _resources ?? CosDictionary();
+  CosDictionary get resources =>
+      _own<CosDictionary>('Resources', _inheritedResources) ?? CosDictionary();
 
   List<PdfAnnotation>? _annotations;
+  CosObject? _annotationsSource;
+  int _annotationsCount = -1;
 
   /// The page's annotations (/Annots), parsed lazily and cached.
-  List<PdfAnnotation> get annotations => _annotations ??= () {
-        final raw = document.cos.resolve(dict['Annots']);
-        if (raw is! CosArray) return const <PdfAnnotation>[];
-        return <PdfAnnotation>[
-          for (final item in raw.items)
-            if (document.cos.resolve(item) case final CosDictionary d)
-              PdfAnnotation.fromDict(document, d),
-        ];
-      }();
+  ///
+  /// Page instances are cached ([PdfDocument.page]), so this cache now
+  /// outlives edits and has to notice them. It is keyed on the identity of
+  /// the resolved /Annots array plus its length, which covers how the editors
+  /// actually mutate it: replacing the array, and adding or removing entries
+  /// in place.
+  ///
+  /// Editing an existing annotation's properties needs no invalidation -
+  /// [PdfAnnotation] reads through to its own dictionary, and that dictionary
+  /// is mutated in place - so a same-array, same-length change is correctly
+  /// treated as a hit. A wholesale item *substitution* that preserved both
+  /// identity and length would be missed; nothing does that today.
+  List<PdfAnnotation> get annotations {
+    final raw = document.cos.resolve(dict['Annots']);
+    final count = raw is CosArray ? raw.items.length : -1;
+    final cached = _annotations;
+    if (cached != null &&
+        identical(raw, _annotationsSource) &&
+        count == _annotationsCount) {
+      return cached;
+    }
+    _annotationsSource = raw;
+    _annotationsCount = count;
+    return _annotations = raw is! CosArray
+        ? const <PdfAnnotation>[]
+        : <PdfAnnotation>[
+            for (final item in raw.items)
+              if (document.cos.resolve(item) case final CosDictionary d)
+                PdfAnnotation.fromDict(document, d),
+          ];
+  }
 
   /// The page's measurement scale, read from its first /VP viewport's
   /// /Measure dictionary (§12.9). This is the document-borne, portable
@@ -85,6 +137,24 @@ class PdfPage {
   }
 
   /// The page's content streams, decoded and concatenated.
+  /// Total raw (still-encoded) size of the page's content streams, summed
+  /// without decoding them. A cheap O(streams) proxy for how expensive
+  /// interpreting/extracting this page will be - a normal page is a few KB, a
+  /// dense CAD sheet is megabytes - so callers can gate synchronous work
+  /// (e.g. hover-cursor text extraction) on it without paying a decode.
+  int get rawContentLength {
+    final contents = document.cos.resolve(dict['Contents']);
+    if (contents is CosStream) return contents.rawBytes.length;
+    var total = 0;
+    if (contents is CosArray) {
+      for (final item in contents.items) {
+        final stream = document.cos.resolve(item);
+        if (stream is CosStream) total += stream.rawBytes.length;
+      }
+    }
+    return total;
+  }
+
   Uint8List contentBytes() {
     final contents = document.cos.resolve(dict['Contents']);
     final streams = <CosStream>[];

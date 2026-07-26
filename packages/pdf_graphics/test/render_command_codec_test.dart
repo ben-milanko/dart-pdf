@@ -109,6 +109,8 @@ class _TranscriptDevice implements PdfDevice {
       '${_matrix(run.transform)} ${_color(run.color)} w=${run.width} '
       'font=${run.fontName} size=${run.fontSize} fill=${run.fill} '
       'invisible=${run.invisible} sw=${run.strokeWidth} '
+      'ls=${run.letterSpacing} ws=${run.wordSpacing} '
+      'ld=${run.leadingSpace} vw=${run.visibleWidth} '
       'glyphs=${run.glyphs?.length}');
 
   @override
@@ -117,6 +119,10 @@ class _TranscriptDevice implements PdfDevice {
 
   @override
   void setBlendMode(PdfBlendMode mode) => log.add('blend ${mode.name}');
+  @override
+  void setOverprint(
+          {required bool fill, required bool stroke, required int mode}) =>
+      log.add('overprint $fill $stroke $mode');
 
   @override
   void beginGroup(double alpha, {bool knockout = false}) =>
@@ -168,6 +174,10 @@ void main() {
       'dashed stroke': '[3 2] 1.5 d 1 w 10 10 m 90 90 l S',
       'clip then fill': '0 0 5 5 re W n 0 0 1 rg 0 0 10 10 re f',
       'text': 'BT /F1 24 Tf 72 720 Td (Hello, world!) Tj ET',
+      // Word spacing (Tw) with leading and trailing spaces exercises the
+      // letterSpacing/wordSpacing/leadingSpace/visibleWidth wire fields.
+      'word-spaced tabular text':
+          'BT /F1 10 Tf 5 Tw 0.2 Tc 72 700 Td ( ab ) Tj ET',
       'nested q/Q': 'q q 0 0 1 1 re f Q q 1 1 2 2 re f Q Q',
       'curves': '10 10 m 20 30 40 30 50 10 c f',
       'even-odd fill': '0 0 10 10 re 2 2 6 6 re f*',
@@ -254,6 +264,20 @@ void main() {
       expect(restored[0], isA<PdfSetBlendModeCommand>());
       expect(restored[1], isA<PdfFillPathCommand>());
       expect(restored[2], isA<PdfSetBlendModeCommand>());
+    });
+
+    test('round-trips overprint state (fill/stroke/mode) through the codec', () {
+      final commands = <PdfRenderCommand>[
+        const PdfSetOverprintCommand(fill: true, stroke: false, mode: 1),
+        const PdfSetOverprintCommand(fill: false, stroke: true, mode: 0),
+      ];
+      final restored = deserializeCommands(serializeCommands(commands)!);
+      expect(restored, hasLength(2));
+      expect(restored[0], isA<PdfSetOverprintCommand>());
+      final first = restored[0] as PdfSetOverprintCommand;
+      expect((first.fill, first.stroke, first.mode), (true, false, 1));
+      final second = restored[1] as PdfSetOverprintCommand;
+      expect((second.fill, second.stroke, second.mode), (false, true, 0));
     });
 
     test('compacts soft-mask callback commands recursively', () {
@@ -361,10 +385,163 @@ void main() {
     expect(_imageCommands(restored).single.request.decoded, isNull);
   });
 
+  test('an inline ImageMask (stencil) serializes - Type3 pages reach the '
+      'worker (#554)', () {
+    final doc = PdfDocument.open(_inlineStencilPdf());
+    final page = doc.page(0);
+    final ops = ContentStreamParser.parse(page.contentBytes());
+    final recorder = RecordingPdfDevice();
+    PdfInterpreter(cos: doc.cos, device: recorder).drawPageOperations(page, ops);
+    final request = recorder.imageRequests.single;
+    expect(request.isInline, isTrue);
+    expect(request.isStencil, isTrue);
+
+    // Unlike a colour inline image, a stencil has no /CS to resolve, so it does
+    // NOT decline - the whole point of #554 (Type3 bitmap-glyph pages).
+    final bytes = serializeCommands(recorder.commands, cos: doc.cos);
+    expect(bytes, isNotNull,
+        reason: 'a self-contained stencil inline image must not decline');
+
+    final restored = _imageCommands(deserializeCommands(bytes!)).single.request;
+    expect(restored.isStencil, isTrue);
+    expect(restored.isInline, isTrue);
+    expect(restored.stencilColor, request.stencilColor,
+        reason: 'the stencil paint colour round-trips');
+  });
+
+  test('the stencil inline image also decodes off-thread (#554)', () {
+    final doc = PdfDocument.open(_inlineStencilPdf());
+    final page = doc.page(0);
+    final ops = ContentStreamParser.parse(page.contentBytes());
+    final recorder = RecordingPdfDevice();
+    PdfInterpreter(cos: doc.cos, device: recorder).drawPageOperations(page, ops);
+
+    final bytes = serializeCommands(recorder.commands,
+        cos: doc.cos, decodeImages: true);
+    expect(bytes, isNotNull);
+    final restored = _imageCommands(deserializeCommands(bytes!)).single.request;
+    expect(restored.isStencil, isTrue);
+    expect(restored.decoded, isNotNull,
+        reason: 'the worker embeds the decoded stencil mask');
+  });
+
   // The worker path: serializeCommands(decodeImages: true) decodes each image
   // off-thread and embeds the premultiplied RGBA, so the reconstructed request
   // carries pixels that match the pure-Dart decode - and the replay transcript
   // is unchanged (the decode never alters the command shape).
+  // A glyph outline rides on every *placement*, so text-heavy records used to
+  // carry one copy of a letter's geometry per occurrence: 151.7 MB of 394 MB
+  // over a 62-page book, 85% of it repetition (#451). The writer now emits the
+  // geometry once and references it by id.
+  //
+  // The transcript oracle above cannot police this - it logs `glyphs.length`
+  // and never looks at outline geometry - so these compare the paths directly.
+  group('glyph outline deduplication (#451)', () {
+    // One glyph's geometry, deliberately chunky so repetition is measurable.
+    PdfPath outline(double seed) => PdfPath([
+          PdfMoveTo(seed, 0),
+          for (var i = 0; i < 40; i++)
+            PdfCubicTo(seed + i, 1.5, seed + i + 0.25, 2.5, seed + i + 0.5, 3),
+          const PdfClosePath(),
+        ]);
+
+    List<PdfRenderCommand> run(List<PdfPath?> outlines) => [
+          PdfDrawTextCommand(PdfTextRun(
+            text: 'x' * outlines.length,
+            transform: PdfMatrix.identity,
+            color: PdfColor.black,
+            width: outlines.length.toDouble(),
+            glyphs: [
+              for (final (i, o) in outlines.indexed)
+                PdfGlyphPlacement(offset: i.toDouble(), outline: o),
+            ],
+          )),
+        ];
+
+    List<PdfPath?> restoredOutlines(Uint8List bytes) => [
+          for (final c in deserializeCommands(bytes))
+            if (c is PdfDrawTextCommand)
+              ...?c.run.glyphs?.map((g) => g.outline),
+        ];
+
+    void expectSamePath(PdfPath? actual, PdfPath? expected, String reason) {
+      if (expected == null) {
+        expect(actual, isNull, reason: reason);
+        return;
+      }
+      expect(actual, isNotNull, reason: reason);
+      expect(actual!.segments.length, expected.segments.length, reason: reason);
+      for (var i = 0; i < expected.segments.length; i++) {
+        final a = actual.segments[i], b = expected.segments[i];
+        expect(a.runtimeType, b.runtimeType, reason: '$reason seg $i');
+        if (a is PdfMoveTo && b is PdfMoveTo) {
+          expect(a.x, closeTo(b.x, 1e-3), reason: '$reason seg $i');
+          expect(a.y, closeTo(b.y, 1e-3), reason: '$reason seg $i');
+        } else if (a is PdfCubicTo && b is PdfCubicTo) {
+          expect(a.x1, closeTo(b.x1, 1e-3), reason: '$reason seg $i');
+          expect(a.y3, closeTo(b.y3, 1e-3), reason: '$reason seg $i');
+          expect(a.x3, closeTo(b.x3, 1e-3), reason: '$reason seg $i');
+        }
+      }
+    }
+
+    test('a repeated glyph costs its geometry once', () {
+      final glyph = outline(1);
+      final one = serializeCommands(run([glyph]))!;
+      final many = serializeCommands(run(List.filled(200, glyph)))!;
+
+      // The 199 extra placements must not each carry the geometry. Budget a
+      // generous 32 bytes of per-placement bookkeeping (tag + id + offsets);
+      // the geometry itself is ~1 KB.
+      expect(many.length, lessThan(one.length + 199 * 32),
+          reason: 'repeated placements should reference, not re-emit');
+
+      // The control: 200 separately-constructed paths with identical geometry.
+      // The table keys on identity, so these do not collapse - which is what
+      // the format cost before this change, measured through the same writer.
+      final unshared =
+          serializeCommands(run([for (var i = 0; i < 200; i++) outline(1)]))!;
+      expect(many.length * 10, lessThan(unshared.length),
+          reason: 'sharing one glyph should cost <10% of emitting it 200x');
+    });
+
+    test('every placement reads back with its own geometry intact', () {
+      // Distinct shapes, interleaved and repeated, so a table that returned
+      // the wrong entry (or the most recent one) is caught.
+      final a = outline(1), b = outline(2), c = outline(3);
+      final order = <PdfPath?>[a, b, a, c, null, b, c, c, a, null, b];
+      final restored = restoredOutlines(serializeCommands(run(order))!);
+
+      expect(restored.length, order.length);
+      for (var i = 0; i < order.length; i++) {
+        expectSamePath(restored[i], order[i], 'placement $i');
+      }
+    });
+
+    test('repeated placements share one instance after the round trip', () {
+      // The dedup exists to shrink the record, but sharing on read-back also
+      // means the replayed commands hold one path per glyph instead of N -
+      // the same shape they had before serialization.
+      final glyph = outline(1);
+      final restored =
+          restoredOutlines(serializeCommands(run(List.filled(50, glyph)))!);
+      expect(restored, hasLength(50));
+      for (final o in restored) {
+        expect(identical(o, restored.first), isTrue,
+            reason: 'one glyph should deserialize to one shared PdfPath');
+      }
+    });
+
+    test('a truncated record throws rather than replaying a wrong glyph', () {
+      // Records cross an isolate/worker boundary, where a short read is a real
+      // failure mode. It must fail loudly, not hand back plausible geometry.
+      final glyph = outline(1);
+      final bytes = serializeCommands(run([glyph, glyph, glyph]))!;
+      expect(() => deserializeCommands(bytes.sublist(0, bytes.length - 4)),
+          throwsA(anything));
+    });
+  });
+
   group('image decode offload', () {
     test('uses predecoded image request pixels', () {
       final cos = CosDocument.open(buildClassicPdf());
@@ -396,6 +573,113 @@ void main() {
       expect(restored.request.decoded!.width, 1);
       expect(restored.request.decoded!.height, 1);
       expect(restored.request.decoded!.rgba, decoded.rgba);
+    });
+
+    test('a shared image cache makes a re-record byte-identical and free', () {
+      // The worker records the same page several times in one scroll and each
+      // serialize re-decoded every image - one device page paid ~900ms of
+      // pure-Dart CMYK decode three times (#451). Pins that the codec actually
+      // consults the cache it is handed, and that reuse changes nothing.
+      final cos = CosDocument.open(buildClassicPdf());
+      // 2x2 DeviceRGB, uncompressed: decoded by the pure-Dart path, so it goes
+      // through the cache rather than declining to the platform codec.
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(2),
+          'Height': const CosInteger(2),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+        }),
+        Uint8List.fromList(<int>[
+          10, 20, 30, 40, 50, 60, //
+          70, 80, 90, 100, 110, 120,
+        ]),
+      );
+      final command = PdfDrawImageCommand(PdfImageRequest(
+        stream: stream,
+        transform: PdfMatrix(64, 0, 0, 64, 0, 0),
+      ));
+
+      final uncached =
+          serializeCommands([command], cos: cos, decodeImages: true);
+      final cache = PdfImageDecodeCache();
+      final first = serializeCommands([command],
+          cos: cos, decodeImages: true, imageCache: cache);
+      final second = serializeCommands([command],
+          cos: cos, decodeImages: true, imageCache: cache);
+
+      expect(cache.misses, greaterThan(0),
+          reason: 'the codec must route its decode through the cache');
+      expect(cache.hits, greaterThan(0),
+          reason: 'the second record must reuse the first decode');
+      // The whole safety argument: reuse is byte-identical to decoding again,
+      // so the cache can never change what a record renders.
+      expect(second, first);
+      expect(first, uncached);
+    });
+
+    test('a cached record at one ratio does not corrupt another ratio', () {
+      // The device trace's actual pattern: a page's repeat records are a
+      // full-page pass and a 128px thumbnail tile, at *different* image pixel
+      // ratios. Exact-match reuse never fires across them, and reuse that
+      // crosses ratios must still produce the bytes the uncached record would.
+      final cos = CosDocument.open(buildClassicPdf());
+      // 64x64 with a gradient, drawn into a 64pt box: at ratio 2.0 the cap is
+      // a no-op (native), at 0.2 it binds. A 2x2 image would decode the same
+      // at both and the test would pass without exercising anything.
+      final pixels = Uint8List(64 * 64 * 3);
+      for (var i = 0; i < 64 * 64; i++) {
+        pixels[i * 3] = i % 251;
+        pixels[i * 3 + 1] = (i * 7) % 253;
+        pixels[i * 3 + 2] = (i * 13) % 247;
+      }
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(64),
+          'Height': const CosInteger(64),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+        }),
+        pixels,
+      );
+      final command = PdfDrawImageCommand(PdfImageRequest(
+        stream: stream,
+        transform: PdfMatrix(64, 0, 0, 64, 0, 0),
+      ));
+
+      Uint8List? record(double ratio, PdfImageDecodeCache? cache) =>
+          serializeCommands([command],
+              cos: cos,
+              decodeImages: true,
+              maxImagePixelRatio: ratio,
+              imageCache: cache);
+
+      final pageOnly = record(2.0, null);
+      final tileOnly = record(0.2, null);
+      final cache = PdfImageDecodeCache();
+      final page = record(2.0, cache);
+      final tile = record(0.2, cache);
+
+      // Neither ratio may inherit the other's pixels.
+      expect(page, pageOnly);
+      expect(tile, tileOnly);
+      expect(page, isNot(tileOnly));
+
+      // And the routing itself: this stream has no DCT filter, so it keeps the
+      // strict exact-match rule and is retained under its target size. Only a
+      // stream whose decoder ignores the target may be retained at native
+      // resolution and downsampled to serve other ratios - doing that for a
+      // format with a real scaled decode path would substitute different
+      // pixels for the ones that path produces.
+      // At ratio 2.0 the cap is a no-op, so that record decodes natively and
+      // legitimately leaves a native entry. Probe with a fresh cache and the
+      // tile ratio alone, where the cap does bind.
+      expect(pdfImageDecodeIgnoresTarget(cos, stream), isFalse);
+      final tileOnlyCache = PdfImageDecodeCache();
+      record(0.2, tileOnlyCache);
+      expect(tileOnlyCache.get(stream, null, null), isNull,
+          reason: 'a non-DCT stream keeps exact-match: it must be retained '
+              'under its target size, never natively for downsampling');
     });
 
     test('large decoded pixel planes stay zero-copy on deserialize', () {
@@ -783,6 +1067,164 @@ void main() {
       });
     }
   });
+
+  // #603: a thumbnail warm shipped ~10 MB records to fill a 256px tile,
+  // because the page image budget was a multiple of the full-page raster CAP
+  // (17 MP) rather than of the raster the buffer is actually drawn into. Every
+  // one of those pixels is then paid for again as main-thread ui.Image work at
+  // replay, which is the half of the cost no worker priority can move.
+  group('pageRasterPixels', () {
+    test('is page area x ratio^2, and declines degenerate input', () {
+      expect(pdfPageRasterPixels(const PdfRect(0, 0, 200, 400), 1.0), 80000);
+      expect(pdfPageRasterPixels(const PdfRect(0, 0, 200, 400), 0.5), 20000);
+      // 256px wide tile of a US-Letter page: ~85 Kpx, against the 17 MP cap
+      // the budget used to assume for it.
+      expect(pdfPageRasterPixels(const PdfRect(0, 0, 612, 792), 256 / 612),
+          lessThan(90000));
+      expect(pdfPageRasterPixels(const PdfRect(0, 0, 200, 200), null), isNull);
+      expect(pdfPageRasterPixels(const PdfRect(0, 0, 200, 200), 0), isNull);
+      expect(pdfPageRasterPixels(const PdfRect(0, 0, 200, 200), -1), isNull);
+      expect(pdfPageRasterPixels(const PdfRect(0, 0, 0, 200), 1.0), isNull);
+    });
+
+    test('holds a layered page to what the tile can show', () {
+      // Four full-bleed 512x512 images on a 200pt page - the layered shape a
+      // scanned book page has, and the one the per-image cap cannot bound
+      // (each image IS its own footprint; only their sum is the problem).
+      final doc = PdfDocument.open(_layeredImagePdf(draws: 4));
+      final page = doc.page(0);
+      final recorder = RecordingPdfDevice();
+      PdfInterpreter(cos: doc.cos, device: recorder).drawPageOperations(
+          page, ContentStreamParser.parse(page.contentBytes()));
+
+      // A 256px-wide tile, exactly what the thumbnail warm asks for.
+      final box = page.cropBox;
+      final ratio = 256 / box.width;
+      final raster = pdfPageRasterPixels(box, ratio)!;
+
+      final unbudgeted = serializeCommands(recorder.commands,
+          cos: doc.cos, decodeImages: true, maxImagePixelRatio: ratio)!;
+      final budgeted = serializeCommands(recorder.commands,
+          cos: doc.cos,
+          decodeImages: true,
+          maxImagePixelRatio: ratio,
+          pageRasterPixels: raster)!;
+
+      // Pixels only - the command stream is identical either way, so the tile
+      // replays the same drawing at a resolution it can actually show.
+      expect(_transcript(deserializeCommands(budgeted)),
+          equals(_transcript(deserializeCommands(unbudgeted))));
+
+      final before = _decodedPixelSum(deserializeCommands(unbudgeted));
+      final after = _decodedPixelSum(deserializeCommands(budgeted));
+      // The per-image 2x headroom alone ships 4 raster-fulls PER image; the
+      // page budget is that headroom squared for the whole page.
+      expect(before, 4 * 512 * 512);
+      expect(after, lessThanOrEqualTo(4 * raster + 4 * 16 + 64));
+      expect(after * 4, lessThanOrEqualTo(before),
+          reason: 'the tile-sized budget did not bind');
+      // The record crossing the worker seam sheds every one of those pixels
+      // (4 bytes of premultiplied RGBA each). What it does NOT shed is the
+      // source streams written beside them to key the decode by content -
+      // that floor is #451's, not this one's.
+      expect(unbudgeted.length - budgeted.length,
+          greaterThanOrEqualTo(4 * (before - after) - 1024));
+    });
+
+    test('never scales a lone underlay a page render legitimately wants', () {
+      final doc = PdfDocument.open(_layeredImagePdf(draws: 1));
+      final page = doc.page(0);
+      final recorder = RecordingPdfDevice();
+      PdfInterpreter(cos: doc.cos, device: recorder).drawPageOperations(
+          page, ContentStreamParser.parse(page.contentBytes()));
+      final box = page.cropBox;
+      for (final ratio in const [2.0, 1.28, 0.5]) {
+        final plain = serializeCommands(recorder.commands,
+            cos: doc.cos, decodeImages: true, maxImagePixelRatio: ratio);
+        final budgeted = serializeCommands(recorder.commands,
+            cos: doc.cos,
+            decodeImages: true,
+            maxImagePixelRatio: ratio,
+            pageRasterPixels: pdfPageRasterPixels(box, ratio));
+        expect(budgeted, equals(plain),
+            reason: 'ratio $ratio: the raster-derived budget must leave the '
+                'per-image cap alone for a single full-bleed image');
+      }
+    });
+
+    test('is a floor under the 17 MP cap, never a raise', () {
+      final doc = PdfDocument.open(_layeredImagePdf(draws: 4));
+      final page = doc.page(0);
+      final recorder = RecordingPdfDevice();
+      PdfInterpreter(cos: doc.cos, device: recorder).drawPageOperations(
+          page, ContentStreamParser.parse(page.contentBytes()));
+      final plain = serializeCommands(recorder.commands,
+          cos: doc.cos, decodeImages: true, maxImagePixelRatio: 1e6);
+      final huge = serializeCommands(recorder.commands,
+          cos: doc.cos,
+          decodeImages: true,
+          maxImagePixelRatio: 1e6,
+          pageRasterPixels: 1 << 30);
+      expect(huge, equals(plain));
+    });
+  });
+}
+
+/// A one-page 200x200 pt PDF that draws one 512x512 raw DeviceRGB image
+/// [draws] times, full bleed. The layered-raster shape the page image budget
+/// exists to bound: every draw is at its own on-screen footprint, so only
+/// their SUM is out of proportion to the raster.
+Uint8List _layeredImagePdf({required int draws}) {
+  const size = 512;
+  final pixels = Uint8List(size * size * 3);
+  for (var i = 0; i < pixels.length; i++) {
+    pixels[i] = (i * 7) & 0xff;
+  }
+  final content = StringBuffer();
+  for (var i = 0; i < draws; i++) {
+    content.write('q 200 0 0 200 0 0 cm /Im0 Do Q\n');
+  }
+  final contentBytes = Uint8List.fromList(content.toString().codeUnits);
+
+  final out = BytesBuilder();
+  final offsets = <int>[];
+  void obj(int number, String head, [Uint8List? stream]) {
+    offsets.add(out.length);
+    out.add(Uint8List.fromList('$number 0 obj\n$head\n'.codeUnits));
+    if (stream != null) {
+      out.add(Uint8List.fromList('stream\n'.codeUnits));
+      out.add(stream);
+      out.add(Uint8List.fromList('\nendstream\n'.codeUnits));
+    }
+    out.add(Uint8List.fromList('endobj\n'.codeUnits));
+  }
+
+  out.add(Uint8List.fromList('%PDF-1.4\n'.codeUnits));
+  obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
+  obj(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+  obj(
+      3,
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] '
+          '/Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>');
+  obj(4, '<< /Length ${contentBytes.length} >>', contentBytes);
+  obj(
+      5,
+      '<< /Type /XObject /Subtype /Image /Width $size /Height $size '
+          '/ColorSpace /DeviceRGB /BitsPerComponent 8 '
+          '/Length ${pixels.length} >>',
+      pixels);
+
+  final xref = out.length;
+  final tail = StringBuffer('xref\n0 ${offsets.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final off in offsets) {
+    tail.write('${off.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  tail
+    ..write('trailer << /Size ${offsets.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xref\n%%EOF\n');
+  out.add(Uint8List.fromList(tail.toString().codeUnits));
+  return out.takeBytes();
 }
 
 /// Sum of decoded pixels across every image draw (DFS, soft-mask groups too).
@@ -814,13 +1256,20 @@ List<PdfDrawImageCommand> _imageCommands(List<PdfRenderCommand> commands) {
 }
 
 /// A one-page PDF whose only content is a 4x4 inline image (BI .. ID .. EI).
-Uint8List _inlineImagePdf() {
-  const content = 'q 100 0 0 100 50 50 cm '
-      'BI /W 4 /H 4 /CS /RGB /BPC 8 /F /AHx ID\n'
-      'e63030 ffffff e63030 ffffff\n'
-      'ffffff e63030 ffffff e63030\n'
-      'e63030 ffffff e63030 ffffff\n'
-      'ffffff e63030 ffffff e63030 >\nEI Q\n';
+Uint8List _inlineImagePdf() => _inlinePdf('q 100 0 0 100 50 50 cm '
+    'BI /W 4 /H 4 /CS /RGB /BPC 8 /F /AHx ID\n'
+    'e63030 ffffff e63030 ffffff\n'
+    'ffffff e63030 ffffff e63030\n'
+    'e63030 ffffff e63030 ffffff\n'
+    'ffffff e63030 ffffff e63030 >\nEI Q\n');
+
+// A 4x4 1-bit ImageMask (stencil) inline image painted in blue. No /CS, so its
+// stream is self-contained (#554).
+Uint8List _inlineStencilPdf() => _inlinePdf('q 0 0 1 rg 100 0 0 100 50 50 cm '
+    'BI /W 4 /H 4 /IM true /BPC 1 /F /AHx ID\n'
+    'f0f0f0f0 >\nEI Q\n');
+
+Uint8List _inlinePdf(String content) {
   final objects = <String>[
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',

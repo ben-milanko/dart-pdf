@@ -13,12 +13,31 @@ import 'color.dart';
 /// shapes parse to null and callers fall back to device heuristics.
 /// Rendering intents and black-point compensation are not applied.
 class IccProfile {
-  IccProfile._(this.channels, this._transform);
+  IccProfile._(this.channels, this._transform,
+      {this.isSrgb = false, this.rgb8Transform});
 
   /// Device channel count (1, 3, or 4).
   final int channels;
 
   final PdfColor Function(List<double> values) _transform;
+
+  /// True when this profile's transform is the identity at 8-bit precision
+  /// (#531, PDFium's DetectSRGB shape, decided behaviourally): applying it
+  /// and re-encoding changes no 8-bit component by more than 1. sRGB-tagged
+  /// ICCBased RGB is the single most common profile in scanned/photo PDFs,
+  /// so consumers skip the per-pixel transform entirely when this is set.
+  /// Only claimed for matrix/TRC and gray-TRC profiles, where the per-channel
+  /// probe set below is mathematically sufficient; LUT pipelines never claim
+  /// it.
+  final bool isSrgb;
+
+  /// Allocation-free 8-bit RGB fast path for matrix/TRC profiles (#531):
+  /// reads `rgb[s..s+2]`, writes sRGB into `out[o..o+2]` - no per-pixel
+  /// list or colour allocation, TRC linearisation and gamma re-encode via
+  /// lookup tables. Null for LUT-pipeline and non-RGB profiles, where the
+  /// general [toSrgb] path applies.
+  final void Function(Uint8List rgb, int s, Uint8List out, int o)?
+      rgb8Transform;
 
   /// Converts device [values] (each 0..1) to sRGB.
   PdfColor toSrgb(List<double> values) => _transform(values);
@@ -78,11 +97,21 @@ class IccProfile {
       if (trcTag == null) return null;
       final trc = _Curve.parse(bytes, trcTag.$1);
       if (trc == null) return null;
-      return IccProfile._(1, (values) {
+      PdfColor transform(List<double> values) {
         final y = trc.apply(values[0].clamp(0.0, 1.0));
         final v = _srgbEncode(y);
         return PdfColor(v, v, v);
-      });
+      }
+
+      // Behavioural identity probe: for a single-channel TRC profile the
+      // sampled points are sufficient - if decode+re-encode moves no 8-bit
+      // value by more than 1, the transform is a no-op at our precision.
+      var identity = true;
+      for (var v = 0; v <= 255 && identity; v += 5) {
+        final out = transform([v / 255]).red * 255;
+        if ((out - v).abs() > 1) identity = false;
+      }
+      return IccProfile._(1, transform, isSrgb: identity);
     }
 
     if (space == 'RGB ') {
@@ -97,7 +126,7 @@ class IccProfile {
       final gTrc = _Curve.parse(bytes, gt.$1);
       final bTrc = _Curve.parse(bytes, bt.$1);
       if (rTrc == null || gTrc == null || bTrc == null) return null;
-      return IccProfile._(3, (values) {
+      PdfColor transform(List<double> values) {
         final lr = rTrc.apply(values[0].clamp(0.0, 1.0));
         final lg = gTrc.apply(values[1].clamp(0.0, 1.0));
         final lb = bTrc.apply(values[2].clamp(0.0, 1.0));
@@ -106,10 +135,76 @@ class IccProfile {
           rXyz[1] * lr + gXyz[1] * lg + bXyz[1] * lb,
           rXyz[2] * lr + gXyz[2] * lg + bXyz[2] * lb,
         );
-      });
+      }
+
+      // Behavioural identity probe. A matrix/TRC transform is linear between
+      // the per-channel curves, so single-channel sweeps plus white decide
+      // it: if no probed 8-bit component moves by more than 1, the profile
+      // is sRGB-equivalent at our precision (covers the real sRGB profile
+      // and its many byte-different re-issues; a gamma-2.2 or wide-gamut
+      // profile fails the probe and keeps the transform).
+      var identity = true;
+      for (var v = 0; v <= 255 && identity; v += 5) {
+        final x = v / 255;
+        final r = transform([x, 0, 0]);
+        final g = transform([0, x, 0]);
+        final b = transform([0, 0, x]);
+        final w = transform([x, x, x]);
+        if ((r.red * 255 - v).abs() > 1 ||
+            r.green * 255 > 1.5 ||
+            r.blue * 255 > 1.5 ||
+            (g.green * 255 - v).abs() > 1 ||
+            g.red * 255 > 1.5 ||
+            g.blue * 255 > 1.5 ||
+            (b.blue * 255 - v).abs() > 1 ||
+            b.red * 255 > 1.5 ||
+            b.green * 255 > 1.5 ||
+            (w.red * 255 - v).abs() > 1 ||
+            (w.green * 255 - v).abs() > 1 ||
+            (w.blue * 255 - v).abs() > 1) {
+          identity = false;
+        }
+      }
+
+      // 8-bit fast path: linearise each channel through a 256-entry table,
+      // one 3x3 matrix multiply, and re-encode through a 4096-entry gamma
+      // table - no per-pixel allocation, no pow().
+      final linR = Float64List(256);
+      final linG = Float64List(256);
+      final linB = Float64List(256);
+      for (var v = 0; v < 256; v++) {
+        linR[v] = rTrc.apply(v / 255);
+        linG[v] = gTrc.apply(v / 255);
+        linB[v] = bTrc.apply(v / 255);
+      }
+      final encode = _srgbEncodeLut;
+      void rgb8(Uint8List rgb, int s, Uint8List out, int o) {
+        final lr = linR[rgb[s]], lg = linG[rgb[s + 1]], lb = linB[rgb[s + 2]];
+        final x = rXyz[0] * lr + gXyz[0] * lg + bXyz[0] * lb;
+        final y = rXyz[1] * lr + gXyz[1] * lg + bXyz[1] * lb;
+        final z = rXyz[2] * lr + gXyz[2] * lg + bXyz[2] * lb;
+        final r = 3.1338561 * x - 1.6168667 * y - 0.4906146 * z;
+        final g = -0.9787684 * x + 1.9161415 * y + 0.0334540 * z;
+        final b = 0.0719453 * x - 0.2289914 * y + 1.4052427 * z;
+        out[o] = encode[(r.clamp(0.0, 1.0) * 4095).round()];
+        out[o + 1] = encode[(g.clamp(0.0, 1.0) * 4095).round()];
+        out[o + 2] = encode[(b.clamp(0.0, 1.0) * 4095).round()];
+      }
+
+      return IccProfile._(3, transform,
+          isSrgb: identity, rgb8Transform: identity ? null : rgb8);
     }
     return null;
   }
+
+  /// Linear-light (0..1 in 1/4095 steps) to 8-bit gamma-encoded sRGB.
+  static final Uint8List _srgbEncodeLut = (() {
+    final lut = Uint8List(4096);
+    for (var i = 0; i < 4096; i++) {
+      lut[i] = (_srgbEncode(i / 4095) * 255).round();
+    }
+    return lut;
+  })();
 
   static List<double> _readXyz(ByteData data, int offset) => [
         data.getInt32(offset + 8) / 65536,
@@ -235,6 +330,20 @@ class _Lut {
 
   /// mft2 stores Lab with the legacy 0xFF00 == 100.0 encoding.
   final bool legacyLab16;
+
+  /// Per-call scratch, allocated once per profile rather than per pixel.
+  /// [apply] runs on every pixel of an ICC-managed image - a CMYK press
+  /// profile made it the single most expensive step in a record serialize
+  /// (issue #451) - and it used to allocate four lists each time. It reads
+  /// its input and hands its output straight to the caller's conversion, so
+  /// one set of buffers serves the whole image. Not re-entrant, which
+  /// [apply]'s straight-line body guarantees.
+  late final Float64List _mapped = Float64List(inChannels);
+  late final Int32List _low = Int32List(inChannels);
+  late final Float64List _frac = Float64List(inChannels);
+  late final Float64List _out = Float64List(outChannels);
+  // The Lab branch writes three components regardless of outChannels.
+  late final Float64List _pcs = Float64List(math.max(outChannels, 3));
 
   static _Lut? parse(Uint8List bytes, int offset, {required bool pcsIsLab}) {
     final data = ByteData.sublistView(bytes);
@@ -373,21 +482,24 @@ class _Lut {
   /// Runs [values] through the pipeline; returns PCS values (Lab
   /// decoded to L 0..100 / a,b -128..127, or XYZ 0..~2).
   List<double> apply(List<double> values) {
-    final mapped = [
-      for (var c = 0; c < inChannels; c++)
-        _Curve._sample(inputCurves[c], values[c].clamp(0.0, 1.0)),
-    ];
+    final mapped = _mapped;
+    final low = _low;
+    final frac = _frac;
+    final out = _out;
+    for (var c = 0; c < inChannels; c++) {
+      mapped[c] = _Curve._sample(inputCurves[c], values[c].clamp(0.0, 1.0));
+    }
 
     // multilinear interpolation over the 2^n cell corners
-    final low = List<int>.filled(inChannels, 0);
-    final frac = List<double>.filled(inChannels, 0);
     for (var c = 0; c < inChannels; c++) {
       final g = gridPoints[c];
       final position = mapped[c] * (g - 1);
       low[c] = math.min(position.floor(), g - 2).clamp(0, g - 1);
       frac[c] = (position - low[c]).clamp(0.0, 1.0);
     }
-    final out = List<double>.filled(outChannels, 0);
+    for (var o = 0; o < outChannels; o++) {
+      out[o] = 0;
+    }
     final corners = 1 << inChannels;
     for (var corner = 0; corner < corners; corner++) {
       var weight = 1.0;
@@ -409,18 +521,24 @@ class _Lut {
       out[o] = _Curve._sample(outputCurves[o], out[o]);
     }
 
+    final pcs = _pcs;
     if (pcsIsLab) {
       if (legacyLab16) {
         // legacy 16-bit Lab: 0xFF00 is 100.0 / +127
-        return [
-          out[0] * 65535 / 652.80,
-          out[1] * 65535 / 256 - 128,
-          out[2] * 65535 / 256 - 128,
-        ];
+        pcs[0] = out[0] * 65535 / 652.80;
+        pcs[1] = out[1] * 65535 / 256 - 128;
+        pcs[2] = out[2] * 65535 / 256 - 128;
+        return pcs;
       }
-      return [out[0] * 100, out[1] * 255 - 128, out[2] * 255 - 128];
+      pcs[0] = out[0] * 100;
+      pcs[1] = out[1] * 255 - 128;
+      pcs[2] = out[2] * 255 - 128;
+      return pcs;
     }
     // XYZ: u16 0..0xFFFF spans 0..1.99997
-    return [for (final v in out) v * 65535 / 32768];
+    for (var o = 0; o < outChannels; o++) {
+      pcs[o] = out[o] * 65535 / 32768;
+    }
+    return pcs;
   }
 }

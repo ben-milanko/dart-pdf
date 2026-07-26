@@ -1,0 +1,1 @@
+pdf,düzenle,işaretle,vurgula,imza,imzala,form,doldur,karart,birleştir,sayfa,tara,ocr,karşılaştır

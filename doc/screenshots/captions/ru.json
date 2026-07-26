@@ -1,0 +1,38 @@
+{
+  "locale": "ru",
+  "_comment": "Localized marketing-screenshot captions. Keyed <target>/<basename>, matching the raw capture PNG names. Each entry is the headline and subtitle overlaid on the framed store shot by tool/compose_marketing.dart. Keep headlines short (they set at a large size) and honour the App Store Guideline 2.3.10 rule: no other-platform names in app/* captions.",
+  "captions": {
+    "app/01-welcome": {
+      "headline": "Приватная работа с PDF",
+      "subtitle": "Без аккаунта. Без загрузок в облако. Файлы остаются на устройстве."
+    },
+    "app/02-editor": {
+      "headline": "Разметка, подпись, вымарывание",
+      "subtitle": "Заполняйте формы, добавляйте заметки и меняйте порядок страниц."
+    },
+    "app/03-dark": {
+      "headline": "Создан для реальных документов",
+      "subtitle": "Ищите по тексту, запускайте OCR, сравнивайте версии,\nи открывайте защищённые файлы."
+    },
+    "example/01-document": {
+      "headline": "Откройте любой PDF",
+      "subtitle": "Отрисовка на чистом Dart, на любой платформе"
+    },
+    "example/02-graphics": {
+      "headline": "Графика",
+      "subtitle": "Градиенты, растушёвки и прозрачность"
+    },
+    "example/03-annotations": {
+      "headline": "Аннотации",
+      "subtitle": "Выделения, рисунки от руки, заметки, штампы и формы"
+    },
+    "example/04-markup": {
+      "headline": "Инструменты разметки",
+      "subtitle": "Рисуйте, добавляйте фигуры и подписывайте на странице"
+    },
+    "example/05-reader": {
+      "headline": "Режим чтения",
+      "subtitle": "Перекомпоновывает текст под размер экрана"
+    }
+  }
+}

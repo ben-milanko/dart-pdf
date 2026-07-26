@@ -1,0 +1,6 @@
+Baru di 3.1.1
+
+PENGGULIRAN LEBIH MULUS
+• PDF besar atau padat visual kini lebih responsif saat digulir dengan cepat.
+• Pratinjau halaman tetap terlihat saat Anda bergerak cepat, lalu kembali tampil dengan detail penuh.
+• Pekerjaan render dijadwalkan lebih merata untuk mengurangi frame yang sesekali terlewat.

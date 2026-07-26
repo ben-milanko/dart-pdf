@@ -1,8 +1,9 @@
 # Releasing the pub.dev packages
 
-This covers the seven workspace **packages** (`pdf_cos`, `pdf_test_fixtures`,
-`pdf_document`, `pdf_graphics`, `dart_pdf_editor`, `pdf_ocr_vlm`,
-`pdf_ocr_ondevice`). The standalone **app** ships separately - see
+This covers the eight workspace **packages** (`pdf_cos`, `pdf_test_fixtures`,
+`pdf_document`, `pdf_graphics`, `dart_pdf_editor`,
+`dart_pdf_editor_assets`, `pdf_ocr_vlm`, `pdf_ocr_ondevice`). The standalone
+**app** ships separately - see
 [`app/RELEASING.md`](../app/RELEASING.md).
 
 The packages are released **in lockstep** at one version. Cutting a release is:
@@ -29,6 +30,9 @@ Push the version bumps to `main`, then merge `main` into `deploy` and push it.
 `release-pub-tags.yml` runs the test suite, then for each package whose version
 isn't yet on pub.dev it pushes a `<pkg>-v<version>` tag. Each tag triggers
 `publish-pub.yml`, which publishes that package via pub.dev OIDC (tokenless).
+The `dart_pdf_editor_assets` job first generates the real bundled web worker
+over the committed placeholder, mirroring `tool/release.sh`, and force-publishes
+that prepared archive.
 If a deploy push contains no unpublished package versions, the workflow exits
 without probing the tag token or running the release suite.
 
@@ -37,7 +41,7 @@ self-configure them.
 
 #### 1. Enable automated publishing on pub.dev (per package)
 
-For **each** of the seven packages, on pub.dev → the package → **Admin** tab →
+For **each** of the eight packages, on pub.dev → the package → **Admin** tab →
 **Automated publishing**:
 
 - Enable **Publishing from GitHub Actions**.
@@ -91,7 +95,7 @@ Always works; needs a pub.dev login on the machine.
 ```bash
 fvm dart pub login                 # once, OAuth in a browser
 tool/release.sh                    # dry-run every package (no publishing)
-tool/release.sh --publish --yes    # publish all 7 in dependency order
+tool/release.sh --publish --yes    # publish all 8 in dependency order
 ```
 
 The script publishes dependencies first and waits for each version to be
@@ -100,7 +104,8 @@ resolve). Afterwards, push the tags for the record:
 
 ```bash
 for p in pdf_cos pdf_test_fixtures pdf_document pdf_graphics \
-         dart_pdf_editor pdf_ocr_vlm pdf_ocr_ondevice; do
+         dart_pdf_editor dart_pdf_editor_assets pdf_ocr_vlm \
+         pdf_ocr_ondevice; do
   git tag -a "$p-v<version>" -m "Release $p <version>"
 done
 git push origin --tags        # or in batches of <=3 if any are unpushed

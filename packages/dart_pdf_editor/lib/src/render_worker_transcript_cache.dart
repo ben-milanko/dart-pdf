@@ -1,5 +1,15 @@
+import 'dart:typed_data';
+
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
+
+import 'budgeted_cache.dart';
+import 'render_trace.dart';
+
+// The worker fills its half of the unified [PdfRenderTrace]; re-exported so
+// callers importing this file keep seeing [PdfWorkerPhaseTimings] (now an alias
+// of that record).
+export 'render_trace.dart' show PdfRenderTrace, PdfWorkerPhaseTimings;
 
 /// One immutable, document-backed page interpretation retained by a render
 /// worker. [sourceCommands] keep image COS objects for later decode variants;
@@ -17,23 +27,6 @@ class PdfWorkerTranscript {
   final int retainedCommandWeight;
 }
 
-/// Optional worker-side phase accumulator used by the web performance trace.
-///
-/// Callers create this only while performance logging is enabled, so ordinary
-/// rendering pays no stopwatch or allocation cost. Times are cumulative
-/// because a detail request can serialize both a transcript and its final
-/// image-bearing command buffer.
-class PdfWorkerPhaseTimings {
-  int parseUs = 0;
-  int interpretUs = 0;
-  /// Combined parse + interpret time for incremental content streaming.
-  int streamUs = 0;
-  int serializeUs = 0;
-  int decodeUs = 0;
-  int binUs = 0;
-  bool transcriptHit = false;
-}
-
 /// Counts commands in a retained graph, including nested soft-mask commands.
 ///
 /// This is intentionally a command-slot weight rather than a byte estimate:
@@ -45,6 +38,9 @@ int retainedCommandGraphWeight(List<PdfRenderCommand> commands) {
     count++;
     if (command is PdfEndSoftMaskedCommand) {
       count += retainedCommandGraphWeight(command.maskCommands);
+    } else if (command is PdfDrawTiledCellCommand) {
+      // The nested cell is retained once regardless of tile count.
+      count += retainedCommandGraphWeight(command.cellCommands);
     }
   }
   return count;
@@ -104,6 +100,14 @@ List<PdfRenderCommand>? compactTranscriptSourceCommands(
             transferOffset: command.transferOffset,
           );
         }
+      } else if (command is PdfDrawTiledCellCommand) {
+        // Cell images are serialized once (depth-first), matching the
+        // recorder's imageRequests order - patch them once here too.
+        final cellCommands = patch(command.cellCommands);
+        if (!identical(cellCommands, command.cellCommands)) {
+          replacement = PdfDrawTiledCellCommand(
+              cellCommands, command.originsX, command.originsY);
+        }
       }
       if (!identical(replacement, command)) {
         changed ??= List<PdfRenderCommand>.of(commands);
@@ -129,35 +133,84 @@ List<PdfRenderCommand>? compactTranscriptSourceCommands(
 /// also the revision-safe identity. A replacement worker starts with an empty
 /// cache. Both entry count and retained command weight are bounded; one
 /// oversize hot entry is always kept so a dense page still benefits from reuse.
+/// Operations per [PdfPageContentWalk.advance] chunk on the resumable record
+/// path (#530, mirrors the isolate worker's constant of the same value). Bounds
+/// the post-cancel overshoot before the walk suspends; the walk still yields
+/// internally so the worker keeps servicing the cancel message within a chunk.
+const int _resumeRecordChunkOperations = 4096;
+
+/// A page transcript record cancelled mid-walk, held so the next
+/// [PdfWorkerTranscriptCache.transcriptFor] of the same page resumes it instead
+/// of re-interpreting the prefix (#530). Bundles everything the resumed walk
+/// needs: the walk cursor, the interpreter holding the graphics state, the
+/// recorder holding the commands so far, and the page for the annotation pass.
+class _SuspendedTranscriptWalk {
+  _SuspendedTranscriptWalk(this.pageIndex, this.annotations, this.page,
+      this.recorder, this.interpreter, this.walk);
+  final int pageIndex;
+  final bool annotations;
+  final PdfPage page;
+  final RecordingPdfDevice recorder;
+  final PdfInterpreter interpreter;
+  final PdfPageContentWalk walk;
+
+  // Progressive-partial schedule (#564), carried across a preempt/resume so the
+  // doubling cadence continues rather than restarting: chunks advanced so far
+  // and the chunk count at which the next partial is emitted (1, 2, 4, ...).
+  int chunksAdvanced = 0;
+  int nextEmitAtChunk = 1;
+}
+
 class PdfWorkerTranscriptCache {
   PdfWorkerTranscriptCache({
     this.capacity = 4,
     this.maxRetainedCommands = 250000,
     this.deduplicateCommands = true,
+    int? resumeChunkOperations,
   })  : assert(capacity > 0),
-        assert(maxRetainedCommands > 0);
+        assert(maxRetainedCommands > 0),
+        assert(resumeChunkOperations == null || resumeChunkOperations > 0),
+        _resumeChunk = resumeChunkOperations ?? _resumeRecordChunkOperations;
 
   final int capacity;
   final int maxRetainedCommands;
 
+  /// Operations per resumable-record chunk. Defaults to
+  /// [_resumeRecordChunkOperations]; a small value is a test seam to force a
+  /// multi-chunk walk (so a preemption suspends and resumes).
+  final int _resumeChunk;
+
   /// Whether transcripts may share the compact wire graph, patching only its
   /// document-backed image requests. Exposed for A/B benchmarks.
   final bool deduplicateCommands;
-  final _entries = <(int, bool), PdfWorkerTranscript>{};
 
-  int hits = 0;
-  int misses = 0;
-  int evictions = 0;
+  // The shared budgeted LRU, bounded by both entry count ([capacity]) and
+  // retained command weight ([maxRetainedCommands]); the weight bound keeps one
+  // oversize hot entry (the most-recently-used is never evicted) so a dense
+  // page still benefits from reuse.
+  late final PdfBudgetedCache<(int, bool), PdfWorkerTranscript> _entries =
+      PdfBudgetedCache<(int, bool), PdfWorkerTranscript>(
+    weigher: (t) => t.retainedCommandWeight,
+    maxWeight: maxRetainedCommands,
+    maxEntries: capacity,
+    debugLabel: 'worker-transcript',
+  );
+
+  // One suspended (partial) record, held across a preemption so the requeued
+  // record resumes rather than restarting (#530). Only the most-recent page's
+  // partial is kept; a second preemption evicts the first (bounded memory).
+  _SuspendedTranscriptWalk? _suspended;
+
+  int get hits => _entries.hits;
+  int get misses => _entries.misses;
+  int get evictions => _entries.evictions;
 
   int get length => _entries.length;
   int get retainedCommandCount => _entries.values.fold(
         0,
         (total, entry) => total + entry.sourceCommands.length,
       );
-  int get retainedCommandWeight => _entries.values.fold(
-        0,
-        (total, entry) => total + entry.retainedCommandWeight,
-      );
+  int get retainedCommandWeight => _entries.weight;
 
   Future<PdfWorkerTranscript?> transcriptFor(
     PdfDocument document,
@@ -166,46 +219,82 @@ class PdfWorkerTranscriptCache {
     PdfCancellationToken token, {
     int? yieldInterval,
     PdfWorkerPhaseTimings? timings,
+    void Function(Uint8List)? onPartial,
   }) async {
     if (token.cancelled) throw const PdfCancelledException();
     final key = (pageIndex, annotations);
-    final hit = _entries.remove(key);
+    final hit = _entries.take(key);
     if (hit != null) {
-      hits++;
       timings?.transcriptHit = true;
-      _entries[key] = hit;
       return hit;
     }
-    misses++;
     if (pageIndex < 0 || pageIndex >= document.pageCount) return null;
-    final page = document.page(pageIndex);
-    final recorder = RecordingPdfDevice();
-    final interpreter = PdfInterpreter(
-      cos: document.cos,
-      device: recorder,
-      cancellation: token,
-    );
+
+    // Resume a walk suspended by an earlier preemption of this same page, or
+    // start a fresh one. The interpreter carries no cancellation token: a token
+    // makes advance throw mid-chunk, which finishes the walk and restores the
+    // device (discarding the partial). Driving bounded chunks and checking the
+    // token between them is what keeps the recording resumable (#530).
+    var entry = _takeSuspended(pageIndex, annotations);
+    if (entry != null && entry.walk.isFinished) entry = null; // never resume a finished walk
+    if (entry == null) {
+      final page = document.page(pageIndex);
+      final recorder = RecordingPdfDevice();
+      final interpreter = PdfInterpreter(cos: document.cos, device: recorder);
+      final walk = interpreter.beginPageContent(page, page.contentBytes());
+      entry = _SuspendedTranscriptWalk(
+          pageIndex, annotations, page, recorder, interpreter, walk);
+    }
+
     final streamClock = timings == null ? null : (Stopwatch()..start());
-    if (yieldInterval == null) {
-      await interpreter.drawPageContentAsync(page, page.contentBytes());
-    } else {
-      await interpreter.drawPageContentAsync(
-        page,
-        page.contentBytes(),
-        yieldInterval: yieldInterval,
+    final walk = entry.walk;
+    while (true) {
+      final complete = yieldInterval == null
+          ? await walk.advance(operations: _resumeChunk)
+          : await walk.advance(
+              operations: _resumeChunk, yieldInterval: yieldInterval);
+      if (complete) break;
+      if (token.cancelled) {
+        // Keep the partial recording so the requeued record resumes here.
+        _keepSuspended(entry);
+        throw const PdfCancelledException();
+      }
+      // Progressive linework partials (#564), on a doubling chunk schedule so
+      // the serialize cost stays O(commands) across the page (see the isolate
+      // twin). A chunk boundary is page-level graphics state, so the prefix is a
+      // valid replayable buffer; images ride as placeholders like the final
+      // transcript below.
+      entry.chunksAdvanced++;
+      if (onPartial == null || entry.chunksAdvanced < entry.nextEmitAtChunk) {
+        continue;
+      }
+      // Re-base the next threshold off CURRENT progress rather than doubling a
+      // possibly-stale value. The suspended walk is shared by (page, annotations)
+      // with the non-streaming bin/detail paths, which advance chunksAdvanced
+      // without emitting; deriving from chunksAdvanced keeps the doubling cadence
+      // (1, 2, 4, 8 ... for a fresh walk) yet never fires a catch-up burst when a
+      // record resumes streaming after such a path jumped the counter ahead.
+      entry.nextEmitAtChunk = entry.chunksAdvanced * 2;
+      final partial = serializeCommands(
+        entry.recorder.commands,
+        cos: document.cos,
+        decodeImages: false,
+        imagePlaceholders: true,
+        compactStateScopes: true,
       );
+      if (partial != null) onPartial(partial);
     }
     if (streamClock != null) {
       streamClock.stop();
       timings!.streamUs += streamClock.elapsedMicroseconds;
     }
     final interpretClock = timings == null ? null : (Stopwatch()..start());
-    if (annotations) interpreter.drawAnnotations(page);
+    if (annotations) entry.interpreter.drawAnnotations(entry.page);
     if (interpretClock != null) {
       interpretClock.stop();
       timings!.interpretUs += interpretClock.elapsedMicroseconds;
     }
-    if (token.cancelled) throw const PdfCancelledException();
+    final recorder = entry.recorder;
     final serializeClock = timings == null ? null : (Stopwatch()..start());
     final buffer = serializeCommands(
       recorder.commands,
@@ -239,15 +328,59 @@ class PdfWorkerTranscriptCache {
       sourceCommands,
       wireCommands,
     );
-    _entries[key] = transcript;
-    while (_entries.length > 1 &&
-        (_entries.length > capacity ||
-            retainedCommandWeight > maxRetainedCommands)) {
-      _entries.remove(_entries.keys.first);
-      evictions++;
-    }
+    _entries.put(key, transcript);
     return transcript;
   }
 
-  void clear() => _entries.clear();
+  void clear() {
+    _entries.clear();
+    _evictSuspended(null);
+  }
+
+  /// Evicts the transcripts for [pages] only, or every transcript when [pages]
+  /// is null (a structural / all-pages revision). A worker calls this when an
+  /// incremental revision changes those pages: their transcripts are stale, but
+  /// every other page's stays warm across the edit boundary. A suspended record
+  /// walks the old document too, so it follows the same eviction (#530).
+  void evictPages(Set<int>? pages) {
+    if (pages == null) {
+      _entries.clear();
+    } else {
+      _entries.evictWhere((key) => pages.contains(key.$1));
+    }
+    _evictSuspended(pages);
+  }
+
+  /// Removes and returns the suspended record for ([pageIndex], [annotations]),
+  /// or null when the slot holds a different page (left in place, so a fresh
+  /// record of an urgent neighbour does not evict the page waiting to resume).
+  _SuspendedTranscriptWalk? _takeSuspended(int pageIndex, bool annotations) {
+    final entry = _suspended;
+    if (entry != null &&
+        entry.pageIndex == pageIndex &&
+        entry.annotations == annotations) {
+      _suspended = null;
+      return entry;
+    }
+    return null;
+  }
+
+  /// Stashes [entry] to resume on the next record of its page, abandoning any
+  /// previously stashed walk so its balancing device restore runs.
+  void _keepSuspended(_SuspendedTranscriptWalk entry) {
+    final previous = _suspended;
+    if (previous != null && !identical(previous, entry)) previous.walk.abandon();
+    _suspended = entry;
+  }
+
+  /// Drops the stashed walk after a revision update (or shutdown). [pages] limits
+  /// eviction to the changed pages; null clears it unconditionally.
+  void _evictSuspended(Set<int>? pages) {
+    final entry = _suspended;
+    if (entry == null) return;
+    if (pages == null || pages.contains(entry.pageIndex)) {
+      entry.walk.abandon();
+      _suspended = null;
+    }
+  }
 }

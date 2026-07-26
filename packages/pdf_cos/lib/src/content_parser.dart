@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
 
+import 'perf/perf.dart';
+
 /// One content-stream instruction: operands followed by an operator.
 class ContentOperation {
   ContentOperation(this.operator, this.operands);
@@ -108,12 +110,14 @@ class ContentStreamParser {
     // dominate. Pulling tokens straight from the lexer and handing each
     // finished operation its own operand list (no copy, no clear) roughly
     // halves the parse.
+    final t0 = PdfPerf.begin();
     final operations = <ContentOperation>[];
     final reader = cursor(content, operationLimit: operationLimit);
     ContentOperation? operation;
     while ((operation = reader.nextOperation()) != null) {
       operations.add(operation!);
     }
+    PdfPerf.end(PdfPerfPhase.contentTokenize, t0);
     return operations;
   }
 
@@ -320,15 +324,29 @@ class ContentStreamParser {
 class ContentOperationCursor {
   ContentOperationCursor._(Uint8List content, {this.operationLimit})
       : _lexer = CosLexer(content),
+        _contentLength = content.length,
         _finished = operationLimit != null && operationLimit <= 0;
 
   /// Maximum operations this cursor will emit, or null for the whole stream.
   final int? operationLimit;
 
   final CosLexer _lexer;
+  final int _contentLength;
   var _operands = <CosObject>[];
   var _operationCount = 0;
   bool _finished;
+  bool _perfReported = false;
+
+  /// Flushes the ops/bytes this cursor tokenized into PdfPerf, once. The
+  /// cursor is the ONE tokenizer both parse() and the interpreter drive, and
+  /// [_operationCount] already exists for [operationLimit] - so the hot loop
+  /// pays nothing new; only stream end reaches this.
+  void _reportPerf() {
+    if (_perfReported || !PdfPerf.enabled) return;
+    _perfReported = true;
+    PdfPerf.add(PdfPerfCount.contentOps, _operationCount);
+    PdfPerf.add(PdfPerfCount.contentBytes, _contentLength);
+  }
 
   /// Number of operations emitted so far.
   int get operationCount => _operationCount;
@@ -344,6 +362,7 @@ class ContentOperationCursor {
       switch (token.type) {
         case CosTokenType.eof:
           _finished = true;
+          _reportPerf();
           return null;
         case CosTokenType.integer:
           _operands.add(ContentStreamParser._intObject(token.intValue));
@@ -382,6 +401,7 @@ class ContentOperationCursor {
     _operationCount++;
     if (operationLimit != null && _operationCount >= operationLimit!) {
       _finished = true;
+      _reportPerf();
     }
     return operation;
   }

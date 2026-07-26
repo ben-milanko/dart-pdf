@@ -70,7 +70,8 @@ void main() {
     expect(lifecycle.debugWorkerGenerations, generations + 1);
   });
 
-  test('form fill or editor revision restarts the worker once', () {
+  test('form fill / edit / undo update the worker in place, no new generation',
+      () {
     final lifecycle = PdfShellSessionLifecycle(
       bytes: buildAcroFormPdf(),
       controller: null,
@@ -80,14 +81,44 @@ void main() {
       documentId: 'revision-test',
     );
     addTearDown(lifecycle.dispose);
+    // The native isolate backend absorbs an incremental revision in place, so
+    // the worker (and its warm caches) survives every edit - the whole point of
+    // issue #308.
+    expect(lifecycle.worker?.supportsRevisionUpdate, isTrue);
     final generations = lifecycle.debugWorkerGenerations;
 
     expect(lifecycle.session.setFormFieldText('name', 'Jane'), isTrue);
-    expect(lifecycle.debugWorkerGenerations, generations + 1);
+    expect(lifecycle.debugWorkerGenerations, generations);
     lifecycle.session.undo();
-    expect(lifecycle.debugWorkerGenerations, generations + 2);
+    expect(lifecycle.debugWorkerGenerations, generations);
+    lifecycle.session.redo();
+    expect(lifecycle.debugWorkerGenerations, generations);
     lifecycle.session.addRectangle(0, const PdfRect(10, 10, 40, 40));
-    expect(lifecycle.debugWorkerGenerations, generations + 3);
+    expect(lifecycle.debugWorkerGenerations, generations);
+  });
+
+  test('a redaction burn restarts the worker (buffer replaced, not appended)',
+      () {
+    final lifecycle = PdfShellSessionLifecycle(
+      bytes: buildMultiPagePdf(2),
+      controller: null,
+      preferences: null,
+      viewerController: null,
+      performance: null,
+      documentId: 'burn-test',
+    );
+    addTearDown(lifecycle.dispose);
+    final generations = lifecycle.debugWorkerGenerations;
+
+    // An ordinary edit updates in place.
+    lifecycle.session.addRectangle(0, const PdfRect(10, 10, 40, 40));
+    expect(lifecycle.debugWorkerGenerations, generations);
+
+    // A redaction burn replaces the whole buffer, which is not a prefix-append,
+    // so the worker must restart.
+    lifecycle.session.addRedaction(0, const PdfRect(0, 0, 100, 100));
+    expect(lifecycle.session.applyRedactions(), isTrue);
+    expect(lifecycle.debugWorkerGenerations, generations + 1);
   });
 
   test('external resources remain caller-owned', () {

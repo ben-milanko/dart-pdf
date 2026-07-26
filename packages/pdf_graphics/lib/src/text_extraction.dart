@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:bidi/bidi.dart' as bidi;
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import 'color.dart';
@@ -10,6 +11,9 @@ import 'matrix.dart';
 import 'mesh.dart';
 import 'path.dart';
 import 'shading.dart';
+
+final _bidiFormattingControls =
+    RegExp(r'[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]');
 
 /// One positioned run of text on a page, in page space.
 class PdfExtractedRun {
@@ -124,6 +128,8 @@ class PdfPageText {
   /// throwing); matching is synchronous with no timeout, so a pathological
   /// (catastrophically backtracking) pattern over a large page can block
   /// the caller. [caseSensitive] applies to both literal and regex search.
+  /// Literal queries ignore Unicode BiDi formatting controls so text copied
+  /// with direction metadata can be pasted back into search.
   List<PdfTextMatch> findAll(
     String query, {
     bool caseSensitive = false,
@@ -146,6 +152,8 @@ class PdfPageText {
       }
       return matches;
     }
+    query = query.replaceAll(_bidiFormattingControls, '');
+    if (query.isEmpty) return const [];
     final haystack = caseSensitive ? text : text.toLowerCase();
     final needle = caseSensitive ? query : query.toLowerCase();
     var from = 0;
@@ -433,12 +441,20 @@ class PdfReflowDocument {
 class PdfTextExtractor {
   PdfTextExtractor._();
 
-  static PdfPageText extract(PdfDocument document, int pageIndex) =>
-      _pageTextFrom(pageIndex, _interpret(document, pageIndex).runs);
+  static PdfPageText extract(PdfDocument document, int pageIndex) {
+    final t0 = PdfPerf.begin();
+    try {
+      return _pageTextFrom(pageIndex, _interpret(document, pageIndex).runs);
+    } finally {
+      PdfPerf.end(PdfPerfPhase.textExtract, t0);
+    }
+  }
 
   static _ExtractionDevice _interpret(PdfDocument document, int pageIndex) {
     final device = _ExtractionDevice();
-    PdfInterpreter(cos: document.cos, device: device)
+    // Extraction reads geometry and Unicode, never colour, so the overprint
+    // colorant buffer (§8.6.7) would be pure cost on a page that uses it.
+    PdfInterpreter(cos: document.cos, device: device, resolveOverprint: false)
         .drawPage(document.page(pageIndex));
     return device;
   }
@@ -548,14 +564,14 @@ class PdfTextExtractor {
 
       for (final rune in text.runes) {
         runeCount++;
-        final char = String.fromCharCode(rune);
         final kind = _bidiKind(rune, previousKind);
         if (kind != segmentKind) {
           flush();
           segmentStart = offset;
           segmentKind = kind;
         }
-        offset += char.length;
+        // UTF-16 length of the code point, without allocating a String for it.
+        offset += rune > 0xFFFF ? 2 : 1;
         previousKind = kind;
         if (kind == _BidiKind.rtl) {
           hasRtl = true;
@@ -568,42 +584,46 @@ class PdfTextExtractor {
       flush();
     }
 
-    final visualLine = _visualSourceOrder(line);
+    final visualLine = _visualSourceClusters(line);
     PdfTextRun? visualPrevious;
-    for (final item in visualLine) {
+    for (final cluster in visualLine) {
       add(
         visualPrevious == null
             ? ''
-            : _separatorWithinVisualLine(visualPrevious, item.run),
+            : _separatorWithinVisualLine(visualPrevious, cluster.anchor),
         null,
       );
-      final glyphs = item.run.glyphs;
-      final hasGlyphText = glyphs != null &&
-          glyphs.every((glyph) => glyph.text != null) &&
-          glyphs.map((glyph) => glyph.text!).join() == item.run.text;
-      if (!hasGlyphText) {
-        add(item.run.text, item.run);
-        visualPrevious = item.run;
-        continue;
+      if (_isZeroAdvanceMark(cluster.sources.first.run)) {
+        previousKind = _firstStrongKind(cluster.anchor.text) ?? previousKind;
       }
-      var sourceOffset = 0;
-      for (var i = 0; i < glyphs.length; i++) {
-        final glyph = glyphs[i];
-        final text = glyph.text!;
-        final end = i + 1 < glyphs.length
-            ? math.max(glyph.offset, glyphs[i + 1].offset)
-            : item.run.width;
-        add(
-          text,
-          item.run,
-          sourceOffset: sourceOffset,
-          preserveText: true,
-          sourceX0: glyph.offset,
-          sourceX1: end,
-        );
-        sourceOffset += text.length;
+      for (final item in cluster.sources) {
+        final glyphs = item.run.glyphs;
+        final hasGlyphText = glyphs != null &&
+            glyphs.every((glyph) => glyph.text != null) &&
+            glyphs.map((glyph) => glyph.text!).join() == item.run.text;
+        if (!hasGlyphText) {
+          add(item.run.text, item.run);
+          continue;
+        }
+        var sourceOffset = 0;
+        for (var i = 0; i < glyphs.length; i++) {
+          final glyph = glyphs[i];
+          final text = glyph.text!;
+          final end = i + 1 < glyphs.length
+              ? math.max(glyph.offset, glyphs[i + 1].offset)
+              : item.run.width;
+          add(
+            text,
+            item.run,
+            sourceOffset: sourceOffset,
+            preserveText: true,
+            sourceX0: glyph.offset,
+            sourceX1: end,
+          );
+          sourceOffset += text.length;
+        }
       }
-      visualPrevious = item.run;
+      visualPrevious = cluster.anchor;
     }
     if (!hasRtl || hasUnpositionedRtl) return null;
 
@@ -654,30 +674,72 @@ class PdfTextExtractor {
     ));
   }
 
-  /// Orders separately positioned text-showing runs by their location along
-  /// the line's visual baseline. RTL layout engines commonly emit words in
-  /// logical order while placing each successive word farther left; using the
-  /// content-stream order in that case reverses the words a second time.
-  static List<_SourceRun> _visualSourceOrder(List<_SourceRun> line) {
-    if (line.length < 2) return line;
+  /// Groups zero-advance marks with their following base run, then orders the
+  /// clusters by their location along the line's visual baseline.
+  ///
+  /// Skia emits Arabic marks as separate text-showing operators immediately
+  /// before their base glyph. Sorting those marks independently moves them
+  /// across the base and makes the gap heuristic insert spaces inside words.
+  /// Keeping the source-order cluster intact lets the RTL reversal restore
+  /// base-then-mark logical order while separately positioned words can still
+  /// move into visual order before the reversal.
+  static List<_SourceCluster> _visualSourceClusters(List<_SourceRun> line) {
+    final clusters = <_SourceCluster>[];
+    final pendingMarks = <_SourceRun>[];
+    for (final source in line) {
+      if (_isZeroAdvanceMark(source.run)) {
+        pendingMarks.add(source);
+        continue;
+      }
+      clusters.add(_SourceCluster(
+        [...pendingMarks, source],
+        source.run,
+      ));
+      pendingMarks.clear();
+    }
+    if (pendingMarks.isNotEmpty) {
+      if (clusters.isEmpty) {
+        clusters.add(_SourceCluster([...pendingMarks], pendingMarks.last.run));
+      } else {
+        final last = clusters.removeLast();
+        clusters.add(_SourceCluster(
+          [...last.sources, ...pendingMarks],
+          last.anchor,
+        ));
+      }
+    }
+    if (clusters.length < 2) return clusters;
+
     final baseline = line.first.run.transform;
     final length = math.sqrt(baseline.a * baseline.a + baseline.b * baseline.b);
-    if (length <= 1e-9) return line;
+    if (length <= 1e-9) return clusters;
     final ux = baseline.a / length;
     final uy = baseline.b / length;
-    final positioned = <({int index, double offset, _SourceRun source})>[
-      for (var i = 0; i < line.length; i++)
+    final positioned = <({int index, double offset, _SourceCluster cluster})>[
+      for (var i = 0; i < clusters.length; i++)
         (
           index: i,
-          offset: line[i].run.transform.e * ux + line[i].run.transform.f * uy,
-          source: line[i],
+          offset: clusters[i].anchor.transform.e * ux +
+              clusters[i].anchor.transform.f * uy,
+          cluster: clusters[i],
         ),
     ];
     positioned.sort((a, b) {
       final order = a.offset.compareTo(b.offset);
       return order != 0 ? order : a.index.compareTo(b.index);
     });
-    return [for (final item in positioned) item.source];
+    return [for (final item in positioned) item.cluster];
+  }
+
+  static bool _isZeroAdvanceMark(PdfTextRun run) =>
+      run.width.abs() <= 1e-9 && run.text.trim().isNotEmpty;
+
+  static _BidiKind? _firstStrongKind(String text) {
+    for (final rune in text.runes) {
+      final kind = _strongBidiKind(rune);
+      if (kind != null) return kind;
+    }
+    return null;
   }
 
   /// Reconstructs an inferred separator after source runs have been reordered
@@ -685,6 +747,7 @@ class PdfTextExtractor {
   /// same logic works for rotated text.
   static String _separatorWithinVisualLine(
       PdfTextRun previous, PdfTextRun next) {
+    if (previous.text.trim().isEmpty || next.text.trim().isEmpty) return '';
     final em = previous.transform.scaleFactor;
     final axisLength = math.sqrt(previous.transform.a * previous.transform.a +
         previous.transform.b * previous.transform.b);
@@ -858,43 +921,52 @@ class PdfTextReflower {
       return y != 0 ? y : a.bounds.left.compareTo(b.bounds.left);
     });
 
-    final bands = <List<_LinePiece>>[];
+    // Each band keeps a running centre sum and its font sizes in ascending
+    // order, so the two per-candidate questions below - "what is the median
+    // font size including this piece?" and "where is this band centred?" -
+    // are answered without building or sorting a list. Previously both were
+    // recomputed from scratch for every (piece, candidate) pair, which made
+    // this O(pieces x bands x bandSize) with an allocation and a sort inside
+    // the innermost loop.
+    //
+    // The scan itself still walks bands in creation order and takes the FIRST
+    // match, which is load-bearing: band centres are running means, so an
+    // earlier band can drift back within tolerance of a later piece. Taking
+    // the most recent band instead - tempting, since pieces arrive sorted by
+    // descending centreY - is not equivalent.
+    final bands = <_LineBand>[];
     for (final piece in pieces) {
-      List<_LinePiece>? band;
+      _LineBand? band;
       for (final candidate in bands) {
         final tolerance = math.max(
-            2.0,
-            0.55 *
-                _median([
-                  piece.fontSize,
-                  ...candidate.map((p) => p.fontSize),
-                ]));
-        final center = candidate.map((p) => p.centerY).reduce((a, b) => a + b) /
-            candidate.length;
-        if ((piece.centerY - center).abs() <= tolerance) {
+            2.0, 0.55 * _medianWith(candidate.fontSizes, piece.fontSize));
+        if ((piece.centerY - candidate.center).abs() <= tolerance) {
           band = candidate;
           break;
         }
       }
-      (band ?? (bands..add(<_LinePiece>[])).last).add(piece);
+      (band ?? (bands..add(_LineBand())).last).add(piece);
     }
 
     final out = <PdfReflowLine>[];
     for (final band in bands) {
-      band.sort((a, b) => a.bounds.left.compareTo(b.bounds.left));
+      final pieces = band.pieces
+        ..sort((a, b) => a.bounds.left.compareTo(b.bounds.left));
       var current = <_LinePiece>[];
-      for (final piece in band) {
+      var currentFonts = <double>[];
+      for (final piece in pieces) {
         if (current.isNotEmpty) {
           final previous = current.last;
           final gap = piece.bounds.left - previous.bounds.right;
-          final font =
-              _median([...current.map((p) => p.fontSize), piece.fontSize]);
+          final font = _medianWith(currentFonts, piece.fontSize);
           if (gap > math.max(36.0, font * 4.0)) {
             out.add(_lineFrom(current));
             current = <_LinePiece>[];
+            currentFonts = <double>[];
           }
         }
         current.add(piece);
+        _insertSorted(currentFonts, piece.fontSize);
       }
       if (current.isNotEmpty) out.add(_lineFrom(current));
     }
@@ -1103,6 +1175,13 @@ class _SourceRun {
   final PdfTextRun run;
 }
 
+class _SourceCluster {
+  const _SourceCluster(this.sources, this.anchor);
+
+  final List<_SourceRun> sources;
+  final PdfTextRun anchor;
+}
+
 enum _BidiKind { ltr, rtl, neutral }
 
 class _BidiPiece {
@@ -1263,6 +1342,61 @@ double _overlapFraction(PdfRect a, PdfRect b) {
   return smaller <= 0 ? 0 : overlap / smaller;
 }
 
+/// Index where [value] would be inserted to keep [sorted] ascending.
+int _lowerBound(List<double> sorted, double value) {
+  var lo = 0;
+  var hi = sorted.length;
+  while (lo < hi) {
+    final mid = (lo + hi) >> 1;
+    if (sorted[mid] < value) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo;
+}
+
+void _insertSorted(List<double> sorted, double value) =>
+    sorted.insert(_lowerBound(sorted, value), value);
+
+/// Median of [sorted] (ascending) with [extra] merged in, without building
+/// the merged list.
+///
+/// Equivalent to `_median([...sorted, extra])`, but the line-banding loop asks
+/// this once per piece per candidate band, where materialising and sorting a
+/// fresh list dominated the cost of [_visualLines] on a text-heavy page.
+double _medianWith(List<double> sorted, double extra) {
+  final length = sorted.length + 1;
+  final pos = _lowerBound(sorted, extra);
+  // the merged sequence is sorted[0..pos) + [extra] + sorted[pos..)
+  double at(int rank) => rank < pos
+      ? sorted[rank]
+      : (rank == pos ? extra : sorted[rank - 1]);
+  final middle = length ~/ 2;
+  if (length.isOdd) return at(middle);
+  return (at(middle - 1) + at(middle)) / 2;
+}
+
+/// A run of pieces sharing a visual line, with the aggregates the banding
+/// scan needs kept incrementally rather than recomputed per comparison.
+class _LineBand {
+  final List<_LinePiece> pieces = [];
+
+  /// Ascending, so [_medianWith] can merge one more value in O(log n).
+  final List<double> fontSizes = [];
+
+  double _sumCenterY = 0;
+
+  double get center => _sumCenterY / pieces.length;
+
+  void add(_LinePiece piece) {
+    pieces.add(piece);
+    _insertSorted(fontSizes, piece.fontSize);
+    _sumCenterY += piece.centerY;
+  }
+}
+
 double _median(Iterable<double> values) {
   final sorted = [...values]..sort();
   if (sorted.isEmpty) return 0;
@@ -1301,6 +1435,9 @@ class _ExtractionDevice implements PdfDevice {
 
   @override
   void setBlendMode(PdfBlendMode mode) {}
+  @override
+  void setOverprint(
+      {required bool fill, required bool stroke, required int mode}) {}
   @override
   void beginGroup(double alpha, {bool knockout = false}) {}
   @override

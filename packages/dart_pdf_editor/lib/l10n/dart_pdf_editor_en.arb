@@ -1,0 +1,2586 @@
+{
+  "@@locale": "en",
+  "add": "Add",
+  "@add": {
+    "description": "Generic button that adds a new item."
+  },
+  "annotCaret": "Caret",
+  "@annotCaret": {
+    "description": "Annotation type name: a caret marking an insertion point."
+  },
+  "annotCircle": "Circle",
+  "@annotCircle": {
+    "description": "Annotation type name: a circle/ellipse shape."
+  },
+  "annotFileAttachment": "File attachment",
+  "@annotFileAttachment": {
+    "description": "Annotation type name: an embedded file attachment."
+  },
+  "annotFreeText": "Text box",
+  "@annotFreeText": {
+    "description": "Annotation type name: a free-text box drawn on the page."
+  },
+  "annotHighlight": "Highlight",
+  "@annotHighlight": {
+    "description": "Annotation type name: a text highlight."
+  },
+  "annotInk": "Ink",
+  "@annotInk": {
+    "description": "Annotation type name: a freehand ink drawing."
+  },
+  "annotLine": "Line",
+  "@annotLine": {
+    "description": "Annotation type name: a straight line."
+  },
+  "annotLink": "Link",
+  "@annotLink": {
+    "description": "Annotation type name: a hyperlink."
+  },
+  "annotPolygon": "Polygon",
+  "@annotPolygon": {
+    "description": "Annotation type name: a closed polygon shape."
+  },
+  "annotPolyline": "Polyline",
+  "@annotPolyline": {
+    "description": "Annotation type name: an open multi-segment line."
+  },
+  "annotRedact": "Redaction",
+  "@annotRedact": {
+    "description": "Annotation type name: a redaction region."
+  },
+  "annotSquare": "Square",
+  "@annotSquare": {
+    "description": "Annotation type name: a rectangle/square shape."
+  },
+  "annotSquiggly": "Squiggly",
+  "@annotSquiggly": {
+    "description": "Annotation type name: a squiggly (wavy) underline."
+  },
+  "annotStamp": "Stamp",
+  "@annotStamp": {
+    "description": "Annotation type name: a rubber stamp."
+  },
+  "annotStrikeOut": "Strike-out",
+  "@annotStrikeOut": {
+    "description": "Annotation type name: a strike-through over text."
+  },
+  "annotText": "Note",
+  "@annotText": {
+    "description": "Annotation type name: a sticky note / text comment."
+  },
+  "annotUnderline": "Underline",
+  "@annotUnderline": {
+    "description": "Annotation type name: a text underline."
+  },
+  "annotWidget": "Form field",
+  "@annotWidget": {
+    "description": "Annotation type name: an interactive form field widget."
+  },
+  "apply": "Apply",
+  "@apply": {
+    "description": "Generic button that applies pending changes."
+  },
+  "bookmarkAdd": "Add bookmark",
+  "@bookmarkAdd": {
+    "description": "Tooltip/label/dialog title for adding a new bookmark."
+  },
+  "bookmarkAddChild": "Add child bookmark",
+  "@bookmarkAddChild": {
+    "description": "Tooltip to add a nested child bookmark under this one."
+  },
+  "bookmarkCollapse": "Collapse",
+  "@bookmarkCollapse": {
+    "description": "Tooltip to collapse an expanded bookmark's children."
+  },
+  "bookmarkDelete": "Delete bookmark",
+  "@bookmarkDelete": {
+    "description": "Tooltip to delete this bookmark."
+  },
+  "bookmarkEdit": "Edit bookmark",
+  "@bookmarkEdit": {
+    "description": "Tooltip/dialog title for editing an existing bookmark."
+  },
+  "bookmarkEmpty": "No bookmarks",
+  "@bookmarkEmpty": {
+    "description": "Empty-state text when the document has no bookmarks."
+  },
+  "bookmarkExpand": "Expand",
+  "@bookmarkExpand": {
+    "description": "Tooltip to expand a bookmark's children."
+  },
+  "bookmarkExpandedByDefault": "Expanded by default",
+  "@bookmarkExpandedByDefault": {
+    "description": "Checkbox label controlling whether the bookmark shows its children expanded by default."
+  },
+  "bookmarkNoDestination": "No destination",
+  "@bookmarkNoDestination": {
+    "description": "Subtitle for a bookmark that has no page destination."
+  },
+  "bookmarkPageFieldLabel": "Page",
+  "@bookmarkPageFieldLabel": {
+    "description": "Field label for the bookmark's destination page number in the add/edit dialog."
+  },
+  "bookmarkPageLabel": "Page {number}",
+  "@bookmarkPageLabel": {
+    "description": "A bookmark's destination page label (and default title for a new bookmark), 1-based.",
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "bookmarkPageRangeHint": "1-{count}",
+  "@bookmarkPageRangeHint": {
+    "description": "Helper text under the page field showing the valid page range (1 to the page count).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "bookmarkTitle": "Bookmarks",
+  "@bookmarkTitle": {
+    "description": "Header title of the bookmarks/outline panel."
+  },
+  "bookmarkTitleLabel": "Title",
+  "@bookmarkTitleLabel": {
+    "description": "Field label for the bookmark's title in the add/edit dialog."
+  },
+  "bookmarkUntitled": "Untitled",
+  "@bookmarkUntitled": {
+    "description": "Placeholder title for a bookmark with an empty title."
+  },
+  "cancel": "Cancel",
+  "@cancel": {
+    "description": "Button that dismisses a dialog without applying."
+  },
+  "clear": "Clear",
+  "@clear": {
+    "description": "Generic button that clears the current value or selection."
+  },
+  "close": "Close",
+  "@close": {
+    "description": "Generic button/tooltip that closes a panel or dialog."
+  },
+  "colorApplyingChanges": "Applying color changes…",
+  "@colorApplyingChanges": {
+    "description": "Progress message shown while the color-processing changes are being written to the document."
+  },
+  "colorColorFormat": "Color format",
+  "@colorColorFormat": {
+    "description": "Tooltip on the button that switches the color picker's value-entry format (hex/RGB/HSL/CMYK)."
+  },
+  "colorColorTitle": "Color",
+  "@colorColorTitle": {
+    "description": "Title of the standalone color picker dialog."
+  },
+  "colorColorsSelected": "{count, plural, one{{count} color selected} other{{count} colors selected}}",
+  "@colorColorsSelected": {
+    "description": "Summary shown when more than one document color is selected as the find target.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "colorDocumentColors": "Document colors",
+  "@colorDocumentColors": {
+    "description": "Section header above the grid of colors detected in the document's page content."
+  },
+  "colorFillColors": "Fill colors",
+  "@colorFillColors": {
+    "description": "Checkbox to include fill (non-stroke) colors when processing document colors."
+  },
+  "colorFind": "Find",
+  "@colorFind": {
+    "description": "Label for the color-to-find swatch row in the color-processing dialog."
+  },
+  "colorInDocument": "In document",
+  "@colorInDocument": {
+    "description": "Section header for the grid of colors already used in the open document."
+  },
+  "colorNoColorsFound": "No colors found yet",
+  "@colorNoColorsFound": {
+    "description": "Placeholder shown in the document-colors grid before any colors have been found."
+  },
+  "colorNoPageContentColors": "No page-content colors found",
+  "@colorNoPageContentColors": {
+    "description": "Message shown when scanning the pages found no page-content colors to process."
+  },
+  "colorPalette": "Palette",
+  "@colorPalette": {
+    "description": "Section header for the fixed palette of quick-pick color swatches."
+  },
+  "colorPickColor": "Pick color",
+  "@colorPickColor": {
+    "description": "Tooltip on the eyedropper button that opens the color picker for a color row."
+  },
+  "colorProcessingTitle": "Color processing",
+  "@colorProcessingTitle": {
+    "description": "Title of the document color-processing (find/replace colors) dialog."
+  },
+  "colorRecent": "Recent",
+  "@colorRecent": {
+    "description": "Section header for the grid of recently used color swatches."
+  },
+  "colorReplace": "Replace",
+  "@colorReplace": {
+    "description": "Label for the replacement-color swatch row in the color-processing dialog."
+  },
+  "colorReplaceWithTransparent": "Replace with transparent",
+  "@colorReplaceWithTransparent": {
+    "description": "Checkbox to replace the matched color with transparency instead of another color."
+  },
+  "colorScanning": "Scanning…",
+  "@colorScanning": {
+    "description": "Indeterminate progress label shown while the document colors are being scanned."
+  },
+  "colorScanningProgress": "Scanning {progress} / {total}",
+  "@colorScanningProgress": {
+    "description": "Progress label shown while scanning document colors; progress of total pages scanned.",
+    "placeholders": {
+      "progress": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "colorSelectedPages": "Selected pages ({count})",
+  "@colorSelectedPages": {
+    "description": "Radio option to apply color processing only to the currently selected pages; count is the number of selected pages.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "colorStrokeColors": "Stroke colors",
+  "@colorStrokeColors": {
+    "description": "Checkbox to include stroke (outline) colors when processing document colors."
+  },
+  "colorTolerance": "Tolerance",
+  "@colorTolerance": {
+    "description": "Label for the color-match tolerance slider in the color-processing dialog."
+  },
+  "colorTransparent": "Transparent",
+  "@colorTransparent": {
+    "description": "Value text shown in a color row when the replacement is transparency rather than a color."
+  },
+  "colorWholeDocument": "Whole document",
+  "@colorWholeDocument": {
+    "description": "Radio option to apply color processing to every page in the document."
+  },
+  "compareAfter": "After",
+  "@compareAfter": {
+    "description": "Label over the pane showing the revised document in the comparison view."
+  },
+  "compareBefore": "Before",
+  "@compareBefore": {
+    "description": "Label over the pane showing the original document in the comparison view."
+  },
+  "compareChangeCount": "{count, plural, =1{1 change} other{{count} changes}}",
+  "@compareChangeCount": {
+    "description": "Header above the diff navigator list showing how many changes were found.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "compareChangePosition": "{current} / {count, plural, =1{1 change} other{{count} changes}}",
+  "@compareChangePosition": {
+    "description": "Comparison toolbar counter showing the current change position out of the total.",
+    "placeholders": {
+      "current": {
+        "type": "int"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "compareEmptyLabel": "(empty)",
+  "@compareEmptyLabel": {
+    "description": "Placeholder label for a change entry whose text is empty in the diff navigator."
+  },
+  "compareNextChange": "Next change",
+  "@compareNextChange": {
+    "description": "Tooltip on the button that steps to the next change in the comparison view."
+  },
+  "compareNoChanges": "No changes",
+  "@compareNoChanges": {
+    "description": "Shown in the comparison toolbar when the two documents have no differences."
+  },
+  "compareNoDifferences": "No differences between the two documents",
+  "@compareNoDifferences": {
+    "description": "Placeholder shown in the diff navigator panel when the documents are identical."
+  },
+  "compareOverlay": "Overlay",
+  "@compareOverlay": {
+    "description": "Segmented button label for the overlay comparison mode."
+  },
+  "comparePageHeader": "Page {page}",
+  "@comparePageHeader": {
+    "description": "Page group header in the diff navigator list (1-based page number).",
+    "placeholders": {
+      "page": {
+        "type": "int"
+      }
+    }
+  },
+  "comparePreviousChange": "Previous change",
+  "@comparePreviousChange": {
+    "description": "Tooltip on the button that steps to the previous change in the comparison view."
+  },
+  "compareSideBySide": "Side by side",
+  "@compareSideBySide": {
+    "description": "Segmented button label for the side-by-side comparison mode."
+  },
+  "copy": "Copy",
+  "@copy": {
+    "description": "Generic button/menu label to copy the current item."
+  },
+  "cut": "Cut",
+  "@cut": {
+    "description": "Generic button/menu label to cut the current item."
+  },
+  "delete": "Delete",
+  "@delete": {
+    "description": "Generic button/menu label to delete the current item."
+  },
+  "done": "Done",
+  "@done": {
+    "description": "Generic button that finishes the current interaction."
+  },
+  "edit": "Edit",
+  "@edit": {
+    "description": "Generic button/menu label to edit the current item."
+  },
+  "editorViewAuthorNameTitle": "Author name",
+  "@editorViewAuthorNameTitle": {
+    "description": "Dialog title for the prompt that sets the default annotation author name."
+  },
+  "lineStyleDashDot": "Dash-dot",
+  "@lineStyleDashDot": {
+    "description": "Border line style: an alternating dash-dot line."
+  },
+  "lineStyleDashed": "Dashed",
+  "@lineStyleDashed": {
+    "description": "Border line style: a dashed line."
+  },
+  "lineStyleDotted": "Dotted",
+  "@lineStyleDotted": {
+    "description": "Border line style: a dotted line."
+  },
+  "lineStyleSolid": "Solid",
+  "@lineStyleSolid": {
+    "description": "Border line style: an unbroken solid line."
+  },
+  "measCalibrate": "Calibrate",
+  "@measCalibrate": {
+    "description": "Button that switches from typing a scale to calibrating by drawing a reference segment."
+  },
+  "measCalibrateScale": "Calibrate scale",
+  "@measCalibrateScale": {
+    "description": "Title of the dialog asking how long a just-drawn reference segment is in the real world."
+  },
+  "measDepthLabel": "Depth: ",
+  "@measDepthLabel": {
+    "description": "Inline label preceding the volume depth input field."
+  },
+  "measKindAngle": "Angle",
+  "@measKindAngle": {
+    "description": "Measurement kind: an angle measurement."
+  },
+  "measKindArc": "Arc",
+  "@measKindArc": {
+    "description": "Measurement kind: an arc-length measurement."
+  },
+  "measKindArea": "Area",
+  "@measKindArea": {
+    "description": "Measurement kind: an area measurement."
+  },
+  "measKindCount": "Count",
+  "@measKindCount": {
+    "description": "Measurement kind: a running count of tally marks."
+  },
+  "measKindLength": "Length",
+  "@measKindLength": {
+    "description": "Measurement kind: a distance/length measurement."
+  },
+  "measKindNetArea": "Net area",
+  "@measKindNetArea": {
+    "description": "Measurement kind: an area with cut-outs subtracted."
+  },
+  "measKindPerimeter": "Perimeter",
+  "@measKindPerimeter": {
+    "description": "Measurement kind: the perimeter of a shape."
+  },
+  "measKindSlope": "Slope",
+  "@measKindSlope": {
+    "description": "Measurement kind: a slope (rise over run)."
+  },
+  "measKindVolume": "Volume",
+  "@measKindVolume": {
+    "description": "Measurement kind: a volume (area times depth)."
+  },
+  "measLineRepresents": "The line you drew represents:",
+  "@measLineRepresents": {
+    "description": "Prompt above the length input in the calibration dialog, asking what real-world length the drawn line represents."
+  },
+  "measMeasure": "Measure",
+  "@measMeasure": {
+    "description": "Confirm button that applies the entered volume depth to complete the measurement."
+  },
+  "measSetScale": "Set measurement scale",
+  "@measSetScale": {
+    "description": "Title of the dialog that sets the drawing measurement scale."
+  },
+  "measSetScaleButton": "Set scale",
+  "@measSetScaleButton": {
+    "description": "Confirm button that applies the entered or calibrated measurement scale."
+  },
+  "measVolumeDepth": "Volume depth",
+  "@measVolumeDepth": {
+    "description": "Title of the dialog asking for the extrusion depth of a volume measurement."
+  },
+  "menuAddNode": "Add node",
+  "@menuAddNode": {
+    "description": "Annotation context-menu item that adds a vertex to a polyline or polygon at the click point."
+  },
+  "menuApplyAnnotationsToPagesTitle": "{count, plural, =1{Apply annotation to pages} other{Apply annotations to pages}}",
+  "@menuApplyAnnotationsToPagesTitle": {
+    "description": "Title of the page-range dialog when applying the selected annotation(s) to multiple pages.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "menuApplyToPages": "Apply to pages…",
+  "@menuApplyToPages": {
+    "description": "Annotation context-menu item that copies the selected annotation(s) to a range of pages."
+  },
+  "menuBringToFront": "Bring to front",
+  "@menuBringToFront": {
+    "description": "Annotation context-menu item that raises the selected annotation to the top of the z-order."
+  },
+  "menuCheck": "Check",
+  "@menuCheck": {
+    "description": "Form-field context-menu item that checks an unchecked check box."
+  },
+  "menuChooseValue": "Choose value…",
+  "@menuChooseValue": {
+    "description": "Form-field context-menu item that opens a list of options for a combo box or list box."
+  },
+  "menuClearCheck": "Clear check",
+  "@menuClearCheck": {
+    "description": "Form-field context-menu item that unchecks a checked check box."
+  },
+  "menuConvertToCheckBox": "Convert to check box",
+  "@menuConvertToCheckBox": {
+    "description": "Form-field context-menu item that converts the field to a check box."
+  },
+  "menuConvertToImageButton": "Convert to image button",
+  "@menuConvertToImageButton": {
+    "description": "Form-field context-menu item that converts the field to an image push button."
+  },
+  "menuConvertToTextField": "Convert to text field",
+  "@menuConvertToTextField": {
+    "description": "Form-field context-menu item that converts the field to a text field."
+  },
+  "menuDeleteField": "Delete field",
+  "@menuDeleteField": {
+    "description": "Form-field context-menu item that deletes the field."
+  },
+  "menuEditValue": "Edit value…",
+  "@menuEditValue": {
+    "description": "Form-field context-menu item that edits the value of a text field."
+  },
+  "menuFieldName": "Field name",
+  "@menuFieldName": {
+    "description": "Title of the prompt asking for a form field's new name when renaming."
+  },
+  "menuFieldValue": "Field value",
+  "@menuFieldValue": {
+    "description": "Title of the prompt asking for a form text field's value."
+  },
+  "menuFlattenForm": "Flatten form",
+  "@menuFlattenForm": {
+    "description": "Form-field context-menu item that flattens all form fields into page content."
+  },
+  "menuLock": "Lock",
+  "@menuLock": {
+    "description": "Annotation context-menu item that locks the selected annotation(s) so they can't be moved, resized, deleted, or edited (sets the /F Locked and LockedContents flags)."
+  },
+  "menuUnlock": "Unlock",
+  "@menuUnlock": {
+    "description": "Annotation context-menu item shown when right-clicking a locked annotation; unlocks it so it can be edited again."
+  },
+  "menuRecolour": "Recolour…",
+  "@menuRecolour": {
+    "description": "Annotation context-menu item that opens a color picker to recolour a pasted vector snapshot."
+  },
+  "menuRemoveNode": "Remove node",
+  "@menuRemoveNode": {
+    "description": "Annotation context-menu item that removes the nearest vertex of a polyline or polygon."
+  },
+  "menuSetAsDefaultStyle": "Set as default style",
+  "@menuSetAsDefaultStyle": {
+    "description": "Annotation context-menu item that captures the selected annotation's appearance as the default for new annotations of the same kind."
+  },
+  "menuRename": "Rename…",
+  "@menuRename": {
+    "description": "Form-field context-menu item that renames the field."
+  },
+  "menuSelectOption": "Select option",
+  "@menuSelectOption": {
+    "description": "Form-field context-menu item that selects the clicked option of a radio button group."
+  },
+  "menuSendToBack": "Send to back",
+  "@menuSendToBack": {
+    "description": "Annotation context-menu item that lowers the selected annotation to the bottom of the z-order."
+  },
+  "menuSetImage": "Set image…",
+  "@menuSetImage": {
+    "description": "Form-field context-menu item that sets the image of a push-button field."
+  },
+  "menuTextStyle": "Text style…",
+  "@menuTextStyle": {
+    "description": "Form-field context-menu item that opens the text style popup for a text field."
+  },
+  "none": "None",
+  "@none": {
+    "description": "Label for the absence of a selection or value."
+  },
+  "ok": "OK",
+  "@ok": {
+    "description": "Button that confirms a dialog."
+  },
+  "overlayColor": "Color",
+  "@overlayColor": {
+    "description": "Tooltip on the inline text-style chip button that opens the text color picker."
+  },
+  "overlayEditText": "Edit text",
+  "@overlayEditText": {
+    "description": "Tooltip on the selection chip button that opens the inline text editor for the selected annotation."
+  },
+  "overlayFont": "Font",
+  "@overlayFont": {
+    "description": "Tooltip on the inline text-style chip button that opens the font menu."
+  },
+  "overlayLarger": "Larger",
+  "@overlayLarger": {
+    "description": "Tooltip on the inline text-style chip button that increases the text size."
+  },
+  "overlayMore": "More",
+  "@overlayMore": {
+    "description": "Tooltip on the selection chip button that opens the annotation's overflow menu."
+  },
+  "overlayNote": "Note",
+  "@overlayNote": {
+    "description": "Title of the prompt asking for the body text of a sticky note annotation."
+  },
+  "overlaySmaller": "Smaller",
+  "@overlaySmaller": {
+    "description": "Tooltip on the inline text-style chip button that decreases the text size."
+  },
+  "overlayStampText": "Stamp text",
+  "@overlayStampText": {
+    "description": "Title of the prompt asking for the caption of a text stamp being placed on a page."
+  },
+  "linkDialogTitle": "Add link",
+  "@linkDialogTitle": {
+    "description": "Title of the dialog that collects a hyperlink's target when adding a link annotation."
+  },
+  "linkKindWeb": "Web address",
+  "@linkKindWeb": {
+    "description": "Label of the choice for an external (URL) hyperlink target in the Add-link dialog."
+  },
+  "linkKindPage": "Page in document",
+  "@linkKindPage": {
+    "description": "Label of the choice for an internal (jump to a page) hyperlink target in the Add-link dialog."
+  },
+  "linkUrlLabel": "URL",
+  "@linkUrlLabel": {
+    "description": "Text field label for the web address of an external hyperlink in the Add-link dialog."
+  },
+  "linkPageLabel": "Page number",
+  "@linkPageLabel": {
+    "description": "Text field label for the target page number of an internal hyperlink in the Add-link dialog."
+  },
+  "toolLink": "Link",
+  "@toolLink": {
+    "description": "Label and tooltip for the link tool in the editing toolbar."
+  },
+  "overlayUnderline": "Underline",
+  "@overlayUnderline": {
+    "description": "Tooltip on the inline text-style chip button that toggles underline."
+  },
+  "pageRangeErrorBounds": "Enter pages between 1 and {count}.",
+  "@pageRangeErrorBounds": {
+    "description": "Validation error in the page range dialog when a field is outside the valid page range.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "pageRangeErrorOrder": "The last page must not be before the first.",
+  "@pageRangeErrorOrder": {
+    "description": "Validation error in the page range dialog when the end page precedes the start page."
+  },
+  "pageRangeFrom": "From",
+  "@pageRangeFrom": {
+    "description": "Label for the start-page field in the page range dialog."
+  },
+  "pageRangePageCount": "{count, plural, =1{1 page} other{{count} pages}}",
+  "@pageRangePageCount": {
+    "description": "Shows the total number of pages in the document, above the page range fields.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "pageRangeTo": "To",
+  "@pageRangeTo": {
+    "description": "Label for the end-page field in the page range dialog."
+  },
+  "panelDragToMovePanel": "Drag to move panel",
+  "@panelDragToMovePanel": {
+    "description": "Tooltip on a docked sidebar panel's grab handle that redocks the panel by dragging."
+  },
+  "paste": "Paste",
+  "@paste": {
+    "description": "Generic button/menu label to paste from the clipboard."
+  },
+  "propAlign": "Align",
+  "@propAlign": {
+    "description": "Row label for the text alignment toggles."
+  },
+  "propAlignCenter": "Align center",
+  "@propAlignCenter": {
+    "description": "Tooltip on the center-align toggle button."
+  },
+  "propAlignLeft": "Align left",
+  "@propAlignLeft": {
+    "description": "Tooltip on the left-align toggle button."
+  },
+  "propAlignRight": "Align right",
+  "@propAlignRight": {
+    "description": "Tooltip on the right-align toggle button."
+  },
+  "propAnnotationCount": "{count, plural, =1{{count} annotation} other{{count} annotations}}",
+  "@propAnnotationCount": {
+    "description": "Title summarizing how many annotations are selected.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "propAuthor": "Author",
+  "@propAuthor": {
+    "description": "Label for the editable author of an annotation."
+  },
+  "propAutoSize": "Auto-size",
+  "@propAutoSize": {
+    "description": "Toggle label for a form text field's auto-size option."
+  },
+  "propBold": "Bold",
+  "@propBold": {
+    "description": "Tooltip on the bold toggle button."
+  },
+  "propBoldLetter": "B",
+  "@propBoldLetter": {
+    "description": "Single-letter label on the bold toggle button."
+  },
+  "propBundledFont": "Bundled font",
+  "@propBundledFont": {
+    "description": "Subtitle for a font bundled with the editor package."
+  },
+  "propCallout": "Callout",
+  "@propCallout": {
+    "description": "Type name shown for a callout annotation."
+  },
+  "propCharSpacing": "Char spacing",
+  "@propCharSpacing": {
+    "description": "Slider label for a free-text box's character spacing."
+  },
+  "propColor": "Color",
+  "@propColor": {
+    "description": "Row label for an annotation's or form field's color swatch."
+  },
+  "propColour": "Colour",
+  "@propColour": {
+    "description": "Row label for the form text field's colour swatch (British spelling as shown in the form style popup)."
+  },
+  "propContents": "Contents",
+  "@propContents": {
+    "description": "Label for the editable contents/text of an annotation."
+  },
+  "propEditsApplyToAll": "Edits apply to all compatible annotations",
+  "@propEditsApplyToAll": {
+    "description": "Subtitle explaining that edits in a multi-selection affect every compatible annotation."
+  },
+  "propFieldName": "Field name",
+  "@propFieldName": {
+    "description": "Label for the editable name of a selected form field."
+  },
+  "propFieldTypeCheckBox": "Check box",
+  "@propFieldTypeCheckBox": {
+    "description": "Form field type: a checkbox."
+  },
+  "propFieldTypeComboBox": "Combo box",
+  "@propFieldTypeComboBox": {
+    "description": "Form field type: a combo box (editable dropdown)."
+  },
+  "propFieldTypeImageButton": "Image button",
+  "@propFieldTypeImageButton": {
+    "description": "Form field type: a push button that displays an image."
+  },
+  "propFieldTypeListBox": "List box",
+  "@propFieldTypeListBox": {
+    "description": "Form field type: a scrollable list box."
+  },
+  "propFieldTypeRadioGroup": "Radio group",
+  "@propFieldTypeRadioGroup": {
+    "description": "Form field type: a group of radio buttons."
+  },
+  "propFieldTypeSignature": "Signature",
+  "@propFieldTypeSignature": {
+    "description": "Form field type: a digital signature field."
+  },
+  "propFieldTypeText": "Text field",
+  "@propFieldTypeText": {
+    "description": "Form field type: a text-input field."
+  },
+  "propFieldTypeTooltip": "Field type: {type}",
+  "@propFieldTypeTooltip": {
+    "description": "Tooltip on the form field-type menu, showing the current type.",
+    "placeholders": {
+      "type": {
+        "type": "String"
+      }
+    }
+  },
+  "propFieldTypeUnknown": "Unknown field",
+  "@propFieldTypeUnknown": {
+    "description": "Form field type shown when the field's type is not recognized."
+  },
+  "propFill": "Fill",
+  "@propFill": {
+    "description": "Row label for an annotation's fill-color swatch."
+  },
+  "propFont": "Font",
+  "@propFont": {
+    "description": "Row label for the font-family selector, and the title of the font picker dialog."
+  },
+  "propFontSubsetTooltip": "This font is subset - only the characters already used in the document can be typed.",
+  "@propFontSubsetTooltip": {
+    "description": "Warning tooltip on a document font that is subset and cannot type all characters."
+  },
+  "propFontWidth": "Font width",
+  "@propFontWidth": {
+    "description": "Slider label for a free-text box's horizontal font-width scale."
+  },
+  "propGeometryHeight": "H",
+  "@propGeometryHeight": {
+    "description": "Short label for the height field of an annotation's bounds."
+  },
+  "propGeometryWidth": "W",
+  "@propGeometryWidth": {
+    "description": "Short label for the width field of an annotation's bounds."
+  },
+  "propGeometryX": "X",
+  "@propGeometryX": {
+    "description": "Label for the X (horizontal position) field of an annotation's bounds."
+  },
+  "propGeometryY": "Y",
+  "@propGeometryY": {
+    "description": "Label for the Y (vertical position) field of an annotation's bounds."
+  },
+  "propItalic": "Italic",
+  "@propItalic": {
+    "description": "Tooltip on the italic toggle button."
+  },
+  "propItalicLetter": "I",
+  "@propItalicLetter": {
+    "description": "Single-letter label on the italic toggle button."
+  },
+  "propLimitedCharacters": "Limited characters",
+  "@propLimitedCharacters": {
+    "description": "Subtitle flagging a subset document font that supports only a limited character set."
+  },
+  "propLineEnd": "Line end",
+  "@propLineEnd": {
+    "description": "Row label for the end line-ending dropdown of a line/arrow annotation."
+  },
+  "propLineEndingButt": "Butt",
+  "@propLineEndingButt": {
+    "description": "Name of the butt (flat cap) line-ending style for a line/arrow annotation."
+  },
+  "propLineEndingCircle": "Circle",
+  "@propLineEndingCircle": {
+    "description": "Name of the circle line-ending style for a line/arrow annotation."
+  },
+  "propLineEndingClosedArrow": "Closed arrow",
+  "@propLineEndingClosedArrow": {
+    "description": "Name of the closed-arrow line-ending style for a line/arrow annotation."
+  },
+  "propLineEndingClosedArrowRev": "Closed arrow (rev.)",
+  "@propLineEndingClosedArrowRev": {
+    "description": "Name of the reversed closed-arrow line-ending style; 'rev.' abbreviates 'reversed'."
+  },
+  "propLineEndingDiamond": "Diamond",
+  "@propLineEndingDiamond": {
+    "description": "Name of the diamond line-ending style for a line/arrow annotation."
+  },
+  "propLineEndingOpenArrow": "Open arrow",
+  "@propLineEndingOpenArrow": {
+    "description": "Name of the open-arrow line-ending style for a line/arrow annotation."
+  },
+  "propLineEndingOpenArrowRev": "Open arrow (rev.)",
+  "@propLineEndingOpenArrowRev": {
+    "description": "Name of the reversed open-arrow line-ending style; 'rev.' abbreviates 'reversed'."
+  },
+  "propLineEndingSlash": "Slash",
+  "@propLineEndingSlash": {
+    "description": "Name of the slash line-ending style for a line/arrow annotation."
+  },
+  "propLineEndingSquare": "Square",
+  "@propLineEndingSquare": {
+    "description": "Name of the square line-ending style for a line/arrow annotation."
+  },
+  "propLineSpacing": "Line spacing",
+  "@propLineSpacing": {
+    "description": "Slider label for a free-text box's line spacing."
+  },
+  "propLineStart": "Line start",
+  "@propLineStart": {
+    "description": "Row label for the start line-ending dropdown of a line/arrow annotation."
+  },
+  "propLineType": "Line type",
+  "@propLineType": {
+    "description": "Row label for the line-style (solid/dashed) dropdown."
+  },
+  "propLoadFont": "Load font…",
+  "@propLoadFont": {
+    "description": "Font picker entry that opens a file picker to load a custom font."
+  },
+  "propLoadFontSubtitle": "TTF or OTF file",
+  "@propLoadFontSubtitle": {
+    "description": "Subtitle for the load-custom-font entry, naming the accepted file formats."
+  },
+  "propMoreColors": "More colors…",
+  "@propMoreColors": {
+    "description": "Tooltip on the button that opens the full color picker."
+  },
+  "propMultiline": "Multiline",
+  "@propMultiline": {
+    "description": "Toggle label for a form text field's multiline option."
+  },
+  "propNoFill": "No fill",
+  "@propNoFill": {
+    "description": "Tooltip on the button that clears an annotation's fill color."
+  },
+  "propNoFontsFound": "No fonts found",
+  "@propNoFontsFound": {
+    "description": "Empty-state message when a font search matches nothing."
+  },
+  "propNoOutline": "No outline",
+  "@propNoOutline": {
+    "description": "Tooltip on the button that clears a free-text box's outline color."
+  },
+  "propOpacity": "Opacity",
+  "@propOpacity": {
+    "description": "Slider label for an annotation's opacity."
+  },
+  "propOutline": "Outline",
+  "@propOutline": {
+    "description": "Row label for a free-text box's outline-color swatch."
+  },
+  "propPageLabel": "Page",
+  "@propPageLabel": {
+    "description": "Row label for the page number in a multi-annotation selection summary."
+  },
+  "propPageNumber": "Page {number}",
+  "@propPageNumber": {
+    "description": "Subtitle showing which page a selected annotation is on.",
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "propPropertiesTitle": "Properties",
+  "@propPropertiesTitle": {
+    "description": "Header title of the annotation properties panel."
+  },
+  "propRecentlyUsed": "Recently used",
+  "@propRecentlyUsed": {
+    "description": "Section header for the recently used fonts group in the font picker."
+  },
+  "propScale": "Scale",
+  "@propScale": {
+    "description": "Slider label for a line/arrow's scale multiplier."
+  },
+  "propSearchFonts": "Search fonts",
+  "@propSearchFonts": {
+    "description": "Hint text in the font picker's search field."
+  },
+  "propSectionAllFonts": "All fonts",
+  "@propSectionAllFonts": {
+    "description": "Font picker section header grouping all available fonts."
+  },
+  "propSectionAppearance": "Appearance",
+  "@propSectionAppearance": {
+    "description": "Section header for the appearance (color/stroke/opacity) controls in the annotation properties panel."
+  },
+  "propSectionContent": "Content",
+  "@propSectionContent": {
+    "description": "Section header for the contents/author controls in the annotation properties panel."
+  },
+  "propSectionFormField": "Form field",
+  "@propSectionFormField": {
+    "description": "Section header for the form-field controls in the annotation properties panel."
+  },
+  "propSectionInThisDocument": "In this document",
+  "@propSectionInThisDocument": {
+    "description": "Font picker section header grouping fonts already embedded in the open document."
+  },
+  "propSectionPositionSize": "Position & size (pt)",
+  "@propSectionPositionSize": {
+    "description": "Section header for the position and size fields; 'pt' means PDF points (the unit)."
+  },
+  "propSectionSelection": "Selection",
+  "@propSectionSelection": {
+    "description": "Section header for the summary of a multi-annotation selection."
+  },
+  "propSectionText": "Text",
+  "@propSectionText": {
+    "description": "Section header for the text-styling controls in the annotation properties panel."
+  },
+  "propSelectAnnotationPrompt": "Select an annotation to see its properties",
+  "@propSelectAnnotationPrompt": {
+    "description": "Empty-state message shown when no annotation is selected in the properties panel."
+  },
+  "propSize": "Size",
+  "@propSize": {
+    "description": "Slider label for the font size."
+  },
+  "propStandardPdfFont": "Standard PDF font",
+  "@propStandardPdfFont": {
+    "description": "Subtitle for one of the standard base-14 PDF font families in the font picker."
+  },
+  "propStroke": "Stroke",
+  "@propStroke": {
+    "description": "Slider label for an annotation's stroke width."
+  },
+  "propStyle": "Style",
+  "@propStyle": {
+    "description": "Row label for the bold/italic style toggles."
+  },
+  "propSystemFont": "System font",
+  "@propSystemFont": {
+    "description": "Subtitle for a font installed on the host platform."
+  },
+  "propType": "Type",
+  "@propType": {
+    "description": "Row label for a form field's or selection's type."
+  },
+  "propUnderline": "Underline",
+  "@propUnderline": {
+    "description": "Row label and tooltip for the free-text underline toggle."
+  },
+  "propVaries": "Varies",
+  "@propVaries": {
+    "description": "Placeholder shown when a property has mixed values across a multi-selection."
+  },
+  "redo": "Redo",
+  "@redo": {
+    "description": "Generic button/tooltip to redo the last undone change."
+  },
+  "reflowNoContent": "No extractable content",
+  "@reflowNoContent": {
+    "description": "Message shown in the reflow reading view when the document has no extractable text or images."
+  },
+  "reflowPageLabel": "Page {number}",
+  "@reflowPageLabel": {
+    "description": "Heading above each page's content in the reflow reading view.",
+    "placeholders": {
+      "number": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "reflowSaveOrShare": "Save or share",
+  "@reflowSaveOrShare": {
+    "description": "Tooltip for the save/share action in the fullscreen figure viewer of the reflow view."
+  },
+  "reflowViewFigure": "View figure",
+  "@reflowViewFigure": {
+    "description": "Accessibility label for a tappable figure in the reflow view that opens it fullscreen."
+  },
+  "remove": "Remove",
+  "@remove": {
+    "description": "Generic button that removes the current item."
+  },
+  "rename": "Rename",
+  "@rename": {
+    "description": "Generic button/menu label to rename the current item."
+  },
+  "reset": "Reset",
+  "@reset": {
+    "description": "Generic button that resets a value to its default."
+  },
+  "save": "Save",
+  "@save": {
+    "description": "Generic button that saves the document or changes."
+  },
+  "sbarActionJavaScript": "JavaScript",
+  "@sbarActionJavaScript": {
+    "description": "Link target subtitle: runs a JavaScript action."
+  },
+  "sbarActionPage": "Page {page}",
+  "@sbarActionPage": {
+    "description": "Link target subtitle: jumps to the given 1-based page number.",
+    "placeholders": {
+      "page": {
+        "type": "int"
+      }
+    }
+  },
+  "sbarCallout": "Callout",
+  "@sbarCallout": {
+    "description": "Annotation title for a callout (a text box with a leader line)."
+  },
+  "sbarFieldButton": "Button field",
+  "@sbarFieldButton": {
+    "description": "Form-field type shown as an annotation title: a button (push/check/radio)."
+  },
+  "sbarFieldChoice": "Choice field",
+  "@sbarFieldChoice": {
+    "description": "Form-field type shown as an annotation title: a list/combo choice field."
+  },
+  "sbarFieldGeneric": "Form field",
+  "@sbarFieldGeneric": {
+    "description": "Fallback form-field type shown as an annotation title."
+  },
+  "sbarFieldSignature": "Signature field",
+  "@sbarFieldSignature": {
+    "description": "Form-field type shown as an annotation title: a digital-signature field."
+  },
+  "sbarFieldText": "Text field",
+  "@sbarFieldText": {
+    "description": "Form-field type shown as an annotation title: a text input field."
+  },
+  "sbarStateAccepted": "Accepted",
+  "@sbarStateAccepted": {
+    "description": "Review-state chip: the markup was accepted."
+  },
+  "sbarStateCancelled": "Cancelled",
+  "@sbarStateCancelled": {
+    "description": "Review-state chip: the markup was cancelled."
+  },
+  "sbarStateMarked": "Marked",
+  "@sbarStateMarked": {
+    "description": "Review-state chip: the markup is flagged/marked."
+  },
+  "sbarStateRejected": "Rejected",
+  "@sbarStateRejected": {
+    "description": "Review-state chip: the markup was rejected."
+  },
+  "sbarStateResolved": "Resolved",
+  "@sbarStateResolved": {
+    "description": "Review-state chip: the comment thread is resolved/completed."
+  },
+  "sbarStateUnmarked": "Unmarked",
+  "@sbarStateUnmarked": {
+    "description": "Review-state chip: the markup's mark was cleared."
+  },
+  "searchAnnotations": "Search annotations",
+  "@searchAnnotations": {
+    "description": "Tooltip on the search option toggle that also searches annotation contents (notes, comments, free text)."
+  },
+  "searchClearSearch": "Clear search",
+  "@searchClearSearch": {
+    "description": "Tooltip on the button that clears the document search field."
+  },
+  "searchEmptyHint": "Search the document to list every match here",
+  "@searchEmptyHint": {
+    "description": "Placeholder shown in the search results panel before any query is entered."
+  },
+  "searchMatchCase": "Match case",
+  "@searchMatchCase": {
+    "description": "Tooltip on the search option toggle that makes the query case-sensitive."
+  },
+  "searchMatchCount": "{count, plural, =1{1 match} other{{count} matches}}",
+  "@searchMatchCount": {
+    "description": "Header above the search results list showing how many matches were found.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "searchNextMatch": "Next match",
+  "@searchNextMatch": {
+    "description": "Tooltip on the button that steps to the next search match."
+  },
+  "searchNoMatches": "No matches for “{query}”",
+  "@searchNoMatches": {
+    "description": "Shown in the search results panel when the query found no matches.",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "searchPageHeader": "Page {page}",
+  "@searchPageHeader": {
+    "description": "Page group header in the search results list (1-based page number).",
+    "placeholders": {
+      "page": {
+        "type": "int"
+      }
+    }
+  },
+  "searchPreviousMatch": "Previous match",
+  "@searchPreviousMatch": {
+    "description": "Tooltip on the button that steps to the previous search match."
+  },
+  "searchRegex": "Regular expression",
+  "@searchRegex": {
+    "description": "Tooltip on the search option toggle that treats the query as a regular expression."
+  },
+  "searchResultsTitle": "Search results",
+  "@searchResultsTitle": {
+    "description": "Title of the docked search results panel."
+  },
+  "searchWholeWord": "Whole word",
+  "@searchWholeWord": {
+    "description": "Tooltip on the search option toggle that matches whole words only."
+  },
+  "shellControls": "Controls",
+  "@shellControls": {
+    "description": "Title and tooltip for the compact-layout Controls bottom sheet that holds the shell's toggles."
+  },
+  "shellDefaultAuthor": "Default author…",
+  "@shellDefaultAuthor": {
+    "description": "Menu item that opens a prompt to set the default annotation author name."
+  },
+  "shellHighlightFormFields": "Highlight form fields",
+  "@shellHighlightFormFields": {
+    "description": "Toggle label controlling whether form fields are highlighted."
+  },
+  "shellKeyboardShortcutsMenu": "Keyboard shortcuts…",
+  "@shellKeyboardShortcutsMenu": {
+    "description": "Menu item that opens the keyboard shortcuts editor."
+  },
+  "shellKeyboardShortcutsTitle": "Keyboard shortcuts",
+  "@shellKeyboardShortcutsTitle": {
+    "description": "Header of the keyboard shortcuts editor bottom sheet."
+  },
+  "shellShortcutsSearchHint": "Search shortcuts",
+  "@shellShortcutsSearchHint": {
+    "description": "Placeholder text in the search field of the keyboard shortcuts editor."
+  },
+  "shellShortcutsNoMatches": "No shortcuts match “{query}”",
+  "@shellShortcutsNoMatches": {
+    "description": "Message shown when a keyboard-shortcuts search matches no tools.",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  },
+  "shellShortcutGroupSelect": "Select",
+  "@shellShortcutGroupSelect": {
+    "description": "Section header for the Select tool group in the keyboard shortcuts editor."
+  },
+  "shellShortcutGroupMarkup": "Markup",
+  "@shellShortcutGroupMarkup": {
+    "description": "Section header for the Markup tool group in the keyboard shortcuts editor."
+  },
+  "shellShortcutGroupDraw": "Draw",
+  "@shellShortcutGroupDraw": {
+    "description": "Section header for the Draw tool group in the keyboard shortcuts editor."
+  },
+  "shellShortcutGroupShapes": "Shapes",
+  "@shellShortcutGroupShapes": {
+    "description": "Section header for the Shapes tool group in the keyboard shortcuts editor."
+  },
+  "shellShortcutGroupInsert": "Insert",
+  "@shellShortcutGroupInsert": {
+    "description": "Section header for the Insert tool group in the keyboard shortcuts editor."
+  },
+  "shellShortcutGroupMeasure": "Measure",
+  "@shellShortcutGroupMeasure": {
+    "description": "Section header for the Measure tool group in the keyboard shortcuts editor."
+  },
+  "shellShortcutGroupEdit": "Edit",
+  "@shellShortcutGroupEdit": {
+    "description": "Section header for the Edit tool group in the keyboard shortcuts editor."
+  },
+  "shellNotSet": "Not set",
+  "@shellNotSet": {
+    "description": "Subtitle shown for the default author when no author name is configured."
+  },
+  "shellPageColor": "Page color…",
+  "@shellPageColor": {
+    "description": "Menu item that opens a color picker to change the page (paper) color."
+  },
+  "shellPageGrid": "Page grid",
+  "@shellPageGrid": {
+    "description": "Toggle label for the full-area page thumbnail grid view."
+  },
+  "shellPanelAnnotations": "Annotations",
+  "@shellPanelAnnotations": {
+    "description": "Name of the annotations list panel (toggle tooltip and sheet title)."
+  },
+  "shellPanelBookmarks": "Bookmarks",
+  "@shellPanelBookmarks": {
+    "description": "Name of the bookmarks/outline panel (toggle tooltip, control label, and sheet title)."
+  },
+  "shellPanelPages": "Pages",
+  "@shellPanelPages": {
+    "description": "Name of the page thumbnails panel (toggle tooltip, control label, and sheet title)."
+  },
+  "shellPanelProperties": "Properties",
+  "@shellPanelProperties": {
+    "description": "Name of the annotation properties panel (toggle tooltip and sheet title)."
+  },
+  "shellPanelSearchResults": "Search results",
+  "@shellPanelSearchResults": {
+    "description": "Name of the search results panel (toggle tooltip and sheet title)."
+  },
+  "shellPanels": "Panels",
+  "@shellPanels": {
+    "description": "Label preceding the grouped panel-toggle switch in the shell header."
+  },
+  "shellPressAKey": "Press a key",
+  "@shellPressAKey": {
+    "description": "Dialog title shown while capturing a keyboard shortcut for an editing tool."
+  },
+  "shellPressLetterKeyHint": "Press a letter key, add Shift for a variant, or Delete to clear.",
+  "@shellPressLetterKeyHint": {
+    "description": "Instructional text in the keyboard-shortcut capture dialog."
+  },
+  "shellReflow": "Reflow",
+  "@shellReflow": {
+    "description": "Compact control label that toggles the reflow (text reading) view."
+  },
+  "shellReflowText": "Reflow text",
+  "@shellReflowText": {
+    "description": "Toggle label for the reflow (text reading) view in the settings menu."
+  },
+  "shellResetZoom": "Reset zoom",
+  "@shellResetZoom": {
+    "description": "Tooltip for the button that resets the zoom level to 100%."
+  },
+  "shellSectionShell": "Shell",
+  "@shellSectionShell": {
+    "description": "Section header in the compact Controls sheet grouping shell panel toggles."
+  },
+  "shellSectionView": "View",
+  "@shellSectionView": {
+    "description": "Section header in the compact Controls sheet grouping display/view options."
+  },
+  "shellSettings": "Settings",
+  "@shellSettings": {
+    "description": "Label and tooltip for the view options (display settings) button and control."
+  },
+  "shellShowAnnotations": "Show annotations",
+  "@shellShowAnnotations": {
+    "description": "Toggle label controlling whether annotations are shown."
+  },
+  "shellTabHere": "Tab here",
+  "@shellTabHere": {
+    "description": "Drop hint shown when dragging a docked panel over another panel to combine them into a tabbed group."
+  },
+  "shellUnbound": "Unbound",
+  "@shellUnbound": {
+    "description": "Trailing label for a tool that has no keyboard shortcut assigned."
+  },
+  "shellZoom": "Zoom",
+  "@shellZoom": {
+    "description": "Tooltip for the zoom-level selector in the shell header."
+  },
+  "sidebarByAuthor": "by {author}",
+  "@sidebarByAuthor": {
+    "description": "Attribution shown beside a review-state chip, naming the author who set the state.",
+    "placeholders": {
+      "author": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarCancelSelection": "Cancel selection",
+  "@sidebarCancelSelection": {
+    "description": "Tooltip that exits the annotation multi-select mode."
+  },
+  "sidebarClearSearch": "Clear search",
+  "@sidebarClearSearch": {
+    "description": "Tooltip for the button that clears the annotation search field."
+  },
+  "sidebarDeleteSelected": "Delete selected",
+  "@sidebarDeleteSelected": {
+    "description": "Tooltip that deletes all checked annotations as one undo step."
+  },
+  "sidebarDeleteSignature": "Delete signature",
+  "@sidebarDeleteSignature": {
+    "description": "Tooltip for the button that removes a digital signature from a signature-field row."
+  },
+  "sidebarLockAnnotation": "Lock",
+  "@sidebarLockAnnotation": {
+    "description": "Tooltip for a sidebar row's button that locks the annotation so it can't be moved, resized, deleted, or edited."
+  },
+  "sidebarUnlockAnnotation": "Unlock",
+  "@sidebarUnlockAnnotation": {
+    "description": "Tooltip for a sidebar row's button that unlocks a locked annotation, making it editable again."
+  },
+  "sidebarMore": "More",
+  "@sidebarMore": {
+    "description": "Tooltip for a row's overflow (three-dot) menu holding thread actions."
+  },
+  "sidebarNoAnnotations": "No annotations",
+  "@sidebarNoAnnotations": {
+    "description": "Empty-state shown when the document has no annotations."
+  },
+  "sidebarNoMatchingAnnotations": "No matching annotations",
+  "@sidebarNoMatchingAnnotations": {
+    "description": "Empty-state shown when a search filter matches no annotations."
+  },
+  "sidebarPageHeader": "Page {number}",
+  "@sidebarPageHeader": {
+    "description": "Section header grouping a page's annotations in the sidebar, 1-based.",
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "sidebarRemoveSignatureBody": "This removes the digital signature from the document. You can undo this.",
+  "@sidebarRemoveSignatureBody": {
+    "description": "Body of the remove-signature confirm dialog when the signer name is unknown."
+  },
+  "sidebarRemoveSignatureBodyNamed": "This removes the digital signature by \"{name}\" from the document. You can undo this.",
+  "@sidebarRemoveSignatureBodyNamed": {
+    "description": "Body of the remove-signature confirm dialog naming the signer.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarRemoveSignatureTitle": "Remove signature?",
+  "@sidebarRemoveSignatureTitle": {
+    "description": "Title of the confirm dialog for removing a digital signature."
+  },
+  "sidebarReopen": "Reopen",
+  "@sidebarReopen": {
+    "description": "Menu entry that reopens a resolved comment thread."
+  },
+  "sidebarReply": "Reply",
+  "@sidebarReply": {
+    "description": "Menu entry and send button that adds a reply to a comment thread."
+  },
+  "sidebarResolve": "Resolve",
+  "@sidebarResolve": {
+    "description": "Menu entry that resolves an open comment thread."
+  },
+  "sidebarSearchHint": "Search annotations",
+  "@sidebarSearchHint": {
+    "description": "Placeholder text in the annotation sidebar's filter field."
+  },
+  "sidebarSelectedCount": "{count, plural, one{{count} selected} other{{count} selected}}",
+  "@sidebarSelectedCount": {
+    "description": "Count of annotations checked in the sidebar's multi-select header.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "sidebarSignatureChecking": "Checking…",
+  "@sidebarSignatureChecking": {
+    "description": "Status pill on a signature-field row while its validation is still being computed."
+  },
+  "sidebarSignatureTrusted": "Valid — trusted",
+  "@sidebarSignatureTrusted": {
+    "description": "Status pill on a signature-field row when the signature is cryptographically intact and chains to a trusted authority."
+  },
+  "sidebarSignatureUnverified": "Valid — unverified",
+  "@sidebarSignatureUnverified": {
+    "description": "Status pill when the signature is cryptographically intact but its signer does not chain to a configured trust anchor."
+  },
+  "sidebarSignatureInvalid": "Invalid",
+  "@sidebarSignatureInvalid": {
+    "description": "Status pill when the signature fails its cryptographic check (digest or signature mismatch)."
+  },
+  "sidebarSignatureSignedBy": "Signed by {name}",
+  "@sidebarSignatureSignedBy": {
+    "description": "Detail line naming the certificate subject that signed.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarSignatureSignedAt": "Signed {time}",
+  "@sidebarSignatureSignedAt": {
+    "description": "Detail line giving the signing time.",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarSignatureTrustedVia": "Trusted via {authority}",
+  "@sidebarSignatureTrustedVia": {
+    "description": "Detail line naming the trusted authority the signer chains to.",
+    "placeholders": {
+      "authority": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarSignatureUntrustedDetail": "Signer is not from a trusted authority",
+  "@sidebarSignatureUntrustedDetail": {
+    "description": "Detail line when the signer does not chain to any configured trust anchor."
+  },
+  "sidebarSignatureNoAnchors": "No trusted authorities are configured",
+  "@sidebarSignatureNoAnchors": {
+    "description": "Detail line when no trust anchors are configured, so trust can't be judged."
+  },
+  "sidebarSignatureModified": "Document was changed after signing",
+  "@sidebarSignatureModified": {
+    "description": "Detail line when the document was changed after this signature was applied."
+  },
+  "sidebarSignatureRevoked": "The signer's certificate was revoked",
+  "@sidebarSignatureRevoked": {
+    "description": "Detail line when the signer's certificate is listed as revoked by embedded material."
+  },
+  "sidebarSignatureTimestamped": "Timestamped {time}",
+  "@sidebarSignatureTimestamped": {
+    "description": "Detail line giving the trusted timestamp time.",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarSignatureLevel": "PAdES {level}",
+  "@sidebarSignatureLevel": {
+    "description": "Detail line naming the PAdES baseline level the signature reaches.",
+    "placeholders": {
+      "level": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarWriteReplyHint": "Write a reply…",
+  "@sidebarWriteReplyHint": {
+    "description": "Placeholder text in the inline reply text field."
+  },
+  "sigTitle": "Signature",
+  "@sigTitle": {
+    "description": "Title of the hand-drawn signature pad dialog."
+  },
+  "signIdCreate": "Create",
+  "@signIdCreate": {
+    "description": "Confirm button label in the create-signing-identity dialog."
+  },
+  "signIdEmail": "Email (optional)",
+  "@signIdEmail": {
+    "description": "Label for the optional email field in the create-signing-identity dialog."
+  },
+  "signIdName": "Name",
+  "@signIdName": {
+    "description": "Label for the name field in the create-signing-identity dialog."
+  },
+  "signIdNameHint": "Your name, as it should appear on the signature",
+  "@signIdNameHint": {
+    "description": "Hint text for the name field in the create-signing-identity dialog."
+  },
+  "signIdNameRequired": "Enter a name",
+  "@signIdNameRequired": {
+    "description": "Validation error when the name field in the create-signing-identity dialog is empty."
+  },
+  "signIdOrganization": "Organization (optional)",
+  "@signIdOrganization": {
+    "description": "Label for the optional organization field in the create-signing-identity dialog."
+  },
+  "signIdSelfSignedInfo": "This creates a self-signed identity. Signatures will read as \"signed, validity unknown\" in Adobe Acrobat and other readers - the same as their own self-signed IDs. The green checkmark requires a paid, publicly trusted CA.",
+  "@signIdSelfSignedInfo": {
+    "description": "Informational note in the create-signing-identity dialog explaining self-signed identity trust behavior."
+  },
+  "signIdTitle": "Create signing identity",
+  "@signIdTitle": {
+    "description": "Title of the create-signing-identity dialog."
+  },
+  "stampBox": "Box",
+  "@stampBox": {
+    "description": "Label of the button that adds a rectangle component to the stamp template."
+  },
+  "stampCircle": "Circle",
+  "@stampCircle": {
+    "description": "Label of the button that adds an ellipse component to the stamp template."
+  },
+  "stampCustomCaption": "Custom stamp",
+  "@stampCustomCaption": {
+    "description": "Default display name for a custom stamp that has no text component."
+  },
+  "stampDateFormat": "Date format",
+  "@stampDateFormat": {
+    "description": "Label for the dropdown selecting the date format used by stamp {{date}} fields."
+  },
+  "stampDeleteComponent": "Delete selected component",
+  "@stampDeleteComponent": {
+    "description": "Tooltip on the button that deletes the selected component of the stamp template."
+  },
+  "stampDeleteStamp": "Delete stamp",
+  "@stampDeleteStamp": {
+    "description": "Tooltip on the delete-stamp button in the stamp picker."
+  },
+  "stampEditStamp": "Edit stamp",
+  "@stampEditStamp": {
+    "description": "Tooltip on the edit-stamp button in the stamp picker, and title of the stamp editor dialog when editing an existing stamp."
+  },
+  "stampExport": "Export…",
+  "@stampExport": {
+    "description": "Label of the button that exports saved custom stamps out of the app."
+  },
+  "stampFieldDate": "Date",
+  "@stampFieldDate": {
+    "description": "Insertable stamp template field: the current date."
+  },
+  "stampFieldDateTime": "Date & time",
+  "@stampFieldDateTime": {
+    "description": "Insertable stamp template field: the current date and time."
+  },
+  "stampFieldTime": "Time",
+  "@stampFieldTime": {
+    "description": "Insertable stamp template field: the current time."
+  },
+  "stampFieldUsername": "Username",
+  "@stampFieldUsername": {
+    "description": "Insertable stamp template field: the current user's name."
+  },
+  "stampFont": "Font",
+  "@stampFont": {
+    "description": "Tooltip on the button that chooses the font of the selected stamp text component."
+  },
+  "stampFontBold": "Bold",
+  "@stampFontBold": {
+    "description": "Font-style modifier shown after a font family name in the stamp font menu."
+  },
+  "stampFontItalic": "Italic",
+  "@stampFontItalic": {
+    "description": "Font-style modifier shown after a font family name in the stamp font menu."
+  },
+  "stampHeight": "Height",
+  "@stampHeight": {
+    "description": "Label for the stamp template height input field."
+  },
+  "stampImage": "Image",
+  "@stampImage": {
+    "description": "Label of the button that adds an image component to the stamp template."
+  },
+  "stampImport": "Import…",
+  "@stampImport": {
+    "description": "Label of the button that imports saved custom stamps from outside the app."
+  },
+  "stampInsertField": "Insert field",
+  "@stampInsertField": {
+    "description": "Tooltip on the button that inserts a template field (date, time, username) into stamp text."
+  },
+  "stampMoreColors": "More colors…",
+  "@stampMoreColors": {
+    "description": "Tooltip on the button that opens a full color picker for the stamp color."
+  },
+  "stampNewStamp": "New stamp…",
+  "@stampNewStamp": {
+    "description": "Label of the stamp picker button that opens the stamp editor to create a new stamp."
+  },
+  "stampNewStampTitle": "New stamp",
+  "@stampNewStampTitle": {
+    "description": "Title of the stamp editor dialog when creating a new stamp."
+  },
+  "stampSelectTextToEdit": "Select text to edit",
+  "@stampSelectTextToEdit": {
+    "description": "Placeholder label shown on the stamp text input when no text component is selected."
+  },
+  "stampSelectedText": "Selected text",
+  "@stampSelectedText": {
+    "description": "Label for the text input editing the currently selected text component of a stamp."
+  },
+  "stampSignature": "Signature",
+  "@stampSignature": {
+    "description": "Label of the button that adds a drawn-signature component to the stamp template."
+  },
+  "stampStamps": "Stamps",
+  "@stampStamps": {
+    "description": "Title of the stamp picker dialog."
+  },
+  "stampText": "Text",
+  "@stampText": {
+    "description": "Label of the button that adds a text component to the stamp template."
+  },
+  "stampTime12Hour": "12 hr",
+  "@stampTime12Hour": {
+    "description": "Suffix in the stamp time-format preview marking a 12-hour (AM/PM) clock format."
+  },
+  "stampTime24Hour": "24 hr",
+  "@stampTime24Hour": {
+    "description": "Suffix in the stamp time-format preview marking a 24-hour clock format."
+  },
+  "stampTimeFormat": "Time format",
+  "@stampTimeFormat": {
+    "description": "Label for the dropdown selecting the time format used by stamp {{time}} fields."
+  },
+  "stampWidth": "Width",
+  "@stampWidth": {
+    "description": "Label for the stamp template width input field."
+  },
+  "takeoffArea": "Area",
+  "@takeoffArea": {
+    "description": "Summary chip label for the total measured area."
+  },
+  "takeoffCount": "Count",
+  "@takeoffCount": {
+    "description": "Summary chip label for the total count of count-type measurements."
+  },
+  "takeoffEmpty": "No measurements yet.",
+  "@takeoffEmpty": {
+    "description": "Empty-state text when the document has no measurements."
+  },
+  "takeoffGroupCount": "{count, plural, one{{count} group} other{{count} groups}}",
+  "@takeoffGroupCount": {
+    "description": "Count of measurement groups shown in the takeoff panel header.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "takeoffItemCount": "{count, plural, one{{count} item} other{{count} items}}",
+  "@takeoffItemCount": {
+    "description": "Count of measurement items in a takeoff group row.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "takeoffLength": "Length",
+  "@takeoffLength": {
+    "description": "Summary chip label for the total measured length."
+  },
+  "takeoffTitle": "Takeoff",
+  "@takeoffTitle": {
+    "description": "Default header title of the measurement takeoff panel."
+  },
+  "tbAddInkAnnotation": "Add ink annotation",
+  "@tbAddInkAnnotation": {
+    "description": "Tooltip for committing the pending freehand ink drawing as an annotation."
+  },
+  "tbAlign": "Align",
+  "@tbAlign": {
+    "description": "Label for the text-alignment toggles row."
+  },
+  "tbAlignBottom": "Align bottom",
+  "@tbAlignBottom": {
+    "description": "Tooltip: align selected annotations to their bottom edges."
+  },
+  "tbAlignHorizontalCenters": "Align horizontal centers",
+  "@tbAlignHorizontalCenters": {
+    "description": "Tooltip: align selected annotations on their horizontal centers."
+  },
+  "tbAlignLeft": "Align left",
+  "@tbAlignLeft": {
+    "description": "Tooltip: align selected annotations to their left edges."
+  },
+  "tbAlignRight": "Align right",
+  "@tbAlignRight": {
+    "description": "Tooltip: align selected annotations to their right edges."
+  },
+  "tbAlignTop": "Align top",
+  "@tbAlignTop": {
+    "description": "Tooltip: align selected annotations to their top edges."
+  },
+  "tbAlignVerticalCenters": "Align vertical centers",
+  "@tbAlignVerticalCenters": {
+    "description": "Tooltip: align selected annotations on their vertical centers."
+  },
+  "tbAnnotationsFlattened": "Annotations flattened into the pages",
+  "@tbAnnotationsFlattened": {
+    "description": "Snackbar confirming annotations were baked into the page content."
+  },
+  "tbApplyRedactionsMessage": "The marked content will be permanently removed from the document. This cannot be undone.",
+  "@tbApplyRedactionsMessage": {
+    "description": "Warning body in the redaction confirmation dialog."
+  },
+  "tbApplyRedactionsTitle": "Apply redactions?",
+  "@tbApplyRedactionsTitle": {
+    "description": "Title of the confirmation dialog before applying redactions."
+  },
+  "tbApplyRedactionsTooltip": "Apply redactions (irreversible)",
+  "@tbApplyRedactionsTooltip": {
+    "description": "Tooltip for the button that permanently applies marked redactions."
+  },
+  "tbAutosizeTextBox": "Autosize text box (Alt+Z)",
+  "@tbAutosizeTextBox": {
+    "description": "Tooltip for auto-sizing a free-text box to its content, with keyboard shortcut."
+  },
+  "tbCalibrateScaleHint": "Draw a line of known length to calibrate the scale.",
+  "@tbCalibrateScaleHint": {
+    "description": "Snackbar guiding the user to draw a reference line when calibrating a measurement scale."
+  },
+  "tbCharSpacing": "Char spacing",
+  "@tbCharSpacing": {
+    "description": "Slider label for text character spacing."
+  },
+  "tbCheckBoxOption": "Check box",
+  "@tbCheckBoxOption": {
+    "description": "Menu option: create a check box form field."
+  },
+  "tbCheckMarksOnDocument": "Check-marks on the document",
+  "@tbCheckMarksOnDocument": {
+    "description": "Tooltip on the tally chip counting check-marks placed by the Count tool."
+  },
+  "tbCropImage": "Crop image",
+  "@tbCropImage": {
+    "description": "Tooltip on the button that starts cropping the selected image."
+  },
+  "tbCroppingImage": "Cropping image",
+  "@tbCroppingImage": {
+    "description": "Label shown on the toolbar while the image-crop tool is active."
+  },
+  "tbCropApply": "Apply crop",
+  "@tbCropApply": {
+    "description": "Tooltip on the button that confirms the pending image crop."
+  },
+  "tbCropCancel": "Cancel crop",
+  "@tbCropCancel": {
+    "description": "Tooltip on the button that abandons the pending image crop."
+  },
+  "tbCropReset": "Reset crop",
+  "@tbCropReset": {
+    "description": "Tooltip on the button that removes the crop and restores the whole image."
+  },
+  "tbColorLabel": "Color",
+  "@tbColorLabel": {
+    "description": "Short button label for the color-processing action."
+  },
+  "tbColorProcessingTooltip": "Color processing - find and replace page-content colors",
+  "@tbColorProcessingTooltip": {
+    "description": "Tooltip for the color-processing action that finds and replaces colors in page content."
+  },
+  "tbColorsReplaced": "{count, plural, =0{No matching colors found} =1{Replaced 1 color} other{Replaced {count} colors}}",
+  "@tbColorsReplaced": {
+    "description": "Snackbar reporting how many page-content colors were replaced by the color-processing tool.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "tbConvertToCheckBox": "Convert to check box",
+  "@tbConvertToCheckBox": {
+    "description": "Menu item converting the selected form field into a check box."
+  },
+  "tbConvertToImageButton": "Convert to image button",
+  "@tbConvertToImageButton": {
+    "description": "Menu item converting the selected form field into an image push-button."
+  },
+  "tbConvertToTextField": "Convert to text field",
+  "@tbConvertToTextField": {
+    "description": "Menu item converting the selected form field into a text field."
+  },
+  "tbCornerRadius": "Corner radius",
+  "@tbCornerRadius": {
+    "description": "Slider label for a rectangle's corner radius."
+  },
+  "tbDeleteAnnotations": "{count, plural, =1{Delete annotation} other{Delete {count} annotations}}",
+  "@tbDeleteAnnotations": {
+    "description": "Tooltip for deleting one or more selected annotations.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "tbDeleteElement": "Delete element",
+  "@tbDeleteElement": {
+    "description": "Tooltip for deleting the selected page-content element."
+  },
+  "tbDeleteField": "Delete field",
+  "@tbDeleteField": {
+    "description": "Tooltip/menu label for deleting the selected form field."
+  },
+  "tbDiscardDrawing": "Discard drawing",
+  "@tbDiscardDrawing": {
+    "description": "Tooltip for discarding the pending freehand ink drawing."
+  },
+  "tbDistributeHorizontally": "Distribute horizontally",
+  "@tbDistributeHorizontally": {
+    "description": "Tooltip: evenly space selected annotations horizontally."
+  },
+  "tbDistributeVertically": "Distribute vertically",
+  "@tbDistributeVertically": {
+    "description": "Tooltip: evenly space selected annotations vertically."
+  },
+  "tbDrawNewSignature": "Draw a new signature…",
+  "@tbDrawNewSignature": {
+    "description": "Tooltip for redrawing the signature used by the signature tool."
+  },
+  "tbEditAnnotationText": "Edit annotation text",
+  "@tbEditAnnotationText": {
+    "description": "Tooltip for editing the text of the selected annotation."
+  },
+  "tbEditTextStyle": "Edit text & style",
+  "@tbEditTextStyle": {
+    "description": "Tooltip for editing a page-content element's text and its style."
+  },
+  "tbElement": "Element",
+  "@tbElement": {
+    "description": "Strip label shown while a page-content element is selected."
+  },
+  "tbEraserSize": "Eraser size",
+  "@tbEraserSize": {
+    "description": "Slider label / tooltip for the ink eraser radius."
+  },
+  "tbFieldActions": "Field actions",
+  "@tbFieldActions": {
+    "description": "Tooltip for the overflow menu holding actions for the selected form field."
+  },
+  "tbFieldName": "Field name",
+  "@tbFieldName": {
+    "description": "Dialog title for renaming a form field."
+  },
+  "tbFieldNamed": "Field: {name}",
+  "@tbFieldNamed": {
+    "description": "Strip label showing the name of the selected form field.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "tbFieldValue": "Field value",
+  "@tbFieldValue": {
+    "description": "Dialog title for editing a form field's value."
+  },
+  "tbFill": "Fill",
+  "@tbFill": {
+    "description": "Color-row label for a shape's interior fill color."
+  },
+  "tbFingerDraws": "Finger draws - tap so it scrolls instead",
+  "@tbFingerDraws": {
+    "description": "Tooltip when finger drawing is on; tapping switches finger to scrolling."
+  },
+  "tbFingerScrolls": "Finger scrolls (pen draws) - tap so it draws",
+  "@tbFingerScrolls": {
+    "description": "Tooltip when finger scrolls and only the pen draws; tapping switches finger to drawing."
+  },
+  "tbFlattenAnnotationsTooltip": "Flatten annotations into the pages",
+  "@tbFlattenAnnotationsTooltip": {
+    "description": "Tooltip for the button that bakes annotations into page content."
+  },
+  "tbFlattenForm": "Flatten form",
+  "@tbFlattenForm": {
+    "description": "Menu item that flattens the form fields into the pages."
+  },
+  "tbFlattenFormBakeValues": "Flatten form - bake values into the pages",
+  "@tbFlattenFormBakeValues": {
+    "description": "Tooltip for flattening form fields so their values become permanent page content."
+  },
+  "tbFlattenLabel": "Flatten",
+  "@tbFlattenLabel": {
+    "description": "Short button label for flattening annotations into the pages."
+  },
+  "tbFont": "Font",
+  "@tbFont": {
+    "description": "Label for the font-family picker row."
+  },
+  "tbFontSize": "Font size",
+  "@tbFontSize": {
+    "description": "Slider label for the font size setting."
+  },
+  "tbFontWidth": "Font width",
+  "@tbFontWidth": {
+    "description": "Slider label for horizontal font scaling (glyph width)."
+  },
+  "tbFormFieldsFlattened": "Form fields flattened into the pages",
+  "@tbFormFieldsFlattened": {
+    "description": "Snackbar confirming form fields were baked into the page content."
+  },
+  "tbGroupDraw": "Draw",
+  "@tbGroupDraw": {
+    "description": "Toolbar dock group label: freehand drawing tools."
+  },
+  "tbGroupEdit": "Edit",
+  "@tbGroupEdit": {
+    "description": "Toolbar dock group label: document-editing tools (content/form/redact/…)."
+  },
+  "tbGroupInsert": "Insert",
+  "@tbGroupInsert": {
+    "description": "Toolbar dock group label: insert tools (text box/note/stamp/…)."
+  },
+  "tbGroupMarkup": "Markup",
+  "@tbGroupMarkup": {
+    "description": "Toolbar dock group label: text-markup tools (highlight/underline/…)."
+  },
+  "tbGroupMeasure": "Measure",
+  "@tbGroupMeasure": {
+    "description": "Toolbar dock group label: measurement tools."
+  },
+  "tbGroupSelect": "Select",
+  "@tbGroupSelect": {
+    "description": "Toolbar dock group label: the selection tools."
+  },
+  "tbGroupShapes": "Shapes",
+  "@tbGroupShapes": {
+    "description": "Toolbar dock group label: shape tools (rectangle/line/…)."
+  },
+  "tbImageButtonOption": "Image button",
+  "@tbImageButtonOption": {
+    "description": "Menu option: create an image push-button form field."
+  },
+  "tbLineEnd": "Line end",
+  "@tbLineEnd": {
+    "description": "Label for the dropdown selecting the end line-ending shape."
+  },
+  "tbLineSpacing": "Line spacing",
+  "@tbLineSpacing": {
+    "description": "Slider label for text line spacing."
+  },
+  "tbLineStart": "Line start",
+  "@tbLineStart": {
+    "description": "Label for the dropdown selecting the start line-ending shape."
+  },
+  "tbLineType": "Line type",
+  "@tbLineType": {
+    "description": "Label for the dropdown selecting a line's dash style."
+  },
+  "tbManageStamps": "Manage stamps…",
+  "@tbManageStamps": {
+    "description": "Stamp menu item that opens the manage-stamps dialog."
+  },
+  "tbMarkupHighlight": "Highlight",
+  "@tbMarkupHighlight": {
+    "description": "Text-markup action name: highlight the text selection."
+  },
+  "tbMarkupHighlightTip": "Highlight selection",
+  "@tbMarkupHighlightTip": {
+    "description": "Tooltip: highlight the current text selection."
+  },
+  "tbMarkupSquiggly": "Squiggly-underline",
+  "@tbMarkupSquiggly": {
+    "description": "Text-markup action name: squiggly-underline the text selection."
+  },
+  "tbMarkupSquigglyTip": "Squiggly-underline selection",
+  "@tbMarkupSquigglyTip": {
+    "description": "Tooltip: squiggly-underline the current text selection."
+  },
+  "tbMarkupStrikeOut": "Strike out",
+  "@tbMarkupStrikeOut": {
+    "description": "Text-markup action name: strike out the text selection."
+  },
+  "tbMarkupStrikeOutTip": "Strike out selection",
+  "@tbMarkupStrikeOutTip": {
+    "description": "Tooltip: strike out the current text selection."
+  },
+  "tbMarkupUnderline": "Underline",
+  "@tbMarkupUnderline": {
+    "description": "Text-markup action name: underline the text selection."
+  },
+  "tbMarkupUnderlineTip": "Underline selection",
+  "@tbMarkupUnderlineTip": {
+    "description": "Tooltip: underline the current text selection."
+  },
+  "tbMoreColors": "More colors…",
+  "@tbMoreColors": {
+    "description": "Tooltip for the button opening the full color picker."
+  },
+  "tbNameArrow": "Arrow",
+  "@tbNameArrow": {
+    "description": "Tool name: draw an arrow."
+  },
+  "tbNameCallout": "Callout",
+  "@tbNameCallout": {
+    "description": "Tool name: insert a callout (text box with a leader line)."
+  },
+  "tbNameCloudPolygon": "Cloud polygon",
+  "@tbNameCloudPolygon": {
+    "description": "Tool name: draw a cloud-outline polygon."
+  },
+  "tbNameCount": "Count",
+  "@tbNameCount": {
+    "description": "Tool name: drop tally check-marks."
+  },
+  "tbNameDigitalSignature": "Digital signature",
+  "@tbNameDigitalSignature": {
+    "description": "Tool name: place and cryptographically sign a signature box."
+  },
+  "tbNameDraw": "Draw",
+  "@tbNameDraw": {
+    "description": "Tool name: freehand ink drawing."
+  },
+  "tbNameEllipse": "Ellipse",
+  "@tbNameEllipse": {
+    "description": "Tool name: draw an ellipse shape."
+  },
+  "tbNameEraser": "Erase ink strokes",
+  "@tbNameEraser": {
+    "description": "Tool name: erases ink strokes."
+  },
+  "tbNameHighlight": "Highlight",
+  "@tbNameHighlight": {
+    "description": "Tool name: freehand highlighter."
+  },
+  "tbNameImage": "Image",
+  "@tbNameImage": {
+    "description": "Tool name: insert a raster image."
+  },
+  "tbNameLine": "Line",
+  "@tbNameLine": {
+    "description": "Tool name: draw a straight line."
+  },
+  "tbNameMeasureAngle": "Measure angle",
+  "@tbNameMeasureAngle": {
+    "description": "Tool name: measure an interior angle."
+  },
+  "tbNameMeasureArc": "Measure arc length",
+  "@tbNameMeasureArc": {
+    "description": "Tool name: measure an arc length."
+  },
+  "tbNameMeasureArea": "Measure area",
+  "@tbNameMeasureArea": {
+    "description": "Tool name: measure an area."
+  },
+  "tbNameMeasureDistance": "Measure distance",
+  "@tbNameMeasureDistance": {
+    "description": "Tool name: measure a straight-line distance."
+  },
+  "tbNameMeasurePerimeter": "Measure perimeter",
+  "@tbNameMeasurePerimeter": {
+    "description": "Tool name: measure a perimeter."
+  },
+  "tbNameMeasureSlope": "Measure slope (rise/run)",
+  "@tbNameMeasureSlope": {
+    "description": "Tool name: measure a slope as rise over run."
+  },
+  "tbNameMeasureVolume": "Measure volume (area × depth)",
+  "@tbNameMeasureVolume": {
+    "description": "Tool name: measure a volume as area times depth."
+  },
+  "tbNameNote": "Note",
+  "@tbNameNote": {
+    "description": "Tool name: insert a sticky note."
+  },
+  "tbNamePolygon": "Polygon",
+  "@tbNamePolygon": {
+    "description": "Tool name: draw a closed polygon."
+  },
+  "tbNamePolyline": "Polyline",
+  "@tbNamePolyline": {
+    "description": "Tool name: draw an open multi-segment line."
+  },
+  "tbNameRectangle": "Rectangle",
+  "@tbNameRectangle": {
+    "description": "Tool name: draw a rectangle shape."
+  },
+  "tbNameSelect": "Select",
+  "@tbNameSelect": {
+    "description": "Tool name: the select/move tool."
+  },
+  "tbNameSignature": "Signature",
+  "@tbNameSignature": {
+    "description": "Tool name: place a saved handwritten signature."
+  },
+  "tbNameStamp": "Stamp",
+  "@tbNameStamp": {
+    "description": "Tool name: insert a rubber stamp."
+  },
+  "tbNameTextBox": "Text box",
+  "@tbNameTextBox": {
+    "description": "Tool name: insert a free-text box."
+  },
+  "tbNewFieldType": "New field type - drag on a page to add one",
+  "@tbNewFieldType": {
+    "description": "Tooltip for the menu selecting which type of form field a drag will create."
+  },
+  "tbNoAnnotationsToFlatten": "No annotations to flatten",
+  "@tbNoAnnotationsToFlatten": {
+    "description": "Snackbar shown when the flatten action runs but there are no annotations."
+  },
+  "tbNoCustomStamps": "No custom stamps",
+  "@tbNoCustomStamps": {
+    "description": "Placeholder shown in the stamp menu when no custom stamps are saved."
+  },
+  "tbNoFormFieldsToFlatten": "No form fields to flatten",
+  "@tbNoFormFieldsToFlatten": {
+    "description": "Snackbar shown when the flatten-form action runs but there are no form fields."
+  },
+  "tbNoRedactionsToApply": "No redactions to apply",
+  "@tbNoRedactionsToApply": {
+    "description": "Snackbar shown when applying redactions but none are marked."
+  },
+  "tbNoteTitle": "Note",
+  "@tbNoteTitle": {
+    "description": "Dialog title for editing a sticky-note annotation's text."
+  },
+  "tbOpacity": "Opacity",
+  "@tbOpacity": {
+    "description": "Slider label for the opacity setting."
+  },
+  "tbOutline": "Outline",
+  "@tbOutline": {
+    "description": "Color-row label for a shape's outline (stroke) color."
+  },
+  "tbPatternScale": "Pattern scale",
+  "@tbPatternScale": {
+    "description": "Slider label for the dash-pattern scale of a line."
+  },
+  "tbPickColorFromPage": "Pick a color from the page",
+  "@tbPickColorFromPage": {
+    "description": "Tooltip for the eyedropper that samples a color from the page."
+  },
+  "tbRedactionsApplied": "Redactions applied",
+  "@tbRedactionsApplied": {
+    "description": "Snackbar confirming redactions were applied."
+  },
+  "tbRedoShortcut": "Redo (⇧⌘Z)",
+  "@tbRedoShortcut": {
+    "description": "Tooltip for the Redo button, including its keyboard shortcut."
+  },
+  "tbReflowFailed": "Couldn't reflow - this isn't a single-column paragraph this tool can re-wrap. Try Replace text instead.",
+  "@tbReflowFailed": {
+    "description": "Snackbar shown when a paragraph cannot be reflowed because it is not a simple single-column paragraph."
+  },
+  "tbReflowParagraph": "Reflow paragraph",
+  "@tbReflowParagraph": {
+    "description": "Title/tooltip for re-wrapping a whole paragraph of page content after an edit."
+  },
+  "tbRenameField": "Rename field",
+  "@tbRenameField": {
+    "description": "Tooltip for the button that renames the selected form field."
+  },
+  "tbRenameFieldEllipsis": "Rename field…",
+  "@tbRenameFieldEllipsis": {
+    "description": "Menu item that opens a dialog to rename a form field."
+  },
+  "tbReplaceImage": "Replace image",
+  "@tbReplaceImage": {
+    "description": "Tooltip for replacing the selected page-content image."
+  },
+  "tbReplaceImageFailed": "Couldn't replace image",
+  "@tbReplaceImageFailed": {
+    "description": "Snackbar shown when replacing a selected page-content image fails."
+  },
+  "tbReplaceText": "Replace text",
+  "@tbReplaceText": {
+    "description": "Title/tooltip for replacing the text of a selected page-content element."
+  },
+  "tbSaveImage": "Save image",
+  "@tbSaveImage": {
+    "description": "Tooltip for exporting the selected page-content image."
+  },
+  "tbSaveShortcut": "Save… (⌘S / Ctrl+S)",
+  "@tbSaveShortcut": {
+    "description": "Tooltip for the Save button, including its keyboard shortcut."
+  },
+  "tbScale": "Scale",
+  "@tbScale": {
+    "description": "Leading label of the measurement-scale chip."
+  },
+  "tbSelectTextForMarkup": "Select text to use markup",
+  "@tbSelectTextForMarkup": {
+    "description": "Hint shown when the markup tools are open but no text is selected."
+  },
+  "tbSelectionCount": "{count, plural, =1{Selection} other{{count} selected}}",
+  "@tbSelectionCount": {
+    "description": "Strip label for one or more selected annotations.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "tbSetEllipsis": "Set…",
+  "@tbSetEllipsis": {
+    "description": "Value shown on the measurement-scale chip when no scale is set yet."
+  },
+  "tbStamp": "Stamp",
+  "@tbStamp": {
+    "description": "Label/header for the Stamp tool and its menu."
+  },
+  "tbStampText": "Stamp text",
+  "@tbStampText": {
+    "description": "Dialog title for editing a stamp annotation's text."
+  },
+  "tbStrokeOpacityFont": "Stroke, opacity, font",
+  "@tbStrokeOpacityFont": {
+    "description": "Tooltip for the tune button opening stroke, opacity and font controls."
+  },
+  "tbStrokeWidthLabel": "Stroke width",
+  "@tbStrokeWidthLabel": {
+    "description": "Slider label for the stroke width setting."
+  },
+  "tbStrokeWidthPreset": "Stroke {width}",
+  "@tbStrokeWidthPreset": {
+    "description": "Tooltip on a quick stroke-width preset swatch, showing the numeric width.",
+    "placeholders": {
+      "width": {
+        "type": "String"
+      }
+    }
+  },
+  "tbStyle": "Style",
+  "@tbStyle": {
+    "description": "Label for the bold/italic font-style toggles row."
+  },
+  "tbTakeoffTotals": "Takeoff totals",
+  "@tbTakeoffTotals": {
+    "description": "Tooltip for the button opening the measurement takeoff totals panel."
+  },
+  "tbTextBorder": "Text border",
+  "@tbTextBorder": {
+    "description": "Color-row label for a text box's border color."
+  },
+  "tbTextColour": "Text colour",
+  "@tbTextColour": {
+    "description": "Color-row label for the text foreground color."
+  },
+  "tbTextFieldOption": "Text field",
+  "@tbTextFieldOption": {
+    "description": "Menu option: create a text form field."
+  },
+  "tbTextFill": "Text fill",
+  "@tbTextFill": {
+    "description": "Color-row label for a text box's fill (background) color."
+  },
+  "tbTextStyleEllipsis": "Text style…",
+  "@tbTextStyleEllipsis": {
+    "description": "Menu item that opens the text-style controls for a form field."
+  },
+  "tbTextTitle": "Text",
+  "@tbTextTitle": {
+    "description": "Dialog title for editing a free-text annotation's text."
+  },
+  "tbTipCallout": "Callout - drag from the point to where the box goes",
+  "@tbTipCallout": {
+    "description": "Tooltip for the callout tool, explaining the drag gesture."
+  },
+  "tbTipContent": "Edit page content",
+  "@tbTipContent": {
+    "description": "Tooltip for the page-content editing tool."
+  },
+  "tbTipCount": "Count - tap to drop check-marks and tally them",
+  "@tbTipCount": {
+    "description": "Tooltip for the count tool."
+  },
+  "tbTipDigitalSignature": "Digital signature - drag a box to place and sign",
+  "@tbTipDigitalSignature": {
+    "description": "Tooltip for the digital-signature box tool."
+  },
+  "tbTipForm": "Form fields - tap to select, double-tap to fill, drag to add",
+  "@tbTipForm": {
+    "description": "Tooltip for the form-fields tool."
+  },
+  "tbTipHighlightDraw": "Highlight - draw freehand",
+  "@tbTipHighlightDraw": {
+    "description": "Tooltip for the freehand highlighter tool."
+  },
+  "tbTipImage": "Image - tap to place, or drag out a box",
+  "@tbTipImage": {
+    "description": "Tooltip for the insert-image tool."
+  },
+  "tbTipMeasureAngle": "Measure angle - click three points",
+  "@tbTipMeasureAngle": {
+    "description": "Tooltip for the angle-measurement tool."
+  },
+  "tbTipMeasureArc": "Measure arc length - click three points",
+  "@tbTipMeasureArc": {
+    "description": "Tooltip for the arc-length-measurement tool."
+  },
+  "tbTipRedact": "Redact - drag a region, then apply",
+  "@tbTipRedact": {
+    "description": "Tooltip for the redaction tool."
+  },
+  "tbTipSignature": "Signature - tap a page to place it",
+  "@tbTipSignature": {
+    "description": "Tooltip for placing a saved handwritten signature."
+  },
+  "tbTipSnapshot": "Snapshot - drag a region to capture it (paste back as vector)",
+  "@tbTipSnapshot": {
+    "description": "Tooltip for the snapshot capture tool."
+  },
+  "tbToolContent": "Content",
+  "@tbToolContent": {
+    "description": "Label for the page-content editing tool."
+  },
+  "tbToolForm": "Form",
+  "@tbToolForm": {
+    "description": "Label for the form-fields editing tool."
+  },
+  "tbToolRedact": "Redact",
+  "@tbToolRedact": {
+    "description": "Label for the redaction tool."
+  },
+  "tbToolSnapshot": "Snapshot",
+  "@tbToolSnapshot": {
+    "description": "Label for the snapshot (region capture) tool."
+  },
+  "tbTools": "Tools",
+  "@tbTools": {
+    "description": "Label on the mobile handle that opens the tools bottom sheet."
+  },
+  "tbTotals": "Totals",
+  "@tbTotals": {
+    "description": "Label for the button opening the measurement takeoff totals panel."
+  },
+  "tbTypeTextEachTime": "Type text each time",
+  "@tbTypeTextEachTime": {
+    "description": "Stamp menu option: prompt for stamp text on each placement instead of a saved stamp."
+  },
+  "tbUnderline": "Underline",
+  "@tbUnderline": {
+    "description": "Tooltip for the whole-box underline toggle."
+  },
+  "tbUndoShortcut": "Undo (⌘Z)",
+  "@tbUndoShortcut": {
+    "description": "Tooltip for the Undo button, including its keyboard shortcut."
+  },
+  "textStyleFont": "Font",
+  "@textStyleFont": {
+    "description": "Label for the font row in the styled-text editor dialog."
+  },
+  "textStyleFontSize": "Font size",
+  "@textStyleFontSize": {
+    "description": "Label for the font-size slider in the styled-text editor dialog."
+  },
+  "textStyleKeep": "keep",
+  "@textStyleKeep": {
+    "description": "Shown in place of a font-size value when the size override is left untouched (keeps the run's existing size)."
+  },
+  "textStyleStyle": "Style",
+  "@textStyleStyle": {
+    "description": "Label for the bold/italic style row in the styled-text editor dialog."
+  },
+  "textStyleText": "Text",
+  "@textStyleText": {
+    "description": "Label for the text field in the styled-text editor dialog."
+  },
+  "textStyleTextFill": "Text fill",
+  "@textStyleTextFill": {
+    "description": "Label for the text-fill colour row in the styled-text editor dialog."
+  },
+  "textStyleTitle": "Edit text & style",
+  "@textStyleTitle": {
+    "description": "Title of the styled-text editor dialog."
+  },
+  "thumbAddPage": "Add page",
+  "@thumbAddPage": {
+    "description": "Footer button that appends a blank page in the thumbnail strip/grid."
+  },
+  "thumbClearSelection": "Clear selection",
+  "@thumbClearSelection": {
+    "description": "Tooltip: clear the current multi-page selection."
+  },
+  "thumbCopyPages": "{count, plural, one{Copy page} other{Copy {count} pages}}",
+  "@thumbCopyPages": {
+    "description": "Page context-menu entry: copy the target page(s) to the clipboard, counted.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "thumbCopySelectedPages": "Copy selected pages",
+  "@thumbCopySelectedPages": {
+    "description": "Tooltip: copy the selected pages to the page clipboard."
+  },
+  "thumbCutPages": "{count, plural, one{Cut page} other{Cut {count} pages}}",
+  "@thumbCutPages": {
+    "description": "Page context-menu entry: cut the target page(s) to the clipboard, counted.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "thumbCutSelectedPages": "Cut selected pages",
+  "@thumbCutSelectedPages": {
+    "description": "Tooltip: cut the selected pages to the page clipboard."
+  },
+  "thumbDeletePages": "{count, plural, one{Delete page} other{Delete {count} pages}}",
+  "@thumbDeletePages": {
+    "description": "Page context-menu entry (and per-tile delete accessibility label): delete the target page(s), counted.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "thumbDeleteSelectedPages": "Delete selected pages",
+  "@thumbDeleteSelectedPages": {
+    "description": "Tooltip: delete the selected pages from the document."
+  },
+  "thumbDuplicatePages": "{count, plural, one{Duplicate page} other{Duplicate {count} pages}}",
+  "@thumbDuplicatePages": {
+    "description": "Page context-menu entry: duplicate the target page(s), counted.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "thumbExportPagesEllipsis": "Export pages…",
+  "@thumbExportPagesEllipsis": {
+    "description": "Menu entry that opens the export page-range dialog."
+  },
+  "thumbExportPagesMenu": "{count, plural, one{Export page…} other{Export {count} pages…}}",
+  "@thumbExportPagesMenu": {
+    "description": "Page context-menu entry: export the target page(s) to a standalone PDF, counted.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "thumbExportSelectedPages": "Export selected pages",
+  "@thumbExportSelectedPages": {
+    "description": "Tooltip: export the selected pages to a standalone PDF."
+  },
+  "thumbInsertBlankAfter": "Insert blank page after",
+  "@thumbInsertBlankAfter": {
+    "description": "Page context-menu entry: insert a blank page after the right-clicked page."
+  },
+  "thumbInsertBlankBefore": "Insert blank page before",
+  "@thumbInsertBlankBefore": {
+    "description": "Page context-menu entry: insert a blank page before the right-clicked page."
+  },
+  "thumbInsertFileFailed": "Couldn't insert that file.",
+  "@thumbInsertFileFailed": {
+    "description": "Snackbar shown when a picked file can't be inserted (non-PDF, corrupt, or password-protected)."
+  },
+  "thumbInsertPdf": "Insert PDF…",
+  "@thumbInsertPdf": {
+    "description": "Menu entry that inserts all pages of another picked PDF after the current page."
+  },
+  "thumbPageActions": "Page actions",
+  "@thumbPageActions": {
+    "description": "Tooltip for the page-actions menu button (insert PDF, export pages, paste)."
+  },
+  "thumbPageNumber": "Page {number}",
+  "@thumbPageNumber": {
+    "description": "A single page's 1-based label, e.g. on a thumbnail tile footer or drag feedback.",
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "thumbPages": "Pages",
+  "@thumbPages": {
+    "description": "Header label above the page thumbnail strip/grid."
+  },
+  "thumbPastePages": "{count, plural, one{Paste page} other{Paste {count} pages}}",
+  "@thumbPastePages": {
+    "description": "Menu label to paste the page clipboard's pages, counted.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "thumbRotate180": "Rotate 180°",
+  "@thumbRotate180": {
+    "description": "Page context-menu entry: rotate the page 180 degrees."
+  },
+  "thumbRotateLeft": "Rotate left",
+  "@thumbRotateLeft": {
+    "description": "Page context-menu entry: rotate the page 90 degrees counter-clockwise."
+  },
+  "thumbRotatePageRight": "Rotate page right",
+  "@thumbRotatePageRight": {
+    "description": "Accessibility label for the per-tile rotate-right button."
+  },
+  "thumbRotateRight": "Rotate right",
+  "@thumbRotateRight": {
+    "description": "Page context-menu entry: rotate the page 90 degrees clockwise."
+  },
+  "thumbRotateSelectedLeft": "Rotate selected pages left",
+  "@thumbRotateSelectedLeft": {
+    "description": "Tooltip: rotate the selected pages 90 degrees counter-clockwise."
+  },
+  "thumbRotateSelectedRight": "Rotate selected pages right",
+  "@thumbRotateSelectedRight": {
+    "description": "Tooltip: rotate the selected pages 90 degrees clockwise."
+  },
+  "thumbSelectedCount": "{count, plural, one{{count} selected} other{{count} selected}}",
+  "@thumbSelectedCount": {
+    "description": "Count of pages currently selected in the thumbnail strip/grid.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "undo": "Undo",
+  "@undo": {
+    "description": "Generic button/tooltip to undo the last change."
+  },
+  "viewerEditFontUnsafe": "This PDF font or encoding cannot be edited safely.",
+  "@viewerEditFontUnsafe": {
+    "description": "Toast shown when the selected text's font or encoding cannot be edited safely."
+  },
+  "viewerEditNeedsSinglePage": "Editing requires a selection on one page.",
+  "@viewerEditNeedsSinglePage": {
+    "description": "Toast shown when the user tries to edit text whose selection spans more than one page."
+  },
+  "viewerEditNotEditableRun": "This selection is not one editable page-content text run.",
+  "@viewerEditNotEditableRun": {
+    "description": "Toast shown when the selection cannot be resolved to a single editable page-content text run."
+  },
+  "viewerEditStyleUnchangeable": "This PDF font can be re-typed, but its style cannot be changed.",
+  "@viewerEditStyleUnchangeable": {
+    "description": "Toast shown when the selected text's font allows re-typing but not style changes."
+  },
+  "viewerEditTextStyle": "Edit text & style",
+  "@viewerEditTextStyle": {
+    "description": "Menu item and chip tooltip to edit selected page-content text together with its style."
+  },
+  "viewerMarkup": "Markup",
+  "@viewerMarkup": {
+    "description": "Tooltip for the text-markup menu button on the text selection chip."
+  },
+  "viewerMarkupHighlight": "Highlight",
+  "@viewerMarkupHighlight": {
+    "description": "Markup menu item that applies a highlight to the selected text."
+  },
+  "viewerMarkupSquiggly": "Squiggly",
+  "@viewerMarkupSquiggly": {
+    "description": "Markup menu item that applies a squiggly underline to the selected text."
+  },
+  "viewerMarkupStrikeOut": "Strike out",
+  "@viewerMarkupStrikeOut": {
+    "description": "Markup menu item that applies a strikethrough to the selected text."
+  },
+  "viewerMarkupUnderline": "Underline",
+  "@viewerMarkupUnderline": {
+    "description": "Markup menu item that applies an underline to the selected text."
+  },
+  "viewerSelectAll": "Select all",
+  "@viewerSelectAll": {
+    "description": "Menu/chip action that selects all text on the current page."
+  }
+}

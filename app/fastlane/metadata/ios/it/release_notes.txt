@@ -1,0 +1,6 @@
+Novità della 3.1.1
+
+SCORRIMENTO PIÙ FLUIDO
+• I PDF grandi o ricchi di elementi ora restano più reattivi durante lo scorrimento rapido.
+• Le anteprime restano visibili mentre ti sposti velocemente e poi tornano nitide a pieno dettaglio.
+• Il lavoro di rendering viene distribuito in modo più uniforme, riducendo i fotogrammi persi occasionali.

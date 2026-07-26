@@ -1,0 +1,4 @@
+Novedades de la 3.1.1
+
+• Desplazamiento más fluido en PDF grandes o visualmente densos, con menos saltos de imagen.
+• Las vistas previas siguen visibles al desplazarte rápido y después recuperan todos los detalles.

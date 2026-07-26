@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 
@@ -146,5 +147,19 @@ void main() {
     expect(controller.tuning.previewWindow, 2);
     expect(controller.tuning.vectorFirstPreviews, isTrue);
     expect(controller.beginWorkerGeneration(), 1);
+  });
+
+  group('pdfDefaultTileStoreDetail (issue #314/#360 rollout)', () {
+    tearDown(() => debugDefaultTargetPlatformOverride = null);
+
+    test('on for every platform once the budget-vs-demand guard landed', () {
+      // The guard falls back to the single detail patch for views too dense to
+      // tile within budget, so the pyramid no longer thrashes on HiDPI/web -
+      // it is the default everywhere (mobile included, memory permitting).
+      for (final platform in TargetPlatform.values) {
+        debugDefaultTargetPlatformOverride = platform;
+        expect(pdfDefaultTileStoreDetail(), isTrue, reason: '$platform');
+      }
+    });
   });
 }

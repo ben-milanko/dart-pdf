@@ -20,6 +20,7 @@ import 'dart:typed_data';
 import 'dart:ui' show Rect;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor/src/region_replay_index.dart';
 import 'package:dart_pdf_editor/src/render_worker_isolate.dart'
     as isolate_worker;
 import 'package:flutter_test/flutter_test.dart';
@@ -436,16 +437,19 @@ void main() {
       (tester) async {
     await tester.runAsync(() async {
       final bytes = _buildTwoPageDenseVectorPdf();
-      final worker = PdfRenderWorker.startUncached(bytes);
-      addTearDown(worker.dispose);
+      // Enable the defer hook BEFORE spawning: the worker reads the global into
+      // its init synchronously as it starts, so a later assignment is too late.
       isolate_worker.debugDeferPdfRenderWorkerCancelUntilNextRequest = true;
-      isolate_worker.debugPdfRenderWorkerIgnoredStaleCancels = 0;
       addTearDown(() => isolate_worker
           .debugDeferPdfRenderWorkerCancelUntilNextRequest = false);
+      isolate_worker.debugPdfRenderWorkerIgnoredStaleCancels = 0;
+      final worker = PdfRenderWorker.startUncached(bytes);
+      addTearDown(worker.dispose);
 
       // Warm the handshake, then let page 1 request preemption while page 0
-      // is already running. The test hook withholds page 0's cancel until its
-      // response has dispatched page 1, recreating the old cross-request race.
+      // is already running. The worker withholds page 0's cancel until page 1
+      // goes active, then replays it - recreating the old cross-request race
+      // deterministically, on the worker's own event loop.
       expect(await worker.record(1), isNotNull);
       final first = worker.record(0, priority: 10);
       final next = worker.record(1, priority: 0);
@@ -517,6 +521,30 @@ void main() {
     expect(inner.binCancels, [(2, 3)]);
   });
 
+  test('pool routes buildRegionIndex by the static page index', () async {
+    final workers = [for (var i = 0; i < 3; i++) _BinLogWorker()];
+    final pool = PdfPooledRenderWorker.fromWorkers(workers);
+    addTearDown(pool.dispose);
+
+    await pool.buildRegionIndex(4,
+        annotations: true, maxCommands: 1000, buildGrid: true);
+    expect(workers[4 % 3].regionIndexCalls, [4]);
+    expect(workers[0].regionIndexCalls, isEmpty);
+    expect(workers[2].regionIndexCalls, isEmpty);
+  });
+
+  test('caching wrapper passes buildRegionIndex straight through', () async {
+    final inner = _BinLogWorker();
+    final caching = PdfCachingRenderWorker(inner);
+    addTearDown(caching.dispose);
+
+    Future<PdfRegionReplayIndex?> build() => caching.buildRegionIndex(2,
+        annotations: true, maxCommands: 1000, buildGrid: true);
+    await build();
+    await build(); // identical args - still no caching (index is scene-memoized)
+    expect(inner.regionIndexCalls, [2, 2]);
+  });
+
   test('the abstract default declines (stub/web behavior)', () async {
     final worker = _DefaultWorker();
     final plan = await worker.binStrips(0,
@@ -536,6 +564,9 @@ void main() {
       imageDecodeRegion: const PdfRect(0, 0, 10, 10),
     );
     expect(detail, isNull);
+    final index = await worker.buildRegionIndex(0,
+        annotations: true, maxCommands: 1000, buildGrid: true);
+    expect(index, isNull);
     worker.cancelBinStrips(0); // must be a harmless no-op
   });
 }
@@ -545,6 +576,7 @@ class _BinLogWorker extends PdfRenderWorker {
   final recordCalls = <(int, int)>[];
   final binCalls = <int>[];
   final binCancels = <(int, int)>[];
+  final regionIndexCalls = <int>[];
 
   @override
   bool get isActive => true;
@@ -556,7 +588,7 @@ class _BinLogWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion}) async {
+      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async {
     recordCalls.add((pageIndex, priority));
     return null;
   }
@@ -586,6 +618,18 @@ class _BinLogWorker extends PdfRenderWorker {
   }
 
   @override
+  Future<PdfRegionReplayIndex?> buildRegionIndex(
+    int pageIndex, {
+    required bool annotations,
+    required int maxCommands,
+    required bool buildGrid,
+    int priority = 0,
+  }) async {
+    regionIndexCalls.add(pageIndex);
+    return null;
+  }
+
+  @override
   void cancelBinStrips(int pageIndex, {int priority = 0}) =>
       binCancels.add((pageIndex, priority));
 
@@ -609,7 +653,7 @@ class _DefaultWorker extends PdfRenderWorker {
           double? imagePixelRatio,
           bool decodeImages = true,
           int? commandLimit,
-          PdfRect? imageDecodeRegion}) async =>
+          PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async =>
       null;
 
   @override

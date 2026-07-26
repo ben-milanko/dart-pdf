@@ -12,8 +12,49 @@ up against the real product facts.
   web font from Google Fonts.
 - `privacy.html` is the privacy policy, mirroring `app/PRIVACY.md`. This is the
   URL to use for the App Store / Play Store "privacy policy" listing field.
+- `404.html` is the not-found page. Firebase Hosting serves it automatically
+  (with a 404 status) for any URL that doesn't match a file. Because it can be
+  served at *any* path depth, every link on it is root-absolute (`/support`,
+  not `support.html`), and it is `noindex` and kept out of `sitemap.xml`.
 - `assets/editor-screenshot.png` is the hero screenshot of the editor.
 - `firebase.json` / `.firebaserc` are the Firebase Hosting config.
+
+## Localization (i18n)
+
+The site is translated into the same 19 non-English locales the DartPDF app
+ships (ar, de, es, fr, hi, id, it, ja, ko, nl, pl, pt, ru, th, tr, uk, vi, zh,
+zh-Hant), with English as the source. It uses a lightweight client-side system —
+no build step, no framework:
+
+- `i18n/en.json` is the **source of truth**: a flat map of key → English
+  string covering every page. It is also the runtime fallback.
+- `i18n/<locale>.json` holds each translation with the same keys.
+- `i18n.js` (included on every page via `<script src="/i18n.js" defer>`) detects
+  the locale (`?lang=` override → saved choice → `navigator.languages` →
+  English), lazily fetches the locale JSON, applies it over the DOM, sets
+  `<html lang>`/`dir` (RTL for Arabic), and injects the language `<select>` into
+  the `[data-i18n-switcher]` slot in the nav. English pages render with **zero
+  fetches** because the English text is native in the HTML.
+
+Markup contract in the HTML:
+
+| Attribute | Effect |
+|---|---|
+| `data-i18n="key"` | sets `textContent` |
+| `data-i18n-html="key"` | sets `innerHTML` (values with inline `<a>`/`<strong>`/`<code>`) |
+| `data-i18n-attr="content:key;alt:key2"` | sets the named attribute(s) |
+
+### Editing / adding strings
+
+1. Add or change the English key in `i18n/en.json` and the matching
+   `data-i18n*` marker in the HTML.
+2. Add the same key to every `i18n/<locale>.json`.
+3. Run the parity + tag-integrity check: `python3 i18n/_validate.py`
+   (verifies every locale has the exact key set and that HTML values keep the
+   same tags as English). `_validate.py` is dev-only and excluded from deploys.
+
+Share a localized link directly with `?lang=<locale>`, e.g.
+`https://dart-pdf.com/?lang=ja`.
 
 ## Local preview
 

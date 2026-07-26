@@ -1,0 +1,6 @@
+Nouveautés de la 3.1.1
+
+DÉFILEMENT PLUS FLUIDE
+• Les PDF volumineux ou visuellement denses restent plus réactifs pendant le défilement rapide.
+• Les aperçus restent visibles lorsque vous parcourez rapidement un document, puis retrouvent tous leurs détails.
+• Le travail de rendu est mieux réparti afin de réduire les pertes d’images intermittentes.

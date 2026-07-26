@@ -1,0 +1,8 @@
+New in 3.1.1
+
+SMOOTHER SCROLLING
+• Large and visually dense PDFs now stay responsive through rapid scrolling.
+• Page previews remain visible while you move quickly through a document, then settle cleanly into full-detail renders.
+• Rendering work is scheduled more evenly, reducing intermittent frame drops.
+
+Thank you for using DartPDF. Feedback and bug reports are always welcome.

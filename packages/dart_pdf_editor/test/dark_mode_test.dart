@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';

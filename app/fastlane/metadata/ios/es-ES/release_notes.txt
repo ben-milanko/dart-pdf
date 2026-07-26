@@ -1,0 +1,6 @@
+Novedades de la 3.1.1
+
+DESPLAZAMIENTO MÁS FLUIDO
+• Los PDF grandes o visualmente densos responden mejor durante el desplazamiento rápido.
+• Las vistas previas permanecen visibles mientras recorres el documento y después recuperan todos los detalles.
+• El trabajo de renderizado se distribuye de forma más uniforme para reducir los saltos de imagen.

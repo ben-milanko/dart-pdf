@@ -4,41 +4,35 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_info.dart';
+import 'l10n/app_l10n.dart';
+import 'l10n/app_localizations.dart';
+import 'language_names.dart';
 import 'recents.dart';
 import 'update.dart';
+import 'update_install_flow.dart';
+import 'update_installer.dart';
 
-String get _defaultAppSubtitle {
-  if (kIsWeb) return 'Install the web app, then choose it for PDF files.';
+// The platform-specific default-app help lives in the ARB as one ICU `select`
+// key each (branches: web/windows/macos/linux/android/ios/other), resolved from
+// this selector. Both consumers below have a BuildContext, so no literal needs
+// to live at the no-context data site any more.
+String get _defaultAppPlatform {
+  if (kIsWeb) return 'web';
   return switch (defaultTargetPlatform) {
-    TargetPlatform.windows => 'Open Windows default apps settings for PDFs.',
-    TargetPlatform.macOS => 'Follow Finder’s “Always Open With” steps.',
-    TargetPlatform.linux => 'Use your desktop’s default applications settings.',
-    TargetPlatform.android =>
-      'Choose DartPDF when opening a PDF, then tap Always.',
-    TargetPlatform.iOS => 'Use Share or Open In from Files to send PDFs here.',
-    TargetPlatform.fuchsia => 'Configure your system’s PDF file handler.',
+    TargetPlatform.windows => 'windows',
+    TargetPlatform.macOS => 'macos',
+    TargetPlatform.linux => 'linux',
+    TargetPlatform.android => 'android',
+    TargetPlatform.iOS => 'ios',
+    TargetPlatform.fuchsia => 'fuchsia',
   };
 }
 
-String get _defaultAppInstructions {
-  if (kIsWeb) {
-    return 'Install DartPDF from your browser first. Then use the browser or operating system file-handler settings to associate PDF files with the installed app.';
-  }
-  return switch (defaultTargetPlatform) {
-    TargetPlatform.windows =>
-      'Windows Settings will open to Default apps. Search for “.pdf” or “PDF”, choose the current PDF app, then select DartPDF.',
-    TargetPlatform.macOS =>
-      'In Finder, select any PDF, choose File > Get Info, expand “Open with”, pick DartPDF, then click “Change All…”.',
-    TargetPlatform.linux =>
-      'Open your desktop settings for Default Applications, or right-click a PDF in Files, choose Properties, and set DartPDF as the default for PDF documents.',
-    TargetPlatform.android =>
-      'Open a PDF from Files or Downloads, choose DartPDF in the app picker, then select Always. If another app already opens PDFs, clear that app’s defaults in Android Settings first.',
-    TargetPlatform.iOS =>
-      'iOS does not provide a global default PDF editor. Use Files > Share, or long-press a PDF and choose Share/Open In, then pick DartPDF.',
-    TargetPlatform.fuchsia =>
-      'Use the system settings for file handlers to associate PDF documents with DartPDF.',
-  };
-}
+String _defaultAppSubtitle(BuildContext context) =>
+    appL10n(context).settingsDefaultAppSubtitle(_defaultAppPlatform);
+
+String _defaultAppInstructions(BuildContext context) =>
+    appL10n(context).settingsDefaultAppInstructions(_defaultAppPlatform);
 
 bool get _canOpenDefaultAppsSettings =>
     !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
@@ -47,8 +41,8 @@ Future<void> _openDefaultAppsSettings(BuildContext context) async {
   final uri = Uri.parse('ms-settings:defaultapps');
   final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
   if (!opened && context.mounted) {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-      content: Text('Could not open system settings'),
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(appL10n(context).settingsCouldNotOpenSystemSettings),
     ));
   }
 }
@@ -57,18 +51,18 @@ Future<void> _showDefaultAppSetup(BuildContext context) {
   return showDialog<void>(
     context: context,
     builder: (context) => AlertDialog(
-      title: const Text('Set up as default application'),
-      content: Text(_defaultAppInstructions),
+      title: Text(appL10n(context).settingsSetUpAsDefault),
+      content: Text(_defaultAppInstructions(context)),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
+          child: Text(appL10n(context).close),
         ),
         if (_canOpenDefaultAppsSettings)
           FilledButton.icon(
             key: const ValueKey('default-app-open-settings'),
             icon: const Icon(Icons.open_in_new),
-            label: const Text('Open Settings'),
+            label: Text(appL10n(context).settingsOpenSettings),
             onPressed: () {
               Navigator.of(context).pop();
               _openDefaultAppsSettings(context);
@@ -88,12 +82,71 @@ Future<void> showAppSettings(
   required PdfEditingPreferences prefs,
   required RecentsStore recents,
   UpdateService? updates,
+  UpdateInstaller? updateInstaller,
+  VoidCallback? onOpenDevTools,
 }) {
   return showDialog<void>(
     context: context,
-    builder: (context) =>
-        _SettingsDialog(prefs: prefs, recents: recents, updates: updates),
+    builder: (context) => _SettingsDialog(
+      prefs: prefs,
+      recents: recents,
+      updates: updates,
+      updateInstaller: updateInstaller,
+      onOpenDevTools: onOpenDevTools,
+    ),
   );
+}
+
+/// The Settings UI-language dropdown: "System default" plus every locale the
+/// app ships translations for, each shown by its native name. Writes the
+/// choice to [PdfEditingPreferences.locale] (null = follow the platform),
+/// which `app.dart` feeds to `MaterialApp.locale`.
+class _LanguagePicker extends StatelessWidget {
+  const _LanguagePicker({required this.prefs});
+
+  final PdfEditingPreferences prefs;
+
+  @override
+  Widget build(BuildContext context) {
+    // Sort supported locales by native name so the list reads naturally; the
+    // "System default" entry (value null) always leads.
+    final locales = AppLocalizations.supportedLocales.toList()
+      ..sort((a, b) => languageDisplayName(a)
+          .toLowerCase()
+          .compareTo(languageDisplayName(b).toLowerCase()));
+    // Match the stored preference to a supported locale by value; an
+    // unsupported stored tag falls back to showing "System default" without
+    // discarding the preference.
+    Locale? selected;
+    for (final locale in locales) {
+      if (locale == prefs.locale) {
+        selected = locale;
+        break;
+      }
+    }
+    return DropdownButtonFormField<Locale?>(
+      key: const ValueKey('settings-language'),
+      initialValue: selected,
+      isExpanded: true,
+      decoration: const InputDecoration(
+        border: OutlineInputBorder(),
+        isDense: true,
+        prefixIcon: Icon(Icons.language),
+      ),
+      items: [
+        DropdownMenuItem<Locale?>(
+          value: null,
+          child: Text(appL10n(context).settingsLanguageSystem),
+        ),
+        for (final locale in locales)
+          DropdownMenuItem<Locale?>(
+            value: locale,
+            child: Text(languageDisplayName(locale)),
+          ),
+      ],
+      onChanged: (value) => prefs.locale = value,
+    );
+  }
 }
 
 class _SettingsDialog extends StatefulWidget {
@@ -101,11 +154,18 @@ class _SettingsDialog extends StatefulWidget {
     required this.prefs,
     required this.recents,
     this.updates,
+    this.updateInstaller,
+    this.onOpenDevTools,
   });
 
   final PdfEditingPreferences prefs;
   final RecentsStore recents;
   final UpdateService? updates;
+  final UpdateInstaller? updateInstaller;
+
+  /// Non-null in debug/profile builds: closes the dialog and opens the
+  /// developer tools panel (same as F12).
+  final VoidCallback? onOpenDevTools;
 
   @override
   State<_SettingsDialog> createState() => _SettingsDialogState();
@@ -116,7 +176,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return AlertDialog(
-      title: const Text('Settings'),
+      title: Text(appL10n(context).settingsTitle),
       content: SizedBox(
         width: 360,
         child: SingleChildScrollView(
@@ -126,64 +186,87 @@ class _SettingsDialogState extends State<_SettingsDialog> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Appearance', style: theme.textTheme.titleSmall),
+                Text(appL10n(context).settingsAppearance,
+                    style: theme.textTheme.titleSmall),
                 const SizedBox(height: 8),
                 SegmentedButton<ThemeMode>(
-                  segments: const [
+                  segments: [
                     ButtonSegment(
                         value: ThemeMode.system,
-                        icon: Icon(Icons.brightness_auto),
-                        label: Text('System')),
+                        icon: const Icon(Icons.brightness_auto),
+                        label: Text(appL10n(context).settingsThemeSystem)),
                     ButtonSegment(
                         value: ThemeMode.light,
-                        icon: Icon(Icons.light_mode),
-                        label: Text('Light')),
+                        icon: const Icon(Icons.light_mode),
+                        label: Text(appL10n(context).settingsThemeLight)),
                     ButtonSegment(
                         value: ThemeMode.dark,
-                        icon: Icon(Icons.dark_mode),
-                        label: Text('Dark')),
+                        icon: const Icon(Icons.dark_mode),
+                        label: Text(appL10n(context).settingsThemeDark)),
                   ],
                   selected: {widget.prefs.themeMode},
                   onSelectionChanged: (s) => widget.prefs.themeMode = s.first,
                 ),
+                const SizedBox(height: 16),
+                Text(appL10n(context).settingsLanguage,
+                    style: theme.textTheme.titleSmall),
+                const SizedBox(height: 8),
+                _LanguagePicker(prefs: widget.prefs),
                 const Divider(height: 32),
                 Row(
                   children: [
                     Expanded(
-                      child: Text('Recent files',
+                      child: Text(appL10n(context).settingsRecentFiles,
                           style: theme.textTheme.titleSmall),
                     ),
                     TextButton(
                       onPressed: widget.recents.isEmpty
                           ? null
                           : () => widget.recents.clear(),
-                      child: const Text('Clear'),
+                      child: Text(appL10n(context).clear),
                     ),
                   ],
                 ),
                 Text(
-                  widget.recents.isEmpty
-                      ? 'No recent files'
-                      : '${widget.recents.items.length} remembered',
+                  appL10n(context).settingsRecentCount(widget.recents.items.length),
                   style: theme.textTheme.bodySmall,
                 ),
                 const Divider(height: 32),
-                Text('System', style: theme.textTheme.titleSmall),
+                Text(appL10n(context).settingsSystem,
+                    style: theme.textTheme.titleSmall),
                 ListTile(
                   key: const ValueKey('settings-default-app'),
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.assignment_turned_in_outlined),
-                  title: const Text('Set up as default application'),
-                  subtitle: Text(_defaultAppSubtitle),
+                  title: Text(appL10n(context).settingsSetUpAsDefault),
+                  subtitle: Text(_defaultAppSubtitle(context)),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => _showDefaultAppSetup(context),
                 ),
-                if (widget.updates != null && UpdateService.supported) ...[
+                if (widget.onOpenDevTools != null)
+                  ListTile(
+                    key: const ValueKey('settings-devtools'),
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.build_outlined),
+                    title: Text(appL10n(context).settingsDeveloperTools),
+                    subtitle:
+                        Text(appL10n(context).settingsDeveloperToolsSubtitle),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      widget.onOpenDevTools!();
+                    },
+                  ),
+                if (widget.updates != null && widget.updates!.supported) ...[
                   const Divider(height: 32),
-                  _UpdateSection(updates: widget.updates!),
+                  _UpdateSection(
+                    updates: widget.updates!,
+                    installer: widget.updateInstaller,
+                  ),
                 ],
                 const Divider(height: 32),
-                Text('About', style: theme.textTheme.titleSmall),
+                Text(appL10n(context).settingsAbout,
+                    style: theme.textTheme.titleSmall),
                 const SizedBox(height: 4),
                 Text('${AppInfo.name} ${AppInfo.version}',
                     style: theme.textTheme.bodyMedium),
@@ -192,9 +275,21 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                 TextButton.icon(
                   style: TextButton.styleFrom(padding: EdgeInsets.zero),
                   icon: const Icon(Icons.code, size: 18),
-                  label: const Text('View source on GitHub'),
+                  label: Text(appL10n(context).settingsViewSource),
                   onPressed: () => launchUrl(Uri.parse(AppInfo.sourceUrl),
                       mode: LaunchMode.externalApplication),
+                ),
+                ListTile(
+                  key: const ValueKey('settings-licenses'),
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.article_outlined),
+                  title: const Text('Open source licenses'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => showLicensePage(
+                    context: context,
+                    applicationName: AppInfo.name,
+                    applicationVersion: AppInfo.version,
+                  ),
                 ),
               ],
             ),
@@ -204,7 +299,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
+          child: Text(appL10n(context).close),
         ),
       ],
     );
@@ -216,23 +311,18 @@ class _SettingsDialogState extends State<_SettingsDialog> {
 /// button (opening the platform artifact or release page) when a newer build
 /// is available.
 class _UpdateSection extends StatelessWidget {
-  const _UpdateSection({required this.updates});
+  const _UpdateSection({required this.updates, this.installer});
 
   final UpdateService updates;
 
-  Future<void> _openDownload(BuildContext context) async {
-    final url = updates.downloadUrl;
-    if (url == null) return;
-    final opened = await launchUrl(
-      Uri.parse(url),
-      mode: LaunchMode.externalApplication,
-    );
-    if (!opened && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Could not open the download'),
-      ));
-    }
-  }
+  /// The in-app updater; null defaults to a real one (tests inject a fake).
+  final UpdateInstaller? installer;
+
+  Future<void> _install(BuildContext context) => startUpdateInstall(
+        context,
+        updates: updates,
+        installer: installer ?? UpdateInstaller(),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -247,7 +337,8 @@ class _UpdateSection extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text('Updates', style: theme.textTheme.titleSmall),
+                  child: Text(appL10n(context).settingsUpdates,
+                      style: theme.textTheme.titleSmall),
                 ),
                 TextButton(
                   key: const ValueKey('settings-check-updates'),
@@ -260,7 +351,7 @@ class _UpdateSection extends StatelessWidget {
                           height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Text('Check now'),
+                      : Text(appL10n(context).settingsCheckNow),
                 ),
               ],
             ),
@@ -268,12 +359,13 @@ class _UpdateSection extends StatelessWidget {
             if (updates.updateAvailable) ...[
               const SizedBox(height: 8),
               Align(
-                alignment: Alignment.centerLeft,
+                alignment: AlignmentDirectional.centerStart,
                 child: FilledButton.icon(
                   key: const ValueKey('settings-download-update'),
                   icon: const Icon(Icons.download_outlined, size: 18),
-                  label: Text('Download ${updates.latest!.version}'),
-                  onPressed: () => _openDownload(context),
+                  label: Text(appL10n(context).settingsDownloadVersion(
+                      updates.latest!.version.toString())),
+                  onPressed: () => _install(context),
                 ),
               ),
             ],
@@ -287,25 +379,26 @@ class _UpdateSection extends StatelessWidget {
     final scheme = theme.colorScheme;
     final style = theme.textTheme.bodySmall;
     return switch (updates.status) {
-      UpdateStatus.checking => Text('Checking for updates…', style: style),
+      UpdateStatus.checking =>
+        Text(appL10n(context).settingsCheckingForUpdates, style: style),
       UpdateStatus.updateAvailable => Text(
-          'Version ${updates.latest!.version} is available '
-          '(you have ${AppInfo.version}).',
+          appL10n(context).settingsUpdateAvailable(
+              updates.latest!.version.toString(), AppInfo.version),
           key: const ValueKey('settings-update-available'),
           style: style?.copyWith(color: scheme.primary),
         ),
       UpdateStatus.upToDate => Text(
-          'You’re on the latest version (${AppInfo.version}).',
+          appL10n(context).settingsUpToDate(AppInfo.version),
           key: const ValueKey('settings-up-to-date'),
           style: style,
         ),
       UpdateStatus.failed => Text(
-          'Couldn’t check for updates. Try again later.',
+          appL10n(context).settingsUpdateFailed,
           key: const ValueKey('settings-update-failed'),
           style: style?.copyWith(color: scheme.error),
         ),
       UpdateStatus.idle => Text(
-          'You have ${AppInfo.name} ${AppInfo.version}.',
+          appL10n(context).settingsUpdateIdle(AppInfo.name, AppInfo.version),
           style: style,
         ),
     };

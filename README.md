@@ -39,9 +39,12 @@ Live demo: <https://dart-pdf-demo.web.app> (the example app built for
 the web; it opens onto a six-page feature showcase, and the open button
 loads your own PDF).
 
-Visual render results: the checked-in
+Visual render results, browsable directly in GitHub: the checked-in
 [PDF.js corpus comparison gallery](test_corpora/pdfjs/_renders/README.md)
-shows PDF.js baselines, Dart renders, and diffs directly in GitHub.
+shows PDF.js baselines, Dart renders, and diffs side by side, and the
+[Ghent Output Suite render gallery](test_corpora/ghent/_baselines/README.md)
+shows every print-conformance page we rasterize (our own renders, which
+are the baselines - so no diff column).
 
 ## Performance
 
@@ -73,6 +76,7 @@ published on pub.dev under its directory name.
 | [`pdf_document`](packages/pdf_document) | [![pub package](https://img.shields.io/pub/v/pdf_document.svg)](https://pub.dev/packages/pdf_document) | Document semantics: page tree, annotations, AcroForm, digital signatures, and the incremental-save `PdfEditor`. |
 | [`pdf_graphics`](packages/pdf_graphics) | [![pub package](https://img.shields.io/pub/v/pdf_graphics.svg)](https://pub.dev/packages/pdf_graphics) | Content-stream interpreter, device interface, font engine, ICC color, text extraction. |
 | [`dart_pdf_editor`](packages/dart_pdf_editor) | [![pub package](https://img.shields.io/pub/v/dart_pdf_editor.svg)](https://pub.dev/packages/dart_pdf_editor) | Flutter viewer and editing UI: canvas device, `PdfViewer`, tools, panels, forms. |
+| [`dart_pdf_editor_assets`](packages/dart_pdf_editor_assets) | [![pub package](https://img.shields.io/pub/v/dart_pdf_editor_assets.svg)](https://pub.dev/packages/dart_pdf_editor_assets) | Optional bundled editor fonts + web render worker (~1.7 MB); depend on it and call `registerBundledEditorAssets()` for the full editor, omit for a size-minimal viewer. |
 | [`pdf_ocr_ondevice`](packages/pdf_ocr_ondevice) | [![pub package](https://img.shields.io/pub/v/pdf_ocr_ondevice.svg)](https://pub.dev/packages/pdf_ocr_ondevice) | Optional on-device OCR engine for native Flutter apps; downloads a small PP-OCR model once and adds searchable text layers offline. |
 | [`pdf_ocr_vlm`](packages/pdf_ocr_vlm) | [![pub package](https://img.shields.io/pub/v/pdf_ocr_vlm.svg)](https://pub.dev/packages/pdf_ocr_vlm) | Optional HTTP OCR engine for web, mobile, and desktop; talks to dots.ocr/vLLM or any service returning text boxes. |
 | [`pdf_test_fixtures`](packages/pdf_test_fixtures) | [![pub package](https://img.shields.io/pub/v/pdf_test_fixtures.svg)](https://pub.dev/packages/pdf_test_fixtures) | Programmatic, structurally-correct PDF builders for tests. |
@@ -97,6 +101,45 @@ PdfEditorView(
 
 PdfReader(bytes: pdfBytes)
 ```
+
+To open a large PDF hosted remotely without downloading the whole file first,
+use the asynchronous byte-source API. `PdfHttpByteSource` fetches over HTTP
+Range requests (forwarding auth headers, with cancellation and progress), and
+falls back to a plain download when the server does not support ranges:
+
+```dart
+final source = PdfHttpByteSource(
+  Uri.parse('https://host/big.pdf'),
+  headers: {'Authorization': 'Bearer $token'},
+  cancelToken: cancelToken,
+  onProgress: (received, total) => report(received, total),
+);
+final document = await PdfDocument.openSource(source);
+```
+
+For an even faster first paint on a big, image-heavy document (a scan, a CAD
+sheet), pass `firstPaintPages` so the loader fetches only the first page's
+bytes, paints it, and lets you stream the rest in behind it:
+
+```dart
+final preview = await PdfDocument.openSource(
+  source,
+  options: PdfSourceLoadOptions(
+    firstPaintPages: 1,
+    onProgress: (received, total) => report(received, total),
+  ),
+);
+// `preview` renders the first page immediately, but its buffer is deliberately
+// incomplete - render-only, never edit or sign from it. Read the whole source
+// in the background and reopen for the full document when you need every page.
+```
+
+`PdfByteSource` is network-agnostic (`length` + `readRange`), so any random-
+access transport works - including a local file. `PdfDocument.open(Uint8List)`
+and the byte-based widgets are unchanged. See
+[`doc/progressive-loading.md`](doc/progressive-loading.md) for the full guide
+(local files, the fast-first-paint pattern, Flutter viewer wiring) and
+[`doc/dev-log`](doc/dev-log) for the loader design.
 
 For OCR, add one engine package and call `PdfEditor.applyOcr` before opening
 or replacing the document in your viewer:
@@ -278,7 +321,9 @@ subsampling/PCRL-CPRL progressions.
   included, so a synced annotation renders identically on every device.
 - `annotationChanges` emits per-revision diffs (created/modified/removed,
   undo and redo included); `applyRemoteChange` replays remote edits
-  without echoing them back. Two controllers piped together converge.
+  without echoing them back. Each remote apply is an undo checkpoint: local
+  edits after it remain undoable, but undo cannot remove remote state or
+  cross into older local history. Two controllers piped together converge.
 - Permissions: the document's /F ReadOnly and Locked flags are honored,
   and a `canEditAnnotation` predicate covers policies like "users may
   only edit their own annotations". Gated annotations still render and
@@ -286,7 +331,7 @@ subsampling/PCRL-CPRL progressions.
 
 ## Development
 
-This repo uses [fvm](https://fvm.app) (Flutter 3.44.4) and pub workspaces.
+This repo uses [fvm](https://fvm.app) (Flutter 3.44.8) and pub workspaces.
 
 ```sh
 fvm flutter pub get          # resolve the whole workspace
@@ -324,6 +369,14 @@ compression. Two layers run over it:
   compares it pixel-wise against checked-in baseline renders;
   regressions dump actual/diff images for inspection, and
   `GHENT_UPDATE=1` re-baselines after an intentional change.
+
+Those baselines are browsable as the
+[Ghent Output Suite render gallery](test_corpora/ghent/_baselines/README.md).
+Note what it is: with no external reference renderer for this corpus, our
+renders *are* the baselines, so the gallery has no diff or pass/fail column
+and a green `ghent_render_test` means "unchanged", not "conformant". Several
+patches print their own pass criterion on the page. Regenerate the gallery
+with `fvm dart packages/dart_pdf_editor/tool/rebuild_ghent_render_index.dart`.
 
 `test_corpora/pdfjs/` carries 171 real-world edge-case PDFs curated from
 the [mozilla/pdf.js](https://github.com/mozilla/pdf.js) test suite:

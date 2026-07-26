@@ -20,6 +20,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
 
 import 'demo_document.dart';
 
@@ -27,7 +28,10 @@ import 'demo_document.dart';
 /// host time to capture. Overridable: `--dart-define=SHOT_HOLD_MS=4000`.
 const _holdMs = int.fromEnvironment('SHOT_HOLD_MS', defaultValue: 2600);
 
-void main() => runApp(const ScreenshotApp());
+void main() {
+  registerBundledEditorAssets();
+  runApp(const ScreenshotApp());
+}
 
 /// Which drop-in widget a scene shows.
 enum _Mode { editor, reader }

@@ -97,9 +97,15 @@ class PdfPageRenderer {
   }
 
   /// Renders [page] using a pre-computed display [plan].
+  ///
+  /// [maxImagePixelRatio] (screen px per page point) caps each image decode to
+  /// display resolution; see [decodeImages]. Callers that know the final raster
+  /// scale (e.g. [renderImageWithPlan]) pass it so a giant raster underlay is
+  /// not decoded at full native resolution.
   static Future<ui.Picture> renderPictureWithPlan(
       PdfPage page, PdfPageRenderPlan plan,
-      {bool Function(PdfAnnotation)? skipAnnotation}) async {
+      {bool Function(PdfAnnotation)? skipAnnotation,
+      double? maxImagePixelRatio}) async {
     final cos = page.document.cos;
 
     // Parsing the content stream (and decompressing it) dominates rendering on
@@ -119,7 +125,7 @@ class PdfPageRenderer {
       collecting.drawAnnotations(page, skip: skipAnnotation);
     }
     final images = await decodeImages(cos, collector.streams,
-        cache: PdfImageCache.instance);
+        cache: PdfImageCache.instance, maxImagePixelRatio: maxImagePixelRatio);
 
     final box = page.cropBox;
     final size = plan.pageSize(page);
@@ -175,9 +181,13 @@ class PdfPageRenderer {
   }
 
   /// Renders [page] through the record/replay path using [plan].
+  ///
+  /// [maxImagePixelRatio] caps each image decode to display resolution, as in
+  /// [renderPictureWithPlan].
   static Future<ui.Picture> renderPictureRecordedWithPlan(
       PdfPage page, PdfPageRenderPlan plan,
-      {bool Function(PdfAnnotation)? skipAnnotation}) async {
+      {bool Function(PdfAnnotation)? skipAnnotation,
+      double? maxImagePixelRatio}) async {
     final cos = page.document.cos;
 
     // Record the page into a flat command buffer. This single walk also
@@ -189,7 +199,7 @@ class PdfPageRenderer {
     if (plan.annotations) recording.drawAnnotations(page, skip: skipAnnotation);
 
     final images = await decodeImages(cos, recorder.imageRequests,
-        cache: PdfImageCache.instance);
+        cache: PdfImageCache.instance, maxImagePixelRatio: maxImagePixelRatio);
 
     final box = page.cropBox;
     final size = plan.pageSize(page);
@@ -225,29 +235,43 @@ class PdfPageRenderer {
   /// every image. This is the fast first pass of progressive rendering: a heavy
   /// raster underlay can take many seconds to decode, so the page paints its
   /// linework immediately and the images drop in on a later full pass.
+  ///
+  /// [maxImagePixelRatio] caps those decodes to the resolution the picture is
+  /// about to be rasterized at, exactly as in [pictureFromCommandsWithPlan].
+  /// Pass it whenever the buffer may carry un-decoded images (the worker's
+  /// codec declined them) and the target is smaller than the page: without it
+  /// a 256px thumbnail decodes a declined image at its native size, on the
+  /// platform thread (#603).
   static Future<ui.Picture> pictureFromCommands(
       PdfPage page, List<PdfRenderCommand> commands,
       {Color pageColor = const Color(0xFFFFFFFF),
       int? rotation,
-      bool includeImages = true}) async {
+      bool includeImages = true,
+      double? maxImagePixelRatio}) async {
     return pictureFromCommandsWithPlan(
       page,
       commands,
       PdfPageRenderPlan(pageColor: pageColor, rotation: rotation),
       includeImages: includeImages,
+      maxImagePixelRatio: maxImagePixelRatio,
     );
   }
 
   /// Replays recorded [commands] for [page] using [plan].
+  ///
+  /// [maxImagePixelRatio] caps any images the buffer carries un-decoded to
+  /// display resolution ([decodeImages]) - the JPEGs a render worker shipped
+  /// without decoding, which would otherwise decode at native size here.
   static Future<ui.Picture> pictureFromCommandsWithPlan(
       PdfPage page, List<PdfRenderCommand> commands, PdfPageRenderPlan plan,
-      {bool includeImages = true}) async {
+      {bool includeImages = true, double? maxImagePixelRatio}) async {
     final requests = <PdfImageRequest>[];
     if (includeImages) collectImageRequests(commands, requests);
     final images = requests.isEmpty
         ? const <Object, ui.Image>{}
         : await decodeImages(page.document.cos, requests,
-            cache: PdfImageCache.instance);
+            cache: PdfImageCache.instance,
+            maxImagePixelRatio: maxImagePixelRatio);
 
     final box = page.cropBox;
     final size = plan.pageSize(page);
@@ -381,7 +405,7 @@ class PdfPageRenderer {
       {double pixelRatio = 1,
       Color pageColor = const Color(0xFFFFFFFF),
       bool annotations = true,
-      bool recorded = false,
+      bool recorded = true,
       int? rotation}) async {
     return renderImageWithPlan(
       page,
@@ -405,13 +429,18 @@ class PdfPageRenderer {
   static Future<ui.Image> renderImageWithPlan(PdfPage page,
       {required PdfPageRenderPlan plan,
       double pixelRatio = 1,
-      bool recorded = false}) async {
-    if (deviceMode == PdfRenderDeviceMode.strips && !recorded) {
+      bool recorded = true}) async {
+    // Strips is its own device axis (opt-in via [deviceMode], only the
+    // benchmark/parity harnesses set it) - independent of the recorded/two-walk
+    // choice, so it engages whenever selected regardless of [recorded].
+    if (deviceMode == PdfRenderDeviceMode.strips) {
       return _renderImageStrips(page, plan, pixelRatio);
     }
     final picture = recorded
-        ? await renderPictureRecordedWithPlan(page, plan)
-        : await renderPictureWithPlan(page, plan);
+        ? await renderPictureRecordedWithPlan(page, plan,
+            maxImagePixelRatio: pixelRatio)
+        : await renderPictureWithPlan(page, plan,
+            maxImagePixelRatio: pixelRatio);
     try {
       return await rasterize(picture, plan.pageSize(page), pixelRatio);
     } finally {
@@ -441,8 +470,11 @@ class PdfPageRenderer {
         PdfInterpreter(cos: cos, device: collector, scanImagesOnly: true)
           ..drawPageOperations(page, pageOps);
     if (plan.annotations) collecting.drawAnnotations(page);
+    // Cap image decodes to display resolution just like the canvas bitmap path
+    // ([renderImageWithPlan]), so the two devices stay pixel-parity on scaled
+    // images instead of one decoding sharper than the other.
     final images = await decodeImages(cos, collector.streams,
-        cache: PdfImageCache.instance);
+        cache: PdfImageCache.instance, maxImagePixelRatio: pixelRatio);
 
     final box = page.cropBox;
     final size = plan.pageSize(page);
@@ -621,7 +653,7 @@ class PdfPageColorSampler {
           rotation: rotation,
         );
     final picture =
-        await PdfPageRenderer.renderPictureWithPlan(page, renderPlan);
+        await PdfPageRenderer.renderPictureRecordedWithPlan(page, renderPlan);
     try {
       final image = await PdfPageRenderer.rasterize(
           picture, renderPlan.pageSize(page), 1);

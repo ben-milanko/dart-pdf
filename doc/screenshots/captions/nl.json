@@ -1,0 +1,38 @@
+{
+  "locale": "nl",
+  "_comment": "Gelokaliseerde bijschriften voor marketingschermafbeeldingen. Gekoppeld als <target>/<basename>, overeenkomend met de namen van de ruwe PNG-opnames. Elk item is de kop en subtekst die over de ingelijste storeschermafbeelding worden gelegd door tool/compose_marketing.dart. Houd koppen kort (ze worden groot weergegeven) en respecteer App Store-richtlijn 2.3.10: geen namen van andere platforms in app/*-bijschriften.",
+  "captions": {
+    "app/01-welcome": {
+      "headline": "Privé PDF's bewerken",
+      "subtitle": "Geen account. Geen uploads. Bestanden blijven op uw apparaat."
+    },
+    "app/02-editor": {
+      "headline": "Markeer, onderteken, redigeer",
+      "subtitle": "Vul formulieren in, voeg notities toe en verplaats pagina's."
+    },
+    "app/03-dark": {
+      "headline": "Gemaakt voor echte documenten",
+      "subtitle": "Zoek in tekst, gebruik OCR, vergelijk versies\nen open beveiligde bestanden."
+    },
+    "example/01-document": {
+      "headline": "Open elke PDF",
+      "subtitle": "Weergegeven in pure Dart, op elk platform"
+    },
+    "example/02-graphics": {
+      "headline": "Grafische elementen",
+      "subtitle": "Kleurverlopen, arceringen en transparantie"
+    },
+    "example/03-annotations": {
+      "headline": "Annotaties",
+      "subtitle": "Markeringen, inkt, notities, stempels en formulieren"
+    },
+    "example/04-markup": {
+      "headline": "Opmaakgereedschap",
+      "subtitle": "Teken, voeg vormen toe en onderteken op de pagina"
+    },
+    "example/05-reader": {
+      "headline": "Leesweergave",
+      "subtitle": "Herschikt tekst om op het scherm te passen"
+    }
+  }
+}

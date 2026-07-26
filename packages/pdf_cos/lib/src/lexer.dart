@@ -235,6 +235,18 @@ class CosLexer {
     var depth = 1;
     final out = BytesBuilder();
     while (true) {
+      // Fast path: bulk-append the run of ordinary bytes up to the next byte
+      // that needs interpretation (escape, paren, or CR) in one copy rather
+      // than one addByte per character.
+      final runStart = position;
+      while (position < bytes.length) {
+        final c = bytes[position];
+        if (c == 0x5C || c == 0x28 || c == 0x29 || c == 0x0D) break;
+        position++;
+      }
+      if (position > runStart) {
+        out.add(Uint8List.sublistView(bytes, runStart, position));
+      }
       if (position >= bytes.length) {
         throw CosParseException('unterminated string', start);
       }
@@ -284,12 +296,10 @@ class CosLexer {
         depth--;
         if (depth == 0) break;
         out.addByte(b);
-      } else if (b == 0x0D) {
-        // EOL inside a string is normalized to LF (§7.3.4.2)
+      } else {
+        // b == 0x0D: EOL inside a string is normalized to LF (§7.3.4.2)
         if (position < bytes.length && bytes[position] == 0x0A) position++;
         out.addByte(0x0A);
-      } else {
-        out.addByte(b);
       }
     }
     return CosToken(CosTokenType.string, start, out.takeBytes());

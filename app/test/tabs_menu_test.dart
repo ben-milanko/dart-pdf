@@ -3,6 +3,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -28,14 +29,29 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
   }
 
+  // A realistic desktop width: with Chrome-style tab sizing a handful of tabs
+  // cap at their max width and leave slack for the trailing controls, rather
+  // than filling the whole 800px default test surface.
+  void setDesktopSize(WidgetTester tester) {
+    tester.view.physicalSize = const Size(1400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+  }
+
   // Delivers a PDF to the running app the way the OS would (a warm-start
   // "open with"), opening it in a new tab.
-  Future<void> openTab(WidgetTester tester, String name, {String? path}) async {
+  Future<void> openTab(
+    WidgetTester tester,
+    String name, {
+    String? path,
+    List<int>? bytes,
+  }) async {
     const codec = StandardMethodCodec();
     final message = codec.encodeMethodCall(
       MethodCall('openFile', {
         'name': name,
-        'bytes': buildClassicPdf(),
+        'bytes': bytes ?? buildClassicPdf(),
         if (path != null) 'path': path,
       }),
     );
@@ -74,6 +90,33 @@ void main() {
     await openTab(tester, 'alpha.pdf');
     await openTab(tester, 'beta.pdf');
     await openTab(tester, 'gamma.pdf');
+  }
+
+  // Opens the desktop tabs preview grid (grid_view button in the tab strip).
+  Future<void> openTabsGrid(WidgetTester tester) async {
+    await tester.tap(find.byKey(const ValueKey('desktop-tabs-button')));
+    await tester.pumpAndSettle();
+  }
+
+  // The grid tile whose title is [name] (scoped to the preview grid).
+  Finder gridTile(String name) => find.ancestor(
+        of: find.descendant(
+          of: find.byKey(const ValueKey('desktop-tabs-grid')),
+          matching: find.text(name),
+        ),
+        matching: find.byKey(const ValueKey('mobile-tab-tile')),
+      );
+
+  // Right-clicks the grid tile labelled [name] to open its context menu.
+  Future<void> rightClickGridTile(WidgetTester tester, String name) async {
+    final gesture = await tester.startGesture(
+      tester.getCenter(gridTile(name)),
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryButton,
+    );
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
   }
 
   testWidgets('incoming file shows an opening indicator', (tester) async {
@@ -144,6 +187,148 @@ void main() {
     expect(find.byKey(const ValueKey('mobile-tabs-open')), findsOneWidget);
   });
 
+  testWidgets('desktop tab strip opens the preview grid in a dialog',
+      (tester) async {
+    setDesktopSize(tester);
+    await openTabs(tester);
+
+    final button = find.byKey(const ValueKey('desktop-tabs-button'));
+    final addButton = find.byKey(const ValueKey('desktop-tab-add-button'));
+    expect(button, findsOneWidget);
+    expect(addButton, findsOneWidget);
+    expect(find.byKey(const ValueKey('desktop-tabs-spacer')), findsOneWidget);
+    expect(
+      tester.getCenter(button).dx,
+      greaterThan(
+        tester.getTopRight(find.byKey(const ValueKey('tab-strip'))).dx,
+      ),
+    );
+    expect(tester.getCenter(button).dx - tester.getCenter(addButton).dx,
+        greaterThan(40));
+
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+
+    final grid = find.byKey(const ValueKey('desktop-tabs-grid'));
+    expect(find.byKey(const ValueKey('desktop-tabs-dialog')), findsOneWidget);
+    expect(grid, findsOneWidget);
+    expect(
+      find.descendant(
+        of: grid,
+        matching: find.byKey(const ValueKey('mobile-tab-tile')),
+      ),
+      findsNWidgets(3),
+    );
+    expect(
+      find.descendant(
+        of: grid,
+        matching: find.byKey(const ValueKey('mobile-tab-preview')),
+      ),
+      findsNWidgets(3),
+    );
+    expect(find.byKey(const ValueKey('desktop-tabs-open')), findsOneWidget);
+
+    await tester.tap(
+      find.descendant(of: grid, matching: find.text('alpha.pdf')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('desktop-tabs-dialog')), findsNothing);
+    expect(tester.widget<Text>(tabTitle('alpha.pdf')).style?.fontWeight,
+        FontWeight.w600);
+  });
+
+  testWidgets('tab thumbnails preserve each first page aspect ratio',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+    await tester.pump();
+
+    await openTab(tester, 'portrait.pdf');
+    // The replacement is byte-for-byte the same length, so the fixture's xref
+    // offsets stay valid while its first page becomes landscape.
+    final landscape = ascii(
+      String.fromCharCodes(buildClassicPdf()).replaceFirst(
+        '/MediaBox [0 0 612 792]',
+        '/MediaBox [0 0 792 612]',
+      ),
+    );
+    await openTab(tester, 'landscape.pdf', bytes: landscape);
+
+    await tester.tap(find.byKey(const ValueKey('desktop-tabs-button')));
+    await tester.pumpAndSettle();
+
+    final grid = find.byKey(const ValueKey('desktop-tabs-grid'));
+    Finder previewFor(String title) {
+      final tile = find.ancestor(
+        of: find.descendant(of: grid, matching: find.text(title)),
+        matching: find.byKey(const ValueKey('mobile-tab-tile')),
+      );
+      return find.descendant(
+        of: tile,
+        matching: find.byKey(const ValueKey('mobile-tab-preview')),
+      );
+    }
+
+    expect(tester.getSize(previewFor('portrait.pdf')).aspectRatio,
+        closeTo(612 / 792, 0.001));
+    expect(tester.getSize(previewFor('landscape.pdf')).aspectRatio,
+        closeTo(792 / 612, 0.001));
+  });
+
+  testWidgets('hovering an inactive desktop tab shows its page preview',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+    await tester.pump();
+    await openTab(
+      tester,
+      'alpha.pdf',
+      bytes: PdfBlankDocument.create(pageSize: PdfPageSize.letter.landscape),
+    );
+    await openTab(tester, 'beta.pdf');
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: const Offset(799, 599));
+    await tester.pump();
+    await mouse.moveTo(tester.getCenter(tabTitle('alpha.pdf')));
+    await tester.pump(const Duration(milliseconds: 399));
+    expect(find.byKey(const ValueKey('tab-hover-preview')), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(find.byKey(const ValueKey('tab-hover-preview')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('tab-hover-preview-thumbnail')),
+      findsOneWidget,
+    );
+    final thumbnailSize = tester.getSize(
+      find.byKey(const ValueKey('tab-hover-preview-thumbnail')),
+    );
+    expect(thumbnailSize.width / thumbnailSize.height, closeTo(792 / 612, .01));
+    expect(
+      tester.widget<Text>(
+        find.byKey(const ValueKey('tab-hover-preview-title')),
+      ).data,
+      'alpha.pdf',
+    );
+    expect(
+      tester.widget<Text>(
+        find.byKey(const ValueKey('tab-hover-preview-page')),
+      ).data,
+      'Page 1',
+    );
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('tab-hover-preview-image')),
+      findsOneWidget,
+    );
+
+    // beta is active, so moving to it dismisses alpha's card and does not
+    // replace it with a redundant preview of the document already on screen.
+    await mouse.moveTo(tester.getCenter(tabTitle('beta.pdf')));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byKey(const ValueKey('tab-hover-preview')), findsNothing);
+    await mouse.removePointer();
+  });
+
   testWidgets('right-click opens the tab context menu', (tester) async {
     await openTabs(tester);
 
@@ -153,6 +338,53 @@ void main() {
     expect(find.byKey(const ValueKey('tab-menu-close-others')), findsOneWidget);
     expect(find.byKey(const ValueKey('tab-menu-close-right')), findsOneWidget);
     expect(find.byKey(const ValueKey('tab-menu-close-all')), findsOneWidget);
+  });
+
+  testWidgets('right-click on a grid tile opens the tab context menu',
+      (tester) async {
+    await openTabs(tester);
+    await openTabsGrid(tester);
+
+    await rightClickGridTile(tester, 'beta.pdf');
+
+    expect(find.byKey(const ValueKey('tab-menu-close')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tab-menu-close-others')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tab-menu-close-right')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tab-menu-close-all')), findsOneWidget);
+  });
+
+  testWidgets('grid tile Close others leaves only the clicked tab, grid open',
+      (tester) async {
+    await openTabs(tester);
+    await openTabsGrid(tester);
+
+    await rightClickGridTile(tester, 'beta.pdf');
+    await tester.tap(find.byKey(const ValueKey('tab-menu-close-others')));
+    await tester.pumpAndSettle();
+
+    // The grid stays open and refreshes to the single surviving tab.
+    expect(find.byKey(const ValueKey('desktop-tabs-grid')), findsOneWidget);
+    expect(gridTile('beta.pdf'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('desktop-tabs-grid')),
+        matching: find.byKey(const ValueKey('mobile-tab-tile')),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('grid tile Close all empties the grid and dismisses the dialog',
+      (tester) async {
+    await openTabs(tester);
+    await openTabsGrid(tester);
+
+    await rightClickGridTile(tester, 'alpha.pdf');
+    await tester.tap(find.byKey(const ValueKey('tab-menu-close-all')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('desktop-tabs-dialog')), findsNothing);
+    expect(find.byKey(const ValueKey('tab-strip')), findsNothing);
   });
 
   testWidgets(

@@ -20,6 +20,7 @@ on:
       - 'pdf_document-v*'
       - 'pdf_graphics-v*'
       - 'dart_pdf_editor-v*'
+      - 'dart_pdf_editor_assets-v*'
       - 'pdf_ocr_vlm-v*'
       - 'pdf_ocr_ondevice-v*'
 
@@ -81,6 +82,11 @@ jobs:
               package="dart_pdf_editor"
               directory="packages/dart_pdf_editor"
               version="${tag#dart_pdf_editor-v}"
+              ;;
+            dart_pdf_editor_assets-v*)
+              package="dart_pdf_editor_assets"
+              directory="packages/dart_pdf_editor_assets"
+              version="${tag#dart_pdf_editor_assets-v}"
               ;;
             pdf_ocr_vlm-v*)
               package="pdf_ocr_vlm"
@@ -176,6 +182,39 @@ jobs:
     with:
       environment: pub.dev
       working-directory: packages/dart_pdf_editor
+
+  publish-dart-pdf-editor-assets:
+    needs: check-publish-needed
+    if: needs.check-publish-needed.outputs.package == 'dart_pdf_editor_assets' && needs.check-publish-needed.outputs.publish_needed == 'true'
+    runs-on: ubuntu-latest
+    environment: pub.dev
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # Provision pub.dev's OIDC token before Flutter's SDK shadows `dart`;
+      # this is the ordering used by dart-lang/setup-dart's publish workflow.
+      - uses: dart-lang/setup-dart@e51d8e571e22473a2ddebf0ef8a2123f0ab2c02c
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.8
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      # The committed asset is deliberately a tiny placeholder. Build the real
+      # worker into the publish tree, matching tool/release.sh and web deploys.
+      - name: Build bundled web render worker
+        run: >-
+          dart run dart_pdf_editor:build_web_worker
+          --out packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
+      # `--force` is intentional: generating the worker makes that tracked
+      # placeholder dirty, which is the one expected publish warning.
+      - name: Publish to pub.dev
+        working-directory: packages/dart_pdf_editor_assets
+        run: dart pub publish --force
 
   publish-pdf-ocr-vlm:
     needs: check-publish-needed

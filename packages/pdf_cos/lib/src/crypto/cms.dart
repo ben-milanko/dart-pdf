@@ -11,6 +11,7 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'asn1.dart';
 import 'ecdsa.dart';
 import 'rsa.dart';
+import 'x509_builder.dart';
 
 abstract final class _Oid {
   static const signedData = '1.2.840.113549.1.7.2';
@@ -557,6 +558,7 @@ Uint8List cmsAssembleSignedData({
   List<Uint8List> unsignedAttributes = const [],
   String eContentType = _Oid.data,
   Uint8List? eContent,
+  Uint8List? signatureAlgorithm,
 }) {
   if (certificates.isEmpty) {
     throw ArgumentError('at least the signer certificate is required');
@@ -573,7 +575,9 @@ Uint8List cmsAssembleSignedData({
     digestAlgorithm,
     // re-tag the SET of signed attributes as IMPLICIT [0]
     Uint8List.fromList(signedAttributes)..[0] = DerTag.context(0),
-    derSequence([derOid(_Oid.rsaEncryption), derNull()]),
+    // the signature AlgorithmIdentifier: rsaEncryption by default, or the
+    // ecdsa-with-SHAx identifier an EC signer passes in
+    signatureAlgorithm ?? derSequence([derOid(_Oid.rsaEncryption), derNull()]),
     derOctetString(signature),
     if (unsignedAttributes.isNotEmpty)
       derContext(1, [for (final a in unsignedAttributes) ...a]),
@@ -667,6 +671,35 @@ Uint8List cmsSignDetached({
     signature: signature,
     certificates: certificates,
     hash: hash,
+  );
+}
+
+/// Like [cmsSignDetached] but signs the attributes with ECDSA - the path a
+/// self-signed P-256 identity takes. The SignerInfo carries the
+/// ecdsa-with-SHAx signature algorithm and the DER `SEQUENCE { r, s }`
+/// signature value.
+Uint8List cmsSignDetachedEcdsa({
+  required List<int> contentDigest,
+  required EcPrivateKey privateKey,
+  required List<Uint8List> certificates,
+  DateTime? signingTime,
+  X509Certificate? essCertificate,
+  crypto.Hash hash = crypto.sha256,
+}) {
+  final signedAttrs = cmsSignedAttributes(
+    contentDigest: contentDigest,
+    signingTime: signingTime,
+    essCertificate: essCertificate,
+    hash: hash,
+  );
+  final signature =
+      ecdsaSign(privateKey, hash.convert(signedAttrs).bytes, hash: hash);
+  return cmsAssembleSignedData(
+    signedAttributes: signedAttrs,
+    signature: signature,
+    certificates: certificates,
+    hash: hash,
+    signatureAlgorithm: ecdsaSignatureAlgorithm(hash),
   );
 }
 

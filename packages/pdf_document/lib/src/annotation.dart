@@ -83,6 +83,11 @@ class PdfAnnotation {
   bool get isHidden => flags & 2 != 0;
   bool get isNoView => flags & 32 != 0;
 
+  /// The Print flag (§12.5.3 bit 3): the annotation is printed when the
+  /// page is printed. When clear, the annotation shows on screen but is
+  /// omitted from print output.
+  bool get isPrint => flags & 4 != 0;
+
   /// The ReadOnly flag (§12.5.3 bit 7): no interaction with the
   /// annotation at all.
   bool get isReadOnly => flags & 64 != 0;
@@ -145,6 +150,46 @@ class PdfAnnotation {
   String? get stampType {
     final value = document.cos.resolve(dict['DartPdfStampType']);
     return value is CosString ? value.text : null;
+  }
+
+  /// Whether this /Stamp is a placed raster picture (PdfEditor.addImageStamp)
+  /// rather than a drawn text or template stamp.
+  ///
+  /// The editor writes this private marker when it embeds an image as a
+  /// stamp. It stays in the dictionary across saves, copies, and reopens so
+  /// the restyle path knows it can re-bake the appearance's alpha over the
+  /// same picture - and does not mistake a template stamp that merely
+  /// contains an image component for a bare image.
+  bool get isImageStamp {
+    if (subtype != 'Stamp') return false;
+    final value = document.cos.resolve(dict['DartPdfImageStamp']);
+    return value is CosBoolean && value.value;
+  }
+
+  /// The cropped sub-region of an image stamp's source picture that its
+  /// appearance draws, in normalized image coordinates (origin bottom-left,
+  /// `[0,0,1,1]` is the whole image). Null when this is not an image stamp
+  /// or the whole picture is shown (no crop applied).
+  ///
+  /// The editor writes this private marker when an image stamp is cropped
+  /// ([PdfAnnotationEditing.cropImageStamp]) so the crop survives saves,
+  /// copies, and reopens, and is re-baked whenever the appearance is
+  /// regenerated (opacity restyle). Absent on an uncropped picture.
+  PdfRect? get imageStampCrop {
+    if (!isImageStamp) return null;
+    final value = document.cos.resolve(dict['DartPdfImageCrop']);
+    if (value is! CosArray || value.length < 4) return null;
+    final crop = pdfRectFrom(document.cos, value);
+    if (crop == null) return null;
+    // A degenerate or full-image marker reads as "no crop".
+    if (crop.width <= 0 || crop.height <= 0) return null;
+    if (crop.left <= 0 &&
+        crop.bottom <= 0 &&
+        crop.right >= 1 &&
+        crop.top >= 1) {
+      return null;
+    }
+    return crop;
   }
 
   /// App-defined labels attached to a custom stamp annotation.
@@ -270,6 +315,17 @@ class PdfAnnotation {
     return values.any((value) => value > 0) ? values : null;
   }
 
+  /// The corner radius (page points) of a /Square annotation's rounded
+  /// rectangle, from the /Border array's first entry (§12.5.4
+  /// `[hCornerRadius vCornerRadius width]`); 0 for square corners or when
+  /// /Border is absent or malformed.
+  double get cornerRadius {
+    final border = document.cos.resolve(dict['Border']);
+    if (border is! CosArray || border.length < 3) return 0;
+    final r = _number(document.cos.resolve(border[0]));
+    return r != null && r > 0 ? r : 0;
+  }
+
   /// Whether the annotation asks conforming viewers to render its border as
   /// a cloudy border effect (`/BE << /S /Cloudy ... >>`).
   bool get hasCloudyBorder {
@@ -277,6 +333,17 @@ class PdfAnnotation {
     if (be is! CosDictionary) return false;
     final style = document.cos.resolve(be['S']);
     return style is CosName && style.value == 'Cloudy';
+  }
+
+  /// The cloud scallop scale carried on `/BE /I` (§12.5.4) - the border
+  /// effect intensity, which the editor also uses as a puff-size multiplier
+  /// so a cloud's scallop size survives a restyle or reshape independently
+  /// of its stroke width. Defaults to 1 when absent or not cloudy.
+  double get cloudBorderScale {
+    final be = document.cos.resolve(dict['BE']);
+    if (be is! CosDictionary) return 1;
+    final intensity = _number(document.cos.resolve(be['I']));
+    return intensity == null || intensity <= 0 ? 1 : intensity;
   }
 
   /// The endpoints of a /Line annotation, page space.
@@ -551,15 +618,12 @@ class PdfAnnotation {
   PdfFreeTextStyle? get freeTextStyle {
     if (subtype != 'FreeText') return null;
     final da = defaultAppearance;
-    final tf =
-        da == null ? null : RegExp(r'/(\S+)\s+([\d.]+)\s+Tf').firstMatch(da);
+    final tf = da == null ? null : _daTfRe.firstMatch(da);
     final size = double.tryParse(tf?.group(2) ?? '');
     if (tf == null || size == null) return null;
 
     int? lastColor(String op) {
-      final m = RegExp('([\\d.]+)\\s+([\\d.]+)\\s+([\\d.]+)\\s+$op\\b')
-          .allMatches(da!)
-          .lastOrNull;
+      final m = (op == 'RG' ? _daUpperRgRe : _daRgRe).allMatches(da!).lastOrNull;
       if (m == null) return null;
       int byte(String s) =>
           ((double.tryParse(s) ?? 0).clamp(0.0, 1.0) * 255).round();
@@ -569,7 +633,7 @@ class PdfAnnotation {
     }
 
     int? gray() {
-      final m = RegExp(r'([\d.]+)\s+g\b').allMatches(da!).lastOrNull;
+      final m = _daGrayRe.allMatches(da!).lastOrNull;
       if (m == null) return null;
       final v =
           ((double.tryParse(m.group(1)!) ?? 0).clamp(0.0, 1.0) * 255).round();
@@ -580,6 +644,15 @@ class PdfAnnotation {
     final background = color;
     final width = borderWidth ?? 0;
     final q = document.cos.resolve(dict['Q']);
+    final cos = document.cos;
+    double? number(String key) {
+      final v = cos.resolve(dict[key]);
+      if (v is CosInteger) return v.value.toDouble();
+      if (v is CosReal) return v.value;
+      return null;
+    }
+
+    final underlineFlag = cos.resolve(dict[kPdfFreeTextUnderlineKey]);
     return PdfFreeTextStyle(
       fontName: tf.group(1)!,
       fontSize: size,
@@ -588,6 +661,12 @@ class PdfAnnotation {
       borderColor: lastColor('RG') ?? (width > 0 ? text : null),
       borderWidth: width,
       alignment: PdfTextAlign.fromQuadding(q is CosInteger ? q.value : null),
+      lineSpacing:
+          number(kPdfFreeTextLineSpacingKey) ?? kPdfFreeTextDefaultLineSpacing,
+      charSpacing: number(kPdfFreeTextCharSpacingKey) ?? 0,
+      horizontalScale:
+          number(kPdfFreeTextHScaleKey) ?? kPdfFreeTextDefaultHorizontalScale,
+      underline: underlineFlag is CosBoolean && underlineFlag.value,
     );
   }
 
@@ -725,15 +804,21 @@ class PdfAnnotation {
   }
 }
 
+// /DA parsing patterns, compiled once (these getters run per sidebar tile).
+final RegExp _daTfRe = RegExp(r'/(\S+)\s+([\d.]+)\s+Tf');
+final RegExp _daRgRe = RegExp(r'([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+rg\b');
+final RegExp _daUpperRgRe = RegExp(r'([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+RG\b');
+final RegExp _daGrayRe = RegExp(r'([\d.]+)\s+g\b');
+final RegExp _pdfDateRe = RegExp(
+    r"D:(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?(?:([+\-Z])(\d{2})?'?(\d{2})?)?");
+
 /// Parses a PDF date string (§7.9.4, `D:YYYYMMDDHHmmSSOHH'mm'`) to a
 /// [DateTime] in UTC, leniently: every field past the year is optional and
 /// a missing or malformed string returns null. Shared by the annotation
 /// timestamp getters; the same shape is produced by [pdfFormatDate].
 DateTime? _parsePdfDate(String? value) {
   if (value == null) return null;
-  final match = RegExp(
-          r"D:(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?(?:([+\-Z])(\d{2})?'?(\d{2})?)?")
-      .firstMatch(value);
+  final match = _pdfDateRe.firstMatch(value);
   if (match == null) return null;
   int part(int i, [int fallback = 0]) =>
       match.group(i) == null ? fallback : int.parse(match.group(i)!);
@@ -756,6 +841,22 @@ String pdfFormatDate(DateTime time) {
       "${two(t.hour)}${two(t.minute)}${two(t.second)}Z00'00'";
 }
 
+/// Dictionary keys where free-text styling that /DA and /Q cannot express
+/// is persisted (line height, character spacing, horizontal glyph scaling,
+/// whole-box underline). Non-standard PDF keys, written and read back only
+/// by this package so a resize/edit can regenerate the same appearance.
+const String kPdfFreeTextLineSpacingKey = 'LineSpacing';
+const String kPdfFreeTextCharSpacingKey = 'CharSpacing';
+const String kPdfFreeTextHScaleKey = 'HScale';
+const String kPdfFreeTextUnderlineKey = 'TextUnderline';
+
+/// The default free-text line-height multiplier (baseline-to-baseline
+/// distance is `fontSize * lineSpacing`).
+const double kPdfFreeTextDefaultLineSpacing = 1.2;
+
+/// The default free-text horizontal glyph scaling, as a percentage.
+const double kPdfFreeTextDefaultHorizontalScale = 100.0;
+
 /// A free-text annotation's text and box styling, as recoverable from
 /// its dictionary (see [PdfAnnotation.freeTextStyle]). Colors are
 /// 0xRRGGBB.
@@ -768,6 +869,10 @@ class PdfFreeTextStyle {
     this.borderColor,
     this.borderWidth = 0,
     this.alignment = PdfTextAlign.left,
+    this.lineSpacing = kPdfFreeTextDefaultLineSpacing,
+    this.charSpacing = 0,
+    this.horizontalScale = kPdfFreeTextDefaultHorizontalScale,
+    this.underline = false,
   });
 
   /// The /DA font resource name (e.g. `Helv`), unresolved.
@@ -787,6 +892,20 @@ class PdfFreeTextStyle {
   /// How the lines are aligned inside the box (the /Q quadding). Defaults
   /// to [PdfTextAlign.left] when the annotation carries no /Q.
   final PdfTextAlign alignment;
+
+  /// The line-height multiplier (baseline-to-baseline distance is
+  /// `fontSize * lineSpacing`). Defaults to [kPdfFreeTextDefaultLineSpacing].
+  final double lineSpacing;
+
+  /// Extra spacing added after each glyph, in points (the Tc value).
+  final double charSpacing;
+
+  /// Horizontal glyph scaling as a percentage - 100 is the font's natural
+  /// width (the Tz value).
+  final double horizontalScale;
+
+  /// Whether the whole box is drawn underlined.
+  final bool underline;
 }
 
 /// A /Link annotation: a clickable region with an action (§12.5.6.5).

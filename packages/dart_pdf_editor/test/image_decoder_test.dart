@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:image/image.dart' as img;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:dart_pdf_editor/src/image_decoder.dart';
@@ -755,6 +756,333 @@ void main() {
       final pixels = await pixelsOf(images[image]!);
       // 0→255, 255→0, 64→191 (the same LUT the general path builds).
       expect(pixels.sublist(0, 4), [255, 191, 0, 255]);
+    });
+  });
+
+  group('display-resolution decode cap', () {
+    // One full-bleed underlay + gray soft mask on an A1-ish sheet, decoded
+    // through the real interpreter so the request carries the true page-space
+    // transform the cap reads its footprint from.
+    Future<(CosDocument, List<PdfImageRequest>)> underlay(
+        int nativeW, int nativeH) async {
+      final bytes = buildSyntheticRasterUnderlaySheet(
+        underlays: [PdfUnderlaySpec(width: nativeW, height: nativeH)],
+        layers: 4,
+        ops: 50,
+      );
+      final doc = CosDocument.open(bytes);
+      final page = PdfDocument.open(bytes).page(0);
+      final collector = ImageCollector();
+      PdfInterpreter(cos: doc, device: collector)
+          .drawPageContent(page, page.contentBytes());
+      // The base underlay, not its mask (masks are referenced via /SMask, not
+      // drawn), is the one image the page draws.
+      return (doc, collector.streams);
+    }
+
+    testWidgets('a huge underlay decodes at display size, not native',
+        (tester) async {
+      await tester.runAsync(() async {
+        final (doc, requests) = await underlay(4000, 2600);
+        // ratio 0.5 px/pt over a ~2384pt-wide sheet -> ~1192px on screen; the
+        // 2x headroom caps near 2384px, well under the 4000px native width.
+        final images =
+            await decodeImages(doc, requests, maxImagePixelRatio: 0.5);
+        final image = images.values.single;
+        expect(image.width, lessThan(4000));
+        expect(image.width, greaterThan(1192)); // sharper than 1:1
+        // The soft mask was fitted to the base, so the composite kept the cap
+        // instead of ballooning back to the mask's native 4000x2600.
+        expect(image.height, lessThan(2600));
+      });
+    });
+
+    testWidgets('no ratio still clamps past the GPU max texture size',
+        (tester) async {
+      await tester.runAsync(() async {
+        final (doc, requests) = await underlay(9460, 2918);
+        // No display ratio: only the hard ceilings apply. 9460 > 8192 must be
+        // brought within the common GPU max texture dimension.
+        final images = await decodeImages(doc, requests);
+        final image = images.values.single;
+        expect(image.width, lessThanOrEqualTo(8192));
+        expect(image.width * image.height, lessThanOrEqualTo(1 << 24));
+      });
+    });
+
+    testWidgets('a small image is untouched by the cap', (tester) async {
+      await tester.runAsync(() async {
+        final (doc, requests) = await underlay(64, 48);
+        final images =
+            await decodeImages(doc, requests, maxImagePixelRatio: 2.0);
+        final image = images.values.single;
+        expect(image.width, 64);
+        expect(image.height, 48);
+      });
+    });
+
+    testWidgets('a DCTDecode base under a non-DCT soft mask caps on the '
+        'platform-codec path', (tester) async {
+      await tester.runAsync(() async {
+        // The #458 shape: a non-CMYK JPEG base (platform codec, not the
+        // pure-Dart path) with a Flate gray /SMask. Exercises
+        // instantiateImageCodec(targetWidth:) and the _fitMask step that keeps
+        // the composite at the capped base size instead of ballooning back to
+        // the mask's native resolution.
+        const w = 512, h = 384;
+        final rgb = img.Image(width: w, height: h);
+        for (final p in rgb) {
+          p
+            ..r = (p.x * 255 ~/ w)
+            ..g = (p.y * 255 ~/ h)
+            ..b = 128;
+        }
+        final jpeg = img.encodeJpg(rgb, quality: 90);
+        // A fully-opaque Flate gray mask at the base's native size: if _fitMask
+        // did not shrink it, pdfApplyImageAlpha would upsize the capped base
+        // back to 512x384.
+        final maskBytes =
+            Uint8List.fromList(ZLibCodec(level: 6).encode(Uint8List(w * h)
+              ..fillRange(0, w * h, 0xFF)));
+        final base = CosStream(
+          CosDictionary({
+            'Subtype': const CosName('Image'),
+            'Width': const CosInteger(w),
+            'Height': const CosInteger(h),
+            'BitsPerComponent': const CosInteger(8),
+            'ColorSpace': const CosName('DeviceRGB'),
+            'Filter': const CosName('DCTDecode'),
+            'SMask': CosStream(
+              CosDictionary({
+                'Subtype': const CosName('Image'),
+                'Width': const CosInteger(w),
+                'Height': const CosInteger(h),
+                'BitsPerComponent': const CosInteger(8),
+                'ColorSpace': const CosName('DeviceGray'),
+                'Filter': const CosName('FlateDecode'),
+                'Length': CosInteger(maskBytes.length),
+              }),
+              maskBytes,
+            ),
+          }),
+          Uint8List.fromList(jpeg),
+        );
+        // Unit square -> a 300x225 pt page footprint; at ratio 0.4 the 2x
+        // headroom targets ~240px wide, well under the 512px native JPEG.
+        final request = PdfImageRequest(
+          stream: base,
+          transform: PdfMatrix(300, 0, 0, 225, 0, 0),
+        );
+        final images =
+            await decodeImages(cos, [request], maxImagePixelRatio: 0.4);
+        final image = images.values.single;
+        expect(image.width, lessThan(w));
+        expect(image.height, lessThan(h));
+        // Base and (fitted) mask agree, so the composite is the capped size,
+        // not the mask's native 512x384.
+        expect(image.width, greaterThan(0));
+      });
+    });
+  });
+
+  group('concurrent decode (#454)', () {
+    CosStream rgbPixel(int r, int g, int b) => CosStream(
+          CosDictionary({
+            'Width': const CosInteger(1),
+            'Height': const CosInteger(1),
+            'BitsPerComponent': const CosInteger(8),
+            'ColorSpace': const CosName('DeviceRGB'),
+          }),
+          Uint8List.fromList([r, g, b]),
+        );
+
+    testWidgets('decodes every distinct image in one batch', (tester) async {
+      await tester.runAsync(() async {
+        final streams = [
+          rgbPixel(10, 20, 30),
+          rgbPixel(40, 50, 60),
+          rgbPixel(70, 80, 90),
+          rgbPixel(100, 110, 120),
+        ];
+        final images =
+            await decodeImages(cos, [for (final s in streams) req(s)]);
+        expect(images.length, 4);
+        for (final s in streams) {
+          expect(images[s], isNotNull);
+        }
+        expect((await pixelsOf(images[streams[0]]!)).sublist(0, 3),
+            [10, 20, 30]);
+        expect((await pixelsOf(images[streams[3]]!)).sublist(0, 3),
+            [100, 110, 120]);
+      });
+    });
+
+    testWidgets('a repeated image is decoded once across the batch',
+        (tester) async {
+      await tester.runAsync(() async {
+        final shared = rgbPixel(11, 22, 33);
+        final other = rgbPixel(44, 55, 66);
+        // shared appears three times; the map must collapse to two entries
+        // (proving the dedup happens before the concurrent decodes launch).
+        final images = await decodeImages(
+            cos, [req(shared), req(other), req(shared), req(shared)]);
+        expect(images.length, 2);
+        expect(images[shared], isNotNull);
+        expect(images[other], isNotNull);
+      });
+    });
+
+    testWidgets('a warm cache serves the second batch without re-decoding',
+        (tester) async {
+      await tester.runAsync(() async {
+        final cache = PdfImageCache();
+        final stream = rgbPixel(7, 8, 9);
+        final first = await decodeImages(cos, [req(stream)], cache: cache);
+        final cold = await pixelsOf(first[stream]!);
+        // Second call with the same cache must return the same pixels; the
+        // hit is resolved in the synchronous planning pass, before any decode.
+        final second = await decodeImages(cos, [req(stream)], cache: cache);
+        final warm = await pixelsOf(second[stream]!);
+        expect(warm, cold);
+      });
+    });
+  });
+
+  // The shared cache used to key worker-decoded pixels and locally-decoded
+  // pixels by different *shapes*: a request carrying pixels produced a bare
+  // content key, while a capped local decode produced a sized one. The same
+  // image could therefore occupy two entries, and a record whose pixels were
+  // dropped would miss the entry its own decode had populated. The two shapes
+  // coincided whenever the resolution cap happened to be a no-op, which is why
+  // it went unnoticed - so these pin both directions (#451).
+  group('cache key shape (#451)', () {
+    // A 2x2 image, and "worker" pixels for it in a colour a real decode of
+    // that stream would never produce. If a later local decode returns this
+    // colour, it resolved through the cache rather than decoding again -
+    // which is exactly what a shared key buys.
+    CosStream red2x2() => CosStream(
+          CosDictionary({
+            'Width': const CosInteger(2),
+            'Height': const CosInteger(2),
+            'BitsPerComponent': const CosInteger(8),
+            'ColorSpace': const CosName('DeviceRGB'),
+          }),
+          Uint8List.fromList([
+            for (var i = 0; i < 4; i++) ...[255, 0, 0],
+          ]),
+        );
+
+    PdfDecodedPixels marker(int w, int h) => PdfDecodedPixels(
+          Uint8List.fromList([
+            for (var i = 0; i < w * h; i++) ...[0, 255, 0, 255],
+          ]),
+          w,
+          h,
+        );
+
+    // A big image drawn small, so the resolution cap genuinely binds. That
+    // matters: for an image the cap leaves alone, `_decodeTarget` returns null
+    // and the old and new key shapes coincide - so a test on a small image
+    // passes either way and proves nothing.
+    CosStream big() => CosStream(
+          CosDictionary({
+            'Width': const CosInteger(64),
+            'Height': const CosInteger(64),
+            'BitsPerComponent': const CosInteger(8),
+            'ColorSpace': const CosName('DeviceRGB'),
+          }),
+          Uint8List.fromList([
+            for (var i = 0; i < 64 * 64; i++) ...[255, 0, 0],
+          ]),
+        );
+
+    testWidgets('worker-decoded and locally-decoded pixels share one entry',
+        (tester) async {
+      await tester.runAsync(() async {
+        final stream = big();
+        // 64x64 native drawn into an 8x8pt box at 0.5 px/pt.
+        final small = PdfMatrix(8, 0, 0, 8, 0, 0);
+        const ratio = 0.5;
+
+        // Discover the size the cap lands on rather than hard-coding the
+        // headroom arithmetic, then confirm it really did bind.
+        final probe = await decodeImages(
+            cos, [PdfImageRequest(stream: stream, transform: small)],
+            maxImagePixelRatio: ratio);
+        final capped = probe[stream]!;
+        expect(capped.width, lessThan(64),
+            reason: 'the cap must bind, or this test proves nothing');
+        final (cw, ch) = (capped.width, capped.height);
+
+        // The worker path: a record carrying pixels already decoded to that
+        // same capped size.
+        final cache = PdfImageCache();
+        final fromWorker = await decodeImages(
+            cos,
+            [
+              PdfImageRequest(
+                  stream: stream, transform: small, decoded: marker(cw, ch)),
+            ],
+            cache: cache);
+        expect(await pixelsOf(fromWorker[stream]!), marker(cw, ch).rgba);
+
+        // Then the same image with no pixels attached - the shape a record
+        // takes once its RGBA has been dropped. It must find the entry the
+        // worker path populated instead of decoding the stream afresh.
+        final local = await decodeImages(
+            cos, [PdfImageRequest(stream: stream, transform: small)],
+            cache: cache, maxImagePixelRatio: ratio);
+        expect(await pixelsOf(local[stream]!), marker(cw, ch).rgba,
+            reason: 'a local decode should hit the entry worker pixels stored');
+      });
+    });
+
+    testWidgets('two resolutions of one image still cache separately',
+        (tester) async {
+      await tester.runAsync(() async {
+        // The other direction: unifying the shape must not let a sharp decode
+        // and a small one stand in for each other. Distinct sizes, distinct
+        // marker pixels; each must come back as itself.
+        final cache = PdfImageCache();
+        final stream = red2x2();
+
+        final sharp = await decodeImages(
+            cos,
+            [
+              PdfImageRequest(
+                  stream: stream,
+                  transform: PdfMatrix.identity,
+                  decoded: marker(2, 2)),
+            ],
+            cache: cache);
+        expect(await pixelsOf(sharp[stream]!), marker(2, 2).rgba);
+
+        final tiny = await decodeImages(
+            cos,
+            [
+              PdfImageRequest(
+                  stream: stream,
+                  transform: PdfMatrix.identity,
+                  decoded: marker(1, 1)),
+            ],
+            cache: cache);
+        final tinyPixels = tiny[stream]!;
+        expect(tinyPixels.width, 1,
+            reason: 'the 1x1 decode must not be served the 2x2 entry');
+        expect(await pixelsOf(tinyPixels), marker(1, 1).rgba);
+
+        // And the sharp one must still be intact afterwards.
+        final again = await decodeImages(
+            cos,
+            [
+              PdfImageRequest(
+                  stream: stream,
+                  transform: PdfMatrix.identity,
+                  decoded: marker(2, 2)),
+            ],
+            cache: cache);
+        expect(again[stream]!.width, 2);
+      });
     });
   });
 }

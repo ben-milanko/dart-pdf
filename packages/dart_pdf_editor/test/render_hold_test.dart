@@ -6,7 +6,6 @@ import 'dart:async';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
@@ -79,7 +78,7 @@ void main() {
     unawaited(controller.jumpToPage(6));
     await tester.pump();
     expect(controller.currentPage, 6);
-    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 550));
     await waitFor(tester, fullRaster);
   });
 
@@ -105,7 +104,7 @@ void main() {
     await tester.pump();
     await waitFor(tester, fullRaster);
     // drain any startup scroll-settle timer, then confirm idle isn't holding
-    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 550));
     expect(controller.debugRenderHold, isFalse);
 
     // a single scroll event - one sample, no span - must already hold
@@ -116,7 +115,7 @@ void main() {
             'sample can compute velocity');
 
     // and the settle timer still releases it
-    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 550));
     expect(controller.debugRenderHold, isFalse);
   });
 
@@ -143,7 +142,7 @@ void main() {
     ));
     await tester.pump();
     await waitFor(tester, fullRaster);
-    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 550));
     expect(controller.debugRenderHold, isFalse);
 
     // a deliberately slow drag: after crossing the touch slop, ~10px per
@@ -163,7 +162,8 @@ void main() {
         reason: 'the opening grace holds through a slow ramp');
 
     await gesture.up();
-    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle(const Duration(milliseconds: 16));
+    await tester.pump(const Duration(milliseconds: 550));
     expect(controller.debugRenderHold, isFalse);
   });
 

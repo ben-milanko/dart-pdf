@@ -1,0 +1,38 @@
+{
+  "locale": "zh",
+  "_comment": "Localized marketing-screenshot captions. Keyed <target>/<basename>, matching the raw capture PNG names. Each entry is the headline and subtitle overlaid on the framed store shot by tool/compose_marketing.dart. Keep headlines short (they set at a large size) and honour the App Store Guideline 2.3.10 rule: no other-platform names in app/* captions.",
+  "captions": {
+    "app/01-welcome": {
+      "headline": "私密的 PDF 编辑",
+      "subtitle": "无需账户。不上传。文件留在您的设备上。"
+    },
+    "app/02-editor": {
+      "headline": "标记、签名、遮盖",
+      "subtitle": "填写表单、添加便笺、移动页面。"
+    },
+    "app/03-dark": {
+      "headline": "为真实文档而生",
+      "subtitle": "搜索文本、运行 OCR、比较版本，\n打开受保护的文件。"
+    },
+    "example/01-document": {
+      "headline": "打开任意 PDF",
+      "subtitle": "以纯 Dart 渲染，适用于每个平台"
+    },
+    "example/02-graphics": {
+      "headline": "图形",
+      "subtitle": "渐变、着色和透明度"
+    },
+    "example/03-annotations": {
+      "headline": "注释",
+      "subtitle": "高亮、手绘、便笺、图章和表单"
+    },
+    "example/04-markup": {
+      "headline": "标记工具",
+      "subtitle": "在页面上绘制、添加形状和签名"
+    },
+    "example/05-reader": {
+      "headline": "阅读视图",
+      "subtitle": "重排文本以适应屏幕"
+    }
+  }
+}

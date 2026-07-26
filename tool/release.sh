@@ -28,6 +28,7 @@ PACKAGES=(
   "pdf_document:packages/pdf_document"
   "pdf_graphics:packages/pdf_graphics"
   "dart_pdf_editor:packages/dart_pdf_editor"
+  "dart_pdf_editor_assets:packages/dart_pdf_editor_assets"
   "pdf_ocr_vlm:packages/pdf_ocr_vlm"
   "pdf_ocr_ondevice:packages/pdf_ocr_ondevice"
 )
@@ -97,7 +98,7 @@ validate_package_list() {
 # 0 if $version is already published for $package on pub.dev, 1 otherwise.
 pub_has_version() {
   local package="$1" version="$2"
-  curl -fsSL "https://pub.dev/api/packages/${package}" 2>/dev/null \
+  curl -fsSL --max-time 30 "https://pub.dev/api/packages/${package}" 2>/dev/null \
     | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if '$version' in [v['version'] for v in d.get('versions',[])] else 1)" \
     2>/dev/null
 }
@@ -123,6 +124,22 @@ echo "==> Resolving workspace"
 
 echo "==> Static analysis"
 "${DART[@]}" analyze --fatal-infos
+
+# Regenerate the real bundled web render worker so dart_pdf_editor_assets ships
+# it instead of the committed placeholder. The real worker is a ~1 MB
+# `dart compile js` artifact that is NOT committed (issue #582) - only a small
+# placeholder is, so the declared Flutter asset always exists; the deploy
+# workflows regenerate it before every web build and this is the publish-side
+# equivalent. Restore the placeholder on exit (`git checkout`) so a release run
+# never leaves the ~1 MB blob in the working tree. Mirrors app/tool/build_web.sh
+# and the deploy workflows.
+WORKER_ASSET=packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
+restore_worker_placeholder() {
+  git checkout -- "$WORKER_ASSET" 2>/dev/null || true
+}
+trap restore_worker_placeholder EXIT
+echo "==> Regenerating the bundled web render worker asset"
+"${DART[@]}" run dart_pdf_editor:build_web_worker --out "$WORKER_ASSET"
 
 validate_package_list
 

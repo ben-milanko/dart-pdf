@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:developer' show Timeline;
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 
+import '../budgeted_cache.dart';
 import '../perf_log.dart';
 import '../raster_cache.dart';
 
@@ -53,14 +55,66 @@ class PdfThumbnailCache {
   /// freshly-rendered ones write through. Null leaves the cache session-only.
   PdfRasterCache? disk;
 
-  // LinkedHashMap insertion order doubles as LRU order: a claim re-inserts,
-  // eviction drops the first key.
-  final Map<String, ui.Image> _images = {};
+  // The shared budgeted LRU: count-bounded, cloning on claim so eviction never
+  // pulls pixels from a painting tile, disposing evicted rasters. Registered
+  // with PdfCacheRegistry (a thumbnail clear notifies no one, so the cache
+  // joins the coordinated pressure path directly) - before this the thumbnail
+  // cache was deaf to pressure.
+  late final PdfBudgetedCache<String, ui.Image> _images =
+      PdfBudgetedCache<String, ui.Image>(
+    maxEntries: capacity,
+    cloner: (image) => image.clone(),
+    disposer: (image) => image.dispose(),
+    clearsUnderMemoryPressure: true,
+    debugLabel: 'thumbnail',
+  );
   bool _disposed = false;
 
   final List<_ThumbTask> _pending = [];
   bool _draining = false;
   int _focus = 0;
+
+  Listenable? _gateActivity;
+  bool Function()? _gateBusy;
+
+  /// Binds the *viewer's* foreground-render signal to the background warm.
+  ///
+  /// [isBusy] is polled before every warm page and [activity] re-kicks the
+  /// loop when it may have gone idle - so a warm pass stands down for the whole
+  /// time the viewer is scrolling or has pages queued for their first
+  /// interpret, not just while another thumbnail tile is rendering.
+  ///
+  /// The gate exists because the warm's cost is not where its throttles are.
+  /// It already renders at a lower worker priority and declines the UI-thread
+  /// fallback, but the record it gets back still has to be replayed into a
+  /// `ui.Picture` and rasterized *here*, on the platform thread the visible
+  /// page's build needs and the one thing that cannot move to an isolate. A
+  /// 20 s scroll measured ~6.7 s of that replay landing on foreground frames
+  /// (#603); a worker priority cannot govern it, only not starting can.
+  ///
+  /// Passing nulls unbinds. Rebinding the same [activity] just refreshes
+  /// [isBusy], so calling this from a build is cheap.
+  void bindForegroundGate(Listenable? activity, bool Function()? isBusy) {
+    if (_disposed) return;
+    _gateBusy = isBusy;
+    if (identical(_gateActivity, activity)) {
+      _onGateActivity();
+      return;
+    }
+    _gateActivity?.removeListener(_onGateActivity);
+    _gateActivity = activity;
+    _gateActivity?.addListener(_onGateActivity);
+    _onGateActivity();
+  }
+
+  /// Reconsiders both queues whenever the viewer's platform-thread work may
+  /// have changed. Visible tiles already have a soft page-preview placeholder,
+  /// so their sharp raster must wait just like the background warm instead of
+  /// stealing a scrolling frame.
+  void _onGateActivity() {
+    _scheduleDrain();
+    _kickWarm();
+  }
 
   /// The page index nearest the viewport. Foreground tasks (and the warm
   /// loop) closest to it are served first; pushing a new focus (a panel
@@ -77,6 +131,11 @@ class PdfThumbnailCache {
   /// Whether any on-screen tile is queued or rendering - the warm loop holds
   /// off while this is true so the visible pages always win the worker.
   bool get _foregroundBusy => _draining || _pending.isNotEmpty;
+
+  /// Whether the viewer itself is still rendering pages (see
+  /// [bindForegroundGate]). Unbound - a panel with no viewer - reads false, so
+  /// the warm behaves exactly as it did before the gate existed.
+  bool get _viewerBusy => _gateBusy?.call() ?? false;
 
   /// Registers (or refreshes) [token]'s request to render on-screen tile
   /// [pageIndex]. [run] is invoked when the task's turn comes - the queue
@@ -105,7 +164,7 @@ class PdfThumbnailCache {
       _pending.removeWhere((task) => identical(task.token, token));
 
   void _scheduleDrain() {
-    if (_draining || _disposed || _pending.isEmpty) return;
+    if (_draining || _disposed || _pending.isEmpty || _viewerBusy) return;
     _draining = true;
     // off the current build/layout stack (requests fire from build) so the
     // first grant lands after this frame rather than blocking it
@@ -115,6 +174,10 @@ class PdfThumbnailCache {
   Future<void> _drain() async {
     try {
       while (!_disposed && _pending.isNotEmpty) {
+        // The tile stays on its viewer-provided soft preview while the main
+        // page is scrolling/replaying/rasterizing. The activity listener
+        // restarts this queue as soon as the viewer is genuinely idle.
+        if (_viewerBusy) return;
         var pick = 0;
         var best = _rank(_pending.first);
         for (var i = 1; i < _pending.length; i++) {
@@ -143,6 +206,7 @@ class PdfThumbnailCache {
       }
     } finally {
       _draining = false;
+      if (_pending.isNotEmpty && !_viewerBusy) _scheduleDrain();
       // a tile that just finished may have been the last thing holding the
       // warm pass back
       _kickWarm();
@@ -189,6 +253,7 @@ class PdfThumbnailCache {
   /// swapped). A no-op if another owner has since taken over.
   void clearWarm(Object owner) {
     if (!identical(_warmOwner, owner)) return;
+    bindForegroundGate(null, null);
     _warmOwner = null;
     _warmRenderer = null;
     _warmSignature = null;
@@ -211,6 +276,15 @@ class PdfThumbnailCache {
         if (_foregroundBusy) {
           PdfPerfLog.log('thumbnail warm yields - foreground busy '
               '(pending=${_pending.length} draining=$_draining)');
+          return;
+        }
+        // ...and never while the VIEWER is rendering: the warm's replay and
+        // rasterize run on the platform thread, so starting one mid-scroll
+        // buys a background thumbnail at the cost of the page the user is
+        // actually looking at (#603). The gate's activity listener re-kicks
+        // this loop when the viewer goes idle.
+        if (_viewerBusy) {
+          PdfPerfLog.log('thumbnail warm yields - viewer rendering');
           return;
         }
         final page = _nextWarmPage();
@@ -258,12 +332,7 @@ class PdfThumbnailCache {
 
   /// The raster for [key] as a clone the caller owns (and must dispose), or
   /// null on a miss. Counts as a use for LRU.
-  ui.Image? claim(String key) {
-    final image = _images.remove(key);
-    if (image == null) return null;
-    _images[key] = image; // back to most-recently-used
-    return image.clone();
-  }
+  ui.Image? claim(String key) => _images.take(key);
 
   /// Stores [image] under [key], taking ownership. Evicts the
   /// least-recently-used entries past [capacity].
@@ -272,27 +341,21 @@ class PdfThumbnailCache {
       image.dispose(); // landed after the session went away
       return;
     }
-    _images.remove(key)?.dispose();
-    _images[key] = image;
-    while (_images.length > capacity) {
-      _images.remove(_images.keys.first)!.dispose();
-    }
+    _images.put(key, image);
   }
 
   /// Drops every cached raster (a page-color change invalidates them all).
   /// Pending tasks are left to re-populate it.
-  void clear() {
-    for (final image in _images.values) {
-      image.dispose();
-    }
-    _images.clear();
-  }
+  void clear() => _images.clear();
 
   void dispose() {
     _disposed = true;
     _pending.clear();
     _warmRenderer = null;
-    clear();
+    _gateActivity?.removeListener(_onGateActivity);
+    _gateActivity = null;
+    _gateBusy = null;
+    _images.dispose(); // clears every raster and unregisters from the registry
   }
 }
 

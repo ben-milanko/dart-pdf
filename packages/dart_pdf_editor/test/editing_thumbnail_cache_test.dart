@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -5,6 +7,7 @@ import 'package:dart_pdf_editor/src/editing/thumbnail_cache.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -14,6 +17,13 @@ void main() {
       Future<void>.delayed(const Duration(milliseconds: 50));
 
   group('PdfThumbnailCache scheduler', () {
+    test('long web documents skip speculative whole-document warming', () {
+      expect(pdfShouldWarmThumbnails(24, web: true), isTrue);
+      expect(pdfShouldWarmThumbnails(25, web: true), isFalse);
+      expect(pdfShouldWarmThumbnails(138, web: true), isFalse);
+      expect(pdfShouldWarmThumbnails(138, web: false), isTrue);
+    });
+
     test('serves the pending task nearest the focus first', () async {
       final cache = PdfThumbnailCache();
       addTearDown(cache.dispose);
@@ -50,6 +60,117 @@ void main() {
       cache.request(token, 9, () async => runs++); // same token, new page
       await settle();
       expect(runs, 1);
+    });
+  });
+
+  // #603: the warm already yields to on-screen TILES and renders at a lower
+  // worker priority, but its replay and rasterize still run on the platform
+  // thread - the one the visible page's build needs, and the one a worker
+  // priority cannot reach. The gate is what makes it stand down for the viewer.
+  group('PdfThumbnailCache foreground gate', () {
+    testWidgets('the warm stands down while the viewer renders, and resumes '
+        'when it goes idle', (tester) async {
+      final cache = PdfThumbnailCache();
+      addTearDown(cache.dispose);
+      final activity = _TestActivity();
+      var viewerBusy = true;
+      cache.bindForegroundGate(activity, () => viewerBusy);
+
+      final warmed = <int>[];
+      cache.setWarm(Object(), 3, 'k', (page) async => warmed.add(page));
+      for (var i = 0; i < 5; i++) {
+        await tester.pump();
+      }
+      expect(warmed, isEmpty, reason: 'the viewer is still rendering');
+
+      // the viewer went idle: its activity ping re-kicks the loop - the warm
+      // must not be waiting on a frame poll that never comes
+      viewerBusy = false;
+      activity.ping();
+      for (var i = 0; i < 8; i++) {
+        await tester.pump();
+      }
+      expect(warmed, [0, 1, 2]);
+    });
+
+    testWidgets('visible tile renders also stand down for the viewer',
+        (tester) async {
+      final cache = PdfThumbnailCache();
+      addTearDown(cache.dispose);
+      final activity = _TestActivity();
+      var viewerBusy = true;
+      cache.bindForegroundGate(activity, () => viewerBusy);
+
+      final rendered = <int>[];
+      cache.request(Object(), 4, () async => rendered.add(4));
+      for (var i = 0; i < 5; i++) {
+        await tester.pump();
+      }
+      expect(rendered, isEmpty,
+          reason: 'the soft viewer preview stays visible during motion');
+
+      viewerBusy = false;
+      activity.ping();
+      for (var i = 0; i < 5; i++) {
+        await tester.pump();
+      }
+      expect(rendered, [4]);
+    });
+
+    testWidgets('an unbound cache warms exactly as before', (tester) async {
+      final cache = PdfThumbnailCache();
+      addTearDown(cache.dispose);
+      final warmed = <int>[];
+      cache.setWarm(Object(), 2, 'k', (page) async => warmed.add(page));
+      for (var i = 0; i < 8; i++) {
+        await tester.pump();
+      }
+      expect(warmed, [0, 1]);
+    });
+
+    testWidgets('withdrawing the warm releases the gate', (tester) async {
+      final cache = PdfThumbnailCache();
+      addTearDown(cache.dispose);
+      final activity = _TestActivity();
+      final owner = Object();
+      cache.bindForegroundGate(activity, () => true);
+      cache.setWarm(owner, 2, 'k', (page) async {});
+      expect(activity.listeners, 1);
+      cache.clearWarm(owner);
+      expect(activity.listeners, 0,
+          reason: 'a disposed panel must not keep the viewer subscribed');
+    });
+  });
+
+  group('PdfThumbnailCache raster store', () {
+    Future<ui.Image> solid(int w, int h) {
+      final px = Uint8List(w * h * 4)..fillRange(0, w * h * 4, 255);
+      final c = Completer<ui.Image>();
+      ui.decodeImageFromPixels(px, w, h, ui.PixelFormat.rgba8888, c.complete);
+      return c.future;
+    }
+
+    test('put/claim hands out clones; clear disposes the masters', () async {
+      final cache = PdfThumbnailCache();
+      addTearDown(cache.dispose);
+      cache.put('a', await solid(4, 4));
+      expect(cache.contains('a'), isTrue);
+      final clone = cache.claim('a');
+      expect(clone, isNotNull);
+      clone!.dispose(); // disposing the clone must not affect the master
+      expect(cache.claim('a'), isNotNull);
+      cache.clear();
+      expect(cache.contains('a'), isFalse);
+    });
+
+    test('a raster arriving after dispose is dropped, not cached', () async {
+      final cache = PdfThumbnailCache();
+      cache.dispose();
+      // A warm render completing after the session went away: put disposes the
+      // orphan raster and caches nothing.
+      cache.put('late', await solid(4, 4));
+      expect(cache.contains('late'), isFalse);
+      expect(cache.claim('late'), isNull);
     });
   });
 
@@ -155,6 +276,43 @@ void main() {
       await tester.pump();
       expect(PdfThumbnailSidebar.debugRasterizations, 3);
     });
+
+    testWidgets('a parked viewer does not gate the warm', (tester) async {
+      // The full-area page grid overlays the viewer and parks it
+      // (PdfViewer.active false), which holds its renders forever. Gating the
+      // warm on that hold would mean the grid never fills in - so a parked
+      // viewer must read idle (#603).
+      final bytes = buildMultiPagePdf(4);
+      final editing = PdfEditingController(bytes);
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            PdfThumbnailSidebar(controller: editing, viewerController: viewer),
+            Expanded(
+              child: PdfViewer(
+                active: false,
+                document: PdfDocument.open(bytes),
+                controller: viewer,
+              ),
+            ),
+          ]),
+        ),
+      ));
+      expect(viewer.isPageRenderBusy, isFalse);
+
+      for (var i = 0;
+          i < 300 && PdfThumbnailSidebar.debugRasterizations < 4;
+          i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)));
+        await tester.pump();
+      }
+      expect(PdfThumbnailSidebar.debugRasterizations, 4);
+    });
   });
 
   group('thumbnail disk persistence', () {
@@ -178,6 +336,33 @@ void main() {
       });
 
       expect(rendered, isNull);
+    });
+
+    testWidgets('a warm worker result defers its UI replay during motion',
+        (tester) async {
+      final bytes = buildMultiPagePdf(1);
+      final controller = PdfEditingController(bytes);
+      final worker = _ImmediateWorker();
+      addTearDown(controller.dispose);
+      addTearDown(worker.dispose);
+
+      ui.Image? rendered;
+      await tester.runAsync(() async {
+        rendered = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          pixelWidth: 128,
+          worker: worker,
+          deferUiWork: () => true,
+          reason: 'warm',
+        );
+      });
+
+      expect(rendered, isNull,
+          reason: 'a worker reply must not start CanvasKit replay/raster '
+              'after the viewer begins scrolling');
     });
 
     testWidgets('a rendered thumbnail writes through to disk and reloads',
@@ -239,4 +424,53 @@ void main() {
       fromDisk!.dispose();
     });
   });
+}
+
+/// A [Listenable] whose subscriptions are observable - the gate must let go of
+/// the viewer when its panel does, or a disposed strip keeps waking the warm.
+class _TestActivity implements Listenable {
+  final _callbacks = <VoidCallback>[];
+
+  int get listeners => _callbacks.length;
+
+  @override
+  void addListener(VoidCallback listener) => _callbacks.add(listener);
+
+  @override
+  void removeListener(VoidCallback listener) => _callbacks.remove(listener);
+
+  void ping() {
+    for (final callback in List<VoidCallback>.of(_callbacks)) {
+      callback();
+    }
+  }
+}
+
+/// Deterministic worker seam for the UI-deferral test: a non-null command
+/// buffer proves rasterizeThumbnail reached the worker-result branch without
+/// spawning an isolate whose lifetime can outlive flutter_test's fake clock.
+class _ImmediateWorker extends PdfRenderWorker {
+  bool _active = true;
+
+  @override
+  bool get isActive => _active;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(
+    int pageIndex, {
+    bool annotations = true,
+    int priority = 0,
+    double? imagePixelRatio,
+    bool decodeImages = true,
+    int? commandLimit,
+    PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
+  }) async =>
+      [PdfSaveCommand(), PdfRestoreCommand()];
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {}
+
+  @override
+  void dispose() => _active = false;
 }

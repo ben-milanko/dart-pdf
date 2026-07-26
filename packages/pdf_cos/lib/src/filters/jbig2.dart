@@ -27,6 +27,30 @@ class Jbig2Decoder {
   _Bitmap? _page;
   int _pageDefault = 0;
 
+  // Decoded /JBIG2Globals symbol + pattern dictionaries, keyed by a content
+  // hash of the globals bytes (#532, PDFium's JBig2_DocumentContext shape).
+  // Scanned documents share one globals stream across every page image, and
+  // the arithmetic-decoded symbol bitmaps it carries are the expensive part;
+  // decoding them once and sharing the (immutable) bitmaps across images
+  // saves that work per page. Bounded - one globals stream per document is
+  // the norm - and the shared bitmaps are only ever read by consumers
+  // (text/halftone regions draw into fresh output bitmaps), never mutated.
+  static final Map<int, _GlobalsDicts> _globalsCache = {};
+  static const _maxGlobalsCached = 8;
+
+  /// Clears the /JBIG2Globals dictionary cache. Test hook - the cache is
+  /// process-wide, so tests that assert the cold-decode path clear it first.
+  static void debugResetGlobalsCache() => _globalsCache.clear();
+
+  static int _hashGlobals(Uint8List bytes) {
+    var h = 0x811c9dc5;
+    for (var i = 0; i < bytes.length; i++) {
+      h = ((h ^ bytes[i]) * 0x01000193) & 0xFFFFFFFF;
+    }
+    // Fold the length in so two same-hash different-length streams don't alias.
+    return (h * 0x01000193 + bytes.length) & 0x1FFFFFFFFFFFFF;
+  }
+
   static Uint8List? decode({
     required Uint8List data,
     Uint8List? globals,
@@ -35,7 +59,26 @@ class Jbig2Decoder {
   }) {
     try {
       final decoder = Jbig2Decoder._(width, height);
-      if (globals != null) decoder._processSegments(globals);
+      if (globals != null && globals.isNotEmpty) {
+        final key = _hashGlobals(globals);
+        final cached = _globalsCache[key];
+        if (cached != null) {
+          // Seed from the cache: shallow-copy the maps so this decoder can
+          // add page-local dictionaries without touching the shared snapshot;
+          // the _Bitmap lists themselves are shared read-only.
+          decoder._symbolDicts.addAll(cached.symbolDicts);
+          decoder._patternDicts.addAll(cached.patternDicts);
+        } else {
+          decoder._processSegments(globals);
+          if (_globalsCache.length >= _maxGlobalsCached) {
+            _globalsCache.remove(_globalsCache.keys.first);
+          }
+          _globalsCache[key] = _GlobalsDicts(
+            Map.of(decoder._symbolDicts),
+            Map.of(decoder._patternDicts),
+          );
+        }
+      }
       decoder._processSegments(data);
       final page = decoder._page;
       if (page == null) return null;
@@ -401,10 +444,20 @@ class Jbig2Decoder {
     ).decode();
     final bitmap = _Bitmap(w, h, fill: 0);
     final rowBytes = (w + 7) >> 3;
+    final out = bitmap.data;
+    // Unpack a byte at a time: the bitmap starts all-zero, so an all-white
+    // byte (the common case on a scanned page) is skipped outright instead
+    // of costing eight bounds-checked writes.
     for (var y = 0; y < h; y++) {
-      for (var x = 0; x < w; x++) {
-        if ((packed[y * rowBytes + (x >> 3)] >> (7 - (x & 7))) & 1 != 0) {
-          bitmap.set(x, y, 1);
+      final rowStart = y * rowBytes;
+      final base = y * w;
+      for (var byte = 0; byte < rowBytes; byte++) {
+        final value = packed[rowStart + byte];
+        if (value == 0) continue;
+        final x0 = byte << 3;
+        final last = x0 + 8 <= w ? 8 : w - x0;
+        for (var bit = 0; bit < last; bit++) {
+          if ((value >> (7 - bit)) & 1 != 0) out[base + x0 + bit] = 1;
         }
       }
     }
@@ -1178,6 +1231,15 @@ final _huffmanK = _HuffmanTable(const [
   _HuffmanLine(0, 32, -1),
   _HuffmanLine(7, 32, 141),
 ], htoob: false);
+
+/// A cached snapshot of the symbol + pattern dictionaries a /JBIG2Globals
+/// stream decodes to (#532). The bitmap lists are shared read-only across
+/// every image that references the same globals.
+class _GlobalsDicts {
+  _GlobalsDicts(this.symbolDicts, this.patternDicts);
+  final Map<int, List<_Bitmap>> symbolDicts;
+  final Map<int, List<_Bitmap>> patternDicts;
+}
 
 /// One-byte-per-pixel bitmap; out-of-bounds reads are 0 (white).
 class _Bitmap {

@@ -15,7 +15,7 @@ import 'package:dart_pdf_editor/strips.dart';
 
 Future<Uint8List> renderMode(double mode, double param) async {
   final font = TrueTypeFont.parse(
-      File('assets/fonts/DejaVuSans.ttf').readAsBytesSync())!;
+      File('../dart_pdf_editor_assets/assets/fonts/DejaVuSans.ttf').readAsBytesSync())!;
   final outline = font.outlineForGlyph(font.gidForUnicode(0x67))!;
   final r = PdfTextRun(
     text: 'g',

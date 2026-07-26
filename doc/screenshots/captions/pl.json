@@ -1,0 +1,38 @@
+{
+  "locale": "pl",
+  "_comment": "Zlokalizowane podpisy do zrzutów marketingowych. Klucz <target>/<basename> odpowiada nazwom surowych plików PNG. Każdy wpis to nagłówek i podtytuł nakładane na oprawiony zrzut sklepowy przez tool/compose_marketing.dart. Nagłówki mają być krótkie (składane są w dużym rozmiarze) i zgodne z zasadą App Store Guideline 2.3.10: w podpisach app/* nie wolno wymieniać nazw innych platform.",
+  "captions": {
+    "app/01-welcome": {
+      "headline": "Prywatna edycja PDF",
+      "subtitle": "Bez konta. Bez przesyłania. Pliki zostają na Twoim urządzeniu."
+    },
+    "app/02-editor": {
+      "headline": "Oznaczaj, podpisuj, wymazuj",
+      "subtitle": "Wypełniaj formularze, dodawaj notatki i przenoś strony."
+    },
+    "app/03-dark": {
+      "headline": "Stworzony do prawdziwych dokumentów",
+      "subtitle": "Przeszukuj tekst, uruchamiaj OCR, porównuj wersje\ni otwieraj chronione pliki."
+    },
+    "example/01-document": {
+      "headline": "Otwórz dowolny PDF",
+      "subtitle": "Renderowany w czystym Darcie, na każdej platformie"
+    },
+    "example/02-graphics": {
+      "headline": "Grafika",
+      "subtitle": "Gradienty, cieniowania i przezroczystość"
+    },
+    "example/03-annotations": {
+      "headline": "Adnotacje",
+      "subtitle": "Podświetlenia, rysunek odręczny, notatki, stemple i formularze"
+    },
+    "example/04-markup": {
+      "headline": "Narzędzia oznaczeń",
+      "subtitle": "Rysuj, dodawaj kształty i podpisuj na stronie"
+    },
+    "example/05-reader": {
+      "headline": "Widok czytania",
+      "subtitle": "Dopasowuje przepływ tekstu do ekranu"
+    }
+  }
+}

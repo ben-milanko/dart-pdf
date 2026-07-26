@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart' show ThemeMode;
+import 'package:flutter/material.dart' show Locale, ThemeMode;
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart'
     show PdfLineEnding, PdfStandardFont, PdfTextAlign;
@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../viewport.dart';
 import 'editing_color_picker.dart' show PdfColorFormat;
+import 'editing_panel.dart' show PdfDockablePanel, PdfPanelDock;
 import 'line_style.dart';
 import 'editing_measure.dart';
 import 'editing_signature.dart';
@@ -51,12 +52,14 @@ class PdfEditingPreferences extends ChangeNotifier {
 
   Color _color = const Color(0xFFE53935);
   double _strokeWidth = 2;
+  double _cornerRadius = 0;
   double _eraserRadius = 8;
   double _fontSize = 14;
   PdfStandardFont _fontFamily = PdfStandardFont.helvetica;
   PdfTextAlign? _textAlign;
   double _opacity = 1;
   PdfLineStyle _lineStyle = PdfLineStyle.solid;
+  double _lineScale = 1;
   PdfLineEnding _lineStartEnding = PdfLineEnding.none;
   PdfLineEnding _lineEndEnding = PdfLineEnding.none;
   bool _fingerDrawsInk = true;
@@ -70,7 +73,10 @@ class PdfEditingPreferences extends ChangeNotifier {
   PdfStampDateFormat _stampDateFormat = PdfStampDateFormat.iso;
   PdfStampTimeFormat _stampTimeFormat = PdfStampTimeFormat.twentyFourHour;
   ThemeMode _themeMode = ThemeMode.system;
+  Locale? _locale;
   PdfColorFormat _colorPickerFormat = PdfColorFormat.hex;
+  List<Color> _recentColors = const [];
+  List<String> _recentFonts = const [];
   Color _pageColor = const Color(0xFFFFFFFF);
   bool _showAnnotations = true;
   bool _highlightFormFields = true;
@@ -82,11 +88,30 @@ class PdfEditingPreferences extends ChangeNotifier {
   bool _searchMatchCase = false;
   bool _searchWholeWord = false;
   bool _searchRegex = false;
+  bool _searchAnnotations = true;
   double? _thumbnailSidebarWidth;
   double? _bookmarkSidebarWidth;
   double? _annotationSidebarWidth;
   double? _propertiesPanelWidth;
   double? _searchPanelWidth;
+  // Which edge each dockable panel is attached to. Defaults reproduce the
+  // built-in layout (thumbnails/search/bookmarks left, annotations/
+  // properties right); the user drags a panel's move handle to redock it.
+  PdfPanelDock _thumbnailSidebarDock = PdfPanelDock.left;
+  PdfPanelDock _searchPanelDock = PdfPanelDock.left;
+  PdfPanelDock _bookmarkSidebarDock = PdfPanelDock.left;
+  PdfPanelDock _annotationSidebarDock = PdfPanelDock.right;
+  PdfPanelDock _propertiesPanelDock = PdfPanelDock.right;
+  // Tab-group membership: panels sharing the same dock AND the same group id
+  // render as one tabbed panel; a panel alone in its group is a standalone
+  // side-by-side panel. The default id is each panel's own enum index, so
+  // every panel starts standalone (the built-in side-by-side layout).
+  final Map<PdfDockablePanel, int> _panelGroups = {
+    for (final p in PdfDockablePanel.values) p: p.index,
+  };
+  // The dragged extent of a dock's tab group (its width for left/right, its
+  // height for top/bottom), null until the group is first resized.
+  final Map<PdfPanelDock, double> _panelGroupWidths = {};
   Color? _textFillColor;
   Color? _textBorderColor;
   Color? _shapeFillColor;
@@ -134,6 +159,8 @@ class PdfEditingPreferences extends ChangeNotifier {
       final color = store.getInt('${_prefix}color');
       if (color != null) _color = Color(color);
       _strokeWidth = store.getDouble('${_prefix}strokeWidth') ?? _strokeWidth;
+      _cornerRadius =
+          store.getDouble('${_prefix}cornerRadius') ?? _cornerRadius;
       _eraserRadius =
           store.getDouble('${_prefix}eraserRadius') ?? _eraserRadius;
       _fontSize = store.getDouble('${_prefix}fontSize') ?? _fontSize;
@@ -147,6 +174,7 @@ class PdfEditingPreferences extends ChangeNotifier {
         _textAlign = PdfTextAlign.values.asNameMap()[textAlign] ?? _textAlign;
       }
       _opacity = store.getDouble('${_prefix}opacity') ?? _opacity;
+      _lineScale = store.getDouble('${_prefix}lineScale') ?? _lineScale;
       final lineStyle = store.getString('${_prefix}lineStyle');
       if (lineStyle != null) {
         _lineStyle = PdfLineStyle.values.asNameMap()[lineStyle] ?? _lineStyle;
@@ -185,11 +213,26 @@ class PdfEditingPreferences extends ChangeNotifier {
       if (themeMode != null) {
         _themeMode = ThemeMode.values.asNameMap()[themeMode] ?? _themeMode;
       }
+      final locale = store.getString('${_prefix}locale');
+      if (locale != null && locale.isNotEmpty) {
+        _locale = _parseLocaleTag(locale);
+      }
       final colorPickerFormat = store.getString('${_prefix}colorPickerFormat');
       if (colorPickerFormat != null) {
         _colorPickerFormat =
             PdfColorFormat.values.asNameMap()[colorPickerFormat] ??
                 _colorPickerFormat;
+      }
+      final recentColors = store.getStringList('${_prefix}recentColors');
+      if (recentColors != null) {
+        _recentColors = List.unmodifiable([
+          for (final entry in recentColors)
+            if (int.tryParse(entry) case final rgb?) Color(0xFF000000 | rgb),
+        ]);
+      }
+      final recentFonts = store.getStringList('${_prefix}recentFonts');
+      if (recentFonts != null) {
+        _recentFonts = List.unmodifiable(recentFonts);
       }
       final pageColor = store.getInt('${_prefix}pageColor');
       if (pageColor != null) _pageColor = Color(pageColor);
@@ -223,11 +266,30 @@ class PdfEditingPreferences extends ChangeNotifier {
       _searchWholeWord =
           store.getBool('${_prefix}searchWholeWord') ?? _searchWholeWord;
       _searchRegex = store.getBool('${_prefix}searchRegex') ?? _searchRegex;
+      _searchAnnotations = store.getBool('${_prefix}searchAnnotations') ??
+          _searchAnnotations;
       _propertiesPanelWidth =
           store.getDouble('${_prefix}propertiesPanelWidth') ??
               _propertiesPanelWidth;
       _searchPanelWidth =
           store.getDouble('${_prefix}searchPanelWidth') ?? _searchPanelWidth;
+      _thumbnailSidebarDock =
+          _readDock(store, 'thumbnailSidebarDock', _thumbnailSidebarDock);
+      _searchPanelDock = _readDock(store, 'searchPanelDock', _searchPanelDock);
+      _bookmarkSidebarDock =
+          _readDock(store, 'bookmarkSidebarDock', _bookmarkSidebarDock);
+      _annotationSidebarDock =
+          _readDock(store, 'annotationSidebarDock', _annotationSidebarDock);
+      _propertiesPanelDock =
+          _readDock(store, 'propertiesPanelDock', _propertiesPanelDock);
+      for (final p in PdfDockablePanel.values) {
+        _panelGroups[p] =
+            store.getInt('${_prefix}panelGroup.${p.name}') ?? _panelGroups[p]!;
+      }
+      for (final d in PdfPanelDock.values) {
+        final w = store.getDouble('${_prefix}panelGroupWidth.${d.name}');
+        if (w != null) _panelGroupWidths[d] = w;
+      }
       final textFill = store.getInt('${_prefix}textFillColor');
       if (textFill != null) _textFillColor = Color(textFill);
       final textBorder = store.getInt('${_prefix}textBorderColor');
@@ -412,6 +474,7 @@ class PdfEditingPreferences extends ChangeNotifier {
         if (slot['color'] case final int v) color = Color(v);
       }
       if (slot['strokeWidth'] case final num v) strokeWidth = v.toDouble();
+      if (slot['cornerRadius'] case final num v) cornerRadius = v.toDouble();
       if (slot['eraserRadius'] case final num v) eraserRadius = v.toDouble();
       if (slot['opacity'] case final num v) opacity = v.toDouble();
       if (slot['fontSize'] case final num v) fontSize = v.toDouble();
@@ -427,6 +490,7 @@ class PdfEditingPreferences extends ChangeNotifier {
         final style = PdfLineStyle.values.asNameMap()[v];
         if (style != null) lineStyle = style;
       }
+      if (slot['lineScale'] case final num v) lineScale = v.toDouble();
       if (slot['lineStartEnding'] case final String v) {
         final ending = PdfLineEnding.values.asNameMap()[v];
         if (ending != null) lineStartEnding = ending;
@@ -474,12 +538,14 @@ class PdfEditingPreferences extends ChangeNotifier {
 
     put('color', _color.toARGB32());
     put('strokeWidth', _strokeWidth);
+    put('cornerRadius', _cornerRadius);
     put('eraserRadius', _eraserRadius);
     put('opacity', _opacity);
     put('fontSize', _fontSize);
     put('fontFamily', _fontFamily.name);
     put('textAlign', _textAlign?.name);
     put('lineStyle', _lineStyle.name);
+    put('lineScale', _lineScale);
     put('lineStartEnding', _lineStartEnding.name);
     put('lineEndEnding', _lineEndEnding.name);
     put('textFillColor', _textFillColor?.toARGB32());
@@ -487,6 +553,35 @@ class PdfEditingPreferences extends ChangeNotifier {
     put('shapeFillColor', _shapeFillColor?.toARGB32());
 
     if (changed) _writeToolStyles();
+  }
+
+  /// Writes captured style [values] into the persisted style scope [scope],
+  /// keeping only the fields the scope actually remembers ([fields]). When
+  /// [scope] is the currently active scope, the values also flow into the
+  /// live creation defaults so the change takes effect immediately for the
+  /// armed tool. Used by "set as default", which seeds a tool's creation
+  /// style from an existing annotation.
+  ///
+  /// A field whose value is null is honoured for the colours that can be
+  /// cleared ([textFillColor]/[textBorderColor]/[shapeFillColor]) - null
+  /// there means "no fill" - and skipped otherwise, so a value the
+  /// annotation doesn't carry leaves that default untouched.
+  void writeScopedStyle(
+      String scope, Set<String> fields, Map<String, Object?> values) {
+    const nullable = {'textFillColor', 'textBorderColor', 'shapeFillColor'};
+    final slot = _toolStyles[scope] ??= <String, Object?>{};
+    var changed = false;
+    values.forEach((field, value) {
+      if (!fields.contains(field)) return;
+      if (value == null && !nullable.contains(field)) return;
+      if (slot.containsKey(field) && slot[field] == value) return;
+      slot[field] = value;
+      changed = true;
+    });
+    if (changed) _writeToolStyles();
+    // Reflect into the live values when this is the active scope, driving the
+    // public setters (which notify) through the shared restore path.
+    if (scope == _styleScope) _restoreScope(scope);
   }
 
   /// Records [value] for [field] under the active scope when that scope
@@ -519,6 +614,18 @@ class PdfEditingPreferences extends ChangeNotifier {
     _strokeWidth = value;
     _write((s) => s.setDouble('${_prefix}strokeWidth', value));
     _recordScoped('strokeWidth', value);
+    notifyListeners();
+  }
+
+  /// Corner radius for new rectangle shapes, in PDF points; 0 (the default)
+  /// gives square corners.
+  double get cornerRadius => _cornerRadius;
+
+  set cornerRadius(double value) {
+    if (value == _cornerRadius) return;
+    _cornerRadius = value;
+    _write((s) => s.setDouble('${_prefix}cornerRadius', value));
+    _recordScoped('cornerRadius', value);
     notifyListeners();
   }
 
@@ -593,6 +700,20 @@ class PdfEditingPreferences extends ChangeNotifier {
     _lineStyle = value;
     _write((s) => s.setString('${_prefix}lineStyle', value.name));
     _recordScoped('lineStyle', value.name);
+    notifyListeners();
+  }
+
+  /// The pattern scale new shape and line annotations are created with - a
+  /// multiplier (1 = default) driving the size of dash patterns and cloudy
+  /// scallops *independently* of [strokeWidth], so the line thickness and
+  /// the pattern size change separately. Persisted.
+  double get lineScale => _lineScale;
+
+  set lineScale(double value) {
+    if (value == _lineScale) return;
+    _lineScale = value;
+    _write((s) => s.setDouble('${_prefix}lineScale', value));
+    _recordScoped('lineScale', value);
     notifyListeners();
   }
 
@@ -719,6 +840,47 @@ class PdfEditingPreferences extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The UI language the user picked in Settings, or null (the default) to
+  /// follow the platform locale. A host feeds this to its `MaterialApp`
+  /// locale resolution; null means "System default" and defers to Flutter's
+  /// own preferred-locale algorithm. Persisted by BCP-47 language tag.
+  Locale? get locale => _locale;
+
+  set locale(Locale? value) {
+    if (value == _locale) return;
+    _locale = value;
+    _write((s) => value == null
+        ? s.remove('${_prefix}locale')
+        : s.setString('${_prefix}locale', value.toLanguageTag()));
+    notifyListeners();
+  }
+
+  /// Parses a persisted BCP-47 language tag (e.g. `es`, `pt-BR`, `zh-Hans`)
+  /// back into a [Locale], reading a 4-letter subtag as the script and a
+  /// 2-letter / 3-digit subtag as the region. Returns null for an empty or
+  /// malformed tag so a corrupt value quietly falls back to the system
+  /// locale.
+  static Locale? _parseLocaleTag(String tag) {
+    final parts = tag.split(RegExp('[-_]'));
+    if (parts.isEmpty || parts.first.isEmpty) return null;
+    String? script;
+    String? country;
+    for (final part in parts.skip(1)) {
+      if (part.length == 4 && script == null) {
+        script = part[0].toUpperCase() + part.substring(1).toLowerCase();
+      } else if (country == null &&
+          (part.length == 2 ||
+              (part.length == 3 && int.tryParse(part) != null))) {
+        country = part.toUpperCase();
+      }
+    }
+    return Locale.fromSubtags(
+      languageCode: parts.first.toLowerCase(),
+      scriptCode: script,
+      countryCode: country,
+    );
+  }
+
   /// The value format the color picker last showed (hex, RGB, HSL, or
   /// CMYK) - the picker reopens in it.
   PdfColorFormat get colorPickerFormat => _colorPickerFormat;
@@ -727,6 +889,69 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _colorPickerFormat) return;
     _colorPickerFormat = value;
     _write((s) => s.setString('${_prefix}colorPickerFormat', value.name));
+    notifyListeners();
+  }
+
+  /// How many recently-picked colours to remember (see [recentColors]).
+  static const _maxRecentColors = 18;
+
+  /// The colours most recently chosen in the full colour picker, newest
+  /// first - the picker's "Recent" quick-pick grid. Opaque (alpha
+  /// dropped); deduplicated by RGB. Persisted on the device.
+  List<Color> get recentColors => _recentColors;
+
+  /// Records [color] as the most-recently-used colour, moving it to the
+  /// front (deduplicated by RGB) and dropping the oldest past
+  /// [_maxRecentColors]. Alpha is ignored - the picker deals in opaque
+  /// colours. A no-op when [color] is already the newest entry.
+  void noteRecentColor(Color color) {
+    final rgb = color.toARGB32() & 0xFFFFFF;
+    final opaque = Color(0xFF000000 | rgb);
+    if (_recentColors.isNotEmpty &&
+        (_recentColors.first.toARGB32() & 0xFFFFFF) == rgb) {
+      return;
+    }
+    final next = [
+      opaque,
+      for (final existing in _recentColors)
+        if ((existing.toARGB32() & 0xFFFFFF) != rgb) existing,
+    ];
+    if (next.length > _maxRecentColors) {
+      next.removeRange(_maxRecentColors, next.length);
+    }
+    _recentColors = List.unmodifiable(next);
+    _write((s) => s.setStringList('${_prefix}recentColors',
+        [for (final c in _recentColors) '${c.toARGB32() & 0xFFFFFF}']));
+    notifyListeners();
+  }
+
+  /// How many recently-picked fonts to remember (see [recentFonts]).
+  static const _maxRecentFonts = 6;
+
+  /// Opaque keys of the fonts most recently chosen in the font menu, newest
+  /// first - the menu's "Recently used" group. Each key identifies a menu
+  /// entry (a standard family, a bundled/platform font, or a document font)
+  /// rather than carrying font bytes, so the menu resolves it back to a live
+  /// choice; keys no longer present (e.g. a document font from a closed file)
+  /// are simply skipped. Persisted on the device.
+  List<String> get recentFonts => _recentFonts;
+
+  /// Records [key] as the most-recently-used font, moving it to the front
+  /// (deduplicated) and dropping the oldest past [_maxRecentFonts]. A no-op
+  /// when [key] is empty or already the newest entry.
+  void noteRecentFont(String key) {
+    if (key.isEmpty) return;
+    if (_recentFonts.isNotEmpty && _recentFonts.first == key) return;
+    final next = [
+      key,
+      for (final existing in _recentFonts)
+        if (existing != key) existing,
+    ];
+    if (next.length > _maxRecentFonts) {
+      next.removeRange(_maxRecentFonts, next.length);
+    }
+    _recentFonts = List.unmodifiable(next);
+    _write((s) => s.setStringList('${_prefix}recentFonts', _recentFonts));
     notifyListeners();
   }
 
@@ -963,6 +1188,119 @@ class PdfEditingPreferences extends ChangeNotifier {
     notifyListeners();
   }
 
+  PdfPanelDock _readDock(
+          SharedPreferences store, String key, PdfPanelDock fallback) =>
+      PdfPanelDock.values.asNameMap()[store.getString('$_prefix$key')] ??
+      fallback;
+
+  void _setDock(String key, PdfPanelDock value) {
+    _write((s) => s.setString('$_prefix$key', value.name));
+    notifyListeners();
+  }
+
+  /// Which edge the page-thumbnail panel is docked on. Persisted so a
+  /// dragged layout survives reopening the app.
+  PdfPanelDock get thumbnailSidebarDock => _thumbnailSidebarDock;
+
+  set thumbnailSidebarDock(PdfPanelDock value) {
+    if (value == _thumbnailSidebarDock) return;
+    _thumbnailSidebarDock = value;
+    _setDock('thumbnailSidebarDock', value);
+  }
+
+  /// Which edge the search-results panel is docked on. Persisted.
+  PdfPanelDock get searchPanelDock => _searchPanelDock;
+
+  set searchPanelDock(PdfPanelDock value) {
+    if (value == _searchPanelDock) return;
+    _searchPanelDock = value;
+    _setDock('searchPanelDock', value);
+  }
+
+  /// Which edge the bookmarks/outline panel is docked on. Persisted.
+  PdfPanelDock get bookmarkSidebarDock => _bookmarkSidebarDock;
+
+  set bookmarkSidebarDock(PdfPanelDock value) {
+    if (value == _bookmarkSidebarDock) return;
+    _bookmarkSidebarDock = value;
+    _setDock('bookmarkSidebarDock', value);
+  }
+
+  /// Which edge the annotation-list panel is docked on. Persisted.
+  PdfPanelDock get annotationSidebarDock => _annotationSidebarDock;
+
+  set annotationSidebarDock(PdfPanelDock value) {
+    if (value == _annotationSidebarDock) return;
+    _annotationSidebarDock = value;
+    _setDock('annotationSidebarDock', value);
+  }
+
+  /// Which edge the annotation-properties panel is docked on. Persisted.
+  PdfPanelDock get propertiesPanelDock => _propertiesPanelDock;
+
+  set propertiesPanelDock(PdfPanelDock value) {
+    if (value == _propertiesPanelDock) return;
+    _propertiesPanelDock = value;
+    _setDock('propertiesPanelDock', value);
+  }
+
+  /// The dock a specific [panel] is attached to, keyed by identity - the
+  /// generic form of the per-panel dock getters above.
+  PdfPanelDock panelDock(PdfDockablePanel panel) => switch (panel) {
+        PdfDockablePanel.thumbnails => _thumbnailSidebarDock,
+        PdfDockablePanel.search => _searchPanelDock,
+        PdfDockablePanel.bookmarks => _bookmarkSidebarDock,
+        PdfDockablePanel.annotations => _annotationSidebarDock,
+        PdfDockablePanel.properties => _propertiesPanelDock,
+      };
+
+  /// Sets [panel]'s dock, keyed by identity.
+  void setPanelDock(PdfDockablePanel panel, PdfPanelDock dock) {
+    switch (panel) {
+      case PdfDockablePanel.thumbnails:
+        thumbnailSidebarDock = dock;
+      case PdfDockablePanel.search:
+        searchPanelDock = dock;
+      case PdfDockablePanel.bookmarks:
+        bookmarkSidebarDock = dock;
+      case PdfDockablePanel.annotations:
+        annotationSidebarDock = dock;
+      case PdfDockablePanel.properties:
+        propertiesPanelDock = dock;
+    }
+  }
+
+  /// The tab-group id [panel] belongs to. Panels that share both a dock and
+  /// a group id render as one tabbed panel; a panel alone in its group is a
+  /// standalone side-by-side panel. Defaults to the panel's own enum index
+  /// (every panel standalone).
+  int panelGroup(PdfDockablePanel panel) => _panelGroups[panel]!;
+
+  /// Its own enum index - the value [panelGroup] returns when the panel is
+  /// standalone (in no shared tab group).
+  int standalonePanelGroup(PdfDockablePanel panel) => panel.index;
+
+  /// Sets [panel]'s tab-group id. Pass [standalonePanelGroup] to split it out
+  /// of any tab group.
+  void setPanelGroup(PdfDockablePanel panel, int group) {
+    if (_panelGroups[panel] == group) return;
+    _panelGroups[panel] = group;
+    _write((s) => s.setInt('${_prefix}panelGroup.${panel.name}', group));
+    notifyListeners();
+  }
+
+  /// The dragged extent of the tab group docked on [dock] (its width for
+  /// left/right, its height for top/bottom), or null before it is resized.
+  double? panelGroupWidth(PdfPanelDock dock) => _panelGroupWidths[dock];
+
+  /// Persists the dragged extent of the tab group docked on [dock].
+  void setPanelGroupWidth(PdfPanelDock dock, double width) {
+    if (_panelGroupWidths[dock] == width) return;
+    _panelGroupWidths[dock] = width;
+    _write((s) => s.setDouble('${_prefix}panelGroupWidth.${dock.name}', width));
+    notifyListeners();
+  }
+
   /// Whether document search matches case (see `PdfSearchOptions.matchCase`).
   /// Persisted so the search toggles survive reopening the app.
   bool get searchMatchCase => _searchMatchCase;
@@ -993,6 +1331,17 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _searchRegex) return;
     _searchRegex = value;
     _write((s) => s.setBool('${_prefix}searchRegex', value));
+    notifyListeners();
+  }
+
+  /// Whether document search also scans annotation /Contents (see
+  /// `PdfSearchOptions.searchAnnotations`). On by default. Persisted.
+  bool get searchAnnotations => _searchAnnotations;
+
+  set searchAnnotations(bool value) {
+    if (value == _searchAnnotations) return;
+    _searchAnnotations = value;
+    _write((s) => s.setBool('${_prefix}searchAnnotations', value));
     notifyListeners();
   }
 }

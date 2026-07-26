@@ -1,5 +1,102 @@
 # Changelog
 
+## 3.1.1
+
+- Smoother scrolling on large and visually dense PDFs, with the page renderer
+  staying responsive through rapid mouse-wheel gestures.
+- Page previews remain visible during fast scrolling and settle cleanly into
+  full-detail renders, with fewer dropped frames.
+
+## 3.1.0
+
+- Scan documents straight into a PDF: scan to a new document or insert a scan
+  into the open one, and take a photo with the camera on mobile.
+- Never lose work to a crash: unsaved changes are mirrored in the background
+  and restored when the document is reopened.
+- New editing tools: hyperlinks (web and in-document), cropping for placed
+  images, annotation lock/unlock, and keyboard shortcuts for every tool.
+- Faithful overprint rendering — print-oriented PDFs that rely on overprint
+  (knockouts, spot inks) now display the way they print.
+- Pages reveal progressively as they render, and rendering is much faster on
+  large or image-heavy files; search text is extracted in the background.
+- Recent files can show as a grid of page thumbnails.
+- Shrink a PDF's file size losslessly from the save flow.
+- The app updates itself in place on desktop — "Update now" downloads and
+  applies the new version without a browser visit.
+
+## 3.0.0
+
+- The app is now available in 10 languages, with full right-to-left layout
+  for Arabic.
+- More accurate overprint, blend-mode and soft-mask rendering.
+- Hold Shift to draw straight lines, and set a default style for annotations.
+- Redesigned, smoother document tabs.
+- Faster rendering and lower memory use on large files.
+
+## 2.1.0
+
+- Reflow reading view: read a document as flowing text instead of fixed
+  pages, with lazy scrolling, quick navigation, a remembered reading
+  position, and a figure viewer for images and diagrams.
+- Faster opening and rendering, especially on large or image-heavy files;
+  saving an edit is proportional to the size of the change, and very wide
+  drawings use less memory.
+- Crisper hairlines, so fine linework stays legible when zoomed out.
+- Better colour on gradients and indexed images; Symbol and ZapfDingbats
+  characters render instead of empty boxes.
+
+## 2.0.0
+
+- Deep zoom now shows crisp detail on every platform: zoom past the normal
+  limit and the visible area re-renders at full resolution instead of looking
+  blurry.
+- Large files and cloud documents open much faster — the first page appears
+  while the rest of the file is still loading, instead of waiting for the whole
+  download or read to finish.
+- Digitally sign a document with one tap: create a signing identity in the app
+  (self-signed, or keyless via Sigstore) and sign without setting up
+  certificates by hand.
+- Rearrange the workspace: side panels can be dragged and docked to any edge,
+  placed side by side or grouped into tabs, and the layout is remembered.
+  Press F12 for a developer-tools overlay.
+- The font menu lists the document's own fonts and your recent picks, and the
+  toolbar shows the actual embedded typeface.
+- The annotation list supports multi-select (ctrl/shift) and a hover menu.
+- Better colour accuracy for certain CMYK photos, and assorted mobile polish.
+
+## 1.4.7
+
+- Printing now goes through each platform's own print system, so
+  documents that open here but trip up other engines print reliably —
+  and printing no longer crashes the app on Windows.
+- Scanned and image-heavy pages, especially large print exports, render
+  much faster and use less memory; the app also frees cached images when
+  the system is low on memory.
+- Rectangle shapes can now have rounded corners, and dash and cloud
+  patterns can be scaled independently of line thickness.
+- Copy, cut, and paste whole pages in the page thumbnail view — including
+  between open document tabs — with the usual keyboard shortcuts.
+- The colour picker now shows a swatch grid with the colours you recently
+  used and the colours already in the open document.
+- Nudge a selected annotation with the arrow keys, add or remove points on
+  polyline and polygon shapes, and recolour a pasted vector snapshot.
+- Add a visible signature box when signing, showing the signer's name and
+  details (and an optional handwritten-signature or logo graphic).
+- Free-text boxes gain line spacing, letter spacing, width, and underline
+  controls, and Save now works on a brand-new untitled document.
+
+## 1.4.6
+
+- Hover a document tab on desktop to preview the page before switching to it,
+  and open a grid of all open documents to jump between them.
+- Edit, style, and markup actions are now offered directly when you select text
+  in a document.
+- Tightened the desktop menus so more fits on screen without scrolling.
+- Arabic search now matches text copied out of a page, marks and vowel signs
+  stay attached to their letters when selecting or copying, and pasted Arabic
+  renders with a bundled font.
+- Large scanned pages open faster and use less memory.
+
 ## 1.4.5
 
 - Correct Arabic and other right-to-left page-text extraction, selection, and

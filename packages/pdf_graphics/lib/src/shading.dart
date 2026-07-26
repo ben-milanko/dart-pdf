@@ -1,11 +1,12 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_document/pdf_document.dart';
 
-import 'calibrated_color.dart';
 import 'color.dart';
+import 'color_space.dart';
 import 'function.dart';
-import 'matrix.dart';
 import 'mesh.dart';
 
 /// A gradient ready for a device: stops pre-sampled from the shading's
@@ -97,16 +98,33 @@ class PdfShading {
     } else {
       return null;
     }
+    // Doc-level parse cache (#534): `sh` and shading-pattern fills re-parse
+    // the same shading object (and its function's sample stream) on every
+    // operator selection, every render. Parsed shadings are immutable -
+    // geometry transforms apply per call - and identity keying makes
+    // invalidation free (edits build new COS objects).
+    final hit = _parsed[dict];
+    if (hit != null) return hit;
+    final shading = _parse(cos, resolved, dict);
+    if (shading != null) _parsed[dict] = shading;
+    return shading;
+  }
+
+  static final Expando<PdfShading> _parsed = Expando();
+
+  static PdfShading? _parse(
+      CosDocument cos, CosObject resolved, CosDictionary dict) {
     final type = cos.resolve(dict['ShadingType']);
     final coords = _numbers(cos, dict['Coords']);
     final domain = _numbers(cos, dict['Domain']);
     final extend = cos.resolve(dict['Extend']);
+    final colorSpace = PdfColorSpace.parse(cos, dict['ColorSpace']);
     return PdfShading._(
       shadingType: type is CosInteger ? type.value : 0,
       coords: coords,
       function: PdfFunction.parse(cos, dict['Function']),
-      components: _componentCount(cos, dict['ColorSpace']),
-      toColor: _colorConverterFor(cos, dict['ColorSpace']),
+      components: colorSpace.channels,
+      toColor: colorSpace.toSrgb,
       domain: domain.length >= 2 ? domain : const [0, 1],
       extendStart: extend is CosArray &&
           extend.length > 0 &&
@@ -150,6 +168,7 @@ class PdfShading {
       components: components,
       verticesPerRow: intOf('VerticesPerRow', 0),
       function: function,
+      toColor: toColor,
       transform: transform,
     ).parse();
   }
@@ -211,9 +230,149 @@ class PdfShading {
       return _sampled(fn, isRadial: false, transform: transform);
     }
     if (shadingType == 3 && coords.length >= 6) {
+      // Non-nested radial circles form a swept cone a single two-point
+      // conical gradient can't express (the /Extend=false boundary isn't a
+      // plain clamp edge, and a focal outside the end circle degenerates in
+      // Skia). Those decode through [toRadialConeMesh] instead; only the
+      // nested case - which maps cleanly onto a device radial gradient -
+      // returns here.
+      if (!_radialCirclesNested()) return null;
       return _sampled(fn, isRadial: true, transform: transform);
     }
     return null;
+  }
+
+  /// Whether a radial shading's two circles are nested (one inside the
+  /// other, including concentric), the case a device radial gradient renders
+  /// faithfully.
+  bool _radialCirclesNested() {
+    if (coords.length < 6) return true;
+    final dx = coords[3] - coords[0], dy = coords[4] - coords[1];
+    final d = math.sqrt(dx * dx + dy * dy);
+    return d <= (coords[2] - coords[5]).abs() + 1e-6;
+  }
+
+  /// A radial shading (type 3) with non-nested circles, decoded into a
+  /// Gouraud mesh in the space mapped by [transform]; null for other shading
+  /// types or nested circles (which [toGradient] handles).
+  ///
+  /// A radial shading (§8.7.4.5.4) sweeps a circle whose centre and radius
+  /// interpolate from `(c0, r0)` at s=0 to `(c1, r1)` at s=1; a point takes
+  /// the colour of the greatest s whose circle passes through it. When the
+  /// circles are not nested that swept region is a cone the device can't get
+  /// from `Gradient.radial`, so we foliate it: one constant-colour ring per
+  /// sampled s, joined into quad strips and emitted in increasing-s order so
+  /// a later (larger-s) ring paints over an earlier one - exactly the
+  /// "greatest s wins" rule. /Extend widens the s-range (toward the radius-0
+  /// apex on one side, out past [clip] on the growing side); unextended ends
+  /// stop at s=0 / s=1, leaving the correct hard edge.
+  PdfMesh? toRadialConeMesh(PdfMatrix transform, {PdfRect? clip}) {
+    final fn = function;
+    if (shadingType != 3 || fn == null || coords.length < 6) return null;
+    final x0 = coords[0], y0 = coords[1], r0 = coords[2];
+    final x1 = coords[3], y1 = coords[4], r1 = coords[5];
+    if (r0 < 0 || r1 < 0) return null;
+    final dx = x1 - x0, dy = y1 - y0;
+    final d = math.sqrt(dx * dx + dy * dy);
+    const eps = 1e-6;
+    if (d <= (r0 - r1).abs() + eps) return null; // nested - not our case
+    final dr = r1 - r0;
+
+    // The largest circle radius the mesh must reach so the growing (extended)
+    // side covers the fill. Derived from the clip corners mapped back into the
+    // shading's own space; a generous geometry-based floor otherwise.
+    var reach = (d + r0 + r1) * 4 + 1;
+    final inv = transform.inverted();
+    if (clip != null && inv != null) {
+      for (final (cx, cy) in [
+        (clip.left, clip.bottom),
+        (clip.right, clip.bottom),
+        (clip.right, clip.top),
+        (clip.left, clip.top),
+      ]) {
+        final gx = inv.transformX(cx, cy), gy = inv.transformY(cx, cy);
+        final d0 = math.sqrt((gx - x0) * (gx - x0) + (gy - y0) * (gy - y0));
+        final d1 = math.sqrt((gx - x1) * (gx - x1) + (gy - y1) * (gy - y1));
+        reach = math.max(reach, math.max(d0, d1) + r0 + r1);
+      }
+    }
+
+    // s-range of the sweep. rad(s) = r0 + s*dr; the domain [0,1] is widened
+    // for /Extend toward the radius-0 apex (a finite tip) or out to [reach].
+    double sLo, sHi;
+    if (!extendStart) {
+      sLo = 0;
+    } else if (dr > eps) {
+      sLo = -r0 / dr; // radius shrinks to the apex
+    } else if (dr < -eps) {
+      sLo = (reach - r0) / dr; // radius grows; dr<0 makes this negative
+    } else {
+      sLo = -reach / d; // parallel: translate out by [reach]
+    }
+    if (!extendEnd) {
+      sHi = 1;
+    } else if (dr > eps) {
+      sHi = (reach - r0) / dr;
+    } else if (dr < -eps) {
+      sHi = -r0 / dr; // radius shrinks to the apex past s=1
+    } else {
+      sHi = 1 + reach / d;
+    }
+    if (!(sHi > sLo)) return null;
+
+    final t0 = domain[0], t1 = domain[1];
+    PdfColor colorAt(double s) =>
+        toColor(fn.evaluate(t0 + s.clamp(0.0, 1.0) * (t1 - t0)));
+
+    // Sample s: fine across the in-domain [0,1] band where colour varies,
+    // coarse over the extended tails (constant terminal colour, but the
+    // geometry still moves).
+    final sList = <double>[];
+    void addBand(double a, double b, int steps) {
+      if (b <= a) return;
+      final from = sList.isEmpty ? 0 : 1; // skip the shared boundary
+      for (var i = from; i <= steps; i++) {
+        sList.add(a + (b - a) * i / steps);
+      }
+    }
+
+    if (sLo < 0) addBand(sLo, 0, 14);
+    addBand(math.max(sLo, 0), math.min(sHi, 1), 48);
+    if (sHi > 1) addBand(1, sHi, 14);
+    if (sList.length < 2) return null;
+
+    const angular = 96;
+    final vertices = <PdfMeshVertex>[];
+    for (final s in sList) {
+      final cx = x0 + s * dx, cy = y0 + s * dy;
+      final rad = r0 + s * dr;
+      final color = colorAt(s);
+      for (var j = 0; j <= angular; j++) {
+        final a = 2 * math.pi * j / angular;
+        final px = cx + rad * math.cos(a), py = cy + rad * math.sin(a);
+        vertices.add(PdfMeshVertex(
+            transform.transformX(px, py), transform.transformY(px, py), color));
+      }
+    }
+
+    final ringStride = angular + 1;
+    final triangles = <int>[];
+    for (var i = 0; i < sList.length - 1; i++) {
+      final base = i * ringStride;
+      final next = base + ringStride;
+      for (var j = 0; j < angular; j++) {
+        final a = base + j, b = base + j + 1;
+        final c = next + j, e = next + j + 1;
+        triangles
+          ..add(a)
+          ..add(b)
+          ..add(c)
+          ..add(b)
+          ..add(e)
+          ..add(c);
+      }
+    }
+    return PdfMesh(vertices, triangles);
   }
 
   PdfGradient _sampled(PdfFunction fn,
@@ -249,81 +408,5 @@ class PdfShading {
           _ => 0.0,
         },
     ];
-  }
-
-  /// Builds a converter from the shading's colour space to sRGB. Device
-  /// spaces map their components directly; Separation/DeviceN run the tint
-  /// transform into the alternate space (§8.6.6.4); ICCBased/CalRGB/
-  /// CalGray/Lab apply the calibrated conversion. Falls back to a plain
-  /// component conversion for anything unrecognised.
-  static PdfColor Function(List<double>) _colorConverterFor(
-      CosDocument cos, CosObject? space) {
-    final resolved = cos.resolve(space);
-    if (resolved is CosArray && resolved.length > 0) {
-      final family = cos.resolve(resolved[0]);
-      if (family is CosName) {
-        switch (family.value) {
-          case 'Separation':
-          case 'DeviceN':
-            // [/Separation name alt tint] or [/DeviceN names alt tint attrs]
-            if (resolved.length >= 4) {
-              final tint = PdfFunction.parse(cos, resolved[3]);
-              if (tint != null) {
-                final alternate = _colorConverterFor(cos, resolved[2]);
-                return (values) => alternate(tint.evaluateAt(values));
-              }
-            }
-          case 'ICCBased':
-          case 'CalRGB':
-          case 'CalGray':
-          case 'Lab':
-            final calibrated = PdfCalibratedColorSpace.parse(cos, resolved);
-            if (calibrated != null) return calibrated.toSrgb;
-        }
-      }
-    }
-    final n = _componentCount(cos, space);
-    return (values) => colorFromComponents(values, n);
-  }
-
-  /// Component count of a color-space object (name or array form).
-  static int _componentCount(CosDocument cos, CosObject? space) {
-    final resolved = cos.resolve(space);
-    if (resolved is CosName) {
-      return switch (resolved.value) {
-        'DeviceGray' || 'CalGray' || 'G' => 1,
-        'DeviceCMYK' || 'CMYK' => 4,
-        _ => 3,
-      };
-    }
-    if (resolved is CosArray && resolved.length > 0) {
-      final family = cos.resolve(resolved[0]);
-      if (family is CosName) {
-        switch (family.value) {
-          case 'ICCBased':
-            if (resolved.length > 1) {
-              final profile = cos.resolve(resolved[1]);
-              if (profile is CosStream) {
-                final n = cos.resolve(profile.dictionary['N']);
-                if (n is CosInteger) return n.value;
-              }
-            }
-            return 3;
-          case 'Indexed':
-          case 'Separation':
-            return 1;
-          case 'CalRGB':
-          case 'Lab':
-            return 3;
-          case 'DeviceN':
-            if (resolved.length > 1) {
-              final names = cos.resolve(resolved[1]);
-              if (names is CosArray) return names.length;
-            }
-            return 1;
-        }
-      }
-    }
-    return 3;
   }
 }

@@ -18,18 +18,45 @@ so platform build files don't hardcode versions.
 1. Bump `version:` in `app/pubspec.yaml`.
 2. Tag and push: `git tag app-v0.1.0 && git push origin app-v0.1.0`.
 3. `.github/workflows/release-app.yml` builds every platform and attaches the
-   artifacts to a **draft** GitHub Release. Review, then publish.
+   artifacts to a **draft** GitHub Release. Review, then publish - the in-app
+   update checker cannot see a draft.
+4. Write the store "What's New" text into
+   [`release-notes/`](release-notes/) (`<version>-stores.txt` for Play,
+   `<version>-appstore.txt` for both App Store platforms). See that
+   directory's README for the length caps and the Guideline 2.3.10 rule.
 
 You can also run the workflow manually (Actions → Release app → Run workflow)
 with a version input; that builds artifacts but only creates a Release on a tag.
 
+> **The CI artifacts are not store-uploadable.** The Android bundle is
+> debug-signed and the iOS build is unsigned; store builds are made locally
+> (`flutter build appbundle --release`, `flutter build ipa`, and an
+> `xcodebuild archive` + `-exportArchive` for macOS) and staged into
+> `app/build/releases/<version>/`.
+>
+> A local `flutter build appbundle --release` currently **fails** on
+> `:onnxruntime:checkReleaseAarMetadata` - the plugin pins
+> `compileSdkVersion 33` while a transitive `androidx.fragment` needs 34+.
+> CI works around this in `release-app.yml`'s `patch_gradle()` step, which
+> rewrites the hosted plugin Gradle files in `~/.pub-cache`; apply the same
+> patch locally before building.
+
 ## In-app update checker
 
 The app checks these Releases for a newer build (`app/lib/update.dart`,
-surfaced in Settings → Updates and a startup banner). It is a *checker*, not a
-silent updater: it points the user at the matching artifact for their platform
-(or the release page), since the desktop bundles are unsigned and the store
-builds update through their own channels. For it to work the published Release
+surfaced in Settings → Updates and a startup banner). On **desktop** the
+check is followed by a user-initiated *in-place update*
+(`app/lib/update_installer.dart`): "Update now" downloads the matching
+artifact in-app (with a progress dialog and a byte-size integrity check
+against the release metadata) and then applies it. A **Linux AppImage** is a
+single executable, so the new image is written next to the running one and
+atomically renamed over it before the app relaunches. On **macOS and
+Windows** — where swapping a running, unsigned bundle is fragile — the
+artifact is downloaded and handed to the OS installer (the `.dmg` mounts, the
+`.exe` runs). Anywhere without an in-app apply path (a Linux tarball install,
+mobile, a release page with no matching artifact) falls back to the old
+browser download. The apply and hand-off are still user-confirmed, not a
+silent background swap. For it to work the published Release
 must keep the **`app-v<version>` tag** (other tags, e.g. the pub-package
 release tags in this repo, are ignored) and keep the artifact file names CI
 produces (`dartpdf-macos.dmg`, `dartpdf-windows-portable.exe` /
@@ -46,7 +73,8 @@ The web build is always served fresh, so it skips the check.
 | Android | `app-release.apk`, `app-release.aab` | Debug keys unless a release keystore is configured (below) |
 | iOS | `…-ios-unsigned.zip` (`.app`) | **No**, not installable; needs your Apple signing |
 | macOS | `…-macos.dmg` | Ad-hoc signed for internal consistency; needs Developer ID signing + notarization for public distribution |
-| Windows | `…-windows-installer.exe`, `…-windows-portable.exe`, `…-windows-x64.zip` | **No**, needs an Authenticode cert / MSIX |
+| Windows | `…-windows-installer.exe`, `…-windows-portable.exe`, `…-windows-x64.zip` | **No**, needs an Authenticode cert for non-Store distribution |
+| Windows (Store) | `dartpdf-windows-store.msix` (separate workflow, see below) | Intentionally unsigned - Microsoft re-signs Store submissions |
 | Linux | `…-linux-x64.tar.gz` | n/a |
 | Web | `…-web.zip` | n/a |
 
@@ -123,10 +151,26 @@ membership needed). What that means concretely:
 - CI produces an unsigned per-user NSIS installer. It installs under
   `%LOCALAPPDATA%\Programs\DartPDF`, creates Start Menu shortcuts, registers
   uninstall metadata, and adds DartPDF to the PDF "Open with" list.
-- For public distribution, sign the NSIS installer with an Authenticode
-  code-signing certificate, or package as MSIX (add the `msix` dev-dependency +
-  `msix_config`, which also declares the `.pdf` file association) and sign with
-  your cert.
+- For distribution **outside** the Store, sign that installer with an
+  Authenticode code-signing certificate.
+- **Microsoft Store** shipping is automated and entirely CLI-driven:
+  `.github/workflows/release-windows-store.yml` builds the Store MSIX
+  (`dart run msix:create --store`, configured by `msix_config` in
+  `app/pubspec.yaml` — which also declares the `.pdf` file association) and
+  uploads it with the Microsoft Store Developer CLI. Store submissions are
+  **unsigned**; Microsoft re-signs them, so no Authenticode cert is needed for
+  this channel. An `app-v*` tag uploads a **draft** submission; committing to
+  certification is an explicit manual workflow run.
+
+  The one-time account setup is *not* scriptable — the app must be created and
+  its name reserved in Partner Center by hand, an Azure AD app has to be
+  associated with the account, and the first submission's listing/age-rating
+  must be completed in the UI (the same boundary as Play and the App Store
+  above). Registration itself is free as of 2026. Configuration is four
+  repository **variables** (the public MSIX identity values + Store ID) and four
+  **secrets** (the Azure AD credentials); until they are set the workflow
+  **skips** rather than fails.
+  See [`packaging/msstore/README.md`](packaging/msstore/README.md).
 
 ### Linux
 - The tarball runs as-is. For distribution, wrap as AppImage / Flatpak / Snap /
@@ -143,8 +187,9 @@ The receive side ships in the app (see Phase 2). OS registration is per
 platform: macOS/iOS via the bundled Info.plist `CFBundleDocumentTypes`,
 Android via the manifest intent-filters, web via `manifest.json`
 `file_handlers`. Windows and Linux register the association at **install**
-time. Declare it in the MSIX manifest / `.desktop` file when you build those
-installers.
+time: the NSIS installer writes the ProgID registry keys, the Store MSIX
+declares it via `msix_config`'s `file_extension: .pdf`, and Linux ships it in
+the `.desktop` file's `MimeType`.
 
 ### Document (file) icon
 

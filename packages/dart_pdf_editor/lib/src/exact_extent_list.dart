@@ -16,6 +16,7 @@ import 'package:flutter/widgets.dart';
 class ExactExtentListView extends ListView {
   ExactExtentListView.builder({
     super.key,
+    super.scrollDirection,
     super.controller,
     super.physics,
     super.padding,

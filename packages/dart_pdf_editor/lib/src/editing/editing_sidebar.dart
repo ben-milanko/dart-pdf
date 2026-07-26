@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HardwareKeyboard;
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import '../l10n/pdf_l10n.dart';
 import '../pdf_viewer.dart';
 import 'annotation_presentation.dart';
 import 'editing_controller.dart';
@@ -18,11 +20,17 @@ import 'editing_preferences.dart';
 ///
 /// Tapping a tile zooms the viewer to the annotation, selects it
 /// (arming the select tool), and pulses an attention flash around it on
-/// the page; the trailing button deletes it. A long press starts
-/// multi-select: checkboxes replace the icons, tapping toggles, and the
-/// header's delete removes everything checked as one undo step. The
-/// list rebuilds on every revision, so it always reflects the current
-/// state - including undo and redo.
+/// the page. On mouse hover a row reveals its trailing actions: a "more"
+/// (⋮) menu carrying Reply / Resolve for a markup annotation's comment
+/// thread, and a delete button.
+///
+/// Rows are multi-selectable: ⌘/Ctrl-click toggles a row in or out of
+/// the selection and shift-click extends a range from the last click,
+/// mirroring the viewer's own selection. A long press starts a
+/// touch-friendly checkbox multi-select: checkboxes replace the icons,
+/// tapping toggles, and the header's delete removes everything checked as
+/// one undo step. The list rebuilds on every revision, so it always
+/// reflects the current state - including undo and redo.
 ///
 /// The inner edge is draggable ([resizable]); the chosen width persists
 /// via [PdfEditingPreferences.annotationSidebarWidth].
@@ -44,7 +52,7 @@ class PdfAnnotationSidebar extends StatefulWidget {
     required this.controller,
     required this.viewerController,
     this.width = 280,
-    this.side = PdfSidebarSide.right,
+    this.dock = PdfPanelDock.right,
     this.resizable = true,
     this.minWidth = 200,
     this.maxWidth = 480,
@@ -61,9 +69,9 @@ class PdfAnnotationSidebar extends StatefulWidget {
   /// [PdfEditingPreferences.annotationSidebarWidth], wins over it.
   final double width;
 
-  /// Which side of the viewer the panel sits on; the resize grip rides
+  /// Which edge of the viewer the panel docks on; the resize grip rides
   /// the opposite (inner) edge.
-  final PdfSidebarSide side;
+  final PdfPanelDock dock;
 
   /// Whether the inner edge can be dragged to resize the panel.
   final bool resizable;
@@ -98,6 +106,11 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
   (int, int)? _hoveredSlot;
   bool _selecting = false;
 
+  /// The slot a shift-click range extends from - set on a plain or
+  /// ⌘/Ctrl-click. Cleared with the selection on every revision (slots
+  /// shift under edits).
+  (int, int)? _anchor;
+
   final ScrollController _scroll = ScrollController();
 
   /// The filter text; tiles whose title or subtitle don't contain it
@@ -115,12 +128,12 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
 
   /// The document revision the selection state belongs to. Any edit,
   /// undo, or redo can shift /Annots slots, so a new revision drops it.
-  PdfDocument? _builtFor;
+  int? _builtForRevision;
 
   /// Extracted page text for link tiles ("the text under the link"),
   /// per page, for the current revision only - extraction interprets
   /// the page, so it runs once per page that actually lists a link and
-  /// the cache dies with [_builtFor]. Null entries are failed or
+  /// the cache dies with the built-for revision. Null entries are failed or
   /// text-free extractions.
   final Map<int, PdfPageText?> _pageTexts = {};
 
@@ -162,21 +175,21 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
   }
 
   /// A finer title for form fields, from the inherited /FT.
-  static String _fieldLabel(String? fieldType) => switch (fieldType) {
-        'Tx' => 'Text field',
-        'Btn' => 'Button field',
-        'Ch' => 'Choice field',
-        'Sig' => 'Signature field',
-        _ => 'Form field',
+  String _fieldLabel(String? fieldType) => switch (fieldType) {
+        'Tx' => pdfL10n(context).sbarFieldText,
+        'Btn' => pdfL10n(context).sbarFieldButton,
+        'Ch' => pdfL10n(context).sbarFieldChoice,
+        'Sig' => pdfL10n(context).sbarFieldSignature,
+        _ => pdfL10n(context).sbarFieldGeneric,
       };
 
   /// Where an action leads, for a link tile's subtitle.
-  static String? _actionLabel(PdfAction? action) => switch (action) {
+  String? _actionLabel(PdfAction? action) => switch (action) {
         PdfUriAction(:final uri) => uri,
         PdfGoToAction(:final destination) =>
-          'Page ${destination.pageIndex + 1}',
+          pdfL10n(context).sbarActionPage(destination.pageIndex + 1),
         PdfNamedAction(:final name) => name,
-        PdfJavaScriptAction() => 'JavaScript',
+        PdfJavaScriptAction() => pdfL10n(context).sbarActionJavaScript,
         PdfUnknownAction(:final type) => type.isEmpty ? null : type,
         null => null,
       };
@@ -228,8 +241,8 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
   String _title(PdfAnnotation annotation) => annotation is PdfWidgetAnnotation
       ? _fieldLabel(annotation.fieldType)
       : annotation.isCallout
-          ? 'Callout'
-          : pdfAnnotationLabel(annotation.subtype);
+          ? pdfL10n(context).sbarCallout
+          : pdfAnnotationLabel(context, annotation.subtype);
 
   bool _matches(String query, int pageIndex, PdfAnnotation annotation) {
     if (query.isEmpty) return true;
@@ -246,12 +259,19 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
     final closeButton = geometry.closeButton(
       key: const ValueKey('pdf-annotation-panel-close'),
     );
+    final moveHandle = geometry.moveHandle(
+      key: const ValueKey('pdf-annotation-panel-move'),
+    );
+    final trailing = <Widget>[
+      if (moveHandle != null) moveHandle,
+      if (closeButton != null) closeButton,
+    ];
     final field = TextField(
       key: const ValueKey('pdf-annotation-search'),
       controller: _search,
       onChanged: (_) => setState(() {}),
       decoration: InputDecoration(
-        hintText: 'Search annotations',
+        hintText: pdfL10n(context).sidebarSearchHint,
         isDense: true,
         prefixIcon: const Icon(Icons.search, size: 18),
         suffixIcon: _search.text.isEmpty
@@ -259,27 +279,37 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
             : IconButton(
                 key: const ValueKey('pdf-annotation-search-clear'),
                 icon: const Icon(Icons.close, size: 18),
-                tooltip: 'Clear search',
+                tooltip: pdfL10n(context).sidebarClearSearch,
                 onPressed: () => setState(_search.clear),
               ),
         border: const OutlineInputBorder(),
       ),
     );
     return Padding(
-      padding: EdgeInsets.fromLTRB(12, 8, closeButton != null ? 4 : 12, 4),
-      child: closeButton != null
+      padding: EdgeInsets.fromLTRB(12, 8, trailing.isNotEmpty ? 4 : 12, 4),
+      child: trailing.isNotEmpty
           ? Row(children: [
               Expanded(child: field),
-              closeButton,
+              ...trailing,
             ])
           : field,
     );
   }
 
-  Widget _tile(BuildContext context, int pageIndex, int index,
-      PdfAnnotation annotation) {
+  Widget _tile(
+      BuildContext context,
+      int pageIndex,
+      int index,
+      PdfAnnotation annotation,
+      PdfCommentThread? thread,
+      List<(int, int)> ordered) {
     final slot = (pageIndex, index);
-    final selectable = annotation.behavior.selectable;
+    final editable = annotation.behavior.selectable &&
+        widget.controller.isAnnotationEditable(annotation);
+    // a markup annotation hosts a comment thread; reply / resolve act on
+    // it even when the annotation itself is locked (they add new
+    // annotations rather than editing the locked one)
+    final hostsThread = annotation.behavior.selectable;
     final detail = _detail(pageIndex, annotation);
     final actionsVisible =
         !pdfPanelControlsRevealOnHover() || _hoveredSlot == slot;
@@ -291,7 +321,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
         leading: _selecting
             ? Checkbox(
                 value: _checked.contains(slot),
-                onChanged: selectable ? (_) => _toggle(slot) : null,
+                onChanged: editable ? (_) => _toggle(slot) : null,
               )
             : Icon(
                 annotation.isCallout
@@ -306,39 +336,325 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
         selected: !_selecting &&
             widget.controller.isAnnotationSelected(pageIndex, index),
         onTap: _selecting
-            ? (selectable ? () => _toggle(slot) : null)
-            : () {
-                unawaited(widget.viewerController
-                    .showRect(pageIndex, annotation.rect));
-                if (selectable) {
-                  widget.controller.selectAnnotation(pageIndex, index);
-                }
-                // pulse it on the page so the eye lands right
-                widget.controller.flashAnnotation(pageIndex, index);
-              },
-        onLongPress: selectable && !_selecting
+            ? (editable ? () => _toggle(slot) : null)
+            : () => _onTileTap(pageIndex, index, annotation, editable, ordered),
+        onLongPress: editable && !_selecting
             ? () => setState(() {
                   _selecting = true;
                   _checked.add(slot);
                 })
             : null,
-        trailing: _selecting || !selectable
+        trailing: _selecting
             ? null
-            : Visibility(
-                visible: actionsVisible,
-                maintainSize: true,
-                maintainAnimation: true,
-                maintainState: true,
-                child: IconButton(
-                  key: ValueKey('pdf-annotation-delete-$pageIndex-$index'),
-                  icon: const Icon(Icons.delete_outline, size: 20),
-                  tooltip: 'Delete',
-                  onPressed: () =>
-                      widget.controller.deleteAnnotation(pageIndex, index),
-                ),
-              ),
+            : _rowActions(context, pageIndex, index, annotation, thread,
+                editable, hostsThread, actionsVisible),
       ),
     );
+  }
+
+  /// The trailing hover actions for a row: a "more" (⋮) menu with the
+  /// thread's Reply / Resolve for a markup annotation, then delete for an
+  /// editable one. Null when the row exposes neither.
+  Widget? _rowActions(
+    BuildContext context,
+    int pageIndex,
+    int index,
+    PdfAnnotation annotation,
+    PdfCommentThread? thread,
+    bool editable,
+    bool hostsThread,
+    bool actionsVisible,
+  ) {
+    // A signed signature field is deletable even though its widget isn't a
+    // normally selectable annotation (undo restores it).
+    final signature = _signatureFor(annotation);
+    final actions = <Widget>[
+      // The lock toggle hover-reveals with the rest of the row's actions;
+      // an unlock stays reachable here for a locked annotation (which can't
+      // be selected), the same way a right-click on it does.
+      if (widget.controller.isAnnotationLockManageable(annotation))
+        IconButton(
+          key: ValueKey('pdf-annotation-lock-$pageIndex-$index'),
+          icon: Icon(
+              annotation.isLocked ? Icons.lock : Icons.lock_open_outlined,
+              size: 20),
+          tooltip: annotation.isLocked
+              ? pdfL10n(context).sidebarUnlockAnnotation
+              : pdfL10n(context).sidebarLockAnnotation,
+          onPressed: () =>
+              widget.controller.toggleAnnotationLock(pageIndex, index),
+        ),
+      if (hostsThread)
+        _threadMenu(context, pageIndex, index, annotation, thread),
+      if (signature != null)
+        IconButton(
+          key: ValueKey('pdf-signature-delete-$pageIndex-$index'),
+          icon: const Icon(Icons.delete_outline, size: 20),
+          tooltip: pdfL10n(context).sidebarDeleteSignature,
+          onPressed: () =>
+              unawaited(_confirmRemoveSignature(context, signature)),
+        )
+      else if (editable)
+        IconButton(
+          key: ValueKey('pdf-annotation-delete-$pageIndex-$index'),
+          icon: const Icon(Icons.delete_outline, size: 20),
+          tooltip: pdfL10n(context).delete,
+          onPressed: () => widget.controller.deleteAnnotation(pageIndex, index),
+        ),
+    ];
+    if (actions.isEmpty) return null;
+    return Visibility(
+      visible: actionsVisible,
+      maintainSize: true,
+      maintainAnimation: true,
+      maintainState: true,
+      child: Row(mainAxisSize: MainAxisSize.min, children: actions),
+    );
+  }
+
+  /// The signed [PdfSignature] this tile's widget belongs to, or null when the
+  /// tile isn't a signed signature field.
+  PdfSignature? _signatureFor(PdfAnnotation annotation) {
+    if (annotation is! PdfWidgetAnnotation ||
+        annotation.fieldType != 'Sig' ||
+        annotation.fieldName == null) {
+      return null;
+    }
+    return widget.controller.signatureByFieldName[annotation.fieldName];
+  }
+
+  Future<void> _confirmRemoveSignature(
+      BuildContext context, PdfSignature signature) async {
+    final name = signature.signerName;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(pdfL10n(context).sidebarRemoveSignatureTitle),
+        content: Text(name == null || name.isEmpty
+            ? pdfL10n(context).sidebarRemoveSignatureBody
+            : pdfL10n(context).sidebarRemoveSignatureBodyNamed(name)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(pdfL10n(context).cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(pdfL10n(context).remove),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) widget.controller.removeSignature(signature);
+  }
+
+  /// The inline validation section under a signed signature-field row: a
+  /// status pill (valid & trusted / valid but unverified / invalid) and the
+  /// signer, signing time, trust, timestamp and PAdES-level details drawn from
+  /// [PdfEditingController.validationFor]. Trust reads as "trusted" only
+  /// when the controller carries a [PdfTrustStore] the signer chains to;
+  /// without one, an otherwise-valid signature is "unverified".
+  List<Widget> _signatureSection(BuildContext context, PdfSignature signature) {
+    if (_selecting) return const []; // chrome stays clear during multi-select
+    final l10n = pdfL10n(context);
+    final cs = Theme.of(context).colorScheme;
+
+    // Validation walks CMS/certificate crypto off the build frame; until it
+    // lands the row shows a "checking" pill rather than blocking the panel.
+    final validation = widget.controller.validationFor(signature);
+    if (validation == null) {
+      return [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(56, 0, 12, 8),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: _Pill(
+              label: l10n.sidebarSignatureChecking,
+              color: cs.outline,
+            ),
+          ),
+        ),
+      ];
+    }
+    final intact = validation.intact;
+    final trusted = validation.chainTrusted == true;
+
+    final (String, Color) status = !intact
+        ? (l10n.sidebarSignatureInvalid, Colors.red)
+        : trusted
+            ? (l10n.sidebarSignatureTrusted, Colors.green)
+            : (l10n.sidebarSignatureUnverified, Colors.orange);
+
+    // (text, accent colour) detail lines; a null colour is a muted line.
+    final details = <(String, Color?)>[];
+
+    final signer = validation.signerCertificate?.subjectCommonName ??
+        signature.signerName;
+    if (signer != null && signer.isNotEmpty) {
+      details.add((l10n.sidebarSignatureSignedBy(signer), null));
+    }
+
+    final signedAt = validation.signedAt ?? signature.signingTime;
+    if (signedAt != null) {
+      details.add(
+          (l10n.sidebarSignatureSignedAt(_formatTime(signedAt)), null));
+    }
+
+    if (intact) {
+      if (trusted) {
+        final authority = validation.trustChain.isNotEmpty
+            ? (validation.trustChain.last.subjectCommonName ??
+                validation.trustChain.last.issuerCommonName)
+            : validation.signerCertificate?.issuerCommonName;
+        details.add((
+          authority != null && authority.isNotEmpty
+              ? l10n.sidebarSignatureTrustedVia(authority)
+              : l10n.sidebarSignatureTrusted,
+          Colors.green,
+        ));
+      } else if (validation.chainTrusted == false) {
+        details.add((l10n.sidebarSignatureUntrustedDetail, Colors.orange));
+      } else {
+        // no trust store configured - crypto is checked, trust isn't judged
+        details.add((l10n.sidebarSignatureNoAnchors, null));
+      }
+    }
+
+    if (!validation.coversWholeDocument) {
+      details.add((l10n.sidebarSignatureModified, Colors.orange));
+    }
+    if (validation.embeddedRevocation == PdfRevocationStatus.revoked) {
+      details.add((l10n.sidebarSignatureRevoked, Colors.red));
+    }
+
+    final timestamp = validation.timestamp;
+    if (timestamp != null && timestamp.valid && timestamp.time != null) {
+      details.add((
+        l10n.sidebarSignatureTimestamped(_formatTime(timestamp.time)),
+        null,
+      ));
+    }
+
+    final level = validation.padesLevel;
+    if (level != null) {
+      details.add((l10n.sidebarSignatureLevel(_padesLabel(level)), null));
+    }
+
+    // Surface the cryptographic problems that explain an invalid verdict; a
+    // valid signature's incidental notes stay out of the panel.
+    if (!intact) {
+      for (final problem in validation.problems) {
+        details.add((problem, Colors.red));
+      }
+    }
+
+    final textTheme = Theme.of(context).textTheme;
+    return [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(56, 0, 12, 2),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: _Pill(label: status.$1, color: status.$2),
+        ),
+      ),
+      for (final (text, color) in details)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(56, 0, 12, 2),
+          child: Text(
+            text,
+            style: textTheme.bodySmall
+                ?.copyWith(color: color ?? cs.onSurfaceVariant),
+          ),
+        ),
+      const SizedBox(height: 6),
+    ];
+  }
+
+  /// The short PAdES baseline label for a level enum (e.g. `B-LTA`).
+  static String _padesLabel(PdfPadesLevel level) => switch (level) {
+        PdfPadesLevel.bB => 'B-B',
+        PdfPadesLevel.bT => 'B-T',
+        PdfPadesLevel.bLT => 'B-LT',
+        PdfPadesLevel.bLTA => 'B-LTA',
+      };
+
+  /// The per-row "more" menu holding a markup annotation's thread actions:
+  /// Reply (opens the inline reply field) and Resolve / Reopen.
+  Widget _threadMenu(BuildContext context, int pageIndex, int index,
+      PdfAnnotation annotation, PdfCommentThread? thread) {
+    final nm = annotation.name;
+    final resolved = thread?.isResolved ?? false;
+    return PopupMenuButton<_ThreadAction>(
+      key: ValueKey('pdf-annotation-more-$pageIndex-$index'),
+      icon: const Icon(Icons.more_vert, size: 20),
+      tooltip: pdfL10n(context).sidebarMore,
+      onSelected: (action) {
+        switch (action) {
+          case _ThreadAction.reply:
+            setState(() {
+              _replyingTo = nm;
+              _reply.text = '';
+            });
+          case _ThreadAction.resolve:
+            resolved
+                ? widget.controller.reopenThread(pageIndex, annotation)
+                : widget.controller.resolveThread(pageIndex, annotation);
+        }
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem(
+          key: const ValueKey('pdf-reply-button'),
+          value: _ThreadAction.reply,
+          // a reply is matched to its root by /NM; without one there's
+          // no field to open
+          enabled: nm != null,
+          child: Text(pdfL10n(context).sidebarReply),
+        ),
+        PopupMenuItem(
+          key: const ValueKey('pdf-resolve-button'),
+          value: _ThreadAction.resolve,
+          child: Text(
+              resolved ? pdfL10n(context).sidebarReopen : pdfL10n(context).sidebarResolve),
+        ),
+      ],
+    );
+  }
+
+  /// A plain / ⌘-Ctrl / shift click on a row (outside checkbox mode).
+  /// Plain click navigates the viewer to the annotation, selects it, and
+  /// flashes it. ⌘/Ctrl-click toggles it in the selection; shift-click
+  /// selects the range from the [_anchor] to it. Both modifier gestures
+  /// leave the viewport put.
+  void _onTileTap(int pageIndex, int index, PdfAnnotation annotation,
+      bool editable, List<(int, int)> ordered) {
+    final slot = (pageIndex, index);
+    final keys = HardwareKeyboard.instance;
+    final toggle = keys.isControlPressed || keys.isMetaPressed;
+    final range = keys.isShiftPressed;
+
+    if (editable && range && _anchor != null) {
+      final from = ordered.indexOf(_anchor!);
+      final to = ordered.indexOf(slot);
+      if (from != -1 && to != -1) {
+        final lo = from < to ? from : to;
+        final hi = from < to ? to : from;
+        widget.controller.selectAnnotationSlots(ordered.sublist(lo, hi + 1));
+        return;
+      }
+    }
+    if (editable && toggle) {
+      widget.controller.toggleAnnotationSelection(pageIndex, index);
+      _anchor = slot;
+      return;
+    }
+    // plain click: frame it, select it, and pulse it on the page so the
+    // eye lands right
+    unawaited(widget.viewerController.showRect(pageIndex, annotation.rect));
+    if (editable) {
+      widget.controller.selectAnnotation(pageIndex, index);
+      _anchor = slot;
+    }
+    widget.controller.flashAnnotation(pageIndex, index);
   }
 
   /// A short local-time stamp for a comment, or '' when undated.
@@ -352,45 +668,17 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
 
   /// The label and accent color for a review state chip, or null when the
   /// state is `None` (an open/unresolved thread shows no chip).
-  static (String, Color)? _stateChip(PdfReviewState state, ColorScheme cs) =>
-      switch (state) {
-        PdfReviewState.completed => ('Resolved', Colors.green),
-        PdfReviewState.accepted => ('Accepted', Colors.green),
-        PdfReviewState.rejected => ('Rejected', Colors.red),
-        PdfReviewState.cancelled => ('Cancelled', Colors.orange),
-        PdfReviewState.marked => ('Marked', Colors.blue),
-        PdfReviewState.unmarked => ('Unmarked', cs.outline),
-        PdfReviewState.none => null,
-      };
-
-  /// Thread actions should read like secondary links, not two primary
-  /// buttons repeated under every annotation. Desktop keeps the visual row
-  /// tight; touch-first platforms retain a comfortable 44px hit target.
-  ButtonStyle _threadActionStyle(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final compact = pdfPanelControlsRevealOnHover();
-    return TextButton.styleFrom(
-      minimumSize: Size(0, compact ? 24 : 44),
-      padding: const EdgeInsets.symmetric(horizontal: 7),
-      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      visualDensity: VisualDensity.compact,
-      textStyle: Theme.of(context)
-          .textTheme
-          .labelSmall
-          ?.copyWith(fontWeight: FontWeight.w500),
-    ).copyWith(
-      foregroundColor: WidgetStateProperty.resolveWith((states) {
-        if (states.contains(WidgetState.disabled)) {
-          return cs.onSurface.withValues(alpha: 0.38);
-        }
-        if (states.contains(WidgetState.hovered) ||
-            states.contains(WidgetState.focused) ||
-            states.contains(WidgetState.pressed)) {
-          return cs.primary;
-        }
-        return cs.onSurfaceVariant;
-      }),
-    );
+  (String, Color)? _stateChip(PdfReviewState state, ColorScheme cs) {
+    final l = pdfL10n(context);
+    return switch (state) {
+      PdfReviewState.completed => (l.sbarStateResolved, Colors.green),
+      PdfReviewState.accepted => (l.sbarStateAccepted, Colors.green),
+      PdfReviewState.rejected => (l.sbarStateRejected, Colors.red),
+      PdfReviewState.cancelled => (l.sbarStateCancelled, Colors.orange),
+      PdfReviewState.marked => (l.sbarStateMarked, Colors.blue),
+      PdfReviewState.unmarked => (l.sbarStateUnmarked, cs.outline),
+      PdfReviewState.none => null,
+    };
   }
 
   /// Each comment in [root]'s reply tree with its depth (root = 0), in
@@ -409,7 +697,8 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
   }
 
   /// The inline thread under a root markup tile: a review-state chip, the
-  /// reply tree (indented), and the reply / resolve controls.
+  /// reply tree (indented), and - when open - the reply field. Reply and
+  /// Resolve are triggered from the row's "more" menu ([_threadMenu]).
   List<Widget> _threadSection(BuildContext context, int page,
       PdfAnnotation root, PdfCommentThread? thread) {
     if (_selecting) return const []; // chrome stays clear during multi-select
@@ -429,8 +718,8 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
             if (entry.author != null && entry.author!.isNotEmpty)
               Expanded(
                 child: Padding(
-                  padding: const EdgeInsets.only(left: 6),
-                  child: Text('by ${entry.author}',
+                  padding: const EdgeInsetsDirectional.only(start: 6),
+                  child: Text(pdfL10n(context).sidebarByAuthor(entry.author!),
                       style: textTheme.bodySmall
                           ?.copyWith(color: cs.onSurfaceVariant),
                       overflow: TextOverflow.ellipsis),
@@ -449,7 +738,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
       }
     }
 
-    // controls: an open reply field, or the Reply / Resolve buttons
+    // the open reply field, when the row's "more" > Reply was chosen
     final nm = root.name;
     final replying = nm != null && _replyingTo == nm;
     if (replying) {
@@ -463,50 +752,24 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
             autofocus: true,
             minLines: 1,
             maxLines: 4,
-            decoration: const InputDecoration(
-              hintText: 'Write a reply…',
+            decoration: InputDecoration(
+              hintText: pdfL10n(context).sidebarWriteReplyHint,
               isDense: true,
-              border: OutlineInputBorder(),
+              border: const OutlineInputBorder(),
             ),
             onSubmitted: (_) => _sendReply(page, root),
           ),
           Wrap(alignment: WrapAlignment.end, spacing: 4, children: [
             TextButton(
               onPressed: () => setState(() => _replyingTo = null),
-              child: const Text('Cancel'),
+              child: Text(pdfL10n(context).cancel),
             ),
             FilledButton(
               key: const ValueKey('pdf-reply-send'),
               onPressed: () => _sendReply(page, root),
-              child: const Text('Reply'),
+              child: Text(pdfL10n(context).sidebarReply),
             ),
           ]),
-        ]),
-      ));
-    } else {
-      final resolved = thread?.isResolved ?? false;
-      widgets.add(Padding(
-        padding: const EdgeInsets.fromLTRB(56, 0, 12, 4),
-        child: Wrap(alignment: WrapAlignment.end, spacing: 2, children: [
-          TextButton(
-            key: const ValueKey('pdf-reply-button'),
-            style: _threadActionStyle(context),
-            onPressed: nm == null
-                ? null
-                : () => setState(() {
-                      _replyingTo = nm;
-                      _reply.text = '';
-                    }),
-            child: const Text('Reply'),
-          ),
-          TextButton(
-            key: const ValueKey('pdf-resolve-button'),
-            style: _threadActionStyle(context),
-            onPressed: () => resolved
-                ? widget.controller.reopenThread(page, root)
-                : widget.controller.resolveThread(page, root),
-            child: Text(resolved ? 'Reopen' : 'Resolve'),
-          ),
         ]),
       ));
     }
@@ -559,18 +822,18 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
       child: Row(children: [
         IconButton(
           icon: const Icon(Icons.close, size: 20),
-          tooltip: 'Cancel selection',
+          tooltip: pdfL10n(context).sidebarCancelSelection,
           onPressed: () => setState(() {
             _selecting = false;
             _checked.clear();
           }),
         ),
-        Text('${_checked.length} selected',
+        Text(pdfL10n(context).sidebarSelectedCount(_checked.length),
             style: Theme.of(context).textTheme.labelLarge),
         const Spacer(),
         IconButton(
           icon: const Icon(Icons.delete_outline, size: 20),
-          tooltip: 'Delete selected',
+          tooltip: pdfL10n(context).sidebarDeleteSelected,
           onPressed: _checked.isEmpty
               ? null
               : () => widget.controller.deleteAnnotations(_checked.toList()),
@@ -587,7 +850,8 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
       maxWidth: widget.maxWidth,
       persistedWidth: _preferences.annotationSidebarWidth,
       onPersistWidth: (width) => _preferences.annotationSidebarWidth = width,
-      side: widget.side,
+      dock: widget.dock,
+      panel: PdfDockablePanel.annotations,
       resizable: widget.resizable,
       bottomSheet: widget.bottomSheet,
       gripKey: const ValueKey('pdf-annotation-resize-grip'),
@@ -598,12 +862,14 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
           listenable: widget.controller,
           builder: (context, _) {
             final document = widget.controller.document;
-            if (!identical(document, _builtFor)) {
+            final revisionId = widget.controller.revisionId;
+            if (revisionId != _builtForRevision) {
               // already rebuilding - adjust the state in place
-              _builtFor = document;
+              _builtForRevision = revisionId;
               _checked.clear();
               _hoveredSlot = null;
               _selecting = false;
+              _anchor = null;
               _pageTexts.clear();
               // a revision closes any open reply field (the sent reply
               // is what produced the new revision)
@@ -611,6 +877,10 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
             }
             final query = _search.text.trim().toLowerCase();
             final children = <Widget>[];
+            // every displayed, selectable slot in display order - the axis
+            // a shift-click range runs along. Filled as tiles are built and
+            // captured by each row's tap handler (complete by tap time).
+            final ordered = <(int, int)>[];
             var listed = 0;
             for (var page = 0; page < document.pageCount; page++) {
               final annotations = widget.controller.pageAt(page).annotations;
@@ -632,18 +902,28 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
                 }
                 listed++;
                 if (!_matches(query, page, annotation)) continue;
-                tiles.add(_tile(context, page, i, annotation));
+                final thread = threadByDict[annotation.dict];
+                if (annotation.behavior.selectable &&
+                    widget.controller.isAnnotationEditable(annotation)) {
+                  ordered.add((page, i));
+                }
+                tiles.add(_tile(context, page, i, annotation, thread, ordered));
+                // a signed signature field shows its validation status inline
+                final signature = _signatureFor(annotation);
+                if (signature != null) {
+                  tiles.addAll(_signatureSection(context, signature));
+                }
                 // a markup annotation hosts a comment thread
                 if (annotation.behavior.selectable) {
-                  tiles.addAll(_threadSection(context, page, annotation,
-                      threadByDict[annotation.dict]));
+                  tiles.addAll(
+                      _threadSection(context, page, annotation, thread));
                 }
               }
               if (tiles.isNotEmpty) {
                 children
                   ..add(Padding(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                    child: Text('Page ${page + 1}',
+                    child: Text(pdfL10n(context).sidebarPageHeader(page + 1),
                         style: Theme.of(context).textTheme.labelLarge),
                   ))
                   ..addAll(tiles);
@@ -659,8 +939,8 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
             final list = children.isEmpty
                 ? Center(
                     child: Text(listed > 0 && query.isNotEmpty
-                        ? 'No matching annotations'
-                        : 'No annotations'))
+                        ? pdfL10n(context).sidebarNoMatchingAnnotations
+                        : pdfL10n(context).sidebarNoAnnotations))
                 : geometry.withScrollbar(
                     scroll: _scroll,
                     thumbKey: const ValueKey('pdf-annotation-scrollbar-thumb'),
@@ -692,6 +972,9 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
     );
   }
 }
+
+/// The actions a markup row's "more" menu offers on its comment thread.
+enum _ThreadAction { reply, resolve }
 
 /// A small rounded status chip used for a thread's review state.
 class _Pill extends StatelessWidget {

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -128,6 +129,30 @@ void main() {
       expect((reopened.resolve(info['Title']) as CosString).text, 'Edited');
     });
 
+    test('a fresh /Crypt-Identity stream is written plain, not re-encrypted',
+        () {
+      // The verified bug (issue #313): the updater's exempt policy omitted
+      // the /Crypt-filter-with-/Identity case the loader honoured, so
+      // encrypt-on-write would wrongly re-encrypt an Identity-crypt stream.
+      // The policy now lives once, on the handler.
+      final doc = CosDocument.open(buildEncryptedPdf(revision: 4));
+      final updater = CosIncrementalUpdater(doc);
+      const marker = 'identity-crypt payload stays plain';
+      updater.addObject(CosStream(
+          CosDictionary({
+            'Length': CosInteger(marker.length),
+            'Filter': const CosName('Crypt'),
+            'DecodeParms':
+                CosDictionary({'Name': const CosName('Identity')}),
+          }),
+          ascii(marker)));
+
+      final saved = updater.save();
+      final tail = String.fromCharCodes(saved.sublist(doc.bytes.length));
+      // exempt from encryption, so the plaintext survives verbatim
+      expect(tail, contains(marker));
+    });
+
     test('resaving a loaded stream does not double-encrypt it', () {
       final doc = CosDocument.open(buildEncryptedPdf(revision: 4));
       final page = doc.resolve(
@@ -171,5 +196,53 @@ void main() {
     final doc = CosDocument.open(buildEncryptedPdf(revision: 6));
     expect(doc.encryption!.revision, 6);
     expect(doc.encryption!.streamCipher, PdfCipher.aes256);
+  });
+
+  // The object key is memoised for the most recently used
+  // (objectNumber, generation, aes) triple. These pin the staleness risk that
+  // introduces: interleaving objects, generations, and the string/stream
+  // cipher must never let one object's key serve another's content.
+  group('object-key memoisation', () {
+    test('interleaved objects decrypt as if each were done alone', () {
+      final doc = CosDocument.open(buildEncryptedPdf(revision: 3));
+      final handler = doc.encryption!;
+      final plain = Uint8List.fromList(List.generate(24, (i) => i * 5 & 0xFF));
+
+      final alone = [
+        for (final (n, g) in [(3, 0), (4, 0), (3, 1), (900, 7)])
+          handler.encryptString(plain, n, g),
+      ];
+      // Same derivations, now interleaved so the memo is evicted between
+      // every call and re-derived for a triple it has already seen.
+      final interleaved = <Uint8List>[];
+      for (final (n, g) in [(3, 0), (4, 0), (3, 1), (900, 7)]) {
+        handler.encryptString(plain, 12345, 0); // evict
+        interleaved.add(handler.encryptString(plain, n, g));
+      }
+      expect(interleaved, alone);
+    });
+
+    test('object number, generation, and the AES salt each change the key', () {
+      final doc = CosDocument.open(buildEncryptedPdf(revision: 3));
+      final handler = doc.encryption!;
+      final plain = Uint8List.fromList(List.filled(16, 0x5A));
+      final base = handler.encryptString(plain, 5, 0);
+      expect(handler.encryptString(plain, 6, 0), isNot(base));
+      expect(handler.encryptString(plain, 5, 1), isNot(base));
+      // Round-trips still hold after all that interleaving.
+      expect(handler.decryptString(base, 5, 0), plain);
+    });
+
+    test('a mixed string/stream cipher document keys each correctly', () {
+      // V4 can point /StrF and /StmF at different filters, so the same object
+      // alternates the AES salt between its strings and its stream.
+      final doc = CosDocument.open(buildEncryptedPdf(revision: 4));
+      final handler = doc.encryption!;
+      final plain = Uint8List.fromList(List.filled(32, 0x11));
+      final asString = handler.encryptString(plain, 8, 0);
+      final asStream = handler.encryptStream(plain, 8, 0);
+      expect(handler.decryptString(asString, 8, 0), plain);
+      expect(handler.decryptStream(asStream, 8, 0), plain);
+    });
   });
 }

@@ -1,0 +1,6 @@
+Neu in 3.1.1
+
+FLÜSSIGERES SCROLLEN
+• Große und visuell dichte PDFs reagieren jetzt besser beim schnellen Scrollen.
+• Seitenvorschauen bleiben sichtbar und werden danach sauber in voller Detailtiefe dargestellt.
+• Renderaufgaben werden gleichmäßiger verteilt, wodurch Bildaussetzer reduziert werden.

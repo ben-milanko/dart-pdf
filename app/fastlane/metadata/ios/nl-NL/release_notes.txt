@@ -1,0 +1,6 @@
+Nieuw in 3.1.1
+
+SOEPELER SCROLLEN
+• Grote of visueel complexe pdf’s blijven nu beter reageren tijdens snel scrollen.
+• Paginavoorbeelden blijven zichtbaar terwijl je snel door een document beweegt en worden daarna scherp op volledig detail weergegeven.
+• Rendertaken worden gelijkmatiger gepland, waardoor er minder frames verloren gaan.

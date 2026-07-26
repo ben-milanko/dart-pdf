@@ -70,12 +70,20 @@ class RecordingDevice implements PdfDevice {
   }
 
   final blendModes = <PdfBlendMode>[];
+  final overprints = <(bool, bool, int)>[];
   final softMaskEnds = <(bool, void Function())>[];
 
   @override
   void setBlendMode(PdfBlendMode mode) {
     calls.add('blend:${mode.name}');
     blendModes.add(mode);
+  }
+
+  @override
+  void setOverprint(
+      {required bool fill, required bool stroke, required int mode}) {
+    calls.add('overprint:$fill,$stroke,$mode');
+    overprints.add((fill, stroke, mode));
   }
 
   @override
@@ -160,6 +168,13 @@ void main() {
     expect(device.fills[0].$2.green, closeTo(0.182, 0.01));
     expect(device.fills[0].$2.blue, closeTo(0.206, 0.01));
     expect(device.fills[1].$2, const PdfColor.gray(0.5));
+  });
+
+  test('scn with the wrong operand count falls back to a device reading', () {
+    // /DeviceRGB has 3 channels; a single scn operand does not match, so the
+    // interpreter reads it leniently as a 1-component (gray) device colour.
+    final device = interpret('/DeviceRGB cs 0.5 scn 0 0 1 1 re f');
+    expect(device.fills.single.$2, const PdfColor.gray(0.5));
   });
 
   test('pure process cyan converts through the SWOP polynomial', () {
@@ -372,6 +387,70 @@ void main() {
       expect(run.width, closeTo(5.501, 1e-9));
     });
 
+    test('word/char spacing and edge whitespace feed the substitute geometry',
+        () {
+      // A Type1 Helvetica resource (built-in AFM widths: a=b=0.556, space=0.278
+      // em) so we can predict the advances exactly.
+      final doc = CosDocument.open(buildClassicPdf());
+      final resources = CosDictionary({
+        'Font': CosDictionary({
+          'F1': CosDictionary({
+            'Type': const CosName('Font'),
+            'Subtype': const CosName('Type1'),
+            'BaseFont': const CosName('Helvetica'),
+            'Encoding': const CosName('WinAnsiEncoding'),
+          }),
+        }),
+      });
+
+      // Trailing space carrying a large Tw (the tabular-column pattern): the gap
+      // stays in width for positioning but is excluded from visibleWidth so a
+      // substituting device does not stretch "ab" across it.
+      final trailing = RecordingDevice();
+      PdfInterpreter(cos: doc, device: trailing).run(
+        ContentStreamParser.parse(Uint8List.fromList(
+            'BT /F1 10 Tf 5 Tw 0 700 Td (ab ) Tj ET'.codeUnits)),
+        resources,
+      );
+      final t = trailing.texts.single;
+      expect(t.wordSpacing, closeTo(0.5, 1e-9)); // Tw 5 / size 10
+      expect(t.letterSpacing, 0);
+      expect(t.leadingSpace, 0);
+      expect(t.width, closeTo(1.890, 1e-6)); // a+b+space(0.278)+Tw(0.5)
+      // visibleWidth = a+b only; the trailing space's 0.778 em is dropped.
+      expect(t.visibleWidth, closeTo(1.112, 1e-6));
+      expect(t.width - t.visibleWidth!, closeTo(0.778, 1e-6));
+
+      // Leading space carrying the same Tw: the gap becomes leadingSpace (a
+      // device shifts the trimmed glyphs right by it), width stays full, and
+      // visibleWidth is null because nothing trails the last visible glyph.
+      final leading = RecordingDevice();
+      PdfInterpreter(cos: doc, device: leading).run(
+        ContentStreamParser.parse(Uint8List.fromList(
+            'BT /F1 10 Tf 5 Tw 0 700 Td ( ab) Tj ET'.codeUnits)),
+        resources,
+      );
+      final l = leading.texts.single;
+      expect(l.leadingSpace, closeTo(0.778, 1e-6)); // space(0.278)+Tw(0.5)
+      expect(l.width, closeTo(1.890, 1e-6));
+      expect(l.visibleWidth, isNull);
+
+      // No word spacing: width, visibleWidth, spacing all reduce to the plain
+      // metric advance, so ordinary runs are untouched.
+      final plain = RecordingDevice();
+      PdfInterpreter(cos: doc, device: plain).run(
+        ContentStreamParser.parse(Uint8List.fromList(
+            'BT /F1 10 Tf 0 700 Td (ab) Tj ET'.codeUnits)),
+        resources,
+      );
+      final p = plain.texts.single;
+      expect(p.wordSpacing, 0);
+      expect(p.letterSpacing, 0);
+      expect(p.leadingSpace, 0);
+      expect(p.visibleWidth, isNull);
+      expect(p.width, closeTo(1.112, 1e-6));
+    });
+
     test('a Type3 glyph that shows text does not corrupt the outer run', () {
       // A Type3 CharProc is an arbitrary content stream and may itself show
       // text, which re-enters _showText mid-loop. The run-text buffer is reused
@@ -432,6 +511,115 @@ void main() {
       expect(inner.text, 'inner');
       expect(outer.text, 'X',
           reason: 'the nested show must not overwrite the outer buffer');
+    });
+
+    test('a Type3 glyph draws through its /FontMatrix at the pen position', () {
+      // A CharProc that fills a 100x100 glyph-space box. With FontMatrix
+      // 0.001 and Tf size 10, glyph space scales to page by 0.001*10 = 0.01,
+      // so the box is 1x1 page units, dropped at the text origin. This
+      // exercises the renderGlyph seam: the font supplies the glyph-space
+      // matrix and CharProc, the interpreter re-enters its run loop.
+      final doc = CosDocument.open(buildClassicPdf());
+      final charProc = CosStream(
+        CosDictionary({'Length': const CosInteger(0)}),
+        Uint8List.fromList('1000 0 d0 0 0 100 100 re f'.codeUnits),
+      );
+      final type3 = CosDictionary({
+        'Type': const CosName('Font'),
+        'Subtype': const CosName('Type3'),
+        'FontBBox': CosArray([
+          const CosInteger(0),
+          const CosInteger(0),
+          const CosInteger(100),
+          const CosInteger(100),
+        ]),
+        'FontMatrix': CosArray([
+          const CosReal(0.001),
+          const CosInteger(0),
+          const CosInteger(0),
+          const CosReal(0.001),
+          const CosInteger(0),
+          const CosInteger(0),
+        ]),
+        'FirstChar': const CosInteger(0x58),
+        'LastChar': const CosInteger(0x58),
+        'Widths': CosArray([const CosInteger(1000)]),
+        'Encoding': CosDictionary({
+          'Differences': CosArray([const CosInteger(0x58), const CosName('X')]),
+        }),
+        'CharProcs': CosDictionary({'X': charProc}),
+      });
+      final device = RecordingDevice();
+      PdfInterpreter(cos: doc, device: device).run(
+        ContentStreamParser.parse(Uint8List.fromList(
+            'BT /T3 10 Tf 100 200 Td (X) Tj ET'.codeUnits)),
+        CosDictionary({
+          'Font': CosDictionary({'T3': type3}),
+        }),
+      );
+      final (path, _, _, _) = device.fills.single;
+      final move = path.segments.first as PdfMoveTo;
+      expect(move.x, closeTo(100, 1e-9)); // glyph (0,0) at the pen origin
+      expect(move.y, closeTo(200, 1e-9));
+      final corner = path.segments[2] as PdfLineTo;
+      expect(corner.x, closeTo(101, 1e-9)); // 100*0.001*10 = 1 page unit wide
+      expect(corner.y, closeTo(201, 1e-9));
+    });
+
+    test('a d1 Type3 glyph ignores its own colour, painting in text colour',
+        () {
+      // §9.6.5: a CharProc that opens with d1 is a shape-only glyph. The red
+      // `rg` inside it must be ignored; the glyph paints in the blue fill
+      // colour that was in effect when the glyph was shown.
+      CosDictionary type3(String proc) => CosDictionary({
+            'Type': const CosName('Font'),
+            'Subtype': const CosName('Type3'),
+            'FontBBox': CosArray([
+              const CosInteger(0),
+              const CosInteger(0),
+              const CosInteger(100),
+              const CosInteger(100),
+            ]),
+            'FontMatrix': CosArray([
+              const CosReal(0.001),
+              const CosInteger(0),
+              const CosInteger(0),
+              const CosReal(0.001),
+              const CosInteger(0),
+              const CosInteger(0),
+            ]),
+            'FirstChar': const CosInteger(0x58),
+            'LastChar': const CosInteger(0x58),
+            'Widths': CosArray([const CosInteger(1000)]),
+            'Encoding': CosDictionary({
+              'Differences':
+                  CosArray([const CosInteger(0x58), const CosName('X')]),
+            }),
+            'CharProcs': CosDictionary({
+              'X': CosStream(CosDictionary({'Length': const CosInteger(0)}),
+                  Uint8List.fromList(proc.codeUnits)),
+            }),
+          });
+
+      PdfColor glyphFill(String proc) {
+        final doc = CosDocument.open(buildClassicPdf());
+        final device = RecordingDevice();
+        PdfInterpreter(cos: doc, device: device).run(
+          ContentStreamParser.parse(Uint8List.fromList(
+              'BT /T3 10 Tf 100 200 Td 0 0 1 rg (X) Tj ET'.codeUnits)),
+          CosDictionary({
+            'Font': CosDictionary({'T3': type3(proc)}),
+          }),
+        );
+        return device.fills.single.$2;
+      }
+
+      // d1: the inner red rg is ignored -> the glyph keeps the blue text fill.
+      expect(glyphFill('0 0 0 0 100 100 d1 1 0 0 rg 0 0 100 100 re f'),
+          const PdfColor(0, 0, 1));
+      // Control: d0 imposes no colour rule, so the inner red rg wins.
+      expect(glyphFill('1000 0 d0 1 0 0 rg 0 0 100 100 re f'),
+          const PdfColor(1, 0, 0));
     });
 
     test('TJ adjustments shift subsequent runs', () {
@@ -770,6 +958,80 @@ void main() {
       );
       expect(device.gradients, hasLength(1));
     });
+
+    // A radial shading whose circles are not nested (r0=0 focal point d=90
+    // outside the r1=60 circle): a device radial gradient can't express it,
+    // so the interpreter must fall through to a cone mesh instead.
+    CosDictionary radialPatternResources() => CosDictionary({
+          'Pattern': CosDictionary({
+            'P0': CosDictionary({
+              'PatternType': const CosInteger(2),
+              'Shading': CosDictionary({
+                'ShadingType': const CosInteger(3),
+                'ColorSpace': const CosName('DeviceRGB'),
+                'Coords': CosArray([
+                  const CosInteger(521),
+                  const CosInteger(289),
+                  const CosInteger(0),
+                  const CosInteger(431),
+                  const CosInteger(289),
+                  const CosInteger(60),
+                ]),
+                'Extend': CosArray([
+                  const CosBoolean(false),
+                  const CosBoolean(true),
+                ]),
+                'Function': CosDictionary({
+                  'FunctionType': const CosInteger(2),
+                  'C0': CosArray([
+                    const CosInteger(1),
+                    const CosInteger(0),
+                    const CosInteger(0),
+                  ]),
+                  'C1': CosArray([
+                    const CosInteger(0),
+                    const CosInteger(0),
+                    const CosInteger(1),
+                  ]),
+                  'N': const CosInteger(1),
+                }),
+              }),
+            }),
+          }),
+        });
+
+    test('non-nested radial pattern fill clips a cone mesh, not a gradient',
+        () {
+      final doc = CosDocument.open(buildClassicPdf());
+      final device = RecordingDevice();
+      PdfInterpreter(cos: doc, device: device).run(
+        ContentStreamParser.parse(Uint8List.fromList(
+            '/Pattern cs /P0 scn 400 250 130 80 re f'.codeUnits)),
+        radialPatternResources(),
+      );
+      expect(device.gradients, isEmpty);
+      expect(device.meshes, hasLength(1));
+      expect(device.meshes.single.vertices, isNotEmpty);
+      // clipped to the fill path: save/clip/mesh/restore, in that order
+      expect(device.calls, containsAllInOrder(['save', 'clip', 'mesh', 'restore']));
+    });
+
+    test('non-nested radial sh paints a cone mesh', () {
+      final doc = CosDocument.open(buildClassicPdf());
+      final device = RecordingDevice();
+      final pattern =
+          (radialPatternResources()['Pattern'] as CosDictionary)['P0']
+              as CosDictionary;
+      final resources = CosDictionary({
+        'Shading': CosDictionary({'S0': pattern['Shading']!}),
+      });
+      PdfInterpreter(cos: doc, device: device).run(
+        ContentStreamParser.parse(Uint8List.fromList('/S0 sh'.codeUnits)),
+        resources,
+      );
+      expect(device.gradients, isEmpty);
+      expect(device.meshes, hasLength(1));
+    });
   });
 
   group('soft masks and blend modes', () {
@@ -1097,6 +1359,180 @@ void main() {
       expect(device.texts.single.transform.f, closeTo(106.692, 1e-3));
       expect(device.clips, hasLength(1));
     });
+
+    RecordingDevice drawFallback(CosDictionary dict) {
+      final doc = PdfDocument.open(buildClassicPdf());
+      final device = RecordingDevice();
+      PdfInterpreter(cos: doc.cos, device: device)
+          .drawAnnotation(doc.page(0), PdfAnnotation.fromDict(doc, dict));
+      return device;
+    }
+
+    test('fallback Polygon closes and fills from /Vertices and /IC', () {
+      final device = drawFallback(CosDictionary({
+        'Subtype': const CosName('Polygon'),
+        'Rect': CosArray([for (final v in [10, 10, 60, 60]) CosInteger(v)]),
+        'Vertices': CosArray(
+            [for (final v in [10, 10, 60, 10, 35, 60]) CosInteger(v)]),
+        'C': CosArray([const CosInteger(0), const CosInteger(0), const CosInteger(0)]),
+        'IC': CosArray([const CosInteger(1), const CosInteger(0), const CosInteger(0)]),
+      }));
+      // one interior fill (red) plus the stroked outline
+      expect(device.fills.single.$2, const PdfColor(1, 0, 0));
+      final outline = device.strokes.single.$1;
+      expect(outline.segments.last, isA<PdfClosePath>());
+    });
+
+    test('fallback PolyLine strokes an open path from /Vertices', () {
+      final device = drawFallback(CosDictionary({
+        'Subtype': const CosName('PolyLine'),
+        'Rect': CosArray([for (final v in [10, 10, 60, 60]) CosInteger(v)]),
+        'Vertices': CosArray(
+            [for (final v in [10, 10, 60, 10, 35, 60]) CosInteger(v)]),
+      }));
+      expect(device.fills, isEmpty); // open: no interior
+      final path = device.strokes.single.$1;
+      expect(path.segments.any((s) => s is PdfClosePath), isFalse);
+    });
+
+    test('fallback Link draws its border only with a colour and width', () {
+      // no /C: nothing painted (the common invisible-link case)
+      expect(
+          drawFallback(CosDictionary({
+            'Subtype': const CosName('Link'),
+            'Rect': CosArray([for (final v in [10, 10, 60, 30]) CosInteger(v)]),
+            'Border': CosArray(
+                [const CosInteger(0), const CosInteger(0), const CosInteger(1)]),
+          })).strokes,
+          isEmpty);
+      // /C plus a positive border width -> a stroked rectangle
+      final device = drawFallback(CosDictionary({
+        'Subtype': const CosName('Link'),
+        'Rect': CosArray([for (final v in [10, 10, 60, 30]) CosInteger(v)]),
+        'Border': CosArray(
+            [const CosInteger(0), const CosInteger(0), const CosInteger(2)]),
+        'C': CosArray([const CosInteger(0), const CosInteger(0), const CosInteger(1)]),
+      }));
+      expect(device.strokes.single.$2, const PdfColor(0, 0, 1));
+    });
+
+    test('fallback FreeText draws /Contents lines through /DA, clipped', () {
+      final device = drawFallback(CosDictionary({
+        'Subtype': const CosName('FreeText'),
+        'Rect': CosArray([for (final v in [50, 500, 250, 560]) CosInteger(v)]),
+        'DA': CosString.fromText('/Helv 10 Tf 1 0 0 rg'),
+        'Contents': CosString.fromText('line one\nline two'),
+      }));
+      expect(device.texts.map((t) => t.text), ['line one', 'line two']);
+      expect(device.texts.first.color, const PdfColor(1, 0, 0));
+      expect(device.clips, hasLength(1));
+    });
+
+    test('fallback checkbox widget marks an on /AS with no /AP', () {
+      final on = drawFallback(CosDictionary({
+        'Subtype': const CosName('Widget'),
+        'FT': const CosName('Btn'),
+        'Rect': CosArray([for (final v in [72, 540, 92, 560]) CosInteger(v)]),
+        'AS': const CosName('Yes'),
+        'MK': CosDictionary({
+          'BC': CosArray([const CosInteger(0)]),
+        }),
+      }));
+      // border stroke + the check-mark stroke
+      expect(on.strokes, hasLength(2));
+
+      final off = drawFallback(CosDictionary({
+        'Subtype': const CosName('Widget'),
+        'FT': const CosName('Btn'),
+        'Rect': CosArray([for (final v in [72, 540, 92, 560]) CosInteger(v)]),
+        'AS': const CosName('Off'),
+        'MK': CosDictionary({
+          'BC': CosArray([const CosInteger(0)]),
+        }),
+      }));
+      // border only, no mark
+      expect(off.strokes, hasLength(1));
+    });
+
+    test('fallback pushbutton widget draws its /MK caption', () {
+      final device = drawFallback(CosDictionary({
+        'Subtype': const CosName('Widget'),
+        'FT': const CosName('Btn'),
+        'Ff': const CosInteger(65536), // pushbutton
+        'Rect': CosArray([for (final v in [72, 540, 172, 560]) CosInteger(v)]),
+        'DA': CosString.fromText('/Helv 12 Tf 0 g'),
+        'MK': CosDictionary({
+          'CA': CosString.fromText('Submit'),
+        }),
+      }));
+      expect(device.texts.single.text, 'Submit');
+    });
+  });
+
+  group('annotation print flags', () {
+    // A page with three Square annotations, each an /AP filling a distinct
+    // colour: red is Print (/F 4), green is Print+NoView (/F 36), blue has no
+    // flags (/F 0). Screen shows red+blue (NoView hidden, Print ignored);
+    // print shows red+green (only /Print, NoView prints).
+    Uint8List flaggedPdf() {
+      String form(String content) =>
+          '<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] '
+          '/Length ${content.length} >>\nstream\n$content\nendstream';
+      const annots = '/Annots [ '
+          '<< /Type /Annot /Subtype /Square /Rect [10 10 20 20] /F 4 '
+          '/AP << /N 5 0 R >> >> '
+          '<< /Type /Annot /Subtype /Square /Rect [30 10 40 20] /F 36 '
+          '/AP << /N 6 0 R >> >> '
+          '<< /Type /Annot /Subtype /Square /Rect [50 10 60 20] /F 0 '
+          '/AP << /N 7 0 R >> >> ]';
+      final objects = <String>[
+        '<< /Type /Catalog /Pages 2 0 R >>',
+        '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+            '/Contents 4 0 R $annots >>',
+        '<< /Length 0 >>\nstream\n\nendstream',
+        form('1 0 0 rg 0 0 10 10 re f'),
+        form('0 1 0 rg 0 0 10 10 re f'),
+        form('0 0 1 rg 0 0 10 10 re f'),
+      ];
+      final buffer = StringBuffer('%PDF-1.4\n');
+      final offsets = <int>[];
+      for (var i = 0; i < objects.length; i++) {
+        offsets.add(buffer.length);
+        buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+      }
+      final xrefOffset = buffer.length;
+      buffer
+        ..write('xref\n0 ${objects.length + 1}\n')
+        ..write('0000000000 65535 f \n');
+      for (final offset in offsets) {
+        buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+      }
+      buffer
+        ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+        ..write('startxref\n$xrefOffset\n%%EOF\n');
+      return Uint8List.fromList(buffer.toString().codeUnits);
+    }
+
+    List<PdfColor> drawn({required bool forPrint}) {
+      final doc = PdfDocument.open(flaggedPdf());
+      final device = RecordingDevice();
+      PdfInterpreter(cos: doc.cos, device: device)
+          .drawAnnotations(doc.page(0), forPrint: forPrint);
+      return [for (final f in device.fills) f.$2];
+    }
+
+    test('screen hides NoView and ignores the Print flag', () {
+      // red (Print) + blue (no flags); green is NoView
+      expect(drawn(forPrint: false),
+          [const PdfColor(1, 0, 0), const PdfColor(0, 0, 1)]);
+    });
+
+    test('print keeps only Print annotations, including NoView ones', () {
+      // red (Print) + green (Print+NoView); blue lacks Print
+      expect(drawn(forPrint: true),
+          [const PdfColor(1, 0, 0), const PdfColor(0, 1, 0)]);
+    });
   });
 
   group('cancellation', () {
@@ -1235,6 +1671,103 @@ void main() {
       PdfInterpreter(cos: doc.cos, device: device)
           .drawPageOperations(page, ops);
       expect(device.calls, isNotEmpty);
+    });
+
+    // The resumable walk (beginPageContent) is the primitive behind recording a
+    // heavy page in visible increments and behind a cancelled record keeping
+    // its work. drawPageContentAsync is implemented on top of it, so the whole
+    // corpus already exercises the unbounded path; these pin the chunked one.
+    group('resumable page walk', () {
+      Future<List<String>> fullCalls(Uint8List bytes) async {
+        final doc = PdfDocument.open(bytes);
+        final page = doc.page(0);
+        final device = RecordingDevice();
+        await PdfInterpreter(cos: doc.cos, device: device)
+            .drawPageContentAsync(page, page.contentBytes());
+        return device.calls;
+      }
+
+      test('a chunked walk records exactly what one full walk records',
+          () async {
+        final bytes = heavyPdf();
+        final expected = await fullCalls(bytes);
+
+        final doc = PdfDocument.open(bytes);
+        final page = doc.page(0);
+        final device = RecordingDevice();
+        final walk = PdfInterpreter(cos: doc.cos, device: device)
+            .beginPageContent(page, page.contentBytes());
+        var chunks = 0;
+        while (!await walk.advance(operations: 100)) {
+          chunks++;
+          expect(chunks, lessThan(1000), reason: 'walk did not terminate');
+        }
+        expect(chunks, greaterThan(1),
+            reason: 'the fixture must actually span several chunks');
+        expect(walk.isComplete, isTrue);
+        expect(walk.isFinished, isTrue);
+        expect(device.calls, expected);
+      });
+
+      test('resuming continues rather than re-walking the prefix', () async {
+        final bytes = heavyPdf();
+        final doc = PdfDocument.open(bytes);
+        final page = doc.page(0);
+        final device = RecordingDevice();
+        final walk = PdfInterpreter(cos: doc.cos, device: device)
+            .beginPageContent(page, page.contentBytes());
+
+        expect(await walk.advance(operations: 100), isFalse);
+        final afterFirst = List<String>.from(device.calls);
+        expect(afterFirst, isNotEmpty);
+
+        await walk.advance(operations: 100);
+        // The already-recorded calls must still be there, unchanged and not
+        // duplicated: a restart would re-emit them from the top.
+        expect(device.calls.length, greaterThan(afterFirst.length));
+        expect(device.calls.sublist(0, afterFirst.length), afterFirst);
+      });
+
+      test('abandon releases the device exactly once and is idempotent',
+          () async {
+        final bytes = heavyPdf();
+        final doc = PdfDocument.open(bytes);
+        final page = doc.page(0);
+        final device = RecordingDevice();
+        final walk = PdfInterpreter(cos: doc.cos, device: device)
+            .beginPageContent(page, page.contentBytes());
+        await walk.advance(operations: 50);
+
+        int restores() => device.calls.where((c) => c == 'restore').length;
+        // Stopping mid-page can leave the *content's* own q unmatched by its Q
+        // - inherent to not finishing, and the same thing a cancelled
+        // drawPageContentAsync has always done. What must hold is that the walk
+        // emits the single restore balancing beginPageContent's save.
+        final before = restores();
+        walk.abandon();
+        expect(restores(), before + 1,
+            reason: 'abandon must emit the one restore that balances '
+                "beginPageContent's save");
+
+        walk.abandon(); // idempotent: no second restore
+        expect(restores(), before + 1);
+        expect(walk.isFinished, isTrue);
+        expect(walk.isComplete, isFalse);
+      });
+
+      test('advancing a finished walk is a no-op', () async {
+        final bytes = heavyPdf();
+        final doc = PdfDocument.open(bytes);
+        final page = doc.page(0);
+        final device = RecordingDevice();
+        final walk = PdfInterpreter(cos: doc.cos, device: device)
+            .beginPageContent(page, page.contentBytes());
+        expect(await walk.advance(), isTrue); // unbounded: runs to completion
+        final calls = List<String>.from(device.calls);
+
+        expect(await walk.advance(operations: 100), isTrue);
+        expect(device.calls, calls);
+      });
     });
   });
 }

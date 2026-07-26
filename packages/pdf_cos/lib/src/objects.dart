@@ -91,8 +91,29 @@ class CosString extends CosObject {
   /// Whether the string was written (or should be written) in `<hex>` form.
   final bool isHex;
 
-  /// Decodes as text: UTF-16BE or UTF-8 when a BOM is present, otherwise
-  /// Latin-1 as an approximation of PDFDocEncoding.
+  /// The characters PDFDocEncoding (§7.9.2 / Annex D.3) places where Latin-1
+  /// has C1 control codes or different glyphs. Byte -> Unicode code point.
+  /// Every byte not listed here decodes identically under PDFDocEncoding and
+  /// Latin-1 (0x00-0x7E ASCII, 0xA1-0xFF Latin-1, and the few undefined slots
+  /// 0x7F/0x9F/0xAD which we pass through), so only these need a lookup.
+  static const Map<int, int> _pdfDocToUnicode = {
+    0x18: 0x02D8, 0x19: 0x02C7, 0x1A: 0x02C6, 0x1B: 0x02D9, // breve..dotaccent
+    0x1C: 0x02DD, 0x1D: 0x02DB, 0x1E: 0x02DA, 0x1F: 0x02DC, // hungar..tilde
+    0x80: 0x2022, 0x81: 0x2020, 0x82: 0x2021, 0x83: 0x2026, // bullet..ellipsis
+    0x84: 0x2014, 0x85: 0x2013, 0x86: 0x0192, 0x87: 0x2044, // emdash,endash..
+    0x88: 0x2039, 0x89: 0x203A, 0x8A: 0x2212, 0x8B: 0x2030, //
+    0x8C: 0x201E, 0x8D: 0x201C, 0x8E: 0x201D, 0x8F: 0x2018, // quotes
+    0x90: 0x2019, 0x91: 0x201A, 0x92: 0x2122, 0x93: 0xFB01, // quote,tm,fi
+    0x94: 0xFB02, 0x95: 0x0141, 0x96: 0x0152, 0x97: 0x0160, // fl,Lslash,OE..
+    0x98: 0x0178, 0x99: 0x017D, 0x9A: 0x0131, 0x9B: 0x0142, //
+    0x9C: 0x0153, 0x9D: 0x0161, 0x9E: 0x017E, 0xA0: 0x20AC, // ..zcaron,Euro
+  };
+
+  /// Decodes as text (§7.9.2.2): UTF-16BE or UTF-8 when a BOM is present,
+  /// otherwise PDFDocEncoding - Latin-1 for most bytes, but with the
+  /// punctuation and accents PDFDocEncoding places where Latin-1 has C1
+  /// control codes (e.g. byte 0x85 is an en dash, not U+0085). Decoding those
+  /// as raw Latin-1 rendered them as missing-glyph boxes.
   String get text {
     if (bytes.length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF) {
       final codes = <int>[];
@@ -107,7 +128,9 @@ class CosString extends CosObject {
         bytes[2] == 0xBF) {
       return utf8.decode(bytes.sublist(3), allowMalformed: true);
     }
-    return latin1.decode(bytes);
+    return String.fromCharCodes([
+      for (final b in bytes) _pdfDocToUnicode[b] ?? b,
+    ]);
   }
 
   @override
@@ -185,6 +208,15 @@ class CosStream extends CosObject {
 
   /// The stream payload exactly as stored in the file (still encoded).
   final Uint8List rawBytes;
+
+  /// The indirect object this stream was parsed from, set by the document
+  /// when it loads the stream. In an encrypted file this doubles as the
+  /// key source (the encryption key derives from the ref) and marks
+  /// [rawBytes] as still the file's original payload - the incremental
+  /// updater writes such payloads through verbatim rather than
+  /// re-encrypting them. Null for streams built in memory (editor output,
+  /// re-encrypted copies).
+  CosReference? sourceRef;
 
   @override
   String toString() => 'stream(${rawBytes.length} bytes) $dictionary';
