@@ -408,6 +408,44 @@ void main() {
           reason: 'growth is trimmed as it happens, not on a later signal');
     });
 
+    test('the process ceiling may evict each cache final MRU master', () {
+      final registry = PdfCacheRegistry.instance;
+      final a = registered();
+      final b = registered();
+      registry.maxTotalWeight = 50;
+
+      a.put(0, _Res(0, weight: 40));
+      b.put(0, _Res(1, weight: 40));
+
+      expect(registry.totalWeight, lessThanOrEqualTo(50),
+          reason: 'multiple viewers cannot each retain one oversize residue');
+    });
+
+    test('clearLabel targets one reconstructible cache class', () {
+      final registry = PdfCacheRegistry.instance;
+      final pages = PdfBudgetedCache<int, _Res>(
+        weigher: (r) => r.weight,
+        maxWeight: 1000,
+        clearsUnderMemoryPressure: true,
+        debugLabel: 'page-full-raster',
+      );
+      final images = PdfBudgetedCache<int, _Res>(
+        weigher: (r) => r.weight,
+        maxWeight: 1000,
+        clearsUnderMemoryPressure: true,
+        debugLabel: 'decoded-image-test',
+      );
+      addTearDown(pages.dispose);
+      addTearDown(images.dispose);
+      pages.put(0, _Res(0, weight: 40));
+      images.put(0, _Res(1, weight: 60));
+
+      expect(registry.weightForLabel('page-full-raster'), 40);
+      expect(registry.clearLabel('page-full-raster'), 40);
+      expect(pages.length, 0);
+      expect(images.length, 1);
+    });
+
     test('ceiling 0 (the default) never trims', () {
       final cache = registered();
       expect(PdfCacheRegistry.instance.maxTotalWeight, 0);

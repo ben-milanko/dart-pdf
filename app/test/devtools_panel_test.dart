@@ -18,6 +18,15 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     prefs = PdfEditingPreferences();
+    AppDevTools.instance.setPageRasterCachePolicy(
+      const PdfPageRasterCachePolicy(),
+    );
+    AppDevTools.instance.updateAutoPageRasterCache(
+      const PdfPageRasterCachePolicy(),
+      reason: 'test machine headroom',
+      safeProcessLimitBytes: 2 * 1024 * 1024 * 1024,
+    );
+    AppDevTools.instance.useAutoPageRasterCache();
   });
   tearDown(() {
     prefs.dispose();
@@ -28,6 +37,14 @@ void main() {
     // sink it installs) so it never leaks into another test.
     AppDevTools.instance.logTouchInput = false;
     AppDevTools.instance.localeOverride.value = null;
+    AppDevTools.instance.setPageRasterCachePolicy(
+      const PdfPageRasterCachePolicy(),
+    );
+    AppDevTools.instance.updateAutoPageRasterCache(
+      const PdfPageRasterCachePolicy(),
+      reason: 'test reset',
+    );
+    AppDevTools.instance.useAutoPageRasterCache();
     AppDevTools.instance.clearLog();
   });
 
@@ -87,6 +104,56 @@ void main() {
     await tapMode('patch');
     expect(PdfPageView.tileStoreDetail, isFalse);
     expect(PdfPageView.debugTileStoreOverride, isNull);
+  });
+
+  testWidgets('visited-page raster limits apply live from the memory section',
+      (tester) async {
+    await pumpWithDoc(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.f12);
+    await tester.pump();
+
+    final total =
+        find.byKey(const ValueKey('devtools-page-raster-budget'));
+    await tester.ensureVisible(total);
+    await tester.pump();
+    await tester.tap(total);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('5 GB').last);
+    await tester.pumpAndSettle();
+
+    final perPage =
+        find.byKey(const ValueKey('devtools-page-raster-entry-budget'));
+    await tester.ensureVisible(perPage);
+    await tester.pump();
+    await tester.tap(perPage);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('128 MB').last);
+    await tester.pumpAndSettle();
+
+    const expected = PdfPageRasterCachePolicy(
+      maxBytes: 5 * 1024 * 1024 * 1024,
+      maxEntryBytes: 128 * 1024 * 1024,
+    );
+    expect(AppDevTools.instance.pageRasterCachePolicy.value, expected);
+    expect(
+      tester.widget<PdfViewer>(find.byType(PdfViewer))
+          .pageRasterCachePolicy,
+      expected,
+      reason: 'the open viewer receives the policy without being reopened',
+    );
+
+    await tester.ensureVisible(total);
+    await tester.pump();
+    await tester.tap(total);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Auto (recommended)').last);
+    await tester.pumpAndSettle();
+    expect(AppDevTools.instance.pageRasterCacheMode, PageRasterCacheMode.auto);
+    expect(
+      find.byKey(const ValueKey('devtools-page-raster-entry-budget')),
+      findsNothing,
+      reason: 'Auto owns the derived per-page admission limit',
+    );
   });
 
   testWidgets('the Locale section sets a testing override', (tester) async {

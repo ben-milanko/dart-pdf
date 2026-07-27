@@ -11,6 +11,64 @@ import 'raster_cache.dart';
 import 'render_worker.dart';
 import 'renderer.dart';
 
+/// Memory policy for full-resolution rasters of pages the user has visited.
+///
+/// A page widget is disposed after it leaves the scroll view's build window.
+/// Its completed raster can outlive that widget in [PdfPagePreviewCache], so a
+/// revisit at the same physical size paints immediately without interpreting
+/// or rasterizing the page again.
+///
+/// The defaults preserve the package's bounded working set: 32 MiB total and
+/// 16 MiB for any one page. Desktop hosts that prefer revisit speed over
+/// memory can opt into a much larger budget:
+///
+/// ```dart
+/// PdfViewer(
+///   document: document,
+///   pageRasterCachePolicy: const PdfPageRasterCachePolicy(
+///     maxBytes: 5 * 1024 * 1024 * 1024,
+///     maxEntryBytes: 64 * 1024 * 1024,
+///   ),
+/// )
+/// ```
+///
+/// This controls only exact, already-rendered page rasters. Low-resolution
+/// fast-scroll previews, decoded PDF images, retained scenes, deep-zoom tiles,
+/// and render-worker records have their own bounds. A large value is therefore
+/// an upper limit on this cache, not on the process's total memory use.
+@immutable
+class PdfPageRasterCachePolicy {
+  const PdfPageRasterCachePolicy({
+    this.maxBytes = 32 * 1024 * 1024,
+    this.maxEntryBytes = 16 * 1024 * 1024,
+  })  : assert(maxBytes >= 0),
+        assert(maxEntryBytes >= 0);
+
+  /// Disables retention of full-resolution visited-page rasters.
+  const PdfPageRasterCachePolicy.disabled()
+      : maxBytes = 0,
+        maxEntryBytes = 0;
+
+  /// Total approximate RGBA byte budget for retained page rasters.
+  final int maxBytes;
+
+  /// Largest individual page raster admitted to the cache.
+  ///
+  /// This remains a separate guard even with a large [maxBytes], so one
+  /// unusually large-format or high-DPI page need not displace the useful
+  /// working set unless the host explicitly allows it.
+  final int maxEntryBytes;
+
+  @override
+  bool operator ==(Object other) =>
+      other is PdfPageRasterCachePolicy &&
+      maxBytes == other.maxBytes &&
+      maxEntryBytes == other.maxEntryBytes;
+
+  @override
+  int get hashCode => Object.hash(maxBytes, maxEntryBytes);
+}
+
 /// Low-resolution page previews shown while a page's full render is
 /// pending - most visibly during fast scrolling, when [PdfPageView]
 /// holds the (UI-thread) first interpretation of pages flying past and
@@ -30,10 +88,12 @@ class PdfPagePreviewCache extends ChangeNotifier {
   PdfPagePreviewCache({
     this.longestSide = 200,
     this.capacity = 300,
-    this.maxFullRasterPixels = 8 << 20,
-    this.maxFullRasterEntryPixels = 4 << 20,
+    int maxFullRasterPixels = 8 << 20,
+    int maxFullRasterEntryPixels = 4 << 20,
   })  : assert(maxFullRasterPixels >= 0),
-        assert(maxFullRasterEntryPixels >= 0);
+        assert(maxFullRasterEntryPixels >= 0),
+        _maxFullRasterBytes = maxFullRasterPixels * 4,
+        _maxFullRasterEntryBytes = maxFullRasterEntryPixels * 4;
 
   /// Pixel size of a preview's longest side. Stretched to page size on
   /// screen the result is soft but recognizable - enough to navigate by.
@@ -47,7 +107,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// These entries remove the soft-preview delay when a lazy page widget is
   /// rebuilt during back-and-forth scrolling. The default is about 32 MiB of
   /// RGBA pixels. Set to zero to keep only low-resolution previews.
-  final int maxFullRasterPixels;
+  int get maxFullRasterPixels => _maxFullRasterBytes ~/ 4;
 
   /// Largest exact raster admitted to the recent-page cache.
   ///
@@ -55,7 +115,22 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// path instead of consuming the whole budget. The default is about 16 MiB
   /// of RGBA pixels, which covers ordinary document pages while excluding the
   /// large CAD rasters this cache is not intended to retain.
-  final int maxFullRasterEntryPixels;
+  int get maxFullRasterEntryPixels => _maxFullRasterEntryBytes ~/ 4;
+
+  /// Approximate bytes currently allowed for exact visited-page rasters.
+  int get maxFullRasterBytes => _maxFullRasterBytes;
+
+  /// Largest individual visited-page raster currently admitted.
+  int get maxFullRasterEntryBytes => _maxFullRasterEntryBytes;
+
+  /// Approximate bytes currently retained by the exact raster LRU.
+  int get fullRasterBytes => _fullEntries.weight;
+
+  /// Number of exact page rasters currently retained.
+  int get fullRasterCount => _fullEntries.length;
+
+  int _maxFullRasterBytes;
+  int _maxFullRasterEntryBytes;
 
   // Two shared budgeted LRUs: soft previews bounded by entry count, exact
   // recent-page rasters bounded by total pixels. Both dispose evicted images;
@@ -70,16 +145,33 @@ class PdfPagePreviewCache extends ChangeNotifier {
   );
   late final PdfBudgetedCache<int, _FullRasterEntry> _fullEntries =
       PdfBudgetedCache<int, _FullRasterEntry>(
-    weigher: (entry) => entry.pixels,
-    maxWeight: maxFullRasterPixels,
+    weigher: (entry) => entry.bytes,
+    maxWeight: _maxFullRasterBytes,
     disposer: (entry) => entry.image.dispose(),
+    clearsUnderMemoryPressure: true,
     debugLabel: 'page-full-raster',
   );
   bool _disposed = false;
 
   /// Pixels currently retained by the exact recent-page cache.
   @visibleForTesting
-  int get debugFullRasterPixels => _fullEntries.weight;
+  int get debugFullRasterPixels => _fullEntries.weight ~/ 4;
+
+  /// Applies a new full-resolution visited-page memory policy.
+  ///
+  /// Raising the budget lets later page renders occupy the extra room.
+  /// Lowering it trims the LRU immediately and also drops entries that exceed
+  /// the new per-page limit. Low-resolution previews are unaffected.
+  void configureFullRasterCache(PdfPageRasterCachePolicy policy) {
+    if (_disposed) return;
+    _maxFullRasterBytes = policy.maxBytes;
+    _maxFullRasterEntryBytes = policy.maxEntryBytes;
+    _fullEntries.evictWhere((index) {
+      final entry = _fullEntries.peek(index);
+      return entry != null && entry.bytes > _maxFullRasterEntryBytes;
+    });
+    _fullEntries.maxWeight = _maxFullRasterBytes;
+  }
 
   /// Optional persistent backing (see [PdfRasterCache]). When set, fresh
   /// previews are written through to disk as they render, and [loadFromDisk]
@@ -162,10 +254,10 @@ class PdfPagePreviewCache extends ChangeNotifier {
     required int? rotation,
   }) {
     if (_disposed) return;
-    final pixels = image.width * image.height;
-    if (maxFullRasterPixels == 0 ||
-        pixels > maxFullRasterEntryPixels ||
-        pixels > maxFullRasterPixels) {
+    final bytes = image.width * image.height * 4;
+    if (_maxFullRasterBytes == 0 ||
+        bytes > _maxFullRasterEntryBytes ||
+        bytes > _maxFullRasterBytes) {
       return;
     }
     // put disposes any prior entry for this index and evicts the LRU rasters
@@ -373,8 +465,8 @@ class PdfPagePreviewCache extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    _entries.clear(); // disposes every retained image
-    _fullEntries.clear();
+    _entries.dispose(); // disposes every retained image
+    _fullEntries.dispose();
     super.dispose();
   }
 }
@@ -402,5 +494,5 @@ class _FullRasterEntry {
   final bool annotations;
   final int? rotation;
 
-  int get pixels => image.width * image.height;
+  int get bytes => image.width * image.height * 4;
 }

@@ -6,6 +6,11 @@
   staying responsive through rapid mouse-wheel gestures.
 - Page previews remain visible during fast scrolling and settle cleanly into
   full-detail renders, with fewer dropped frames.
+- The visited-page raster cache now defaults to Auto: it sizes itself from
+  physical RAM, current process headroom, available memory, and platform app
+  limits; shrinks immediately under pressure, grows back gradually, and clears
+  on mobile backgrounding. Developer tools show the effective decision and
+  retain fixed diagnostic presets up to 8 GB (including 5 GB).
 
 ## 3.1.0
 

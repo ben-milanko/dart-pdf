@@ -247,6 +247,13 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
         'rssHighWaterBytes': _tools.maxRssBytes,
         'cacheTotalBytes': PdfCacheRegistry.instance.totalWeight,
         'cacheCeilingBytes': PdfCacheRegistry.instance.maxTotalWeight,
+        'pageRasterCacheBytes':
+            _tools.pageRasterCachePolicy.value.maxBytes,
+        'pageRasterCacheEntryBytes':
+            _tools.pageRasterCachePolicy.value.maxEntryBytes,
+        'pageRasterCacheMode': _tools.pageRasterCacheMode.name,
+        'pageRasterCacheReason': _tools.pageRasterCacheReason,
+        'safeProcessLimitBytes': _tools.safeProcessLimitBytes,
         'caches': [
           for (final cache in PdfCacheRegistry.instance.snapshot())
             {
@@ -438,9 +445,17 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
           Expanded(
             child: Text(key, style: theme.textTheme.bodySmall),
           ),
-          Text(value,
-              style: theme.textTheme.bodySmall!
-                  .copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
+          Flexible(
+            child: Text(
+              value,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.end,
+              style: theme.textTheme.bodySmall!.copyWith(
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -561,10 +576,108 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
 
   // --- memory ---------------------------------------------------------------
 
+  static const _pageRasterBudgets = <(int, String)>[
+    (-1, 'Auto (recommended)'),
+    (0, 'Off'),
+    (32 << 20, '32 MB'),
+    (64 << 20, '64 MB'),
+    (128 << 20, '128 MB'),
+    (256 << 20, '256 MB'),
+    (512 << 20, '512 MB'),
+    (1 << 30, '1 GB'),
+    (2 << 30, '2 GB'),
+    (5 * (1 << 30), '5 GB'),
+    (8 * (1 << 30), '8 GB'),
+  ];
+
+  static const _pageRasterEntryBudgets = <(int, String)>[
+    (0, 'Off'),
+    (4 << 20, '4 MB'),
+    (8 << 20, '8 MB'),
+    (16 << 20, '16 MB'),
+    (32 << 20, '32 MB'),
+    (64 << 20, '64 MB'),
+    (128 << 20, '128 MB'),
+    (256 << 20, '256 MB'),
+    (512 << 20, '512 MB'),
+    (1 << 30, '1 GB'),
+  ];
+
+  Widget _byteBudgetControl(
+    ThemeData theme, {
+    required Key key,
+    required String title,
+    required String help,
+    required int value,
+    String? valueLabel,
+    required List<(int, String)> choices,
+    required ValueChanged<int> onChanged,
+  }) =>
+      Row(
+        children: [
+          Expanded(
+            child: Tooltip(
+              message: help,
+              waitDuration: const Duration(milliseconds: 600),
+              child: InkWell(
+                onTap: () => _explain(title, help),
+                child: Text(title, style: theme.textTheme.bodySmall),
+              ),
+            ),
+          ),
+          PopupMenuButton<int>(
+            key: key,
+            tooltip: 'Change $title',
+            onSelected: onChanged,
+            itemBuilder: (context) => [
+              for (final (bytes, label) in choices)
+                PopupMenuItem<int>(
+                  value: bytes,
+                  child: Text(label),
+                ),
+            ],
+            child: Padding(
+              padding: const EdgeInsetsDirectional.fromSTEB(8, 4, 0, 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    valueLabel ?? _byteBudgetLabel(value),
+                    style: theme.textTheme.bodySmall!.copyWith(
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                  const Icon(Icons.arrow_drop_down, size: 18),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+
+  static String _byteBudgetLabel(int bytes) {
+    if (bytes < 0) return 'Auto';
+    if (bytes == 0) return 'Off';
+    if (bytes % (1 << 30) == 0) return '${bytes ~/ (1 << 30)} GB';
+    return '${bytes ~/ (1 << 20)} MB';
+  }
+
+  void _setPageRasterCache({int? maxBytes, int? maxEntryBytes}) {
+    final current = _tools.fixedPageRasterCachePolicy;
+    _tools.setPageRasterCachePolicy(PdfPageRasterCachePolicy(
+      maxBytes: maxBytes ?? current.maxBytes,
+      maxEntryBytes: maxEntryBytes ?? current.maxEntryBytes,
+    ));
+    _persist();
+    setState(() {});
+  }
+
   Widget _memorySection(ThemeData theme) {
     final rss = _tools.currentRssBytes;
     final peak = _tools.maxRssBytes;
     final caches = PdfCacheRegistry.instance.snapshot();
+    final rasterPolicy = _tools.pageRasterCachePolicy.value;
+    final rasterAuto = _tools.pageRasterCacheAuto;
     return _section(
       theme,
       'Memory',
@@ -594,6 +707,77 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
                 "platform's memory-pressure signal (which desktop OSes "
                 'deliver too late, if at all). Over the ceiling, every cache '
                 'is trimmed proportionally, least-recently-used first.'),
+        _byteBudgetControl(
+          theme,
+          key: const ValueKey('devtools-page-raster-budget'),
+          title: 'Visited-page rasters',
+          help: 'Full-resolution rasters kept after a page scrolls out of the '
+              'viewer build window. Raising this makes revisits instant at the '
+              'cost of RAM; Off keeps only the small fast-scroll previews. '
+              'Changes apply immediately and persist across restarts.',
+          value: rasterAuto
+              ? -1
+              : _tools.fixedPageRasterCachePolicy.maxBytes,
+          valueLabel: rasterAuto
+              ? 'Auto · ${_byteBudgetLabel(rasterPolicy.maxBytes)}'
+              : null,
+          choices: _pageRasterBudgets,
+          onChanged: (value) {
+            if (value < 0) {
+              _tools.useAutoPageRasterCache();
+              _persist();
+              setState(() {});
+            } else {
+              _setPageRasterCache(maxBytes: value);
+            }
+          },
+        ),
+        if (rasterAuto)
+          _kv(
+            theme,
+            'Largest cached page',
+            _byteBudgetLabel(rasterPolicy.maxEntryBytes),
+            help: 'Auto derives the per-page admission limit from the total '
+                'headroom, capped at 256 MB. Switch the total cache to a fixed '
+                'preset to override it.',
+          )
+        else
+          _byteBudgetControl(
+            theme,
+            key: const ValueKey('devtools-page-raster-entry-budget'),
+            title: 'Largest cached page',
+            help: 'Per-page admission limit for the visited-page raster cache. '
+                'Large CAD sheets and high-DPI pages above this size are not '
+                'retained even when the total budget has room. The lower of '
+                'this value and the total budget is effective.',
+            value: _tools.fixedPageRasterCachePolicy.maxEntryBytes,
+            choices: _pageRasterEntryBudgets,
+            onChanged: (value) =>
+                _setPageRasterCache(maxEntryBytes: value),
+          ),
+        if (_tools.safeProcessLimitBytes case final limit?)
+          _kv(
+            theme,
+            'Auto process target',
+            _mb(limit),
+            help: 'Conservative process RSS target derived from physical RAM, '
+                'currently available memory, and any platform process limit. '
+                'The cache allocation leaves an additional safety reserve '
+                'below this target.',
+          ),
+        _kv(
+          theme,
+          'Raster policy reason',
+          _tools.pageRasterCacheReason,
+          help: 'Why Auto chose its current effective limit. Growth is slow; '
+              'low headroom and memory pressure shrink it immediately.',
+        ),
+        if (!rasterAuto)
+          Text(
+            'Fixed presets remain subject to the process-wide safety ceiling.',
+            style: theme.textTheme.bodySmall!
+                .copyWith(color: theme.colorScheme.outline),
+          ),
         for (final cache in caches)
           _kv(
               theme,

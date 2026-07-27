@@ -76,6 +76,25 @@ void main() {
       expect(find.byType(PdfViewer), findsOneWidget);
     });
 
+    testWidgets('forwards the visited-page raster cache policy',
+        (tester) async {
+      final viewer = PdfViewerController();
+      addTearDown(viewer.dispose);
+      const policy = PdfPageRasterCachePolicy(
+        maxBytes: 2 * 1024 * 1024 * 1024,
+        maxEntryBytes: 64 * 1024 * 1024,
+      );
+      await pump(
+        tester,
+        PdfReader(
+          bytes: buildMultiPagePdf(2),
+          controller: viewer,
+          pageRasterCachePolicy: policy,
+        ),
+      );
+      expect(viewer.pagePreviewCache!.maxFullRasterBytes, policy.maxBytes);
+    });
+
     testWidgets('zoom menu changes and resets viewer zoom', (tester) async {
       final viewer = PdfViewerController();
       addTearDown(viewer.dispose);
@@ -298,6 +317,25 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-shell-author')), findsOneWidget);
       expect(
           find.byKey(const ValueKey('pdf-shell-reflow-view')), findsOneWidget);
+    });
+
+    testWidgets('forwards the visited-page raster cache policy',
+        (tester) async {
+      final viewer = PdfViewerController();
+      addTearDown(viewer.dispose);
+      const policy = PdfPageRasterCachePolicy(
+        maxBytes: 2 * 1024 * 1024 * 1024,
+        maxEntryBytes: 64 * 1024 * 1024,
+      );
+      await pump(
+        tester,
+        PdfEditorView(
+          bytes: buildMultiPagePdf(2),
+          viewerController: viewer,
+          pageRasterCachePolicy: policy,
+        ),
+      );
+      expect(viewer.pagePreviewCache!.maxFullRasterBytes, policy.maxBytes);
     });
 
     testWidgets('customStamps are supplied to the owned editor session',

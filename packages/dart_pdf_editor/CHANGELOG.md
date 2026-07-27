@@ -10,6 +10,13 @@
 - Bound speculative thumbnail warming on web and add command budgets to vector
   thumbnail previews, keeping long documents responsive without blanking pages
   during fast scrolling.
+- Add `PdfPageRasterCachePolicy` to configure the in-memory byte budget and
+  per-page limit for exact rasters of previously visited pages. The existing
+  32 MiB total / 16 MiB per-page defaults are unchanged; `PdfViewer`,
+  `PdfReader`, and `PdfEditorView` can now opt into a much larger desktop
+  working set. Retained full-page rasters participate in process-wide cache
+  accounting and memory-pressure cleanup, so multiple viewers share the
+  coordinated host ceiling.
 
 ## 3.1.0
 

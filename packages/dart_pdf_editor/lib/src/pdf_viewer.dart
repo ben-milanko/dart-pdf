@@ -954,6 +954,7 @@ class PdfViewer extends StatefulWidget {
     this.interactiveForms = true,
     this.pagePreviews = true,
     this.previewWindow = 6,
+    this.pageRasterCachePolicy = const PdfPageRasterCachePolicy(),
     this.predictStrokes = true,
     this.toolShortcuts = pdfEditToolShortcuts,
     this.renderWorker,
@@ -994,6 +995,18 @@ class PdfViewer extends StatefulWidget {
   /// previously-seen document shows soft content immediately instead of
   /// blank paper. Requires [pagePreviews]; null keeps previews session-only.
   final PdfRasterCache? rasterCache;
+
+  /// Memory policy for exact full-resolution rasters of pages already visited.
+  ///
+  /// These rasters survive lazy page-widget disposal, making a same-size
+  /// revisit immediate. The default retains approximately 32 MiB total with a
+  /// 16 MiB per-page limit; desktop hosts may opt into substantially larger
+  /// budgets when memory is plentiful. See [PdfPageRasterCachePolicy].
+  ///
+  /// This is independent of [rasterCache], which persistently stores small
+  /// previews and thumbnails rather than full-resolution page rasters.
+  /// Requires [pagePreviews], which owns the shared in-memory cache.
+  final PdfPageRasterCachePolicy pageRasterCachePolicy;
 
   /// Persistent on-disk text cache (see [PdfPageTextCache]). When set with
   /// [documentId], full-document search extraction is read back from the
@@ -1805,6 +1818,7 @@ class _PdfViewerState extends State<PdfViewer>
         final animation = _zoomAnimation;
         if (animation != null) _transform.value = animation.value;
       });
+    _previews.configureFullRasterCache(widget.pageRasterCachePolicy);
     _loadPages();
     _snapshotContentStamps();
     _bindRasterCache();
@@ -2388,6 +2402,9 @@ class _PdfViewerState extends State<PdfViewer>
     // a revision (handled directly in _onRevisionControllerChanged)
     final documentSwapped = !identical(_loadedDocument, _document);
     if (documentSwapped) _swapDocument();
+    if (oldWidget.pageRasterCachePolicy != widget.pageRasterCachePolicy) {
+      _previews.configureFullRasterCache(widget.pageRasterCachePolicy);
+    }
     // Re-evaluate the owned default worker: a host worker may have been
     // supplied/removed, autoRenderWorker toggled, or the document swapped.
     _syncDefaultWorker();

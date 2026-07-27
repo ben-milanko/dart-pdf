@@ -2529,7 +2529,7 @@ class _EditorScreenState extends State<EditorScreen>
                 Positioned.fill(
                   child: Row(
                     children: [
-                      Expanded(child: _devToolsPointerLog(_buildBody(tab))),
+                      Expanded(child: _buildBodyWithDevTools(tab)),
                       if (_devToolsOpen && kDevToolsEnabled && !compactDevTools)
                         DevToolsPanel(
                           onClose: _toggleDevTools,
@@ -2569,8 +2569,21 @@ class _EditorScreenState extends State<EditorScreen>
     );
   }
 
+  /// Rebuild only the mounted document shell when its raster-cache policy
+  /// changes. Listening to the full [AppDevTools] model here would also rebuild
+  /// it for every captured log line and periodic panel refresh.
+  Widget _buildBodyWithDevTools(DocumentTab? tab) {
+    if (!kDevToolsEnabled) return _buildBody(tab);
+    return ValueListenableBuilder<PdfPageRasterCachePolicy>(
+      valueListenable: AppDevTools.instance.pageRasterCachePolicy,
+      builder: (context, _, __) => _devToolsPointerLog(_buildBody(tab)),
+    );
+  }
+
   Widget _buildBody(DocumentTab? tab) {
     final compact = _isCompactWidth(context);
+    final pageRasterCachePolicy =
+        AppDevTools.instance.pageRasterCachePolicy.value;
     if (tab == null) {
       return WelcomeScreen(
         recents: _recents,
@@ -2608,6 +2621,7 @@ class _EditorScreenState extends State<EditorScreen>
         key: ValueKey(tab),
         before: tab.compareBefore!,
         after: tab.compareAfter!,
+        pageRasterCachePolicy: pageRasterCachePolicy,
       );
     }
     if (tab.isPreview) {
@@ -2618,6 +2632,7 @@ class _EditorScreenState extends State<EditorScreen>
         tab: tab,
         preferences: _prefs,
         onAction: _onAction,
+        pageRasterCachePolicy: pageRasterCachePolicy,
       );
     }
     if (_readOnly) {
@@ -2628,6 +2643,7 @@ class _EditorScreenState extends State<EditorScreen>
         controller: tab.viewer,
         preferences: _prefs,
         onAction: _onAction,
+        pageRasterCachePolicy: pageRasterCachePolicy,
       );
     }
     return PdfEditorView(
@@ -2635,6 +2651,7 @@ class _EditorScreenState extends State<EditorScreen>
       documentId: tab.documentId,
       controller: tab.session,
       viewerController: tab.viewer,
+      pageRasterCachePolicy: pageRasterCachePolicy,
       onSave: (_) => unawaited(_save(tab)),
       onSaveAs: (_) => unawaited(_save(tab, saveAs: true)),
       showSaveButton: !compact,
@@ -3177,11 +3194,13 @@ class _ProgressivePreview extends StatelessWidget {
     required this.tab,
     required this.preferences,
     required this.onAction,
+    required this.pageRasterCachePolicy,
   });
 
   final DocumentTab tab;
   final PdfEditingPreferences preferences;
   final PdfActionHandler onAction;
+  final PdfPageRasterCachePolicy pageRasterCachePolicy;
 
   @override
   Widget build(BuildContext context) {
@@ -3194,6 +3213,7 @@ class _ProgressivePreview extends StatelessWidget {
             controller: tab.viewer,
             preferences: preferences,
             onAction: onAction,
+            pageRasterCachePolicy: pageRasterCachePolicy,
           ),
         ),
         Positioned(

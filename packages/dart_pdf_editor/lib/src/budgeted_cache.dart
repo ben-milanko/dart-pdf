@@ -109,10 +109,24 @@ class PdfBudgetedCache<K, V> {
   /// coordinated ceiling shrinks caches *below* their individual budgets, so
   /// it needs a target other than [maxWeight].
   void trimToWeight(int target) {
+    _trimToWeight(target, protectMostRecent: true);
+  }
+
+  /// Registry-only hard trim. A process ceiling is a safety boundary, so it may
+  /// drop the final MRU master too; callers already hold independent clones and
+  /// can keep painting. Per-cache budgets continue to protect their MRU.
+  void _trimToWeightHard(int target) {
+    _trimToWeight(target, protectMostRecent: false);
+  }
+
+  void _trimToWeight(int target, {required bool protectMostRecent}) {
     if (_disposed || _weigher == null) return;
     final floor = math.max(0, target);
     while (_weight > floor) {
-      final victim = _oldestEvictable(requireWeight: true);
+      final victim = _oldestEvictable(
+        requireWeight: true,
+        protectMostRecent: protectMostRecent,
+      );
       if (victim == null) break;
       _removeEntry(victim);
       _evictions++;
@@ -324,8 +338,11 @@ class PdfBudgetedCache<K, V> {
   /// The least-recently-used key eligible for weight eviction: the oldest whose
   /// weight is non-zero (when [requireWeight]) and that is not the protected
   /// most-recently-used entry. Null when no such entry exists.
-  K? _oldestEvictable({required bool requireWeight}) {
-    final protikey = _protectedKey;
+  K? _oldestEvictable({
+    required bool requireWeight,
+    bool protectMostRecent = true,
+  }) {
+    final protikey = protectMostRecent ? _protectedKey : null;
     for (final entry in _entries.entries) {
       if (entry.key == protikey) continue;
       if (requireWeight && entry.value.weight == 0) continue;
@@ -437,9 +454,8 @@ class PdfCacheRegistry {
   /// [maxTotalWeight] (no-op when disabled or already under). Each cache is
   /// trimmed **proportionally** - it keeps the same fraction of its weight -
   /// so one hot large cache is not wiped to protect idle small ones, and no
-  /// cross-cache LRU clock is needed. Because each cache protects its
-  /// most-recently-used entry, the result can land slightly above the ceiling;
-  /// that residue is bounded by one entry per cache.
+  /// cross-cache LRU clock is needed. Unlike a cache's own performance budget,
+  /// this process safety boundary may evict its final MRU master.
   void enforceBudget() {
     if (_maxTotalWeight <= 0 || _enforcing) return;
     final total = totalWeight;
@@ -449,7 +465,7 @@ class PdfCacheRegistry {
       for (final ref in _caches.toList()) {
         final cache = ref.target;
         if (cache == null || cache.weight == 0) continue;
-        cache.trimToWeight(cache.weight * _maxTotalWeight ~/ total);
+        cache._trimToWeightHard(cache.weight * _maxTotalWeight ~/ total);
       }
     } finally {
       _enforcing = false;
@@ -469,6 +485,35 @@ class PdfCacheRegistry {
     }
     _pruneDead();
     return freed;
+  }
+
+  /// Clears every registered cache whose diagnostic label equals [label].
+  ///
+  /// This is the targeted counterpart to [handleMemoryPressure]. Hosts use it
+  /// when a lifecycle transition makes one reconstructible cache class
+  /// expendable (for example, dropping visited-page rasters when a mobile app
+  /// backgrounds) without also throwing away decoded images and render records.
+  /// Returns the approximate weight freed.
+  int clearLabel(String label) {
+    var freed = 0;
+    for (final ref in _caches.toList()) {
+      final cache = ref.target;
+      if (cache == null || cache.debugLabel != label) continue;
+      freed += cache.weight;
+      cache.clear();
+    }
+    _pruneDead();
+    return freed;
+  }
+
+  /// Current retained weight across registered caches named [label].
+  int weightForLabel(String label) {
+    var weight = 0;
+    for (final ref in _caches) {
+      final cache = ref.target;
+      if (cache?.debugLabel == label) weight += cache!.weight;
+    }
+    return weight;
   }
 
   void _pruneDead() => _caches.removeWhere((ref) => ref.target == null);
