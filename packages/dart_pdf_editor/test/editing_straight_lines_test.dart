@@ -5,8 +5,8 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 /// Holding Shift constrains the straight-line drawing tools: the line family
-/// and each polyline/polygon edge snap to the nearest 45° axis, and a freehand
-/// ink stroke collapses to a ruler-straight segment from where it began.
+/// and each polyline/polygon edge snap to the nearest 45° axis. For freehand
+/// ink, Shift constrains only the tail drawn after the modifier goes down.
 void main() {
   // 800px viewport over a 612x792pt page (matches editing_test.dart).
   const scale = 800 / 612;
@@ -146,7 +146,7 @@ void main() {
     expect(v[2].$1, closeTo(240, 1));
   });
 
-  testWidgets('Shift straightens a freehand ink stroke', (tester) async {
+  testWidgets('Shift snaps a freehand ink stroke to a 45 degree line', (tester) async {
     final editing = await pumpEditor(tester);
     editing.tool = PdfEditTool.ink;
     await tester.pump();
@@ -168,9 +168,39 @@ void main() {
     expect(stroke.first.$1, closeTo(100, 1));
     expect(stroke.first.$2, closeTo(700, 1));
     expect(stroke.last.$1, closeTo(200, 1));
-    expect(stroke.last.$2, closeTo(730, 1));
+    expect(stroke.last.$2, closeTo(700, 1));
     editing.finishInk();
     expect(editing.document.page(0).annotations.single.subtype, 'Ink');
+    await settle(tester);
+  });
+
+  testWidgets('pressing Shift midway preserves ink before its anchor',
+      (tester) async {
+    final editing = await pumpEditor(tester);
+    editing.tool = PdfEditTool.ink;
+    await tester.pump();
+
+    final gesture = await tester.startGesture(view(100, 700));
+    await gesture.moveTo(view(130, 675));
+    await gesture.moveTo(view(160, 700));
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await gesture.moveTo(view(200, 690));
+    await gesture.moveTo(view(250, 680));
+    await gesture.up();
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.pump();
+
+    final stroke = editing.strokesOn(0).single;
+    expect(stroke, hasLength(4),
+        reason: 'the freehand prefix, anchor, and constrained tail remain');
+    expect(stroke[1].$1, closeTo(130, 1));
+    expect(stroke[1].$2, closeTo(675, 1));
+    expect(stroke[2].$1, closeTo(160, 1));
+    expect(stroke[2].$2, closeTo(700, 1));
+    expect(stroke[3].$1, closeTo(250, 1));
+    expect(stroke[3].$2, closeTo(700, 1),
+        reason: 'the new tail snaps horizontally from the Shift anchor');
+    editing.finishInk();
     await settle(tester);
   });
 }

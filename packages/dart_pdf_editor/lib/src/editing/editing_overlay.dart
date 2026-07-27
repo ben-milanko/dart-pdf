@@ -723,6 +723,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   List<(double, double)>? _activeStroke;
   List<double>? _activeStrokePressures;
 
+  /// Sample anchoring the current Shift-constrained segment. Using the latest
+  /// sample preserves the freehand prefix when Shift is pressed mid-stroke.
+  int? _inkShiftAnchorIndex;
+
   /// Repaint signal for the in-progress stroke. Appending a point during a
   /// pencil/mouse stroke bumps this instead of calling setState, so the
   /// dedicated active-stroke layer (its own RepaintBoundary) re-rasterizes
@@ -755,11 +759,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   void _bumpCursor() => _cursorRepaint.value++;
 
   /// Extends the in-progress ink stroke to the view-space [localPosition].
-  /// Normally each sample appends, tracing the freehand path; while Shift is
-  /// held the stroke collapses to a single straight segment from where it
-  /// began to the pointer, rubber-banding as the pointer moves - so releasing
-  /// with Shift down commits a ruler-straight line. Shared by the raw-pointer
-  /// and gesture-arena draw paths.
+  /// Normally each sample appends, tracing the freehand path. While Shift is
+  /// held, the new tail rubber-bands from the point at which Shift was first
+  /// observed and snaps to the nearest 45° direction. Shared by both paths.
   void _extendActiveStroke(Offset localPosition) {
     _penCursor = localPosition;
     _bumpCursor();
@@ -767,16 +769,21 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final pressures = _activeStrokePressures;
     final pressure = _pointerPressure ?? pressures?.last;
     if (HardwareKeyboard.instance.isShiftPressed) {
+      final anchorIndex = _inkShiftAnchorIndex ??= _activeStroke!.length - 1;
+      final anchor = _activeStroke![anchorIndex];
+      final snapped = _straightSnap(
+          _geometry.toViewOffset(anchor.$1, anchor.$2), localPosition);
+      final snappedPage = _geometry.toPagePoint(snapped);
       _activeStroke!
-        ..length = 1 // keep the origin, drop the freehand tail
-        ..add(page);
+        ..length = anchorIndex + 1
+        ..add(snappedPage);
       if (pressures != null) {
-        final first = pressures.first;
         pressures
-          ..length = 1
-          ..add(pressure ?? first);
+          ..length = anchorIndex + 1
+          ..add(pressure ?? pressures.last);
       }
     } else {
+      _inkShiftAnchorIndex = null;
       _activeStroke!.add(page);
       if (pressures != null) pressures.add(pressure ?? pressures.last);
     }
@@ -1329,6 +1336,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _penCursor = event.localPosition;
         _bumpCursor();
         _activeStroke = [_geometry.toPagePoint(event.localPosition)];
+        _inkShiftAnchorIndex = null;
         _activeStrokePressures = pressure == null ? null : [pressure];
         _bumpActiveStroke();
       }
@@ -1389,6 +1397,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     setState(() {
       _activeStroke = null;
       _activeStrokePressures = null;
+      _inkShiftAnchorIndex = null;
       _resetErase();
       _panErasing = false;
       _dragStart = null;
@@ -1469,6 +1478,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     setState(() {
       _activeStroke = null;
       _activeStrokePressures = null;
+      _inkShiftAnchorIndex = null;
     });
     _bumpActiveStroke();
     if (canceled || stroke == null || stroke.isEmpty) {
@@ -3085,6 +3095,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
         _penCursor = position;
         _bumpCursor();
         _activeStroke = [_geometry.toPagePoint(position)];
+        _inkShiftAnchorIndex = null;
         // the first event decides: a pressure device varies the whole
         // stroke, anything else stays uniform
         _activeStrokePressures = pressure == null ? null : [pressure];
@@ -3516,6 +3527,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     setState(() {
       _activeStroke = null;
       _activeStrokePressures = null;
+      _inkShiftAnchorIndex = null;
       _dragStart = null;
       _dragCurrent = null;
       _moveStart = null;
