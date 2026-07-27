@@ -1957,10 +1957,13 @@ class _PdfViewerState extends State<PdfViewer>
       _hBounceController.stop();
       _touchPanning = false;
       if (_zoomModifierDown) {
-        // not while a draw tool is armed - on the web a trackpad pinch
-        // surfaces as a modifier-flagged wheel event, and zooming would
-        // disrupt the stroke
-        if (!_drawToolArmed) _applyWheelZoom(scroll);
+        // This modifier is tracked from real keyboard events, so this is an
+        // explicit Ctrl/Cmd+wheel request even when a drawing tool is armed.
+        // Trackpad pinches are guarded separately in the pan/zoom and
+        // InteractiveViewer paths; treating an armed pen as a reason to drop
+        // this event made Ctrl+wheel appear to stick after Shift-constrained
+        // drawing.
+        _applyWheelZoom(scroll);
         return;
       }
       final matrix = _transform.value.clone();
