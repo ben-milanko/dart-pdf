@@ -941,6 +941,7 @@ class PdfViewer extends StatefulWidget {
     this.onSnapshot,
     this.onPlaceSignature,
     this.pageSpacing = 12,
+    this.trailingPadding = 0,
     this.pageLayout = const PdfPageLayout.verticalContinuous(),
     this.initialFit = PdfViewerFit.page,
     this.initialViewport,
@@ -1213,6 +1214,14 @@ class PdfViewer extends StatefulWidget {
   final PdfSignaturePlacer? onPlaceSignature;
 
   final double pageSpacing;
+
+  /// Empty scrollable space after the last page.
+  ///
+  /// This is useful when host chrome floats over the viewer: set it to at
+  /// least the height of that chrome so the end of the last page can be
+  /// scrolled above it. In a vertical layout the space is below the document;
+  /// in a horizontal layout it is to its right.
+  final double trailingPadding;
 
   /// How the pages are arranged: vertical continuous (the default,
   /// top-to-bottom) or horizontal continuous (left-to-right). See
@@ -5635,8 +5644,10 @@ class _PdfViewerState extends State<PdfViewer>
             : _pageMain(index) + (index == 0 ? 0 : widget.pageSpacing),
         itemCount: _pages.length,
         padding: _horizontal
-            ? EdgeInsets.only(right: widget.pageSpacing)
-            : EdgeInsets.only(bottom: widget.pageSpacing),
+            ? EdgeInsets.only(
+                right: widget.pageSpacing + widget.trailingPadding)
+            : EdgeInsets.only(
+                bottom: widget.pageSpacing + widget.trailingPadding),
         itemBuilder: (context, index) => Padding(
           padding: _horizontal
               ? EdgeInsets.only(left: index == 0 ? 0 : widget.pageSpacing)

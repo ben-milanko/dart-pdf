@@ -1363,6 +1363,12 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                             (features.toolGroups == null ||
                                 features.toolGroups!
                                     .contains(PdfEditToolGroup.markup)),
+                        // The desktop toolbar floats over the viewer. Leave a
+                        // scrollable tail tall enough for its dock and
+                        // contextual strip, so the last page can move fully
+                        // clear of the controls instead of being trapped
+                        // underneath them.
+                        trailingPadding: showToolbar && !dockToolbar ? 144 : 0,
                         pageLayout: widget.pageLayout,
                         initialFit: widget.initialFit,
                         toolShortcuts: _toolShortcuts,
