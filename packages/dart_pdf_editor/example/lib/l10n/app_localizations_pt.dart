@@ -341,6 +341,9 @@ class AppLocalizationsPt extends AppLocalizations {
   String get exTryDemo => 'Experimentar a demonstração interativa';
 
   @override
+  String get exWelcomeScreen => 'Tela de boas-vindas';
+
+  @override
   String get exUntitled => 'Sem título';
 
   @override

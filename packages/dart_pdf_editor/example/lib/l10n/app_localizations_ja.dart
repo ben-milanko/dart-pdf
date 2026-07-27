@@ -335,6 +335,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get exTryDemo => 'インタラクティブデモを試す';
 
   @override
+  String get exWelcomeScreen => 'ようこそ画面';
+
+  @override
   String get exUntitled => '無題';
 
   @override

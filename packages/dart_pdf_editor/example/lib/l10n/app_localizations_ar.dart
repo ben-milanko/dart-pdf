@@ -338,6 +338,9 @@ class AppLocalizationsAr extends AppLocalizations {
   String get exTryDemo => 'جرّب العرض التفاعلي';
 
   @override
+  String get exWelcomeScreen => 'شاشة الترحيب';
+
+  @override
   String get exUntitled => 'بلا عنوان';
 
   @override

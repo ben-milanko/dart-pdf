@@ -119,5 +119,6 @@
   "undo": "실행 취소",
   "exFileTypePdf": "PDF 문서",
   "exFileTypeImages": "이미지",
-  "exFileTypeFonts": "글꼴"
+  "exFileTypeFonts": "글꼴",
+  "exWelcomeScreen": "시작 화면"
 }

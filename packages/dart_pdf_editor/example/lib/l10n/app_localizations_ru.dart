@@ -344,6 +344,9 @@ class AppLocalizationsRu extends AppLocalizations {
   String get exTryDemo => 'Попробовать интерактивную демонстрацию';
 
   @override
+  String get exWelcomeScreen => 'Экран приветствия';
+
+  @override
   String get exUntitled => 'Без названия';
 
   @override

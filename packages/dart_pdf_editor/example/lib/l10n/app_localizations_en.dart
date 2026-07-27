@@ -336,6 +336,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get exTryDemo => 'Try the interactive demo';
 
   @override
+  String get exWelcomeScreen => 'Welcome screen';
+
+  @override
   String get exUntitled => 'Untitled';
 
   @override

@@ -335,6 +335,9 @@ class AppLocalizationsTh extends AppLocalizations {
   String get exTryDemo => 'ลองการสาธิตแบบโต้ตอบ';
 
   @override
+  String get exWelcomeScreen => 'หน้าจอต้อนรับ';
+
+  @override
   String get exUntitled => 'ไม่มีชื่อ';
 
   @override

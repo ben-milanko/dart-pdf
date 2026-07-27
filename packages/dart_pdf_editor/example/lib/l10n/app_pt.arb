@@ -119,5 +119,6 @@
   "undo": "Desfazer",
   "exFileTypePdf": "Documentos PDF",
   "exFileTypeImages": "Imagens",
-  "exFileTypeFonts": "Fontes"
+  "exFileTypeFonts": "Fontes",
+  "exWelcomeScreen": "Tela de boas-vindas"
 }

@@ -336,6 +336,9 @@ class AppLocalizationsTr extends AppLocalizations {
   String get exTryDemo => 'Etkileşimli demoyu deneyin';
 
   @override
+  String get exWelcomeScreen => 'Karşılama ekranı';
+
+  @override
   String get exUntitled => 'Başlıksız';
 
   @override

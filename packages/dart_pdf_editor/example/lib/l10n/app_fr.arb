@@ -119,5 +119,6 @@
   "undo": "Annuler",
   "exFileTypePdf": "Documents PDF",
   "exFileTypeImages": "Images",
-  "exFileTypeFonts": "Polices"
+  "exFileTypeFonts": "Polices",
+  "exWelcomeScreen": "Écran d’accueil"
 }

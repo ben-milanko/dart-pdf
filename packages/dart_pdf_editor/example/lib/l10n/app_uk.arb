@@ -119,5 +119,6 @@
   "undo": "Відмінити",
   "exFileTypePdf": "Документи PDF",
   "exFileTypeImages": "Зображення",
-  "exFileTypeFonts": "Шрифти"
+  "exFileTypeFonts": "Шрифти",
+  "exWelcomeScreen": "Екран привітання"
 }

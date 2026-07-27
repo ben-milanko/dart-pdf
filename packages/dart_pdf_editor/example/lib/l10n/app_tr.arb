@@ -119,5 +119,6 @@
   "undo": "Geri al",
   "exFileTypePdf": "PDF belgeleri",
   "exFileTypeImages": "Görseller",
-  "exFileTypeFonts": "Yazı tipleri"
+  "exFileTypeFonts": "Yazı tipleri",
+  "exWelcomeScreen": "Karşılama ekranı"
 }

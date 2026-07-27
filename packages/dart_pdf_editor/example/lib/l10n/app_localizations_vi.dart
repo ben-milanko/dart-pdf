@@ -338,6 +338,9 @@ class AppLocalizationsVi extends AppLocalizations {
   String get exTryDemo => 'Thử bản demo tương tác';
 
   @override
+  String get exWelcomeScreen => 'Màn hình chào mừng';
+
+  @override
   String get exUntitled => 'Không có tiêu đề';
 
   @override

@@ -498,6 +498,10 @@
   "@exTryDemo": {
     "description": "Empty-state button that opens the interactive demo document."
   },
+  "exWelcomeScreen": "Welcome screen",
+  "@exWelcomeScreen": {
+    "description": "Tooltip for the button that returns to the welcome screen without closing documents."
+  },
   "exUntitled": "Untitled",
   "@exUntitled": {
     "description": "Fallback title for a document or tab with no name."

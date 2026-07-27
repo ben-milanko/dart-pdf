@@ -119,5 +119,6 @@
   "undo": "復原",
   "exFileTypePdf": "PDF 文件",
   "exFileTypeImages": "影像",
-  "exFileTypeFonts": "字型"
+  "exFileTypeFonts": "字型",
+  "exWelcomeScreen": "歡迎畫面"
 }

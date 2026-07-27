@@ -119,5 +119,6 @@
   "undo": "Ongedaan maken",
   "exFileTypePdf": "PDF-documenten",
   "exFileTypeImages": "Afbeeldingen",
-  "exFileTypeFonts": "Lettertypen"
+  "exFileTypeFonts": "Lettertypen",
+  "exWelcomeScreen": "Welkomstscherm"
 }

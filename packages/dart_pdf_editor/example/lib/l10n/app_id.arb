@@ -119,5 +119,6 @@
   "undo": "Urungkan",
   "exFileTypePdf": "Dokumen PDF",
   "exFileTypeImages": "Gambar",
-  "exFileTypeFonts": "Font"
+  "exFileTypeFonts": "Font",
+  "exWelcomeScreen": "Layar selamat datang"
 }

@@ -238,6 +238,11 @@ class _ViewerScreenState extends State<ViewerScreen> {
   final List<_DocumentTab> _tabs = [];
   int _activeIndex = 0;
 
+  /// Whether the document area is showing the welcome screen. Open tabs stay
+  /// alive while this is true, so returning to one preserves its edit and
+  /// navigation state.
+  bool _showWelcome = false;
+
   _DocumentTab? get _active =>
       _tabs.isEmpty ? null : _tabs[_activeIndex.clamp(0, _tabs.length - 1)];
 
@@ -665,6 +670,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
     setState(() {
       _tabs.add(tab);
       _activeIndex = _tabs.length - 1;
+      _showWelcome = false;
     });
   }
 
@@ -707,6 +713,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => tab.dispose());
   }
+
+  void _openWelcome() => setState(() => _showWelcome = true);
 
   /// Pins [child] into a page slot at its design size in PDF points and
   /// lets it scale with the page, so the overlays hold together at any
@@ -1395,25 +1403,8 @@ class _ViewerScreenState extends State<ViewerScreen> {
         // each tab is keyed so switching rebuilds against its own
         // controllers (which keep the edits and scroll position alive);
         // only the active tab is mounted, so there's one viewer at a time
-        body: tab == null
-            ? Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    FilledButton.icon(
-                      onPressed: _pickFile,
-                      icon: const Icon(Icons.folder_open),
-                      label: Text(appL10n(context).exOpenPdfButton),
-                    ),
-                    const SizedBox(height: 12),
-                    FilledButton.tonalIcon(
-                      onPressed: _openDemo,
-                      icon: const Icon(Icons.auto_awesome),
-                      label: Text(appL10n(context).exTryDemo),
-                    ),
-                  ],
-                ),
-              )
+        body: tab == null || _showWelcome
+            ? _buildWelcomeScreen()
             : tab.isLoading
                 ? _OpeningDocument(
                     title: tab.title, progress: tab.loadingProgress)
@@ -1489,6 +1480,25 @@ class _ViewerScreenState extends State<ViewerScreen> {
         itemBuilder: (context) => _appMenuItems(context, tab),
       );
 
+  Widget _buildWelcomeScreen() => Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            FilledButton.icon(
+              onPressed: _pickFile,
+              icon: const Icon(Icons.folder_open),
+              label: Text(appL10n(context).exOpenPdfButton),
+            ),
+            const SizedBox(height: 12),
+            FilledButton.tonalIcon(
+              onPressed: _openDemo,
+              icon: const Icon(Icons.auto_awesome),
+              label: Text(appL10n(context).exTryDemo),
+            ),
+          ],
+        ),
+      );
+
   /// The horizontally scrolling row of open-document tabs plus the sticky
   /// new-tab button.
   Widget _buildTabStrip() {
@@ -1497,7 +1507,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           const buttonWidth = 40.0;
-          final maxTabsWidth = (constraints.maxWidth - buttonWidth)
+          final maxTabsWidth = (constraints.maxWidth - buttonWidth * 2)
               .clamp(0.0, double.infinity)
               .toDouble();
           final desiredTabsWidth = _estimatedTabStripWidth(context);
@@ -1506,6 +1516,20 @@ class _ViewerScreenState extends State<ViewerScreen> {
           return Row(
             mainAxisSize: MainAxisSize.max,
             children: [
+              SizedBox(
+                width: buttonWidth,
+                height: _tabStripHeight,
+                child: IconButton(
+                  key: const ValueKey('welcome-screen-button'),
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints.tightFor(width: buttonWidth),
+                  icon: const Icon(Icons.home_outlined),
+                  tooltip: appL10n(context).exWelcomeScreen,
+                  onPressed: _openWelcome,
+                ),
+              ),
               if (tabsWidth > 0)
                 SizedBox(
                   width: tabsWidth,
@@ -1557,7 +1581,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
 
   Widget _buildTab(int index) {
     final tab = _tabs[index];
-    final selected = index == _activeIndex;
+    final selected = !_showWelcome && index == _activeIndex;
     final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
@@ -1568,7 +1592,10 @@ class _ViewerScreenState extends State<ViewerScreen> {
         borderRadius: BorderRadius.circular(8),
         child: InkWell(
           borderRadius: BorderRadius.circular(8),
-          onTap: () => setState(() => _activeIndex = index),
+          onTap: () => setState(() {
+            _activeIndex = index;
+            _showWelcome = false;
+          }),
           child: Padding(
             padding: const EdgeInsetsDirectional.only(start: 12, end: 2),
             child: Row(

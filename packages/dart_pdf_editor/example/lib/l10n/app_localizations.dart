@@ -673,6 +673,12 @@ abstract class AppLocalizations {
   /// **'Try the interactive demo'**
   String get exTryDemo;
 
+  /// Tooltip for the button that returns to the welcome screen without closing documents.
+  ///
+  /// In en, this message translates to:
+  /// **'Welcome screen'**
+  String get exWelcomeScreen;
+
   /// Fallback title for a document or tab with no name.
   ///
   /// In en, this message translates to:

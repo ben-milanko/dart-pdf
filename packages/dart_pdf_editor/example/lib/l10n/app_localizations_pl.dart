@@ -342,6 +342,9 @@ class AppLocalizationsPl extends AppLocalizations {
   String get exTryDemo => 'Wypróbuj interaktywne demo';
 
   @override
+  String get exWelcomeScreen => 'Ekran powitalny';
+
+  @override
   String get exUntitled => 'Bez tytułu';
 
   @override

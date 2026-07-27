@@ -339,6 +339,9 @@ class AppLocalizationsNl extends AppLocalizations {
   String get exTryDemo => 'Probeer de interactieve demo';
 
   @override
+  String get exWelcomeScreen => 'Welkomstscherm';
+
+  @override
   String get exUntitled => 'Naamloos';
 
   @override

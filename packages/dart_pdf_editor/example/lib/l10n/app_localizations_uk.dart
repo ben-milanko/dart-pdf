@@ -343,6 +343,9 @@ class AppLocalizationsUk extends AppLocalizations {
   String get exTryDemo => 'Спробувати інтерактивну демонстрацію';
 
   @override
+  String get exWelcomeScreen => 'Екран привітання';
+
+  @override
   String get exUntitled => 'Без назви';
 
   @override

@@ -119,5 +119,6 @@
   "undo": "撤销",
   "exFileTypePdf": "PDF 文档",
   "exFileTypeImages": "图像",
-  "exFileTypeFonts": "字体"
+  "exFileTypeFonts": "字体",
+  "exWelcomeScreen": "欢迎屏幕"
 }

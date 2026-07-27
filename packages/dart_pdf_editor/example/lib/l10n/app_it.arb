@@ -119,5 +119,6 @@
   "undo": "Annulla",
   "exFileTypePdf": "Documenti PDF",
   "exFileTypeImages": "Immagini",
-  "exFileTypeFonts": "Caratteri"
+  "exFileTypeFonts": "Caratteri",
+  "exWelcomeScreen": "Schermata di benvenuto"
 }

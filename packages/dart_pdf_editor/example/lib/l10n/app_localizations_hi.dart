@@ -337,6 +337,9 @@ class AppLocalizationsHi extends AppLocalizations {
   String get exTryDemo => 'इंटरैक्टिव डेमो आज़माएँ';
 
   @override
+  String get exWelcomeScreen => 'स्वागत स्क्रीन';
+
+  @override
   String get exUntitled => 'बिना शीर्षक';
 
   @override

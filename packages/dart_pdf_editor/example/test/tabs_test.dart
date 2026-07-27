@@ -81,6 +81,24 @@ void main() {
     expect(find.text('Try the interactive demo'), findsOneWidget);
   });
 
+  testWidgets('welcome screen keeps open documents available', (tester) async {
+    await openDemo(tester);
+
+    await tester.tap(find.byTooltip('Welcome screen'));
+    await tester.pump();
+
+    expect(closeButtons(), findsOneWidget);
+    expect(find.byType(PdfViewer), findsNothing);
+    expect(find.text('Open a PDF'), findsOneWidget);
+
+    await tester.tap(find.text('Feature showcase'));
+    await tester.pump();
+
+    expect(closeButtons(), findsOneWidget);
+    expect(find.byType(PdfViewer), findsOneWidget);
+    expect(find.text('Open a PDF'), findsNothing);
+  });
+
   testWidgets('the More menu offers comparing against another PDF',
       (tester) async {
     await openDemo(tester);

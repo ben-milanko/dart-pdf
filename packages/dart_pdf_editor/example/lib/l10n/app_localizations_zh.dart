@@ -335,6 +335,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get exTryDemo => '试用交互式演示';
 
   @override
+  String get exWelcomeScreen => '欢迎屏幕';
+
+  @override
   String get exUntitled => '无标题';
 
   @override
@@ -767,6 +770,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get exTryDemo => '試用互動式示範';
+
+  @override
+  String get exWelcomeScreen => '歡迎畫面';
 
   @override
   String get exUntitled => '未命名';

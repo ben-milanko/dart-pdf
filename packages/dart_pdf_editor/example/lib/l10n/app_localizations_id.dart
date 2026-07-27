@@ -337,6 +337,9 @@ class AppLocalizationsId extends AppLocalizations {
   String get exTryDemo => 'Coba demo interaktif';
 
   @override
+  String get exWelcomeScreen => 'Layar selamat datang';
+
+  @override
   String get exUntitled => 'Tanpa judul';
 
   @override

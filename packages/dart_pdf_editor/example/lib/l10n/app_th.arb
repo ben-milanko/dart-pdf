@@ -119,5 +119,6 @@
   "undo": "เลิกทำ",
   "exFileTypePdf": "เอกสาร PDF",
   "exFileTypeImages": "รูปภาพ",
-  "exFileTypeFonts": "ฟอนต์"
+  "exFileTypeFonts": "ฟอนต์",
+  "exWelcomeScreen": "หน้าจอต้อนรับ"
 }

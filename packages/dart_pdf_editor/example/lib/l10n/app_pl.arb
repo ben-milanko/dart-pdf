@@ -119,5 +119,6 @@
   "undo": "Cofnij",
   "exFileTypePdf": "Dokumenty PDF",
   "exFileTypeImages": "Obrazy",
-  "exFileTypeFonts": "Czcionki"
+  "exFileTypeFonts": "Czcionki",
+  "exWelcomeScreen": "Ekran powitalny"
 }

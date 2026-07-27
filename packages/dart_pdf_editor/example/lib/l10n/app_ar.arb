@@ -119,5 +119,6 @@
   "undo": "تراجع",
   "exFileTypePdf": "مستندات PDF",
   "exFileTypeImages": "الصور",
-  "exFileTypeFonts": "الخطوط"
+  "exFileTypeFonts": "الخطوط",
+  "exWelcomeScreen": "شاشة الترحيب"
 }

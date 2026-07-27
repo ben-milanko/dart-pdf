@@ -335,6 +335,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get exTryDemo => '인터랙티브 데모 사용해 보기';
 
   @override
+  String get exWelcomeScreen => '시작 화면';
+
+  @override
   String get exUntitled => '제목 없음';
 
   @override
