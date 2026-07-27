@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -26,8 +29,18 @@ void main() {
     final store = RecentsStore();
     await store.add(title: 'a.pdf', path: '/a.pdf');
     final pdf = PdfBlankDocument.create();
+    final readGate = Completer<Uint8List>();
     final cache =
-        RecentThumbnailCache(readBytes: (path, {bookmark}) async => pdf);
+        RecentThumbnailCache(readBytes: (path, {bookmark}) => readGate.future);
+    late Future<RecentThumbnail?> thumbnail;
+
+    // The production renderer uses an isolate. Start it in runAsync's real
+    // async zone before the widget's FutureBuilder requests the same in-flight
+    // thumbnail from the fake-async test zone.
+    await tester.runAsync(() async {
+      thumbnail = cache.thumbnailFor(store.items.single);
+      await Future<void>.delayed(Duration.zero);
+    });
 
     await pump(
         tester,
@@ -44,7 +57,10 @@ void main() {
     expect(find.byType(Image), findsNothing);
 
     // Drive the (real-async) render, then let the FutureBuilder rebuild.
-    await tester.runAsync(() => cache.thumbnailFor(store.items.single));
+    await tester.runAsync(() async {
+      readGate.complete(pdf);
+      await thumbnail;
+    });
     await tester.pump();
 
     expect(find.byType(Image), findsOneWidget);
@@ -61,6 +77,9 @@ void main() {
     final cache = RecentThumbnailCache(
         readBytes: (path, {bookmark}) async => throw StateError('gone'));
 
+    // Resolve the real-async cache work before FutureBuilder observes it.
+    await tester.runAsync(() => cache.thumbnailFor(store.items.single));
+
     await pump(
         tester,
         WelcomeScreen(
@@ -70,7 +89,6 @@ void main() {
           thumbnails: cache,
         ));
 
-    await tester.runAsync(() => cache.thumbnailFor(store.items.single));
     await tester.pump();
 
     expect(find.byIcon(Icons.description_outlined), findsOneWidget);
@@ -200,14 +218,17 @@ void main() {
     expect(find.byKey(const ValueKey('recent-tile-/a.pdf')), findsNothing);
   });
 
-  testWidgets('grid tiles are shaped to the page aspect ratio',
-      (tester) async {
+  testWidgets('grid tiles are shaped to the page aspect ratio', (tester) async {
     final store = RecentsStore();
     await store.add(title: 'landscape.pdf', path: '/landscape.pdf');
     final landscape =
         PdfBlankDocument.create(pageSize: PdfPageSize.letter.landscape);
     final cache =
         RecentThumbnailCache(readBytes: (path, {bookmark}) async => landscape);
+
+    // PdfRenderWorker isolate replies must be driven from runAsync, not from
+    // the widget test binding's fake-async zone.
+    await tester.runAsync(() => cache.thumbnailFor(store.items.single));
 
     await pump(
         tester,
@@ -219,12 +240,11 @@ void main() {
           thumbnails: cache,
         ));
 
-    // Drive the render, then let the aspect-aware box relayout.
-    await tester.runAsync(() => cache.thumbnailFor(store.items.single));
+    // Let the aspect-aware box consume the cached render.
     await tester.pump();
 
-    final size = tester
-        .getSize(find.byKey(const ValueKey('recent-tile-thumb-/landscape.pdf')));
+    final size = tester.getSize(
+        find.byKey(const ValueKey('recent-tile-thumb-/landscape.pdf')));
     // A landscape page yields a wider-than-tall tile; the portrait placeholder
     // default (taller than wide) never would, so this proves the box follows
     // the rendered page's real aspect ratio.
@@ -245,6 +265,12 @@ void main() {
         readBytes: (path, {bookmark}) async =>
             path.contains('landscape') ? landscape : portrait);
 
+    await tester.runAsync(() async {
+      for (final e in store.items) {
+        await cache.thumbnailFor(e);
+      }
+    });
+
     await pump(
         tester,
         size: wide,
@@ -255,11 +281,6 @@ void main() {
           thumbnails: cache,
         ));
 
-    await tester.runAsync(() async {
-      for (final e in store.items) {
-        await cache.thumbnailFor(e);
-      }
-    });
     await tester.pump();
 
     final pThumb = tester
