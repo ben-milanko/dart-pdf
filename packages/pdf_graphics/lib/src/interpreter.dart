@@ -675,7 +675,7 @@ class PdfInterpreter {
   void _drawFallbackFreeText(PdfAnnotation annotation) {
     final text = annotation.contents;
     if (text == null || text.isEmpty) return;
-    final rect = annotation.rect;
+    final rect = annotation.calloutBox ?? annotation.rect;
     if (rect.width <= 0 || rect.height <= 0) return;
     final da = cos.resolve(annotation.dict['DA']);
     final style =
@@ -683,17 +683,70 @@ class PdfInterpreter {
     final size = style.size;
     const pad = 2.0;
     final lineHeight = size * 1.15;
+    // XChange and Bluebeam files sometimes omit /AP and expect the viewer to
+    // construct the FreeText box and callout leader from semantic entries.
+    final freeText = annotation.freeTextStyle;
+    final fill = freeText?.fillColor;
+    if (fill != null) {
+      device.fillPath(_rectPath(rect), _pdfColor(fill), PdfFillRule.nonzero,
+          _annotationFillAlpha(annotation));
+    }
+    final borderWidth = freeText?.borderWidth ?? 0;
+    final border = freeText?.borderColor;
+    if (borderWidth > 0 && border != null) {
+      device.strokePath(
+          _rectPath(_insetRect(rect, borderWidth / 2)),
+          _pdfColor(border),
+          _annotationStroke(annotation).copyWith(width: borderWidth),
+          _annotationStrokeAlpha(annotation));
+    }
+    final callout = annotation.calloutLine;
+    if (callout != null && callout.length >= 2) {
+      device.strokePath(
+          PdfPath([
+            PdfMoveTo(callout.first.$1, callout.first.$2),
+            for (final point in callout.skip(1))
+              PdfLineTo(point.$1, point.$2),
+          ]),
+          _pdfColor(freeText?.borderColor ?? annotation.color ?? 0x000000),
+          _annotationStroke(annotation),
+          _annotationStrokeAlpha(annotation));
+    }
+    final available = math.max(0.0, rect.width - pad * 2);
+    final lines = <String>[];
+    for (final paragraph in text.replaceAll('\r\n', '\n').split('\n')) {
+      final words = paragraph.split(RegExp(r'\s+'));
+      var line = '';
+      for (final word in words) {
+        final candidate = line.isEmpty ? word : '$line $word';
+        if (line.isNotEmpty && measureHelvetica(candidate, size) > available) {
+          lines.add(line);
+          line = word;
+        } else {
+          line = candidate;
+        }
+      }
+      lines.add(line);
+    }
     device.save();
     try {
       device.clipPath(_rectPath(rect), PdfFillRule.nonzero);
       var y = rect.top - pad - size * 0.718;
-      for (final line in text.split('\n')) {
+      for (final line in lines) {
         if (y + size < rect.bottom) break;
         if (line.isNotEmpty) {
-          final width = measureHelvetica(line, size) / size;
+          final measured = measureHelvetica(line, size);
+          final width = measured / size;
+          final q = cos.resolve(annotation.dict['Q']);
+          final alignment = q is CosInteger ? q.value : 0;
+          final x = switch (alignment) {
+            1 => rect.left + (rect.width - measured) / 2,
+            2 => rect.right - pad - measured,
+            _ => rect.left + pad,
+          };
           device.drawText(PdfTextRun(
             text: line,
-            transform: PdfMatrix(size, 0, 0, size, rect.left + pad, y),
+            transform: PdfMatrix(size, 0, 0, size, x, y),
             color: style.color,
             width: width,
             fontName: style.fontName,
