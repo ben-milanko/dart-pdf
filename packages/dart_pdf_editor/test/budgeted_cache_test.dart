@@ -200,6 +200,23 @@ void main() {
       cache.clear(); // disposes the survivor, the overwrite value 100
       expect(dropped, [0, 1, 2, 100]);
     });
+
+    test('onEvicted reports policy evictions but not explicit removals', () {
+      final evicted = <int>[];
+      final cache = PdfBudgetedCache<int, _Res>(
+        maxEntries: 2,
+        onEvicted: (key, value) => evicted.add(value.id),
+      );
+      cache.put(0, _Res(0));
+      cache.put(1, _Res(1));
+      cache.put(2, _Res(2)); // count-budget eviction
+      expect(evicted, [0]);
+      cache.evict(1);
+      cache.put(2, _Res(20)); // explicit remove + overwrite are not evictions
+      cache.clear();
+      expect(evicted, [0]);
+      expect(cache.evictions, 1);
+    });
   });
 
   group('getOrAdd', () {
@@ -482,6 +499,9 @@ void main() {
       expect(rows['images']!.length, 2);
       expect(rows['images']!.weight, 100);
       expect(rows['images']!.maxWeight, 500);
+      expect(rows['images']!.hits, 0);
+      expect(rows['images']!.misses, 0);
+      expect(rows['images']!.evictions, 0);
       // An entry-bounded cache has no weight budget: maxWeight is 0.
       expect(rows['records']!.length, 1);
       expect(rows['records']!.weight, 0);

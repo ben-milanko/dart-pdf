@@ -11,6 +11,7 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 
@@ -261,6 +262,9 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
               'entries': cache.length,
               'bytes': cache.weight,
               'budgetBytes': cache.maxWeight,
+              'hits': cache.hits,
+              'misses': cache.misses,
+              'evictions': cache.evictions,
             },
         ],
       },
@@ -602,6 +606,7 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
     (512 << 20, '512 MB'),
     (1 << 30, '1 GB'),
   ];
+  static const _fixedEntrySeedBytes = 256 << 20;
 
   Widget _byteBudgetControl(
     ThemeData theme, {
@@ -663,10 +668,30 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
   }
 
   void _setPageRasterCache({int? maxBytes, int? maxEntryBytes}) {
-    final current = _tools.fixedPageRasterCachePolicy;
+    final wasAuto = _tools.pageRasterCacheAuto;
+    final current = wasAuto
+        ? _tools.pageRasterCachePolicy.value
+        : _tools.fixedPageRasterCachePolicy;
+    // Entering fixed mode from Auto should carry a useful per-page admission
+    // limit with it. Keeping the dormant fixed default (16 MB) made a 5 GB
+    // preset reject an ordinary capped CAD raster such as 8192×812 (25.4 MB),
+    // which made the total selector look broken. Once fixed mode is active,
+    // later total changes preserve the user's explicit non-zero per-page
+    // choice; moving from Off seeds it again.
+    final shouldSeedEntry = maxBytes != null &&
+        maxEntryBytes == null &&
+        (wasAuto || current.maxEntryBytes == 0);
+    final seededEntry = shouldSeedEntry
+        ? maxBytes == 0
+            ? 0
+            : math.min(
+                maxBytes,
+                math.max(current.maxEntryBytes, _fixedEntrySeedBytes),
+              )
+        : current.maxEntryBytes;
     _tools.setPageRasterCachePolicy(PdfPageRasterCachePolicy(
       maxBytes: maxBytes ?? current.maxBytes,
-      maxEntryBytes: maxEntryBytes ?? current.maxEntryBytes,
+      maxEntryBytes: maxEntryBytes ?? seededEntry,
     ));
     _persist();
     setState(() {});
@@ -784,8 +809,11 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
               '  ${cache.label} (${cache.length})',
               cache.maxWeight > 0
                   ? '${_mb(cache.weight)} / ${_mb(cache.maxWeight)}'
-                  : _mb(cache.weight),
-              help: _cacheExplanation(cache.label)),
+                      ' · ${cache.hits}/${cache.misses}/${cache.evictions}'
+                  : '${_mb(cache.weight)}'
+                      ' · ${cache.hits}/${cache.misses}/${cache.evictions}',
+              help: '${_cacheExplanation(cache.label)} '
+                  'Trailing counters are hits/misses/evictions.'),
         Text(
           'Worker isolates hold parsed documents and command transcripts, '
           'not decoded pixels; their memory is not itemized here.',

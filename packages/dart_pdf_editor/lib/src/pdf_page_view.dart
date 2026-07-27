@@ -2119,7 +2119,7 @@ class _PdfPageViewState extends State<PdfPageView>
       'strip=$stripDetail vectorOnly=$_sceneIsVectorOnly '
       // scene/tiles: why this page does or does not get reusable tiles instead
       // of a fresh full-viewport raster on every pan step.
-      'scene=${heldScene != null} tiles=$_useTilePath',
+      'scene=${heldScene != null} tiles=$_tilePathStatus',
     );
     final workerStripFuture = stripDetail
         ? _detailStripImageFromWorker(
@@ -2484,10 +2484,16 @@ class _PdfPageViewState extends State<PdfPageView>
   /// [_tileCanRasterize] vetoes the regions an image draw intersects, which
   /// keep the fallback/base raster and heal automatically if the full record
   /// later replaces the scene.
-  bool get _useTilePath {
-    if (!PdfPageView.tileStoreDetail) return false;
+  bool get _useTilePath => _tilePathStatus == 'active';
+
+  /// Diagnostic state for the tile gate. The old boolean trace could only say
+  /// `tiles=false`, leaving patch mode, a missing/warming spatial index, and an
+  /// unsupported scene indistinguishable in field traces.
+  String get _tilePathStatus {
+    if (!PdfPageView.tileStoreDetail) return 'off';
+    if (!PdfPageView.retainedZoomReplay) return 'replay-off';
     final scene = PdfPageView.retainedZoomReplay ? _scene : null;
-    if (scene == null) return false;
+    if (scene == null) return 'no-scene';
     // A dense (grid-escalated) page's region index is a ~O(commands) build
     // (~210ms on the CAD probe, issue #384). Never pay it synchronously on the
     // UI isolate: defer the tile path until the warmed index is resident (built
@@ -2495,9 +2501,9 @@ class _PdfPageViewState extends State<PdfPageView>
     // Until then the base raster / single detail patch covers the view. Pages
     // below the grid ceiling keep the cheap synchronous linear build.
     if (scene.regionIndexBuildIsHeavy && !scene.debugHasRegionReplayIndex) {
-      return false;
+      return 'index-warming';
     }
-    return scene.supportsRegionRaster;
+    return scene.supportsRegionRaster ? 'active' : 'unsupported-scene';
   }
 
   /// Kicks the region-replay index build onto the render worker when the page

@@ -148,6 +148,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
     weigher: (entry) => entry.bytes,
     maxWeight: _maxFullRasterBytes,
     disposer: (entry) => entry.image.dispose(),
+    onEvicted: _logFullRasterEviction,
     clearsUnderMemoryPressure: true,
     debugLabel: 'page-full-raster',
   );
@@ -164,6 +165,8 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// the new per-page limit. Low-resolution previews are unaffected.
   void configureFullRasterCache(PdfPageRasterCachePolicy policy) {
     if (_disposed) return;
+    final beforeCount = _fullEntries.length;
+    final beforeBytes = _fullEntries.weight;
     _maxFullRasterBytes = policy.maxBytes;
     _maxFullRasterEntryBytes = policy.maxEntryBytes;
     _fullEntries.evictWhere((index) {
@@ -171,6 +174,16 @@ class PdfPagePreviewCache extends ChangeNotifier {
       return entry != null && entry.bytes > _maxFullRasterEntryBytes;
     });
     _fullEntries.maxWeight = _maxFullRasterBytes;
+    PdfPerfLog.log(
+      'page-raster policy total=${policy.maxBytes} '
+      'entry=${policy.maxEntryBytes} retained=${_fullEntries.weight} '
+      'entries=${_fullEntries.length} '
+      'trimmedEntries=${beforeCount - _fullEntries.length} '
+      'trimmedBytes=${beforeBytes - _fullEntries.weight} '
+      'registry=${PdfCacheRegistry.instance.totalWeight} '
+      'ceiling=${PdfCacheRegistry.instance.maxTotalWeight}'
+      '${PdfPerfLog.rssSuffix()}',
+    );
   }
 
   /// Optional persistent backing (see [PdfRasterCache]). When set, fresh
@@ -228,15 +241,26 @@ class PdfPagePreviewCache extends ChangeNotifier {
     required int? rotation,
   }) {
     final entry = _fullEntries.take(index); // touch; the master stays cached
-    if (entry == null) return null;
-    if (!identical(entry.page, page) ||
-        entry.image.width != width ||
-        entry.image.height != height ||
-        entry.pageColor != pageColor ||
-        entry.annotations != annotations ||
-        entry.rotation != rotation) {
+    if (entry == null) {
+      _logFullRasterLookup('miss', index, reason: 'empty');
       return null;
     }
+    final mismatch = !identical(entry.page, page)
+        ? 'page-identity'
+        : entry.image.width != width || entry.image.height != height
+            ? 'dimensions'
+            : entry.pageColor != pageColor
+                ? 'page-color'
+                : entry.annotations != annotations
+                    ? 'annotations'
+                    : entry.rotation != rotation
+                        ? 'rotation'
+                        : null;
+    if (mismatch != null) {
+      _logFullRasterLookup('miss', index, reason: mismatch);
+      return null;
+    }
+    _logFullRasterLookup('hit', index, bytes: entry.bytes);
     return entry.image.clone();
   }
 
@@ -255,11 +279,23 @@ class PdfPagePreviewCache extends ChangeNotifier {
   }) {
     if (_disposed) return;
     final bytes = image.width * image.height * 4;
-    if (_maxFullRasterBytes == 0 ||
-        bytes > _maxFullRasterEntryBytes ||
-        bytes > _maxFullRasterBytes) {
+    final rejection = _maxFullRasterBytes == 0
+        ? 'disabled'
+        : bytes > _maxFullRasterEntryBytes
+            ? 'entry-limit'
+            : bytes > _maxFullRasterBytes
+                ? 'total-limit'
+                : null;
+    if (rejection != null) {
+      _logFullRasterLookup(
+        'reject',
+        index,
+        reason: rejection,
+        bytes: bytes,
+      );
       return;
     }
+    final beforeEvictions = _fullEntries.evictions;
     // put disposes any prior entry for this index and evicts the LRU rasters
     // past the pixel budget; the entry just stored (which the guard above kept
     // within budget) is never the one evicted.
@@ -273,6 +309,49 @@ class PdfPagePreviewCache extends ChangeNotifier {
         rotation: rotation,
       ),
     );
+    if (!_fullEntries.containsKey(index)) {
+      _logFullRasterLookup(
+        'reject',
+        index,
+        reason: 'coordinated-ceiling',
+        bytes: bytes,
+      );
+      return;
+    }
+    PdfPerfLog.log(
+      'page-raster store page=$index bytes=$bytes '
+      'evicted=${_fullEntries.evictions - beforeEvictions} '
+      '${_fullRasterState()}${PdfPerfLog.rssSuffix()}',
+    );
+  }
+
+  void _logFullRasterEviction(int index, _FullRasterEntry entry) {
+    PdfPerfLog.log(
+      'page-raster evict page=$index bytes=${entry.bytes} reason=budget '
+      '${_fullRasterState()}${PdfPerfLog.rssSuffix()}',
+    );
+  }
+
+  void _logFullRasterLookup(
+    String event,
+    int index, {
+    String? reason,
+    int? bytes,
+  }) {
+    PdfPerfLog.log(
+      'page-raster $event page=$index'
+      '${bytes == null ? '' : ' bytes=$bytes'}'
+      '${reason == null ? '' : ' reason=$reason'} '
+      '${_fullRasterState()}${PdfPerfLog.rssSuffix()}',
+    );
+  }
+
+  String _fullRasterState() {
+    final registry = PdfCacheRegistry.instance;
+    return 'retained=${_fullEntries.weight} entries=${_fullEntries.length} '
+        'totalLimit=$_maxFullRasterBytes '
+        'entryLimit=$_maxFullRasterEntryBytes '
+        'registry=${registry.totalWeight} ceiling=${registry.maxTotalWeight}';
   }
 
   /// Whether any preview (fresh or stale) exists for page [index].

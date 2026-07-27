@@ -22,7 +22,7 @@ import 'dart:math' as math;
 ///    the bound that stops image-free / vector-first buffers piling up one per
 ///    page on a long scroll (issue #283, the weight-0 unbounded-growth bug).
 ///
-/// Values that outlive their cache slot are handled by two hooks:
+/// Values that outlive their cache slot are handled by three hooks:
 ///
 ///  * [cloner] - when a value is handed out while a master stays cached (a
 ///    [ui.Image] shared by clone), [take] and [putAndClone] return
@@ -31,6 +31,9 @@ import 'dart:math' as math;
 ///  * [disposer] - run on every value the cache drops (eviction, [evict],
 ///    [clear], [dispose], or a same-key overwrite), so retained engine
 ///    resources are released deterministically.
+///  * [onEvicted] - optional diagnostics invoked only when a weight/count or
+///    coordinated process budget evicts an entry. Explicit invalidation,
+///    clearing, and same-key replacement do not count as policy evictions.
 ///
 /// Registering with [PdfCacheRegistry] (via `clearsUnderMemoryPressure: true`)
 /// wires the cache into the one coordinated memory-pressure path.
@@ -47,6 +50,7 @@ class PdfBudgetedCache<K, V> {
     int? maxEntries,
     void Function(V value)? disposer,
     V Function(V value)? cloner,
+    void Function(K key, V value)? onEvicted,
     bool rejectOversize = false,
     bool clearsUnderMemoryPressure = false,
     this.debugLabel = 'cache',
@@ -56,6 +60,7 @@ class PdfBudgetedCache<K, V> {
         _maxEntries = maxEntries == null ? null : math.max(1, maxEntries),
         _disposer = disposer,
         _cloner = cloner,
+        _onEvicted = onEvicted,
         _rejectOversize = rejectOversize,
         _clearsUnderMemoryPressure = clearsUnderMemoryPressure {
     if (_clearsUnderMemoryPressure) PdfCacheRegistry.instance.register(this);
@@ -66,6 +71,7 @@ class PdfBudgetedCache<K, V> {
   final int? _maxEntries;
   final void Function(V value)? _disposer;
   final V Function(V value)? _cloner;
+  final void Function(K key, V value)? _onEvicted;
 
   /// When set, a value whose weight alone exceeds [maxWeight] is not stored at
   /// all (rather than kept as the protected most-recently-used entry): caching
@@ -128,8 +134,7 @@ class PdfBudgetedCache<K, V> {
         protectMostRecent: protectMostRecent,
       );
       if (victim == null) break;
-      _removeEntry(victim);
-      _evictions++;
+      _removeEntry(victim, eviction: true);
     }
   }
 
@@ -297,10 +302,14 @@ class PdfBudgetedCache<K, V> {
     _evictions = 0;
   }
 
-  void _removeEntry(K key) {
+  void _removeEntry(K key, {bool eviction = false}) {
     final entry = _entries.remove(key);
     if (entry == null) return;
     _weight -= entry.weight;
+    if (eviction) {
+      _evictions++;
+      _onEvicted?.call(key, entry.value);
+    }
     _disposer?.call(entry.value);
   }
 
@@ -314,8 +323,7 @@ class PdfBudgetedCache<K, V> {
       while (_weight > _maxWeight) {
         final victim = _oldestEvictable(requireWeight: true);
         if (victim == null) break;
-        _removeEntry(victim);
-        _evictions++;
+        _removeEntry(victim, eviction: true);
       }
     }
     // Count cap: evict the least-recently-used entries - weight-0 or not -
@@ -325,8 +333,7 @@ class PdfBudgetedCache<K, V> {
       while (_entries.length > maxEntries) {
         final oldest = _entries.keys.first;
         if (oldest == _protectedKey) break;
-        _removeEntry(oldest);
-        _evictions++;
+        _removeEntry(oldest, eviction: true);
       }
     }
   }
@@ -418,9 +425,19 @@ class PdfCacheRegistry {
   }
 
   /// Diagnostic snapshot of every live registered cache: its [PdfBudgetedCache
-  /// .debugLabel], entry count, retained weight, and weight budget (0 when the
-  /// cache is bounded by entries only). For devtools-style displays.
-  List<({String label, int length, int weight, int maxWeight})> snapshot() {
+  /// .debugLabel], entry count, retained weight, weight budget (0 when the
+  /// cache is bounded by entries only), and lifetime lookup/eviction counters.
+  /// For devtools-style displays and exported performance traces.
+  List<
+      ({
+        String label,
+        int length,
+        int weight,
+        int maxWeight,
+        int hits,
+        int misses,
+        int evictions,
+      })> snapshot() {
     _pruneDead();
     return [
       for (final ref in _caches)
@@ -430,6 +447,9 @@ class PdfCacheRegistry {
             length: cache.length,
             weight: cache.weight,
             maxWeight: cache.maxWeight,
+            hits: cache.hits,
+            misses: cache.misses,
+            evictions: cache.evictions,
           ),
     ];
   }

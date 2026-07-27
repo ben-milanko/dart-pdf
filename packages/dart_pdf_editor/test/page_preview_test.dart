@@ -180,6 +180,102 @@ void main() {
         reason: 'lowering the entry limit drops oversized retained pages');
   });
 
+  testWidgets('visited-page raster perf trace explains cache decisions',
+      (tester) async {
+    final logs = <String>[];
+    PdfPerfLog.sink = logs.add;
+    PdfPerfLog.enabled = true;
+    addTearDown(() {
+      PdfPerfLog.enabled = false;
+      PdfPerfLog.sink = null;
+    });
+
+    final document = PdfDocument.open(buildMultiPagePdf(2));
+    final first = document.page(0);
+    final second = document.page(1);
+    final image = await PdfPageRenderer.renderImage(first, pixelRatio: 0.5);
+    addTearDown(image.dispose);
+    final bytes = image.width * image.height * 4;
+    final cache = PdfPagePreviewCache();
+    addTearDown(cache.dispose);
+
+    cache.configureFullRasterCache(PdfPageRasterCachePolicy(
+      maxBytes: bytes,
+      maxEntryBytes: bytes,
+    ));
+    cache.putFullImage(
+      0,
+      first,
+      image,
+      pageColor: const Color(0xFFFFFFFF),
+      annotations: true,
+      rotation: null,
+    );
+    cache.putFullImage(
+      1,
+      second,
+      image,
+      pageColor: const Color(0xFFFFFFFF),
+      annotations: true,
+      rotation: null,
+    );
+    final hit = cache.fullImageFor(
+      1,
+      second,
+      width: image.width,
+      height: image.height,
+      pageColor: const Color(0xFFFFFFFF),
+      annotations: true,
+      rotation: null,
+    );
+    hit?.dispose();
+    expect(
+      cache.fullImageFor(
+        0,
+        first,
+        width: image.width,
+        height: image.height,
+        pageColor: const Color(0xFFFFFFFF),
+        annotations: true,
+        rotation: null,
+      ),
+      isNull,
+    );
+
+    cache.configureFullRasterCache(PdfPageRasterCachePolicy(
+      maxBytes: bytes,
+      maxEntryBytes: bytes - 1,
+    ));
+    cache.putFullImage(
+      0,
+      first,
+      image,
+      pageColor: const Color(0xFFFFFFFF),
+      annotations: true,
+      rotation: null,
+    );
+
+    expect(
+        logs.any((line) => line.contains('page-raster policy total=')), isTrue);
+    expect(
+        logs.any((line) => line.contains('page-raster store page=0')), isTrue);
+    expect(
+        logs.any((line) => line.contains('page-raster evict page=0')), isTrue);
+    expect(logs.any((line) => line.contains('page-raster hit page=1')), isTrue);
+    expect(
+      logs.any((line) =>
+          line.contains('page-raster miss page=0') &&
+          line.contains('reason=empty')),
+      isTrue,
+    );
+    expect(
+      logs.any((line) =>
+          line.contains('page-raster reject page=0') &&
+          line.contains('reason=entry-limit')),
+      isTrue,
+    );
+  });
+
   test('visited-page rasters join and leave process-wide accounting', () {
     final registry = PdfCacheRegistry.instance;
     final before = registry.registrationCount;

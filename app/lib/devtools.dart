@@ -393,6 +393,12 @@ class AppDevTools extends ChangeNotifier {
     _fixedPageRasterCachePolicy = policy;
     _pageRasterCacheReason = 'Fixed Developer tools override';
     pageRasterCachePolicy.value = policy;
+    PdfPerfLog.log(
+      'page-raster mode=fixed total=${policy.maxBytes} '
+      'entry=${policy.maxEntryBytes} '
+      'ceiling=${PdfCacheRegistry.instance.maxTotalWeight}'
+      '${PdfPerfLog.rssSuffix()}',
+    );
     if (unchanged) return;
     addLog('devtools: visited-page rasters → '
         '${policy.maxBytes >> 20}MB total, '
@@ -405,6 +411,14 @@ class AppDevTools extends ChangeNotifier {
     _pageRasterCacheMode = PageRasterCacheMode.auto;
     pageRasterCachePolicy.value = _lastAutoPageRasterCachePolicy;
     _pageRasterCacheReason = _lastAutoPageRasterCacheReason;
+    PdfPerfLog.log(
+      'page-raster mode=auto '
+      'total=${_lastAutoPageRasterCachePolicy.maxBytes} '
+      'entry=${_lastAutoPageRasterCachePolicy.maxEntryBytes} '
+      'processTarget=${_safeProcessLimitBytes ?? 0} '
+      'ceiling=${PdfCacheRegistry.instance.maxTotalWeight}'
+      '${PdfPerfLog.rssSuffix()}',
+    );
     addLog('devtools: visited-page rasters → Auto');
   }
 
@@ -424,6 +438,13 @@ class AppDevTools extends ChangeNotifier {
     if (changed) {
       addLog('memory-auto: visited rasters ${policy.maxBytes >> 20}MB, '
           '${policy.maxEntryBytes >> 20}MB/page ($reason)');
+      PdfPerfLog.log(
+        'page-raster mode=auto total=${policy.maxBytes} '
+        'entry=${policy.maxEntryBytes} '
+        'processTarget=${safeProcessLimitBytes ?? 0} '
+        'ceiling=${PdfCacheRegistry.instance.maxTotalWeight} '
+        'reason=$reason${PdfPerfLog.rssSuffix()}',
+      );
     } else {
       _scheduleNotify();
     }

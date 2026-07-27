@@ -16,7 +16,9 @@
   `PdfReader`, and `PdfEditorView` can now opt into a much larger desktop
   working set. Retained full-page rasters participate in process-wide cache
   accounting and memory-pressure cleanup, so multiple viewers share the
-  coordinated host ceiling.
+  coordinated host ceiling. Performance traces now report exact-raster policy,
+  hit, miss, admission rejection, store, and budget-eviction events, while
+  cache diagnostics expose lifetime hit/miss/eviction counters.
 
 ## 3.1.0
 

@@ -120,6 +120,14 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('5 GB').last);
     await tester.pumpAndSettle();
+    expect(
+      AppDevTools.instance.pageRasterCachePolicy.value,
+      const PdfPageRasterCachePolicy(
+        maxBytes: 5 * 1024 * 1024 * 1024,
+        maxEntryBytes: 256 * 1024 * 1024,
+      ),
+      reason: 'entering fixed mode must not retain the dormant 16 MB default',
+    );
 
     final perPage =
         find.byKey(const ValueKey('devtools-page-raster-entry-budget'));
@@ -146,6 +154,18 @@ void main() {
     await tester.pump();
     await tester.tap(total);
     await tester.pumpAndSettle();
+    await tester.tap(find.text('2 GB').last);
+    await tester.pumpAndSettle();
+    expect(
+      AppDevTools.instance.pageRasterCachePolicy.value.maxEntryBytes,
+      128 * 1024 * 1024,
+      reason: 'fixed-to-fixed total changes preserve an explicit page limit',
+    );
+
+    await tester.ensureVisible(total);
+    await tester.pump();
+    await tester.tap(total);
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Auto (recommended)').last);
     await tester.pumpAndSettle();
     expect(AppDevTools.instance.pageRasterCacheMode, PageRasterCacheMode.auto);
@@ -153,6 +173,22 @@ void main() {
       find.byKey(const ValueKey('devtools-page-raster-entry-budget')),
       findsNothing,
       reason: 'Auto owns the derived per-page admission limit',
+    );
+
+    await tester.ensureVisible(total);
+    await tester.tap(total);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Off').last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(total);
+    await tester.tap(total);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('5 GB').last);
+    await tester.pumpAndSettle();
+    expect(
+      AppDevTools.instance.pageRasterCachePolicy.value.maxEntryBytes,
+      256 * 1024 * 1024,
+      reason: 'moving from Off to a fixed budget reseeds page admission',
     );
   });
 
