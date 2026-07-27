@@ -55,6 +55,11 @@ void main() {
     // The tile layer replaced the single detail patch.
     expect(find.byKey(const ValueKey('pdf-page-tile-layer')), findsOneWidget);
     expect(find.byKey(const ValueKey('pdf-page-detail-image')), findsNothing);
+    final tilePaint = tester.widget<CustomPaint>(
+      find.byKey(const ValueKey('pdf-page-tile-layer')),
+    );
+    expect((tilePaint.painter as dynamic).maxNewTilesPerPaint, 1,
+        reason: 'grid-indexed scenes must pace replay one tile per paint');
     // The base raster is still the only RawImage (tiles paint via CustomPaint).
     expect(find.byType(RawImage), findsOneWidget);
     // Real tiles rastered from the page's retained scene.

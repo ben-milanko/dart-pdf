@@ -427,6 +427,11 @@ class PdfTileStore extends ChangeNotifier {
   /// page view uses this to tile a vector-only progressive scene everywhere
   /// except the regions its absent image pixels would corrupt.
   ///
+  /// [maxNewTiles] optionally caps how many missing tiles this call admits.
+  /// Tiles already cached or in flight are unaffected. A landed tile ticks the
+  /// store, so a painting caller can use a small cap to spread synchronous
+  /// retained-scene replay across frames while the view fills center-out.
+  ///
   /// Synchronous and side-effecting: every tile it *places* is touched to
   /// most-recently-used, so a concurrent completion's eviction can only drop
   /// tiles outside the current view (the budget floor keeps a viewport's worth
@@ -440,7 +445,9 @@ class PdfTileStore extends ChangeNotifier {
     required Rect visiblePageRect,
     required PdfTileRasterizer rasterize,
     bool Function(Rect region)? canRasterize,
+    int? maxNewTiles,
   }) {
+    assert(maxNewTiles == null || maxNewTiles > 0);
     if (_disposed) return PdfTileView.empty;
     final grid = _tileGrid(pageSize, desiredRatio, visiblePageRect);
     if (grid == null) return PdfTileView.empty;
@@ -476,6 +483,15 @@ class PdfTileStore extends ChangeNotifier {
 
     final placements = <PdfTilePlacement>[];
     final pending = batchRasters ? <PdfTileKey>[] : null;
+    var newTiles = 0;
+    bool schedule(PdfTileKey key) {
+      if (maxNewTiles != null && newTiles >= maxNewTiles) return false;
+      final scheduled = _schedule(
+          key, id, pageSize, span, ratio, rasterize, pending, canRasterize);
+      if (scheduled) newTiles++;
+      return scheduled;
+    }
+
     var complete = true;
     for (final (tx, ty) in coords) {
       final key = PdfTileKey(id, rung, tx, ty);
@@ -489,8 +505,7 @@ class PdfTileStore extends ChangeNotifier {
         ));
       } else {
         complete = false;
-        _schedule(key, id, pageSize, span, ratio, rasterize, pending,
-            canRasterize);
+        schedule(key);
         final fallback = _coarserFallback(id, rung, tx, ty, span, pageSize);
         if (fallback != null) placements.add(fallback);
       }
@@ -517,8 +532,7 @@ class PdfTileStore extends ChangeNotifier {
           for (var tx = rx0; tx <= rx1; tx++) {
             if (tx >= tx0 && tx <= tx1 && ty >= ty0 && ty <= ty1) continue;
             if (ringHeadroom-- <= 0) break ring;
-            _schedule(PdfTileKey(id, rung, tx, ty), id, pageSize, span, ratio,
-                rasterize, pending, canRasterize);
+            schedule(PdfTileKey(id, rung, tx, ty));
           }
         }
       }
@@ -584,7 +598,7 @@ class PdfTileStore extends ChangeNotifier {
   /// Marks [key] in-flight and either dispatches its raster now or, when
   /// [pending] is non-null (one [viewFor] pass in [batchRasters] mode), defers
   /// it into the pass's batch.
-  void _schedule(
+  bool _schedule(
     PdfTileKey key,
     PdfTilePageIdentity id,
     Size pageSize,
@@ -594,19 +608,21 @@ class PdfTileStore extends ChangeNotifier {
     List<PdfTileKey>? pending,
     bool Function(Rect region)? canRasterize,
   ) {
-    if (_disposed || _cache.containsKey(key) || _inFlight.contains(key)) return;
+    if (_disposed || _cache.containsKey(key) || _inFlight.contains(key)) {
+      return false;
+    }
     final region = _clampToPage(
         Rect.fromLTWH(key.tx * span, key.ty * span, span, span), pageSize);
-    if (region.width <= 0 || region.height <= 0) return;
+    if (region.width <= 0 || region.height <= 0) return false;
     // Vetoed tiles are neither in-flight nor cached, so every pass re-asks -
     // the veto lifting (a scene upgrade) heals them without invalidation.
-    if (canRasterize != null && !canRasterize(region)) return;
+    if (canRasterize != null && !canRasterize(region)) return false;
 
     _inFlight.add(key);
     debugTilesScheduled++;
     if (pending != null) {
       pending.add(key);
-      return;
+      return true;
     }
     final dispatchEpoch = _epochCounter;
     rasterize(region, ratio).then((image) {
@@ -624,6 +640,7 @@ class PdfTileStore extends ChangeNotifier {
       _inFlight.remove(key);
       debugTilesDiscarded++;
     });
+    return true;
   }
 
   /// Splits one pass's missing tiles into raster batches: the whole set as a

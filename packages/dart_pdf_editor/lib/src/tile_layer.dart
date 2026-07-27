@@ -29,8 +29,9 @@ class PdfTileLayer extends StatelessWidget {
     required this.visibleFraction,
     required this.rasterize,
     this.canRasterize,
+    this.maxNewTilesPerPaint,
     this.filterQuality = FilterQuality.medium,
-  });
+  }) : assert(maxNewTilesPerPaint == null || maxNewTilesPerPaint > 0);
 
   /// The pyramid to composite from.
   final PdfTileStore store;
@@ -54,6 +55,13 @@ class PdfTileLayer extends StatelessWidget {
   /// returns false for is left to the fallback/base raster.
   final bool Function(Rect region)? canRasterize;
 
+  /// Optional admission cap for missing tiles scheduled by one paint.
+  ///
+  /// Dense retained scenes use this to keep their synchronous command replay
+  /// inside one frame budget. Landed tiles tick the store and cause another
+  /// paint, so the viewport still fills center-out without a timer or queue.
+  final int? maxNewTilesPerPaint;
+
   final FilterQuality filterQuality;
 
   @override
@@ -67,6 +75,7 @@ class PdfTileLayer extends StatelessWidget {
           visibleFraction: visibleFraction,
           rasterize: rasterize,
           canRasterize: canRasterize,
+          maxNewTilesPerPaint: maxNewTilesPerPaint,
           filterQuality: filterQuality,
         ),
       );
@@ -81,6 +90,7 @@ class _TilePagePainter extends CustomPainter {
     required this.visibleFraction,
     required this.rasterize,
     required this.canRasterize,
+    required this.maxNewTilesPerPaint,
     required this.filterQuality,
   }) : super(
             // tick as sharper tiles land, and repaint on debug-border toggles
@@ -93,6 +103,7 @@ class _TilePagePainter extends CustomPainter {
   final Rect visibleFraction;
   final PdfTileRasterizer rasterize;
   final bool Function(Rect region)? canRasterize;
+  final int? maxNewTilesPerPaint;
   final FilterQuality filterQuality;
 
   @override
@@ -113,6 +124,7 @@ class _TilePagePainter extends CustomPainter {
       visiblePageRect: visiblePageRect,
       rasterize: rasterize,
       canRasterize: canRasterize,
+      maxNewTiles: maxNewTilesPerPaint,
     );
     if (view.isEmpty) return;
     final paint = Paint()..filterQuality = filterQuality;
@@ -153,5 +165,6 @@ class _TilePagePainter extends CustomPainter {
       old.visibleFraction != visibleFraction ||
       !identical(old.rasterize, rasterize) ||
       !identical(old.canRasterize, canRasterize) ||
+      old.maxNewTilesPerPaint != maxNewTilesPerPaint ||
       old.filterQuality != filterQuality;
 }

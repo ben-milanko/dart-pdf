@@ -2700,6 +2700,14 @@ class _PdfPageViewState extends State<PdfPageView>
           tracePage: widget.previewIndex,
         ),
         canRasterize: _tileCanRasterize,
+        // A grid-indexed CAD scene can select tens of thousands of commands
+        // across one viewport slab. replayRegion records those commands
+        // synchronously before toImage yields, so batching every missing tile
+        // made the whole slab one UI-frame stall (271ms in the field trace).
+        // Admit one tile per paint instead. A tile completion repaints the
+        // layer and advances the center-out fill; ordinary scenes retain the
+        // lower-overhead batched path.
+        maxNewTilesPerPaint: scene.regionIndexBuildIsHeavy ? 1 : null,
       ),
     );
   }
