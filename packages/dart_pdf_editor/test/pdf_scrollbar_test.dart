@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -7,13 +8,15 @@ void main() {
   const thumb = ValueKey('pdf-scrollbar-thumb');
 
   Future<PdfViewerController> pumpViewer(WidgetTester tester,
-      {int pages = 5, PdfViewerFit fit = PdfViewerFit.width}) async {
+      {int pages = 5,
+      PdfViewerFit fit = PdfViewerFit.width,
+      PdfDocument? document}) async {
     final controller = PdfViewerController();
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
         body: PdfViewer(
           initialFit: fit,
-          document: PdfDocument.open(buildMultiPagePdf(pages)),
+          document: document ?? PdfDocument.open(buildMultiPagePdf(pages)),
           controller: controller,
         ),
       ),
@@ -53,6 +56,36 @@ void main() {
     scrollPosition(tester).jumpTo(1000);
     await tester.pump();
     expect(tester.getTopLeft(find.byKey(thumb)).dy, greaterThan(before));
+  });
+
+  testWidgets('outline chapters appear on the track and navigate',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(5))
+      ..addBookmark('Introduction', pageIndex: 0)
+      ..addBookmark('Chapter 2', pageIndex: 3, parentPath: [0]);
+    final controller = await pumpViewer(tester, document: editing.document);
+
+    expect(
+        find.byKey(const ValueKey('pdf-scrollbar-marker-0')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('pdf-scrollbar-marker-1')), findsOneWidget);
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer();
+    await mouse.moveTo(
+        tester.getCenter(find.byKey(const ValueKey('pdf-scrollbar-marker-1'))));
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.text('Introduction › Chapter 2'), findsOneWidget);
+    await mouse.moveTo(const Offset(400, 300));
+    await tester.pumpAndSettle();
+
+    final chapterMarker =
+        tester.getCenter(find.byKey(const ValueKey('pdf-scrollbar-marker-1')));
+    await mouse.moveTo(chapterMarker);
+    await mouse.down(chapterMarker);
+    await mouse.up();
+    await tester.pumpAndSettle();
+    expect(controller.currentPage, 3);
   });
 
   testWidgets('dragging the thumb scrolls the document', (tester) async {
