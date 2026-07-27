@@ -20,7 +20,9 @@
   hit, miss, admission rejection, store, and budget-eviction events, while
   cache diagnostics expose lifetime hit/miss/eviction counters. Dense
   deep-zoom scenes now bootstrap their worker-built spatial index correctly
-  instead of remaining on repeated full-viewport detail rasters indefinitely.
+  instead of remaining on repeated full-viewport detail rasters indefinitely;
+  the capped base remains visible during that warm-up rather than launching an
+  obsolete fallback record, and traces split tile replay/raster/slicing costs.
 
 ## 3.1.0
 

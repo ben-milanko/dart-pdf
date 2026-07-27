@@ -2,9 +2,14 @@
 // from the store instead of the single detail patch, while the base raster
 // keeps showing through. Kept in its own file so the global flag mutation can't
 // leak into other page-view tests.
+import 'dart:async';
+
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor/src/region_replay_index.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 void main() {
@@ -54,6 +59,65 @@ void main() {
     expect(find.byType(RawImage), findsOneWidget);
     // Real tiles rastered from the page's retained scene.
     expect(store.tileCount, greaterThan(0));
+  });
+
+  testWidgets('heavy index warm does not launch an obsolete detail record',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final store = PdfTileStore(tilePixels: 256, registerForMemoryPressure: false);
+    final oldRegionLimit = PdfRetainedScene.spatialRegionReplayMaxCommands;
+    PdfRetainedScene.spatialRegionReplayMaxCommands = 0;
+    PdfPageView.tileStoreDetail = true;
+    PdfPageView.debugTileStoreOverride = store;
+
+    final bytes = buildClassicPdf();
+    final doc = PdfDocument.open(bytes);
+    final worker = _DelayedIndexWorker(PdfRenderWorker.startUncached(bytes));
+    addTearDown(() {
+      if (!worker.releaseIndex.isCompleted) worker.releaseIndex.complete();
+      worker.dispose();
+      PdfRetainedScene.spatialRegionReplayMaxCommands = oldRegionLimit;
+      PdfPageView.tileStoreDetail = false;
+      PdfPageView.debugTileStoreOverride = null;
+      store.dispose();
+    });
+
+    await tester.pumpWidget(
+      Center(
+        child: OverflowBox(
+          maxWidth: double.infinity,
+          maxHeight: double.infinity,
+          child: SizedBox(
+            width: 6120,
+            child: PdfPageView(
+              page: doc.page(0),
+              renderWorker: worker,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    for (var i = 0; i < 300 && worker.indexRequests == 0; i++) {
+      await tester.pump();
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
+    }
+    expect(worker.indexRequests, 1, reason: 'the heavy index should start');
+    expect(worker.detailRecords, 0,
+        reason: 'the capped base stays visible while the index warms');
+
+    worker.releaseIndex.complete();
+    for (var i = 0; i < 300 && store.tileCount == 0; i++) {
+      await tester.pump();
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
+    }
+    expect(store.tileCount, greaterThan(0));
+    expect(worker.detailRecords, 0,
+        reason: 'tiles make the fallback detail record obsolete');
   });
 
   testWidgets('a view over the tile budget falls back to the single patch',
@@ -115,4 +179,66 @@ void main() {
       scene.dispose();
     });
   });
+}
+
+class _DelayedIndexWorker extends PdfRenderWorker {
+  _DelayedIndexWorker(this.inner);
+
+  final PdfRenderWorker inner;
+  final releaseIndex = Completer<void>();
+  int indexRequests = 0;
+  int detailRecords = 0;
+
+  @override
+  bool get isActive => inner.isActive;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(
+    int pageIndex, {
+    bool annotations = true,
+    int priority = 0,
+    double? imagePixelRatio,
+    bool decodeImages = true,
+    int? commandLimit,
+    PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
+  }) {
+    if (imageDecodeRegion != null) detailRecords++;
+    return inner.record(
+      pageIndex,
+      annotations: annotations,
+      priority: priority,
+      imagePixelRatio: imagePixelRatio,
+      decodeImages: decodeImages,
+      commandLimit: commandLimit,
+      imageDecodeRegion: imageDecodeRegion,
+      onPartial: onPartial,
+    );
+  }
+
+  @override
+  Future<PdfRegionReplayIndex?> buildRegionIndex(
+    int pageIndex, {
+    required bool annotations,
+    required int maxCommands,
+    required bool buildGrid,
+    int priority = 0,
+  }) async {
+    indexRequests++;
+    await releaseIndex.future;
+    return inner.buildRegionIndex(
+      pageIndex,
+      annotations: annotations,
+      maxCommands: maxCommands,
+      buildGrid: buildGrid,
+      priority: priority,
+    );
+  }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) =>
+      inner.cancel(pageIndex, priority: priority);
+
+  @override
+  void dispose() => inner.dispose();
 }

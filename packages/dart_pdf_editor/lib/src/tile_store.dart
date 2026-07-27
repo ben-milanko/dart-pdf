@@ -31,6 +31,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
 import 'budgeted_cache.dart';
+import 'perf_log.dart';
 import 'renderer.dart';
 
 /// Rasterizes one tile: [region] is the tile's bounds in page points (the
@@ -703,6 +704,8 @@ class PdfTileStore extends ChangeNotifier {
         debugTilesDiscarded += batch.length;
         return;
       }
+      final sliceClock =
+          PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
       try {
         for (final key in batch) {
           final region = tileRegion(key);
@@ -715,6 +718,15 @@ class PdfTileStore extends ChangeNotifier {
       } finally {
         slab.dispose();
       }
+      final sliceElapsedMs =
+          (sliceClock?.elapsedMicroseconds ?? 0) / 1000;
+      PdfPerfLog.log(
+        'tile slice page=${id.pageIndex} rung=${batch.first.rung} '
+        'tiles=${batch.length} '
+        'elapsed=${sliceElapsedMs.toStringAsFixed(1)}ms '
+        'retained=${_cache.weight} entries=${_cache.length}'
+        '${PdfPerfLog.rssSuffix()}',
+      );
       _scheduleTick();
     }, onError: (Object _, StackTrace __) {
       for (final key in batch) {

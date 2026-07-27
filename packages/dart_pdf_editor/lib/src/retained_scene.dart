@@ -23,6 +23,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'banded_transcript.dart';
 import 'canvas_device.dart';
 import 'image_decoder.dart';
+import 'perf_log.dart';
 import 'renderer.dart';
 import 'render_worker.dart';
 import 'region_replay_index.dart';
@@ -366,14 +367,39 @@ class PdfRetainedScene {
 
   /// Convenience: [replayRegion] + `toImage`, mirror of
   /// [PdfPageRenderer.rasterizeRegion].
+  ///
+  /// [tracePage] labels tile-pyramid calls for performance diagnostics. Null
+  /// keeps the ordinary path instrumentation-free.
   Future<ui.Image> rasterizeRegion(Rect region,
-      {required double pixelRatio}) async {
+      {required double pixelRatio, int? tracePage}) async {
+    final replayClock =
+        tracePage != null && PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
     final picture = replayRegion(region, pixelRatio: pixelRatio);
+    final replayMs = replayClock?.elapsedMicroseconds;
+    final selectedCommands = debugLastRegionReplayCommandCount;
+    final rasterClock =
+        tracePage != null && PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
     try {
-      return await picture.toImage(
+      final image = await picture.toImage(
         (region.width * pixelRatio).ceil().clamp(1, 1 << 14),
         (region.height * pixelRatio).ceil().clamp(1, 1 << 14),
       );
+      if (tracePage != null) {
+        final replayElapsedMs = (replayMs ?? 0) / 1000;
+        final rasterElapsedMs =
+            (rasterClock?.elapsedMicroseconds ?? 0) / 1000;
+        PdfPerfLog.log(
+          'tile replay page=$tracePage '
+          'region=${region.width.toStringAsFixed(0)}x'
+          '${region.height.toStringAsFixed(0)}pt '
+          'ratio=${pixelRatio.toStringAsFixed(2)} '
+          'selected=$selectedCommands/${commands.length} '
+          'replay=${replayElapsedMs.toStringAsFixed(1)}ms '
+          'raster=${rasterElapsedMs.toStringAsFixed(1)}ms '
+          'img=${image.width}x${image.height}${PdfPerfLog.rssSuffix()}',
+        );
+      }
+      return image;
     } finally {
       picture.dispose();
     }

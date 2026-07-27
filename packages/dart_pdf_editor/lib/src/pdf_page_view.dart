@@ -2060,8 +2060,18 @@ class _PdfPageViewState extends State<PdfPageView>
     // _refreshTileGeometry also bootstraps a dense scene's worker-built region
     // index. Do not guard this call on _useTilePath: that gate cannot become
     // true until the very warm-up this call starts has completed.
-    if (PdfPageView.tileStoreDetail && _refreshTileGeometry()) {
-      return true;
+    if (PdfPageView.tileStoreDetail) {
+      if (_refreshTileGeometry()) return true;
+      // A worker-built grid takes a few hundred milliseconds on the dense CAD
+      // pages that need it. Keep the already-visible capped base raster during
+      // that one warm-up instead of launching a competing full-viewport detail
+      // record which will be obsolete before it can rasterize.
+      if (_tilePathStatus == 'index-warming') {
+        PdfPerfLog.log(
+          'detail waits for region-index page=${widget.previewIndex}',
+        );
+        return true;
+      }
     }
 
     // A Slug page picture is already transform-sharp for text and vector
@@ -2571,7 +2581,14 @@ class _PdfPageViewState extends State<PdfPageView>
         // A fallback detail request may have started while the index was
         // warming. Once tiles can cover this view, invalidate that generation
         // so its multi-megapixel worker picture is dropped instead of rastered.
-        if (tiling) _renderSession.invalidateDetail();
+        if (tiling) {
+          _renderSession.invalidateDetail();
+        } else {
+          // Unsupported grouped scenes and views too large for the tile budget
+          // still need the legacy detail patch. Re-enter now that the gate has
+          // a final verdict; _updateDetail will no longer take the warming wait.
+          _render();
+        }
       }
     } catch (error) {
       PdfPerfLog.log(
@@ -2677,8 +2694,11 @@ class _PdfPageViewState extends State<PdfPageView>
         pageSize: size,
         desiredRatio: desired,
         visibleFraction: fraction,
-        rasterize: (region, ratio) =>
-            scene.rasterizeRegion(region, pixelRatio: ratio),
+        rasterize: (region, ratio) => scene.rasterizeRegion(
+          region,
+          pixelRatio: ratio,
+          tracePage: widget.previewIndex,
+        ),
         canRasterize: _tileCanRasterize,
       ),
     );
