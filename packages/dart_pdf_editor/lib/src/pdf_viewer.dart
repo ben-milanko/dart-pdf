@@ -5301,7 +5301,12 @@ class _PdfViewerState extends State<PdfViewer>
       _trackpadPendingPan += delta;
       // a draw tool armed: never latch zoom, so a pinch can't scale the
       // page mid-stroke - two-finger motion only scrolls
-      if ((event.scale - 1).abs() > 0.01 && !_drawToolArmed) {
+      // A real pan reports exactly 1.0. Do not use a visual zoom dead band
+      // here: slow pinch-out gestures commonly begin with a sub-percent
+      // scale change while their incidental finger drift already exceeds
+      // the pan threshold. Treating that as scrolling latches the wrong
+      // intent for the remainder of the gesture.
+      if (event.scale != 1.0 && !_drawToolArmed) {
         _trackpadIntent = _TrackpadIntent.zoom;
       } else if (_trackpadPendingPan.distance > 8) {
         _trackpadIntent = _TrackpadIntent.scroll;
