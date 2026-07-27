@@ -489,6 +489,11 @@ class _PdfPageViewState extends State<PdfPageView>
   Rect? _tileFraction;
   double? _tileDesiredRatio;
 
+  /// The retained scene whose heavy region index this page has asked a worker
+  /// to build. Keeps repeated zoom settles from attaching duplicate completion
+  /// handlers while that one build is in flight.
+  PdfRetainedScene? _regionIndexWarmScene;
+
   /// Clone of this page's cached low-res preview; painted while no full
   /// raster exists, dropped (to free the buffer) the moment one lands.
   ui.Image? _preview;
@@ -798,6 +803,9 @@ class _PdfPageViewState extends State<PdfPageView>
   }) {
     _scene?.dispose();
     _scene = scene;
+    if (!identical(_regionIndexWarmScene, scene)) {
+      _regionIndexWarmScene = null;
+    }
     _sceneHasImageDraws =
         scene != null && PdfPageRenderer.hasImageDraws(scene.commands);
     _sceneFromWorker = scene != null && fromWorker;
@@ -2049,7 +2057,10 @@ class _PdfPageViewState extends State<PdfPageView>
     // _refreshTileGeometry returns false and we fall through to the single-patch
     // path below, which covers an arbitrarily large region in one raster
     // without thrashing the shared pyramid (issues #314/#360).
-    if (_useTilePath && _refreshTileGeometry()) {
+    // _refreshTileGeometry also bootstraps a dense scene's worker-built region
+    // index. Do not guard this call on _useTilePath: that gate cannot become
+    // true until the very warm-up this call starts has completed.
+    if (PdfPageView.tileStoreDetail && _refreshTileGeometry()) {
       return true;
     }
 
@@ -2517,18 +2528,61 @@ class _PdfPageViewState extends State<PdfPageView>
     final scene = PdfPageView.retainedZoomReplay ? _scene : null;
     if (scene == null ||
         scene.debugHasRegionReplayIndex ||
-        !scene.regionIndexBuildIsHeavy) {
+        !scene.regionIndexBuildIsHeavy ||
+        identical(_regionIndexWarmScene, scene)) {
       return;
     }
     final worker = _sceneFromWorker ? widget.renderWorker : null;
-    final warming = scene;
-    scene
-        .warmRegionIndex(worker, pageIndex: widget.previewIndex)
-        .then((_) {
+    final pageIndex = widget.previewIndex;
+    _regionIndexWarmScene = scene;
+    final clock = Stopwatch()..start();
+    PdfPerfLog.log(
+      'region-index warm page=$pageIndex '
+      'commands=${scene.commands.length} '
+      'requested=${worker != null && worker.isActive ? 'worker' : 'local'}',
+    );
+    unawaited(_completeRegionIndexWarm(scene, worker, pageIndex, clock));
+  }
+
+  Future<void> _completeRegionIndexWarm(
+    PdfRetainedScene scene,
+    PdfRenderWorker? worker,
+    int pageIndex,
+    Stopwatch clock,
+  ) async {
+    try {
+      final index = await scene.warmRegionIndex(
+        worker,
+        pageIndex: pageIndex,
+      );
+      PdfPerfLog.log(
+        'region-index ready page=$pageIndex '
+        'supported=${index.supported} units=${index.units.length} '
+        'bytes=${index.estimatedBytes} elapsed=${clock.elapsedMilliseconds}ms',
+      );
       // Only refresh if this is still the adopted scene and we're mounted; a
       // document swap or scroll-away may have replaced it while the worker ran.
-      if (mounted && identical(_scene, warming)) _refreshTileGeometry();
-    });
+      if (mounted && identical(_scene, scene)) {
+        final tiling = _refreshTileGeometry();
+        PdfPerfLog.log(
+          'region-index route page=$pageIndex '
+          'gate=$_tilePathStatus tiling=$tiling',
+        );
+        // A fallback detail request may have started while the index was
+        // warming. Once tiles can cover this view, invalidate that generation
+        // so its multi-megapixel worker picture is dropped instead of rastered.
+        if (tiling) _renderSession.invalidateDetail();
+      }
+    } catch (error) {
+      PdfPerfLog.log(
+        'region-index failed page=$pageIndex '
+        'elapsed=${clock.elapsedMilliseconds}ms error=$error',
+      );
+    } finally {
+      if (identical(_regionIndexWarmScene, scene)) {
+        _regionIndexWarmScene = null;
+      }
+    }
   }
 
   /// Per-tile veto for the tile store while the scene is vector-only: a tile

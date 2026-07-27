@@ -14,9 +14,15 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     final store = PdfTileStore(tilePixels: 256, registerForMemoryPressure: false);
+    final oldRegionLimit = PdfRetainedScene.spatialRegionReplayMaxCommands;
+    // Force even this small fixture through the heavy/grid index gate. This
+    // reproduces the field-trace failure where _useTilePath stayed
+    // `index-warming` forever because the warm-up was hidden behind that gate.
+    PdfRetainedScene.spatialRegionReplayMaxCommands = 0;
     PdfPageView.tileStoreDetail = true;
     PdfPageView.debugTileStoreOverride = store;
     addTearDown(() {
+      PdfRetainedScene.spatialRegionReplayMaxCommands = oldRegionLimit;
       PdfPageView.tileStoreDetail = false;
       PdfPageView.debugTileStoreOverride = null;
       store.dispose();

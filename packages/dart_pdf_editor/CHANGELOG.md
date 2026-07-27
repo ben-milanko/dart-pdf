@@ -18,7 +18,9 @@
   accounting and memory-pressure cleanup, so multiple viewers share the
   coordinated host ceiling. Performance traces now report exact-raster policy,
   hit, miss, admission rejection, store, and budget-eviction events, while
-  cache diagnostics expose lifetime hit/miss/eviction counters.
+  cache diagnostics expose lifetime hit/miss/eviction counters. Dense
+  deep-zoom scenes now bootstrap their worker-built spatial index correctly
+  instead of remaining on repeated full-viewport detail rasters indefinitely.
 
 ## 3.1.0
 
