@@ -1582,6 +1582,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (_controller.selectedPage != widget.pageIndex) return null;
     final annotation = _controller.selectedAnnotation;
     if (annotation == null) return null;
+    // match _selectedViewRects: a text-markup's primary chrome hugs
+    // its first /QuadPoints quad so the rest of the quads line up
+    // against it (the callout branch keeps /Rect - the leader arrow
+    // lives outside the text box and the chrome must enclose it).
+    final quads = annotation.behavior.markupQuads;
+    if (quads != null && quads.isNotEmpty) {
+      return _geometry.toViewRect(quads.first);
+    }
     // a callout's chrome hugs the text box, not the /Rect that also
     // encloses the leader + arrow, so resize handles size the box alone
     return _geometry.toViewRect(annotation.calloutBox ?? annotation.rect);
@@ -1600,13 +1608,31 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   /// Every selected annotation's view rect on this page, in selection
   /// order (so the primary is last).
-  List<Rect> get _selectedViewRects => [
-        for (final slot in _controller.selectedAnnotationSlots)
-          if (slot.$1 == widget.pageIndex)
-            if (_controller.annotationAt(slot.$1, slot.$2)
-                case final annotation?)
-              _geometry.toViewRect(annotation.rect)
-      ];
+  ///
+  /// Text-markup annotations (Highlight / Underline / StrikeOut /
+  /// Squiggly) carry each colored run as its own /QuadPoints quad - a
+  /// highlight that wraps across a line break has one quad per line
+  /// and a /Rect that spans the gap between them. Paint one chrome
+  /// box per quad instead of one over the whole /Rect, so the chrome
+  /// hugs the user's color swatches and stops looking like it selects
+  /// the unmarked text in between.
+  List<Rect> get _selectedViewRects {
+    final result = <Rect>[];
+    for (final slot in _controller.selectedAnnotationSlots) {
+      if (slot.$1 != widget.pageIndex) continue;
+      final annotation = _controller.annotationAt(slot.$1, slot.$2);
+      if (annotation == null) continue;
+      final quads = annotation.behavior.markupQuads;
+      if (quads != null && quads.isNotEmpty) {
+        for (final q in quads) {
+          result.add(_geometry.toViewRect(q));
+        }
+      } else {
+        result.add(_geometry.toViewRect(annotation.rect));
+      }
+    }
+    return result;
+  }
 
   /// The primary selection's appearance quad in view space (BBox corner
   /// order: ll, lr, ur, ul), or null without an appearance stream.
@@ -5035,13 +5061,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             ? _moveCurrent! - _moveStart!
             : Offset.zero;
     // the rest of a multi-selection on this page: chrome boxes without
-    // handles, riding along with a move drag
+    // handles, riding along with a move drag. The primary chrome box
+    // (matching `selected`) is drawn separately by the painter; this
+    // list carries every other box - for text-markups the other
+    // /QuadPoints quads of the primary plus the full set of every
+    // other selected annotation.
     final allSelected = _selectedViewRects;
     final extraSelected = [
-      for (final rect in selected == null
-          ? allSelected
-          : allSelected.sublist(0, allSelected.length - 1))
-        rect.shift(moveDelta)
+      for (final rect in allSelected)
+        if (selected == null || rect != selected) rect.shift(moveDelta)
     ];
     final rotating = _rotateStartAngle != null;
     final dragging =

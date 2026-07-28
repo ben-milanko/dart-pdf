@@ -4195,6 +4195,19 @@ class PdfEditingController extends ChangeNotifier {
           !isAnnotationEditable(annotation)) {
         continue;
       }
+      // For text-markups (Highlight / Underline / StrikeOut /
+      // Squiggly) the click must land on a /QuadPoints quad - a
+      // markup's bounding /Rect spans every line of the marked text
+      // (including the gap at line breaks) and so swallows clicks
+      // meant for an annotation behind it. The quads are what the user
+      // sees as their color swatches; hit-test those, never /Rect.
+      final quads = annotation.behavior.markupQuads;
+      if (quads != null && quads.isNotEmpty) {
+        for (final q in quads) {
+          if (q.contains(x, y)) return (i, annotation);
+        }
+        continue;
+      }
       if (annotation.rect.contains(x, y)) return (i, annotation);
     }
     return null;
