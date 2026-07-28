@@ -112,7 +112,7 @@ jobs:
 
       # msstore.exe is framework-dependent (net9.0), so the runtime must be
       # present before publish-msix.ps1 runs it.
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@v6
         if: steps.gate.outputs.enabled == 'true'
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
