@@ -98,8 +98,9 @@ class PdfPageRenderSession {
             old.pageColor != next.pageColor ||
             old.showAnnotations != next.showAnnotations;
     final visualChanged = contentChanged || nonContentVisualChanged;
-    final viewportChanged = old.scale != next.scale ||
-        old.settleGeneration != next.settleGeneration;
+    final scaleChanged = old.scale != next.scale;
+    final viewportChanged =
+        scaleChanged || old.settleGeneration != next.settleGeneration;
     final pageSlotChanged = old.pageIndex != next.pageIndex;
     final schedule = blanked || visualChanged || viewportChanged;
 
@@ -108,8 +109,23 @@ class PdfPageRenderSession {
     // already-current page state. It does invalidate in-flight results so a
     // worker response cannot be accepted into the recycled slot.
     if (schedule || pageSlotChanged) {
-      invalidateFull();
+      // The DETAIL patch tracks the viewport, so every settle supersedes it.
       invalidateDetail();
+      // The full-page raster does not. It depends on content, display settings
+      // and resolution - none of which a settle at unchanged scale touches - so
+      // invalidating it here threw away completed, correct pixels: a raster
+      // that finished a few milliseconds after a settle bump was disposed
+      // unpainted and the page rasterized again from scratch. That is the
+      // duplicate the 2026-07-29 trace shows as `base-full page=0 ratio=1.4
+      // 1715x1213` at n=59, n=61 and n=63 inside one second, ~8MB and a full
+      // GPU readback apiece, with only the last one surviving to paint.
+      //
+      // A settle still SCHEDULES a render (scheduleRender below) - the detail
+      // patch needs one, and _renderNow re-rasters if the resolution really did
+      // move. It just no longer cancels work that was about to land.
+      if (blanked || visualChanged || scaleChanged || pageSlotChanged) {
+        invalidateFull();
+      }
     }
     if (!schedule) return PdfPageRenderTransition.none;
 

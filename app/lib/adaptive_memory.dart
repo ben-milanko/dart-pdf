@@ -217,6 +217,24 @@ class AdaptiveMemoryBudgetController with WidgetsBindingObserver {
   DateTime? _lastPressure;
   int? _pressureRegistryCap;
   bool _lowMemoryActive = false;
+  int? _lastRssBytes;
+
+  /// Share of process RSS the registered caches must hold before a pressure
+  /// event is allowed to shrink their ceiling for [pressureCooldown].
+  ///
+  /// Below this the caches are not what is consuming the process, and cutting
+  /// them is not a mitigation - it is a self-inflicted wound with a feedback
+  /// loop attached. The 2026-07-29 trace is the worked example: a low-memory
+  /// signal at ~1350MB RSS reclaimed 22MB (1.6%) from a registry holding 7MB,
+  /// halved the ceiling 140MB -> 70MB, and the pages whose rasters that ceiling
+  /// had been retaining promptly re-rasterized four more times - raising RSS,
+  /// arming the next sample, halving the ceiling again. The cache was never the
+  /// problem; the live rasters and worker buffers were, and those are what
+  /// [PdfLiveRasterBudget] governs.
+  ///
+  /// 5% is deliberately permissive: a registry genuinely holding hundreds of MB
+  /// clears it easily and still gets the old behaviour.
+  static const registryMaterialityPercent = 5;
 
   Future<void> start({bool periodic = true}) async {
     if (_started) return;
@@ -242,6 +260,10 @@ class AdaptiveMemoryBudgetController with WidgetsBindingObserver {
     try {
       final snapshot = await _probe() ?? const AppMemorySnapshot();
       if (!_started) return;
+      // Kept across the low-memory early-return below: [_applyPressure] needs a
+      // reading of the whole process to judge whether the caches it is about to
+      // punish are where the memory actually is.
+      _lastRssBytes = snapshot.processRssBytes ?? _lastRssBytes;
       if (snapshot.lowMemory) {
         if (!_lowMemoryActive) {
           _lowMemoryActive = true;
@@ -262,6 +284,7 @@ class AdaptiveMemoryBudgetController with WidgetsBindingObserver {
   @visibleForTesting
   void applySnapshot(AppMemorySnapshot snapshot) {
     final now = _clock();
+    _lastRssBytes = snapshot.processRssBytes ?? _lastRssBytes;
     if (_lastPressure != null &&
         now.difference(_lastPressure!) >= pressureCooldown) {
       _pressureRegistryCap = null;
@@ -332,35 +355,61 @@ class AdaptiveMemoryBudgetController with WidgetsBindingObserver {
     }
     _lastPressure = now;
     final currentRegistry = PdfCacheRegistry.instance.maxTotalWeight;
-    _pressureRegistryCap = math.max(
-      64 * _mb,
-      currentRegistry > 0 ? currentRegistry ~/ 2 : 64 * _mb,
-    );
+    // Measured BEFORE the clear below, which is what makes this a judgement
+    // about where the process's memory lives rather than a tautology.
+    final registryHeld = PdfCacheRegistry.instance.totalWeight;
+    final rss = _lastRssBytes;
+    final registryIsMaterial = rss == null || rss <= 0
+        ? true // no reading to judge by: keep the conservative old behaviour
+        : registryHeld * 100 >= rss * registryMaterialityPercent;
+
+    // Reclaim regardless: pressure is a hard signal and freeing what is
+    // reclaimable is always right. It is the LASTING half of the old response -
+    // the halved ceiling and halved page budget, both held for pressureCooldown
+    // - that is gated, because that half is what starves the cache into the
+    // re-raster loop when the memory was never in the cache to begin with.
     final freed = PdfCacheRegistry.instance.handleMemoryPressure();
     final liveFreed = PdfLiveRasterBudget.instance.evictReclaimable();
-    PdfCacheRegistry.instance.maxTotalWeight = _pressureRegistryCap!;
+    if (registryIsMaterial) {
+      _pressureRegistryCap = math.max(
+        64 * _mb,
+        currentRegistry > 0 ? currentRegistry ~/ 2 : 64 * _mb,
+      );
+      PdfCacheRegistry.instance.maxTotalWeight = _pressureRegistryCap!;
+    }
+    // Always halved: the live rasters ARE the process's large reconstructible
+    // allocation, so this is the lever that corresponds to the signal.
     PdfLiveRasterBudget.instance.maxBytes = math.max(
       32 * _mb,
       PdfLiveRasterBudget.instance.maxBytes ~/ 2,
     );
 
     final current = tools.pageRasterCachePolicy.value;
-    final bytes = current.maxBytes == 0
-        ? 0
-        : math.max(
-            platform == PdfPerformancePlatform.desktop ? 32 * _mb : 16 * _mb,
-            current.maxBytes ~/ 2,
-          );
+    final bytes = !registryIsMaterial
+        ? current.maxBytes
+        : current.maxBytes == 0
+            ? 0
+            : math.max(
+                platform == PdfPerformancePlatform.desktop
+                    ? 32 * _mb
+                    : 16 * _mb,
+                current.maxBytes ~/ 2,
+              );
+    final share = rss == null || rss <= 0 ? null : registryHeld * 100 ~/ rss;
+    final note = registryIsMaterial
+        ? ''
+        : '; caches held ${registryHeld >> 20}MB of ${rss >> 20}MB RSS '
+            '($share%), ceiling held';
     tools.updateAutoPageRasterCache(
       PdfPageRasterCachePolicy(
         maxBytes: bytes,
         maxEntryBytes: _entryLimitFor(bytes, platform),
       ),
-      reason: '$reason; ${freed + liveFreed >> 20}MB reclaimed',
+      reason: '$reason; ${freed + liveFreed >> 20}MB reclaimed$note',
       safeProcessLimitBytes: tools.safeProcessLimitBytes,
     );
     tools.addLog('memory-auto: $reason, reclaimed '
-        '${(freed + liveFreed) >> 20}MB; growth paused for '
+        '${(freed + liveFreed) >> 20}MB$note; growth paused for '
         '${pressureCooldown.inMinutes} min');
   }
 

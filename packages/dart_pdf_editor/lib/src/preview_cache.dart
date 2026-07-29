@@ -257,6 +257,20 @@ class PdfPagePreviewCache extends ChangeNotifier {
                         ? 'rotation'
                         : null;
     if (mismatch != null) {
+      // Drop it. A mismatched entry cannot serve this page at its current
+      // display geometry, and the caller's very next act is to rasterize and
+      // store the replacement - so retaining it only spends a scarce budget on
+      // pixels nothing can read. In the 2026-07-29 trace a page-0 raster stored
+      // at ratio 0.4 (429x304) sat in the cache producing `miss
+      // reason=dimensions` three times over 1.4s while the viewer, long since
+      // at ratio 1.4, re-rasterized the page from scratch each time.
+      //
+      // This costs a zoom-back-to-the-old-scale reuse in principle. It is not
+      // worth keeping: the entry survives only until the next store for this
+      // index replaces it anyway, and under the coordinated ceiling the cache
+      // holds single-digit entries, so one stale large raster displaces a
+      // live one.
+      _fullEntries.evict(index); // disposes the image
       _logFullRasterLookup('miss', index, reason: mismatch);
       return null;
     }

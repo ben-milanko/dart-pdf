@@ -99,6 +99,21 @@ void main() {
     expect(decision.pageRasterPolicy.maxBytes, lessThanOrEqualTo(256 * mb));
   });
 
+  // Gives the process-wide registry real occupancy, so a pressure event is
+  // judged against caches that are actually holding something. Without this the
+  // registry is empty and the controller (rightly) declines to punish it.
+  PdfBudgetedCache<int, int> heavyCache(int bytes) {
+    final cache = PdfBudgetedCache<int, int>(
+      weigher: (entry) => entry,
+      maxWeight: bytes * 8,
+      clearsUnderMemoryPressure: true, // what enrolls it in the registry
+      debugLabel: 'test-heavy',
+    );
+    cache.put(0, bytes);
+    addTearDown(cache.dispose);
+    return cache;
+  }
+
   test('pressure halves Auto immediately and rate-limits regrowth', () {
     var now = DateTime(2026, 7, 27, 12);
     final controller = AdaptiveMemoryBudgetController(
@@ -110,6 +125,9 @@ void main() {
       availableBytes: 40 * gb,
       processRssBytes: 400 * mb,
     );
+    // The caches hold half the process here, so cutting them is a real
+    // mitigation and the halving below is the right response.
+    heavyCache(200 * mb);
 
     controller.applySnapshot(roomy);
     final before = tools.pageRasterCachePolicy.value.maxBytes;
@@ -137,6 +155,46 @@ void main() {
       lessThanOrEqualTo(growthLimit),
       reason: 'one sample cannot jump straight back to 5 GB',
     );
+  });
+
+  test('pressure spares the caches when they are not where the memory is', () {
+    var now = DateTime(2026, 7, 27, 12);
+    final controller = AdaptiveMemoryBudgetController(
+      platform: PdfPerformancePlatform.desktop,
+      clock: () => now,
+    );
+    // 8MB of registered cache in a 1350MB process - the 2026-07-29 trace's
+    // proportions. Halving the ceiling there reclaims essentially nothing and
+    // costs every retained raster, so the pages re-rasterize, RSS climbs, the
+    // next sample halves it again. The memory is in live rasters and worker
+    // buffers, and those have their own budget.
+    heavyCache(8 * mb);
+    const tight = AppMemorySnapshot(
+      physicalBytes: 16 * gb,
+      availableBytes: 2 * gb,
+      processRssBytes: 1350 * mb,
+    );
+
+    controller.applySnapshot(tight);
+    final budgetBefore = tools.pageRasterCachePolicy.value.maxBytes;
+    final ceilingBefore = PdfCacheRegistry.instance.maxTotalWeight;
+    final liveBefore = PdfLiveRasterBudget.instance.maxBytes;
+
+    controller.didHaveMemoryPressure();
+
+    expect(tools.pageRasterCachePolicy.value.maxBytes, budgetBefore,
+        reason: 'a cache holding 0.5% of RSS is not the thing to cut');
+    expect(PdfLiveRasterBudget.instance.maxBytes, lessThan(liveBefore),
+        reason: 'the live rasters ARE the large reconstructible allocation');
+    expect(tools.pageRasterCacheReason, contains('ceiling held'));
+
+    // ...and the cooldown must not then freeze the budget at a starved value:
+    // with nothing cut, the next sample is free to track the machine again.
+    now = now.add(const Duration(minutes: 1));
+    controller.applySnapshot(tight);
+    expect(PdfCacheRegistry.instance.maxTotalWeight,
+        greaterThanOrEqualTo(ceilingBefore ~/ 2),
+        reason: 'no lasting pressure cap was installed');
   });
 
   test('a fixed page override still obeys the process safety ceiling', () {

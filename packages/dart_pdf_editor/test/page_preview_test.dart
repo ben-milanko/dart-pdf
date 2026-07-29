@@ -180,6 +180,52 @@ void main() {
         reason: 'lowering the entry limit drops oversized retained pages');
   });
 
+  testWidgets('a lookup at another geometry drops the entry it cannot use',
+      (tester) async {
+    final document = PdfDocument.open(buildMultiPagePdf(1));
+    final page = document.page(0);
+    final image = await PdfPageRenderer.renderImage(page, pixelRatio: 0.5);
+    addTearDown(image.dispose);
+    final bytes = image.width * image.height * 4;
+    final cache = PdfPagePreviewCache();
+    addTearDown(cache.dispose);
+
+    cache.configureFullRasterCache(PdfPageRasterCachePolicy(
+      maxBytes: bytes * 4,
+      maxEntryBytes: bytes,
+    ));
+    cache.putFullImage(
+      0,
+      page,
+      image,
+      pageColor: const Color(0xFFFFFFFF),
+      annotations: true,
+      rotation: null,
+    );
+    expect(cache.fullRasterCount, 1);
+
+    // The page is now displayed at a different resolution, so this raster can
+    // never satisfy a lookup again. Retaining it only spends a scarce budget on
+    // pixels nothing can read - the 2026-07-29 trace shows a ratio-0.4 entry
+    // producing `miss reason=dimensions` three times while the viewer, long
+    // since at ratio 1.4, re-rasterized the page from scratch each time.
+    expect(
+      cache.fullImageFor(
+        0,
+        page,
+        width: image.width * 2,
+        height: image.height * 2,
+        pageColor: const Color(0xFFFFFFFF),
+        annotations: true,
+        rotation: null,
+      ),
+      isNull,
+    );
+    expect(cache.fullRasterCount, 0,
+        reason: 'a mismatched entry is dropped, not left occupying budget');
+    expect(cache.fullRasterBytes, 0);
+  });
+
   testWidgets('visited-page raster perf trace explains cache decisions',
       (tester) async {
     final logs = <String>[];

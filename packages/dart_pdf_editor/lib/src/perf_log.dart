@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:pdf_cos/perf.dart';
@@ -124,9 +126,21 @@ class PdfPerfLog {
   /// which half costs it. Printed only when BOTH are non-null: the split is
   /// meaningless as a lone number, and call sites where decode and
   /// construction are fused pass neither.
+  ///
+  /// [progressiveMs] is the vector-first phase: the progressive paint that runs
+  /// BEFORE the interpret this line reports, and which the caller's clock spans.
+  /// It is reported because without it the line actively misleads. In the
+  /// 2026-07-29 trace `interpret page=2 … interpret=1224.2ms wait=109.0ms
+  /// build=132.8ms` left ~980ms unattributed, and that time was not interpreting
+  /// anything - it was a `vector-first-full` raster (793ms, logged two lines
+  /// earlier) plus a frame wait. Every such line under-attributed by 60-80%,
+  /// which is exactly the shape that sends someone optimizing the interpreter
+  /// when the cost is in the raster. With this phase printed,
+  /// `progressive + wait + build` accounts for [interpretMs].
   static void interpret(int page,
       {required String path,
       required double interpretMs,
+      double? progressiveMs,
       double? waitMs,
       double? buildMs,
       double? decodeMs,
@@ -139,6 +153,10 @@ class PdfPerfLog {
       String note = ''}) {
     if (!enabled) return;
     final raster = rasterMs == null ? '' : ' raster=${_ms(rasterMs)}';
+    // Printed even at zero: "this interpret ran no progressive phase" and "this
+    // build predates the split" must not read the same on a trace.
+    final progressive =
+        progressiveMs == null ? '' : ' progressive=${_ms(progressiveMs)}';
     final phases = (waitMs == null || buildMs == null)
         ? ''
         : ' wait=${_ms(waitMs)} build=${_ms(buildMs)}';
@@ -154,7 +172,8 @@ class PdfPerfLog {
             ' shaped=${textShapeMiss ?? 0} cached=${textShapeHit ?? 0}';
     final kind = first ? 'FIRST' : 're-raster';
     log('interpret page=$page path=$path $kind '
-        'interpret=${_ms(interpretMs)}$phases$buildSplit$shapeSplit$raster$note');
+        'interpret=${_ms(interpretMs)}$progressive$phases$buildSplit'
+        '$shapeSplit$raster$note');
   }
 
   static String _ms(double v) => '${v.toStringAsFixed(1)}ms';
@@ -190,6 +209,11 @@ class PdfPerfLog {
   /// be inferred from the gap between log timestamps, which is unmeasurable
   /// during the hangs this log exists to diagnose. Off unless the perf log is
   /// [enabled].
+  ///
+  /// [concurrency] is the peak number of rasters in flight alongside this one
+  /// (see [PdfRasterProbe]); 1 means it had the raster thread to itself.
+  /// Prefer [PdfRasterProbe.measure] over calling this directly - it supplies
+  /// both timings and cannot leak the in-flight count on a throwing rasterize.
   static void raster(
     String kind, {
     required int page,
@@ -197,19 +221,21 @@ class PdfPerfLog {
     required int imageHeight,
     double? ratio,
     double? elapsedMs,
+    int? concurrency,
     ({double width, double height})? region,
   }) {
     if (!enabled) return;
     final mp = (imageWidth * imageHeight) / 1e6;
     final ratioStr = ratio == null ? '' : ' ratio=${ratio.toStringAsFixed(1)}';
     final msStr = elapsedMs == null ? '' : ' ms=${elapsedMs.toStringAsFixed(1)}';
+    final concStr = concurrency == null ? '' : ' conc=$concurrency';
     final regionStr = region == null
         ? ' full'
         : ' region=${region.width.toStringAsFixed(0)}x'
             '${region.height.toStringAsFixed(0)}pt';
     log('raster kind=$kind page=$page n=${++_rasterSeq}$regionStr$ratioStr '
         'img=${imageWidth}x$imageHeight '
-        '(${mp.toStringAsFixed(1)}MP)$msStr${rssSuffix()}');
+        '(${mp.toStringAsFixed(1)}MP)$msStr$concStr${rssSuffix()}');
   }
 
   static void _onTimings(List<FrameTiming> timings) {
@@ -246,5 +272,102 @@ class PdfPerfLog {
       } catch (_) {}
     }
     _buf.clear();
+  }
+}
+
+/// Measures one rasterize call: its wall duration AND how many rasters were in
+/// flight alongside it.
+///
+/// `ms=` on a raster line is queue-inclusive and always has been: `toImage`
+/// awaits the raster thread, and the render scheduler deliberately starts page
+/// renders without awaiting them (see `render_scheduler.dart`), so several
+/// pages rasterize concurrently and each one's measured duration absorbs the
+/// others' queue time. Read without that context the number lies outright. In
+/// the 2026-07-29 trace three 0.1MP rasters that started together reported
+/// 4692ms, 3461ms and 2731ms - a 0.1MP readback is not 4.7 seconds of work,
+/// they were serializing behind each other - and one page at one ratio measured
+/// 138.8ms uncontended against 2299.4ms contended, a 16x spread over identical
+/// pixels. `conc=` is what separates "this raster is expensive" from "this
+/// raster waited": at `conc=1` the duration is the work, above it the duration
+/// is mostly queue.
+///
+/// The count is peak-over-lifetime rather than depth-at-start, because a raster
+/// that begins alone and is then joined by three others waits just as long as
+/// one that started fourth.
+class PdfRasterProbe {
+  PdfRasterProbe._();
+
+  /// Probes currently timing a rasterize. Only ever non-empty while the perf
+  /// log is on: [measure] takes the untimed path otherwise, so an ordinary run
+  /// allocates nothing here.
+  static final List<PdfRasterProbe> _live = <PdfRasterProbe>[];
+
+  final Stopwatch _clock = Stopwatch()..start();
+  int _peak = 1;
+
+  /// Duration of the rasterize so far, in milliseconds.
+  double get elapsedMs => _clock.elapsedMicroseconds / 1000.0;
+
+  /// Peak rasters in flight during this one's lifetime (1 = uncontended).
+  int get peakConcurrency => _peak;
+
+  /// Rasters in flight right now - test/diagnostic hook. A leak here would
+  /// inflate every later `conc=`, so it is asserted against directly.
+  @visibleForTesting
+  static int get debugInFlight => _live.length;
+
+  static PdfRasterProbe _start() {
+    final probe = PdfRasterProbe._();
+    _live.add(probe);
+    final depth = _live.length;
+    // Every probe still running was contended by this one arriving, so the
+    // whole live set takes the new depth - not just the probe starting now.
+    for (final live in _live) {
+      if (depth > live._peak) live._peak = depth;
+    }
+    return probe;
+  }
+
+  void _end() {
+    _clock.stop();
+    _live.remove(this);
+  }
+
+  /// Runs [rasterize], logs the resulting image through [PdfPerfLog.raster]
+  /// with its duration and peak concurrency, and returns it.
+  ///
+  /// Start this AFTER any await that is not itself rasterization (a worker
+  /// strip-plan round trip, say): attributing that queue wait to the raster
+  /// corrupts the one number this exists to report. Compiles away to a bare
+  /// call to [rasterize] while the log is off.
+  ///
+  /// A throwing [rasterize] propagates unchanged and is not logged - but the
+  /// probe is still retired, so a failed raster cannot inflate `conc=` for the
+  /// rest of the session.
+  static Future<ui.Image> measure(
+    String kind, {
+    required int page,
+    required Future<ui.Image> Function() rasterize,
+    double? ratio,
+    ({double width, double height})? region,
+  }) async {
+    if (!PdfPerfLog.enabled) return rasterize();
+    final probe = _start();
+    try {
+      final image = await rasterize();
+      PdfPerfLog.raster(
+        kind,
+        page: page,
+        imageWidth: image.width,
+        imageHeight: image.height,
+        ratio: ratio,
+        elapsedMs: probe.elapsedMs,
+        concurrency: probe.peakConcurrency,
+        region: region,
+      );
+      return image;
+    } finally {
+      probe._end();
+    }
   }
 }
