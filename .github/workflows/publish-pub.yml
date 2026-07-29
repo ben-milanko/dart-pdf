@@ -197,7 +197,7 @@ jobs:
           persist-credentials: false
       # Provision pub.dev's OIDC token before Flutter's SDK shadows `dart`;
       # this is the ordering used by dart-lang/setup-dart's publish workflow.
-      - uses: dart-lang/setup-dart@e51d8e571e22473a2ddebf0ef8a2123f0ab2c02c
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: 3.44.8
