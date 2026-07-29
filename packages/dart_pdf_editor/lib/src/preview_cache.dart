@@ -433,6 +433,11 @@ class PdfPagePreviewCache extends ChangeNotifier {
           await Future<void>.delayed(const Duration(milliseconds: 50));
         }
         if (_disposed) break;
+        // The queue can be emptied *while* we wait above - a document swap
+        // (clear) or a host wiping the tier (clearPersistentFullRasters).
+        // Re-check before indexing, or the drain throws RangeError into the
+        // zone as an unhandled async error.
+        if (_pendingFullWrites.isEmpty) continue;
         final pending = _pendingFullWrites.removeAt(0);
         if (deferrals >= _maxFullWriteDeferrals) {
           // Still contended after seconds of scrolling. Drop it rather than

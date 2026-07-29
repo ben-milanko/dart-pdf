@@ -41,6 +41,39 @@ Future<ui.Image> solidImage(int width, int height, Color color) async {
   }
 }
 
+/// A disk cache whose own methods throw, rather than a store whose failures
+/// [PdfDiskCache] already swallows. This is the belt-and-braces path: a
+/// backend that breaks its contract by throwing out of the Future itself.
+class _ThrowingDiskCache extends PdfDiskCache {
+  _ThrowingDiskCache()
+      : super(PdfMemoryCacheStore(), namespace: 'page-rasters');
+
+  @override
+  Future<Uint8List?> read(String key) =>
+      Future.error(StateError('read blew up'));
+
+  @override
+  Future<void> write(String key, Uint8List bytes) =>
+      Future.error(StateError('write blew up'));
+}
+
+/// Wraps [payload] in the `PRAS` container header the cache writes, letting a
+/// test forge a header that disagrees with its own body.
+Uint8List frame(Uint8List payload,
+    {required int width, required int height, int format = 0, int version = 1}) {
+  final out = Uint8List(20 + payload.length);
+  final header = ByteData.sublistView(out, 0, 20);
+  header.setUint32(0, 0x50524153); // 'PRAS'
+  header.setUint8(4, version);
+  header.setUint8(5, format);
+  header.setUint16(6, 0);
+  header.setUint32(8, width);
+  header.setUint32(12, height);
+  header.setUint32(16, payload.length);
+  out.setRange(20, out.length, payload);
+  return out;
+}
+
 /// A store that fails every operation - the "storage quota is full" / "backend
 /// threw" shape.
 class _FailingStore implements PdfCacheStore {
@@ -146,6 +179,28 @@ void main() {
           expect(stats.errors, 0);
           expect(stats.bytesWritten, greaterThan(0));
           expect(stats.bytesRead, greaterThan(0));
+
+          // Latency diagnostics: totals accumulate and the means divide by the
+          // right denominator (stores for encode, hits for decode).
+          expect(stats.encodeMicros, greaterThan(0));
+          expect(stats.decodeMicros, greaterThan(0));
+          expect(stats.meanEncodeMicros, stats.encodeMicros / stats.stores);
+          expect(stats.meanDecodeMicros, stats.decodeMicros / stats.hits);
+          expect(stats.toString(), contains('hits=1'));
+
+          stats.reset();
+          expect(stats.hits, 0);
+          expect(stats.misses, 0);
+          expect(stats.stores, 0);
+          expect(stats.rejects, 0);
+          expect(stats.errors, 0);
+          expect(stats.bytesRead, 0);
+          expect(stats.bytesWritten, 0);
+          expect(stats.encodeMicros, 0);
+          expect(stats.decodeMicros, 0);
+          // the means fall back to 0 rather than dividing by zero
+          expect(stats.meanEncodeMicros, 0);
+          expect(stats.meanDecodeMicros, 0);
         });
       });
     }
@@ -244,21 +299,82 @@ void main() {
             annotations: true,
             rotation: null);
 
-        // Truncate the stored bytes behind the cache's back, exactly as a
+        final original = await cache.readFullRasterBytes(0,
+            width: 12, height: 9);
+        expect(original, isNotNull, reason: 'the raw-bytes hook reads back');
+
+        // Rewrite the stored bytes behind the cache's back, exactly as a
         // half-written file or an interrupted IndexedDB transaction would.
         final keys = await store.keys();
         final payloadKey =
             keys.firstWhere((k) => k.startsWith('page-rasters/d/'));
-        final original = (await store.read(payloadKey))!;
-        await store.write(payloadKey, original.sublist(0, 10));
-        expect(await load(), isNull, reason: 'truncated');
+        Future<void> poison(Uint8List bytes) => store.write(payloadKey, bytes);
 
-        // Garbage of the right length is rejected too (the magic is wrong).
-        await store.write(payloadKey, Uint8List(original.length));
+        await poison(original!.sublist(0, 10));
+        expect(await load(), isNull, reason: 'truncated below the header');
+
+        await poison(Uint8List(original.length));
         expect(await load(), isNull, reason: 'wrong magic');
 
-        expect(cache.fullRasterStats.errors, greaterThanOrEqualTo(2));
+        // A well-formed header whose declared payload length disagrees with
+        // the bytes present.
+        await poison(frame(Uint8List(4), width: 12, height: 9)..[19] = 99);
+        expect(await load(), isNull, reason: 'payload length disagrees');
+
+        // A well-formed header wrapping a body that is not an image at all -
+        // the decoder throws rather than returning null.
+        await poison(frame(Uint8List.fromList(List.filled(64, 0x7f)),
+            width: 12, height: 9));
+        expect(await load(), isNull, reason: 'undecodable body');
+
+        // The nastiest case: a valid PNG of the WRONG size behind a header
+        // that claims the right one - i.e. the store handed back another
+        // entry's bytes. The post-decode dimension check is the last guard
+        // between that and a page drawn at the wrong size.
+        final wrongSize = await solidImage(20, 10, const Color(0xFF223344));
+        final wrongPng =
+            await wrongSize.toByteData(format: ui.ImageByteFormat.png);
+        wrongSize.dispose();
+        await poison(frame(
+            wrongPng!.buffer
+                .asUint8List(wrongPng.offsetInBytes, wrongPng.lengthInBytes),
+            width: 12,
+            height: 9));
+        expect(await load(), isNull, reason: 'decoded size disagrees');
+
+        expect(cache.fullRasterStats.errors, 5);
         expect(cache.fullRasterStats.hits, 0);
+      });
+    });
+
+    testWidgets('a disk cache that throws is caught, not propagated',
+        (tester) async {
+      // PdfDiskCache swallows backend failures itself, so this covers the
+      // outer guard: a cache implementation that breaks that contract.
+      await tester.runAsync(() async {
+        final cache = PdfRasterCache(
+          PdfDiskCache(PdfMemoryCacheStore()),
+          fullRasters: _ThrowingDiskCache(),
+        ).forDocument('doc-1');
+
+        final image = await solidImage(8, 8, const Color(0xFF010203));
+        await cache.storeFullRaster(0, image,
+            pageColor: 0xFFFFFFFF, annotations: true, rotation: null);
+        image.dispose();
+
+        expect(
+          await cache.loadFullRaster(0,
+              width: 8,
+              height: 8,
+              pageColor: 0xFFFFFFFF,
+              annotations: true,
+              rotation: null),
+          isNull,
+        );
+        // one error from the throwing write, one from the throwing read
+        expect(cache.fullRasterStats.errors, 2);
+        expect(cache.fullRasterStats.misses, 1);
+        expect(cache.fullRasterStats.stores, 0);
       });
     });
 
@@ -551,6 +667,178 @@ void main() {
         expect(raster.fullRasterStats.stores, 1);
       });
       addTearDown(cache.dispose);
+    });
+
+    testWidgets('clearPersistentFullRasters empties the tier and the queue',
+        (tester) async {
+      // Hosts must be able to wipe this: page rasters are pixel-exact copies
+      // of document content, and a PDF may hold material a user needs gone.
+      // A queued-but-unwritten raster has to go too, or the wipe leaks.
+      final document = PdfDocument.open(buildMultiPagePdf(1));
+      final page = document.page(0);
+      late PdfPagePreviewCache cache;
+
+      await tester.runAsync(() async {
+        final raster = _buildCache(PdfMemoryCacheStore());
+        var busy = false;
+        cache = PdfPagePreviewCache()
+          ..disk = raster
+          ..deferBackgroundIo = () => busy;
+
+        final first = await solidImage(24, 24, const Color(0xFF010101));
+        cache.putFullImage(0, page, first,
+            pageColor: const Color(0xFFFFFFFF),
+            annotations: true,
+            rotation: null);
+        first.dispose();
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+        expect(raster.fullRasterStats.stores, 1);
+        expect(await raster.fullRasters!.debugLength, 1);
+
+        // A second raster queues behind a busy viewer and is still pending.
+        busy = true;
+        final second = await solidImage(24, 24, const Color(0xFF020202));
+        cache.putFullImage(1, page, second,
+            pageColor: const Color(0xFFFFFFFF),
+            annotations: true,
+            rotation: null);
+        second.dispose();
+
+        await cache.clearPersistentFullRasters();
+        expect(await raster.fullRasters!.debugLength, 0,
+            reason: 'the stored raster is gone');
+
+        busy = false;
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+        expect(raster.fullRasterStats.stores, 1,
+            reason: 'the queued raster was dropped, not written after the wipe');
+        expect(await raster.fullRasters!.debugLength, 0);
+      });
+      addTearDown(cache.dispose);
+    });
+
+    testWidgets('the pending write queue is bounded', (tester) async {
+      // Each queued write holds a clone of a page-sized raster. A viewer that
+      // stays busy while pages stream past must not pin an unbounded number of
+      // them - the oldest are dropped, newest kept.
+      final document = PdfDocument.open(buildMultiPagePdf(4));
+      final page = document.page(0);
+      late PdfPagePreviewCache cache;
+
+      await tester.runAsync(() async {
+        final raster = _buildCache(PdfMemoryCacheStore());
+        var busy = true;
+        cache = PdfPagePreviewCache()
+          ..disk = raster
+          ..deferBackgroundIo = () => busy;
+
+        // Four distinct pages queue behind a busy viewer; the cap is two.
+        for (var index = 0; index < 4; index++) {
+          final image =
+              await solidImage(20 + index, 20, const Color(0xFF334455));
+          cache.putFullImage(index, page, image,
+              pageColor: const Color(0xFFFFFFFF),
+              annotations: true,
+              rotation: null);
+          image.dispose();
+        }
+        busy = false;
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+
+        expect(raster.fullRasterStats.stores, 2,
+            reason: 'the queue holds at most two pending writes');
+        // The two newest survived; the two oldest were dropped.
+        for (final index in const [2, 3]) {
+          final kept = await raster.loadFullRaster(index,
+              width: 20 + index,
+              height: 20,
+              pageColor: 0xFFFFFFFF,
+              annotations: true,
+              rotation: null);
+          expect(kept, isNotNull, reason: 'page $index is one of the newest');
+          kept!.dispose();
+        }
+        for (final index in const [0, 1]) {
+          expect(
+            await raster.loadFullRaster(index,
+                width: 20 + index,
+                height: 20,
+                pageColor: 0xFFFFFFFF,
+                annotations: true,
+                rotation: null),
+            isNull,
+            reason: 'page $index was dropped from the queue',
+          );
+        }
+      });
+      addTearDown(cache.dispose);
+    });
+
+    testWidgets('a write contended for too long is dropped, not held',
+        (tester) async {
+      // The safety valve: ~3s of sustained foreground work and the queued
+      // clone is released rather than pinned or forced through at the
+      // expense of the page the user is looking at. The page re-queues when
+      // the view settles.
+      final document = PdfDocument.open(buildMultiPagePdf(1));
+      final page = document.page(0);
+      late PdfPagePreviewCache cache;
+
+      await tester.runAsync(() async {
+        final raster = _buildCache(PdfMemoryCacheStore());
+        var busy = true;
+        cache = PdfPagePreviewCache()
+          ..disk = raster
+          ..deferBackgroundIo = () => busy;
+
+        final image = await solidImage(24, 24, const Color(0xFF667788));
+        cache.putFullImage(0, page, image,
+            pageColor: const Color(0xFFFFFFFF),
+            annotations: true,
+            rotation: null);
+        image.dispose();
+
+        // 60 deferrals x 50ms, plus slack for a loaded CI runner.
+        await Future<void>.delayed(const Duration(milliseconds: 4000));
+        expect(raster.fullRasterStats.stores, 0);
+
+        busy = false;
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+        expect(raster.fullRasterStats.stores, 0,
+            reason: 'the contended write was dropped, not merely postponed');
+      });
+      addTearDown(cache.dispose);
+    }, timeout: const Timeout(Duration(seconds: 60)));
+
+    testWidgets('disposing mid-load releases the decoded raster',
+        (tester) async {
+      final document = PdfDocument.open(buildMultiPagePdf(1));
+      final page = document.page(0);
+
+      await tester.runAsync(() async {
+        final raster = _buildCache(PdfMemoryCacheStore());
+        final writer = PdfPagePreviewCache()..disk = raster;
+        final image = await solidImage(28, 28, const Color(0xFFAABBCC));
+        writer.putFullImage(0, page, image,
+            pageColor: const Color(0xFFFFFFFF),
+            annotations: true,
+            rotation: null);
+        image.dispose();
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+        writer.dispose();
+
+        final reader = PdfPagePreviewCache()..disk = raster;
+        final pending = reader.loadFullFromDisk(0, page,
+            width: 28,
+            height: 28,
+            pageColor: const Color(0xFFFFFFFF),
+            annotations: true,
+            rotation: null);
+        // the viewer is torn down while the read/decode is in flight
+        reader.dispose();
+        expect(await pending, isNull,
+            reason: 'a disposed cache hands back nothing to paint');
+      });
     });
 
     testWidgets('only the newest raster for a page is queued', (tester) async {
