@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.2.0
+
+- Improve FreeText callout interoperability: recognize third-party callouts
+  from their `/CL` geometry when `/IT` is missing or private, and clamp
+  malformed or negative `/RD` insets to a usable callout text box (#621).
+
 ## 3.1.1
 
 - Lockstep patch release to align the dart-pdf package suite at 3.1.1. No

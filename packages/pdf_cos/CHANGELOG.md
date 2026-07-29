@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.2.0
+
+- Lockstep minor release to align the dart-pdf package suite at 3.2.0. No
+  public `pdf_cos` API changes since 3.1.1.
+
 ## 3.1.1
 
 - Lockstep patch release to align the dart-pdf package suite at 3.1.1. No

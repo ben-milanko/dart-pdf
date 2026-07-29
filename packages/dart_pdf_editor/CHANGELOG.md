@@ -22,15 +22,8 @@
   belonging to a superseded document revision are dropped on sight.
 
 ## 3.1.1
+## 3.2.0
 
-- Fix intermittent frame drops while scrolling large or visually dense
-  documents. Page recording and raster work now keep the frame scheduler
-  awake between cooperative slices, visible thumbnails yield to page renders,
-  and repeated wheel events retain the low-resolution preview cache until the
-  gesture has genuinely settled.
-- Bound speculative thumbnail warming on web and add command budgets to vector
-  thumbnail previews, keeping long documents responsive without blanking pages
-  during fast scrolling.
 - Add `PdfPageRasterCachePolicy` to configure the in-memory byte budget and
   per-page limit for exact rasters of previously visited pages. The existing
   32 MiB total / 16 MiB per-page defaults are unchanged; `PdfViewer`,
@@ -44,6 +37,33 @@
   instead of remaining on repeated full-viewport detail rasters indefinitely;
   the capped base remains visible during that warm-up rather than launching an
   obsolete fallback record, and traces split tile replay/raster/slicing costs.
+- Stop redundant full-page and detail rasters after unchanged-scale settles,
+  discard unusable visited-page cache entries, and avoid making
+  memory-pressure cache caps persistent when caches hold little of the process
+  RSS. Trace output now distinguishes progressive phases and reports raster
+  concurrency and render-hold state accurately (#628).
+- Add host-owned context menus. `PdfViewer`, `PdfReader`, and `PdfEditorView`
+  accept `onContextMenuRequested`; with the stock menu disabled, a
+  `PdfContextMenuRequest` reports the resolved text, annotation, locked
+  annotation, form widget, or empty-page paste target for mouse and touch
+  gestures (#538).
+- Hit-test and draw selection chrome for Highlight, Underline, StrikeOut, and
+  Squiggly annotations from their `/QuadPoints` quads instead of the enclosing
+  `/Rect`, so gaps between marked lines no longer steal clicks or show as
+  selected (#627).
+- Keep Ctrl/Cmd-wheel zoom available after a Shift-constrained drawing gesture
+  has latched its axis (#624).
+
+## 3.1.1
+
+- Fix intermittent frame drops while scrolling large or visually dense
+  documents. Page recording and raster work now keep the frame scheduler
+  awake between cooperative slices, visible thumbnails yield to page renders,
+  and repeated wheel events retain the low-resolution preview cache until the
+  gesture has genuinely settled.
+- Bound speculative thumbnail warming on web and add command budgets to vector
+  thumbnail previews, keeping long documents responsive without blanking pages
+  during fast scrolling.
 
 ## 3.1.0
 
