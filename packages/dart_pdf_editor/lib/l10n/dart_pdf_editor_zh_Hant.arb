@@ -185,6 +185,7 @@
   "propColor": "顏色",
   "propColour": "顏色",
   "propContents": "內容",
+  "propCornerRadius": "圓角半徑",
   "propEditsApplyToAll": "編輯會套用至所有相容的註解",
   "propFieldName": "欄位名稱",
   "propFieldTypeCheckBox": "核取方塊",

@@ -561,6 +561,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get propContents => 'เนื้อหา';
 
   @override
+  String get propCornerRadius => 'รัศมีมุม';
+
+  @override
   String get propEditsApplyToAll =>
       'การแก้ไขมีผลกับคำอธิบายประกอบที่เข้ากันได้ทั้งหมด';
 

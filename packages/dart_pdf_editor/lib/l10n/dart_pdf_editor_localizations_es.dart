@@ -564,6 +564,9 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   String get propContents => 'Contenido';
 
   @override
+  String get propCornerRadius => 'Radio de esquina';
+
+  @override
   String get propEditsApplyToAll =>
       'Los cambios se aplican a todas las anotaciones compatibles';
 

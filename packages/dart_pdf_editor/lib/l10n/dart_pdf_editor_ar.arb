@@ -185,6 +185,7 @@
   "propColor": "اللون",
   "propColour": "اللون",
   "propContents": "المحتويات",
+  "propCornerRadius": "نصف قطر الزاوية",
   "propEditsApplyToAll": "تنطبق التعديلات على جميع التعليقات التوضيحية المتوافقة",
   "propFieldName": "اسم الحقل",
   "propFieldTypeCheckBox": "مربع اختيار",

@@ -185,6 +185,7 @@
   "propColor": "Kleur",
   "propColour": "Kleur",
   "propContents": "Inhoud",
+  "propCornerRadius": "Hoekradius",
   "propEditsApplyToAll": "Bewerkingen gelden voor alle compatibele annotaties",
   "propFieldName": "Veldnaam",
   "propFieldTypeCheckBox": "Selectievakje",
