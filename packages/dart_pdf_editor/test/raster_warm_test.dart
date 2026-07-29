@@ -214,6 +214,55 @@ void main() {
         reason: 'the settle restarts the pass');
   });
 
+  testWidgets('changing either policy on a mounted viewer re-arms the pass',
+      (tester) async {
+    // The app's Developer-tools selector does exactly this: flips the policy on
+    // a viewer that is already showing a document. Both levers have to take
+    // effect without reopening it - and a raised cache budget has to re-offer
+    // pages the warm previously declined as inadmissible.
+    final document = PdfDocument.open(buildMultiPagePdf(8));
+    final controller = PdfViewerController();
+    addTearDown(controller.dispose);
+
+    const tiny = PdfPageRasterCachePolicy(
+      maxBytes: 64 * 1024,
+      maxEntryBytes: 64 * 1024,
+    );
+    const roomy = PdfPageRasterCachePolicy(
+      maxBytes: 512 * 1024 * 1024,
+      maxEntryBytes: 64 * 1024 * 1024,
+    );
+
+    // Warming off: nothing happens, however long the viewer idles.
+    await tester.pumpWidget(viewer(document, controller,
+        warm: const PdfPageRasterWarmPolicy.disabled(), cache: roomy));
+    await tester.pump();
+    for (var i = 0; i < 10; i++) {
+      await settle(tester);
+    }
+    expect(controller.pageRasterWarmStats!.attempts, 0);
+
+    // Turn it on, but with a budget that cannot admit a page raster: the warm
+    // now runs and declines rather than staying silent.
+    await tester.pumpWidget(viewer(document, controller,
+        warm: const PdfPageRasterWarmPolicy.document(idleDelay: eager),
+        cache: tiny));
+    await pumpUntil(
+        tester, () => (controller.pageRasterWarmStats?.rejected ?? 0) > 0);
+    expect(controller.pageRasterWarmStats!.rejected, greaterThan(0));
+    expect(controller.pageRasterWarmStats!.completions, 0);
+
+    // Raise the budget on the same mounted viewer. Pages written off as
+    // inadmissible have to be reconsidered, not left written off.
+    await tester.pumpWidget(viewer(document, controller,
+        warm: const PdfPageRasterWarmPolicy.document(idleDelay: eager),
+        cache: roomy));
+    await pumpUntil(
+        tester, () => (controller.pageRasterWarmStats?.completions ?? 0) > 0);
+    expect(controller.pageRasterWarmStats!.completions, greaterThan(0),
+        reason: 'a raised budget re-offers pages the warm had declined');
+  });
+
   testWidgets('a warm respects the byte budget and evicts under it',
       (tester) async {
     final document = PdfDocument.open(buildMultiPagePdf(12));
