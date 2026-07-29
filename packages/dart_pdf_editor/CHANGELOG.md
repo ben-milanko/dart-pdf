@@ -19,9 +19,12 @@
   rather than by page index alone, so warming or visiting one size no longer
   overwrites a useful raster at another. Up to two geometries per page are
   retained, bounded by the same `PdfPageRasterCachePolicy` byte budget; rasters
-  belonging to a superseded document revision are dropped on sight.
+  belonging to a superseded document revision are dropped on sight. This
+  supersedes 3.2.0's "discard unusable visited-page cache entries": a lookup at
+  another geometry is now a plain miss that leaves the raster it did not ask
+  for alone, because that raster is exactly what a zoom back to fit — or the
+  idle warm — needs.
 
-## 3.1.1
 ## 3.2.0
 
 - Add `PdfPageRasterCachePolicy` to configure the in-memory byte budget and
