@@ -170,6 +170,14 @@ policy.
 - `loadFullFromDisk` calls the private `_admitFullImage`, not `putFullImage`,
   so a restore does not immediately write itself back to the store it just came
   from.
+- **The drain loop must re-check its own queue after every await.** It waits
+  on `deferBackgroundIo` between taking work items, and `clear()` (a document
+  swap) or `clearPersistentFullRasters()` (a host wiping the tier) can empty
+  the queue *during* that wait. The first version checked `isNotEmpty` at the
+  top of the loop and then indexed after the await, so a wipe landing mid-defer
+  threw `RangeError` into the zone as an unhandled async error. Found by the
+  coverage pass, not by the original tests - the path was uncovered precisely
+  because it needed a wipe to race a deferred write.
 - Physical size is in the key, so one page zoomed through several levels
   occupies several entries. That is correct (each is a different raster) and
   the LRU absorbs it, but it means the useful budget for a document is "pages x
