@@ -9,6 +9,7 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 void main() {
@@ -240,6 +241,220 @@ void main() {
     }
   });
 
+  group('warmFullRaster guards', () {
+    // The unit of work, driven directly. The viewer-level tests above prove the
+    // pass runs and stands down; these prove the individual guards inside it,
+    // each of which is a promise the policy's documentation makes.
+    late PdfDocument document;
+    late PdfPage page;
+    late PdfPagePreviewCache cache;
+
+    ({double ratio, PdfPageRasterSignature signature}) target(
+        {int index = 0, double ratio = 0.4}) {
+      final size = PdfPageRenderer.pageSize(page);
+      final dimensions = PdfPageRasterGeometry.dimensions(size, ratio);
+      return (
+        ratio: ratio,
+        signature: PdfPageRasterSignature(
+          pageIndex: index,
+          width: dimensions.$1,
+          height: dimensions.$2,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          rotation: null,
+        ),
+      );
+    }
+
+    setUp(() {
+      document = PdfDocument.open(buildMultiPagePdf(2));
+      page = document.page(0);
+      cache = PdfPagePreviewCache()
+        ..configureFullRasterCache(const PdfPageRasterCachePolicy(
+          maxBytes: 64 * 1024 * 1024,
+          maxEntryBytes: 64 * 1024 * 1024,
+        ));
+    });
+
+    tearDown(() => cache.dispose());
+
+    testWidgets('an already-cached page is skipped without re-rendering',
+        (tester) async {
+      final t = target();
+      await tester.runAsync(() async {
+        expect(
+          await cache.warmFullRaster(0, page,
+              signature: t.signature, pixelRatio: t.ratio),
+          isTrue,
+        );
+        // Asking again must not repeat the interpret + readback. The skip uses
+        // a pure peek, so it also must not move the hit/miss counters.
+        final before = cache.warmStats;
+        expect(
+          await cache.warmFullRaster(0, page,
+              signature: t.signature, pixelRatio: t.ratio),
+          isFalse,
+        );
+        final after = cache.warmStats;
+        expect(after.skipped, before.skipped + 1);
+        expect(after.attempts, before.attempts,
+            reason: 'a skip is not an attempt');
+        expect(after.hits, before.hits,
+            reason: 'the skip check is a peek, not a lookup');
+        expect(after.misses, before.misses);
+      });
+    });
+
+    testWidgets('shouldStop mid-warm abandons the page and stores nothing',
+        (tester) async {
+      final t = target();
+      await tester.runAsync(() async {
+        // Idle for the admission check, then not idle by the time the first
+        // await returns - the shape a scroll starting mid-warm produces.
+        var calls = 0;
+        final stored = await cache.warmFullRaster(
+          0,
+          page,
+          signature: t.signature,
+          pixelRatio: t.ratio,
+          shouldStop: () => calls++ > 0,
+        );
+        expect(stored, isFalse);
+        expect(cache.warmStats.preempted, greaterThan(0));
+        expect(cache.warmStats.completions, 0);
+        expect(cache.fullRasterCount, 0,
+            reason: 'an abandoned warm leaves nothing behind');
+      });
+    });
+
+    testWidgets('a preempt before any work is not counted as an attempt',
+        (tester) async {
+      final t = target();
+      await tester.runAsync(() async {
+        expect(
+          await cache.warmFullRaster(0, page,
+              signature: t.signature,
+              pixelRatio: t.ratio,
+              shouldStop: () => true),
+          isFalse,
+        );
+        expect(cache.warmStats.attempts, 0,
+            reason: 'nothing was interpreted, so nothing was attempted');
+      });
+    });
+
+    testWidgets('the worker path produces the same raster as the local one',
+        (tester) async {
+      final t = target();
+      await tester.runAsync(() async {
+        final worker = _RecordingWorker(page);
+        final stored = await cache.warmFullRaster(0, page,
+            signature: t.signature, pixelRatio: t.ratio, worker: worker);
+        expect(stored, isTrue);
+        expect(worker.recorded, isNotEmpty,
+            reason: 'the warm offloads the interpreter walk when it can');
+        expect(worker.priorities.every((p) => p >= 4), isTrue,
+            reason: 'warm records rank behind every foreground request');
+        expect(cache.hasFullRaster(t.signature, page), isTrue);
+      });
+    });
+
+    testWidgets('a worker that declines falls back to a local walk',
+        (tester) async {
+      final t = target();
+      await tester.runAsync(() async {
+        final worker = _DecliningWorker();
+        expect(
+          await cache.warmFullRaster(0, page,
+              signature: t.signature, pixelRatio: t.ratio, worker: worker),
+          isTrue,
+          reason: 'the local walk is the cost being moved into idle time, so '
+              'a declined record must not abandon the warm',
+        );
+      });
+    });
+
+    testWidgets('a preempt after the picture is built still stores nothing',
+        (tester) async {
+      final t = target();
+      await tester.runAsync(() async {
+        // False through the admission and post-record gates, true at the gate
+        // that guards the readback - a scroll starting while the interpreter
+        // walk was in flight.
+        var calls = 0;
+        expect(
+          await cache.warmFullRaster(
+            0,
+            page,
+            signature: t.signature,
+            pixelRatio: t.ratio,
+            shouldStop: () => calls++ >= 2,
+          ),
+          isFalse,
+        );
+        expect(cache.warmStats.preempted, greaterThan(0));
+        expect(cache.fullRasterCount, 0);
+      });
+    });
+
+    testWidgets('an edit that changes a page drops its warmed raster',
+        (tester) async {
+      // The issue's hard requirement: a destructive edit (a redaction burn)
+      // must never flash a stale warmed raster. Rebinding a still-correct page
+      // is fine; rebinding a changed one is not.
+      final t = target();
+      final other = target(index: 1);
+      await tester.runAsync(() async {
+        await cache.warmFullRaster(0, page,
+            signature: t.signature, pixelRatio: t.ratio);
+        await cache.warmFullRaster(1, document.page(1),
+            signature: other.signature, pixelRatio: other.ratio);
+        expect(cache.fullRasterCount, 2);
+
+        final next = PdfDocument.open(buildMultiPagePdf(2));
+        final pages = [next.page(0), next.page(1)];
+        cache.rebind(pages, changed: (i) => i == 0);
+
+        expect(cache.hasFullRaster(t.signature, pages[0]), isFalse,
+            reason: 'the changed page cannot serve its old pixels');
+        expect(cache.hasFullRaster(other.signature, pages[1]), isTrue,
+            reason: 'an untouched page rebinds instead of re-rendering');
+        expect(cache.fullRasterCount, 1);
+      });
+    });
+
+    testWidgets('a revision with fewer pages drops rasters past the end',
+        (tester) async {
+      final t = target();
+      final other = target(index: 1);
+      await tester.runAsync(() async {
+        await cache.warmFullRaster(0, page,
+            signature: t.signature, pixelRatio: t.ratio);
+        await cache.warmFullRaster(1, document.page(1),
+            signature: other.signature, pixelRatio: other.ratio);
+        expect(cache.fullRasterCount, 2);
+
+        // Page 1 was deleted: its warmed raster has no page to belong to.
+        final next = PdfDocument.open(buildMultiPagePdf(1));
+        cache.rebind([next.page(0)]);
+        expect(cache.fullRasterCount, 1);
+        expect(cache.hasFullRaster(other.signature, next.page(0)), isFalse);
+      });
+    });
+
+    test('a disposed cache stores nothing', () async {
+      // Its own cache: a late warm landing after teardown is exactly the case
+      // this covers, so it must not be the group's shared instance.
+      final dead = PdfPagePreviewCache()..dispose();
+      final t = target();
+      expect(
+        await dead.warmFullRaster(0, page,
+            signature: t.signature, pixelRatio: t.ratio),
+        isFalse,
+      );
+    });
+  });
+
   group('raster signatures', () {
     /// Everything the signature covers must make a warmed raster unreachable
     /// when it changes - otherwise a page could paint another page's pixels,
@@ -296,6 +511,25 @@ void main() {
       final hit = lookup();
       expect(hit, isNotNull);
       hit!.dispose();
+    });
+
+    test('a signature describes itself', () {
+      // It is the cache key, so it shows up in traces when a warmed page
+      // unexpectedly misses - the description has to name every field that
+      // could be the reason.
+      final text = '${PdfPageRasterSignature(
+        pageIndex: 4,
+        width: 800,
+        height: 1000,
+        pageColor: const Color(0xFFEEE8D5),
+        annotations: false,
+        rotation: 90,
+      )}';
+      expect(text, contains('page=4'));
+      expect(text, contains('800x1000'));
+      expect(text, contains('ffeee8d5'));
+      expect(text, contains('annotations=false'));
+      expect(text, contains('rotation=90'));
     });
 
     test('paper color is part of the identity', () {
@@ -361,5 +595,106 @@ void main() {
     expect(const PdfPageRasterWarmPolicy.nearby(window: 3).hashCode,
         const PdfPageRasterWarmPolicy.nearby(window: 3).hashCode);
     expect('${const PdfPageRasterWarmPolicy.document()}', contains('document'));
+    expect('${const PdfPageRasterWarmPolicy.disabled()}', contains('disabled'));
+    expect('${const PdfPageRasterWarmPolicy.nearby(window: 7)}',
+        contains('window: 7'));
+    // Policies built at runtime from a host setting, not const literals - the
+    // shape the app's Developer-tools selector produces.
+    expect(PdfPageRasterWarmPolicy.nearby(window: 1 + 1),
+        const PdfPageRasterWarmPolicy.nearby(window: 2));
+    expect(
+      PdfPageRasterWarmPolicy.document(
+          idleDelay: Duration(seconds: 1 + 1)).idleDelay,
+      const Duration(seconds: 2),
+    );
   });
+
+  test('warm stats describe themselves', () {
+    // These exist to be read - by a diagnostics panel, a benchmark, or a
+    // trace - so the description has to actually work.
+    const stats = PdfPageRasterWarmStats(
+      attempts: 3,
+      completions: 2,
+      skipped: 1,
+      rejected: 4,
+      preempted: 5,
+      warmedBytes: 6,
+      hits: 7,
+      misses: 8,
+      evictions: 9,
+      retainedBytes: 10,
+      entries: 11,
+    );
+    final text = '$stats';
+    expect(text, contains('attempts: 3'));
+    expect(text, contains('completions: 2'));
+    expect(text, contains('skipped: 1'));
+    expect(text, contains('rejected: 4'));
+    expect(text, contains('preempted: 5'));
+    expect(text, contains('evictions: 9'));
+    expect(text, contains('entries: 11'));
+  });
+}
+
+/// Records like a real worker: interprets the page here and hands back the
+/// command buffer, so the warm's worker branch is exercised end to end.
+class _RecordingWorker extends PdfRenderWorker {
+  _RecordingWorker(this.page);
+
+  final PdfPage page;
+  final List<int> recorded = [];
+  final List<int> priorities = [];
+
+  @override
+  bool get isActive => true;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(
+    int pageIndex, {
+    bool annotations = true,
+    int priority = 0,
+    double? imagePixelRatio,
+    bool decodeImages = true,
+    int? commandLimit,
+    PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
+  }) async {
+    recorded.add(pageIndex);
+    priorities.add(priority);
+    final device = RecordingPdfDevice();
+    PdfInterpreter(cos: page.document.cos, device: device).drawPage(page);
+    return device.commands;
+  }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {}
+
+  @override
+  void dispose() {}
+}
+
+/// Active, but declines every record - the real worker's behaviour when a page
+/// is not serializable or its queue drops the request.
+class _DecliningWorker extends PdfRenderWorker {
+  @override
+  bool get isActive => true;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(
+    int pageIndex, {
+    bool annotations = true,
+    int priority = 0,
+    double? imagePixelRatio,
+    bool decodeImages = true,
+    int? commandLimit,
+    PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
+  }) async =>
+      null;
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {}
+
+  @override
+  void dispose() {}
 }
