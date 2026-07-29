@@ -207,6 +207,8 @@
   "settingsUpdateAvailable": "Доступна версія {version} (у вас {currentVersion}).",
   "settingsUpdateFailed": "Не вдалося перевірити оновлення. Спробуйте пізніше.",
   "settingsUpdateIdle": "У вас {name} {version}.",
+  "settingsNightlyUpdates": "Нічні оновлення",
+  "settingsNightlyUpdatesSubtitle": "Отримуйте автоматичні сповіщення про непідписані тестові збірки Windows із гілки main.",
   "settingsUpdates": "Оновлення",
   "settingsViewSource": "Переглянути код на GitHub",
   "undo": "Відмінити",

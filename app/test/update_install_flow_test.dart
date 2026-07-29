@@ -53,6 +53,21 @@ ReleaseInfo _dmgRelease() => ReleaseInfo(
       assetSizes: const {'dartpdf-macos.dmg': 64},
     );
 
+ReleaseInfo _nightlyWindowsRelease() => const ReleaseInfo(
+      version: AppVersion(1, 3, 0),
+      tagName: dartPdfNightlyTag,
+      name: 'DartPDF nightly',
+      notes: '',
+      htmlUrl: 'https://example.test/nightly',
+      assets: {
+        'dartpdf-nightly-windows-installer.exe':
+            'https://example.test/nightly.exe',
+      },
+      assetSizes: {'dartpdf-nightly-windows-installer.exe': 64},
+      isNightly: true,
+      commitSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    );
+
 void main() {
   late PdfEditingPreferences prefs;
 
@@ -131,5 +146,46 @@ void main() {
 
     expect(find.byKey(const ValueKey('update-progress-dialog')), findsNothing);
     expect(find.byKey(const ValueKey('update-install-failed')), findsOneWidget);
+  });
+
+  testWidgets(
+      'a nightly notification downloads and opens its Windows installer',
+      (tester) async {
+    final updates = UpdateService(
+      currentVersion: '1.3.0',
+      currentBuildCommit: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      platform: TargetPlatform.windows,
+      fetcher: () async => [_nightlyWindowsRelease()],
+    );
+    addTearDown(updates.dispose);
+    await updates.setNightlyUpdates(true);
+
+    final ops = _FakeOps(platform: TargetPlatform.windows);
+    final bytes = Uint8List.fromList(List.generate(64, (i) => i));
+    final installer = UpdateInstaller(
+      ops: ops,
+      clientFactory: () => MockClient.streaming((request, body) async =>
+          http.StreamedResponse(Stream.value(bytes), 200, contentLength: 64)),
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(
+        prefs: prefs,
+        updateService: updates,
+        updateInstaller: installer,
+        autoCheckUpdates: true,
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Update now'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('update-banner-download')));
+    await tester.pumpAndSettle();
+
+    expect(
+      ops.opened,
+      '/downloads/dartpdf-nightly-windows-installer.exe',
+    );
+    expect(find.byKey(const ValueKey('update-handed-off')), findsOneWidget);
   });
 }

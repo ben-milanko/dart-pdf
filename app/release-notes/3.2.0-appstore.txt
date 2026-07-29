@@ -1,0 +1,15 @@
+New in 3.2.0
+
+PERFORMANCE
+• Page caching now adapts to available device memory and system pressure.
+• The rendering pipeline avoids duplicate full-page and detail work, keeping large and visually dense PDFs responsive.
+
+ANNOTATIONS
+• Third-party FreeText boxes and callouts render more faithfully, including wrapping, alignment, fills, borders, and leader lines.
+• Multi-line highlights, underlines, strikeouts, and squiggles select only where the markup is visible.
+
+FIXES
+• Loading and remote-session restoration stay responsive.
+• Ctrl/Cmd-wheel zoom continues to work after drawing a constrained line.
+
+Thank you for using DartPDF. Feedback and bug reports are always welcome.

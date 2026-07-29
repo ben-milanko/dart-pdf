@@ -431,6 +431,11 @@ class PdfPageView extends StatefulWidget {
   /// Region-detail speculations that were stale, cancelled, or declined.
   static int debugSpeculativeDetailMisses = 0;
 
+  /// Single-patch scroll settles satisfied by the raster's retained guard
+  /// band instead of issuing another region render.
+  @visibleForTesting
+  static int debugDetailPatchReuses = 0;
+
   static void debugResetSpeculativeStats() {
     debugSpeculativePlanHits = 0;
     debugSpeculativePlanMisses = 0;
@@ -471,8 +476,30 @@ class _PdfPageViewState extends State<PdfPageView>
   /// this still matches.
   double? _rasteredRatio;
 
+  /// What the live [_image] actually depicts, when it is a COMPLETE base
+  /// raster: the resolution it was rasterized at, the image-decode resolution
+  /// its buffer carried, and the content intent it was taken under.
+  ///
+  /// Distinct from [_rasteredRatio], and deliberately so. [_rasteredRatio] is
+  /// "the next picture must re-raster" bookkeeping, and half a dozen paths null
+  /// it while leaving perfectly good pixels on screen ([_dropPicture] alone is
+  /// reached from an additive edit, a focus-distance promotion, and every scene
+  /// swap). That left the resolution-unchanged guard unable to fire, and the
+  /// 2026-07-29 trace shows the cost: `base-full page=0 ratio=1.4 1715x1213`
+  /// twice inside 306ms, byte-identical, ~8MB and a full GPU readback apiece -
+  /// and the same shape on pages 0 and 1 three more times in the session.
+  ///
+  /// This records what the pixels ARE rather than what the bookkeeping wants,
+  /// so [_baseRasterIsCurrent] can answer the only question that matters: would
+  /// re-rendering produce anything different? Set only where a full raster is
+  /// adopted - NEVER by the vector-first path, whose image is deliberately
+  /// incomplete (no PDF images) and must be replaced by the full pass.
+  ({double ratio, double? imageRatio, PdfPageRenderIntent intent})? _imageState;
+
   ui.Image? _detailImage;
   Rect? _detailFraction; // patch placement as fractions of the page
+  double? _detailPixelRatio;
+  PdfPageRenderIntent? _detailIntent;
 
   /// Visible slice (fraction of the page) and desired ratio for the
   /// [PdfPageView.tileStoreDetail] tile layer, recomputed on each settle in
@@ -481,6 +508,11 @@ class _PdfPageViewState extends State<PdfPageView>
   /// tile path is inactive.
   Rect? _tileFraction;
   double? _tileDesiredRatio;
+
+  /// The retained scene whose heavy region index this page has asked a worker
+  /// to build. Keeps repeated zoom settles from attaching duplicate completion
+  /// handlers while that one build is in flight.
+  PdfRetainedScene? _regionIndexWarmScene;
 
   /// Clone of this page's cached low-res preview; painted while no full
   /// raster exists, dropped (to free the buffer) the moment one lands.
@@ -689,6 +721,7 @@ class _PdfPageViewState extends State<PdfPageView>
       // raster stays painted until the fresh one replaces it.
       _image?.dispose();
       _image = null;
+      _imageState = null;
       _preview?.dispose();
       _preview = null;
     }
@@ -791,6 +824,9 @@ class _PdfPageViewState extends State<PdfPageView>
   }) {
     _scene?.dispose();
     _scene = scene;
+    if (!identical(_regionIndexWarmScene, scene)) {
+      _regionIndexWarmScene = null;
+    }
     _sceneHasImageDraws =
         scene != null && PdfPageRenderer.hasImageDraws(scene.commands);
     _sceneFromWorker = scene != null && fromWorker;
@@ -836,12 +872,69 @@ class _PdfPageViewState extends State<PdfPageView>
   void _dropDetail() {
     _invalidateTiles();
     _renderSession.invalidateDetail();
-    if (_detailImage != null) {
-      _detailImage?.dispose();
-      _detailImage = null;
-      _detailFraction = null;
-      if (mounted) setState(() {});
+    final hadImage = _detailImage != null;
+    _detailImage?.dispose();
+    _detailImage = null;
+    _detailFraction = null;
+    _detailPixelRatio = null;
+    _detailIntent = null;
+    if (hadImage && mounted) setState(() {});
+  }
+
+  void _adoptDetail(
+    ui.Image image,
+    Rect fraction,
+    double pixelRatio,
+  ) {
+    _detailImage?.dispose();
+    _detailImage = image;
+    _detailFraction = fraction;
+    _detailPixelRatio = pixelRatio;
+    _detailIntent = _renderIntent(widget);
+  }
+
+  bool _detailContentIsCurrent() => _intentIsCurrent(_detailIntent);
+
+  /// Whether pixels taken under [intent] still depict this page's current
+  /// content. Shared by the detail patch and the base raster - both ask exactly
+  /// this question, and a second copy of the field list would be one edit away
+  /// from letting one of them paint stale content.
+  bool _intentIsCurrent(PdfPageRenderIntent? intent) {
+    if (intent == null ||
+        intent.pageIndex != widget.previewIndex ||
+        intent.pageEpoch != widget.pageEpoch ||
+        intent.contentStamp != widget.contentStamp ||
+        intent.destructiveStamp != widget.destructiveStamp ||
+        intent.trustContentStamp != widget.trustContentStamp ||
+        intent.rotation != widget.rotation ||
+        intent.pageColor != widget.pageColor ||
+        intent.showAnnotations != widget.showAnnotations) {
+      return false;
     }
+    return widget.trustContentStamp || identical(intent.page, widget.page);
+  }
+
+  /// Whether the live base raster already is exactly what a fresh render would
+  /// produce - same resolution, same content, and images decoded at least as
+  /// sharply as this page now wants.
+  ///
+  /// The last clause is what keeps a prefetch neighbour honest: a page rendered
+  /// off-focus decoded its images at [PdfPageView.prefetchImagePixelRatioFactor]
+  /// of full, and once it comes into focus those pixels are genuinely stale even
+  /// though the ratio and content match. Mirrors [_renderedAtFullImageRatio]'s
+  /// comparison so the two cannot disagree about what "full" means.
+  bool _baseRasterIsCurrent() {
+    final state = _imageState;
+    // A Slug-routed page paints its picture under a transform instead of a base
+    // raster; its render pass is not a readback this can skip.
+    if (state == null || _image == null || _slugPicture != null) return false;
+    final effective = _effectiveRatio();
+    if ((effective - state.ratio).abs() > state.ratio * 0.01) return false;
+    final imageRatio = state.imageRatio;
+    if (imageRatio != null && imageRatio < _fullImageRatio() * 0.99) {
+      return false;
+    }
+    return _intentIsCurrent(state.intent);
   }
 
   /// The uncapped resolution at an explicit [scale], so speculation can price
@@ -883,6 +976,7 @@ class _PdfPageViewState extends State<PdfPageView>
     setState(() {
       _image?.dispose();
       _image = null;
+      _imageState = null;
       _dropDetail();
       _dropPicture(); // frees the scene + slug picture and nulls _rasteredRatio
     });
@@ -1002,6 +1096,13 @@ class _PdfPageViewState extends State<PdfPageView>
     setState(() {
       _image = image;
       _rasteredRatio = effective;
+      // A cache entry only ever holds a full-resolution raster (putFullImage is
+      // gated on _renderedAtFullImageRatio), so it restores as one.
+      _imageState = (
+        ratio: effective,
+        imageRatio: null,
+        intent: _renderIntent(widget),
+      );
       _preview?.dispose();
       _preview = null;
     });
@@ -1581,21 +1682,15 @@ class _PdfPageViewState extends State<PdfPageView>
       return null;
     }
     final vectorRatio = _vectorFirstRatio();
-    final rasterClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
-    final image = await PdfPageRenderer.rasterize(
-      picture,
-      PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation),
-      vectorRatio,
-    );
-    PdfPerfLog.raster(
+    final image = await PdfRasterProbe.measure(
       'vector-first-full',
       page: pageIndex,
-      imageWidth: image.width,
-      imageHeight: image.height,
       ratio: vectorRatio,
-      elapsedMs: rasterClock == null
-          ? null
-          : rasterClock.elapsedMicroseconds / 1000.0,
+      rasterize: () => PdfPageRenderer.rasterize(
+        picture,
+        PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation),
+        vectorRatio,
+      ),
     );
     picture.dispose();
     // Adopt the vector raster only if the full pass hasn't already landed (a
@@ -1609,6 +1704,10 @@ class _PdfPageViewState extends State<PdfPageView>
     setState(() {
       _image?.dispose();
       _image = image;
+      // Deliberately NOT recorded in _imageState: these pixels carry no PDF
+      // images, so the full pass below must re-raster and _baseRasterIsCurrent
+      // must never call them current. Same reasoning as _rasteredRatio above.
+      _imageState = null;
       _preview?.dispose();
       _preview = null;
     });
@@ -1701,8 +1800,32 @@ class _PdfPageViewState extends State<PdfPageView>
       _lastInterpretTextShapeHit = null;
     }
     final sw = Stopwatch()..start();
+    // The vector-first phase below runs INSIDE [sw]'s span but interprets
+    // nothing the `interpret=` figure is about - it rasterizes a full-page
+    // vector preview (seconds, on a dense sheet) and can wait a frame for the
+    // detail paint. Left unmeasured it is simply missing from the line, which
+    // is how the 2026-07-29 trace reported a 1224ms "interpret" whose wait and
+    // build summed to 242ms. Measured, it closes the line's accounting.
+    var progressiveMs = 0.0;
     if (_renderPaused) {
       _render();
+      return;
+    }
+    // Nothing to render: the live raster already is what this pass would
+    // produce. The scheduler re-grants a request that arrived while a render
+    // was in flight (render_scheduler.dart's `_inFlight` queue) on the premise
+    // that it "may carry a new scale or revision", and when it doesn't, the
+    // pass below re-interprets and re-reads the whole page off the GPU to
+    // arrive back at the pixels already on screen - 260-500ms and ~8MB per
+    // repeat at 2.1MP in the 2026-07-29 trace, several times per session.
+    //
+    // Still refresh the detail patch: a settle that only moved the viewport
+    // routes through here too (one combined callback paces base + detail), and
+    // that IS work even when the base raster is untouched.
+    if (_baseRasterIsCurrent()) {
+      PdfPerfLog.log('render skip page=$pageIndex reason=base-current '
+          'ratio=${_effectiveRatio().toStringAsFixed(2)}');
+      await _updateDetail();
       return;
     }
     // Progressive first paint: on a page's first interpret, paint its
@@ -1739,6 +1862,7 @@ class _PdfPageViewState extends State<PdfPageView>
           if (_superseded(generation, pageIndex)) return;
         }
       }
+      progressiveMs = sw.elapsedMicroseconds / 1000.0;
     }
     final cached = _picture;
     final ui.Picture picture;
@@ -1773,6 +1897,7 @@ class _PdfPageViewState extends State<PdfPageView>
         pageIndex,
         path: _lastInterpretPath,
         interpretMs: sw.elapsedMicroseconds / 1000.0,
+        progressiveMs: progressiveMs,
         waitMs: _lastInterpretWaitMs,
         buildMs: _lastInterpretBuildMs,
         decodeMs: _lastInterpretDecodeMs,
@@ -1842,6 +1967,7 @@ class _PdfPageViewState extends State<PdfPageView>
               _slugPicture = slugPicture;
               _image?.dispose();
               _image = null;
+              _imageState = null;
               _preview?.dispose();
               _preview = null;
               _rasteredRatio = effective;
@@ -1911,42 +2037,36 @@ class _PdfPageViewState extends State<PdfPageView>
       // back precomputed; null plan = local bin). Fallback paths (no scene,
       // or the kill switch) re-raster the cached picture.
       final scene = retainedScene;
-      final ui.Image image;
-      // The clock starts at each rasterize, not above the branch: the strip
+      // The probe starts at each rasterize, not above the branch: the strip
       // path awaits a worker bin first, and attributing that queue wait to
       // the raster itself would corrupt the number this log exists to read.
-      Stopwatch? rasterClock;
+      // Selecting the closure here and measuring it below keeps that property
+      // while leaving one log call for all three branches.
+      final Future<ui.Image> Function() rasterize;
       if (scene != null && _stripReplayScene(scene)) {
         final stripPlan = await _workerStripPlan(scene, pixelRatio: effective);
         if (_superseded(generation, pageIndex)) return;
-        rasterClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
-        image = await scene.rasterizeStrips(
-          pixelRatio: effective,
-          stripPlan: stripPlan,
-        );
+        rasterize = () => scene.rasterizeStrips(
+              pixelRatio: effective,
+              stripPlan: stripPlan,
+            );
       } else if (scene != null && !_sceneIsTileOnly(scene)) {
-        rasterClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
-        image = await scene.rasterize(pixelRatio: effective);
+        rasterize = () => scene.rasterize(pixelRatio: effective);
       } else {
         // No scene, or one retained only to feed tiles: a flat replay of a
         // dense transcript would be a UI-thread hitch, so the cached picture
         // stays the full-page base raster.
-        rasterClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
-        image = await PdfPageRenderer.rasterize(
-          picture,
-          _renderPlan.pageSize(widget.page),
-          effective,
-        );
+        rasterize = () => PdfPageRenderer.rasterize(
+              picture,
+              _renderPlan.pageSize(widget.page),
+              effective,
+            );
       }
-      PdfPerfLog.raster(
+      final image = await PdfRasterProbe.measure(
         'base-full',
         page: pageIndex,
-        imageWidth: image.width,
-        imageHeight: image.height,
         ratio: effective,
-        elapsedMs: rasterClock == null
-            ? null
-            : rasterClock.elapsedMicroseconds / 1000.0,
+        rasterize: rasterize,
       );
       if (_superseded(generation, pageIndex)) {
         image.dispose();
@@ -1959,6 +2079,11 @@ class _PdfPageViewState extends State<PdfPageView>
         _image?.dispose();
         _image = image;
         _rasteredRatio = effective;
+        _imageState = (
+          ratio: effective,
+          imageRatio: _pictureImageRatio,
+          intent: _renderIntent(widget),
+        );
         _preview?.dispose();
         _preview = null;
       });
@@ -2013,8 +2138,21 @@ class _PdfPageViewState extends State<PdfPageView>
     // _refreshTileGeometry returns false and we fall through to the single-patch
     // path below, which covers an arbitrarily large region in one raster
     // without thrashing the shared pyramid (issues #314/#360).
-    if (_useTilePath && _refreshTileGeometry()) {
-      return true;
+    // _refreshTileGeometry also bootstraps a dense scene's worker-built region
+    // index. Do not guard this call on _useTilePath: that gate cannot become
+    // true until the very warm-up this call starts has completed.
+    if (PdfPageView.tileStoreDetail) {
+      if (_refreshTileGeometry()) return true;
+      // A worker-built grid takes a few hundred milliseconds on the dense CAD
+      // pages that need it. Keep the already-visible capped base raster during
+      // that one warm-up instead of launching a competing full-viewport detail
+      // record which will be obsolete before it can rasterize.
+      if (_tilePathStatus == 'index-warming') {
+        PdfPerfLog.log(
+          'detail waits for region-index page=${widget.previewIndex}',
+        );
+        return true;
+      }
     }
 
     // A Slug page picture is already transform-sharp for text and vector
@@ -2036,6 +2174,37 @@ class _PdfPageViewState extends State<PdfPageView>
     final region = detailGeometry.region;
     final ratio = detailGeometry.pixelRatio;
 
+    // The single-patch fallback deliberately rasterizes half a viewport of
+    // headroom on every side. Keep using those pixels while they still cover
+    // the live viewport instead of rebuilding an almost-identical 3-6 MP
+    // raster after every wheel-scroll settle. This is the fallback for pages
+    // that cannot use the reusable tile pyramid, so without this coverage
+    // check the guard band was pure extra work.
+    //
+    // Content identity is checked separately: additive edits intentionally
+    // leave the old patch painted until its replacement lands, but that stale
+    // patch must never satisfy this fast path. A higher-density request (zoom
+    // in, or a smaller cap-bound region) also gets a fresh raster.
+    final existingFraction = _detailFraction;
+    final existingRatio = _detailPixelRatio;
+    if (_detailImage != null &&
+        existingFraction != null &&
+        existingRatio != null &&
+        _detailContentIsCurrent() &&
+        existingRatio >= ratio * 0.99 &&
+        _detailPatchCovers(
+          existingFraction,
+          detailGeometry.visibleFraction,
+        )) {
+      PdfPageView.debugDetailPatchReuses++;
+      onPaint?.call();
+      PdfPerfLog.log(
+        'detail reuse page=${widget.previewIndex} '
+        'ratio=${existingRatio.toStringAsFixed(2)}',
+      );
+      return true;
+    }
+
     // Dense strip-routed pages ask for one combined worker result: commands
     // whose images were decoded for this region plus the StripPlan binned
     // from those exact commands. That keeps the flat strip replay, restores
@@ -2046,15 +2215,30 @@ class _PdfPageViewState extends State<PdfPageView>
     final stripDetail = heldScene != null && _stripReplayScene(heldScene);
     final progressivePriority =
         _sceneIsVectorOnly ? widget.renderPriority - 1 : widget.renderPriority;
+    // Whether replaying the retained vector-only scene alone yields the
+    // FINISHED region rather than a placeholder to be replaced. It does exactly
+    // when no image draw reaches the region - the same invariant that lets the
+    // tile path rasterize from such a scene ([_tileCanRasterize]).
+    //
+    // When it holds, the worker pass that normally follows has nothing to add:
+    // it re-records the identical commands and re-rasterizes the identical
+    // pixels. The 2026-07-29 trace paid that twice on a page whose single image
+    // decoded to 0.0 megapixels - `detail-vector … 1715x999 ms=401.9` followed
+    // 320ms later by `detail-worker-picture … 1715x999 ms=322.5`, a second 1.7MP
+    // allocation and platform-thread readback for byte-identical output.
+    final vectorCoversRegion = _sceneIsVectorOnly &&
+        heldScene != null &&
+        !_imagesIntersectRegion(heldScene.commands, region);
     final detailClock = Stopwatch()..start();
     PdfPerfLog.log(
       'detail request page=${widget.previewIndex} '
       'strip=$stripDetail vectorOnly=$_sceneIsVectorOnly '
+      'vectorCovers=$vectorCoversRegion '
       // scene/tiles: why this page does or does not get reusable tiles instead
       // of a fresh full-viewport raster on every pan step.
-      'scene=${heldScene != null} tiles=$_useTilePath',
+      'scene=${heldScene != null} tiles=$_tilePathStatus',
     );
-    final workerStripFuture = stripDetail
+    final workerStripFuture = stripDetail && !vectorCoversRegion
         ? _detailStripImageFromWorker(
             heldScene,
             region,
@@ -2067,7 +2251,7 @@ class _PdfPageViewState extends State<PdfPageView>
     // Non-strip pages keep the ordinary region-record path. Dense strip pages
     // use recordStripDetail on every worker backend so commands and the plan
     // come from one geometry-consistent, cancellable job.
-    final workerPictureFuture = !stripDetail
+    final workerPictureFuture = !stripDetail && !vectorCoversRegion
         ? _detailPictureFromWorker(
             region,
             ratio,
@@ -2080,45 +2264,33 @@ class _PdfPageViewState extends State<PdfPageView>
     // that visible slice immediately while the worker fills in its image
     // pixels: CAD linework becomes sharp after the lightweight recording,
     // rather than after a second multi-megabyte command transfer. A later
-    // complete worker patch replaces this one at the same geometry.
-    var progressiveReady = false;
-    if (_sceneIsVectorOnly &&
-        heldScene != null &&
-        !_imagesIntersectRegion(heldScene.commands, region)) {
-      final vectorClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
-      final vectorImage = await heldScene.rasterizeRegion(
-        region,
-        pixelRatio: ratio,
-      );
-      PdfPerfLog.raster(
+    // complete worker patch replaces this one at the same geometry - unless
+    // [vectorCoversRegion], in which case this replay IS the final patch and no
+    // worker pass was started to replace it.
+    if (vectorCoversRegion) {
+      final vectorImage = await PdfRasterProbe.measure(
         'detail-vector',
         page: widget.previewIndex,
-        imageWidth: vectorImage.width,
-        imageHeight: vectorImage.height,
         ratio: ratio,
-        elapsedMs: vectorClock == null
-            ? null
-            : vectorClock.elapsedMicroseconds / 1000.0,
         region: (width: region.width, height: region.height),
+        rasterize: () => heldScene.rasterizeRegion(region, pixelRatio: ratio),
       );
-      if (mounted &&
-          _renderSession.acceptsDetail(generation) &&
-          !_renderPaused) {
-        setState(() {
-          _detailImage?.dispose();
-          _detailImage = vectorImage;
-          _detailFraction = fraction;
-        });
-        onPaint?.call();
-        progressiveReady = true;
-        _logDetailPaintAfterFrame(generation, detailClock, source: 'vector');
-        PdfPerfLog.log(
-          'detail vector page=${widget.previewIndex} '
-          'elapsed=${detailClock.elapsedMilliseconds}ms',
-        );
-      } else {
+      if (!mounted ||
+          !_renderSession.acceptsDetail(generation) ||
+          _renderPaused) {
         vectorImage.dispose();
+        return false;
       }
+      setState(() {
+        _adoptDetail(vectorImage, fraction, ratio);
+      });
+      onPaint?.call();
+      _logDetailPaintAfterFrame(generation, detailClock, source: 'vector');
+      PdfPerfLog.log(
+        'detail vector page=${widget.previewIndex} complete '
+        'elapsed=${detailClock.elapsedMilliseconds}ms',
+      );
+      return true;
     }
 
     final workerStripImage = await workerStripFuture;
@@ -2137,9 +2309,7 @@ class _PdfPageViewState extends State<PdfPageView>
     }
     if (workerStripImage != null) {
       setState(() {
-        _detailImage?.dispose();
-        _detailImage = workerStripImage;
-        _detailFraction = fraction;
+        _adoptDetail(workerStripImage, fraction, ratio);
       });
       onPaint?.call();
       _logDetailPaintAfterFrame(
@@ -2150,22 +2320,13 @@ class _PdfPageViewState extends State<PdfPageView>
       return true;
     }
     if (workerPicture != null) {
-      final rasterClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
-      final image = await PdfPageRenderer.rasterizeRegion(
-        workerPicture,
-        region,
-        ratio,
-      );
-      PdfPerfLog.raster(
+      final image = await PdfRasterProbe.measure(
         'detail-worker-picture',
         page: widget.previewIndex,
-        imageWidth: image.width,
-        imageHeight: image.height,
         ratio: ratio,
-        elapsedMs: rasterClock == null
-            ? null
-            : rasterClock.elapsedMicroseconds / 1000.0,
         region: (width: region.width, height: region.height),
+        rasterize: () =>
+            PdfPageRenderer.rasterizeRegion(workerPicture, region, ratio),
       );
       workerPicture.dispose();
       if (!mounted ||
@@ -2175,9 +2336,7 @@ class _PdfPageViewState extends State<PdfPageView>
         return false;
       }
       setState(() {
-        _detailImage?.dispose();
-        _detailImage = image;
-        _detailFraction = fraction;
+        _adoptDetail(image, fraction, ratio);
       });
       onPaint?.call();
       _logDetailPaintAfterFrame(
@@ -2188,10 +2347,13 @@ class _PdfPageViewState extends State<PdfPageView>
       return true;
     }
 
-    // A progressive scene contains image placeholders. If its worker region
-    // request was cancelled or declined, wait for the ordinary full record
-    // instead of painting a vector-only patch as if it were complete.
-    if (_sceneIsVectorOnly) return progressiveReady;
+    // A progressive scene contains image placeholders. Reaching here means an
+    // image DOES reach this region (the [vectorCoversRegion] path returned
+    // above) and the worker request that would have supplied its pixels was
+    // cancelled or declined - so nothing was painted. Wait for the ordinary
+    // full record instead of painting a vector-only patch as if it were
+    // complete.
+    if (_sceneIsVectorOnly) return false;
 
     // never interpret the page for the first time inline here - that is
     // the scheduler's job (or, bare, the hold's); the next settle
@@ -2221,12 +2383,11 @@ class _PdfPageViewState extends State<PdfPageView>
     // fires these repeatedly, so each fresh region cancels the previous
     // region's still-queued bin inside _workerStripPlan).
     final scene = PdfPageView.retainedZoomReplay ? _scene : null;
-    final ui.Image image;
     final String detailKind;
-    // Same per-branch clock placement as the base raster: the strip branch
+    // Same per-branch probe placement as the base raster: the strip branch
     // awaits a worker bin before rasterizing, and that wait must not read
     // as raster time.
-    Stopwatch? rasterClock;
+    final Future<ui.Image> Function() rasterize;
     if (scene != null && _stripReplayScene(scene)) {
       final stripPlan = await _workerStripPlan(
         scene,
@@ -2238,35 +2399,28 @@ class _PdfPageViewState extends State<PdfPageView>
           _renderPaused) {
         return false;
       }
-      rasterClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
-      image = await scene.rasterizeRegionStrips(
-        region,
-        pixelRatio: ratio,
-        stripPlan: stripPlan,
-      );
+      rasterize = () => scene.rasterizeRegionStrips(
+            region,
+            pixelRatio: ratio,
+            stripPlan: stripPlan,
+          );
       detailKind = 'detail-strip';
     } else if (scene != null) {
-      rasterClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
-      image = await scene.rasterizeRegion(region, pixelRatio: ratio);
+      rasterize = () => scene.rasterizeRegion(region, pixelRatio: ratio);
       detailKind = 'detail-region';
     } else {
       // Classic cached-picture path: replays the WHOLE page picture clipped to
       // [region] at [ratio]. On a huge (unretained) transcript this is where a
       // deep-zoom raster gets expensive - the raster instrumentation flags it.
-      rasterClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
-      image = await PdfPageRenderer.rasterizeRegion(picture, region, ratio);
+      rasterize = () => PdfPageRenderer.rasterizeRegion(picture, region, ratio);
       detailKind = 'detail-picture';
     }
-    PdfPerfLog.raster(
+    final image = await PdfRasterProbe.measure(
       detailKind,
       page: widget.previewIndex,
-      imageWidth: image.width,
-      imageHeight: image.height,
       ratio: ratio,
-      elapsedMs: rasterClock == null
-          ? null
-          : rasterClock.elapsedMicroseconds / 1000.0,
       region: (width: region.width, height: region.height),
+      rasterize: rasterize,
     );
     if (!mounted ||
         !_renderSession.acceptsDetail(generation) ||
@@ -2275,9 +2429,7 @@ class _PdfPageViewState extends State<PdfPageView>
       return false;
     }
     setState(() {
-      _detailImage?.dispose();
-      _detailImage = image;
-      _detailFraction = fraction;
+      _adoptDetail(image, fraction, ratio);
     });
     onPaint?.call();
     _logDetailPaintAfterFrame(generation, detailClock, source: 'local');
@@ -2376,20 +2528,22 @@ class _PdfPageViewState extends State<PdfPageView>
     // 50% per-side panning headroom. The progressive region-first request is
     // deliberately tighter: its job is to beat the still-warming full page,
     // and a large guard band would re-decode most of that page again.
-    final fraction = Rect.fromLTRB(
-      ((visible.left - pageRect.left - visible.width * inflation) /
-              pageRect.width)
-          .clamp(0.0, 1.0),
-      ((visible.top - pageRect.top - visible.height * inflation) /
-              pageRect.height)
-          .clamp(0.0, 1.0),
-      ((visible.right - pageRect.left + visible.width * inflation) /
-              pageRect.width)
-          .clamp(0.0, 1.0),
-      ((visible.bottom - pageRect.top + visible.height * inflation) /
-              pageRect.height)
-          .clamp(0.0, 1.0),
-    );
+    Rect fractionAt(double amount) => Rect.fromLTRB(
+          ((visible.left - pageRect.left - visible.width * amount) /
+                  pageRect.width)
+              .clamp(0.0, 1.0),
+          ((visible.top - pageRect.top - visible.height * amount) /
+                  pageRect.height)
+              .clamp(0.0, 1.0),
+          ((visible.right - pageRect.left + visible.width * amount) /
+                  pageRect.width)
+              .clamp(0.0, 1.0),
+          ((visible.bottom - pageRect.top + visible.height * amount) /
+                  pageRect.height)
+              .clamp(0.0, 1.0),
+        );
+    final visibleFraction = fractionAt(0);
+    final fraction = fractionAt(inflation);
     final size = _renderPlan.pageSize(widget.page);
     final region = Rect.fromLTRB(
       fraction.left * size.width,
@@ -2408,7 +2562,7 @@ class _PdfPageViewState extends State<PdfPageView>
       ratio,
       _maxDimension / math.max(region.width, region.height),
     );
-    return _DetailGeometry(fraction, region, ratio);
+    return _DetailGeometry(fraction, visibleFraction, region, ratio);
   }
 
   /// Whether the [PdfPageView.tileStoreDetail] tile path drives deep-zoom
@@ -2423,10 +2577,16 @@ class _PdfPageViewState extends State<PdfPageView>
   /// [_tileCanRasterize] vetoes the regions an image draw intersects, which
   /// keep the fallback/base raster and heal automatically if the full record
   /// later replaces the scene.
-  bool get _useTilePath {
-    if (!PdfPageView.tileStoreDetail) return false;
+  bool get _useTilePath => _tilePathStatus == 'active';
+
+  /// Diagnostic state for the tile gate. The old boolean trace could only say
+  /// `tiles=false`, leaving patch mode, a missing/warming spatial index, and an
+  /// unsupported scene indistinguishable in field traces.
+  String get _tilePathStatus {
+    if (!PdfPageView.tileStoreDetail) return 'off';
+    if (!PdfPageView.retainedZoomReplay) return 'replay-off';
     final scene = PdfPageView.retainedZoomReplay ? _scene : null;
-    if (scene == null) return false;
+    if (scene == null) return 'no-scene';
     // A dense (grid-escalated) page's region index is a ~O(commands) build
     // (~210ms on the CAD probe, issue #384). Never pay it synchronously on the
     // UI isolate: defer the tile path until the warmed index is resident (built
@@ -2434,9 +2594,9 @@ class _PdfPageViewState extends State<PdfPageView>
     // Until then the base raster / single detail patch covers the view. Pages
     // below the grid ceiling keep the cheap synchronous linear build.
     if (scene.regionIndexBuildIsHeavy && !scene.debugHasRegionReplayIndex) {
-      return false;
+      return 'index-warming';
     }
-    return scene.supportsRegionRaster;
+    return scene.supportsRegionRaster ? 'active' : 'unsupported-scene';
   }
 
   /// Kicks the region-replay index build onto the render worker when the page
@@ -2450,18 +2610,68 @@ class _PdfPageViewState extends State<PdfPageView>
     final scene = PdfPageView.retainedZoomReplay ? _scene : null;
     if (scene == null ||
         scene.debugHasRegionReplayIndex ||
-        !scene.regionIndexBuildIsHeavy) {
+        !scene.regionIndexBuildIsHeavy ||
+        identical(_regionIndexWarmScene, scene)) {
       return;
     }
     final worker = _sceneFromWorker ? widget.renderWorker : null;
-    final warming = scene;
-    scene
-        .warmRegionIndex(worker, pageIndex: widget.previewIndex)
-        .then((_) {
+    final pageIndex = widget.previewIndex;
+    _regionIndexWarmScene = scene;
+    final clock = Stopwatch()..start();
+    PdfPerfLog.log(
+      'region-index warm page=$pageIndex '
+      'commands=${scene.commands.length} '
+      'requested=${worker != null && worker.isActive ? 'worker' : 'local'}',
+    );
+    unawaited(_completeRegionIndexWarm(scene, worker, pageIndex, clock));
+  }
+
+  Future<void> _completeRegionIndexWarm(
+    PdfRetainedScene scene,
+    PdfRenderWorker? worker,
+    int pageIndex,
+    Stopwatch clock,
+  ) async {
+    try {
+      final index = await scene.warmRegionIndex(
+        worker,
+        pageIndex: pageIndex,
+      );
+      PdfPerfLog.log(
+        'region-index ready page=$pageIndex '
+        'supported=${index.supported} units=${index.units.length} '
+        'bytes=${index.estimatedBytes} elapsed=${clock.elapsedMilliseconds}ms',
+      );
       // Only refresh if this is still the adopted scene and we're mounted; a
       // document swap or scroll-away may have replaced it while the worker ran.
-      if (mounted && identical(_scene, warming)) _refreshTileGeometry();
-    });
+      if (mounted && identical(_scene, scene)) {
+        final tiling = _refreshTileGeometry();
+        PdfPerfLog.log(
+          'region-index route page=$pageIndex '
+          'gate=$_tilePathStatus tiling=$tiling',
+        );
+        // A fallback detail request may have started while the index was
+        // warming. Once tiles can cover this view, invalidate that generation
+        // so its multi-megapixel worker picture is dropped instead of rastered.
+        if (tiling) {
+          _renderSession.invalidateDetail();
+        } else {
+          // Unsupported grouped scenes and views too large for the tile budget
+          // still need the legacy detail patch. Re-enter now that the gate has
+          // a final verdict; _updateDetail will no longer take the warming wait.
+          _render();
+        }
+      }
+    } catch (error) {
+      PdfPerfLog.log(
+        'region-index failed page=$pageIndex '
+        'elapsed=${clock.elapsedMilliseconds}ms error=$error',
+      );
+    } finally {
+      if (identical(_regionIndexWarmScene, scene)) {
+        _regionIndexWarmScene = null;
+      }
+    }
   }
 
   /// Per-tile veto for the tile store while the scene is vector-only: a tile
@@ -2556,9 +2766,20 @@ class _PdfPageViewState extends State<PdfPageView>
         pageSize: size,
         desiredRatio: desired,
         visibleFraction: fraction,
-        rasterize: (region, ratio) =>
-            scene.rasterizeRegion(region, pixelRatio: ratio),
+        rasterize: (region, ratio) => scene.rasterizeRegion(
+          region,
+          pixelRatio: ratio,
+          tracePage: widget.previewIndex,
+        ),
         canRasterize: _tileCanRasterize,
+        // A grid-indexed CAD scene can select tens of thousands of commands
+        // across one viewport slab. replayRegion records those commands
+        // synchronously before toImage yields, so batching every missing tile
+        // made the whole slab one UI-frame stall (271ms in the field trace).
+        // Admit one tile per paint instead. A tile completion repaints the
+        // layer and advances the center-out fill; ordinary scenes retain the
+        // lower-overhead batched path.
+        maxNewTilesPerPaint: scene.regionIndexBuildIsHeavy ? 1 : null,
       ),
     );
   }
@@ -3064,11 +3285,29 @@ class _SpeculativeStripPlan {
 }
 
 class _DetailGeometry {
-  const _DetailGeometry(this.fraction, this.region, this.pixelRatio);
+  const _DetailGeometry(
+    this.fraction,
+    this.visibleFraction,
+    this.region,
+    this.pixelRatio,
+  );
 
   final Rect fraction;
+  final Rect visibleFraction;
   final Rect region;
   final double pixelRatio;
+}
+
+/// Whether a retained detail patch fully covers the current visible slice.
+///
+/// Fractions come from independent render-tree projections and can differ by
+/// a few ulps at a shared edge, hence the tiny tolerance.
+bool _detailPatchCovers(Rect patch, Rect visible) {
+  const epsilon = 1e-9;
+  return patch.left <= visible.left + epsilon &&
+      patch.top <= visible.top + epsilon &&
+      patch.right + epsilon >= visible.right &&
+      patch.bottom + epsilon >= visible.bottom;
 }
 
 /// A combined region-detail job issued from the translated live viewport.

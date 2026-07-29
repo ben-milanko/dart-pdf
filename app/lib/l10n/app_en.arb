@@ -1149,6 +1149,14 @@
       }
     }
   },
+  "settingsNightlyUpdates": "Nightly updates",
+  "@settingsNightlyUpdates": {
+    "description": "Windows-only setting that opts into rolling test builds from main."
+  },
+  "settingsNightlyUpdatesSubtitle": "Receive automatic update notifications for unsigned Windows test builds from main.",
+  "@settingsNightlyUpdatesSubtitle": {
+    "description": "Explains the risk and behavior of the nightly update channel."
+  },
   "settingsUpdates": "Updates",
   "@settingsUpdates": {
     "description": "Section header for the software-update block in settings."

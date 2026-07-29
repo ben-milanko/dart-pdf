@@ -207,6 +207,8 @@
   "settingsUpdateAvailable": "{version} sürümü kullanılabilir ({currentVersion} sürümüne sahipsiniz).",
   "settingsUpdateFailed": "Güncellemeler denetlenemedi. Daha sonra tekrar deneyin.",
   "settingsUpdateIdle": "{name} {version} sürümüne sahipsiniz.",
+  "settingsNightlyUpdates": "Gecelik güncellemeler",
+  "settingsNightlyUpdatesSubtitle": "main dalındaki imzasız Windows test derlemeleri için otomatik güncelleme bildirimleri alın.",
   "settingsUpdates": "Güncellemeler",
   "settingsViewSource": "GitHub'da kaynağı görüntüle",
   "undo": "Geri al",

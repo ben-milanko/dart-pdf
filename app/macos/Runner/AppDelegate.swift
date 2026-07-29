@@ -3,6 +3,8 @@ import FlutterMacOS
 
 @main
 class AppDelegate: FlutterAppDelegate {
+  private let fileAccess = FileAccessExecutor()
+
   /// Channel to the Dart `IncomingFileService`; set by MainFlutterWindow once
   /// the engine exists.
   var incomingChannel: FlutterMethodChannel?
@@ -59,7 +61,20 @@ class AppDelegate: FlutterAppDelegate {
 
   /// Sends a freshly opened file to Dart, or buffers it until the engine is up.
   private func deliver(path: String) {
-    let payload = payload(for: path)
+    // Finder can deliver an iCloud/OneDrive placeholder during cold launch.
+    // Reading it or resolving its security scope here blocks AppKit's main
+    // thread and produces a beachball before Flutter can paint. Build the
+    // payload on the same background executor used by the file-access channel,
+    // then return to the main thread to touch the channel/queue state.
+    fileAccess.perform {
+      let payload = self.payload(for: path)
+      DispatchQueue.main.async {
+        self.deliver(payload: payload)
+      }
+    }
+  }
+
+  private func deliver(payload: [String: Any]) {
     guard dartIncomingReady, let channel = incomingChannel else {
       pendingFiles.append(payload)
       return
@@ -94,11 +109,12 @@ class AppDelegate: FlutterAppDelegate {
     ]
     let scoped = url.startAccessingSecurityScopedResource()
     defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-    if let data = try? Data(contentsOf: url) {
-      payload["bytes"] = FlutterStandardTypedData(bytes: data)
-    }
     if let bookmark = securityBookmark(for: url) {
       payload["bookmark"] = bookmark.base64EncodedString()
+    } else if let data = try? Data(contentsOf: url) {
+      // A bookmark should normally succeed. Preserve the old whole-byte
+      // fallback for unusual providers, but it now runs off the AppKit thread.
+      payload["bytes"] = FlutterStandardTypedData(bytes: data)
     }
     return payload
   }

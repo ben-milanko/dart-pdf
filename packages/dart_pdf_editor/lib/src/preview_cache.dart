@@ -11,6 +11,64 @@ import 'raster_cache.dart';
 import 'render_worker.dart';
 import 'renderer.dart';
 
+/// Memory policy for full-resolution rasters of pages the user has visited.
+///
+/// A page widget is disposed after it leaves the scroll view's build window.
+/// Its completed raster can outlive that widget in [PdfPagePreviewCache], so a
+/// revisit at the same physical size paints immediately without interpreting
+/// or rasterizing the page again.
+///
+/// The defaults preserve the package's bounded working set: 32 MiB total and
+/// 16 MiB for any one page. Desktop hosts that prefer revisit speed over
+/// memory can opt into a much larger budget:
+///
+/// ```dart
+/// PdfViewer(
+///   document: document,
+///   pageRasterCachePolicy: const PdfPageRasterCachePolicy(
+///     maxBytes: 5 * 1024 * 1024 * 1024,
+///     maxEntryBytes: 64 * 1024 * 1024,
+///   ),
+/// )
+/// ```
+///
+/// This controls only exact, already-rendered page rasters. Low-resolution
+/// fast-scroll previews, decoded PDF images, retained scenes, deep-zoom tiles,
+/// and render-worker records have their own bounds. A large value is therefore
+/// an upper limit on this cache, not on the process's total memory use.
+@immutable
+class PdfPageRasterCachePolicy {
+  const PdfPageRasterCachePolicy({
+    this.maxBytes = 32 * 1024 * 1024,
+    this.maxEntryBytes = 16 * 1024 * 1024,
+  })  : assert(maxBytes >= 0),
+        assert(maxEntryBytes >= 0);
+
+  /// Disables retention of full-resolution visited-page rasters.
+  const PdfPageRasterCachePolicy.disabled()
+      : maxBytes = 0,
+        maxEntryBytes = 0;
+
+  /// Total approximate RGBA byte budget for retained page rasters.
+  final int maxBytes;
+
+  /// Largest individual page raster admitted to the cache.
+  ///
+  /// This remains a separate guard even with a large [maxBytes], so one
+  /// unusually large-format or high-DPI page need not displace the useful
+  /// working set unless the host explicitly allows it.
+  final int maxEntryBytes;
+
+  @override
+  bool operator ==(Object other) =>
+      other is PdfPageRasterCachePolicy &&
+      maxBytes == other.maxBytes &&
+      maxEntryBytes == other.maxEntryBytes;
+
+  @override
+  int get hashCode => Object.hash(maxBytes, maxEntryBytes);
+}
+
 /// Low-resolution page previews shown while a page's full render is
 /// pending - most visibly during fast scrolling, when [PdfPageView]
 /// holds the (UI-thread) first interpretation of pages flying past and
@@ -30,10 +88,12 @@ class PdfPagePreviewCache extends ChangeNotifier {
   PdfPagePreviewCache({
     this.longestSide = 200,
     this.capacity = 300,
-    this.maxFullRasterPixels = 8 << 20,
-    this.maxFullRasterEntryPixels = 4 << 20,
+    int maxFullRasterPixels = 8 << 20,
+    int maxFullRasterEntryPixels = 4 << 20,
   })  : assert(maxFullRasterPixels >= 0),
-        assert(maxFullRasterEntryPixels >= 0);
+        assert(maxFullRasterEntryPixels >= 0),
+        _maxFullRasterBytes = maxFullRasterPixels * 4,
+        _maxFullRasterEntryBytes = maxFullRasterEntryPixels * 4;
 
   /// Pixel size of a preview's longest side. Stretched to page size on
   /// screen the result is soft but recognizable - enough to navigate by.
@@ -47,7 +107,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// These entries remove the soft-preview delay when a lazy page widget is
   /// rebuilt during back-and-forth scrolling. The default is about 32 MiB of
   /// RGBA pixels. Set to zero to keep only low-resolution previews.
-  final int maxFullRasterPixels;
+  int get maxFullRasterPixels => _maxFullRasterBytes ~/ 4;
 
   /// Largest exact raster admitted to the recent-page cache.
   ///
@@ -55,7 +115,22 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// path instead of consuming the whole budget. The default is about 16 MiB
   /// of RGBA pixels, which covers ordinary document pages while excluding the
   /// large CAD rasters this cache is not intended to retain.
-  final int maxFullRasterEntryPixels;
+  int get maxFullRasterEntryPixels => _maxFullRasterEntryBytes ~/ 4;
+
+  /// Approximate bytes currently allowed for exact visited-page rasters.
+  int get maxFullRasterBytes => _maxFullRasterBytes;
+
+  /// Largest individual visited-page raster currently admitted.
+  int get maxFullRasterEntryBytes => _maxFullRasterEntryBytes;
+
+  /// Approximate bytes currently retained by the exact raster LRU.
+  int get fullRasterBytes => _fullEntries.weight;
+
+  /// Number of exact page rasters currently retained.
+  int get fullRasterCount => _fullEntries.length;
+
+  int _maxFullRasterBytes;
+  int _maxFullRasterEntryBytes;
 
   // Two shared budgeted LRUs: soft previews bounded by entry count, exact
   // recent-page rasters bounded by total pixels. Both dispose evicted images;
@@ -70,16 +145,46 @@ class PdfPagePreviewCache extends ChangeNotifier {
   );
   late final PdfBudgetedCache<int, _FullRasterEntry> _fullEntries =
       PdfBudgetedCache<int, _FullRasterEntry>(
-    weigher: (entry) => entry.pixels,
-    maxWeight: maxFullRasterPixels,
+    weigher: (entry) => entry.bytes,
+    maxWeight: _maxFullRasterBytes,
     disposer: (entry) => entry.image.dispose(),
+    onEvicted: _logFullRasterEviction,
+    clearsUnderMemoryPressure: true,
     debugLabel: 'page-full-raster',
   );
   bool _disposed = false;
 
   /// Pixels currently retained by the exact recent-page cache.
   @visibleForTesting
-  int get debugFullRasterPixels => _fullEntries.weight;
+  int get debugFullRasterPixels => _fullEntries.weight ~/ 4;
+
+  /// Applies a new full-resolution visited-page memory policy.
+  ///
+  /// Raising the budget lets later page renders occupy the extra room.
+  /// Lowering it trims the LRU immediately and also drops entries that exceed
+  /// the new per-page limit. Low-resolution previews are unaffected.
+  void configureFullRasterCache(PdfPageRasterCachePolicy policy) {
+    if (_disposed) return;
+    final beforeCount = _fullEntries.length;
+    final beforeBytes = _fullEntries.weight;
+    _maxFullRasterBytes = policy.maxBytes;
+    _maxFullRasterEntryBytes = policy.maxEntryBytes;
+    _fullEntries.evictWhere((index) {
+      final entry = _fullEntries.peek(index);
+      return entry != null && entry.bytes > _maxFullRasterEntryBytes;
+    });
+    _fullEntries.maxWeight = _maxFullRasterBytes;
+    PdfPerfLog.log(
+      'page-raster policy total=${policy.maxBytes} '
+      'entry=${policy.maxEntryBytes} retained=${_fullEntries.weight} '
+      'entries=${_fullEntries.length} '
+      'trimmedEntries=${beforeCount - _fullEntries.length} '
+      'trimmedBytes=${beforeBytes - _fullEntries.weight} '
+      'registry=${PdfCacheRegistry.instance.totalWeight} '
+      'ceiling=${PdfCacheRegistry.instance.maxTotalWeight}'
+      '${PdfPerfLog.rssSuffix()}',
+    );
+  }
 
   /// Optional persistent backing (see [PdfRasterCache]). When set, fresh
   /// previews are written through to disk as they render, and [loadFromDisk]
@@ -136,15 +241,40 @@ class PdfPagePreviewCache extends ChangeNotifier {
     required int? rotation,
   }) {
     final entry = _fullEntries.take(index); // touch; the master stays cached
-    if (entry == null) return null;
-    if (!identical(entry.page, page) ||
-        entry.image.width != width ||
-        entry.image.height != height ||
-        entry.pageColor != pageColor ||
-        entry.annotations != annotations ||
-        entry.rotation != rotation) {
+    if (entry == null) {
+      _logFullRasterLookup('miss', index, reason: 'empty');
       return null;
     }
+    final mismatch = !identical(entry.page, page)
+        ? 'page-identity'
+        : entry.image.width != width || entry.image.height != height
+            ? 'dimensions'
+            : entry.pageColor != pageColor
+                ? 'page-color'
+                : entry.annotations != annotations
+                    ? 'annotations'
+                    : entry.rotation != rotation
+                        ? 'rotation'
+                        : null;
+    if (mismatch != null) {
+      // Drop it. A mismatched entry cannot serve this page at its current
+      // display geometry, and the caller's very next act is to rasterize and
+      // store the replacement - so retaining it only spends a scarce budget on
+      // pixels nothing can read. In the 2026-07-29 trace a page-0 raster stored
+      // at ratio 0.4 (429x304) sat in the cache producing `miss
+      // reason=dimensions` three times over 1.4s while the viewer, long since
+      // at ratio 1.4, re-rasterized the page from scratch each time.
+      //
+      // This costs a zoom-back-to-the-old-scale reuse in principle. It is not
+      // worth keeping: the entry survives only until the next store for this
+      // index replaces it anyway, and under the coordinated ceiling the cache
+      // holds single-digit entries, so one stale large raster displaces a
+      // live one.
+      _fullEntries.evict(index); // disposes the image
+      _logFullRasterLookup('miss', index, reason: mismatch);
+      return null;
+    }
+    _logFullRasterLookup('hit', index, bytes: entry.bytes);
     return entry.image.clone();
   }
 
@@ -162,12 +292,24 @@ class PdfPagePreviewCache extends ChangeNotifier {
     required int? rotation,
   }) {
     if (_disposed) return;
-    final pixels = image.width * image.height;
-    if (maxFullRasterPixels == 0 ||
-        pixels > maxFullRasterEntryPixels ||
-        pixels > maxFullRasterPixels) {
+    final bytes = image.width * image.height * 4;
+    final rejection = _maxFullRasterBytes == 0
+        ? 'disabled'
+        : bytes > _maxFullRasterEntryBytes
+            ? 'entry-limit'
+            : bytes > _maxFullRasterBytes
+                ? 'total-limit'
+                : null;
+    if (rejection != null) {
+      _logFullRasterLookup(
+        'reject',
+        index,
+        reason: rejection,
+        bytes: bytes,
+      );
       return;
     }
+    final beforeEvictions = _fullEntries.evictions;
     // put disposes any prior entry for this index and evicts the LRU rasters
     // past the pixel budget; the entry just stored (which the guard above kept
     // within budget) is never the one evicted.
@@ -181,6 +323,49 @@ class PdfPagePreviewCache extends ChangeNotifier {
         rotation: rotation,
       ),
     );
+    if (!_fullEntries.containsKey(index)) {
+      _logFullRasterLookup(
+        'reject',
+        index,
+        reason: 'coordinated-ceiling',
+        bytes: bytes,
+      );
+      return;
+    }
+    PdfPerfLog.log(
+      'page-raster store page=$index bytes=$bytes '
+      'evicted=${_fullEntries.evictions - beforeEvictions} '
+      '${_fullRasterState()}${PdfPerfLog.rssSuffix()}',
+    );
+  }
+
+  void _logFullRasterEviction(int index, _FullRasterEntry entry) {
+    PdfPerfLog.log(
+      'page-raster evict page=$index bytes=${entry.bytes} reason=budget '
+      '${_fullRasterState()}${PdfPerfLog.rssSuffix()}',
+    );
+  }
+
+  void _logFullRasterLookup(
+    String event,
+    int index, {
+    String? reason,
+    int? bytes,
+  }) {
+    PdfPerfLog.log(
+      'page-raster $event page=$index'
+      '${bytes == null ? '' : ' bytes=$bytes'}'
+      '${reason == null ? '' : ' reason=$reason'} '
+      '${_fullRasterState()}${PdfPerfLog.rssSuffix()}',
+    );
+  }
+
+  String _fullRasterState() {
+    final registry = PdfCacheRegistry.instance;
+    return 'retained=${_fullEntries.weight} entries=${_fullEntries.length} '
+        'totalLimit=$_maxFullRasterBytes '
+        'entryLimit=$_maxFullRasterEntryBytes '
+        'registry=${registry.totalWeight} ceiling=${registry.maxTotalWeight}';
   }
 
   /// Whether any preview (fresh or stale) exists for page [index].
@@ -373,8 +558,8 @@ class PdfPagePreviewCache extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    _entries.clear(); // disposes every retained image
-    _fullEntries.clear();
+    _entries.dispose(); // disposes every retained image
+    _fullEntries.dispose();
     super.dispose();
   }
 }
@@ -402,5 +587,5 @@ class _FullRasterEntry {
   final bool annotations;
   final int? rotation;
 
-  int get pixels => image.width * image.height;
+  int get bytes => image.width * image.height * 4;
 }

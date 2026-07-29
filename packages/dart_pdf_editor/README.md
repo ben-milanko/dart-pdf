@@ -84,8 +84,8 @@ Built on the pure-Dart
 
 ## Optional bundled assets
 
-The editor's six bundled fonts and its web render worker (~1.7 MB together)
-ship in a separate opt-in package,
+The editor's six bundled fonts and its web render worker (~1.8 MB package
+download) ship in a separate opt-in package,
 [`dart_pdf_editor_assets`](../dart_pdf_editor_assets), rather than in
 `dart_pdf_editor` itself. Flutter bundles a package's declared assets on every
 build target, so keeping them out of the always-depended-on package is the only
@@ -132,22 +132,25 @@ also supply its own catalogue - set `pdfBundledFonts` to your own
 
 ## Performance
 
-Pure Dart, and fast: on a real-world corpus (49 files / 255 pages of
-CAD drawings, scans, reports, and forms) the parse + content-stream
-**interpreter is ~1.9× faster than PDFium**: **13.3 ms/page vs 24.9 ms/page**
-at scale 2. PDFium is the C++ engine Chrome uses. Full Flutter
-rasterization is 52.0 ms/page (2.08× PDFium); that remaining gap is image
-decoding and GPU raster, not the interpreter.
+On a real-world corpus (49 files / 255 pages of CAD drawings, scans, reports,
+and forms), the pure-Dart page interpreter processes **104.5 pages/s** at
+scale 2: **9.6 ms/page**, compared with PDFium rasterizing at **23.1
+ms/page**. The apples-to-apples full Flutter render runs at **45.2 ms/page**,
+including image decoding, rasterization, and readback.
 
 | engine | ms/page | vs PDFium |
 |---|---|---|
-| dart-pdf interpret (pure Dart) | **13.3** | **1.87× faster** |
-| PDFium (open + rasterize) | 24.9 | 1.00× |
-| dart-pdf render (full Flutter raster) | 52.0 | 2.08× slower |
+| dart-pdf interpret (pure Dart, no raster) | **9.6** | **2.42× faster** |
+| PDFium rasterize (document open excluded) | 23.1 | 1.00× |
+| dart-pdf render (full Flutter raster + readback) | 45.2 | 1.95× slower |
 
 Numbers and methodology are in
 [`benchmark/`](https://github.com/ben-milanko/dart-pdf/tree/main/benchmark).
-The harnesses diff dart-pdf against PDFium file by file.
+The harnesses diff dart-pdf against PDFium file by file. These figures measure
+static page throughput, not scrolling FPS or dropped frames; the real-Chrome
+interaction harness reports those separately. In five interleaved
+`scroll-plan` runs, 3.1.1 reduced median over-budget frame events from 7 to 1
+versus 3.1.0 (-85.7%).
 
 The drop-in shells use adaptive performance tuning by default. Auto selects a
 platform-, core-, and document-aware worker count, then adjusts safe preview
@@ -173,8 +176,13 @@ performance.mode = const PdfPerformanceMode.fixed(workerCount: 2);
   low-res previews (filled in by a background prerender) instead of
   blank paper, and full rendering resumes the moment scrolling
   settles.
+- Progressive rendering records pages in a default worker, streams partial
+  records as they are produced, and reveals complex pages top-down.
 - Text selection (mouse, and touch with selection handles), full-text
-  search with a results panel, link navigation, outlines.
+  search with page-text and annotation-content results, link navigation,
+  outlines.
+- Faithful print-oriented overprint and spot-color rendering, including
+  colorants sampled from images.
 - Theming via `PdfViewerTheme`, dark mode, arbitrary page colors, and a
   hide-all-annotations toggle.
 
@@ -186,7 +194,8 @@ are byte prefixes of one buffer.
 - Annotation tools: highlight/underline/strikeout/squiggly, ink with
   stylus pressure and spline smoothing, shapes, free text with in-place
   editing, notes, stamps (including custom saved stamps), and a saved
-  ink signature.
+  ink signature. The hyperlink tool authors URI and in-document links, and
+  placed images and raster snapshots can be cropped interactively.
 - Certificate-backed digital signatures: load an in-memory RSA private key
   and X.509 chain, then add a validated PAdES B-B signature as an undoable
   document revision. This is separate from the drawn ink-signature tool.
@@ -197,6 +206,8 @@ are byte prefixes of one buffer.
   rotate with live appearance previews, plus a slicing circle eraser,
   copy/cut/paste, z-order, restyling, and a context menu with
   host-extensible entries (right-click, or long-press on touch).
+- Lock/unlock annotations with Acrobat/Bluebeam-compatible PDF flags and
+  assign custom keyboard shortcuts to every editing tool.
 - Forms: fill text/checkbox/radio/choice fields in place, set button
   images, and administer fields (add, rename, retype, delete, flatten).
   Fields are highlighted with a translucent wash by default

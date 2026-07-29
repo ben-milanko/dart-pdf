@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.2.0
+
+- Render third-party FreeText annotations without appearance streams more
+  faithfully: callout text uses the inset text box, long lines wrap, quadding
+  is honored, and semantic fill, border, and leader-line styling is painted
+  from the annotation dictionary (#621).
+
 ## 3.1.1
 
 - Lockstep patch release to align the dart-pdf package suite at 3.1.1. No

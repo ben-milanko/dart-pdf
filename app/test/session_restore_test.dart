@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -13,6 +14,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/incoming_file.dart';
 import 'package:dart_pdf_editor_app/session_store.dart';
+import 'package:dart_pdf_editor_app/unsaved_changes.dart';
+import 'package:dart_pdf_editor_app/welcome_screen.dart';
 
 class _FakeFileSelector extends fs.FileSelectorPlatform {
   _FakeFileSelector(this.files);
@@ -29,6 +32,13 @@ class _FakeFileSelector extends fs.FileSelectorPlatform {
     openedMultiple = true;
     return files;
   }
+}
+
+class _DelayedRecoveryStore extends InMemoryUnsavedChangesStore {
+  final gate = Completer<List<UnsavedRecord>>();
+
+  @override
+  Future<List<UnsavedRecord>> list() => gate.future;
 }
 
 void main() {
@@ -102,6 +112,47 @@ void main() {
 
     expect(tabTitle('a.pdf'), findsOneWidget);
     expect(tabTitle('b.pdf'), findsOneWidget);
+  });
+
+  testWidgets('does not start recent thumbnails during transient restore frame',
+      (tester) async {
+    final restored = seedFile('restored.pdf');
+    final recent = seedFile('recent.pdf');
+    SharedPreferences.setMockInitialValues({
+      'dart_pdf_editor_app.session': jsonEncode([
+        {'t': 'restored.pdf', 'p': restored}
+      ]),
+      'dart_pdf_editor_app.recents': jsonEncode([
+        {
+          't': 'recent.pdf',
+          'p': recent,
+          'o': DateTime.now().millisecondsSinceEpoch,
+        }
+      ]),
+    });
+    final recovery = _DelayedRecoveryStore();
+
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(prefs: prefs, unsavedChangesStore: recovery),
+    ));
+    await tester.pump();
+
+    // Recents may already be visible, but their expensive renderer stays
+    // detached until session restore has decided there is no document to show.
+    final welcome = tester.widget<WelcomeScreen>(find.byType(WelcomeScreen));
+    expect(welcome.thumbnails, isNull);
+
+    recovery.gate.complete(const []);
+    await tester.runAsync(() async {
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    });
+    await tester.pump();
+
+    expect(find.byType(WelcomeScreen), findsNothing);
+    expect(tabTitle('restored.pdf'), findsOneWidget);
   });
 
   testWidgets('restores a mobile document from its private snapshot',

@@ -32,6 +32,8 @@ constexpr const char kImageClipboardChannelName[] =
 constexpr const char kNativePrintChannelName[] =
     "dev.milanko.dartpdf/native_print";
 
+constexpr const char kMemoryChannelName[] = "dev.milanko.dartpdf/memory";
+
 // Looks up |key| in |map|, or returns null when absent.
 const flutter::EncodableValue* Lookup(const flutter::EncodableMap& map,
                                       const char* key) {
@@ -113,6 +115,37 @@ bool FlutterWindow::OnCreate() {
         } else {
           result->NotImplemented();
         }
+      });
+
+  memory_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), kMemoryChannelName,
+          &flutter::StandardMethodCodec::GetInstance());
+  memory_channel_->SetMethodCallHandler(
+      [](const flutter::MethodCall<flutter::EncodableValue>& call,
+         std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+             result) {
+        if (call.method_name() != "snapshot") {
+          result->NotImplemented();
+          return;
+        }
+        MEMORYSTATUSEX status{};
+        status.dwLength = sizeof(status);
+        if (!::GlobalMemoryStatusEx(&status)) {
+          result->Error("memory_snapshot_failed",
+                        "GlobalMemoryStatusEx failed");
+          return;
+        }
+        result->Success(flutter::EncodableValue(flutter::EncodableMap{
+            {flutter::EncodableValue("physicalBytes"),
+             flutter::EncodableValue(
+                 static_cast<int64_t>(status.ullTotalPhys))},
+            {flutter::EncodableValue("availableBytes"),
+             flutter::EncodableValue(
+                 static_cast<int64_t>(status.ullAvailPhys))},
+            {flutter::EncodableValue("lowMemory"),
+             flutter::EncodableValue(status.dwMemoryLoad >= 90)},
+        }));
       });
 
   // Bridge the Snapshot tool's PNG raster to the Win32 clipboard so it can be

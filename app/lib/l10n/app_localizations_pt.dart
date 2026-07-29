@@ -854,6 +854,13 @@ class AppLocalizationsPt extends AppLocalizations {
   }
 
   @override
+  String get settingsNightlyUpdates => 'Atualizações noturnas';
+
+  @override
+  String get settingsNightlyUpdatesSubtitle =>
+      'Receba notificações automáticas para compilações de teste do Windows não assinadas da main.';
+
+  @override
   String get settingsUpdates => 'Atualizações';
 
   @override

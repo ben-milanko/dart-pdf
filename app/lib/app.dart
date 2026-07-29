@@ -5,6 +5,7 @@ import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import 'adaptive_memory.dart';
 import 'devtools.dart';
 import 'editor_screen.dart';
 import 'l10n/app_localizations.dart';
@@ -27,6 +28,8 @@ class DartPdfEditorApp extends StatefulWidget {
 
 class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
   final _prefs = PdfEditingPreferences();
+  late final AdaptiveMemoryBudgetController _memoryBudget =
+      AdaptiveMemoryBudgetController();
 
   // Reuse a Sigstore login across Digitally sign dialogs: cache the id_token,
   // refresh it silently when it expires, and only sign in via the browser when
@@ -77,14 +80,21 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
     // reclaimed first when the sum exceeds this; the on-screen page and its
     // neighbours always fit.
     PdfLiveRasterBudget.instance.maxBytes = pdfDefaultLiveRasterBudgetBytes();
-    // Persisted devtools options (deep-zoom mode, overlays, worker count)
-    // override the defaults above once loaded.
-    if (kDevToolsEnabled) unawaited(AppDevTools.instance.restoreOptions());
+    // Persisted developer overrides load before the adaptive memory sampler.
+    // Fresh installs stay in Auto; an older build's explicit page-raster
+    // setting is migrated as a fixed diagnostic override.
+    unawaited(_startMemoryBudget());
     // Offer the host's installed fonts in the editor's font menu by default.
     // Fire-and-forget: the registry is read when a font menu opens, and an
     // empty result (web, or a locked-down platform) just leaves the base-14,
     // bundled and "Load font…" choices.
     unawaited(_loadPlatformFonts());
+  }
+
+  Future<void> _startMemoryBudget() async {
+    if (kDevToolsEnabled) await AppDevTools.instance.restoreOptions();
+    if (!mounted) return;
+    await _memoryBudget.start(periodic: !runningUnderFlutterTest);
   }
 
   Future<void> _loadPlatformFonts() async {
@@ -99,6 +109,7 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
 
   @override
   void dispose() {
+    _memoryBudget.dispose();
     _prefs.dispose();
     super.dispose();
   }

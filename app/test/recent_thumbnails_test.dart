@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 
@@ -84,5 +87,33 @@ void main() {
       expect(await cache.thumbnailFor(entry(path: '/a.pdf')), isNull);
     });
     expect(reads, 1);
+  });
+
+  test('serializes thumbnail reads instead of hydrating recents together',
+      () async {
+    final first = Completer<Uint8List>();
+    final second = Completer<Uint8List>();
+    final reads = <String>[];
+    final cache = RecentThumbnailCache(readBytes: (path, {bookmark}) {
+      reads.add(path);
+      return path == '/a.pdf' ? first.future : second.future;
+    });
+    addTearDown(cache.dispose);
+
+    final a = cache.thumbnailFor(entry(path: '/a.pdf'));
+    final b = cache.thumbnailFor(entry(path: '/b.pdf'));
+    await Future<void>.delayed(Duration.zero);
+
+    expect(reads, ['/a.pdf']);
+
+    // Invalid bytes make the first render resolve to the generic-icon fallback;
+    // once it leaves the queue the second source is allowed to start.
+    first.complete(Uint8List(0));
+    expect(await a, isNull);
+    await Future<void>.delayed(Duration.zero);
+    expect(reads, ['/a.pdf', '/b.pdf']);
+
+    second.complete(Uint8List(0));
+    expect(await b, isNull);
   });
 }

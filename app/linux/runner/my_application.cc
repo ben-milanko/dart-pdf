@@ -8,6 +8,7 @@
 #include <cairo.h>
 
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 #include "flutter/generated_plugin_registrant.h"
@@ -26,6 +27,8 @@ struct _MyApplication {
   // arrive as Dart entrypoint arguments instead (see my_application_open), the
   // way the Dart side expects on Windows and Linux.
   FlMethodChannel* incoming_channel;
+  // Physical/available memory snapshots for the adaptive PDF cache policy.
+  FlMethodChannel* memory_channel;
   GPtrArray* print_pages;  // GBytes* per accumulated page image
   char* print_job_name;
 };
@@ -511,6 +514,59 @@ static void incoming_method_call_cb(FlMethodChannel* channel,
   }
 }
 
+// Reads Linux's authoritative available-memory estimate. MemAvailable includes
+// reclaimable page cache, unlike MemFree, and is therefore the useful signal
+// for deciding whether reconstructed PDF rasters may grow.
+static void memory_method_call_cb(FlMethodChannel* channel,
+                                  FlMethodCall* method_call,
+                                  gpointer user_data) {
+  const gchar* method = fl_method_call_get_name(method_call);
+  g_autoptr(FlMethodResponse) response = nullptr;
+  if (strcmp(method, "snapshot") != 0) {
+    response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
+  } else {
+    g_autofree gchar* contents = nullptr;
+    gsize length = 0;
+    if (!g_file_get_contents("/proc/meminfo", &contents, &length, nullptr)) {
+      response = FL_METHOD_RESPONSE(fl_method_error_response_new(
+          "memory_snapshot_failed", "Could not read /proc/meminfo", nullptr));
+    } else {
+      guint64 total_kb = 0;
+      guint64 available_kb = 0;
+      gchar** lines = g_strsplit(contents, "\n", -1);
+      for (gchar** line = lines; *line != nullptr; line++) {
+        if (sscanf(*line, "MemTotal: %" G_GUINT64_FORMAT " kB", &total_kb) ==
+            1) {
+          continue;
+        }
+        sscanf(*line, "MemAvailable: %" G_GUINT64_FORMAT " kB",
+               &available_kb);
+      }
+      g_strfreev(lines);
+      const guint64 total = total_kb * 1024;
+      const guint64 available = available_kb * 1024;
+      const guint64 low_threshold =
+          MAX(static_cast<guint64>(256) * 1024 * 1024, total / 20);
+      g_autoptr(FlValue) snapshot = fl_value_new_map();
+      fl_value_set_string_take(
+          snapshot, "physicalBytes",
+          fl_value_new_int(static_cast<gint64>(total)));
+      fl_value_set_string_take(
+          snapshot, "availableBytes",
+          fl_value_new_int(static_cast<gint64>(available)));
+      fl_value_set_string_take(snapshot, "lowMemory",
+                               fl_value_new_bool(available < low_threshold));
+      response =
+          FL_METHOD_RESPONSE(fl_method_success_response_new(snapshot));
+    }
+  }
+
+  g_autoptr(GError) error = nullptr;
+  if (!fl_method_call_respond(method_call, response, &error)) {
+    g_warning("Failed to send memory response: %s", error->message);
+  }
+}
+
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
@@ -596,6 +652,11 @@ static void my_application_activate(GApplication* application) {
   fl_method_channel_set_method_call_handler(
       self->incoming_channel, incoming_method_call_cb, self, nullptr);
 
+  self->memory_channel = fl_method_channel_new(
+      messenger, "dev.milanko.dartpdf/memory", FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(
+      self->memory_channel, memory_method_call_cb, self, nullptr);
+
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
 
@@ -660,6 +721,7 @@ static void my_application_dispose(GObject* object) {
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
   g_clear_object(&self->native_print_channel);
   g_clear_object(&self->incoming_channel);
+  g_clear_object(&self->memory_channel);
   g_clear_pointer(&self->print_pages, g_ptr_array_unref);
   g_clear_pointer(&self->print_job_name, g_free);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);

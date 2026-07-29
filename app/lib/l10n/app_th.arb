@@ -207,6 +207,8 @@
   "settingsUpdateAvailable": "มีเวอร์ชัน {version} ให้ใช้งาน (คุณมี {currentVersion})",
   "settingsUpdateFailed": "ตรวจสอบการอัปเดตไม่ได้ ลองอีกครั้งภายหลัง",
   "settingsUpdateIdle": "คุณมี {name} {version}",
+  "settingsNightlyUpdates": "การอัปเดตแบบ Nightly",
+  "settingsNightlyUpdatesSubtitle": "รับการแจ้งเตือนอัปเดตอัตโนมัติสำหรับบิลด์ทดสอบ Windows ที่ไม่ได้ลงนามจาก main",
   "settingsUpdates": "การอัปเดต",
   "settingsViewSource": "ดูซอร์สโค้ดบน GitHub",
   "undo": "เลิกทำ",

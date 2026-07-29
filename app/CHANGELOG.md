@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.2.0
+
+- Page caching now adapts to device memory and system pressure, and the render
+  pipeline avoids redundant full-page and detail work. Large and dense
+  documents stay responsive while using a larger cache where the device can
+  afford it.
+- Third-party FreeText boxes and callouts render more faithfully, including
+  wrapping, alignment, fills, borders, and leader lines. Multi-line text
+  markups select only where their visible quads are painted.
+- Fix loading pauses on macOS, keep remote session restoration responsive, and
+  preserve Ctrl/Cmd-wheel zoom after drawing a Shift-constrained line.
+- Add opt-in nightly Windows updates for users who want the newest fixes
+  between stable releases.
+
 ## 3.1.1
 
 - Smoother scrolling on large and visually dense PDFs, with the page renderer

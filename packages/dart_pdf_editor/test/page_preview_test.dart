@@ -129,6 +129,242 @@ void main() {
         reason: 'oversized pages remain on the scheduled render path');
   });
 
+  testWidgets('byte policy raises and trims the visited-page raster cache',
+      (tester) async {
+    final document = PdfDocument.open(buildMultiPagePdf(2));
+    final first = document.page(0);
+    final second = document.page(1);
+    final image = await PdfPageRenderer.renderImage(first, pixelRatio: 0.5);
+    addTearDown(image.dispose);
+    final imageBytes = image.width * image.height * 4;
+    final cache = PdfPagePreviewCache();
+    addTearDown(cache.dispose);
+
+    cache.configureFullRasterCache(PdfPageRasterCachePolicy(
+      maxBytes: imageBytes * 2,
+      maxEntryBytes: imageBytes,
+    ));
+    expect(cache.maxFullRasterBytes, imageBytes * 2);
+    cache.putFullImage(
+      0,
+      first,
+      image,
+      pageColor: const Color(0xFFFFFFFF),
+      annotations: true,
+      rotation: null,
+    );
+    cache.putFullImage(
+      1,
+      second,
+      image,
+      pageColor: const Color(0xFFFFFFFF),
+      annotations: true,
+      rotation: null,
+    );
+    expect(cache.fullRasterCount, 2);
+    expect(cache.fullRasterBytes, imageBytes * 2);
+
+    cache.configureFullRasterCache(PdfPageRasterCachePolicy(
+      maxBytes: imageBytes,
+      maxEntryBytes: imageBytes,
+    ));
+    expect(cache.fullRasterCount, 1,
+        reason: 'lowering the total budget trims the LRU immediately');
+    expect(cache.fullRasterBytes, imageBytes);
+
+    cache.configureFullRasterCache(PdfPageRasterCachePolicy(
+      maxBytes: imageBytes,
+      maxEntryBytes: imageBytes - 1,
+    ));
+    expect(cache.fullRasterCount, 0,
+        reason: 'lowering the entry limit drops oversized retained pages');
+  });
+
+  testWidgets('a lookup at another geometry drops the entry it cannot use',
+      (tester) async {
+    final document = PdfDocument.open(buildMultiPagePdf(1));
+    final page = document.page(0);
+    final image = await PdfPageRenderer.renderImage(page, pixelRatio: 0.5);
+    addTearDown(image.dispose);
+    final bytes = image.width * image.height * 4;
+    final cache = PdfPagePreviewCache();
+    addTearDown(cache.dispose);
+
+    cache.configureFullRasterCache(PdfPageRasterCachePolicy(
+      maxBytes: bytes * 4,
+      maxEntryBytes: bytes,
+    ));
+    cache.putFullImage(
+      0,
+      page,
+      image,
+      pageColor: const Color(0xFFFFFFFF),
+      annotations: true,
+      rotation: null,
+    );
+    expect(cache.fullRasterCount, 1);
+
+    // The page is now displayed at a different resolution, so this raster can
+    // never satisfy a lookup again. Retaining it only spends a scarce budget on
+    // pixels nothing can read - the 2026-07-29 trace shows a ratio-0.4 entry
+    // producing `miss reason=dimensions` three times while the viewer, long
+    // since at ratio 1.4, re-rasterized the page from scratch each time.
+    expect(
+      cache.fullImageFor(
+        0,
+        page,
+        width: image.width * 2,
+        height: image.height * 2,
+        pageColor: const Color(0xFFFFFFFF),
+        annotations: true,
+        rotation: null,
+      ),
+      isNull,
+    );
+    expect(cache.fullRasterCount, 0,
+        reason: 'a mismatched entry is dropped, not left occupying budget');
+    expect(cache.fullRasterBytes, 0);
+  });
+
+  testWidgets('visited-page raster perf trace explains cache decisions',
+      (tester) async {
+    final logs = <String>[];
+    PdfPerfLog.sink = logs.add;
+    PdfPerfLog.enabled = true;
+    addTearDown(() {
+      PdfPerfLog.enabled = false;
+      PdfPerfLog.sink = null;
+    });
+
+    final document = PdfDocument.open(buildMultiPagePdf(2));
+    final first = document.page(0);
+    final second = document.page(1);
+    final image = await PdfPageRenderer.renderImage(first, pixelRatio: 0.5);
+    addTearDown(image.dispose);
+    final bytes = image.width * image.height * 4;
+    final cache = PdfPagePreviewCache();
+    addTearDown(cache.dispose);
+
+    cache.configureFullRasterCache(PdfPageRasterCachePolicy(
+      maxBytes: bytes,
+      maxEntryBytes: bytes,
+    ));
+    cache.putFullImage(
+      0,
+      first,
+      image,
+      pageColor: const Color(0xFFFFFFFF),
+      annotations: true,
+      rotation: null,
+    );
+    cache.putFullImage(
+      1,
+      second,
+      image,
+      pageColor: const Color(0xFFFFFFFF),
+      annotations: true,
+      rotation: null,
+    );
+    final hit = cache.fullImageFor(
+      1,
+      second,
+      width: image.width,
+      height: image.height,
+      pageColor: const Color(0xFFFFFFFF),
+      annotations: true,
+      rotation: null,
+    );
+    hit?.dispose();
+    expect(
+      cache.fullImageFor(
+        0,
+        first,
+        width: image.width,
+        height: image.height,
+        pageColor: const Color(0xFFFFFFFF),
+        annotations: true,
+        rotation: null,
+      ),
+      isNull,
+    );
+
+    cache.configureFullRasterCache(PdfPageRasterCachePolicy(
+      maxBytes: bytes,
+      maxEntryBytes: bytes - 1,
+    ));
+    cache.putFullImage(
+      0,
+      first,
+      image,
+      pageColor: const Color(0xFFFFFFFF),
+      annotations: true,
+      rotation: null,
+    );
+
+    expect(
+        logs.any((line) => line.contains('page-raster policy total=')), isTrue);
+    expect(
+        logs.any((line) => line.contains('page-raster store page=0')), isTrue);
+    expect(
+        logs.any((line) => line.contains('page-raster evict page=0')), isTrue);
+    expect(logs.any((line) => line.contains('page-raster hit page=1')), isTrue);
+    expect(
+      logs.any((line) =>
+          line.contains('page-raster miss page=0') &&
+          line.contains('reason=empty')),
+      isTrue,
+    );
+    expect(
+      logs.any((line) =>
+          line.contains('page-raster reject page=0') &&
+          line.contains('reason=entry-limit')),
+      isTrue,
+    );
+  });
+
+  test('visited-page rasters join and leave process-wide accounting', () {
+    final registry = PdfCacheRegistry.instance;
+    final before = registry.registrationCount;
+    final cache = PdfPagePreviewCache();
+
+    cache.configureFullRasterCache(const PdfPageRasterCachePolicy());
+    expect(registry.registrationCount, before + 1);
+    expect(
+      registry.snapshot().where((row) => row.label == 'page-full-raster'),
+      isNotEmpty,
+    );
+
+    cache.dispose();
+    expect(registry.registrationCount, before);
+  });
+
+  testWidgets('viewer applies page raster policy updates', (tester) async {
+    final document = PdfDocument.open(buildClassicPdf());
+    final controller = PdfViewerController();
+    addTearDown(controller.dispose);
+    const generous = PdfPageRasterCachePolicy(
+      maxBytes: 5 * 1024 * 1024 * 1024,
+      maxEntryBytes: 64 * 1024 * 1024,
+    );
+
+    Widget viewer(PdfPageRasterCachePolicy policy) => MaterialApp(
+          home: PdfViewer(
+            document: document,
+            controller: controller,
+            pageRasterCachePolicy: policy,
+          ),
+        );
+
+    await tester.pumpWidget(viewer(generous));
+    expect(controller.pagePreviewCache!.maxFullRasterBytes,
+        generous.maxBytes);
+
+    await tester
+        .pumpWidget(viewer(const PdfPageRasterCachePolicy.disabled()));
+    expect(controller.pagePreviewCache!.maxFullRasterBytes, 0);
+    expect(controller.pagePreviewCache!.fullRasterCount, 0);
+  });
+
   testWidgets('rebind drops previews of pages whose content changed',
       (tester) async {
     // A same-geometry edit revision rebinds previews to the new page objects

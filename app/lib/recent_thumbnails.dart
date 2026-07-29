@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 
@@ -65,6 +67,7 @@ class RecentThumbnailCache {
   // failed render isn't retried on every rebuild.
   final Map<String, RecentThumbnail?> _cache = {};
   final Map<String, Future<RecentThumbnail?>> _inflight = {};
+  Future<void> _renderTail = Future<void>.value();
   bool _disposed = false;
 
   /// The first-page thumbnail for [entry], rendered once and memoized. Null
@@ -79,13 +82,27 @@ class RecentThumbnailCache {
     }
     final pending = _inflight[key];
     if (pending != null) return pending;
-    final future = _render(entry).then((thumb) {
+    final future = _enqueueRender(entry).then((thumb) {
       _inflight.remove(key);
       if (!_disposed) _store(key, thumb);
       return thumb;
     });
     _inflight[key] = future;
     return future;
+  }
+
+  /// Serializes thumbnail work so a welcome grid cannot hydrate several cloud
+  /// files or spawn several short-lived render isolates at once.
+  Future<RecentThumbnail?> _enqueueRender(RecentFile entry) {
+    final result = Completer<RecentThumbnail?>();
+    _renderTail = _renderTail.then((_) async {
+      try {
+        result.complete(await _render(entry));
+      } catch (error, stack) {
+        result.completeError(error, stack);
+      }
+    });
+    return result.future;
   }
 
   void _store(String key, RecentThumbnail? thumb) {
@@ -106,11 +123,51 @@ class RecentThumbnailCache {
       final size = PdfPageRenderer.pageSize(page);
       final longest = math.max(size.width, size.height);
       final scale = longest <= 0 ? 1.0 : longestSide / longest;
-      final png = await PdfPageExport.exportPage(page, scale: scale);
-      final aspect = (size.width > 0 && size.height > 0)
-          ? size.width / size.height
-          : 1.0;
-      return RecentThumbnail(pngBytes: png, aspectRatio: aspect);
+      // Interpreting a page is the expensive part of thumbnail generation.
+      // Doing it through PdfPageExport here used to run synchronously on
+      // Flutter's platform thread, so a handful of uncached recents made macOS
+      // mark the app unresponsive at launch. Record in a short-lived worker;
+      // only the small command replay, 240 px raster, and PNG encoding remain
+      // on the platform thread.
+      final worker = PdfRenderWorker.startUncached(bytes);
+      try {
+        final commands = await worker
+            .record(0, imagePixelRatio: scale)
+            .timeout(const Duration(seconds: 30), onTimeout: () => null);
+        // A worker declines pages it cannot serialize (notably some
+        // inline-image pages). A generic icon is preferable to falling back to
+        // the exact platform-thread render this cache exists to keep off
+        // launch.
+        if (commands == null) return null;
+        final picture = await PdfPageRenderer.pictureFromCommands(
+          page,
+          commands,
+          maxImagePixelRatio: scale,
+        );
+        final ui.Image image;
+        try {
+          image = await PdfPageRenderer.rasterize(picture, size, scale);
+        } finally {
+          picture.dispose();
+        }
+        final ByteData? data;
+        try {
+          data = await image.toByteData(format: ui.ImageByteFormat.png);
+        } finally {
+          image.dispose();
+        }
+        if (data == null) return null;
+        final png = data.buffer.asUint8List(
+          data.offsetInBytes,
+          data.lengthInBytes,
+        );
+        final aspect = (size.width > 0 && size.height > 0)
+            ? size.width / size.height
+            : 1.0;
+        return RecentThumbnail(pngBytes: png, aspectRatio: aspect);
+      } finally {
+        worker.dispose();
+      }
     } catch (e) {
       AppDevTools.instance.addLog('recent thumbnail render failed: $e',
           level: DevLogLevel.error);

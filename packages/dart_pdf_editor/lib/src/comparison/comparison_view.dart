@@ -9,6 +9,7 @@ import '../editing/editing_panel.dart';
 import '../l10n/pdf_l10n.dart';
 import '../page_geometry.dart';
 import '../pdf_viewer.dart';
+import '../preview_cache.dart';
 import '../scrollbar.dart';
 import '../theme.dart';
 import 'document_comparison.dart';
@@ -38,6 +39,7 @@ class PdfComparisonView extends StatefulWidget {
     this.showNavigator = true,
     this.pixelRatio = 1.5,
     this.viewerTheme,
+    this.pageRasterCachePolicy = const PdfPageRasterCachePolicy(),
   });
 
   /// The original ("before") document bytes.
@@ -56,6 +58,10 @@ class PdfComparisonView extends StatefulWidget {
 
   /// Wraps both panes in a [PdfViewerTheme].
   final PdfViewerThemeData? viewerTheme;
+
+  /// Memory policy for exact full-resolution rasters of previously visited
+  /// pages in each comparison pane.
+  final PdfPageRasterCachePolicy pageRasterCachePolicy;
 
   @override
   State<PdfComparisonView> createState() => _PdfComparisonViewState();
@@ -196,6 +202,7 @@ class _PdfComparisonViewState extends State<PdfComparisonView> {
             document: _beforeDoc,
             controller: _beforeCtl,
             initialFit: PdfViewerFit.width,
+            pageRasterCachePolicy: widget.pageRasterCachePolicy,
           ),
         ),
       ),
@@ -208,6 +215,7 @@ class _PdfComparisonViewState extends State<PdfComparisonView> {
             document: _afterDoc,
             controller: _afterCtl,
             initialFit: PdfViewerFit.width,
+            pageRasterCachePolicy: widget.pageRasterCachePolicy,
           ),
         ),
       ),
@@ -223,6 +231,7 @@ class _PdfComparisonViewState extends State<PdfComparisonView> {
       document: _afterDoc,
       controller: _afterCtl,
       initialFit: PdfViewerFit.width,
+      pageRasterCachePolicy: widget.pageRasterCachePolicy,
       pageOverlayBuilder: _overlayBuilder,
     );
   }

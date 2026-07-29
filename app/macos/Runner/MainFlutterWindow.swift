@@ -1,8 +1,62 @@
 import Cocoa
+import Darwin
 import FlutterMacOS
 import PDFKit
 
+/// Runs security-scoped filesystem work away from AppKit's main thread.
+///
+/// Flutter invokes macOS method-channel handlers on the main thread. A read
+/// from an iCloud/OneDrive placeholder may block while File Provider hydrates
+/// it, so doing the work inline freezes every frame and input event. The queue
+/// is concurrent so one slow remote document does not prevent another restored
+/// tab backed by a local file from loading. Results return on the main thread,
+/// where Flutter's binary messenger expects them.
+final class FileAccessExecutor {
+  private let queue: DispatchQueue
+
+  init(
+    queue: DispatchQueue = DispatchQueue(
+      label: "dev.milanko.dartpdf.file-access",
+      qos: .userInitiated,
+      attributes: .concurrent)
+  ) {
+    self.queue = queue
+  }
+
+  func perform(
+    errorCode: String,
+    result: @escaping FlutterResult,
+    _ operation: @escaping () throws -> Any?
+  ) {
+    queue.async {
+      do {
+        let value = try operation()
+        DispatchQueue.main.async {
+          result(value)
+        }
+      } catch {
+        DispatchQueue.main.async {
+          result(FlutterError(
+            code: errorCode,
+            message: error.localizedDescription,
+            details: nil))
+        }
+      }
+    }
+  }
+
+  /// Runs native file work without a Flutter result callback.
+  ///
+  /// AppDelegate uses this for files delivered by Finder before the Flutter
+  /// method channels are ready.
+  func perform(_ operation: @escaping () -> Void) {
+    queue.async(execute: operation)
+  }
+}
+
 class MainFlutterWindow: NSWindow {
+  private let fileAccess = FileAccessExecutor()
+
   override func awakeFromNib() {
     let flutterViewController = FlutterViewController()
     let windowFrame = self.frame
@@ -25,6 +79,24 @@ class MainFlutterWindow: NSWindow {
           result(FlutterMethodNotImplemented)
         }
       }
+    }
+
+    let memoryChannel = FlutterMethodChannel(
+      name: "dev.milanko.dartpdf/memory",
+      binaryMessenger: flutterViewController.engine.binaryMessenger)
+    memoryChannel.setMethodCallHandler { (call, result) in
+      guard call.method == "snapshot" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      var snapshot: [String: Any] = [
+        "physicalBytes": Int64(ProcessInfo.processInfo.physicalMemory),
+        "lowMemory": false,
+      ]
+      if let available = Self.availableProcessMemory() {
+        snapshot["availableBytes"] = Int64(available)
+      }
+      result(snapshot)
     }
 
     let fileAccessChannel = FlutterMethodChannel(
@@ -144,6 +216,21 @@ class MainFlutterWindow: NSWindow {
     super.awakeFromNib()
   }
 
+  /// `os_proc_available_memory` is not exposed by Swift's Darwin module map.
+  /// Resolve the documented libSystem function dynamically so the app can use
+  /// its advisory per-process headroom without a private API or helper plugin.
+  private static func availableProcessMemory() -> UInt64? {
+    guard let handle = dlopen(nil, RTLD_NOW) else { return nil }
+    defer { dlclose(handle) }
+    guard let symbol = dlsym(handle, "os_proc_available_memory") else {
+      return nil
+    }
+    typealias AvailableMemory = @convention(c) () -> UInt
+    let function = unsafeBitCast(symbol, to: AvailableMemory.self)
+    let bytes = function()
+    return bytes > 0 ? UInt64(bytes) : nil
+  }
+
   /// Spools the whole PDF through AppKit's print panel via PDFKit. Returns
   /// false when the data isn't a readable PDF or the user cancels.
   private func runPrintJob(pdf: Data, name: String) -> Bool {
@@ -179,21 +266,16 @@ class MainFlutterWindow: NSWindow {
     return nil
   }
 
-  private func createBookmark(path: String, result: FlutterResult) {
-    let url = URL(fileURLWithPath: path)
-    let scoped = url.startAccessingSecurityScopedResource()
-    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-    do {
+  private func createBookmark(path: String, result: @escaping FlutterResult) {
+    fileAccess.perform(errorCode: "bookmark_failed", result: result) {
+      let url = URL(fileURLWithPath: path)
+      let scoped = url.startAccessingSecurityScopedResource()
+      defer { if scoped { url.stopAccessingSecurityScopedResource() } }
       let data = try url.bookmarkData(
         options: [.withSecurityScope],
         includingResourceValuesForKeys: nil,
         relativeTo: nil)
-      result(FlutterStandardTypedData(bytes: data))
-    } catch {
-      result(FlutterError(
-        code: "bookmark_failed",
-        message: error.localizedDescription,
-        details: nil))
+      return FlutterStandardTypedData(bytes: data)
     }
   }
 
@@ -212,34 +294,24 @@ class MainFlutterWindow: NSWindow {
       bookmarkDataIsStale: &stale)
   }
 
-  private func readFile(bookmark: String, result: FlutterResult) {
-    do {
-      let url = try resolveBookmarkedURL(bookmark)
+  private func readFile(bookmark: String, result: @escaping FlutterResult) {
+    fileAccess.perform(errorCode: "read_failed", result: result) {
+      let url = try self.resolveBookmarkedURL(bookmark)
       let scoped = url.startAccessingSecurityScopedResource()
       defer { if scoped { url.stopAccessingSecurityScopedResource() } }
       let data = try Data(contentsOf: url)
-      result(FlutterStandardTypedData(bytes: data))
-    } catch {
-      result(FlutterError(
-        code: "read_failed",
-        message: error.localizedDescription,
-        details: nil))
+      return FlutterStandardTypedData(bytes: data)
     }
   }
 
   /// The byte length of a bookmarked file, for the progressive/ranged loader.
-  private func fileLength(bookmark: String, result: FlutterResult) {
-    do {
-      let url = try resolveBookmarkedURL(bookmark)
+  private func fileLength(bookmark: String, result: @escaping FlutterResult) {
+    fileAccess.perform(errorCode: "length_failed", result: result) {
+      let url = try self.resolveBookmarkedURL(bookmark)
       let scoped = url.startAccessingSecurityScopedResource()
       defer { if scoped { url.stopAccessingSecurityScopedResource() } }
       let values = try url.resourceValues(forKeys: [.fileSizeKey])
-      result(values.fileSize ?? 0)
-    } catch {
-      result(FlutterError(
-        code: "length_failed",
-        message: error.localizedDescription,
-        details: nil))
+      return values.fileSize ?? 0
     }
   }
 
@@ -250,37 +322,30 @@ class MainFlutterWindow: NSWindow {
   /// after, so no handle or scope leaks between reads. A short read near EOF
   /// returns fewer bytes; an offset past EOF returns an empty list.
   private func readFileRange(
-    bookmark: String, offset: Int, length: Int, result: FlutterResult
+    bookmark: String, offset: Int, length: Int,
+    result: @escaping FlutterResult
   ) {
-    do {
-      let url = try resolveBookmarkedURL(bookmark)
+    fileAccess.perform(errorCode: "read_failed", result: result) {
+      let url = try self.resolveBookmarkedURL(bookmark)
       let scoped = url.startAccessingSecurityScopedResource()
       defer { if scoped { url.stopAccessingSecurityScopedResource() } }
       let handle = try FileHandle(forReadingFrom: url)
       defer { handle.closeFile() }
       handle.seek(toFileOffset: UInt64(max(0, offset)))
       let data = handle.readData(ofLength: max(0, length))
-      result(FlutterStandardTypedData(bytes: data))
-    } catch {
-      result(FlutterError(
-        code: "read_failed",
-        message: error.localizedDescription,
-        details: nil))
+      return FlutterStandardTypedData(bytes: data)
     }
   }
 
-  private func writeFile(bookmark: String, bytes: Data, result: FlutterResult) {
-    do {
-      let url = try resolveBookmarkedURL(bookmark)
+  private func writeFile(
+    bookmark: String, bytes: Data, result: @escaping FlutterResult
+  ) {
+    fileAccess.perform(errorCode: "write_failed", result: result) {
+      let url = try self.resolveBookmarkedURL(bookmark)
       let scoped = url.startAccessingSecurityScopedResource()
       defer { if scoped { url.stopAccessingSecurityScopedResource() } }
       try bytes.write(to: url, options: .atomic)
-      result(true)
-    } catch {
-      result(FlutterError(
-        code: "write_failed",
-        message: error.localizedDescription,
-        details: nil))
+      return true
     }
   }
 

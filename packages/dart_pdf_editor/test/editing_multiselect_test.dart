@@ -124,6 +124,36 @@ void main() {
       expect(editing.selectedAnnotationSlots, [(0, 0)]);
       expect(editing.selectedAnnotation!.subtype, 'Circle');
     });
+
+    test(
+        'text-markup clicks must land on a /QuadPoints quad, '
+        'not just the annotation /Rect', () {
+      // One highlight with two quads on the same page: the first
+      // quad sits on the upper line, the second on the lower line,
+      // and the /Rect is the union of both (a single tall box that
+      // covers the gap between the lines as well). Without the
+      // quad-only hit test, a click anywhere inside that gap or
+      // outside the colored runs would still hit the highlight.
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addMarkup(PdfMarkupKind.highlight, {
+          0: const [
+            PdfRect(100, 700, 300, 712), // upper line quad
+            PdfRect(100, 685, 200, 697), // lower line quad
+          ],
+        });
+      // inside the upper quad → hit
+      expect(editing.selectableAnnotationAt(0, 150, 706), isNotNull);
+      // inside the lower quad → hit
+      expect(editing.selectableAnnotationAt(0, 150, 691), isNotNull);
+      // in the gap between the two lines - inside the /Rect, but
+      // outside every /QuadPoints quad → miss
+      expect(editing.selectableAnnotationAt(0, 150, 698), isNull);
+      // inside the /Rect but past the right edge of the lower quad →
+      // still misses, even though /Rect.contains is true
+      expect(editing.selectableAnnotationAt(0, 250, 691), isNull);
+      // well outside the highlight → miss
+      expect(editing.selectableAnnotationAt(0, 500, 500), isNull);
+    });
   });
 
   group('multi-selection in the viewer', () {

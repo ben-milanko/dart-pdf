@@ -28,6 +28,21 @@ so platform build files don't hardcode versions.
 You can also run the workflow manually (Actions → Release app → Run workflow)
 with a version input; that builds artifacts but only creates a Release on a tag.
 
+## Nightly Windows builds
+
+`.github/workflows/nightly-windows.yml` checks `main` each night and starts a
+Windows runner only when the commit differs from the last successfully
+published nightly. It updates the rolling `app-nightly` prerelease with an
+unsigned per-user NSIS installer, a portable ZIP, checksums, and the commits
+since the previous build.
+
+Windows users opt in under **Settings → Updates → Nightly updates**. The choice
+persists, participates in the normal startup update check/banner, and uses the
+same download-and-installer hand-off as final GitHub releases. CI stamps the
+source SHA into nightly and final Windows binaries so an installed nightly is
+not offered again; dismissing one nightly suppresses only that source commit,
+not the next rolling build.
+
 > **The CI artifacts are not store-uploadable.** The Android bundle is
 > debug-signed and the iOS build is unsigned; store builds are made locally
 > (`flutter build appbundle --release`, `flutter build ipa`, and an
@@ -56,15 +71,19 @@ artifact is downloaded and handed to the OS installer (the `.dmg` mounts, the
 `.exe` runs). Anywhere without an in-app apply path (a Linux tarball install,
 mobile, a release page with no matching artifact) falls back to the old
 browser download. The apply and hand-off are still user-confirmed, not a
-silent background swap. For it to work the published Release
-must keep the **`app-v<version>` tag** (other tags, e.g. the pub-package
-release tags in this repo, are ignored) and keep the artifact file names CI
-produces (`dartpdf-macos.dmg`, `dartpdf-windows-portable.exe` /
+silent background swap. Stable app Releases must keep the
+**`app-v<version>` tag** and the artifact file names CI produces
+(`dartpdf-macos.dmg`, `dartpdf-windows-portable.exe` /
 `dartpdf-windows-installer.exe` / `dartpdf-windows-x64.zip`,
 `dartpdf-linux-x86_64.AppImage` /
-`dartpdf-linux-x64.tar.gz`, `app-release.apk`). Publish the draft Release so
-the GitHub `/releases` API exposes it (drafts aren't visible unauthenticated).
-The web build is always served fresh, so it skips the check.
+`dartpdf-linux-x64.tar.gz`, `app-release.apk`). Other tags, such as this
+repo's pub-package releases, are ignored. The one exception is the exact
+rolling tag `app-nightly`, recognized on Windows only after the user enables
+nightly updates; it must provide the source markers and
+`dartpdf-nightly-windows-installer.exe`/ZIP assets documented below. Publish
+stable draft Releases so the GitHub `/releases` API exposes them (drafts
+aren't visible unauthenticated). The web build is always served fresh, so it
+skips the check.
 
 ## What CI produces
 

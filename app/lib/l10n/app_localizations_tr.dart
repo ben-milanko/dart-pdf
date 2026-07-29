@@ -847,6 +847,13 @@ class AppLocalizationsTr extends AppLocalizations {
   }
 
   @override
+  String get settingsNightlyUpdates => 'Gecelik güncellemeler';
+
+  @override
+  String get settingsNightlyUpdatesSubtitle =>
+      'main dalındaki imzasız Windows test derlemeleri için otomatik güncelleme bildirimleri alın.';
+
+  @override
   String get settingsUpdates => 'Güncellemeler';
 
   @override

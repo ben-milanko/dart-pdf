@@ -17,37 +17,30 @@ bundles a prebuilt PDFium binary. You do not need a system PDFium build or
 
 Real-world corpus (49 files / **255 pages** that all three tools rendered
 without error), scale 2.0 (144 DPI), best-of-3 render passes, on the
-development Mac. PDFium 5.9.0 / libpdfium 150.0.7869.0. Captured 2026-07-08
-with the #52 render-perf work in place (shared parse, image-decode cache +
-fast-paths, cross-render font cache, inline path construction, text-show
-memoisation, and a rewritten content-stream tokenizer).
+development Mac. PDFium 5.9.0 / libpdfium 150.0.7869.0. Captured 2026-07-26
+from the 3.1.1 release commit.
 
 | engine | throughput | ms/page | vs PDFium |
 |---|---|---|---|
-| **PDFium** (open + rasterize) | 40.1 pages/s | 24.9 | 1.00× |
-| **dart-pdf interpret** (pure Dart, no raster) | 75.1 pages/s | 13.3 | **1.87× faster** |
-| **dart-pdf render** (full Flutter raster + readback) | 19.2 pages/s | 52.0 | **2.08× slower** |
+| **PDFium** (rasterize; open excluded) | 43.2 pages/s | 23.1 | 1.00× |
+| **dart-pdf interpret** (pure Dart, no raster) | 104.5 pages/s | 9.6 | **2.42× faster** |
+| **dart-pdf render** (full Flutter raster + readback) | 22.1 pages/s | 45.2 | **1.95× slower** |
 
 Takeaways:
 
-- **The pure-Dart engine is now ~1.9× faster than PDFium** for parse +
-  content-stream interpretation, the code that runs on the VM and the web. The
-  content-stream tokenizer rewrite (faster number/keyword/name lexing, no
-  reference lookahead on content operands) roughly halved parse time and is
-  what flipped this from 1.10× *slower* to 1.87× *faster*.
-- **The full render path is 2.08× slower, and that gap is Flutter, not the
-  interpreter.** interpret is 13.3 ms/page but render is 52.0, so ~39 ms/page
-  is image decoding + Flutter's GPU rasterization + `toImage`/`toByteData`
-  readback. A phase split of the render path (scale 2): parse 13.5, collect
-  2.3, image decode 18.1, paint 7.3, **GPU rasterize 16.7**, readback 0.7
-  ms/page. The decode and rasterize costs dominate; both lean on platform
-  codecs / GPU that PDFium reaches via an in-process CPU bitmap (no GPU upload
-  or readback). The per-file split confirms it: a single giant-image page
-  renders at 0.11x, while text/vector documents interpret *faster* than PDFium
-  rasterizes them.
+- **The pure-Dart page interpreter processes this corpus 2.42× faster than
+  PDFium rasterizes it.** The interpreter number excludes rasterization; it
+  isolates the portable Dart parsing, font, geometry, and content-stream work.
+- **The apples-to-apples full Flutter render is 1.95× slower than PDFium.**
+  Beyond interpretation, this path includes image decoding, Flutter
+  painting/rasterization, and `toImage`/`toByteData` readback.
+- Against the previous 2026-07-08 table, aggregate interpreter time fell from
+  13.3 to 9.6 ms/page and full-render time from 52.0 to 45.2 ms/page. Results
+  vary by document: a few formerly pathological files account for much of the
+  aggregate full-render gain, while the median file was about 9% slower.
 
-Absolute milliseconds are machine-specific; the **ratios** are the portable
-number. Re-run with `benchmark/run.sh corpus 2 10` (see Quick start).
+Absolute milliseconds and ratios are machine-specific. Re-run on the target
+hardware with `benchmark/run.sh corpus 2 10` (see Quick start).
 
 ## What gets measured
 
@@ -55,9 +48,9 @@ Three harnesses, all writing the same JSON schema so they line up file-by-file:
 
 | harness | engine | measures | needs |
 |---|---|---|---|
-| `pdfium_benchmark.py` | PDFium via pypdfium2 | open + rasterize to bitmap | `pip install pypdfium2` |
-| `benchmark_render_test.dart` | dart-pdf full pipeline | open + interpret + paint + `toImage` | fvm Flutter |
-| `benchmark_interpret.dart` | dart-pdf interpreter | open + interpret to a `NullDevice` (no raster) | fvm Dart |
+| `pdfium_benchmark.py` | PDFium via pypdfium2 | page rasterization to bitmap | `pip install pypdfium2` |
+| `benchmark_render_test.dart` | dart-pdf full pipeline | page load + interpret + paint + `toImage` | fvm Flutter |
+| `benchmark_interpret.dart` | dart-pdf interpreter | page load + interpret to a `NullDevice` (no raster) | fvm Dart |
 
 `benchmark_render_test.dart` is the **apples-to-apples** comparison with
 PDFium. Both produce a rasterized bitmap at the same scale. dart-pdf's
@@ -74,12 +67,15 @@ excludes Flutter's GPU raster + readback.
 - **Scale.** PDFium `scale` and dart-pdf `pixelRatio` use the same unit:
   `1.0` = 72 DPI = 1 px per PDF point. Both harnesses default to `2.0`.
 - **Timing boundaries.** File bytes are read up front and excluded. `openMs`
-  is parse/load; `renderMs` is the per-page render loop. The render harnesses
-  call `toByteData(rawRgba)` / touch the PDFium bitmap buffer to force the
-  rasterization to fully complete before the clock stops.
+  records document open/page-count work separately and is not included in the
+  comparison table; `renderMs` is the per-page loop used for the headline
+  figures. dart-pdf loads page objects lazily, so that loop includes page-level
+  parsing. The render harnesses call `toByteData(rawRgba)` / touch the PDFium
+  bitmap buffer to force rasterization to fully complete before the clock
+  stops.
 - **Warmup.** Flutter's first raster pays one-time shader/engine warmup, which
-  inflates the first few files. Pass `--repeat 3` / `PDF_BENCHMARK_REPEAT=3`
-  to render the sweep several times and keep each file's fastest pass.
+  inflates the first few files. `run.sh` defaults to three sweeps and keeps
+  each file's fastest pass; set `BENCHMARK_REPEAT=1` for a quick single pass.
 - **Page cap.** Default 10 pages/file keeps long documents from dominating;
   raise with `--max-pages 0` (all pages).
 - **Malformed PDFs.** Some corpora (notably `test_corpora/pdfjs`) hold
@@ -94,16 +90,57 @@ excludes Flutter's GPU raster + readback.
   `loadSystemFonts` (macOS font paths); on other platforms dart-pdf falls back,
   which is fine for timing.
 
+## Interaction performance
+
+The table above is an offline throughput benchmark. It does **not** measure
+viewer FPS, scrolling jank, or dropped frames, so it is not evidence for the
+3.1.1 frame-pacing fixes by itself. Those are measured separately in real
+Chrome by [`app/tool/perf/`](../app/tool/perf/README.md), which records frame
+build percentiles and `PdfPerfLog` jank events while it drives real scroll
+scenarios.
+
+Latest result: the `scroll-plan` workload, a 16-sheet vector plan set with
+about 70,000 operations per page, run as a release web build in headless
+Chrome. These are medians from five interleaved runs of each version, captured
+2026-07-26:
+
+| interaction metric | 3.1.0 | 3.1.1 | change |
+|---|---:|---:|---:|
+| frame build p50 | 1.12 ms | 1.11 ms | -0.6% |
+| frame build p95 | 1.80 ms | 1.77 ms | -1.4% |
+| worst build frame (median/run) | 16.34 ms | 15.57 ms | -4.7% |
+| jank events/run (build or raster over 16 ms) | 7 | 1 | **-85.7%** |
+| browser agent memory | 303 MiB | 256 MiB | -15.5% |
+
+The typical frame was already fast in 3.1.0; the 3.1.1 improvement is the
+large reduction in sporadic over-budget frames, matching the release's
+scheduler, thumbnail-yielding, and wheel-preview-cache fixes. Neither version
+recorded a build frame over 32 ms in this A/B.
+
+Reproduce it with:
+
+```bash
+tool/perf.sh web scroll-plan
+tool/perf.sh webdiff app-v3.1.0 scroll-plan --iterations 5
+```
+
+Keep interaction results separate from the ms/page table: they answer
+different questions and use different workloads.
+
 ## Quick start
 
 ```bash
 pip install pypdfium2
 
-# one command: runs all three over test_corpora/pdfjs at scale 2, 10 pages/file
+# one command: best-of-3 for all three over test_corpora/pdfjs
+# at scale 2, 10 pages/file
 benchmark/run.sh
 
 # or a custom corpus / scale / page cap
 benchmark/run.sh /path/to/pdfs 2 20
+
+# quick single pass
+BENCHMARK_REPEAT=1 benchmark/run.sh /path/to/pdfs 2 20
 ```
 
 `run.sh` writes JSON into `benchmark/out/` (git-ignored) and prints the table.
@@ -125,7 +162,8 @@ PDF_BENCHMARK_OUT=../../benchmark/out/dart-render.json \
 # dart-pdf interpret only (pure Dart VM)
 cd packages/pdf_graphics
 fvm dart run tool/benchmark_interpret.dart ../../test_corpora/pdfjs \
-    --max-pages 10 --out ../../benchmark/out/dart-interpret.json
+    --max-pages 10 --repeat 3 \
+    --out ../../benchmark/out/dart-interpret.json
 ```
 
 ## The comparison table

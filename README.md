@@ -48,21 +48,24 @@ are the baselines - so no diff column).
 
 ## Performance
 
-Pure Dart is not a compromise on speed. On a real-world corpus (49 files /
-255 pages of CAD drawings, scans, reports, and forms), the parse +
-content-stream **interpreter is ~1.9× faster than PDFium**: **13.3 ms/page
-vs 24.9 ms/page** at scale 2. PDFium is the C++ engine Chrome uses. Full Flutter
-rasterization runs at 52.0 ms/page (2.08× PDFium); that remaining gap is image
-decoding and GPU raster + readback, not the interpreter.
+On a real-world corpus (49 files / 255 pages of CAD drawings, scans, reports,
+and forms), the pure-Dart page interpreter processes **104.5 pages/s** at
+scale 2: **9.6 ms/page**, compared with PDFium rasterizing at **23.1
+ms/page**. The apples-to-apples full Flutter render runs at **45.2 ms/page**,
+including image decoding, rasterization, and readback.
 
 | engine | ms/page | vs PDFium |
 |---|---|---|
-| dart-pdf interpret (pure Dart, no raster) | **13.3** | **1.87× faster** |
-| PDFium (open + rasterize) | 24.9 | 1.00× |
-| dart-pdf render (full Flutter raster) | 52.0 | 2.08× slower |
+| dart-pdf interpret (pure Dart, no raster) | **9.6** | **2.42× faster** |
+| PDFium rasterize (document open excluded) | 23.1 | 1.00× |
+| dart-pdf render (full Flutter raster + readback) | 45.2 | 1.95× slower |
 
 The benchmark suite ships reproducible harnesses that diff dart-pdf against
-PDFium via `pypdfium2`, file by file. See [`benchmark/`](benchmark).
+PDFium via `pypdfium2`, file by file. These figures measure static page
+throughput, not scrolling FPS or dropped frames; the real-Chrome interaction
+harness reports those separately. In five interleaved `scroll-plan` runs,
+3.1.1 reduced median over-budget frame events from 7 to 1 versus 3.1.0
+(-85.7%). See [`benchmark/`](benchmark).
 
 ## Architecture
 
@@ -76,7 +79,7 @@ published on pub.dev under its directory name.
 | [`pdf_document`](packages/pdf_document) | [![pub package](https://img.shields.io/pub/v/pdf_document.svg)](https://pub.dev/packages/pdf_document) | Document semantics: page tree, annotations, AcroForm, digital signatures, and the incremental-save `PdfEditor`. |
 | [`pdf_graphics`](packages/pdf_graphics) | [![pub package](https://img.shields.io/pub/v/pdf_graphics.svg)](https://pub.dev/packages/pdf_graphics) | Content-stream interpreter, device interface, font engine, ICC color, text extraction. |
 | [`dart_pdf_editor`](packages/dart_pdf_editor) | [![pub package](https://img.shields.io/pub/v/dart_pdf_editor.svg)](https://pub.dev/packages/dart_pdf_editor) | Flutter viewer and editing UI: canvas device, `PdfViewer`, tools, panels, forms. |
-| [`dart_pdf_editor_assets`](packages/dart_pdf_editor_assets) | [![pub package](https://img.shields.io/pub/v/dart_pdf_editor_assets.svg)](https://pub.dev/packages/dart_pdf_editor_assets) | Optional bundled editor fonts + web render worker (~1.7 MB); depend on it and call `registerBundledEditorAssets()` for the full editor, omit for a size-minimal viewer. |
+| [`dart_pdf_editor_assets`](packages/dart_pdf_editor_assets) | [![pub package](https://img.shields.io/pub/v/dart_pdf_editor_assets.svg)](https://pub.dev/packages/dart_pdf_editor_assets) | Optional bundled editor fonts + web render worker (~1.8 MB package download); depend on it and call `registerBundledEditorAssets()` for the full editor, omit for a size-minimal viewer. |
 | [`pdf_ocr_ondevice`](packages/pdf_ocr_ondevice) | [![pub package](https://img.shields.io/pub/v/pdf_ocr_ondevice.svg)](https://pub.dev/packages/pdf_ocr_ondevice) | Optional on-device OCR engine for native Flutter apps; downloads a small PP-OCR model once and adds searchable text layers offline. |
 | [`pdf_ocr_vlm`](packages/pdf_ocr_vlm) | [![pub package](https://img.shields.io/pub/v/pdf_ocr_vlm.svg)](https://pub.dev/packages/pdf_ocr_vlm) | Optional HTTP OCR engine for web, mobile, and desktop; talks to dots.ocr/vLLM or any service returning text boxes. |
 | [`pdf_test_fixtures`](packages/pdf_test_fixtures) | [![pub package](https://img.shields.io/pub/v/pdf_test_fixtures.svg)](https://pub.dev/packages/pdf_test_fixtures) | Programmatic, structurally-correct PDF builders for tests. |
@@ -221,6 +224,12 @@ subsampling/PCRL-CPRL progressions.
 - During fast flings, pages show low-resolution cached previews rather than
   blank paper; full rendering resumes when scrolling settles, keeping heavy
   CAD documents smooth.
+- Rendering is progressive: the default worker records pages off the UI
+  thread, streams partial page records as they are produced, and reveals
+  complex pages top-down instead of waiting for the whole page.
+- The renderer supports print-oriented overprint and spot-color behavior,
+  including image colorants, rather than approximating every overprint draw
+  with a blend mode.
 - Dark mode, arbitrary page background colors (`PdfViewer.pageColor`),
   chrome theming via `PdfViewerTheme`, and a hide-all-annotations
   toggle.
@@ -232,7 +241,8 @@ subsampling/PCRL-CPRL progressions.
 - Tools: text markup (highlight/underline/strikeout/squiggly), ink,
   freehand highlighting, shapes (including polylines, polygons, and revision
   clouds), free text, Bluebeam-style callouts, notes, stamps (including saved
-  custom stamps), placed images, and a saved ink signature.
+  custom stamps), hyperlinks (URI and in-document), placed images with
+  interactive cropping, and a saved ink signature.
 - Callouts pair an editable text box with a leader line and arrowhead. The
   terminus and its attachment to the box can be repositioned independently,
   while moving the body keeps the whole callout together.
@@ -256,6 +266,8 @@ subsampling/PCRL-CPRL progressions.
   something to paste).
 - In-place restyling: color, stroke width, opacity, font, and size of
   the selected annotations, preserving identity, z-order, and authors.
+- Lock and unlock annotations with interoperable PDF flags; customize
+  keyboard shortcuts for every editing tool.
 - Commits never flash: the overlay keeps the committed preview painted
   until the page re-render reaches the screen.
 - Text boxes edit in place with an inline editor matching the committed
@@ -303,8 +315,9 @@ subsampling/PCRL-CPRL progressions.
   create, rename, and remove bookmarks.
 - Properties panel: type, page, color, fill, stroke width, opacity,
   font, contents, author, and numeric position/size, all editable.
-- Search results panel with context snippets, plus `PdfSearchField` and
-  an editable `PdfPageNumberField` ("3 / 12") for app bars.
+- Search results panel with context snippets from page text and annotation
+  contents, plus `PdfSearchField` and an editable `PdfPageNumberField`
+  ("3 / 12") for app bars.
 - All panels resize by dragging their inner edge. Panel widths, colors,
   stroke width, fonts, theme mode, and the rest of the UI preferences
   persist on the device (`PdfEditingPreferences`, backed by

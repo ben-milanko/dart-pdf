@@ -863,6 +863,13 @@ class AppLocalizationsRu extends AppLocalizations {
   }
 
   @override
+  String get settingsNightlyUpdates => 'Ночные обновления';
+
+  @override
+  String get settingsNightlyUpdatesSubtitle =>
+      'Получайте автоматические уведомления о неподписанных тестовых сборках Windows из main.';
+
+  @override
   String get settingsUpdates => 'Обновления';
 
   @override

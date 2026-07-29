@@ -207,6 +207,8 @@
   "settingsUpdateAvailable": "La versione {version} è disponibile (hai la {currentVersion}).",
   "settingsUpdateFailed": "Impossibile verificare gli aggiornamenti. Riprova più tardi.",
   "settingsUpdateIdle": "Hai {name} {version}.",
+  "settingsNightlyUpdates": "Aggiornamenti nightly",
+  "settingsNightlyUpdatesSubtitle": "Ricevi notifiche automatiche per le build di test Windows non firmate da main.",
   "settingsUpdates": "Aggiornamenti",
   "settingsViewSource": "Visualizza il codice sorgente su GitHub",
   "undo": "Annulla",

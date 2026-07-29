@@ -1,6 +1,7 @@
 package dev.milanko.dart_pdf_editor_app
 
 import android.app.Activity
+import android.app.ActivityManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -34,6 +35,7 @@ class MainActivity : FlutterActivity() {
     private val imageClipboardChannelName = "dev.milanko.dartpdf/image_clipboard"
     private val nativePrintChannelName = "dev.milanko.dartpdf/native_print"
     private val mobileFileChannelName = "dev.milanko.dartpdf/mobile_file"
+    private val memoryChannelName = "dev.milanko.dartpdf/memory"
     private var channel: MethodChannel? = null
 
     /// The file the activity was launched with, drained by `getInitialFile`.
@@ -102,6 +104,26 @@ class MainActivity : FlutterActivity() {
         // MB. See MobileFileByteSource on the Dart side.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, mobileFileChannelName)
             .setMethodCallHandler { call, result -> handleMobileFile(call, result) }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, memoryChannelName)
+            .setMethodCallHandler { call, result ->
+                if (call.method != "snapshot") {
+                    result.notImplemented()
+                    return@setMethodCallHandler
+                }
+                val manager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                val info = ActivityManager.MemoryInfo()
+                manager.getMemoryInfo(info)
+                result.success(
+                    mapOf(
+                        "physicalBytes" to info.totalMem,
+                        "availableBytes" to info.availMem,
+                        "processLimitBytes" to
+                            manager.memoryClass.toLong() * 1024L * 1024L,
+                        "lowMemory" to info.lowMemory,
+                    )
+                )
+            }
 
         channel = ch
         handleIntent(intent, initial = true)

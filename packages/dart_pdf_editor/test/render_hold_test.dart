@@ -216,4 +216,138 @@ void main() {
     }
     expect(rasters, 2, reason: 'a zoom change must re-raster the page');
   });
+
+  testWidgets('a re-request deferred behind a render does not re-raster',
+      (tester) async {
+    // The scheduler holds a request that arrives while that page's render is
+    // in flight and re-grants it when the render lands, on the premise that it
+    // "may carry a new scale or revision". When it doesn't, the second pass
+    // re-reads the whole page off the GPU to arrive back at the pixels already
+    // on screen. The 2026-07-29 trace paid that repeatedly - `base-full page=0
+    // ratio=1.4 1715x1213` twice inside 306ms, byte-identical.
+    final logs = <String>[];
+    PdfPerfLog.sink = logs.add;
+    PdfPerfLog.enabled = true;
+    addTearDown(() {
+      PdfPerfLog.enabled = false;
+      PdfPerfLog.sink = null;
+    });
+
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    final scheduler = PdfPageRenderScheduler();
+    addTearDown(scheduler.dispose);
+    var rasters = 0;
+
+    Widget build(int generation) => MaterialApp(
+          home: Center(
+            child: SizedBox(
+              width: 400,
+              child: PdfPageView(
+                page: page,
+                scale: 1,
+                settleGeneration: generation,
+                renderScheduler: scheduler,
+                onRasterReady: () => rasters++,
+              ),
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(build(0));
+    // One pump lets the scheduler grant the first render; the rebuilds below
+    // then land while it is still in flight, which is what makes the scheduler
+    // defer and re-grant them - the trace's `scheduler defer page=N (render in
+    // flight)` immediately followed by a second grant for the same page.
+    await tester.pump();
+    await tester.pumpWidget(build(1));
+    await tester.pumpWidget(build(2));
+
+    await waitFor(tester, find.byType(RawImage));
+    for (var i = 0; i < 20; i++) {
+      await settle(tester);
+    }
+
+    expect(rasters, 1,
+        reason: 'the deferred re-grants asked for pixels already on screen');
+    expect(
+      logs.where((line) => line.contains('raster kind=base-full')).length,
+      1,
+      reason: 'exactly one full-page readback for one resolution',
+    );
+    expect(
+      logs.any((line) =>
+          line.contains('render skip') && line.contains('reason=base-current')),
+      isTrue,
+      reason: 'the skip should be visible in a trace, not silent',
+    );
+  });
+
+  testWidgets('a burst of settles produces exactly one full-page raster',
+      (tester) async {
+    // End-to-end cover for the invalidation rule unit-tested in
+    // page_render_session_test.dart ('a settle at unchanged scale supersedes
+    // the detail, not the base'). A settle used to bump the full-render
+    // generation, so a raster finishing just after one was disposed unpainted
+    // and the page rasterized again - the shape behind page 0's identical
+    // `base-full ratio=1.4 1715x1213` at n=59, n=61 and n=63 inside one second
+    // in the 2026-07-29 trace. The timing that discards a raster is not
+    // reproducible from a widget test (the local render lands too fast to be
+    // interrupted), so this guards the observable outcome rather than the race.
+    final logs = <String>[];
+    PdfPerfLog.sink = logs.add;
+    PdfPerfLog.enabled = true;
+    addTearDown(() {
+      PdfPerfLog.enabled = false;
+      PdfPerfLog.sink = null;
+    });
+
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    final scheduler = PdfPageRenderScheduler();
+    addTearDown(scheduler.dispose);
+    var rasters = 0;
+
+    Widget build(double scale, int generation) => MaterialApp(
+          home: Center(
+            child: SizedBox(
+              width: 400,
+              child: PdfPageView(
+                page: page,
+                scale: scale,
+                settleGeneration: generation,
+                renderScheduler: scheduler,
+                onRasterReady: () => rasters++,
+              ),
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(build(1, 0));
+    // Settle bumps arriving while the first raster is in flight.
+    await tester.pump();
+    for (var i = 1; i <= 4; i++) {
+      await tester.pumpWidget(build(1, i));
+    }
+
+    await waitFor(tester, find.byType(RawImage));
+    for (var i = 0; i < 20; i++) {
+      await settle(tester);
+    }
+
+    expect(
+      logs.where((line) => line.contains('raster kind=base-full')).length,
+      1,
+      reason: 'settles at unchanged scale must not throw away a landed raster',
+    );
+    expect(rasters, 1);
+
+    // ...and a settle that DOES change the scale still supersedes, because then
+    // the in-flight raster really is at the wrong resolution.
+    await tester.pumpWidget(build(2, 5));
+    for (var i = 0; i < 20 && rasters < 2; i++) {
+      await settle(tester);
+    }
+    expect(rasters, 2, reason: 'a zoom change must still re-raster');
+  });
 }

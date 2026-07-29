@@ -874,6 +874,13 @@ class AppLocalizationsAr extends AppLocalizations {
   }
 
   @override
+  String get settingsNightlyUpdates => 'التحديثات الليلية';
+
+  @override
+  String get settingsNightlyUpdatesSubtitle =>
+      'تلقي إشعارات تحديث تلقائية لإصدارات Windows التجريبية غير الموقعة من الفرع main.';
+
+  @override
   String get settingsUpdates => 'التحديثات';
 
   @override

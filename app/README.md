@@ -11,9 +11,14 @@ This is the **product app**. The SDK's feature showcase lives separately in
 ## Features
 
 - Open PDFs from the picker, the OS ("open with" / share), drag-and-drop
-  (desktop + web), recent files, or a launch argument.
+  (desktop + web), recent files, or a launch argument. Recent documents can
+  be browsed as a page-thumbnail grid.
+- On mobile, scan straight to a new PDF or insert a scan into the current
+  document, and capture a page or placed image with the camera.
 - The full editing UI from the SDK: annotations, ink, shapes, free text,
-  stamps, forms, redaction, page management, search, text selection.
+  stamps, forms, redaction, page management, search, text selection,
+  hyperlinks, interactive image cropping, and annotation lock/unlock.
+  Keyboard shortcuts are configurable for every tool.
 - Drawn signatures and certificate-backed PAdES B-B digital signatures. The
   digital-signing flow reads an RSA key and X.509 chain in memory, validates
   the result, then saves through the normal document destination.
@@ -23,12 +28,21 @@ This is the **product app**. The SDK's feature showcase lives separately in
   or WASM. OCR adds an invisible selectable/searchable text layer and opens the
   result in a new tab.
 - Tabs, light/dark theme, read-only mode, document compare.
-- Dirty-state tracking with a save indicator; **Save** overwrites the original
-  file in place (desktop), **Save as** / share / download elsewhere.
+- Progressive rendering reveals complex pages top-down, while faithful
+  overprint and spot-color handling keeps print-oriented PDFs visually
+  accurate.
+- Dirty-state tracking with a save indicator and crash recovery: unsaved
+  revisions are mirrored in the background and offered for restoration after
+  a restart.
+- **Save** overwrites the original file in place (desktop); **Save as** and
+  platform share/download flows write elsewhere. The save flow can also
+  losslessly compress the PDF.
 - **Print** the open document (⌘P / Ctrl+P, or the DartPDF menu) through the OS
   print dialog on every platform, including browser print on the web.
 - Discard prompts on tab-close and app-quit; reopening a document restores its
   scroll position and zoom.
+- Desktop releases can update in place: **Update now** downloads and applies
+  the platform installer without sending the user through a browser.
 
 ## Run
 

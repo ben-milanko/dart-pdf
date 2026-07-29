@@ -1428,6 +1428,41 @@ void main() {
       expect(device.clips, hasLength(1));
     });
 
+    test('fallback third-party callout infers /CL without /IT', () {
+      final doc = PdfDocument.open(buildClassicPdf());
+      final annotation = PdfAnnotation.fromDict(doc, CosDictionary({
+        'Subtype': const CosName('FreeText'),
+        'Rect': CosArray([for (final v in [20, 400, 250, 560]) CosInteger(v)]),
+        'CL': CosArray([for (final v in [20, 400, 100, 500]) CosInteger(v)]),
+        'RD': CosArray([for (final v in [80, 0, 0, 0]) CosInteger(v)]),
+        'BS': CosDictionary({'W': const CosInteger(2)}),
+        'DA': CosString.fromText('/Helv 10 Tf 0 0 1 rg 1 0 0 RG'),
+        'C': CosArray([const CosInteger(1), const CosInteger(1), const CosInteger(0)]),
+        'Contents': CosString.fromText(
+            'wrapped third party callout text that must continue on another line'),
+      }));
+      final device = RecordingDevice();
+      PdfInterpreter(cos: doc.cos, device: device)
+          .drawAnnotation(doc.page(0), annotation);
+
+      expect(annotation.isCallout, isTrue);
+      expect(annotation.calloutBox!.left, 100);
+      expect(device.fills.single.$2, const PdfColor(1, 1, 0));
+      expect(device.strokes, hasLength(2), reason: 'box border and leader');
+      expect(device.texts.length, greaterThan(1), reason: 'text wraps in box');
+    });
+
+    test('fallback FreeText honors right quadding', () {
+      final device = drawFallback(CosDictionary({
+        'Subtype': const CosName('FreeText'),
+        'Rect': CosArray([for (final v in [50, 500, 250, 560]) CosInteger(v)]),
+        'DA': CosString.fromText('/Helv 10 Tf 0 g'),
+        'Q': const CosInteger(2),
+        'Contents': CosString.fromText('right'),
+      }));
+      expect(device.texts.single.transform.e, greaterThan(200));
+    });
+
     test('fallback checkbox widget marks an on /AS with no /AP', () {
       final on = drawFallback(CosDictionary({
         'Subtype': const CosName('Widget'),
