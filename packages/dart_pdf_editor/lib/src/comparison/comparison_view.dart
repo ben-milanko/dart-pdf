@@ -10,6 +10,7 @@ import '../l10n/pdf_l10n.dart';
 import '../page_geometry.dart';
 import '../pdf_viewer.dart';
 import '../preview_cache.dart';
+import '../raster_warm.dart';
 import '../scrollbar.dart';
 import '../theme.dart';
 import 'document_comparison.dart';
@@ -40,6 +41,7 @@ class PdfComparisonView extends StatefulWidget {
     this.pixelRatio = 1.5,
     this.viewerTheme,
     this.pageRasterCachePolicy = const PdfPageRasterCachePolicy(),
+    this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
   });
 
   /// The original ("before") document bytes.
@@ -62,6 +64,10 @@ class PdfComparisonView extends StatefulWidget {
   /// Memory policy for exact full-resolution rasters of previously visited
   /// pages in each comparison pane.
   final PdfPageRasterCachePolicy pageRasterCachePolicy;
+
+  /// Whether idle time is spent baking exact page rasters ahead of
+  /// navigation. See [PdfViewer.pageRasterWarmPolicy].
+  final PdfPageRasterWarmPolicy pageRasterWarmPolicy;
 
   @override
   State<PdfComparisonView> createState() => _PdfComparisonViewState();
@@ -166,9 +172,8 @@ class _PdfComparisonViewState extends State<PdfComparisonView> {
 
   @override
   Widget build(BuildContext context) {
-    Widget panes = _mode == PdfComparisonMode.sideBySide
-        ? _sideBySide()
-        : _overlayPane();
+    Widget panes =
+        _mode == PdfComparisonMode.sideBySide ? _sideBySide() : _overlayPane();
     if (widget.viewerTheme != null) {
       panes = PdfViewerTheme(data: widget.viewerTheme!, child: panes);
     }
@@ -203,6 +208,7 @@ class _PdfComparisonViewState extends State<PdfComparisonView> {
             controller: _beforeCtl,
             initialFit: PdfViewerFit.width,
             pageRasterCachePolicy: widget.pageRasterCachePolicy,
+            pageRasterWarmPolicy: widget.pageRasterWarmPolicy,
           ),
         ),
       ),
@@ -216,6 +222,7 @@ class _PdfComparisonViewState extends State<PdfComparisonView> {
             controller: _afterCtl,
             initialFit: PdfViewerFit.width,
             pageRasterCachePolicy: widget.pageRasterCachePolicy,
+            pageRasterWarmPolicy: widget.pageRasterWarmPolicy,
           ),
         ),
       ),
@@ -232,6 +239,7 @@ class _PdfComparisonViewState extends State<PdfComparisonView> {
       controller: _afterCtl,
       initialFit: PdfViewerFit.width,
       pageRasterCachePolicy: widget.pageRasterCachePolicy,
+      pageRasterWarmPolicy: widget.pageRasterWarmPolicy,
       pageOverlayBuilder: _overlayBuilder,
     );
   }
@@ -379,7 +387,8 @@ class _PdfComparisonToolbar extends StatelessWidget {
               Text(
                 count == 0
                     ? pdfL10n(context).compareNoChanges
-                    : pdfL10n(context).compareChangePosition(current + 1, count),
+                    : pdfL10n(context)
+                        .compareChangePosition(current + 1, count),
                 style: Theme.of(context).textTheme.labelMedium,
               ),
               IconButton(
@@ -541,8 +550,8 @@ class _PdfDiffNavigatorPanelState extends State<PdfDiffNavigatorPanel> {
                         child: ListView.builder(
                           key: const ValueKey('pdf-diff-list'),
                           controller: _scroll,
-                          padding: EdgeInsets.only(
-                              right: barClearance, bottom: 8),
+                          padding:
+                              EdgeInsets.only(right: barClearance, bottom: 8),
                           itemCount: entries.length,
                           itemBuilder: (context, i) {
                             final entry = entries[i];
@@ -559,8 +568,8 @@ class _PdfDiffNavigatorPanelState extends State<PdfDiffNavigatorPanel> {
                                             .primary)),
                               );
                             }
-                            return _tile(context, entry.change!,
-                                changes[entry.change!]);
+                            return _tile(
+                                context, entry.change!, changes[entry.change!]);
                           },
                         ),
                       ),

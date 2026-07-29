@@ -1,5 +1,5 @@
 {
-  "_readme": "Declarative registry for the reusable web perf harness. Each scenario names a workload kind (scroll|open|search|edit|hover), a repo-relative PDF (portable, from the CC0 test_corpora/dartpdf corpus so any checkout - and any git worktree in an A/B diff - can run it), and kind-specific params passed to the harness via URL query. The driver (driver.mjs) serves `pdf` at /perf.pdf, sets the query from `params`, and merges whatever window.__perfMetrics() returns into the run envelope - so adding a scenario needs NO driver change. Pick one with `node driver.mjs --scenario <name>` or `tool/perf.sh web <name>`; A/B two revisions with `tool/perf.sh webdiff <ref> <name>`.",
+  "_readme": "Declarative registry for the reusable web perf harness. Each scenario names a workload kind (scroll|open|search|edit|hover|warm), a repo-relative PDF (portable, from the CC0 test_corpora/dartpdf corpus so any checkout - and any git worktree in an A/B diff - can run it), and kind-specific params passed to the harness via URL query. The driver (driver.mjs) serves `pdf` at /perf.pdf, sets the query from `params`, and merges whatever window.__perfMetrics() returns into the run envelope - so adding a scenario needs NO driver change. Pick one with `node driver.mjs --scenario <name>` or `tool/perf.sh web <name>`; A/B two revisions with `tool/perf.sh webdiff <ref> <name>`.",
   "default": "scroll-plan",
   "scenarios": {
     "scroll-plan": {
@@ -85,6 +85,30 @@
       "pdf": "test_corpora/dartpdf/styled-booklet-24p.pdf",
       "params": { "ops": 24 },
       "note": "Apply 24 highlight/rectangle/ink annotations through PdfEditingController: incremental-save + appearance-gen cost, revisions, buffer growth."
+    },
+    "warm-plan-off": {
+      "kind": "warm",
+      "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",
+      "params": { "warm": "off", "warmIdleMs": 9000, "warmTarget": 8 },
+      "note": "Control arm for #614: idle 6s with the idle full-raster warm OFF, then jump to a mid-document sheet. warmArriveMs is what arriving on an unvisited heavy vector sheet costs today."
+    },
+    "warm-plan-document": {
+      "kind": "warm",
+      "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",
+      "params": { "warm": "document", "warmIdleMs": 9000, "warmTarget": 8 },
+      "note": "Same script with the whole-document idle warm ON. warmArriveMs vs warm-plan-off is the feature's headline win; warmCompletions/warmRetainedMb/warmEvictions are what it spent to get it."
+    },
+    "warm-scan-document": {
+      "kind": "warm",
+      "pdf": "test_corpora/dartpdf/scan-book-12p.pdf",
+      "params": { "warm": "document", "warmIdleMs": 9000, "warmTarget": 6 },
+      "note": "Scan-heavy arm: 12p A3 grayscale (~3.7 MB decoded/page). Warming these costs image decode, so watch warmRetainedMb and warmEvictions against the budget as well as warmArriveMs."
+    },
+    "warm-scan-off": {
+      "kind": "warm",
+      "pdf": "test_corpora/dartpdf/scan-book-12p.pdf",
+      "params": { "warm": "off", "warmIdleMs": 9000, "warmTarget": 6 },
+      "note": "Control arm for warm-scan-document."
     },
     "scroll-hatch": {
       "kind": "scroll",

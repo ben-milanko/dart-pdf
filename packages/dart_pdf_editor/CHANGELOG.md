@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+- Add `PdfPageRasterWarmPolicy` (`disabled` by default, plus `nearby(window:)`
+  and `document()`): the viewer can now spend genuine idle time baking the
+  exact, display-sized raster of pages the user has not visited, so arriving on
+  one paints immediately instead of interpreting and reading back first. On a
+  16-page vector plan set in real Chrome that is ~2100 ms → ~107 ms; on a 12-page
+  A3 scan, ~1720 ms → ~49 ms, for 60–85 MB of retained rasters. Warming stands
+  down for any scroll, zoom, edit, armed tool, deep zoom, or queued page render,
+  paces itself to one page at a time, prefers the render worker, and declines a
+  page whose raster `PdfPageRasterCachePolicy` could not admit before doing any
+  work. Available on `PdfViewer`, `PdfReader`, `PdfEditorView`, and
+  `PdfComparisonView`; diagnostics through
+  `PdfViewerController.pageRasterWarmStats`.
+- The exact-raster cache is now keyed by `(page, raster signature)` — page
+  index, physical size, paper colour, annotation visibility, and rotation —
+  rather than by page index alone, so warming or visiting one size no longer
+  overwrites a useful raster at another. Up to two geometries per page are
+  retained, bounded by the same `PdfPageRasterCachePolicy` byte budget; rasters
+  belonging to a superseded document revision are dropped on sight.
+
 ## 3.1.1
 
 - Fix intermittent frame drops while scrolling large or visually dense

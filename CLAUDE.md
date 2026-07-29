@@ -233,6 +233,20 @@ guessed - see doc/dev-log/2026-07-16-image-cache-budget.md and
 `test/benchmark_image_cache_budget_test.dart`; re-run it before changing
 them. `didHaveMemoryPressure` on the viewer clears the image + preview
 caches.
+Exact page rasters live in `PdfPagePreviewCache`'s second LRU, keyed by
+`(page, PdfPageRasterSignature)` - index + physical size + paper colour +
+annotation visibility + rotation, with the revision checked by `PdfPage`
+identity - and bounded by `PdfPageRasterCachePolicy` (max two geometries per
+page). `PdfPageRasterWarmPolicy` (`raster_warm.dart`, **disabled by default**)
+lets the viewer fill that cache in genuine idle time via
+`PdfPagePreviewCache.warmFullRaster` + the viewer's `_warmFullRasters` loop,
+gated on `_rasterWarmIdle` (no scroll/zoom/edit/armed tool/deep zoom/queued
+render). Warm and on-screen render must price a page identically, so the
+ratio/dimension math lives once in `PdfPageRasterGeometry` (renderer.dart) -
+never re-derive it. Diagnostics: `PdfViewerController.pageRasterWarmStats`,
+`test/benchmark_raster_warm_test.dart`, and the web harness's `warm` scenarios
+(`warm-plan-off`/`warm-plan-document`, run as a pair). See
+doc/dev-log/2026-07-29-idle-full-raster-warm-614.md.
 Crash recovery for unsaved edits is in (app): while a document is dirty its
 bytes are mirrored outside the process, so a crash/OOM kill/closed browser
 tab loses nothing. `AutosaveController` (`app/lib/autosave.dart`) tracks a

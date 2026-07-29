@@ -533,9 +533,10 @@ class _PdfPageViewState extends State<PdfPageView>
 
   // Full-page rasters stay within GPU texture limits and sane memory:
   // at most ~16.7M px (64 MB RGBA) and 8192 px per side. Past these caps
-  // the detail patch takes over for the visible region.
-  static const _maxPixels = 1 << 24;
-  static const _maxDimension = 8192.0;
+  // the detail patch takes over for the visible region. Shared with the idle
+  // full-raster warm, which must price a page exactly as this widget will.
+  static const _maxPixels = PdfPageRasterGeometry.maxPixels;
+  static const _maxDimension = PdfPageRasterGeometry.maxDimension;
   // Pixel budget for the progressive vector-first preview raster - a fraction
   // of [_maxPixels]. The preview is transient (the full pass re-rasterizes at
   // [_effectiveRatio] on settle), so bounding it keeps rasterizing a dense
@@ -939,15 +940,12 @@ class _PdfPageViewState extends State<PdfPageView>
 
   /// The uncapped resolution at an explicit [scale], so speculation can price
   /// the scale a settle is ABOUT to apply.
-  double _desiredRatioAt(double scale) {
-    final size = _renderPlan.pageSize(widget.page);
-    final width = math.max(1.0, size.width);
-    // pages display fit-width, so the raster must match the on-screen
-    // width - a 612pt page across a wide window needs far more pixels
-    // than its nominal point size
-    final fitWidth = (_layoutWidth ?? width) / width;
-    return math.max(fitWidth * (_pixelRatio ?? 1.0) * scale, 0.05);
-  }
+  double _desiredRatioAt(double scale) => PdfPageRasterGeometry.desiredRatio(
+        pageSize: _renderPlan.pageSize(widget.page),
+        layoutWidth: _layoutWidth ?? 0,
+        devicePixelRatio: _pixelRatio ?? 1.0,
+        scale: scale,
+      );
 
   double _effectiveRatio() => _effectiveRatioAt(widget.scale);
 
@@ -1031,15 +1029,13 @@ class _PdfPageViewState extends State<PdfPageView>
       _pictureImageRatio! >= _fullImageRatio() * 0.99;
 
   /// [_effectiveRatio] at an explicit [scale] (see [_desiredRatioAt]).
-  double _effectiveRatioAt(double scale) {
-    final size = _renderPlan.pageSize(widget.page);
-    final width = math.max(1.0, size.width);
-    final height = math.max(1.0, size.height);
-    var ratio = _desiredRatioAt(scale);
-    ratio = math.min(ratio, math.sqrt(_maxPixels / (width * height)));
-    ratio = math.min(ratio, _maxDimension / math.max(width, height));
-    return math.max(ratio, 0.05);
-  }
+  double _effectiveRatioAt(double scale) =>
+      PdfPageRasterGeometry.effectiveRatio(
+        pageSize: _renderPlan.pageSize(widget.page),
+        layoutWidth: _layoutWidth ?? 0,
+        devicePixelRatio: _pixelRatio ?? 1.0,
+        scale: scale,
+      );
 
   /// Resolution for the progressive vector-first preview raster: [_effectiveRatio]
   /// further bounded by [_previewMaxPixels] so a dense large-format sheet paints
@@ -1057,13 +1053,11 @@ class _PdfPageViewState extends State<PdfPageView>
     return math.max(ratio, 0.05);
   }
 
-  (int width, int height) _rasterDimensions(double pixelRatio) {
-    final size = _renderPlan.pageSize(widget.page);
-    return (
-      (size.width * pixelRatio).ceil().clamp(1, 1 << 14),
-      (size.height * pixelRatio).ceil().clamp(1, 1 << 14),
-    );
-  }
+  (int width, int height) _rasterDimensions(double pixelRatio) =>
+      PdfPageRasterGeometry.dimensions(
+        _renderPlan.pageSize(widget.page),
+        pixelRatio,
+      );
 
   /// Restores an exact recent-page raster without waiting for render hold.
   ///
@@ -1179,9 +1173,8 @@ class _PdfPageViewState extends State<PdfPageView>
       // The wait phase ends when the record reply lands; the build phase is
       // everything after - decoding images that shipped un-decoded and
       // turning the command buffer into the picture.
-      final waitMs = waitClock == null
-          ? null
-          : waitClock.elapsedMicroseconds / 1000.0;
+      final waitMs =
+          waitClock == null ? null : waitClock.elapsedMicroseconds / 1000.0;
       final buildClock = waitClock == null ? null : (Stopwatch()..start());
       // Abandoned while the worker ran - the State was disposed or the lazy
       // list recycled it onto another page (this is the cancel() path: a
@@ -1195,8 +1188,8 @@ class _PdfPageViewState extends State<PdfPageView>
         if (_renderPaused) return null;
         _lastInterpretPath = 'worker';
         _lastInterpretResultBytes = _logImageStats(pageIndex, commands);
-        final (picture, scene) =
-            await _replayableFromCommands(commands, maxImagePixelRatio: imageRatio);
+        final (picture, scene) = await _replayableFromCommands(commands,
+            maxImagePixelRatio: imageRatio);
         _lastInterpretWaitMs = waitMs;
         _lastInterpretBuildMs =
             buildClock == null ? null : buildClock.elapsedMicroseconds / 1000.0;
@@ -1570,8 +1563,8 @@ class _PdfPageViewState extends State<PdfPageView>
           ? null
           : (partial) {
               final seq = ++_progressiveSeqCounter;
-              unawaited(
-                  _paintProgressivePartial(generation, pageIndex, partial, seq));
+              unawaited(_paintProgressivePartial(
+                  generation, pageIndex, partial, seq));
             },
     );
     if (_superseded(generation, pageIndex) ||

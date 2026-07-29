@@ -16,6 +16,7 @@ import 'performance_policy.dart';
 import 'pdf_reflow_view.dart';
 import 'pdf_viewer.dart';
 import 'preview_cache.dart';
+import 'raster_warm.dart';
 import 'progressive_source.dart';
 import 'raster_cache.dart';
 import 'search_panel.dart';
@@ -144,6 +145,7 @@ class PdfReader extends StatefulWidget {
     this.rasterCache,
     this.textCache,
     this.pageRasterCachePolicy = const PdfPageRasterCachePolicy(),
+    this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
   })  : source = null,
         options = const PdfSourceLoadOptions(firstPaintPages: 1),
         onProgress = null,
@@ -189,6 +191,7 @@ class PdfReader extends StatefulWidget {
     this.rasterCache,
     this.textCache,
     this.pageRasterCachePolicy = const PdfPageRasterCachePolicy(),
+    this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
   }) : bytes = null;
 
   /// The PDF to show. Replacing it (by identity) opens the new
@@ -229,6 +232,10 @@ class PdfReader extends StatefulWidget {
   /// Memory policy for exact full-resolution rasters of previously visited
   /// pages. See [PdfViewer.pageRasterCachePolicy].
   final PdfPageRasterCachePolicy pageRasterCachePolicy;
+
+  /// Whether idle time is spent baking exact page rasters ahead of
+  /// navigation. See [PdfViewer.pageRasterWarmPolicy].
+  final PdfPageRasterWarmPolicy pageRasterWarmPolicy;
 
   /// A stable identifier for this document, used to remember its scroll
   /// position and zoom across sessions (persisted in [preferences]). Null
@@ -535,8 +542,7 @@ class _PdfReaderState extends State<PdfReader> {
                           onLaunchUrl: widget.onLaunchUrl,
                           pageOverlayBuilder: widget.pageOverlayBuilder,
                           contextMenuEnabled: widget.contextMenuEnabled,
-                          onContextMenuRequested:
-                              widget.onContextMenuRequested,
+                          onContextMenuRequested: widget.onContextMenuRequested,
                           pageLayout: widget.pageLayout,
                           initialFit: widget.initialFit,
                           backgroundColor: widget.backgroundColor,
@@ -548,6 +554,7 @@ class _PdfReaderState extends State<PdfReader> {
                           rasterCache: widget.rasterCache,
                           textCache: widget.textCache,
                           pageRasterCachePolicy: widget.pageRasterCachePolicy,
+                          pageRasterWarmPolicy: widget.pageRasterWarmPolicy,
                           documentId: _documentKey,
                         ),
                 ),

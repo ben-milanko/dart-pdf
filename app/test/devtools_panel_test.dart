@@ -106,6 +106,41 @@ void main() {
     expect(PdfPageView.debugTileStoreOverride, isNull);
   });
 
+  testWidgets('the idle raster warm selector applies live', (tester) async {
+    await pumpWithDoc(tester);
+    addTearDown(() => AppDevTools.instance
+        .setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.disabled()));
+    await tester.sendKeyEvent(LogicalKeyboardKey.f12);
+    await tester.pump();
+
+    final warm = find.byKey(const ValueKey('devtools-page-raster-warm'));
+    await tester.ensureVisible(warm);
+    await tester.pump();
+    expect(find.text('Off'), findsWidgets,
+        reason: 'no background full-raster work until asked for');
+
+    await tester.tap(warm);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Whole document').last);
+    await tester.pumpAndSettle();
+    expect(AppDevTools.instance.pageRasterWarmPolicy.value.mode,
+        PdfPageRasterWarmMode.document);
+    expect(
+      tester.widget<PdfViewer>(find.byType(PdfViewer)).pageRasterWarmPolicy,
+      const PdfPageRasterWarmPolicy.document(),
+      reason: 'the open viewer receives the policy without being reopened',
+    );
+
+    await tester.ensureVisible(warm);
+    await tester.pump();
+    await tester.tap(warm);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Nearby +/-2').last);
+    await tester.pumpAndSettle();
+    expect(AppDevTools.instance.pageRasterWarmPolicy.value,
+        const PdfPageRasterWarmPolicy.nearby(window: 2));
+  });
+
   testWidgets('visited-page raster limits apply live from the memory section',
       (tester) async {
     await pumpWithDoc(tester);
