@@ -1115,8 +1115,88 @@ class _PdfPageViewState extends State<PdfPageView>
     return true;
   }
 
+  /// The content identity a persistent raster is keyed by, so an edit that
+  /// changed (or removed) this page's content can never load the pixels the
+  /// page used to have. Static documents keep this at `0.0.0` for the whole
+  /// session, which is exactly when the disk tier is allowed to be bound.
+  String _contentRevision() =>
+      '${widget.pageEpoch}.${widget.contentStamp}.${widget.destructiveStamp}';
+
+  /// Whether a persistent-tier lookup is worth an await right now: the tier
+  /// exists, and this page has nothing to paint, so a disk hit is a strictly
+  /// faster first paint than interpreting and rasterizing the page.
+  bool _shouldTryDiskRaster() {
+    final cache = widget.previewCache;
+    return cache != null &&
+        cache.hasPersistentFullRasters &&
+        _image == null &&
+        _picture == null &&
+        _slugPicture == null &&
+        _layoutWidth != null &&
+        _pixelRatio != null;
+  }
+
+  /// Restores an exact raster stored by a previous session.
+  ///
+  /// Unlike [_restoreFullRaster] this awaits a store read plus a decode, so it
+  /// takes a generation token first and drops the result if a newer render (or
+  /// any other source of pixels) won the race meanwhile.
+  Future<bool> _restoreFullRasterFromDisk() async {
+    final cache = widget.previewCache;
+    if (cache == null) return false;
+    final pageIndex = widget.previewIndex;
+    final effective = _effectiveRatio();
+    final dimensions = _rasterDimensions(effective);
+    final generation = _renderSession.fullGeneration;
+    final image = await cache.loadFullFromDisk(
+      pageIndex,
+      widget.page,
+      width: dimensions.$1,
+      height: dimensions.$2,
+      pageColor: widget.pageColor,
+      annotations: widget.showAnnotations,
+      rotation: widget.rotation,
+      revision: _contentRevision(),
+    );
+    if (image == null) return false;
+    if (!_renderSession.acceptsFull(generation, pageIndex) ||
+        _image != null ||
+        _slugPicture != null) {
+      image.dispose();
+      return false;
+    }
+    widget.renderScheduler?.cancel(this);
+    _renderSession.invalidateFull();
+    setState(() {
+      _image = image;
+      _rasteredRatio = effective;
+      // Stored rasters are only ever written from a full-resolution render
+      // (putFullImage is gated on _renderedAtFullImageRatio), so they restore
+      // as full-resolution ones.
+      _imageState = (
+        ratio: effective,
+        imageRatio: null,
+        intent: _renderIntent(widget),
+      );
+      _preview?.dispose();
+      _preview = null;
+    });
+    _scheduleBudgetRebalance();
+    PdfPerfLog.log(
+      'full-raster disk hit page=$pageIndex ${image.width}x${image.height}',
+    );
+    widget.onRasterReady?.call();
+    return true;
+  }
+
   Future<void> _render() async {
     if (_restoreFullRaster()) return;
+    // Then the persistent tier: a stored raster at exactly this size is the
+    // whole page already interpreted and rasterized, so reading and decoding
+    // it beats scheduling the render it would replace. A miss costs an
+    // in-memory manifest lookup (PdfDiskCache answers from `_sizes` without
+    // touching the backend) and falls straight through.
+    if (_shouldTryDiskRaster() && await _restoreFullRasterFromDisk()) return;
     // A fit-scale cache restore has no retained picture/scene, but it already
     // is the exact requested raster. A later scroll-settle generation must not
     // interpret the page merely to discover that the readback is current.
@@ -2096,6 +2176,7 @@ class _PdfPageViewState extends State<PdfPageView>
           pageColor: widget.pageColor,
           annotations: widget.showAnnotations,
           rotation: widget.rotation,
+          revision: _contentRevision(),
         );
       }
       // feed the preview cache from the picture we already paid to

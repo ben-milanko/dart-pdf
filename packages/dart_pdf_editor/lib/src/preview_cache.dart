@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -193,6 +194,26 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// exactly as before.
   PdfRasterCache? disk;
 
+  /// Whether [disk] carries the optional persistent full-resolution raster
+  /// tier (#615). False keeps the pre-existing behaviour exactly: full
+  /// rasters live and die with the process.
+  bool get hasPersistentFullRasters => disk?.storesFullRasters ?? false;
+
+  /// Lets the host preempt background encode/store work: while this returns
+  /// true (a scroll in flight, a foreground render holding the raster thread)
+  /// queued full-raster writes wait rather than compete. Loads are *not*
+  /// gated - a disk read is the foreground first paint it exists to serve.
+  bool Function()? deferBackgroundIo;
+
+  // Queued full-raster disk writes. Each holds a clone (cheap - it shares the
+  // engine image) so the encode survives the page view replacing its raster,
+  // and the queue is capped so a permanently-deferring host cannot pin an
+  // unbounded number of page-sized images.
+  static const int _maxPendingFullWrites = 2;
+  static const int _maxFullWriteDeferrals = 60; // ~3s, then drop the write
+  final List<_PendingFullRasterWrite> _pendingFullWrites = [];
+  bool _drainingFullWrites = false;
+
   /// Loads any persisted previews for [pages] into memory, so a cold open
   /// of a previously-seen document paints soft content at once. Pages that
   /// already hold a (fresher, in-session) preview are left alone, and the
@@ -284,6 +305,172 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// single image over [maxFullRasterEntryPixels]. Cloning shares the engine
   /// image rather than performing another GPU readback.
   void putFullImage(
+    int index,
+    PdfPage page,
+    ui.Image image, {
+    required Color pageColor,
+    required bool annotations,
+    required int? rotation,
+    String revision = '',
+  }) {
+    if (_disposed) return;
+    // Write through before the memory admission below, deliberately: the disk
+    // tier is also the *overflow* path for a RAM budget smaller than the
+    // document's useful working set, so a raster the policy rejects is still
+    // worth keeping for the next session.
+    _queueFullRasterWrite(
+      index,
+      image,
+      pageColor: pageColor,
+      annotations: annotations,
+      rotation: rotation,
+      revision: revision,
+    );
+    _admitFullImage(
+      index,
+      page,
+      image,
+      pageColor: pageColor,
+      annotations: annotations,
+      rotation: rotation,
+    );
+  }
+
+  /// Restores an exact raster for [index] from the persistent tier, admitting
+  /// it through the in-memory [PdfPageRasterCachePolicy] on the way past.
+  ///
+  /// Returns an image the caller owns (and must dispose), or null on a miss.
+  /// The returned image is usable for the page on screen **whether or not**
+  /// the memory policy admitted it: a disk hit too large for RAM still serves
+  /// this paint, it just does not displace the memory working set.
+  Future<ui.Image?> loadFullFromDisk(
+    int index,
+    PdfPage page, {
+    required int width,
+    required int height,
+    required Color pageColor,
+    required bool annotations,
+    required int? rotation,
+    String revision = '',
+  }) async {
+    final cache = disk;
+    if (cache == null || !cache.storesFullRasters || _disposed) return null;
+    final image = await cache.loadFullRaster(
+      index,
+      width: width,
+      height: height,
+      pageColor: pageColor.toARGB32(),
+      annotations: annotations,
+      rotation: rotation,
+      revision: revision,
+    );
+    if (image == null) return null;
+    if (_disposed) {
+      image.dispose();
+      return null;
+    }
+    // _admitFullImage clones, so the caller keeps ownership of `image`.
+    _admitFullImage(
+      index,
+      page,
+      image,
+      pageColor: pageColor,
+      annotations: annotations,
+      rotation: rotation,
+    );
+    return image;
+  }
+
+  /// Empties the persistent full-raster tier (previews and thumbnails, which
+  /// live in a different [PdfDiskCache], are untouched). See
+  /// [PdfRasterCache.clearFullRasters].
+  Future<void> clearPersistentFullRasters() async {
+    _dropPendingFullWrites();
+    await disk?.clearFullRasters();
+  }
+
+  void _queueFullRasterWrite(
+    int index,
+    ui.Image image, {
+    required Color pageColor,
+    required bool annotations,
+    required int? rotation,
+    required String revision,
+  }) {
+    final cache = disk;
+    if (cache == null || !cache.storesFullRasters) return;
+    // Only the newest raster for a page is worth storing.
+    for (var i = 0; i < _pendingFullWrites.length; i++) {
+      if (_pendingFullWrites[i].index == index) {
+        _pendingFullWrites.removeAt(i).image.dispose();
+        break;
+      }
+    }
+    _pendingFullWrites.add(_PendingFullRasterWrite(
+      index,
+      image.clone(),
+      pageColor: pageColor,
+      annotations: annotations,
+      rotation: rotation,
+      revision: revision,
+    ));
+    while (_pendingFullWrites.length > _maxPendingFullWrites) {
+      _pendingFullWrites.removeAt(0).image.dispose();
+    }
+    if (!_drainingFullWrites) unawaited(_drainFullRasterWrites());
+  }
+
+  Future<void> _drainFullRasterWrites() async {
+    if (_drainingFullWrites) return;
+    _drainingFullWrites = true;
+    try {
+      while (_pendingFullWrites.isNotEmpty && !_disposed) {
+        var deferrals = 0;
+        while ((deferBackgroundIo?.call() ?? false) &&
+            deferrals < _maxFullWriteDeferrals &&
+            !_disposed) {
+          deferrals++;
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        if (_disposed) break;
+        final pending = _pendingFullWrites.removeAt(0);
+        if (deferrals >= _maxFullWriteDeferrals) {
+          // Still contended after seconds of scrolling. Drop it rather than
+          // take the raster thread away from the page the user is looking at;
+          // the page re-renders (and re-queues) when the view settles.
+          pending.image.dispose();
+          continue;
+        }
+        try {
+          await disk?.storeFullRaster(
+            pending.index,
+            pending.image,
+            pageColor: pending.pageColor.toARGB32(),
+            annotations: pending.annotations,
+            rotation: pending.rotation,
+            revision: pending.revision,
+          );
+        } catch (_) {
+          // storeFullRaster already degrades internally; a throw here would
+          // only kill the drain loop.
+        } finally {
+          pending.image.dispose();
+        }
+      }
+    } finally {
+      _drainingFullWrites = false;
+      if (_disposed) _dropPendingFullWrites();
+    }
+  }
+
+  void _dropPendingFullWrites() {
+    for (final pending in _pendingFullWrites) {
+      pending.image.dispose();
+    }
+    _pendingFullWrites.clear();
+  }
+
+  void _admitFullImage(
     int index,
     PdfPage page,
     ui.Image image, {
@@ -552,6 +739,8 @@ class PdfPagePreviewCache extends ChangeNotifier {
   void clear() {
     _entries.clear(); // disposes every retained image
     _fullEntries.clear();
+    // Queued writes belong to the document being left behind.
+    _dropPendingFullWrites();
     if (!_disposed) notifyListeners();
   }
 
@@ -560,8 +749,29 @@ class PdfPagePreviewCache extends ChangeNotifier {
     _disposed = true;
     _entries.dispose(); // disposes every retained image
     _fullEntries.dispose();
+    // A drain in flight sees _disposed and clears the rest itself; clearing
+    // here covers the (usual) case where nothing is draining.
+    if (!_drainingFullWrites) _dropPendingFullWrites();
     super.dispose();
   }
+}
+
+class _PendingFullRasterWrite {
+  _PendingFullRasterWrite(
+    this.index,
+    this.image, {
+    required this.pageColor,
+    required this.annotations,
+    required this.rotation,
+    required this.revision,
+  });
+
+  final int index;
+  final ui.Image image;
+  final Color pageColor;
+  final bool annotations;
+  final int? rotation;
+  final String revision;
 }
 
 class _PreviewEntry {

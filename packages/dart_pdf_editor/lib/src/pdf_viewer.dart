@@ -1004,9 +1004,12 @@ class PdfViewer extends StatefulWidget {
   /// 16 MiB per-page limit; desktop hosts may opt into substantially larger
   /// budgets when memory is plentiful. See [PdfPageRasterCachePolicy].
   ///
-  /// This is independent of [rasterCache], which persistently stores small
-  /// previews and thumbnails rather than full-resolution page rasters.
-  /// Requires [pagePreviews], which owns the shared in-memory cache.
+  /// This bounds memory only. A host that also wires
+  /// [PdfRasterCache.fullRasters] gets a persistent tier underneath it, which
+  /// both survives restarts and absorbs rasters this policy declines; the two
+  /// budgets are independent and a disk hit is still admitted through this
+  /// policy before it reaches memory. Requires [pagePreviews], which owns the
+  /// shared in-memory cache.
   final PdfPageRasterCachePolicy pageRasterCachePolicy;
 
   /// Persistent on-disk text cache (see [PdfPageTextCache]). When set with
@@ -1836,6 +1839,9 @@ class _PdfViewerState extends State<PdfViewer>
         if (animation != null) _transform.value = animation.value;
       });
     _previews.configureFullRasterCache(widget.pageRasterCachePolicy);
+    // Background full-raster encodes yield to scrolling and to a foreground
+    // render holding the raster thread (#615).
+    _previews.deferBackgroundIo = () => !mounted || _motionRenderHoldActive;
     _loadPages();
     _snapshotContentStamps();
     _bindRasterCache();
@@ -2712,6 +2718,11 @@ class _PdfViewerState extends State<PdfViewer>
     // it. The in-memory preview cache (rebound on a same-geometry edit,
     // cleared and re-prerendered otherwise) covers the session; disk priming
     // is reserved for static documents, mirroring the text cache.
+    //
+    // The same gate governs the persistent full-raster tier (#615), which
+    // hangs off this very binding: unbinding leaves `_previews.disk` null, so
+    // an edit session neither reads nor writes exact page rasters and a
+    // redaction burn cannot resurrect deleted pixels from a previous session.
     if (!widget.pagePreviews ||
         raster == null ||
         key == null ||

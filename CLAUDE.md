@@ -233,6 +233,20 @@ guessed - see doc/dev-log/2026-07-16-image-cache-budget.md and
 `test/benchmark_image_cache_budget_test.dart`; re-run it before changing
 them. `didHaveMemoryPressure` on the viewer clears the image + preview
 caches.
+An optional **persistent tier for exact full-resolution page rasters** is in
+(`PdfRasterCache(fullRasters:)`, host opt-in): a separate `PdfDiskCache` with
+its own namespace and byte budget, so page rasters can never evict the small
+preview/thumbnail tier. Keyed by document + `fullRasterVersion` + page +
+content revision + physical WxH + rotation + paper colour + annotations, with
+a `PRAS` header so corruption is a miss. Stores are queued clones drained
+behind `PdfPagePreviewCache.deferBackgroundIo` (the viewer wires it to the
+motion hold); loads run in `_render()` between the in-memory restore and the
+scheduled render, and are admitted through `PdfPageRasterCachePolicy` (an
+oversize hit still paints the page, it just isn't retained). Unbound for
+editing sessions, exactly like previews and the text cache. Counters live on
+`PdfRasterCacheStats` + `PdfDiskCache.debugStats`; codec trade-offs in
+`test/benchmark_full_raster_disk_test.dart` and
+doc/dev-log/2026-07-29-persistent-full-raster-disk-tier.md.
 Crash recovery for unsaved edits is in (app): while a document is dirty its
 bytes are mirrored outside the process, so a crash/OOM kill/closed browser
 tab loses nothing. `AutosaveController` (`app/lib/autosave.dart`) tracks a
