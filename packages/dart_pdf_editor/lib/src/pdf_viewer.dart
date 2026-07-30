@@ -5382,8 +5382,18 @@ class _PdfViewerState extends State<PdfViewer>
     _springBackCross();
   }
 
-  bool _zoomedTouchPanEnabledAt(Offset localPosition) {
-    if (!_zoomed) return false;
+  /// Whether the page list's own drag recognizer still owns touch scrolling.
+  /// It is stood down while a tool is armed (the editing overlay must win
+  /// strokes) and while zoomed (the viewer drives the scroll extent and the
+  /// zoom window together) - see the list's `physics`, which reads this. When
+  /// it is false, every touch pan the viewer wants has to come from
+  /// [_ZoomedTouchPanRecognizer] or an editing overlay, so the two must agree
+  /// on the condition or a drag lands on nothing at all.
+  bool get _listOwnsTouchScroll => !_zoomed && widget.editing?.tool == null;
+
+  bool _touchPanEnabledAt(Offset localPosition) {
+    // Leave native list scrolling (and its platform fling) alone.
+    if (_listOwnsTouchScroll) return false;
     final editing = widget.editing;
     // An armed tool, eyedropper, or selected annotation mounts an editing
     // overlay whose touch pan already calls _touchGrabPanBy. Do not enter the
@@ -5392,22 +5402,25 @@ class _PdfViewerState extends State<PdfViewer>
         (editing.tool == null &&
             !editing.isPickingColor &&
             !editing.hasAnnotationSelection)) {
-      pdfLogGesture('zoomed-pan gate: ENABLED (viewer owns pan)',
-          () => 'tool=${editing?.tool?.name ?? 'none'}');
+      pdfLogGesture('touch-pan gate: ENABLED (viewer owns pan)',
+          () => 'tool=${editing?.tool?.name ?? 'none'} zoomed=$_zoomed');
       return true;
     }
     // An armed tool/selection handles touches through its per-page overlay.
     // Canvas and inter-page gaps have no overlay, so the viewer must claim
-    // them or scrolling becomes bounded to the small visible page islands.
+    // them or scrolling becomes bounded to the small visible page islands -
+    // at fit scale as much as zoomed in, and a phone at PdfViewerFit.page
+    // leaves canvas down both sides of a portrait page for a thumb to land on.
     final overPage = _pageContainsListPoint(localPosition);
     pdfLogGesture(
-        'zoomed-pan gate: ${overPage ? 'DISABLED (overlay owns page)' : 'ENABLED (canvas gap)'}',
-        () => 'tool=${editing.tool?.name ?? 'selection/eyedropper'}');
+        'touch-pan gate: ${overPage ? 'DISABLED (overlay owns page)' : 'ENABLED (canvas gap)'}',
+        () => 'tool=${editing.tool?.name ?? 'selection/eyedropper'} '
+            'zoomed=$_zoomed');
     if (overPage) {
       // On the console channel too: when the overlay owns the page the viewer
       // never sees the drag, so no fling line is emitted at all - without this
       // an absent fling is indistinguishable from a broken one.
-      PdfPerfLog.log('zoomed-pan gate DISABLED (overlay owns page) '
+      PdfPerfLog.log('touch-pan gate DISABLED (overlay owns page) '
           'tool=${editing.tool?.name ?? 'selection/eyedropper'}');
     }
     return !overPage;
@@ -5737,6 +5750,19 @@ class _PdfViewerState extends State<PdfViewer>
     // the rubber-band marquee's chrome, matching the editing overlay's
     final marqueeColor = PdfViewerTheme.of(context).annotationChromeColor ??
         const Color(0xFF1E88E5);
+    // The platform's own touch slop, for every recognizer this build creates.
+    // [GestureDetector] does this for the recognizers it owns, but
+    // [RawGestureDetector] does NOT (`_syncAll` never touches
+    // `gestureSettings`), so hand-built recognizers silently keep the
+    // framework defaults - kTouchSlop 18 / kPanSlop 36 - while a phone
+    // reports ~8/16. That mismatch is not cosmetic: InteractiveViewer's own
+    // ScaleGestureRecognizer (a GestureDetector, so platform-configured)
+    // then accepted a one-finger touch drag at ~16px, 20px before
+    // [_ZoomedTouchPanRecognizer] would even consider it, won the arena, and
+    // swallowed the drag as a no-op (`panEnabled: false`) - zoomed panning
+    // did nothing on a device while every widget test passed, because the
+    // test view reports no touch slop and both sides fell back to 36.
+    final gestureSettings = MediaQuery.maybeGestureSettingsOf(context);
     return LayoutBuilder(builder: (context, constraints) {
       // _viewWidth/_viewHeight still hold the previous layout's size here; a
       // change to the cross (fit) dimension rescales every page, so pin the
@@ -5799,9 +5825,9 @@ class _PdfViewerState extends State<PdfViewer>
         // (_onTrackpadPanZoomUpdate drives the position directly); wheel
         // events - including web trackpad pans, which arrive as wheel -
         // are refused by these physics and handled by _onPointerSignal.
-        physics: editing?.tool != null || _zoomed
-            ? const NeverScrollableScrollPhysics()
-            : null,
+        physics: _listOwnsTouchScroll
+            ? null
+            : const NeverScrollableScrollPhysics(),
         // every page's extent is known up front, so give the sliver exact
         // geometry instead of letting it estimate from built children -
         // estimates drift on long mixed-size documents, landing jumps
@@ -5993,6 +6019,7 @@ class _PdfViewerState extends State<PdfViewer>
                   },
                 ),
                 (recognizer) => recognizer
+                  ..gestureSettings = gestureSettings
                   ..onDoubleTapDown = ((details) => _doubleTapDetails = details)
                   ..onDoubleTap = _onDoubleTap,
               ),
@@ -6051,6 +6078,7 @@ class _PdfViewerState extends State<PdfViewer>
                               _TrackpadPanRecognizer>(
                         () => _TrackpadPanRecognizer(debugOwner: this),
                         (recognizer) => recognizer
+                          ..gestureSettings = gestureSettings
                           ..onStart = _onTrackpadPanZoomStart
                           ..onUpdate = _onTrackpadPanZoomUpdate
                           ..onEnd = _onTrackpadPanZoomEnd,
@@ -6062,6 +6090,7 @@ class _PdfViewerState extends State<PdfViewer>
                               _EagerPinchRecognizer>(
                         () => _EagerPinchRecognizer(debugOwner: this),
                         (recognizer) => recognizer
+                          ..gestureSettings = gestureSettings
                           ..onStart = _onPinchStart
                           ..onUpdate = _onPinchUpdate
                           ..onEnd = _onPinchEnd,
@@ -6074,7 +6103,10 @@ class _PdfViewerState extends State<PdfViewer>
                               _ZoomedTouchPanRecognizer>(
                         () => _ZoomedTouchPanRecognizer(debugOwner: this),
                         (recognizer) => recognizer
-                          ..isEnabled = _zoomedTouchPanEnabledAt
+                          // must match InteractiveViewer's scale recognizer or
+                          // IV wins this drag and drops it (see above)
+                          ..gestureSettings = gestureSettings
+                          ..isEnabled = _touchPanEnabledAt
                           ..onStart = _onZoomedTouchPanStart
                           ..onUpdate = _onZoomedTouchPanUpdate
                           ..onEnd = _onZoomedTouchPanEnd
@@ -6123,6 +6155,7 @@ class _PdfViewerState extends State<PdfViewer>
                                     },
                                   ),
                                   (recognizer) => recognizer
+                                    ..gestureSettings = gestureSettings
                                     ..onStart = _onSelectionStart
                                     ..onUpdate = _onSelectionUpdate
                                     ..onEnd = _onSelectionEnd
@@ -6138,6 +6171,7 @@ class _PdfViewerState extends State<PdfViewer>
                                   () => _SelectionLongPressRecognizer(
                                       debugOwner: this),
                                   (recognizer) => recognizer
+                                    ..gestureSettings = gestureSettings
                                     ..isEnabled = (() =>
                                         widget.editing?.tool == null &&
                                         widget.editing?.isPickingColor != true)
@@ -7268,10 +7302,18 @@ class _EagerPinchRecognizer extends ScaleGestureRecognizer {
   String get debugDescription => 'eager pinch';
 }
 
-/// Owns one-pointer touch/stylus drags only while the viewer is zoomed. It
-/// stays out of the arena at fit scale so the ListView retains normal platform
-/// scrolling; when a second finger lands, [_EagerPinchRecognizer] claims the
-/// pinch before either pan crosses touch slop.
+/// Owns one-pointer touch/stylus drags the page list can't take itself -
+/// whenever the viewer is zoomed or an editing tool has stood the list's own
+/// drag recognizer down (`_listOwnsTouchScroll`), and then only where no
+/// editing overlay already handles the touch. It stays out of the arena while
+/// the list scrolls natively, so plain reading keeps normal platform physics;
+/// when a second finger lands, [_EagerPinchRecognizer] claims the pinch before
+/// either pan crosses touch slop.
+///
+/// The host must hand this recognizer the platform's `gestureSettings`:
+/// [RawGestureDetector] does not, and the framework's default 36px pan slop
+/// loses the arena to InteractiveViewer's platform-configured (~16px) scale
+/// recognizer, which then drops the drag.
 class _ZoomedTouchPanRecognizer extends PanGestureRecognizer {
   _ZoomedTouchPanRecognizer({super.debugOwner})
       : super(supportedDevices: {
