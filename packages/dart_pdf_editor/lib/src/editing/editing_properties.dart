@@ -18,8 +18,9 @@ import '../l10n/pdf_l10n.dart';
 /// A panel showing - and editing - the selected annotation's properties.
 ///
 /// With one annotation selected it shows its type and page plus whatever
-/// of these apply: color, fill, stroke width, opacity (restyled in place
-/// via [PdfEditingController.restyleSelected]), font and size for text
+/// of these apply: color, fill, stroke width, corner radius (rectangles
+/// only), opacity (restyled in place via
+/// [PdfEditingController.restyleSelected]), font and size for text
 /// boxes, the contents text, the author, and the position and size in
 /// page points. With several selected, common values are shown normally,
 /// mixed values read "Varies", and compatible edits act on the whole
@@ -124,6 +125,7 @@ class _PdfAnnotationPropertiesPanelState
   /// revision, so it lands on release, and the thumb shows the dragged
   /// value meanwhile.
   double? _draggingStroke;
+  double? _draggingCornerRadius;
   double? _draggingScale;
   double? _draggingOpacity;
   double? _draggingFontSize;
@@ -598,6 +600,30 @@ class _PdfAnnotationPropertiesPanelState
         onChangeEnd: (v) {
           _controller.restyleSelected(strokeWidth: v);
           setState(() => _draggingStroke = null);
+        },
+      ));
+    }
+    // rounding is rectangle-only (/Square) - the controller's gate keeps it
+    // off circles, polygons and everything else
+    if (_controller.canRoundSelectedCorners) {
+      final radii = _common<double>([
+        for (final annotation in annotations) annotation.cornerRadius,
+      ]);
+      children.add(_sliderRow(
+        pdfL10n(context).propCornerRadius,
+        _draggingCornerRadius ?? radii.value,
+        key: const ValueKey('pdf-prop-corner-radius'),
+        min: 0,
+        max: 40,
+        fieldMin: 0,
+        fieldMax: kPdfTypedSizeMax,
+        varies: _draggingCornerRadius == null && radii.varies,
+        display: (v) => '${v.round()} pt',
+        parse: (s) => double.tryParse(s.replaceAll(RegExp('[^0-9.]'), '')),
+        onChanged: (v) => setState(() => _draggingCornerRadius = v),
+        onChangeEnd: (v) {
+          _controller.restyleSelected(cornerRadius: v.roundToDouble());
+          setState(() => _draggingCornerRadius = null);
         },
       ));
     }

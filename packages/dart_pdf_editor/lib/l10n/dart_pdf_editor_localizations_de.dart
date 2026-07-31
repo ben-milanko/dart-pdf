@@ -563,6 +563,9 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get propContents => 'Inhalt';
 
   @override
+  String get propCornerRadius => 'Eckenradius';
+
+  @override
   String get propEditsApplyToAll =>
       'Änderungen gelten für alle kompatiblen Anmerkungen';
 

@@ -185,6 +185,7 @@
   "propColor": "रंग",
   "propColour": "रंग",
   "propContents": "सामग्री",
+  "propCornerRadius": "कोना त्रिज्या",
   "propEditsApplyToAll": "संपादन सभी संगत एनोटेशन पर लागू होते हैं",
   "propFieldName": "फ़ील्ड नाम",
   "propFieldTypeCheckBox": "चेक बॉक्स",

@@ -185,6 +185,7 @@
   "propColor": "สี",
   "propColour": "สี",
   "propContents": "เนื้อหา",
+  "propCornerRadius": "รัศมีมุม",
   "propEditsApplyToAll": "การแก้ไขมีผลกับคำอธิบายประกอบที่เข้ากันได้ทั้งหมด",
   "propFieldName": "ชื่อช่อง",
   "propFieldTypeCheckBox": "ช่องทำเครื่องหมาย",

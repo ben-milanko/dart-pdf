@@ -563,6 +563,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get propContents => 'Isi';
 
   @override
+  String get propCornerRadius => 'Radius sudut';
+
+  @override
   String get propEditsApplyToAll =>
       'Perubahan berlaku untuk semua anotasi yang kompatibel';
 

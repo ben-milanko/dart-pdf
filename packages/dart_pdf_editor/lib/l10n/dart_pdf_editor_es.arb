@@ -185,6 +185,7 @@
   "propColor": "Color",
   "propColour": "Color",
   "propContents": "Contenido",
+  "propCornerRadius": "Radio de esquina",
   "propEditsApplyToAll": "Los cambios se aplican a todas las anotaciones compatibles",
   "propFieldName": "Nombre del campo",
   "propFieldTypeCheckBox": "Casilla",

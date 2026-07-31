@@ -7,11 +7,9 @@
 #
 # The .desktop / AppStream metainfo / hicolor icons are installed from the
 # copies staged next to this manifest in desktop-assets/ (authoritative source:
-# app/linux/ - see README.md "Desktop assets"). They are installed from here,
-# NOT from the tarball: the release tarball only becomes desktop-integration
-# self-contained once a release is built from a tree that carries the CMake
-# "Desktop integration" install rules (added in #547, AFTER app-v3.0.0 was
-# cut - see README.md "Known: 3.0.0 tarball has no share/ tree").
+# app/linux/ - see README.md "Desktop assets"). The 3.2.0 tarball also carries
+# these files under share/, but keeping the staged sources makes the Flathub
+# manifest self-contained and preserves the existing review shape.
 #
 # Before each submission: bump the tarball `url` + `sha256` to the release you
 # are publishing (`sha256sum dartpdf-linux-x64.tar.gz`), and re-run
@@ -69,8 +67,8 @@ modules:
     sources:
       # 1) The prebuilt Linux bundle (binary + data/ + lib/).
       - type: archive
-        url: https://github.com/ben-milanko/dart-pdf/releases/download/app-v3.0.0/dartpdf-linux-x64.tar.gz
-        sha256: c626d2cb3f94f386f0294e60736b63642502ccfa8871a46004660b214c447987
+        url: https://github.com/ben-milanko/dart-pdf/releases/download/app-v3.2.0/dartpdf-linux-x64.tar.gz
+        sha256: ff20db5840a0c2bdda590b4a88c156e032986ff5d4d3b0dd37735f8e5ab16792
         # Flathub's external-data checker auto-proposes a PR when a new app-v*
         # release ships. Update the tarball url+sha256 above when you take it.
         x-checker-data:

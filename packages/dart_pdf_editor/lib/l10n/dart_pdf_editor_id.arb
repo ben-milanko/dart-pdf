@@ -185,6 +185,7 @@
   "propColor": "Warna",
   "propColour": "Warna",
   "propContents": "Isi",
+  "propCornerRadius": "Radius sudut",
   "propEditsApplyToAll": "Perubahan berlaku untuk semua anotasi yang kompatibel",
   "propFieldName": "Nama bidang",
   "propFieldTypeCheckBox": "Kotak centang",

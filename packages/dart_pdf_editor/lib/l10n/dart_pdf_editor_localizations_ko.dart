@@ -561,6 +561,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get propContents => '내용';
 
   @override
+  String get propCornerRadius => '모서리 반경';
+
+  @override
   String get propEditsApplyToAll => '편집 내용이 호환되는 모든 주석에 적용됩니다';
 
   @override

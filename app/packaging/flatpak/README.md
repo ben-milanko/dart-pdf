@@ -30,20 +30,12 @@ in `desktop-assets/` exist only because they must be committed into the
 `app/linux/`, run `./sync-desktop-assets.sh`** so the staged copies do not drift
 (CI could assert this later).
 
-### Known: the app-v3.0.0 tarball has no `share/` tree
+### Self-contained release payload
 
-The CMake rules that install the desktop files into the bundle's `share/` tree
-(so the release tarball carries them) landed in **#547**, which merged *after*
-`app-v3.0.0` was tagged. So the published `app-v3.0.0` tarball contains only
-`dart_pdf_editor_app`, `data/`, and `lib/` — no `share/`. That is exactly why
-this manifest installs the desktop files from `desktop-assets/` rather than from
-the tarball: it stays correct against the current release.
-
-**Once a release is cut from a tree that includes #547**, its tarball *will*
-carry `share/applications`, `share/metainfo`, and `share/icons`. At that point
-you may simplify the manifest to install straight from the unpacked tarball and
-drop the `desktop-assets/` sources — but the staged approach keeps working
-either way, so it is not required.
+The `app-v3.2.0` tarball carries `share/applications`, `share/metainfo`, and
+`share/icons` alongside the runner, `data/`, and `lib/`. The manifest keeps its
+staged desktop assets because they remain easy for Flathub reviewers to inspect
+and make the submission independent of archive layout changes.
 
 ## Sandbox permissions (why each `finish-arg`)
 

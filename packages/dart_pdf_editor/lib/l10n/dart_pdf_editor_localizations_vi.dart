@@ -563,6 +563,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get propContents => 'Nội dung';
 
   @override
+  String get propCornerRadius => 'Bán kính góc';
+
+  @override
   String get propEditsApplyToAll =>
       'Các chỉnh sửa áp dụng cho tất cả chú thích tương thích';
 

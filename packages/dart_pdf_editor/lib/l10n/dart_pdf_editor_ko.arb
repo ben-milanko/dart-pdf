@@ -185,6 +185,7 @@
   "propColor": "색상",
   "propColour": "색상",
   "propContents": "내용",
+  "propCornerRadius": "모서리 반경",
   "propEditsApplyToAll": "편집 내용이 호환되는 모든 주석에 적용됩니다",
   "propFieldName": "필드 이름",
   "propFieldTypeCheckBox": "확인란",

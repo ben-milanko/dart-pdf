@@ -1773,6 +1773,8 @@ void main() {
       final viewerBottom = tester.getRect(find.byType(PdfViewer)).bottom;
       final toolbarTop = tester.getRect(toolbar).top;
       expect(toolbarTop, greaterThanOrEqualTo(viewerBottom - 0.5));
+      expect(
+          tester.widget<PdfViewer>(find.byType(PdfViewer)).trailingPadding, 0);
     });
 
     testWidgets('wide: the editing toolbar floats over the viewer',
@@ -1787,6 +1789,9 @@ void main() {
       final toolbarTop = tester.getRect(toolbar).top;
       expect(toolbarTop, lessThan(viewerBottom),
           reason: 'the floating toolbar overlaps the viewer');
+      expect(
+          tester.widget<PdfViewer>(find.byType(PdfViewer)).trailingPadding, 144,
+          reason: 'the document must scroll clear of the floating toolbar');
     });
   });
 
