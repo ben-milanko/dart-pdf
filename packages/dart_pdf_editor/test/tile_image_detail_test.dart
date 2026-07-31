@@ -13,8 +13,11 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor/src/region_replay_index.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 /// A page dominated by one image denser than the full-page raster cap lets the
@@ -132,4 +135,108 @@ void main() {
 
     expect(PdfPageView.debugTileImageDetailAdoptions, 0);
   });
+
+  testWidgets('a worker that declines the region record still lets tiles land',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final bytes = _scannedSheet();
+    store = PdfTileStore(tilePixels: 256, registerForMemoryPressure: false);
+    final declining = _DecliningDetailWorker(
+      PdfRenderWorker.startUncached(bytes),
+    );
+    worker = declining;
+    PdfPageView.tileStoreDetail = true;
+    PdfPageView.debugTileStoreOverride = store;
+    PdfPageView.debugTileImageDetailAdoptions = 0;
+
+    final doc = PdfDocument.open(bytes);
+    final page = doc.page(0);
+    await tester.pumpWidget(
+      Center(
+        child: OverflowBox(
+          maxWidth: double.infinity,
+          maxHeight: double.infinity,
+          child: SizedBox(
+            width: page.mediaBox.width * 6,
+            child: PdfPageView(page: page, renderWorker: declining),
+          ),
+        ),
+      ),
+    );
+    await _settle(tester, rounds: 40);
+
+    expect(declining.declinedDetailRecords, greaterThan(0),
+        reason: 'the detail request must have been made and refused');
+    expect(PdfPageView.debugTileImageDetailAdoptions, 0);
+    // The veto that holds tiles back until sharp pixels arrive MUST clear when
+    // they never arrive. Otherwise a page whose worker declines the region
+    // record stops tiling altogether - strictly worse than the capped-decode
+    // tiles this change replaced.
+    expect(store.tileCount, greaterThan(0),
+        reason: 'a declined detail must fall back to base-scene tiles');
+  });
+}
+
+/// A worker that serves ordinary page records but refuses every region-scoped
+/// one - the shape of a backend whose scope cannot honour `imageDecodeRegion`.
+class _DecliningDetailWorker extends PdfRenderWorker {
+  _DecliningDetailWorker(this.inner);
+
+  final PdfRenderWorker inner;
+  int declinedDetailRecords = 0;
+
+  @override
+  bool get isActive => inner.isActive;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(
+    int pageIndex, {
+    bool annotations = true,
+    int priority = 0,
+    double? imagePixelRatio,
+    bool decodeImages = true,
+    int? commandLimit,
+    PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
+  }) {
+    if (imageDecodeRegion != null) {
+      declinedDetailRecords++;
+      return Future<List<PdfRenderCommand>?>.value();
+    }
+    return inner.record(
+      pageIndex,
+      annotations: annotations,
+      priority: priority,
+      imagePixelRatio: imagePixelRatio,
+      decodeImages: decodeImages,
+      commandLimit: commandLimit,
+      imageDecodeRegion: imageDecodeRegion,
+      onPartial: onPartial,
+    );
+  }
+
+  @override
+  Future<PdfRegionReplayIndex?> buildRegionIndex(
+    int pageIndex, {
+    required bool annotations,
+    required int maxCommands,
+    required bool buildGrid,
+    int priority = 0,
+  }) =>
+      inner.buildRegionIndex(
+        pageIndex,
+        annotations: annotations,
+        maxCommands: maxCommands,
+        buildGrid: buildGrid,
+        priority: priority,
+      );
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) =>
+      inner.cancel(pageIndex, priority: priority);
+
+  @override
+  void dispose() => inner.dispose();
 }
