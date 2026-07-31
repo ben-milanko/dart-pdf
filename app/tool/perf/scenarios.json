@@ -14,7 +14,18 @@
       "params": { "passes": 1, "fast": 1 },
       "note": "12p A3 scanned grayscale (~3.7 MB decoded/page). Stresses off-thread image decode + the image cache."
     },
-    "scroll-diagram": {
+    "zoom-scan": {
+   "kind": "scroll",
+   "pdf": "test_corpora/dartpdf/scan-book-12p.pdf",
+   "params": {
+    "passes": 1,
+    "fast": 0,
+    "maxPages": 4,
+    "zoom": 2
+   },
+   "note": "Deep-zoom settle cycles on A3 scans: the tile pyramid's region-scoped image re-decode. Every page is one big raster, so zoom sharpness comes entirely from re-decoding the visible slice - this is the workload that pays for it."
+  },
+  "scroll-diagram": {
       "kind": "scroll",
       "pdf": "test_corpora/dartpdf/diagram-dense-3p.pdf",
       "params": { "passes": 2, "fast": 0 },

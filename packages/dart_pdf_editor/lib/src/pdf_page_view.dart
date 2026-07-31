@@ -436,6 +436,13 @@ class PdfPageView extends StatefulWidget {
   @visibleForTesting
   static int debugDetailPatchReuses = 0;
 
+  /// Region-scoped image-detail scenes the tile path adopted, and the ratio
+  /// the most recent one decoded its images at (see `_adoptTileDetailScene`).
+  @visibleForTesting
+  static int debugTileImageDetailAdoptions = 0;
+  @visibleForTesting
+  static double? debugTileImageDetailRatio;
+
   static void debugResetSpeculativeStats() {
     debugSpeculativePlanHits = 0;
     debugSpeculativePlanMisses = 0;
@@ -508,6 +515,47 @@ class _PdfPageViewState extends State<PdfPageView>
   /// tile path is inactive.
   Rect? _tileFraction;
   double? _tileDesiredRatio;
+
+  /// A retained scene whose PDF images were decoded FOR [_tileDetailRegion] at
+  /// [_tileDetailRatio], so tiles inside that region rasterize their images at
+  /// the zoom's own resolution instead of magnifying the base scene's
+  /// display-capped decode.
+  ///
+  /// The base scene decodes images at [_fullImageRatio], which the full-page
+  /// raster caps ([_maxPixels] / [_maxDimension]). Vectors and text replay
+  /// resolution-independently, so tiling them at a deeper ratio is sharp for
+  /// free - but an image draw can only ever be as sharp as the pixels it holds.
+  /// On a page that IS one big image (a scan), tiling the base scene therefore
+  /// produced nothing the base raster didn't already have. The single detail
+  /// patch never had this problem: it re-records through the worker with an
+  /// `imageDecodeRegion`, which decodes only the visible slice's source pixels
+  /// at the requested ratio. This is that same request, kept alive across the
+  /// pans the pyramid is built to make cheap.
+  PdfRetainedScene? _tileDetailScene;
+
+  /// Raster-space region (page points, y-down) [_tileDetailScene]'s images
+  /// cover, and the ratio they were decoded at. A tile outside the region, or
+  /// a zoom past the ratio, falls back to the base scene.
+  Rect? _tileDetailRegion;
+  double? _tileDetailRatio;
+
+  /// Geometry of the in-flight [_tileDetailScene] request, so a settle that
+  /// wants the same slice doesn't queue a second one. Cleared on completion.
+  (Rect, double)? _tileDetailPending;
+
+  /// The current tile view needs image pixels the base scene doesn't have, and
+  /// a request for them is outstanding. While it is set, tiles the detail scene
+  /// does not yet cover are VETOED rather than rastered from the base scene.
+  ///
+  /// Rastering them and re-rastering once the sharp pixels land doubles the
+  /// tile work of every zoom settle - measured as +15% buildP95 on the
+  /// `zoom-scan` web scenario. Holding the tile back instead leaves the base
+  /// raster showing through for one worker round trip (exactly what the view
+  /// showed before the pyramid engaged) and rasters each tile once, from pixels
+  /// that are already sharp. Cleared when the request lands or fails, so a
+  /// worker that declines falls back to base-scene tiles rather than never
+  /// tiling at all.
+  bool _tileDetailWanted = false;
 
   /// The retained scene whose heavy region index this page has asked a worker
   /// to build. Keeps repeated zoom settles from attaching duplicate completion
@@ -794,6 +842,7 @@ class _PdfPageViewState extends State<PdfPageView>
     _dropPicture();
     _image?.dispose();
     _detailImage?.dispose();
+    _tileDetailScene?.dispose();
     _preview?.dispose();
     super.dispose();
   }
@@ -824,6 +873,9 @@ class _PdfPageViewState extends State<PdfPageView>
   }) {
     _scene?.dispose();
     _scene = scene;
+    // The image-detail decode belongs to the scene it sharpened; a new scene
+    // (new content, or the same page re-recorded) invalidates it.
+    _dropTileImageDetail();
     if (!identical(_regionIndexWarmScene, scene)) {
       _regionIndexWarmScene = null;
     }
@@ -871,6 +923,7 @@ class _PdfPageViewState extends State<PdfPageView>
 
   void _dropDetail() {
     _invalidateTiles();
+    _dropTileImageDetail();
     _renderSession.invalidateDetail();
     final hadImage = _detailImage != null;
     _detailImage?.dispose();
@@ -960,7 +1013,8 @@ class _PdfPageViewState extends State<PdfPageView>
   int get liveRasterBytes =>
       _imageBytes(_image) +
       _imageBytes(_detailImage) +
-      (_scene?.decodedImageBytes ?? 0);
+      (_scene?.decodedImageBytes ?? 0) +
+      (_tileDetailScene?.decodedImageBytes ?? 0);
 
   @override
   int get liveRasterDistance => widget.focusDistance;
@@ -977,7 +1031,7 @@ class _PdfPageViewState extends State<PdfPageView>
       _image?.dispose();
       _image = null;
       _imageState = null;
-      _dropDetail();
+      _dropDetail(); // also frees the tile image-detail scene
       _dropPicture(); // frees the scene + slug picture and nulls _rasteredRatio
     });
     PdfPerfLog.log(
@@ -2718,7 +2772,186 @@ class _PdfPageViewState extends State<PdfPageView>
         _tileDesiredRatio = desired;
       });
     }
+    if (tiling) _ensureTileImageDetail();
     return tiling;
+  }
+
+  /// Per-tile admission for the tile layer: the scene-bound veto
+  /// ([_tileCanRasterize]) plus the image-detail wait described on
+  /// [_tileDetailWanted].
+  bool _tileRegionRasterizable(Rect region) {
+    final base = _tileCanRasterize;
+    if (base != null && !base(region)) return false;
+    if (!_tileDetailWanted) return true;
+    return _tileDetailCovers(region, _tileDesiredRatio ?? 0);
+  }
+
+  /// Whether [outer] covers [inner], with [slack] page points of tolerance.
+  ///
+  /// Not `Rect.contains`: that excludes the right/bottom edges, so a rectangle
+  /// does not contain itself - which would make an exactly-matching region read
+  /// as uncovered and re-request forever.
+  static bool _rectCovers(Rect outer, Rect inner, double slack) =>
+      inner.left >= outer.left - slack &&
+      inner.top >= outer.top - slack &&
+      inner.right <= outer.right + slack &&
+      inner.bottom <= outer.bottom + slack;
+
+  /// Whether [_tileDetailScene] can serve a tile covering [region] at [ratio]:
+  /// its images must cover the region and be at least as sharp as asked.
+  bool _tileDetailCovers(Rect region, double ratio) {
+    final have = _tileDetailRegion;
+    final haveRatio = _tileDetailRatio;
+    if (have == null || haveRatio == null || !(ratio > 0)) return false;
+    if (haveRatio < ratio * 0.99) return false;
+    // Half a device pixel of slack: the region round-trips through page space
+    // and back, so an exactly-abutting tile must not read as uncovered.
+    return _rectCovers(have, region, 0.5 / ratio);
+  }
+
+  /// Requests a region-scoped, zoom-resolution image decode for the tile
+  /// layer's current slice when the base scene's images are the limiting
+  /// factor. No-op when the page draws no images, when the base decode is
+  /// already at least as sharp as the zoom asks, or when the current detail
+  /// scene already covers the slice.
+  void _ensureTileImageDetail() {
+    if (!_sceneHasImageDraws || _sceneIsVectorOnly) return;
+    final scene = _scene;
+    final fraction = _tileFraction;
+    final ratio = _tileDesiredRatio;
+    if (scene == null || fraction == null || ratio == null) return;
+    // Vectors tile sharply from the base scene at any ratio; only the decoded
+    // image pixels are capped. Nothing to do until the zoom outruns them.
+    final baseImageRatio = _pictureImageRatio;
+    if (baseImageRatio != null && ratio <= baseImageRatio * 1.05) return;
+    final size = _renderPlan.pageSize(widget.page);
+    final region = Rect.fromLTRB(
+      fraction.left * size.width,
+      fraction.top * size.height,
+      fraction.right * size.width,
+      fraction.bottom * size.height,
+    );
+    if (region.width <= 0 || region.height <= 0) return;
+    if (_tileDetailCovers(region, ratio)) return;
+    // A base decode that already landed on the stream's native pixels cannot be
+    // improved by re-decoding it for a region, so the round trip would buy
+    // nothing. This is the ordinary case on backends whose worker ships JPEGs
+    // un-decoded (the platform codec then runs on this isolate, uncapped); the
+    // web worker, which decodes in-worker and ships display-capped pixels, is
+    // the one that needs the re-decode.
+    if (scene.imagesAtNativeResolution) return;
+    final pending = _tileDetailPending;
+    if (pending != null &&
+        pending.$2 >= ratio * 0.99 &&
+        _rectCovers(pending.$1, region, 0.5 / ratio)) {
+      return;
+    }
+    // Pan headroom: the tile slice itself carries none ([_tileInflation] is 0
+    // because the pyramid prefetches its own ring), but a decode round trip is
+    // far more expensive than a tile raster, so the decode covers a viewport of
+    // slack per side and survives the pans in between.
+    final inflated = Rect.fromLTRB(
+      math.max(0, region.left - region.width * 0.5),
+      math.max(0, region.top - region.height * 0.5),
+      math.min(size.width, region.right + region.width * 0.5),
+      math.min(size.height, region.bottom + region.height * 0.5),
+    );
+    if (widget.renderWorker?.isActive != true) return;
+    _setTileDetailWanted(true);
+    unawaited(_requestTileImageDetail(inflated, ratio));
+  }
+
+  /// Flips the tile admission gate, repainting the layer so the new verdict
+  /// takes effect (the painter compares its callbacks by identity).
+  void _setTileDetailWanted(bool wanted) {
+    if (_tileDetailWanted == wanted) return;
+    if (!mounted) {
+      _tileDetailWanted = wanted;
+      return;
+    }
+    setState(() => _tileDetailWanted = wanted);
+  }
+
+  Future<void> _requestTileImageDetail(Rect region, double ratio) async {
+    final pageIndex = widget.previewIndex;
+    final intent = _renderIntent(widget);
+    // Claim the slot BEFORE anything that can return: the `finally` clears the
+    // tile veto only for the request that owns it, so an early return that
+    // never claimed would leave tiles vetoed for good.
+    _tileDetailPending = (region, ratio);
+    try {
+      final worker = widget.renderWorker;
+      // Region-scoped decoding lives in the command codec, which only the
+      // worker record path reaches; a local decode has no region and would
+      // expand the whole image at zoom resolution. With no worker the base
+      // scene stays and its tiles are admitted again.
+      if (worker == null || !worker.isActive) return;
+      final commands = await worker.record(
+        pageIndex,
+        annotations: widget.showAnnotations,
+        priority: widget.renderPriority,
+        imagePixelRatio: ratio,
+        imageDecodeRegion: _pdfRegionForRasterRegion(region),
+      );
+      if (commands == null || !mounted || _abandoned(pageIndex)) return;
+      if (!_intentIsCurrent(intent) || _renderPaused) return;
+      final scene = await PdfRetainedScene.fromCommands(
+        widget.page,
+        commands,
+        plan: _renderPlan,
+        maxImagePixelRatio: ratio,
+      );
+      if (!mounted || _abandoned(pageIndex) || !_intentIsCurrent(intent)) {
+        scene.dispose();
+        return;
+      }
+      _adoptTileDetailScene(scene, region, ratio);
+    } catch (error) {
+      PdfPerfLog.log('tile image detail failed page=$pageIndex error=$error');
+    } finally {
+      if (_tileDetailPending?.$1 == region && _tileDetailPending?.$2 == ratio) {
+        _tileDetailPending = null;
+        // Whether it landed or not, stop holding tiles back: an adopted scene
+        // now answers through [_tileDetailCovers], and a declined one must not
+        // veto the page's tiles forever.
+        _setTileDetailWanted(false);
+      }
+    }
+  }
+
+  /// Installs a sharper image-detail scene. No tile invalidation is needed:
+  /// [_tileDetailWanted] held back every tile this scene now covers, so none of
+  /// them was ever rastered from the base scene's capped pixels. (A tile's key
+  /// carries the page's visual identity and zoom bucket, not the resolution its
+  /// images were decoded at, so a blurry tile WOULD otherwise be reused
+  /// unchanged - the veto is what makes dropping unnecessary.)
+  void _adoptTileDetailScene(PdfRetainedScene scene, Rect region, double ratio) {
+    _tileDetailScene?.dispose();
+    setState(() {
+      _tileDetailScene = scene;
+      _tileDetailRegion = region;
+      _tileDetailRatio = ratio;
+    });
+    PdfPageView.debugTileImageDetailAdoptions++;
+    PdfPageView.debugTileImageDetailRatio = ratio;
+    PdfPerfLog.log(
+      'tile image detail page=${widget.previewIndex} '
+      'ratio=${ratio.toStringAsFixed(2)} '
+      'region=${region.width.toStringAsFixed(0)}x'
+      '${region.height.toStringAsFixed(0)}pt',
+    );
+  }
+
+  /// Frees the tile image-detail scene. Called wherever the page's content or
+  /// retained scene is replaced - the decode is bound to both.
+  void _dropTileImageDetail() {
+    _tileDetailPending = null;
+    _tileDetailWanted = false;
+    if (_tileDetailScene == null) return;
+    _tileDetailScene?.dispose();
+    _tileDetailScene = null;
+    _tileDetailRegion = null;
+    _tileDetailRatio = null;
   }
 
   /// Whether the shared tile store can hold [fraction]'s tiles at the current
@@ -2766,12 +2999,18 @@ class _PdfPageViewState extends State<PdfPageView>
         pageSize: size,
         desiredRatio: desired,
         visibleFraction: fraction,
-        rasterize: (region, ratio) => scene.rasterizeRegion(
+        // Images come from the region-scoped detail scene wherever it reaches
+        // (that is the only thing the base scene cannot supply at this zoom);
+        // everything else replays identically from either.
+        rasterize: (region, ratio) => (_tileDetailCovers(region, ratio)
+                ? _tileDetailScene ?? scene
+                : scene)
+            .rasterizeRegion(
           region,
           pixelRatio: ratio,
           tracePage: widget.previewIndex,
         ),
-        canRasterize: _tileCanRasterize,
+        canRasterize: _tileRegionRasterizable,
         // A grid-indexed CAD scene can select tens of thousands of commands
         // across one viewport slab. replayRegion records those commands
         // synchronously before toImage yields, so batching every missing tile

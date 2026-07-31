@@ -17,6 +17,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
+import 'package:pdf_cos/pdf_cos.dart' show CosInteger;
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
@@ -208,6 +209,42 @@ class PdfRetainedScene {
       total += image.width * image.height * 4;
     }
     return total;
+  }
+
+  /// Whether every image this scene retains is already decoded at its stream's
+  /// full native pixel size, so no re-decode - at any zoom, for any region -
+  /// could make its image draws sharper.
+  ///
+  /// The deep-zoom paths use this to skip a region re-record they would gain
+  /// nothing from: an image whose display cap landed on native (a scan shown
+  /// at roughly its own dpi) is already the best pixels that exist. An image
+  /// the scene could not decode at all is ignored - a re-decode won't produce
+  /// it either.
+  bool get imagesAtNativeResolution =>
+      _imagesAtNativeResolution ??= _computeImagesAtNativeResolution();
+
+  /// Memoized: the scene's images never change after construction, and deep
+  /// zoom asks this on every settle - an O(commands) walk per settle on a
+  /// dense sheet is exactly the kind of per-frame cost the retained scene
+  /// exists to avoid.
+  bool? _imagesAtNativeResolution;
+
+  bool _computeImagesAtNativeResolution() {
+    final requests = <PdfImageRequest>[];
+    PdfPageRenderer.collectImageRequests(commands, requests);
+    for (final request in requests) {
+      final image = _images[pdfImageKey(request)];
+      if (image == null) continue;
+      final dict = request.stream.dictionary;
+      final cos = page.document.cos;
+      final width = cos.resolve(dict['Width']);
+      final height = cos.resolve(dict['Height']);
+      if (width is! CosInteger || height is! CosInteger) continue;
+      if (image.width < width.value || image.height < height.value) {
+        return false;
+      }
+    }
+    return true;
   }
 
   int get debugRegionReplayUnitCount => _ensureRegionIndex().units.length;
