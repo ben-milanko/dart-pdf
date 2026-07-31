@@ -24,6 +24,10 @@
   another geometry is now a plain miss that leaves the raster it did not ask
   for alone, because that raster is exactly what a zoom back to fit — or the
   idle warm — needs.
+- Re-offer pages to the idle warm only when the exact-raster budget actually
+  *grows*. An adaptive host re-prices that budget every few seconds, usually
+  downward; clearing the attempt set on every change re-attempted and
+  re-declined every page on every tick.
 
 ## 3.2.0
 

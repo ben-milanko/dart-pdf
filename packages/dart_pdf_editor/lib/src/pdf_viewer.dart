@@ -2655,8 +2655,17 @@ class _PdfViewerState extends State<PdfViewer>
     if (documentSwapped) _swapDocument();
     if (oldWidget.pageRasterCachePolicy != widget.pageRasterCachePolicy) {
       _previews.configureFullRasterCache(widget.pageRasterCachePolicy);
-      // a raised budget may admit pages the warm previously declined
-      _rasterWarmAttempts.clear();
+      // Only a *raised* budget can admit pages the warm previously declined,
+      // and only then is re-offering the document worth anything. An adaptive
+      // host (the app's Auto memory mode) re-prices this every few seconds,
+      // usually downward; clearing on every change re-attempted - and
+      // re-declined - every page on every tick.
+      if (widget.pageRasterCachePolicy.maxBytes >
+              oldWidget.pageRasterCachePolicy.maxBytes ||
+          widget.pageRasterCachePolicy.maxEntryBytes >
+              oldWidget.pageRasterCachePolicy.maxEntryBytes) {
+        _rasterWarmAttempts.clear();
+      }
       _scheduleRasterWarm();
     }
     if (oldWidget.pageRasterWarmPolicy != widget.pageRasterWarmPolicy) {

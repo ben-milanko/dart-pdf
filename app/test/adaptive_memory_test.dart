@@ -38,6 +38,84 @@ void main() {
     tools.clearLog();
   });
 
+  group('idle raster warm floor (#614)', () {
+    // The field trace this exists for (2026-07-31, web): the live-raster floor
+    // took the whole cache envelope, the page budget walked 131MB -> 0 over
+    // 45s, and the run ended in `page-raster reject ... reason=disabled`. With
+    // an entry limit of 0 an enabled warm declines every page forever.
+    // 4 GiB reported by navigator.deviceMemory (the trace's
+    // processTarget=429496730 is exactly 0.10 x 4 GiB), and an RSS high enough
+    // that the envelope left after the reserve is under the 32MB live floor -
+    // which is what drove the page budget to zero in the field.
+    AdaptiveMemoryDecision web({required bool warming, int rssMb = 276}) =>
+        computeAdaptiveMemoryDecision(
+          snapshot: AppMemorySnapshot(
+            physicalBytes: 4 * gb,
+            processRssBytes: rssMb * mb,
+          ),
+          platform: PdfPerformancePlatform.web,
+          reclaimableRegistryBytes: 60 * mb,
+          liveRasterBytes: 0,
+          warmPageRasterFloorBytes: warming
+              ? pdfWarmPageRasterFloorBytes(PdfPerformancePlatform.web)
+              : 0,
+        );
+
+    test('without a warm policy the squeezed budget is unchanged', () {
+      // Regression guard: the floor must not move the no-warm path at all.
+      final off = web(warming: false);
+      expect(off.pageRasterPolicy.maxBytes, 0);
+      expect(off.pageRasterPolicy.maxEntryBytes, 0);
+      expect(off.liveRasterBudgetBytes, greaterThanOrEqualTo(32 * mb));
+    });
+
+    test('an active warm policy claims a floor the live budget had taken', () {
+      final on = web(warming: true);
+      expect(on.pageRasterPolicy.maxBytes, greaterThan(0),
+          reason: 'warming asked for memory; zero makes it a no-op');
+      // A letter page at DPR 2 is ~10MB. A raised total buys nothing if no
+      // single page can be admitted under it.
+      expect(on.pageRasterPolicy.maxEntryBytes, greaterThanOrEqualTo(10 * mb));
+      expect(on.pageRasterPolicy.maxEntryBytes,
+          lessThanOrEqualTo(on.pageRasterPolicy.maxBytes));
+    });
+
+    test('the floor comes out of the live budget, not out of thin air', () {
+      final off = web(warming: false);
+      final on = web(warming: true);
+      expect(on.liveRasterBudgetBytes, lessThan(off.liveRasterBudgetBytes),
+          reason: 'the page floor is carved from the live budget');
+      expect(on.liveRasterBudgetBytes, greaterThanOrEqualTo(16 * mb),
+          reason: 'never below the warm-mode live floor');
+      // The two together must still fit the envelope the no-warm decision
+      // computed from the same snapshot, so the safe process target holds.
+      expect(
+        on.liveRasterBudgetBytes + on.pageRasterPolicy.maxBytes,
+        lessThanOrEqualTo(
+            off.liveRasterBudgetBytes + off.pageRasterPolicy.maxBytes + 1),
+      );
+    });
+
+    test('a genuinely collapsed envelope still yields to zero', () {
+      // Real pressure wins: the floor is a claim on the envelope, not a
+      // licence to overcommit the process target.
+      final crushed = web(warming: true, rssMb: 4000);
+      expect(crushed.pageRasterPolicy.maxBytes, 0);
+      expect(crushed.pageRasterPolicy.maxEntryBytes, 0);
+    });
+
+    test('desktop keeps a larger floor than web', () {
+      expect(
+        pdfWarmPageRasterFloorBytes(PdfPerformancePlatform.desktop),
+        greaterThan(pdfWarmPageRasterFloorBytes(PdfPerformancePlatform.web)),
+      );
+      expect(
+        pdfWarmPageRasterFloorBytes(PdfPerformancePlatform.web),
+        greaterThan(pdfWarmPageRasterFloorBytes(PdfPerformancePlatform.mobile)),
+      );
+    });
+  });
+
   test('larger desktop machines receive larger bounded raster budgets', () {
     AdaptiveMemoryDecision desktop(int ramGb) => computeAdaptiveMemoryDecision(
           snapshot: AppMemorySnapshot(
@@ -113,6 +191,43 @@ void main() {
     addTearDown(cache.dispose);
     return cache;
   }
+
+  test('turning the warm on re-prices the page budget through the controller',
+      () {
+    // End to end through applySnapshot: the controller has to read the live
+    // warm policy, not a value captured at construction, or flipping the
+    // Developer-tools selector changes nothing until the budget happens to
+    // move on its own.
+    var now = DateTime(2026, 7, 31, 20, 9);
+    final controller = AdaptiveMemoryBudgetController(
+      platform: PdfPerformancePlatform.web,
+      clock: () => now,
+    );
+    addTearDown(() => tools
+        .setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.disabled()));
+    // The field snapshot. The controller reads the *live* registry rather than
+    // taking reclaimable bytes as an argument, so the caches have to actually
+    // hold something for the envelope to come out where it did in the field -
+    // otherwise every retained byte reads as non-cache RSS.
+    heavyCache(60 * mb);
+    const squeezed = AppMemorySnapshot(
+      physicalBytes: 4 * gb,
+      processRssBytes: 276 * mb,
+    );
+
+    tools.setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.disabled());
+    controller.applySnapshot(squeezed);
+    expect(tools.pageRasterCachePolicy.value.maxBytes, 0);
+
+    tools.setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.document());
+    now = now.add(const Duration(seconds: 1));
+    controller.applySnapshot(squeezed);
+    expect(tools.pageRasterCachePolicy.value.maxBytes, greaterThan(0),
+        reason: 'the warm floor has to reach the mounted viewer');
+    expect(tools.pageRasterCachePolicy.value.maxEntryBytes,
+        greaterThanOrEqualTo(10 * mb),
+        reason: 'and admit a page-sized raster, not just raise the total');
+  });
 
   test('pressure halves Auto immediately and rate-limits regrowth', () {
     var now = DateTime(2026, 7, 27, 12);

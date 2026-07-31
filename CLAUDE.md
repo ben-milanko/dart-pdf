@@ -245,8 +245,16 @@ render). Warm and on-screen render must price a page identically, so the
 ratio/dimension math lives once in `PdfPageRasterGeometry` (renderer.dart) -
 never re-derive it. Diagnostics: `PdfViewerController.pageRasterWarmStats`,
 `test/benchmark_raster_warm_test.dart`, and the web harness's `warm` scenarios
-(`warm-plan-off`/`warm-plan-document`, run as a pair). See
-doc/dev-log/2026-07-29-idle-full-raster-warm-614.md.
+(`warm-plan-off`/`warm-plan-document`, run as a pair). The app's Auto memory
+mode reserves a floor for the page cache **only while a warm policy is active**
+(`pdfWarmPageRasterFloorBytes` / `pdfWarmPageRasterEntryFloorBytes` in
+app/lib/adaptive_memory.dart, carved from the live-raster budget down to 16 MB,
+yielding to 0 when the envelope has genuinely collapsed) - without it the live
+floor takes the whole envelope on web and warming is inert. The entry limit is
+the real gate there, not the total: `pageBytes ~/ 8` admits nothing over 8 MB
+under a 64 MB budget, and a letter page at DPR 2 is ~10 MB. See
+doc/dev-log/2026-07-29-idle-full-raster-warm-614.md and
+doc/dev-log/2026-07-31-warm-auto-memory-floor-614.md.
 Crash recovery for unsaved edits is in (app): while a document is dirty its
 bytes are mirrored outside the process, so a crash/OOM kill/closed browser
 tab loses nothing. `AutosaveController` (`app/lib/autosave.dart`) tracks a
