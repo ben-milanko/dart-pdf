@@ -968,8 +968,12 @@ class _PageActionsButton extends StatelessWidget {
     final bytes = await pick();
     if (bytes == null) return;
     try {
-      controller.insertPagesFromBytes(bytes,
-          at: viewerController.currentPage + 1);
+      final insertedAt = viewerController.currentPage + 1;
+      controller.insertPagesFromBytes(bytes, at: insertedAt);
+      // A page-count change rebuilds the viewer and resets its scroll metrics.
+      // Navigate only after that reset so the newly inserted pages stay in
+      // view instead of the replacement document opening at page one.
+      unawaited(_jumpToInsertedPage(viewerController, insertedAt));
     } catch (_) {
       // a non-PDF, corrupt, or password-protected file can't be opened -
       // tell the user rather than failing silently

@@ -1323,6 +1323,8 @@ void main() {
       await tester.pumpAndSettle();
       // current page is 0, so the 3 pages land at index 1
       expect(editing.document.pageCount, 5);
+      expect(viewer.currentPage, 1,
+          reason: 'the view follows the first inserted page');
     });
 
     testWidgets('Export pages… hands the host the chosen range',
