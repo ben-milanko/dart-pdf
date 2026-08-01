@@ -110,34 +110,21 @@ class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
 
   @override
   Widget build(BuildContext context) {
-    // The panels OVERLAY the viewer rather than squeezing it: the viewer fills
-    // the whole content area and the docked panels float at its edges over the
-    // top. So opening, closing, or resizing a panel never changes the viewer's
-    // size - the document view is invariant to the panels (no zoom or position
-    // jump), and the panel simply reveals or covers a strip of the page beside
-    // it. The panels keep their original nesting - a column of top panels, a
-    // middle band of leading · gap · trailing, then a column of bottom panels -
-    // so their arrangement, resize grips, and drop zones are unchanged; only the
-    // viewer's old flex slot becomes a transparent gap the viewer shows through.
-    final panelsOverlay = Column(children: [
-      ...widget.topPanels,
+    final row = Row(children: [
+      ...widget.leadingPanels,
       Expanded(
-        child: Row(children: [
-          ...widget.leadingPanels,
-          // the viewer shows through here; an empty box takes no pointer input,
-          // so taps in the gap reach the viewer beneath in the stack
-          const Expanded(child: SizedBox.expand()),
-          ...widget.trailingPanels,
-        ]),
-      ),
-      ...widget.bottomPanels,
-    ]);
-    final content = Stack(children: [
-      Positioned.fill(
         key: const ValueKey('pdf-shell-viewer'),
         child: widget.viewer,
       ),
-      Positioned.fill(child: panelsOverlay),
+      ...widget.trailingPanels,
+    ]);
+    final stacked = Column(children: [
+      ...widget.topPanels,
+      Expanded(child: row),
+      ...widget.bottomPanels,
+    ]);
+    final content = Stack(children: [
+      Positioned.fill(child: stacked),
       ...widget.overlays,
       if (widget.floatingToolbar != null)
         Positioned(
