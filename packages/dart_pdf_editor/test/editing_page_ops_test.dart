@@ -229,6 +229,53 @@ void main() {
       expect(editing.document.pageCount, 3);
     });
 
+    test('dragging a selected page reorders the whole selection', () {
+      final editing = PdfEditingController(buildMultiPagePdf(6));
+      addTearDown(editing.dispose);
+      editing.selectPage(1);
+      editing.togglePageSelection(3);
+
+      editing.movePage(1, 4);
+
+      expect(labelsOf(editing.document),
+          ['Page 1', 'Page 3', 'Page 5', 'Page 6', 'Page 2', 'Page 4']);
+      expect(editing.selectedPages, [4, 5]);
+      expect(editing.pageSelectionAnchor, 4);
+      editing.undo();
+      expect(labelsOf(editing.document),
+          ['Page 1', 'Page 2', 'Page 3', 'Page 4', 'Page 5', 'Page 6']);
+    });
+
+    test('a selected-page reorder preserves order and clamps at an edge', () {
+      final editing = PdfEditingController(buildMultiPagePdf(6));
+      addTearDown(editing.dispose);
+      editing.selectPage(2);
+      editing.togglePageSelection(4);
+
+      // Page 5 is the dragged member, so it cannot itself land at zero while
+      // Page 3 remains before it. Clamp the two-page block instead.
+      editing.movePage(4, 0);
+
+      expect(labelsOf(editing.document),
+          ['Page 3', 'Page 5', 'Page 1', 'Page 2', 'Page 4', 'Page 6']);
+      expect(editing.selectedPages, [0, 1]);
+      expect(editing.pageSelectionAnchor, 1);
+    });
+
+    test('dropping a selected page on its selection is a no-op', () {
+      final editing = PdfEditingController(buildMultiPagePdf(5));
+      addTearDown(editing.dispose);
+      editing.selectPage(1);
+      editing.togglePageSelection(3);
+
+      editing.movePage(1, 3);
+
+      expect(labelsOf(editing.document),
+          ['Page 1', 'Page 2', 'Page 3', 'Page 4', 'Page 5']);
+      expect(editing.selectedPages, [1, 3]);
+      expect(editing.isModified, isFalse);
+    });
+
     test('a structural page edit clears the selection', () {
       final editing = PdfEditingController(buildMultiPagePdf(4));
       addTearDown(editing.dispose);
@@ -866,6 +913,50 @@ void main() {
       expect(chipBorderColor(2), Colors.transparent);
       expect(find.byIcon(Icons.check), findsNothing);
       await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('multi-page reorder shows a count and dims companion pages',
+        (tester) async {
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final editing = PdfEditingController(buildMultiPagePdf(4));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            PdfThumbnailSidebar(controller: editing, viewerController: viewer),
+            const Expanded(child: SizedBox()),
+          ]),
+        ),
+      ));
+      await tester.pump();
+      editing.selectPage(1);
+      editing.selectPageRange(2);
+      await tester.pump();
+
+      final list = tester.widget<ReorderableListView>(
+        find.byType(ReorderableListView),
+      );
+      list.onReorderStart!(1);
+      await tester.pump();
+      final companion = tester.widget<Opacity>(
+        find.byKey(const ValueKey('pdf-thumbnail-reorder-companion-2')),
+      );
+      expect(companion.opacity, 0.35);
+
+      final proxy = list.proxyDecorator!(
+        const SizedBox(width: 100, height: 100),
+        1,
+        const AlwaysStoppedAnimation(1),
+      );
+      await tester.pumpWidget(MaterialApp(home: Scaffold(body: proxy)));
+      expect(find.byKey(const ValueKey('pdf-thumbnail-reorder-count')),
+          findsOneWidget);
+      expect(find.text('2 pages'), findsOneWidget);
     });
   });
 

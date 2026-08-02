@@ -3400,11 +3400,41 @@ class PdfEditingController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // pages
 
-  /// Moves the page at [from] so it ends up at index [to]. Structural
-  /// page edits shift page indices, so the annotation selection (a
-  /// page-indexed slot) is cleared first.
+  /// Moves the page at [from] so it ends up at index [to]. When [from] is
+  /// part of a multi-page selection, the whole selection moves with it,
+  /// preserving the selected pages' document order. The dragged page lands
+  /// at [to] whenever the block fits there; at either document edge the block
+  /// is clamped as a unit.
+  ///
+  /// Structural page edits shift page indices, so the annotation selection
+  /// (a page-indexed slot) is cleared first. A moved page selection follows
+  /// the pages to their new contiguous positions.
   void movePage(int from, int to) {
     if (from == to) return;
+    final moving = selectedPages;
+    if (moving.length > 1 && moving.contains(from)) {
+      // Dropping anywhere inside the selection is not a move. This also
+      // prevents a discontiguous selection from unexpectedly compacting when
+      // one of its own tiles is used as the drop target.
+      if (moving.contains(to)) return;
+      final draggedOffset = moving.indexOf(from);
+      final remaining = [
+        for (var i = 0; i < _document.pageCount; i++)
+          if (!moving.contains(i)) i,
+      ];
+      final start = (to - draggedOffset).clamp(0, remaining.length);
+      final order = List<int>.of(remaining)..insertAll(start, moving);
+
+      _selected.clear();
+      final changed = apply((e) => e.reorderPages(order));
+      if (!changed) return;
+      _selectedPages.addAll([
+        for (var i = 0; i < moving.length; i++) start + i,
+      ]);
+      _pageSelectionAnchor = start + draggedOffset;
+      notifyListeners();
+      return;
+    }
     _selected.clear();
     _selectedPages.clear();
     _pageSelectionAnchor = null;
