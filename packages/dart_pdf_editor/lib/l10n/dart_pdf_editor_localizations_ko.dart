@@ -986,6 +986,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get shellShowAnnotations => '주석 표시';
 
   @override
+  String get shellShowScrollbarChapters => 'Show chapters on scrollbar';
+
+  @override
   String get shellTabHere => '여기에 탭';
 
   @override

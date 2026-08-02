@@ -23,6 +23,7 @@ void main() {
       a.author = 'Ben';
       a.colorPickerFormat = PdfColorFormat.cmyk;
       a.highlightFormFields = false;
+      a.showScrollbarChapters = true;
       a.showReflowView = true;
       a.lineStartEnding = PdfLineEnding.circle;
       a.lineEndEnding = PdfLineEnding.closedArrow;
@@ -48,6 +49,7 @@ void main() {
       expect(b.author, 'Ben');
       expect(b.colorPickerFormat, PdfColorFormat.cmyk);
       expect(b.highlightFormFields, isFalse);
+      expect(b.showScrollbarChapters, isTrue);
       expect(b.showReflowView, isTrue);
       expect(b.lineStartEnding, PdfLineEnding.circle);
       expect(b.lineEndEnding, PdfLineEnding.closedArrow);
@@ -139,6 +141,7 @@ void main() {
       expect(prefs.lineStartEnding, PdfLineEnding.none);
       expect(prefs.lineEndEnding, PdfLineEnding.none);
       expect(prefs.highlightFormFields, isTrue);
+      expect(prefs.showScrollbarChapters, isFalse);
       expect(prefs.showReflowView, isFalse);
       expect(prefs.searchMatchCase, isFalse);
       expect(prefs.searchWholeWord, isFalse);

@@ -1299,6 +1299,10 @@
   "@shellShowAnnotations": {
     "description": "Toggle label controlling whether annotations are shown."
   },
+  "shellShowScrollbarChapters": "Show chapters on scrollbar",
+  "@shellShowScrollbarChapters": {
+    "description": "Toggle label controlling whether PDF outline chapters appear as markers on the scrollbar."
+  },
   "shellTabHere": "Tab here",
   "@shellTabHere": {
     "description": "Drop hint shown when dragging a docked panel over another panel to combine them into a tabbed group."

@@ -1369,6 +1369,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         backgroundColor: widget.backgroundColor,
                         pageColor: pageColor,
                         showAnnotations: prefs.showAnnotations,
+                        showScrollbarChapters: prefs.showScrollbarChapters,
                         highlightFormFields: prefs.highlightFormFields,
                         renderWorker: _shell.worker,
                         performance: _performance,

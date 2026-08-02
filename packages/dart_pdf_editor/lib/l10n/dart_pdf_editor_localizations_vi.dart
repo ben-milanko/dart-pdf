@@ -992,6 +992,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get shellShowAnnotations => 'Hiện chú thích';
 
   @override
+  String get shellShowScrollbarChapters => 'Show chapters on scrollbar';
+
+  @override
   String get shellTabHere => 'Ghép thẻ tại đây';
 
   @override

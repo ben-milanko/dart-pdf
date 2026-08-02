@@ -32,7 +32,9 @@ class PdfScrollbar extends StatefulWidget {
     this.viewExtent,
     this.onScrollBy,
     this.thumbKey,
-  })  : assert(scroll != null || viewExtent != null,
+    this.markers = const [],
+  })  : assert(
+            scroll != null || viewExtent != null,
             'a scroll-driven bar needs a controller; a transform-only bar '
             'needs the cross-axis view extent'),
         assert(scroll != null || transform != null,
@@ -68,6 +70,11 @@ class PdfScrollbar extends StatefulWidget {
 
   /// A key for the thumb itself, for tests.
   final Key? thumbKey;
+
+  /// Named locations painted as ticks on the track. The stock viewer uses
+  /// these for PDF outline entries (bookmarks/chapters). Hovering a tick
+  /// reveals its title and activating it follows the outline destination.
+  final List<PdfScrollbarMarker> markers;
 
   @override
   State<PdfScrollbar> createState() => _PdfScrollbarState();
@@ -186,6 +193,14 @@ class _PdfScrollbarState extends State<PdfScrollbar> {
         if (thumb == null) return const SizedBox.shrink();
         final (thumbPos, thumbExtent) = thumb;
         final active = _hovered || _dragging;
+        PdfScrollbarMarker? markerAt(double at) {
+          for (final marker in widget.markers.reversed) {
+            final center = marker.position.clamp(0.0, 1.0) * trackExtent;
+            if ((at - center).abs() <= 5) return marker;
+          }
+          return null;
+        }
+
         void dragStart(DragStartDetails details) {
           final at =
               _vertical ? details.localPosition.dy : details.localPosition.dx;
@@ -219,6 +234,11 @@ class _PdfScrollbarState extends State<PdfScrollbar> {
               final at = _vertical
                   ? details.localPosition.dy
                   : details.localPosition.dx;
+              final marker = markerAt(at);
+              if (marker != null) {
+                marker.onTap?.call();
+                return;
+              }
               // a tap on the thumb itself is not a jump
               if (at < thumbPos || at > thumbPos + thumbExtent) {
                 _jumpTo(at, trackExtent);
@@ -244,6 +264,42 @@ class _PdfScrollbarState extends State<PdfScrollbar> {
                           ? theme?.trackActiveColor ?? _defaultTrackActive
                           : theme?.trackColor ?? _defaultTrack),
                 ),
+                for (var i = 0; i < widget.markers.length; i++)
+                  Positioned(
+                    top: _vertical
+                        ? (trackExtent - 10) *
+                            widget.markers[i].position.clamp(0.0, 1.0)
+                        : null,
+                    left: _vertical
+                        ? 1
+                        : (trackExtent - 10) *
+                            widget.markers[i].position.clamp(0.0, 1.0),
+                    right: _vertical ? 1 : null,
+                    bottom: _vertical ? null : 1,
+                    width: _vertical ? null : 10,
+                    height: _vertical ? 10 : null,
+                    child: Tooltip(
+                      message: widget.markers[i].label,
+                      preferBelow: false,
+                      child: Semantics(
+                        button: widget.markers[i].onTap != null,
+                        label: widget.markers[i].label,
+                        onTap: widget.markers[i].onTap,
+                        child: SizedBox(
+                          key: ValueKey('pdf-scrollbar-marker-$i'),
+                          child: Center(
+                            child: SizedBox(
+                              width: _vertical ? double.infinity : 3,
+                              height: _vertical ? 3 : double.infinity,
+                              child: ColoredBox(
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 Positioned(
                   top: _vertical ? thumbPos : null,
                   left: _vertical ? null : thumbPos,
@@ -272,4 +328,22 @@ class _PdfScrollbarState extends State<PdfScrollbar> {
       }),
     );
   }
+}
+
+/// A labelled location on a [PdfScrollbar] track.
+class PdfScrollbarMarker {
+  const PdfScrollbarMarker({
+    required this.position,
+    required this.label,
+    this.onTap,
+  });
+
+  /// Location along the document, normalized from 0 to 1.
+  final double position;
+
+  /// Tooltip and accessibility label (normally an outline title).
+  final String label;
+
+  /// Invoked when the tick is activated.
+  final VoidCallback? onTap;
 }

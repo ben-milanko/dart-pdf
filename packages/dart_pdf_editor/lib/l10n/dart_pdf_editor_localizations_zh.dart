@@ -985,6 +985,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get shellShowAnnotations => '显示注释';
 
   @override
+  String get shellShowScrollbarChapters => 'Show chapters on scrollbar';
+
+  @override
   String get shellTabHere => '停靠为标签页';
 
   @override

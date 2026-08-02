@@ -79,6 +79,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   List<String> _recentFonts = const [];
   Color _pageColor = const Color(0xFFFFFFFF);
   bool _showAnnotations = true;
+  bool _showScrollbarChapters = false;
   bool _highlightFormFields = true;
   bool _showReflowView = false;
   bool _showThumbnailView = false;
@@ -238,6 +239,9 @@ class PdfEditingPreferences extends ChangeNotifier {
       if (pageColor != null) _pageColor = Color(pageColor);
       _showAnnotations =
           store.getBool('${_prefix}showAnnotations') ?? _showAnnotations;
+      _showScrollbarChapters =
+          store.getBool('${_prefix}showScrollbarChapters') ??
+              _showScrollbarChapters;
       _highlightFormFields = store.getBool('${_prefix}highlightFormFields') ??
           _highlightFormFields;
       _showReflowView =
@@ -266,8 +270,8 @@ class PdfEditingPreferences extends ChangeNotifier {
       _searchWholeWord =
           store.getBool('${_prefix}searchWholeWord') ?? _searchWholeWord;
       _searchRegex = store.getBool('${_prefix}searchRegex') ?? _searchRegex;
-      _searchAnnotations = store.getBool('${_prefix}searchAnnotations') ??
-          _searchAnnotations;
+      _searchAnnotations =
+          store.getBool('${_prefix}searchAnnotations') ?? _searchAnnotations;
       _propertiesPanelWidth =
           store.getDouble('${_prefix}propertiesPanelWidth') ??
               _propertiesPanelWidth;
@@ -976,6 +980,17 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _showAnnotations) return;
     _showAnnotations = value;
     _write((s) => s.setBool('${_prefix}showAnnotations', value));
+    notifyListeners();
+  }
+
+  /// Whether document outline entries appear as chapter markers on the
+  /// viewer's main scrollbar. A display setting only, off by default.
+  bool get showScrollbarChapters => _showScrollbarChapters;
+
+  set showScrollbarChapters(bool value) {
+    if (value == _showScrollbarChapters) return;
+    _showScrollbarChapters = value;
+    _write((s) => s.setBool('${_prefix}showScrollbarChapters', value));
     notifyListeners();
   }
 

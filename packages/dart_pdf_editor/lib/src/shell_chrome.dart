@@ -1198,6 +1198,7 @@ void _maybeCloseShellControls(BuildContext context) {
 
 enum _ViewOption {
   annotations,
+  scrollbarChapters,
   formHighlight,
   reflow,
   pageGrid,
@@ -1219,6 +1220,8 @@ Future<void> _selectViewOption(
   switch (option) {
     case _ViewOption.annotations:
       preferences.showAnnotations = !preferences.showAnnotations;
+    case _ViewOption.scrollbarChapters:
+      preferences.showScrollbarChapters = !preferences.showScrollbarChapters;
     case _ViewOption.formHighlight:
       preferences.highlightFormFields = !preferences.highlightFormFields;
     case _ViewOption.reflow:
@@ -1566,6 +1569,22 @@ Future<void> showPdfShellViewOptionsSheet(
                 },
               ),
               SwitchListTile(
+                key: const ValueKey('pdf-shell-show-scrollbar-chapters'),
+                secondary: const Icon(Icons.bookmarks_outlined),
+                title: Text(pdfL10n(context).shellShowScrollbarChapters),
+                value: preferences.showScrollbarChapters,
+                onChanged: (_) async {
+                  await _selectViewOption(
+                    context,
+                    _ViewOption.scrollbarChapters,
+                    preferences: preferences,
+                    pageColor: pageColor,
+                    onAuthorPressed: onAuthorPressed,
+                  );
+                  setSheetState(() {});
+                },
+              ),
+              SwitchListTile(
                 key: const ValueKey('pdf-shell-highlight-forms'),
                 secondary: const Icon(Icons.dynamic_form_outlined),
                 title: Text(pdfL10n(context).shellHighlightFormFields),
@@ -1759,6 +1778,12 @@ class PdfShellViewOptionsButton extends StatelessWidget {
           value: _ViewOption.annotations,
           checked: preferences.showAnnotations,
           child: Text(pdfL10n(context).shellShowAnnotations),
+        ),
+        CheckedPopupMenuItem(
+          key: const ValueKey('pdf-shell-show-scrollbar-chapters'),
+          value: _ViewOption.scrollbarChapters,
+          checked: preferences.showScrollbarChapters,
+          child: Text(pdfL10n(context).shellShowScrollbarChapters),
         ),
         CheckedPopupMenuItem(
           key: const ValueKey('pdf-shell-highlight-forms'),

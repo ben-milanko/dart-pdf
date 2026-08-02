@@ -1922,6 +1922,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Show annotations'**
   String get shellShowAnnotations;
 
+  /// Toggle label controlling whether PDF outline chapters appear as markers on the scrollbar.
+  ///
+  /// In en, this message translates to:
+  /// **'Show chapters on scrollbar'**
+  String get shellShowScrollbarChapters;
+
   /// Drop hint shown when dragging a docked panel over another panel to combine them into a tabbed group.
   ///
   /// In en, this message translates to:
