@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.3.1
+
+- Fix annotation property edits duplicating an annotation in PDFs that store
+  the page annotation array indirectly (#638).
+- Keep cloud and polygon pattern spacing at the configured scale in the live
+  drag preview (#639).
+- Preserve embedded fonts when changing FreeText colour (#641).
+- Improve multi-page thumbnail reordering with group drag feedback, insertion
+  markers, and reliable movement of the selected page set (#642).
+
 ## 3.3.0
 
 - Add `PdfPageRasterWarmPolicy` (`disabled` by default, plus `nearby(window:)`

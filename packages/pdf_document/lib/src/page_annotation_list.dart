@@ -105,6 +105,12 @@ class _PdfPageAnnotationList {
     final next = CosArray(items);
     if (raw is CosReference && _cos.resolve(raw) is CosArray) {
       _updater.replaceObject(raw.objectNumber, next);
+      // A single editor transaction can remove and then re-add an annotation
+      // (for example when a FreeText property change regenerates its
+      // appearance). Make the replacement visible to that transaction's
+      // next `/Annots` read; otherwise resolve(raw) returns the original
+      // cached array and the append resurrects the removed annotation.
+      _cos.adoptObject(raw, next);
     } else {
       page.dict['Annots'] = next;
       _updater.markChanged(page.dict);

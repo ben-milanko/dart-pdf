@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.3.1
+
+- Fix annotation property edits duplicating the annotation when a page stores
+  its `/Annots` array indirectly (#638).
+- Preserve embedded font resources when changing FreeText colour, so restyled
+  text continues to use the original embedded typeface (#641).
+
 ## 3.3.0
 
 - Add lightweight diagnostics to `PdfDiskCache` for hits, misses, writes,

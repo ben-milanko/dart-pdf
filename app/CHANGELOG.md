@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.3.1
+
+- Changing annotation properties no longer creates a duplicate in PDFs that
+  store annotation lists indirectly.
+- Text colour changes now preserve embedded fonts, and cloud/polygon live
+  previews retain the configured pattern scale.
+- Multi-page reordering has clearer group feedback and moves the selected page
+  set reliably.
+
 ## 3.3.0
 
 - Pages you revisit can open immediately from full-resolution memory and disk

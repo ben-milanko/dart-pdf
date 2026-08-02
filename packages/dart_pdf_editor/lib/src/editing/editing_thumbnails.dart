@@ -193,6 +193,11 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
   /// page selection or viewer page supplies the starting point.
   int? _keyboardPage;
 
+  /// The selected tile currently driving a reorder. Other pages in the same
+  /// selection stay in place as dimmed placeholders while the proxy carries
+  /// the whole selection's page count.
+  int? _reorderPage;
+
   PdfEditingPreferences get _preferences => widget.controller.preferences;
 
   /// The pages the strip is previewing as a shift-click range: empty
@@ -685,9 +690,23 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                             padding: EdgeInsets.fromLTRB(
                                 inset, 8, _extraRightPadding + inset, 8),
                             itemCount: controller.document.pageCount,
+                            onReorderStart: (index) =>
+                                setState(() => _reorderPage = index),
+                            onReorderEnd: (_) {
+                              if (mounted) setState(() => _reorderPage = null);
+                            },
+                            proxyDecorator: (child, index, animation) {
+                              final count = controller.isPageSelected(index)
+                                  ? controller.selectedPageCount
+                                  : 1;
+                              return count > 1
+                                  ? _MultiPageDragProxy(
+                                      count: count, child: child)
+                                  : child;
+                            },
                             onReorderItem: controller.movePage,
                             itemBuilder: (context, index) {
-                              final tile = _PageTile(
+                              Widget tile = _PageTile(
                                 key: _tileKeys[index] ??= GlobalKey(),
                                 controller: controller,
                                 viewerController: widget.viewerController,
@@ -708,6 +727,17 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
                                     _setHover(index, hovering),
                                 onFocusPage: _focusPage,
                               );
+                              if (_reorderPage != null &&
+                                  index != _reorderPage &&
+                                  controller.isPageSelected(_reorderPage!) &&
+                                  controller.isPageSelected(index)) {
+                                tile = Opacity(
+                                  key: ValueKey(
+                                      'pdf-thumbnail-reorder-companion-$index'),
+                                  opacity: 0.35,
+                                  child: tile,
+                                );
+                              }
                               // without the drag listener no reorder can ever start
                               return widget.allowPageEditing
                                   ? _ReorderDragStartListener(
@@ -1158,6 +1188,7 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
 
   bool _shiftHeld = HardwareKeyboard.instance.isShiftPressed;
   int? _keyboardPage;
+  int? _dragPage;
 
   Set<int> get _rangePreview => _shiftHeld && _hoverPage != null
       ? widget.controller.pageRangePreviewTo(_hoverPage!).toSet()
@@ -1520,6 +1551,19 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
                                             onHover: (hovering) =>
                                                 _setHover(i, hovering),
                                             onFocusPage: _focusPage,
+                                            dimmed: _dragPage != null &&
+                                                i != _dragPage &&
+                                                controller.isPageSelected(
+                                                    _dragPage!) &&
+                                                controller.isPageSelected(i),
+                                            onDragStarted: () =>
+                                                setState(() => _dragPage = i),
+                                            onDragEnded: () {
+                                              if (mounted) {
+                                                setState(
+                                                    () => _dragPage = null);
+                                              }
+                                            },
                                           ),
                                         ),
                                       ),
@@ -1605,8 +1649,9 @@ class _ThumbnailSizeControl extends StatelessWidget {
 /// reorder. A mouse picks a tile up immediately (it hovers first, so the
 /// cell knows a pointer is present); touch and stylus need a long press,
 /// so a finger drag still scrolls the grid. Dropping onto another cell
-/// moves the page there ([PdfEditingController.movePage]). With
-/// [allowPageEditing] off the cell is the bare tile - read-only grids
+/// moves the page there ([PdfEditingController.movePage]); if that page is
+/// part of a multi-page selection, the entire selection moves together.
+/// With [allowPageEditing] off the cell is the bare tile - read-only grids
 /// only navigate.
 class _GridPageCell extends StatefulWidget {
   const _GridPageCell({
@@ -1621,6 +1666,9 @@ class _GridPageCell extends StatefulWidget {
     required this.tileWidth,
     required this.renderWorker,
     required this.onActivatePage,
+    required this.dimmed,
+    required this.onDragStarted,
+    required this.onDragEnded,
     this.inRangePreview = false,
     this.showPageActions = true,
     this.onHover,
@@ -1638,6 +1686,9 @@ class _GridPageCell extends StatefulWidget {
   final double tileWidth;
   final PdfRenderWorker? renderWorker;
   final void Function(int pageIndex) onActivatePage;
+  final bool dimmed;
+  final VoidCallback onDragStarted;
+  final VoidCallback onDragEnded;
   final bool inRangePreview;
   final bool showPageActions;
   final void Function(bool hovering)? onHover;
@@ -1677,10 +1728,15 @@ class _GridPageCellState extends State<_GridPageCell> {
     final tile = _tile();
     if (!widget.allowPageEditing) return tile;
 
-    final draggable = MouseRegion(
-      onEnter: (_) => setState(() => _hasMouse = true),
-      onExit: (_) => setState(() => _hasMouse = false),
-      child: _draggable(tile),
+    final draggable = AnimatedOpacity(
+      key: ValueKey('pdf-thumbnail-grid-reorder-companion-${widget.pageIndex}'),
+      opacity: widget.dimmed ? 0.35 : 1,
+      duration: const Duration(milliseconds: 120),
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hasMouse = true),
+        onExit: (_) => setState(() => _hasMouse = false),
+        child: _draggable(tile),
+      ),
     );
     return DragTarget<int>(
       // a page never drops onto itself
@@ -1711,8 +1767,13 @@ class _GridPageCellState extends State<_GridPageCell> {
   }
 
   Widget _draggable(Widget tile) {
+    final selectedCount = widget.controller.isPageSelected(widget.pageIndex)
+        ? widget.controller.selectedPageCount
+        : 0;
     final feedback = _DragFeedback(
-      label: pdfL10n(context).thumbPageNumber(widget.pageIndex + 1),
+      label: selectedCount > 1
+          ? _dragPageCountLabel(context, selectedCount)
+          : pdfL10n(context).thumbPageNumber(widget.pageIndex + 1),
       width: widget.tileWidth,
     );
     // dim the page being dragged in place, leaving a gap-marker
@@ -1720,6 +1781,8 @@ class _GridPageCellState extends State<_GridPageCell> {
     return _hasMouse
         ? Draggable<int>(
             data: widget.pageIndex,
+            onDragStarted: widget.onDragStarted,
+            onDragEnd: (_) => widget.onDragEnded(),
             dragAnchorStrategy: pointerDragAnchorStrategy,
             feedback: feedback,
             childWhenDragging: placeholder,
@@ -1727,12 +1790,55 @@ class _GridPageCellState extends State<_GridPageCell> {
           )
         : LongPressDraggable<int>(
             data: widget.pageIndex,
+            onDragStarted: widget.onDragStarted,
+            onDragEnd: (_) => widget.onDragEnded(),
             dragAnchorStrategy: pointerDragAnchorStrategy,
             feedback: feedback,
             childWhenDragging: placeholder,
             child: tile,
           );
   }
+}
+
+String _dragPageCountLabel(BuildContext context, int count) =>
+    '$count ${pdfL10n(context).thumbPages.toLowerCase()}';
+
+/// Marks the reorder proxy as representing every selected page rather than
+/// only the thumbnail under the pointer.
+class _MultiPageDragProxy extends StatelessWidget {
+  const _MultiPageDragProxy({required this.count, required this.child});
+
+  final int count;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Stack(
+        clipBehavior: Clip.none,
+        children: [
+          child,
+          Positioned(
+            top: 8,
+            right: 8,
+            child: Material(
+              key: const ValueKey('pdf-thumbnail-reorder-count'),
+              color: Theme.of(context).colorScheme.primary,
+              borderRadius: BorderRadius.circular(16),
+              elevation: 3,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                child: Text(
+                  _dragPageCountLabel(context, count),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
 }
 
 /// The little card that rides the cursor while a grid tile is dragged.

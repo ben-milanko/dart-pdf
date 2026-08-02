@@ -937,12 +937,30 @@ void main() {
   });
 
   test('removeAnnotation on an existing indirect /Annots array', () {
-    final doc = PdfDocument.open(buildAnnotatedPdf());
+    final seeded = PdfEditor(PdfDocument.open(buildIndirectAnnotsPdf()))
+      ..addSquare(0, const PdfRect(100, 100, 200, 150))
+      ..addNote(0, 300, 700, 'keep me');
+    final doc = PdfDocument.open(seeded.save());
     final before = doc.page(0).annotations.length;
     final editor = PdfEditor(doc)
       ..removeAnnotation(0, doc.page(0).annotations.first);
     final reopened = PdfDocument.open(editor.save());
     expect(reopened.page(0).annotations.length, before - 1);
+  });
+
+  test('remove then append composes on an indirect /Annots array', () {
+    final seeded = PdfEditor(PdfDocument.open(buildIndirectAnnotsPdf()))
+      ..addSquare(0, const PdfRect(100, 100, 200, 150));
+    final doc = PdfDocument.open(seeded.save());
+    final removed = doc.page(0).annotations.single;
+    final editor = PdfEditor(doc)
+      ..removeAnnotation(0, removed)
+      ..addNote(0, 500, 700, 'replacement');
+
+    final after = PdfDocument.open(editor.save()).page(0).annotations;
+    expect(after, hasLength(1));
+    expect(after.single.subtype, 'Text');
+    expect(after.single.contents, 'replacement');
   });
 
   test('removeAnnotations deletes multiple annotations in one edit', () {

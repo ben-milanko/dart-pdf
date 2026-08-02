@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.3.1
+
+- Add `buildIndirectAnnotsPdf()`, a regression fixture for annotation arrays
+  stored in an indirect COS object.
+
 ## 3.3.0
 
 - Lockstep minor release to align the dart-pdf package suite at 3.3.0. No

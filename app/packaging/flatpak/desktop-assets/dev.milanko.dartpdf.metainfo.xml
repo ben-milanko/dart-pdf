@@ -95,6 +95,15 @@
     <!-- Generated from app/fastlane/metadata/android/en-US/changelogs/ and
          app/release-notes/. Newest first; keep the top entry in sync with the
          version the Flatpak/AUR packages pin. -->
+    <release version="3.3.1" date="2026-08-02">
+      <description>
+        <ul>
+          <li>Annotation property changes no longer duplicate annotations in some PDFs.</li>
+          <li>Text colour changes preserve embedded fonts, and cloud/polygon previews keep their pattern scale.</li>
+          <li>Multi-page reordering has clearer group feedback and moves selected pages reliably.</li>
+        </ul>
+      </description>
+    </release>
     <release version="3.3.0" date="2026-08-02">
       <description>
         <ul>
