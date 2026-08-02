@@ -5293,6 +5293,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     tool: _tool,
                     color: _controller.color,
                     strokeWidth: _controller.preferences.strokeWidth * _geometry.scale,
+                    lineScale: _controller.preferences.lineScale,
                     geometry: _geometry,
                     // the in-progress stroke is NOT here - it rides its own
                     // RepaintBoundary layer below so each appended point is a
@@ -6341,6 +6342,7 @@ class _EditingPreviewPainter extends CustomPainter {
     required this.tool,
     required this.color,
     required this.strokeWidth,
+    required this.lineScale,
     required this.geometry,
     required this.strokes,
     required this.pressures,
@@ -6392,6 +6394,8 @@ class _EditingPreviewPainter extends CustomPainter {
   final PdfEditTool? tool;
   final Color color;
   final double strokeWidth;
+  /// Pattern-size multiplier for live borders, independent of pen width.
+  final double lineScale;
   final PdfPageGeometry geometry;
   final List<List<(double, double)>> strokes;
 
@@ -6553,7 +6557,8 @@ class _EditingPreviewPainter extends CustomPainter {
           canvas, geometry, strokes, pressures, color, strokeWidth);
 
   void _paintShapePreview(
-      Canvas canvas, Rect rect, PdfEditTool? tool, Color color, double width) {
+      Canvas canvas, Rect rect, PdfEditTool? tool, Color color, double width,
+      double patternScale) {
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
@@ -6570,7 +6575,8 @@ class _EditingPreviewPainter extends CustomPainter {
             color,
             null,
             width,
-            false);
+            false,
+            patternScale);
       case PdfEditTool.freeText || PdfEditTool.stamp || PdfEditTool.form:
         canvas.drawRect(
             rect,
@@ -6599,9 +6605,9 @@ class _EditingPreviewPainter extends CustomPainter {
   }
 
   void _paintCloudPolygon(Canvas canvas, List<Offset> points, Color color,
-      Color? fillColor, double width, bool dashed) {
+      Color? fillColor, double width, bool dashed, double patternScale) {
     if (points.length < 3) return;
-    final cloud = _cloudPath(points, width);
+    final cloud = _cloudPath(points, width, patternScale);
     if (fillColor != null) {
       // Fill the scalloped outline itself so the interior colour reaches the
       // puffed edges, matching the committed appearance stream.
@@ -6639,14 +6645,16 @@ class _EditingPreviewPainter extends CustomPainter {
   /// matches the committed appearance.
   static const double _cloudNeckCurl = 0.75;
 
-  Path _cloudPath(List<Offset> points, double strokeWidth) {
+  Path _cloudPath(
+      List<Offset> points, double strokeWidth, double patternScale) {
     final path = Path();
     if (points.length < 3) return path;
     final clockwise = _signedArea(points) < 0;
     // The appearance stream uses max(12, sw*4) *page* points; map that arc
     // radius into view space (strokeWidth here is already scaled) so the
     // preview and the saved cloud line up scallop-for-scallop.
-    final arc = math.max(12.0 * geometry.scale, strokeWidth * 4.0);
+    final arc = math.max(
+        12.0 * patternScale * geometry.scale, strokeWidth * 4.0);
     const k = 0.5522847498307936;
     var first = true;
     for (var i = 0; i < points.length; i++) {
@@ -6764,7 +6772,8 @@ class _EditingPreviewPainter extends CustomPainter {
   }
 
   void _paintPathPreview(Canvas canvas, List<Offset> points, PdfEditTool? tool,
-      Color color, Color? fillColor, double width, bool dashed) {
+      Color color, Color? fillColor, double width, bool dashed,
+      double patternScale) {
     if (points.length < 2) return;
     final paint = Paint()
       ..color = color
@@ -6790,7 +6799,8 @@ class _EditingPreviewPainter extends CustomPainter {
       }
     }
     if (tool == PdfEditTool.cloudPolygon && points.length >= 3) {
-      _paintCloudPolygon(canvas, points, color, fillColor, width, dashed);
+      _paintCloudPolygon(
+          canvas, points, color, fillColor, width, dashed, patternScale);
     } else {
       // For the cloud tool with fewer than three vertices there is no cloud
       // to draw yet, so this rubber-bands the straight edge instead - placing
@@ -6838,7 +6848,7 @@ class _EditingPreviewPainter extends CustomPainter {
       Canvas canvas, Offset terminus, Offset base, Color color, double width) {
     _paintPathPreview(
         canvas, [terminus, base], PdfEditTool.callout, color, null, width,
-        false);
+        false, 1);
   }
 
   Path _dashPath(Path path, double width, [List<double>? dashPattern]) {
@@ -6933,7 +6943,8 @@ class _EditingPreviewPainter extends CustomPainter {
     final after = afterShape;
     if (after != null) {
       _paintShapePreview(
-          canvas, after.rect, after.tool, after.color, after.strokeWidth);
+          canvas, after.rect, after.tool, after.color, after.strokeWidth,
+          lineScale);
     }
 
     final afterStamp = this.afterStamp;
@@ -6950,24 +6961,27 @@ class _EditingPreviewPainter extends CustomPainter {
           afterPath.color,
           afterPath.fillColor,
           afterPath.strokeWidth,
-          afterPath.dashed);
+          afterPath.dashed,
+          lineScale);
     }
 
     final livePath = this.livePath;
     if (livePath != null) {
       _paintPathPreview(canvas, livePath.points, livePath.tool, livePath.color,
-          livePath.fillColor, livePath.strokeWidth, livePath.dashed);
+          livePath.fillColor, livePath.strokeWidth, livePath.dashed, lineScale);
     }
 
     final line = dragLine;
     if (line != null) {
       _paintPathPreview(
-          canvas, [line.$1, line.$2], tool, color, null, strokeWidth, dashed);
+          canvas, [line.$1, line.$2], tool, color, null, strokeWidth, dashed,
+          lineScale);
     } else if (dragPath != null) {
       _paintPathPreview(
-          canvas, dragPath!, tool, color, dragPathFill, strokeWidth, dashed);
+          canvas, dragPath!, tool, color, dragPathFill, strokeWidth, dashed,
+          lineScale);
     } else if (dragRect case final rect?) {
-      _paintShapePreview(canvas, rect, tool, color, strokeWidth);
+      _paintShapePreview(canvas, rect, tool, color, strokeWidth, lineScale);
     }
 
     if (calloutLeader case final leader?) {
@@ -7167,6 +7181,7 @@ class _EditingPreviewPainter extends CustomPainter {
       oldDelegate.tool != tool ||
       oldDelegate.color != color ||
       oldDelegate.strokeWidth != strokeWidth ||
+      oldDelegate.lineScale != lineScale ||
       !listEquals(oldDelegate.redactionRects, redactionRects) ||
       oldDelegate.dragRect != dragRect ||
       oldDelegate.calloutLeader != calloutLeader ||
