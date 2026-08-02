@@ -210,8 +210,8 @@ class PdfAnnotationBehavior {
         (annotation.vertices?.length ?? 0) >= 2,
     'Polygon' => annotation.normalAppearance != null &&
         (annotation.vertices?.length ?? 0) >= 3,
-    'FreeText' =>
-      annotation.normalAppearance != null && standardTextFont != null,
+    'FreeText' => annotation.normalAppearance != null &&
+        (standardTextFont != null || hasEmbeddedTextFont),
     'Ink' => annotation.inkList?.isNotEmpty ?? false,
     'Highlight' ||
     'Underline' ||

@@ -4577,8 +4577,8 @@ extension PdfAnnotationEditing on PdfEditor {
   /// [to] from the style its dictionary carries, replacing the /AP /N
   /// stream. Returns false - leaving the caller on the §12.5.5 stretch
   /// path - for other subtypes and for styles it can't reproduce
-  /// faithfully: cloudy (/BE) shape borders, free text whose /DA doesn't
-  /// name a standard font.
+  /// faithfully: cloudy (/BE) shape borders, or free text whose /DA font
+  /// is neither a standard face nor recoverable from its appearance.
   ///
   /// [opacity], when given, replaces the alpha the old appearance
   /// carried - [restyleAnnotation]'s opacity path.
@@ -5049,7 +5049,13 @@ extension PdfAnnotationEditing on PdfEditor {
         return _restyleRegenerate(pageIndex, dict, opacity: opacity);
       case 'FreeText':
         final style = currentStyle.freeText!;
-        final font = behavior.standardTextFont!;
+        // /DA only identifies base-14 faces directly. Recover an embedded
+        // face from the appearance resources just as the resize path does;
+        // otherwise changing the colour of text written in a custom font
+        // cannot rebuild its appearance.
+        final font = behavior.standardTextFont ??
+            PdfEmbeddedFont.fromFreeText(annotation);
+        if (font == null) return false;
         final textColor = color ?? style.color;
         final fill = fillColor != null ? fillColor.$1 : style.fillColor;
         final border = style.borderColor != null && style.borderWidth > 0
