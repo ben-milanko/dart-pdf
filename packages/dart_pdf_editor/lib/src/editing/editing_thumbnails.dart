@@ -1605,8 +1605,9 @@ class _ThumbnailSizeControl extends StatelessWidget {
 /// reorder. A mouse picks a tile up immediately (it hovers first, so the
 /// cell knows a pointer is present); touch and stylus need a long press,
 /// so a finger drag still scrolls the grid. Dropping onto another cell
-/// moves the page there ([PdfEditingController.movePage]). With
-/// [allowPageEditing] off the cell is the bare tile - read-only grids
+/// moves the page there ([PdfEditingController.movePage]); if that page is
+/// part of a multi-page selection, the entire selection moves together.
+/// With [allowPageEditing] off the cell is the bare tile - read-only grids
 /// only navigate.
 class _GridPageCell extends StatefulWidget {
   const _GridPageCell({
@@ -1711,8 +1712,13 @@ class _GridPageCellState extends State<_GridPageCell> {
   }
 
   Widget _draggable(Widget tile) {
+    final selectedCount = widget.controller.isPageSelected(widget.pageIndex)
+        ? widget.controller.selectedPageCount
+        : 0;
     final feedback = _DragFeedback(
-      label: pdfL10n(context).thumbPageNumber(widget.pageIndex + 1),
+      label: selectedCount > 1
+          ? pdfL10n(context).thumbSelectedCount(selectedCount)
+          : pdfL10n(context).thumbPageNumber(widget.pageIndex + 1),
       width: widget.tileWidth,
     );
     // dim the page being dragged in place, leaving a gap-marker
