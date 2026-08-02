@@ -1,4 +1,4 @@
-# Flathub binary manifest for DartPDF.
+# Binary Flatpak manifest for DartPDF's official self-hosted repository.
 #
 # Binary-manifest style (like most Flutter apps on Flathub): rather than build
 # the Flutter toolchain inside the Flatpak sandbox, we unpack the release
@@ -7,19 +7,17 @@
 #
 # The .desktop / AppStream metainfo / hicolor icons are installed from the
 # copies staged next to this manifest in desktop-assets/ (authoritative source:
-# app/linux/ - see README.md "Desktop assets"). They are installed from here,
-# NOT from the tarball: the release tarball only becomes desktop-integration
-# self-contained once a release is built from a tree that carries the CMake
-# "Desktop integration" install rules (added in #547, AFTER app-v3.0.0 was
-# cut - see README.md "Known: 3.0.0 tarball has no share/ tree").
+# app/linux/ - see README.md "Desktop assets"). The release tarball also carries
+# these files under share/, but the staged sources keep the package metadata
+# directly reviewable and make local manifest builds self-contained.
 #
-# Before each submission: bump the tarball `url` + `sha256` to the release you
-# are publishing (`sha256sum dartpdf-linux-x64.tar.gz`), and re-run
-# ./sync-desktop-assets.sh so desktop-assets/ matches app/linux/. See README.md.
+# The checked-in URL pins the current stable release for local builds. Publishing
+# CI replaces this source with the digest-verified release asset it downloaded;
+# see build-self-hosted-repo.sh and flatpak-hosting/README.md.
 app-id: dev.milanko.dartpdf
-runtime: org.freedesktop.Platform
-runtime-version: '24.08'
-sdk: org.freedesktop.Sdk
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
 command: dartpdf
 
 finish-args:
@@ -34,9 +32,9 @@ finish-args:
   # only D-Bus name we request.
   - --talk-name=org.freedesktop.secrets
   # Keyless signing (Sigstore/Fulcio), RFC 3161 timestamps, and OCSP/CRL
-  # revocation checks are network transports; the in-app update check also
-  # polls GitHub Releases. No server handles document content - files stay
-  # local.
+  # revocation checks and OCR model downloads are network transports. Flatpak
+  # itself handles app updates; no server handles document content - files
+  # stay local.
   - --share=network
   # NOTE: intentionally no blanket --filesystem. Files reach the sandbox
   # through the XDG portals: "Open With" / launch arguments via file
@@ -62,17 +60,18 @@ modules:
         /app/share/applications/dev.milanko.dartpdf.desktop
       - install -Dm644 dev.milanko.dartpdf.metainfo.xml
         /app/share/metainfo/dev.milanko.dartpdf.metainfo.xml
-      - install -Dm644 icon-64.png  /app/share/icons/hicolor/64x64/apps/dev.milanko.dartpdf.png
-      - install -Dm644 icon-128.png /app/share/icons/hicolor/128x128/apps/dev.milanko.dartpdf.png
-      - install -Dm644 icon-256.png /app/share/icons/hicolor/256x256/apps/dev.milanko.dartpdf.png
-      - install -Dm644 icon-512.png /app/share/icons/hicolor/512x512/apps/dev.milanko.dartpdf.png
+      - install -Dm644 dartpdf-64.png  /app/share/icons/hicolor/64x64/apps/dev.milanko.dartpdf.png
+      - install -Dm644 dartpdf-128.png /app/share/icons/hicolor/128x128/apps/dev.milanko.dartpdf.png
+      - install -Dm644 dartpdf-256.png /app/share/icons/hicolor/256x256/apps/dev.milanko.dartpdf.png
+      - install -Dm644 dartpdf-512.png /app/share/icons/hicolor/512x512/apps/dev.milanko.dartpdf.png
     sources:
       # 1) The prebuilt Linux bundle (binary + data/ + lib/).
       - type: archive
-        url: https://github.com/ben-milanko/dart-pdf/releases/download/app-v3.0.0/dartpdf-linux-x64.tar.gz
-        sha256: c626d2cb3f94f386f0294e60736b63642502ccfa8871a46004660b214c447987
-        # Flathub's external-data checker auto-proposes a PR when a new app-v*
-        # release ships. Update the tarball url+sha256 above when you take it.
+        url: https://github.com/ben-milanko/dart-pdf/releases/download/app-v3.2.0/dartpdf-linux-x64.tar.gz
+        sha256: ff20db5840a0c2bdda590b4a88c156e032986ff5d4d3b0dd37735f8e5ab16792
+        # Kept for standard Flatpak external-data tooling and downstream
+        # packagers; the official repository publisher verifies GitHub's asset
+        # digest independently before building.
         x-checker-data:
           type: json
           url: https://api.github.com/repos/ben-milanko/dart-pdf/releases/latest
@@ -82,7 +81,7 @@ modules:
             | .browser_download_url
       # 2) Desktop integration files, staged next to this manifest. Their
       #    authoritative source is app/linux/; ./sync-desktop-assets.sh copies
-      #    them here. Committed into the flathub PR alongside the manifest.
+      #    them here.
       - type: file
         path: desktop-assets/dev.milanko.dartpdf.desktop
       - type: file

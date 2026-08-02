@@ -9,9 +9,9 @@ Show HN thread has traction, so you can link it as social proof.
 - **It's FOSS** (Abhishek Prakash / team) — reader-useful, "here's a tool":
   _"I thought It's FOSS readers might like a free, open-source PDF editor that
   actually edits PDFs on Linux, not just annotates them."_
-- **OMG! Ubuntu** (Joey Sneddon) — app news, Flathub availability, screenshots:
-  _"There's a new open-source PDF editor on Flathub that does the full job on
-  Ubuntu — editing page text, forms, redaction, signing."_
+- **OMG! Ubuntu** (Joey Sneddon) — app news, Flatpak availability, screenshots:
+  _"There's a new open-source PDF editor available as a signed Flatpak that does
+  the full job on Ubuntu — editing page text, forms, redaction, signing."_
 - **Phoronix** (Michael Larabel) — technical/engineering angle, cross-platform,
   pure-Dart engine, performance:
   _"A from-scratch PDF engine written in pure Dart (no PDFium/MuPDF) now ships a
@@ -39,8 +39,9 @@ Show HN thread has traction, so you can link it as social proof.
 > removed from the file), adds PAdES and keyless digital signatures, and OCRs
 > scans — all on device, with no account and no uploads. It's Apache-2.0.
 >
-> It installs from Flathub (`dev.milanko.dartpdf`), the AUR (`dartpdf-bin`), or
-> as an AppImage, and integrates with the desktop as a proper PDF handler.
+> The recommended Linux install is a signed Flatpak from DartPDF's official
+> repository (`dev.milanko.dartpdf`). AppImage and portable builds are also
+> available, and it integrates with the desktop as a proper PDF handler.
 >
 > - Landing page: https://dart-pdf.com/pdf-editor-linux
 > - Source: https://github.com/ben-milanko/dart-pdf

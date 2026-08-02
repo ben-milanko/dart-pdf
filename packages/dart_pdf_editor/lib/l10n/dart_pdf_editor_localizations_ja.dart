@@ -561,6 +561,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get propContents => '内容';
 
   @override
+  String get propCornerRadius => '角の丸み';
+
+  @override
   String get propEditsApplyToAll => '編集はすべての互換注釈に適用されます';
 
   @override

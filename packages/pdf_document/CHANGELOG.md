@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.3.0
+
+- Add lightweight diagnostics to `PdfDiskCache` for hits, misses, writes,
+  oversize rejections, evictions, and byte totals, with `resetStats()` and a
+  one-line `debugStats` summary. Manifest writes are coalesced across bursts so
+  persistent page-raster caches do not rewrite an O(n) manifest for every
+  entry (#615).
+
 ## 3.2.0
 
 - Improve FreeText callout interoperability: recognize third-party callouts

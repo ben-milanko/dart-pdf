@@ -185,6 +185,7 @@
   "propColor": "カラー",
   "propColour": "カラー",
   "propContents": "内容",
+  "propCornerRadius": "角の丸み",
   "propEditsApplyToAll": "編集はすべての互換注釈に適用されます",
   "propFieldName": "フィールド名",
   "propFieldTypeCheckBox": "チェックボックス",

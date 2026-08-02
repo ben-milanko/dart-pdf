@@ -45,6 +45,7 @@ UpdateService _service(
   // Android target platform, so pin a desktop platform unless a test overrides
   // it to exercise the mobile opt-out.
   TargetPlatform platform = TargetPlatform.macOS,
+  bool storeManagedBuild = false,
 }) =>
     UpdateService(
       currentVersion: current,
@@ -52,6 +53,7 @@ UpdateService _service(
       checkInterval: checkInterval,
       now: now ?? DateTime.now,
       platform: platform,
+      storeManagedBuild: storeManagedBuild,
       fetcher: () async {
         if (throwOnFetch) throw Exception('offline');
         return releases;
@@ -524,6 +526,36 @@ Nightly build.
         expect(service.supported, isTrue);
       });
     }
+
+    test('is off for Linux installed from the Flatpak repository', () async {
+      final service = _service(
+        '1.2.2',
+        releases: [_release('app-v1.3.0')],
+        platform: TargetPlatform.linux,
+        storeManagedBuild: true,
+      );
+      addTearDown(service.dispose);
+
+      expect(service.supported, isFalse);
+      await service.checkForUpdates(force: true);
+      expect(service.status, UpdateStatus.idle);
+      expect(service.updateAvailable, isFalse);
+    });
+
+    test('is off for Linux installed from the Snap Store', () async {
+      final service = _service(
+        '1.2.2',
+        releases: [_release('app-v1.3.0')],
+        platform: TargetPlatform.linux,
+        storeManagedBuild: true,
+      );
+      addTearDown(service.dispose);
+
+      expect(service.supported, isFalse);
+      await service.checkForUpdates(force: true);
+      expect(service.status, UpdateStatus.idle);
+      expect(service.updateAvailable, isFalse);
+    });
 
     // Mobile updates through the app stores, where a store review routinely
     // lags the GitHub release - so we must not nudge those users toward a

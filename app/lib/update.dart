@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'devtools.dart';
+import 'update_distribution_stub.dart'
+    if (dart.library.io) 'update_distribution_io.dart';
 
 /// The rolling GitHub prerelease populated by the nightly Windows workflow.
 const dartPdfNightlyTag = 'app-nightly';
@@ -234,11 +236,14 @@ class UpdateService extends ChangeNotifier {
     Duration checkInterval = const Duration(hours: 24),
     DateTime Function() now = DateTime.now,
     TargetPlatform? platform,
+    bool? storeManagedBuild,
   })  : _fetcher = fetcher,
         _clientFactory = clientFactory ?? http.Client.new,
         _checkInterval = checkInterval,
         _now = now,
-        _platform = platform {
+        _platform = platform,
+        _storeManagedBuild =
+            storeManagedBuild ?? defaultStoreManagedUpdateChannel {
     _restored = _restore();
   }
 
@@ -267,6 +272,7 @@ class UpdateService extends ChangeNotifier {
   final Duration _checkInterval;
   final DateTime Function() _now;
   final TargetPlatform? _platform;
+  final bool _storeManagedBuild;
 
   static const _lastCheckedKey = 'dart_pdf_editor_app.update.lastChecked';
   static const _dismissedKey = 'dart_pdf_editor_app.update.dismissedTag';
@@ -311,11 +317,14 @@ class UpdateService extends ChangeNotifier {
   ///   yet, and the "Download" button would only send them to a GitHub page
   ///   that isn't their update channel - exactly the confusing dead end we
   ///   want to avoid.
+  /// * Flatpak and Snap builds update through their package repositories.
+  ///   Offering a parallel AppImage download would bypass that package
+  ///   manager and leave two competing installations on the machine.
   ///
   /// This is an instance getter (not static) so the injected [platform] is
   /// honoured and the gate is testable.
   bool get supported {
-    if (kIsWeb) return false;
+    if (kIsWeb || _storeManagedBuild) return false;
     return switch (_targetPlatform) {
       TargetPlatform.macOS ||
       TargetPlatform.windows ||

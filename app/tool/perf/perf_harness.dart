@@ -126,6 +126,25 @@ final String _hoverToolName = (_q['tool'] ??
         const String.fromEnvironment('PERF_TOOL', defaultValue: 'ink'))
     .toLowerCase();
 
+/// `?warm=`/`?warmBudgetMb=`/`?warmTarget=`: the `warm` scenario's levers.
+/// `warm` is the idle full-raster warm mode - `off` (the control arm),
+/// `document`, or `nearby` - `warmBudgetMb` is the exact-raster cache budget
+/// the warm gets to fill, and `warmTarget` is the page the run navigates to
+/// after idling. The two arms differ only in `warm`, so the A/B is the
+/// feature itself (#614).
+final String _warmMode = (_q['warm'] ?? 'off').toLowerCase();
+final int _warmBudgetMb = _qInt('warmBudgetMb', 1024);
+final int _warmWindow = _qInt('warmWindow', 3);
+final int _warmIdleMs = _qInt('warmIdleMs', 6000);
+final int _warmTarget = _qInt('warmTarget', -1);
+
+/// The warm policy the harness mounts its viewer with.
+PdfPageRasterWarmPolicy get _warmPolicy => switch (_warmMode) {
+      'document' => const PdfPageRasterWarmPolicy.document(),
+      'nearby' => PdfPageRasterWarmPolicy.nearby(window: _warmWindow),
+      _ => const PdfPageRasterWarmPolicy.disabled(),
+    };
+
 /// Decoded-image cache budget, MB. 0 leaves the platform default in place; the
 /// driver sweeps it to measure what each budget costs a real tab (issue #281).
 final int _imageCacheMb = _qInt('imageCacheMb', 0);
@@ -358,6 +377,8 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
           await _driveEdit(coldOpen);
         case 'hover':
           await _driveHover(coldOpen);
+        case 'warm':
+          await _driveWarm(coldOpen);
         case 'scroll':
         default:
           await _driveScroll(coldOpen);
@@ -421,6 +442,55 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
       }
     }
     _metric('pagesVisited', last);
+  }
+
+  // ----- warm: idle full-raster warm, then arrive on a far page (#614) ------
+  //
+  // Both arms run the identical script; only `?warm=` differs. The number that
+  // matters is `warmArriveMs` - wall time from asking for a far page to that
+  // page's sharp raster being on screen - and it is only meaningful next to the
+  // control arm's, so run this through `tool/perf.sh webdiff` or compare the
+  // `warm-*-off` / `warm-*-document` scenarios.
+  Future<void> _driveWarm(Stopwatch coldOpen) async {
+    final count = await _awaitPageCount(coldOpen);
+    if (count <= 0) throw StateError('pageCount never became positive');
+    final target =
+        (_warmTarget < 0 ? count - 1 : _warmTarget).clamp(0, count - 1);
+    _record('[perf] HARNESS WARM mode=$_warmMode budgetMb=$_warmBudgetMb '
+        'idleMs=$_warmIdleMs target=$target');
+    // Idle. This is the whole point: the viewer is doing nothing a user asked
+    // for, and the warm either uses that time or does not.
+    await Future<void>.delayed(Duration(milliseconds: _warmIdleMs));
+    final warmed = _viewer.pageRasterWarmStats;
+    if (warmed != null) {
+      _metric('warmAttempts', warmed.attempts);
+      _metric('warmCompletions', warmed.completions);
+      _metric('warmRejected', warmed.rejected);
+      _metric('warmPreempted', warmed.preempted);
+      _metric('warmRetainedMb', warmed.retainedBytes / (1 << 20));
+      _metric('warmEvictions', warmed.evictions);
+    }
+
+    // Arrive. A warmed page restores its raster synchronously; an unwarmed one
+    // interprets and reads back first, which is the difference being measured.
+    final arrive = Stopwatch()..start();
+    await _viewer.jumpToPage(target);
+    // Poll for the sharp raster rather than sleeping a fixed time: the control
+    // arm's cost is exactly what we must not average away.
+    for (var i = 0; i < 200; i++) {
+      final stats = _viewer.pageRasterWarmStats;
+      if (stats != null && stats.hits > (warmed?.hits ?? 0)) break;
+      if (!_viewer.isPageRenderBusy && i > 2) break;
+      await Future<void>.delayed(const Duration(milliseconds: 25));
+    }
+    arrive.stop();
+    _metric('warmArriveMs', arrive.elapsedMicroseconds / 1000.0);
+    final after = _viewer.pageRasterWarmStats;
+    if (after != null) {
+      _metric('warmHits', after.hits);
+      _metric('warmMisses', after.misses);
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 800));
   }
 
   // ----- open: cold-open profile; first-content is computed driver-side ------
@@ -629,6 +699,11 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
               controller: _viewer,
               initialFit: PdfViewerFit.width,
               renderWorker: _worker,
+              pageRasterCachePolicy: PdfPageRasterCachePolicy(
+                maxBytes: _warmBudgetMb * 1024 * 1024,
+                maxEntryBytes: 256 * 1024 * 1024,
+              ),
+              pageRasterWarmPolicy: _warmPolicy,
             );
     }
     return MaterialApp(

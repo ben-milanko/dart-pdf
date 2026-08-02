@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.3.0
+
+- Lockstep minor release to align the dart-pdf package suite at 3.3.0. No
+  fixture API changes since 3.2.0.
+
 ## 3.2.0
 
 - Lockstep minor release to align the dart-pdf package suite at 3.2.0. No

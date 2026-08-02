@@ -185,6 +185,7 @@
   "propColor": "Цвет",
   "propColour": "Цвет",
   "propContents": "Содержимое",
+  "propCornerRadius": "Радиус скругления",
   "propEditsApplyToAll": "Изменения применяются ко всем совместимым аннотациям",
   "propFieldName": "Имя поля",
   "propFieldTypeCheckBox": "Флажок",

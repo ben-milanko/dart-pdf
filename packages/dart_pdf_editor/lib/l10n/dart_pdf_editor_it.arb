@@ -185,6 +185,7 @@
   "propColor": "Colore",
   "propColour": "Colore",
   "propContents": "Contenuto",
+  "propCornerRadius": "Raggio angolo",
   "propEditsApplyToAll": "Le modifiche si applicano a tutte le annotazioni compatibili",
   "propFieldName": "Nome del campo",
   "propFieldTypeCheckBox": "Casella di controllo",

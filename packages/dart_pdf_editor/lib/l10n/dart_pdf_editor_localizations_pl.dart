@@ -573,6 +573,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get propContents => 'Zawartość';
 
   @override
+  String get propCornerRadius => 'Promień narożnika';
+
+  @override
   String get propEditsApplyToAll =>
       'Zmiany dotyczą wszystkich zgodnych adnotacji';
 

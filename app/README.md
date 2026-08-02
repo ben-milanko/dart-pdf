@@ -8,6 +8,22 @@ Linux from one codebase.
 This is the **product app**. The SDK's feature showcase lives separately in
 `packages/dart_pdf_editor/example`.
 
+On Linux, the preferred installation is the official signed Flatpak:
+
+```sh
+flatpak install --from \
+  https://dartpdf-flatpak.web.app/dartpdf.flatpakref
+```
+
+Ubuntu and other snapd users can use the secondary Snap Store channel:
+
+```sh
+sudo snap install dartpdf
+```
+
+AppImage and portable tarball builds remain available from
+[GitHub Releases](https://github.com/ben-milanko/dart-pdf/releases/latest).
+
 ## Features
 
 - Open PDFs from the picker, the OS ("open with" / share), drag-and-drop

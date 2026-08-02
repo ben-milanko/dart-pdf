@@ -24,6 +24,8 @@ void main() {
       reason: 'test reset',
     );
     AppDevTools.instance.useAutoPageRasterCache();
+    AppDevTools.instance
+        .setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.disabled());
     PdfPerfLog.enabled = false;
     pdfRenderWorkerPoolSize = defaultPdfRenderWorkerPoolSize;
   });
@@ -94,6 +96,29 @@ void main() {
     );
   });
 
+  test('the idle raster warm policy round-trips', () async {
+    SharedPreferences.setMockInitialValues({});
+    final tools = AppDevTools.instance;
+    expect(tools.pageRasterWarmPolicy.value.enabled, isFalse,
+        reason: 'warming is off until a host asks for it');
+
+    tools.setPageRasterWarmPolicy(
+        const PdfPageRasterWarmPolicy.nearby(window: 5));
+    await tools.persistOptions();
+
+    tools.setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.disabled());
+    await tools.restoreOptions();
+    expect(tools.pageRasterWarmPolicy.value,
+        const PdfPageRasterWarmPolicy.nearby(window: 5));
+
+    tools.setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.document());
+    await tools.persistOptions();
+    tools.setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.disabled());
+    await tools.restoreOptions();
+    expect(tools.pageRasterWarmPolicy.value.mode,
+        PdfPageRasterWarmMode.document);
+  });
+
   test('restore with nothing persisted leaves the defaults alone', () async {
     SharedPreferences.setMockInitialValues({});
     pdfRenderWorkerPoolSize = 3;
@@ -112,6 +137,7 @@ void main() {
       AppDevTools.instance.pageRasterCachePolicy.value,
       const PdfPageRasterCachePolicy(),
     );
+    expect(AppDevTools.instance.pageRasterWarmPolicy.value.enabled, isFalse);
   });
 
   test('a corrupt payload is logged, not thrown', () async {

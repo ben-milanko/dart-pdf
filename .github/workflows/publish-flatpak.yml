@@ -1,0 +1,175 @@
+name: Publish Flatpak repository
+
+# The Flatpak remote is deliberately separate from the marketing site. A
+# published app release is the source of truth: drafts are not distributed,
+# and the release asset digest is checked before any package is signed.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Published app version (X.Y.Z); empty uses latest'
+        required: false
+
+concurrency:
+  group: flatpak-repository
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  FLATPAK_ID: dev.milanko.dartpdf
+  FLATPAK_RUNTIME: '50'
+  FLATPAK_BASE_URL: https://dartpdf-flatpak.web.app
+  FLATPAK_GPG_FINGERPRINT: 32E53D6314CF1F1448462E2319EFDD96AD44514D
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'app-v')
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Resolve published release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$RELEASE_TAG" ]]; then
+            tag="$RELEASE_TAG"
+          elif [[ -n "$REQUESTED_VERSION" ]]; then
+            tag="app-v$REQUESTED_VERSION"
+          else
+            tag="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)"
+          fi
+          [[ "$tag" =~ ^app-v([0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?)$ ]] || {
+            echo "Not a stable DartPDF app release: $tag" >&2
+            exit 1
+          }
+          version="${tag#app-v}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Download and verify Linux release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/flatpak-input"
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern dartpdf-linux-x64.tar.gz \
+            --dir "$RUNNER_TEMP/flatpak-input"
+          expected="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
+            --jq '.assets[] | select(.name == "dartpdf-linux-x64.tar.gz") | .digest')"
+          actual="sha256:$(sha256sum "$RUNNER_TEMP/flatpak-input/dartpdf-linux-x64.tar.gz" | cut -d' ' -f1)"
+          [[ -n "$expected" && "$actual" == "$expected" ]] || {
+            echo "Release asset digest mismatch: expected=$expected actual=$actual" >&2
+            exit 1
+          }
+          echo "Verified $actual"
+
+      - name: Install Flatpak build tools and runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder gnupg dbus-x11 xvfb
+          flatpak remote-add --user --if-not-exists flathub \
+            https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive -y flathub \
+            "org.gnome.Platform//$FLATPAK_RUNTIME" \
+            "org.gnome.Sdk//$FLATPAK_RUNTIME"
+
+      - name: Import and verify repository signing key
+        env:
+          FLATPAK_GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          [[ -n "$FLATPAK_GPG_PRIVATE_KEY" ]] || {
+            echo "FLATPAK_GPG_PRIVATE_KEY is not configured" >&2
+            exit 1
+          }
+          install -d -m 700 "$RUNNER_TEMP/flatpak-gpg"
+          printf '%s\n' "$FLATPAK_GPG_PRIVATE_KEY" | \
+            gpg --homedir "$RUNNER_TEMP/flatpak-gpg" --batch --import
+          actual="$(gpg --homedir "$RUNNER_TEMP/flatpak-gpg" --batch \
+            --with-colons --list-secret-keys | awk -F: '$1=="fpr"{print $10; exit}')"
+          [[ "$actual" == "$FLATPAK_GPG_FINGERPRINT" ]] || {
+            echo "Unexpected Flatpak signing key: $actual" >&2
+            exit 1
+          }
+
+      - name: Build signed repository
+        run: |
+          app/packaging/flatpak/build-self-hosted-repo.sh \
+            --archive "$RUNNER_TEMP/flatpak-input/dartpdf-linux-x64.tar.gz" \
+            --output flatpak-hosting/public \
+            --version "${{ steps.release.outputs.version }}" \
+            --gpg-homedir "$RUNNER_TEMP/flatpak-gpg" \
+            --gpg-key "$FLATPAK_GPG_FINGERPRINT" \
+            --base-url "$FLATPAK_BASE_URL"
+
+      - name: Install and smoke-test the signed Flatpak
+        run: |
+          set -euo pipefail
+          flatpak remote-add --user --if-not-exists \
+            --gpg-import=app/packaging/flatpak/dartpdf-flatpak-public-key.gpg \
+            dartpdf-local "file://$GITHUB_WORKSPACE/flatpak-hosting/public/repo"
+          flatpak install --user --noninteractive -y \
+            dartpdf-local "$FLATPAK_ID//stable"
+          flatpak info --user "$FLATPAK_ID"
+          set +e
+          timeout 12s dbus-run-session -- xvfb-run -a \
+            flatpak run --user "$FLATPAK_ID" \
+            >"$RUNNER_TEMP/dartpdf-flatpak-smoke.log" 2>&1
+          status=$?
+          set -e
+          if [[ "$status" -ne 124 ]]; then
+            cat "$RUNNER_TEMP/dartpdf-flatpak-smoke.log"
+            echo "Flatpak exited before the smoke-test window (status $status)" >&2
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dartpdf-flatpak-repository-${{ steps.release.outputs.version }}
+          path: flatpak-hosting/public
+          retention-days: 30
+
+      - name: Deploy official Flatpak repository
+        uses: FirebaseExtended/action-hosting-deploy@500ac625ca2dd40cbd15f7659af953801858032a
+        with:
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DART_PDF_DEMO }}
+          projectId: dart-pdf-demo
+          channelId: live
+          entryPoint: flatpak-hosting
+
+      - name: Verify installation from the public repository
+        env:
+          EXPECTED_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          metadata="$(curl --fail --silent --show-error \
+            --retry 12 --retry-delay 5 --retry-all-errors \
+            "$FLATPAK_BASE_URL/version.json")"
+          [[ "$(jq -r .version <<<"$metadata")" == "$EXPECTED_VERSION" ]]
+
+          flatpak uninstall --user --noninteractive -y "$FLATPAK_ID"
+          flatpak remote-delete --user --force dartpdf-local
+          flatpak install --user --noninteractive -y --from \
+            "$FLATPAK_BASE_URL/dartpdf.flatpakref"
+
+          [[ "$(flatpak info --user --show-ref "$FLATPAK_ID")" == \
+            "app/$FLATPAK_ID/x86_64/stable" ]]
+          installed_version="$(LC_ALL=C flatpak info --user "$FLATPAK_ID" | \
+            sed -n 's/^[[:space:]]*Version:[[:space:]]*//p')"
+          [[ "$installed_version" == "$EXPECTED_VERSION" ]]

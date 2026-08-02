@@ -19,7 +19,10 @@ so platform build files don't hardcode versions.
 2. Tag and push: `git tag app-v0.1.0 && git push origin app-v0.1.0`.
 3. `.github/workflows/release-app.yml` builds every platform and attaches the
    artifacts to a **draft** GitHub Release. Review, then publish - the in-app
-   update checker cannot see a draft.
+   update checker cannot see a draft. Publishing also triggers
+   `.github/workflows/publish-flatpak.yml` and
+   `.github/workflows/publish-snap.yml`, which package and smoke-test the
+   Linux tarball, then update the official Flatpak repository and Snap Store.
 4. Write the store "What's New" text into
    [`release-notes/`](release-notes/) (`<version>-stores.txt` for Play,
    `<version>-appstore.txt` for both App Store platforms). See that
@@ -82,8 +85,9 @@ rolling tag `app-nightly`, recognized on Windows only after the user enables
 nightly updates; it must provide the source markers and
 `dartpdf-nightly-windows-installer.exe`/ZIP assets documented below. Publish
 stable draft Releases so the GitHub `/releases` API exposes them (drafts
-aren't visible unauthenticated). The web build is always served fresh, so it
-skips the check.
+aren't visible unauthenticated). Flatpak and Snap installations skip the
+GitHub checker and update through their package repositories. The web build is
+always served fresh, so it skips the check.
 
 ## What CI produces
 
@@ -94,7 +98,7 @@ skips the check.
 | macOS | `…-macos.dmg` | Ad-hoc signed for internal consistency; needs Developer ID signing + notarization for public distribution |
 | Windows | `…-windows-installer.exe`, `…-windows-portable.exe`, `…-windows-x64.zip` | **No**, needs an Authenticode cert for non-Store distribution |
 | Windows (Store) | `dartpdf-windows-store.msix` (separate workflow, see below) | Intentionally unsigned - Microsoft re-signs Store submissions |
-| Linux | `…-linux-x64.tar.gz` | n/a |
+| Linux | `…-linux-x64.tar.gz`, `…-linux-x86_64.AppImage` | Flatpak repository is GPG-signed; raw artifacts are unsigned |
 | Web | `…-web.zip` | n/a |
 
 ## The credential boundary
@@ -192,8 +196,32 @@ membership needed). What that means concretely:
   See [`packaging/msstore/README.md`](packaging/msstore/README.md).
 
 ### Linux
-- The tarball runs as-is. For distribution, wrap as AppImage / Flatpak / Snap /
-  `.deb`; the desktop file should declare `MimeType=application/pdf;`.
+- The preferred distribution is the official GPG-signed Flatpak remote at
+  <https://dartpdf-flatpak.web.app>. Users install it with
+  `flatpak install --from https://dartpdf-flatpak.web.app/dartpdf.flatpakref`.
+- `.github/workflows/publish-flatpak.yml` runs when an `app-v*` release is
+  published. It digest-verifies the Linux tarball, builds and signs the app
+  commit and repository summary, installs and smoke-tests the signed package,
+  then deploys the dedicated `dartpdf-flatpak` Firebase Hosting site.
+- Snap Store is the secondary package-managed channel. Install it with
+  `sudo snap install dartpdf`; its public listing is
+  <https://snapcraft.io/dartpdf>.
+- `.github/workflows/publish-snap.yml` digest-verifies the same Linux release
+  asset, builds, lints, installs, and launches the strictly confined snap,
+  uploads it to `stable`, then verifies a clean install from the Store. The
+  repository secret `SNAPCRAFT_STORE_CREDENTIALS` must contain an exported
+  credential scoped to the `dartpdf` snap, stable channel, and
+  `package_push,package_release,package_update` ACLs. Rotate it with
+  `snapcraft export-login` before it expires; packaging details live in
+  [`packaging/snap/README.md`](packaging/snap/README.md).
+- The private repository key lives in the Actions secret
+  `FLATPAK_GPG_PRIVATE_KEY`. Its pinned fingerprint is
+  `32E53D6314CF1F1448462E2319EFDD96AD44514D`; backup details are in
+  [`../flatpak-hosting/README.md`](../flatpak-hosting/README.md). Do not rotate
+  it casually: existing clients trust this key.
+- AppImage and portable tarball artifacts remain available as fallbacks. The
+  AppImage uses the in-app updater; Flatpak and Snap builds deliberately leave
+  updates to their package managers.
 
 ### Web
 - The CI zip is a static bundle. Host it anywhere; for the file-association

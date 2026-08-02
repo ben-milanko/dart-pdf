@@ -313,8 +313,8 @@ subsampling/PCRL-CPRL progressions.
   tapping a tile zooms to the annotation and pulses an attention ring.
 - Outline and bookmark sidebars let readers navigate the document and editors
   create, rename, and remove bookmarks.
-- Properties panel: type, page, color, fill, stroke width, opacity,
-  font, contents, author, and numeric position/size, all editable.
+- Properties panel: type, page, color, fill, stroke width, corner radius,
+  opacity, font, contents, author, and numeric position/size, all editable.
 - Search results panel with context snippets from page text and annotation
   contents, plus `PdfSearchField` and an editable `PdfPageNumberField`
   ("3 / 12") for app bars.

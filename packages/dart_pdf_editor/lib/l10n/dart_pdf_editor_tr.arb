@@ -185,6 +185,7 @@
   "propColor": "Renk",
   "propColour": "Renk",
   "propContents": "İçerik",
+  "propCornerRadius": "Köşe yarıçapı",
   "propEditsApplyToAll": "Düzenlemeler tüm uyumlu ek açıklamalara uygulanır",
   "propFieldName": "Alan adı",
   "propFieldTypeCheckBox": "Onay kutusu",

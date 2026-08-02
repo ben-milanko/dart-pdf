@@ -26,6 +26,7 @@ import 'performance_policy.dart';
 import 'pdf_reflow_view.dart';
 import 'pdf_viewer.dart';
 import 'preview_cache.dart';
+import 'raster_warm.dart';
 import 'progressive_source.dart';
 import 'raster_cache.dart';
 import 'search_panel.dart';
@@ -256,6 +257,7 @@ class PdfEditorView extends StatefulWidget {
     this.rasterCache,
     this.textCache,
     this.pageRasterCachePolicy = const PdfPageRasterCachePolicy(),
+    this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
   })  : source = null,
         options = const PdfSourceLoadOptions(firstPaintPages: 1),
         onProgress = null,
@@ -335,6 +337,7 @@ class PdfEditorView extends StatefulWidget {
     this.rasterCache,
     this.textCache,
     this.pageRasterCachePolicy = const PdfPageRasterCachePolicy(),
+    this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
   })  : bytes = null,
         controller = null;
 
@@ -378,6 +381,10 @@ class PdfEditorView extends StatefulWidget {
   /// Memory policy for exact full-resolution rasters of previously visited
   /// pages. See [PdfViewer.pageRasterCachePolicy].
   final PdfPageRasterCachePolicy pageRasterCachePolicy;
+
+  /// Whether idle time is spent baking exact page rasters ahead of
+  /// navigation. See [PdfViewer.pageRasterWarmPolicy].
+  final PdfPageRasterWarmPolicy pageRasterWarmPolicy;
 
   /// A stable identifier for this document, used to remember its scroll
   /// position and zoom across sessions (persisted in the preferences).
@@ -1356,14 +1363,12 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         pageOverlayBuilder: widget.pageOverlayBuilder,
                         annotationMenuBuilder: widget.annotationMenuBuilder,
                         contextMenuEnabled: widget.contextMenuEnabled,
-                        onContextMenuRequested:
-                            widget.onContextMenuRequested,
+                        onContextMenuRequested: widget.onContextMenuRequested,
                         formImagePicker: widget.formImagePicker,
                         imagePicker: widget.imagePicker,
                         systemImagePasteProvider:
                             widget.systemImagePasteProvider,
-                        systemTextPasteProvider:
-                            widget.systemTextPasteProvider,
+                        systemTextPasteProvider: widget.systemTextPasteProvider,
                         onSnapshot: widget.onSnapshot,
                         onPlaceSignature: widget.onPlaceSignature,
                         editingTextPrompt: widget.textPrompt,
@@ -1379,6 +1384,12 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                             (features.toolGroups == null ||
                                 features.toolGroups!
                                     .contains(PdfEditToolGroup.markup)),
+                        // The desktop toolbar floats over the viewer. Leave a
+                        // scrollable tail tall enough for its dock and
+                        // contextual strip, so the last page can move fully
+                        // clear of the controls instead of being trapped
+                        // underneath them.
+                        trailingPadding: showToolbar && !dockToolbar ? 144 : 0,
                         pageLayout: widget.pageLayout,
                         initialFit: widget.initialFit,
                         toolShortcuts: _toolShortcuts,
@@ -1391,6 +1402,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         rasterCache: widget.rasterCache,
                         textCache: widget.textCache,
                         pageRasterCachePolicy: widget.pageRasterCachePolicy,
+                        pageRasterWarmPolicy: widget.pageRasterWarmPolicy,
                         documentId: _documentKey,
                         // while the full-area page grid overlays the viewer,
                         // pause the viewer entirely: its (invisible) page

@@ -226,8 +226,19 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// namespaces keep their byte budgets independent.
   late final PdfCacheStore _cacheStore =
       widget.cacheStore ?? createPersistentCacheStore();
+  /// `fullRasters` opts the demo into the persistent exact-raster tier: an
+  /// already-rendered page at the same physical size reopens straight from
+  /// the store instead of being interpreted and rasterized again. It is a
+  /// separate [PdfDiskCache] on purpose - a page raster is orders of
+  /// magnitude larger than a preview, so a shared budget would let a few of
+  /// them evict the whole preview/thumbnail set.
   late final PdfRasterCache _rasterCache = PdfRasterCache(
     PdfDiskCache(_cacheStore, namespace: 'previews'),
+    fullRasters: PdfDiskCache(
+      _cacheStore,
+      namespace: 'page-rasters',
+      maxBytes: 256 * 1024 * 1024,
+    ),
   );
   late final PdfPageTextCache _textCache = PdfPageTextCache(
     PdfDiskCache(_cacheStore, namespace: 'text'),

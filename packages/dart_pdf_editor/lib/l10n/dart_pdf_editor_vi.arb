@@ -185,6 +185,7 @@
   "propColor": "Màu",
   "propColour": "Màu sắc",
   "propContents": "Nội dung",
+  "propCornerRadius": "Bán kính góc",
   "propEditsApplyToAll": "Các chỉnh sửa áp dụng cho tất cả chú thích tương thích",
   "propFieldName": "Tên trường",
   "propFieldTypeCheckBox": "Hộp kiểm",

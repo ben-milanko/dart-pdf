@@ -11,6 +11,39 @@ import 'memory_snapshot.dart';
 const _mb = 1024 * 1024;
 const _gb = 1024 * _mb;
 
+/// Floor the live-raster budget normally keeps, whatever the envelope.
+const _liveRasterFloor = 32 * _mb;
+
+/// Floor the live-raster budget may be pushed down to - and only - to make room
+/// for an explicitly requested idle raster warm. The focused page is exempt
+/// from the live budget, so this trades neighbour-page responsiveness, never
+/// the page being looked at.
+const _liveRasterWarmFloor = 16 * _mb;
+
+/// Total the visited-page raster cache is guaranteed while an idle warm policy
+/// is active - *if the envelope can spare it* (see
+/// [computeAdaptiveMemoryDecision]).
+///
+/// Without this the live-raster floor can consume the whole envelope and leave
+/// the page cache at zero, which turns warming into a no-op that still declines
+/// every page. Sized to hold a handful of display-resolution page rasters
+/// (~10 MB each for a letter page at DPR 2), not a whole document: the LRU
+/// turns the rest into a moving window.
+int pdfWarmPageRasterFloorBytes(PdfPerformancePlatform platform) =>
+    switch (platform) {
+      PdfPerformancePlatform.desktop => 192 * _mb,
+      PdfPerformancePlatform.mobile => 64 * _mb,
+      PdfPerformancePlatform.web => 96 * _mb,
+      PdfPerformancePlatform.other => 96 * _mb,
+    };
+
+/// Per-page admission floor while a warm policy is active.
+///
+/// The derived limit is `pageBytes ~/ 8` with an 8 MB floor off-desktop, so a
+/// page budget under 64 MB admits nothing bigger than 8 MB - and a letter page
+/// at DPR 2 is ~10 MB. Raising the *total* without raising this buys nothing.
+const pdfWarmPageRasterEntryFloorBytes = 24 * _mb;
+
 typedef AppMemoryProbe = Future<AppMemorySnapshot?> Function();
 
 /// One computed allocation across the caches that can be reconstructed.
@@ -40,6 +73,7 @@ AdaptiveMemoryDecision computeAdaptiveMemoryDecision({
   required int reclaimableRegistryBytes,
   required int liveRasterBytes,
   int maxPageRasterBytes = 5 * _gb,
+  int warmPageRasterFloorBytes = 0,
 }) {
   final physical = snapshot.physicalBytes;
   final rss = snapshot.processRssBytes;
@@ -120,9 +154,29 @@ AdaptiveMemoryDecision computeAdaptiveMemoryDecision({
   // optimization, while the live budget keeps the current page and neighbours
   // responsive. The focused page remains exempt even when this reaches zero.
   final defaultLive = pdfDefaultLiveRasterBudgetBytes(platform: platform);
-  final liveBudget =
-      math.max(32 * _mb, math.min(defaultLive, cacheEnvelope ~/ 4));
-  final allocatableRegistry = math.max(0, cacheEnvelope - liveBudget);
+  var liveBudget =
+      math.max(_liveRasterFloor, math.min(defaultLive, cacheEnvelope ~/ 4));
+  var allocatableRegistry = math.max(0, cacheEnvelope - liveBudget);
+
+  // An active warm policy is the host explicitly asking to spend memory on
+  // pages the user has not navigated to yet, so the page cache gets a floor of
+  // its own - carved out of the live budget, never out of thin air.
+  //
+  // Field trace, 2026-07-31 (web, #614): the live floor took the whole envelope
+  // and the page budget walked 131MB -> 0 over 45s, ending in
+  // `page-raster reject ... reason=disabled`. Warming was inert, and would have
+  // logged a decline for every page on every sample.
+  //
+  // This deliberately does NOT guarantee warming works: when the envelope has
+  // genuinely collapsed there is nothing to claim, and the floor yields rather
+  // than overcommitting the safe process target.
+  if (warmPageRasterFloorBytes > 0 &&
+      allocatableRegistry < warmPageRasterFloorBytes) {
+    final claimable = math.max(0, cacheEnvelope - _liveRasterWarmFloor);
+    allocatableRegistry = math.min(warmPageRasterFloorBytes, claimable);
+    liveBudget =
+        math.max(_liveRasterWarmFloor, cacheEnvelope - allocatableRegistry);
+  }
   // PdfCacheRegistry uses zero to mean "ceiling disabled", so retain a small
   // positive floor even when the calculation leaves no speculative headroom.
   final registryCeiling = math.max(64 * _mb, allocatableRegistry);
@@ -137,7 +191,7 @@ AdaptiveMemoryDecision computeAdaptiveMemoryDecision({
       math.min(platformPageCap, (allocatableRegistry * .88).round());
   final minimumEntry =
       platform == PdfPerformancePlatform.desktop ? 16 * _mb : 8 * _mb;
-  final entryBytes = pageBytes == 0
+  var entryBytes = pageBytes == 0
       ? 0
       : math.min(
           pageBytes,
@@ -146,6 +200,11 @@ AdaptiveMemoryDecision computeAdaptiveMemoryDecision({
             math.max(minimumEntry, pageBytes ~/ 8),
           ),
         );
+  // A raised total is useless if no single page can be admitted under it.
+  if (warmPageRasterFloorBytes > 0 && pageBytes > 0) {
+    entryBytes = math.max(
+        entryBytes, math.min(pageBytes, pdfWarmPageRasterEntryFloorBytes));
+  }
 
   final hasMachineData = physical != null ||
       available != null ||
@@ -240,6 +299,11 @@ class AdaptiveMemoryBudgetController with WidgetsBindingObserver {
     if (_started) return;
     _started = true;
     WidgetsBinding.instance.addObserver(this);
+    // Turning the idle warm on changes what the page cache is *for*, so it must
+    // re-price immediately rather than at the next 15s tick - and the growth
+    // damper must not hold the budget at the zero the warm was just given a
+    // floor above.
+    tools.pageRasterWarmPolicy.addListener(_onWarmPolicyChanged);
     await sample();
     if (periodic && _started) {
       _timer = Timer.periodic(sampleInterval, (_) => unawaited(sample()));
@@ -249,9 +313,27 @@ class AdaptiveMemoryBudgetController with WidgetsBindingObserver {
   void dispose() {
     if (!_started) return;
     _started = false;
+    tools.pageRasterWarmPolicy.removeListener(_onWarmPolicyChanged);
     _timer?.cancel();
     _timer = null;
     WidgetsBinding.instance.removeObserver(this);
+  }
+
+  /// The per-page admission limit for a growth-clamped budget.
+  ///
+  /// The damper re-derives the entry limit from the clamped total, which would
+  /// otherwise throw away the warm floor the decision just applied - leaving a
+  /// budget big enough for several pages that admits none of them.
+  int _warmAwareEntryLimit(int bytes) {
+    final derived = _entryLimitFor(bytes, platform);
+    if (bytes == 0 || !tools.pageRasterWarmPolicy.value.enabled) return derived;
+    return math.min(
+        bytes, math.max(derived, pdfWarmPageRasterEntryFloorBytes));
+  }
+
+  void _onWarmPolicyChanged() {
+    _lastGrowth = null; // let the floor land on the very next sample
+    unawaited(sample());
   }
 
   Future<void> sample() async {
@@ -295,6 +377,9 @@ class AdaptiveMemoryBudgetController with WidgetsBindingObserver {
       platform: platform,
       reclaimableRegistryBytes: PdfCacheRegistry.instance.totalWeight,
       liveRasterBytes: PdfLiveRasterBudget.instance.totalBytes,
+      warmPageRasterFloorBytes: tools.pageRasterWarmPolicy.value.enabled
+          ? pdfWarmPageRasterFloorBytes(platform)
+          : 0,
     );
 
     var registryCeiling = decision.registryCeilingBytes;
@@ -328,7 +413,7 @@ class AdaptiveMemoryBudgetController with WidgetsBindingObserver {
         final bytes = math.min(pagePolicy.maxBytes, growthLimit);
         pagePolicy = PdfPageRasterCachePolicy(
           maxBytes: bytes,
-          maxEntryBytes: _entryLimitFor(bytes, platform),
+          maxEntryBytes: _warmAwareEntryLimit(bytes),
         );
         _lastGrowth = now;
       }

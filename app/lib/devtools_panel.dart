@@ -608,6 +608,32 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
   ];
   static const _fixedEntrySeedBytes = 256 << 20;
 
+  // Idle full-raster warm (#614) as a single selector. -1 is off, 0 is the
+  // whole document, a positive value is that many pages either side.
+  static const _rasterWarmChoices = <(int, String)>[
+    (-1, 'Off'),
+    (2, 'Nearby +/-2'),
+    (5, 'Nearby +/-5'),
+    (0, 'Whole document'),
+  ];
+
+  static String _rasterWarmLabel(PdfPageRasterWarmPolicy policy) =>
+      switch (policy.mode) {
+        PdfPageRasterWarmMode.disabled => 'Off',
+        PdfPageRasterWarmMode.nearby => 'Nearby +/-${policy.window}',
+        PdfPageRasterWarmMode.document => 'Whole document',
+      };
+
+  void _setPageRasterWarm(int choice) {
+    _tools.setPageRasterWarmPolicy(switch (choice) {
+      < 0 => const PdfPageRasterWarmPolicy.disabled(),
+      0 => const PdfPageRasterWarmPolicy.document(),
+      final window => PdfPageRasterWarmPolicy.nearby(window: window),
+    });
+    _persist();
+    setState(() {});
+  }
+
   Widget _byteBudgetControl(
     ThemeData theme, {
     required Key key,
@@ -780,6 +806,25 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
             onChanged: (value) =>
                 _setPageRasterCache(maxEntryBytes: value),
           ),
+        _byteBudgetControl(
+          theme,
+          key: const ValueKey('devtools-page-raster-warm'),
+          title: 'Idle raster warm',
+          help: 'Spends genuine viewer idle time rasterizing pages ahead of '
+              'navigation, so arriving on them paints instantly instead of '
+              'interpreting and reading back first. Warming stands down the '
+              'moment anything scrolls, zooms, edits, or renders, and never '
+              'stores more than the visited-page raster budget above allows - '
+              'so a whole-document warm on a large file settles into a moving '
+              'window rather than growing without limit.',
+          value: _tools.pageRasterWarmPolicy.value.mode ==
+                  PdfPageRasterWarmMode.disabled
+              ? -1
+              : _tools.pageRasterWarmPolicy.value.window,
+          valueLabel: _rasterWarmLabel(_tools.pageRasterWarmPolicy.value),
+          choices: _rasterWarmChoices,
+          onChanged: _setPageRasterWarm,
+        ),
         if (_tools.safeProcessLimitBytes case final limit?)
           _kv(
             theme,

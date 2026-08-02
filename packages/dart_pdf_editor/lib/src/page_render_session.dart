@@ -143,6 +143,14 @@ class PdfPageRenderSession {
   int beginFull() => ++_fullGeneration;
   void invalidateFull() => _fullGeneration++;
 
+  /// The current full-render generation *without* claiming it.
+  ///
+  /// A speculative async lookup (the persistent raster tier's disk read) needs
+  /// a token to prove nothing superseded it while it waited, but must not
+  /// invalidate the in-flight render it may well lose the race to. Pair with
+  /// [acceptsFull].
+  int get fullGeneration => _fullGeneration;
+
   int beginDetail() => ++_detailGeneration;
   void invalidateDetail() => _detailGeneration++;
 

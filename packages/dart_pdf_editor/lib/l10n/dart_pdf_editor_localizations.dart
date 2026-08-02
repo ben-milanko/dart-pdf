@@ -1118,6 +1118,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Contents'**
   String get propContents;
 
+  /// Slider label for the corner rounding of a selected rectangle annotation.
+  ///
+  /// In en, this message translates to:
+  /// **'Corner radius'**
+  String get propCornerRadius;
+
   /// Subtitle explaining that edits in a multi-selection affect every compatible annotation.
   ///
   /// In en, this message translates to:

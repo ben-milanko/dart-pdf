@@ -185,6 +185,7 @@
   "propColor": "Cor",
   "propColour": "Cor",
   "propContents": "Conteúdo",
+  "propCornerRadius": "Raio do canto",
   "propEditsApplyToAll": "As edições se aplicam a todas as anotações compatíveis",
   "propFieldName": "Nome do campo",
   "propFieldTypeCheckBox": "Caixa de seleção",

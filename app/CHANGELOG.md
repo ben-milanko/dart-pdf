@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.3.0
+
+- Pages you revisit can open immediately from full-resolution memory and disk
+  caches, while optional idle warming prepares more pages before you navigate
+  to them.
+- Deep zoom is sharper on scanned and image-backed PDFs because visible tiles
+  re-decode the source image at the requested detail.
+- Touch panning responds sooner and works reliably from the canvas around a
+  page. Rectangle corner radius is available in the properties panel, newly
+  inserted PDF pages stay in view, and the floating toolbar no longer obscures
+  the end of a document.
+- Linux users can install from the preferred GPG-signed Flatpak repository or
+  the secondary Snap package, with AppImage and portable archives retained as
+  fallbacks.
+
 ## 3.2.0
 
 - Page caching now adapts to device memory and system pressure, and the render
