@@ -312,10 +312,7 @@ void main() {
     });
   });
 
-  group('viewer is invariant to the panels', () {
-    // Panels overlay the viewer rather than squeezing it, so opening, closing,
-    // or resizing a panel must not change the viewer's size - the document view
-    // can't zoom or shift under the reader when a panel toggles.
+  group('panels reserve space beside the viewer', () {
     Widget shell({List<Widget> leading = const [], double panelWidth = 260}) =>
         PdfShellPanelLayout(
           viewer: const SizedBox.expand(
@@ -341,7 +338,7 @@ void main() {
       expect(full.height, greaterThan(0));
     });
 
-    testWidgets('opening a panel does not resize the viewer', (tester) async {
+    testWidgets('opening a panel reduces the viewer width', (tester) async {
       await pump(tester, shell());
       final before = tester.getSize(find.byKey(const ValueKey('test-viewer')));
 
@@ -350,20 +347,19 @@ void main() {
       expect(find.byKey(const ValueKey('test-panel')), findsOneWidget);
       final after = tester.getSize(find.byKey(const ValueKey('test-viewer')));
 
-      expect(after, before,
-          reason: 'the viewer keeps the full content area - the panel '
-              'overlays it rather than pushing it');
+      expect(after.width, before.width - 260);
+      expect(after.height, before.height);
     });
 
-    testWidgets('resizing a panel does not resize the viewer', (tester) async {
+    testWidgets('resizing a panel adjusts the viewer width', (tester) async {
       await pump(tester, shell(leading: const [SizedBox()], panelWidth: 200));
       final before = tester.getSize(find.byKey(const ValueKey('test-viewer')));
 
       await pump(tester, shell(leading: const [SizedBox()], panelWidth: 360));
       final after = tester.getSize(find.byKey(const ValueKey('test-viewer')));
 
-      expect(after, before,
-          reason: 'a wider panel still overlays the viewer, size unchanged');
+      expect(after.width, before.width - 160);
+      expect(after.height, before.height);
     });
   });
 }

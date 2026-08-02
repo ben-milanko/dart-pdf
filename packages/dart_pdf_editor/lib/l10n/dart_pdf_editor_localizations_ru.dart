@@ -573,6 +573,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get propContents => 'Содержимое';
 
   @override
+  String get propCornerRadius => 'Радиус скругления';
+
+  @override
   String get propEditsApplyToAll =>
       'Изменения применяются ко всем совместимым аннотациям';
 

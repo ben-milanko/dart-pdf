@@ -76,6 +76,7 @@ export 'src/pdf_viewer.dart';
 export 'src/performance_policy.dart';
 export 'src/preview_cache.dart';
 export 'src/raster_cache.dart';
+export 'src/raster_warm.dart';
 export 'src/render_scheduler.dart';
 export 'src/render_trace.dart';
 export 'src/render_worker.dart';

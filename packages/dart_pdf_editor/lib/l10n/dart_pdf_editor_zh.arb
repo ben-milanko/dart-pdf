@@ -185,6 +185,7 @@
   "propColor": "颜色",
   "propColour": "颜色",
   "propContents": "内容",
+  "propCornerRadius": "圆角半径",
   "propEditsApplyToAll": "编辑将应用于所有兼容的注释",
   "propFieldName": "字段名称",
   "propFieldTypeCheckBox": "复选框",

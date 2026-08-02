@@ -34,9 +34,11 @@ r/fossdroid (for the mobile angle), r/kde / r/gnome (desktop-integration angle).
 > under "Open With"), takes drag-and-drop and command-line files, and the
 > Flatpak uses XDG portals rather than a blanket home-folder grant.
 >
-> Install: **[Flathub / AUR / AppImage — real links here]**. Source and issues on
-> GitHub. I'd genuinely like feedback on how it handles your real-world PDFs —
-> the ones that break other tools are the interesting ones.
+> Install the signed Flatpak from DartPDF's official repository:
+> **https://dartpdf-flatpak.web.app/dartpdf.flatpakref**. AppImage and portable
+> builds are also linked on the download page. Source and issues are on GitHub.
+> I'd genuinely like feedback on how it handles your real-world PDFs — the ones
+> that break other tools are the interesting ones.
 
 ## Notes
 

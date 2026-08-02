@@ -4,9 +4,8 @@
 # app/linux/ is the single source of truth for the .desktop entry, the
 # AppStream metainfo, and the hicolor icons (one copy, shared by the raw
 # bundle, the release tarball, and packaging). The Flatpak manifest installs
-# them from copies staged here because those copies get committed into the
-# flathub/flathub PR alongside the manifest. Run this whenever app/linux/
-# changes so the staged copies do not drift.
+# them from reviewable copies staged here. Run this whenever app/linux/ changes
+# so the staged copies do not drift.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

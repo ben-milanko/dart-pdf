@@ -185,6 +185,7 @@
   "propColor": "Farbe",
   "propColour": "Farbe",
   "propContents": "Inhalt",
+  "propCornerRadius": "Eckenradius",
   "propEditsApplyToAll": "Änderungen gelten für alle kompatiblen Anmerkungen",
   "propFieldName": "Feldname",
   "propFieldTypeCheckBox": "Kontrollkästchen",

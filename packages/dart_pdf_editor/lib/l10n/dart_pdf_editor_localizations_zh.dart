@@ -561,6 +561,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get propContents => '内容';
 
   @override
+  String get propCornerRadius => '圆角半径';
+
+  @override
   String get propEditsApplyToAll => '编辑将应用于所有兼容的注释';
 
   @override
@@ -2543,6 +2546,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get propContents => '內容';
+
+  @override
+  String get propCornerRadius => '圓角半徑';
 
   @override
   String get propEditsApplyToAll => '編輯會套用至所有相容的註解';

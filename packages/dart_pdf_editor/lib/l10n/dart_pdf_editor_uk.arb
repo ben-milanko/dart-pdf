@@ -185,6 +185,7 @@
   "propColor": "Колір",
   "propColour": "Колір",
   "propContents": "Вміст",
+  "propCornerRadius": "Радіус кута",
   "propEditsApplyToAll": "Зміни застосовуються до всіх сумісних анотацій",
   "propFieldName": "Назва поля",
   "propFieldTypeCheckBox": "Прапорець",

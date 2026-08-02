@@ -1,15 +1,36 @@
 # Changelog
 
-## 3.1.1
+## Unreleased
 
-- Fix intermittent frame drops while scrolling large or visually dense
-  documents. Page recording and raster work now keep the frame scheduler
-  awake between cooperative slices, visible thumbnails yield to page renders,
-  and repeated wheel events retain the low-resolution preview cache until the
-  gesture has genuinely settled.
-- Bound speculative thumbnail warming on web and add command budgets to vector
-  thumbnail previews, keeping long documents responsive without blanking pages
-  during fast scrolling.
+- Add `PdfPageRasterWarmPolicy` (`disabled` by default, plus `nearby(window:)`
+  and `document()`): the viewer can now spend genuine idle time baking the
+  exact, display-sized raster of pages the user has not visited, so arriving on
+  one paints immediately instead of interpreting and reading back first. On a
+  16-page vector plan set in real Chrome that is ~2100 ms → ~107 ms; on a 12-page
+  A3 scan, ~1720 ms → ~49 ms, for 60–85 MB of retained rasters. Warming stands
+  down for any scroll, zoom, edit, armed tool, deep zoom, or queued page render,
+  paces itself to one page at a time, prefers the render worker, and declines a
+  page whose raster `PdfPageRasterCachePolicy` could not admit before doing any
+  work. Available on `PdfViewer`, `PdfReader`, `PdfEditorView`, and
+  `PdfComparisonView`; diagnostics through
+  `PdfViewerController.pageRasterWarmStats`.
+- The exact-raster cache is now keyed by `(page, raster signature)` — page
+  index, physical size, paper colour, annotation visibility, and rotation —
+  rather than by page index alone, so warming or visiting one size no longer
+  overwrites a useful raster at another. Up to two geometries per page are
+  retained, bounded by the same `PdfPageRasterCachePolicy` byte budget; rasters
+  belonging to a superseded document revision are dropped on sight. This
+  supersedes 3.2.0's "discard unusable visited-page cache entries": a lookup at
+  another geometry is now a plain miss that leaves the raster it did not ask
+  for alone, because that raster is exactly what a zoom back to fit — or the
+  idle warm — needs.
+- Re-offer pages to the idle warm only when the exact-raster budget actually
+  *grows*. An adaptive host re-prices that budget every few seconds, usually
+  downward; clearing the attempt set on every change re-attempted and
+  re-declined every page on every tick.
+
+## 3.2.0
+
 - Add `PdfPageRasterCachePolicy` to configure the in-memory byte budget and
   per-page limit for exact rasters of previously visited pages. The existing
   32 MiB total / 16 MiB per-page defaults are unchanged; `PdfViewer`,
@@ -23,6 +44,33 @@
   instead of remaining on repeated full-viewport detail rasters indefinitely;
   the capped base remains visible during that warm-up rather than launching an
   obsolete fallback record, and traces split tile replay/raster/slicing costs.
+- Stop redundant full-page and detail rasters after unchanged-scale settles,
+  discard unusable visited-page cache entries, and avoid making
+  memory-pressure cache caps persistent when caches hold little of the process
+  RSS. Trace output now distinguishes progressive phases and reports raster
+  concurrency and render-hold state accurately (#628).
+- Add host-owned context menus. `PdfViewer`, `PdfReader`, and `PdfEditorView`
+  accept `onContextMenuRequested`; with the stock menu disabled, a
+  `PdfContextMenuRequest` reports the resolved text, annotation, locked
+  annotation, form widget, or empty-page paste target for mouse and touch
+  gestures (#538).
+- Hit-test and draw selection chrome for Highlight, Underline, StrikeOut, and
+  Squiggly annotations from their `/QuadPoints` quads instead of the enclosing
+  `/Rect`, so gaps between marked lines no longer steal clicks or show as
+  selected (#627).
+- Keep Ctrl/Cmd-wheel zoom available after a Shift-constrained drawing gesture
+  has latched its axis (#624).
+
+## 3.1.1
+
+- Fix intermittent frame drops while scrolling large or visually dense
+  documents. Page recording and raster work now keep the frame scheduler
+  awake between cooperative slices, visible thumbnails yield to page renders,
+  and repeated wheel events retain the low-resolution preview cache until the
+  gesture has genuinely settled.
+- Bound speculative thumbnail warming on web and add command budgets to vector
+  thumbnail previews, keeping long documents responsive without blanking pages
+  during fast scrolling.
 
 ## 3.1.0
 

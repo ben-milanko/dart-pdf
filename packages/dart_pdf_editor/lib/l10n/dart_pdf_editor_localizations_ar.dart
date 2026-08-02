@@ -576,6 +576,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get propContents => 'المحتويات';
 
   @override
+  String get propCornerRadius => 'نصف قطر الزاوية';
+
+  @override
   String get propEditsApplyToAll =>
       'تنطبق التعديلات على جميع التعليقات التوضيحية المتوافقة';
 

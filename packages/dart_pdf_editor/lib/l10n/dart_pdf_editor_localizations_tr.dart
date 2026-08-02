@@ -561,6 +561,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get propContents => 'İçerik';
 
   @override
+  String get propCornerRadius => 'Köşe yarıçapı';
+
+  @override
   String get propEditsApplyToAll =>
       'Düzenlemeler tüm uyumlu ek açıklamalara uygulanır';
 

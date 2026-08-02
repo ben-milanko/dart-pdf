@@ -562,6 +562,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get propContents => 'सामग्री';
 
   @override
+  String get propCornerRadius => 'कोना त्रिज्या';
+
+  @override
   String get propEditsApplyToAll => 'संपादन सभी संगत एनोटेशन पर लागू होते हैं';
 
   @override

@@ -722,6 +722,10 @@
   "@propContents": {
     "description": "Label for the editable contents/text of an annotation."
   },
+  "propCornerRadius": "Corner radius",
+  "@propCornerRadius": {
+    "description": "Slider label for the corner rounding of a selected rectangle annotation."
+  },
   "propEditsApplyToAll": "Edits apply to all compatible annotations",
   "@propEditsApplyToAll": {
     "description": "Subtitle explaining that edits in a multi-selection affect every compatible annotation."

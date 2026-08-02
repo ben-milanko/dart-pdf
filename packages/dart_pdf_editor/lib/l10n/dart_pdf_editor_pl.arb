@@ -185,6 +185,7 @@
   "propColor": "Kolor",
   "propColour": "Kolor",
   "propContents": "Zawartość",
+  "propCornerRadius": "Promień narożnika",
   "propEditsApplyToAll": "Zmiany dotyczą wszystkich zgodnych adnotacji",
   "propFieldName": "Nazwa pola",
   "propFieldTypeCheckBox": "Pole wyboru",

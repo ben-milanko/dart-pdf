@@ -59,7 +59,7 @@
   "dlMac_meta": "Doğrudan .dmg · imzalı ve noterli",
   "dlWin_meta": "Yükleyici · 64-bit",
   "dlWin_portable": "Kurmak istemiyor musunuz? Her yerden çalışan <a href=\"https://github.com/ben-milanko/dart-pdf/releases/latest/download/dartpdf-windows-portable.exe\">Windows taşınabilir sürümünü</a> indirin.",
-  "dlLinux_meta": "AppImage · 64-bit",
+  "dlLinux_meta": "Flatpak · 64-bit",
   "dlWeb_meta": "Her tarayıcıda çalışır",
   "dl_freeNote": "Ücretsiz ve açık kaynak. Diğer sürümler (<code>.zip</code>, <code>.tar.gz</code>)\n        <a href=\"https://github.com/ben-milanko/dart-pdf/releases/latest\" target=\"_blank\" rel=\"noopener\">GitHub\n          Releases</a> üzerinde.",
 

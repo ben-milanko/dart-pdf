@@ -1,18 +1,25 @@
 # Changelog
 
+## 3.2.0
+
+- Page caching now adapts to device memory and system pressure, and the render
+  pipeline avoids redundant full-page and detail work. Large and dense
+  documents stay responsive while using a larger cache where the device can
+  afford it.
+- Third-party FreeText boxes and callouts render more faithfully, including
+  wrapping, alignment, fills, borders, and leader lines. Multi-line text
+  markups select only where their visible quads are painted.
+- Fix loading pauses on macOS, keep remote session restoration responsive, and
+  preserve Ctrl/Cmd-wheel zoom after drawing a Shift-constrained line.
+- Add opt-in nightly Windows updates for users who want the newest fixes
+  between stable releases.
+
 ## 3.1.1
 
 - Smoother scrolling on large and visually dense PDFs, with the page renderer
   staying responsive through rapid mouse-wheel gestures.
 - Page previews remain visible during fast scrolling and settle cleanly into
   full-detail renders, with fewer dropped frames.
-- The visited-page raster cache now defaults to Auto: it sizes itself from
-  physical RAM, current process headroom, available memory, and platform app
-  limits; shrinks immediately under pressure, grows back gradually, and clears
-  on mobile backgrounding. Developer tools show the effective decision and
-  retain fixed diagnostic presets up to 8 GB (including 5 GB). Switching from
-  Auto or Off to a fixed preset now seeds a useful per-page admission limit,
-  and exported traces include cache hits, misses, rejections, and evictions.
 
 ## 3.1.0
 

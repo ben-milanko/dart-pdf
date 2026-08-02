@@ -22,6 +22,74 @@ enum PdfRenderDeviceMode {
   strips,
 }
 
+/// The resolution and physical pixel size a page raster is baked at.
+///
+/// A page displayed [layoutWidth] logical pixels wide on a display of
+/// [devicePixelRatio] needs `layoutWidth / pageWidth * devicePixelRatio`
+/// device pixels per PDF point, times the live zoom [scale]. Two caps bound
+/// what that can ask for; past them the deep-zoom detail patch takes over for
+/// the visible region rather than the base raster growing without limit.
+///
+/// This lives here - rather than inside the page widget that reads it every
+/// render - because the idle full-raster warm ([PdfPagePreviewCache
+/// .warmFullRaster]) has to bake a raster at *exactly* the geometry the page
+/// widget will later ask the cache for. Two copies of this arithmetic that
+/// disagree by one pixel turn every warmed page into a cache miss, so both
+/// sides compute it here.
+class PdfPageRasterGeometry {
+  PdfPageRasterGeometry._();
+
+  /// Pixel ceiling for one page raster (~16.7M px, 64 MB RGBA).
+  static const maxPixels = 1 << 24;
+
+  /// Per-side pixel ceiling for one page raster.
+  static const maxDimension = 8192.0;
+
+  /// The uncapped resolution, in device pixels per PDF point.
+  static double desiredRatio({
+    required Size pageSize,
+    required double layoutWidth,
+    required double devicePixelRatio,
+    double scale = 1.0,
+  }) {
+    final width = math.max(1.0, pageSize.width);
+    // pages display fit-width, so the raster must match the on-screen width -
+    // a 612pt page across a wide window needs far more pixels than its
+    // nominal point size
+    final fitWidth = (layoutWidth <= 0 ? width : layoutWidth) / width;
+    return math.max(fitWidth * devicePixelRatio * scale, 0.05);
+  }
+
+  /// [desiredRatio] bounded by [maxPixels] and [maxDimension].
+  static double effectiveRatio({
+    required Size pageSize,
+    required double layoutWidth,
+    required double devicePixelRatio,
+    double scale = 1.0,
+  }) {
+    final width = math.max(1.0, pageSize.width);
+    final height = math.max(1.0, pageSize.height);
+    var ratio = desiredRatio(
+      pageSize: pageSize,
+      layoutWidth: layoutWidth,
+      devicePixelRatio: devicePixelRatio,
+      scale: scale,
+    );
+    ratio = math.min(ratio, math.sqrt(maxPixels / (width * height)));
+    ratio = math.min(ratio, maxDimension / math.max(width, height));
+    return math.max(ratio, 0.05);
+  }
+
+  /// The physical raster size [PdfPageRenderer.rasterize] produces for a page
+  /// of [pageSize] at [pixelRatio] - the same rounding and clamp, so a cache
+  /// lookup keyed on these dimensions matches the image that lands.
+  static (int width, int height) dimensions(Size pageSize, double pixelRatio) =>
+      (
+        (pageSize.width * pixelRatio).ceil().clamp(1, 1 << 14),
+        (pageSize.height * pixelRatio).ceil().clamp(1, 1 << 14),
+      );
+}
+
 /// Immutable display inputs for rendering a page.
 ///
 /// The same trio travels through the viewer, thumbnails, color sampler,

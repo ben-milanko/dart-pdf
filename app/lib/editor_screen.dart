@@ -2579,7 +2579,11 @@ class _EditorScreenState extends State<EditorScreen>
     if (!kDevToolsEnabled) return _buildBody(tab);
     return ValueListenableBuilder<PdfPageRasterCachePolicy>(
       valueListenable: AppDevTools.instance.pageRasterCachePolicy,
-      builder: (context, _, __) => _devToolsPointerLog(_buildBody(tab)),
+      builder: (context, _, __) =>
+          ValueListenableBuilder<PdfPageRasterWarmPolicy>(
+        valueListenable: AppDevTools.instance.pageRasterWarmPolicy,
+        builder: (context, _, __) => _devToolsPointerLog(_buildBody(tab)),
+      ),
     );
   }
 
@@ -2587,6 +2591,8 @@ class _EditorScreenState extends State<EditorScreen>
     final compact = _isCompactWidth(context);
     final pageRasterCachePolicy =
         AppDevTools.instance.pageRasterCachePolicy.value;
+    final pageRasterWarmPolicy =
+        AppDevTools.instance.pageRasterWarmPolicy.value;
     if (tab == null) {
       return WelcomeScreen(
         recents: _recents,
@@ -2625,6 +2631,7 @@ class _EditorScreenState extends State<EditorScreen>
         before: tab.compareBefore!,
         after: tab.compareAfter!,
         pageRasterCachePolicy: pageRasterCachePolicy,
+        pageRasterWarmPolicy: pageRasterWarmPolicy,
       );
     }
     if (tab.isPreview) {
@@ -2636,6 +2643,7 @@ class _EditorScreenState extends State<EditorScreen>
         preferences: _prefs,
         onAction: _onAction,
         pageRasterCachePolicy: pageRasterCachePolicy,
+        pageRasterWarmPolicy: pageRasterWarmPolicy,
       );
     }
     if (_readOnly) {
@@ -2647,6 +2655,7 @@ class _EditorScreenState extends State<EditorScreen>
         preferences: _prefs,
         onAction: _onAction,
         pageRasterCachePolicy: pageRasterCachePolicy,
+        pageRasterWarmPolicy: pageRasterWarmPolicy,
       );
     }
     return PdfEditorView(
@@ -2655,6 +2664,7 @@ class _EditorScreenState extends State<EditorScreen>
       controller: tab.session,
       viewerController: tab.viewer,
       pageRasterCachePolicy: pageRasterCachePolicy,
+      pageRasterWarmPolicy: pageRasterWarmPolicy,
       onSave: (_) => unawaited(_save(tab)),
       onSaveAs: (_) => unawaited(_save(tab, saveAs: true)),
       showSaveButton: !compact,
@@ -3198,12 +3208,14 @@ class _ProgressivePreview extends StatelessWidget {
     required this.preferences,
     required this.onAction,
     required this.pageRasterCachePolicy,
+    required this.pageRasterWarmPolicy,
   });
 
   final DocumentTab tab;
   final PdfEditingPreferences preferences;
   final PdfActionHandler onAction;
   final PdfPageRasterCachePolicy pageRasterCachePolicy;
+  final PdfPageRasterWarmPolicy pageRasterWarmPolicy;
 
   @override
   Widget build(BuildContext context) {
@@ -3217,6 +3229,7 @@ class _ProgressivePreview extends StatelessWidget {
             preferences: preferences,
             onAction: onAction,
             pageRasterCachePolicy: pageRasterCachePolicy,
+            pageRasterWarmPolicy: pageRasterWarmPolicy,
           ),
         ),
         Positioned(

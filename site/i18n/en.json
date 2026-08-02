@@ -59,7 +59,7 @@
   "dlMac_meta": "Direct .dmg · signed & notarized",
   "dlWin_meta": "Installer · 64-bit",
   "dlWin_portable": "Prefer not to install? Get the <a href=\"https://github.com/ben-milanko/dart-pdf/releases/latest/download/dartpdf-windows-portable.exe\">Windows portable build</a> that runs from anywhere.",
-  "dlLinux_meta": "AppImage · 64-bit",
+  "dlLinux_meta": "Flatpak · 64-bit",
   "dlWeb_meta": "Runs in any browser",
   "dl_freeNote": "Free and open source. Other builds (<code>.zip</code>, <code>.tar.gz</code>) on\n        <a href=\"https://github.com/ben-milanko/dart-pdf/releases/latest\" target=\"_blank\" rel=\"noopener\">GitHub\n          Releases</a>.",
 

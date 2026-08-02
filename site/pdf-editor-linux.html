@@ -166,7 +166,7 @@
     "operatingSystem": "Linux",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
     "url": "https://dart-pdf.com/pdf-editor-linux",
-    "downloadUrl": "https://github.com/ben-milanko/dart-pdf/releases/latest",
+    "downloadUrl": "https://dartpdf-flatpak.web.app/dartpdf.flatpakref",
     "license": "https://www.apache.org/licenses/LICENSE-2.0",
     "description": "A complete, open-source PDF editor for Linux: edit text and images, annotate, fill forms, redact, run OCR, and add digital signatures, fully on-device."
   }
@@ -219,7 +219,7 @@
         digital signatures &mdash; all on your own machine. Free, open source, and built for the Linux
         desktop, on both Wayland and X11.</p>
       <div class="hero-cta">
-        <a class="btn btn-primary" href="#install">Install for Linux</a>
+        <a class="btn btn-primary" href="https://dartpdf-flatpak.web.app/dartpdf.flatpakref">Install the Flatpak</a>
         <a class="btn btn-ghost" href="https://app.dart-pdf.com" target="_blank" rel="noopener">Try it in your browser</a>
       </div>
       <p class="hero-note"><span class="dot"></span> Free and open source (Apache-2.0). No account. Nothing is uploaded.</p>
@@ -277,13 +277,21 @@
   <!-- INSTALL -->
   <section class="section wrap" id="install">
     <h2>Install on Linux</h2>
-    <p class="lede">The AppImage and the portable tarball run on any modern 64-bit distribution today. Flathub
-      and the AUR are on the way &mdash; this page will link them the moment they are live.</p>
+    <p class="lede">The official Flatpak is the recommended install. It is signed, sandboxed, works across
+      modern 64-bit distributions, and receives updates through DartPDF&rsquo;s own package repository.</p>
 
     <div class="install">
       <div class="icard">
+        <div class="top"><h3>Flatpak</h3><span class="pill now">Recommended</span></div>
+        <p>One-click install from the official signed repository, with sandboxing and automatic updates.</p>
+        <pre class="cmd"><code>flatpak install --from \
+  https://dartpdf-flatpak.web.app/dartpdf.flatpakref</code></pre>
+        <div class="cta"><a href="https://dartpdf-flatpak.web.app/dartpdf.flatpakref">Install the Flatpak &rarr;</a></div>
+      </div>
+
+      <div class="icard">
         <div class="top"><h3>AppImage</h3><span class="pill now">Available now</span></div>
-        <p>One file, no install. Make it executable and run it.</p>
+        <p>A standalone fallback with no package-manager setup. Make it executable and run it.</p>
         <pre class="cmd"><code>chmod +x dartpdf-linux-x86_64.AppImage
 ./dartpdf-linux-x86_64.AppImage</code></pre>
         <div class="cta"><a href="https://github.com/ben-milanko/dart-pdf/releases/latest/download/dartpdf-linux-x86_64.AppImage">Download the AppImage &rarr;</a></div>
@@ -291,18 +299,10 @@
 
       <div class="icard">
         <div class="top"><h3>Portable tarball</h3><span class="pill now">Available now</span></div>
-        <p>Unpack anywhere and run the binary. Good for scripts and servers.</p>
+        <p>Unpack anywhere and run the binary. Useful for manual or scripted deployments.</p>
         <pre class="cmd"><code>tar xzf dartpdf-linux-x64.tar.gz
 ./dart_pdf_editor_app</code></pre>
         <div class="cta"><a href="https://github.com/ben-milanko/dart-pdf/releases/latest/download/dartpdf-linux-x64.tar.gz">Download the tarball &rarr;</a></div>
-      </div>
-
-      <!-- Flathub: flip the pill to "now" and point the CTA at the Flathub page once the submission is live. -->
-      <div class="icard">
-        <div class="top"><h3>Flathub</h3><span class="pill soon">Coming soon</span></div>
-        <p>The recommended way to install, with automatic updates and sandboxing.</p>
-        <pre class="cmd"><code>flatpak install flathub dev.milanko.dartpdf</code></pre>
-        <div class="cta"><a href="https://github.com/ben-milanko/dart-pdf/releases/latest">Get the release in the meantime &rarr;</a></div>
       </div>
 
       <!-- AUR: flip the pill to "now" once dartpdf-bin is published. -->
@@ -324,6 +324,9 @@
     <details><summary>Does it work on Wayland and X11?</summary>
       <div class="a">Yes. DartPDF prefers Wayland and falls back to X11 automatically, so it works on GNOME, KDE
         Plasma, and other desktops out of the box.</div></details>
+    <details><summary>How does the Flatpak update?</summary>
+      <div class="a">The one-click install adds DartPDF&rsquo;s signed Flatpak repository. Your desktop software
+        manager or <code>flatpak update</code> then installs future stable releases through the normal Flatpak update flow.</div></details>
     <details><summary>Are my documents uploaded anywhere?</summary>
       <div class="a">No. Editing, OCR, and signing run locally. Network access is used only for optional
         certificate services (timestamps and revocation checks) and to check for updates &mdash; never for your

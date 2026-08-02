@@ -14,18 +14,19 @@ capability gaps, not rivals.
 
 ## Sequencing (do not post until these are true)
 
-1. **Flathub is live.** The whole pitch is "one-click install, shows up in Open
-   With." Posting before `flatpak install flathub dev.milanko.dartpdf` works
-   undercuts it and burns the HN/Reddit first-impression (you get one).
+1. **The official Flatpak repository is live.** The whole pitch is "one-click
+   install, shows up in Open With." Posting before
+   `flatpak install --from https://dartpdf-flatpak.web.app/dartpdf.flatpakref`
+   works undercuts it and burns the HN/Reddit first-impression (you get one).
 2. **The landing page is deployed** at <https://dart-pdf.com/pdf-editor-linux>
-   with the Flathub/AUR install cards flipped to "Available now".
+   with Flatpak presented as the recommended Linux installation.
 3. **You have tested on real hardware** (see
    `doc/dev-log/2026-07-25-linux-test-matrix.md`) — a launch-day crash report on
    Wayland or a no-keyring box is the worst outcome.
 
-Order: Flathub merged → verify `milanko.dev` domain (blue badge) → flip landing
-page → **Show HN in the morning (US Pacific, weekday)** → r/linux same day →
-press emails the day it starts getting traction (link the HN thread as proof).
+Order: publish and clean-install the signed Flatpak → deploy the landing page →
+**Show HN in the morning (US Pacific, weekday)** → r/linux same day → press
+emails the day it starts getting traction (link the HN thread as proof).
 
 ## Honesty guardrails (HN/Reddit will fact-check)
 
