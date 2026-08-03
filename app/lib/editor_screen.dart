@@ -7,6 +7,7 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -2901,6 +2902,10 @@ class _EditorScreenState extends State<EditorScreen>
         Expanded(
           child: GridView.builder(
             key: ValueKey('$keyPrefix-tabs-grid'),
+            // A tile paints a real PDF thumbnail. Do not build the next row
+            // speculatively: with large documents that work competes with a
+            // fling even though the thumbnails are still off-screen.
+            scrollCacheExtent: const ScrollCacheExtent.pixels(0),
             padding: const EdgeInsets.all(12),
             gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
               maxCrossAxisExtent: 220,
@@ -3865,6 +3870,7 @@ class _TabDocumentPreviewState extends State<_TabDocumentPreview> {
   ui.Image? _image;
   Object? _pendingKey;
   Object? _imageKey;
+  bool _deferredFrameScheduled = false;
 
   Object get _key => (
         widget.controller,
@@ -3938,6 +3944,15 @@ class _TabDocumentPreviewState extends State<_TabDocumentPreview> {
     }
   }
 
+  void _retryAfterDeferredFrame() {
+    if (_deferredFrameScheduled) return;
+    _deferredFrameScheduled = true;
+    SchedulerBinding.instance.scheduleFrameCallback((_) {
+      _deferredFrameScheduled = false;
+      if (mounted) setState(() {});
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final key = _key;
@@ -3951,7 +3966,14 @@ class _TabDocumentPreviewState extends State<_TabDocumentPreview> {
       }
     }
     if (_imageKey != key && _pendingKey != key) {
-      unawaited(_render(key, MediaQuery.devicePixelRatioOf(context)));
+      // Flutter recommends deferring image decoding during fast scrolling.
+      // PDF thumbnail generation is substantially heavier than decoding, so
+      // obey the same signal and retry once the scroll begins to settle.
+      if (Scrollable.recommendDeferredLoadingForContext(context)) {
+        _retryAfterDeferredFrame();
+      } else {
+        unawaited(_render(key, MediaQuery.devicePixelRatioOf(context)));
+      }
     }
     final page = widget.controller.pageAt(widget.pageIndex);
     final pageSize = PdfPageRenderer.pageSize(
