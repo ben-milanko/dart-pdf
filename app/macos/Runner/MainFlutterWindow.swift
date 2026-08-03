@@ -329,10 +329,8 @@ class MainFlutterWindow: NSWindow {
       let url = try self.resolveBookmarkedURL(bookmark)
       let scoped = url.startAccessingSecurityScopedResource()
       defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-      let handle = try FileHandle(forReadingFrom: url)
-      defer { handle.closeFile() }
-      handle.seek(toFileOffset: UInt64(max(0, offset)))
-      let data = handle.readData(ofLength: max(0, length))
+      let data = try FileRangeReader.read(
+        url: url, offset: offset, length: length)
       return FlutterStandardTypedData(bytes: data)
     }
   }
