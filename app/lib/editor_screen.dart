@@ -7,6 +7,7 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -2901,6 +2902,10 @@ class _EditorScreenState extends State<EditorScreen>
         Expanded(
           child: GridView.builder(
             key: ValueKey('$keyPrefix-tabs-grid'),
+            // A tile paints a real PDF thumbnail. Do not build the next row
+            // speculatively: with large documents that work competes with a
+            // fling even though the thumbnails are still off-screen.
+            scrollCacheExtent: const ScrollCacheExtent.pixels(0),
             padding: const EdgeInsets.all(12),
             gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
               maxCrossAxisExtent: 220,
@@ -3679,6 +3684,7 @@ class _MobileTabTile extends StatelessWidget {
                 child: _TabPreview(
                   tab: tab,
                   pageIndex: 0,
+                  serializeRender: true,
                   previewKey: const ValueKey('mobile-tab-preview'),
                   imageKey: const ValueKey('mobile-tab-preview-image'),
                 ),
@@ -3735,6 +3741,7 @@ class _TabPreview extends StatelessWidget {
     required this.previewKey,
     required this.imageKey,
     this.imageCache,
+    this.serializeRender = false,
   });
 
   final DocumentTab tab;
@@ -3742,6 +3749,7 @@ class _TabPreview extends StatelessWidget {
   final Key previewKey;
   final Key imageKey;
   final _TabPreviewImageCache? imageCache;
+  final bool serializeRender;
 
   @override
   Widget build(BuildContext context) {
@@ -3758,6 +3766,7 @@ class _TabPreview extends StatelessWidget {
         previewKey: previewKey,
         imageKey: imageKey,
         imageCache: imageCache,
+        serializeRender: serializeRender,
       );
     }
     final l10n = appL10n(context);
@@ -3834,6 +3843,30 @@ class _TabPreviewImageCache {
   }
 }
 
+/// Serializes tab-thumbnail rasterization.
+///
+/// PDF interpretation has a synchronous portion before the engine can hand an
+/// image back. Starting a viewport full of previews together makes all of
+/// those portions land in the same frame; one-at-a-time rendering keeps input
+/// responsive and also bounds the transient memory used by image-heavy PDFs.
+class _TabPreviewRenderQueue {
+  Future<void> _tail = Future<void>.value();
+
+  Future<T> schedule<T>(Future<T> Function() render) {
+    final result = Completer<T>();
+    _tail = _tail.then((_) async {
+      try {
+        result.complete(await render());
+      } catch (error, stackTrace) {
+        result.completeError(error, stackTrace);
+      }
+    });
+    return result.future;
+  }
+}
+
+final _tabPreviewRenderQueue = _TabPreviewRenderQueue();
+
 class _TabDocumentPreview extends StatefulWidget {
   const _TabDocumentPreview({
     required this.controller,
@@ -3845,6 +3878,7 @@ class _TabDocumentPreview extends StatefulWidget {
     required this.previewKey,
     required this.imageKey,
     this.imageCache,
+    this.serializeRender = false,
   });
 
   final PdfEditingController controller;
@@ -3856,6 +3890,7 @@ class _TabDocumentPreview extends StatefulWidget {
   final Key previewKey;
   final Key imageKey;
   final _TabPreviewImageCache? imageCache;
+  final bool serializeRender;
 
   @override
   State<_TabDocumentPreview> createState() => _TabDocumentPreviewState();
@@ -3865,6 +3900,7 @@ class _TabDocumentPreviewState extends State<_TabDocumentPreview> {
   ui.Image? _image;
   Object? _pendingKey;
   Object? _imageKey;
+  bool _deferredFrameScheduled = false;
 
   Object get _key => (
         widget.controller,
@@ -3902,17 +3938,30 @@ class _TabDocumentPreviewState extends State<_TabDocumentPreview> {
   Future<void> _render(Object key, double pixelRatio) async {
     _pendingKey = key;
     try {
-      final page = widget.controller.pageAt(widget.pageIndex);
-      final size = PdfPageRenderer.pageSize(page, rotation: widget.rotation);
-      if (size.width <= 0 || size.height <= 0) return;
-      final ratio = (150 * pixelRatio / size.width).clamp(0.08, 0.5);
-      final image = await PdfPageRenderer.renderImage(
-        page,
-        pixelRatio: ratio,
-        pageColor: widget.pageColor,
-        annotations: widget.showAnnotations,
-        rotation: widget.rotation,
-      );
+      Future<ui.Image?> render() async {
+        // A queued tile may have scrolled away or changed revision before its
+        // turn. In that case skip the expensive page interpretation entirely.
+        if (!mounted || _pendingKey != key) return null;
+        final page = widget.controller.pageAt(widget.pageIndex);
+        final size = PdfPageRenderer.pageSize(page, rotation: widget.rotation);
+        if (size.width <= 0 || size.height <= 0) return null;
+        final ratio = (150 * pixelRatio / size.width).clamp(0.08, 0.5);
+        return PdfPageRenderer.renderImage(
+          page,
+          pixelRatio: ratio,
+          pageColor: widget.pageColor,
+          annotations: widget.showAnnotations,
+          rotation: widget.rotation,
+        );
+      }
+
+      final image = widget.serializeRender
+          ? await _tabPreviewRenderQueue.schedule<ui.Image?>(render)
+          : await render();
+      if (image == null) {
+        if (mounted && _pendingKey == key) _pendingKey = null;
+        return;
+      }
       if (!mounted || _pendingKey != key) {
         image.dispose();
         return;
@@ -3938,6 +3987,15 @@ class _TabDocumentPreviewState extends State<_TabDocumentPreview> {
     }
   }
 
+  void _retryAfterDeferredFrame() {
+    if (_deferredFrameScheduled) return;
+    _deferredFrameScheduled = true;
+    SchedulerBinding.instance.scheduleFrameCallback((_) {
+      _deferredFrameScheduled = false;
+      if (mounted) setState(() {});
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final key = _key;
@@ -3951,7 +4009,14 @@ class _TabDocumentPreviewState extends State<_TabDocumentPreview> {
       }
     }
     if (_imageKey != key && _pendingKey != key) {
-      unawaited(_render(key, MediaQuery.devicePixelRatioOf(context)));
+      // Flutter recommends deferring image decoding during fast scrolling.
+      // PDF thumbnail generation is substantially heavier than decoding, so
+      // obey the same signal and retry once the scroll begins to settle.
+      if (Scrollable.recommendDeferredLoadingForContext(context)) {
+        _retryAfterDeferredFrame();
+      } else {
+        unawaited(_render(key, MediaQuery.devicePixelRatioOf(context)));
+      }
     }
     final page = widget.controller.pageAt(widget.pageIndex);
     final pageSize = PdfPageRenderer.pageSize(
