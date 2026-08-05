@@ -444,6 +444,15 @@ Uint8List serializePageText(PdfPageText page) {
     w.f64(run.width);
     _writeRect(w, run.bounds);
     w.boolean(run.isRightToLeft);
+    // Per-character advances (issue #647) - without them the UI isolate falls
+    // back to interpolating a highlight across the run and misses the glyphs.
+    final offsets = run.charOffsets;
+    w.u32(offsets?.length ?? 0);
+    if (offsets != null) {
+      for (final offset in offsets) {
+        w.f64(offset);
+      }
+    }
   }
   return w.takeBytes();
 }
@@ -466,6 +475,10 @@ PdfPageText deserializePageText(Uint8List bytes) {
     final width = r.f64();
     final bounds = _readRect(r);
     final isRightToLeft = r.boolean();
+    final offsetCount = r.u32();
+    final offsets = offsetCount == 0
+        ? null
+        : [for (var j = 0; j < offsetCount; j++) r.f64()];
     runs.add(PdfExtractedRun(
       text: runText,
       startIndex: startIndex,
@@ -473,6 +486,11 @@ PdfPageText deserializePageText(Uint8List bytes) {
       transform: transform,
       width: width,
       bounds: bounds,
+      // A table of the wrong length would throw out of quadsFor; drop it and
+      // interpolate instead, like a run that never carried one.
+      charOffsets: offsets != null && offsets.length == runText.length + 1
+          ? offsets
+          : null,
       isRightToLeft: isRightToLeft,
     ));
   }
