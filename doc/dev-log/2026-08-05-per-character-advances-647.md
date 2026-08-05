@@ -65,11 +65,45 @@ boundary instead of scaling a fraction).
   left the bug live everywhere but tests. `pdfEncodePageText` in
   `text_cache.dart` is the on-disk tier (magic bumped `PTX2` → `PTX3` so
   stale blobs miss rather than mis-parse).
+- **Both codecs' tests passed with the offsets dropped.** The worker test
+  compared search *hit counts*, and the disk-cache sample runs carried no
+  `charOffsets` at all, so neither would have noticed a field missing from
+  the wire. Both now compare geometry (quad corners, hit-test positions);
+  the worker one was verified to fail with the field removed. A codec test
+  that doesn't assert the new field buys nothing - and on the disk tier the
+  failure would only appear on a *reopened* document, long after the suite
+  went green.
 
 ## Measurements
 
 `tool/perf.sh gate`: 12 inputs, 13 counters within 3%.
 `tool/perf.sh diff d84479b type3-text-sweep` (~7400 glyphs/page, the densest
 text scenario): `interpretMs` 0.953x, `extractMs` 1.037x, `peakRssBytes`
-1.033x - VERDICT OK. The ~4% on extract is the offset table itself; the
-render path is untouched because the flag leaves `charOffsets` null.
+1.033x - VERDICT OK. The render path is untouched because the flag leaves
+`charOffsets` null.
+
+**The corpus sweep caught a real regression the single-scenario run didn't.**
+`diff d84479b dartpdf-corpus` first came back `extractMs` **1.114x -
+REGRESSED** (over the 1.10 gate), worst on `text-report-40p.pdf` at 1.45x.
+Two causes, both obvious in hindsight:
+
+- `_sliceCharOffsets` **copied the whole table per run**. The common case is
+  one extracted run per source run, where the slice is the whole thing
+  already rebased at 0 - so it now returns the source list directly. Nothing
+  mutates it, and it saves an allocation *and* a copy on every run.
+- the per-glyph loop read `charOffsets.last` to clamp against the previous
+  boundary. That is a bounds-checked call once per glyph; `lastOffset` now
+  tracks the tail in a local.
+
+After both: `extractMs` **1.009x**, everything else ≤1.017x, VERDICT OK.
+
+Two process notes worth keeping:
+
+- The first corpus number was measured while sources were being edited
+  mid-run. `CLAUDE.md` forbids that ("NEVER edit sources or run builds while
+  a sweep is measuring") and it is not pedantry - `diff` interleaves
+  checkouts of the ref and the working tree, so an edit lands inside
+  somebody's measurement. It was discarded and re-run clean.
+- `type3-text-sweep` alone said 1.037x and looked fine. The regression only
+  showed on the 16-file corpus. For anything touching extraction, run the
+  corpus scenario too - one dense synthetic document is not a substitute.
