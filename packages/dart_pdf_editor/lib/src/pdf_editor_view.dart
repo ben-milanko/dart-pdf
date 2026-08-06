@@ -15,6 +15,7 @@ import 'editing/editing_preferences.dart';
 import 'editing/editing_properties.dart';
 import 'editing/editing_sidebar.dart';
 import 'editing/editing_stamps.dart';
+import 'editing/editing_thumbnail_drop.dart';
 import 'editing/editing_thumbnails.dart';
 import 'editing/editing_toolbar.dart';
 import 'editing/text_prompt.dart';
@@ -224,6 +225,7 @@ class PdfEditorView extends StatefulWidget {
     this.onDocumentChanged,
     this.onPickPdfToInsert,
     this.onExportPages,
+    this.thumbnailDropController,
     this.onAction,
     this.onAnnotationTap,
     this.pageOverlayBuilder,
@@ -304,6 +306,7 @@ class PdfEditorView extends StatefulWidget {
     this.onDocumentChanged,
     this.onPickPdfToInsert,
     this.onExportPages,
+    this.thumbnailDropController,
     this.onAction,
     this.onAnnotationTap,
     this.pageOverlayBuilder,
@@ -450,6 +453,15 @@ class PdfEditorView extends StatefulWidget {
   /// thumbnail strip's "Export pages…" action asks for the range, then
   /// hands the bytes here). When null the action is hidden.
   final void Function(Uint8List bytes)? onExportPages;
+
+  /// Lets a PDF dragged in from outside the app be dropped at a chosen
+  /// position in the page thumbnails (strip or full-area grid) instead of
+  /// only being appended: the panels paint an insertion marker where the
+  /// pages would land, and the host reads the index back on drop. Only the
+  /// host sees the platform's drag stream, so it drives the controller -
+  /// see [PdfThumbnailDropController] for the wiring. Needs
+  /// [PdfEditorFeatures.pageEditing].
+  final PdfThumbnailDropController? thumbnailDropController;
 
   /// See [PdfViewer.onAction].
   final PdfActionHandler? onAction;
@@ -720,6 +732,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         onDocumentChanged: complete ? widget.onDocumentChanged : null,
         onPickPdfToInsert: complete ? widget.onPickPdfToInsert : null,
         onExportPages: complete ? widget.onExportPages : null,
+        thumbnailDropController:
+            complete ? widget.thumbnailDropController : null,
         onAction: widget.onAction,
         onAnnotationTap: widget.onAnnotationTap,
         pageOverlayBuilder: widget.pageOverlayBuilder,
@@ -884,6 +898,11 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 onPickPdfToInsert:
                     features.pageEditing ? widget.onPickPdfToInsert : null,
                 onExportPages: widget.onExportPages,
+                // dropping a PDF between two tiles inserts it there; a
+                // read-only shell takes no structural page edits
+                fileDropController: features.pageEditing
+                    ? widget.thumbnailDropController
+                    : null,
                 renderWorker: _shell.worker,
                 rasterCache: thumbnailDisk,
               );
@@ -951,6 +970,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 onPickPdfToInsert:
                     features.pageEditing ? widget.onPickPdfToInsert : null,
                 onExportPages: widget.onExportPages,
+                fileDropController: features.pageEditing
+                    ? widget.thumbnailDropController
+                    : null,
                 onOpenPage: (_) => prefs.showThumbnailView = false,
                 renderWorker: _shell.worker,
                 rasterCache: thumbnailDisk,

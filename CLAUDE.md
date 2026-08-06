@@ -335,6 +335,15 @@ size slider (`thumbnailViewTileWidth` pref), custom drag reorder
 onActivatePage`). `PdfEditorView` overlays it over the live viewer as a
 view mode (`showThumbnailView`, toggled from View options alongside
 reflow; `altView` = reflow-or-grid suppresses the panels/toolbar).
+Both panels take an external PDF **dropped between two tiles**:
+`PdfThumbnailDropController` (editing_thumbnail_drop.dart) is the seam -
+panels register a global-position→slot resolver and paint the insertion
+marker, the host (which owns the platform drag stream) drives
+`dragOver`/`indexAt`/`endDrag` and inserts at the returned index.
+`PdfEditorView(thumbnailDropController:)` forwards it; the app wires it
+to its `desktop_drop` `DropTarget`, so a positioned drop skips the
+open-or-insert dialog. See
+doc/dev-log/2026-08-06-thumbnail-file-drop-position.md.
 
 ## Development session log
 
