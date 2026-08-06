@@ -2654,6 +2654,10 @@ class _EditorScreenState extends State<EditorScreen>
         controller: tab.viewer,
         preferences: _prefs,
         onAction: _onAction,
+        // View mode is for reading the document as it is: the paper colour is
+        // an authoring choice, so the View options menu drops "Page color…"
+        // here and keeps it in edit mode.
+        features: const PdfReaderFeatures(pageColorEditable: false),
         pageRasterCachePolicy: pageRasterCachePolicy,
         pageRasterWarmPolicy: pageRasterWarmPolicy,
       );
