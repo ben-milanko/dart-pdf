@@ -3141,6 +3141,82 @@ class PdfEditingController extends ChangeNotifier {
     }
   }
 
+  /// The reusable stamp [annotation] can go back into the collection as, or
+  /// null when it carries no design worth saving.
+  ///
+  /// A stamp this editor placed from a template comes back exactly: the
+  /// design travels with the annotation ([PdfAnnotation.stampTemplate]) with
+  /// its `{{field}}` placeholders unresolved, so a stamp saved off the page
+  /// keeps filling in today's date on future placements. Any other stamp -
+  /// a legacy text stamp, or one from another producer - is recovered as a
+  /// text stamp from its caption and colour, the classic look the stamp tool
+  /// draws. Stamps with neither (count check-marks, pasted vector snapshots,
+  /// pictures, and templates too large to have been recorded) yield null.
+  PdfCustomStamp? customStampOf(PdfAnnotation annotation) {
+    if (annotation.subtype != 'Stamp' || annotation.isCheckMark) return null;
+    final color = annotation.color ?? 0xC03030;
+    final contents = annotation.contents?.trim() ?? '';
+    final template = annotation.stampTemplate;
+    if (template != null && template.isValid) {
+      return PdfCustomStamp(
+        // The unresolved caption, so the saved stamp reads like its design
+        // rather than like the day it was placed.
+        text: _stampTemplateCaption(template) ?? contents,
+        color: color,
+        template: template,
+        type: annotation.stampType,
+        tags: annotation.stampTags,
+      );
+    }
+    if (annotation.isImageStamp || contents.isEmpty) return null;
+    if (PdfEditor(_document).isVectorSnapshotStamp(annotation)) return null;
+    return PdfCustomStamp(
+      text: contents,
+      color: color,
+      type: annotation.stampType,
+      tags: annotation.stampTags,
+    );
+  }
+
+  /// The caption of [template]: its first non-empty text component, as
+  /// written. Null for a design made only of shapes or pictures.
+  static String? _stampTemplateCaption(PdfStampTemplate template) {
+    for (final component in template.components) {
+      if (component.type == PdfStampTemplateComponentType.text &&
+          component.text.trim().isNotEmpty) {
+        return component.text.trim();
+      }
+    }
+    return null;
+  }
+
+  /// Whether [saveSelectedAsCustomStamp] has something to save: exactly one
+  /// stamp annotation is selected and [customStampOf] can recover it.
+  bool get canSaveSelectedAsCustomStamp {
+    if (_selected.length != 1) return false;
+    final annotation = selectedAnnotation;
+    return annotation != null && customStampOf(annotation) != null;
+  }
+
+  /// Saves the selected stamp annotation into the user's stamp collection
+  /// and makes it the [activeStamp], so the next tap of the stamp tool
+  /// places it again. The right-click "Save to stamps" action.
+  ///
+  /// Saving a stamp that is already in the collection (a re-save, or a
+  /// second copy of one already placed) doesn't duplicate the entry - it
+  /// just becomes active. Returns the saved stamp, or null when the
+  /// selection has no recoverable design ([canSaveSelectedAsCustomStamp]).
+  PdfCustomStamp? saveSelectedAsCustomStamp() {
+    if (_selected.length != 1) return null;
+    final annotation = selectedAnnotation;
+    if (annotation == null) return null;
+    final stamp = customStampOf(annotation);
+    if (stamp == null) return null;
+    if (!customStamps.contains(stamp)) saveCustomStamp(stamp);
+    activeStamp = stamp;
+    return stamp;
+  }
+
   PdfCustomStamp? _activeStamp;
 
   /// The custom stamp the stamp tool places on tap. Null means the

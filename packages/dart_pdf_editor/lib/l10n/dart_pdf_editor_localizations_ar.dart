@@ -417,6 +417,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get menuRemoveNode => 'إزالة عقدة';
 
   @override
+  String get menuSaveToStamps => 'حفظ في الأختام';
+
+  @override
   String get menuSetAsDefaultStyle => 'تعيين كنمط افتراضي';
 
   @override
@@ -1238,6 +1241,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get stampNewStampTitle => 'ختم جديد';
+
+  @override
+  String get stampSavedToCollection => 'تم الحفظ في الأختام';
 
   @override
   String get stampSelectTextToEdit => 'حدد نصًا للتحرير';

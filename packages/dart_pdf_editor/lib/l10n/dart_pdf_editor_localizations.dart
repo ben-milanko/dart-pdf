@@ -848,6 +848,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Remove node'**
   String get menuRemoveNode;
 
+  /// Annotation context-menu item that saves the selected stamp annotation into the user's reusable stamp collection.
+  ///
+  /// In en, this message translates to:
+  /// **'Save to stamps'**
+  String get menuSaveToStamps;
+
   /// Annotation context-menu item that captures the selected annotation's appearance as the default for new annotations of the same kind.
   ///
   /// In en, this message translates to:
@@ -2329,6 +2335,12 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'New stamp'**
   String get stampNewStampTitle;
+
+  /// Snackbar shown after a stamp on the page was saved into the user's stamp collection.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved to stamps'**
+  String get stampSavedToCollection;
 
   /// Placeholder label shown on the stamp text input when no text component is selected.
   ///

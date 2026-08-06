@@ -411,6 +411,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get menuRemoveNode => 'Supprimer le nœud';
 
   @override
+  String get menuSaveToStamps => 'Enregistrer dans les tampons';
+
+  @override
   String get menuSetAsDefaultStyle => 'Définir comme style par défaut';
 
   @override
@@ -1225,6 +1228,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
 
   @override
   String get stampNewStampTitle => 'Nouveau tampon';
+
+  @override
+  String get stampSavedToCollection => 'Enregistré dans les tampons';
 
   @override
   String get stampSelectTextToEdit => 'Sélectionnez du texte à modifier';

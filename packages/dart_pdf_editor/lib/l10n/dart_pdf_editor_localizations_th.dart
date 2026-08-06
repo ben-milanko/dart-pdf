@@ -408,6 +408,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get menuRemoveNode => 'นำจุดออก';
 
   @override
+  String get menuSaveToStamps => 'บันทึกไปยังตราประทับ';
+
+  @override
   String get menuSetAsDefaultStyle => 'ตั้งเป็นสไตล์เริ่มต้น';
 
   @override
@@ -1219,6 +1222,9 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
 
   @override
   String get stampNewStampTitle => 'ตราประทับใหม่';
+
+  @override
+  String get stampSavedToCollection => 'บันทึกไปยังตราประทับแล้ว';
 
   @override
   String get stampSelectTextToEdit => 'เลือกข้อความเพื่อแก้ไข';

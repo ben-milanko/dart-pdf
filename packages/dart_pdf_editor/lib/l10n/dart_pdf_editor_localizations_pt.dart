@@ -410,6 +410,9 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
   String get menuRemoveNode => 'Remover nó';
 
   @override
+  String get menuSaveToStamps => 'Salvar nos carimbos';
+
+  @override
   String get menuSetAsDefaultStyle => 'Definir como estilo padrão';
 
   @override
@@ -1223,6 +1226,9 @@ class DartPdfEditorLocalizationsPt extends DartPdfEditorLocalizations {
 
   @override
   String get stampNewStampTitle => 'Novo carimbo';
+
+  @override
+  String get stampSavedToCollection => 'Salvo nos carimbos';
 
   @override
   String get stampSelectTextToEdit => 'Selecione um texto para editar';

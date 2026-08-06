@@ -3245,7 +3245,12 @@ extension PdfAnnotationEditing on PdfEditor {
           : pdfResolveStampTemplateText(contents, templateValues),
       author,
     );
-    _applyStampMetadata(dict, type: stampType, tags: stampTags);
+    _applyStampMetadata(
+      dict,
+      type: stampType,
+      tags: stampTags,
+      template: template,
+    );
     _addAnnotation(
       pageIndex,
       dict,
@@ -3262,10 +3267,21 @@ extension PdfAnnotationEditing on PdfEditor {
     );
   }
 
+  /// The largest stamp template, as encoded JSON, that [addTemplateStamp]
+  /// records on the annotation it places (see [PdfAnnotation.stampTemplate]).
+  ///
+  /// Designs made of text and shapes encode to a few hundred bytes, so the
+  /// cap only ever bites on a template carrying a picture - whose bytes are
+  /// already in the appearance stream, and would be paid for a second time
+  /// by every placement. Such a stamp still places and prints identically;
+  /// it just can't be recovered back into a stamp collection from the page.
+  static const int maxStampTemplateMetadataBytes = 64 * 1024;
+
   void _applyStampMetadata(
     CosDictionary dict, {
     String? type,
     Iterable<String> tags = const [],
+    PdfStampTemplate? template,
   }) {
     final normalizedType = type?.trim();
     if (normalizedType != null && normalizedType.isNotEmpty) {
@@ -3279,6 +3295,14 @@ extension PdfAnnotationEditing on PdfEditor {
       dict['DartPdfStampTags'] = CosArray([
         for (final tag in normalizedTags) CosString.fromText(tag),
       ]);
+    }
+    if (template != null) {
+      // The *unresolved* design, so a placed stamp saved back into a
+      // collection keeps its live `{{date}}`-style fields.
+      final json = jsonEncode(template.toJson());
+      if (json.length <= maxStampTemplateMetadataBytes) {
+        dict['DartPdfStampTemplate'] = CosString.fromText(json);
+      }
     }
   }
 

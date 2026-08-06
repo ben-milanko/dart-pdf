@@ -408,6 +408,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get menuRemoveNode => '移除节点';
 
   @override
+  String get menuSaveToStamps => '保存到图章';
+
+  @override
   String get menuSetAsDefaultStyle => '设为默认样式';
 
   @override
@@ -1214,6 +1217,9 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
 
   @override
   String get stampNewStampTitle => '新建图章';
+
+  @override
+  String get stampSavedToCollection => '已保存到图章';
 
   @override
   String get stampSelectTextToEdit => '选择要编辑的文本';
@@ -2395,6 +2401,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
   String get menuRemoveNode => '移除節點';
 
   @override
+  String get menuSaveToStamps => '儲存至戳記';
+
+  @override
   String get menuSetAsDefaultStyle => '設為預設樣式';
 
   @override
@@ -3201,6 +3210,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get stampNewStampTitle => '新增戳記';
+
+  @override
+  String get stampSavedToCollection => '已儲存至戳記';
 
   @override
   String get stampSelectTextToEdit => '選取文字以編輯';

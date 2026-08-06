@@ -246,6 +246,10 @@ subsampling/PCRL-CPRL progressions.
 - Callouts pair an editable text box with a leader line and arrowhead. The
   terminus and its attachment to the box can be repositioned independently,
   while moving the body keeps the whole callout together.
+- A stamp on the page goes back into the stamp collection from its
+  right-click menu, so a design that arrived in a document is reusable.
+  Stamps this editor placed come back exactly - the vector design travels
+  with them, `{{date}}`-style fields still live.
 - Takeoff tools calibrate a drawing's scale, then measure distance, perimeter,
   area, slope, angle, arc length, or volume. A count tool places and totals
   check-mark stamps.

@@ -422,6 +422,37 @@ void main() {
       expect(identical(received!.controller, editing), isTrue);
     });
 
+    testWidgets('Save to stamps shows only for a stamp, and saves it',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+
+      // a plain rectangle has no stamp design to save
+      await rightClick(tester, viewPoint(110, 725));
+      expect(find.byKey(const ValueKey('pdf-annot-menu-save-stamp')),
+          findsNothing);
+      await tester.tapAt(const Offset(5, 5)); // dismiss
+      await tester.pumpAndSettle();
+
+      editing.activeStamp =
+          const PdfCustomStamp(text: 'APPROVED', color: 0x2E7D32);
+      expect(editing.placeStamp(0, 300, 400), isTrue);
+      await tester.pump();
+      // forget it again, as if the stamp had arrived in the document
+      editing
+        ..activeStamp = null
+        ..preferences.customStamps = const [];
+
+      await rightClick(tester, viewPoint(300, 400)); // the stamp
+      expect(find.text('Save to stamps'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('pdf-annot-menu-save-stamp')));
+      await tester.pumpAndSettle();
+
+      expect(editing.savedCustomStamps,
+          [const PdfCustomStamp(text: 'APPROVED', color: 0x2E7D32)]);
+      expect(editing.activeStamp, editing.savedCustomStamps.single);
+      expect(find.text('Saved to stamps'), findsOneWidget); // the snackbar
+    });
+
     testWidgets('right-click on empty page space shows no annotation menu',
         (tester) async {
       final editing = await pumpViewer(tester);

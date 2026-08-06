@@ -408,6 +408,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get menuRemoveNode => 'Düğümü kaldır';
 
   @override
+  String get menuSaveToStamps => 'Damgalara kaydet';
+
+  @override
   String get menuSetAsDefaultStyle => 'Varsayılan stil olarak ayarla';
 
   @override
@@ -1220,6 +1223,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
 
   @override
   String get stampNewStampTitle => 'Yeni damga';
+
+  @override
+  String get stampSavedToCollection => 'Damgalara kaydedildi';
 
   @override
   String get stampSelectTextToEdit => 'Düzenlemek için metin seçin';

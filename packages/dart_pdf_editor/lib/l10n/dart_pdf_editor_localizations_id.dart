@@ -409,6 +409,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get menuRemoveNode => 'Hapus simpul';
 
   @override
+  String get menuSaveToStamps => 'Simpan ke stempel';
+
+  @override
   String get menuSetAsDefaultStyle => 'Jadikan gaya bawaan';
 
   @override
@@ -1223,6 +1226,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get stampNewStampTitle => 'Stempel baru';
+
+  @override
+  String get stampSavedToCollection => 'Disimpan ke stempel';
 
   @override
   String get stampSelectTextToEdit => 'Pilih teks untuk diedit';

@@ -410,6 +410,9 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   String get menuRemoveNode => 'Quitar nodo';
 
   @override
+  String get menuSaveToStamps => 'Guardar en sellos';
+
+  @override
   String get menuSetAsDefaultStyle => 'Establecer como estilo predeterminado';
 
   @override
@@ -1222,6 +1225,9 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
 
   @override
   String get stampNewStampTitle => 'Nuevo sello';
+
+  @override
+  String get stampSavedToCollection => 'Guardado en sellos';
 
   @override
   String get stampSelectTextToEdit => 'Selecciona texto para editar';

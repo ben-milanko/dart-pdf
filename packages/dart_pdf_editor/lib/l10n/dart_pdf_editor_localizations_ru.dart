@@ -415,6 +415,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get menuRemoveNode => 'Удалить узел';
 
   @override
+  String get menuSaveToStamps => 'Сохранить в штампы';
+
+  @override
   String get menuSetAsDefaultStyle => 'Задать стилем по умолчанию';
 
   @override
@@ -1237,6 +1240,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
 
   @override
   String get stampNewStampTitle => 'Новый штамп';
+
+  @override
+  String get stampSavedToCollection => 'Сохранено в штампы';
 
   @override
   String get stampSelectTextToEdit => 'Выберите текст для редактирования';

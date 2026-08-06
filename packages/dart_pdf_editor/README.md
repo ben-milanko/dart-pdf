@@ -196,6 +196,10 @@ are byte prefixes of one buffer.
   editing, notes, stamps (including custom saved stamps), and a saved
   ink signature. The hyperlink tool authors URI and in-document links, and
   placed images and raster snapshots can be cropped interactively.
+- A stamp on the page saves back into the stamp collection from its
+  right-click menu (`Save to stamps`), so a design that arrived in a
+  document is reusable. Stamps this editor placed carry their vector
+  design, so they come back with their `{{date}}`-style fields still live.
 - Certificate-backed digital signatures: load an in-memory RSA private key
   and X.509 chain, then add a validated PAdES B-B signature as an undoable
   document revision. This is separate from the drawn ink-signature tool.

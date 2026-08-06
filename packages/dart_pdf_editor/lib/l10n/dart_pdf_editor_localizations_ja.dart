@@ -408,6 +408,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get menuRemoveNode => '頂点を削除';
 
   @override
+  String get menuSaveToStamps => 'スタンプに保存';
+
+  @override
   String get menuSetAsDefaultStyle => 'デフォルトのスタイルに設定';
 
   @override
@@ -1215,6 +1218,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get stampNewStampTitle => '新規スタンプ';
+
+  @override
+  String get stampSavedToCollection => 'スタンプに保存しました';
 
   @override
   String get stampSelectTextToEdit => '編集するテキストを選択';
