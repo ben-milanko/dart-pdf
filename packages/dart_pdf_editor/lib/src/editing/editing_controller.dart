@@ -5140,6 +5140,21 @@ class PdfEditingController extends ChangeNotifier {
     );
   }
 
+  /// The colour the style controls should show: with a selection they
+  /// recolour ([canRestyleSelected]), the primary selected annotation's own
+  /// colour rather than [color], the last-used creation colour - a swatch
+  /// row is a readout of what the next tap changes, so it has to follow the
+  /// selection the way the stroke/opacity controls already do.
+  ///
+  /// Falls back to [color] when nothing restylable is selected, or when the
+  /// annotation carries no colour of its own (an image stamp, a shape with
+  /// no /C) - showing black there would be a lie about the annotation.
+  Color get displayColor {
+    if (!canRestyleSelected) return color;
+    final rgb = selectedAnnotation?.behavior.style.color;
+    return rgb == null ? color : Color(0xFF000000 | rgb);
+  }
+
   /// Whether [restyleSelected]'s `fill` parameter applies to every selected
   /// annotation (shapes and FreeText boxes).
   bool get canFillSelected =>
