@@ -234,13 +234,18 @@ class PdfInterpreter {
   final bool resolveOverprint;
 
   /// Whether to fill in [PdfTextRun.charOffsets] - the em-space pen position
-  /// of every character boundary in a run (issue #647).
+  /// of every character boundary in a run (issue #647) - for *every* run.
   ///
   /// On for text extraction, which needs exact intra-run geometry to land a
   /// selection or search highlight on the glyphs of a proportional font.
-  /// Off for painting walks, which get the same positions from
-  /// [PdfTextRun.glyphs] when the font is embedded and would otherwise pay a
-  /// list per run for nothing.
+  /// Painting walks leave it off: an embedded font already carries those
+  /// positions in [PdfTextRun.glyphs], so the list would be paid for nothing.
+  ///
+  /// Runs with **no** embedded font program get the table regardless of this
+  /// flag (issue #649): the device substitutes a system font there, and
+  /// without the PDF's own per-character advances it can only match the run
+  /// total, letting interior glyphs drift by several points against the
+  /// geometry that selection, search, and hit-testing use.
   final bool collectCharOffsets;
 
   /// Process-wide kill switch for the colorant-buffer overprint path
@@ -2389,13 +2394,19 @@ class PdfInterpreter {
     // along y by the vertical displacement, and each glyph is shifted by its
     // position vector so the column centres on the baseline.
     final vertical = font.isVertical;
-    // Per-character pen positions for text extraction (issue #647). Only
-    // horizontal text has a meaningful x offset per character; vertical runs
-    // advance along y and leave this null.
-    final charOffsets =
-        collectCharOffsets && !vertical && !_scanImages && emScale != 0
-            ? <double>[]
-            : null;
+    // Per-character pen positions for text extraction (issue #647) and for
+    // painting substituted text (issue #649 - a device with no embedded font
+    // program has no other source for the PDF's intra-run distribution, so
+    // those runs get the table whether or not the caller asked for it; a
+    // glyph list already carries the same offsets). Only horizontal text has a
+    // meaningful x offset per character; vertical runs advance along y and
+    // leave this null.
+    final charOffsets = (collectCharOffsets || glyphs == null) &&
+            !vertical &&
+            !_scanImages &&
+            emScale != 0
+        ? <double>[]
+        : null;
     var lastOffset = 0.0; // tail of charOffsets, kept out of the list
     final hScale = _state.horizontalScale == 0 ? 1.0 : _state.horizontalScale;
     var advance = 0.0; // text-space along the writing direction (x or y)

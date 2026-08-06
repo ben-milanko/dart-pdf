@@ -111,7 +111,7 @@ class _TranscriptDevice implements PdfDevice {
       'invisible=${run.invisible} sw=${run.strokeWidth} '
       'ls=${run.letterSpacing} ws=${run.wordSpacing} '
       'ld=${run.leadingSpace} vw=${run.visibleWidth} '
-      'glyphs=${run.glyphs?.length}');
+      'glyphs=${run.glyphs?.length} offsets=${run.charOffsets}');
 
   @override
   void drawImage(PdfImageRequest request) =>

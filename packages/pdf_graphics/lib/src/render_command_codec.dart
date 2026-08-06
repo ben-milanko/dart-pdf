@@ -53,7 +53,7 @@ import 'text_extraction.dart';
 /// Format: little notion of versioning beyond a leading byte; the producer and
 /// consumer are the same build, shipped together, so a version mismatch is a
 /// programming error, asserted on read.
-const int _formatVersion = 4;
+const int _formatVersion = 5;
 
 /// Microseconds spent reconstructing worker command buffers on the consuming
 /// isolate. Accumulated for performance probes; this is the UI-thread half of
@@ -1371,6 +1371,18 @@ void _writeTextRun(_Writer w, PdfTextRun run) {
     w.boolean(true);
     w.f64(run.visibleWidth!);
   }
+  // Per-character pen offsets (issue #649). Only a substituted run needs them -
+  // an embedded run's glyph list above already carries the same positions - so
+  // they never inflate the transcript of an embedded-font page.
+  final offsets = glyphs == null ? run.charOffsets : null;
+  if (offsets == null) {
+    w.u32(0);
+  } else {
+    w.u32(offsets.length);
+    for (final offset in offsets) {
+      w.f64(offset);
+    }
+  }
 }
 
 PdfTextRun _readTextRun(_Reader r) {
@@ -1406,6 +1418,9 @@ PdfTextRun _readTextRun(_Reader r) {
   final wordSpacing = r.f64();
   final leadingSpace = r.f64();
   final visibleWidth = r.boolean() ? r.f64() : null;
+  final offsetCount = r.u32();
+  final offsets =
+      offsetCount == 0 ? null : [for (var i = 0; i < offsetCount; i++) r.f64()];
   return PdfTextRun(
     text: text,
     transform: transform,
@@ -1423,6 +1438,10 @@ PdfTextRun _readTextRun(_Reader r) {
     wordSpacing: wordSpacing,
     leadingSpace: leadingSpace,
     visibleWidth: visibleWidth,
+    // A table of the wrong length would mis-place glyphs; drop it and let the
+    // device fall back to whole-run shaping, like a run that never carried one.
+    charOffsets:
+        offsets != null && offsets.length == text.length + 1 ? offsets : null,
   );
 }
 
