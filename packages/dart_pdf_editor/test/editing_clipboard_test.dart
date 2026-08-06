@@ -20,6 +20,10 @@ final _png = base64.decode('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0k'
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    // controllers share the process-wide annotation clipboard by default;
+    // start each test from empty so one test's copy can't leak into the next.
+    PdfAnnotationSnapshotClipboard.instance.clear();
+    PdfSnapshotClipboard.instance.clear();
   });
 
   group('controller clipboard', () {
@@ -146,6 +150,162 @@ void main() {
       expect(editing.document.page(1).annotations, isEmpty);
       expect(editing.document.page(2).annotations, isEmpty);
       expect(editing.document.page(0).annotations, hasLength(1));
+    });
+  });
+
+  group('PdfAnnotationSnapshotClipboard', () {
+    test('set / clear notify, and clearing an empty clipboard does not', () {
+      final clip = PdfAnnotationSnapshotClipboard();
+      var notified = 0;
+      clip.addListener(() => notified++);
+      expect(clip.isEmpty, isTrue);
+      expect(clip.length, 0);
+      // clearing an already-empty clipboard is a silent no-op
+      clip.clear();
+      expect(notified, 0);
+
+      final source = PdfEditingController(buildMultiPagePdf(1),
+          annotationClipboard: clip)
+        ..addRectangle(0, const PdfRect(100, 650, 250, 750));
+      addTearDown(source.dispose);
+      source.selectAnnotation(0, 0);
+      expect(source.copySelectedAnnotations(), 1);
+      expect(clip.isNotEmpty, isTrue);
+      expect(clip.length, 1);
+      expect(identical(clip.sourceOwner, source), isTrue);
+      expect(clip.sourcePage, 0);
+      expect(notified, 1);
+
+      clip.clear();
+      expect(clip.isEmpty, isTrue);
+      expect(clip.sourceOwner, isNull);
+      expect(clip.sourcePage, -1);
+      expect(notified, 2);
+      clip.clear();
+      expect(notified, 2);
+    });
+
+    test('a controller defaults to the shared process-wide instance', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      expect(
+          identical(editing.annotationClipboard,
+              PdfAnnotationSnapshotClipboard.instance),
+          isTrue);
+    });
+
+    test('a private clipboard isolates a controller from the shared one', () {
+      final shared = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 650, 250, 750));
+      addTearDown(shared.dispose);
+      final isolated = PdfEditingController(buildMultiPagePdf(1),
+          annotationClipboard: PdfAnnotationSnapshotClipboard());
+      addTearDown(isolated.dispose);
+
+      shared.selectAnnotation(0, 0);
+      shared.copySelectedAnnotations();
+
+      expect(isolated.hasAnnotationClipboard, isFalse);
+      expect(isolated.pasteAnnotations(0), isFalse);
+      expect(isolated.document.page(0).annotations, isEmpty);
+    });
+  });
+
+  group('clipboard shared across document tabs', () {
+    test('an annotation copied in one tab pastes into another', () {
+      final a = PdfEditingController(buildMultiPagePdf(1))
+        ..color = const Color(0xFFE53935)
+        ..addRectangle(0, const PdfRect(100, 650, 250, 750));
+      addTearDown(a.dispose);
+      final b = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(b.dispose);
+      expect(b.hasAnnotationClipboard, isFalse);
+
+      a.selectAnnotation(0, 0);
+      expect(a.copySelectedAnnotations(), 1);
+      // the copy lights up Paste in the other tab
+      expect(b.hasAnnotationClipboard, isTrue);
+
+      expect(b.pasteAnnotations(0), isTrue);
+      final pasted = b.document.page(0).annotations.single;
+      expect(pasted.subtype, 'Square');
+      expect(pasted.color, 0xE53935);
+      // a different document is never "the source page": no cascade, the
+      // annotation lands exactly where it was copied from
+      expect(pasted.rect, const PdfRect(100, 650, 250, 750));
+      expect(b.selectedAnnotationSlots, [(0, 0)]);
+
+      // the source document is untouched by the paste, and one undo in the
+      // receiving tab removes it
+      expect(a.document.page(0).annotations, hasLength(1));
+      b.undo();
+      expect(b.document.page(0).annotations, isEmpty);
+    });
+
+    test('filling the clipboard in one tab notifies the others', () {
+      final a = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 650, 250, 750));
+      addTearDown(a.dispose);
+      final b = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(b.dispose);
+      var notified = 0;
+      b.addListener(() => notified++);
+
+      a.selectAnnotation(0, 0);
+      a.copySelectedAnnotations();
+      expect(notified, greaterThan(0),
+          reason: 'paste affordances in other tabs rebuild live');
+    });
+
+    test('repeat pastes into another tab cascade', () {
+      final a = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 650, 250, 750));
+      addTearDown(a.dispose);
+      final b = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(b.dispose);
+
+      a.selectAnnotation(0, 0);
+      a.copySelectedAnnotations();
+      b.pasteAnnotations(0);
+      b.pasteAnnotations(0);
+
+      final annotations = b.document.page(0).annotations;
+      expect(annotations[0].rect.left, closeTo(100, 1e-6));
+      expect(annotations[1].rect.left, closeTo(112, 1e-6));
+    });
+
+    test('the clipboard outlives the tab it was copied from', () {
+      final a = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 650, 250, 750));
+      final b = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(b.dispose);
+
+      a.selectAnnotation(0, 0);
+      a.cutSelectedAnnotations();
+      a.dispose(); // the source tab is closed
+
+      expect(b.hasAnnotationClipboard, isTrue);
+      expect(b.pasteAnnotations(0), isTrue);
+      expect(b.document.page(0).annotations.single.subtype, 'Square');
+    });
+
+    test('a copy in one tab replaces what another tab copied', () {
+      final a = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 650, 250, 750));
+      addTearDown(a.dispose);
+      final b = PdfEditingController(buildMultiPagePdf(1))
+        ..addEllipse(0, const PdfRect(300, 650, 380, 720));
+      addTearDown(b.dispose);
+
+      a.selectAnnotation(0, 0);
+      a.copySelectedAnnotations();
+      b.selectAnnotation(0, 0);
+      b.copySelectedAnnotations();
+
+      // the most recent copy wins everywhere, so pasting back in the first
+      // tab yields the *other* tab's annotation
+      expect(a.pasteAnnotations(0), isTrue);
+      expect(a.document.page(0).annotations.last.subtype, 'Circle');
     });
   });
 

@@ -25,6 +25,7 @@ export 'src/editing/editing_controller.dart';
 export 'src/editing/create_signing_identity_dialog.dart';
 export 'src/editing/digital_signature.dart';
 export 'src/editing/signing_identity_store.dart';
+export 'src/editing/editing_annotation_clipboard.dart';
 export 'src/editing/editing_fonts.dart';
 export 'src/editing/editing_interaction.dart';
 export 'src/editing/editing_link.dart';

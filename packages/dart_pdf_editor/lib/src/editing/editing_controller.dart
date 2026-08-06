@@ -10,6 +10,7 @@ import 'package:pdf_document/pdf_document.dart';
 import '../page_geometry.dart';
 import '../renderer.dart';
 import 'digital_signature.dart';
+import 'editing_annotation_clipboard.dart';
 import 'editing_measure.dart';
 import 'editing_page_clipboard.dart';
 import 'editing_preferences.dart';
@@ -375,6 +376,7 @@ class PdfEditingController extends ChangeNotifier {
     PdfEditingPreferences? preferences,
     PdfPageClipboard? pageClipboard,
     PdfSnapshotClipboard? snapshotClipboard,
+    PdfAnnotationSnapshotClipboard? annotationClipboard,
     PdfTrustStore? trustStore,
   })  : _bytes = bytes,
         _used = bytes.length,
@@ -384,8 +386,9 @@ class PdfEditingController extends ChangeNotifier {
         _trustStore = trustStore,
         preferences = preferences ?? PdfEditingPreferences(),
         pageClipboard = pageClipboard ?? PdfPageClipboard.instance,
-        snapshotClipboard =
-            snapshotClipboard ?? PdfSnapshotClipboard.instance {
+        snapshotClipboard = snapshotClipboard ?? PdfSnapshotClipboard.instance,
+        annotationClipboard =
+            annotationClipboard ?? PdfAnnotationSnapshotClipboard.instance {
     this.preferences.addListener(notifyListeners);
     // rebuild paste affordances live as the shared page clipboard fills or
     // clears - from this controller or from another document tab sharing it
@@ -393,6 +396,9 @@ class PdfEditingController extends ChangeNotifier {
     // same for the shared snapshot clipboard, so a region captured in one tab
     // lights up Paste-as-vector in every tab
     this.snapshotClipboard.addListener(notifyListeners);
+    // and for the shared annotation clipboard, so annotations copied in one
+    // tab light up Paste in every tab
+    this.annotationClipboard.addListener(notifyListeners);
   }
 
   /// The persisted UI preferences that own the tool styles (stroke width,
@@ -418,6 +424,15 @@ class PdfEditingController extends ChangeNotifier {
   /// See [copyVectorSnapshot] and [pasteSnapshot].
   final PdfSnapshotClipboard snapshotClipboard;
 
+  /// The clipboard copied/cut annotations live in, shared across document tabs
+  /// so annotations copied in one document paste into another (PDF annotations
+  /// don't round-trip the OS clipboard, so nothing else carries them between
+  /// tabs). Defaults to the process-wide
+  /// [PdfAnnotationSnapshotClipboard.instance]; pass a private one to isolate
+  /// a session. See [copySelectedAnnotations], [cutSelectedAnnotations], and
+  /// [pasteAnnotations].
+  final PdfAnnotationSnapshotClipboard annotationClipboard;
+
   /// The session's shared page-thumbnail cache (and its viewport-ordered
   /// render queue). Every thumbnail surface - the docked strip, the
   /// full-area page grid - draws from this one cache, so a page rendered for
@@ -436,6 +451,7 @@ class PdfEditingController extends ChangeNotifier {
     preferences.removeListener(notifyListeners);
     pageClipboard.removeListener(notifyListeners);
     snapshotClipboard.removeListener(notifyListeners);
+    annotationClipboard.removeListener(notifyListeners);
     super.dispose();
   }
 
@@ -4848,22 +4864,14 @@ class PdfEditingController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // clipboard
 
-  /// The in-app annotation clipboard: detached snapshots that survive
-  /// edits, undo, and document swaps (PDF annotations don't round-trip
-  /// the OS clipboard). Filled by copy/cut, consumed by
-  /// [pasteAnnotations].
-  List<PdfAnnotationSnapshot> _clipboard = const [];
-  int _clipboardSourcePage = -1;
+  /// Whether [pasteAnnotations] has anything to paste - including a copy
+  /// made in another document tab, since [annotationClipboard] is shared.
+  bool get hasAnnotationClipboard => annotationClipboard.isNotEmpty;
 
-  /// Pastes since the clipboard was last filled - each one cascades the
-  /// default paste position by another 12pt so copies don't stack.
-  int _pasteCount = 0;
-
-  /// Whether [pasteAnnotations] has anything to paste.
-  bool get hasAnnotationClipboard => _clipboard.isNotEmpty;
-
-  /// Copies the selected annotations to the in-app clipboard as
-  /// detached snapshots. Popups, links, and form widgets never copy
+  /// Copies the selected annotations to the in-app [annotationClipboard]
+  /// as detached snapshots - they survive edits, undo, and closing the
+  /// document they came from, and because the clipboard is shared they
+  /// paste into any open tab. Popups, links, and form widgets never copy
   /// (they can't be selected either). Returns how many were copied; the
   /// document is untouched.
   int copySelectedAnnotations() {
@@ -4876,9 +4884,8 @@ class PdfEditingController extends ChangeNotifier {
       if (snapshot != null) snapshots.add(snapshot);
     }
     if (snapshots.isEmpty) return 0;
-    _clipboard = snapshots;
-    _clipboardSourcePage = _selected.last.$1;
-    _pasteCount = 0;
+    annotationClipboard.set(snapshots,
+        owner: this, sourcePage: _selected.last.$1);
     // the most recent copy wins ⌘V (see [copyVectorSnapshot])
     snapshotClipboard.clear();
     notifyListeners();
@@ -4895,20 +4902,24 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// Pastes the clipboard onto [pageIndex] and selects the pasted
-  /// annotations (one revision - one undo removes them all).
+  /// annotations (one revision - one undo removes them all). The clipboard
+  /// is shared across tabs, so what pastes may have been copied from
+  /// another document.
   ///
   /// With [at] the group centers on that page point (the context menu
   /// pastes where the right-click landed). Without it the group keeps
   /// its position, shifted 12pt down-right per repeat paste - and per
-  /// the first paste too when it would sit exactly on the source. The
+  /// the first paste too when it would sit exactly on the source (the
+  /// page it was copied from, in the document it was copied from). The
   /// group always clamps into the page's crop box. Returns whether
   /// anything was pasted.
   bool pasteAnnotations(int pageIndex, {(double, double)? at}) {
-    if (_clipboard.isEmpty) return false;
+    final clipboard = annotationClipboard.snapshots;
+    if (clipboard.isEmpty) return false;
     if (pageIndex < 0 || pageIndex >= _document.pageCount) return false;
     var left = double.infinity, bottom = double.infinity;
     var right = double.negativeInfinity, top = double.negativeInfinity;
-    for (final snapshot in _clipboard) {
+    for (final snapshot in clipboard) {
       final r = snapshot.rect;
       if (r.left < left) left = r.left;
       if (r.bottom < bottom) bottom = r.bottom;
@@ -4920,24 +4931,25 @@ class PdfEditingController extends ChangeNotifier {
       dx = at.$1 - (left + right) / 2;
       dy = at.$2 - (bottom + top) / 2;
     } else {
-      final cascade = 12.0 *
-          (pageIndex == _clipboardSourcePage ? _pasteCount + 1 : _pasteCount);
+      final steps = annotationClipboard.pasteCount +
+          (annotationClipboard.isSource(this, pageIndex) ? 1 : 0);
+      final cascade = 12.0 * steps;
       dx = cascade;
       dy = -cascade;
     }
     final box = _page(pageIndex).cropBox;
     dx += _clampShift(left + dx, right + dx, box.left, box.right);
     dy += _clampShift(bottom + dy, top + dy, box.bottom, box.top);
-    final count = _clipboard.length;
+    final count = clipboard.length;
     final pasted = apply(
       (e) {
-        for (final snapshot in _clipboard) {
+        for (final snapshot in clipboard) {
           e.pasteAnnotation(pageIndex, snapshot, dx: dx, dy: dy);
         }
       },
     );
     if (!pasted) return false;
-    _pasteCount++;
+    annotationClipboard.markPasted();
     // pasted entries appended to /Annots - select them, like any editor
     tool = PdfEditTool.select;
     final total = _page(pageIndex).annotations.length;
@@ -5038,7 +5050,7 @@ class PdfEditingController extends ChangeNotifier {
     // bookkeeping when it sees this new snapshot (identity differs from the
     // anchor).
     snapshotClipboard.set(snapshot);
-    _clipboard = const [];
+    annotationClipboard.clear();
     notifyListeners();
     return snapshot;
   }

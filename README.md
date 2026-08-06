@@ -259,7 +259,9 @@ subsampling/PCRL-CPRL progressions.
 - The eraser slices ink: it removes exactly the stroke segments under
   the swept circle, splitting strokes where it crosses them.
 - Copy/cut/paste via keyboard and context menu; copies are deep
-  snapshots that survive undo and paste into other documents. Z-order
+  snapshots that survive undo, and the clipboard is shared across tabs,
+  so an annotation copied in one open document pastes into another
+  (even after the tab it came from is closed). Z-order
   edits reorder the page's /Annots array so they stick in any viewer.
   Touch reaches the same context menu with a long-press (on an
   annotation, a form field, or empty page area when the clipboard has
