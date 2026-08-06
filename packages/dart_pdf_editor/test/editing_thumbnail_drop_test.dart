@@ -154,6 +154,79 @@ void main() {
       await drain(tester);
     });
 
+    testWidgets('a bottom-sheet strip takes drops too', (tester) async {
+      wideScreen(tester);
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      final viewer = PdfViewerController();
+      final drop = PdfThumbnailDropController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      addTearDown(drop.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.bottomCenter,
+            child: SizedBox(
+              height: 400,
+              child: PdfThumbnailSidebar(
+                controller: editing,
+                viewerController: viewer,
+                bottomSheet: true,
+                fileDropController: drop,
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      expect(drop.dragOver(inTile(tester, stripTile(1), 0.25)), 1);
+      await tester.pump();
+      expect(find.byKey(const ValueKey('pdf-thumbnail-drop-indicator-1-top')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-thumbnail-drop-outline')),
+          findsOneWidget);
+      await drain(tester);
+    });
+
+    testWidgets('swapping the drop controller moves the registration',
+        (tester) async {
+      wideScreen(tester);
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      final viewer = PdfViewerController();
+      final first = PdfThumbnailDropController();
+      final second = PdfThumbnailDropController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      addTearDown(first.dispose);
+      addTearDown(second.dispose);
+      Future<void> pumpWith(PdfThumbnailDropController drop) =>
+          tester.pumpWidget(MaterialApp(
+            home: Scaffold(
+              body: Row(children: [
+                PdfThumbnailSidebar(
+                  controller: editing,
+                  viewerController: viewer,
+                  fileDropController: drop,
+                ),
+                const Expanded(child: SizedBox.expand()),
+              ]),
+            ),
+          ));
+
+      await pumpWith(first);
+      await tester.pump();
+      final point = inTile(tester, stripTile(1), 0.25);
+      expect(first.indexAt(point), 1);
+
+      await pumpWith(second);
+      await tester.pump();
+      // the strip answers its new controller and no longer the old one
+      expect(second.indexAt(point), 1);
+      expect(first.indexAt(point), isNull);
+      await drain(tester);
+    });
+
     testWidgets('a drag over the viewer clears a previous mark',
         (tester) async {
       wideScreen(tester);
@@ -199,6 +272,41 @@ void main() {
           findsOneWidget);
       await drain(tester);
     });
+
+    testWidgets('swapping the drop controller moves the registration',
+        (tester) async {
+      wideScreen(tester);
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      final viewer = PdfViewerController();
+      final first = PdfThumbnailDropController();
+      final second = PdfThumbnailDropController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      addTearDown(first.dispose);
+      addTearDown(second.dispose);
+      Future<void> pumpWith(PdfThumbnailDropController drop) =>
+          tester.pumpWidget(MaterialApp(
+            home: Scaffold(
+              body: PdfThumbnailView(
+                controller: editing,
+                viewerController: viewer,
+                fileDropController: drop,
+              ),
+            ),
+          ));
+
+      await pumpWith(first);
+      await tester.pump();
+      final rect = tester.getRect(gridCell(1));
+      final point = Offset(rect.left + rect.width * 0.2, rect.center.dy);
+      expect(first.indexAt(point), 1);
+
+      await pumpWith(second);
+      await tester.pump();
+      expect(second.indexAt(point), 1);
+      expect(first.indexAt(point), isNull);
+      await drain(tester);
+    });
   });
 
   group('PdfThumbnailDropController', () {
@@ -210,10 +318,12 @@ void main() {
 
       expect(drop.dragOver(const Offset(200, 0)), 3);
       expect(drop.isOverPanel, isTrue);
+      expect(drop.dropIndex, 3);
       expect(drop.indicatorIndexFor(resolver), 3);
 
       drop.detachPanel(resolver);
       expect(drop.isOverPanel, isFalse);
+      expect(drop.dropIndex, isNull);
       expect(drop.indexAt(const Offset(200, 0)), isNull);
     });
 
