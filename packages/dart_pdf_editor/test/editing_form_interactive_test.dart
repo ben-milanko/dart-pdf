@@ -1,3 +1,8 @@
+import 'dart:ui' show PointerDeviceKind;
+
+import 'package:flutter/cupertino.dart'
+    show CupertinoTextSelectionToolbar, CupertinoTextSelectionToolbarButton;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -116,6 +121,75 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();
       expect(session.isEditingText, isFalse);
+      await settle(tester);
+    });
+
+    testWidgets('the long-press selection menu lands on a zoomed field',
+        (tester) async {
+      // Above 100% the field sits under the viewer's zoom transform, which
+      // Flutter's selection toolbar inherits through its
+      // CompositedTransformFollower - it used to throw the menu hundreds of
+      // pixels off the field (off-screen on a phone), so a long press in a
+      // zoomed field looked dead. See editing_text_menu.dart.
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.getData') {
+          return <String, dynamic>{'text': 'pasteable'};
+        }
+        if (call.method == 'Clipboard.hasStrings') {
+          return <String, dynamic>{'value': true};
+        }
+        return null;
+      });
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+
+      // the reader's own inline editor (no editing controller), zoomed
+      // enough that the transform, not the layout, carries the zoom
+      await pumpViewer(tester, asReader: true, zoom: 1.5 * scale);
+      // the multi-line 'address' field, which stays mid-viewport at 1.5x
+      await tap(tester, const Offset(164, 147));
+      final editor = find.byKey(const ValueKey('pdf-form-text-editor'));
+      expect(editor, findsOneWidget);
+
+      // type first: an empty field parks its caret at the left edge, which
+      // this zoom has pushed off-screen, and a menu clamped by the screen
+      // edge can't say anything about where it was anchored
+      await tester.enterText(editor, 'address line one');
+      await tester.pump();
+      final field = tester.getRect(editor);
+      final press = Offset(250, field.top + 20);
+      final gesture =
+          await tester.startGesture(press, kind: PointerDeviceKind.touch);
+      await tester.pump(const Duration(milliseconds: 700));
+      await gesture.up();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final buttons = find.descendant(
+          of: find.byType(CupertinoTextSelectionToolbar),
+          matching: find.byType(CupertinoTextSelectionToolbarButton));
+      expect(buttons, findsWidgets);
+      final menu = List.generate(buttons.evaluate().length, (i) => i)
+          .map((i) => tester.getRect(buttons.at(i)))
+          .reduce((a, b) => a.expandToInclude(b));
+      final anchor = tester
+          .state<EditableTextState>(find.byType(EditableText))
+          .contextMenuAnchors
+          .primaryAnchor;
+      // centred on the anchor the framework measured (within the menu's own
+      // padding), above it, and on screen
+      expect(menu.center.dx, closeTo(anchor.dx, 12), reason: 'menu $menu');
+      expect(menu.bottom, lessThan(anchor.dy));
+      final screen =
+          Offset.zero & tester.view.physicalSize / tester.view.devicePixelRatio;
+      expect(screen.contains(menu.topLeft), isTrue, reason: 'menu $menu');
+      expect(screen.contains(menu.bottomRight), isTrue, reason: 'menu $menu');
+
+      debugDefaultTargetPlatformOverride = null;
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
       await settle(tester);
     });
 
