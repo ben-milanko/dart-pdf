@@ -3870,7 +3870,6 @@ class _TabDocumentPreviewState extends State<_TabDocumentPreview> {
   ui.Image? _image;
   Object? _pendingKey;
   Object? _imageKey;
-  bool _deferredFrameScheduled = false;
 
   Object get _key => (
         widget.controller,
@@ -3944,15 +3943,6 @@ class _TabDocumentPreviewState extends State<_TabDocumentPreview> {
     }
   }
 
-  void _retryAfterDeferredFrame() {
-    if (_deferredFrameScheduled) return;
-    _deferredFrameScheduled = true;
-    SchedulerBinding.instance.scheduleFrameCallback((_) {
-      _deferredFrameScheduled = false;
-      if (mounted) setState(() {});
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final key = _key;
@@ -3970,7 +3960,9 @@ class _TabDocumentPreviewState extends State<_TabDocumentPreview> {
       // PDF thumbnail generation is substantially heavier than decoding, so
       // obey the same signal and retry once the scroll begins to settle.
       if (Scrollable.recommendDeferredLoadingForContext(context)) {
-        _retryAfterDeferredFrame();
+        SchedulerBinding.instance.scheduleFrameCallback((_) {
+          if (mounted) setState(() {});
+        });
       } else {
         unawaited(_render(key, MediaQuery.devicePixelRatioOf(context)));
       }
