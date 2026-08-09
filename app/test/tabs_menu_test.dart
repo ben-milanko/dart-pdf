@@ -10,6 +10,50 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/incoming_file.dart';
 
+class _DeferredLoadingFlag {
+  bool value = true;
+}
+
+class _DeferredLoadingScrollBehavior extends MaterialScrollBehavior {
+  const _DeferredLoadingScrollBehavior(this.flag);
+
+  final _DeferredLoadingFlag flag;
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) {
+    return _DeferredLoadingScrollPhysics(
+      shouldDefer: () => flag.value,
+      parent: super.getScrollPhysics(context),
+    );
+  }
+}
+
+class _DeferredLoadingScrollPhysics extends ScrollPhysics {
+  const _DeferredLoadingScrollPhysics({
+    required this.shouldDefer,
+    super.parent,
+  });
+
+  final bool Function() shouldDefer;
+
+  @override
+  _DeferredLoadingScrollPhysics applyTo(ScrollPhysics? ancestor) {
+    return _DeferredLoadingScrollPhysics(
+      shouldDefer: shouldDefer,
+      parent: buildParent(ancestor),
+    );
+  }
+
+  @override
+  bool recommendDeferredLoading(
+    double velocity,
+    ScrollMetrics metrics,
+    BuildContext context,
+  ) {
+    return shouldDefer();
+  }
+}
+
 void main() {
   late PdfEditingPreferences prefs;
 
@@ -273,6 +317,43 @@ void main() {
         closeTo(612 / 792, 0.001));
     expect(tester.getSize(previewFor('landscape.pdf')).aspectRatio,
         closeTo(792 / 612, 0.001));
+  });
+
+  testWidgets('tab thumbnail rendering resumes after deferred loading',
+      (tester) async {
+    final deferLoading = _DeferredLoadingFlag();
+    final scrollBehavior = _DeferredLoadingScrollBehavior(deferLoading);
+    await tester.pumpWidget(MaterialApp(
+      scrollBehavior: scrollBehavior,
+      home: EditorScreen(prefs: prefs),
+    ));
+    await tester.pump();
+    await openTab(tester, 'alpha.pdf');
+    await openTab(tester, 'beta.pdf');
+
+    await tester.tap(find.byKey(const ValueKey('desktop-tabs-button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    final grid = find.byKey(const ValueKey('desktop-tabs-grid'));
+    final previewImages = find.descendant(
+      of: grid,
+      matching: find.byKey(const ValueKey('mobile-tab-preview-image')),
+    );
+    expect(grid, findsOneWidget);
+    expect(previewImages, findsNothing);
+
+    // The scheduled retry rebuilds the previews once scrolling settles, then
+    // the normal asynchronous PDF render is allowed to complete.
+    deferLoading.value = false;
+    await tester.runAsync(() async {
+      for (var i = 0; i < 50 && previewImages.evaluate().isEmpty; i++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    });
+
+    expect(previewImages, findsNWidgets(2));
   });
 
   testWidgets('hovering an inactive desktop tab shows its page preview',
