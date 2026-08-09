@@ -992,7 +992,8 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get shellShowAnnotations => 'Annotaties tonen';
 
   @override
-  String get shellShowScrollbarChapters => 'Show chapters on scrollbar';
+  String get shellShowScrollbarChapters =>
+      'Hoofdstukken op de schuifbalk tonen';
 
   @override
   String get shellTabHere => 'Tabblad hier';

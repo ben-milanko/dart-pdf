@@ -318,6 +318,7 @@
   "shellSectionView": "Affichage",
   "shellSettings": "Paramètres",
   "shellShowAnnotations": "Afficher les annotations",
+  "shellShowScrollbarChapters": "Afficher les chapitres dans la barre de défilement",
   "shellTabHere": "Onglet ici",
   "shellUnbound": "Non attribué",
   "shellZoom": "Zoom",

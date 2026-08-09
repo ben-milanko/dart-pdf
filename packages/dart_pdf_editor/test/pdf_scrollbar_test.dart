@@ -11,20 +11,21 @@ void main() {
       {int pages = 5,
       PdfViewerFit fit = PdfViewerFit.width,
       PdfDocument? document,
-      bool showScrollbarChapters = false}) async {
-    final controller = PdfViewerController();
+      bool showScrollbarChapters = false,
+      PdfViewerController? controller}) async {
+    final resolvedController = controller ?? PdfViewerController();
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
         body: PdfViewer(
           initialFit: fit,
           document: document ?? PdfDocument.open(buildMultiPagePdf(pages)),
-          controller: controller,
+          controller: resolvedController,
           showScrollbarChapters: showScrollbarChapters,
         ),
       ),
     ));
     await tester.pump();
-    return controller;
+    return resolvedController;
   }
 
   ScrollPosition scrollPosition(WidgetTester tester) =>
@@ -65,12 +66,14 @@ void main() {
     final editing = PdfEditingController(buildMultiPagePdf(5))
       ..addBookmark('Introduction', pageIndex: 0)
       ..addBookmark('Chapter 2', pageIndex: 3, parentPath: [0]);
-    await pumpViewer(tester, document: editing.document);
+    final controller = await pumpViewer(tester, document: editing.document);
 
     expect(find.byKey(const ValueKey('pdf-scrollbar-marker-0')), findsNothing);
 
-    final controller = await pumpViewer(tester,
-        document: editing.document, showScrollbarChapters: true);
+    await pumpViewer(tester,
+        document: editing.document,
+        showScrollbarChapters: true,
+        controller: controller);
 
     expect(
         find.byKey(const ValueKey('pdf-scrollbar-marker-0')), findsOneWidget);

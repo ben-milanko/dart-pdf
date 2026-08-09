@@ -985,7 +985,7 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get shellShowAnnotations => '显示注释';
 
   @override
-  String get shellShowScrollbarChapters => 'Show chapters on scrollbar';
+  String get shellShowScrollbarChapters => '在滚动条上显示章节';
 
   @override
   String get shellTabHere => '停靠为标签页';
@@ -2970,6 +2970,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get shellShowAnnotations => '顯示註解';
+
+  @override
+  String get shellShowScrollbarChapters => '在捲動軸上顯示章節';
 
   @override
   String get shellTabHere => '在此建立分頁';

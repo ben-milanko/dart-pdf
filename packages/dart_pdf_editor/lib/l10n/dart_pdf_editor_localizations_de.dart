@@ -992,7 +992,8 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get shellShowAnnotations => 'Anmerkungen anzeigen';
 
   @override
-  String get shellShowScrollbarChapters => 'Show chapters on scrollbar';
+  String get shellShowScrollbarChapters =>
+      'Kapitel auf der Bildlaufleiste anzeigen';
 
   @override
   String get shellTabHere => 'Hier als Tab';

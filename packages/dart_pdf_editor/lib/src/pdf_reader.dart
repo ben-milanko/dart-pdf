@@ -527,6 +527,7 @@ class _PdfReaderState extends State<PdfReader> {
                           backgroundColor: widget.backgroundColor,
                           pageColor: pageColor,
                           showAnnotations: prefs.showAnnotations,
+                          showScrollbarChapters: prefs.showScrollbarChapters,
                           highlightFormFields: prefs.highlightFormFields,
                           renderWorker: _shell.worker,
                           performance: _performance,

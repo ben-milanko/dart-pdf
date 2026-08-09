@@ -318,6 +318,7 @@
   "shellSectionView": "视图",
   "shellSettings": "设置",
   "shellShowAnnotations": "显示注释",
+  "shellShowScrollbarChapters": "在滚动条上显示章节",
   "shellTabHere": "停靠为标签页",
   "shellUnbound": "未绑定",
   "shellZoom": "缩放",

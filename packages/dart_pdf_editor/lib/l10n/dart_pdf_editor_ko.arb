@@ -318,6 +318,7 @@
   "shellSectionView": "보기",
   "shellSettings": "설정",
   "shellShowAnnotations": "주석 표시",
+  "shellShowScrollbarChapters": "스크롤바에 장 표시",
   "shellTabHere": "여기에 탭",
   "shellUnbound": "미지정",
   "shellZoom": "확대/축소",
