@@ -8,6 +8,7 @@ import '../annotation_tap.dart';
 import '../page_geometry.dart';
 import '../theme.dart';
 import 'editing_controller.dart';
+import 'editing_text_menu.dart';
 import 'text_prompt.dart';
 
 TextDirection _flutterTextDirection(String text) =>
@@ -439,6 +440,14 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
             // own focus steal while editing, so the field keeps focus
             // until this fires
             onTapOutside: (_) => _commitText(),
+            // the zoom transform would otherwise scale AND displace the
+            // long-press selection menu off-screen
+            contextMenuBuilder: (context, editableTextState) =>
+                pdfPlacedTextSelectionMenu(
+                  editableTextState,
+                  AdaptiveTextSelectionToolbar.editableText(
+                      editableTextState: editableTextState),
+                ),
             textDirection: _flutterTextDirection(_text.text),
             textAlign: _flutterTextDirection(_text.text) == TextDirection.rtl
                 ? TextAlign.right

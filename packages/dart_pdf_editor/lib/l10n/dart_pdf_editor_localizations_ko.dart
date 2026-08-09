@@ -408,6 +408,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get menuRemoveNode => '노드 제거';
 
   @override
+  String get menuSaveToStamps => '스탬프에 저장';
+
+  @override
   String get menuSetAsDefaultStyle => '기본 스타일로 설정';
 
   @override
@@ -989,6 +992,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get shellShowAnnotations => '주석 표시';
 
   @override
+  String get shellShowScrollbarChapters => '스크롤바에 장 표시';
+
+  @override
   String get shellTabHere => '여기에 탭';
 
   @override
@@ -1216,6 +1222,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
 
   @override
   String get stampNewStampTitle => '새 스탬프';
+
+  @override
+  String get stampSavedToCollection => '스탬프에 저장됨';
 
   @override
   String get stampSelectTextToEdit => '편집할 텍스트 선택';

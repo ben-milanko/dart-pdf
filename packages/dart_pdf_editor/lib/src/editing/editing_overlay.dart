@@ -23,6 +23,7 @@ import 'editing_image_crop.dart';
 import 'editing_interaction.dart';
 import 'editing_link.dart';
 import 'editing_measure.dart';
+import 'editing_text_menu.dart';
 import 'editing_tool_behavior.dart';
 import 'handle_layout.dart';
 import 'stroke_prediction.dart';
@@ -5591,18 +5592,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                 selectionControls: _ScaledTextSelectionControls(
                                     _chromeScale,
                                     _inlineTextHandleColor(context)),
+                                // the zoom transform would otherwise scale
+                                // AND displace the menu off-screen
                                 contextMenuBuilder:
-                                    (context, editableTextState) {
-                                  final menu =
-                                      AdaptiveTextSelectionToolbar.editableText(
-                                          editableTextState: editableTextState);
-                                  if (_chromeScale == 1) return menu;
-                                  return Transform.scale(
-                                    scale: _chromeScale,
-                                    alignment: Alignment.topCenter,
-                                    child: menu,
-                                  );
-                                },
+                                    (context, editableTextState) =>
+                                        pdfPlacedTextSelectionMenu(
+                                          editableTextState,
+                                          AdaptiveTextSelectionToolbar
+                                              .editableText(
+                                                  editableTextState:
+                                                      editableTextState),
+                                        ),
                                 // mirrors the committed appearance: same size
                                 // in view pixels, same leading/spacing,
                                 // matching family, color and underline

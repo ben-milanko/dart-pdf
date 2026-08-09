@@ -23,6 +23,9 @@ Offset viewPoint(double x, double y) => Offset(x * scale, (792 - y) * scale);
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    // controllers share the process-wide annotation clipboard by default;
+    // start each test from empty so one test's copy can't leak into the next.
+    PdfAnnotationSnapshotClipboard.instance.clear();
   });
 
   Future<PdfEditingController> pumpViewer(WidgetTester tester,

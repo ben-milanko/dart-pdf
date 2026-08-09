@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.4.0
+
+- Add exact per-character pen offsets to `PdfTextRun` and
+  `PdfExtractedRun`. Selection, search highlights, and hit testing now follow
+  proportional glyph widths instead of interpolating evenly across a run
+  (#647, #648).
+- Carry those offsets through render-command and text-cache serialization so
+  worker rendering and cached extraction preserve identical text geometry.
+
 ## 3.3.1
 
 - Lockstep patch release to align the dart-pdf package suite at 3.3.1. No

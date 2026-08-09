@@ -5,7 +5,7 @@ resolution: workspace
 
 # version is the single source of truth for every platform build; CI passes
 # --build-name / --build-number derived from it (see app/RELEASING.md).
-version: 3.3.1+25
+version: 3.4.0+26
 
 environment:
   sdk: ^3.5.0
@@ -23,16 +23,16 @@ dependencies:
   cupertino_icons: ^1.0.8
 
   # The PDF engine and editing UI live in the workspace packages.
-  dart_pdf_editor: ^3.3.1
+  dart_pdf_editor: ^3.4.0
   # The optional editor fonts + web render worker; registered at startup so the
   # app keeps the full-featured editor. A viewer-only app would omit this.
-  dart_pdf_editor_assets: ^3.3.1
-  pdf_document: ^3.3.1
-  pdf_cos: ^3.3.1
+  dart_pdf_editor_assets: ^3.4.0
+  pdf_document: ^3.4.0
+  pdf_cos: ^3.4.0
 
   # On-device, downloadable OCR - adds a selectable text layer over scans
   # without leaving the device (native platforms only).
-  pdf_ocr_ondevice: ^3.3.1
+  pdf_ocr_ondevice: ^3.4.0
 
   # Cross-platform file I/O and OS integration.
   file_selector: ^1.0.3
@@ -91,11 +91,11 @@ dev_dependencies:
     path: ../packages/dart_pdf_editor/example
 
   # Programmatically-built PDFs for widget tests.
-  pdf_test_fixtures: ^3.3.1
+  pdf_test_fixtures: ^3.4.0
 
   # Text extraction, used by the on-device OCR integration test to assert
   # the recognized layer is selectable (pdf_ocr_ondevice is a runtime dep).
-  pdf_graphics: ^3.3.1
+  pdf_graphics: ^3.4.0
   file_selector_platform_interface: ^2.7.0
   # Points the crash-recovery store at a temp directory so its append/truncate
   # behaviour can be tested against a real filesystem (see

@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.4.0
+
+- Add `PdfAnnotationSnapshotClipboard`, shared by default across editing
+  controllers, so annotations copied in one document can be pasted into
+  another open document (#653).
+- Add `PdfThumbnailDropController` and thumbnail-panel drop targets, enabling
+  hosts to insert externally dropped PDFs at an exact page position (#654).
+- Save eligible placed stamps back into the custom stamp collection while
+  preserving unresolved template fields, type, tags, and colour (#651).
+- Add optional persistent scrollbar chapter markers and surface the selected
+  annotation's colour in editing style controls (#643, #652).
+- Align selection, search, and substituted-font painting to the PDF's exact
+  per-character advances for proportional fonts (#647, #648, #649, #655).
+- Keep the touch text-selection menu under the viewer zoom transform and hide
+  page-colour editing from reader-only shells (#650, #656).
+
 ## 3.3.1
 
 - Fix annotation property edits duplicating an annotation in PDFs that store

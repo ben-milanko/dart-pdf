@@ -67,6 +67,7 @@ class PdfTextRun {
     this.fontName,
     this.fontSize = 0,
     this.glyphs,
+    this.charOffsets,
     this.invisible = false,
     this.fill = true,
     this.strokeColor,
@@ -168,6 +169,21 @@ class PdfTextRun {
   /// Real glyph outlines from the embedded font, when available. Devices
   /// should prefer these over substituted text rendering.
   final List<PdfGlyphPlacement>? glyphs;
+
+  /// Em-space pen offset of every character boundary in [text] - entry `i` is
+  /// the advance from the run origin to the start of `text[i]`, and the last
+  /// entry (index `text.length`) is [width]. Always ascending.
+  ///
+  /// Unlike [glyphs] this is populated for substituted fonts too (it needs
+  /// only the metrics, not outlines), so consumers get exact intra-run
+  /// geometry for any horizontal run. A character code that maps to several
+  /// characters (a ligature through /ToUnicode) splits its advance evenly
+  /// across them, since the PDF exposes no finer position.
+  ///
+  /// Null unless the interpreter was built with `collectCharOffsets`, and
+  /// null for vertical writing mode, where the pen advances along y. Callers
+  /// must fall back to interpolating across [width] when it is absent.
+  final List<double>? charOffsets;
 
   bool get hasOutlines =>
       glyphs != null && glyphs!.any((g) => g.outline != null);
@@ -271,7 +287,8 @@ abstract interface class PdfDevice {
   /// approximation cannot act on its zero-component distinction, which is a
   /// colorant-space question the buffer has already answered. Non-compositing
   /// devices can ignore all three.
-  void setOverprint({required bool fill, required bool stroke, required int mode});
+  void setOverprint(
+      {required bool fill, required bool stroke, required int mode});
 
   /// Brackets a transparency-group form (§11.6.6) whose composite result
   /// paints at [alpha]. Inside the group, alpha starts over at 1.0; the

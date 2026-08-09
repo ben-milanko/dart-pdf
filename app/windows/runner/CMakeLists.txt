@@ -38,8 +38,9 @@ target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
 # image_clipboard.cpp: WIC (PNG<->DIB) plus COM stream helpers.
 target_link_libraries(${BINARY_NAME} PRIVATE "windowscodecs.lib" "ole32.lib")
-# native_print.cpp: the print dialog (comdlg32) and GDI blitting (gdi32).
-target_link_libraries(${BINARY_NAME} PRIVATE "comdlg32.lib" "gdi32.lib")
+# native_print.cpp: the print dialog (comdlg32), persisted settings (advapi32),
+# and GDI blitting (gdi32).
+target_link_libraries(${BINARY_NAME} PRIVATE "comdlg32.lib" "advapi32.lib" "gdi32.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.

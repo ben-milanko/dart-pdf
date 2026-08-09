@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.4.0
+
+- Preserve the unresolved vector template on authored stamp annotations and
+  expose it through `PdfAnnotation.stampTemplate`, allowing a placed stamp to
+  return to a reusable collection without losing dynamic fields (#651).
+
 ## 3.3.1
 
 - Fix annotation property edits duplicating the annotation when a page stores

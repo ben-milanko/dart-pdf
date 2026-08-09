@@ -387,6 +387,48 @@ void main() {
       expect(run.width, closeTo(5.501, 1e-9));
     });
 
+    test('a substituted run carries per-character offsets unasked (#649)', () {
+      // A device with no embedded font program substitutes a system font, and
+      // can only match the run's total advance - interior glyphs then drift
+      // several points from the geometry selection and search use. It needs the
+      // PDF's own per-character offsets to place them, and nothing else in the
+      // run carries them, so the painting walk gets the table without opting in.
+      final doc = PdfDocument.open(buildClassicPdf());
+      final device = RecordingDevice();
+      PdfInterpreter(cos: doc.cos, device: device).drawPage(doc.page(0));
+
+      final run = device.texts.single;
+      expect(run.glyphs, isNull, reason: 'the fixture font is not embedded');
+      final offsets = run.charOffsets;
+      expect(offsets, isNotNull);
+      expect(offsets, hasLength(run.text.length + 1));
+      expect(offsets!.first, 0);
+      expect(offsets.last, closeTo(run.width, 1e-9));
+      for (var i = 0; i < run.text.length; i++) {
+        expect(offsets[i],
+            closeTo(measureHelvetica(run.text.substring(0, i), 1), 1e-9));
+      }
+    });
+
+    test('an embedded run pays for no offset table (#649)', () {
+      // Its glyph list already carries the same positions, so collecting them
+      // again would be a list per run for nothing.
+      final doc = PdfDocument.open(buildEmbeddedFontPdf());
+      final device = RecordingDevice();
+      PdfInterpreter(cos: doc.cos, device: device).drawPage(doc.page(0));
+
+      final run = device.texts.single;
+      expect(run.glyphs, isNotNull);
+      expect(run.charOffsets, isNull);
+
+      // Text extraction still asks for them explicitly, and gets them.
+      final extracting = RecordingDevice();
+      PdfInterpreter(cos: doc.cos, device: extracting, collectCharOffsets: true)
+          .drawPage(doc.page(0));
+      expect(extracting.texts.single.charOffsets,
+          hasLength(extracting.texts.single.text.length + 1));
+    });
+
     test('word/char spacing and edge whitespace feed the substitute geometry',
         () {
       // A Type1 Helvetica resource (built-in AFM widths: a=b=0.556, space=0.278

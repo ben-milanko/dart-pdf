@@ -973,6 +973,7 @@ class PdfViewer extends StatefulWidget {
     this.backgroundColor,
     this.pageColor = const Color(0xFFFFFFFF),
     this.showAnnotations = true,
+    this.showScrollbarChapters = false,
     this.highlightFormFields = true,
     this.interactiveForms = true,
     this.pagePreviews = true,
@@ -1344,6 +1345,10 @@ class PdfViewer extends StatefulWidget {
   /// and editing tools still work but draw over an unannotated page -
   /// hosts typically disarm editing while hiding.
   final bool showAnnotations;
+
+  /// Whether outline/bookmark destinations are shown as labelled markers on
+  /// the main scrollbar. Off by default to keep the scrollbar uncluttered.
+  final bool showScrollbarChapters;
 
   /// Washes every visible form-field widget with a translucent tint and
   /// a hairline border, the way desktop PDF editors mark fields - most
@@ -2864,6 +2869,7 @@ class _PdfViewerState extends State<PdfViewer>
     final count = document.pageCount;
     _pages = [for (var i = 0; i < count; i++) document.page(i)];
     _pageLabels = null; // recompute lazily for the (possibly new) document
+    _outline = null; // outline entries may change in an editing revision
     _recomputeAspects();
     _controller._setPageCount(count);
   }
@@ -2871,8 +2877,62 @@ class _PdfViewerState extends State<PdfViewer>
   /// The document's logical page labels (/PageLabels), parsed once per
   /// document and reset on a document swap in [_loadPages].
   PdfPageLabels? _pageLabels;
+  PdfOutline? _outline;
   PdfPageLabels get _labels =>
       _pageLabels ??= PdfPageLabels.of(_document);
+
+  PdfOutline get _documentOutline => _outline ??= PdfOutline.of(_document);
+
+  /// Scroll-track chapter ticks derived from the PDF outline. A breadcrumb
+  /// keeps nested headings understandable without permanently taking space
+  /// from the document; it appears only in the tick's tooltip.
+  List<PdfScrollbarMarker> _outlineScrollMarkers() {
+    var total = _pages.length * widget.pageSpacing;
+    for (var i = 0; i < _pages.length; i++) {
+      total += _pageMain(i);
+    }
+    if (total <= 0) return const [];
+    final markers = <PdfScrollbarMarker>[];
+
+    void visit(List<PdfOutlineItem> items, List<String> parents) {
+      for (final item in items) {
+        final title = item.title.trim();
+        final path = title.isEmpty ? parents : [...parents, title];
+        final destination = item.destination;
+        if (destination != null &&
+            destination.pageIndex >= 0 &&
+            destination.pageIndex < _pages.length) {
+          final page = destination.pageIndex;
+          var offset = _mainOffsetOf(page);
+          final box = _pages[page].cropBox;
+          if (_horizontal) {
+            final left = destination.left;
+            if (left != null && box.width > 0) {
+              offset += ((left - box.left) / box.width).clamp(0.0, 1.0) *
+                  _pageMain(page);
+            }
+          } else {
+            final top = destination.top;
+            if (top != null && box.height > 0) {
+              offset += ((box.top - top) / box.height).clamp(0.0, 1.0) *
+                  _pageMain(page);
+            }
+          }
+          markers.add(PdfScrollbarMarker(
+            position: (offset / total).clamp(0.0, 1.0),
+            label: path.isEmpty
+                ? 'Page ${_pageLabelFor(page)}'
+                : path.join(' › '),
+            onTap: () => _controller.showDestination(destination),
+          ));
+        }
+        visit(item.children, path);
+      }
+    }
+
+    visit(_documentOutline.items, const []);
+    return markers;
+  }
 
   /// The logical label for page [index], or its 1-based number when the
   /// document carries no labels.
@@ -5782,7 +5842,12 @@ class _PdfViewerState extends State<PdfViewer>
       _trackpadPendingPan += delta;
       // a draw tool armed: never latch zoom, so a pinch can't scale the
       // page mid-stroke - two-finger motion only scrolls
-      if ((event.scale - 1).abs() > 0.01 && !_drawToolArmed) {
+      // A real pan reports exactly 1.0. Do not use a visual zoom dead band
+      // here: slow pinch-out gestures commonly begin with a sub-percent
+      // scale change while their incidental finger drift already exceeds
+      // the pan threshold. Treating that as scrolling latches the wrong
+      // intent for the remainder of the gesture.
+      if (event.scale != 1.0 && !_drawToolArmed) {
         _trackpadIntent = _TrackpadIntent.zoom;
       } else if (_trackpadPendingPan.distance > 8) {
         _trackpadIntent = _TrackpadIntent.scroll;
@@ -6569,6 +6634,9 @@ class _PdfViewerState extends State<PdfViewer>
                     minOverflow: widget.pageSpacing,
                     onScrollBy: _scrollbarScrollBy,
                     thumbKey: const ValueKey('pdf-scrollbar-thumb'),
+                    markers: widget.showScrollbarChapters
+                        ? _outlineScrollMarkers()
+                        : const [],
                   )),
                 _positionedScrollbar(PdfScrollbar(
                   axis: _horizontal ? Axis.vertical : Axis.horizontal,

@@ -7,10 +7,68 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 using Microsoft::WRL::ComPtr;
 
 namespace {
+
+// PrintDlgEx owns the familiar Windows print-preview/settings surface. Keep
+// the opaque blocks it returns in HKCU: DEVMODE contains paper, orientation,
+// colour, duplex, copies, etc.; DEVNAMES identifies the selected printer.
+// Feeding both blocks into the next dialog also makes the choices survive an
+// application restart, rather than resetting them on every Ctrl+P.
+constexpr wchar_t kPrintSettingsKey[] =
+    L"Software\\Milanko\\DartPDF\\PrintSettings";
+constexpr wchar_t kDevModeValue[] = L"DevMode";
+constexpr wchar_t kDevNamesValue[] = L"DevNames";
+
+HGLOBAL LoadPrintBlock(const wchar_t* value_name) {
+  DWORD type = 0;
+  DWORD size = 0;
+  if (::RegGetValueW(HKEY_CURRENT_USER, kPrintSettingsKey, value_name,
+                     RRF_RT_REG_BINARY, &type, nullptr, &size) != ERROR_SUCCESS ||
+      size == 0 || size > static_cast<DWORD>(std::numeric_limits<int>::max())) {
+    return nullptr;
+  }
+  HGLOBAL block = ::GlobalAlloc(GMEM_MOVEABLE, size);
+  if (block == nullptr) return nullptr;
+  void* bytes = ::GlobalLock(block);
+  DWORD read = size;
+  const LSTATUS status =
+      bytes == nullptr
+          ? ERROR_NOT_ENOUGH_MEMORY
+          : ::RegGetValueW(HKEY_CURRENT_USER, kPrintSettingsKey, value_name,
+                           RRF_RT_REG_BINARY, &type, bytes, &read);
+  if (bytes != nullptr) ::GlobalUnlock(block);
+  if (status != ERROR_SUCCESS || read != size) {
+    ::GlobalFree(block);
+    return nullptr;
+  }
+  return block;
+}
+
+void SavePrintBlock(const wchar_t* value_name, HGLOBAL block) {
+  if (block == nullptr) return;
+  const SIZE_T size = ::GlobalSize(block);
+  if (size == 0 || size > std::numeric_limits<DWORD>::max()) return;
+  const void* bytes = ::GlobalLock(block);
+  if (bytes == nullptr) return;
+  HKEY key = nullptr;
+  if (::RegCreateKeyExW(HKEY_CURRENT_USER, kPrintSettingsKey, 0, nullptr, 0,
+                        KEY_SET_VALUE, nullptr, &key, nullptr) == ERROR_SUCCESS) {
+    ::RegSetValueExW(key, value_name, 0, REG_BINARY,
+                     static_cast<const BYTE*>(bytes),
+                     static_cast<DWORD>(size));
+    ::RegCloseKey(key);
+  }
+  ::GlobalUnlock(block);
+}
+
+void FreePrintDialogBlocks(HGLOBAL dev_mode, HGLOBAL dev_names) {
+  if (dev_mode != nullptr) ::GlobalFree(dev_mode);
+  if (dev_names != nullptr) ::GlobalFree(dev_names);
+}
 
 // ---------------------------------------------------------------------------
 // Vector op stream (VPR1) replay onto a printer DC.
@@ -476,22 +534,31 @@ bool NativePrinter::End(HWND owner) {
   doc_name_.clear();
   if (pages.empty()) return false;
 
-  PRINTDLGW pd = {};
+  PRINTDLGEXW pd = {};
   pd.lStructSize = sizeof(pd);
   pd.hwndOwner = owner;
   pd.Flags = PD_RETURNDC | PD_NOPAGENUMS | PD_NOSELECTION |
              PD_USEDEVMODECOPIESANDCOLLATE;
-  pd.nCopies = 1;
-  // PrintDlg returns 0 both on cancel and on error; nothing to print either
-  // way. Free anything it allocated.
-  if (!::PrintDlgW(&pd)) {
+  pd.nStartPage = START_PAGE_GENERAL;
+  pd.hDevMode = LoadPrintBlock(kDevModeValue);
+  pd.hDevNames = LoadPrintBlock(kDevNamesValue);
+  // Use the extended Windows print UI rather than the legacy PrintDlg. Besides
+  // being the preview-capable system surface on current Windows releases, it
+  // distinguishes Print from Apply and Cancel. Persist Apply too: changing a
+  // preference and closing the dialog should still affect the next print.
+  const HRESULT dialog_result = ::PrintDlgExW(&pd);
+  if (SUCCEEDED(dialog_result) &&
+      (pd.dwResultAction == PD_RESULT_PRINT ||
+       pd.dwResultAction == PD_RESULT_APPLY)) {
+    SavePrintBlock(kDevModeValue, pd.hDevMode);
+    SavePrintBlock(kDevNamesValue, pd.hDevNames);
+  }
+  if (FAILED(dialog_result) || pd.dwResultAction != PD_RESULT_PRINT) {
     if (pd.hDC != nullptr) ::DeleteDC(pd.hDC);
-    if (pd.hDevMode != nullptr) ::GlobalFree(pd.hDevMode);
-    if (pd.hDevNames != nullptr) ::GlobalFree(pd.hDevNames);
+    FreePrintDialogBlocks(pd.hDevMode, pd.hDevNames);
     return false;
   }
-  if (pd.hDevMode != nullptr) ::GlobalFree(pd.hDevMode);
-  if (pd.hDevNames != nullptr) ::GlobalFree(pd.hDevNames);
+  FreePrintDialogBlocks(pd.hDevMode, pd.hDevNames);
   HDC hdc = pd.hDC;
   if (hdc == nullptr) return false;
 

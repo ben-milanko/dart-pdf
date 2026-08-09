@@ -408,6 +408,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get menuRemoveNode => 'नोड हटाएँ';
 
   @override
+  String get menuSaveToStamps => 'स्टैम्प में सहेजें';
+
+  @override
   String get menuSetAsDefaultStyle => 'डिफ़ॉल्ट शैली के रूप में सेट करें';
 
   @override
@@ -992,6 +995,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get shellShowAnnotations => 'एनोटेशन दिखाएँ';
 
   @override
+  String get shellShowScrollbarChapters => 'स्क्रॉलबार पर अध्याय दिखाएँ';
+
+  @override
   String get shellTabHere => 'यहाँ टैब करें';
 
   @override
@@ -1219,6 +1225,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
 
   @override
   String get stampNewStampTitle => 'नया स्टैम्प';
+
+  @override
+  String get stampSavedToCollection => 'स्टैम्प में सहेजा गया';
 
   @override
   String get stampSelectTextToEdit => 'संपादित करने के लिए टेक्स्ट चुनें';

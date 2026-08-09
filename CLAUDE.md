@@ -87,7 +87,13 @@ policy live on the handler, shared with the loader's `decryptObjectGraph`);
 signing encrypted files stays refused). Annotation authoring is in:
 `PdfEditor` creates highlights/ink/shapes/free text/notes/stamps with
 generated appearance streams (`annotation_editor.dart`) and can flatten
-them into page content. AcroForm support is in: `PdfAcroForm`/`PdfFormField`
+them into page content. A template stamp records its design - unresolved,
+so `{{date}}` stays live - as private metadata (`DartPdfStampTemplate` →
+`PdfAnnotation.stampTemplate`, skipped past
+`maxStampTemplateMetadataBytes`), which is how the editor's right-click
+"Save to stamps" (`customStampOf` / `saveSelectedAsCustomStamp`) puts a
+placed stamp back into the collection; see
+doc/dev-log/2026-08-06-save-stamp-from-page.md. AcroForm support is in: `PdfAcroForm`/`PdfFormField`
 model (`form.dart`) plus filling with regenerated appearances
 (`form_editor.dart` - text/checkbox/radio/choice, auto-size, quadding).
 Page manipulation is in (`page_editor.dart`): reorder/move/remove flatten
@@ -335,6 +341,15 @@ size slider (`thumbnailViewTileWidth` pref), custom drag reorder
 onActivatePage`). `PdfEditorView` overlays it over the live viewer as a
 view mode (`showThumbnailView`, toggled from View options alongside
 reflow; `altView` = reflow-or-grid suppresses the panels/toolbar).
+Both panels take an external PDF **dropped between two tiles**:
+`PdfThumbnailDropController` (editing_thumbnail_drop.dart) is the seam -
+panels register a global-position→slot resolver and paint the insertion
+marker, the host (which owns the platform drag stream) drives
+`dragOver`/`indexAt`/`endDrag` and inserts at the returned index.
+`PdfEditorView(thumbnailDropController:)` forwards it; the app wires it
+to its `desktop_drop` `DropTarget`, so a positioned drop skips the
+open-or-insert dialog. See
+doc/dev-log/2026-08-06-thumbnail-file-drop-position.md.
 
 ## Development session log
 

@@ -13,6 +13,7 @@ void _expectRunEquals(PdfExtractedRun a, PdfExtractedRun b) {
   expect(b.mcid, a.mcid);
   expect(b.width, a.width);
   expect(b.isRightToLeft, a.isRightToLeft);
+  expect(b.charOffsets, a.charOffsets);
   expect([b.transform.a, b.transform.b, b.transform.c, b.transform.d,
     b.transform.e, b.transform.f],
       [a.transform.a, a.transform.b, a.transform.c, a.transform.d,

@@ -246,6 +246,10 @@ subsampling/PCRL-CPRL progressions.
 - Callouts pair an editable text box with a leader line and arrowhead. The
   terminus and its attachment to the box can be repositioned independently,
   while moving the body keeps the whole callout together.
+- A stamp on the page goes back into the stamp collection from its
+  right-click menu, so a design that arrived in a document is reusable.
+  Stamps this editor placed come back exactly - the vector design travels
+  with them, `{{date}}`-style fields still live.
 - Takeoff tools calibrate a drawing's scale, then measure distance, perimeter,
   area, slope, angle, arc length, or volume. A count tool places and totals
   check-mark stamps.
@@ -259,7 +263,9 @@ subsampling/PCRL-CPRL progressions.
 - The eraser slices ink: it removes exactly the stroke segments under
   the swept circle, splitting strokes where it crosses them.
 - Copy/cut/paste via keyboard and context menu; copies are deep
-  snapshots that survive undo and paste into other documents. Z-order
+  snapshots that survive undo, and the clipboard is shared across tabs,
+  so an annotation copied in one open document pastes into another
+  (even after the tab it came from is closed). Z-order
   edits reorder the page's /Annots array so they stick in any viewer.
   Touch reaches the same context menu with a long-press (on an
   annotation, a form field, or empty page area when the clipboard has

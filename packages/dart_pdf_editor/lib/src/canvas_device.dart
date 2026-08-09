@@ -18,8 +18,7 @@ import 'perf_log.dart';
 /// engine produces real glyph outlines. Images must be pre-decoded into
 /// [images] (painting is synchronous).
 class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
-  CanvasPdfDevice(this.canvas,
-      {this.images = const {}, this.pixelRatio = 1});
+  CanvasPdfDevice(this.canvas, {this.images = const {}, this.pixelRatio = 1});
 
   final Canvas canvas;
 
@@ -98,6 +97,25 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
   /// 0% for every run this gate admits (kerning-pair uppercase words, the only
   /// divergent case, are excluded), so the speed-up carries no fidelity cost.
   static bool perGlyphSubstitutedText = true;
+
+  /// Place substituted glyphs at the PDF's own per-character pen offsets
+  /// ([PdfTextRun.charOffsets]) instead of letting the substitute distribute
+  /// them (#649).
+  ///
+  /// The uniform horizontal scale that makes a substituted run's total advance
+  /// match the PDF pins the run's two endpoints and nothing in between, so
+  /// interior glyphs land wherever the substitute's own advances put them -
+  /// measured at up to 4.4pt of drift on a 77-character 12pt Helvetica line,
+  /// zero at both ends and worst mid-run. Everything geometric (selection
+  /// bands, search highlights, markup placed over a selection, content-element
+  /// hit boxes) derives from the PDF's advances, so all of it reads as offset
+  /// against the drawn glyphs by that much.
+  ///
+  /// Placing each character at its own offset makes the interior correct by
+  /// construction. It drops the substitute's cross-character kerning, which is
+  /// the point: a PDF expresses its kerning as TJ adjustments, those are
+  /// already in the offsets, and the substitute's own kerning is error.
+  static bool exactSubstitutedGlyphPlacement = true;
 
   /// Em-space [ui.Path] per embedded-glyph outline, keyed by outline identity.
   /// An [Expando] ties each entry to its [PdfPath]'s lifetime (the font's own
@@ -750,13 +768,27 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
         ? _trimmedForPaint(run)
         : run;
 
-    final compose = perGlyphSubstitutedText &&
-        paintRun.gradient == null &&
-        paintRun.strokeColor == null &&
+    // A gradient or a stroke paints through its own whole-run painter below,
+    // which no per-character layout can stand in for - those keep whole-run
+    // shaping so painter and layout stay width-consistent.
+    final wholeRunPaint =
+        paintRun.gradient != null || paintRun.strokeColor != null;
+    // The PDF's own per-character pen offsets, when this run carries them and
+    // its script lays one glyph out per character (#649). Preferred over both
+    // the composed and the whole-run path: it is the only one whose interior
+    // matches the geometry selection and search are computed from.
+    final placements = exactSubstitutedGlyphPlacement && !wholeRunPaint
+        ? _placeableOffsets(paintRun)
+        : null;
+    final compose = placements == null &&
+        perGlyphSubstitutedText &&
+        !wholeRunPaint &&
         paintRun.letterSpacing == 0 &&
         paintRun.wordSpacing == 0 &&
         _composableRun(paintRun.text);
-    final layout = _measureLayout(paintRun, compose: compose);
+    final layout = placements != null
+        ? _placedLayout(paintRun, placements)
+        : _measureLayout(paintRun, compose: compose);
 
     canvas.save();
     canvas.transform(_toFloat64(run.transform));
@@ -783,8 +815,7 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
           gradientFill = TextPainter(
             text: TextSpan(
                 text: paintRun.text,
-                style: _styleFor(
-                    paintRun,
+                style: _styleFor(paintRun,
                     foreground: Paint()
                       ..shader = _shaderFor(gradient,
                           transform: gradient.transform.concat(pageToLocal))
@@ -801,7 +832,8 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
     TextPainter? strokePainter;
     if (paintRun.strokeColor != null) {
       final ts = run.transform.scaleFactor;
-      final w = paintRun.strokeWidth > 0 ? paintRun.strokeWidth : ts / renderSize;
+      final w =
+          paintRun.strokeWidth > 0 ? paintRun.strokeWidth : ts / renderSize;
       strokePainter = TextPainter(
         text: TextSpan(
           text: paintRun.text,
@@ -836,10 +868,29 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
   /// caller as a canvas translation, so it is zeroed here. Everything else -
   /// transform, colour, spacing, stroke, gradient - is carried through unchanged.
   static PdfTextRun _trimmedForPaint(PdfTextRun run) {
-    final core = _trimEdges(run.text);
+    final text = run.text;
+    var start = 0;
+    var end = text.length;
+    while (start < end && _isTrimWhitespace(text.codeUnitAt(start))) {
+      start++;
+    }
+    while (end > start && _isTrimWhitespace(text.codeUnitAt(end - 1))) {
+      end--;
+    }
+    final core = text.substring(start, end);
     final coreWidth = (run.visibleWidth ?? run.width) - run.leadingSpace;
+    // Rebase the per-character offsets onto the trimmed text. They are rebased
+    // by the caller's own translation ([leadingSpace]), not by `offsets[start]`,
+    // so a disagreement between this trim and the interpreter's per-glyph
+    // visibility test shifts nothing: every character keeps its absolute
+    // position on the page.
+    final offsets = run.charOffsets;
+    final coreOffsets = offsets != null && offsets.length == text.length + 1
+        ? [for (var i = start; i <= end; i++) offsets[i] - run.leadingSpace]
+        : null;
     return PdfTextRun(
       text: core,
+      charOffsets: coreOffsets,
       transform: run.transform,
       color: run.color,
       width: coreWidth,
@@ -855,10 +906,23 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
     );
   }
 
-  /// Strips leading and trailing Unicode whitespace, matching the interpreter's
-  /// `text.trim().isNotEmpty` visibility test that produced leadingSpace /
-  /// visibleWidth.
-  static String _trimEdges(String s) => s.trim();
+  /// The code units [String.trim] strips - the interpreter's
+  /// `text.trim().isNotEmpty` visibility test, which produced leadingSpace /
+  /// visibleWidth, uses the same set. Tested by index rather than by trimming a
+  /// substring so the character offsets can be sliced to match.
+  static bool _isTrimWhitespace(int cu) =>
+      (cu >= 0x09 && cu <= 0x0D) ||
+      cu == 0x20 ||
+      cu == 0x85 ||
+      cu == 0xA0 ||
+      cu == 0x1680 ||
+      (cu >= 0x2000 && cu <= 0x200A) ||
+      cu == 0x2028 ||
+      cu == 0x2029 ||
+      cu == 0x202F ||
+      cu == 0x205F ||
+      cu == 0x3000 ||
+      cu == 0xFEFF;
 
   /// A laid-out painter (+ width/baseline) for a substituted-font run, served
   /// from the process-wide cache. The key is (text, font, colour) — everything
@@ -871,16 +935,19 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
     final key = '${run.text} ${run.fontName ?? ''} '
         '${c.red},${c.green},${c.blue} '
         '${run.letterSpacing},${run.wordSpacing}';
-    if (!PdfPerfLog.enabled) {
-      return _textCache.getOrAdd(key, () => _shapeLayout(run));
-    }
-    // Instrumented path (#454): the factory runs only on a miss, so timing it
-    // isolates the shaping cost, and the flag separates miss from hit.
+    return _cachedLayout(key, () => _shapeLayout(run));
+  }
+
+  /// The run-cache lookup, with the shaping instrumentation (#454) wrapped
+  /// around it: [build] runs only on a miss, so timing it isolates the shaping
+  /// cost and the flag separates miss from hit.
+  _TextLayout _cachedLayout(String key, _TextLayout Function() build) {
+    if (!PdfPerfLog.enabled) return _textCache.getOrAdd(key, build);
     var missed = false;
     final layout = _textCache.getOrAdd(key, () {
       missed = true;
       final clock = Stopwatch()..start();
-      final l = _shapeLayout(run);
+      final l = build();
       debugTextShapeUs += clock.elapsedMicroseconds;
       return l;
     });
@@ -922,6 +989,9 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
   }
 
   /// A single character's cached layout, keyed like the run cache but per rune.
+  /// Laid out without the run's Tc/Tw: a per-character layout is positioned by
+  /// its caller, which knows the real advances, so baking spacing into the
+  /// glyph would double-count it - and it would make the key a lie.
   _TextLayout _glyphLayout(int rune, PdfTextRun run) {
     final c = run.color;
     final key = '$rune ${run.fontName ?? ''} ${c.red},${c.green},${c.blue}';
@@ -929,7 +999,7 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
       final painter = TextPainter(
         text: TextSpan(
             text: String.fromCharCode(rune),
-            style: _styleFor(run, foreground: null)),
+            style: _styleFor(run, foreground: null, applySpacing: false)),
         textDirection: TextDirection.ltr,
       )..layout();
       final baseline =
@@ -937,6 +1007,224 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
       return _TextLayout(painter, painter.width, baseline);
     });
   }
+
+  /// The per-character pen offsets to paint [run] at, or null when this run
+  /// must keep whole-run (or naturally composed) placement (#649).
+  ///
+  /// Requires a table of the right shape, a positive advance to scale against,
+  /// and a script that lays one glyph out per character - see [_placeableRun].
+  static List<double>? _placeableOffsets(PdfTextRun run) {
+    final offsets = run.charOffsets;
+    if (offsets == null || run.text.isEmpty || run.width <= 0) return null;
+    if (offsets.length != run.text.length + 1) return null;
+    return _placeableRun(run.text) ? offsets : null;
+  }
+
+  /// How far, in em, a word's own shaped advance may differ from the PDF's
+  /// before [_buildPlacedLayout] stops shaping it whole and places its
+  /// characters individually. 0.02 em is 0.24pt at 12pt - an order of
+  /// magnitude under the drift this fixes, and small enough that the
+  /// difference is invisible where it is tolerated.
+  static const double _placementToleranceEm = 0.02;
+
+  /// A run laid out at the PDF's own pen offsets (#649) instead of at the
+  /// substitute's cumulative advances, served from the run cache. The key
+  /// carries the offsets as well as everything [_styleFor] reads, because the
+  /// same text under different advances is a different layout.
+  _TextLayout _placedLayout(PdfTextRun run, List<double> offsets) {
+    final c = run.color;
+    final key = '${run.text} ${run.fontName ?? ''} '
+        '${c.red},${c.green},${c.blue} p${_offsetsHash(offsets)}';
+    // A run with nothing to scale against falls back to whole-run shaping,
+    // cached under this key too so the failed attempt is not repeated.
+    return _cachedLayout(
+        key, () => _buildPlacedLayout(run, offsets) ?? _shapeLayout(run));
+  }
+
+  /// Builds the layout [_placedLayout] caches: one part per **word** - a
+  /// maximal span of non-whitespace characters - drawn at that word's own
+  /// offset, so a word can never drift from the geometry selection and search
+  /// are computed from. A word whose shaped advance disagrees with the PDF's
+  /// by more than [_placementToleranceEm] is broken down further and placed
+  /// character by character, which is what a run of prose against a mismatched
+  /// substitute needs. Whitespace lays no ink down and is positioned by the
+  /// offsets around it, so it gets no part at all.
+  ///
+  /// Words rather than characters throughout because the draw call is the
+  /// cost: a `drawParagraph` per character measured 3.7x the record pass and
+  /// 1.6x the full DPR-2 raster on a page of non-embedded prose. Shaping a
+  /// word whole also keeps its internal kerning, which the PDF's own advances
+  /// do not contradict at this tolerance.
+  ///
+  /// The glyph *shapes* take one uniform horizontal scale, so their proportions
+  /// stay even (scaling each word to its own advance would squeeze an `i` far
+  /// harder than an `o`); only the origins become exact. That scale is
+  /// `Σ natural ÷ Σ PDF advance` over the ink-bearing characters alone, so
+  /// neither the substitute's idea of a space (Skia's width for a lone
+  /// whitespace layout is not something to build on) nor the run's Tc/Tw
+  /// (already inside [offsets]) can skew it.
+  ///
+  /// The caller derives `scaleX = run.width × renderSize ÷ layout.width` and
+  /// paints under `scaleX / renderSize`, so reporting `run.width × k` for a
+  /// layout laid out at `k` units per em recovers `renderSize ÷ k` whatever the
+  /// run's total advance is - and every part lands on exactly its own offset.
+  ///
+  /// Null when there is nothing measurable to scale against.
+  _TextLayout? _buildPlacedLayout(PdfTextRun run, List<double> offsets) {
+    final text = run.text;
+    var natural = 0.0; // Σ natural width of the ink-bearing glyphs
+    var advance = 0.0; // Σ PDF advance of the same glyphs
+    for (var i = 0; i < text.length;) {
+      final step = _runeLengthAt(text, i);
+      if (!_isTrimWhitespace(text.codeUnitAt(i))) {
+        natural += _glyphLayout(_runeAt(text, i), run).width;
+        advance += offsets[i + step] - offsets[i];
+      }
+      i += step;
+    }
+    if (natural <= 0 || advance <= 0) return null;
+
+    final k = natural / advance; // layout units per em
+    final style = _styleFor(run, foreground: null, applySpacing: false);
+    final parts = <_GlyphRun>[];
+    double? baseline;
+    var i = 0;
+    while (i < text.length) {
+      if (_isTrimWhitespace(text.codeUnitAt(i))) {
+        i++;
+        continue;
+      }
+      var end = i;
+      while (end < text.length && !_isTrimWhitespace(text.codeUnitAt(end))) {
+        end += _runeLengthAt(text, end);
+      }
+      if (_wordHolds(run, offsets, i, end, k)) {
+        final word = _shapeString(text.substring(i, end), style);
+        baseline ??= word.baseline;
+        parts.add(_GlyphRun(word, offsets[i] * k));
+      } else {
+        for (var j = i; j < end;) {
+          final step = _runeLengthAt(text, j);
+          final glyph = _shapeString(text.substring(j, j + step), style);
+          baseline ??= glyph.baseline;
+          parts.add(_GlyphRun(glyph, offsets[j] * k));
+          j += step;
+        }
+      }
+      i = end;
+    }
+    if (parts.isEmpty) return null;
+    return _TextLayout.composed(parts, run.width * k, baseline ?? 0,
+        ownsParts: true);
+  }
+
+  /// Whether the word `[start, end)` of [run] can be shaped whole without any
+  /// of its characters landing more than [_placementToleranceEm] from the
+  /// offset the PDF gives it.
+  ///
+  /// Checked at *every* character boundary, not just the word's end: matching
+  /// only a total is the very defect this replaces, and a two-character word
+  /// can have an exact total with a badly placed interior. The substitute's own
+  /// per-character advances stand in for where the shaped word would put each
+  /// character, so cross-character kerning is unaccounted for - a fraction of
+  /// the tolerance, and it only ever moves a word from whole-shaped to
+  /// per-character placement, which is the safe direction.
+  bool _wordHolds(
+      PdfTextRun run, List<double> offsets, int start, int end, double k) {
+    final tolerance = _placementToleranceEm;
+    var natural = 0.0; // em, from the substitute's own advances
+    for (var i = start; i < end;) {
+      final step = _runeLengthAt(run.text, i);
+      if ((natural - (offsets[i] - offsets[start])).abs() > tolerance) {
+        return false;
+      }
+      natural += _glyphLayout(_runeAt(run.text, i), run).width / k;
+      i += step;
+    }
+    return (natural - (offsets[end] - offsets[start])).abs() <= tolerance;
+  }
+
+  /// One laid-out [TextPainter] for [text] in [style], owned by the caller.
+  _TextLayout _shapeString(String text, TextStyle style) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    return _TextLayout(painter, painter.width,
+        painter.computeDistanceToActualBaseline(TextBaseline.alphabetic));
+  }
+
+  /// Order-sensitive hash of a run's character offsets, for the layout key.
+  static int _offsetsHash(List<double> offsets) {
+    var h = 0x811c9dc5;
+    for (final offset in offsets) {
+      h = ((h ^ offset.hashCode) * 0x01000193) & 0x3FFFFFFF;
+    }
+    return h;
+  }
+
+  /// 2 when [i] starts a surrogate pair in [s], 1 otherwise.
+  static int _runeLengthAt(String s, int i) {
+    final cu = s.codeUnitAt(i);
+    if (cu < 0xD800 || cu > 0xDBFF || i + 1 >= s.length) return 1;
+    final low = s.codeUnitAt(i + 1);
+    return low >= 0xDC00 && low <= 0xDFFF ? 2 : 1;
+  }
+
+  /// The code point starting at [i] in [s].
+  static int _runeAt(String s, int i) => _runeLengthAt(s, i) == 2
+      ? 0x10000 +
+          ((s.codeUnitAt(i) - 0xD800) << 10) +
+          (s.codeUnitAt(i + 1) - 0xDC00)
+      : s.codeUnitAt(i);
+
+  /// Whether [text] can be painted one character at a time at positions the
+  /// caller dictates.
+  ///
+  /// Unlike [_composableRun] this does not care about kerning - the PDF's
+  /// offsets replace it - only that the script needs no shaping: one glyph per
+  /// character, in logical order, with no combining marks, joining behaviour,
+  /// reordering, or format characters. So it admits Latin, Greek, Cyrillic,
+  /// the common symbol blocks and CJK/kana/Hangul-syllable text (ordinary
+  /// prose, which [_composableRun] excludes outright), and rejects Arabic,
+  /// Hebrew, Indic, South-East Asian, Hangul jamo, combining sequences and
+  /// anything astral, all of which keep whole-run shaping.
+  static bool _placeableRun(String text) {
+    for (var i = 0; i < text.length; i++) {
+      if (!_placeableChar(text.codeUnitAt(i))) return false;
+    }
+    return true;
+  }
+
+  static bool _placeableChar(int cu) =>
+      // ASCII printable, Latin-1 Supplement, Latin Extended-A/B, IPA and the
+      // spacing modifier letters (0x2B0-0x2FF); 0x300+ is combining marks.
+      (cu >= 0x20 && cu <= 0x2FF && cu != 0x7F) ||
+      // Greek and Coptic; Cyrillic either side of its combining block
+      // (0x483-0x489).
+      (cu >= 0x370 && cu <= 0x482) ||
+      (cu >= 0x48A && cu <= 0x52F) ||
+      // General punctuation, minus the format and bidi controls at 0x200B-
+      // 0x200F / 0x202A-0x202E / 0x2060+, and minus the combining marks at
+      // 0x20D0+.
+      (cu >= 0x2010 && cu <= 0x2027) ||
+      (cu >= 0x2030 && cu <= 0x205E) ||
+      (cu >= 0x20A0 && cu <= 0x20BF) ||
+      // Letterlike, number forms, arrows, maths, technical, enclosed
+      // alphanumerics, box drawing, geometric shapes and dingbats.
+      (cu >= 0x2100 && cu <= 0x23FF) ||
+      (cu >= 0x2460 && cu <= 0x27BF) ||
+      // CJK punctuation and kana, minus the combining voiced marks
+      // (0x3099/0x309A); ideographs; Hangul syllables (precomposed - jamo at
+      // 0x1100 compose and are excluded); CJK compatibility; halfwidth and
+      // fullwidth forms.
+      (cu >= 0x3000 && cu <= 0x3098) ||
+      (cu >= 0x309B && cu <= 0x30FF) ||
+      (cu >= 0x3400 && cu <= 0x4DBF) ||
+      (cu >= 0x4E00 && cu <= 0x9FFF) ||
+      (cu >= 0xAC00 && cu <= 0xD7A3) ||
+      (cu >= 0xF900 && cu <= 0xFAFF) ||
+      (cu >= 0xFF01 && cu <= 0xFFEE);
 
   /// Whether [text] can be composed from independent per-character layouts
   /// without visibly changing the result. Composition drops cross-character
@@ -978,7 +1266,19 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
 
   // . , - + / : = ( ) % # * _
   static const _composablePunct = <int>{
-    0x2E, 0x2C, 0x2D, 0x2B, 0x2F, 0x3A, 0x3D, 0x28, 0x29, 0x25, 0x23, 0x2A, 0x5F,
+    0x2E,
+    0x2C,
+    0x2D,
+    0x2B,
+    0x2F,
+    0x3A,
+    0x3D,
+    0x28,
+    0x29,
+    0x25,
+    0x23,
+    0x2A,
+    0x5F,
   };
 
   /// The em-space [ui.Path] for a glyph outline, built once per outline
@@ -1060,7 +1360,8 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
     canvas.restore();
   }
 
-  TextStyle _styleFor(PdfTextRun run, {Paint? foreground}) {
+  TextStyle _styleFor(PdfTextRun run,
+      {Paint? foreground, bool applySpacing = true}) {
     final name = run.fontName ?? '';
     final cjk = _cjkPrimaryFontFor(name);
     final symbol = name.contains('ZapfDingbats') || name.contains('Symbol');
@@ -1092,9 +1393,11 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
       // this the layout is tight and run.width's spacing is recovered by
       // stretching the glyph shapes - which explodes when a space carries a
       // large Tw (issue: over-wide table digits). letterSpacing/wordSpacing 0
-      // (the common case) is a no-op, so unspaced runs are unchanged.
-      letterSpacing: run.letterSpacing * 100,
-      wordSpacing: run.wordSpacing * 100,
+      // (the common case) is a no-op, so unspaced runs are unchanged. A
+      // per-character layout opts out: its caller places it from the PDF's own
+      // offsets, which already carry Tc/Tw.
+      letterSpacing: applySpacing ? run.letterSpacing * 100 : 0,
+      wordSpacing: applySpacing ? run.wordSpacing * 100 : 0,
       height: 1,
     );
   }
@@ -1251,17 +1554,26 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
 class _TextLayout {
   /// A whole-run layout: one [TextPainter] the cache owns and disposes.
   _TextLayout(TextPainter this.painter, this.width, this.baseline)
-      : parts = null;
+      : parts = null,
+        ownsParts = false;
 
-  /// A run composed from per-character layouts (#454). [parts] reference
-  /// glyph-cache layouts this layout does NOT own (the glyph cache disposes
-  /// them); a composed layout is transient - built per paint, never cached -
-  /// so the referenced glyphs cannot be evicted under it on the single thread.
-  _TextLayout.composed(List<_GlyphRun> this.parts, this.width, this.baseline)
+  /// A run built from several sub-layouts.
+  ///
+  /// With [ownsParts] false (#454's per-character composition) the parts are
+  /// glyph-cache layouts this one does NOT own; such a layout is transient -
+  /// built per paint, never cached - so the referenced glyphs cannot be
+  /// evicted under it on the single thread. With [ownsParts] true (#649's
+  /// word placement) the parts were shaped for this layout alone, which is
+  /// what lets it be cached: nothing else can dispose them out from under it.
+  _TextLayout.composed(List<_GlyphRun> this.parts, this.width, this.baseline,
+      {this.ownsParts = false})
       : painter = null;
 
   final TextPainter? painter;
   final List<_GlyphRun>? parts;
+
+  /// Whether [dispose] must dispose [parts] as well as [painter].
+  final bool ownsParts;
   final double width;
   final double baseline;
 
@@ -1277,9 +1589,16 @@ class _TextLayout {
     }
   }
 
-  /// Disposes the owned painter; a composed layout owns none (its glyphs
-  /// belong to the glyph cache).
-  void dispose() => painter?.dispose();
+  /// Disposes what this layout owns: its own painter, and its parts when they
+  /// were shaped for it rather than borrowed from the glyph cache.
+  void dispose() {
+    painter?.dispose();
+    if (ownsParts) {
+      for (final part in parts!) {
+        part.glyph.dispose();
+      }
+    }
+  }
 }
 
 /// One character's layout within a composed run: the shared glyph-cache
@@ -1289,4 +1608,3 @@ class _GlyphRun {
   final _TextLayout glyph;
   final double dx;
 }
-

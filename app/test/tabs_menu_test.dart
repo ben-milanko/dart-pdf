@@ -275,6 +275,54 @@ void main() {
         closeTo(792 / 612, 0.001));
   });
 
+  testWidgets('tab grid resumes thumbnail rendering after a fast fling',
+      (tester) async {
+    await setMobileSize(tester);
+    await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+    await tester.pump();
+
+    // More than two viewportfuls ensures the last tab's preview is first
+    // constructed while the grid is moving, rather than before the fling.
+    for (var i = 0; i < 20; i++) {
+      await openTab(tester, 'tab-$i.pdf');
+    }
+
+    await tester.tap(find.byKey(const ValueKey('mobile-tabs-button')));
+    await tester.pumpAndSettle();
+    final grid = find.byKey(const ValueKey('mobile-tabs-grid'));
+    final scrollable = find
+        .descendant(
+          of: grid,
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    Finder tile(String title) => find.ancestor(
+          of: find.descendant(of: grid, matching: find.text(title)),
+          matching: find.byKey(const ValueKey('mobile-tab-tile')),
+        );
+    expect(tester.widget<GridView>(grid).scrollCacheExtent, isNotNull);
+    expect(tile('tab-19.pdf'), findsNothing);
+
+    // Keep plenty of content below the fling so it retains a high ballistic
+    // velocity while fresh rows are being constructed.
+    await tester.fling(grid, const Offset(0, -300), 5000);
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pumpAndSettle();
+    final position = tester.state<ScrollableState>(scrollable).position;
+    position.jumpTo(position.maxScrollExtent);
+    await tester.pumpAndSettle();
+
+    final lastTile = tile('tab-19.pdf');
+    expect(lastTile, findsOneWidget);
+    expect(
+      find.descendant(
+        of: lastTile,
+        matching: find.byKey(const ValueKey('mobile-tab-preview-image')),
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('hovering an inactive desktop tab shows its page preview',
       (tester) async {
     await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));

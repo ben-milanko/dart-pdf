@@ -10,6 +10,7 @@ import 'package:pdf_document/pdf_document.dart';
 import '../page_geometry.dart';
 import '../renderer.dart';
 import 'digital_signature.dart';
+import 'editing_annotation_clipboard.dart';
 import 'editing_measure.dart';
 import 'editing_page_clipboard.dart';
 import 'editing_preferences.dart';
@@ -375,6 +376,7 @@ class PdfEditingController extends ChangeNotifier {
     PdfEditingPreferences? preferences,
     PdfPageClipboard? pageClipboard,
     PdfSnapshotClipboard? snapshotClipboard,
+    PdfAnnotationSnapshotClipboard? annotationClipboard,
     PdfTrustStore? trustStore,
   })  : _bytes = bytes,
         _used = bytes.length,
@@ -384,8 +386,9 @@ class PdfEditingController extends ChangeNotifier {
         _trustStore = trustStore,
         preferences = preferences ?? PdfEditingPreferences(),
         pageClipboard = pageClipboard ?? PdfPageClipboard.instance,
-        snapshotClipboard =
-            snapshotClipboard ?? PdfSnapshotClipboard.instance {
+        snapshotClipboard = snapshotClipboard ?? PdfSnapshotClipboard.instance,
+        annotationClipboard =
+            annotationClipboard ?? PdfAnnotationSnapshotClipboard.instance {
     this.preferences.addListener(notifyListeners);
     // rebuild paste affordances live as the shared page clipboard fills or
     // clears - from this controller or from another document tab sharing it
@@ -393,6 +396,9 @@ class PdfEditingController extends ChangeNotifier {
     // same for the shared snapshot clipboard, so a region captured in one tab
     // lights up Paste-as-vector in every tab
     this.snapshotClipboard.addListener(notifyListeners);
+    // and for the shared annotation clipboard, so annotations copied in one
+    // tab light up Paste in every tab
+    this.annotationClipboard.addListener(notifyListeners);
   }
 
   /// The persisted UI preferences that own the tool styles (stroke width,
@@ -418,6 +424,15 @@ class PdfEditingController extends ChangeNotifier {
   /// See [copyVectorSnapshot] and [pasteSnapshot].
   final PdfSnapshotClipboard snapshotClipboard;
 
+  /// The clipboard copied/cut annotations live in, shared across document tabs
+  /// so annotations copied in one document paste into another (PDF annotations
+  /// don't round-trip the OS clipboard, so nothing else carries them between
+  /// tabs). Defaults to the process-wide
+  /// [PdfAnnotationSnapshotClipboard.instance]; pass a private one to isolate
+  /// a session. See [copySelectedAnnotations], [cutSelectedAnnotations], and
+  /// [pasteAnnotations].
+  final PdfAnnotationSnapshotClipboard annotationClipboard;
+
   /// The session's shared page-thumbnail cache (and its viewport-ordered
   /// render queue). Every thumbnail surface - the docked strip, the
   /// full-area page grid - draws from this one cache, so a page rendered for
@@ -436,6 +451,7 @@ class PdfEditingController extends ChangeNotifier {
     preferences.removeListener(notifyListeners);
     pageClipboard.removeListener(notifyListeners);
     snapshotClipboard.removeListener(notifyListeners);
+    annotationClipboard.removeListener(notifyListeners);
     super.dispose();
   }
 
@@ -3141,6 +3157,82 @@ class PdfEditingController extends ChangeNotifier {
     }
   }
 
+  /// The reusable stamp [annotation] can go back into the collection as, or
+  /// null when it carries no design worth saving.
+  ///
+  /// A stamp this editor placed from a template comes back exactly: the
+  /// design travels with the annotation ([PdfAnnotation.stampTemplate]) with
+  /// its `{{field}}` placeholders unresolved, so a stamp saved off the page
+  /// keeps filling in today's date on future placements. Any other stamp -
+  /// a legacy text stamp, or one from another producer - is recovered as a
+  /// text stamp from its caption and colour, the classic look the stamp tool
+  /// draws. Stamps with neither (count check-marks, pasted vector snapshots,
+  /// pictures, and templates too large to have been recorded) yield null.
+  PdfCustomStamp? customStampOf(PdfAnnotation annotation) {
+    if (annotation.subtype != 'Stamp' || annotation.isCheckMark) return null;
+    final color = annotation.color ?? 0xC03030;
+    final contents = annotation.contents?.trim() ?? '';
+    final template = annotation.stampTemplate;
+    if (template != null && template.isValid) {
+      return PdfCustomStamp(
+        // The unresolved caption, so the saved stamp reads like its design
+        // rather than like the day it was placed.
+        text: _stampTemplateCaption(template) ?? contents,
+        color: color,
+        template: template,
+        type: annotation.stampType,
+        tags: annotation.stampTags,
+      );
+    }
+    if (annotation.isImageStamp || contents.isEmpty) return null;
+    if (PdfEditor(_document).isVectorSnapshotStamp(annotation)) return null;
+    return PdfCustomStamp(
+      text: contents,
+      color: color,
+      type: annotation.stampType,
+      tags: annotation.stampTags,
+    );
+  }
+
+  /// The caption of [template]: its first non-empty text component, as
+  /// written. Null for a design made only of shapes or pictures.
+  static String? _stampTemplateCaption(PdfStampTemplate template) {
+    for (final component in template.components) {
+      if (component.type == PdfStampTemplateComponentType.text &&
+          component.text.trim().isNotEmpty) {
+        return component.text.trim();
+      }
+    }
+    return null;
+  }
+
+  /// Whether [saveSelectedAsCustomStamp] has something to save: exactly one
+  /// stamp annotation is selected and [customStampOf] can recover it.
+  bool get canSaveSelectedAsCustomStamp {
+    if (_selected.length != 1) return false;
+    final annotation = selectedAnnotation;
+    return annotation != null && customStampOf(annotation) != null;
+  }
+
+  /// Saves the selected stamp annotation into the user's stamp collection
+  /// and makes it the [activeStamp], so the next tap of the stamp tool
+  /// places it again. The right-click "Save to stamps" action.
+  ///
+  /// Saving a stamp that is already in the collection (a re-save, or a
+  /// second copy of one already placed) doesn't duplicate the entry - it
+  /// just becomes active. Returns the saved stamp, or null when the
+  /// selection has no recoverable design ([canSaveSelectedAsCustomStamp]).
+  PdfCustomStamp? saveSelectedAsCustomStamp() {
+    if (_selected.length != 1) return null;
+    final annotation = selectedAnnotation;
+    if (annotation == null) return null;
+    final stamp = customStampOf(annotation);
+    if (stamp == null) return null;
+    if (!customStamps.contains(stamp)) saveCustomStamp(stamp);
+    activeStamp = stamp;
+    return stamp;
+  }
+
   PdfCustomStamp? _activeStamp;
 
   /// The custom stamp the stamp tool places on tap. Null means the
@@ -4848,22 +4940,14 @@ class PdfEditingController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // clipboard
 
-  /// The in-app annotation clipboard: detached snapshots that survive
-  /// edits, undo, and document swaps (PDF annotations don't round-trip
-  /// the OS clipboard). Filled by copy/cut, consumed by
-  /// [pasteAnnotations].
-  List<PdfAnnotationSnapshot> _clipboard = const [];
-  int _clipboardSourcePage = -1;
+  /// Whether [pasteAnnotations] has anything to paste - including a copy
+  /// made in another document tab, since [annotationClipboard] is shared.
+  bool get hasAnnotationClipboard => annotationClipboard.isNotEmpty;
 
-  /// Pastes since the clipboard was last filled - each one cascades the
-  /// default paste position by another 12pt so copies don't stack.
-  int _pasteCount = 0;
-
-  /// Whether [pasteAnnotations] has anything to paste.
-  bool get hasAnnotationClipboard => _clipboard.isNotEmpty;
-
-  /// Copies the selected annotations to the in-app clipboard as
-  /// detached snapshots. Popups, links, and form widgets never copy
+  /// Copies the selected annotations to the in-app [annotationClipboard]
+  /// as detached snapshots - they survive edits, undo, and closing the
+  /// document they came from, and because the clipboard is shared they
+  /// paste into any open tab. Popups, links, and form widgets never copy
   /// (they can't be selected either). Returns how many were copied; the
   /// document is untouched.
   int copySelectedAnnotations() {
@@ -4876,9 +4960,8 @@ class PdfEditingController extends ChangeNotifier {
       if (snapshot != null) snapshots.add(snapshot);
     }
     if (snapshots.isEmpty) return 0;
-    _clipboard = snapshots;
-    _clipboardSourcePage = _selected.last.$1;
-    _pasteCount = 0;
+    annotationClipboard.set(snapshots,
+        owner: this, sourcePage: _selected.last.$1);
     // the most recent copy wins ⌘V (see [copyVectorSnapshot])
     snapshotClipboard.clear();
     notifyListeners();
@@ -4895,20 +4978,24 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// Pastes the clipboard onto [pageIndex] and selects the pasted
-  /// annotations (one revision - one undo removes them all).
+  /// annotations (one revision - one undo removes them all). The clipboard
+  /// is shared across tabs, so what pastes may have been copied from
+  /// another document.
   ///
   /// With [at] the group centers on that page point (the context menu
   /// pastes where the right-click landed). Without it the group keeps
   /// its position, shifted 12pt down-right per repeat paste - and per
-  /// the first paste too when it would sit exactly on the source. The
+  /// the first paste too when it would sit exactly on the source (the
+  /// page it was copied from, in the document it was copied from). The
   /// group always clamps into the page's crop box. Returns whether
   /// anything was pasted.
   bool pasteAnnotations(int pageIndex, {(double, double)? at}) {
-    if (_clipboard.isEmpty) return false;
+    final clipboard = annotationClipboard.snapshots;
+    if (clipboard.isEmpty) return false;
     if (pageIndex < 0 || pageIndex >= _document.pageCount) return false;
     var left = double.infinity, bottom = double.infinity;
     var right = double.negativeInfinity, top = double.negativeInfinity;
-    for (final snapshot in _clipboard) {
+    for (final snapshot in clipboard) {
       final r = snapshot.rect;
       if (r.left < left) left = r.left;
       if (r.bottom < bottom) bottom = r.bottom;
@@ -4920,24 +5007,25 @@ class PdfEditingController extends ChangeNotifier {
       dx = at.$1 - (left + right) / 2;
       dy = at.$2 - (bottom + top) / 2;
     } else {
-      final cascade = 12.0 *
-          (pageIndex == _clipboardSourcePage ? _pasteCount + 1 : _pasteCount);
+      final steps = annotationClipboard.pasteCount +
+          (annotationClipboard.isSource(this, pageIndex) ? 1 : 0);
+      final cascade = 12.0 * steps;
       dx = cascade;
       dy = -cascade;
     }
     final box = _page(pageIndex).cropBox;
     dx += _clampShift(left + dx, right + dx, box.left, box.right);
     dy += _clampShift(bottom + dy, top + dy, box.bottom, box.top);
-    final count = _clipboard.length;
+    final count = clipboard.length;
     final pasted = apply(
       (e) {
-        for (final snapshot in _clipboard) {
+        for (final snapshot in clipboard) {
           e.pasteAnnotation(pageIndex, snapshot, dx: dx, dy: dy);
         }
       },
     );
     if (!pasted) return false;
-    _pasteCount++;
+    annotationClipboard.markPasted();
     // pasted entries appended to /Annots - select them, like any editor
     tool = PdfEditTool.select;
     final total = _page(pageIndex).annotations.length;
@@ -5038,7 +5126,7 @@ class PdfEditingController extends ChangeNotifier {
     // bookkeeping when it sees this new snapshot (identity differs from the
     // anchor).
     snapshotClipboard.set(snapshot);
-    _clipboard = const [];
+    annotationClipboard.clear();
     notifyListeners();
     return snapshot;
   }
@@ -5138,6 +5226,21 @@ class PdfEditingController extends ChangeNotifier {
       strokeWidth: style.strokeWidth,
       opacity: style.opacity,
     );
+  }
+
+  /// The colour the style controls should show: with a selection they
+  /// recolour ([canRestyleSelected]), the primary selected annotation's own
+  /// colour rather than [color], the last-used creation colour - a swatch
+  /// row is a readout of what the next tap changes, so it has to follow the
+  /// selection the way the stroke/opacity controls already do.
+  ///
+  /// Falls back to [color] when nothing restylable is selected, or when the
+  /// annotation carries no colour of its own (an image stamp, a shape with
+  /// no /C) - showing black there would be a lie about the annotation.
+  Color get displayColor {
+    if (!canRestyleSelected) return color;
+    final rgb = selectedAnnotation?.behavior.style.color;
+    return rgb == null ? color : Color(0xFF000000 | rgb);
   }
 
   /// Whether [restyleSelected]'s `fill` parameter applies to every selected

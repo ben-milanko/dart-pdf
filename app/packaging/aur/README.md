@@ -10,7 +10,7 @@ derivatives, so users can `paru -S dartpdf-bin` / `yay -S dartpdf-bin`.
 
 ## Release payload
 
-As of `app-v3.3.0`, the official release tarball carries the runner, `data/`,
+As of `app-v3.3.1`, the official release tarball carries the runner, `data/`,
 `lib/`, and the complete desktop-integration `share/` tree. The `PKGBUILD`
 installs that immutable payload directly and fetches only the Apache license
 from the matching release tag.

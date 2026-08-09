@@ -689,6 +689,33 @@ void main() {
     expect(controller.currentPage, 0);
   });
 
+  testWidgets('slow trackpad pinch-out does not latch as scrolling',
+      (tester) async {
+    final controller = await pumpViewer(tester);
+    final scrollable =
+        tester.state<ScrollableState>(find.byType(Scrollable).first);
+    final initialZoom = controller.zoom;
+
+    final pinch = await tester.createGesture(
+        kind: PointerDeviceKind.trackpad, pointer: 33);
+    await pinch.panZoomStart(const Offset(400, 300));
+    // The first, barely visible scale update already carries more than the
+    // pan-intent threshold of finger drift. It is nevertheless a pinch and
+    // must determine the intent for the complete gesture.
+    await pinch.panZoomUpdate(const Offset(400, 300),
+        pan: const Offset(0, -12), scale: 0.995);
+    await tester.pump();
+    await pinch.panZoomUpdate(const Offset(400, 300),
+        pan: const Offset(0, -24), scale: 0.8);
+    await tester.pump();
+    await pinch.panZoomEnd();
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+
+    expect(controller.zoom, lessThan(initialZoom));
+    expect(scrollable.position.pixels, 0);
+    expect(controller.currentPage, 0);
+  });
+
   testWidgets('horizontal trackpad fling keeps panning while zoomed',
       (tester) async {
     final controller = await pumpViewer(tester);

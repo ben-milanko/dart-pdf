@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.4.0
+
+- Copy and paste annotations between open documents, save placed stamps back
+  to the stamp collection, and show the selected annotation colour in the
+  toolbar.
+- Drop a PDF between page thumbnails to insert its pages at that exact
+  position, and optionally show document chapters on the scrollbar.
+- Improve proportional-font selection and substituted-font placement, keep
+  touch selection menus aligned while zoomed, and hide page-colour editing in
+  view mode.
+- Improve tab-grid scrolling, trackpad pinch-out scrolling, progressive file
+  access, and print-preview reliability.
+
 ## 3.3.1
 
 - Changing annotation properties no longer creates a duplicate in PDFs that

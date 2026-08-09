@@ -31,6 +31,25 @@ void main() {
       final matchesLocal = local.findAll('Page');
       final matchesWorker = viaWorker.findAll('Page');
       expect(matchesWorker.length, matchesLocal.length);
+      expect(matchesLocal, isNotEmpty);
+      for (var i = 0; i < matchesLocal.length; i++) {
+        // Corner-for-corner, not just hit counts - the per-character advances
+        // (#647) that put a highlight on the glyphs ride this same buffer, and
+        // dropping them from the codec would still match here on count alone.
+        expect(matchesWorker[i].quads.map((q) => q.corners),
+            matchesLocal[i].quads.map((q) => q.corners));
+      }
+      for (var i = 0; i < local.runs.length; i++) {
+        expect(viaWorker.runs[i].charOffsets, local.runs[i].charOffsets);
+      }
+      // And a point maps back to the same character offset.
+      final run = local.runs.firstWhere((r) => r.text.trim().isNotEmpty);
+      final mid = (
+        (run.bounds.left + run.bounds.right) / 2,
+        (run.bounds.bottom + run.bounds.top) / 2
+      );
+      expect(viaWorker.positionNear(mid.$1, mid.$2),
+          local.positionNear(mid.$1, mid.$2));
     });
   });
 

@@ -415,6 +415,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get menuRemoveNode => 'Usuń węzeł';
 
   @override
+  String get menuSaveToStamps => 'Zapisz w stemplach';
+
+  @override
   String get menuSetAsDefaultStyle => 'Ustaw jako styl domyślny';
 
   @override
@@ -1007,6 +1010,10 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get shellShowAnnotations => 'Pokaż adnotacje';
 
   @override
+  String get shellShowScrollbarChapters =>
+      'Pokaż rozdziały na pasku przewijania';
+
+  @override
   String get shellTabHere => 'Dodaj jako kartę';
 
   @override
@@ -1236,6 +1243,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
 
   @override
   String get stampNewStampTitle => 'Nowy stempel';
+
+  @override
+  String get stampSavedToCollection => 'Zapisano w stemplach';
 
   @override
   String get stampSelectTextToEdit => 'Wybierz tekst do edycji';

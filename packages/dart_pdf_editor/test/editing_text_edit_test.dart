@@ -2,6 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' show PointerDeviceKind;
 
+import 'package:flutter/cupertino.dart'
+    show CupertinoTextSelectionToolbar, CupertinoTextSelectionToolbarButton;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1408,6 +1411,103 @@ void main() {
       expect(scaled.getHandleSize(20).width, closeTo(18, 0.01));
       expect(field.contextMenuBuilder, isNotNull);
 
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await settle(tester);
+    });
+
+    testWidgets('the long-press selection menu holds its place while zoomed',
+        (tester) async {
+      // The zoom transform used to drag the menu with it: Flutter places it
+      // through a CompositedTransformFollower linked to the field, which
+      // re-applies the field's scale to a menu already laid out in screen
+      // coordinates. At 2x that displaced it by the whole distance from the
+      // screen origin to the field - off-screen on a phone, so a long press
+      // in a zoomed text box looked like it did nothing.
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.getData') {
+          return <String, dynamic>{'text': 'pasteable'};
+        }
+        if (call.method == 'Clipboard.hasStrings') {
+          return <String, dynamic>{'value': true};
+        }
+        return null;
+      });
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+
+      final (editing, viewer) = await pumpEditor(tester);
+      // sits mid-viewport both unzoomed and at 2x, so neither menu is
+      // clamped by a screen edge
+      editing.addFreeText(0, const PdfRect(200, 550, 380, 600), 'Zoom menu');
+      await tester.pump();
+      editing.tool = PdfEditTool.select;
+      await tester.pump();
+      await tap(tester, view(290, 575)); // select
+      await tap(tester, view(290, 575)); // edit
+
+      /// The bounds of the menu's buttons - the visible menu. Its own
+      /// widget lays out over the whole screen, and which buttons the menu
+      /// offers depends on the selection, so measure the buttons and let
+      /// the caller compare centers.
+      Rect menuBounds() {
+        final buttons = find.descendant(
+            of: find.byType(CupertinoTextSelectionToolbar),
+            matching: find.byType(CupertinoTextSelectionToolbarButton));
+        expect(buttons, findsWidgets);
+        return List.generate(buttons.evaluate().length, (i) => i)
+            .map((i) => tester.getRect(buttons.at(i)))
+            .reduce((a, b) => a.expandToInclude(b));
+      }
+
+      /// Long-presses the middle of the editor and returns where the menu
+      /// landed relative to the anchor the framework measured for it, plus
+      /// the height of its buttons.
+      Future<(Offset, double)> pressAndMeasure() async {
+        final field = tester.getRect(find.byKey(editorKey));
+        final gesture = await tester.startGesture(field.center,
+            kind: PointerDeviceKind.touch);
+        await tester.pump(const Duration(milliseconds: 700));
+        await gesture.up();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        final menu = menuBounds();
+        // the anchor is in screen coordinates, and the menu is supposed to
+        // be laid out around it - whatever the field's own transform is
+        final anchor = tester
+            .state<EditableTextState>(find.byType(EditableText))
+            .contextMenuAnchors
+            .primaryAnchor;
+        return (
+          Offset(menu.center.dx - anchor.dx, menu.bottom - anchor.dy),
+          menu.height,
+        );
+      }
+
+      final (unzoomedOffset, unzoomedHeight) = await pressAndMeasure();
+      // on the anchor (within the menu's own padding) and above it
+      expect(unzoomedOffset.dx, closeTo(0, 12));
+      expect(unzoomedOffset.dy, lessThan(0));
+
+      await tap(tester, view(290, 575)); // dismiss the menu, keep editing
+      viewer.setZoom(2 * scale); // 2x transform scale over fit-width
+      await tester.pump();
+
+      final (zoomedOffset, zoomedHeight) = await pressAndMeasure();
+      expect(zoomedOffset.dx, closeTo(unzoomedOffset.dx, 1));
+      expect(zoomedOffset.dy, closeTo(unzoomedOffset.dy, 1));
+      // and at its natural size, not the zoom's
+      expect(zoomedHeight, closeTo(unzoomedHeight, 0.5));
+      // wholly on screen, which is the symptom that started this
+      final screen = Offset.zero &
+          tester.view.physicalSize / tester.view.devicePixelRatio;
+      final menu = menuBounds();
+      expect(screen.contains(menu.topLeft), isTrue, reason: 'menu $menu');
+      expect(screen.contains(menu.bottomRight), isTrue, reason: 'menu $menu');
+
+      debugDefaultTargetPlatformOverride = null;
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();
       await settle(tester);

@@ -409,6 +409,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get menuRemoveNode => 'Hapus simpul';
 
   @override
+  String get menuSaveToStamps => 'Simpan ke stempel';
+
+  @override
   String get menuSetAsDefaultStyle => 'Jadikan gaya bawaan';
 
   @override
@@ -995,6 +998,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
   String get shellShowAnnotations => 'Tampilkan anotasi';
 
   @override
+  String get shellShowScrollbarChapters => 'Tampilkan bab pada bilah gulir';
+
+  @override
   String get shellTabHere => 'Tab di sini';
 
   @override
@@ -1223,6 +1229,9 @@ class DartPdfEditorLocalizationsId extends DartPdfEditorLocalizations {
 
   @override
   String get stampNewStampTitle => 'Stempel baru';
+
+  @override
+  String get stampSavedToCollection => 'Disimpan ke stempel';
 
   @override
   String get stampSelectTextToEdit => 'Pilih teks untuk diedit';

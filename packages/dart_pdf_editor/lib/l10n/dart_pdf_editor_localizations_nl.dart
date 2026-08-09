@@ -409,6 +409,9 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get menuRemoveNode => 'Knooppunt verwijderen';
 
   @override
+  String get menuSaveToStamps => 'Opslaan bij stempels';
+
+  @override
   String get menuSetAsDefaultStyle => 'Als standaardstijl instellen';
 
   @override
@@ -995,6 +998,10 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get shellShowAnnotations => 'Annotaties tonen';
 
   @override
+  String get shellShowScrollbarChapters =>
+      'Hoofdstukken op de schuifbalk tonen';
+
+  @override
   String get shellTabHere => 'Tabblad hier';
 
   @override
@@ -1223,6 +1230,9 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
 
   @override
   String get stampNewStampTitle => 'Nieuwe stempel';
+
+  @override
+  String get stampSavedToCollection => 'Opgeslagen bij stempels';
 
   @override
   String get stampSelectTextToEdit => 'Selecteer tekst om te bewerken';

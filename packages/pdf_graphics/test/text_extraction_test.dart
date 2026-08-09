@@ -24,7 +24,7 @@ void main() {
     expect(run.bounds.top, closeTo(720 + 0.75 * 24, 1e-6));
   });
 
-  test('findAll locates substrings with interpolated rects', () {
+  test('findAll locates substrings on the actual glyphs', () {
     final doc = PdfDocument.open(buildClassicPdf());
     final text = PdfTextExtractor.extract(doc, 0);
 
@@ -33,11 +33,16 @@ void main() {
     final match = matches.single;
     expect(text.text.substring(match.start, match.end), 'world');
     final rect = match.rects.single;
-    // 'world' starts at char 7 of 13; rects interpolate linearly across
-    // the run's drawn width
+    // Rects follow the font's own advances, so they sit on the glyphs even
+    // though Helvetica's characters are far from uniform width (issue #647).
+    expect(rect.left, closeTo(72 + measureHelvetica('Hello, ', 24), 1e-6));
+    expect(
+        rect.right, closeTo(72 + measureHelvetica('Hello, world', 24), 1e-6));
+    // The linear-interpolation approximation this replaced was ~3pt out on
+    // both edges - a visible miss at 24pt.
     final width = measureHelvetica('Hello, world!', 24);
-    expect(rect.left, closeTo(72 + width * (7 / 13), 1e-6));
-    expect(rect.right, closeTo(72 + width * (12 / 13), 1e-6));
+    expect((rect.left - (72 + width * 7 / 13)).abs(), greaterThan(2));
+    expect((rect.right - (72 + width * 12 / 13)).abs(), greaterThan(2));
   });
 
   test('search is case-insensitive by default', () {
@@ -77,14 +82,13 @@ void main() {
   test('positionNear maps page points to character offsets', () {
     final doc = PdfDocument.open(buildClassicPdf());
     final text = PdfTextExtractor.extract(doc, 0);
-    // 'Hello, world!' at 72,720 in 24pt; offsets interpolate linearly
-    // across the run width
-    final perChar = measureHelvetica('Hello, world!', 24) / 13;
+    // 'Hello, world!' at 72,720 in 24pt; offsets follow the font's advances
+    final beforeW = 72 + measureHelvetica('Hello, ', 24);
     expect(text.positionNear(72, 720), 0);
-    expect(text.positionNear(72 + perChar * 7, 720), 7); // before 'w'
+    expect(text.positionNear(beforeW, 720), 7); // before 'w'
     expect(text.positionNear(228, 720), 13); // past the end
     // snaps vertically from outside the bounds
-    expect(text.positionNear(72 + perChar * 7, 750), 7);
+    expect(text.positionNear(beforeW, 750), 7);
     // but respects a finite tolerance
     expect(text.positionNear(72, 400, tolerance: 20), -1);
     expect(text.positionNear(400, 400, tolerance: 20), -1);
@@ -94,9 +98,121 @@ void main() {
     final doc = PdfDocument.open(buildClassicPdf());
     final text = PdfTextExtractor.extract(doc, 0);
     final rect = text.rectsFor(7, 12).single;
-    final perChar = measureHelvetica('Hello, world!', 24) / 13;
-    expect(rect.left, closeTo(72 + perChar * 7, 1e-6));
-    expect(rect.right, closeTo(72 + perChar * 12, 1e-6));
+    expect(rect.left, closeTo(72 + measureHelvetica('Hello, ', 24), 1e-6));
+    expect(
+        rect.right, closeTo(72 + measureHelvetica('Hello, world', 24), 1e-6));
+  });
+
+  group('per-character advances (issue #647)', () {
+    // The regression the issue reports: interpolating a highlight linearly
+    // across a run's width assumes every character is the same width. In a
+    // proportional font they are not, and the selection band slides off the
+    // glyphs. 'I' is 0.278em in Helvetica and 'W' is 0.944em - a 3.4x spread,
+    // so the error here is a large fraction of the run rather than a few
+    // points.
+    const line = 'IIIIII WWWWWW';
+
+    PdfPageText extract() => PdfTextExtractor.extract(
+        PdfDocument.open(
+            _buildTextPdf(['BT /F1 24 Tf 72 720 Td ($line) Tj ET'])),
+        0);
+
+    test('charOffsets are the font advances, ascending and complete', () {
+      final run = extract().runs.single;
+      final offsets = run.charOffsets;
+      expect(offsets, isNotNull);
+      expect(offsets, hasLength(line.length + 1));
+      expect(offsets!.first, 0);
+      expect(offsets.last, closeTo(run.width, 1e-9));
+      for (var i = 0; i < line.length; i++) {
+        expect(offsets[i],
+            closeTo(measureHelvetica(line.substring(0, i), 1), 1e-9));
+        expect(offsets[i + 1], greaterThanOrEqualTo(offsets[i]));
+      }
+    });
+
+    test('the highlight lands on the wide word, not a third of a run away', () {
+      final text = extract();
+      final start = line.indexOf('W');
+      final rect = text.rectsFor(start, line.length).single;
+      expect(rect.left, closeTo(72 + measureHelvetica('IIIIII ', 24), 1e-6));
+      expect(rect.right, closeTo(72 + measureHelvetica(line, 24), 1e-6));
+
+      // What linear interpolation would have produced, for contrast: off by
+      // more than a quarter of the run, which is what the issue describes.
+      final width = measureHelvetica(line, 24);
+      final interpolated = 72 + width * start / line.length;
+      expect((interpolated - rect.left).abs(), greaterThan(width * 0.25));
+    });
+
+    test('hit-testing snaps to the character actually under the point', () {
+      final text = extract();
+      // The centre of the 4th 'W'. Under linear interpolation this point sits
+      // two thirds of the way along the run and would map into the 'I's.
+      final x = 72 +
+          measureHelvetica('IIIIII WWW', 24) + //
+          measureHelvetica('W', 24) / 2;
+      expect(text.positionNear(x, 726), 10);
+      // every boundary round-trips through its own offset
+      for (var i = 0; i <= line.length; i++) {
+        expect(
+            text.positionNear(
+                72 + measureHelvetica(line.substring(0, i), 24), 726),
+            i);
+      }
+    });
+
+    test('character and word spacing are inside the offsets', () {
+      // Tc 5 adds 5pt after every glyph, Tw 10 adds 10pt after each space.
+      final text = PdfTextExtractor.extract(
+          PdfDocument.open(_buildTextPdf(
+              ['BT /F1 24 Tf 5 Tc 10 Tw 72 720 Td (ab cd) Tj ET'])),
+          0);
+      final offsets = text.runs.single.charOffsets!;
+      // offsets are in em (the run transform carries the 24pt size)
+      double at(int i) => offsets[i] * 24;
+      expect(at(0), 0);
+      expect(at(1), closeTo(measureHelvetica('a', 24) + 5, 1e-9));
+      expect(at(2), closeTo(measureHelvetica('ab', 24) + 10, 1e-9));
+      // the space carries Tc *and* Tw
+      expect(at(3), closeTo(measureHelvetica('ab ', 24) + 15 + 10, 1e-9));
+      expect(at(5), closeTo(text.runs.single.width * 24, 1e-9));
+    });
+
+    test('a rotated run keeps its quad on the glyphs', () {
+      // 90° CCW baseline: the advance runs up the page, so a wrong offset
+      // shows up in y rather than x.
+      final text = PdfTextExtractor.extract(
+          PdfDocument.open(_buildTextPdf(
+              ['BT /F1 24 Tf 0 1 -1 0 300 400 Tm ($line) Tj ET'])),
+          0);
+      final start = line.indexOf('W');
+      final quad = text.quadsFor(start, line.length).single;
+      // lower-left corner of the quad sits at the start of the wide word
+      expect(quad.corners[0].$2,
+          closeTo(400 + measureHelvetica('IIIIII ', 24), 1e-6));
+      expect(
+          quad.corners[1].$2, closeTo(400 + measureHelvetica(line, 24), 1e-6));
+    });
+
+    test('runs split across show operators each carry their own offsets', () {
+      // A TJ array emits one run per string element; each must be measured
+      // from its own origin, not the line's.
+      final text = PdfTextExtractor.extract(
+          PdfDocument.open(_buildTextPdf(
+              ['BT /F1 24 Tf 72 720 Td [(IIIIII) -2000 (WWWWWW)] TJ ET'])),
+          0);
+      for (final run in text.runs) {
+        final offsets = run.charOffsets!;
+        expect(offsets.first, 0);
+        expect(offsets, hasLength(run.text.length + 1));
+        expect(offsets.last, closeTo(run.width, 1e-9));
+      }
+      final second = text.runs.last;
+      // the -2000 kern (2 em at 24pt) opens a real gap before 'WWWWWW'
+      expect(second.bounds.left,
+          closeTo(72 + measureHelvetica('IIIIII', 24) + 48, 1e-6));
+    });
   });
 
   test('quadsFor matches the rect for horizontal text', () {
