@@ -1,4 +1,5 @@
 import Cocoa
+import Darwin
 import FlutterMacOS
 import PDFKit
 
@@ -78,6 +79,24 @@ class MainFlutterWindow: NSWindow {
           result(FlutterMethodNotImplemented)
         }
       }
+    }
+
+    let memoryChannel = FlutterMethodChannel(
+      name: "dev.milanko.dartpdf/memory",
+      binaryMessenger: flutterViewController.engine.binaryMessenger)
+    memoryChannel.setMethodCallHandler { (call, result) in
+      guard call.method == "snapshot" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      var snapshot: [String: Any] = [
+        "physicalBytes": Int64(ProcessInfo.processInfo.physicalMemory),
+        "lowMemory": false,
+      ]
+      if let available = Self.availableProcessMemory() {
+        snapshot["availableBytes"] = Int64(available)
+      }
+      result(snapshot)
     }
 
     let fileAccessChannel = FlutterMethodChannel(
@@ -197,6 +216,21 @@ class MainFlutterWindow: NSWindow {
     super.awakeFromNib()
   }
 
+  /// `os_proc_available_memory` is not exposed by Swift's Darwin module map.
+  /// Resolve the documented libSystem function dynamically so the app can use
+  /// its advisory per-process headroom without a private API or helper plugin.
+  private static func availableProcessMemory() -> UInt64? {
+    guard let handle = dlopen(nil, RTLD_NOW) else { return nil }
+    defer { dlclose(handle) }
+    guard let symbol = dlsym(handle, "os_proc_available_memory") else {
+      return nil
+    }
+    typealias AvailableMemory = @convention(c) () -> UInt
+    let function = unsafeBitCast(symbol, to: AvailableMemory.self)
+    let bytes = function()
+    return bytes > 0 ? UInt64(bytes) : nil
+  }
+
   /// Spools the whole PDF through AppKit's print panel via PDFKit. Returns
   /// false when the data isn't a readable PDF or the user cancels.
   private func runPrintJob(pdf: Data, name: String) -> Bool {
@@ -295,10 +329,8 @@ class MainFlutterWindow: NSWindow {
       let url = try self.resolveBookmarkedURL(bookmark)
       let scoped = url.startAccessingSecurityScopedResource()
       defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-      let handle = try FileHandle(forReadingFrom: url)
-      defer { handle.closeFile() }
-      handle.seek(toFileOffset: UInt64(max(0, offset)))
-      let data = handle.readData(ofLength: max(0, length))
+      let data = try FileRangeReader.read(
+        url: url, offset: offset, length: length)
       return FlutterStandardTypedData(bytes: data)
     }
   }

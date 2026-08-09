@@ -1,5 +1,22 @@
 # Changelog
 
+## 3.3.1
+
+- Lockstep patch release to align the dart-pdf package suite at 3.3.1. No
+  public `pdf_graphics` API changes since 3.3.0.
+
+## 3.3.0
+
+- Lockstep minor release to align the dart-pdf package suite at 3.3.0. No
+  public `pdf_graphics` API changes since 3.2.0.
+
+## 3.2.0
+
+- Render third-party FreeText annotations without appearance streams more
+  faithfully: callout text uses the inset text box, long lines wrap, quadding
+  is honored, and semantic fill, border, and leader-line styling is painted
+  from the annotation dictionary (#621).
+
 ## 3.1.1
 
 - Lockstep patch release to align the dart-pdf package suite at 3.1.1. No

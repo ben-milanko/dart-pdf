@@ -408,6 +408,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get menuRemoveNode => '頂点を削除';
 
   @override
+  String get menuSaveToStamps => 'スタンプに保存';
+
+  @override
   String get menuSetAsDefaultStyle => 'デフォルトのスタイルに設定';
 
   @override
@@ -559,6 +562,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get propContents => '内容';
+
+  @override
+  String get propCornerRadius => '角の丸み';
 
   @override
   String get propEditsApplyToAll => '編集はすべての互換注釈に適用されます';
@@ -986,6 +992,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get shellShowAnnotations => '注釈を表示';
 
   @override
+  String get shellShowScrollbarChapters => 'スクロールバーに章を表示';
+
+  @override
   String get shellTabHere => 'ここにタブ';
 
   @override
@@ -1212,6 +1221,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
 
   @override
   String get stampNewStampTitle => '新規スタンプ';
+
+  @override
+  String get stampSavedToCollection => 'スタンプに保存しました';
 
   @override
   String get stampSelectTextToEdit => '編集するテキストを選択';

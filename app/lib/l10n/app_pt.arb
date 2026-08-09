@@ -207,6 +207,8 @@
   "settingsUpdateAvailable": "A versão {version} está disponível (você tem a {currentVersion}).",
   "settingsUpdateFailed": "Não foi possível verificar atualizações. Tente novamente mais tarde.",
   "settingsUpdateIdle": "Você tem o {name} {version}.",
+  "settingsNightlyUpdates": "Atualizações noturnas",
+  "settingsNightlyUpdatesSubtitle": "Receba notificações automáticas para compilações de teste do Windows não assinadas da main.",
   "settingsUpdates": "Atualizações",
   "settingsViewSource": "Ver código-fonte no GitHub",
   "undo": "Desfazer",

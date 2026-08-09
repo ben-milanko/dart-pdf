@@ -17,6 +17,7 @@ class SceneDelegate: FlutterSceneDelegate {
   private var pencilInteraction: AnyObject?
   private var imageClipboardChannel: FlutterMethodChannel?
   private var mobileFileChannel: FlutterMethodChannel?
+  private var memoryChannel: FlutterMethodChannel?
 
   /// The in-flight `pickDocuments` reply, held while the document picker is up
   /// (its result arrives asynchronously via the picker delegate).
@@ -34,8 +35,32 @@ class SceneDelegate: FlutterSceneDelegate {
     setupChannel()
     setupImageClipboardChannel()
     setupMobileFileChannel()
+    setupMemoryChannel()
     setupPencilInteraction()
     handle(connectionOptions.urlContexts)
+  }
+
+  private func setupMemoryChannel() {
+    guard memoryChannel == nil,
+      let controller = window?.rootViewController as? FlutterViewController
+    else { return }
+    let ch = FlutterMethodChannel(
+      name: "dev.milanko.dartpdf/memory",
+      binaryMessenger: controller.binaryMessenger)
+    ch.setMethodCallHandler { (call, result) in
+      guard call.method == "snapshot" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      result([
+        "physicalBytes": Int64(ProcessInfo.processInfo.physicalMemory),
+        // Apple's advisory per-app headroom. Unlike system free memory this
+        // follows the current jetsam limit and can change over the app life.
+        "availableBytes": Int64(os_proc_available_memory()),
+        "lowMemory": false,
+      ])
+    }
+    memoryChannel = ch
   }
 
   override func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {

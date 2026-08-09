@@ -244,6 +244,25 @@ Future<void> showPdfAnnotationMenu({
         onSelected: (request) =>
             request.controller.applySelectedStyleAsDefault(),
       ),
+    // A stamp on the page goes back into the stamp collection, so a design
+    // that arrived in a document can be reused like one made in the editor.
+    if (hasSelection && controller.canSaveSelectedAsCustomStamp)
+      PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-save-stamp'),
+        label: pdfL10n(context).menuSaveToStamps,
+        icon: Icons.approval_outlined,
+        onSelected: (request) {
+          final messenger = ScaffoldMessenger.maybeOf(context);
+          final saved = request.controller.saveSelectedAsCustomStamp();
+          if (saved == null) return;
+          messenger
+            ?..clearSnackBars()
+            ..showSnackBar(SnackBar(
+              content: Text(pdfL10n(context).stampSavedToCollection),
+              behavior: SnackBarBehavior.floating,
+            ));
+        },
+      ),
   ];
   final destructive = <PdfAnnotationMenuItem>[
     if (hasSelection) ...[

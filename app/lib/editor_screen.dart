@@ -233,8 +233,11 @@ class _EditorScreenState extends State<EditorScreen>
   bool _restoringSession = false;
 
   /// The update checker, owned here unless the host injected one.
-  late final UpdateService _updates =
-      widget.updateService ?? UpdateService(currentVersion: AppInfo.version);
+  late final UpdateService _updates = widget.updateService ??
+      UpdateService(
+        currentVersion: AppInfo.version,
+        currentBuildCommit: AppInfo.buildCommit,
+      );
   bool get _ownsUpdates => widget.updateService == null;
 
   /// The in-app updater that downloads and applies a newer release.
@@ -247,6 +250,16 @@ class _EditorScreenState extends State<EditorScreen>
 
   /// True while a file is being dragged over the window (desktop/web).
   bool _dragging = false;
+
+  /// Bridges that drag to the page thumbnails: while it hovers the strip or
+  /// the page grid the panel marks the slot the pages would land in, and the
+  /// drop inserts them there instead of asking open-or-append.
+  final PdfThumbnailDropController _thumbnailDrop =
+      PdfThumbnailDropController();
+
+  /// True while the drag is over a thumbnail panel - the panel's own
+  /// insertion marker says everything, so the full-window hint steps aside.
+  bool _draggingOverThumbnails = false;
 
   final List<DocumentTab> _tabs = [];
   int _activeIndex = 0;
@@ -326,8 +339,8 @@ class _EditorScreenState extends State<EditorScreen>
     final messenger = ScaffoldMessenger.of(context);
     messenger.showMaterialBanner(MaterialBanner(
       key: const ValueKey('update-available-banner'),
-      content: Text(
-          appL10n(context).editorUpdateAvailable(release.version.toString())),
+      content:
+          Text(appL10n(context).editorUpdateAvailable(release.displayVersion)),
       leading: const Icon(Icons.system_update_alt),
       actions: [
         TextButton(
@@ -391,6 +404,7 @@ class _EditorScreenState extends State<EditorScreen>
     }
     _recents.dispose();
     _recentThumbnails.dispose();
+    _thumbnailDrop.dispose();
     _updates.removeListener(_onUpdateStatus);
     if (_ownsUpdates) _updates.dispose();
     super.dispose();
@@ -1369,20 +1383,30 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   /// Handles PDFs dropped onto the window (desktop and web). Non-PDFs are
-  /// ignored. With an editable document already open, the drop offers a
-  /// choice - open each PDF in its own tab, or insert their pages into the
-  /// current document; with nothing open (or in read-only mode) each PDF
-  /// just opens in its own tab.
-  Future<void> _onFilesDropped(List<DropItem> items) async {
+  /// ignored. A drop onto the page thumbnails (the strip or the full-area
+  /// grid) inserts the pages at the marked position - the drop point picked
+  /// the answer, so there's nothing to ask. Anywhere else, with an editable
+  /// document already open, the drop offers a choice - open each PDF in its
+  /// own tab, or append their pages to the current document; with nothing
+  /// open (or in read-only mode) each PDF just opens in its own tab.
+  Future<void> _onFilesDropped(DropDoneDetails details) async {
     final pdfs = [
-      for (final item in items)
+      for (final item in details.files)
         if (item.name.toLowerCase().endsWith('.pdf')) item,
     ];
+    // Read the drop slot before clearing the drag: the panels answer from
+    // their live geometry, which the clear repaints away.
+    final at = _thumbnailDrop.indexAt(details.globalPosition);
+    _thumbnailDrop.endDrag();
     if (pdfs.isEmpty) return;
 
     final tab = _active;
     final session = tab?.session;
     if (session != null && !_readOnly) {
+      if (at != null) {
+        await _insertDropped(pdfs, session, tab!.title, at: at);
+        return;
+      }
       final action = await _promptDropAction(pdfs.length, tab!.title);
       if (action == null || !mounted) return; // cancelled / disposed
       if (action == _DropAction.insert) {
@@ -1391,6 +1415,26 @@ class _EditorScreenState extends State<EditorScreen>
       }
     }
     await _openDropped(pdfs);
+  }
+
+  /// Tracks a file drag across the window so the thumbnail panels can mark
+  /// where a drop would insert the pages.
+  void _onDragMoved(Offset globalPosition) {
+    final over = _thumbnailDrop.dragOver(globalPosition) != null;
+    if (over == _draggingOverThumbnails && _dragging) return;
+    setState(() {
+      _dragging = true;
+      _draggingOverThumbnails = over;
+    });
+  }
+
+  /// The drag left the window (or ended): drop the hint and the marker.
+  void _onDragEnded() {
+    _thumbnailDrop.endDrag();
+    setState(() {
+      _dragging = false;
+      _draggingOverThumbnails = false;
+    });
   }
 
   /// Opens each dropped [pdfs] item in its own tab.
@@ -1418,17 +1462,25 @@ class _EditorScreenState extends State<EditorScreen>
     }
   }
 
-  /// Inserts the pages of each dropped PDF, appended in drop order, into the
-  /// active document's edit session. Unreadable files are skipped and
-  /// reported; the result is one undoable step per inserted file.
+  /// Inserts the pages of each dropped PDF into the active document's edit
+  /// session, in drop order: at page [at] when the drop landed on a
+  /// thumbnail panel, appended at the end otherwise. Unreadable files are
+  /// skipped and reported; the result is one undoable step per inserted
+  /// file. A positioned insert scrolls the viewer to the first new page.
   Future<void> _insertDropped(
-      List<DropItem> pdfs, PdfEditingController session, String title) async {
+      List<DropItem> pdfs, PdfEditingController session, String title,
+      {int? at}) async {
     var inserted = 0;
+    // each file lands after the ones already inserted, so a multi-file drop
+    // keeps its order
+    var next = at;
     final failed = <String>[];
     for (final item in pdfs) {
       try {
         final bytes = await item.readAsBytes();
-        session.insertPagesFromBytes(bytes);
+        final before = session.document.pageCount;
+        session.insertPagesFromBytes(bytes, at: next);
+        if (next != null) next += session.document.pageCount - before;
         inserted++;
       } catch (e) {
         AppDevTools.instance.addLog('insert failed: ${item.name} - $e',
@@ -1437,6 +1489,7 @@ class _EditorScreenState extends State<EditorScreen>
       }
     }
     if (!mounted) return;
+    if (at != null && inserted > 0) _revealInsertedPage(at);
     if (inserted == 0) {
       _toast(appL10n(context).editorCouldNotInsertDropped(pdfs.length));
     } else if (failed.isEmpty) {
@@ -1445,6 +1498,21 @@ class _EditorScreenState extends State<EditorScreen>
       _toast(appL10n(context)
           .editorInsertedButFailed(inserted, failed.join(', ')));
     }
+  }
+
+  /// Scrolls the active viewer to [index] - the first page a positioned
+  /// insert just added. The revision swap rebuilds the viewer and a
+  /// geometry-changing revision resets its scroll in a post-frame callback,
+  /// so navigate after two frames, once both have landed (the same route the
+  /// thumbnail strip's insert/paste takes).
+  void _revealInsertedPage(int index) {
+    final viewer = _active?.viewer;
+    if (viewer == null) return;
+    unawaited(() async {
+      await SchedulerBinding.instance.endOfFrame;
+      await SchedulerBinding.instance.endOfFrame;
+      await viewer.jumpToPage(index);
+    }());
   }
 
   /// Asks whether dropped PDFs (with a document already open) should open in
@@ -2511,11 +2579,15 @@ class _EditorScreenState extends State<EditorScreen>
               control: true, shift: true): _openMostRecent,
         },
         child: DropTarget(
-          onDragEntered: (_) => setState(() => _dragging = true),
-          onDragExited: (_) => setState(() => _dragging = false),
+          onDragEntered: (detail) => _onDragMoved(detail.globalPosition),
+          onDragUpdated: (detail) => _onDragMoved(detail.globalPosition),
+          onDragExited: (_) => _onDragEnded(),
           onDragDone: (detail) {
-            setState(() => _dragging = false);
-            _onFilesDropped(detail.files);
+            setState(() {
+              _dragging = false;
+              _draggingOverThumbnails = false;
+            });
+            _onFilesDropped(detail);
           },
           child: Builder(builder: (context) {
             final compactDevTools = _isCompactWidth(context);
@@ -2529,7 +2601,7 @@ class _EditorScreenState extends State<EditorScreen>
                 Positioned.fill(
                   child: Row(
                     children: [
-                      Expanded(child: _devToolsPointerLog(_buildBody(tab))),
+                      Expanded(child: _buildBodyWithDevTools(tab)),
                       if (_devToolsOpen && kDevToolsEnabled && !compactDevTools)
                         DevToolsPanel(
                           onClose: _toggleDevTools,
@@ -2538,7 +2610,10 @@ class _EditorScreenState extends State<EditorScreen>
                     ],
                   ),
                 ),
-                if (_dragging)
+                // The full-window hint yields to the thumbnails' own
+                // insertion marker once the drag is over a page panel - the
+                // marker already says exactly where the pages will land.
+                if (_dragging && !_draggingOverThumbnails)
                   Positioned.fill(
                     child: _DropOverlay(
                       canInsert: tab?.session != null && !_readOnly,
@@ -2569,8 +2644,27 @@ class _EditorScreenState extends State<EditorScreen>
     );
   }
 
+  /// Rebuild only the mounted document shell when its raster-cache policy
+  /// changes. Listening to the full [AppDevTools] model here would also rebuild
+  /// it for every captured log line and periodic panel refresh.
+  Widget _buildBodyWithDevTools(DocumentTab? tab) {
+    if (!kDevToolsEnabled) return _buildBody(tab);
+    return ValueListenableBuilder<PdfPageRasterCachePolicy>(
+      valueListenable: AppDevTools.instance.pageRasterCachePolicy,
+      builder: (context, _, __) =>
+          ValueListenableBuilder<PdfPageRasterWarmPolicy>(
+        valueListenable: AppDevTools.instance.pageRasterWarmPolicy,
+        builder: (context, _, __) => _devToolsPointerLog(_buildBody(tab)),
+      ),
+    );
+  }
+
   Widget _buildBody(DocumentTab? tab) {
     final compact = _isCompactWidth(context);
+    final pageRasterCachePolicy =
+        AppDevTools.instance.pageRasterCachePolicy.value;
+    final pageRasterWarmPolicy =
+        AppDevTools.instance.pageRasterWarmPolicy.value;
     if (tab == null) {
       return WelcomeScreen(
         recents: _recents,
@@ -2608,6 +2702,8 @@ class _EditorScreenState extends State<EditorScreen>
         key: ValueKey(tab),
         before: tab.compareBefore!,
         after: tab.compareAfter!,
+        pageRasterCachePolicy: pageRasterCachePolicy,
+        pageRasterWarmPolicy: pageRasterWarmPolicy,
       );
     }
     if (tab.isPreview) {
@@ -2618,6 +2714,8 @@ class _EditorScreenState extends State<EditorScreen>
         tab: tab,
         preferences: _prefs,
         onAction: _onAction,
+        pageRasterCachePolicy: pageRasterCachePolicy,
+        pageRasterWarmPolicy: pageRasterWarmPolicy,
       );
     }
     if (_readOnly) {
@@ -2628,6 +2726,12 @@ class _EditorScreenState extends State<EditorScreen>
         controller: tab.viewer,
         preferences: _prefs,
         onAction: _onAction,
+        // View mode is for reading the document as it is: the paper colour is
+        // an authoring choice, so the View options menu drops "Page color…"
+        // here and keeps it in edit mode.
+        features: const PdfReaderFeatures(pageColorEditable: false),
+        pageRasterCachePolicy: pageRasterCachePolicy,
+        pageRasterWarmPolicy: pageRasterWarmPolicy,
       );
     }
     return PdfEditorView(
@@ -2635,6 +2739,8 @@ class _EditorScreenState extends State<EditorScreen>
       documentId: tab.documentId,
       controller: tab.session,
       viewerController: tab.viewer,
+      pageRasterCachePolicy: pageRasterCachePolicy,
+      pageRasterWarmPolicy: pageRasterWarmPolicy,
       onSave: (_) => unawaited(_save(tab)),
       onSaveAs: (_) => unawaited(_save(tab, saveAs: true)),
       showSaveButton: !compact,
@@ -2648,6 +2754,9 @@ class _EditorScreenState extends State<EditorScreen>
       // just handed back.
       alwaysAllowSave: tab.isUnsaved || tab.isDirty,
       onPickPdfToInsert: () => pickPdfBytes(appL10n(context).fileTypePdf),
+      // a PDF dragged in from the desktop can be dropped between two page
+      // thumbnails; the drop lands its pages exactly there
+      thumbnailDropController: _thumbnailDrop,
       onExportPages: (bytes) => unawaited(saveBytesAs(context, bytes, tab.title,
           pdfLabel: appL10n(context).fileTypePdf)),
       onAction: _onAction,
@@ -3177,11 +3286,15 @@ class _ProgressivePreview extends StatelessWidget {
     required this.tab,
     required this.preferences,
     required this.onAction,
+    required this.pageRasterCachePolicy,
+    required this.pageRasterWarmPolicy,
   });
 
   final DocumentTab tab;
   final PdfEditingPreferences preferences;
   final PdfActionHandler onAction;
+  final PdfPageRasterCachePolicy pageRasterCachePolicy;
+  final PdfPageRasterWarmPolicy pageRasterWarmPolicy;
 
   @override
   Widget build(BuildContext context) {
@@ -3194,6 +3307,8 @@ class _ProgressivePreview extends StatelessWidget {
             controller: tab.viewer,
             preferences: preferences,
             onAction: onAction,
+            pageRasterCachePolicy: pageRasterCachePolicy,
+            pageRasterWarmPolicy: pageRasterWarmPolicy,
           ),
         ),
         Positioned(

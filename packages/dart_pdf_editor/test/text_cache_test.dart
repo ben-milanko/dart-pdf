@@ -109,26 +109,44 @@ void main() {
       CanvasPdfDevice.clearTextLayoutCache();
       final page = PdfDocument.open(buildClassicPdf()).page(0);
 
+      // A Latin run is now painted per character at the PDF's own offsets
+      // (#649), so its shaping is memoized in the glyph cache rather than the
+      // run cache - an alphabet's worth of entries, shared by every run that
+      // uses those characters.
       await _raster(page);
-      final afterFirst = CanvasPdfDevice.debugTextLayoutCacheLength;
+      final afterFirst = CanvasPdfDevice.debugGlyphLayoutCacheLength;
       expect(afterFirst, greaterThan(0),
           reason: 'standard-font runs should be cached');
 
-      // Re-rendering the same page hits the cache for every run - no new
+      // Re-rendering the same page hits the cache for every character - no new
       // entries appear.
       await _raster(page);
-      expect(CanvasPdfDevice.debugTextLayoutCacheLength, afterFirst,
+      expect(CanvasPdfDevice.debugGlyphLayoutCacheLength, afterFirst,
           reason: 'a re-render is all cache hits, no new layouts');
     });
   });
 
-  testWidgets('clearTextLayoutCache empties the cache', (tester) async {
+  testWidgets('a run that keeps whole-run shaping caches as a run',
+      (tester) async {
+    await tester.runAsync(() async {
+      // Arabic needs joining and reordering, so it is not placeable per
+      // character (#649) and stays on whole-run shaping - and on the run cache.
+      CanvasPdfDevice.clearTextLayoutCache();
+      await _rasterSubstitutedArabic(throughDevice: true);
+      expect(CanvasPdfDevice.debugTextLayoutCacheLength, greaterThan(0));
+    });
+  });
+
+  testWidgets('clearTextLayoutCache empties both caches', (tester) async {
     await tester.runAsync(() async {
       final page = PdfDocument.open(buildClassicPdf()).page(0);
       await _raster(page);
+      await _rasterSubstitutedArabic(throughDevice: true);
       expect(CanvasPdfDevice.debugTextLayoutCacheLength, greaterThan(0));
+      expect(CanvasPdfDevice.debugGlyphLayoutCacheLength, greaterThan(0));
       CanvasPdfDevice.clearTextLayoutCache();
       expect(CanvasPdfDevice.debugTextLayoutCacheLength, 0);
+      expect(CanvasPdfDevice.debugGlyphLayoutCacheLength, 0);
     });
   });
 

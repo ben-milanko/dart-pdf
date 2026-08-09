@@ -16,6 +16,16 @@ void main() {
     pdfDebugPaintDetailBounds.value = false;
     pdfDebugShowRenderWindow.value = false;
     AppDevTools.instance.showPerformanceOverlay.value = false;
+    AppDevTools.instance.setPageRasterCachePolicy(
+      const PdfPageRasterCachePolicy(),
+    );
+    AppDevTools.instance.updateAutoPageRasterCache(
+      const PdfPageRasterCachePolicy(),
+      reason: 'test reset',
+    );
+    AppDevTools.instance.useAutoPageRasterCache();
+    AppDevTools.instance
+        .setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.disabled());
     PdfPerfLog.enabled = false;
     pdfRenderWorkerPoolSize = defaultPdfRenderWorkerPoolSize;
   });
@@ -28,6 +38,10 @@ void main() {
     pdfDebugPaintDetailBounds.value = true;
     pdfDebugShowRenderWindow.value = true;
     pdfRenderWorkerPoolSize = 5;
+    tools.setPageRasterCachePolicy(const PdfPageRasterCachePolicy(
+      maxBytes: 5 * 1024 * 1024 * 1024,
+      maxEntryBytes: 128 * 1024 * 1024,
+    ));
     await tools.persistOptions();
 
     // "Restart": globals back to defaults, then restore.
@@ -35,6 +49,7 @@ void main() {
     pdfDebugPaintDetailBounds.value = false;
     pdfDebugShowRenderWindow.value = false;
     pdfRenderWorkerPoolSize = 3;
+    tools.setPageRasterCachePolicy(const PdfPageRasterCachePolicy());
     await tools.restoreOptions();
 
     expect(tools.deepZoomMode, AppDevTools.modeBatched);
@@ -43,14 +58,86 @@ void main() {
     expect(pdfDebugPaintDetailBounds.value, isTrue);
     expect(pdfDebugShowRenderWindow.value, isTrue);
     expect(pdfRenderWorkerPoolSize, 5);
+    expect(
+      tools.pageRasterCachePolicy.value,
+      const PdfPageRasterCachePolicy(
+        maxBytes: 5 * 1024 * 1024 * 1024,
+        maxEntryBytes: 128 * 1024 * 1024,
+      ),
+    );
+    expect(tools.pageRasterCacheMode, PageRasterCacheMode.fixed);
+  });
+
+  test('Auto mode round-trips independently of its effective budget', () async {
+    SharedPreferences.setMockInitialValues({});
+    final tools = AppDevTools.instance;
+    tools.setPageRasterCachePolicy(const PdfPageRasterCachePolicy(
+      maxBytes: 5 * 1024 * 1024 * 1024,
+      maxEntryBytes: 128 * 1024 * 1024,
+    ));
+    tools.updateAutoPageRasterCache(
+      const PdfPageRasterCachePolicy(
+        maxBytes: 512 * 1024 * 1024,
+        maxEntryBytes: 64 * 1024 * 1024,
+      ),
+      reason: 'test machine headroom',
+    );
+    tools.useAutoPageRasterCache();
+    await tools.persistOptions();
+
+    tools.setPageRasterCachePolicy(const PdfPageRasterCachePolicy.disabled());
+    await tools.restoreOptions();
+
+    expect(tools.pageRasterCacheMode, PageRasterCacheMode.auto);
+    expect(
+      tools.fixedPageRasterCachePolicy.maxBytes,
+      5 * 1024 * 1024 * 1024,
+      reason: 'the last fixed diagnostic preset is retained behind Auto',
+    );
+  });
+
+  test('the idle raster warm policy round-trips', () async {
+    SharedPreferences.setMockInitialValues({});
+    final tools = AppDevTools.instance;
+    expect(tools.pageRasterWarmPolicy.value.enabled, isFalse,
+        reason: 'warming is off until a host asks for it');
+
+    tools.setPageRasterWarmPolicy(
+        const PdfPageRasterWarmPolicy.nearby(window: 5));
+    await tools.persistOptions();
+
+    tools.setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.disabled());
+    await tools.restoreOptions();
+    expect(tools.pageRasterWarmPolicy.value,
+        const PdfPageRasterWarmPolicy.nearby(window: 5));
+
+    tools.setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.document());
+    await tools.persistOptions();
+    tools.setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.disabled());
+    await tools.restoreOptions();
+    expect(tools.pageRasterWarmPolicy.value.mode,
+        PdfPageRasterWarmMode.document);
   });
 
   test('restore with nothing persisted leaves the defaults alone', () async {
     SharedPreferences.setMockInitialValues({});
     pdfRenderWorkerPoolSize = 3;
+    AppDevTools.instance.setPageRasterCachePolicy(
+      const PdfPageRasterCachePolicy(),
+    );
+    AppDevTools.instance.updateAutoPageRasterCache(
+      const PdfPageRasterCachePolicy(),
+      reason: 'test reset',
+    );
+    AppDevTools.instance.useAutoPageRasterCache();
     await AppDevTools.instance.restoreOptions();
     expect(AppDevTools.instance.deepZoomMode, AppDevTools.modePatch);
     expect(pdfRenderWorkerPoolSize, 3);
+    expect(
+      AppDevTools.instance.pageRasterCachePolicy.value,
+      const PdfPageRasterCachePolicy(),
+    );
+    expect(AppDevTools.instance.pageRasterWarmPolicy.value.enabled, isFalse);
   });
 
   test('a corrupt payload is logged, not thrown', () async {

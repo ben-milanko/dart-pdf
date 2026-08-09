@@ -117,6 +117,63 @@ void main() {
       expect(rendered, [4]);
     });
 
+    testWidgets('a blocked warm logs once, not once per activity ping',
+        (tester) async {
+      // The render scheduler pings its activity Listenable on every grant,
+      // settle, request and hold transition - most of them while it is still
+      // busy. Each ping used to spin up a warm loop that immediately stood down
+      // again, costing a microtask and a log line. The 2026-07-29 trace carries
+      // ~90 `thumbnail warm yields` lines and not one `thumbnail warm page=`:
+      // the repeats said nothing the first did not, and buried the lines that
+      // mattered.
+      final logs = <String>[];
+      PdfPerfLog.sink = logs.add;
+      PdfPerfLog.enabled = true;
+      addTearDown(() {
+        PdfPerfLog.enabled = false;
+        PdfPerfLog.sink = null;
+      });
+
+      final cache = PdfThumbnailCache();
+      addTearDown(cache.dispose);
+      final activity = _TestActivity();
+      var viewerBusy = true;
+      cache.bindForegroundGate(activity, () => viewerBusy);
+
+      final warmed = <int>[];
+      cache.setWarm(Object(), 3, 'k', (page) async => warmed.add(page));
+      for (var i = 0; i < 30; i++) {
+        activity.ping();
+        await tester.pump();
+      }
+      expect(warmed, isEmpty);
+      expect(
+        logs.where((line) => line.contains('thumbnail warm yields')).length,
+        1,
+        reason: 'one line per transition into yielding, not per ping',
+      );
+
+      // Going idle must still resume it - the quieter log must not have cost
+      // the wake-up.
+      viewerBusy = false;
+      activity.ping();
+      for (var i = 0; i < 8; i++) {
+        await tester.pump();
+      }
+      expect(warmed, [0, 1, 2]);
+
+      // ...and a fresh block after real progress logs again, so a warm that
+      // stalls a second time is still visible.
+      viewerBusy = true;
+      cache.setWarm(Object(), 3, 'k2', (page) async => warmed.add(page));
+      activity.ping();
+      await tester.pump();
+      expect(
+        logs.where((line) => line.contains('thumbnail warm yields')).length,
+        2,
+      );
+    });
+
     testWidgets('an unbound cache warms exactly as before', (tester) async {
       final cache = PdfThumbnailCache();
       addTearDown(cache.dispose);

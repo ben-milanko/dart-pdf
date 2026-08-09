@@ -207,6 +207,8 @@
   "settingsUpdateAvailable": "संस्करण {version} उपलब्ध है (आपके पास {currentVersion} है)।",
   "settingsUpdateFailed": "अपडेट की जाँच नहीं कर सके। बाद में पुनः प्रयास करें।",
   "settingsUpdateIdle": "आपके पास {name} {version} है।",
+  "settingsNightlyUpdates": "नाइटली अपडेट",
+  "settingsNightlyUpdatesSubtitle": "main से बिना हस्ताक्षर वाले Windows परीक्षण बिल्ड के लिए स्वचालित अपडेट सूचनाएँ पाएँ।",
   "settingsUpdates": "अपडेट",
   "settingsViewSource": "GitHub पर स्रोत देखें",
   "undo": "पूर्ववत करें",

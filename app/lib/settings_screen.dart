@@ -228,7 +228,8 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                   ],
                 ),
                 Text(
-                  appL10n(context).settingsRecentCount(widget.recents.items.length),
+                  appL10n(context)
+                      .settingsRecentCount(widget.recents.items.length),
                   style: theme.textTheme.bodySmall,
                 ),
                 const Divider(height: 32),
@@ -355,6 +356,20 @@ class _UpdateSection extends StatelessWidget {
                 ),
               ],
             ),
+            if (updates.nightlySupported)
+              SwitchListTile(
+                key: const ValueKey('settings-nightly-updates'),
+                contentPadding: EdgeInsets.zero,
+                title: Text(appL10n(context).settingsNightlyUpdates),
+                subtitle: Text(appL10n(context).settingsNightlyUpdatesSubtitle),
+                value: updates.nightlyUpdates,
+                onChanged: checking
+                    ? null
+                    : (value) async {
+                        await updates.setNightlyUpdates(value);
+                        await updates.checkForUpdates(force: true);
+                      },
+              ),
             _statusLine(context, theme),
             if (updates.updateAvailable) ...[
               const SizedBox(height: 8),
@@ -363,8 +378,8 @@ class _UpdateSection extends StatelessWidget {
                 child: FilledButton.icon(
                   key: const ValueKey('settings-download-update'),
                   icon: const Icon(Icons.download_outlined, size: 18),
-                  label: Text(appL10n(context).settingsDownloadVersion(
-                      updates.latest!.version.toString())),
+                  label: Text(appL10n(context)
+                      .settingsDownloadVersion(updates.latest!.displayVersion)),
                   onPressed: () => _install(context),
                 ),
               ),
@@ -383,7 +398,7 @@ class _UpdateSection extends StatelessWidget {
         Text(appL10n(context).settingsCheckingForUpdates, style: style),
       UpdateStatus.updateAvailable => Text(
           appL10n(context).settingsUpdateAvailable(
-              updates.latest!.version.toString(), AppInfo.version),
+              updates.latest!.displayVersion, AppInfo.version),
           key: const ValueKey('settings-update-available'),
           style: style?.copyWith(color: scheme.primary),
         ),

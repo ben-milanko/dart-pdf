@@ -59,7 +59,7 @@
   "dlMac_meta": "Langsung .dmg · ditandatangani & dinotarisasi",
   "dlWin_meta": "Penginstal · 64-bit",
   "dlWin_portable": "Tidak ingin menginstal? Dapatkan <a href=\"https://github.com/ben-milanko/dart-pdf/releases/latest/download/dartpdf-windows-portable.exe\">versi portabel Windows</a> yang berjalan dari mana saja.",
-  "dlLinux_meta": "AppImage · 64-bit",
+  "dlLinux_meta": "Flatpak · 64-bit",
   "dlWeb_meta": "Berjalan di browser apa pun",
   "dl_freeNote": "Gratis dan open source. Build lainnya (<code>.zip</code>, <code>.tar.gz</code>) di\n        <a href=\"https://github.com/ben-milanko/dart-pdf/releases/latest\" target=\"_blank\" rel=\"noopener\">GitHub\n          Releases</a>.",
 

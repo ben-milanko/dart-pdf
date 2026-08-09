@@ -44,6 +44,42 @@ Uint8List buildClassicPdf() {
   return ascii(buffer.toString());
 }
 
+/// Builds a minimal one-page PDF whose `/Annots` array is indirect.
+///
+/// Most fixtures store `/Annots` directly in the page dictionary. This one
+/// exercises editors that replace the array object and then read it again in
+/// the same incremental-update transaction.
+Uint8List buildIndirectAnnotsPdf() {
+  const content = 'BT /F1 24 Tf 72 720 Td (Indirect annotations) Tj ET';
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+        '/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> '
+        '/Annots 6 0 R >>',
+    '<< /Length ${content.length} >>\nstream\n$content\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    '[ ]',
+  ];
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${objects.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return ascii(buffer.toString());
+}
+
 /// Builds a PDF in the "modern" 1.5+ layout: an uncompressed cross-reference
 /// stream, with the catalog and page tree packed into an object stream.
 Uint8List buildXrefStreamPdf() {

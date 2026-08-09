@@ -17,12 +17,14 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
+import 'package:pdf_cos/pdf_cos.dart' show CosInteger;
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'banded_transcript.dart';
 import 'canvas_device.dart';
 import 'image_decoder.dart';
+import 'perf_log.dart';
 import 'renderer.dart';
 import 'render_worker.dart';
 import 'region_replay_index.dart';
@@ -209,6 +211,42 @@ class PdfRetainedScene {
     return total;
   }
 
+  /// Whether every image this scene retains is already decoded at its stream's
+  /// full native pixel size, so no re-decode - at any zoom, for any region -
+  /// could make its image draws sharper.
+  ///
+  /// The deep-zoom paths use this to skip a region re-record they would gain
+  /// nothing from: an image whose display cap landed on native (a scan shown
+  /// at roughly its own dpi) is already the best pixels that exist. An image
+  /// the scene could not decode at all is ignored - a re-decode won't produce
+  /// it either.
+  bool get imagesAtNativeResolution =>
+      _imagesAtNativeResolution ??= _computeImagesAtNativeResolution();
+
+  /// Memoized: the scene's images never change after construction, and deep
+  /// zoom asks this on every settle - an O(commands) walk per settle on a
+  /// dense sheet is exactly the kind of per-frame cost the retained scene
+  /// exists to avoid.
+  bool? _imagesAtNativeResolution;
+
+  bool _computeImagesAtNativeResolution() {
+    final requests = <PdfImageRequest>[];
+    PdfPageRenderer.collectImageRequests(commands, requests);
+    for (final request in requests) {
+      final image = _images[pdfImageKey(request)];
+      if (image == null) continue;
+      final dict = request.stream.dictionary;
+      final cos = page.document.cos;
+      final width = cos.resolve(dict['Width']);
+      final height = cos.resolve(dict['Height']);
+      if (width is! CosInteger || height is! CosInteger) continue;
+      if (image.width < width.value || image.height < height.value) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   int get debugRegionReplayUnitCount => _ensureRegionIndex().units.length;
   int get debugRegionReplayEstimatedBytes =>
       _ensureRegionIndex().estimatedBytes;
@@ -366,14 +404,39 @@ class PdfRetainedScene {
 
   /// Convenience: [replayRegion] + `toImage`, mirror of
   /// [PdfPageRenderer.rasterizeRegion].
+  ///
+  /// [tracePage] labels tile-pyramid calls for performance diagnostics. Null
+  /// keeps the ordinary path instrumentation-free.
   Future<ui.Image> rasterizeRegion(Rect region,
-      {required double pixelRatio}) async {
+      {required double pixelRatio, int? tracePage}) async {
+    final replayClock =
+        tracePage != null && PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
     final picture = replayRegion(region, pixelRatio: pixelRatio);
+    final replayMs = replayClock?.elapsedMicroseconds;
+    final selectedCommands = debugLastRegionReplayCommandCount;
+    final rasterClock =
+        tracePage != null && PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
     try {
-      return await picture.toImage(
+      final image = await picture.toImage(
         (region.width * pixelRatio).ceil().clamp(1, 1 << 14),
         (region.height * pixelRatio).ceil().clamp(1, 1 << 14),
       );
+      if (tracePage != null) {
+        final replayElapsedMs = (replayMs ?? 0) / 1000;
+        final rasterElapsedMs =
+            (rasterClock?.elapsedMicroseconds ?? 0) / 1000;
+        PdfPerfLog.log(
+          'tile replay page=$tracePage '
+          'region=${region.width.toStringAsFixed(0)}x'
+          '${region.height.toStringAsFixed(0)}pt '
+          'ratio=${pixelRatio.toStringAsFixed(2)} '
+          'selected=$selectedCommands/${commands.length} '
+          'replay=${replayElapsedMs.toStringAsFixed(1)}ms '
+          'raster=${rasterElapsedMs.toStringAsFixed(1)}ms '
+          'img=${image.width}x${image.height}${PdfPerfLog.rssSuffix()}',
+        );
+      }
+      return image;
     } finally {
       picture.dispose();
     }

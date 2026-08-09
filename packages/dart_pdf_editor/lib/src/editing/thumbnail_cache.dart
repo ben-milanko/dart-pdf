@@ -261,10 +261,42 @@ class PdfThumbnailCache {
     _warmAttempted.clear();
   }
 
+  /// Whether the warm is currently standing aside, so the yield is logged on
+  /// the transition into that state rather than once per activity ping.
+  bool _warmYielding = false;
+
   void _kickWarm() {
     if (_warming || _disposed || _warmRenderer == null) return;
+    // Don't spin up a loop that will immediately stand down again. The render
+    // scheduler pings its activity Listenable on every grant, settle, request
+    // and hold transition, and most of those happen while it is still busy -
+    // so kicking per ping costs a microtask and a log line each time and
+    // reaches a warm page only if the gate happens to be clear at that instant.
+    // The 2026-07-29 trace is ~90 `thumbnail warm yields` lines against zero
+    // `thumbnail warm page=`: 3.5 minutes of sidebar warming nothing but the
+    // log. The gate pings again when the viewer goes idle, which is the only
+    // moment the loop could have made progress anyway.
+    if (_foregroundBusy) {
+      _logWarmYield('foreground busy '
+          '(pending=${_pending.length} draining=$_draining)');
+      return;
+    }
+    if (_viewerBusy) {
+      _logWarmYield('viewer rendering');
+      return;
+    }
+    _warmYielding = false;
     _warming = true;
     scheduleMicrotask(_warmLoop);
+  }
+
+  void _logWarmYield(String reason) {
+    // One line per transition into yielding. A warm that stays blocked for
+    // minutes should read as one event in the trace, not as ninety - and the
+    // repeat lines carried no information the first did not.
+    if (_warmYielding) return;
+    _warmYielding = true;
+    PdfPerfLog.log('thumbnail warm yields - $reason');
   }
 
   Future<void> _warmLoop() async {
@@ -274,7 +306,7 @@ class PdfThumbnailCache {
         // let the foreground drain re-kick us when it's done (its `finally`
         // calls _kickWarm), rather than busy-waiting on frames
         if (_foregroundBusy) {
-          PdfPerfLog.log('thumbnail warm yields - foreground busy '
+          _logWarmYield('foreground busy '
               '(pending=${_pending.length} draining=$_draining)');
           return;
         }
@@ -284,11 +316,12 @@ class PdfThumbnailCache {
         // actually looking at (#603). The gate's activity listener re-kicks
         // this loop when the viewer goes idle.
         if (_viewerBusy) {
-          PdfPerfLog.log('thumbnail warm yields - viewer rendering');
+          _logWarmYield('viewer rendering');
           return;
         }
         final page = _nextWarmPage();
         if (page == null) return; // every page attempted this pass
+        _warmYielding = false;
         _warmAttempted.add(page);
         final renderer = _warmRenderer;
         if (renderer == null) return;

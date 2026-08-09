@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.3.1
+
+- Lockstep patch release to align the optional bundled assets with
+  `dart_pdf_editor` 3.3.1.
+
+## 3.3.0
+
+- Lockstep minor release to align the optional bundled assets with
+  `dart_pdf_editor` 3.3.0.
+
+## 3.2.0
+
+- Lockstep minor release to align the optional bundled assets with
+  `dart_pdf_editor` 3.2.0.
+
 ## 3.1.1
 
 - Lockstep patch release to align the optional bundled assets with

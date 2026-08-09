@@ -664,6 +664,143 @@ void main() {
     });
   });
 
+  group('saving a placed stamp back to the collection', () {
+    /// A controller with one stamp on page 0, selected.
+    PdfEditingController withSelectedStamp(
+        void Function(PdfEditingController) place) {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      place(editing);
+      editing
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      return editing;
+    }
+
+    test('a template stamp comes back with its design and fields intact', () {
+      final template = PdfStampTemplate(
+        width: 240,
+        height: 96,
+        components: [
+          PdfStampTemplateComponent.rectangle(
+              x: 6, y: 16, width: 228, height: 64, color: 0x2E7D32),
+          PdfStampTemplateComponent.text(
+              x: 20,
+              y: 30,
+              width: 200,
+              height: 36,
+              text: 'APPROVED {{date}}',
+              color: 0x2E7D32),
+        ],
+      );
+      const source = PdfCustomStamp(
+        text: 'APPROVED {{date}}',
+        color: 0x2E7D32,
+        type: 'Approval',
+        tags: ['audit'],
+      );
+      final editing = withSelectedStamp((editing) {
+        editing.stampTemplateClock = () => DateTime(2026, 8, 6);
+        editing.activeStamp = PdfCustomStamp(
+          text: source.text,
+          color: source.color,
+          template: template,
+          type: source.type,
+          tags: source.tags,
+        );
+        expect(editing.placeStamp(0, 300, 400), isTrue);
+      });
+      // the placed stamp shows the resolved date
+      expect(editing.document.page(0).annotations.single.contents,
+          'APPROVED 2026-08-06');
+
+      // pretend the stamp arrived in the document, not from this session
+      editing
+        ..activeStamp = null
+        ..preferences.customStamps = const [];
+
+      expect(editing.canSaveSelectedAsCustomStamp, isTrue);
+      final saved = editing.saveSelectedAsCustomStamp();
+      expect(saved, isNotNull);
+      expect(editing.savedCustomStamps, [saved]);
+      expect(editing.activeStamp, saved);
+      // the design round-tripped, placeholder and metadata included
+      expect(saved!.template, template);
+      expect(saved.text, 'APPROVED {{date}}');
+      expect(saved.color, 0x2E7D32);
+      expect(saved.type, 'Approval');
+      expect(saved.tags, ['audit']);
+
+      // and it places again with today's date, not the day it was stamped
+      editing.stampTemplateClock = () => DateTime(2026, 9, 1);
+      expect(editing.placeStamp(0, 300, 200), isTrue);
+      expect(editing.document.page(0).annotations[1].contents,
+          'APPROVED 2026-09-01');
+    });
+
+    test('saving the same stamp twice does not duplicate the entry', () {
+      final editing = withSelectedStamp((editing) {
+        editing.activeStamp =
+            const PdfCustomStamp(text: 'PAID', color: 0xC03030);
+        expect(editing.placeStamp(0, 300, 400), isTrue);
+      });
+      final first = editing.saveSelectedAsCustomStamp();
+      final second = editing.saveSelectedAsCustomStamp();
+      expect(first, second);
+      expect(editing.savedCustomStamps, hasLength(1));
+    });
+
+    test('a plain text stamp is recovered from its caption and colour', () {
+      final editing = withSelectedStamp((editing) {
+        expect(
+            editing.placeTextStamp(0, 300, 400, 'REVIEWED', color: 0x1A3E8C),
+            isTrue);
+      });
+      final saved = editing.saveSelectedAsCustomStamp();
+      expect(saved, const PdfCustomStamp(text: 'REVIEWED', color: 0x1A3E8C));
+      // no template metadata to recover, so it saves as a classic text stamp
+      expect(saved!.template, isNull);
+    });
+
+    test('stamps with no recoverable design are not offered', () {
+      // a count check-mark
+      final counted = withSelectedStamp(
+          (editing) => expect(editing.placeCheckMark(0, 300, 400), isTrue));
+      expect(counted.canSaveSelectedAsCustomStamp, isFalse);
+      expect(counted.saveSelectedAsCustomStamp(), isNull);
+
+      // a picture
+      final picture = withSelectedStamp(
+          (editing) => expect(editing.placeImage(0, 300, 400, _png), isTrue));
+      expect(picture.canSaveSelectedAsCustomStamp, isFalse);
+
+      // a pasted vector snapshot (a /Stamp, but captured page graphics)
+      final snapshot = withSelectedStamp((editing) {
+        editing.copyVectorSnapshot(0, const PdfRect(60, 700, 220, 740));
+        expect(editing.pasteSnapshot(0, at: (110, 500)), isTrue);
+      });
+      expect(snapshot.canSaveSelectedAsCustomStamp, isFalse);
+    });
+
+    test('a non-stamp annotation, or a multi-selection, is not offered', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(editing.dispose);
+      editing
+        ..addRectangle(0, const PdfRect(60, 700, 160, 750))
+        ..tool = PdfEditTool.select
+        ..selectAnnotation(0, 0);
+      expect(editing.canSaveSelectedAsCustomStamp, isFalse);
+
+      editing
+        ..activeStamp = const PdfCustomStamp(text: 'PAID', color: 0xC03030)
+        ..placeStamp(0, 300, 400);
+      editing.selectAnnotationsIn(0, const PdfRect(0, 0, 612, 792));
+      expect(editing.selectedAnnotationSlots, hasLength(2));
+      // one stamp at a time - a block selection has no single design
+      expect(editing.canSaveSelectedAsCustomStamp, isFalse);
+    });
+  });
+
   group('stamp tool in the viewer', () {
     testWidgets('create a stamp in the picker, then tap to place it',
         (tester) async {

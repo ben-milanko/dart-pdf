@@ -207,6 +207,8 @@
   "settingsUpdateAvailable": "Version {version} ist verfügbar (Sie haben {currentVersion}).",
   "settingsUpdateFailed": "Nach Updates konnte nicht gesucht werden. Versuchen Sie es später erneut.",
   "settingsUpdateIdle": "Sie haben {name} {version}.",
+  "settingsNightlyUpdates": "Nightly-Updates",
+  "settingsNightlyUpdatesSubtitle": "Automatische Update-Benachrichtigungen für unsignierte Windows-Testbuilds aus main erhalten.",
   "settingsUpdates": "Updates",
   "settingsViewSource": "Quellcode auf GitHub anzeigen",
   "undo": "Rückgängig",

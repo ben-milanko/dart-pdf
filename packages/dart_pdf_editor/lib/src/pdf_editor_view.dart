@@ -7,6 +7,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'editing/editing_bookmarks.dart';
 import 'editing/editing_controller.dart';
+import 'editing/editing_interaction.dart';
 import 'editing/editing_menu.dart';
 import 'editing/editing_panel.dart';
 import 'editing/editing_pencil.dart';
@@ -14,6 +15,7 @@ import 'editing/editing_preferences.dart';
 import 'editing/editing_properties.dart';
 import 'editing/editing_sidebar.dart';
 import 'editing/editing_stamps.dart';
+import 'editing/editing_thumbnail_drop.dart';
 import 'editing/editing_thumbnails.dart';
 import 'editing/editing_toolbar.dart';
 import 'editing/text_prompt.dart';
@@ -24,6 +26,8 @@ import 'page_number_field.dart';
 import 'performance_policy.dart';
 import 'pdf_reflow_view.dart';
 import 'pdf_viewer.dart';
+import 'preview_cache.dart';
+import 'raster_warm.dart';
 import 'progressive_source.dart';
 import 'raster_cache.dart';
 import 'search_panel.dart';
@@ -221,11 +225,13 @@ class PdfEditorView extends StatefulWidget {
     this.onDocumentChanged,
     this.onPickPdfToInsert,
     this.onExportPages,
+    this.thumbnailDropController,
     this.onAction,
     this.onAnnotationTap,
     this.pageOverlayBuilder,
     this.annotationMenuBuilder,
     this.contextMenuEnabled = true,
+    this.onContextMenuRequested,
     this.formImagePicker,
     this.imagePicker,
     this.systemImagePasteProvider,
@@ -252,6 +258,8 @@ class PdfEditorView extends StatefulWidget {
     this.viewerTheme,
     this.rasterCache,
     this.textCache,
+    this.pageRasterCachePolicy = const PdfPageRasterCachePolicy(),
+    this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
   })  : source = null,
         options = const PdfSourceLoadOptions(firstPaintPages: 1),
         onProgress = null,
@@ -298,11 +306,13 @@ class PdfEditorView extends StatefulWidget {
     this.onDocumentChanged,
     this.onPickPdfToInsert,
     this.onExportPages,
+    this.thumbnailDropController,
     this.onAction,
     this.onAnnotationTap,
     this.pageOverlayBuilder,
     this.annotationMenuBuilder,
     this.contextMenuEnabled = true,
+    this.onContextMenuRequested,
     this.formImagePicker,
     this.imagePicker,
     this.systemImagePasteProvider,
@@ -329,6 +339,8 @@ class PdfEditorView extends StatefulWidget {
     this.viewerTheme,
     this.rasterCache,
     this.textCache,
+    this.pageRasterCachePolicy = const PdfPageRasterCachePolicy(),
+    this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
   })  : bytes = null,
         controller = null;
 
@@ -368,6 +380,14 @@ class PdfEditorView extends StatefulWidget {
   /// active edit session mutates page content, so its text is never served
   /// from the content-keyed persistent cache (in-memory only).
   final PdfPageTextCache? textCache;
+
+  /// Memory policy for exact full-resolution rasters of previously visited
+  /// pages. See [PdfViewer.pageRasterCachePolicy].
+  final PdfPageRasterCachePolicy pageRasterCachePolicy;
+
+  /// Whether idle time is spent baking exact page rasters ahead of
+  /// navigation. See [PdfViewer.pageRasterWarmPolicy].
+  final PdfPageRasterWarmPolicy pageRasterWarmPolicy;
 
   /// A stable identifier for this document, used to remember its scroll
   /// position and zoom across sessions (persisted in the preferences).
@@ -434,6 +454,15 @@ class PdfEditorView extends StatefulWidget {
   /// hands the bytes here). When null the action is hidden.
   final void Function(Uint8List bytes)? onExportPages;
 
+  /// Lets a PDF dragged in from outside the app be dropped at a chosen
+  /// position in the page thumbnails (strip or full-area grid) instead of
+  /// only being appended: the panels paint an insertion marker where the
+  /// pages would land, and the host reads the index back on drop. Only the
+  /// host sees the platform's drag stream, so it drives the controller -
+  /// see [PdfThumbnailDropController] for the wiring. Needs
+  /// [PdfEditorFeatures.pageEditing].
+  final PdfThumbnailDropController? thumbnailDropController;
+
   /// See [PdfViewer.onAction].
   final PdfActionHandler? onAction;
 
@@ -448,6 +477,9 @@ class PdfEditorView extends StatefulWidget {
 
   /// See [PdfViewer.contextMenuEnabled].
   final bool contextMenuEnabled;
+
+  /// See [PdfViewer.onContextMenuRequested].
+  final PdfContextMenuHost? onContextMenuRequested;
 
   /// See [PdfViewer.formImagePicker].
   final PdfFormImagePicker? formImagePicker;
@@ -700,11 +732,14 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         onDocumentChanged: complete ? widget.onDocumentChanged : null,
         onPickPdfToInsert: complete ? widget.onPickPdfToInsert : null,
         onExportPages: complete ? widget.onExportPages : null,
+        thumbnailDropController:
+            complete ? widget.thumbnailDropController : null,
         onAction: widget.onAction,
         onAnnotationTap: widget.onAnnotationTap,
         pageOverlayBuilder: widget.pageOverlayBuilder,
         annotationMenuBuilder: widget.annotationMenuBuilder,
         contextMenuEnabled: widget.contextMenuEnabled,
+        onContextMenuRequested: widget.onContextMenuRequested,
         formImagePicker: widget.formImagePicker,
         imagePicker: widget.imagePicker,
         systemImagePasteProvider: widget.systemImagePasteProvider,
@@ -863,6 +898,11 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 onPickPdfToInsert:
                     features.pageEditing ? widget.onPickPdfToInsert : null,
                 onExportPages: widget.onExportPages,
+                // dropping a PDF between two tiles inserts it there; a
+                // read-only shell takes no structural page edits
+                fileDropController: features.pageEditing
+                    ? widget.thumbnailDropController
+                    : null,
                 renderWorker: _shell.worker,
                 rasterCache: thumbnailDisk,
               );
@@ -930,6 +970,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 onPickPdfToInsert:
                     features.pageEditing ? widget.onPickPdfToInsert : null,
                 onExportPages: widget.onExportPages,
+                fileDropController: features.pageEditing
+                    ? widget.thumbnailDropController
+                    : null,
                 onOpenPage: (_) => prefs.showThumbnailView = false,
                 renderWorker: _shell.worker,
                 rasterCache: thumbnailDisk,
@@ -1342,12 +1385,12 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         pageOverlayBuilder: widget.pageOverlayBuilder,
                         annotationMenuBuilder: widget.annotationMenuBuilder,
                         contextMenuEnabled: widget.contextMenuEnabled,
+                        onContextMenuRequested: widget.onContextMenuRequested,
                         formImagePicker: widget.formImagePicker,
                         imagePicker: widget.imagePicker,
                         systemImagePasteProvider:
                             widget.systemImagePasteProvider,
-                        systemTextPasteProvider:
-                            widget.systemTextPasteProvider,
+                        systemTextPasteProvider: widget.systemTextPasteProvider,
                         onSnapshot: widget.onSnapshot,
                         onPlaceSignature: widget.onPlaceSignature,
                         editingTextPrompt: widget.textPrompt,
@@ -1363,17 +1406,26 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                             (features.toolGroups == null ||
                                 features.toolGroups!
                                     .contains(PdfEditToolGroup.markup)),
+                        // The desktop toolbar floats over the viewer. Leave a
+                        // scrollable tail tall enough for its dock and
+                        // contextual strip, so the last page can move fully
+                        // clear of the controls instead of being trapped
+                        // underneath them.
+                        trailingPadding: showToolbar && !dockToolbar ? 144 : 0,
                         pageLayout: widget.pageLayout,
                         initialFit: widget.initialFit,
                         toolShortcuts: _toolShortcuts,
                         backgroundColor: widget.backgroundColor,
                         pageColor: pageColor,
                         showAnnotations: prefs.showAnnotations,
+                        showScrollbarChapters: prefs.showScrollbarChapters,
                         highlightFormFields: prefs.highlightFormFields,
                         renderWorker: _shell.worker,
                         performance: _performance,
                         rasterCache: widget.rasterCache,
                         textCache: widget.textCache,
+                        pageRasterCachePolicy: widget.pageRasterCachePolicy,
+                        pageRasterWarmPolicy: widget.pageRasterWarmPolicy,
                         documentId: _documentKey,
                         // while the full-area page grid overlays the viewer,
                         // pause the viewer entirely: its (invisible) page

@@ -1,0 +1,5 @@
+New in 3.3.0
+
+• Pages you revisit open instantly, with optional background warming and persistent full-resolution caching.
+• Sharper deep zoom on scanned and image-based PDFs.
+• Better touch panning, rectangle corner-radius controls, and smoother inserted-page navigation.

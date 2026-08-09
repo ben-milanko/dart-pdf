@@ -109,6 +109,54 @@ void main() {
   });
 
   group('PdfTileStore.viewFor', () {
+    testWidgets('an admission cap paces missing tiles across view passes',
+        (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 1,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer(sizeFromRegion: true);
+        const pageSize = Size(64, 64); // 4×4 visible grid
+
+        final first = store.viewFor(
+          id: _id(0),
+          pageSize: pageSize,
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 64, 64),
+          rasterize: raster.call,
+          maxNewTiles: 1,
+        );
+        expect(first.complete, isFalse);
+        expect(store.inFlightCount, 1);
+        expect(store.debugTilesScheduled, 1);
+        expect(store.debugBatchesDispatched, 1);
+        expect(raster.calls, hasLength(1));
+        expect(raster.calls.single.region.size, const Size(16, 16));
+
+        await raster.flush();
+        expect(store.tileCount, 1);
+
+        final second = store.viewFor(
+          id: _id(0),
+          pageSize: pageSize,
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 64, 64),
+          rasterize: raster.call,
+          maxNewTiles: 1,
+        );
+        expect(second.placements, hasLength(1));
+        expect(store.inFlightCount, 1);
+        expect(store.debugTilesScheduled, 2);
+        expect(store.debugBatchesDispatched, 2);
+        expect(raster.calls, hasLength(2));
+
+        store.dispose();
+      });
+    });
+
     testWidgets('schedules the visible tiles center-out at the bucket ratio',
         (tester) async {
       await tester.runAsync(() async {

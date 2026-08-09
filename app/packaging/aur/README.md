@@ -8,15 +8,12 @@ derivatives, so users can `paru -S dartpdf-bin` / `yay -S dartpdf-bin`.
 - **Source of truth for the `PKGBUILD`:** this directory. The AUR git repo is a
   publish target; keep this copy authoritative and push from here.
 
-## Why extra sources beyond the tarball
+## Release payload
 
-The `app-v3.0.0` release tarball carries only the binary + `data/` + `lib/` — it
-predates the CMake rules (#547) that add the `.desktop`/metainfo/icons to the
-bundle's `share/` tree. So the `PKGBUILD` fetches those six files from the
-source repo, pinned to an immutable commit (`_assets_commit`), and installs them
-itself. When a release built from a tree that includes #547 ships, the tarball
-will carry `share/` and you can drop the `*_assets` sources and install straight
-from the unpacked bundle instead.
+As of `app-v3.3.1`, the official release tarball carries the runner, `data/`,
+`lib/`, and the complete desktop-integration `share/` tree. The `PKGBUILD`
+installs that immutable payload directly and fetches only the Apache license
+from the matching release tag.
 
 ## Per-release update
 
@@ -26,8 +23,6 @@ from the unpacked bundle instead.
    cd app/packaging/aur
    updpkgsums                       # rewrites sha256sums[] from the sources
    ```
-   If you also moved `_assets_commit` (e.g. to pick up a new metainfo
-   `<release>` entry), do that first, then `updpkgsums`.
 3. Regenerate the metadata and sanity-build:
    ```sh
    makepkg --printsrcinfo > .SRCINFO

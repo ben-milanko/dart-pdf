@@ -59,7 +59,7 @@
   "dlMac_meta": "직접 .dmg · 서명 및 공증 완료",
   "dlWin_meta": "설치 프로그램 · 64-bit",
   "dlWin_portable": "설치하지 않으시겠어요? 어디서나 실행되는 <a href=\"https://github.com/ben-milanko/dart-pdf/releases/latest/download/dartpdf-windows-portable.exe\">Windows 포터블 빌드</a>를 받으세요.",
-  "dlLinux_meta": "AppImage · 64-bit",
+  "dlLinux_meta": "Flatpak · 64-bit",
   "dlWeb_meta": "모든 브라우저에서 실행",
   "dl_freeNote": "무료 오픈 소스. 다른 빌드(<code>.zip</code>, <code>.tar.gz</code>)는\n        <a href=\"https://github.com/ben-milanko/dart-pdf/releases/latest\" target=\"_blank\" rel=\"noopener\">GitHub\n          Releases</a>에서 받을 수 있습니다.",
 

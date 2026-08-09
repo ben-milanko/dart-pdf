@@ -856,6 +856,13 @@ class AppLocalizationsIt extends AppLocalizations {
   }
 
   @override
+  String get settingsNightlyUpdates => 'Aggiornamenti nightly';
+
+  @override
+  String get settingsNightlyUpdatesSubtitle =>
+      'Ricevi notifiche automatiche per le build di test Windows non firmate da main.';
+
+  @override
   String get settingsUpdates => 'Aggiornamenti';
 
   @override

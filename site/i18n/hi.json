@@ -59,7 +59,7 @@
   "dlMac_meta": "डायरेक्ट .dmg · साइन और नोटराइज़्ड",
   "dlWin_meta": "इंस्टॉलर · 64-bit",
   "dlWin_portable": "इंस्टॉल नहीं करना चाहते? <a href=\"https://github.com/ben-milanko/dart-pdf/releases/latest/download/dartpdf-windows-portable.exe\">Windows पोर्टेबल बिल्ड</a> लें जो कहीं से भी चलती है।",
-  "dlLinux_meta": "AppImage · 64-bit",
+  "dlLinux_meta": "Flatpak · 64-bit",
   "dlWeb_meta": "किसी भी ब्राउज़र में चलता है",
   "dl_freeNote": "मुफ्त और ओपन सोर्स। अन्य बिल्ड (<code>.zip</code>, <code>.tar.gz</code>) पर\n        <a href=\"https://github.com/ben-milanko/dart-pdf/releases/latest\" target=\"_blank\" rel=\"noopener\">GitHub\n          Releases</a>।",
 

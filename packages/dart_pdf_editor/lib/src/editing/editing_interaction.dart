@@ -2,8 +2,10 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:pdf_document/pdf_document.dart';
 
 import '../page_geometry.dart';
+import 'editing_controller.dart';
 
 /// A single-selection move drag's floating preview.
 ///
@@ -29,6 +31,125 @@ class PdfMoveDragPreview {
 
 typedef PdfMoveDragPreviewCallback = void Function(PdfMoveDragPreview? preview);
 
+/// What a context menu request acts on - resolved by the viewer before the
+/// gesture is handed to the host, so the host never has to re-run a hit test.
+enum PdfContextMenuTarget {
+  /// Page text. The word under the cursor is selected (a click inside an
+  /// existing selection keeps it), and [PdfContextMenuRequest.selectedText]
+  /// carries it. Also the outcome on a blank page area with nothing to
+  /// paste - the case the stock text menu handles.
+  text,
+
+  /// A selectable annotation, named by [PdfContextMenuRequest.annotation]
+  /// (and [PdfContextMenuRequest.slot] when the viewer resolved it through
+  /// an editing session). It is part of the selection by the time the host
+  /// is called.
+  annotation,
+
+  /// A locked annotation. It cannot be selected - the stock menu offers
+  /// only Unlock here - but it is still named by
+  /// [PdfContextMenuRequest.annotation] / [PdfContextMenuRequest.slot].
+  lockedAnnotation,
+
+  /// An AcroForm widget. It is the editing session's form selection by the
+  /// time the host is called; the widget itself is reachable through
+  /// [PdfContextMenuRequest.controller], so [PdfContextMenuRequest.slot] and
+  /// [PdfContextMenuRequest.annotation] stay null.
+  formWidget,
+
+  /// Empty page area with annotation clipboard content - where the stock
+  /// menu would have offered Paste.
+  emptyPage,
+}
+
+/// A context menu the host is asked to render, with everything the viewer
+/// already resolved about the gesture.
+///
+/// Delivered to [PdfViewer.onContextMenuRequested], which fires only when
+/// [PdfViewer.contextMenuEnabled] is false: with the default menu disabled,
+/// the viewer prepares the same selection context the stock menu would have
+/// had, then hands the gesture to the host instead of opening a menu itself.
+/// The host typically wraps this in `showMenu<_T>(context, position: ...)`
+/// anchored at [globalPosition], and branches on [target]:
+///
+/// ```dart
+/// onContextMenuRequested: (request) {
+///   switch (request.target) {
+///     case PdfContextMenuTarget.text:
+///       // request.selectedText is the word under the cursor
+///     case PdfContextMenuTarget.annotation:
+///       // request.annotation.subtype names the kind
+///     case PdfContextMenuTarget.lockedAnnotation:
+///       // offer Unlock
+///     case PdfContextMenuTarget.formWidget:
+///     case PdfContextMenuTarget.emptyPage:
+///   }
+/// }
+/// ```
+///
+/// Because the target is resolved for it, a host does not need a
+/// [PdfEditingController] of its own - which is what makes this work inside
+/// the drop-in `PdfReader`, whose session is private.
+class PdfContextMenuRequest {
+  const PdfContextMenuRequest({
+    required this.globalPosition,
+    required this.pageIndex,
+    required this.pagePoint,
+    required this.target,
+    this.controller,
+    this.slot,
+    this.annotation,
+    this.selectedText = '',
+  });
+
+  /// Where the gesture landed, in global Flutter coordinates - anchor the
+  /// menu here.
+  final Offset globalPosition;
+
+  /// The page the gesture landed on.
+  final int pageIndex;
+
+  /// Where the gesture landed, in page coordinates (points).
+  final (double, double) pagePoint;
+
+  /// What the gesture landed on.
+  final PdfContextMenuTarget target;
+
+  /// The editing session behind the viewer, when there is one - the
+  /// editing session, or the reader's standalone form-fill controller.
+  /// Null in a plain reader with neither.
+  final PdfEditingController? controller;
+
+  /// The /Annots slot of [annotation], when the viewer resolved the hit
+  /// through an editing session. Null in a reader without one, and for
+  /// targets that are not an annotation.
+  final int? slot;
+
+  /// The annotation under the gesture, for [PdfContextMenuTarget.annotation]
+  /// and [PdfContextMenuTarget.lockedAnnotation]. Null otherwise.
+  final PdfAnnotation? annotation;
+
+  /// The page text selected when the request was made. Non-empty for
+  /// [PdfContextMenuTarget.text] whenever there was a word to select.
+  final String selectedText;
+}
+
+/// Fires when the host wants to render its own context menu in place of the
+/// stock annotation/text menu. See [PdfContextMenuRequest].
+typedef PdfContextMenuHost = void Function(PdfContextMenuRequest request);
+
+/// The page overlay's channel back to the viewer's [PdfContextMenuHost]: the
+/// overlay resolved the annotation itself, the viewer adds the selection and
+/// controller and builds the [PdfContextMenuRequest].
+typedef PdfContextMenuRelay = void Function(
+  Offset globalPosition,
+  int pageIndex, {
+  required (double, double) pagePoint,
+  required PdfContextMenuTarget target,
+  int? slot,
+  PdfAnnotation? annotation,
+});
+
 /// The viewer-owned services an editing interaction may request.
 ///
 /// Recognizers and preview painters stay internal to the page overlay. This
@@ -41,6 +162,7 @@ class PdfEditingInteractionHost {
     this.edgeAutoScroll,
     this.showAnnotationMenu,
     this.showFormFieldMenu,
+    this.requestContextMenu,
     this.resolvePagePoint,
     this.moveDragPreview,
     this.textEditClosed,
@@ -53,6 +175,7 @@ class PdfEditingInteractionHost {
       {(double, double)? pagePoint})? showAnnotationMenu;
   final void Function(Offset globalPosition, String fieldName,
       {int? widgetIndex})? showFormFieldMenu;
+  final PdfContextMenuRelay? requestContextMenu;
   final (int, double, double)? Function(Offset globalPosition)?
       resolvePagePoint;
   final PdfMoveDragPreviewCallback? moveDragPreview;

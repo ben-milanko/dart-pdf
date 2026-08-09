@@ -1417,6 +1417,18 @@ abstract class AppLocalizations {
   /// **'You have {name} {version}.'**
   String settingsUpdateIdle(String name, String version);
 
+  /// Windows-only setting that opts into rolling test builds from main.
+  ///
+  /// In en, this message translates to:
+  /// **'Nightly updates'**
+  String get settingsNightlyUpdates;
+
+  /// Explains the risk and behavior of the nightly update channel.
+  ///
+  /// In en, this message translates to:
+  /// **'Receive automatic update notifications for unsigned Windows test builds from main.'**
+  String get settingsNightlyUpdatesSubtitle;
+
   /// Section header for the software-update block in settings.
   ///
   /// In en, this message translates to:

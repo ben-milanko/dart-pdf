@@ -1,0 +1,5 @@
+Nowości w wersji 3.2.0
+
+• Szybsze i stabilniejsze wyświetlanie dzięki pamięci podręcznej stron dopasowanej do pamięci oraz mniejszej liczbie powtórnych renderowań.
+• Lepsza zgodność z FreeText i dymkami oraz dokładniejsze zaznaczanie wielowierszowych adnotacji.
+• Naprawiono przerwy w ładowaniu, opóźnienia przywracania sesji i zoom Ctrl/Cmd+kółko po rysowaniu z ograniczeniami.

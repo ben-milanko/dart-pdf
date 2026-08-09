@@ -95,6 +95,33 @@
     <!-- Generated from app/fastlane/metadata/android/en-US/changelogs/ and
          app/release-notes/. Newest first; keep the top entry in sync with the
          version the Flatpak/AUR packages pin. -->
+    <release version="3.3.1" date="2026-08-02">
+      <description>
+        <ul>
+          <li>Annotation property changes no longer duplicate annotations in some PDFs.</li>
+          <li>Text colour changes preserve embedded fonts, and cloud/polygon previews keep their pattern scale.</li>
+          <li>Multi-page reordering has clearer group feedback and moves selected pages reliably.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.3.0" date="2026-08-02">
+      <description>
+        <ul>
+          <li>Pages you revisit open instantly with full-resolution caching and optional idle warming.</li>
+          <li>Deep zoom is sharper on scanned and image-based PDFs.</li>
+          <li>Touch panning, rectangle corner-radius controls, and inserted-page navigation are improved.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.2.0" date="2026-07-29">
+      <description>
+        <ul>
+          <li>Faster, steadier viewing with memory-aware page caching and less duplicate rendering.</li>
+          <li>Better FreeText and callout compatibility, plus more precise selection of multi-line markups.</li>
+          <li>Fixes loading pauses, remote-session restore delays, and Ctrl/Cmd-wheel zoom after constrained drawing.</li>
+        </ul>
+      </description>
+    </release>
     <release version="3.1.1" date="2026-07-26">
       <description>
         <ul>

@@ -11,6 +11,7 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 
@@ -247,6 +248,13 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
         'rssHighWaterBytes': _tools.maxRssBytes,
         'cacheTotalBytes': PdfCacheRegistry.instance.totalWeight,
         'cacheCeilingBytes': PdfCacheRegistry.instance.maxTotalWeight,
+        'pageRasterCacheBytes':
+            _tools.pageRasterCachePolicy.value.maxBytes,
+        'pageRasterCacheEntryBytes':
+            _tools.pageRasterCachePolicy.value.maxEntryBytes,
+        'pageRasterCacheMode': _tools.pageRasterCacheMode.name,
+        'pageRasterCacheReason': _tools.pageRasterCacheReason,
+        'safeProcessLimitBytes': _tools.safeProcessLimitBytes,
         'caches': [
           for (final cache in PdfCacheRegistry.instance.snapshot())
             {
@@ -254,6 +262,9 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
               'entries': cache.length,
               'bytes': cache.weight,
               'budgetBytes': cache.maxWeight,
+              'hits': cache.hits,
+              'misses': cache.misses,
+              'evictions': cache.evictions,
             },
         ],
       },
@@ -438,9 +449,17 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
           Expanded(
             child: Text(key, style: theme.textTheme.bodySmall),
           ),
-          Text(value,
-              style: theme.textTheme.bodySmall!
-                  .copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
+          Flexible(
+            child: Text(
+              value,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.end,
+              style: theme.textTheme.bodySmall!.copyWith(
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -561,10 +580,155 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
 
   // --- memory ---------------------------------------------------------------
 
+  static const _pageRasterBudgets = <(int, String)>[
+    (-1, 'Auto (recommended)'),
+    (0, 'Off'),
+    (32 << 20, '32 MB'),
+    (64 << 20, '64 MB'),
+    (128 << 20, '128 MB'),
+    (256 << 20, '256 MB'),
+    (512 << 20, '512 MB'),
+    (1 << 30, '1 GB'),
+    (2 << 30, '2 GB'),
+    (5 * (1 << 30), '5 GB'),
+    (8 * (1 << 30), '8 GB'),
+  ];
+
+  static const _pageRasterEntryBudgets = <(int, String)>[
+    (0, 'Off'),
+    (4 << 20, '4 MB'),
+    (8 << 20, '8 MB'),
+    (16 << 20, '16 MB'),
+    (32 << 20, '32 MB'),
+    (64 << 20, '64 MB'),
+    (128 << 20, '128 MB'),
+    (256 << 20, '256 MB'),
+    (512 << 20, '512 MB'),
+    (1 << 30, '1 GB'),
+  ];
+  static const _fixedEntrySeedBytes = 256 << 20;
+
+  // Idle full-raster warm (#614) as a single selector. -1 is off, 0 is the
+  // whole document, a positive value is that many pages either side.
+  static const _rasterWarmChoices = <(int, String)>[
+    (-1, 'Off'),
+    (2, 'Nearby +/-2'),
+    (5, 'Nearby +/-5'),
+    (0, 'Whole document'),
+  ];
+
+  static String _rasterWarmLabel(PdfPageRasterWarmPolicy policy) =>
+      switch (policy.mode) {
+        PdfPageRasterWarmMode.disabled => 'Off',
+        PdfPageRasterWarmMode.nearby => 'Nearby +/-${policy.window}',
+        PdfPageRasterWarmMode.document => 'Whole document',
+      };
+
+  void _setPageRasterWarm(int choice) {
+    _tools.setPageRasterWarmPolicy(switch (choice) {
+      < 0 => const PdfPageRasterWarmPolicy.disabled(),
+      0 => const PdfPageRasterWarmPolicy.document(),
+      final window => PdfPageRasterWarmPolicy.nearby(window: window),
+    });
+    _persist();
+    setState(() {});
+  }
+
+  Widget _byteBudgetControl(
+    ThemeData theme, {
+    required Key key,
+    required String title,
+    required String help,
+    required int value,
+    String? valueLabel,
+    required List<(int, String)> choices,
+    required ValueChanged<int> onChanged,
+  }) =>
+      Row(
+        children: [
+          Expanded(
+            child: Tooltip(
+              message: help,
+              waitDuration: const Duration(milliseconds: 600),
+              child: InkWell(
+                onTap: () => _explain(title, help),
+                child: Text(title, style: theme.textTheme.bodySmall),
+              ),
+            ),
+          ),
+          PopupMenuButton<int>(
+            key: key,
+            tooltip: 'Change $title',
+            onSelected: onChanged,
+            itemBuilder: (context) => [
+              for (final (bytes, label) in choices)
+                PopupMenuItem<int>(
+                  value: bytes,
+                  child: Text(label),
+                ),
+            ],
+            child: Padding(
+              padding: const EdgeInsetsDirectional.fromSTEB(8, 4, 0, 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    valueLabel ?? _byteBudgetLabel(value),
+                    style: theme.textTheme.bodySmall!.copyWith(
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                  const Icon(Icons.arrow_drop_down, size: 18),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+
+  static String _byteBudgetLabel(int bytes) {
+    if (bytes < 0) return 'Auto';
+    if (bytes == 0) return 'Off';
+    if (bytes % (1 << 30) == 0) return '${bytes ~/ (1 << 30)} GB';
+    return '${bytes ~/ (1 << 20)} MB';
+  }
+
+  void _setPageRasterCache({int? maxBytes, int? maxEntryBytes}) {
+    final wasAuto = _tools.pageRasterCacheAuto;
+    final current = wasAuto
+        ? _tools.pageRasterCachePolicy.value
+        : _tools.fixedPageRasterCachePolicy;
+    // Entering fixed mode from Auto should carry a useful per-page admission
+    // limit with it. Keeping the dormant fixed default (16 MB) made a 5 GB
+    // preset reject an ordinary capped CAD raster such as 8192×812 (25.4 MB),
+    // which made the total selector look broken. Once fixed mode is active,
+    // later total changes preserve the user's explicit non-zero per-page
+    // choice; moving from Off seeds it again.
+    final shouldSeedEntry = maxBytes != null &&
+        maxEntryBytes == null &&
+        (wasAuto || current.maxEntryBytes == 0);
+    final seededEntry = shouldSeedEntry
+        ? maxBytes == 0
+            ? 0
+            : math.min(
+                maxBytes,
+                math.max(current.maxEntryBytes, _fixedEntrySeedBytes),
+              )
+        : current.maxEntryBytes;
+    _tools.setPageRasterCachePolicy(PdfPageRasterCachePolicy(
+      maxBytes: maxBytes ?? current.maxBytes,
+      maxEntryBytes: maxEntryBytes ?? seededEntry,
+    ));
+    _persist();
+    setState(() {});
+  }
+
   Widget _memorySection(ThemeData theme) {
     final rss = _tools.currentRssBytes;
     final peak = _tools.maxRssBytes;
     final caches = PdfCacheRegistry.instance.snapshot();
+    final rasterPolicy = _tools.pageRasterCachePolicy.value;
+    final rasterAuto = _tools.pageRasterCacheAuto;
     return _section(
       theme,
       'Memory',
@@ -594,14 +758,107 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
                 "platform's memory-pressure signal (which desktop OSes "
                 'deliver too late, if at all). Over the ceiling, every cache '
                 'is trimmed proportionally, least-recently-used first.'),
+        _byteBudgetControl(
+          theme,
+          key: const ValueKey('devtools-page-raster-budget'),
+          title: 'Visited-page rasters',
+          help: 'Full-resolution rasters kept after a page scrolls out of the '
+              'viewer build window. Raising this makes revisits instant at the '
+              'cost of RAM; Off keeps only the small fast-scroll previews. '
+              'Changes apply immediately and persist across restarts.',
+          value: rasterAuto
+              ? -1
+              : _tools.fixedPageRasterCachePolicy.maxBytes,
+          valueLabel: rasterAuto
+              ? 'Auto · ${_byteBudgetLabel(rasterPolicy.maxBytes)}'
+              : null,
+          choices: _pageRasterBudgets,
+          onChanged: (value) {
+            if (value < 0) {
+              _tools.useAutoPageRasterCache();
+              _persist();
+              setState(() {});
+            } else {
+              _setPageRasterCache(maxBytes: value);
+            }
+          },
+        ),
+        if (rasterAuto)
+          _kv(
+            theme,
+            'Largest cached page',
+            _byteBudgetLabel(rasterPolicy.maxEntryBytes),
+            help: 'Auto derives the per-page admission limit from the total '
+                'headroom, capped at 256 MB. Switch the total cache to a fixed '
+                'preset to override it.',
+          )
+        else
+          _byteBudgetControl(
+            theme,
+            key: const ValueKey('devtools-page-raster-entry-budget'),
+            title: 'Largest cached page',
+            help: 'Per-page admission limit for the visited-page raster cache. '
+                'Large CAD sheets and high-DPI pages above this size are not '
+                'retained even when the total budget has room. The lower of '
+                'this value and the total budget is effective.',
+            value: _tools.fixedPageRasterCachePolicy.maxEntryBytes,
+            choices: _pageRasterEntryBudgets,
+            onChanged: (value) =>
+                _setPageRasterCache(maxEntryBytes: value),
+          ),
+        _byteBudgetControl(
+          theme,
+          key: const ValueKey('devtools-page-raster-warm'),
+          title: 'Idle raster warm',
+          help: 'Spends genuine viewer idle time rasterizing pages ahead of '
+              'navigation, so arriving on them paints instantly instead of '
+              'interpreting and reading back first. Warming stands down the '
+              'moment anything scrolls, zooms, edits, or renders, and never '
+              'stores more than the visited-page raster budget above allows - '
+              'so a whole-document warm on a large file settles into a moving '
+              'window rather than growing without limit.',
+          value: _tools.pageRasterWarmPolicy.value.mode ==
+                  PdfPageRasterWarmMode.disabled
+              ? -1
+              : _tools.pageRasterWarmPolicy.value.window,
+          valueLabel: _rasterWarmLabel(_tools.pageRasterWarmPolicy.value),
+          choices: _rasterWarmChoices,
+          onChanged: _setPageRasterWarm,
+        ),
+        if (_tools.safeProcessLimitBytes case final limit?)
+          _kv(
+            theme,
+            'Auto process target',
+            _mb(limit),
+            help: 'Conservative process RSS target derived from physical RAM, '
+                'currently available memory, and any platform process limit. '
+                'The cache allocation leaves an additional safety reserve '
+                'below this target.',
+          ),
+        _kv(
+          theme,
+          'Raster policy reason',
+          _tools.pageRasterCacheReason,
+          help: 'Why Auto chose its current effective limit. Growth is slow; '
+              'low headroom and memory pressure shrink it immediately.',
+        ),
+        if (!rasterAuto)
+          Text(
+            'Fixed presets remain subject to the process-wide safety ceiling.',
+            style: theme.textTheme.bodySmall!
+                .copyWith(color: theme.colorScheme.outline),
+          ),
         for (final cache in caches)
           _kv(
               theme,
               '  ${cache.label} (${cache.length})',
               cache.maxWeight > 0
                   ? '${_mb(cache.weight)} / ${_mb(cache.maxWeight)}'
-                  : _mb(cache.weight),
-              help: _cacheExplanation(cache.label)),
+                      ' · ${cache.hits}/${cache.misses}/${cache.evictions}'
+                  : '${_mb(cache.weight)}'
+                      ' · ${cache.hits}/${cache.misses}/${cache.evictions}',
+              help: '${_cacheExplanation(cache.label)} '
+                  'Trailing counters are hits/misses/evictions.'),
         Text(
           'Worker isolates hold parsed documents and command transcripts, '
           'not decoded pixels; their memory is not itemized here.',

@@ -844,6 +844,13 @@ class AppLocalizationsTh extends AppLocalizations {
   }
 
   @override
+  String get settingsNightlyUpdates => 'การอัปเดตแบบ Nightly';
+
+  @override
+  String get settingsNightlyUpdatesSubtitle =>
+      'รับการแจ้งเตือนอัปเดตอัตโนมัติสำหรับบิลด์ทดสอบ Windows ที่ไม่ได้ลงนามจาก main';
+
+  @override
   String get settingsUpdates => 'การอัปเดต';
 
   @override

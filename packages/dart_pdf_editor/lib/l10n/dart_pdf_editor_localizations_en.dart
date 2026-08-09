@@ -408,6 +408,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get menuRemoveNode => 'Remove node';
 
   @override
+  String get menuSaveToStamps => 'Save to stamps';
+
+  @override
   String get menuSetAsDefaultStyle => 'Set as default style';
 
   @override
@@ -560,6 +563,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get propContents => 'Contents';
+
+  @override
+  String get propCornerRadius => 'Corner radius';
 
   @override
   String get propEditsApplyToAll => 'Edits apply to all compatible annotations';
@@ -989,6 +995,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get shellShowAnnotations => 'Show annotations';
 
   @override
+  String get shellShowScrollbarChapters => 'Show chapters on scrollbar';
+
+  @override
   String get shellTabHere => 'Tab here';
 
   @override
@@ -1217,6 +1226,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
 
   @override
   String get stampNewStampTitle => 'New stamp';
+
+  @override
+  String get stampSavedToCollection => 'Saved to stamps';
 
   @override
   String get stampSelectTextToEdit => 'Select text to edit';

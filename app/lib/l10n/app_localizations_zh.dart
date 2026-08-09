@@ -830,6 +830,13 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get settingsNightlyUpdates => '夜间更新';
+
+  @override
+  String get settingsNightlyUpdatesSubtitle =>
+      '自动接收来自 main 的未签名 Windows 测试版本更新通知。';
+
+  @override
   String get settingsUpdates => '更新';
 
   @override
@@ -1783,6 +1790,13 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String settingsUpdateIdle(String name, String version) {
     return '您使用的是 $name $version。';
   }
+
+  @override
+  String get settingsNightlyUpdates => 'Nightly 更新';
+
+  @override
+  String get settingsNightlyUpdatesSubtitle =>
+      '自動接收來自 main 的未簽署 Windows 測試版本更新通知。';
 
   @override
   String get settingsUpdates => '更新';

@@ -831,6 +831,13 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
+  String get settingsNightlyUpdates => '나이틀리 업데이트';
+
+  @override
+  String get settingsNightlyUpdatesSubtitle =>
+      'main의 서명되지 않은 Windows 테스트 빌드에 대한 자동 업데이트 알림을 받습니다.';
+
+  @override
   String get settingsUpdates => '업데이트';
 
   @override

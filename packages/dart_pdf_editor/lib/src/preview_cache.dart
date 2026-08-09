@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -8,8 +9,131 @@ import 'package:pdf_document/pdf_document.dart';
 import 'budgeted_cache.dart';
 import 'perf_log.dart';
 import 'raster_cache.dart';
+import 'raster_warm.dart';
 import 'render_worker.dart';
 import 'renderer.dart';
+
+/// Memory policy for full-resolution rasters of pages the user has visited.
+///
+/// A page widget is disposed after it leaves the scroll view's build window.
+/// Its completed raster can outlive that widget in [PdfPagePreviewCache], so a
+/// revisit at the same physical size paints immediately without interpreting
+/// or rasterizing the page again.
+///
+/// The defaults preserve the package's bounded working set: 32 MiB total and
+/// 16 MiB for any one page. Desktop hosts that prefer revisit speed over
+/// memory can opt into a much larger budget:
+///
+/// ```dart
+/// PdfViewer(
+///   document: document,
+///   pageRasterCachePolicy: const PdfPageRasterCachePolicy(
+///     maxBytes: 5 * 1024 * 1024 * 1024,
+///     maxEntryBytes: 64 * 1024 * 1024,
+///   ),
+/// )
+/// ```
+///
+/// This controls only exact, already-rendered page rasters. Low-resolution
+/// fast-scroll previews, decoded PDF images, retained scenes, deep-zoom tiles,
+/// and render-worker records have their own bounds. A large value is therefore
+/// an upper limit on this cache, not on the process's total memory use.
+@immutable
+class PdfPageRasterCachePolicy {
+  const PdfPageRasterCachePolicy({
+    this.maxBytes = 32 * 1024 * 1024,
+    this.maxEntryBytes = 16 * 1024 * 1024,
+  })  : assert(maxBytes >= 0),
+        assert(maxEntryBytes >= 0);
+
+  /// Disables retention of full-resolution visited-page rasters.
+  const PdfPageRasterCachePolicy.disabled()
+      : maxBytes = 0,
+        maxEntryBytes = 0;
+
+  /// Total approximate RGBA byte budget for retained page rasters.
+  final int maxBytes;
+
+  /// Largest individual page raster admitted to the cache.
+  ///
+  /// This remains a separate guard even with a large [maxBytes], so one
+  /// unusually large-format or high-DPI page need not displace the useful
+  /// working set unless the host explicitly allows it.
+  final int maxEntryBytes;
+
+  @override
+  bool operator ==(Object other) =>
+      other is PdfPageRasterCachePolicy &&
+      maxBytes == other.maxBytes &&
+      maxEntryBytes == other.maxEntryBytes;
+
+  @override
+  int get hashCode => Object.hash(maxBytes, maxEntryBytes);
+}
+
+/// Everything that changes the pixels of a baked full-resolution page raster.
+///
+/// This is the exact-raster cache's key. It is deliberately *not* just the page
+/// index: a page can legitimately hold more than one useful raster at once -
+/// most importantly its fit-size one (which the idle warm bakes and a
+/// zoom-back-to-fit wants) alongside the one the current zoom is displaying.
+/// Keying by index alone meant storing either overwrote the other, so warming
+/// a page and then zooming it threw the warm away.
+///
+/// Document revision is *not* part of the signature. Revisions are compared by
+/// [PdfPage] identity on the retained entry instead, because an edit that
+/// leaves a page's pixels alone rebinds it to the new revision's page object
+/// rather than invalidating a still-correct raster (see
+/// [PdfPagePreviewCache.rebind]).
+@immutable
+class PdfPageRasterSignature {
+  const PdfPageRasterSignature({
+    required this.pageIndex,
+    required this.width,
+    required this.height,
+    required this.pageColor,
+    required this.annotations,
+    required this.rotation,
+  });
+
+  /// The page this raster shows.
+  final int pageIndex;
+
+  /// Physical raster size in device pixels.
+  final int width;
+  final int height;
+
+  /// The paper color painted behind the page.
+  final Color pageColor;
+
+  /// Whether annotations are baked into the raster.
+  final bool annotations;
+
+  /// Display rotation override (null = the page's own /Rotate).
+  final int? rotation;
+
+  /// Approximate RGBA bytes an image of this size occupies.
+  int get bytes => width * height * 4;
+
+  @override
+  bool operator ==(Object other) =>
+      other is PdfPageRasterSignature &&
+      pageIndex == other.pageIndex &&
+      width == other.width &&
+      height == other.height &&
+      pageColor == other.pageColor &&
+      annotations == other.annotations &&
+      rotation == other.rotation;
+
+  @override
+  int get hashCode => Object.hash(
+      pageIndex, width, height, pageColor.toARGB32(), annotations, rotation);
+
+  @override
+  String toString() => 'page=$pageIndex ${width}x$height '
+      'color=${pageColor.toARGB32().toRadixString(16)} '
+      'annotations=$annotations rotation=$rotation';
+}
 
 /// Low-resolution page previews shown while a page's full render is
 /// pending - most visibly during fast scrolling, when [PdfPageView]
@@ -30,10 +154,12 @@ class PdfPagePreviewCache extends ChangeNotifier {
   PdfPagePreviewCache({
     this.longestSide = 200,
     this.capacity = 300,
-    this.maxFullRasterPixels = 8 << 20,
-    this.maxFullRasterEntryPixels = 4 << 20,
+    int maxFullRasterPixels = 8 << 20,
+    int maxFullRasterEntryPixels = 4 << 20,
   })  : assert(maxFullRasterPixels >= 0),
-        assert(maxFullRasterEntryPixels >= 0);
+        assert(maxFullRasterEntryPixels >= 0),
+        _maxFullRasterBytes = maxFullRasterPixels * 4,
+        _maxFullRasterEntryBytes = maxFullRasterEntryPixels * 4;
 
   /// Pixel size of a preview's longest side. Stretched to page size on
   /// screen the result is soft but recognizable - enough to navigate by.
@@ -47,7 +173,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// These entries remove the soft-preview delay when a lazy page widget is
   /// rebuilt during back-and-forth scrolling. The default is about 32 MiB of
   /// RGBA pixels. Set to zero to keep only low-resolution previews.
-  final int maxFullRasterPixels;
+  int get maxFullRasterPixels => _maxFullRasterBytes ~/ 4;
 
   /// Largest exact raster admitted to the recent-page cache.
   ///
@@ -55,7 +181,22 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// path instead of consuming the whole budget. The default is about 16 MiB
   /// of RGBA pixels, which covers ordinary document pages while excluding the
   /// large CAD rasters this cache is not intended to retain.
-  final int maxFullRasterEntryPixels;
+  int get maxFullRasterEntryPixels => _maxFullRasterEntryBytes ~/ 4;
+
+  /// Approximate bytes currently allowed for exact visited-page rasters.
+  int get maxFullRasterBytes => _maxFullRasterBytes;
+
+  /// Largest individual visited-page raster currently admitted.
+  int get maxFullRasterEntryBytes => _maxFullRasterEntryBytes;
+
+  /// Approximate bytes currently retained by the exact raster LRU.
+  int get fullRasterBytes => _fullEntries.weight;
+
+  /// Number of exact page rasters currently retained.
+  int get fullRasterCount => _fullEntries.length;
+
+  int _maxFullRasterBytes;
+  int _maxFullRasterEntryBytes;
 
   // Two shared budgeted LRUs: soft previews bounded by entry count, exact
   // recent-page rasters bounded by total pixels. Both dispose evicted images;
@@ -68,18 +209,69 @@ class PdfPagePreviewCache extends ChangeNotifier {
     disposer: (entry) => entry.image.dispose(),
     debugLabel: 'page-preview',
   );
-  late final PdfBudgetedCache<int, _FullRasterEntry> _fullEntries =
-      PdfBudgetedCache<int, _FullRasterEntry>(
-    weigher: (entry) => entry.pixels,
-    maxWeight: maxFullRasterPixels,
+  late final PdfBudgetedCache<PdfPageRasterSignature, _FullRasterEntry>
+      _fullEntries = PdfBudgetedCache<PdfPageRasterSignature, _FullRasterEntry>(
+    weigher: (entry) => entry.bytes,
+    maxWeight: _maxFullRasterBytes,
     disposer: (entry) => entry.image.dispose(),
+    onEvicted: _logFullRasterEviction,
+    clearsUnderMemoryPressure: true,
     debugLabel: 'page-full-raster',
   );
   bool _disposed = false;
 
+  /// Distinct raster geometries retained for any one page.
+  ///
+  /// Two is the useful number: the fit-size raster (what the idle warm bakes
+  /// and what a zoom-back-to-fit needs) plus whatever the current zoom is
+  /// displaying. A third variant is almost always a resolution the viewer has
+  /// moved past, and before the cache was keyed by signature at all those
+  /// stale entries were the whole problem - a ratio-0.4 raster sitting in the
+  /// cache producing `miss reason=dimensions` while the viewer, long since at
+  /// ratio 1.4, re-rasterized the page from scratch each time (the 2026-07-29
+  /// trace). Keeping two bounds that waste to one entry per page; the byte
+  /// budget still governs the total.
+  static const _maxVariantsPerPage = 2;
+
+  // Idle-warm and lookup diagnostics (see [warmStats]). Lifetime-cumulative.
+  int _warmAttempts = 0;
+  int _warmCompletions = 0;
+  int _warmSkips = 0;
+  int _warmRejections = 0;
+  int _warmPreemptions = 0;
+  int _warmedBytes = 0;
+
   /// Pixels currently retained by the exact recent-page cache.
   @visibleForTesting
-  int get debugFullRasterPixels => _fullEntries.weight;
+  int get debugFullRasterPixels => _fullEntries.weight ~/ 4;
+
+  /// Applies a new full-resolution visited-page memory policy.
+  ///
+  /// Raising the budget lets later page renders occupy the extra room.
+  /// Lowering it trims the LRU immediately and also drops entries that exceed
+  /// the new per-page limit. Low-resolution previews are unaffected.
+  void configureFullRasterCache(PdfPageRasterCachePolicy policy) {
+    if (_disposed) return;
+    final beforeCount = _fullEntries.length;
+    final beforeBytes = _fullEntries.weight;
+    _maxFullRasterBytes = policy.maxBytes;
+    _maxFullRasterEntryBytes = policy.maxEntryBytes;
+    _fullEntries.evictWhere((key) {
+      final entry = _fullEntries.peek(key);
+      return entry != null && entry.bytes > _maxFullRasterEntryBytes;
+    });
+    _fullEntries.maxWeight = _maxFullRasterBytes;
+    PdfPerfLog.log(
+      'page-raster policy total=${policy.maxBytes} '
+      'entry=${policy.maxEntryBytes} retained=${_fullEntries.weight} '
+      'entries=${_fullEntries.length} '
+      'trimmedEntries=${beforeCount - _fullEntries.length} '
+      'trimmedBytes=${beforeBytes - _fullEntries.weight} '
+      'registry=${PdfCacheRegistry.instance.totalWeight} '
+      'ceiling=${PdfCacheRegistry.instance.maxTotalWeight}'
+      '${PdfPerfLog.rssSuffix()}',
+    );
+  }
 
   /// Optional persistent backing (see [PdfRasterCache]). When set, fresh
   /// previews are written through to disk as they render, and [loadFromDisk]
@@ -87,6 +279,26 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// binds this to the open document; null leaves the cache session-only,
   /// exactly as before.
   PdfRasterCache? disk;
+
+  /// Whether [disk] carries the optional persistent full-resolution raster
+  /// tier (#615). False keeps the pre-existing behaviour exactly: full
+  /// rasters live and die with the process.
+  bool get hasPersistentFullRasters => disk?.storesFullRasters ?? false;
+
+  /// Lets the host preempt background encode/store work: while this returns
+  /// true (a scroll in flight, a foreground render holding the raster thread)
+  /// queued full-raster writes wait rather than compete. Loads are *not*
+  /// gated - a disk read is the foreground first paint it exists to serve.
+  bool Function()? deferBackgroundIo;
+
+  // Queued full-raster disk writes. Each holds a clone (cheap - it shares the
+  // engine image) so the encode survives the page view replacing its raster,
+  // and the queue is capped so a permanently-deferring host cannot pin an
+  // unbounded number of page-sized images.
+  static const int _maxPendingFullWrites = 2;
+  static const int _maxFullWriteDeferrals = 60; // ~3s, then drop the write
+  final List<_PendingFullRasterWrite> _pendingFullWrites = [];
+  bool _drainingFullWrites = false;
 
   /// Loads any persisted previews for [pages] into memory, so a cold open
   /// of a previously-seen document paints soft content at once. Pages that
@@ -134,19 +346,59 @@ class PdfPagePreviewCache extends ChangeNotifier {
     required Color pageColor,
     required bool annotations,
     required int? rotation,
-  }) {
-    final entry = _fullEntries.take(index); // touch; the master stays cached
-    if (entry == null) return null;
-    if (!identical(entry.page, page) ||
-        entry.image.width != width ||
-        entry.image.height != height ||
-        entry.pageColor != pageColor ||
-        entry.annotations != annotations ||
-        entry.rotation != rotation) {
-      return null;
+  }) =>
+      fullImageForSignature(
+        PdfPageRasterSignature(
+          pageIndex: index,
+          width: width,
+          height: height,
+          pageColor: pageColor,
+          annotations: annotations,
+          rotation: rotation,
+        ),
+        page,
+      );
+
+  /// [fullImageFor] against an already-built [signature].
+  ui.Image? fullImageForSignature(
+      PdfPageRasterSignature signature, PdfPage page) {
+    final index = signature.pageIndex;
+    final entry = _fullEntries.take(signature); // touch; master stays cached
+    if (entry != null && identical(entry.page, page)) {
+      _logFullRasterLookup('hit', index, bytes: entry.bytes);
+      return entry.image.clone();
     }
-    return entry.image.clone();
+    // A miss. Geometry variants of this page (a different zoom, say) are left
+    // alone - they are a legitimate second raster the LRU bounds, not waste.
+    // A *revision* mismatch is not: those pixels are of a page that no longer
+    // exists, so no lookup can ever use them and retaining them only spends a
+    // scarce budget on something nothing can read. Drop every one of them here,
+    // where a fresh page object proves the revision moved.
+    _dropStaleVariants(index, page);
+    _logFullRasterLookup(
+      'miss',
+      index,
+      reason: entry == null ? 'empty' : 'page-identity',
+    );
+    return null;
   }
+
+  /// Whether a raster of [signature] for exactly this [page] is retained.
+  /// A pure peek: it neither touches LRU order nor moves the hit/miss counters,
+  /// so the idle warm can ask "is this page already done?" without distorting
+  /// the diagnostics or the eviction order.
+  bool hasFullRaster(PdfPageRasterSignature signature, PdfPage page) =>
+      identical(_fullEntries.peek(signature)?.page, page);
+
+  /// Whether a raster of [bytes] could be admitted under the current policy.
+  ///
+  /// The idle warm asks *before* interpreting a page: rendering a raster the
+  /// cache would reject on arrival is the one kind of background work that
+  /// cannot possibly pay for itself.
+  bool admitsFullRaster(int bytes) =>
+      _maxFullRasterBytes > 0 &&
+      bytes <= _maxFullRasterEntryBytes &&
+      bytes <= _maxFullRasterBytes;
 
   /// Retains a clone of a completed on-screen raster for immediate reuse.
   ///
@@ -160,19 +412,214 @@ class PdfPagePreviewCache extends ChangeNotifier {
     required Color pageColor,
     required bool annotations,
     required int? rotation,
+    String revision = '',
   }) {
     if (_disposed) return;
-    final pixels = image.width * image.height;
-    if (maxFullRasterPixels == 0 ||
-        pixels > maxFullRasterEntryPixels ||
-        pixels > maxFullRasterPixels) {
+    // Write through before the memory admission below, deliberately: the disk
+    // tier is also the *overflow* path for a RAM budget smaller than the
+    // document's useful working set, so a raster the policy rejects is still
+    // worth keeping for the next session.
+    _queueFullRasterWrite(
+      index,
+      image,
+      pageColor: pageColor,
+      annotations: annotations,
+      rotation: rotation,
+      revision: revision,
+    );
+    _admitFullImage(
+      index,
+      page,
+      image,
+      pageColor: pageColor,
+      annotations: annotations,
+      rotation: rotation,
+    );
+  }
+
+  /// Restores an exact raster for [index] from the persistent tier, admitting
+  /// it through the in-memory [PdfPageRasterCachePolicy] on the way past.
+  ///
+  /// Returns an image the caller owns (and must dispose), or null on a miss.
+  /// The returned image is usable for the page on screen **whether or not**
+  /// the memory policy admitted it: a disk hit too large for RAM still serves
+  /// this paint, it just does not displace the memory working set.
+  Future<ui.Image?> loadFullFromDisk(
+    int index,
+    PdfPage page, {
+    required int width,
+    required int height,
+    required Color pageColor,
+    required bool annotations,
+    required int? rotation,
+    String revision = '',
+  }) async {
+    final cache = disk;
+    if (cache == null || !cache.storesFullRasters || _disposed) return null;
+    final image = await cache.loadFullRaster(
+      index,
+      width: width,
+      height: height,
+      pageColor: pageColor.toARGB32(),
+      annotations: annotations,
+      rotation: rotation,
+      revision: revision,
+    );
+    if (image == null) return null;
+    if (_disposed) {
+      image.dispose();
+      return null;
+    }
+    // _admitFullImage clones, so the caller keeps ownership of `image`.
+    _admitFullImage(
+      index,
+      page,
+      image,
+      pageColor: pageColor,
+      annotations: annotations,
+      rotation: rotation,
+    );
+    return image;
+  }
+
+  /// Empties the persistent full-raster tier (previews and thumbnails, which
+  /// live in a different [PdfDiskCache], are untouched). See
+  /// [PdfRasterCache.clearFullRasters].
+  Future<void> clearPersistentFullRasters() async {
+    _dropPendingFullWrites();
+    await disk?.clearFullRasters();
+  }
+
+  void _queueFullRasterWrite(
+    int index,
+    ui.Image image, {
+    required Color pageColor,
+    required bool annotations,
+    required int? rotation,
+    required String revision,
+  }) {
+    final cache = disk;
+    if (cache == null || !cache.storesFullRasters) return;
+    // Only the newest raster for a page is worth storing.
+    for (var i = 0; i < _pendingFullWrites.length; i++) {
+      if (_pendingFullWrites[i].index == index) {
+        _pendingFullWrites.removeAt(i).image.dispose();
+        break;
+      }
+    }
+    _pendingFullWrites.add(_PendingFullRasterWrite(
+      index,
+      image.clone(),
+      pageColor: pageColor,
+      annotations: annotations,
+      rotation: rotation,
+      revision: revision,
+    ));
+    while (_pendingFullWrites.length > _maxPendingFullWrites) {
+      _pendingFullWrites.removeAt(0).image.dispose();
+    }
+    if (!_drainingFullWrites) unawaited(_drainFullRasterWrites());
+  }
+
+  Future<void> _drainFullRasterWrites() async {
+    if (_drainingFullWrites) return;
+    _drainingFullWrites = true;
+    try {
+      while (_pendingFullWrites.isNotEmpty && !_disposed) {
+        var deferrals = 0;
+        while ((deferBackgroundIo?.call() ?? false) &&
+            deferrals < _maxFullWriteDeferrals &&
+            !_disposed) {
+          deferrals++;
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        if (_disposed) break;
+        // The queue can be emptied *while* we wait above - a document swap
+        // (clear) or a host wiping the tier (clearPersistentFullRasters).
+        // Re-check before indexing, or the drain throws RangeError into the
+        // zone as an unhandled async error.
+        if (_pendingFullWrites.isEmpty) continue;
+        final pending = _pendingFullWrites.removeAt(0);
+        if (deferrals >= _maxFullWriteDeferrals) {
+          // Still contended after seconds of scrolling. Drop it rather than
+          // take the raster thread away from the page the user is looking at;
+          // the page re-renders (and re-queues) when the view settles.
+          pending.image.dispose();
+          continue;
+        }
+        try {
+          await disk?.storeFullRaster(
+            pending.index,
+            pending.image,
+            pageColor: pending.pageColor.toARGB32(),
+            annotations: pending.annotations,
+            rotation: pending.rotation,
+            revision: pending.revision,
+          );
+        } catch (_) {
+          // storeFullRaster already degrades internally; a throw here would
+          // only kill the drain loop.
+        } finally {
+          pending.image.dispose();
+        }
+      }
+    } finally {
+      _drainingFullWrites = false;
+      if (_disposed) _dropPendingFullWrites();
+    }
+  }
+
+  void _dropPendingFullWrites() {
+    for (final pending in _pendingFullWrites) {
+      pending.image.dispose();
+    }
+    _pendingFullWrites.clear();
+  }
+
+  void _admitFullImage(
+    int index,
+    PdfPage page,
+    ui.Image image, {
+    required Color pageColor,
+    required bool annotations,
+    required int? rotation,
+  }) {
+    if (_disposed) return;
+    final signature = PdfPageRasterSignature(
+      pageIndex: index,
+      width: image.width,
+      height: image.height,
+      pageColor: pageColor,
+      annotations: annotations,
+      rotation: rotation,
+    );
+    final bytes = signature.bytes;
+    final rejection = _maxFullRasterBytes == 0
+        ? 'disabled'
+        : bytes > _maxFullRasterEntryBytes
+            ? 'entry-limit'
+            : bytes > _maxFullRasterBytes
+                ? 'total-limit'
+                : null;
+    if (rejection != null) {
+      _logFullRasterLookup(
+        'reject',
+        index,
+        reason: rejection,
+        bytes: bytes,
+      );
       return;
     }
-    // put disposes any prior entry for this index and evicts the LRU rasters
-    // past the pixel budget; the entry just stored (which the guard above kept
-    // within budget) is never the one evicted.
+    final beforeEvictions = _fullEntries.evictions;
+    // A revision swap that changed this page leaves entries no lookup can use;
+    // drop them here rather than letting them age out of a budget the fresh
+    // raster needs.
+    _dropStaleVariants(index, page);
+    // put disposes any prior entry for this exact signature and evicts the LRU
+    // rasters past the byte budget; the entry just stored (which the guard
+    // above kept within budget) is never the one evicted.
     _fullEntries.put(
-      index,
+      signature,
       _FullRasterEntry(
         page,
         image.clone(),
@@ -181,6 +628,82 @@ class PdfPagePreviewCache extends ChangeNotifier {
         rotation: rotation,
       ),
     );
+    _trimVariants(index, keep: signature);
+    if (!_fullEntries.containsKey(signature)) {
+      _logFullRasterLookup(
+        'reject',
+        index,
+        reason: 'coordinated-ceiling',
+        bytes: bytes,
+      );
+      return;
+    }
+    PdfPerfLog.log(
+      'page-raster store page=$index bytes=$bytes ${signature.width}x'
+      '${signature.height} '
+      'evicted=${_fullEntries.evictions - beforeEvictions} '
+      '${_fullRasterState()}${PdfPerfLog.rssSuffix()}',
+    );
+  }
+
+  /// Drops every retained raster of page [index] whose entry belongs to a
+  /// different document revision than [page].
+  void _dropStaleVariants(int index, PdfPage page) {
+    _fullEntries.evictWhere((key) {
+      if (key.pageIndex != index) return false;
+      final entry = _fullEntries.peek(key);
+      return entry != null && !identical(entry.page, page);
+    });
+  }
+
+  /// Keeps at most [_maxVariantsPerPage] geometries for page [index],
+  /// dropping the least-recently-used first and never [keep].
+  void _trimVariants(int index, {required PdfPageRasterSignature keep}) {
+    // _fullEntries.keys is least-recently-used first, so the oldest variants
+    // of this page come out of this list in eviction order. `keep` is excluded
+    // and counted separately - it is the one that must survive.
+    final variants = [
+      for (final key in _fullEntries.keys)
+        if (key.pageIndex == index && key != keep) key,
+    ];
+    final excess = variants.length + 1 - _maxVariantsPerPage;
+    for (var i = 0; i < excess; i++) {
+      _fullEntries.evict(variants[i]); // disposes the image
+      PdfPerfLog.log(
+        'page-raster evict page=$index reason=variant-cap '
+        '${_fullRasterState()}',
+      );
+    }
+  }
+
+  void _logFullRasterEviction(
+      PdfPageRasterSignature key, _FullRasterEntry entry) {
+    PdfPerfLog.log(
+      'page-raster evict page=${key.pageIndex} bytes=${entry.bytes} '
+      'reason=budget ${_fullRasterState()}${PdfPerfLog.rssSuffix()}',
+    );
+  }
+
+  void _logFullRasterLookup(
+    String event,
+    int index, {
+    String? reason,
+    int? bytes,
+  }) {
+    PdfPerfLog.log(
+      'page-raster $event page=$index'
+      '${bytes == null ? '' : ' bytes=$bytes'}'
+      '${reason == null ? '' : ' reason=$reason'} '
+      '${_fullRasterState()}${PdfPerfLog.rssSuffix()}',
+    );
+  }
+
+  String _fullRasterState() {
+    final registry = PdfCacheRegistry.instance;
+    return 'retained=${_fullEntries.weight} entries=${_fullEntries.length} '
+        'totalLimit=$_maxFullRasterBytes '
+        'entryLimit=$_maxFullRasterEntryBytes '
+        'registry=${registry.totalWeight} ceiling=${registry.maxTotalWeight}';
   }
 
   /// Whether any preview (fresh or stale) exists for page [index].
@@ -297,6 +820,161 @@ class PdfPagePreviewCache extends ChangeNotifier {
     }
   }
 
+  /// Bakes the exact, display-sized raster of an off-screen page into the
+  /// full-raster cache - the idle warm's one unit of work.
+  ///
+  /// This is the same interpretation and readback the page would run on its
+  /// first arrival on screen, moved to a moment the viewer is doing nothing.
+  /// [signature] is the geometry the page will *later* ask the cache for
+  /// (see [PdfPageRasterGeometry]); rendering at anything else would produce a
+  /// raster that can only miss.
+  ///
+  /// Ordering of the guards is the point:
+  ///
+  ///  * a raster already retained for this page and geometry is skipped
+  ///    without touching LRU order,
+  ///  * a raster the policy could not admit is declined *before* any
+  ///    interpretation - the expensive part - rather than after,
+  ///  * [shouldStop] is polled around every await, so a scroll, zoom, edit, or
+  ///    foreground render arriving mid-warm abandons the pass instead of
+  ///    finishing it on top of the frame the user is waiting for.
+  ///
+  /// [worker] moves the interpreter walk off the platform thread when the
+  /// backend offloads; [priority] should stay above any foreground request so
+  /// a visible page always wins the worker's queue. Returns whether a raster
+  /// was stored.
+  Future<bool> warmFullRaster(
+    int index,
+    PdfPage page, {
+    required PdfPageRasterSignature signature,
+    required double pixelRatio,
+    PdfRenderWorker? worker,
+    int priority = 4,
+    bool Function()? shouldStop,
+  }) async {
+    if (_disposed) return false;
+    if (hasFullRaster(signature, page)) {
+      _warmSkips++;
+      return false;
+    }
+    if (!admitsFullRaster(signature.bytes)) {
+      _warmRejections++;
+      PdfPerfLog.log(
+        'raster-warm decline page=$index bytes=${signature.bytes} '
+        'reason=inadmissible ${_fullRasterState()}',
+      );
+      return false;
+    }
+    if (shouldStop?.call() ?? false) return false;
+    _warmAttempts++;
+    final sw = Stopwatch()..start();
+    var stored = false;
+    try {
+      final size = PdfPageRenderer.pageSize(page, rotation: signature.rotation);
+      final commands = worker != null && worker.isActive
+          ? await worker.record(index,
+              annotations: signature.annotations,
+              priority: priority,
+              imagePixelRatio: pixelRatio)
+          : null;
+      if (shouldStop?.call() ?? false) {
+        _warmPreemptions++;
+        return false;
+      }
+      if (_disposed || hasFullRaster(signature, page)) return false;
+      ui.Picture? picture;
+      final ui.Image image;
+      if (commands != null) {
+        picture = await PdfPageRenderer.pictureFromCommands(page, commands,
+            pageColor: signature.pageColor, rotation: signature.rotation);
+      } else {
+        // No worker (or it declined): the walk runs here, exactly as it would
+        // when the page arrives on screen. That is the cost being moved into
+        // idle time, so it is worth paying - but only while nothing else
+        // wants the thread.
+        picture = await PdfPageRenderer.renderPictureRecordedWithPlan(
+          page,
+          PdfPageRenderPlan(
+            pageColor: signature.pageColor,
+            annotations: signature.annotations,
+            rotation: signature.rotation,
+          ),
+          maxImagePixelRatio: pixelRatio,
+        );
+      }
+      if ((shouldStop?.call() ?? false) || _disposed) {
+        picture.dispose();
+        if (!_disposed) _warmPreemptions++;
+        return false;
+      }
+      try {
+        image = await PdfPageRenderer.rasterize(picture, size, pixelRatio);
+      } catch (_) {
+        picture.dispose();
+        rethrow;
+      }
+      if (_disposed) {
+        image.dispose();
+        picture.dispose();
+        return false;
+      }
+      try {
+        // The raster the warm exists to produce. A late shouldStop is
+        // deliberately NOT honoured here: the pixels are already paid for, and
+        // storing them costs a clone, not a frame.
+        putFullImage(
+          index,
+          page,
+          image,
+          pageColor: signature.pageColor,
+          annotations: signature.annotations,
+          rotation: signature.rotation,
+        );
+        stored = hasFullRaster(signature, page);
+        if (stored) {
+          _warmCompletions++;
+          _warmedBytes += signature.bytes;
+        }
+        // The interpretation is already in hand, so the low-resolution
+        // navigation preview comes free - no second walk when the background
+        // prerender reaches this page.
+        if (!isFresh(index, page, requireImages: true)) {
+          await putFromPicture(index, page, picture,
+              rotation: signature.rotation);
+        }
+      } finally {
+        image.dispose();
+        picture.dispose();
+      }
+      PdfPerfLog.log(
+        'raster-warm page=$index ${signature.width}x${signature.height} '
+        '${commands != null ? 'worker ' : 'local '}'
+        'stored=$stored '
+        'warm=${(sw.elapsedMicroseconds / 1000).toStringAsFixed(1)}ms '
+        '${_fullRasterState()}',
+      );
+    } catch (_) {
+      // A page that fails to warm simply isn't cached; it renders on arrival
+      // exactly as it would have without the warm.
+    }
+    return stored;
+  }
+
+  /// A snapshot of what the idle warm and the exact-raster cache have done.
+  PdfPageRasterWarmStats get warmStats => PdfPageRasterWarmStats(
+        attempts: _warmAttempts,
+        completions: _warmCompletions,
+        skipped: _warmSkips,
+        rejected: _warmRejections,
+        preempted: _warmPreemptions,
+        warmedBytes: _warmedBytes,
+        hits: _fullEntries.hits,
+        misses: _fullEntries.misses,
+        evictions: _fullEntries.evictions,
+        retainedBytes: _fullEntries.weight,
+        entries: _fullEntries.length,
+      );
+
   /// Downscales an already-interpreted [picture] into the cache - free
   /// population as pages render on screen (raster-thread work only, no
   /// second interpreter walk). The picture stays owned by the caller.
@@ -321,7 +999,8 @@ class PdfPagePreviewCache extends ChangeNotifier {
     }
     // put disposes any prior preview for this index and evicts the LRU past
     // capacity, never the entry just stored.
-    _entries.put(index, _PreviewEntry(page, image, includesImages: includesImages));
+    _entries.put(
+        index, _PreviewEntry(page, image, includesImages: includesImages));
     // Write through to disk so the next session opens with this preview
     // already on screen. Fire-and-forget: the encode is a raster-thread
     // readback and a slow/failed store must never stall rendering.
@@ -352,12 +1031,17 @@ class PdfPagePreviewCache extends ChangeNotifier {
         _entries.peek(index)!.page = pages[index]; // rebind, no reorder
       }
     }
-    for (final index in _fullEntries.keys.toList()) {
+    for (final key in _fullEntries.keys.toList()) {
+      final index = key.pageIndex;
       if (changed != null && changed(index)) {
-        _fullEntries.evict(index); // disposes the image, subtracts its pixels
+        _fullEntries.evict(key); // disposes the image, subtracts its pixels
         dropped = true;
       } else if (index < pages.length) {
-        _fullEntries.peek(index)!.page = pages[index]; // rebind, no reorder
+        _fullEntries.peek(key)!.page = pages[index]; // rebind, no reorder
+      } else {
+        // the revision has fewer pages than this raster's index
+        _fullEntries.evict(key);
+        dropped = true;
       }
     }
     if (dropped && !_disposed) notifyListeners();
@@ -367,16 +1051,39 @@ class PdfPagePreviewCache extends ChangeNotifier {
   void clear() {
     _entries.clear(); // disposes every retained image
     _fullEntries.clear();
+    // Queued writes belong to the document being left behind.
+    _dropPendingFullWrites();
     if (!_disposed) notifyListeners();
   }
 
   @override
   void dispose() {
     _disposed = true;
-    _entries.clear(); // disposes every retained image
-    _fullEntries.clear();
+    _entries.dispose(); // disposes every retained image
+    _fullEntries.dispose();
+    // A drain in flight sees _disposed and clears the rest itself; clearing
+    // here covers the (usual) case where nothing is draining.
+    if (!_drainingFullWrites) _dropPendingFullWrites();
     super.dispose();
   }
+}
+
+class _PendingFullRasterWrite {
+  _PendingFullRasterWrite(
+    this.index,
+    this.image, {
+    required this.pageColor,
+    required this.annotations,
+    required this.rotation,
+    required this.revision,
+  });
+
+  final int index;
+  final ui.Image image;
+  final Color pageColor;
+  final bool annotations;
+  final int? rotation;
+  final String revision;
 }
 
 class _PreviewEntry {
@@ -402,5 +1109,5 @@ class _FullRasterEntry {
   final bool annotations;
   final int? rotation;
 
-  int get pixels => image.width * image.height;
+  int get bytes => image.width * image.height * 4;
 }

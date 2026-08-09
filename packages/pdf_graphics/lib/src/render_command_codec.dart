@@ -53,7 +53,7 @@ import 'text_extraction.dart';
 /// Format: little notion of versioning beyond a leading byte; the producer and
 /// consumer are the same build, shipped together, so a version mismatch is a
 /// programming error, asserted on read.
-const int _formatVersion = 4;
+const int _formatVersion = 5;
 
 /// Microseconds spent reconstructing worker command buffers on the consuming
 /// isolate. Accumulated for performance probes; this is the UI-thread half of
@@ -444,6 +444,15 @@ Uint8List serializePageText(PdfPageText page) {
     w.f64(run.width);
     _writeRect(w, run.bounds);
     w.boolean(run.isRightToLeft);
+    // Per-character advances (issue #647) - without them the UI isolate falls
+    // back to interpolating a highlight across the run and misses the glyphs.
+    final offsets = run.charOffsets;
+    w.u32(offsets?.length ?? 0);
+    if (offsets != null) {
+      for (final offset in offsets) {
+        w.f64(offset);
+      }
+    }
   }
   return w.takeBytes();
 }
@@ -466,6 +475,10 @@ PdfPageText deserializePageText(Uint8List bytes) {
     final width = r.f64();
     final bounds = _readRect(r);
     final isRightToLeft = r.boolean();
+    final offsetCount = r.u32();
+    final offsets = offsetCount == 0
+        ? null
+        : [for (var j = 0; j < offsetCount; j++) r.f64()];
     runs.add(PdfExtractedRun(
       text: runText,
       startIndex: startIndex,
@@ -473,6 +486,11 @@ PdfPageText deserializePageText(Uint8List bytes) {
       transform: transform,
       width: width,
       bounds: bounds,
+      // A table of the wrong length would throw out of quadsFor; drop it and
+      // interpolate instead, like a run that never carried one.
+      charOffsets: offsets != null && offsets.length == runText.length + 1
+          ? offsets
+          : null,
       isRightToLeft: isRightToLeft,
     ));
   }
@@ -1353,6 +1371,18 @@ void _writeTextRun(_Writer w, PdfTextRun run) {
     w.boolean(true);
     w.f64(run.visibleWidth!);
   }
+  // Per-character pen offsets (issue #649). Only a substituted run needs them -
+  // an embedded run's glyph list above already carries the same positions - so
+  // they never inflate the transcript of an embedded-font page.
+  final offsets = glyphs == null ? run.charOffsets : null;
+  if (offsets == null) {
+    w.u32(0);
+  } else {
+    w.u32(offsets.length);
+    for (final offset in offsets) {
+      w.f64(offset);
+    }
+  }
 }
 
 PdfTextRun _readTextRun(_Reader r) {
@@ -1388,6 +1418,9 @@ PdfTextRun _readTextRun(_Reader r) {
   final wordSpacing = r.f64();
   final leadingSpace = r.f64();
   final visibleWidth = r.boolean() ? r.f64() : null;
+  final offsetCount = r.u32();
+  final offsets =
+      offsetCount == 0 ? null : [for (var i = 0; i < offsetCount; i++) r.f64()];
   return PdfTextRun(
     text: text,
     transform: transform,
@@ -1405,6 +1438,10 @@ PdfTextRun _readTextRun(_Reader r) {
     wordSpacing: wordSpacing,
     leadingSpace: leadingSpace,
     visibleWidth: visibleWidth,
+    // A table of the wrong length would mis-place glyphs; drop it and let the
+    // device fall back to whole-run shaping, like a run that never carried one.
+    charOffsets:
+        offsets != null && offsets.length == text.length + 1 ? offsets : null,
   );
 }
 

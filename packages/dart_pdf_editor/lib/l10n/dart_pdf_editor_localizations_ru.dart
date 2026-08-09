@@ -415,6 +415,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get menuRemoveNode => 'Удалить узел';
 
   @override
+  String get menuSaveToStamps => 'Сохранить в штампы';
+
+  @override
   String get menuSetAsDefaultStyle => 'Задать стилем по умолчанию';
 
   @override
@@ -571,6 +574,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
 
   @override
   String get propContents => 'Содержимое';
+
+  @override
+  String get propCornerRadius => 'Радиус скругления';
 
   @override
   String get propEditsApplyToAll =>
@@ -1004,6 +1010,10 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get shellShowAnnotations => 'Показывать аннотации';
 
   @override
+  String get shellShowScrollbarChapters =>
+      'Показывать главы на полосе прокрутки';
+
+  @override
   String get shellTabHere => 'Вкладка сюда';
 
   @override
@@ -1234,6 +1244,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
 
   @override
   String get stampNewStampTitle => 'Новый штамп';
+
+  @override
+  String get stampSavedToCollection => 'Сохранено в штампы';
 
   @override
   String get stampSelectTextToEdit => 'Выберите текст для редактирования';

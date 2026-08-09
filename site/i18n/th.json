@@ -59,7 +59,7 @@
   "dlMac_meta": ".dmg โดยตรง · ลงนามและรับรองแล้ว",
   "dlWin_meta": "ตัวติดตั้ง · 64-bit",
   "dlWin_portable": "ไม่อยากติดตั้งใช่ไหม? ดาวน์โหลด<a href=\"https://github.com/ben-milanko/dart-pdf/releases/latest/download/dartpdf-windows-portable.exe\">เวอร์ชันพกพาสำหรับ Windows</a> ที่รันได้จากทุกที่",
-  "dlLinux_meta": "AppImage · 64-bit",
+  "dlLinux_meta": "Flatpak · 64-bit",
   "dlWeb_meta": "ทำงานในทุกเบราว์เซอร์",
   "dl_freeNote": "ฟรีและเป็นโอเพนซอร์ส บิลด์อื่นๆ (<code>.zip</code>, <code>.tar.gz</code>) บน\n        <a href=\"https://github.com/ben-milanko/dart-pdf/releases/latest\" target=\"_blank\" rel=\"noopener\">GitHub\n          Releases</a>",
 

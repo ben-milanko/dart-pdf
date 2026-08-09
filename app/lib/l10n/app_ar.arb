@@ -207,6 +207,8 @@
   "settingsUpdateAvailable": "الإصدار {version} متاح (لديك {currentVersion}).",
   "settingsUpdateFailed": "تعذّر التحقق من التحديثات. حاول مرة أخرى لاحقًا.",
   "settingsUpdateIdle": "لديك {name} {version}.",
+  "settingsNightlyUpdates": "التحديثات الليلية",
+  "settingsNightlyUpdatesSubtitle": "تلقي إشعارات تحديث تلقائية لإصدارات Windows التجريبية غير الموقعة من الفرع main.",
   "settingsUpdates": "التحديثات",
   "settingsViewSource": "عرض المصدر على GitHub",
   "undo": "تراجع",

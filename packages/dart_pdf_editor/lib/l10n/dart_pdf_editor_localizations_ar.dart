@@ -417,6 +417,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get menuRemoveNode => 'إزالة عقدة';
 
   @override
+  String get menuSaveToStamps => 'حفظ في الأختام';
+
+  @override
   String get menuSetAsDefaultStyle => 'تعيين كنمط افتراضي';
 
   @override
@@ -574,6 +577,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get propContents => 'المحتويات';
+
+  @override
+  String get propCornerRadius => 'نصف قطر الزاوية';
 
   @override
   String get propEditsApplyToAll =>
@@ -1005,6 +1011,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get shellShowAnnotations => 'إظهار التعليقات التوضيحية';
 
   @override
+  String get shellShowScrollbarChapters => 'إظهار الفصول على شريط التمرير';
+
+  @override
   String get shellTabHere => 'علامة تبويب هنا';
 
   @override
@@ -1235,6 +1244,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
 
   @override
   String get stampNewStampTitle => 'ختم جديد';
+
+  @override
+  String get stampSavedToCollection => 'تم الحفظ في الأختام';
 
   @override
   String get stampSelectTextToEdit => 'حدد نصًا للتحرير';

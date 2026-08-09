@@ -23,6 +23,7 @@ import 'editing_image_crop.dart';
 import 'editing_interaction.dart';
 import 'editing_link.dart';
 import 'editing_measure.dart';
+import 'editing_text_menu.dart';
 import 'editing_tool_behavior.dart';
 import 'handle_layout.dart';
 import 'stroke_prediction.dart';
@@ -1592,6 +1593,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     if (_controller.selectedPage != widget.pageIndex) return null;
     final annotation = _controller.selectedAnnotation;
     if (annotation == null) return null;
+    // match _selectedViewRects: a text-markup's primary chrome hugs
+    // its first /QuadPoints quad so the rest of the quads line up
+    // against it (the callout branch keeps /Rect - the leader arrow
+    // lives outside the text box and the chrome must enclose it).
+    final quads = annotation.behavior.markupQuads;
+    if (quads != null && quads.isNotEmpty) {
+      return _geometry.toViewRect(quads.first);
+    }
     // a callout's chrome hugs the text box, not the /Rect that also
     // encloses the leader + arrow, so resize handles size the box alone
     return _geometry.toViewRect(annotation.calloutBox ?? annotation.rect);
@@ -1610,13 +1619,31 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   /// Every selected annotation's view rect on this page, in selection
   /// order (so the primary is last).
-  List<Rect> get _selectedViewRects => [
-        for (final slot in _controller.selectedAnnotationSlots)
-          if (slot.$1 == widget.pageIndex)
-            if (_controller.annotationAt(slot.$1, slot.$2)
-                case final annotation?)
-              _geometry.toViewRect(annotation.rect)
-      ];
+  ///
+  /// Text-markup annotations (Highlight / Underline / StrikeOut /
+  /// Squiggly) carry each colored run as its own /QuadPoints quad - a
+  /// highlight that wraps across a line break has one quad per line
+  /// and a /Rect that spans the gap between them. Paint one chrome
+  /// box per quad instead of one over the whole /Rect, so the chrome
+  /// hugs the user's color swatches and stops looking like it selects
+  /// the unmarked text in between.
+  List<Rect> get _selectedViewRects {
+    final result = <Rect>[];
+    for (final slot in _controller.selectedAnnotationSlots) {
+      if (slot.$1 != widget.pageIndex) continue;
+      final annotation = _controller.annotationAt(slot.$1, slot.$2);
+      if (annotation == null) continue;
+      final quads = annotation.behavior.markupQuads;
+      if (quads != null && quads.isNotEmpty) {
+        for (final q in quads) {
+          result.add(_geometry.toViewRect(q));
+        }
+      } else {
+        result.add(_geometry.toViewRect(annotation.rect));
+      }
+    }
+    return result;
+  }
 
   /// The primary selection's appearance quad in view space (BBox corner
   /// order: ll, lr, ur, ul), or null without an appearance stream.
@@ -3316,7 +3343,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   ///
   /// When [contextMenuEnabled] is false the press still selects the
   /// annotation (or, with a clipboard, still bails out the same way) -
-  /// only the popup is suppressed.
+  /// the popup is suppressed, and if the host registered a
+  /// [PdfEditingInteractionHost.requestContextMenu] callback the
+  /// gesture is handed to it instead.
   void _onMenuLongPress(LongPressStartDetails details) {
     final position = details.localPosition;
     final (x, y) = _geometry.toPagePoint(position);
@@ -3329,7 +3358,19 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       return;
     }
     HapticFeedback.selectionClick();
-    if (!widget.contextMenuEnabled) return;
+    if (!widget.contextMenuEnabled) {
+      _host.requestContextMenu?.call(
+        details.globalPosition,
+        widget.pageIndex,
+        pagePoint: (x, y),
+        target: hit != null
+            ? PdfContextMenuTarget.annotation
+            : PdfContextMenuTarget.emptyPage,
+        slot: hit?.$1,
+        annotation: hit?.$2,
+      );
+      return;
+    }
     _host.showAnnotationMenu
         ?.call(details.globalPosition, widget.pageIndex, pagePoint: (x, y));
   }
@@ -5047,13 +5088,15 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
             ? _moveCurrent! - _moveStart!
             : Offset.zero;
     // the rest of a multi-selection on this page: chrome boxes without
-    // handles, riding along with a move drag
+    // handles, riding along with a move drag. The primary chrome box
+    // (matching `selected`) is drawn separately by the painter; this
+    // list carries every other box - for text-markups the other
+    // /QuadPoints quads of the primary plus the full set of every
+    // other selected annotation.
     final allSelected = _selectedViewRects;
     final extraSelected = [
-      for (final rect in selected == null
-          ? allSelected
-          : allSelected.sublist(0, allSelected.length - 1))
-        rect.shift(moveDelta)
+      for (final rect in allSelected)
+        if (selected == null || rect != selected) rect.shift(moveDelta)
     ];
     final rotating = _rotateStartAngle != null;
     final dragging =
@@ -5263,6 +5306,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                     tool: _tool,
                     color: _controller.color,
                     strokeWidth: _controller.preferences.strokeWidth * _geometry.scale,
+                    lineScale: _controller.preferences.lineScale,
                     geometry: _geometry,
                     // the in-progress stroke is NOT here - it rides its own
                     // RepaintBoundary layer below so each appended point is a
@@ -5560,18 +5604,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                 selectionControls: _ScaledTextSelectionControls(
                                     _chromeScale,
                                     _inlineTextHandleColor(context)),
+                                // the zoom transform would otherwise scale
+                                // AND displace the menu off-screen
                                 contextMenuBuilder:
-                                    (context, editableTextState) {
-                                  final menu =
-                                      AdaptiveTextSelectionToolbar.editableText(
-                                          editableTextState: editableTextState);
-                                  if (_chromeScale == 1) return menu;
-                                  return Transform.scale(
-                                    scale: _chromeScale,
-                                    alignment: Alignment.topCenter,
-                                    child: menu,
-                                  );
-                                },
+                                    (context, editableTextState) =>
+                                        pdfPlacedTextSelectionMenu(
+                                          editableTextState,
+                                          AdaptiveTextSelectionToolbar
+                                              .editableText(
+                                                  editableTextState:
+                                                      editableTextState),
+                                        ),
                                 // mirrors the committed appearance: same size
                                 // in view pixels, same leading/spacing,
                                 // matching family, color and underline
@@ -6311,6 +6354,7 @@ class _EditingPreviewPainter extends CustomPainter {
     required this.tool,
     required this.color,
     required this.strokeWidth,
+    required this.lineScale,
     required this.geometry,
     required this.strokes,
     required this.pressures,
@@ -6362,6 +6406,8 @@ class _EditingPreviewPainter extends CustomPainter {
   final PdfEditTool? tool;
   final Color color;
   final double strokeWidth;
+  /// Pattern-size multiplier for live borders, independent of pen width.
+  final double lineScale;
   final PdfPageGeometry geometry;
   final List<List<(double, double)>> strokes;
 
@@ -6523,7 +6569,8 @@ class _EditingPreviewPainter extends CustomPainter {
           canvas, geometry, strokes, pressures, color, strokeWidth);
 
   void _paintShapePreview(
-      Canvas canvas, Rect rect, PdfEditTool? tool, Color color, double width) {
+      Canvas canvas, Rect rect, PdfEditTool? tool, Color color, double width,
+      double patternScale) {
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
@@ -6540,7 +6587,8 @@ class _EditingPreviewPainter extends CustomPainter {
             color,
             null,
             width,
-            false);
+            false,
+            patternScale);
       case PdfEditTool.freeText || PdfEditTool.stamp || PdfEditTool.form:
         canvas.drawRect(
             rect,
@@ -6569,9 +6617,9 @@ class _EditingPreviewPainter extends CustomPainter {
   }
 
   void _paintCloudPolygon(Canvas canvas, List<Offset> points, Color color,
-      Color? fillColor, double width, bool dashed) {
+      Color? fillColor, double width, bool dashed, double patternScale) {
     if (points.length < 3) return;
-    final cloud = _cloudPath(points, width);
+    final cloud = _cloudPath(points, width, patternScale);
     if (fillColor != null) {
       // Fill the scalloped outline itself so the interior colour reaches the
       // puffed edges, matching the committed appearance stream.
@@ -6609,14 +6657,16 @@ class _EditingPreviewPainter extends CustomPainter {
   /// matches the committed appearance.
   static const double _cloudNeckCurl = 0.75;
 
-  Path _cloudPath(List<Offset> points, double strokeWidth) {
+  Path _cloudPath(
+      List<Offset> points, double strokeWidth, double patternScale) {
     final path = Path();
     if (points.length < 3) return path;
     final clockwise = _signedArea(points) < 0;
     // The appearance stream uses max(12, sw*4) *page* points; map that arc
     // radius into view space (strokeWidth here is already scaled) so the
     // preview and the saved cloud line up scallop-for-scallop.
-    final arc = math.max(12.0 * geometry.scale, strokeWidth * 4.0);
+    final arc = math.max(
+        12.0 * patternScale * geometry.scale, strokeWidth * 4.0);
     const k = 0.5522847498307936;
     var first = true;
     for (var i = 0; i < points.length; i++) {
@@ -6734,7 +6784,8 @@ class _EditingPreviewPainter extends CustomPainter {
   }
 
   void _paintPathPreview(Canvas canvas, List<Offset> points, PdfEditTool? tool,
-      Color color, Color? fillColor, double width, bool dashed) {
+      Color color, Color? fillColor, double width, bool dashed,
+      double patternScale) {
     if (points.length < 2) return;
     final paint = Paint()
       ..color = color
@@ -6760,7 +6811,8 @@ class _EditingPreviewPainter extends CustomPainter {
       }
     }
     if (tool == PdfEditTool.cloudPolygon && points.length >= 3) {
-      _paintCloudPolygon(canvas, points, color, fillColor, width, dashed);
+      _paintCloudPolygon(
+          canvas, points, color, fillColor, width, dashed, patternScale);
     } else {
       // For the cloud tool with fewer than three vertices there is no cloud
       // to draw yet, so this rubber-bands the straight edge instead - placing
@@ -6808,7 +6860,7 @@ class _EditingPreviewPainter extends CustomPainter {
       Canvas canvas, Offset terminus, Offset base, Color color, double width) {
     _paintPathPreview(
         canvas, [terminus, base], PdfEditTool.callout, color, null, width,
-        false);
+        false, 1);
   }
 
   Path _dashPath(Path path, double width, [List<double>? dashPattern]) {
@@ -6903,7 +6955,8 @@ class _EditingPreviewPainter extends CustomPainter {
     final after = afterShape;
     if (after != null) {
       _paintShapePreview(
-          canvas, after.rect, after.tool, after.color, after.strokeWidth);
+          canvas, after.rect, after.tool, after.color, after.strokeWidth,
+          lineScale);
     }
 
     final afterStamp = this.afterStamp;
@@ -6920,24 +6973,27 @@ class _EditingPreviewPainter extends CustomPainter {
           afterPath.color,
           afterPath.fillColor,
           afterPath.strokeWidth,
-          afterPath.dashed);
+          afterPath.dashed,
+          lineScale);
     }
 
     final livePath = this.livePath;
     if (livePath != null) {
       _paintPathPreview(canvas, livePath.points, livePath.tool, livePath.color,
-          livePath.fillColor, livePath.strokeWidth, livePath.dashed);
+          livePath.fillColor, livePath.strokeWidth, livePath.dashed, lineScale);
     }
 
     final line = dragLine;
     if (line != null) {
       _paintPathPreview(
-          canvas, [line.$1, line.$2], tool, color, null, strokeWidth, dashed);
+          canvas, [line.$1, line.$2], tool, color, null, strokeWidth, dashed,
+          lineScale);
     } else if (dragPath != null) {
       _paintPathPreview(
-          canvas, dragPath!, tool, color, dragPathFill, strokeWidth, dashed);
+          canvas, dragPath!, tool, color, dragPathFill, strokeWidth, dashed,
+          lineScale);
     } else if (dragRect case final rect?) {
-      _paintShapePreview(canvas, rect, tool, color, strokeWidth);
+      _paintShapePreview(canvas, rect, tool, color, strokeWidth, lineScale);
     }
 
     if (calloutLeader case final leader?) {
@@ -7137,6 +7193,7 @@ class _EditingPreviewPainter extends CustomPainter {
       oldDelegate.tool != tool ||
       oldDelegate.color != color ||
       oldDelegate.strokeWidth != strokeWidth ||
+      oldDelegate.lineScale != lineScale ||
       !listEquals(oldDelegate.redactionRects, redactionRects) ||
       oldDelegate.dragRect != dragRect ||
       oldDelegate.calloutLeader != calloutLeader ||

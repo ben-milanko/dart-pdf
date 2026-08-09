@@ -90,8 +90,14 @@ class PdfPageRenderScheduler {
   set holding(bool value) {
     if (_holding == value || _disposed) return;
     _holding = value;
+    // inFlight is reported alongside pending because [busy] is the sum of the
+    // two (plus the hold), and background work - the thumbnail warm - stands
+    // down for exactly as long as it reads true. A trace showing `renderHold
+    // off (pending=0)` followed by silence gives no way to tell an idle viewer
+    // from one whose in-flight set never drained; with this it does.
     PdfPerfLog.log('renderHold ${_holding ? 'ON' : 'off'} '
-        '(pending=${_pending.length} focus=$_focus)');
+        '(pending=${_pending.length} inFlight=${_inFlight.length} '
+        'focus=$_focus)');
     if (!_holding) _scheduleDrain();
     _activity.ping();
   }

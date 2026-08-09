@@ -55,6 +55,21 @@ void main() {
       expect(after.contents, 'Changed');
     });
 
+    test('free-text property rewrite does not duplicate indirect annots', () {
+      final seeded = PdfEditor(PdfDocument.open(buildIndirectAnnotsPdf()))
+        ..addFreeText(0, const PdfRect(100, 560, 300, 620), 'Hello');
+      final editing = PdfEditingController(seeded.save());
+      addTearDown(editing.dispose);
+      editing.selectAnnotation(0, 0);
+
+      editing.restyleSelectedText(size: 24);
+
+      final after = editing.document.page(0).annotations;
+      expect(after, hasLength(1));
+      expect(after.single.defaultAppearance, contains('/Helv 24 Tf'));
+      expect(editing.selectedTextStyle?.size, 24);
+    });
+
     test('the author applies to the whole selection as one undo', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..addRectangle(0, const PdfRect(100, 600, 200, 660))
@@ -258,6 +273,44 @@ void main() {
       expect(opacity, greaterThan(0));
       // the selection (and the stroke restyle) survived both edits
       expect(editing.selectedAnnotation!.borderWidth, width);
+    });
+
+    testWidgets('the corner-radius slider rounds a selected rectangle',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 600, 220, 660));
+      addTearDown(editing.dispose);
+      await pumpPanel(tester, editing);
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      // the row reads the rectangle's current (square) corners
+      final radius = find.byKey(const ValueKey('pdf-prop-corner-radius'));
+      expect(radius, findsOneWidget);
+      expect(editing.selectedCornerRadius, 0);
+
+      await tester.drag(radius, const Offset(60, 0));
+      await tester.pump();
+      expect(editing.selectedCornerRadius, greaterThan(0));
+      // the restyle kept the selection, and the annotation itself rounded
+      expect(editing.selectedAnnotation!.cornerRadius, greaterThan(0));
+
+      // typing an exact radius commits it too
+      await submit(
+          tester, const ValueKey('pdf-prop-corner-radius-input'), '12');
+      expect(editing.selectedAnnotation!.cornerRadius, closeTo(12, 1e-9));
+    });
+
+    testWidgets('an ellipse has no corner-radius row', (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addEllipse(0, const PdfRect(100, 600, 220, 660));
+      addTearDown(editing.dispose);
+      await pumpPanel(tester, editing);
+      editing.selectAnnotation(0, 0);
+      await tester.pump();
+
+      expect(find.byKey(const ValueKey('pdf-prop-stroke')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-prop-corner-radius')), findsNothing);
     });
 
     testWidgets('a placed image gets a working opacity slider, no colour',

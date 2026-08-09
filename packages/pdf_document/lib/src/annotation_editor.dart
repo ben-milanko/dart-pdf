@@ -3245,7 +3245,12 @@ extension PdfAnnotationEditing on PdfEditor {
           : pdfResolveStampTemplateText(contents, templateValues),
       author,
     );
-    _applyStampMetadata(dict, type: stampType, tags: stampTags);
+    _applyStampMetadata(
+      dict,
+      type: stampType,
+      tags: stampTags,
+      template: template,
+    );
     _addAnnotation(
       pageIndex,
       dict,
@@ -3262,10 +3267,21 @@ extension PdfAnnotationEditing on PdfEditor {
     );
   }
 
+  /// The largest stamp template, as encoded JSON, that [addTemplateStamp]
+  /// records on the annotation it places (see [PdfAnnotation.stampTemplate]).
+  ///
+  /// Designs made of text and shapes encode to a few hundred bytes, so the
+  /// cap only ever bites on a template carrying a picture - whose bytes are
+  /// already in the appearance stream, and would be paid for a second time
+  /// by every placement. Such a stamp still places and prints identically;
+  /// it just can't be recovered back into a stamp collection from the page.
+  static const int maxStampTemplateMetadataBytes = 64 * 1024;
+
   void _applyStampMetadata(
     CosDictionary dict, {
     String? type,
     Iterable<String> tags = const [],
+    PdfStampTemplate? template,
   }) {
     final normalizedType = type?.trim();
     if (normalizedType != null && normalizedType.isNotEmpty) {
@@ -3279,6 +3295,14 @@ extension PdfAnnotationEditing on PdfEditor {
       dict['DartPdfStampTags'] = CosArray([
         for (final tag in normalizedTags) CosString.fromText(tag),
       ]);
+    }
+    if (template != null) {
+      // The *unresolved* design, so a placed stamp saved back into a
+      // collection keeps its live `{{date}}`-style fields.
+      final json = jsonEncode(template.toJson());
+      if (json.length <= maxStampTemplateMetadataBytes) {
+        dict['DartPdfStampTemplate'] = CosString.fromText(json);
+      }
     }
   }
 
@@ -4577,8 +4601,8 @@ extension PdfAnnotationEditing on PdfEditor {
   /// [to] from the style its dictionary carries, replacing the /AP /N
   /// stream. Returns false - leaving the caller on the §12.5.5 stretch
   /// path - for other subtypes and for styles it can't reproduce
-  /// faithfully: cloudy (/BE) shape borders, free text whose /DA doesn't
-  /// name a standard font.
+  /// faithfully: cloudy (/BE) shape borders, or free text whose /DA font
+  /// is neither a standard face nor recoverable from its appearance.
   ///
   /// [opacity], when given, replaces the alpha the old appearance
   /// carried - [restyleAnnotation]'s opacity path.
@@ -5049,7 +5073,13 @@ extension PdfAnnotationEditing on PdfEditor {
         return _restyleRegenerate(pageIndex, dict, opacity: opacity);
       case 'FreeText':
         final style = currentStyle.freeText!;
-        final font = behavior.standardTextFont!;
+        // /DA only identifies base-14 faces directly. Recover an embedded
+        // face from the appearance resources just as the resize path does;
+        // otherwise changing the colour of text written in a custom font
+        // cannot rebuild its appearance.
+        final font = behavior.standardTextFont ??
+            PdfEmbeddedFont.fromFreeText(annotation);
+        if (font == null) return false;
         final textColor = color ?? style.color;
         final fill = fillColor != null ? fillColor.$1 : style.fillColor;
         final border = style.borderColor != null && style.borderWidth > 0

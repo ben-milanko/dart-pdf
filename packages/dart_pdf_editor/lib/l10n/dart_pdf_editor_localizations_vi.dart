@@ -409,6 +409,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get menuRemoveNode => 'Xóa nút';
 
   @override
+  String get menuSaveToStamps => 'Lưu vào con dấu';
+
+  @override
   String get menuSetAsDefaultStyle => 'Đặt làm kiểu mặc định';
 
   @override
@@ -561,6 +564,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get propContents => 'Nội dung';
+
+  @override
+  String get propCornerRadius => 'Bán kính góc';
 
   @override
   String get propEditsApplyToAll =>
@@ -992,6 +998,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get shellShowAnnotations => 'Hiện chú thích';
 
   @override
+  String get shellShowScrollbarChapters => 'Hiện các chương trên thanh cuộn';
+
+  @override
   String get shellTabHere => 'Ghép thẻ tại đây';
 
   @override
@@ -1219,6 +1228,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
 
   @override
   String get stampNewStampTitle => 'Con dấu mới';
+
+  @override
+  String get stampSavedToCollection => 'Đã lưu vào con dấu';
 
   @override
   String get stampSelectTextToEdit => 'Chọn văn bản để chỉnh sửa';

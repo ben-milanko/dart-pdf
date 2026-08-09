@@ -1,6 +1,6 @@
 # Maintainer: Ben Milanko <ben.milanko@protonmail.com>
 pkgname=dartpdf-bin
-pkgver=3.0.0
+pkgver=3.3.1
 pkgrel=1
 pkgdesc="Edit, annotate, sign, and fill in PDFs - a private, local PDF editor (prebuilt binary)"
 arch=('x86_64')
@@ -22,37 +22,15 @@ provides=('dartpdf')
 conflicts=('dartpdf')
 options=('!strip')  # bundled .so files are already stripped; don't touch the AOT blob
 
-# The prebuilt bundle carries only the binary + data/ + lib/. The desktop
-# entry, AppStream metainfo, and hicolor icons are fetched from the source repo
-# because the app-v3.0.0 release tarball predates the CMake rules (#547) that
-# add them to the bundle's share/ tree. Pinned to an immutable commit.
-# When a release built from a tree that includes #547 ships, the tarball will
-# carry share/ and these six *_assets sources can be dropped in favour of
-# installing from the unpacked bundle.
-_assets_commit=01326c2da8526b131d4e5bd7a59e4a89ae97ef87
-_raw="https://raw.githubusercontent.com/ben-milanko/dart-pdf/${_assets_commit}/app/linux"
-
 source=("dartpdf-${pkgver}.tar.gz::https://github.com/ben-milanko/dart-pdf/releases/download/app-v${pkgver}/dartpdf-linux-x64.tar.gz"
-        "dev.milanko.dartpdf.desktop::${_raw}/dev.milanko.dartpdf.desktop"
-        "dev.milanko.dartpdf.metainfo.xml::${_raw}/dev.milanko.dartpdf.metainfo.xml"
-        "dartpdf-64.png::${_raw}/icons/hicolor/64x64/apps/dev.milanko.dartpdf.png"
-        "dartpdf-128.png::${_raw}/icons/hicolor/128x128/apps/dev.milanko.dartpdf.png"
-        "dartpdf-256.png::${_raw}/icons/hicolor/256x256/apps/dev.milanko.dartpdf.png"
-        "dartpdf-512.png::${_raw}/icons/hicolor/512x512/apps/dev.milanko.dartpdf.png"
-        "LICENSE::https://raw.githubusercontent.com/ben-milanko/dart-pdf/${_assets_commit}/LICENSE")
+        "LICENSE::https://raw.githubusercontent.com/ben-milanko/dart-pdf/app-v${pkgver}/LICENSE")
 
-sha256sums=('c626d2cb3f94f386f0294e60736b63642502ccfa8871a46004660b214c447987'
-            '4e3f7941b0ad93c4537cc7fd5af9f0ce2d55c33f937cd0f7c9c811b1b3bb6d06'
-            'bcb5947288d8c5f2664b54231afb1a4f2b256d7a381d36e998198da766fc7370'
-            '0484364f99e862d79aa1655b52e88626e8855fc93de7eceb170779c4f6f8ae24'
-            '3f62f725e02acfb133d14a3fef2299a7005088bb6a400a77e648e3dc3b6bc62b'
-            'a8ccca1310303302c46c681516d5349e2152993a954f75fe9473ff10c1dc1728'
-            '23206ced87d306164df39a451b97d926aa8f64aeb1ad960fae9913dec9c5b938'
+sha256sums=('9a3205a638af561d10adcff802aa6431e8ce5f35e187d2aeb243fcb6c46648c4'
             'cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30')
 
 package() {
-  # The release tarball extracts its members (dart_pdf_editor_app, data/, lib/)
-  # straight into $srcdir. Install the whole bundle under /opt/dartpdf; the
+  # The release tarball extracts the runner, data/, lib/, and share/ straight
+  # into $srcdir. Install the runtime bundle under /opt/dartpdf; the
   # runner resolves its real path via readlink and finds data/ + lib/ next to
   # it, so a /usr/bin symlink works.
   install -d "${pkgdir}/opt/dartpdf"
@@ -63,14 +41,8 @@ package() {
   install -d "${pkgdir}/usr/bin"
   ln -s /opt/dartpdf/dart_pdf_editor_app "${pkgdir}/usr/bin/dartpdf"
 
-  install -Dm644 "${srcdir}/dev.milanko.dartpdf.desktop" \
-    "${pkgdir}/usr/share/applications/dev.milanko.dartpdf.desktop"
-  install -Dm644 "${srcdir}/dev.milanko.dartpdf.metainfo.xml" \
-    "${pkgdir}/usr/share/metainfo/dev.milanko.dartpdf.metainfo.xml"
-  for sz in 64 128 256 512; do
-    install -Dm644 "${srcdir}/dartpdf-${sz}.png" \
-      "${pkgdir}/usr/share/icons/hicolor/${sz}x${sz}/apps/dev.milanko.dartpdf.png"
-  done
+  install -d "${pkgdir}/usr/share"
+  cp -r "${srcdir}/share/." "${pkgdir}/usr/share/"
 
   install -Dm644 "${srcdir}/LICENSE" \
     "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"

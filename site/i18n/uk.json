@@ -59,7 +59,7 @@
   "dlMac_meta": "Прямий .dmg · підписаний і нотаризований",
   "dlWin_meta": "Інсталятор · 64-bit",
   "dlWin_portable": "Не хочете встановлювати? Завантажте <a href=\"https://github.com/ben-milanko/dart-pdf/releases/latest/download/dartpdf-windows-portable.exe\">портативну збірку для Windows</a>, яка запускається звідусіль.",
-  "dlLinux_meta": "AppImage · 64-bit",
+  "dlLinux_meta": "Flatpak · 64-bit",
   "dlWeb_meta": "Працює в будь-якому браузері",
   "dl_freeNote": "Безкоштовно та з відкритим кодом. Інші збірки (<code>.zip</code>, <code>.tar.gz</code>) на\n        <a href=\"https://github.com/ben-milanko/dart-pdf/releases/latest\" target=\"_blank\" rel=\"noopener\">GitHub\n          Releases</a>.",
 

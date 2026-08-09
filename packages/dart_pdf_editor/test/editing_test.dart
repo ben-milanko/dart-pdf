@@ -612,6 +612,25 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('cloud drag preview uses the configured pattern scale',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing
+        ..tool = PdfEditTool.cloudPolygon
+        ..preferences.lineScale = 2.5;
+      await tester.pump();
+
+      final gesture = await tester.startGesture(view(100, 700));
+      await gesture.moveTo(view(250, 600));
+      await tester.pump();
+
+      final dynamic painter = editingOverlayPainter(tester);
+      expect(painter.lineScale, 2.5,
+          reason: 'the rubber-band cloud must size its scallops like /BE /I');
+      await gesture.up();
+      await settle(tester);
+    });
+
     testWidgets('cloud polygon tool taps points and double-taps to finish',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);

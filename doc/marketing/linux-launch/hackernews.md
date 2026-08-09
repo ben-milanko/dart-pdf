@@ -41,9 +41,11 @@ post the landing page, put the repo link in the first comment.)
 > optional timestamp/revocation checks for signatures and an update check;
 > document content never leaves the machine.
 >
-> It's Apache-2.0. Install on Linux via [Flathub / AUR / AppImage] — links on
-> the page. Happy to go into the rendering pipeline, the encryption/signing
-> stack, or why "pure Dart" was worth the pain. Feedback welcome.
+> It's Apache-2.0. The preferred Linux install is the signed Flatpak from the
+> project's own repository; AppImage and portable builds are available too.
+> Links are on the page. Happy to go into the rendering pipeline, the
+> encryption/signing stack, or why "pure Dart" was worth the pain. Feedback
+> welcome.
 
 ## Notes for posting
 
@@ -54,5 +56,5 @@ post the landing page, put the repo link in the first comment.)
   validity) are the ones to answer in depth; that's the HN audience.
 - If someone names a specific other tool, respond on capabilities/behaviour, not
   brand — keep your side neutral.
-- Fill in the `[Flathub / AUR / AppImage]` bracket with whatever is actually
-  live at post time.
+- Confirm the Flatpak one-click link and the fallback downloads are live before
+  posting.

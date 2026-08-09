@@ -7,6 +7,7 @@ import 'content_writer.dart';
 import 'document.dart';
 import 'measure.dart';
 import 'rect.dart';
+import 'stamp_template.dart';
 import 'takeoff.dart';
 
 part 'annotation_behavior.dart';
@@ -190,6 +191,30 @@ class PdfAnnotation {
       return null;
     }
     return crop;
+  }
+
+  /// The editable vector template a custom stamp was placed from, when the
+  /// editor recorded one ([PdfAnnotationEditing.addTemplateStamp]).
+  ///
+  /// The design is stored **unresolved**: `{{date}}`-style placeholders stay
+  /// as written, so a placed stamp can be put back into a stamp collection
+  /// and keep filling its fields in on future placements. The visible caption
+  /// - with those fields already resolved - is [contents]; the appearance
+  /// stream, not this template, is what viewers draw.
+  ///
+  /// Null when the stamp carries no template metadata: a legacy text stamp,
+  /// an image stamp, a stamp from another producer, or one whose template
+  /// was too large to record (see
+  /// [PdfAnnotationEditing.maxStampTemplateMetadataBytes]).
+  PdfStampTemplate? get stampTemplate {
+    if (subtype != 'Stamp') return null;
+    final value = document.cos.resolve(dict['DartPdfStampTemplate']);
+    if (value is! CosString) return null;
+    try {
+      return PdfStampTemplate.fromJson(jsonDecode(value.text));
+    } catch (_) {
+      return null;
+    }
   }
 
   /// App-defined labels attached to a custom stamp annotation.
@@ -379,7 +404,11 @@ class PdfAnnotation {
   bool get isCallout {
     if (subtype != 'FreeText') return false;
     final it = document.cos.resolve(dict['IT']);
-    return it is CosName && it.value == 'FreeTextCallout';
+    if (it is CosName && it.value == 'FreeTextCallout') return true;
+    // Some third-party editors omit /IT or use a private intent name. /CL is
+    // the actual callout geometry and is the more useful interop signal.
+    final cl = document.cos.resolve(dict['CL']);
+    return cl is CosArray && cl.items.length >= 4;
   }
 
   /// The callout leader-line points (/CL, §12.5.6.19) in page space - the
@@ -411,8 +440,11 @@ class PdfAnnotation {
     }
 
     final r = rect;
-    return PdfRect(
-        r.left + d(0), r.bottom + d(3), r.right - d(2), r.top - d(1));
+    final left = (r.left + math.max(0, d(0))).clamp(r.left, r.right);
+    final right = (r.right - math.max(0, d(2))).clamp(left, r.right);
+    final bottom = (r.bottom + math.max(0, d(3))).clamp(r.bottom, r.top);
+    final top = (r.top - math.max(0, d(1))).clamp(bottom, r.top);
+    return PdfRect(left, bottom, right, top);
   }
 
   /// The /Measure dictionary (§12.9): the scale and unit formats a

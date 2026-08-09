@@ -848,6 +848,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Remove node'**
   String get menuRemoveNode;
 
+  /// Annotation context-menu item that saves the selected stamp annotation into the user's reusable stamp collection.
+  ///
+  /// In en, this message translates to:
+  /// **'Save to stamps'**
+  String get menuSaveToStamps;
+
   /// Annotation context-menu item that captures the selected annotation's appearance as the default for new annotations of the same kind.
   ///
   /// In en, this message translates to:
@@ -1117,6 +1123,12 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Contents'**
   String get propContents;
+
+  /// Slider label for the corner rounding of a selected rectangle annotation.
+  ///
+  /// In en, this message translates to:
+  /// **'Corner radius'**
+  String get propCornerRadius;
 
   /// Subtitle explaining that edits in a multi-selection affect every compatible annotation.
   ///
@@ -1922,6 +1934,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Show annotations'**
   String get shellShowAnnotations;
 
+  /// Toggle label controlling whether PDF outline chapters appear as markers on the scrollbar.
+  ///
+  /// In en, this message translates to:
+  /// **'Show chapters on scrollbar'**
+  String get shellShowScrollbarChapters;
+
   /// Drop hint shown when dragging a docked panel over another panel to combine them into a tabbed group.
   ///
   /// In en, this message translates to:
@@ -2323,6 +2341,12 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'New stamp'**
   String get stampNewStampTitle;
+
+  /// Snackbar shown after a stamp on the page was saved into the user's stamp collection.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved to stamps'**
+  String get stampSavedToCollection;
 
   /// Placeholder label shown on the stamp text input when no text component is selected.
   ///

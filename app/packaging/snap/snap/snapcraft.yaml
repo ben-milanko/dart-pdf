@@ -1,0 +1,51 @@
+name: dartpdf
+adopt-info: dartpdf
+base: core24
+grade: stable
+confinement: strict
+compression: lzo
+assumes: [snapd2.55]
+contact: https://github.com/ben-milanko/dart-pdf/issues
+
+platforms:
+  amd64:
+
+# ONNX Runtime is opened by Dart FFI and the desktop bundle carries its
+# platform-generated JNI companion; neither relationship is visible to the
+# ELF dependency scanner.
+lint:
+  ignore:
+    - library:
+        - lib/libdartjni.so
+        - lib/libonnxruntime.so.1.15.1
+
+apps:
+  dartpdf:
+    command: dart_pdf_editor_app
+    common-id: dev.milanko.dartpdf
+    extensions: [gnome]
+    plugs:
+      - home
+      - network
+      - removable-media
+      - password-manager-service
+      - cups
+
+# Ask snapd to install the CUPS proxy on systems that do not already provide a
+# compatible print service. The app only needs the non-administrative `cups`
+# interface above; it never requests `cups-control`.
+plugs:
+  dartpdf-install-cups:
+    interface: content
+    content: dartpdf-cups
+    default-provider: cups
+    target: $SNAP_DATA/cups
+
+parts:
+  dartpdf:
+    plugin: dump
+    source: https://github.com/ben-milanko/dart-pdf/releases/download/app-v3.3.1/dartpdf-linux-x64.tar.gz
+    source-type: tar
+    source-checksum: sha256/9a3205a638af561d10adcff802aa6431e8ce5f35e187d2aeb243fcb6c46648c4
+    parse-info:
+      - share/metainfo/dev.milanko.dartpdf.metainfo.xml

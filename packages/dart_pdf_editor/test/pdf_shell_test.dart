@@ -76,6 +76,25 @@ void main() {
       expect(find.byType(PdfViewer), findsOneWidget);
     });
 
+    testWidgets('forwards the visited-page raster cache policy',
+        (tester) async {
+      final viewer = PdfViewerController();
+      addTearDown(viewer.dispose);
+      const policy = PdfPageRasterCachePolicy(
+        maxBytes: 2 * 1024 * 1024 * 1024,
+        maxEntryBytes: 64 * 1024 * 1024,
+      );
+      await pump(
+        tester,
+        PdfReader(
+          bytes: buildMultiPagePdf(2),
+          controller: viewer,
+          pageRasterCachePolicy: policy,
+        ),
+      );
+      expect(viewer.pagePreviewCache!.maxFullRasterBytes, policy.maxBytes);
+    });
+
     testWidgets('zoom menu changes and resets viewer zoom', (tester) async {
       final viewer = PdfViewerController();
       addTearDown(viewer.dispose);
@@ -206,7 +225,7 @@ void main() {
       expect(viewer.pageCount, 3);
     });
 
-    testWidgets('view options menu toggles annotation visibility',
+    testWidgets('view options menu toggles persisted display settings',
         (tester) async {
       final prefs = PdfEditingPreferences();
       addTearDown(prefs.dispose);
@@ -220,6 +239,21 @@ void main() {
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
       expect(prefs.showAnnotations, isFalse);
+
+      expect(prefs.showScrollbarChapters, isFalse);
+      await tester.tap(find.byKey(const ValueKey('pdf-shell-view-options')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      await tester.tap(
+          find.byKey(const ValueKey('pdf-shell-show-scrollbar-chapters')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      expect(prefs.showScrollbarChapters, isTrue);
+      expect(
+          tester
+              .widget<PdfViewer>(find.byType(PdfViewer))
+              .showScrollbarChapters,
+          isTrue);
     });
 
     testWidgets('view options can switch to reflow text', (tester) async {
@@ -298,6 +332,25 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-shell-author')), findsOneWidget);
       expect(
           find.byKey(const ValueKey('pdf-shell-reflow-view')), findsOneWidget);
+    });
+
+    testWidgets('forwards the visited-page raster cache policy',
+        (tester) async {
+      final viewer = PdfViewerController();
+      addTearDown(viewer.dispose);
+      const policy = PdfPageRasterCachePolicy(
+        maxBytes: 2 * 1024 * 1024 * 1024,
+        maxEntryBytes: 64 * 1024 * 1024,
+      );
+      await pump(
+        tester,
+        PdfEditorView(
+          bytes: buildMultiPagePdf(2),
+          viewerController: viewer,
+          pageRasterCachePolicy: policy,
+        ),
+      );
+      expect(viewer.pagePreviewCache!.maxFullRasterBytes, policy.maxBytes);
     });
 
     testWidgets('customStamps are supplied to the owned editor session',
@@ -437,7 +490,8 @@ void main() {
               find.byKey(const ValueKey('pdf-shell-shortcut-group-shapes')))
           .dy;
       final rectY = tester
-          .getTopLeft(find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')))
+          .getTopLeft(
+              find.byKey(const ValueKey('pdf-shell-shortcut-rectangle')))
           .dy;
       expect(headerY, lessThan(rectY));
 
@@ -1285,6 +1339,8 @@ void main() {
       await tester.pumpAndSettle();
       // current page is 0, so the 3 pages land at index 1
       expect(editing.document.pageCount, 5);
+      expect(viewer.currentPage, 1,
+          reason: 'the view follows the first inserted page');
     });
 
     testWidgets('Export pages… hands the host the chosen range',
@@ -1735,6 +1791,8 @@ void main() {
       final viewerBottom = tester.getRect(find.byType(PdfViewer)).bottom;
       final toolbarTop = tester.getRect(toolbar).top;
       expect(toolbarTop, greaterThanOrEqualTo(viewerBottom - 0.5));
+      expect(
+          tester.widget<PdfViewer>(find.byType(PdfViewer)).trailingPadding, 0);
     });
 
     testWidgets('wide: the editing toolbar floats over the viewer',
@@ -1749,6 +1807,9 @@ void main() {
       final toolbarTop = tester.getRect(toolbar).top;
       expect(toolbarTop, lessThan(viewerBottom),
           reason: 'the floating toolbar overlaps the viewer');
+      expect(
+          tester.widget<PdfViewer>(find.byType(PdfViewer)).trailingPadding, 144,
+          reason: 'the document must scroll clear of the floating toolbar');
     });
   });
 
@@ -1775,7 +1836,8 @@ void main() {
       }
     });
 
-    testWidgets('the overflow scroller never drag-scrolls, so its controls '
+    testWidgets(
+        'the overflow scroller never drag-scrolls, so its controls '
         'stay tappable (macOS trackpad)', (tester) async {
       await pump(
           tester, PdfEditorView(bytes: buildMultiPagePdf(2), onSave: (_) {}));

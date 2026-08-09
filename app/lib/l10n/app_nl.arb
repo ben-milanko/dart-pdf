@@ -207,6 +207,8 @@
   "settingsUpdateAvailable": "Versie {version} is beschikbaar (u heeft {currentVersion}).",
   "settingsUpdateFailed": "Kan niet op updates controleren. Probeer het later opnieuw.",
   "settingsUpdateIdle": "U heeft {name} {version}.",
+  "settingsNightlyUpdates": "Nachtelijke updates",
+  "settingsNightlyUpdatesSubtitle": "Ontvang automatische updatemeldingen voor niet-ondertekende Windows-testbuilds van main.",
   "settingsUpdates": "Updates",
   "settingsViewSource": "Broncode bekijken op GitHub",
   "undo": "Ongedaan maken",

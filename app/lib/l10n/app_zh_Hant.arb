@@ -207,6 +207,8 @@
   "settingsUpdateAvailable": "版本 {version} 已可使用（您目前為 {currentVersion}）。",
   "settingsUpdateFailed": "無法檢查更新。請稍後再試。",
   "settingsUpdateIdle": "您使用的是 {name} {version}。",
+  "settingsNightlyUpdates": "Nightly 更新",
+  "settingsNightlyUpdatesSubtitle": "自動接收來自 main 的未簽署 Windows 測試版本更新通知。",
   "settingsUpdates": "更新",
   "settingsViewSource": "在 GitHub 上檢視原始碼",
   "undo": "復原",

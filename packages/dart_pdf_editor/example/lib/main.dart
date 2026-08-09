@@ -37,6 +37,12 @@ const _sampleRemotePdfUrl =
     'https://raw.githubusercontent.com/mozilla/pdf.js/master/web/'
     'compressed.tracemonkey-pldi-09.pdf';
 
+/// Custom actions for the host-takeover demo menu shown in the app when
+/// the user has disabled the stock context menu. The host owns the strings
+/// and labels, so a different action set per annotation type fits here
+/// naturally.
+enum _DemoAnnotAction { copy, highlight, sendTo }
+
 /// Test seam: builds the byte source a remote open reads from. Defaults to a
 /// real [PdfHttpByteSource]; tests swap in an in-memory source so no network
 /// is touched. See `test/remote_open_test.dart`.
@@ -220,8 +226,19 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// namespaces keep their byte budgets independent.
   late final PdfCacheStore _cacheStore =
       widget.cacheStore ?? createPersistentCacheStore();
+  /// `fullRasters` opts the demo into the persistent exact-raster tier: an
+  /// already-rendered page at the same physical size reopens straight from
+  /// the store instead of being interpreted and rasterized again. It is a
+  /// separate [PdfDiskCache] on purpose - a page raster is orders of
+  /// magnitude larger than a preview, so a shared budget would let a few of
+  /// them evict the whole preview/thumbnail set.
   late final PdfRasterCache _rasterCache = PdfRasterCache(
     PdfDiskCache(_cacheStore, namespace: 'previews'),
+    fullRasters: PdfDiskCache(
+      _cacheStore,
+      namespace: 'page-rasters',
+      maxBytes: 256 * 1024 * 1024,
+    ),
   );
   late final PdfPageTextCache _textCache = PdfPageTextCache(
     PdfDiskCache(_cacheStore, namespace: 'text'),
@@ -244,6 +261,160 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// Demo of the two drop-in widgets: the toggle swaps the full
   /// [PdfEditorView] for the view-only [PdfReader]. App-wide.
   bool _readOnly = false;
+
+  /// Demo of [PdfViewer.contextMenuEnabled]: when off, right-click and
+  /// long-press annotation menus are suppressed. App-wide.
+  bool _contextMenuEnabled = true;
+
+  /// Demo of [PdfViewer.onContextMenuRequested]: when the stock menu is
+  /// off, this handler renders the demo app's own menu (a custom Copy row,
+  /// Highlight and Add-note actions that write real annotations, plus a
+  /// "Send to…" action) using the gesture position the viewer passes in.
+  /// The viewer has already resolved what the gesture landed on, so the
+  /// menu can label itself from [PdfContextMenuRequest.target] without
+  /// re-running a hit test. App-wide.
+  Future<void> _onContextMenuRequested(PdfContextMenuRequest request) async {
+    if (!mounted) return;
+    final overlay =
+        Overlay.of(context, rootOverlay: true).context.findRenderObject()
+            as RenderBox?;
+    if (overlay == null) return;
+    // showMenu anchors at the tap point in the root overlay's coordinate
+    // space; flip the global position to local with the root overlay's box.
+    final local = overlay.globalToLocal(request.globalPosition);
+    final tab = _active;
+    final editing = tab?.session;
+    final pageIndex = request.pageIndex;
+    // the viewer already named the annotation - no hit test needed here
+    final annotation = request.annotation;
+    final picked = await showMenu<_DemoAnnotAction>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        local.dx,
+        local.dy,
+        overlay.size.width - local.dx,
+        overlay.size.height - local.dy,
+      ),
+      items: [
+        PopupMenuItem<_DemoAnnotAction>(
+          value: _DemoAnnotAction.copy,
+          child: ListTile(
+            leading: const Icon(Icons.copy),
+            // the request already carries the selection the viewer made
+            title: Text(request.selectedText.isEmpty
+                ? 'Copy (custom)'
+                : 'Copy "${request.selectedText}" (custom)'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        const PopupMenuItem<_DemoAnnotAction>(
+          value: _DemoAnnotAction.highlight,
+          child: ListTile(
+            leading: Icon(Icons.brush_outlined),
+            title: Text('Highlight (custom)'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        PopupMenuItem<_DemoAnnotAction>(
+          value: _DemoAnnotAction.sendTo,
+          child: ListTile(
+            leading: const Icon(Icons.send),
+            // branch on what the viewer resolved, not on a re-run hit test
+            title: Text(switch (request.target) {
+              PdfContextMenuTarget.annotation =>
+                'Send ${annotation?.subtype ?? "annotation"}…',
+              PdfContextMenuTarget.lockedAnnotation => 'Send (locked)…',
+              PdfContextMenuTarget.formWidget => 'Send form field…',
+              PdfContextMenuTarget.emptyPage ||
+              PdfContextMenuTarget.text =>
+                'Send to…',
+            }),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+      ],
+    );
+
+    if (picked == null || !mounted) return;
+
+    switch (picked) {
+      case _DemoAnnotAction.copy:
+        _toast(request.selectedText);
+      case _DemoAnnotAction.highlight:
+        final viewer = tab?.viewer;
+        if (editing == null || viewer == null || !viewer.hasSelection) {
+          _toast('Select some text first');
+          return;
+        }
+        final quadsByPage = {
+          for (final page in viewer.selectionPages)
+            page: viewer.selectionRectsOn(page),
+        };
+
+        final noteText = await showDialog<String>(
+          context: context,
+          builder: (ctx) {
+            final field = TextEditingController();
+            return AlertDialog(
+              title: const Text('Highlight note'),
+              content: TextField(
+                controller: field,
+                autofocus: true,
+                maxLines: 3,
+                minLines: 1,
+                decoration:
+                    const InputDecoration(hintText: 'Note text (optional)'),
+                onSubmitted: (value) => Navigator.pop(ctx, value),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, field.text),
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+        if (!mounted) return;
+
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          try {
+            editing.useMarkupStyleScope();
+            editing.addMarkup(PdfMarkupKind.highlight, quadsByPage);
+            if (noteText != null && noteText.isNotEmpty) {
+              final firstPage = quadsByPage.keys.first;
+              final page = editing.document.page(firstPage);
+              final highlight = page.annotations.lastWhere(
+                (a) => a.subtype == 'Highlight',
+                orElse: () => throw StateError(
+                  'highlight annotation not found on page $firstPage',
+                ),
+              );
+              editing.apply(
+                (e) => e.setAnnotationContents(firstPage, highlight, noteText),
+              );
+            }
+          } catch (e, s) {
+            AppLog.instance.error(
+              'Could not save highlight',
+              error: e,
+              stackTrace: s,
+            );
+          }
+        });
+      case _DemoAnnotAction.sendTo:
+        _toast('Send page ${pageIndex + 1}'
+            '${annotation != null ? " (${annotation.subtype})" : ""}');
+    }
+  }
 
   /// Demo of [PdfViewer.pageLayout]: the toggle flips the viewer between the
   /// default vertical continuous layout and horizontal continuous
@@ -471,6 +642,17 @@ class _ViewerScreenState extends State<ViewerScreen> {
             title: _readOnly
                 ? appL10n(context).exSwitchToEdit
                 : appL10n(context).exSwitchToReadOnly,
+          ),
+        ),
+        PopupMenuItem(
+          value: () => setState(
+              () => _contextMenuEnabled = !_contextMenuEnabled),
+          enabled: tab?.session != null,
+          child: _appMenuTile(
+            icon: _contextMenuEnabled ? Icons.touch_app : Icons.do_not_touch,
+            title: _contextMenuEnabled
+                ? 'Disable context menu'
+                : 'Enable context menu',
           ),
         ),
         PopupMenuItem(
@@ -1442,6 +1624,11 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                 rasterCache: _rasterCache,
                                 textCache: _textCache,
                                 pageLayout: _pageLayout,
+                                contextMenuEnabled: _contextMenuEnabled,
+                                onContextMenuRequested:
+                                    _contextMenuEnabled
+                                        ? null
+                                        : _onContextMenuRequested,
                                 onAction: _onAction,
                                 pageOverlayBuilder:
                                     tab.isDemo ? _demoOverlays : null,
@@ -1463,6 +1650,10 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                 pageOverlayBuilder:
                                     tab.isDemo ? _demoOverlays : null,
                                 annotationMenuBuilder: _annotationMenuActions,
+                                contextMenuEnabled: _contextMenuEnabled,
+                                onContextMenuRequested: _contextMenuEnabled
+                                    ? null
+                                    : _onContextMenuRequested,
                                 formImagePicker: _pickFormImage,
                                 imagePicker: _pickImage,
                                 fontPicker: _pickFont,

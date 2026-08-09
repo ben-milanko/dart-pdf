@@ -207,6 +207,8 @@
   "settingsUpdateAvailable": "版本 {version} 已可用（您当前为 {currentVersion}）。",
   "settingsUpdateFailed": "无法检查更新。请稍后再试。",
   "settingsUpdateIdle": "您当前使用 {name} {version}。",
+  "settingsNightlyUpdates": "夜间更新",
+  "settingsNightlyUpdatesSubtitle": "自动接收来自 main 的未签名 Windows 测试版本更新通知。",
   "settingsUpdates": "更新",
   "settingsViewSource": "在 GitHub 上查看源代码",
   "undo": "撤销",

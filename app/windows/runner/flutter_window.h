@@ -51,6 +51,10 @@ class FlutterWindow : public Win32Window {
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       incoming_channel_;
 
+  // Reports physical/available memory to the adaptive PDF cache policy.
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      memory_channel_;
+
   // Channel that copies Snapshot rasters to / reads images from the Win32
   // clipboard (`copyPng` / `readImage`). Created once the engine exists.
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>

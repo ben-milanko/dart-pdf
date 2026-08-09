@@ -207,6 +207,8 @@
   "settingsUpdateAvailable": "Dostępna jest wersja {version} (masz {currentVersion}).",
   "settingsUpdateFailed": "Nie udało się sprawdzić aktualizacji. Spróbuj ponownie później.",
   "settingsUpdateIdle": "Masz {name} {version}.",
+  "settingsNightlyUpdates": "Aktualizacje nocne",
+  "settingsNightlyUpdatesSubtitle": "Otrzymuj automatyczne powiadomienia o niepodpisanych testowych kompilacjach Windows z gałęzi main.",
   "settingsUpdates": "Aktualizacje",
   "settingsViewSource": "Zobacz kod źródłowy na GitHub",
   "undo": "Cofnij",

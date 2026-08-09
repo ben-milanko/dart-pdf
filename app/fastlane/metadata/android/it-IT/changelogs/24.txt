@@ -1,0 +1,5 @@
+Novità nella versione 3.3.0
+
+• Le pagine già visitate si aprono subito, con preparazione in background opzionale e cache persistente a piena risoluzione.
+• Zoom profondo più nitido nei PDF acquisiti o basati su immagini.
+• Panoramica touch migliorata, controllo del raggio degli angoli e navigazione più fluida tra le pagine inserite.

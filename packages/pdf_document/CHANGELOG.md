@@ -1,5 +1,26 @@
 # Changelog
 
+## 3.3.1
+
+- Fix annotation property edits duplicating the annotation when a page stores
+  its `/Annots` array indirectly (#638).
+- Preserve embedded font resources when changing FreeText colour, so restyled
+  text continues to use the original embedded typeface (#641).
+
+## 3.3.0
+
+- Add lightweight diagnostics to `PdfDiskCache` for hits, misses, writes,
+  oversize rejections, evictions, and byte totals, with `resetStats()` and a
+  one-line `debugStats` summary. Manifest writes are coalesced across bursts so
+  persistent page-raster caches do not rewrite an O(n) manifest for every
+  entry (#615).
+
+## 3.2.0
+
+- Improve FreeText callout interoperability: recognize third-party callouts
+  from their `/CL` geometry when `/IT` is missing or private, and clamp
+  malformed or negative `/RD` insets to a usable callout text box (#621).
+
 ## 3.1.1
 
 - Lockstep patch release to align the dart-pdf package suite at 3.1.1. No

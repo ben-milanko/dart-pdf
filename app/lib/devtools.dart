@@ -31,6 +31,10 @@ import 'devtools_memory_stub.dart'
 const bool kDevToolsEnabled =
     bool.fromEnvironment('DEVTOOLS', defaultValue: true);
 
+/// Test seam for app-owned services that would otherwise leave periodic
+/// timers behind under `flutter test`.
+bool get runningUnderFlutterTest => memory.inFlutterTest();
+
 /// One captured log line.
 class DevLogEntry {
   DevLogEntry(this.time, this.level, this.message);
@@ -41,6 +45,10 @@ class DevLogEntry {
 }
 
 enum DevLogLevel { info, error }
+
+/// Whether the visited-page raster cache follows machine headroom or a fixed
+/// diagnostic override chosen in Developer tools.
+enum PageRasterCacheMode { auto, fixed }
 
 /// Per-pointer accumulator for touch-input logging: the net displacement,
 /// total path length, and move count between a pointer's down and up.
@@ -104,6 +112,38 @@ class AppDevTools extends ChangeNotifier {
 
   /// Mirrored into [MaterialApp.showPerformanceOverlay] by the app root.
   final ValueNotifier<bool> showPerformanceOverlay = ValueNotifier(false);
+
+  /// Full-resolution rasters retained after their page widgets leave the
+  /// viewport. The editor listens to this separately from [AppDevTools]
+  /// itself: log traffic notifies the panel frequently and must not rebuild
+  /// the mounted document, while a policy change should apply immediately.
+  final ValueNotifier<PdfPageRasterCachePolicy> pageRasterCachePolicy =
+      ValueNotifier(const PdfPageRasterCachePolicy());
+
+  /// Whether idle viewer time is spent baking exact page rasters ahead of
+  /// navigation (#614). Off by default; the panel's presets turn it on. Kept
+  /// as its own notifier for the same reason as [pageRasterCachePolicy] - a
+  /// policy change must reach the mounted document without waiting for the
+  /// log-traffic rebuild.
+  final ValueNotifier<PdfPageRasterWarmPolicy> pageRasterWarmPolicy =
+      ValueNotifier(const PdfPageRasterWarmPolicy.disabled());
+
+  PageRasterCacheMode _pageRasterCacheMode = PageRasterCacheMode.auto;
+  PdfPageRasterCachePolicy _fixedPageRasterCachePolicy =
+      const PdfPageRasterCachePolicy();
+  PdfPageRasterCachePolicy _lastAutoPageRasterCachePolicy =
+      const PdfPageRasterCachePolicy();
+  String _lastAutoPageRasterCacheReason = 'Waiting for a memory sample';
+  String _pageRasterCacheReason = 'Waiting for a memory sample';
+  int? _safeProcessLimitBytes;
+
+  PageRasterCacheMode get pageRasterCacheMode => _pageRasterCacheMode;
+  bool get pageRasterCacheAuto =>
+      _pageRasterCacheMode == PageRasterCacheMode.auto;
+  PdfPageRasterCachePolicy get fixedPageRasterCachePolicy =>
+      _fixedPageRasterCachePolicy;
+  String get pageRasterCacheReason => _pageRasterCacheReason;
+  int? get safeProcessLimitBytes => _safeProcessLimitBytes;
 
   /// Forces the whole app onto a locale for testing, bypassing the normal
   /// [MaterialApp] resolution against `supportedLocales`. `null` follows the
@@ -194,7 +234,8 @@ class AppDevTools extends ChangeNotifier {
       return;
     }
     if (event is PointerDownEvent) {
-      _touchTracks[event.pointer] = _TouchTrack(event.position, event.timeStamp);
+      _touchTracks[event.pointer] =
+          _TouchTrack(event.position, event.timeStamp);
       addLog('touch: DOWN id=${event.pointer} ${event.kind.name} '
           '@${_fmt(event.position)} contacts=${_touchTracks.length}');
     } else if (event is PointerMoveEvent) {
@@ -295,8 +336,9 @@ class AppDevTools extends ChangeNotifier {
       if (b + r > worstUs) worstUs = b + r;
       if (b + r > 16700) jank++;
     }
-    final spanUs = _timings.last.timestampInMicroseconds(FramePhase.rasterFinish) -
-        _timings.first.timestampInMicroseconds(FramePhase.buildStart);
+    final spanUs =
+        _timings.last.timestampInMicroseconds(FramePhase.rasterFinish) -
+            _timings.first.timestampInMicroseconds(FramePhase.buildStart);
     return DevFrameStats(
       frames: _timings.length,
       fps: spanUs <= 0 ? 0 : (_timings.length - 1) * 1e6 / spanUs,
@@ -350,6 +392,84 @@ class AppDevTools extends ChangeNotifier {
     addLog('devtools: deep-zoom detail → $mode');
   }
 
+  /// Applies a fixed visited-page raster cache policy to every mounted viewer.
+  ///
+  /// This is the explicit diagnostic override. [useAutoPageRasterCache]
+  /// returns control to the machine-headroom policy.
+  void setPageRasterCachePolicy(PdfPageRasterCachePolicy policy) {
+    final unchanged = _pageRasterCacheMode == PageRasterCacheMode.fixed &&
+        _fixedPageRasterCachePolicy == policy;
+    _pageRasterCacheMode = PageRasterCacheMode.fixed;
+    _fixedPageRasterCachePolicy = policy;
+    _pageRasterCacheReason = 'Fixed Developer tools override';
+    pageRasterCachePolicy.value = policy;
+    PdfPerfLog.log(
+      'page-raster mode=fixed total=${policy.maxBytes} '
+      'entry=${policy.maxEntryBytes} '
+      'ceiling=${PdfCacheRegistry.instance.maxTotalWeight}'
+      '${PdfPerfLog.rssSuffix()}',
+    );
+    if (unchanged) return;
+    addLog('devtools: visited-page rasters → '
+        '${policy.maxBytes >> 20}MB total, '
+        '${policy.maxEntryBytes >> 20}MB/page');
+  }
+
+  /// Applies an idle full-raster warm policy to every mounted viewer.
+  void setPageRasterWarmPolicy(PdfPageRasterWarmPolicy policy) {
+    if (pageRasterWarmPolicy.value == policy) return;
+    pageRasterWarmPolicy.value = policy;
+    PdfPerfLog.log('raster-warm policy mode=${policy.mode.name} '
+        'window=${policy.window} idleMs=${policy.idleDelay.inMilliseconds}');
+    addLog('devtools: idle raster warm \u2192 ${policy.mode.name}'
+        '${policy.mode == PdfPageRasterWarmMode.nearby ? ' (\u00b1${policy.window})' : ''}');
+  }
+
+  /// Returns the visited-page raster cache to adaptive machine-headroom mode.
+  void useAutoPageRasterCache() {
+    if (pageRasterCacheAuto) return;
+    _pageRasterCacheMode = PageRasterCacheMode.auto;
+    pageRasterCachePolicy.value = _lastAutoPageRasterCachePolicy;
+    _pageRasterCacheReason = _lastAutoPageRasterCacheReason;
+    PdfPerfLog.log(
+      'page-raster mode=auto '
+      'total=${_lastAutoPageRasterCachePolicy.maxBytes} '
+      'entry=${_lastAutoPageRasterCachePolicy.maxEntryBytes} '
+      'processTarget=${_safeProcessLimitBytes ?? 0} '
+      'ceiling=${PdfCacheRegistry.instance.maxTotalWeight}'
+      '${PdfPerfLog.rssSuffix()}',
+    );
+    addLog('devtools: visited-page rasters → Auto');
+  }
+
+  /// Receives one effective policy from the adaptive memory controller.
+  void updateAutoPageRasterCache(
+    PdfPageRasterCachePolicy policy, {
+    required String reason,
+    int? safeProcessLimitBytes,
+  }) {
+    _safeProcessLimitBytes = safeProcessLimitBytes;
+    _lastAutoPageRasterCachePolicy = policy;
+    _lastAutoPageRasterCacheReason = reason;
+    if (!pageRasterCacheAuto) return;
+    final changed = pageRasterCachePolicy.value != policy;
+    pageRasterCachePolicy.value = policy;
+    _pageRasterCacheReason = reason;
+    if (changed) {
+      addLog('memory-auto: visited rasters ${policy.maxBytes >> 20}MB, '
+          '${policy.maxEntryBytes >> 20}MB/page ($reason)');
+      PdfPerfLog.log(
+        'page-raster mode=auto total=${policy.maxBytes} '
+        'entry=${policy.maxEntryBytes} '
+        'processTarget=${safeProcessLimitBytes ?? 0} '
+        'ceiling=${PdfCacheRegistry.instance.maxTotalWeight} '
+        'reason=$reason${PdfPerfLog.rssSuffix()}',
+      );
+    } else {
+      _scheduleNotify();
+    }
+  }
+
   // --- option persistence ---------------------------------------------------
 
   static const _optionsKey = 'devtools.options';
@@ -360,7 +480,8 @@ class AppDevTools extends ChangeNotifier {
   /// until its next respawn.
   Future<void> restoreOptions() async {
     try {
-      final raw = (await SharedPreferences.getInstance()).getString(_optionsKey);
+      final raw =
+          (await SharedPreferences.getInstance()).getString(_optionsKey);
       if (raw == null) return;
       final map = jsonDecode(raw);
       if (map is! Map) return;
@@ -381,6 +502,39 @@ class AppDevTools extends ChangeNotifier {
       if (map['workers'] case final int v) {
         pdfRenderWorkerPoolSize = v.clamp(1, 8);
       }
+      final currentRasterPolicy = _fixedPageRasterCachePolicy;
+      final rasterBytes = switch (map['pageRasterCacheBytes']) {
+        final int v when v >= 0 => v,
+        _ => currentRasterPolicy.maxBytes,
+      };
+      final rasterEntryBytes = switch (map['pageRasterCacheEntryBytes']) {
+        final int v when v >= 0 => v,
+        _ => currentRasterPolicy.maxEntryBytes,
+      };
+      final fixedPolicy = PdfPageRasterCachePolicy(
+        maxBytes: rasterBytes,
+        maxEntryBytes: rasterEntryBytes,
+      );
+      _fixedPageRasterCachePolicy = fixedPolicy;
+      if (map['pageRasterWarmMode'] case final String mode) {
+        final window = switch (map['pageRasterWarmWindow']) {
+          final int v when v > 0 => v,
+          _ => 3,
+        };
+        setPageRasterWarmPolicy(switch (mode) {
+          'nearby' => PdfPageRasterWarmPolicy.nearby(window: window),
+          'document' => const PdfPageRasterWarmPolicy.document(),
+          _ => const PdfPageRasterWarmPolicy.disabled(),
+        });
+      }
+      if (map['pageRasterCacheMode'] == PageRasterCacheMode.auto.name) {
+        useAutoPageRasterCache();
+      } else if (map['pageRasterCacheMode'] ==
+              PageRasterCacheMode.fixed.name ||
+          map.containsKey('pageRasterCacheBytes') ||
+          map.containsKey('pageRasterCacheEntryBytes')) {
+        setPageRasterCachePolicy(fixedPolicy);
+      }
       _scheduleNotify();
     } catch (e) {
       addLog('devtools options restore failed: $e', level: DevLogLevel.error);
@@ -400,6 +554,12 @@ class AppDevTools extends ChangeNotifier {
           'perfLog': _logPerfTrace,
           'logTouchInput': _logTouchInput,
           'workers': pdfRenderWorkerPoolSize,
+          'pageRasterCacheMode': _pageRasterCacheMode.name,
+          'pageRasterCacheBytes': _fixedPageRasterCachePolicy.maxBytes,
+          'pageRasterCacheEntryBytes':
+              _fixedPageRasterCachePolicy.maxEntryBytes,
+          'pageRasterWarmMode': pageRasterWarmPolicy.value.mode.name,
+          'pageRasterWarmWindow': pageRasterWarmPolicy.value.window,
         }),
       );
     } catch (e) {

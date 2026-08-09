@@ -1,0 +1,148 @@
+name: Publish Snap Store
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Published app version (X.Y.Z); empty uses latest'
+        required: false
+
+concurrency:
+  group: snap-store
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  SNAP_NAME: dartpdf
+  SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'app-v')
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Resolve published release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$RELEASE_TAG" ]]; then
+            tag="$RELEASE_TAG"
+          elif [[ -n "$REQUESTED_VERSION" ]]; then
+            tag="app-v$REQUESTED_VERSION"
+          else
+            tag="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)"
+          fi
+          [[ "$tag" =~ ^app-v([0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?)$ ]] || {
+            echo "Not a stable DartPDF app release: $tag" >&2
+            exit 1
+          }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#app-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download and verify Linux release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/snap-input"
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern dartpdf-linux-x64.tar.gz \
+            --dir "$RUNNER_TEMP/snap-input"
+          expected="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
+            --jq '.assets[] | select(.name == "dartpdf-linux-x64.tar.gz") | .digest')"
+          actual="sha256:$(sha256sum "$RUNNER_TEMP/snap-input/dartpdf-linux-x64.tar.gz" | cut -d' ' -f1)"
+          [[ -n "$expected" && "$actual" == "$expected" ]] || {
+            echo "Release asset digest mismatch: expected=$expected actual=$actual" >&2
+            exit 1
+          }
+
+      - name: Install Snapcraft and test tools
+        run: |
+          sudo snap install snapcraft --classic
+          sudo apt-get update
+          sudo apt-get install -y dbus-x11 xvfb
+
+      - name: Build and lint snap
+        run: |
+          app/packaging/snap/build-release-snap.sh \
+            --archive "$RUNNER_TEMP/snap-input/dartpdf-linux-x64.tar.gz" \
+            --output "$RUNNER_TEMP/snap-output"
+
+      - name: Install and smoke-test snap
+        run: |
+          set -euo pipefail
+          snap_file="$(find "$RUNNER_TEMP/snap-output" -name 'dartpdf_*.snap' -print -quit)"
+          sudo snap install --dangerous "$snap_file"
+          snap info "$SNAP_NAME"
+          set +e
+          # GitHub hosts the runner inside a non-interactive system service,
+          # so its user has no PAM-created session cgroup for snap-confine.
+          # Root still runs through the snap's strict AppArmor/seccomp/mount
+          # sandbox and avoids that runner-only cgroup limitation.
+          sudo install -d -m 700 /run/user/0 /root/snap/dartpdf/common
+          sudo env XDG_RUNTIME_DIR=/run/user/0 \
+            timeout 12s dbus-run-session -- \
+            xvfb-run -a -f /root/snap/dartpdf/common/.Xauthority \
+            snap run "$SNAP_NAME" \
+            >"$RUNNER_TEMP/dartpdf-snap-smoke.log" 2>&1
+          task_status=$?
+          set -e
+          if [[ "$task_status" -ne 124 ]]; then
+            cat "$RUNNER_TEMP/dartpdf-snap-smoke.log"
+            echo "Snap exited before the smoke-test window (status $task_status)" >&2
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dartpdf-snap-${{ steps.release.outputs.version }}
+          path: ${{ runner.temp }}/snap-output/dartpdf_*.snap
+          retention-days: 30
+
+      - name: Publish stable channel
+        if: env.SNAPCRAFT_STORE_CREDENTIALS != ''
+        run: |
+          snap_file="$(find "$RUNNER_TEMP/snap-output" -name 'dartpdf_*.snap' -print -quit)"
+          snapcraft whoami
+          snapcraft upload --release=stable "$snap_file"
+
+      - name: Verify clean install from Snap Store
+        if: env.SNAPCRAFT_STORE_CREDENTIALS != ''
+        env:
+          EXPECTED_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          sudo snap remove "$SNAP_NAME"
+          sudo snap install "$SNAP_NAME"
+          [[ "$(snap info "$SNAP_NAME" | sed -n 's/^installed:[[:space:]]*\([^[:space:]]*\).*/\1/p')" == \
+            "$EXPECTED_VERSION" ]]
+          set +e
+          sudo install -d -m 700 /run/user/0 /root/snap/dartpdf/common
+          sudo env XDG_RUNTIME_DIR=/run/user/0 \
+            timeout 12s dbus-run-session -- \
+            xvfb-run -a -f /root/snap/dartpdf/common/.Xauthority \
+            snap run "$SNAP_NAME" \
+            >"$RUNNER_TEMP/dartpdf-snap-store-smoke.log" 2>&1
+          task_status=$?
+          set -e
+          if [[ "$task_status" -ne 124 ]]; then
+            cat "$RUNNER_TEMP/dartpdf-snap-store-smoke.log"
+            echo "Store snap exited before the smoke-test window (status $task_status)" >&2
+            exit 1
+          fi

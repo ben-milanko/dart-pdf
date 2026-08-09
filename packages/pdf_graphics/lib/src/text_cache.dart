@@ -10,7 +10,7 @@ import 'text_extraction.dart';
 /// Magic + version word at the head of an encoded [PdfPageText] blob.
 /// Bump the low byte when the layout below changes; mismatched blobs
 /// decode to null (a miss) rather than mis-parsing.
-const int _textBlobMagic = 0x50545832; // 'PTX2'
+const int _textBlobMagic = 0x50545833; // 'PTX3'
 
 /// Serializes [page] into a compact binary blob for the on-disk text
 /// cache. The format is little-endian and self-describing enough to
@@ -41,6 +41,17 @@ Uint8List pdfEncodePageText(PdfPageText page) {
       ..f64(b.bottom)
       ..f64(b.right)
       ..f64(b.top);
+    // Per-character advances (issue #647). Length-prefixed, 0 meaning absent -
+    // a present table is always run.text.length + 1 entries.
+    final offsets = run.charOffsets;
+    if (offsets == null) {
+      out.u32(0);
+    } else {
+      out.u32(offsets.length);
+      for (final offset in offsets) {
+        out.f64(offset);
+      }
+    }
   }
   return out.takeBytes();
 }
@@ -64,12 +75,19 @@ PdfPageText? pdfDecodePageText(Uint8List bytes) {
           PdfMatrix(r.f64(), r.f64(), r.f64(), r.f64(), r.f64(), r.f64());
       final width = r.f64();
       final bounds = PdfRect(r.f64(), r.f64(), r.f64(), r.f64());
+      final offsetCount = r.u32();
+      final offsets = offsetCount == 0
+          ? null
+          : [for (var j = 0; j < offsetCount; j++) r.f64()];
       runs.add(PdfExtractedRun(
         text: runText,
         startIndex: startIndex,
         transform: transform,
         width: width,
         bounds: bounds,
+        charOffsets: offsets != null && offsets.length == runText.length + 1
+            ? offsets
+            : null,
         isRightToLeft: isRightToLeft,
       ));
     }

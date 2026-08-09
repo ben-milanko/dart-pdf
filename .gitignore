@@ -54,3 +54,5 @@ tool/perf/cache/
 # raw captures + captions), so they stay out.
 doc/marketing/example/*/*/
 app/fastlane/metadata/*/*/images/
+# Generated signed Flatpak repository; GitHub Actions deploys it directly.
+flatpak-hosting/public/

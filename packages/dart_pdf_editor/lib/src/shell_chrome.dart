@@ -110,34 +110,21 @@ class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
 
   @override
   Widget build(BuildContext context) {
-    // The panels OVERLAY the viewer rather than squeezing it: the viewer fills
-    // the whole content area and the docked panels float at its edges over the
-    // top. So opening, closing, or resizing a panel never changes the viewer's
-    // size - the document view is invariant to the panels (no zoom or position
-    // jump), and the panel simply reveals or covers a strip of the page beside
-    // it. The panels keep their original nesting - a column of top panels, a
-    // middle band of leading · gap · trailing, then a column of bottom panels -
-    // so their arrangement, resize grips, and drop zones are unchanged; only the
-    // viewer's old flex slot becomes a transparent gap the viewer shows through.
-    final panelsOverlay = Column(children: [
-      ...widget.topPanels,
+    final row = Row(children: [
+      ...widget.leadingPanels,
       Expanded(
-        child: Row(children: [
-          ...widget.leadingPanels,
-          // the viewer shows through here; an empty box takes no pointer input,
-          // so taps in the gap reach the viewer beneath in the stack
-          const Expanded(child: SizedBox.expand()),
-          ...widget.trailingPanels,
-        ]),
-      ),
-      ...widget.bottomPanels,
-    ]);
-    final content = Stack(children: [
-      Positioned.fill(
         key: const ValueKey('pdf-shell-viewer'),
         child: widget.viewer,
       ),
-      Positioned.fill(child: panelsOverlay),
+      ...widget.trailingPanels,
+    ]);
+    final stacked = Column(children: [
+      ...widget.topPanels,
+      Expanded(child: row),
+      ...widget.bottomPanels,
+    ]);
+    final content = Stack(children: [
+      Positioned.fill(child: stacked),
       ...widget.overlays,
       if (widget.floatingToolbar != null)
         Positioned(
@@ -1198,6 +1185,7 @@ void _maybeCloseShellControls(BuildContext context) {
 
 enum _ViewOption {
   annotations,
+  scrollbarChapters,
   formHighlight,
   reflow,
   pageGrid,
@@ -1219,6 +1207,8 @@ Future<void> _selectViewOption(
   switch (option) {
     case _ViewOption.annotations:
       preferences.showAnnotations = !preferences.showAnnotations;
+    case _ViewOption.scrollbarChapters:
+      preferences.showScrollbarChapters = !preferences.showScrollbarChapters;
     case _ViewOption.formHighlight:
       preferences.highlightFormFields = !preferences.highlightFormFields;
     case _ViewOption.reflow:
@@ -1566,6 +1556,22 @@ Future<void> showPdfShellViewOptionsSheet(
                 },
               ),
               SwitchListTile(
+                key: const ValueKey('pdf-shell-show-scrollbar-chapters'),
+                secondary: const Icon(Icons.bookmarks_outlined),
+                title: Text(pdfL10n(context).shellShowScrollbarChapters),
+                value: preferences.showScrollbarChapters,
+                onChanged: (_) async {
+                  await _selectViewOption(
+                    context,
+                    _ViewOption.scrollbarChapters,
+                    preferences: preferences,
+                    pageColor: pageColor,
+                    onAuthorPressed: onAuthorPressed,
+                  );
+                  setSheetState(() {});
+                },
+              ),
+              SwitchListTile(
                 key: const ValueKey('pdf-shell-highlight-forms'),
                 secondary: const Icon(Icons.dynamic_form_outlined),
                 title: Text(pdfL10n(context).shellHighlightFormFields),
@@ -1759,6 +1765,12 @@ class PdfShellViewOptionsButton extends StatelessWidget {
           value: _ViewOption.annotations,
           checked: preferences.showAnnotations,
           child: Text(pdfL10n(context).shellShowAnnotations),
+        ),
+        CheckedPopupMenuItem(
+          key: const ValueKey('pdf-shell-show-scrollbar-chapters'),
+          value: _ViewOption.scrollbarChapters,
+          checked: preferences.showScrollbarChapters,
+          child: Text(pdfL10n(context).shellShowScrollbarChapters),
         ),
         CheckedPopupMenuItem(
           key: const ValueKey('pdf-shell-highlight-forms'),

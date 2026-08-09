@@ -207,7 +207,10 @@ void main() {
       // the redaction region in preview pixels: previews are 200px on the
       // longest side, so a 612x792 page scales by 200/792; the box
       // [60,712]-[200,748] (page space, y-up) maps to roughly x∈[15,50],
-      // y∈[11,20] from the top. Sample its center.
+      // y∈[11,20] from the top. Sample inside it but clear of the "Page 1"
+      // glyphs, which end around x=37 - a sample on a glyph edge flips on a
+      // sub-pixel shift in text placement rather than on what this test is
+      // about.
       Future<int> previewLuma(int px, int py) async {
         final image = cache.imageFor(0);
         if (image == null) return -1;
@@ -226,7 +229,7 @@ void main() {
       // white page (thin "Page 1" glyphs), so it reads light
       await tester.runAsync(
           () => cache.renderPreview(0, editing.document.page(0)));
-      expect(await previewLuma(32, 15), greaterThan(140),
+      expect(await previewLuma(45, 15), greaterThan(140),
           reason: 'pre-redaction preview is light page');
 
       editing.addRedaction(0, const PdfRect(60, 712, 200, 748));
@@ -240,7 +243,7 @@ void main() {
         await tester
             .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
         await tester.pump();
-        luma = await previewLuma(32, 15);
+        luma = await previewLuma(45, 15);
         if (luma >= 0 && luma < 80) break;
       }
       expect(luma, lessThan(80),

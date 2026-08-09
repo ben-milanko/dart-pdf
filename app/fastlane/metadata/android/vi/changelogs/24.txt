@@ -1,0 +1,5 @@
+Điểm mới trong 3.3.0
+
+• Các trang được xem lại mở tức thì nhờ chuẩn bị nền tùy chọn và bộ nhớ đệm độ phân giải đầy đủ, bền vững.
+• Thu phóng sâu sắc nét hơn trên PDF quét và PDF dựa trên hình ảnh.
+• Cải thiện thao tác kéo bằng cảm ứng, điều chỉnh bán kính góc và điều hướng mượt hơn đến trang vừa chèn.

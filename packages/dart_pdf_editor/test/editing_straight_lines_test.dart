@@ -1,3 +1,5 @@
+import 'dart:ui' show PointerDeviceKind;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -29,11 +31,12 @@ void main() {
   Future<void> settle(WidgetTester tester) =>
       tester.pumpAndSettle(const Duration(milliseconds: 400));
 
-  Future<PdfEditingController> pumpEditor(WidgetTester tester) async {
+  Future<PdfEditingController> pumpEditor(WidgetTester tester,
+      {PdfViewerController? viewerController}) async {
     final editing = PdfEditingController(buildMultiPagePdf(1));
-    final viewer = PdfViewerController();
+    final viewer = viewerController ?? PdfViewerController();
     addTearDown(editing.dispose);
-    addTearDown(viewer.dispose);
+    if (viewerController == null) addTearDown(viewer.dispose);
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
         body: ListenableBuilder(
@@ -80,7 +83,8 @@ void main() {
     // a ~40° drag lands nearest the 45° diagonal
     await drag(tester, view(100, 700), view(200, 780));
 
-    final ((x1, y1), (x2, y2)) = editing.document.page(0).annotations.single.line!;
+    final ((x1, y1), (x2, y2)) =
+        editing.document.page(0).annotations.single.line!;
     expect((x2 - x1).abs(), closeTo((y2 - y1).abs(), 1),
         reason: 'equal run and rise is a 45° segment');
     await settle(tester);
@@ -202,5 +206,28 @@ void main() {
         reason: 'the new tail snaps horizontally from the Shift anchor');
     editing.finishInk();
     await settle(tester);
+  });
+
+  testWidgets('Ctrl+wheel zooms after Shift-constrained ink', (tester) async {
+    final viewer = PdfViewerController();
+    addTearDown(viewer.dispose);
+    final editing = await pumpEditor(tester, viewerController: viewer);
+    editing.tool = PdfEditTool.ink;
+    await tester.pump();
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await drag(tester, view(100, 700), view(200, 730));
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+
+    final before = viewer.zoom;
+    final pointer = TestPointer(23, PointerDeviceKind.mouse);
+    pointer.hover(const Offset(400, 300));
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+    await tester.sendEventToBinding(pointer.scroll(const Offset(0, -200)));
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+
+    expect(viewer.zoom, greaterThan(before));
   });
 }
