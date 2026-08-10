@@ -177,12 +177,17 @@ void main() {
     final store =
         PdfTileStore(tilePixels: 256, registerForMemoryPressure: false);
     final backend = _RecordingTileRasterBackend(failCreation: true);
+    final logs = <String>[];
+    PdfPerfLog.enabled = true;
+    PdfPerfLog.sink = logs.add;
     PdfPageView.tileStoreDetail = true;
     PdfPageView.debugTileStoreOverride = store;
     addTearDown(() {
       PdfPageView.tileStoreDetail = false;
       PdfPageView.debugTileStoreOverride = null;
       store.dispose();
+      PdfPerfLog.enabled = false;
+      PdfPerfLog.sink = null;
     });
 
     final doc = PdfDocument.open(buildClassicPdf());
@@ -213,6 +218,12 @@ void main() {
     expect(backend.sessionCreates, 1);
     expect(backend.rasterizations, 0);
     expect(store.tileCount, greaterThan(0));
+    expect(
+      logs,
+      contains(contains(
+          'requested=recording route=canvas reason=test unsupported clip')),
+      reason: 'field traces must explain why the requested backend declined',
+    );
   });
 
   testWidgets('tile path composites deep-zoom tiles instead of the patch',
@@ -220,7 +231,8 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    final store = PdfTileStore(tilePixels: 256, registerForMemoryPressure: false);
+    final store =
+        PdfTileStore(tilePixels: 256, registerForMemoryPressure: false);
     final oldRegionLimit = PdfRetainedScene.spatialRegionReplayMaxCommands;
     // Force even this small fixture through the heavy/grid index gate. This
     // reproduces the field-trace failure where _useTilePath stayed
@@ -249,8 +261,8 @@ void main() {
     );
     // Let the base render, the tile-geometry refresh, and the tile rasters land.
     for (var i = 0; i < 4; i++) {
-      await tester
-          .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 60)));
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 60)));
       await tester.pump();
     }
 
@@ -273,7 +285,8 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    final store = PdfTileStore(tilePixels: 256, registerForMemoryPressure: false);
+    final store =
+        PdfTileStore(tilePixels: 256, registerForMemoryPressure: false);
     final oldRegionLimit = PdfRetainedScene.spatialRegionReplayMaxCommands;
     PdfRetainedScene.spatialRegionReplayMaxCommands = 0;
     PdfPageView.tileStoreDetail = true;
@@ -408,6 +421,10 @@ class _RecordingTileRasterBackend extends PdfCanvasTileRasterBackend {
 
   @override
   String get debugLabel => 'recording';
+
+  @override
+  String? get lastSessionRejection =>
+      failCreation ? 'test unsupported clip' : null;
 
   @override
   PdfTileRasterSession createSession(PdfRetainedScene scene) {

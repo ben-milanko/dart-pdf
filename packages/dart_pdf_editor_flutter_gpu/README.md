@@ -49,12 +49,15 @@ PDF features return to the Canvas tile backend automatically. Web gets a
 compile-time stub and therefore preserves the all-platform host surface.
 
 The current exact subset is solid paths and strokes, embedded-outline text,
-decoded images/image masks, Gouraud meshes, normal blending, rectangular
-clips, and the common isolated single-image soft-mask group. That mask case
-keeps the base and mask as two GPU textures and combines them during tile
-replay; it never builds an eager full-size RGBA composite or reads pixels back
-to the CPU. Worker-retained RGBA uploads directly; locally platform-decoded
-images pay at most one readback before entering the shared texture cache. A
+decoded images/image masks, Gouraud meshes, normal blending, rectangular and
+arbitrary path clips, and the common isolated single-image soft-mask group.
+Rectangles use hardware scissors; other clip stacks compile once into retained
+stencil geometry and preserve nonzero/even-odd plus save/restore semantics. The
+mask case keeps the base and mask as two GPU textures and combines them during
+tile replay; it never builds an eager full-size RGBA composite or reads pixels
+back to the CPU. Worker-retained RGBA uploads directly; locally
+platform-decoded images pay at most one readback before entering the shared
+texture cache. A
 backend-wide byte-budgeted LRU preserves decoded texture identity
 across scenes, pages, workers, zoom levels, and LoDs.
 Pinned scene textures count toward the same ceiling; if no unpinned entry can
@@ -69,15 +72,17 @@ native finalizers; a scene that cannot lease enough geometry also falls back.
 tile route, runtime fallback reasons, scene compile and tile-submit time,
 spatially selected command counts, upload/readback paths, cache hits and
 evictions, budget fallbacks, retained bytes, and live resource leases.
+Clip diagnostics separately report paths compiled and tile-mask rebuilds.
 `backend.stats.toJson()` is suitable for benchmark artifacts. Keep the backend
 instance alive when comparing pages so those counters and cross-page caches
 describe the real workload rather than one page at a time.
 
 Pages with other transparency groups or soft masks, non-normal blends,
-gradients, tiling cells, unsafe overprint, non-rectangular clips,
-substituted/stroked text, hairlines, or missing image pixels are rejected as a
-whole rather than approximated. `allowOverprintApproximation` exists only for
-controlled benchmarks and defaults to false.
+gradients, tiling cells, unsafe overprint, complex clips nested inside the
+single-image soft-mask shortcut, substituted/stroked text, hairlines, or
+missing image pixels are rejected as a whole rather than approximated.
+`allowOverprintApproximation` exists only for controlled experiments and
+defaults to false.
 
 ## Persistent LoD tiles
 

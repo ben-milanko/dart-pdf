@@ -287,6 +287,7 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
         'observedOutcome': _tileBackendOutcome(),
         'maxTextureBytes': _tools.flutterGpuTileRasterBackend.maxTextureBytes,
         'maxGeometryBytes': _tools.flutterGpuTileRasterBackend.maxGeometryBytes,
+        'overprintApproximation': _tools.gpuOverprintApproximation,
         'stats': _tools.flutterGpuTileRasterBackend.stats.toJson(),
       },
       if (store != null)
@@ -1197,6 +1198,20 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
           choices: _gpuBudgets,
           onChanged: (value) => _setGpuBudget(geometryBytes: value),
         ),
+        _helpSwitch(
+          theme,
+          key: const ValueKey('devtools-gpu-overprint-approximation'),
+          title: 'Approximate non-black overprint',
+          help: 'Experimental and intentionally inexact. Uses source-over for '
+              'non-black overprint so more CAD pages can stay on flutter_gpu. '
+              'Off keeps the exact Canvas fallback and is the default.',
+          value: _tools.gpuOverprintApproximation,
+          onChanged: (value) {
+            _tools.setGpuOverprintApproximation(value);
+            _persist();
+            setState(() {});
+          },
+        ),
         _kv(
           theme,
           'GPU sessions',
@@ -1228,6 +1243,16 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
               '${_averageMs(stats.compileMicros, stats.scenesCompiled)} avg',
           help: 'One-time retained-scene tessellation, buffer creation, and '
               'image upload. It should grow per scene, not per tile or LoD.',
+        ),
+        _kv(
+          theme,
+          'Exact clip masks',
+          '${stats.clipPathsCompiled} paths · '
+              '${stats.clipMaskRebuilds} tile rebuilds',
+          help: 'Non-rectangular PDF clip paths compiled once with the scene '
+              'and exact stencil intersections rebuilt when selected commands '
+              'change clip stack. Rectangular clips stay on the cheaper '
+              'hardware-scissor route.',
         ),
         _kv(
           theme,

@@ -13,6 +13,8 @@ class FlutterGpuTileBackendStats {
   int compileMicros = 0;
   int geometryBuffers = 0;
   int geometryVertices = 0;
+  int clipPathsCompiled = 0;
+  int clipMaskRebuilds = 0;
   int geometryBudgetFallbacks = 0;
   int activeGeometryLeases = 0;
   int geometryBytes = 0;
@@ -46,6 +48,8 @@ class FlutterGpuTileBackendStats {
         'compileMicros': compileMicros,
         'geometryBuffers': geometryBuffers,
         'geometryVertices': geometryVertices,
+        'clipPathsCompiled': clipPathsCompiled,
+        'clipMaskRebuilds': clipMaskRebuilds,
         'geometryBudgetFallbacks': geometryBudgetFallbacks,
         'activeGeometryLeases': activeGeometryLeases,
         'geometryBytes': geometryBytes,
@@ -80,6 +84,8 @@ class FlutterGpuTileBackendStats {
     scenesCompiled = 0;
     compileMicros = 0;
     geometryVertices = 0;
+    clipPathsCompiled = 0;
+    clipMaskRebuilds = 0;
     geometryBudgetFallbacks = 0;
     peakGeometryBytes = geometryBytes;
     texturesUploaded = 0;
@@ -104,6 +110,7 @@ class FlutterGpuTileBackendStats {
       'overprintApprox=$overprintApproximationSessions '
       'compiled=$scenesCompiled compileUs=$compileMicros '
       'buffers=$geometryBuffers vertices=$geometryVertices '
+      'clips=$clipPathsCompiled clipRebuilds=$clipMaskRebuilds '
       'geometryBudgetFallbacks=$geometryBudgetFallbacks '
       'activeGeometryLeases=$activeGeometryLeases '
       'geometryBytes=$geometryBytes peakGeometryBytes=$peakGeometryBytes '

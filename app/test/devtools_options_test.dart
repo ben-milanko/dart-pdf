@@ -30,6 +30,7 @@ void main() {
       maxTextureBytes: 256 << 20,
       maxGeometryBytes: 256 << 20,
     );
+    AppDevTools.instance.setGpuOverprintApproximation(false);
     AppDevTools.instance
         .setTileRasterBackendMode(TileRasterBackendMode.flutterGpu);
     AppDevTools.instance.flutterGpuTileRasterBackend.stats.reset();
@@ -47,6 +48,7 @@ void main() {
       maxTextureBytes: 1 << 30,
       maxGeometryBytes: 512 << 20,
     );
+    tools.setGpuOverprintApproximation(true);
     pdfDebugPaintDetailBounds.value = true;
     pdfDebugShowRenderWindow.value = true;
     pdfRenderWorkerPoolSize = 5;
@@ -63,6 +65,7 @@ void main() {
       maxTextureBytes: 256 << 20,
       maxGeometryBytes: 256 << 20,
     );
+    tools.setGpuOverprintApproximation(false);
     pdfDebugPaintDetailBounds.value = false;
     pdfDebugShowRenderWindow.value = false;
     pdfRenderWorkerPoolSize = 3;
@@ -73,6 +76,9 @@ void main() {
     expect(tools.tileRasterBackendMode.value, TileRasterBackendMode.flutterGpu);
     expect(tools.flutterGpuTileRasterBackend.maxTextureBytes, 1 << 30);
     expect(tools.flutterGpuTileRasterBackend.maxGeometryBytes, 512 << 20);
+    expect(tools.gpuOverprintApproximation, isTrue);
+    expect(
+        tools.flutterGpuTileRasterBackend.allowOverprintApproximation, isTrue);
     expect(PdfPageView.tileStoreDetail, isTrue);
     expect(PdfPageView.debugTileStoreOverride!.batchRasters, isTrue);
     expect(pdfDebugPaintDetailBounds.value, isTrue);

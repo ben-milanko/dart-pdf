@@ -24,9 +24,12 @@ import 'backend_stats.dart';
 ///
 /// The exact subset includes a common isolated single-image soft-mask group:
 /// content and mask stay as separate scene-lifetime textures and are combined
-/// by the tile shader. Other isolated groups, non-normal blend modes,
-/// non-rectangular clips, gradients, substituted/stroked text, tiling cells,
-/// unsafe overprint, or missing image pixels reject the whole scene.
+/// by the tile shader. Ordinary PDF clip paths are retained as exact stencil
+/// masks (with rectangular clips additionally using the hardware scissor).
+/// Other isolated groups, non-normal blend modes, complex clips *inside* the
+/// special soft-mask-image shortcut, gradients, substituted/stroked text,
+/// tiling cells, unsafe overprint, or missing image pixels reject the whole
+/// scene.
 /// dart_pdf_editor then permanently uses its Canvas session for that scene.
 class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   FlutterGpuTileRasterBackend({
@@ -69,6 +72,10 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   final FlutterGpuTileBackendStats stats;
   final _GpuImageCache _imageCache;
   final _GpuGeometryPool _geometryPool;
+  String? _lastSessionRejection;
+
+  @override
+  String? get lastSessionRejection => _lastSessionRejection;
 
   /// True when this build includes the native flutter_gpu implementation.
   ///
@@ -87,11 +94,13 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
 
   @override
   PdfTileRasterSession? createSession(PdfRetainedScene scene) {
+    _lastSessionRejection = null;
     try {
       final context = gpu.gpuContext;
       final unitBuild = _buildGpuUnits(scene.commands);
       final units = unitBuild.units;
       if (units == null) {
+        _lastSessionRejection = unitBuild.rejection;
         stats.lastRejection = unitBuild.rejection;
         stats.lastTileRoute = 'canvas-fallback';
         stats.sessionsRejected++;
@@ -100,6 +109,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
       final rejection =
           _unsupportedReason(scene, units, allowOverprintApproximation);
       if (rejection != null) {
+        _lastSessionRejection = rejection;
         stats.lastRejection = rejection;
         stats.lastTileRoute = 'canvas-fallback';
         stats.sessionsRejected++;
@@ -124,7 +134,8 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
         geometryPool: _geometryPool,
       );
     } catch (error) {
-      stats.lastRejection = 'initialization failed: $error';
+      _lastSessionRejection = 'initialization failed: $error';
+      stats.lastRejection = _lastSessionRejection;
       stats.lastTileRoute = 'canvas-fallback';
       stats.sessionsRejected++;
       return null;
@@ -238,13 +249,35 @@ class _GpuUnit {
   final int commandIndex;
   final int endCommandIndex;
   final PdfRect bounds;
-  final PdfRect? clip;
+  final _GpuClipState clip;
   final PdfBlendMode blendMode;
   final bool fillOverprint;
   final bool strokeOverprint;
   final bool darken;
   final _SoftMaskImageSpec? composite;
 }
+
+/// One immutable graphics-state clip. Rectangles only narrow [scissor]; every
+/// other path adds a persistent [node] that is rebuilt into the stencil when
+/// the command stream changes clip state. Save/restore can therefore retain
+/// and recover the exact intersection without copying paths.
+class _GpuClipState {
+  const _GpuClipState(this.scissor, this.node, {this.empty = false});
+
+  final PdfRect? scissor;
+  final _GpuClipNode? node;
+  final bool empty;
+}
+
+class _GpuClipNode {
+  const _GpuClipNode(this.path, this.rule, this.previous);
+
+  final PdfPath path;
+  final PdfFillRule rule;
+  final _GpuClipNode? previous;
+}
+
+const _rootGpuClip = _GpuClipState(null, null);
 
 class _GpuUnitBuild {
   const _GpuUnitBuild(this.units, this.rejection);
@@ -256,7 +289,7 @@ class _CompositeCapture {
   _CompositeCapture(this.start, this.clip, this.blendMode, this.fillOverprint,
       this.strokeOverprint);
   final int start;
-  final PdfRect? clip;
+  final _GpuClipState clip;
   final PdfBlendMode blendMode;
   final bool fillOverprint;
   final bool strokeOverprint;
@@ -293,8 +326,8 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
     return const _GpuUnitBuild(null, 'retained scene exceeds GPU index cap');
   }
   final units = <_GpuUnit>[];
-  final saved = <(PdfRect?, PdfBlendMode, bool, bool)>[];
-  PdfRect? clip;
+  final saved = <(_GpuClipState, PdfBlendMode, bool, bool)>[];
+  var clip = _rootGpuClip;
   var blend = PdfBlendMode.normal;
   var fillOverprint = false;
   var strokeOverprint = false;
@@ -314,15 +347,8 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
         blend = state.$2;
         fillOverprint = state.$3;
         strokeOverprint = state.$4;
-      case PdfClipPathCommand(:final path):
-        if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) {
-          return const _GpuUnitBuild(null, 'non-rectangular clip');
-        }
-        final bounds = pdfRenderPathBounds(path);
-        if (bounds == null) {
-          return const _GpuUnitBuild(null, 'empty rectangular clip');
-        }
-        clip = _pdfIntersection(clip, bounds);
+      case PdfClipPathCommand(:final path, :final rule):
+        clip = _pushGpuClip(clip, path, rule);
       case PdfSetBlendModeCommand(:final mode):
         blend = mode;
       case PdfSetOverprintCommand(:final fill, :final stroke):
@@ -343,7 +369,7 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
             commands,
             capture.start,
             i,
-            initialClip: capture.clip,
+            initialClip: capture.clip.scissor,
           );
           if (parsed.$1 == null) return _GpuUnitBuild(null, parsed.$2);
           final bounds = capture.bounds;
@@ -352,7 +378,7 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
               commandIndex: capture.start,
               endCommandIndex: i,
               bounds: _inflatePdf(bounds, 2),
-              clip: parsed.$1!.contentClip ?? capture.clip,
+              clip: _withGpuRectClip(capture.clip, parsed.$1!.contentClip),
               blendMode: capture.blendMode,
               fillOverprint: capture.fillOverprint,
               strokeOverprint: capture.strokeOverprint,
@@ -365,7 +391,10 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
       default:
         final bounds = pdfRenderCommandBounds(command);
         if (bounds == null) continue;
-        final clipped = _pdfIntersection(clip, bounds);
+        if (clip.empty) continue;
+        final clipped = clip.scissor == null
+            ? bounds
+            : _pdfIntersection(clip.scissor, bounds);
         if (clipped == null) continue;
         if (composite != null) {
           composite.bounds = _pdfUnion(composite.bounds, clipped);
@@ -391,6 +420,41 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
     return const _GpuUnitBuild(null, 'unterminated composite group');
   }
   return _GpuUnitBuild(List.unmodifiable(units), null);
+}
+
+_GpuClipState _pushGpuClip(
+    _GpuClipState current, PdfPath path, PdfFillRule rule) {
+  if (current.empty) return current;
+  final bounds = pdfRenderPathBounds(path);
+  if (bounds == null) {
+    return _GpuClipState(current.scissor, current.node, empty: true);
+  }
+  final narrowed = current.scissor == null
+      ? bounds
+      : _pdfIntersection(current.scissor, bounds);
+  if (narrowed == null) {
+    return _GpuClipState(current.scissor, current.node, empty: true);
+  }
+  if (FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) {
+    return _GpuClipState(narrowed, current.node);
+  }
+  return _GpuClipState(
+    narrowed,
+    _GpuClipNode(path, rule, current.node),
+  );
+}
+
+/// Adds a rectangle already discovered inside the single-image soft-mask
+/// shortcut to the outer graphics-state clip. The outer arbitrary path stays
+/// in [state.node] and is applied by the tile pass; the inner rectangle remains
+/// a cheap exact scissor.
+_GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
+  if (rect == null || state.empty) return state;
+  final narrowed =
+      state.scissor == null ? rect : _pdfIntersection(state.scissor, rect);
+  return narrowed == null
+      ? _GpuClipState(state.scissor, state.node, empty: true)
+      : _GpuClipState(narrowed, state.node);
 }
 
 (_SoftMaskImageSpec?, String?) _parseSoftMaskImage(
@@ -697,6 +761,7 @@ class _CompiledScene {
     required this.pageToRaster,
     required this.paper,
     required this.draws,
+    required this.clipDraws,
     required this.stats,
     required this.imageCache,
     required this.textureLeases,
@@ -714,10 +779,18 @@ class _CompiledScene {
   ) async {
     final clock = Stopwatch()..start();
     final draws = <int, _GpuDraw>{};
+    final clipDraws = Map<_GpuClipNode, _GpuClipDraw>.identity();
     final textureLeases = <_GpuImageTexture>[];
     final geometry = _GpuGeometryArena(context, stats, geometryPool);
     try {
       for (final unit in units) {
+        for (_GpuClipNode? node = unit.clip.node;
+            node != null;
+            node = node.previous) {
+          final clipNode = node;
+          clipDraws.putIfAbsent(
+              clipNode, () => _compileClip(geometry, clipNode));
+        }
         final _GpuDraw? draw;
         if (unit.composite == null) {
           final pending = _compileCommand(
@@ -756,6 +829,7 @@ class _CompiledScene {
         ),
         paper: paper,
         draws: draws,
+        clipDraws: clipDraws,
         stats: stats,
         imageCache: imageCache,
         textureLeases: textureLeases,
@@ -764,6 +838,7 @@ class _CompiledScene {
       );
       stats
         ..scenesCompiled += 1
+        ..clipPathsCompiled += clipDraws.length
         ..compileMicros += clock.elapsedMicroseconds;
       return result;
     } catch (_) {
@@ -777,6 +852,7 @@ class _CompiledScene {
   final PdfMatrix pageToRaster;
   final _SolidDraw paper;
   final Map<int, _GpuDraw> draws;
+  final Map<_GpuClipNode, _GpuClipDraw> clipDraws;
   final FlutterGpuTileBackendStats stats;
   final _GpuImageCache imageCache;
   final List<_GpuImageTexture> textureLeases;
@@ -893,9 +969,11 @@ class _CompiledScene {
       pixelRatio: pixelRatio,
       width: width,
       height: height,
+      clipDraws: clipDraws,
+      stencilClear: paper.vertices,
     );
     encoder
-      ..setClip(null)
+      ..setClip(_rootGpuClip)
       ..solid(paper.vertices);
     for (final unit in selected) {
       final draw = draws[unit.commandIndex];
@@ -903,6 +981,7 @@ class _CompiledScene {
       encoder.setClip(unit.clip);
       draw.encode(encoder);
     }
+    stats.clipMaskRebuilds += encoder.clipMaskRebuilds;
     final submit = Stopwatch()..start();
     _inFlight++;
     try {
@@ -945,6 +1024,19 @@ class _CompiledScene {
     ]);
     return ByteData.sublistView(m);
   }
+}
+
+_GpuClipDraw _compileClip(_GpuGeometryArena geometry, _GpuClipNode node) {
+  final subpaths = flattenPath(node.path, PdfMatrix.identity, tolerance: 0.01);
+  final parts = _stencilGeometry(geometry, subpaths);
+  if (parts == null) {
+    throw StateError('empty non-rectangular clip');
+  }
+  return _GpuClipDraw(
+    parts.$1,
+    _coverGeometry(geometry, parts.$2, const [0, 0, 0, 0]),
+    node.rule,
+  );
 }
 
 _SolidDraw _paperDraw(_GpuGeometryArena geometry, PdfRetainedScene scene) {
@@ -1362,8 +1454,27 @@ _StencilDraw? _stencilDraw(
   PdfFillRule rule,
   bool union,
 ) {
+  if (alpha <= 0) return null;
+  final parts = _stencilGeometry(geometry, subpaths);
+  if (parts == null) return null;
+  final fanBuffer = parts.$1;
+  final a = alpha.clamp(0.0, 1.0);
+  final rgba = _premul(color, a);
+  return _StencilDraw(
+    fanBuffer,
+    _coverGeometry(geometry, parts.$2, rgba),
+    rule,
+    union,
+  );
+}
+
+/// Compiles the shared fan + bounds cover used by both painted paths and clip
+/// paths. The fan is intentionally the same winding/parity representation for
+/// both, so clipping cannot disagree with a fill of the same PDF path.
+(_GpuBuffer, FlatBounds)? _stencilGeometry(
+    _GpuGeometryArena geometry, List<FlatSubpath> subpaths) {
   final bounds = FlatBounds.of(subpaths);
-  if (bounds == null || alpha <= 0) return null;
+  if (bounds == null) return null;
   final fan = FloatBuilder(1024);
   for (final sub in subpaths) {
     final p = sub.points;
@@ -1378,8 +1489,11 @@ _StencilDraw? _stencilDraw(
     }
   }
   if (fan.isEmpty) return null;
-  final a = alpha.clamp(0.0, 1.0);
-  final rgba = _premul(color, a);
+  return (geometry.add(fan.bytes, fan.length ~/ 2), bounds);
+}
+
+_GpuBuffer _coverGeometry(
+    _GpuGeometryArena geometry, FlatBounds bounds, List<double> rgba) {
   final cover = FloatBuilder(36);
   for (final (x, y) in <(double, double)>[
     (bounds.left, bounds.bottom),
@@ -1391,12 +1505,7 @@ _StencilDraw? _stencilDraw(
   ]) {
     cover.add6(x, y, rgba[0], rgba[1], rgba[2], rgba[3]);
   }
-  return _StencilDraw(
-    geometry.add(fan.bytes, fan.length ~/ 2),
-    geometry.add(cover.bytes, 6),
-    rule,
-    union,
-  );
+  return geometry.add(cover.bytes, 6);
 }
 
 List<double> _premul(PdfColor color, double alpha) => [
@@ -1580,6 +1689,14 @@ class _StencilDraw implements _GpuDraw {
       encoder.stencil(fan, cover, rule: rule, union: union);
 }
 
+class _GpuClipDraw {
+  const _GpuClipDraw(this.fan, this.cover, this.rule);
+
+  final _GpuBuffer fan;
+  final _GpuBuffer cover;
+  final PdfFillRule rule;
+}
+
 class _TextureDraw implements _GpuDraw {
   const _TextureDraw(this.vertices, this.texture, this.info);
   final _GpuBuffer vertices;
@@ -1613,6 +1730,8 @@ class _GpuEncoder {
     required this.pixelRatio,
     required this.width,
     required this.height,
+    required this.clipDraws,
+    required this.stencilClear,
   });
 
   final gpu.RenderPass pass;
@@ -1623,6 +1742,21 @@ class _GpuEncoder {
   final double pixelRatio;
   final int width;
   final int height;
+  final Map<_GpuClipNode, _GpuClipDraw> clipDraws;
+  final _GpuBuffer stencilClear;
+
+  // The upper two stencil bits hold alternating clip intersections. The lower
+  // six hold temporary winding/parity values for clip construction and normal
+  // path fills. Alternating bits let an intersection be built without reading
+  // and writing the same bit in one pass.
+  static const _clipBitA = 0x80;
+  static const _clipBitB = 0x40;
+  static const _pathMask = 0x3f;
+  static const _allStencilBits = 0xff;
+
+  _GpuClipState? _clipState;
+  int _activeClipBit = 0;
+  int clipMaskRebuilds = 0;
 
   static final _srcOver = gpu.ColorBlendEquation(
     sourceColorBlendFactor: gpu.BlendFactor.one,
@@ -1637,18 +1771,20 @@ class _GpuEncoder {
     destinationAlphaBlendFactor: gpu.BlendFactor.one,
   );
 
-  void setClip(PdfRect? clip) {
+  void setClip(_GpuClipState clip) {
+    if (identical(_clipState, clip)) return;
     var target = Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble());
-    if (clip != null) {
+    final scissor = clip.scissor;
+    if (scissor != null) {
       final points = <Offset>[
-        Offset(pageToRaster.transformX(clip.left, clip.bottom),
-            pageToRaster.transformY(clip.left, clip.bottom)),
-        Offset(pageToRaster.transformX(clip.right, clip.bottom),
-            pageToRaster.transformY(clip.right, clip.bottom)),
-        Offset(pageToRaster.transformX(clip.right, clip.top),
-            pageToRaster.transformY(clip.right, clip.top)),
-        Offset(pageToRaster.transformX(clip.left, clip.top),
-            pageToRaster.transformY(clip.left, clip.top)),
+        Offset(pageToRaster.transformX(scissor.left, scissor.bottom),
+            pageToRaster.transformY(scissor.left, scissor.bottom)),
+        Offset(pageToRaster.transformX(scissor.right, scissor.bottom),
+            pageToRaster.transformY(scissor.right, scissor.bottom)),
+        Offset(pageToRaster.transformX(scissor.right, scissor.top),
+            pageToRaster.transformY(scissor.right, scissor.top)),
+        Offset(pageToRaster.transformX(scissor.left, scissor.top),
+            pageToRaster.transformY(scissor.left, scissor.top)),
       ];
       final left = points.map((p) => p.dx).reduce((a, b) => a < b ? a : b);
       final right = points.map((p) => p.dx).reduce((a, b) => a > b ? a : b);
@@ -1671,6 +1807,50 @@ class _GpuEncoder {
               target.top.floor().clamp(0, height))
           .clamp(0, height),
     ));
+    _clipState = clip;
+    _activeClipBit = 0;
+    final leaf = clip.node;
+    if (leaf == null || clip.empty || target.isEmpty) return;
+    clipMaskRebuilds++;
+
+    // A restored clip can be broader than the state used by the preceding
+    // draw. Rebuild from the persistent root rather than trying to preserve an
+    // ancestor bit whose alternating slot may since have been reused.
+    _clearStencil(_allStencilBits);
+    final chain = <_GpuClipNode>[];
+    for (_GpuClipNode? node = leaf; node != null; node = node.previous) {
+      chain.add(node);
+    }
+    for (final node in chain.reversed) {
+      final nextBit = _activeClipBit == _clipBitA ? _clipBitB : _clipBitA;
+      _clearStencil(_pathMask | nextBit);
+      final draw = clipDraws[node]!;
+      _accumulateStencil(
+        draw.fan,
+        rule: draw.rule,
+        union: false,
+        requiredClipBit: _activeClipBit,
+      );
+      pass
+        ..setStencilReference(nextBit)
+        ..setColorBlendEquation(_noWrite)
+        ..setStencilConfig(gpu.StencilConfig(
+          compareFunction: gpu.CompareFunction.notEqual,
+          depthStencilPassOperation: gpu.StencilOperation.setToReferenceValue,
+          stencilFailureOperation: gpu.StencilOperation.keep,
+          readMask: _pathMask,
+          writeMask: nextBit,
+        ))
+        ..bindPipeline(pipelines.solid)
+        ..bindUniform(pipelines.solidTransform, transform)
+        ..bindVertexBuffer(draw.cover.view, draw.cover.vertices)
+        ..draw();
+      // The lower bits are scratch. Clearing them here leaves the final clip
+      // bit intact and makes the following PDF fill independent of how many
+      // contours built this mask.
+      _clearStencil(_pathMask);
+      _activeClipBit = nextBit;
+    }
   }
 
   void solid(_GpuBuffer vertices) {
@@ -1685,49 +1865,80 @@ class _GpuEncoder {
 
   void stencil(_GpuBuffer fan, _GpuBuffer cover,
       {required PdfFillRule rule, required bool union}) {
+    _accumulateStencil(fan,
+        rule: rule, union: union, requiredClipBit: _activeClipBit);
     pass
-      ..setColorBlendEquation(_noWrite)
-      ..bindPipeline(pipelines.stencil)
-      ..bindUniform(pipelines.stencilTransform, transform);
-    if (union) {
-      pass.setStencilConfig(gpu.StencilConfig(
-        compareFunction: gpu.CompareFunction.always,
-        depthStencilPassOperation: gpu.StencilOperation.incrementWrap,
-      ));
-    } else if (rule == PdfFillRule.evenOdd) {
-      pass.setStencilConfig(gpu.StencilConfig(
-        compareFunction: gpu.CompareFunction.always,
-        depthStencilPassOperation: gpu.StencilOperation.invert,
-      ));
-    } else {
-      pass
-        ..setStencilConfig(
-          gpu.StencilConfig(
-            compareFunction: gpu.CompareFunction.always,
-            depthStencilPassOperation: gpu.StencilOperation.incrementWrap,
-          ),
-          targetFace: gpu.StencilFace.front,
-        )
-        ..setStencilConfig(
-          gpu.StencilConfig(
-            compareFunction: gpu.CompareFunction.always,
-            depthStencilPassOperation: gpu.StencilOperation.decrementWrap,
-          ),
-          targetFace: gpu.StencilFace.back,
-        );
-    }
-    pass
-      ..bindVertexBuffer(fan.view, fan.vertices)
-      ..draw()
+      ..setStencilReference(0)
       ..setColorBlendEquation(_srcOver)
       ..setStencilConfig(gpu.StencilConfig(
         compareFunction: gpu.CompareFunction.notEqual,
         depthStencilPassOperation: gpu.StencilOperation.zero,
         stencilFailureOperation: gpu.StencilOperation.keep,
+        readMask: _pathMask,
+        writeMask: _pathMask,
       ))
       ..bindPipeline(pipelines.solid)
       ..bindUniform(pipelines.solidTransform, transform)
       ..bindVertexBuffer(cover.view, cover.vertices)
+      ..draw();
+  }
+
+  void _accumulateStencil(
+    _GpuBuffer fan, {
+    required PdfFillRule rule,
+    required bool union,
+    required int requiredClipBit,
+  }) {
+    final compare = requiredClipBit == 0
+        ? gpu.CompareFunction.always
+        : gpu.CompareFunction.equal;
+    gpu.StencilConfig config(gpu.StencilOperation operation) =>
+        gpu.StencilConfig(
+          compareFunction: compare,
+          depthStencilPassOperation: operation,
+          stencilFailureOperation: gpu.StencilOperation.keep,
+          readMask: requiredClipBit == 0 ? 0 : requiredClipBit,
+          writeMask: _pathMask,
+        );
+    pass
+      ..setStencilReference(requiredClipBit)
+      ..setColorBlendEquation(_noWrite)
+      ..bindPipeline(pipelines.stencil)
+      ..bindUniform(pipelines.stencilTransform, transform);
+    if (union) {
+      pass.setStencilConfig(config(gpu.StencilOperation.incrementWrap));
+    } else if (rule == PdfFillRule.evenOdd) {
+      pass.setStencilConfig(config(gpu.StencilOperation.invert));
+    } else {
+      pass
+        ..setStencilConfig(
+          config(gpu.StencilOperation.incrementWrap),
+          targetFace: gpu.StencilFace.front,
+        )
+        ..setStencilConfig(
+          config(gpu.StencilOperation.decrementWrap),
+          targetFace: gpu.StencilFace.back,
+        );
+    }
+    pass
+      ..bindVertexBuffer(fan.view, fan.vertices)
+      ..draw();
+  }
+
+  void _clearStencil(int mask) {
+    if (mask == 0) return;
+    pass
+      ..setStencilReference(0)
+      ..setColorBlendEquation(_noWrite)
+      ..setStencilConfig(gpu.StencilConfig(
+        compareFunction: gpu.CompareFunction.always,
+        depthStencilPassOperation: gpu.StencilOperation.zero,
+        readMask: 0,
+        writeMask: mask,
+      ))
+      ..bindPipeline(pipelines.solid)
+      ..bindUniform(pipelines.solidTransform, transform)
+      ..bindVertexBuffer(stencilClear.view, stencilClear.vertices)
       ..draw();
   }
 
@@ -1772,10 +1983,18 @@ class _GpuEncoder {
     pass.clearBindings();
   }
 
-  void _defaultStencil() => pass.setStencilConfig(gpu.StencilConfig(
-        compareFunction: gpu.CompareFunction.always,
+  void _defaultStencil() {
+    pass
+      ..setStencilReference(_activeClipBit)
+      ..setStencilConfig(gpu.StencilConfig(
+        compareFunction: _activeClipBit == 0
+            ? gpu.CompareFunction.always
+            : gpu.CompareFunction.equal,
         depthStencilPassOperation: gpu.StencilOperation.keep,
+        readMask: _activeClipBit == 0 ? 0 : _activeClipBit,
+        writeMask: 0,
       ));
+  }
 }
 
 class _GpuPipelines {

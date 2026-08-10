@@ -158,11 +158,15 @@ class AppDevTools extends ChangeNotifier {
   FlutterGpuTileRasterBackend? _flutterGpuTileRasterBackend;
   int _gpuTextureBytes = 256 << 20;
   int _gpuGeometryBytes = 256 << 20;
+  bool _gpuOverprintApproximation = false;
+
+  bool get gpuOverprintApproximation => _gpuOverprintApproximation;
 
   FlutterGpuTileRasterBackend get flutterGpuTileRasterBackend =>
       _flutterGpuTileRasterBackend ??= FlutterGpuTileRasterBackend(
         maxTextureBytes: _gpuTextureBytes,
         maxGeometryBytes: _gpuGeometryBytes,
+        allowOverprintApproximation: _gpuOverprintApproximation,
       );
 
   static const PdfCanvasTileRasterBackend _canvasTileRasterBackend =
@@ -205,6 +209,7 @@ class AppDevTools extends ChangeNotifier {
     _flutterGpuTileRasterBackend = FlutterGpuTileRasterBackend(
       maxTextureBytes: textureBytes,
       maxGeometryBytes: geometryBytes,
+      allowOverprintApproximation: _gpuOverprintApproximation,
     );
     // Unpinned texture ownership can go immediately. Active sessions keep
     // their leases until the viewer rebuild below disposes them.
@@ -219,6 +224,31 @@ class AppDevTools extends ChangeNotifier {
     addLog('devtools: GPU budgets → '
         '${textureBytes >> 20}MB textures, '
         '${geometryBytes >> 20}MB geometry');
+  }
+
+  /// Enables the deliberately inexact source-over approximation for
+  /// non-black overprint paints. Exact Canvas fallback remains the default.
+  /// Replacing the backend retires all scene sessions so a toggle can never
+  /// leave already-compiled scenes using the previous correctness policy.
+  void setGpuOverprintApproximation(bool enabled) {
+    if (_gpuOverprintApproximation == enabled) return;
+    final previous = _flutterGpuTileRasterBackend;
+    _gpuOverprintApproximation = enabled;
+    _flutterGpuTileRasterBackend = FlutterGpuTileRasterBackend(
+      maxTextureBytes: _gpuTextureBytes,
+      maxGeometryBytes: _gpuGeometryBytes,
+      allowOverprintApproximation: enabled,
+    );
+    previous?.clearImageCache();
+    if (tileRasterBackendMode.value == TileRasterBackendMode.flutterGpu) {
+      if (PdfPageView.tileStoreDetail) {
+        (PdfPageView.debugTileStoreOverride ?? PdfTileStore.instanceOrNull)
+            ?.invalidate();
+      }
+      tileRasterBackendRevision.value++;
+    }
+    addLog('devtools: GPU non-black overprint approximation '
+        '${enabled ? 'ON' : 'off (exact Canvas fallback)'}');
   }
 
   /// Releases reusable GPU image-cache ownership. Active scene leases remain
@@ -598,6 +628,9 @@ class AppDevTools extends ChangeNotifier {
         maxTextureBytes: textureBytes,
         maxGeometryBytes: geometryBytes,
       );
+      if (map['gpuOverprintApproximation'] case final bool enabled) {
+        setGpuOverprintApproximation(enabled);
+      }
       if (map['tileRasterBackend'] case final String mode) {
         final restored = TileRasterBackendMode.values
             .where((value) => value.name == mode)
@@ -670,6 +703,7 @@ class AppDevTools extends ChangeNotifier {
           'tileRasterBackend': tileRasterBackendMode.value.name,
           'gpuTextureBytes': flutterGpuTileRasterBackend.maxTextureBytes,
           'gpuGeometryBytes': flutterGpuTileRasterBackend.maxGeometryBytes,
+          'gpuOverprintApproximation': _gpuOverprintApproximation,
           'tileBorders': pdfDebugPaintDetailBounds.value,
           'renderWindow': pdfDebugShowRenderWindow.value,
           'perfOverlay': showPerformanceOverlay.value,

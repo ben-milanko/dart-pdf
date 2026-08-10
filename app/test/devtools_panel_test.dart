@@ -32,6 +32,7 @@ void main() {
       maxTextureBytes: 256 << 20,
       maxGeometryBytes: 256 << 20,
     );
+    AppDevTools.instance.setGpuOverprintApproximation(false);
     AppDevTools.instance
         .setTileRasterBackendMode(TileRasterBackendMode.flutterGpu);
     AppDevTools.instance.flutterGpuTileRasterBackend.stats.reset();
@@ -57,6 +58,7 @@ void main() {
       maxTextureBytes: 256 << 20,
       maxGeometryBytes: 256 << 20,
     );
+    AppDevTools.instance.setGpuOverprintApproximation(false);
     AppDevTools.instance
         .setTileRasterBackendMode(TileRasterBackendMode.flutterGpu);
     AppDevTools.instance.flutterGpuTileRasterBackend.stats.reset();
@@ -144,6 +146,23 @@ void main() {
       tester.widget<PdfViewer>(find.byType(PdfViewer)).tileRasterBackend,
       same(tools.flutterGpuTileRasterBackend),
       reason: 'budget changes replace the selected backend live',
+    );
+
+    final budgetedBackend = tools.flutterGpuTileRasterBackend;
+    final overprint =
+        find.byKey(const ValueKey('devtools-gpu-overprint-approximation'));
+    await tester.ensureVisible(overprint);
+    await tester.pump();
+    await tester.tap(overprint);
+    await tester.pumpAndSettle();
+    expect(tools.gpuOverprintApproximation, isTrue);
+    expect(tools.flutterGpuTileRasterBackend, isNot(same(budgetedBackend)));
+    expect(
+        tools.flutterGpuTileRasterBackend.allowOverprintApproximation, isTrue);
+    expect(
+      tester.widget<PdfViewer>(find.byType(PdfViewer)).tileRasterBackend,
+      same(tools.flutterGpuTileRasterBackend),
+      reason: 'correctness experiment changes retire live GPU sessions',
     );
   });
 

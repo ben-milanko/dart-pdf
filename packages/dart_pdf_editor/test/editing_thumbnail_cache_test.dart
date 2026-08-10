@@ -68,9 +68,10 @@ void main() {
   // thread - the one the visible page's build needs, and the one a worker
   // priority cannot reach. The gate is what makes it stand down for the viewer.
   group('PdfThumbnailCache foreground gate', () {
-    testWidgets('the warm stands down while the viewer renders, and resumes '
+    testWidgets(
+        'the warm stands down while the viewer renders, and resumes '
         'when it goes idle', (tester) async {
-      final cache = PdfThumbnailCache();
+      final cache = PdfThumbnailCache(warmIdleDelay: Duration.zero);
       addTearDown(cache.dispose);
       final activity = _TestActivity();
       var viewerBusy = true;
@@ -134,7 +135,7 @@ void main() {
         PdfPerfLog.sink = null;
       });
 
-      final cache = PdfThumbnailCache();
+      final cache = PdfThumbnailCache(warmIdleDelay: Duration.zero);
       addTearDown(cache.dispose);
       final activity = _TestActivity();
       var viewerBusy = true;
@@ -175,7 +176,7 @@ void main() {
     });
 
     testWidgets('an unbound cache warms exactly as before', (tester) async {
-      final cache = PdfThumbnailCache();
+      final cache = PdfThumbnailCache(warmIdleDelay: Duration.zero);
       addTearDown(cache.dispose);
       final warmed = <int>[];
       cache.setWarm(Object(), 2, 'k', (page) async => warmed.add(page));
@@ -186,7 +187,7 @@ void main() {
     });
 
     testWidgets('withdrawing the warm releases the gate', (tester) async {
-      final cache = PdfThumbnailCache();
+      final cache = PdfThumbnailCache(warmIdleDelay: Duration.zero);
       addTearDown(cache.dispose);
       final activity = _TestActivity();
       final owner = Object();
@@ -196,6 +197,27 @@ void main() {
       cache.clearWarm(owner);
       expect(activity.listeners, 0,
           reason: 'a disposed panel must not keep the viewer subscribed');
+    });
+
+    testWidgets('navigation focus restarts the thumbnail warm quiet period',
+        (tester) async {
+      final cache =
+          PdfThumbnailCache(warmIdleDelay: const Duration(milliseconds: 750));
+      addTearDown(cache.dispose);
+      final warmed = <int>[];
+      cache.setWarm(Object(), 3, 'k', (page) async => warmed.add(page));
+
+      await tester.pump(const Duration(milliseconds: 500));
+      cache.focus = 2;
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(warmed, isEmpty,
+          reason: 'the destination page still owns the platform thread');
+
+      await tester.pump(const Duration(milliseconds: 251));
+      for (var i = 0; i < 6; i++) {
+        await tester.pump();
+      }
+      expect(warmed, [2, 1, 0]);
     });
   });
 
@@ -273,14 +295,15 @@ void main() {
         isTrue,
         reason: 'page 12 should be off-screen / unbuilt',
       );
-
       // drive the serialized async render queue (rasterization needs runAsync)
+      // and advance fake time so the idle window starts after the foreground
+      // tiles have drained, just as it does between frames in the real app.
       for (var i = 0;
           i < 300 && PdfThumbnailSidebar.debugRasterizations < 12;
           i++) {
         await tester.runAsync(
             () => Future<void>.delayed(const Duration(milliseconds: 10)));
-        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 10));
       }
       // every page rendered exactly once, even the off-screen ones
       expect(PdfThumbnailSidebar.debugRasterizations, 12);
@@ -360,13 +383,12 @@ void main() {
         ),
       ));
       expect(viewer.isPageRenderBusy, isFalse);
-
       for (var i = 0;
           i < 300 && PdfThumbnailSidebar.debugRasterizations < 4;
           i++) {
         await tester.runAsync(
             () => Future<void>.delayed(const Duration(milliseconds: 10)));
-        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 10));
       }
       expect(PdfThumbnailSidebar.debugRasterizations, 4);
     });

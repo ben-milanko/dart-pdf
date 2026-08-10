@@ -51,6 +51,36 @@ void main() {
     expect(zoomed.width, 612 * 3);
   });
 
+  testWidgets('off-screen neighbours stay at fit raster resolution',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final page = PdfDocument.open(buildClassicPdf()).page(0);
+    Widget at({required bool onScreen}) => Center(
+          child: SizedBox(
+            width: 612,
+            child: PdfPageView(
+              page: page,
+              scale: 4,
+              onScreen: onScreen,
+              focusDistance: onScreen ? 0 : 1,
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(at(onScreen: false));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    expect(tester.widget<RawImage>(find.byType(RawImage)).image!.width, 612,
+        reason: 'global zoom must not allocate a sharp off-screen page');
+
+    await tester.pumpWidget(at(onScreen: true));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    expect(tester.widget<RawImage>(find.byType(RawImage)).image!.width, 2448,
+        reason: 'entering the viewport promotes the page normally');
+  });
+
   testWidgets(
       'pages denser than retainedZoomReplayMaxCommands zoom via the '
       'cached-picture fallback', (tester) async {
@@ -121,7 +151,8 @@ void main() {
     await tester.pumpWidget(at(3));
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
     await tester.pump();
-    expect(tester.widget<RawImage>(find.byType(RawImage)).image!.width, 612 * 3);
+    expect(
+        tester.widget<RawImage>(find.byType(RawImage)).image!.width, 612 * 3);
   });
 
   testWidgets('raster resolution follows the on-screen width', (tester) async {

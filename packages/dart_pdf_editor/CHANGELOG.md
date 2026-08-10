@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Keep off-screen neighbour pages at fit-resolution base rasters during deep
+  zoom, promoting them only when they enter the viewport, so navigation no
+  longer allocates high-zoom full-page rasters that are immediately replaced.
+- Require 750 ms of continuous viewer idle time before whole-document
+  thumbnail warming starts or resumes, and restart that quiet window when
+  navigation changes focus.
+- Let optional tile backends expose their latest session rejection reason and
+  include requested backend, actual route, reason, and command count in perf
+  logs.
 - Add an optional persistent tier for 512 px LoD tiles. Disk reads race live
   rendering, writes happen after display admission, cache keys include the
   complete page visual identity, and the existing byte-budgeted memory LRU and

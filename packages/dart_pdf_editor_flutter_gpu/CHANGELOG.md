@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Render ordinary non-rectangular PDF clip stacks exactly with retained
+  stencil geometry, including nested even-odd/nonzero clips and save/restore;
+  rectangular clips keep the cheaper scissor path.
+- Report compiled clip paths and per-tile clip-mask rebuilds in backend stats.
+
 ## 0.1.0
 
 - Add an opt-in Impeller `flutter_gpu` backend for retained-scene LoD tiles.

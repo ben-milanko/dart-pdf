@@ -24,6 +24,14 @@ abstract class PdfTileRasterBackend {
   /// A short diagnostics label, such as `canvas` or `flutter_gpu`.
   String get debugLabel;
 
+  /// Why the most recent [createSession] call returned null, when known.
+  ///
+  /// This deliberately describes the latest call rather than lifetime state:
+  /// page-level perf logs can name the exact reason a requested backend routed
+  /// a scene to Canvas without depending on that backend's diagnostics type.
+  /// Implementations that do not expose a reason may leave this null.
+  String? get lastSessionRejection => null;
+
   /// Creates a lightweight owner for resources retained across tile renders.
   ///
   /// This is called lazily, when the tile path first needs a slab—not while

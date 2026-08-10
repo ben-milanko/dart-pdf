@@ -1048,7 +1048,19 @@ class _PdfPageViewState extends State<PdfPageView>
         scale: scale,
       );
 
-  double _effectiveRatio() => _effectiveRatioAt(widget.scale);
+  /// Scale used by the whole-page base raster.
+  ///
+  /// The InteractiveViewer's live zoom is global, so lazy-list neighbours also
+  /// receive it even when no pixel of those pages is visible. Rasterizing them
+  /// at that zoom produced 60-70 MB full-page images that were immediately
+  /// replaced by fit rasters as navigation moved on. Off-screen pages instead
+  /// keep (or first build) the fit-resolution safety net; once a page overlaps
+  /// the viewport its ordinary promotion path requests the sharp base and
+  /// region/tile detail.
+  double get _baseRasterScale =>
+      widget.onScreen ? widget.scale : math.min(1.0, widget.scale);
+
+  double _effectiveRatio() => _effectiveRatioAt(_baseRasterScale);
 
   // --- Live-raster budget (#405) --------------------------------------------
 
@@ -2020,7 +2032,8 @@ class _PdfPageViewState extends State<PdfPageView>
     // fit scale. Once zoomed, however, the lightweight worker recording also
     // bootstraps the visible-region request that can beat a slow full-page
     // image decode. Ask for it even when soft preview pixels already exist.
-    final needsRegionBootstrap = widget.scale > 1.05 &&
+    final needsRegionBootstrap = widget.onScreen &&
+        widget.scale > 1.05 &&
         _scene == null &&
         (widget.renderWorker?.isActive ?? false);
     if (firstInterpret && (!previewFresh || needsRegionBootstrap)) {
@@ -3187,7 +3200,20 @@ class _PdfPageViewState extends State<PdfPageView>
         }
         final fallback =
             const PdfCanvasTileRasterBackend().createSession(scene);
-        if (preferred == null) return fallback;
+        if (preferred == null) {
+          PdfPerfLog.log(
+            'tile backend session page=${widget.previewIndex} '
+            'requested=${label()} route=canvas '
+            'reason=${backend.lastSessionRejection ?? 'backend declined'} '
+            'commands=${scene.commands.length}',
+          );
+          return fallback;
+        }
+        PdfPerfLog.log(
+          'tile backend session page=${widget.previewIndex} '
+          'requested=${label()} route=${preferred == fallback ? 'canvas' : label()} '
+          'commands=${scene.commands.length}',
+        );
         // Skip the adapter only for the stock implementation itself. A
         // subclass may override createSession and must receive the same
         // failure and output-validation guarantees as every other backend.
