@@ -82,6 +82,8 @@ void main() {
       final session = backend.createSession(scene);
       expect(session, isNotNull, reason: backend.stats.lastRejection);
       addTearDown(session!.dispose);
+      expect(backend.stats.activeSessions, 1);
+      expect(backend.stats.lastTileRoute, 'flutter_gpu-session');
 
       const firstRegion = Rect.fromLTWH(40, 50, 330, 190);
       final canvas = await scene.rasterizeRegion(firstRegion, pixelRatio: 2);
@@ -115,6 +117,10 @@ void main() {
       expect(backend.stats.texturesUploaded, 1);
       expect(backend.stats.geometryBuffers, buffers);
       expect(backend.stats.tilesRendered, 2);
+      expect(backend.stats.lastTileRoute, 'flutter_gpu');
+      session.dispose();
+      expect(backend.stats.activeSessions, 0);
+      expect(backend.stats.sessionsDisposed, 1);
     });
   }, timeout: const Timeout(Duration(minutes: 2)));
 
@@ -271,6 +277,8 @@ void main() {
       );
       blocked.dispose();
       expect(backend.stats.textureBudgetFallbacks, 1);
+      expect(backend.stats.rasterFallbacks, 1);
+      expect(backend.stats.lastTileRoute, 'canvas-fallback');
       expect(backend.stats.texturesUploaded, 1,
           reason: 'a refused scene must not overshoot the byte ceiling');
 
@@ -322,6 +330,8 @@ void main() {
       );
       blocked.dispose();
       expect(backend.stats.geometryBudgetFallbacks, 1);
+      expect(backend.stats.rasterFallbacks, 1);
+      expect(backend.stats.lastTileRoute, 'canvas-fallback');
       expect(backend.stats.geometryBuffers, 1,
           reason: 'a pinned scene must not overshoot the byte ceiling');
 
@@ -361,6 +371,7 @@ void main() {
       final exact = FlutterGpuTileRasterBackend();
       expect(exact.createSession(scene), isNull);
       expect(exact.stats.lastRejection, contains('overprint'));
+      expect(exact.stats.lastTileRoute, 'canvas-fallback');
 
       final benchmark =
           FlutterGpuTileRasterBackend(allowOverprintApproximation: true);

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Add a live Canvas/flutter_gpu tile-backend switch to Developer tools, along
+  with persistent texture/geometry ceilings and diagnostics for actual route,
+  fallback reasons, compile/replay time, cache pressure, uploads/readbacks,
+  and live resource leases. Export all GPU metrics in the JSON snapshot.
+
 ## 3.4.0
 
 - Copy and paste annotations between open documents, save placed stamps back

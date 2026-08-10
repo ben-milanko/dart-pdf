@@ -7,6 +7,8 @@
   complete page visual identity, and the existing byte-budgeted memory LRU and
   coarse-tile fallback remain authoritative. Export the retained-scene bounds
   and content-stable image-key helpers used by optional raster backends.
+- Let `PdfComparisonView` receive the same optional tile raster backend as the
+  reader, editor, and viewer, so hosts can switch every mounted view together.
 - Stop treating a page that shares the screen with the current one as an
   off-screen prefetch neighbour: `PdfPageView.onScreen` now gates the
   reduced-resolution image decode and the live-raster reclaim, so pages above

@@ -13,6 +13,7 @@ import 'dart:convert';
 import 'dart:ui' show FramePhase, Locale;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor_flutter_gpu/dart_pdf_editor_flutter_gpu.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/scheduler.dart';
@@ -49,6 +50,13 @@ enum DevLogLevel { info, error }
 /// Whether the visited-page raster cache follows machine headroom or a fixed
 /// diagnostic override chosen in Developer tools.
 enum PageRasterCacheMode { auto, fixed }
+
+/// The preferred renderer for deep-zoom tile slabs.
+///
+/// This is a preference rather than a promise: flutter_gpu can reject a page
+/// or fail to initialize, in which case the viewer permanently falls back to
+/// Canvas for that retained scene.
+enum TileRasterBackendMode { canvas, flutterGpu }
 
 /// Per-pointer accumulator for touch-input logging: the net displacement,
 /// total path length, and move count between a pointer's down and up.
@@ -127,6 +135,95 @@ class AppDevTools extends ChangeNotifier {
   /// log-traffic rebuild.
   final ValueNotifier<PdfPageRasterWarmPolicy> pageRasterWarmPolicy =
       ValueNotifier(const PdfPageRasterWarmPolicy.disabled());
+
+  /// Runtime tile-backend selection exposed by Developer tools.
+  ///
+  /// The app listens to this separately from the noisy devtools log. Changing
+  /// it rebuilds the mounted viewer in place; [PdfPageView] then retires its
+  /// old scene sessions without reopening the PDF; the base raster stays
+  /// visible while the selected backend repopulates the invalidated LoD.
+  late final ValueNotifier<TileRasterBackendMode> tileRasterBackendMode =
+      ValueNotifier(
+    flutterGpuTileRasterBackend.isPlatformSupported
+        ? TileRasterBackendMode.flutterGpu
+        : TileRasterBackendMode.canvas,
+  );
+
+  /// Changes when the selected backend instance is replaced without changing
+  /// its mode (for example after editing a GPU byte ceiling).
+  final ValueNotifier<int> tileRasterBackendRevision = ValueNotifier(0);
+
+  /// One process-wide backend instance preserves textures, pooled geometry,
+  /// and diagnostics across pages, tabs, and backend switches.
+  FlutterGpuTileRasterBackend? _flutterGpuTileRasterBackend;
+  int _gpuTextureBytes = 256 << 20;
+  int _gpuGeometryBytes = 256 << 20;
+
+  FlutterGpuTileRasterBackend get flutterGpuTileRasterBackend =>
+      _flutterGpuTileRasterBackend ??= FlutterGpuTileRasterBackend(
+        maxTextureBytes: _gpuTextureBytes,
+        maxGeometryBytes: _gpuGeometryBytes,
+      );
+
+  static const PdfCanvasTileRasterBackend _canvasTileRasterBackend =
+      PdfCanvasTileRasterBackend();
+
+  PdfTileRasterBackend get tileRasterBackend =>
+      tileRasterBackendMode.value == TileRasterBackendMode.flutterGpu
+          ? flutterGpuTileRasterBackend
+          : _canvasTileRasterBackend;
+
+  void setTileRasterBackendMode(TileRasterBackendMode mode) {
+    if (tileRasterBackendMode.value == mode) return;
+    tileRasterBackendMode.value = mode;
+    // A backend A/B switch must not keep serving already-rendered slabs from
+    // the old backend. The full-page/base raster remains visible while the
+    // selected backend repopulates the current LoD, so this is still a live
+    // handoff rather than a document reopen or a blank first paint.
+    if (PdfPageView.tileStoreDetail) {
+      (PdfPageView.debugTileStoreOverride ?? PdfTileStore.instanceOrNull)
+          ?.invalidate();
+    }
+    addLog('devtools: tile raster backend → ${mode.name}');
+  }
+
+  /// Replaces the process-wide GPU backend with new strict byte ceilings.
+  ///
+  /// The limits do not allocate eagerly. A live selected backend is swapped
+  /// in place, which retires its page sessions and rebuilds the current LoD
+  /// through the new instance while the base raster remains on screen.
+  void setGpuTileBudgets({int? maxTextureBytes, int? maxGeometryBytes}) {
+    final textureBytes = maxTextureBytes ?? _gpuTextureBytes;
+    final geometryBytes = maxGeometryBytes ?? _gpuGeometryBytes;
+    if (textureBytes == _gpuTextureBytes &&
+        geometryBytes == _gpuGeometryBytes) {
+      return;
+    }
+    final previous = _flutterGpuTileRasterBackend;
+    _gpuTextureBytes = textureBytes;
+    _gpuGeometryBytes = geometryBytes;
+    _flutterGpuTileRasterBackend = FlutterGpuTileRasterBackend(
+      maxTextureBytes: textureBytes,
+      maxGeometryBytes: geometryBytes,
+    );
+    // Unpinned texture ownership can go immediately. Active sessions keep
+    // their leases until the viewer rebuild below disposes them.
+    previous?.clearImageCache();
+    if (tileRasterBackendMode.value == TileRasterBackendMode.flutterGpu) {
+      if (PdfPageView.tileStoreDetail) {
+        (PdfPageView.debugTileStoreOverride ?? PdfTileStore.instanceOrNull)
+            ?.invalidate();
+      }
+      tileRasterBackendRevision.value++;
+    }
+    addLog('devtools: GPU budgets → '
+        '${textureBytes >> 20}MB textures, '
+        '${geometryBytes >> 20}MB geometry');
+  }
+
+  /// Releases reusable GPU image-cache ownership. Active scene leases remain
+  /// valid and geometry stays in its bounded reusable pool.
+  void clearGpuImageCache() => flutterGpuTileRasterBackend.clearImageCache();
 
   PageRasterCacheMode _pageRasterCacheMode = PageRasterCacheMode.auto;
   PdfPageRasterCachePolicy _fixedPageRasterCachePolicy =
@@ -276,8 +373,9 @@ class AppDevTools extends ChangeNotifier {
     // raster - and this log is a ring of only maxLogEntries, so a sustained
     // trace WILL evict the earlier entries (the open-trace: lines included).
     // Reproduce the problem, then export promptly; don't leave it running.
-    PdfPerfLog.sink =
-        value ? (m) => _record(DevLogLevel.info, 'perf: $m', notify: false) : null;
+    PdfPerfLog.sink = value
+        ? (m) => _record(DevLogLevel.info, 'perf: $m', notify: false)
+        : null;
     addLog('devtools: perf trace logging ${value ? 'on' : 'off'}');
     _scheduleNotify();
   }
@@ -488,6 +586,28 @@ class AppDevTools extends ChangeNotifier {
       if (map['deepZoomMode'] case final String mode) {
         setDeepZoomMode(mode);
       }
+      final textureBytes = switch (map['gpuTextureBytes']) {
+        final int value when value >= 16 << 20 => value,
+        _ => _gpuTextureBytes,
+      };
+      final geometryBytes = switch (map['gpuGeometryBytes']) {
+        final int value when value >= 16 << 20 => value,
+        _ => _gpuGeometryBytes,
+      };
+      setGpuTileBudgets(
+        maxTextureBytes: textureBytes,
+        maxGeometryBytes: geometryBytes,
+      );
+      if (map['tileRasterBackend'] case final String mode) {
+        final restored = TileRasterBackendMode.values
+            .where((value) => value.name == mode)
+            .firstOrNull;
+        if (restored != null &&
+            (restored != TileRasterBackendMode.flutterGpu ||
+                flutterGpuTileRasterBackend.isPlatformSupported)) {
+          setTileRasterBackendMode(restored);
+        }
+      }
       if (map['tileBorders'] case final bool v) {
         pdfDebugPaintDetailBounds.value = v;
       }
@@ -529,8 +649,7 @@ class AppDevTools extends ChangeNotifier {
       }
       if (map['pageRasterCacheMode'] == PageRasterCacheMode.auto.name) {
         useAutoPageRasterCache();
-      } else if (map['pageRasterCacheMode'] ==
-              PageRasterCacheMode.fixed.name ||
+      } else if (map['pageRasterCacheMode'] == PageRasterCacheMode.fixed.name ||
           map.containsKey('pageRasterCacheBytes') ||
           map.containsKey('pageRasterCacheEntryBytes')) {
         setPageRasterCachePolicy(fixedPolicy);
@@ -548,6 +667,9 @@ class AppDevTools extends ChangeNotifier {
         _optionsKey,
         jsonEncode({
           'deepZoomMode': deepZoomMode,
+          'tileRasterBackend': tileRasterBackendMode.value.name,
+          'gpuTextureBytes': flutterGpuTileRasterBackend.maxTextureBytes,
+          'gpuGeometryBytes': flutterGpuTileRasterBackend.maxGeometryBytes,
           'tileBorders': pdfDebugPaintDetailBounds.value,
           'renderWindow': pdfDebugShowRenderWindow.value,
           'perfOverlay': showPerformanceOverlay.value,

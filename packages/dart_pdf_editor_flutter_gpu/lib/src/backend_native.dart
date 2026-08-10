@@ -70,6 +70,14 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   final _GpuImageCache _imageCache;
   final _GpuGeometryPool _geometryPool;
 
+  /// True when this build includes the native flutter_gpu implementation.
+  ///
+  /// The Impeller context is still acquired lazily by [createSession], so
+  /// reading this does not move GPU initialization onto the document's first
+  /// paint. A native build without a usable context declines the session and
+  /// reports that runtime reason through [stats].
+  bool get isPlatformSupported => true;
+
   /// Drops reusable texture ownership. Active compiled scenes retain the
   /// resources they are currently drawing.
   void clearImageCache() => _imageCache.clear(stats);
@@ -85,6 +93,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
       final units = unitBuild.units;
       if (units == null) {
         stats.lastRejection = unitBuild.rejection;
+        stats.lastTileRoute = 'canvas-fallback';
         stats.sessionsRejected++;
         return null;
       }
@@ -92,6 +101,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
           _unsupportedReason(scene, units, allowOverprintApproximation);
       if (rejection != null) {
         stats.lastRejection = rejection;
+        stats.lastTileRoute = 'canvas-fallback';
         stats.sessionsRejected++;
         return null;
       }
@@ -99,6 +109,10 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
         stats.overprintApproximationSessions++;
       }
       stats.sessionsCreated++;
+      stats.lastTileRoute = 'flutter_gpu-session';
+      stats.activeSessions++;
+      stats.peakActiveSessions =
+          math.max(stats.peakActiveSessions, stats.activeSessions);
       return _FlutterGpuTileSession(
         scene: scene,
         context: context,
@@ -111,6 +125,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
       );
     } catch (error) {
       stats.lastRejection = 'initialization failed: $error';
+      stats.lastTileRoute = 'canvas-fallback';
       stats.sessionsRejected++;
       return null;
     }
@@ -614,6 +629,7 @@ class _FlutterGpuTileSession implements PdfTileRasterSession {
   Future<_CompiledScene>? _compiled;
   _CompiledScene? _ready;
   bool _disposed = false;
+  bool _failureReported = false;
 
   Future<_CompiledScene> _compile() => _compiled ??= _CompiledScene.build(
         scene,
@@ -637,19 +653,30 @@ class _FlutterGpuTileSession implements PdfTileRasterSession {
     int? tracePage,
   }) async {
     if (_disposed) throw StateError('flutter_gpu tile session disposed');
-    final compiled = await _compile();
-    if (_disposed) throw StateError('flutter_gpu tile session disposed');
-    final selected = _selectGpuUnits(units, compiled.pageToRaster, region);
-    stats.selectedCommands += selected.length;
-    final image = compiled.render(
-      selected,
-      region: region,
-      pixelRatio: pixelRatio,
-      pipelines: pipelines,
-      useMsaa: msaa,
-    );
-    stats.tilesRendered++;
-    return image;
+    try {
+      final compiled = await _compile();
+      if (_disposed) throw StateError('flutter_gpu tile session disposed');
+      final selected = _selectGpuUnits(units, compiled.pageToRaster, region);
+      stats.selectedCommands += selected.length;
+      final image = compiled.render(
+        selected,
+        region: region,
+        pixelRatio: pixelRatio,
+        pipelines: pipelines,
+        useMsaa: msaa,
+      );
+      stats.tilesRendered++;
+      stats.lastTileRoute = 'flutter_gpu';
+      return image;
+    } catch (error) {
+      if (!_failureReported && !_disposed) {
+        _failureReported = true;
+        stats.rasterFallbacks++;
+        stats.lastRejection = 'rasterization failed: $error';
+        stats.lastTileRoute = 'canvas-fallback';
+      }
+      rethrow;
+    }
   }
 
   @override
@@ -659,6 +686,8 @@ class _FlutterGpuTileSession implements PdfTileRasterSession {
     _ready?.dispose();
     _ready = null;
     _compiled = null;
+    stats.sessionsDisposed++;
+    stats.activeSessions = math.max(0, stats.activeSessions - 1);
   }
 }
 

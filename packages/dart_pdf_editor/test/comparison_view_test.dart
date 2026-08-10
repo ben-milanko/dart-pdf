@@ -55,6 +55,7 @@ void main() {
       maxBytes: 256 * 1024 * 1024,
       maxEntryBytes: 64 * 1024 * 1024,
     );
+    final tileBackend = _TestTileBackend();
 
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
@@ -62,6 +63,7 @@ void main() {
           before: before,
           after: after,
           pageRasterCachePolicy: rasterPolicy,
+          tileRasterBackend: tileBackend,
         ),
       ),
     ));
@@ -78,6 +80,12 @@ void main() {
           .map((viewer) => viewer.pageRasterCachePolicy),
       everyElement(rasterPolicy),
     );
+    expect(
+      tester
+          .widgetList<PdfViewer>(find.byType(PdfViewer))
+          .map((viewer) => viewer.tileRasterBackend),
+      everyElement(same(tileBackend)),
+    );
 
     // The navigator lists the replaced text.
     expect(find.byKey(const ValueKey('pdf-diff-change-0')), findsOneWidget);
@@ -91,7 +99,18 @@ void main() {
       tester.widget<PdfViewer>(find.byType(PdfViewer)).pageRasterCachePolicy,
       rasterPolicy,
     );
+    expect(tester.widget<PdfViewer>(find.byType(PdfViewer)).tileRasterBackend,
+        same(tileBackend));
   });
+}
+
+class _TestTileBackend extends PdfTileRasterBackend {
+  @override
+  String get debugLabel => 'comparison-test';
+
+  @override
+  PdfTileRasterSession createSession(PdfRetainedScene scene) =>
+      const PdfCanvasTileRasterBackend().createSession(scene);
 }
 
 /// A one-page 612×792 PDF drawing [text] at 72,720 in 18pt Helvetica.

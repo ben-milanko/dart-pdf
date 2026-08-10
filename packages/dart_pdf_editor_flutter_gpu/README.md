@@ -53,6 +53,14 @@ after their scene is disposed and every submitted command buffer completes.
 This keeps command-heavy CAD navigation bounded without relying on delayed
 native finalizers; a scene that cannot lease enough geometry also falls back.
 
+`backend.stats` reports accepted/rejected/active sessions, the latest actual
+tile route, runtime fallback reasons, scene compile and tile-submit time,
+spatially selected command counts, upload/readback paths, cache hits and
+evictions, budget fallbacks, retained bytes, and live resource leases.
+`backend.stats.toJson()` is suitable for benchmark artifacts. Keep the backend
+instance alive when comparing pages so those counters and cross-page caches
+describe the real workload rather than one page at a time.
+
 Pages with other transparency groups or soft masks, non-normal blends,
 gradients, tiling cells, unsafe overprint, non-rectangular clips,
 substituted/stroked text, hairlines, or missing image pixels are rejected as a

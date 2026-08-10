@@ -47,6 +47,10 @@ AppImage and portable tarball builds remain available from
 - Progressive rendering reveals complex pages top-down, while faithful
   overprint and spot-color handling keeps print-oriented PDFs visually
   accurate.
+- Developer tools (F12) can switch deep-zoom tiles live between Canvas and the
+  optional flutter_gpu backend, tune the GPU texture/geometry ceilings, inspect
+  actual GPU/fallback routes and resource pressure, and export those metrics as
+  JSON. Web keeps Canvas through the companion's compile-time stub.
 - Dirty-state tracking with a save indicator and crash recovery: unsaved
   revisions are mirrored in the background and offered for restoration after
   a restart.

@@ -18,6 +18,9 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   final int maxGeometryBytes;
   final FlutterGpuTileBackendStats stats;
 
+  /// False for the compile-time web/unsupported implementation.
+  bool get isPlatformSupported => false;
+
   void clearImageCache() {}
 
   @override
@@ -26,6 +29,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   @override
   PdfTileRasterSession? createSession(PdfRetainedScene scene) {
     stats.lastRejection = 'flutter_gpu is unavailable on this platform';
+    stats.lastTileRoute = 'canvas-fallback';
     stats.sessionsRejected++;
     return null;
   }

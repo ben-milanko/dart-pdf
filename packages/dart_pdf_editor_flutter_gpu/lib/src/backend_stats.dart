@@ -1,8 +1,13 @@
 /// Aggregated diagnostics for one flutter_gpu tile backend instance.
 class FlutterGpuTileBackendStats {
   String? lastRejection;
+  String? lastTileRoute;
   int sessionsCreated = 0;
   int sessionsRejected = 0;
+  int sessionsDisposed = 0;
+  int rasterFallbacks = 0;
+  int activeSessions = 0;
+  int peakActiveSessions = 0;
   int overprintApproximationSessions = 0;
   int scenesCompiled = 0;
   int compileMicros = 0;
@@ -26,18 +31,57 @@ class FlutterGpuTileBackendStats {
   int selectedCommands = 0;
   int submitMicros = 0;
 
+  /// A JSON-safe snapshot suitable for diagnostics and benchmark artifacts.
+  Map<String, Object?> toJson() => {
+        'lastRejection': lastRejection,
+        'lastTileRoute': lastTileRoute,
+        'sessionsCreated': sessionsCreated,
+        'sessionsRejected': sessionsRejected,
+        'sessionsDisposed': sessionsDisposed,
+        'rasterFallbacks': rasterFallbacks,
+        'activeSessions': activeSessions,
+        'peakActiveSessions': peakActiveSessions,
+        'overprintApproximationSessions': overprintApproximationSessions,
+        'scenesCompiled': scenesCompiled,
+        'compileMicros': compileMicros,
+        'geometryBuffers': geometryBuffers,
+        'geometryVertices': geometryVertices,
+        'geometryBudgetFallbacks': geometryBudgetFallbacks,
+        'activeGeometryLeases': activeGeometryLeases,
+        'geometryBytes': geometryBytes,
+        'peakGeometryBytes': peakGeometryBytes,
+        'texturesUploaded': texturesUploaded,
+        'textureDirectUploads': textureDirectUploads,
+        'textureReadbacks': textureReadbacks,
+        'textureCacheHits': textureCacheHits,
+        'textureCacheMisses': textureCacheMisses,
+        'textureEvictions': textureEvictions,
+        'textureBudgetFallbacks': textureBudgetFallbacks,
+        'activeTextureLeases': activeTextureLeases,
+        'textureBytes': textureBytes,
+        'peakTextureBytes': peakTextureBytes,
+        'tilesRendered': tilesRendered,
+        'selectedCommands': selectedCommands,
+        'submitMicros': submitMicros,
+      };
+
+  /// Clears lifetime counters without corrupting live resource gauges.
+  ///
+  /// Active sessions and cache/pool ownership continue to exist after a
+  /// diagnostics reset, so their current values are retained and become the
+  /// new peak baseline.
   void reset() {
     sessionsCreated = 0;
     sessionsRejected = 0;
+    sessionsDisposed = 0;
+    rasterFallbacks = 0;
+    peakActiveSessions = activeSessions;
     overprintApproximationSessions = 0;
     scenesCompiled = 0;
     compileMicros = 0;
-    geometryBuffers = 0;
     geometryVertices = 0;
     geometryBudgetFallbacks = 0;
-    activeGeometryLeases = 0;
-    geometryBytes = 0;
-    peakGeometryBytes = 0;
+    peakGeometryBytes = geometryBytes;
     texturesUploaded = 0;
     textureDirectUploads = 0;
     textureReadbacks = 0;
@@ -45,17 +89,18 @@ class FlutterGpuTileBackendStats {
     textureCacheMisses = 0;
     textureEvictions = 0;
     textureBudgetFallbacks = 0;
-    activeTextureLeases = 0;
-    textureBytes = 0;
-    peakTextureBytes = 0;
+    peakTextureBytes = textureBytes;
     tilesRendered = 0;
     selectedCommands = 0;
     submitMicros = 0;
     lastRejection = null;
+    lastTileRoute = null;
   }
 
   @override
   String toString() => 'sessions=$sessionsCreated rejected=$sessionsRejected '
+      'disposed=$sessionsDisposed rasterFallbacks=$rasterFallbacks '
+      'activeSessions=$activeSessions peakActiveSessions=$peakActiveSessions '
       'overprintApprox=$overprintApproximationSessions '
       'compiled=$scenesCompiled compileUs=$compileMicros '
       'buffers=$geometryBuffers vertices=$geometryVertices '
@@ -68,6 +113,6 @@ class FlutterGpuTileBackendStats {
       'budgetFallbacks=$textureBudgetFallbacks '
       'activeLeases=$activeTextureLeases '
       'textureBytes=$textureBytes peakTextureBytes=$peakTextureBytes '
-      'tiles=$tilesRendered '
+      'tiles=$tilesRendered lastRoute=$lastTileRoute '
       'selected=$selectedCommands submitUs=$submitMicros';
 }

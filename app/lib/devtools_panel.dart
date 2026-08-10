@@ -59,8 +59,8 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
   void initState() {
     super.initState();
     // Caches, RSS, and PdfPerf have no change notifications; poll while open.
-    _refresh = Timer.periodic(
-        const Duration(seconds: 1), (_) => setState(() {}));
+    _refresh =
+        Timer.periodic(const Duration(seconds: 1), (_) => setState(() {}));
   }
 
   @override
@@ -72,9 +72,7 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return widget.bottomSheet
-        ? _buildBottomSheet(theme)
-        : _buildDocked(theme);
+    return widget.bottomSheet ? _buildBottomSheet(theme) : _buildDocked(theme);
   }
 
   /// The same docked chrome the editor's own sidebars (Annotations, Pages)
@@ -146,8 +144,7 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
     return ListenableBuilder(
       listenable: _tools,
       builder: (context, _) => SingleChildScrollView(
-        padding:
-            EdgeInsets.only(bottom: 16, left: geometry.contentStartInset),
+        padding: EdgeInsets.only(bottom: 16, left: geometry.contentStartInset),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -156,6 +153,7 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
             _memorySection(theme),
             _workersSection(theme),
             _deepZoomSection(theme),
+            _tileBackendSection(theme),
             _perfSection(theme),
             if (widget.session != null) _sessionSection(theme),
             _logSection(theme),
@@ -248,8 +246,7 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
         'rssHighWaterBytes': _tools.maxRssBytes,
         'cacheTotalBytes': PdfCacheRegistry.instance.totalWeight,
         'cacheCeilingBytes': PdfCacheRegistry.instance.maxTotalWeight,
-        'pageRasterCacheBytes':
-            _tools.pageRasterCachePolicy.value.maxBytes,
+        'pageRasterCacheBytes': _tools.pageRasterCachePolicy.value.maxBytes,
         'pageRasterCacheEntryBytes':
             _tools.pageRasterCachePolicy.value.maxEntryBytes,
         'pageRasterCacheMode': _tools.pageRasterCacheMode.name,
@@ -270,6 +267,16 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
       },
       'renderWorkers': pdfRenderWorkerPoolSize,
       'deepZoomMode': _deepZoomMode,
+      'tileRasterBackend': {
+        'requested': _tools.tileRasterBackendMode.value.name,
+        'debugLabel': _tools.tileRasterBackend.debugLabel,
+        'platformSupported':
+            _tools.flutterGpuTileRasterBackend.isPlatformSupported,
+        'observedOutcome': _tileBackendOutcome(),
+        'maxTextureBytes': _tools.flutterGpuTileRasterBackend.maxTextureBytes,
+        'maxGeometryBytes': _tools.flutterGpuTileRasterBackend.maxGeometryBytes,
+        'stats': _tools.flutterGpuTileRasterBackend.stats.toJson(),
+      },
       if (store != null)
         'tileStore': {
           'tiles': store.tileCount,
@@ -297,11 +304,8 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
           },
       ],
     };
-    final stamp = DateTime.now()
-        .toIso8601String()
-        .replaceAll(':', '')
-        .split('.')
-        .first;
+    final stamp =
+        DateTime.now().toIso8601String().replaceAll(':', '').split('.').first;
     final result = await saveJsonAs(
       context,
       const JsonEncoder.withIndent('  ').convert(snapshot),
@@ -344,8 +348,7 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
                       })
                   : null,
             ),
-            Text('$pdfRenderWorkerPoolSize',
-                style: theme.textTheme.bodyMedium),
+            Text('$pdfRenderWorkerPoolSize', style: theme.textTheme.bodyMedium),
             IconButton(
               key: const ValueKey('devtools-workers-up'),
               icon: const Icon(Icons.add, size: 16),
@@ -405,11 +408,12 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
         'Only English translations ship today, so other locales show the '
         'Material widgets translated (and RTL layout for Arabic/Hebrew) while '
         'app strings fall back to English. Session-only - not persisted.',
-        style:
-            theme.textTheme.bodySmall!.copyWith(color: theme.colorScheme.outline),
+        style: theme.textTheme.bodySmall!
+            .copyWith(color: theme.colorScheme.outline),
       ),
       const SizedBox(height: 4),
-      _kv(theme, 'Layout direction', rtl ? 'RTL (right-to-left)' : 'LTR (left-to-right)',
+      _kv(theme, 'Layout direction',
+          rtl ? 'RTL (right-to-left)' : 'LTR (left-to-right)',
           help: 'The ambient Directionality the app is currently laying out '
               'with. RTL locales (Arabic, Hebrew) flip it; the chrome mirrors '
               'via EdgeInsetsDirectional / AlignmentDirectional.'),
@@ -522,7 +526,8 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
         ),
       );
 
-  static String _mb(num bytes) => '${(bytes / (1 << 20)).toStringAsFixed(1)} MB';
+  static String _mb(num bytes) =>
+      '${(bytes / (1 << 20)).toStringAsFixed(1)} MB';
 
   // --- frames ---------------------------------------------------------------
 
@@ -554,15 +559,15 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
           theme,
           key: null,
           title: 'Performance overlay',
-        help: "Flutter's built-in overlay graphing UI-thread and raster-"
-            'thread frame times on top of the app. Available in debug and '
-            'profile builds; profile numbers are the meaningful ones.',
-        value: _tools.showPerformanceOverlay.value,
-        onChanged: (v) => setState(() {
-          _tools.showPerformanceOverlay.value = v;
-          _persist();
-        }),
-      ),
+          help: "Flutter's built-in overlay graphing UI-thread and raster-"
+              'thread frame times on top of the app. Available in debug and '
+              'profile builds; profile numbers are the meaningful ones.',
+          value: _tools.showPerformanceOverlay.value,
+          onChanged: (v) => setState(() {
+            _tools.showPerformanceOverlay.value = v;
+            _persist();
+          }),
+        ),
       if (kDebugMode)
         _helpSwitch(
           theme,
@@ -605,6 +610,16 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
     (256 << 20, '256 MB'),
     (512 << 20, '512 MB'),
     (1 << 30, '1 GB'),
+  ];
+  static const _gpuBudgets = <(int, String)>[
+    (64 << 20, '64 MB'),
+    (128 << 20, '128 MB'),
+    (256 << 20, '256 MB'),
+    (512 << 20, '512 MB'),
+    (1 << 30, '1 GB'),
+    (2 << 30, '2 GB'),
+    (4 * (1 << 30), '4 GB'),
+    (8 * (1 << 30), '8 GB'),
   ];
   static const _fixedEntrySeedBytes = 256 << 20;
 
@@ -766,9 +781,7 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
               'viewer build window. Raising this makes revisits instant at the '
               'cost of RAM; Off keeps only the small fast-scroll previews. '
               'Changes apply immediately and persist across restarts.',
-          value: rasterAuto
-              ? -1
-              : _tools.fixedPageRasterCachePolicy.maxBytes,
+          value: rasterAuto ? -1 : _tools.fixedPageRasterCachePolicy.maxBytes,
           valueLabel: rasterAuto
               ? 'Auto · ${_byteBudgetLabel(rasterPolicy.maxBytes)}'
               : null,
@@ -803,8 +816,7 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
                 'this value and the total budget is effective.',
             value: _tools.fixedPageRasterCachePolicy.maxEntryBytes,
             choices: _pageRasterEntryBudgets,
-            onChanged: (value) =>
-                _setPageRasterCache(maxEntryBytes: value),
+            onChanged: (value) => _setPageRasterCache(maxEntryBytes: value),
           ),
         _byteBudgetControl(
           theme,
@@ -870,6 +882,7 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
         key: const ValueKey('devtools-clear-caches'),
         onPressed: () {
           final freed = PdfCacheRegistry.instance.handleMemoryPressure();
+          _tools.clearGpuImageCache();
           _tools.addLog('devtools: cleared caches, freed ${_mb(freed)}');
           setState(() {});
         },
@@ -1007,6 +1020,264 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
     ]);
   }
 
+  // --- tile raster backend -------------------------------------------------
+
+  static String _backendLabel(TileRasterBackendMode mode) => switch (mode) {
+        TileRasterBackendMode.canvas => 'Canvas',
+        TileRasterBackendMode.flutterGpu => 'flutter_gpu',
+      };
+
+  String _tileBackendOutcome() {
+    final mode = _tools.tileRasterBackendMode.value;
+    final backend = _tools.flutterGpuTileRasterBackend;
+    final stats = backend.stats;
+    if (mode == TileRasterBackendMode.canvas) return 'Canvas selected';
+    if (!backend.isPlatformSupported) {
+      return 'Canvas fallback (flutter_gpu unavailable)';
+    }
+    if (_deepZoomMode == _modePatch) return 'Waiting for a tile mode';
+    return switch (stats.lastTileRoute) {
+      'flutter_gpu' => stats.sessionsRejected > 0 || stats.rasterFallbacks > 0
+          ? 'flutter_gpu latest (mixed lifetime)'
+          : 'flutter_gpu rendering',
+      'flutter_gpu-session' => 'GPU session accepted; awaiting a tile',
+      'canvas-fallback' => stats.activeSessions > 0
+          ? 'Canvas fallback latest (GPU also active)'
+          : 'Canvas fallback',
+      _ => stats.activeSessions > 0
+          ? 'GPU session active; awaiting next tile'
+          : 'Not sampled yet',
+    };
+  }
+
+  static String _averageMs(int micros, int count) =>
+      count == 0 ? 'n/a' : '${(micros / count / 1000).toStringAsFixed(2)} ms';
+
+  void _setGpuBudget({int? textureBytes, int? geometryBytes}) {
+    _tools.setGpuTileBudgets(
+      maxTextureBytes: textureBytes,
+      maxGeometryBytes: geometryBytes,
+    );
+    _persist();
+    setState(() {});
+  }
+
+  Widget _tileBackendSection(ThemeData theme) {
+    final backend = _tools.flutterGpuTileRasterBackend;
+    final stats = backend.stats;
+    final mode = _tools.tileRasterBackendMode.value;
+    final gpuSamples = stats.sessionsCreated + stats.sessionsRejected;
+    final fallbackCount = stats.sessionsRejected + stats.rasterFallbacks;
+    return _section(
+      theme,
+      'Tile raster backend',
+      [
+        Row(
+          children: [
+            Expanded(
+              child:
+                  Text('Preferred backend', style: theme.textTheme.bodySmall),
+            ),
+            PopupMenuButton<TileRasterBackendMode>(
+              key: const ValueKey('devtools-tile-backend'),
+              tooltip: 'Switch tile raster backend',
+              onSelected: (value) {
+                _tools.setTileRasterBackendMode(value);
+                _persist();
+                setState(() {});
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: TileRasterBackendMode.canvas,
+                  child: Text('Canvas'),
+                ),
+                PopupMenuItem(
+                  value: TileRasterBackendMode.flutterGpu,
+                  enabled: backend.isPlatformSupported,
+                  child: Text(backend.isPlatformSupported
+                      ? 'flutter_gpu'
+                      : 'flutter_gpu (unavailable)'),
+                ),
+              ],
+              child: Padding(
+                padding: const EdgeInsetsDirectional.fromSTEB(8, 4, 0, 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_backendLabel(mode), style: theme.textTheme.bodySmall),
+                    const Icon(Icons.arrow_drop_down, size: 18),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+        _kv(theme, 'Observed outcome', _tileBackendOutcome(),
+            help: 'The latest route this backend instance actually took, '
+                'plus whether its lifetime contains mixed routes. GPU support '
+                'is conservative and scene-scoped: unsupported commands or a '
+                'runtime failure retire that scene\'s GPU session and replay '
+                'it through Canvas.'),
+        _kv(
+          theme,
+          'flutter_gpu availability',
+          backend.isPlatformSupported
+              ? 'Native build · context checked lazily'
+              : 'Unavailable · Canvas only',
+          help: 'The native companion is compiled in on native builds, but '
+              'does not acquire the Impeller GPU context until the first tile '
+              'session so first paint is unaffected. Web uses a compile-time '
+              'stub and always stays on Canvas.',
+        ),
+        _byteBudgetControl(
+          theme,
+          key: const ValueKey('devtools-gpu-texture-budget'),
+          title: 'Texture ceiling',
+          help: 'Strict backend-wide ceiling for decoded image textures, '
+              'including textures pinned by active scenes. This is not '
+              'allocated up front. Higher values improve reuse in image-heavy '
+              'documents but sit outside Dart heap/cache accounting and can '
+              'increase OS memory pressure.',
+          value: backend.maxTextureBytes,
+          choices: _gpuBudgets,
+          onChanged: (value) => _setGpuBudget(textureBytes: value),
+        ),
+        _byteBudgetControl(
+          theme,
+          key: const ValueKey('devtools-gpu-geometry-budget'),
+          title: 'Geometry ceiling',
+          help: 'Strict ceiling for reusable 16 MB GPU geometry blocks. This '
+              'is not allocated up front. Higher values let more command-heavy '
+              'CAD scenes stay compiled concurrently; when pinned scenes '
+              'cannot fit, that scene falls back to Canvas.',
+          value: backend.maxGeometryBytes,
+          choices: _gpuBudgets,
+          onChanged: (value) => _setGpuBudget(geometryBytes: value),
+        ),
+        _kv(
+          theme,
+          'GPU sessions',
+          '${stats.sessionsCreated} accepted / '
+              '${stats.sessionsRejected} rejected / '
+              '${stats.rasterFallbacks} runtime fallback',
+          help: 'Lifetime scene-session outcomes. A rejection occurs before '
+              'GPU replay; a runtime fallback occurs during scene compile, '
+              'resource upload, or tile submission.',
+        ),
+        _kv(
+          theme,
+          'Live sessions / leases',
+          '${stats.activeSessions} scenes · '
+              '${stats.activeTextureLeases} texture · '
+              '${stats.activeGeometryLeases} geometry',
+          help: 'Resources pinned by currently mounted retained scenes. Cache '
+              'eviction cannot reclaim a resource until its live lease ends.',
+        ),
+        if (stats.lastRejection case final reason?)
+          _kv(theme, 'Last fallback reason', reason,
+              help: 'The latest reason flutter_gpu declined or failed a scene. '
+                  'This is expected for PDF features outside the exact GPU '
+                  'subset and does not make the page fail to render.'),
+        _kv(
+          theme,
+          'Scene compile',
+          '${stats.scenesCompiled} · '
+              '${_averageMs(stats.compileMicros, stats.scenesCompiled)} avg',
+          help: 'One-time retained-scene tessellation, buffer creation, and '
+              'image upload. It should grow per scene, not per tile or LoD.',
+        ),
+        _kv(
+          theme,
+          'Tile replay',
+          '${stats.tilesRendered} tiles · '
+              '${_averageMs(stats.submitMicros, stats.tilesRendered)} submit '
+              'avg · ${stats.tilesRendered == 0 ? 'n/a' : (stats.selectedCommands / stats.tilesRendered).toStringAsFixed(1)} commands/tile',
+          help: 'GPU tiles rendered, synchronous command-buffer submit time, '
+              'and spatially selected commands per tile. This excludes GPU '
+              'completion time but exposes replay/selection growth on CAD '
+              'pages.',
+        ),
+        _kv(
+          theme,
+          'Texture cache',
+          '${_mb(stats.textureBytes)} / ${_mb(backend.maxTextureBytes)} '
+              '(peak ${_mb(stats.peakTextureBytes)})',
+          help: 'Decoded image textures shared across pages and scenes under '
+              'a strict byte budget. Active scene leases count against it.',
+        ),
+        _kv(
+          theme,
+          'Texture hit / miss / evict',
+          '${stats.textureCacheHits} / ${stats.textureCacheMisses} / '
+              '${stats.textureEvictions}',
+          help: 'Cross-scene content-cache outcomes. Repeated images should '
+              'raise hits instead of uploads.',
+        ),
+        _kv(
+          theme,
+          'Uploads direct / readback',
+          '${stats.textureDirectUploads} / ${stats.textureReadbacks}',
+          help: 'Direct raw-pixel texture uploads versus ui.Image CPU '
+              'readbacks. Readbacks are a compatibility path and should stay '
+              'near zero on the expensive image/soft-mask workload.',
+        ),
+        _kv(
+          theme,
+          'Geometry pool',
+          '${_mb(stats.geometryBytes)} / ${_mb(backend.maxGeometryBytes)} '
+              '(peak ${_mb(stats.peakGeometryBytes)}, '
+              '${stats.geometryBuffers} buffers)',
+          help: 'Reusable GPU geometry buffers shared by compiled scenes. '
+              'Buffers are leased until submitted work completes, then reused '
+              'to prevent fast CAD navigation from outrunning native GC.',
+        ),
+        _kv(
+          theme,
+          'Budget fallbacks',
+          '${stats.textureBudgetFallbacks} texture / '
+              '${stats.geometryBudgetFallbacks} geometry',
+          help: 'Scenes that could not fit while live resources were pinned '
+              'and therefore switched to Canvas rather than exceeding the '
+              'configured GPU budgets.',
+        ),
+        Text(
+          mode == TileRasterBackendMode.flutterGpu
+              ? 'Switching is live. The current tile cache is invalidated and '
+                  'the base raster stays visible while the selected backend '
+                  'repopulates it. Only tile detail modes use this backend.'
+              : 'Canvas is the universal path. Historical GPU counters stay '
+                  'visible until reset.',
+          style: theme.textTheme.bodySmall!
+              .copyWith(color: theme.colorScheme.outline),
+        ),
+        if (gpuSamples > 0 || stats.textureBytes > 0)
+          Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: TextButton(
+              key: const ValueKey('devtools-clear-gpu-textures'),
+              onPressed: () {
+                _tools.clearGpuImageCache();
+                _tools.addLog('devtools: cleared reusable GPU image cache');
+                setState(() {});
+              },
+              child: const Text('Clear texture cache'),
+            ),
+          ),
+      ],
+      trailing: TextButton(
+        key: const ValueKey('devtools-reset-gpu-stats'),
+        onPressed: gpuSamples == 0 && fallbackCount == 0
+            ? null
+            : () {
+                stats.reset();
+                _tools.addLog('devtools: reset GPU backend counters');
+                setState(() {});
+              },
+        child: const Text('Reset'),
+      ),
+    );
+  }
+
   // --- PdfPerf --------------------------------------------------------------
 
   Widget _perfSection(ThemeData theme) {
@@ -1043,7 +1314,7 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
                   theme,
                   phase.name,
                   '${(stats.phaseTotalUs(phase) / 1000).toStringAsFixed(1)} ms '
-                      '(${stats.phaseCallCount(phase)}×)',
+                  '(${stats.phaseCallCount(phase)}×)',
                   help: 'Accumulated wall time and begin/end pair count for '
                       'the "${phase.name}" instrumented phase since enable '
                       'or reset. Phases nest, so totals can overlap.'),
@@ -1162,8 +1433,7 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
                   itemCount: entries.length,
                   itemBuilder: (context, index) {
                     final entry = entries[index];
-                    final time =
-                        entry.time.toIso8601String().substring(11, 19);
+                    final time = entry.time.toIso8601String().substring(11, 19);
                     return Padding(
                       padding: const EdgeInsets.symmetric(vertical: 1),
                       child: Text(

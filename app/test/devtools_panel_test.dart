@@ -27,6 +27,13 @@ void main() {
       safeProcessLimitBytes: 2 * 1024 * 1024 * 1024,
     );
     AppDevTools.instance.useAutoPageRasterCache();
+    AppDevTools.instance.setGpuTileBudgets(
+      maxTextureBytes: 256 << 20,
+      maxGeometryBytes: 256 << 20,
+    );
+    AppDevTools.instance
+        .setTileRasterBackendMode(TileRasterBackendMode.flutterGpu);
+    AppDevTools.instance.flutterGpuTileRasterBackend.stats.reset();
   });
   tearDown(() {
     prefs.dispose();
@@ -45,6 +52,13 @@ void main() {
       reason: 'test reset',
     );
     AppDevTools.instance.useAutoPageRasterCache();
+    AppDevTools.instance.setGpuTileBudgets(
+      maxTextureBytes: 256 << 20,
+      maxGeometryBytes: 256 << 20,
+    );
+    AppDevTools.instance
+        .setTileRasterBackendMode(TileRasterBackendMode.flutterGpu);
+    AppDevTools.instance.flutterGpuTileRasterBackend.stats.reset();
     AppDevTools.instance.clearLog();
   });
 
@@ -70,11 +84,98 @@ void main() {
     expect(find.text('Frames'), findsOneWidget);
     expect(find.text('Memory'), findsOneWidget);
     expect(find.text('Deep-zoom detail (#314)'), findsOneWidget);
+    expect(find.text('Tile raster backend'), findsOneWidget);
     expect(find.text('Session'), findsOneWidget);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.f12);
     await tester.pump();
     expect(find.byKey(const ValueKey('devtools-panel')), findsNothing);
+  });
+
+  testWidgets('tile backend switch updates the mounted viewer in place',
+      (tester) async {
+    await pumpWithDoc(tester);
+    final tools = AppDevTools.instance;
+    expect(
+      tester.widget<PdfViewer>(find.byType(PdfViewer)).tileRasterBackend,
+      same(tools.flutterGpuTileRasterBackend),
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.f12);
+    await tester.pump();
+    final selector = find.byKey(const ValueKey('devtools-tile-backend'));
+    await tester.ensureVisible(selector);
+    await tester.pump();
+    await tester.tap(selector);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Canvas').last);
+    await tester.pumpAndSettle();
+
+    expect(tools.tileRasterBackendMode.value, TileRasterBackendMode.canvas);
+    expect(
+      tester.widget<PdfViewer>(find.byType(PdfViewer)).tileRasterBackend,
+      isA<PdfCanvasTileRasterBackend>(),
+    );
+
+    await tester.ensureVisible(selector);
+    await tester.pump();
+    await tester.tap(selector);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('flutter_gpu').last);
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<PdfViewer>(find.byType(PdfViewer)).tileRasterBackend,
+      same(tools.flutterGpuTileRasterBackend),
+    );
+
+    final oldBackend = tools.flutterGpuTileRasterBackend;
+    final textureBudget =
+        find.byKey(const ValueKey('devtools-gpu-texture-budget'));
+    await tester.ensureVisible(textureBudget);
+    await tester.pump();
+    await tester.tap(textureBudget);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('512 MB').last);
+    await tester.pumpAndSettle();
+    expect(tools.flutterGpuTileRasterBackend, isNot(same(oldBackend)));
+    expect(tools.flutterGpuTileRasterBackend.maxTextureBytes, 512 << 20);
+    expect(
+      tester.widget<PdfViewer>(find.byType(PdfViewer)).tileRasterBackend,
+      same(tools.flutterGpuTileRasterBackend),
+      reason: 'budget changes replace the selected backend live',
+    );
+  });
+
+  testWidgets('GPU diagnostics distinguish acceptance and fallback',
+      (tester) async {
+    AppDevTools.instance.setDeepZoomMode(AppDevTools.modeBatched);
+    final stats = AppDevTools.instance.flutterGpuTileRasterBackend.stats
+      ..sessionsCreated = 2
+      ..sessionsRejected = 1
+      ..rasterFallbacks = 1
+      ..scenesCompiled = 2
+      ..compileMicros = 8000
+      ..tilesRendered = 4
+      ..selectedCommands = 40
+      ..submitMicros = 2000
+      ..lastTileRoute = 'canvas-fallback'
+      ..lastRejection = 'unsupported blend mode';
+    addTearDown(stats.reset);
+
+    await pumpWithDoc(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.f12);
+    await tester.pump();
+    final selector = find.byKey(const ValueKey('devtools-tile-backend'));
+    await tester.ensureVisible(selector);
+    await tester.pump();
+
+    expect(find.text('2 accepted / 1 rejected / 1 runtime fallback'),
+        findsOneWidget);
+    expect(find.text('unsupported blend mode'), findsOneWidget);
+    expect(find.text('Canvas fallback'), findsOneWidget);
+    expect(find.textContaining('10.0 commands/tile'), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('devtools-reset-gpu-stats')), findsOneWidget);
   });
 
   testWidgets('the deep-zoom mode switch flips the tile path statics',
@@ -147,8 +248,7 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.f12);
     await tester.pump();
 
-    final total =
-        find.byKey(const ValueKey('devtools-page-raster-budget'));
+    final total = find.byKey(const ValueKey('devtools-page-raster-budget'));
     await tester.ensureVisible(total);
     await tester.pump();
     await tester.tap(total);
@@ -179,8 +279,7 @@ void main() {
     );
     expect(AppDevTools.instance.pageRasterCachePolicy.value, expected);
     expect(
-      tester.widget<PdfViewer>(find.byType(PdfViewer))
-          .pageRasterCachePolicy,
+      tester.widget<PdfViewer>(find.byType(PdfViewer)).pageRasterCachePolicy,
       expected,
       reason: 'the open viewer receives the policy without being reopened',
     );
@@ -254,8 +353,8 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.f12);
     await tester.pump();
 
-    await tester.ensureVisible(
-        find.byKey(const ValueKey('devtools-log-filter')));
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('devtools-log-filter')));
     await tester.pump();
     expect(find.textContaining('alpha entry'), findsOneWidget);
     expect(find.textContaining('beta entry'), findsOneWidget);
@@ -289,8 +388,7 @@ void main() {
     expect(messages.any((m) => m.startsWith('touch: DOWN')), isTrue,
         reason: 'a touch-down summary should be logged');
     expect(
-        messages.any((m) =>
-            m.startsWith('touch: UP') && m.contains('moves=')),
+        messages.any((m) => m.startsWith('touch: UP') && m.contains('moves=')),
         isTrue,
         reason: 'a touch-up summary with a move count should be logged');
 

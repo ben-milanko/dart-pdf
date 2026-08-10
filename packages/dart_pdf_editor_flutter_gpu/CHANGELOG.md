@@ -10,3 +10,6 @@
   completes and falling back instead of overshooting the ceiling.
 - Fall back to the Canvas backend for unsupported pages and expose a web stub
   that preserves the same host API.
+- Expose JSON-safe diagnostics for the latest tile route, accepted/rejected/
+  active sessions, runtime fallbacks, compile/replay timings, cache pressure,
+  uploads/readbacks, and live GPU resource leases.
