@@ -161,3 +161,42 @@ and is rather the point. Stale focus now costs nothing that matters:
 `onScreen` (delivered promptly) decides the image ratio and shields both
 visible pages from reclaim, and focus is left doing what it is actually
 good for - ordering evictions among the pages nobody is looking at.
+
+### The result, at enough iterations to mean something
+
+Re-run after moving the span onto a `Listenable`, 7 interleaved runs
+(3 was not enough - `buildMax`'s run-to-run spread on the *baseline* alone
+was 40-83 ms, wider than the effect being measured):
+
+```
+buildP50       2.19 ->  2.23   +1.8%   ·
+buildP95       3.77 ->  3.85   +2.0%   ·      (was +16.8%)
+openPageCountMs 482 ->   497   +3.0%   ·      (was +15.1% - noise, as suspected)
+buildMax      54.18 -> 74.73  +37.9%   ✗
+```
+
+The rebuild fix recovered p95 and p50 entirely. **`buildMax` is a real
+regression and stays one.** At 7 samples it separates: current
+63.6/65.4/69.6/74.7/77.6/81.1/87.5 against base
+47.1/48.5/49.4/54.2/58.1/66.6/73.7 - the baseline's *worst* run is below
+the current median.
+
+It is also exactly one frame. The over-budget counts are unchanged run for
+run (1-2 frames >16 ms, exactly 1 >32 ms, 0-1 >50 ms, in both), so nothing
+new crosses a threshold; the single worst build frame got ~20 ms worse.
+
+That frame is the intended cost. It is where a newly-visible page's
+full-resolution scene lands, and on this scenario a page *is* one big A3
+scan - four times the pixels the 0.5x prefetch buffer used to replay. Note
+the work did not appear from nowhere: the old scheme rendered that page
+twice (soft on approach, full on becoming focused), so total work is
+*lower* now - the peak simply moved earlier, into the scroll rather than
+after the settle that followed the focus flip. The soft neighbour was
+cheap per-frame because it was wrong.
+
+Left as-is deliberately rather than tuned away: an intermediate ratio for
+visible-but-not-focused pages would reinstate a smaller version of the
+softening this fix exists to remove. If the spike ever needs flattening,
+the lever is the existing motion render hold (let a page that just crossed
+the edge paint its preview and take the full-resolution render at the
+settle), not the resolution it eventually renders at.
