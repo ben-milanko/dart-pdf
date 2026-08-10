@@ -285,6 +285,65 @@ void main() {
     });
   });
 
+  testWidgets('geometry buffers stay bounded and reuse retired scene blocks',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        PdfFillPathCommand(
+          _rect(0, 0, 300, 300),
+          const PdfColor(0.2, 0.6, 0.8),
+          PdfFillRule.nonzero,
+          1,
+        ),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend(
+        maxGeometryBytes: 16 << 20,
+      );
+      const region = Rect.fromLTWH(0, 0, 320, 320);
+
+      final pinned = backend.createSession(scene)!;
+      final firstImage = await pinned.rasterizeRegion(region, pixelRatio: 0.25);
+      await _pixels(firstImage);
+      firstImage.dispose();
+      expect(backend.stats.geometryBuffers, 1);
+      expect(backend.stats.geometryBytes, 16 << 20);
+      expect(backend.stats.activeGeometryLeases, 1);
+
+      final blocked = backend.createSession(scene)!;
+      await expectLater(
+        blocked.rasterizeRegion(region, pixelRatio: 0.25),
+        throwsA(isA<StateError>()),
+      );
+      blocked.dispose();
+      expect(backend.stats.geometryBudgetFallbacks, 1);
+      expect(backend.stats.geometryBuffers, 1,
+          reason: 'a pinned scene must not overshoot the byte ceiling');
+
+      pinned.dispose();
+      for (var i = 0; i < 100 && backend.stats.activeGeometryLeases != 0; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(backend.stats.activeGeometryLeases, 0);
+
+      final admitted = backend.createSession(scene)!;
+      final secondImage =
+          await admitted.rasterizeRegion(region, pixelRatio: 0.25);
+      await _pixels(secondImage);
+      secondImage.dispose();
+      admitted.dispose();
+      expect(backend.stats.geometryBuffers, 1,
+          reason: 'the retired 16 MiB block should be reused');
+      expect(backend.stats.geometryBytes, 16 << 20);
+      expect(backend.stats.peakGeometryBytes, 16 << 20);
+    });
+  });
+
   testWidgets('non-black overprint falls back unless explicitly approximated',
       (tester) async {
     await tester.runAsync(() async {

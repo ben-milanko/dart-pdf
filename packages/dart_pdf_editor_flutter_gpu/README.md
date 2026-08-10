@@ -15,6 +15,7 @@ PdfReader(
   // retained scenes, pages, workers, and LoDs.
   tileRasterBackend: FlutterGpuTileRasterBackend(
     maxTextureBytes: 256 << 20,
+    maxGeometryBytes: 256 << 20,
   ),
 )
 ```
@@ -46,6 +47,11 @@ backend-wide byte-budgeted LRU preserves decoded texture identity
 across scenes, pages, workers, zoom levels, and LoDs.
 Pinned scene textures count toward the same ceiling; if no unpinned entry can
 make room, that scene falls back to Canvas instead of overshooting the budget.
+Compiled vertices share a second strict byte budget. They are packed into
+reusable 16 MiB device-buffer blocks and returned to the backend-wide pool only
+after their scene is disposed and every submitted command buffer completes.
+This keeps command-heavy CAD navigation bounded without relying on delayed
+native finalizers; a scene that cannot lease enough geometry also falls back.
 
 Pages with other transparency groups or soft masks, non-normal blends,
 gradients, tiling cells, unsafe overprint, non-rectangular clips,
@@ -97,4 +103,9 @@ rejection as the intended fallback. `test/real_document_benchmark_test.dart`
 measures scene recording/image decode, cold and warm 512 px LoDs, forced visual
 settle, Canvas parity, upload/cache counters, and RSS. It is opt-in via
 `PDF_GPU_BENCHMARK_PDF` and accepts a zero-based comma-separated page list in
-`PDF_GPU_BENCHMARK_PAGES`.
+`PDF_GPU_BENCHMARK_PAGES`. Set `PDF_GPU_BENCHMARK_OUT` to a directory to save
+the center 512 px GPU and Canvas tiles for visual comparison, or
+`PDF_GPU_BENCHMARK_MSAA=0` to isolate multisample antialiasing differences.
+Set `PDF_GPU_BENCHMARK_OVERPRINT=0` to exercise the production-default exact
+fallback policy; the benchmark otherwise enables its documented source-over
+approximation so more of a corpus can be measured on the GPU.

@@ -8,6 +8,10 @@ class FlutterGpuTileBackendStats {
   int compileMicros = 0;
   int geometryBuffers = 0;
   int geometryVertices = 0;
+  int geometryBudgetFallbacks = 0;
+  int activeGeometryLeases = 0;
+  int geometryBytes = 0;
+  int peakGeometryBytes = 0;
   int texturesUploaded = 0;
   int textureDirectUploads = 0;
   int textureReadbacks = 0;
@@ -30,6 +34,10 @@ class FlutterGpuTileBackendStats {
     compileMicros = 0;
     geometryBuffers = 0;
     geometryVertices = 0;
+    geometryBudgetFallbacks = 0;
+    activeGeometryLeases = 0;
+    geometryBytes = 0;
+    peakGeometryBytes = 0;
     texturesUploaded = 0;
     textureDirectUploads = 0;
     textureReadbacks = 0;
@@ -51,6 +59,9 @@ class FlutterGpuTileBackendStats {
       'overprintApprox=$overprintApproximationSessions '
       'compiled=$scenesCompiled compileUs=$compileMicros '
       'buffers=$geometryBuffers vertices=$geometryVertices '
+      'geometryBudgetFallbacks=$geometryBudgetFallbacks '
+      'activeGeometryLeases=$activeGeometryLeases '
+      'geometryBytes=$geometryBytes peakGeometryBytes=$peakGeometryBytes '
       'uploads=$texturesUploaded directUploads=$textureDirectUploads '
       'readbacks=$textureReadbacks textureHits=$textureCacheHits '
       'textureMisses=$textureCacheMisses evictions=$textureEvictions '

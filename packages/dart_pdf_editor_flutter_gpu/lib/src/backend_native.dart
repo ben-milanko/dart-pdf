@@ -1,3 +1,4 @@
+import 'dart:async' show FutureOr;
 import 'dart:collection';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -32,9 +33,11 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
     this.msaa = true,
     this.allowOverprintApproximation = false,
     this.maxTextureBytes = 256 << 20,
+    this.maxGeometryBytes = 256 << 20,
     FlutterGpuTileBackendStats? stats,
   })  : stats = stats ?? FlutterGpuTileBackendStats(),
-        _imageCache = _GpuImageCache(maxTextureBytes);
+        _imageCache = _GpuImageCache(maxTextureBytes),
+        _geometryPool = _GpuGeometryPool(maxGeometryBytes);
 
   /// Enables 4x offscreen MSAA where the Impeller context supports it.
   final bool msaa;
@@ -54,8 +57,18 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   /// A non-positive value disables cross-scene texture reuse.
   final int maxTextureBytes;
 
+  /// Hard ceiling for reusable scene geometry buffers.
+  ///
+  /// Stable flutter_gpu does not expose explicit DeviceBuffer disposal, so
+  /// relying on native finalizers lets fast CAD navigation outrun collection.
+  /// Buffers are therefore pooled in 16 MiB blocks, leased by compiled scenes,
+  /// and reused only after the scene is disposed and every submitted command
+  /// buffer has completed. A scene that cannot fit falls back to Canvas.
+  final int maxGeometryBytes;
+
   final FlutterGpuTileBackendStats stats;
   final _GpuImageCache _imageCache;
+  final _GpuGeometryPool _geometryPool;
 
   /// Drops reusable texture ownership. Active compiled scenes retain the
   /// resources they are currently drawing.
@@ -94,6 +107,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
         msaa: msaa,
         stats: stats,
         imageCache: _imageCache,
+        geometryPool: _geometryPool,
       );
     } catch (error) {
       stats.lastRejection = 'initialization failed: $error';
@@ -584,6 +598,7 @@ class _FlutterGpuTileSession implements PdfTileRasterSession {
     required this.msaa,
     required this.stats,
     required this.imageCache,
+    required this.geometryPool,
   });
 
   @override
@@ -594,6 +609,7 @@ class _FlutterGpuTileSession implements PdfTileRasterSession {
   final bool msaa;
   final FlutterGpuTileBackendStats stats;
   final _GpuImageCache imageCache;
+  final _GpuGeometryPool geometryPool;
 
   Future<_CompiledScene>? _compiled;
   _CompiledScene? _ready;
@@ -605,6 +621,7 @@ class _FlutterGpuTileSession implements PdfTileRasterSession {
         units,
         stats,
         imageCache,
+        geometryPool,
       ).then((compiled) {
         if (_disposed) {
           compiled.dispose();
@@ -654,6 +671,8 @@ class _CompiledScene {
     required this.stats,
     required this.imageCache,
     required this.textureLeases,
+    required this.geometryPool,
+    required this.geometryLeases,
   });
 
   static Future<_CompiledScene> build(
@@ -662,31 +681,41 @@ class _CompiledScene {
     List<_GpuUnit> units,
     FlutterGpuTileBackendStats stats,
     _GpuImageCache imageCache,
+    _GpuGeometryPool geometryPool,
   ) async {
     final clock = Stopwatch()..start();
     final draws = <int, _GpuDraw>{};
     final textureLeases = <_GpuImageTexture>[];
+    final geometry = _GpuGeometryArena(context, stats, geometryPool);
     try {
       for (final unit in units) {
-        final draw = unit.composite == null
-            ? await _compileCommand(
-                context,
-                scene,
-                scene.commands[unit.commandIndex],
-                stats,
-                imageCache,
-                textureLeases,
-              )
-            : await _compileSoftMaskImage(
-                context,
-                scene,
-                unit.composite!,
-                stats,
-                imageCache,
-                textureLeases,
-              );
+        final _GpuDraw? draw;
+        if (unit.composite == null) {
+          final pending = _compileCommand(
+            context,
+            geometry,
+            scene,
+            scene.commands[unit.commandIndex],
+            stats,
+            imageCache,
+            textureLeases,
+          );
+          draw = pending is Future<_GpuDraw?> ? await pending : pending;
+        } else {
+          draw = await _compileSoftMaskImage(
+            context,
+            geometry,
+            scene,
+            unit.composite!,
+            stats,
+            imageCache,
+            textureLeases,
+          );
+        }
         if (draw != null) draws[unit.commandIndex] = draw;
       }
+      final paper = _paperDraw(geometry, scene);
+      geometry.finalize();
       final result = _CompiledScene(
         context: context,
         pageToRaster: PdfPageRenderer.pageToDeviceMatrix(
@@ -696,11 +725,13 @@ class _CompiledScene {
           rotation: scene.plan.rotation,
           pixelRatio: 1,
         ),
-        paper: _paperDraw(context, scene, stats),
+        paper: paper,
         draws: draws,
         stats: stats,
         imageCache: imageCache,
         textureLeases: textureLeases,
+        geometryPool: geometryPool,
+        geometryLeases: geometry.leases,
       );
       stats
         ..scenesCompiled += 1
@@ -708,6 +739,7 @@ class _CompiledScene {
       return result;
     } catch (_) {
       imageCache.releaseAll(textureLeases, stats);
+      geometry.release();
       rethrow;
     }
   }
@@ -719,12 +751,28 @@ class _CompiledScene {
   final FlutterGpuTileBackendStats stats;
   final _GpuImageCache imageCache;
   final List<_GpuImageTexture> textureLeases;
+  final _GpuGeometryPool geometryPool;
+  final List<_GpuGeometryResource> geometryLeases;
   bool _disposed = false;
+  bool _geometryReleased = false;
+  int _inFlight = 0;
 
   void dispose() {
     if (_disposed) return;
     _disposed = true;
     imageCache.releaseAll(textureLeases, stats);
+    _releaseGeometryIfReady();
+  }
+
+  void _releaseGeometryIfReady() {
+    if (!_disposed || _inFlight != 0 || _geometryReleased) return;
+    _geometryReleased = true;
+    geometryPool.releaseAll(geometryLeases, stats);
+  }
+
+  void _completeSubmission(bool success) {
+    if (_inFlight > 0) _inFlight--;
+    _releaseGeometryIfReady();
   }
 
   ui.Image render(
@@ -827,7 +875,14 @@ class _CompiledScene {
       draw.encode(encoder);
     }
     final submit = Stopwatch()..start();
-    commandBuffer.submit();
+    _inFlight++;
+    try {
+      commandBuffer.submit(completionCallback: _completeSubmission);
+    } catch (_) {
+      _inFlight--;
+      _releaseGeometryIfReady();
+      rethrow;
+    }
     stats.submitMicros += submit.elapsedMicroseconds;
     return resolve.asImage();
   }
@@ -863,8 +918,7 @@ class _CompiledScene {
   }
 }
 
-_SolidDraw _paperDraw(gpu.GpuContext context, PdfRetainedScene scene,
-    FlutterGpuTileBackendStats stats) {
+_SolidDraw _paperDraw(_GpuGeometryArena geometry, PdfRetainedScene scene) {
   final box = scene.page.cropBox;
   final color = scene.plan.pageColor;
   final alpha = color.a;
@@ -888,11 +942,12 @@ _SolidDraw _paperDraw(gpu.GpuContext context, PdfRetainedScene scene,
   ]) {
     vertices.add6(x, y, rgba[0], rgba[1], rgba[2], rgba[3]);
   }
-  return _SolidDraw(_upload(context, vertices.bytes, 6, stats));
+  return _SolidDraw(geometry.add(vertices.bytes, 6));
 }
 
 Future<_GpuDraw> _compileSoftMaskImage(
   gpu.GpuContext context,
+  _GpuGeometryArena geometry,
   PdfRetainedScene scene,
   _SoftMaskImageSpec spec,
   FlutterGpuTileBackendStats stats,
@@ -959,7 +1014,7 @@ Future<_GpuDraw> _compileSoftMaskImage(
       maskClip.top,
     ]);
   return _SoftMaskDraw(
-    _upload(context, vertices.bytes, vertices.length ~/ 4, stats),
+    geometry.add(vertices.bytes, vertices.length ~/ 4),
     contentResource.texture,
     maskResource.texture,
     gpu.BufferView(
@@ -1143,8 +1198,9 @@ Future<_GpuImageTexture> _uploadImageTexture(
   return _GpuImageTexture(texture, image.width, image.height);
 }
 
-Future<_GpuDraw?> _compileCommand(
+FutureOr<_GpuDraw?> _compileCommand(
   gpu.GpuContext context,
+  _GpuGeometryArena geometry,
   PdfRetainedScene scene,
   PdfRenderCommand command,
   FlutterGpuTileBackendStats stats,
@@ -1159,7 +1215,7 @@ Future<_GpuDraw?> _compileCommand(
         :final alpha
       ):
       final subs = flattenPath(path, PdfMatrix.identity, tolerance: 0.01);
-      return _stencilDraw(context, subs, color, alpha, rule, false, stats);
+      return _stencilDraw(geometry, subs, color, alpha, rule, false);
     case PdfStrokePathCommand(
         :final path,
         :final color,
@@ -1188,7 +1244,7 @@ Future<_GpuDraw?> _compileCommand(
         ));
       }
       return _stencilDraw(
-          context, rings, color, alpha, PdfFillRule.nonzero, true, stats);
+          geometry, rings, color, alpha, PdfFillRule.nonzero, true);
     case PdfDrawTextCommand(:final run):
       if (run.invisible) return null;
       final subs = <FlatSubpath>[];
@@ -1208,7 +1264,7 @@ Future<_GpuDraw?> _compileCommand(
         }
       }
       return _stencilDraw(
-          context, subs, run.color, 1, PdfFillRule.nonzero, false, stats);
+          geometry, subs, run.color, 1, PdfFillRule.nonzero, false);
     case PdfFillMeshCommand(:final mesh, :final alpha):
       if (mesh.triangles.isEmpty) return null;
       final vertices = FloatBuilder(mesh.triangles.length * 6);
@@ -1223,41 +1279,59 @@ Future<_GpuDraw?> _compileCommand(
           alpha,
         );
       }
-      return _SolidDraw(
-          _upload(context, vertices.bytes, vertices.length ~/ 6, stats));
+      return _SolidDraw(geometry.add(vertices.bytes, vertices.length ~/ 6));
     case PdfDrawImageCommand(:final request):
-      final image = scene.imageFor(request)!;
-      final resource = await imageCache.acquire(context, request, image, stats);
-      textureLeases.add(resource);
-      final vertices = _imageVertices(request.transform);
-      final tint = request.isStencil
-          ? _premul(request.stencilColor, request.alpha)
-          : <double>[0, 0, 0, request.alpha];
-      final info = Float32List(8)
-        ..setRange(0, 4, tint)
-        ..[4] = request.isStencil ? 1 : 0;
-      return _TextureDraw(
-        _upload(context, vertices.bytes, 6, stats),
-        resource.texture,
-        gpu.BufferView(
-          context.createDeviceBufferWithCopy(ByteData.sublistView(info)),
-          offsetInBytes: 0,
-          lengthInBytes: info.lengthInBytes,
-        ),
+      return _compileImageCommand(
+        context,
+        geometry,
+        scene,
+        request,
+        stats,
+        imageCache,
+        textureLeases,
       );
     default:
       return null;
   }
 }
 
-_StencilDraw? _stencilDraw(
+Future<_GpuDraw> _compileImageCommand(
   gpu.GpuContext context,
+  _GpuGeometryArena geometry,
+  PdfRetainedScene scene,
+  PdfImageRequest request,
+  FlutterGpuTileBackendStats stats,
+  _GpuImageCache imageCache,
+  List<_GpuImageTexture> textureLeases,
+) async {
+  final image = scene.imageFor(request)!;
+  final resource = await imageCache.acquire(context, request, image, stats);
+  textureLeases.add(resource);
+  final vertices = _imageVertices(request.transform);
+  final tint = request.isStencil
+      ? _premul(request.stencilColor, request.alpha)
+      : <double>[0, 0, 0, request.alpha];
+  final info = Float32List(8)
+    ..setRange(0, 4, tint)
+    ..[4] = request.isStencil ? 1 : 0;
+  return _TextureDraw(
+    geometry.add(vertices.bytes, 6),
+    resource.texture,
+    gpu.BufferView(
+      context.createDeviceBufferWithCopy(ByteData.sublistView(info)),
+      offsetInBytes: 0,
+      lengthInBytes: info.lengthInBytes,
+    ),
+  );
+}
+
+_StencilDraw? _stencilDraw(
+  _GpuGeometryArena geometry,
   List<FlatSubpath> subpaths,
   PdfColor color,
   double alpha,
   PdfFillRule rule,
   bool union,
-  FlutterGpuTileBackendStats stats,
 ) {
   final bounds = FlatBounds.of(subpaths);
   if (bounds == null || alpha <= 0) return null;
@@ -1289,8 +1363,8 @@ _StencilDraw? _stencilDraw(
     cover.add6(x, y, rgba[0], rgba[1], rgba[2], rgba[3]);
   }
   return _StencilDraw(
-    _upload(context, fan.bytes, fan.length ~/ 2, stats),
-    _upload(context, cover.bytes, 6, stats),
+    geometry.add(fan.bytes, fan.length ~/ 2),
+    geometry.add(cover.bytes, 6),
     rule,
     union,
   );
@@ -1303,26 +1377,154 @@ List<double> _premul(PdfColor color, double alpha) => [
       alpha,
     ];
 
-_GpuBuffer _upload(gpu.GpuContext context, ByteData bytes, int vertices,
-    FlutterGpuTileBackendStats stats) {
-  final buffer = context.createDeviceBufferWithCopy(bytes);
-  stats
-    ..geometryBuffers += 1
-    ..geometryVertices += vertices;
-  return _GpuBuffer(
-    gpu.BufferView(
-      buffer,
-      offsetInBytes: 0,
-      lengthInBytes: bytes.lengthInBytes,
-    ),
-    vertices,
-  );
+class _GpuGeometryArena {
+  _GpuGeometryArena(this.context, this.stats, this.pool);
+
+  final gpu.GpuContext context;
+  final FlutterGpuTileBackendStats stats;
+  final _GpuGeometryPool pool;
+  final List<_GpuGeometrySlice> _slices = [];
+  final List<_GpuGeometryResource> _leases = [];
+  var _pendingBytes = 0;
+  var _finalized = false;
+
+  List<_GpuGeometryResource> get leases => List.unmodifiable(_leases);
+
+  _GpuBuffer add(ByteData bytes, int vertices) {
+    if (_finalized) throw StateError('GPU geometry arena already finalized');
+    if (_slices.isNotEmpty &&
+        _pendingBytes + bytes.lengthInBytes > _GpuGeometryPool.chunkBytes) {
+      _flush();
+    }
+    final result = _GpuBuffer(vertices);
+    _slices.add(_GpuGeometrySlice(bytes, result));
+    _pendingBytes += bytes.lengthInBytes;
+    stats.geometryVertices += vertices;
+    return result;
+  }
+
+  void finalize() {
+    if (_finalized) return;
+    _finalized = true;
+    _flush();
+  }
+
+  void release() {
+    pool.releaseAll(_leases, stats);
+    _leases.clear();
+  }
+
+  void _flush() {
+    if (_slices.isEmpty) return;
+    final packed = Uint8List(_pendingBytes);
+    var offset = 0;
+    for (final slice in _slices) {
+      final source = slice.bytes.buffer.asUint8List(
+        slice.bytes.offsetInBytes,
+        slice.bytes.lengthInBytes,
+      );
+      packed.setRange(offset, offset + source.length, source);
+      slice.buffer._offsetInBytes = offset;
+      offset += source.length;
+    }
+    final resource = pool.acquire(context, ByteData.sublistView(packed), stats);
+    _leases.add(resource);
+    for (final slice in _slices) {
+      slice.buffer._view = gpu.BufferView(
+        resource.buffer,
+        offsetInBytes: slice.buffer._offsetInBytes,
+        lengthInBytes: slice.bytes.lengthInBytes,
+      );
+    }
+    _slices.clear();
+    _pendingBytes = 0;
+  }
+}
+
+class _GpuGeometryPool {
+  _GpuGeometryPool(this.maxBytes);
+
+  static const chunkBytes = 16 << 20;
+
+  final int maxBytes;
+  final List<_GpuGeometryResource> _resources = [];
+  var _bytes = 0;
+
+  _GpuGeometryResource acquire(
+    gpu.GpuContext context,
+    ByteData data,
+    FlutterGpuTileBackendStats stats,
+  ) {
+    final capacity =
+        ((data.lengthInBytes + chunkBytes - 1) ~/ chunkBytes) * chunkBytes;
+    _GpuGeometryResource? resource;
+    for (final candidate in _resources) {
+      if (candidate.leased || candidate.capacity < capacity) continue;
+      if (resource == null || candidate.capacity < resource.capacity) {
+        resource = candidate;
+      }
+    }
+    if (resource == null) {
+      if (capacity > maxBytes || _bytes + capacity > maxBytes) {
+        stats.geometryBudgetFallbacks++;
+        throw StateError(
+          'GPU geometry budget exceeded: need $capacity bytes, '
+          'have $_bytes/$maxBytes with active scenes pinned',
+        );
+      }
+      resource = _GpuGeometryResource(
+        context.createDeviceBuffer(gpu.StorageMode.hostVisible, capacity),
+        capacity,
+      );
+      _resources.add(resource);
+      _bytes += capacity;
+      stats.geometryBuffers++;
+    }
+    if (!resource.buffer.overwrite(data)) {
+      throw StateError('GPU geometry upload failed');
+    }
+    resource.buffer.flush(lengthInBytes: data.lengthInBytes);
+    resource.leased = true;
+    stats
+      ..activeGeometryLeases = _resources.where((item) => item.leased).length
+      ..geometryBytes = _bytes
+      ..peakGeometryBytes = math.max(stats.peakGeometryBytes, _bytes);
+    return resource;
+  }
+
+  void releaseAll(
+    Iterable<_GpuGeometryResource> resources,
+    FlutterGpuTileBackendStats stats,
+  ) {
+    for (final resource in resources) {
+      resource.leased = false;
+    }
+    stats
+      ..activeGeometryLeases = _resources.where((item) => item.leased).length
+      ..geometryBytes = _bytes;
+  }
+}
+
+class _GpuGeometryResource {
+  _GpuGeometryResource(this.buffer, this.capacity);
+  final gpu.DeviceBuffer buffer;
+  final int capacity;
+  bool leased = false;
 }
 
 class _GpuBuffer {
-  const _GpuBuffer(this.view, this.vertices);
-  final gpu.BufferView view;
+  _GpuBuffer(this.vertices);
   final int vertices;
+  gpu.BufferView? _view;
+  int _offsetInBytes = 0;
+  gpu.BufferView get view =>
+      _view ?? (throw StateError('GPU geometry arena not finalized'));
+}
+
+class _GpuGeometrySlice {
+  const _GpuGeometrySlice(this.bytes, this.buffer);
+  final ByteData bytes;
+  final _GpuBuffer buffer;
 }
 
 sealed class _GpuDraw {

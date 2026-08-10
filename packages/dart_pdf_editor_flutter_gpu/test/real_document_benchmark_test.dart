@@ -31,13 +31,23 @@ List<int> _pages() {
 }
 
 Future<(int, ByteData, int, int)> _render(
-    Future<ui.Image> Function() callback) async {
+  Future<ui.Image> Function() callback, {
+  String? pngPath,
+}) async {
   final clock = Stopwatch()..start();
   final image = await callback();
   // This benchmark measures visual settle, not command submission: force the
   // image complete before stopping the clock. Production never performs this
   // readback; it hands Texture.asImage() directly to the compositor.
   final bytes = (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+  if (pngPath != null) {
+    final png = await image.toByteData(format: ui.ImageByteFormat.png);
+    if (png != null) {
+      File(pngPath).writeAsBytesSync(
+        png.buffer.asUint8List(png.offsetInBytes, png.lengthInBytes),
+      );
+    }
+  }
   final width = image.width, height = image.height;
   clock.stop();
   image.dispose();
@@ -67,9 +77,15 @@ void main() {
         return;
       }
       final document = PdfDocument.open(File(path).readAsBytesSync());
+      final msaa = Platform.environment['PDF_GPU_BENCHMARK_MSAA'] != '0';
+      final approximateOverprint =
+          Platform.environment['PDF_GPU_BENCHMARK_OVERPRINT'] != '0';
       final backend = FlutterGpuTileRasterBackend(
-        allowOverprintApproximation: true,
+        msaa: msaa,
+        allowOverprintApproximation: approximateOverprint,
       );
+      final output = Platform.environment['PDF_GPU_BENCHMARK_OUT'];
+      if (output != null) Directory(output).createSync(recursive: true);
       final rssStart = ProcessInfo.currentRss;
       var peakRss = rssStart;
       final rows = <String>[];
@@ -102,25 +118,42 @@ void main() {
               width: math.min(size.width, 512 / lod1),
               height: math.min(size.height, 512 / lod1),
             );
-            final coldGpu = await _render(
-                () => session.rasterizeRegion(region1, pixelRatio: lod1));
-            final warmCanvas = await _render(
-                () => scene.rasterizeRegion(region1, pixelRatio: lod1));
+            try {
+              final coldGpu = await _render(
+                () => session.rasterizeRegion(region1, pixelRatio: lod1),
+                pngPath:
+                    output == null ? null : '$output/page-$pageIndex-gpu.png',
+              );
+              final warmCanvas = await _render(
+                () => scene.rasterizeRegion(region1, pixelRatio: lod1),
+                pngPath: output == null
+                    ? null
+                    : '$output/page-$pageIndex-canvas.png',
+              );
 
-            final lod2 = 2.0;
-            final region2 = Rect.fromCenter(
-              center: center,
-              width: math.min(size.width, 512 / lod2),
-              height: math.min(size.height, 512 / lod2),
-            );
-            final warmGpu = await _render(
-                () => session.rasterizeRegion(region2, pixelRatio: lod2));
-            peakRss = math.max(peakRss, ProcessInfo.currentRss);
-            rows.add('page=$pageIndex recordUs=${record.elapsedMicroseconds} '
-                'decodeUs=${(timing.decodeMs * 1000).round()} '
-                'gpuColdUs=${coldGpu.$1} gpuWarmUs=${warmGpu.$1} '
-                'canvasUs=${warmCanvas.$1} '
-                'meanDiff=${_meanDiff(coldGpu.$2, warmCanvas.$2).toStringAsFixed(3)}');
+              final lod2 = 2.0;
+              final region2 = Rect.fromCenter(
+                center: center,
+                width: math.min(size.width, 512 / lod2),
+                height: math.min(size.height, 512 / lod2),
+              );
+              final warmGpu = await _render(
+                  () => session.rasterizeRegion(region2, pixelRatio: lod2));
+              peakRss = math.max(peakRss, ProcessInfo.currentRss);
+              rows.add('page=$pageIndex recordUs=${record.elapsedMicroseconds} '
+                  'decodeUs=${(timing.decodeMs * 1000).round()} '
+                  'gpuColdUs=${coldGpu.$1} gpuWarmUs=${warmGpu.$1} '
+                  'canvasUs=${warmCanvas.$1} '
+                  'meanDiff=${_meanDiff(coldGpu.$2, warmCanvas.$2).toStringAsFixed(3)}');
+            } catch (error) {
+              final canvas = await _render(
+                  () => scene.rasterizeRegion(region1, pixelRatio: lod1));
+              peakRss = math.max(peakRss, ProcessInfo.currentRss);
+              rows.add('page=$pageIndex recordUs=${record.elapsedMicroseconds} '
+                  'decodeUs=${(timing.decodeMs * 1000).round()} '
+                  'gpu=fallback canvasUs=${canvas.$1} '
+                  'error=${error.toString().replaceAll('\n', ' ')}');
+            }
           } finally {
             session.dispose();
           }
@@ -130,7 +163,8 @@ void main() {
       }
 
       // ignore: avoid_print
-      print('REAL_GPU_BENCHMARK pages=${_pages()}');
+      print('REAL_GPU_BENCHMARK pages=${_pages()} msaa=$msaa '
+          'approximateOverprint=$approximateOverprint');
       for (final row in rows) {
         // ignore: avoid_print
         print('REAL_GPU_BENCHMARK $row');

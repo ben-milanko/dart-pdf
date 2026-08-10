@@ -8,12 +8,14 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
     this.msaa = true,
     this.allowOverprintApproximation = false,
     this.maxTextureBytes = 256 << 20,
+    this.maxGeometryBytes = 256 << 20,
     FlutterGpuTileBackendStats? stats,
   }) : stats = stats ?? FlutterGpuTileBackendStats();
 
   final bool msaa;
   final bool allowOverprintApproximation;
   final int maxTextureBytes;
+  final int maxGeometryBytes;
   final FlutterGpuTileBackendStats stats;
 
   void clearImageCache() {}
