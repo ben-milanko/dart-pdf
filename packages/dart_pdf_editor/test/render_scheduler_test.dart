@@ -256,6 +256,37 @@ void main() {
       expect(order, [0, 1, 2]);
     });
 
+    testWidgets('moving focus wakes a drain parked behind the old focus',
+        (tester) async {
+      final scheduler = PdfPageRenderScheduler();
+      addTearDown(scheduler.dispose);
+      final oldFocusGate = Completer<void>();
+      final order = <int>[];
+      scheduler
+        ..focus = 0
+        ..request('old-focus', 0, () async {
+          order.add(0);
+          await oldFocusGate.future;
+        })
+        ..request('new-focus', 4, () => order.add(4));
+
+      for (var i = 0; i < 3; i++) {
+        await tester.pump();
+      }
+      expect(order, [0],
+          reason: 'the neighbour waits while page 0 remains the focus');
+
+      scheduler.focus = 4;
+      for (var i = 0; i < 3; i++) {
+        await tester.pump();
+      }
+      expect(order, [0, 4],
+          reason: 'navigation must not wait for the abandoned focus to land');
+
+      oldFocusGate.complete();
+      await tester.pump();
+    });
+
     testWidgets('a non-focused render still allows worker concurrency',
         (tester) async {
       final scheduler = PdfPageRenderScheduler();

@@ -3620,7 +3620,10 @@ class _PdfViewerState extends State<PdfViewer>
     await _scroll.animateTo(clamped, duration: duration, curve: curve);
     // animateTo also completes when a user gesture interrupts it. Only settle
     // immediately when this command actually reached its destination; an
-    // interrupted gesture retains the normal quiet-window protection.
+    // interrupted gesture retains the normal quiet-window protection. The
+    // viewer may have been removed while the animation was in flight, leaving
+    // this controller detached by the time its future completes.
+    if (!mounted || !_scroll.hasClients) return;
     if ((_scroll.position.pixels - clamped).abs() < 0.5) {
       _settleScrollChange();
     }

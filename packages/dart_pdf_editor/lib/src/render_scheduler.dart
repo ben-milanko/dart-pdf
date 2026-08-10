@@ -126,7 +126,16 @@ class PdfPageRenderScheduler {
   /// The page index nearest the viewport. Pending requests closest to it
   /// drain first, so what the user is looking at sharpens before
   /// off-screen neighbours.
-  set focus(int index) => _focus = index;
+  set focus(int index) {
+    if (_focus == index || _disposed) return;
+    _focus = index;
+    // The drain deliberately parks neighbouring requests while the focused
+    // page is in flight. If navigation moves the focus in that window, the
+    // old drain has already returned and no request will settle just because
+    // the focus changed. Re-arm it so the new visible page is granted now,
+    // rather than waiting for the previous page's worker/replay to finish.
+    _scheduleDrain();
+  }
 
   /// Whether any page is still waiting for its first interpret. The
   /// background preview prerender yields while this is true, so the two

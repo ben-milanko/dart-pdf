@@ -53,6 +53,21 @@ void main() {
         _UnknownLengthSource(buildMultiPagePdf(3)));
     expect(doc.pageCount, 3);
   });
+
+  test('full-download fallback does not keep the preview page-count hint',
+      () async {
+    final doc = await PdfDocument.openSource(
+      _UnknownLengthSource(buildMultiPagePdf(3)),
+      options: const PdfSourceLoadOptions(
+        firstPaintPages: 1,
+        completeFirstPaintPageTree: false,
+      ),
+    );
+
+    expect(doc.pageCount, 3,
+        reason: 'the fallback downloaded the complete page tree');
+    expect(doc.page(2).mediaBox.width, greaterThan(0));
+  });
 }
 
 /// A source that reports no length, forcing the sequential-download fallback.

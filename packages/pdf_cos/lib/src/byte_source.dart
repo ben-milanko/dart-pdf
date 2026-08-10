@@ -153,18 +153,53 @@ Future<CosDocument> openCosDocumentFromSource(
   PdfByteSource source, {
   String password = '',
   PdfSourceLoadOptions options = const PdfSourceLoadOptions(),
+}) async =>
+    (await openCosDocumentFromSourceWithStatus(
+      source,
+      password: password,
+      options: options,
+    ))
+        .document;
+
+/// The document and completeness metadata produced by a source open.
+///
+/// [isFirstPaintBuffer] is true only when [PdfSourceLoadOptions.firstPaintPages]
+/// successfully stopped the object fetch at its first-paint closure. It is
+/// false when ranged loading fell back to a complete sequential download or
+/// when the loader fetched the complete live-object closure. Higher layers use
+/// this distinction to avoid treating a fallback's complete page tree as if it
+/// were still the intentionally limited preview.
+class CosSourceOpenResult {
+  const CosSourceOpenResult(this.document, {required this.isFirstPaintBuffer});
+
+  final CosDocument document;
+  final bool isFirstPaintBuffer;
+}
+
+/// Opens [source] like [openCosDocumentFromSource] and reports whether the
+/// returned document is an intentionally limited first-paint buffer.
+Future<CosSourceOpenResult> openCosDocumentFromSourceWithStatus(
+  PdfByteSource source, {
+  String password = '',
+  PdfSourceLoadOptions options = const PdfSourceLoadOptions(),
 }) async {
-  Uint8List buffer;
+  late final Uint8List buffer;
+  var isFirstPaintBuffer = false;
   final t0 = PdfPerf.begin();
   try {
-    buffer = await _ProgressiveLoader(source, options).load();
+    final loaded = await _ProgressiveLoader(source, options).load();
+    buffer = loaded.bytes;
+    isFirstPaintBuffer = loaded.isFirstPaintBuffer;
   } on _FallbackToFullDownload {
     PdfPerf.add(PdfPerfCount.fullDownloadFallback);
     PdfPerf.event(PdfPerfEvent.rangedSourceFellBack);
     buffer = await _downloadFully(source, options);
   }
   PdfPerf.end(PdfPerfPhase.sourceFetch, t0);
-  return CosDocument.open(buffer, password: password);
+  return CosSourceOpenResult(
+    CosDocument.open(buffer, password: password),
+    isFirstPaintBuffer: isFirstPaintBuffer,
+  );
 }
 
 /// Sentinel that unwinds the progressive path to the full-download fallback.
@@ -225,7 +260,7 @@ class _ProgressiveLoader {
   final List<_Range> _present = [];
   int _fetched = 0;
 
-  Future<Uint8List> load() async {
+  Future<({Uint8List bytes, bool isFirstPaintBuffer})> load() async {
     final len = await source.length;
     if (len == null || len <= 0) throw const _FallbackToFullDownload();
     _length = len;
@@ -251,11 +286,11 @@ class _ProgressiveLoader {
     // where a whole-object open would.
     if (options.firstPaintPages != null &&
         await _fetchFirstPaintClosure(startXref, shift, offsets)) {
-      return _buffer;
+      return (bytes: _buffer, isFirstPaintBuffer: true);
     }
 
     await _fetchObjects(offsets);
-    return _buffer;
+    return (bytes: _buffer, isFirstPaintBuffer: false);
   }
 
   /// Absolute offsets of the cross-reference sections visited by [_walkXref].

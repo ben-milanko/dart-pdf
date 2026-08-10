@@ -40,13 +40,14 @@ class PdfDocument {
     String password = '',
     PdfSourceLoadOptions options = const PdfSourceLoadOptions(),
   }) async {
-    final cos = await CosDocument.openSource(source,
+    final result = await openCosDocumentFromSourceWithStatus(source,
         password: password, options: options);
-    final hint =
-        options.firstPaintPages != null && !options.completeFirstPaintPageTree
-            ? options.firstPaintPages
-            : null;
-    return PdfDocument._(cos, hint);
+    final hint = result.isFirstPaintBuffer &&
+            options.firstPaintPages != null &&
+            !options.completeFirstPaintPageTree
+        ? options.firstPaintPages
+        : null;
+    return PdfDocument._(result.document, hint);
   }
 
   String get version => cos.version;

@@ -1180,6 +1180,19 @@ void main() {
     expect(controller.currentPage, 4);
   });
 
+  testWidgets('disposing during an animated page jump is safe', (tester) async {
+    final controller = await pumpViewer(tester);
+    // Page 1 is close enough to use ScrollController.animateTo rather than
+    // the far-jump shortcut. Remove the viewer before that future completes;
+    // its ScrollController has no positions when the continuation resumes.
+    unawaited(controller.jumpToPage(1));
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('page overlays sit at PDF coordinates and stay interactive',
       (tester) async {
     var taps = 0;
