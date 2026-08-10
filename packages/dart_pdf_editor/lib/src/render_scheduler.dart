@@ -42,7 +42,7 @@ class PdfPageRenderScheduler {
   /// frame. This second queue paces those platform-thread completions while
   /// leaving all workers busy in parallel.
   final _uiPending = <_UiWorkRequest>[];
-  bool _uiDraining = false;
+  int? _uiFrameCallbackId;
 
   /// Tokens whose render has been granted but has not finished. Deduping
   /// only against [_pending] was not enough: the grant removes the
@@ -56,7 +56,7 @@ class PdfPageRenderScheduler {
 
   bool _holding = false;
   int _focus = 0;
-  bool _draining = false;
+  int? _renderFrameCallbackId;
   bool _disposed = false;
   final _activity = _Activity();
 
@@ -168,8 +168,27 @@ class PdfPageRenderScheduler {
   /// builds in one frame. This grants one completion per frame, nearest
   /// [focus] first, and waits through a fast-scroll [holding] interval.
   /// Returns false when [token] was cancelled or the scheduler was disposed.
-  Future<bool> paceUiWork(Object token, int priority) {
+  Future<bool> paceUiWork(
+    Object token,
+    int priority, {
+    bool replacePending = false,
+  }) {
     if (_disposed) return Future<bool>.value(false);
+    // Progressive worker replies are cumulative snapshots. If five prefixes
+    // arrive while this page is waiting for its UI replay turn, only the fifth
+    // can improve the pixels: replaying all five builds five successively
+    // larger pictures and transient rasters, then immediately discards four.
+    // Let the caller mark those results replaceable so a page owns at most one
+    // pending completion. The already-granted result remains uncancellable,
+    // but the queue behind it collapses to the newest snapshot (or final
+    // worker result).
+    if (replacePending) {
+      for (final pending
+          in _uiPending.where((r) => identical(r.token, token)).toList()) {
+        _uiPending.remove(pending);
+        if (!pending.ready.isCompleted) pending.ready.complete(false);
+      }
+    }
     final request = _UiWorkRequest(token, priority);
     _uiPending.add(request);
     _scheduleUiDrain();
@@ -193,97 +212,99 @@ class PdfPageRenderScheduler {
   }
 
   void _scheduleDrain() {
-    if (_draining || _holding || _disposed || _pending.isEmpty) return;
-    _draining = true;
-    // off the current build/layout stack (request fires from layout) and
-    // off the synchronous gesture turn, so the first grant lands after
-    // this frame rather than blocking it
-    scheduleMicrotask(_drain);
+    if (_renderFrameCallbackId != null ||
+        _holding ||
+        _disposed ||
+        _pending.isEmpty) {
+      return;
+    }
+    // request() commonly fires from layout. A transient frame callback gets
+    // the walk off that stack and gives the same hard one-grant-per-engine-
+    // frame guarantee as the worker-completion queue below.
+    _renderFrameCallbackId = SchedulerBinding.instance.scheduleFrameCallback(
+      _grantNextRender,
+    );
   }
 
-  Future<void> _drain() async {
-    try {
-      while (!_disposed && !_holding && _pending.isNotEmpty) {
-        // the pending request nearest the viewport focus
-        var pick = 0;
-        var best = (_pending[0].priority - _focus).abs();
-        for (var i = 1; i < _pending.length; i++) {
-          final distance = (_pending[i].priority - _focus).abs();
-          if (distance < best) {
-            best = distance;
-            pick = i;
-          }
-        }
-        final next = _pending.removeAt(pick);
-        PdfPerfLog.log('scheduler grant page=${next.priority} '
-            'focus=$_focus remaining=${_pending.length}');
-        _inFlight[next.token] = null;
-        // A granted async render has left the pending queue but still owns the
-        // platform thread for its replay/raster phase. Background thumbnail
-        // work must keep treating the viewer as busy through that window.
-        _activity.ping();
-        try {
-          // starts one page render this frame; the callback returns at its
-          // first await, so this does not block the pacing below
-          final running = next.render();
-          if (running is Future<void>) {
-            // deliberately not awaited: three workers must stay busy while
-            // this page records. Only the token's own re-request waits.
-            running.then(
-              (_) => _settle(next.token),
-              onError: (_) => _settle(next.token),
-            );
-          } else {
-            _settle(next.token);
-          }
-        } catch (_) {
-          // a page that throws mid-walk must not strand the rest of the
-          // queue - it simply keeps its preview/placeholder
-          _settle(next.token);
-        }
-        // let the engine breathe before the next walk: paint the frame
-        // this produced, service input, run animations. endOfFrame
-        // schedules a frame when idle so the drain can't stall;
-        // deliberately not a Timer (those pend in widget tests).
-        await SchedulerBinding.instance.endOfFrame;
+  void _grantNextRender(Duration _) {
+    _renderFrameCallbackId = null;
+    if (_disposed || _holding || _pending.isEmpty) return;
+    // the pending request nearest the viewport focus
+    var pick = 0;
+    var best = (_pending[0].priority - _focus).abs();
+    for (var i = 1; i < _pending.length; i++) {
+      final distance = (_pending[i].priority - _focus).abs();
+      if (distance < best) {
+        best = distance;
+        pick = i;
       }
-    } finally {
-      _draining = false;
-      _activity.ping();
     }
+    final next = _pending.removeAt(pick);
+    PdfPerfLog.log('scheduler grant page=${next.priority} '
+        'focus=$_focus remaining=${_pending.length}');
+    _inFlight[next.token] = null;
+    // A granted async render has left the pending queue but still owns the
+    // platform thread for its replay/raster phase. Background thumbnail work
+    // must keep treating the viewer as busy through that window.
+    _activity.ping();
+    try {
+      // Start the record without awaiting it so several workers remain busy.
+      // Only another *grant* waits for the following engine frame.
+      final running = next.render();
+      if (running is Future<void>) {
+        running.then(
+          (_) => _settle(next.token),
+          onError: (_) => _settle(next.token),
+        );
+      } else {
+        _settle(next.token);
+      }
+    } catch (_) {
+      // A page that throws mid-walk must not strand the rest of the queue - it
+      // simply keeps its preview/placeholder.
+      _settle(next.token);
+    }
+    _scheduleDrain();
   }
 
   void _scheduleUiDrain() {
-    if (_uiDraining || _holding || _disposed || _uiPending.isEmpty) return;
-    _uiDraining = true;
-    scheduleMicrotask(_drainUi);
+    if (_uiFrameCallbackId != null ||
+        _holding ||
+        _disposed ||
+        _uiPending.isEmpty) {
+      return;
+    }
+    // `endOfFrame` can already be complete when a continuation reaches it in
+    // the post-frame turn. A while-loop awaiting it therefore occasionally
+    // released several worker results only 1-2ms apart inside the same display
+    // frame. A transient callback is an actual next-frame boundary: exactly
+    // one result is granted by each engine frame, regardless of when the
+    // previous result's future resumed.
+    _uiFrameCallbackId = SchedulerBinding.instance.scheduleFrameCallback(
+      _grantNextUiWork,
+    );
   }
 
-  Future<void> _drainUi() async {
-    try {
-      while (!_disposed && !_holding && _uiPending.isNotEmpty) {
-        var pick = 0;
-        var best = (_uiPending[0].priority - _focus).abs();
-        for (var i = 1; i < _uiPending.length; i++) {
-          final distance = (_uiPending[i].priority - _focus).abs();
-          if (distance < best) {
-            best = distance;
-            pick = i;
-          }
-        }
-        final next = _uiPending.removeAt(pick);
-        PdfPerfLog.log('scheduler ui grant page=${next.priority} '
-            'focus=$_focus remaining=${_uiPending.length}');
-        if (!next.ready.isCompleted) next.ready.complete(true);
-        // The resumed future performs its replay in this turn. Do not release
-        // another result until that frame has painted and input had a chance
-        // to run, matching the first-interpret grant cadence above.
-        await SchedulerBinding.instance.endOfFrame;
+  void _grantNextUiWork(Duration _) {
+    _uiFrameCallbackId = null;
+    if (_disposed || _holding || _uiPending.isEmpty) return;
+    var pick = 0;
+    var best = (_uiPending[0].priority - _focus).abs();
+    for (var i = 1; i < _uiPending.length; i++) {
+      final distance = (_uiPending[i].priority - _focus).abs();
+      if (distance < best) {
+        best = distance;
+        pick = i;
       }
-    } finally {
-      _uiDraining = false;
-      if (_uiPending.isNotEmpty && !_holding) _scheduleUiDrain();
     }
+    final next = _uiPending.removeAt(pick);
+    PdfPerfLog.log('scheduler ui grant page=${next.priority} '
+        'focus=$_focus remaining=${_uiPending.length}');
+    if (!next.ready.isCompleted) next.ready.complete(true);
+    // Schedule the following result for the following engine frame before the
+    // resumed future starts its replay. Enqueues during that replay see this
+    // callback and cannot accidentally schedule a second grant in the frame.
+    _scheduleUiDrain();
   }
 
   /// [token]'s render has finished (or failed). Releases it and grants
@@ -306,6 +327,17 @@ class PdfPageRenderScheduler {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    final renderFrameCallbackId = _renderFrameCallbackId;
+    if (renderFrameCallbackId != null) {
+      SchedulerBinding.instance
+          .cancelFrameCallbackWithId(renderFrameCallbackId);
+      _renderFrameCallbackId = null;
+    }
+    final uiFrameCallbackId = _uiFrameCallbackId;
+    if (uiFrameCallbackId != null) {
+      SchedulerBinding.instance.cancelFrameCallbackWithId(uiFrameCallbackId);
+      _uiFrameCallbackId = null;
+    }
     _pending.clear();
     for (final request in _uiPending) {
       if (!request.ready.isCompleted) request.ready.complete(false);

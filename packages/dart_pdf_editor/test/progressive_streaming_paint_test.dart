@@ -37,16 +37,19 @@ Future<void> _settle(WidgetTester tester, {int rounds = 120}) async {
 
 void main() {
   late bool prevProgressive;
+  late Duration? prevProgressiveBudget;
   late bool prevEarly;
   late int prevMin;
 
   setUp(() {
     prevProgressive = PdfPageView.progressiveStreamingPaint;
+    prevProgressiveBudget = PdfPageView.progressivePartialUiBudget;
     prevEarly = PdfPageView.earlyPrefixPaint;
     prevMin = PdfPageView.earlyPrefixMinContentBytes;
   });
   tearDown(() {
     PdfPageView.progressiveStreamingPaint = prevProgressive;
+    PdfPageView.progressivePartialUiBudget = prevProgressiveBudget;
     PdfPageView.earlyPrefixPaint = prevEarly;
     PdfPageView.earlyPrefixMinContentBytes = prevMin;
     PdfPerfLog.enabled = false;
@@ -129,6 +132,10 @@ void main() {
   testWidgets('a streamed partial paints before the full raster lands',
       (tester) async {
     PdfPageView.progressiveStreamingPaint = true;
+    // One prefix is enough to prove the reveal. A zero budget deterministically
+    // exercises the adaptive stop: the latest-only mailbox must not replay the
+    // three larger cumulative snapshots queued behind it.
+    PdfPageView.progressivePartialUiBudget = Duration.zero;
     PdfPageView.earlyPrefixMinContentBytes = 0;
     final logs = <String>[];
     PdfPerfLog.enabled = true;
@@ -142,8 +149,8 @@ void main() {
     // stream live during the inner record) paint while _image is still null,
     // rather than being overtaken by the vector-first raster.
     final gate = Completer<void>();
-    final worker =
-        _StreamProbeWorker(PdfRenderWorker.startUncached(bytes), finalGate: gate);
+    final worker = _StreamProbeWorker(PdfRenderWorker.startUncached(bytes),
+        finalGate: gate);
     addTearDown(() {
       if (!gate.isCompleted) gate.complete();
       worker.dispose();
@@ -157,9 +164,13 @@ void main() {
     ));
     await _settle(tester, rounds: 60);
 
-    expect(logs.any((l) => l.contains('progressive-partial')), isTrue,
+    final partialLogs =
+        logs.where((l) => l.contains('progressive-partial')).toList();
+    expect(partialLogs, hasLength(1),
         reason: 'a streamed partial should have painted into the preview while '
-            'the vector-first final was held: ${logs.length} logs');
+            'the vector-first final was held, without replaying cumulative '
+            'snapshots after the UI budget was spent: ${logs.length} logs');
+    expect(partialLogs.single, contains('budgetStop=true'));
 
     gate.complete();
     await _settle(tester, rounds: 60);

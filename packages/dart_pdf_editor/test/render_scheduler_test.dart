@@ -23,9 +23,8 @@ void main() {
     expect(order, isEmpty);
 
     await tester.pump();
-    // a frame in: some progress, but not the whole queue at once
-    expect(order, isNotEmpty);
-    expect(order.length, lessThan(4));
+    // exactly one engine frame, exactly one grant
+    expect(order, hasLength(1));
 
     // the nearest-the-viewport page drains first
     expect(order.first, 5);
@@ -35,6 +34,24 @@ void main() {
     }
     // every page interpreted, closest-to-focus order
     expect(order, [5, 6, 9, 0]);
+  });
+
+  testWidgets('render grants use distinct engine frames', (tester) async {
+    final scheduler = PdfPageRenderScheduler();
+    addTearDown(scheduler.dispose);
+    final frames = <int>[];
+    var frame = 0;
+    for (var page = 0; page < 3; page++) {
+      scheduler.request('p$page', page, () => frames.add(frame));
+    }
+
+    for (var i = 0; i < 5 && frames.length < 3; i++) {
+      frame++;
+      await tester.pump();
+    }
+    expect(frames, hasLength(3));
+    expect(frames.toSet(), hasLength(3),
+        reason: 'at most one page render may be started per frame');
   });
 
   testWidgets('holding blocks grants until released', (tester) async {
@@ -94,6 +111,48 @@ void main() {
       await tester.pump();
     }
     expect(order, [5, 6, 8, 0]);
+  });
+
+  testWidgets('worker UI grants use distinct engine frames', (tester) async {
+    final scheduler = PdfPageRenderScheduler();
+    addTearDown(scheduler.dispose);
+    final frames = <int>[];
+    var frame = 0;
+    for (var page = 0; page < 3; page++) {
+      scheduler.paceUiWork('p$page', page).then((ready) {
+        if (ready) frames.add(frame);
+      });
+    }
+
+    for (var i = 0; i < 5 && frames.length < 3; i++) {
+      frame++;
+      await tester.pump();
+    }
+    expect(frames, hasLength(3));
+    expect(frames.toSet(), hasLength(3),
+        reason: 'at most one worker replay may be released per frame');
+  });
+
+  testWidgets('replaceable worker UI work keeps only the latest per page',
+      (tester) async {
+    final scheduler = PdfPageRenderScheduler()..holding = true;
+    addTearDown(scheduler.dispose);
+    final token = Object();
+    final first = scheduler.paceUiWork(token, 4, replacePending: true);
+    final second = scheduler.paceUiWork(token, 4, replacePending: true);
+    final finalResult = scheduler.paceUiWork(token, 4, replacePending: true);
+
+    expect(await first, isFalse);
+    expect(await second, isFalse);
+    var finalReady = false;
+    finalResult.then((ready) => finalReady = ready);
+    expect(finalReady, isFalse);
+
+    scheduler.holding = false;
+    for (var i = 0; i < 3 && !finalReady; i++) {
+      await tester.pump();
+    }
+    expect(finalReady, isTrue);
   });
 
   testWidgets('holding and cancellation gate worker UI completions',
