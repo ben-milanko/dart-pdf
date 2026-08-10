@@ -30,7 +30,7 @@ no magic local file. Five workload kinds ship:
 | kind | what it measures | headline metrics |
 |---|---|---|
 | `scroll` | scroll every page (+ optional zoom-settle / fast-fling): frame smoothness, interpret/decode worker offload | `buildP50/P95/Max`, `buildOver50`, interpret paths, `workerWarmMax`, tab memory |
-| `open` | cold-open profile: bytes → `PdfDocument.open` → `pageCount` → first painted content on a target page | `openBytesMs`, `openDocMs`, `openPageCountMs`, `openFirstContentMs` |
+| `open` | cold-open profile: bytes → `PdfDocument.open` → `pageCount` → first painted content and a visually settled target page | `openBytesMs`, `openDocMs`, `openPageCountMs`, `openFirstContentMs`, `openVisualSettleMs` |
 | `search` | full-document text search latency + hit count (best-of-N) | `searchMs`, `searchMatches` |
 | `edit` | apply a batch of annotations through the real `PdfEditingController`: incremental-save + appearance-gen cost | `editApplyMs`, `editApplyMsPerOp`, `editRevisions`, `editBufferGrowthKb` |
 | `hover` | mouse-move over a page with an editing tool armed: what following the painted cursor costs per pointer event | `hoverBuildMsTotal`, `hoverBuildMsPerEvent`, `hoverBuildMsP50/P95/Max`, `hoverFrames` |

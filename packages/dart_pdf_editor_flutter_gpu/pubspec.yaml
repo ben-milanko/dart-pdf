@@ -1,0 +1,32 @@
+name: dart_pdf_editor_flutter_gpu
+description: Opt-in Impeller flutter_gpu tile backend for dart_pdf_editor.
+version: 0.1.0
+publish_to: none
+repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/dart_pdf_editor_flutter_gpu
+issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
+resolution: workspace
+
+environment:
+  sdk: ^3.5.0
+  flutter: '>=3.44.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_gpu:
+    sdk: flutter
+  vector_math: ^2.1.4
+  dart_pdf_editor: ^3.4.0
+  pdf_cos: ^3.4.0
+  pdf_document: ^3.4.0
+  pdf_graphics: ^3.4.0
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+  pdf_test_fixtures: '>=1.4.0 <4.0.0'
+
+flutter:
+  assets:
+    - assets/shaders/pdf_tile_gpu.shaderbundle

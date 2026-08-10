@@ -28,6 +28,7 @@ class PdfTileLayer extends StatelessWidget {
     required this.desiredRatio,
     required this.visibleFraction,
     required this.rasterize,
+    this.persistence,
     this.canRasterize,
     this.maxNewTilesPerPaint,
     this.filterQuality = FilterQuality.medium,
@@ -50,6 +51,10 @@ class PdfTileLayer extends StatelessWidget {
 
   /// Rasterizes one tile from the page's retained scene.
   final PdfTileRasterizer rasterize;
+
+  /// Optional cold-session tile backing. Reads race [rasterize] and writes
+  /// begin only after a rendered tile is ready for display.
+  final PdfTilePersistence? persistence;
 
   /// Optional per-tile veto (see [PdfTileStore.viewFor]): a region this
   /// returns false for is left to the fallback/base raster.
@@ -74,6 +79,7 @@ class PdfTileLayer extends StatelessWidget {
           desiredRatio: desiredRatio,
           visibleFraction: visibleFraction,
           rasterize: rasterize,
+          persistence: persistence,
           canRasterize: canRasterize,
           maxNewTilesPerPaint: maxNewTilesPerPaint,
           filterQuality: filterQuality,
@@ -89,6 +95,7 @@ class _TilePagePainter extends CustomPainter {
     required this.desiredRatio,
     required this.visibleFraction,
     required this.rasterize,
+    required this.persistence,
     required this.canRasterize,
     required this.maxNewTilesPerPaint,
     required this.filterQuality,
@@ -102,6 +109,7 @@ class _TilePagePainter extends CustomPainter {
   final double desiredRatio;
   final Rect visibleFraction;
   final PdfTileRasterizer rasterize;
+  final PdfTilePersistence? persistence;
   final bool Function(Rect region)? canRasterize;
   final int? maxNewTilesPerPaint;
   final FilterQuality filterQuality;
@@ -123,6 +131,7 @@ class _TilePagePainter extends CustomPainter {
       desiredRatio: desiredRatio,
       visiblePageRect: visiblePageRect,
       rasterize: rasterize,
+      persistence: persistence,
       canRasterize: canRasterize,
       maxNewTiles: maxNewTilesPerPaint,
     );
@@ -164,6 +173,7 @@ class _TilePagePainter extends CustomPainter {
       old.desiredRatio != desiredRatio ||
       old.visibleFraction != visibleFraction ||
       !identical(old.rasterize, rasterize) ||
+      !identical(old.persistence, persistence) ||
       !identical(old.canRasterize, canRasterize) ||
       old.maxNewTilesPerPaint != maxNewTilesPerPaint ||
       old.filterQuality != filterQuality;

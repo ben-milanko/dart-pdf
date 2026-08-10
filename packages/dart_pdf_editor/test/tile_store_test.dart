@@ -14,8 +14,8 @@ Future<ui.Image> _solidImage(int w, int h,
     [Color color = const Color(0xFF102030)]) {
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder);
-  canvas.drawRect(Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()),
-      Paint()..color = color);
+  canvas.drawRect(
+      Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()), Paint()..color = color);
   final picture = recorder.endRecording();
   final image = picture.toImage(w, h);
   picture.dispose();
@@ -74,6 +74,32 @@ class _Rasterizer {
   }
 }
 
+class _Persistence implements PdfTilePersistence {
+  _Persistence({this.loaded, this.pending});
+
+  final ui.Image? loaded;
+  final Completer<ui.Image?>? pending;
+  int loads = 0;
+  int stores = 0;
+
+  @override
+  Future<ui.Image?> loadTile(PdfTileKey key,
+      {required Rect region,
+      required double pixelRatio,
+      required int width,
+    required int height}) async {
+    loads++;
+    if (pending != null) return pending!.future;
+    return loaded?.clone();
+  }
+
+  @override
+  Future<void> storeTile(PdfTileKey key, ui.Image image,
+      {required Rect region, required double pixelRatio}) async {
+    stores++;
+  }
+}
+
 const _plan = PdfPageRenderPlan();
 
 PdfTilePageIdentity _id(int page, {int epoch = 0, int content = 0}) =>
@@ -99,7 +125,8 @@ void main() {
     });
 
     test('snaps a desired ratio to the nearest rung and clamps', () {
-      const ladder = PdfTileZoomLadder(stepsPerOctave: 1, minRung: -2, maxRung: 4);
+      const ladder =
+          PdfTileZoomLadder(stepsPerOctave: 1, minRung: -2, maxRung: 4);
       expect(ladder.rungFor(1.1), 0); // nearest rung 0 (ratio 1)
       expect(ladder.rungFor(1.9), 1); // nearest rung 1 (ratio 2)
       expect(ladder.rungFor(1000), 4); // clamped to maxRung
@@ -109,6 +136,113 @@ void main() {
   });
 
   group('PdfTileStore.viewFor', () {
+    testWidgets('persistent hit races and wins without blocking raster start',
+        (tester) async {
+      await tester.runAsync(() async {
+        final cached = await _solidImage(16, 16, const Color(0xFF224466));
+        final persistence = _Persistence(loaded: cached);
+        final raster = _Rasterizer(sizeFromRegion: true);
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          batchRasters: false,
+          registerForMemoryPressure: false,
+        );
+        addTearDown(() {
+          store.dispose();
+          cached.dispose();
+        });
+
+        store.viewFor(
+          id: _id(0),
+          pageSize: const Size(16, 16),
+          desiredRatio: 1,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 16, 16),
+          rasterize: raster.call,
+          persistence: persistence,
+        );
+        expect(raster.calls, hasLength(1),
+            reason: 'disk lookup must not hold a cold raster miss');
+        await pumpEventQueue();
+        expect(store.tileCount, 1);
+        expect(store.debugPersistentHits, 1);
+
+        final view = store.viewFor(
+          id: _id(0),
+          pageSize: const Size(16, 16),
+          desiredRatio: 1,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 16, 16),
+          rasterize: raster.call,
+          persistence: persistence,
+        );
+        expect(view.complete, isTrue);
+        expect(view.placements, hasLength(1));
+
+        // The already-started raster eventually completes but cannot replace
+        // or write back over the persistent winner.
+        await raster.flush();
+        expect(store.tileCount, 1);
+        expect(persistence.stores, 0);
+      });
+    });
+
+    testWidgets('rendered tile displays before asynchronous persistence',
+        (tester) async {
+      await tester.runAsync(() async {
+        final persistence = _Persistence();
+        final raster = _Rasterizer(sizeFromRegion: true);
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          batchRasters: false,
+          registerForMemoryPressure: false,
+        );
+        addTearDown(store.dispose);
+        store.viewFor(
+          id: _id(0),
+          pageSize: const Size(16, 16),
+          desiredRatio: 1,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 16, 16),
+          rasterize: raster.call,
+          persistence: persistence,
+        );
+        await raster.flush();
+        expect(store.tileCount, 1);
+        expect(store.debugPersistentStores, 1);
+        expect(persistence.stores, 1);
+      });
+    });
+
+    testWidgets('late persistent hits cannot revive an invalidated page',
+        (tester) async {
+      await tester.runAsync(() async {
+        final pending = Completer<ui.Image?>();
+        final persistence = _Persistence(pending: pending);
+        final raster = _Rasterizer(sizeFromRegion: true);
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          batchRasters: false,
+          registerForMemoryPressure: false,
+        );
+        addTearDown(store.dispose);
+        store.viewFor(
+          id: _id(0),
+          pageSize: const Size(16, 16),
+          desiredRatio: 1,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 16, 16),
+          rasterize: raster.call,
+          persistence: persistence,
+        );
+        store.invalidate(pages: {0});
+        pending.complete(await _solidImage(16, 16));
+        await pumpEventQueue();
+
+        expect(store.tileCount, 0);
+        expect(store.debugPersistentHits, 0);
+      });
+    });
+
     testWidgets('an admission cap paces missing tiles across view passes',
         (tester) async {
       await tester.runAsync(() async {
@@ -401,7 +535,8 @@ void main() {
       });
     });
 
-    testWidgets('an off-screen neighbour settling does not starve the panned '
+    testWidgets(
+        'an off-screen neighbour settling does not starve the panned '
         'page', (tester) async {
       await tester.runAsync(() async {
         final store = PdfTileStore(
@@ -538,7 +673,8 @@ void main() {
       store.dispose();
     });
 
-    test('viewFor drops the prefetch ring when the visible set fills the budget',
+    test(
+        'viewFor drops the prefetch ring when the visible set fills the budget',
         () {
       const pageSize = Size(5120, 5120); // 10×10 grid at span 512
       const window = Rect.fromLTWH(2048, 2048, 1536, 1536); // centre 3×3 = 9
@@ -579,7 +715,8 @@ void main() {
         visiblePageRect: window,
         rasterize: raster.call,
       );
-      expect(tight.inFlightCount, 9, reason: 'ring dropped: visible tiles only');
+      expect(tight.inFlightCount, 9,
+          reason: 'ring dropped: visible tiles only');
       tight.dispose();
     });
 

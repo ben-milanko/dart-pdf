@@ -1594,7 +1594,9 @@ class _PdfPageViewState extends State<PdfPageView>
     // Something is already on screen for this page; there is nothing to
     // improve on, and overwriting it would be a downgrade.
     if (_image != null || _preview != null || _slugPicture != null) return;
-    if (widget.page.rawContentLength < PdfPageView.earlyPrefixMinContentBytes) return;
+    if (widget.page.rawContentLength < PdfPageView.earlyPrefixMinContentBytes) {
+      return;
+    }
 
     final commands = await worker.record(
       pageIndex,
@@ -3052,7 +3054,8 @@ class _PdfPageViewState extends State<PdfPageView>
   /// carries the page's visual identity and zoom bucket, not the resolution its
   /// images were decoded at, so a blurry tile WOULD otherwise be reused
   /// unchanged - the veto is what makes dropping unnecessary.)
-  void _adoptTileDetailScene(PdfRetainedScene scene, Rect region, double ratio) {
+  void _adoptTileDetailScene(
+      PdfRetainedScene scene, Rect region, double ratio) {
     final previous = _tileDetailScene;
     if (previous != null) {
       _disposeTileRasterSession(previous);
@@ -3135,12 +3138,11 @@ class _PdfPageViewState extends State<PdfPageView>
         // (that is the only thing the base scene cannot supply at this zoom);
         // everything else replays identically from either.
         rasterize: (region, ratio) => _rasterizeTile(
-          _tileDetailCovers(region, ratio)
-              ? _tileDetailScene ?? scene
-              : scene,
+          _tileDetailCovers(region, ratio) ? _tileDetailScene ?? scene : scene,
           region,
           ratio,
         ),
+        persistence: _tilePersistence,
         canRasterize: _tileRegionRasterizable,
         // A grid-indexed CAD scene can select tens of thousands of commands
         // across one viewport slab. replayRegion records those commands
@@ -3152,6 +3154,11 @@ class _PdfPageViewState extends State<PdfPageView>
         maxNewTilesPerPaint: scene.regionIndexBuildIsHeavy ? 1 : null,
       ),
     );
+  }
+
+  PdfTilePersistence? get _tilePersistence {
+    final disk = widget.previewCache?.disk;
+    return disk != null && disk.storesTiles ? disk : null;
   }
 
   Future<ui.Image> _rasterizeTile(
@@ -3697,6 +3704,7 @@ class _FallbackTileRasterSession implements PdfTileRasterSession {
   final PdfTileRasterSession fallback;
   final void Function(Object error) onFallback;
   bool _primaryEnabled = true;
+  bool _primaryDisposed = false;
 
   @override
   PdfRetainedScene get scene => fallback.scene;
@@ -3735,6 +3743,7 @@ class _FallbackTileRasterSession implements PdfTileRasterSession {
         image?.dispose();
         if (_primaryEnabled) {
           _primaryEnabled = false;
+          _disposePrimary();
           onFallback(error);
         }
       }
@@ -3748,8 +3757,14 @@ class _FallbackTileRasterSession implements PdfTileRasterSession {
 
   @override
   void dispose() {
-    _primary.dispose();
+    _disposePrimary();
     fallback.dispose();
+  }
+
+  void _disposePrimary() {
+    if (_primaryDisposed) return;
+    _primaryDisposed = true;
+    _primary.dispose();
   }
 }
 

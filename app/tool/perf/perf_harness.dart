@@ -17,7 +17,7 @@
 //             frame smoothness and interpret/decode offload. The original
 //             workload; its behaviour is byte-for-byte unchanged.
 //   open    - cold-open profile: bytes -> PdfDocument.open -> pageCount ->
-//             first painted content on a target page (time-to-first-content).
+//             first painted content and visually settled target page.
 //   search  - full-document text search latency + match count (best-of-N).
 //   edit    - apply a batch of annotations (highlight/rectangle/ink) through
 //             the real PdfEditingController; incremental-save + appearance-gen
@@ -502,9 +502,29 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
     // The `HARNESS TARGET start` marker was emitted in _start(); page 0 renders
     // on its own, deeper targets need a jump. The driver reads the first-paint
     // timestamp off the trace and reports openFirstContentMs.
-    if (target != 0) unawaited(_viewer.jumpToPage(target));
-    // Let first content + refinement land in the trace before we finish.
-    await Future<void>.delayed(const Duration(milliseconds: 2500));
+    if (target != 0) await _viewer.jumpToPage(target);
+
+    // A navigation dispatch or a placeholder frame is not the user-visible
+    // result. Wait until the target page is current and the shared render
+    // scheduler has stayed idle for three frames, which includes tile/detail
+    // raster completion. The metric starts at the cold-open stopwatch so it is
+    // directly comparable with openFirstContentMs from the trace.
+    final deadline = DateTime.now().add(const Duration(seconds: 30));
+    var idleFrames = 0;
+    while (DateTime.now().isBefore(deadline)) {
+      final settled = _viewer.currentPage == target &&
+          !_viewer.isPageRenderBusy;
+      idleFrames = settled ? idleFrames + 1 : 0;
+      if (idleFrames >= 3) break;
+      await SchedulerBinding.instance.endOfFrame;
+    }
+    if (idleFrames < 3) {
+      throw StateError('target page $target did not visually settle');
+    }
+    _metric('openVisualSettleMs', coldOpen.elapsedMicroseconds / 1000.0);
+    // Keep a short tail so the worker-side first-content line reaches the
+    // browser console before the driver snapshots it.
+    await Future<void>.delayed(const Duration(milliseconds: 250));
   }
 
   // ----- search: full-document text search latency + match count ------------

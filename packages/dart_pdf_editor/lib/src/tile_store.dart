@@ -40,6 +40,31 @@ import 'renderer.dart';
 typedef PdfTileRasterizer = Future<ui.Image> Function(
     Rect region, double pixelRatio);
 
+/// Optional persistent backing for the LoD pyramid.
+///
+/// Loads race the ordinary raster path: a slow or missing store never delays
+/// rendering, while a fast hit may populate the memory cache first. Stores are
+/// started only after a newly-rendered tile has landed, so image readback and
+/// compression are never on the path between raster completion and display.
+abstract interface class PdfTilePersistence {
+  Future<ui.Image?> loadTile(
+    PdfTileKey key, {
+    required Rect region,
+    required double pixelRatio,
+    required int width,
+    required int height,
+  });
+
+  /// Best-effort write-through. Implementations must retain or clone [image]
+  /// synchronously before their first await because the memory LRU owns it.
+  Future<void> storeTile(
+    PdfTileKey key,
+    ui.Image image, {
+    required Rect region,
+    required double pixelRatio,
+  });
+}
+
 /// The discrete ×√2 (or ×2) pixel-ratio ladder tiles are rastered on.
 ///
 /// A continuous zoom would raster every tile at a slightly different ratio and
@@ -105,8 +130,8 @@ class PdfTilePageIdentity {
       plan == other.plan;
 
   @override
-  int get hashCode => Object.hash(
-      pageIndex, pageEpoch, contentStamp, destructiveStamp, plan);
+  int get hashCode =>
+      Object.hash(pageIndex, pageEpoch, contentStamp, destructiveStamp, plan);
 }
 
 /// The full cache key of a single tile.
@@ -277,6 +302,7 @@ class PdfTileStore extends ChangeNotifier {
 
   final PdfBudgetedCache<PdfTileKey, PdfTile> _cache;
   final Set<PdfTileKey> _inFlight = {};
+  final Set<PdfTileKey> _persistentInFlight = {};
 
   /// Invalidation epochs: a tile whose page was invalidated after its raster
   /// was dispatched is discarded on completion (mirrors the render worker's
@@ -306,6 +332,9 @@ class PdfTileStore extends ChangeNotifier {
   int debugTilesDiscarded = 0;
   int debugTicks = 0;
   int debugBatchesDispatched = 0;
+  int debugPersistentLoads = 0;
+  int debugPersistentHits = 0;
+  int debugPersistentStores = 0;
 
   /// Total bytes of retained tiles.
   int get retainedBytes => _cache.weight;
@@ -444,6 +473,7 @@ class PdfTileStore extends ChangeNotifier {
     required double desiredRatio,
     required Rect visiblePageRect,
     required PdfTileRasterizer rasterize,
+    PdfTilePersistence? persistence,
     bool Function(Rect region)? canRasterize,
     int? maxNewTiles,
   }) {
@@ -486,8 +516,8 @@ class PdfTileStore extends ChangeNotifier {
     var newTiles = 0;
     bool schedule(PdfTileKey key) {
       if (maxNewTiles != null && newTiles >= maxNewTiles) return false;
-      final scheduled = _schedule(
-          key, id, pageSize, span, ratio, rasterize, pending, canRasterize);
+      final scheduled = _schedule(key, id, pageSize, span, ratio, rasterize,
+          persistence, pending, canRasterize);
       if (scheduled) newTiles++;
       return scheduled;
     }
@@ -540,7 +570,8 @@ class PdfTileStore extends ChangeNotifier {
 
     if (pending != null && pending.isNotEmpty) {
       for (final group in _groupBatches(pending)) {
-        _dispatchBatch(group, id, pageSize, span, ratio, rasterize);
+        _dispatchBatch(
+            group, id, pageSize, span, ratio, rasterize, persistence);
       }
     }
 
@@ -558,8 +589,8 @@ class PdfTileStore extends ChangeNotifier {
     double span,
     Size pageSize,
   ) {
-    final fine = _clampToPage(Rect.fromLTWH(tx * span, ty * span, span, span),
-        pageSize);
+    final fine =
+        _clampToPage(Rect.fromLTWH(tx * span, ty * span, span, span), pageSize);
     if (fine.isEmpty) return null;
     final center = fine.center;
     for (var d = 1; d <= maxFallbackDepth; d++) {
@@ -605,6 +636,7 @@ class PdfTileStore extends ChangeNotifier {
     double span,
     double ratio,
     PdfTileRasterizer rasterize,
+    PdfTilePersistence? persistence,
     List<PdfTileKey>? pending,
     bool Function(Rect region)? canRasterize,
   ) {
@@ -620,6 +652,8 @@ class PdfTileStore extends ChangeNotifier {
 
     _inFlight.add(key);
     debugTilesScheduled++;
+    _loadPersistentTile(
+        key, id, pageSize, region, ratio, persistence, _epochCounter);
     if (pending != null) {
       pending.add(key);
       return true;
@@ -632,9 +666,16 @@ class PdfTileStore extends ChangeNotifier {
         debugTilesDiscarded++;
         return;
       }
+      if (_cache.containsKey(key)) {
+        // A persistent hit won the race. Keep its already-visible pixels and
+        // release the duplicate raster without replacing/promoting the entry.
+        image.dispose();
+        return;
+      }
       _cache.put(
           key, PdfTile(image, region, key.rung, _fractionOf(region, pageSize)));
       debugTilesLanded++;
+      _storePersistentTile(key, image, region, ratio, persistence);
       _scheduleTick();
     }, onError: (Object _, StackTrace __) {
       _inFlight.remove(key);
@@ -693,6 +734,7 @@ class PdfTileStore extends ChangeNotifier {
     double span,
     double ratio,
     PdfTileRasterizer rasterize,
+    PdfTilePersistence? persistence,
   ) {
     Rect tileRegion(PdfTileKey key) => _clampToPage(
         Rect.fromLTWH(key.tx * span, key.ty * span, span, span), pageSize);
@@ -721,22 +763,21 @@ class PdfTileStore extends ChangeNotifier {
         debugTilesDiscarded += batch.length;
         return;
       }
-      final sliceClock =
-          PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
+      final sliceClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
       try {
         for (final key in batch) {
           final region = tileRegion(key);
-          _cache.put(
-              key,
-              PdfTile(_sliceTile(slab, batchRegion, region, ratio), region,
-                  key.rung, _fractionOf(region, pageSize)));
+          if (_cache.containsKey(key)) continue;
+          final image = _sliceTile(slab, batchRegion, region, ratio);
+          _cache.put(key,
+              PdfTile(image, region, key.rung, _fractionOf(region, pageSize)));
           debugTilesLanded++;
+          _storePersistentTile(key, image, region, ratio, persistence);
         }
       } finally {
         slab.dispose();
       }
-      final sliceElapsedMs =
-          (sliceClock?.elapsedMicroseconds ?? 0) / 1000;
+      final sliceElapsedMs = (sliceClock?.elapsedMicroseconds ?? 0) / 1000;
       PdfPerfLog.log(
         'tile slice page=${id.pageIndex} rung=${batch.first.rung} '
         'tiles=${batch.length} '
@@ -783,6 +824,51 @@ class PdfTileStore extends ChangeNotifier {
     } finally {
       picture.dispose();
     }
+  }
+
+  void _loadPersistentTile(
+    PdfTileKey key,
+    PdfTilePageIdentity id,
+    Size pageSize,
+    Rect region,
+    double ratio,
+    PdfTilePersistence? persistence,
+    int dispatchEpoch,
+  ) {
+    if (persistence == null || !_persistentInFlight.add(key)) return;
+    final width = (region.width * ratio).ceil().clamp(1, 1 << 14);
+    final height = (region.height * ratio).ceil().clamp(1, 1 << 14);
+    debugPersistentLoads++;
+    persistence
+        .loadTile(key,
+            region: region, pixelRatio: ratio, width: width, height: height)
+        .then((image) {
+      _persistentInFlight.remove(key);
+      if (image == null) return;
+      if (_disposed ||
+          _isStale(id.pageIndex, dispatchEpoch) ||
+          _cache.containsKey(key)) {
+        image.dispose();
+        return;
+      }
+      _cache.put(
+          key, PdfTile(image, region, key.rung, _fractionOf(region, pageSize)));
+      debugPersistentHits++;
+      debugTilesLanded++;
+      _scheduleTick();
+    }, onError: (Object _, StackTrace __) {
+      _persistentInFlight.remove(key);
+    });
+  }
+
+  void _storePersistentTile(PdfTileKey key, ui.Image image, Rect region,
+      double pixelRatio, PdfTilePersistence? persistence) {
+    if (persistence == null) return;
+    debugPersistentStores++;
+    // The implementation clones synchronously before its first await. This is
+    // deliberately unawaited: the tile is displayable before any readback.
+    unawaited(persistence.storeTile(key, image,
+        region: region, pixelRatio: pixelRatio));
   }
 
   bool _isStale(int pageIndex, int dispatchEpoch) =>
@@ -833,6 +919,7 @@ class PdfTileStore extends ChangeNotifier {
     _disposed = true;
     _cache.dispose();
     _inFlight.clear();
+    _persistentInFlight.clear();
     super.dispose();
   }
 }

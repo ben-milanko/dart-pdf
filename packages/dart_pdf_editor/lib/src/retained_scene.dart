@@ -314,14 +314,19 @@ class PdfRetainedScene {
     PdfPageRenderPlan plan = const PdfPageRenderPlan(),
     bool Function(PdfAnnotation)? skipAnnotation,
     double? maxImagePixelRatio,
+    PdfSceneBuildTiming? timing,
   }) async {
     final cos = page.document.cos;
     final recorder = RecordingPdfDevice();
     final recording = PdfInterpreter(cos: cos, device: recorder)
       ..drawPageContent(page, page.contentBytes());
     if (plan.annotations) recording.drawAnnotations(page, skip: skipAnnotation);
+    final clock = timing == null ? null : (Stopwatch()..start());
     final images = await decodeImages(cos, recorder.imageRequests,
         cache: PdfImageCache.instance, maxImagePixelRatio: maxImagePixelRatio);
+    if (clock != null) {
+      timing!.decodeMs = clock.elapsedMicroseconds / 1000.0;
+    }
     return PdfRetainedScene._(page, plan, recorder.commands, images);
   }
 
@@ -433,8 +438,7 @@ class PdfRetainedScene {
       );
       if (tracePage != null) {
         final replayElapsedMs = (replayMs ?? 0) / 1000;
-        final rasterElapsedMs =
-            (rasterClock?.elapsedMicroseconds ?? 0) / 1000;
+        final rasterElapsedMs = (rasterClock?.elapsedMicroseconds ?? 0) / 1000;
         PdfPerfLog.log(
           'tile replay page=$tracePage '
           'region=${region.width.toStringAsFixed(0)}x'

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add an optional persistent tier for 512 px LoD tiles. Disk reads race live
+  rendering, writes happen after display admission, cache keys include the
+  complete page visual identity, and the existing byte-budgeted memory LRU and
+  coarse-tile fallback remain authoritative. Export the retained-scene bounds
+  and content-stable image-key helpers used by optional raster backends.
 - Stop treating a page that shares the screen with the current one as an
   off-screen prefetch neighbour: `PdfPageView.onScreen` now gates the
   reduced-resolution image decode and the live-raster reclaim, so pages above

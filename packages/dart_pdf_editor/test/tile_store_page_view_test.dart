@@ -118,6 +118,8 @@ void main() {
     expect(backend.rasterizations, greaterThan(0));
     expect(store.tileCount, greaterThan(0),
         reason: 'the failed backend request must be retried through Canvas');
+    expect(backend.sessionDisposals, 1,
+        reason: 'a permanently-failed primary must release scene resources');
   });
 
   testWidgets('a wrong-sized backend slab falls back to Canvas',

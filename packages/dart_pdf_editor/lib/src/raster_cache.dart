@@ -3,6 +3,8 @@ import 'dart:ui' as ui;
 
 import 'package:pdf_document/pdf_document.dart';
 
+import 'tile_store.dart';
+
 /// Serialized representation of a full-resolution page raster on disk.
 ///
 /// Neither choice dominates - see the encoding measurements in
@@ -104,26 +106,30 @@ class PdfRasterCacheStats {
 /// instead of blank paper - while the (heavy, twice-over-the-content-
 /// stream) full render computes.
 ///
-/// This is the raster half of the library's on-disk caching, layered on
-/// the same pluggable [PdfCacheStore] seam as the text cache. It only
-/// stores the small preview rasters (see [PdfPagePreviewCache]) - a few
-/// tens of KB of PNG per page - not full-resolution page images, so the
-/// budget stays modest and the win (instant navigable content on cold
-/// open) is large. Rasters are encoded as PNG via [ui.Image] (no extra
-/// dependency) and decoded back with [ui.instantiateImageCodec].
+/// This is the raster half of the library's on-disk caching, layered on the
+/// same pluggable [PdfCacheStore] seam as the text cache. The primary cache
+/// stores small page previews. Hosts may also provide independent byte-budgeted
+/// stores for exact page rasters and LoD tiles. Keeping the three workloads in
+/// separate namespaces prevents a handful of large page images from evicting
+/// the previews that make cold navigation resilient. Rasters are encoded as
+/// PNG via [ui.Image] (no extra dependency) and decoded with
+/// [ui.instantiateImageCodec].
 ///
 /// A cache is bound to one document via [documentKey]; call [forDocument]
 /// to derive a view for the currently-open file (its [pdfContentKey], or
 /// a host-supplied stable id). With an empty key every operation no-ops,
 /// so an un-bound cache is harmless.
-class PdfRasterCache {
+class PdfRasterCache implements PdfTilePersistence {
   PdfRasterCache(
     this.cache, {
     this.documentKey = '',
     this.fullRasters,
+    this.tiles,
     this.fullRasterFormat = PdfRasterDiskFormat.png,
     PdfRasterCacheStats? fullRasterStats,
-  }) : fullRasterStats = fullRasterStats ?? PdfRasterCacheStats();
+    PdfRasterCacheStats? tileStats,
+  })  : fullRasterStats = fullRasterStats ?? PdfRasterCacheStats(),
+        tileStats = tileStats ?? PdfRasterCacheStats();
 
   /// The byte store these rasters persist into.
   final PdfDiskCache cache;
@@ -149,11 +155,20 @@ class PdfRasterCache {
   /// Null (the default) leaves full rasters memory-only, exactly as before.
   final PdfDiskCache? fullRasters;
 
+  /// Optional persistent tier for LoD tiles. Keep this separate from previews
+  /// and full-page rasters so each workload has an independent byte budget.
+  /// Tile reads race the live raster path and writes happen after admission,
+  /// so enabling this tier never blocks a cache miss from rendering.
+  final PdfDiskCache? tiles;
+
   /// How full rasters are serialized (see [PdfRasterDiskFormat]).
   final PdfRasterDiskFormat fullRasterFormat;
 
   /// Diagnostics for the full-raster tier, shared across [forDocument] views.
   final PdfRasterCacheStats fullRasterStats;
+
+  /// Diagnostics for the persistent tile tier.
+  final PdfRasterCacheStats tileStats;
 
   /// A view of this cache bound to [documentKey] - share one underlying
   /// [PdfDiskCache] (and its byte budget) across every document the
@@ -162,13 +177,122 @@ class PdfRasterCache {
         cache,
         documentKey: documentKey,
         fullRasters: fullRasters,
+        tiles: tiles,
         fullRasterFormat: fullRasterFormat,
         fullRasterStats: fullRasterStats,
+        tileStats: tileStats,
       );
 
   /// Whether exact full-resolution rasters can be read and written right now
   /// (the host wired [fullRasters] *and* the view is bound to a document).
   bool get storesFullRasters => fullRasters != null && documentKey.isNotEmpty;
+
+  /// Whether LoD tiles can be read and written for this bound document.
+  bool get storesTiles => tiles != null && documentKey.isNotEmpty;
+
+  static const String tileVersion = '1';
+
+  String _tileKey(PdfTileKey key, ui.Rect region, double pixelRatio, int width,
+      int height) {
+    final id = key.id;
+    final plan = id.plan;
+    final color = plan.pageColor
+        .toARGB32()
+        .toUnsigned(32)
+        .toRadixString(16)
+        .padLeft(8, '0');
+    return '$documentKey/lod$tileVersion/'
+        '${id.pageEpoch}.${id.contentStamp}.${id.destructiveStamp}/'
+        '${id.pageIndex}/$color/${plan.annotations ? 'annots' : 'noannots'}'
+        '/r${plan.rotation ?? 0}/${key.rung}/${key.tx}.${key.ty}'
+        '/${pixelRatio.toStringAsFixed(8)}/${width}x$height'
+        '/${region.left},${region.top},${region.right},${region.bottom}';
+  }
+
+  @override
+  Future<ui.Image?> loadTile(
+    PdfTileKey key, {
+    required ui.Rect region,
+    required double pixelRatio,
+    required int width,
+    required int height,
+  }) async {
+    final disk = tiles;
+    final stats = tileStats;
+    if (disk == null || documentKey.isEmpty) return null;
+    try {
+      final bytes =
+          await disk.read(_tileKey(key, region, pixelRatio, width, height));
+      if (bytes == null) {
+        stats._misses++;
+        return null;
+      }
+      final sw = Stopwatch()..start();
+      final codec = await ui.instantiateImageCodec(bytes);
+      try {
+        final frame = await codec.getNextFrame();
+        final image = frame.image;
+        if (image.width != width || image.height != height) {
+          image.dispose();
+          stats._errors++;
+          stats._misses++;
+          return null;
+        }
+        stats._hits++;
+        stats._bytesRead += bytes.length;
+        stats._decodeMicros += sw.elapsedMicroseconds;
+        return image;
+      } finally {
+        codec.dispose();
+      }
+    } catch (_) {
+      stats._errors++;
+      stats._misses++;
+      return null;
+    }
+  }
+
+  @override
+  Future<void> storeTile(
+    PdfTileKey key,
+    ui.Image image, {
+    required ui.Rect region,
+    required double pixelRatio,
+  }) async {
+    final disk = tiles;
+    final stats = tileStats;
+    if (disk == null || documentKey.isEmpty) {
+      stats._rejects++;
+      return;
+    }
+    // clone() is synchronous and shares the engine handle, keeping pixels
+    // alive if the in-memory LRU evicts the master during PNG readback.
+    final retained = image.clone();
+    final width = retained.width;
+    final height = retained.height;
+    try {
+      final sw = Stopwatch()..start();
+      final data = await retained.toByteData(format: ui.ImageByteFormat.png);
+      if (data == null) {
+        stats._rejects++;
+        return;
+      }
+      final bytes =
+          data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+      stats._encodeMicros += sw.elapsedMicroseconds;
+      await disk.write(_tileKey(key, region, pixelRatio, width, height), bytes);
+      stats._stores++;
+      stats._bytesWritten += bytes.length;
+    } catch (_) {
+      stats._errors++;
+    } finally {
+      retained.dispose();
+    }
+  }
+
+  /// Empties the persistent LoD tile tier. Previews and exact full-page
+  /// rasters use different stores and are untouched.
+  Future<void> clearTiles() async => tiles?.clear();
 
   String _key(int pageIndex) => '$documentKey/$pageIndex';
 

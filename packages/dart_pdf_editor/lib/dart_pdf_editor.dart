@@ -53,11 +53,15 @@ export 'src/editing/tool_shortcuts.dart';
 // loader build on, surfaced so viewer hosts get the whole remote-loading
 // vocabulary from this one package.
 export 'package:pdf_cos/pdf_cos.dart'
-    show PdfByteSource, PdfBytesByteSource, PdfSourceLoadOptions, PdfSourceProgress;
+    show
+        PdfByteSource,
+        PdfBytesByteSource,
+        PdfSourceLoadOptions,
+        PdfSourceProgress;
 export 'src/http_byte_source.dart';
 export 'l10n/dart_pdf_editor_localizations.dart';
 export 'src/l10n/pdf_l10n.dart';
-export 'src/image_decoder.dart' show PdfImageCache;
+export 'src/image_decoder.dart' show PdfImageCache, pdfImageContentKey;
 export 'src/ocr.dart';
 export 'src/page_export.dart';
 export 'src/print_rasterize.dart';
@@ -85,7 +89,11 @@ export 'src/render_worker.dart';
 export 'src/renderer.dart';
 export 'src/retained_scene.dart';
 export 'src/region_replay_index.dart'
-    show PdfRegionClipState, PdfRegionReplayUnit;
+    show
+        PdfRegionClipState,
+        PdfRegionReplayUnit,
+        pdfRenderCommandBounds,
+        pdfRenderPathBounds;
 export 'src/search_panel.dart';
 export 'src/scrollbar.dart';
 export 'src/theme.dart';
