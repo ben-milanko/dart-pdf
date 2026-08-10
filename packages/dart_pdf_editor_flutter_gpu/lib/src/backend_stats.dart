@@ -31,7 +31,14 @@ class FlutterGpuTileBackendStats {
   int peakTextureBytes = 0;
   int tilesRendered = 0;
   int selectedCommands = 0;
+  int issueMicros = 0;
   int submitMicros = 0;
+  int completedSubmissions = 0;
+  int completionMicros = 0;
+  int maxCompletionMicros = 0;
+  int failedSubmissions = 0;
+  int inFlightSubmissions = 0;
+  int peakInFlightSubmissions = 0;
 
   /// A JSON-safe snapshot suitable for diagnostics and benchmark artifacts.
   Map<String, Object?> toJson() => {
@@ -66,7 +73,14 @@ class FlutterGpuTileBackendStats {
         'peakTextureBytes': peakTextureBytes,
         'tilesRendered': tilesRendered,
         'selectedCommands': selectedCommands,
+        'issueMicros': issueMicros,
         'submitMicros': submitMicros,
+        'completedSubmissions': completedSubmissions,
+        'completionMicros': completionMicros,
+        'maxCompletionMicros': maxCompletionMicros,
+        'failedSubmissions': failedSubmissions,
+        'inFlightSubmissions': inFlightSubmissions,
+        'peakInFlightSubmissions': peakInFlightSubmissions,
       };
 
   /// Clears lifetime counters without corrupting live resource gauges.
@@ -98,7 +112,13 @@ class FlutterGpuTileBackendStats {
     peakTextureBytes = textureBytes;
     tilesRendered = 0;
     selectedCommands = 0;
+    issueMicros = 0;
     submitMicros = 0;
+    completedSubmissions = 0;
+    completionMicros = 0;
+    maxCompletionMicros = 0;
+    failedSubmissions = 0;
+    peakInFlightSubmissions = inFlightSubmissions;
     lastRejection = null;
     lastTileRoute = null;
   }
@@ -121,5 +141,10 @@ class FlutterGpuTileBackendStats {
       'activeLeases=$activeTextureLeases '
       'textureBytes=$textureBytes peakTextureBytes=$peakTextureBytes '
       'tiles=$tilesRendered lastRoute=$lastTileRoute '
-      'selected=$selectedCommands submitUs=$submitMicros';
+      'selected=$selectedCommands issueUs=$issueMicros '
+      'submitUs=$submitMicros completed=$completedSubmissions '
+      'completionUs=$completionMicros maxCompletionUs=$maxCompletionMicros '
+      'failedSubmissions=$failedSubmissions '
+      'inFlightSubmissions=$inFlightSubmissions '
+      'peakInFlightSubmissions=$peakInFlightSubmissions';
 }

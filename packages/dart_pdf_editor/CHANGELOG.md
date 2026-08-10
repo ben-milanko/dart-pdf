@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Let a tile raster session opt out of adjacent-tile slab batching and cap new
+  work admitted by each paint, while preserving Canvas batching and existing
+  third-party session compatibility. Expose the exact visible-tile budget
+  decision in diagnostics so single-patch fallbacks are explainable.
 - Keep off-screen neighbour pages at fit-resolution base rasters during deep
   zoom, promoting them only when they enter the viewport, so navigation no
   longer allocates high-zoom full-page rasters that are immediately replaced.

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Render final GPU tile textures directly and admit one per repaint, avoiding
+  deferred slab-to-tile texture-copy bursts. Track synchronous issue time and
+  command-buffer completion latency, failures, and in-flight submissions.
 - Render ordinary non-rectangular PDF clip stacks exactly with retained
   stencil geometry, including nested even-odd/nonzero clips and save/restore;
   rectangular clips keep the cheaper scissor path.

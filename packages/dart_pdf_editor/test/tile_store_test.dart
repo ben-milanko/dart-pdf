@@ -87,7 +87,7 @@ class _Persistence implements PdfTilePersistence {
       {required Rect region,
       required double pixelRatio,
       required int width,
-    required int height}) async {
+      required int height}) async {
     loads++;
     if (pending != null) return pending!.future;
     return loaded?.clone();
@@ -287,6 +287,34 @@ void main() {
         expect(store.debugBatchesDispatched, 2);
         expect(raster.calls, hasLength(2));
 
+        store.dispose();
+      });
+    });
+
+    testWidgets('a view can bypass the store slab policy', (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer(sizeFromRegion: true);
+
+        store.viewFor(
+          id: _id(0),
+          pageSize: const Size(64, 64),
+          desiredRatio: 1,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 64, 64),
+          rasterize: raster.call,
+          batchRasters: false,
+          maxNewTiles: 1,
+        );
+
+        expect(store.debugBatchesDispatched, 0,
+            reason: 'no slab may be created for a final-texture backend');
+        expect(raster.calls, hasLength(1));
+        expect(raster.calls.single.region.size, const Size(16, 16));
+        await raster.flush();
         store.dispose();
       });
     });
@@ -670,6 +698,16 @@ void main() {
         ),
         isFalse,
       );
+      final status = store.viewBudgetStatus(
+        pageSize: const Size(1536, 1536),
+        desiredRatio: 1,
+        visiblePageRect: const Rect.fromLTWH(0, 0, 1536, 1536),
+      )!;
+      expect(status.rung, 0);
+      expect(status.visibleTiles, 9);
+      expect(status.capacity, 8);
+      expect(status.limit, 6);
+      expect(status.fits, isFalse);
       store.dispose();
     });
 

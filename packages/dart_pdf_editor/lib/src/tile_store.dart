@@ -223,6 +223,24 @@ class PdfTileView {
   bool get isEmpty => placements.isEmpty;
 }
 
+/// Byte-budget admission decision for one exact-bucket visible tile set.
+@immutable
+class PdfTileBudgetStatus {
+  const PdfTileBudgetStatus({
+    required this.rung,
+    required this.visibleTiles,
+    required this.capacity,
+    required this.limit,
+  });
+
+  final int rung;
+  final int visibleTiles;
+  final int capacity;
+  final int limit;
+
+  bool get fits => visibleTiles <= limit;
+}
+
 /// The tile pyramid. Instantiable (tests, an isolated page) with a shared
 /// process-wide default ([instance]) so one budget spans every page, replacing
 /// the unbudgeted per-page detail patch and image retention.
@@ -437,11 +455,30 @@ class PdfTileStore extends ChangeNotifier {
     required Size pageSize,
     required double desiredRatio,
     required Rect visiblePageRect,
+  }) =>
+      viewBudgetStatus(
+        pageSize: pageSize,
+        desiredRatio: desiredRatio,
+        visiblePageRect: visiblePageRect,
+      )?.fits ??
+      false;
+
+  /// Explains [viewFitsBudget] for field diagnostics and tuning.
+  PdfTileBudgetStatus? viewBudgetStatus({
+    required Size pageSize,
+    required double desiredRatio,
+    required Rect visiblePageRect,
   }) {
     final grid = _tileGrid(pageSize, desiredRatio, visiblePageRect);
-    if (grid == null) return false;
+    if (grid == null) return null;
     final visible = (grid.tx1 - grid.tx0 + 1) * (grid.ty1 - grid.ty0 + 1);
-    return visible <= (budgetTileCapacity * _budgetFitFraction).floor();
+    final capacity = budgetTileCapacity;
+    return PdfTileBudgetStatus(
+      rung: grid.rung,
+      visibleTiles: visible,
+      capacity: capacity,
+      limit: (capacity * _budgetFitFraction).floor(),
+    );
   }
 
   /// The best-available composite for [id] over [visiblePageRect] (page points)
@@ -460,6 +497,9 @@ class PdfTileStore extends ChangeNotifier {
   /// Tiles already cached or in flight are unaffected. A landed tile ticks the
   /// store, so a painting caller can use a small cap to spread synchronous
   /// retained-scene replay across frames while the view fills center-out.
+  /// [batchRasters] overrides this store's batching policy for this view. This
+  /// lets a GPU session request final tile textures directly while Canvas
+  /// sessions using the same shared store continue to amortize slab replay.
   ///
   /// Synchronous and side-effecting: every tile it *places* is touched to
   /// most-recently-used, so a concurrent completion's eviction can only drop
@@ -475,6 +515,7 @@ class PdfTileStore extends ChangeNotifier {
     required PdfTileRasterizer rasterize,
     PdfTilePersistence? persistence,
     bool Function(Rect region)? canRasterize,
+    bool? batchRasters,
     int? maxNewTiles,
   }) {
     assert(maxNewTiles == null || maxNewTiles > 0);
@@ -512,7 +553,7 @@ class PdfTileStore extends ChangeNotifier {
     });
 
     final placements = <PdfTilePlacement>[];
-    final pending = batchRasters ? <PdfTileKey>[] : null;
+    final pending = (batchRasters ?? this.batchRasters) ? <PdfTileKey>[] : null;
     var newTiles = 0;
     bool schedule(PdfTileKey key) {
       if (maxNewTiles != null && newTiles >= maxNewTiles) return false;

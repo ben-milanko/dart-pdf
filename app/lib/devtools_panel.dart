@@ -1258,12 +1258,23 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
           theme,
           'Tile replay',
           '${stats.tilesRendered} tiles · '
-              '${_averageMs(stats.submitMicros, stats.tilesRendered)} submit '
+              '${_averageMs(stats.issueMicros, stats.tilesRendered)} issue '
               'avg · ${stats.tilesRendered == 0 ? 'n/a' : (stats.selectedCommands / stats.tilesRendered).toStringAsFixed(1)} commands/tile',
-          help: 'GPU tiles rendered, synchronous command-buffer submit time, '
-              'and spatially selected commands per tile. This excludes GPU '
-              'completion time but exposes replay/selection growth on CAD '
-              'pages.',
+          help: 'GPU tiles rendered, synchronous texture/pass encoding and '
+              'submission time, and spatially selected commands per tile.',
+        ),
+        _kv(
+          theme,
+          'GPU completion',
+          '${stats.completedSubmissions} done · '
+              '${_averageMs(stats.completionMicros, stats.completedSubmissions)} avg · '
+              '${(stats.maxCompletionMicros / 1000).toStringAsFixed(1)} ms worst · '
+              '${stats.inFlightSubmissions} in flight',
+          help: 'Command-buffer submit-to-completion latency, including time '
+              'queued behind earlier GPU work. A growing in-flight count or '
+              'large worst latency reveals deferred raster-thread pressure '
+              'that synchronous submit timing cannot see. '
+              '${stats.failedSubmissions} submissions reported failure.',
         ),
         _kv(
           theme,

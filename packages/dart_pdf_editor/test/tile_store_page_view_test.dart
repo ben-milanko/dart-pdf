@@ -21,7 +21,11 @@ void main() {
 
     final store =
         PdfTileStore(tilePixels: 256, registerForMemoryPressure: false);
-    final backend = _RecordingTileRasterBackend(throwOnDispose: true);
+    final backend = _RecordingTileRasterBackend(
+      throwOnDispose: true,
+      batchAdjacentTiles: false,
+      maxNewTilesPerPaint: 1,
+    );
     PdfPageView.tileStoreDetail = true;
     PdfPageView.debugTileStoreOverride = store;
     addTearDown(() {
@@ -67,6 +71,13 @@ void main() {
     expect(store.tileCount, greaterThan(0));
     expect(backend.sessionCreates, 1);
     expect(backend.rasterizations, greaterThan(0));
+    final tilePaint = tester.widget<CustomPaint>(
+      find.byKey(const ValueKey('pdf-page-tile-layer')),
+    );
+    expect((tilePaint.painter as dynamic).batchRasters, isFalse,
+        reason: 'a final-texture backend must bypass slab slicing');
+    expect((tilePaint.painter as dynamic).maxNewTilesPerPaint, 1,
+        reason: 'the backend session owns its per-frame admission policy');
 
     await tester.pumpWidget(const SizedBox.shrink());
     expect(tester.takeException(), isNull,
@@ -409,12 +420,16 @@ class _RecordingTileRasterBackend extends PdfCanvasTileRasterBackend {
     this.failRasterization = false,
     this.wrongDimensions = false,
     this.throwOnDispose = false,
+    this.batchAdjacentTiles = true,
+    this.maxNewTilesPerPaint,
   });
 
   final bool failCreation;
   final bool failRasterization;
   final bool wrongDimensions;
   final bool throwOnDispose;
+  final bool batchAdjacentTiles;
+  final int? maxNewTilesPerPaint;
   int sessionCreates = 0;
   int sessionDisposals = 0;
   int rasterizations = 0;
@@ -434,13 +449,20 @@ class _RecordingTileRasterBackend extends PdfCanvasTileRasterBackend {
   }
 }
 
-class _RecordingTileRasterSession implements PdfTileRasterSession {
+class _RecordingTileRasterSession
+    implements PdfTileRasterSession, PdfTileRasterScheduling {
   _RecordingTileRasterSession(this.backend, this.scene);
 
   final _RecordingTileRasterBackend backend;
 
   @override
   final PdfRetainedScene scene;
+
+  @override
+  bool get batchAdjacentTiles => backend.batchAdjacentTiles;
+
+  @override
+  int? get maxNewTilesPerPaint => backend.maxNewTilesPerPaint;
 
   @override
   Future<ui.Image> rasterizeRegion(

@@ -14,7 +14,7 @@ import 'package:vector_math/vector_math.dart' as vm;
 
 import 'backend_stats.dart';
 
-/// Scene-retained flutter_gpu backend for LoD tile slabs.
+/// Scene-retained flutter_gpu backend for final LoD tile textures.
 ///
 /// The first tile lazily compiles supported retained commands into page-space
 /// GPU buffers and uploads every decoded image once. Later tiles only query the
@@ -668,7 +668,8 @@ bool _commandNeedsDarken(
   };
 }
 
-class _FlutterGpuTileSession implements PdfTileRasterSession {
+class _FlutterGpuTileSession
+    implements PdfTileRasterSession, PdfTileRasterScheduling {
   _FlutterGpuTileSession({
     required this.scene,
     required this.context,
@@ -682,6 +683,18 @@ class _FlutterGpuTileSession implements PdfTileRasterSession {
 
   @override
   final PdfRetainedScene scene;
+
+  // This backend already returns a final GPU texture for every raster call.
+  // Slab splitting would queue another texture-to-texture copy per tile; those
+  // copies are deferred by Impeller and have shown up as later 90ms raster
+  // frames even though the synchronous split loop itself takes <1ms.
+  @override
+  bool get batchAdjacentTiles => false;
+
+  // Keep the base/coarse tile visible and issue one new texture per repaint.
+  // Completion ticks the store, naturally advancing the center-out queue.
+  @override
+  int get maxNewTilesPerPaint => 1;
   final gpu.GpuContext context;
   final _GpuPipelines pipelines;
   final List<_GpuUnit> units;
@@ -720,6 +733,7 @@ class _FlutterGpuTileSession implements PdfTileRasterSession {
     try {
       final compiled = await _compile();
       if (_disposed) throw StateError('flutter_gpu tile session disposed');
+      final issue = Stopwatch()..start();
       final selected = _selectGpuUnits(units, compiled.pageToRaster, region);
       stats.selectedCommands += selected.length;
       final image = compiled.render(
@@ -728,9 +742,20 @@ class _FlutterGpuTileSession implements PdfTileRasterSession {
         pixelRatio: pixelRatio,
         pipelines: pipelines,
         useMsaa: msaa,
+        tracePage: tracePage,
       );
       stats.tilesRendered++;
       stats.lastTileRoute = 'flutter_gpu';
+      PdfPerfLog.log(
+        'tile gpu issue page=${tracePage ?? '-'} '
+        'region=${region.width.toStringAsFixed(0)}x'
+        '${region.height.toStringAsFixed(0)}pt '
+        'ratio=${pixelRatio.toStringAsFixed(2)} '
+        'selected=${selected.length}/${units.length} '
+        'img=${image.width}x${image.height} '
+        'cpu=${(issue.elapsedMicroseconds / 1000).toStringAsFixed(1)}ms '
+        'inFlight=${stats.inFlightSubmissions}',
+      );
       return image;
     } catch (error) {
       if (!_failureReported && !_disposed) {
@@ -875,8 +900,28 @@ class _CompiledScene {
     geometryPool.releaseAll(geometryLeases, stats);
   }
 
-  void _completeSubmission(bool success) {
+  void _completeSubmission(
+    bool success,
+    Stopwatch completion,
+    int? tracePage,
+    int width,
+    int height,
+    int selectedCommands,
+  ) {
     if (_inFlight > 0) _inFlight--;
+    stats.inFlightSubmissions = math.max(0, stats.inFlightSubmissions - 1);
+    final elapsed = completion.elapsedMicroseconds;
+    stats
+      ..completedSubmissions += 1
+      ..completionMicros += elapsed
+      ..maxCompletionMicros = math.max(stats.maxCompletionMicros, elapsed);
+    if (!success) stats.failedSubmissions++;
+    PdfPerfLog.log(
+      'tile gpu complete page=${tracePage ?? '-'} '
+      'img=${width}x$height selected=$selectedCommands '
+      'queue=${(elapsed / 1000).toStringAsFixed(1)}ms '
+      'success=$success inFlight=${stats.inFlightSubmissions}',
+    );
     _releaseGeometryIfReady();
   }
 
@@ -886,6 +931,7 @@ class _CompiledScene {
     required double pixelRatio,
     required _GpuPipelines pipelines,
     required bool useMsaa,
+    int? tracePage,
   }) {
     final width = (region.width * pixelRatio).ceil().clamp(1, 1 << 14);
     final height = (region.height * pixelRatio).ceil().clamp(1, 1 << 14);
@@ -897,6 +943,7 @@ class _CompiledScene {
       useMsaa: useMsaa,
       width: width,
       height: height,
+      tracePage: tracePage,
     );
   }
 
@@ -908,7 +955,9 @@ class _CompiledScene {
     required bool useMsaa,
     required int width,
     required int height,
+    int? tracePage,
   }) {
+    final issue = Stopwatch()..start();
     final multisampled = useMsaa && context.doesSupportOffscreenMSAA;
     final resolve = context.createTexture(
       gpu.StorageMode.devicePrivate,
@@ -983,15 +1032,36 @@ class _CompiledScene {
     }
     stats.clipMaskRebuilds += encoder.clipMaskRebuilds;
     final submit = Stopwatch()..start();
+    final completion = Stopwatch()..start();
     _inFlight++;
+    stats
+      ..inFlightSubmissions += 1
+      ..peakInFlightSubmissions = math.max(
+        stats.peakInFlightSubmissions,
+        stats.inFlightSubmissions,
+      );
     try {
-      commandBuffer.submit(completionCallback: _completeSubmission);
+      commandBuffer.submit(
+        completionCallback: (success) => _completeSubmission(
+          success,
+          completion,
+          tracePage,
+          width,
+          height,
+          selected.length,
+        ),
+      );
     } catch (_) {
       _inFlight--;
+      stats
+        ..inFlightSubmissions = math.max(0, stats.inFlightSubmissions - 1)
+        ..failedSubmissions += 1;
       _releaseGeometryIfReady();
       rethrow;
     }
-    stats.submitMicros += submit.elapsedMicroseconds;
+    stats
+      ..submitMicros += submit.elapsedMicroseconds
+      ..issueMicros += issue.elapsedMicroseconds;
     return resolve.asImage();
   }
 

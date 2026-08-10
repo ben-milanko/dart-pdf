@@ -3109,9 +3109,10 @@ class _PdfPageViewState extends State<PdfPageView>
     final store = PdfPageView.debugTileStoreOverride ?? PdfTileStore.instance;
     final size = _renderPlan.pageSize(widget.page);
     if (size.width <= 0 || size.height <= 0) return false;
-    return store.viewFitsBudget(
+    final desired = _desiredRatioAt(widget.scale);
+    final status = store.viewBudgetStatus(
       pageSize: size,
-      desiredRatio: _desiredRatioAt(widget.scale),
+      desiredRatio: desired,
       visiblePageRect: Rect.fromLTRB(
         fraction.left * size.width,
         fraction.top * size.height,
@@ -3119,6 +3120,22 @@ class _PdfPageViewState extends State<PdfPageView>
         fraction.bottom * size.height,
       ),
     );
+    if (status == null) {
+      PdfPerfLog.log(
+        'tile fallback page=${widget.previewIndex} reason=invalid-geometry '
+        'desired=${desired.toStringAsFixed(2)}',
+      );
+      return false;
+    }
+    if (!status.fits) {
+      PdfPerfLog.log(
+        'tile fallback page=${widget.previewIndex} reason=budget '
+        'rung=${status.rung} visible=${status.visibleTiles} '
+        'limit=${status.limit} capacity=${status.capacity} '
+        'desired=${desired.toStringAsFixed(2)}',
+      );
+    }
+    return status.fits;
   }
 
   /// The [PdfTileStore] deep-zoom composite for this page, or null when the
@@ -3134,6 +3151,17 @@ class _PdfPageViewState extends State<PdfPageView>
     final desired = _tileDesiredRatio;
     if (scene == null || fraction == null || desired == null) return null;
     final store = PdfPageView.debugTileStoreOverride ?? PdfTileStore.instance;
+    final session = _tileRasterSessionFor(scene);
+    final scheduling = session is PdfTileRasterScheduling
+        ? session as PdfTileRasterScheduling
+        : null;
+    final sessionCap = scheduling?.maxNewTilesPerPaint;
+    final sceneCap = scene.regionIndexBuildIsHeavy ? 1 : null;
+    final maxNewTiles = sessionCap == null
+        ? sceneCap
+        : sceneCap == null
+            ? sessionCap
+            : math.min(sessionCap, sceneCap);
     return Positioned.fill(
       child: PdfTileLayer(
         store: store,
@@ -3157,6 +3185,7 @@ class _PdfPageViewState extends State<PdfPageView>
         ),
         persistence: _tilePersistence,
         canRasterize: _tileRegionRasterizable,
+        batchRasters: scheduling?.batchAdjacentTiles,
         // A grid-indexed CAD scene can select tens of thousands of commands
         // across one viewport slab. replayRegion records those commands
         // synchronously before toImage yields, so batching every missing tile
@@ -3164,7 +3193,7 @@ class _PdfPageViewState extends State<PdfPageView>
         // Admit one tile per paint instead. A tile completion repaints the
         // layer and advances the center-out fill; ordinary scenes retain the
         // lower-overhead batched path.
-        maxNewTilesPerPaint: scene.regionIndexBuildIsHeavy ? 1 : null,
+        maxNewTilesPerPaint: maxNewTiles,
       ),
     );
   }
@@ -3718,7 +3747,8 @@ class _PdfPageViewState extends State<PdfPageView>
 /// serves that request (and every later one) through Canvas. The failed
 /// session stays owned until dispose: another slab may already be in flight,
 /// and the backend contract allows it to finish before resources are freed.
-class _FallbackTileRasterSession implements PdfTileRasterSession {
+class _FallbackTileRasterSession
+    implements PdfTileRasterSession, PdfTileRasterScheduling {
   _FallbackTileRasterSession({
     required PdfTileRasterSession primary,
     required this.fallback,
@@ -3734,6 +3764,22 @@ class _FallbackTileRasterSession implements PdfTileRasterSession {
 
   @override
   PdfRetainedScene get scene => fallback.scene;
+
+  @override
+  bool get batchAdjacentTiles {
+    final active = _primaryEnabled ? _primary : fallback;
+    return active is PdfTileRasterScheduling
+        ? (active as PdfTileRasterScheduling).batchAdjacentTiles
+        : true;
+  }
+
+  @override
+  int? get maxNewTilesPerPaint {
+    final active = _primaryEnabled ? _primary : fallback;
+    return active is PdfTileRasterScheduling
+        ? (active as PdfTileRasterScheduling).maxNewTilesPerPaint
+        : null;
+  }
 
   @override
   Future<ui.Image> rasterizeRegion(

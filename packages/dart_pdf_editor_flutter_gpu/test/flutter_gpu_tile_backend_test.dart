@@ -68,7 +68,7 @@ void main() {
     });
   });
 
-  testWidgets('compiles once and replays retained buffers across tile slabs',
+  testWidgets('compiles once and replays retained buffers across tiles',
       (tester) async {
     await tester.runAsync(() async {
       if (!_gpuAvailable()) {
@@ -82,6 +82,10 @@ void main() {
       final session = backend.createSession(scene);
       expect(session, isNotNull, reason: backend.stats.lastRejection);
       addTearDown(session!.dispose);
+      expect(session, isA<PdfTileRasterScheduling>());
+      final scheduling = session as PdfTileRasterScheduling;
+      expect(scheduling.batchAdjacentTiles, isFalse);
+      expect(scheduling.maxNewTilesPerPaint, 1);
       expect(backend.stats.activeSessions, 1);
       expect(backend.stats.lastTileRoute, 'flutter_gpu-session');
 
@@ -103,7 +107,11 @@ void main() {
         difference += (expected[i] - actual[i]).abs();
       }
       expect(difference / expected.length, lessThan(12),
-          reason: 'GPU slab should agree with Canvas apart from AA edges');
+          reason: 'GPU tile should agree with Canvas apart from AA edges');
+      expect(backend.stats.completedSubmissions, 1);
+      expect(backend.stats.maxCompletionMicros, greaterThan(0));
+      expect(backend.stats.inFlightSubmissions, 0,
+          reason: 'pixel readback waits for the submitted render to finish');
       expect(backend.stats.scenesCompiled, 1);
       expect(backend.stats.texturesUploaded, 1);
       final buffers = backend.stats.geometryBuffers;

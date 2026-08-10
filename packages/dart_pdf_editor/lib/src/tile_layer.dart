@@ -30,6 +30,7 @@ class PdfTileLayer extends StatelessWidget {
     required this.rasterize,
     this.persistence,
     this.canRasterize,
+    this.batchRasters,
     this.maxNewTilesPerPaint,
     this.filterQuality = FilterQuality.medium,
   }) : assert(maxNewTilesPerPaint == null || maxNewTilesPerPaint > 0);
@@ -60,6 +61,9 @@ class PdfTileLayer extends StatelessWidget {
   /// returns false for is left to the fallback/base raster.
   final bool Function(Rect region)? canRasterize;
 
+  /// Per-view override for the store's adjacent-tile slab batching policy.
+  final bool? batchRasters;
+
   /// Optional admission cap for missing tiles scheduled by one paint.
   ///
   /// Dense retained scenes use this to keep their synchronous command replay
@@ -81,6 +85,7 @@ class PdfTileLayer extends StatelessWidget {
           rasterize: rasterize,
           persistence: persistence,
           canRasterize: canRasterize,
+          batchRasters: batchRasters,
           maxNewTilesPerPaint: maxNewTilesPerPaint,
           filterQuality: filterQuality,
         ),
@@ -97,6 +102,7 @@ class _TilePagePainter extends CustomPainter {
     required this.rasterize,
     required this.persistence,
     required this.canRasterize,
+    required this.batchRasters,
     required this.maxNewTilesPerPaint,
     required this.filterQuality,
   }) : super(
@@ -111,6 +117,7 @@ class _TilePagePainter extends CustomPainter {
   final PdfTileRasterizer rasterize;
   final PdfTilePersistence? persistence;
   final bool Function(Rect region)? canRasterize;
+  final bool? batchRasters;
   final int? maxNewTilesPerPaint;
   final FilterQuality filterQuality;
 
@@ -133,6 +140,7 @@ class _TilePagePainter extends CustomPainter {
       rasterize: rasterize,
       persistence: persistence,
       canRasterize: canRasterize,
+      batchRasters: batchRasters,
       maxNewTiles: maxNewTilesPerPaint,
     );
     if (view.isEmpty) return;
@@ -175,6 +183,7 @@ class _TilePagePainter extends CustomPainter {
       !identical(old.rasterize, rasterize) ||
       !identical(old.persistence, persistence) ||
       !identical(old.canRasterize, canRasterize) ||
+      old.batchRasters != batchRasters ||
       old.maxNewTilesPerPaint != maxNewTilesPerPaint ||
       old.filterQuality != filterQuality;
 }

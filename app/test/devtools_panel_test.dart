@@ -177,7 +177,12 @@ void main() {
       ..compileMicros = 8000
       ..tilesRendered = 4
       ..selectedCommands = 40
+      ..issueMicros = 4000
       ..submitMicros = 2000
+      ..completedSubmissions = 3
+      ..completionMicros = 18000
+      ..maxCompletionMicros = 9000
+      ..inFlightSubmissions = 1
       ..lastTileRoute = 'canvas-fallback'
       ..lastRejection = 'unsupported blend mode';
     addTearDown(stats.reset);
@@ -194,6 +199,8 @@ void main() {
     expect(find.text('unsupported blend mode'), findsOneWidget);
     expect(find.text('Canvas fallback'), findsOneWidget);
     expect(find.textContaining('10.0 commands/tile'), findsOneWidget);
+    expect(find.textContaining('9.0 ms worst'), findsOneWidget);
+    expect(find.textContaining('1 in flight'), findsOneWidget);
     expect(
         find.byKey(const ValueKey('devtools-reset-gpu-stats')), findsOneWidget);
   });

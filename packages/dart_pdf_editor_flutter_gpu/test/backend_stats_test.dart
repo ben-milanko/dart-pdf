@@ -17,12 +17,20 @@ void main() {
       ..geometryBuffers = 3
       ..geometryBytes = 32 << 20
       ..peakGeometryBytes = 48 << 20
+      ..completedSubmissions = 8
+      ..completionMicros = 32000
+      ..maxCompletionMicros = 9000
+      ..failedSubmissions = 1
+      ..inFlightSubmissions = 2
+      ..peakInFlightSubmissions = 4
       ..lastTileRoute = 'canvas-fallback'
       ..lastRejection = 'test fallback';
 
     expect(stats.toJson(), containsPair('rasterFallbacks', 1));
     expect(stats.toJson(), containsPair('lastRejection', 'test fallback'));
     expect(stats.toJson(), containsPair('lastTileRoute', 'canvas-fallback'));
+    expect(stats.toJson(), containsPair('completedSubmissions', 8));
+    expect(stats.toJson(), containsPair('maxCompletionMicros', 9000));
 
     stats.reset();
     expect(stats.sessionsCreated, 0);
@@ -37,5 +45,9 @@ void main() {
     expect(stats.geometryBuffers, 3);
     expect(stats.geometryBytes, 32 << 20);
     expect(stats.peakGeometryBytes, 32 << 20);
+    expect(stats.completedSubmissions, 0);
+    expect(stats.completionMicros, 0);
+    expect(stats.inFlightSubmissions, 2);
+    expect(stats.peakInFlightSubmissions, 2);
   });
 }
