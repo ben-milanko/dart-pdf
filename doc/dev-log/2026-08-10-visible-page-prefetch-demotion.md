@@ -106,3 +106,19 @@ Budget ordering is unit-tested against fakes in
 `test/live_raster_budget_test.dart` (the fake defaults to "only the
 focused page is visible", the shape the pre-existing ordering tests
 assume; the new cases pass `onScreen` explicitly).
+
+## Follow-up: initialising the span
+
+A document that opens and is never scrolled or zoomed calls neither
+`_onScroll` nor `_onTransformChanged`, so the span stayed at `(-1, -1)` and
+`_onScreenPage` fell through to its pre-layout "everything is visible"
+answer - safe (it never blanks a page) but it skipped the prefetch
+reduction on the pages behind the fold for the whole session. The build's
+initial-fit block now takes the measurement in a post-frame callback, once
+the extents that layout creates exist.
+
+Testing that needs a viewport where a *third* page lands in the cache
+window at rest, which the full-width fixture cannot produce (at 800px wide
+each page is 1035px tall and page 1 is not built until it approaches). A
+300px-wide viewer makes each page 388px tall: pages 0 and 1 share the
+screen and page 2 sits below the fold, built and off-screen.

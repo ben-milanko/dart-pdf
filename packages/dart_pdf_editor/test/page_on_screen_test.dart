@@ -112,6 +112,43 @@ void main() {
     }
   });
 
+  testWidgets('the span is measured on a document that never scrolls',
+      (tester) async {
+    // Opening a document calls neither the scroll nor the transform listener,
+    // so the span has to be taken once the first layout's extents exist -
+    // otherwise the pages behind the fold read as on screen forever and never
+    // get the prefetch reduction.
+    //
+    // A 300px-wide viewer makes each page 388px tall, so two fit on screen at
+    // rest and a third sits in the cache window below them - the arrangement
+    // the full-width fixture can't produce (there, page 1 is not even built
+    // until it approaches).
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: SizedBox(
+            width: 300,
+            height: 600,
+            child: PdfViewer(
+              initialFit: PdfViewerFit.width,
+              document: PdfDocument.open(buildMultiPagePdf(5)),
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump();
+
+    final pages = mountedPages(tester);
+    expect(pages[0]!.onScreen, isTrue);
+    expect(pages[1]!.onScreen, isTrue);
+    expect(pages[2], isNotNull,
+        reason: 'page 2 is prefetched into the cache window');
+    expect(pages[2]!.onScreen, isFalse,
+        reason: 'page 2 starts below the fold and was never scrolled to');
+  });
+
   testWidgets('the flag reaches the page before the scroll settles',
       (tester) async {
     // The viewer used to rebuild its page views only on the 500ms scroll

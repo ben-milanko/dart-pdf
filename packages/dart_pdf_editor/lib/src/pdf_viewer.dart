@@ -6220,6 +6220,17 @@ class _PdfViewerState extends State<PdfViewer>
                   ? (_mainView / firstMainAtFit).clamp(widget.minZoom, 1.0)
                   : 1.0;
         }
+        if (_firstOnScreenPage < 0) {
+          // A document that opens and is never scrolled or zoomed calls
+          // neither _onScroll nor _onTransformChanged, so the visible span
+          // would stay uninitialised and every mounted page would read as on
+          // screen - safe (it never blanks a page) but it skips the prefetch
+          // reduction on the pages behind the fold. Measure it once the
+          // extents this layout creates exist.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && _firstOnScreenPage < 0) _updateCurrentPage();
+          });
+        }
       }
       // no implicit desktop scrollbar: it would attach here, inside the
       // zoom transform - thin, low-contrast, and scaled or translated out
