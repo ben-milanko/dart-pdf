@@ -1337,6 +1337,12 @@ class _PdfPageViewState extends State<PdfPageView>
         hold: widget.renderHold,
       );
 
+  Future<bool> _paceWorkerUiWork() async {
+    final scheduler = widget.renderScheduler;
+    if (scheduler == null) return true;
+    return scheduler.paceUiWork(this, widget.renderPriority);
+  }
+
   /// Interprets the page into a picture, off the UI thread when a worker is
   /// available and the page is serializable, else locally. The worker path
   /// records the page on a background isolate and replays the returned
@@ -1385,6 +1391,7 @@ class _PdfPageViewState extends State<PdfPageView>
       if (_abandoned(pageIndex)) return (_emptyPicture(), null, false);
       if (commands != null) {
         if (_renderPaused) return null;
+        if (!await _paceWorkerUiWork() || _abandoned(pageIndex)) return null;
         _lastInterpretPath = 'worker';
         _lastInterpretResultBytes = _logImageStats(pageIndex, commands);
         final (picture, scene) = await _replayableFromCommands(commands,
@@ -1628,6 +1635,12 @@ class _PdfPageViewState extends State<PdfPageView>
         _image != null) {
       return;
     }
+    if (!await _paceWorkerUiWork() ||
+        _superseded(generation, pageIndex) ||
+        _renderPaused ||
+        _image != null) {
+      return;
+    }
 
     final picture = await PdfPageRenderer.pictureFromCommandsWithPlan(
       widget.page,
@@ -1685,6 +1698,14 @@ class _PdfPageViewState extends State<PdfPageView>
     // newer pass's larger one.
     if (commands.isEmpty ||
         _superseded(generation, pageIndex) ||
+        _renderPaused ||
+        _image != null ||
+        _slugPicture != null ||
+        seq <= _progressiveAppliedSeq) {
+      return;
+    }
+    if (!await _paceWorkerUiWork()) return;
+    if (_superseded(generation, pageIndex) ||
         _renderPaused ||
         _image != null ||
         _slugPicture != null ||
@@ -1771,6 +1792,11 @@ class _PdfPageViewState extends State<PdfPageView>
     if (_superseded(generation, pageIndex) ||
         _renderPaused ||
         commands == null) {
+      return null;
+    }
+    if (!await _paceWorkerUiWork() ||
+        _superseded(generation, pageIndex) ||
+        _renderPaused) {
       return null;
     }
 

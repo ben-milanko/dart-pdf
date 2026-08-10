@@ -72,6 +72,53 @@ void main() {
     expect(ran, isFalse);
   });
 
+  testWidgets('worker UI completions drain one per frame, nearest first',
+      (tester) async {
+    final scheduler = PdfPageRenderScheduler()..focus = 5;
+    addTearDown(scheduler.dispose);
+    final order = <int>[];
+    for (final page in [0, 8, 5, 6]) {
+      scheduler.paceUiWork('p$page', page).then((ready) {
+        if (ready) order.add(page);
+      });
+    }
+
+    expect(order, isEmpty);
+    await tester.pump();
+    expect(order, isNotEmpty);
+    expect(order.length, lessThan(4),
+        reason: 'worker replies must not all replay in one frame');
+    expect(order.first, 5);
+
+    for (var i = 0; i < 6; i++) {
+      await tester.pump();
+    }
+    expect(order, [5, 6, 8, 0]);
+  });
+
+  testWidgets('holding and cancellation gate worker UI completions',
+      (tester) async {
+    final scheduler = PdfPageRenderScheduler()..holding = true;
+    addTearDown(scheduler.dispose);
+    final cancelled = scheduler.paceUiWork('cancelled', 0);
+    final kept = scheduler.paceUiWork('kept', 1);
+    scheduler.cancel('cancelled');
+
+    for (var i = 0; i < 3; i++) {
+      await tester.pump();
+    }
+    expect(await cancelled, isFalse);
+    var keptReady = false;
+    kept.then((value) => keptReady = value);
+    expect(keptReady, isFalse);
+
+    scheduler.holding = false;
+    for (var i = 0; i < 3 && !keptReady; i++) {
+      await tester.pump();
+    }
+    expect(keptReady, isTrue);
+  });
+
   testWidgets('re-requesting a token interprets it once', (tester) async {
     final scheduler = PdfPageRenderScheduler();
     addTearDown(scheduler.dispose);

@@ -22,15 +22,27 @@ import 'perf_log.dart';
 /// ([holding]) - so no frame runs more than one page's walk and the
 /// low-res previews cover everything still waiting its turn.
 ///
-/// A grant is only the *start* of a render: on the worker path the
+/// A render grant is only the *start* of a render: on the worker path the
 /// callback returns at its first await and the recording finishes
 /// hundreds of milliseconds later. The scheduler tracks that window (see
 /// [_inFlight]) so a rebuild arriving inside it queues behind the pass
 /// already running rather than racing a second one against it.
+///
+/// Worker replies have their own [paceUiWork] gate. Keeping several workers
+/// busy is valuable, but replaying all of their returned command buffers in
+/// the same UI frame is not; that gate separates the completion-side work
+/// without serializing the records themselves.
 class PdfPageRenderScheduler {
   PdfPageRenderScheduler();
 
   final _pending = <_RenderRequest>[];
+
+  /// Worker records finish independently, so records started one-per-frame can
+  /// still return together and replay several command buffers in one build
+  /// frame. This second queue paces those platform-thread completions while
+  /// leaving all workers busy in parallel.
+  final _uiPending = <_UiWorkRequest>[];
+  bool _uiDraining = false;
 
   /// Tokens whose render has been granted but has not finished. Deduping
   /// only against [_pending] was not enough: the grant removes the
@@ -97,8 +109,9 @@ class PdfPageRenderScheduler {
     // from one whose in-flight set never drained; with this it does.
     PdfPerfLog.log('renderHold ${_holding ? 'ON' : 'off'} '
         '(pending=${_pending.length} inFlight=${_inFlight.length} '
-        'focus=$_focus)');
+        'uiPending=${_uiPending.length} focus=$_focus)');
     if (!_holding) _scheduleDrain();
+    if (!_holding) _scheduleUiDrain();
     _activity.ping();
   }
 
@@ -147,6 +160,22 @@ class PdfPageRenderScheduler {
     _activity.ping();
   }
 
+  /// Waits for this worker result's platform-thread replay turn.
+  ///
+  /// Page records are deliberately allowed to run concurrently in workers,
+  /// but their returned command buffers are decoded/replayed on Flutter's UI
+  /// isolate. Several workers finishing together used to put all of those
+  /// builds in one frame. This grants one completion per frame, nearest
+  /// [focus] first, and waits through a fast-scroll [holding] interval.
+  /// Returns false when [token] was cancelled or the scheduler was disposed.
+  Future<bool> paceUiWork(Object token, int priority) {
+    if (_disposed) return Future<bool>.value(false);
+    final request = _UiWorkRequest(token, priority);
+    _uiPending.add(request);
+    _scheduleUiDrain();
+    return request.ready.future;
+  }
+
   /// Withdraws [token]'s pending request - its page rendered another way,
   /// or was disposed before its turn. Also drops any re-request queued
   /// behind a render still in flight, so a page recycled onto another
@@ -154,6 +183,11 @@ class PdfPageRenderScheduler {
   void cancel(Object token) {
     final before = _pending.length;
     _pending.removeWhere((r) => identical(r.token, token));
+    for (final request
+        in _uiPending.where((r) => identical(r.token, token)).toList()) {
+      _uiPending.remove(request);
+      if (!request.ready.isCompleted) request.ready.complete(false);
+    }
     if (_inFlight.containsKey(token)) _inFlight[token] = null;
     if (_pending.length != before) _activity.ping();
   }
@@ -219,6 +253,39 @@ class PdfPageRenderScheduler {
     }
   }
 
+  void _scheduleUiDrain() {
+    if (_uiDraining || _holding || _disposed || _uiPending.isEmpty) return;
+    _uiDraining = true;
+    scheduleMicrotask(_drainUi);
+  }
+
+  Future<void> _drainUi() async {
+    try {
+      while (!_disposed && !_holding && _uiPending.isNotEmpty) {
+        var pick = 0;
+        var best = (_uiPending[0].priority - _focus).abs();
+        for (var i = 1; i < _uiPending.length; i++) {
+          final distance = (_uiPending[i].priority - _focus).abs();
+          if (distance < best) {
+            best = distance;
+            pick = i;
+          }
+        }
+        final next = _uiPending.removeAt(pick);
+        PdfPerfLog.log('scheduler ui grant page=${next.priority} '
+            'focus=$_focus remaining=${_uiPending.length}');
+        if (!next.ready.isCompleted) next.ready.complete(true);
+        // The resumed future performs its replay in this turn. Do not release
+        // another result until that frame has painted and input had a chance
+        // to run, matching the first-interpret grant cadence above.
+        await SchedulerBinding.instance.endOfFrame;
+      }
+    } finally {
+      _uiDraining = false;
+      if (_uiPending.isNotEmpty && !_holding) _scheduleUiDrain();
+    }
+  }
+
   /// [token]'s render has finished (or failed). Releases it and grants
   /// the re-request that arrived while it was running, if any.
   void _settle(Object token) {
@@ -240,6 +307,10 @@ class PdfPageRenderScheduler {
     if (_disposed) return;
     _disposed = true;
     _pending.clear();
+    for (final request in _uiPending) {
+      if (!request.ready.isCompleted) request.ready.complete(false);
+    }
+    _uiPending.clear();
     _inFlight.clear();
     _activity.ping();
     _activity.dispose();
@@ -269,4 +340,12 @@ class _RenderRequest {
   final Object token;
   int priority;
   FutureOr<void> Function() render;
+}
+
+class _UiWorkRequest {
+  _UiWorkRequest(this.token, this.priority);
+
+  final Object token;
+  final int priority;
+  final Completer<bool> ready = Completer<bool>();
 }
