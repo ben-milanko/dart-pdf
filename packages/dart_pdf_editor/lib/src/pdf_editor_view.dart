@@ -34,6 +34,7 @@ import 'search_panel.dart';
 import 'shell_chrome.dart';
 import 'shell_session.dart';
 import 'theme.dart';
+import 'tile_raster_backend.dart';
 
 /// Builds the editing toolbar for [PdfEditorView].
 ///
@@ -217,6 +218,7 @@ class PdfEditorView extends StatefulWidget {
     this.viewerController,
     this.preferences,
     this.performance,
+    this.tileRasterBackend = const PdfCanvasTileRasterBackend(),
     this.features = const PdfEditorFeatures(),
     this.onSave,
     this.onSaveAs,
@@ -298,6 +300,7 @@ class PdfEditorView extends StatefulWidget {
     this.viewerController,
     this.preferences,
     this.performance,
+    this.tileRasterBackend = const PdfCanvasTileRasterBackend(),
     this.features = const PdfEditorFeatures(),
     this.onSave,
     this.onSaveAs,
@@ -413,6 +416,9 @@ class PdfEditorView extends StatefulWidget {
   /// Auto controller. Worker-count recommendations apply only when this shell
   /// naturally restarts its revision-bound worker.
   final PdfPerformanceController? performance;
+
+  /// See [PdfViewer.tileRasterBackend].
+  final PdfTileRasterBackend tileRasterBackend;
 
   final PdfEditorFeatures features;
 
@@ -722,6 +728,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         viewerController: widget.viewerController,
         preferences: widget.preferences,
         performance: widget.performance,
+        tileRasterBackend: widget.tileRasterBackend,
         features: complete ? widget.features : _gatedFeatures(widget.features),
         // The first-paint buffer is incomplete: no save/change/insert/export
         // until the whole file is present.
@@ -1422,6 +1429,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         highlightFormFields: prefs.highlightFormFields,
                         renderWorker: _shell.worker,
                         performance: _performance,
+                        tileRasterBackend: widget.tileRasterBackend,
                         rasterCache: widget.rasterCache,
                         textCache: widget.textCache,
                         pageRasterCachePolicy: widget.pageRasterCachePolicy,

@@ -23,6 +23,7 @@ import 'search_panel.dart';
 import 'shell_chrome.dart';
 import 'shell_session.dart';
 import 'theme.dart';
+import 'tile_raster_backend.dart';
 
 /// Which pieces of chrome a [PdfReader] shows. Everything defaults on;
 /// turn features off rather than rebuilding the layout by hand.
@@ -129,6 +130,7 @@ class PdfReader extends StatefulWidget {
     this.controller,
     this.preferences,
     this.performance,
+    this.tileRasterBackend = const PdfCanvasTileRasterBackend(),
     this.features = const PdfReaderFeatures(),
     this.onAction,
     this.onAnnotationTap,
@@ -175,6 +177,7 @@ class PdfReader extends StatefulWidget {
     this.controller,
     this.preferences,
     this.performance,
+    this.tileRasterBackend = const PdfCanvasTileRasterBackend(),
     this.features = const PdfReaderFeatures(),
     this.onAction,
     this.onAnnotationTap,
@@ -254,6 +257,9 @@ class PdfReader extends StatefulWidget {
   /// Auto controller. Pass one to select fixed worker settings at runtime or
   /// expose [PdfPerformanceController.diagnostics] in host UI.
   final PdfPerformanceController? performance;
+
+  /// See [PdfViewer.tileRasterBackend].
+  final PdfTileRasterBackend tileRasterBackend;
 
   final PdfReaderFeatures features;
 
@@ -552,6 +558,7 @@ class _PdfReaderState extends State<PdfReader> {
                           highlightFormFields: prefs.highlightFormFields,
                           renderWorker: _shell.worker,
                           performance: _performance,
+                          tileRasterBackend: widget.tileRasterBackend,
                           rasterCache: widget.rasterCache,
                           textCache: widget.textCache,
                           pageRasterCachePolicy: widget.pageRasterCachePolicy,
@@ -615,6 +622,7 @@ class _PdfReaderState extends State<PdfReader> {
         controller: widget.controller,
         preferences: widget.preferences,
         performance: widget.performance,
+        tileRasterBackend: widget.tileRasterBackend,
         features: widget.features,
         onAction: widget.onAction,
         onAnnotationTap: widget.onAnnotationTap,

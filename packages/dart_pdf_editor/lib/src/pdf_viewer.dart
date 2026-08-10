@@ -45,6 +45,7 @@ import 'renderer.dart';
 import 'retained_scene.dart';
 import 'scrollbar.dart';
 import 'theme.dart';
+import 'tile_raster_backend.dart';
 import 'toast.dart';
 import 'viewport.dart';
 
@@ -1016,6 +1017,7 @@ class PdfViewer extends StatefulWidget {
     this.renderWorker,
     this.autoRenderWorker = true,
     this.performance,
+    this.tileRasterBackend = const PdfCanvasTileRasterBackend(),
     this.rasterCache,
     this.textCache,
     this.documentId,
@@ -1123,6 +1125,14 @@ class PdfViewer extends StatefulWidget {
   /// owning shell when it starts [renderWorker]; the viewer consumes its
   /// runtime-safe preview, vector-first, and image-cap tuning live.
   final PdfPerformanceController? performance;
+
+  /// Scene-scoped renderer for LoD tile slabs.
+  ///
+  /// The stock Canvas backend preserves current behavior. Experimental GPU
+  /// backends are initialized lazily after first paint, retain resources once
+  /// per retained scene, and automatically fall back to Canvas if unsupported
+  /// or unavailable.
+  final PdfTileRasterBackend tileRasterBackend;
 
   /// Keyboard shortcuts that arm editing tools while [editing] is active.
   ///
@@ -6353,6 +6363,7 @@ class _PdfViewerState extends State<PdfViewer>
                 previewCache: widget.pagePreviews ? _previews : null,
                 renderWorker: _effectiveRenderWorker,
                 performance: widget.performance,
+                tileRasterBackend: widget.tileRasterBackend,
                 predictStrokes: widget.predictStrokes,
               ),
             ),
@@ -7134,6 +7145,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.previewCache,
     required this.renderWorker,
     required this.performance,
+    required this.tileRasterBackend,
     required this.predictStrokes,
     required this.contextMenuEnabled,
   });
@@ -7237,6 +7249,8 @@ class _PdfViewerPage extends StatefulWidget {
   final PdfRenderWorker? renderWorker;
 
   final PdfPerformanceController? performance;
+
+  final PdfTileRasterBackend tileRasterBackend;
 
   /// See [PdfViewer.predictStrokes].
   final bool predictStrokes;
@@ -7363,6 +7377,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         previewCache: widget.previewCache,
         renderWorker: widget.renderWorker,
         performance: widget.performance,
+        tileRasterBackend: widget.tileRasterBackend,
         workerImagePixelRatioCap: widget.performance?.tuning.imagePixelRatioCap,
         // the live matrix scale lets dense strip-routed pages bin their
         // settle's strip plan speculatively while the gesture quiesces; the

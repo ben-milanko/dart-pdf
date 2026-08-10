@@ -281,6 +281,16 @@ class PdfRetainedScene {
   /// Decoded images keyed by [pdfImageKey], owned by this scene.
   final Map<Object, ui.Image> _images;
 
+  /// The already-decoded image for [request], or null when its codec failed or
+  /// this is a deliberate vector-only progressive scene.
+  ///
+  /// Accelerated backends use this to upload each image once at session
+  /// creation instead of decoding or uploading it once per tile.
+  ui.Image? imageFor(PdfImageRequest request) {
+    assert(!_disposed, 'imageFor after dispose');
+    return _images[pdfImageKey(request)];
+  }
+
   bool _disposed = false;
 
   /// Page size in points after the plan's rotation - the raster size at
@@ -469,6 +479,24 @@ class PdfRetainedScene {
       maxCommands: params.maxCommands,
       buildGrid: params.buildGrid,
     );
+  }
+
+  /// Selects the painter-order units needed for [rasterRegion].
+  ///
+  /// [rasterRegion] uses the same page-point, y-down space as
+  /// [rasterizeRegion]. Each returned unit carries its command index plus the
+  /// clip and blend state active at that command. Null means the scene cannot
+  /// be split safely (for example, it contains an isolated group or soft
+  /// mask), so a backend must decline the scene and let the Canvas fallback
+  /// render it whole. An empty list means the supported region is genuinely
+  /// blank.
+  List<PdfRegionReplayUnit>? selectRegion(Rect rasterRegion) {
+    assert(!_disposed, 'selectRegion after dispose');
+    final index = _ensureRegionIndex();
+    if (!index.supported) return null;
+    final pageRegion = _pageSpaceRegion(rasterRegion);
+    if (pageRegion == null) return null;
+    return index.select(pageRegion);
   }
 
   /// The `(maxCommands, buildGrid)` the region index builds under for this

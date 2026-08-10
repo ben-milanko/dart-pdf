@@ -69,6 +69,20 @@ void main() {
     });
   });
 
+  testWidgets('retained scene exposes its already-decoded images',
+      (tester) async {
+    await tester.runAsync(() async {
+      final page = PdfDocument.open(buildEmbeddedFontImagePdf()).page(0);
+      final scene = await PdfRetainedScene.record(page);
+      addTearDown(scene.dispose);
+      final imageCommand = scene.commands.whereType<PdfDrawImageCommand>().first;
+      final image = scene.imageFor(imageCommand.request);
+      expect(image, isNotNull);
+      expect(image!.width, greaterThan(0));
+      expect(image.height, greaterThan(0));
+    });
+  });
+
   testWidgets(
       'region replay selects paints, preserves clips, and stays bounded',
       (tester) async {
@@ -144,6 +158,11 @@ void main() {
       expect(scene.debugRegionReplayUnitCount, 3,
           reason: 'the clipped-away and far-right paints are not indexed');
       expect(scene.debugRegionReplayEstimatedBytes, lessThan(512));
+      final selected = scene.selectRegion(region)!;
+      expect(selected.map((unit) => unit.commandIndex), [2, 6]);
+      expect(selected.first.clips?.command, same(commands[1]));
+      expect(selected.first.blendMode, PdfBlendMode.normal);
+      expect(selected.last.blendMode, PdfBlendMode.multiply);
       scene.dispose();
       expect(scene.debugHasRegionReplayIndex, isFalse,
           reason: 'disposing the scene releases retained index metadata');

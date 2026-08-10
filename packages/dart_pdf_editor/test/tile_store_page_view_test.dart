@@ -3,6 +3,7 @@
 // keeps showing through. Kept in its own file so the global flag mutation can't
 // leak into other page-view tests.
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/region_replay_index.dart';
@@ -13,6 +14,156 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 void main() {
+  testWidgets('tile backend is lazy, scene-scoped, and disposed',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final store =
+        PdfTileStore(tilePixels: 256, registerForMemoryPressure: false);
+    final backend = _RecordingTileRasterBackend();
+    PdfPageView.tileStoreDetail = true;
+    PdfPageView.debugTileStoreOverride = store;
+    addTearDown(() {
+      PdfPageView.tileStoreDetail = false;
+      PdfPageView.debugTileStoreOverride = null;
+      store.dispose();
+    });
+
+    final doc = PdfDocument.open(buildClassicPdf());
+    Widget page(double width) => Center(
+          child: OverflowBox(
+            maxWidth: double.infinity,
+            maxHeight: double.infinity,
+            child: SizedBox(
+              width: width,
+              child: PdfPageView(
+                page: doc.page(0),
+                tileRasterBackend: backend,
+              ),
+            ),
+          ),
+        );
+
+    // A normal first paint records and rasterizes the page, but never creates
+    // the optional tile backend.
+    await tester.pumpWidget(page(612));
+    for (var i = 0; i < 100 && find.byType(RawImage).evaluate().isEmpty; i++) {
+      await tester.pump();
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
+    }
+    expect(find.byType(RawImage), findsOneWidget);
+    expect(backend.sessionCreates, 0);
+
+    // Deep zoom engages the existing tile scheduler. Every slab goes through
+    // one session retained for this scene.
+    await tester.pumpWidget(page(6120));
+    for (var i = 0; i < 300 && store.tileCount == 0; i++) {
+      await tester.pump();
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
+    }
+    expect(store.tileCount, greaterThan(0));
+    expect(backend.sessionCreates, 1);
+    expect(backend.rasterizations, greaterThan(0));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(backend.sessionDisposals, 1);
+  });
+
+  testWidgets('a failed tile backend falls back to Canvas', (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final store =
+        PdfTileStore(tilePixels: 256, registerForMemoryPressure: false);
+    final backend = _RecordingTileRasterBackend(failRasterization: true);
+    PdfPageView.tileStoreDetail = true;
+    PdfPageView.debugTileStoreOverride = store;
+    addTearDown(() {
+      PdfPageView.tileStoreDetail = false;
+      PdfPageView.debugTileStoreOverride = null;
+      store.dispose();
+    });
+
+    final doc = PdfDocument.open(buildClassicPdf());
+    await tester.pumpWidget(
+      Center(
+        child: OverflowBox(
+          maxWidth: double.infinity,
+          maxHeight: double.infinity,
+          child: SizedBox(
+            width: 6120,
+            child: PdfPageView(
+              page: doc.page(0),
+              tileRasterBackend: backend,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    for (var i = 0; i < 300 && store.tileCount == 0; i++) {
+      await tester.pump();
+      final exception = tester.takeException();
+      if (exception != null) fail('Canvas fallback failed: $exception');
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
+    }
+
+    expect(backend.sessionCreates, 1);
+    expect(backend.rasterizations, greaterThan(0));
+    expect(store.tileCount, greaterThan(0),
+        reason: 'the failed backend request must be retried through Canvas');
+  });
+
+  testWidgets('an unavailable tile backend falls back during initialization',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final store =
+        PdfTileStore(tilePixels: 256, registerForMemoryPressure: false);
+    final backend = _RecordingTileRasterBackend(failCreation: true);
+    PdfPageView.tileStoreDetail = true;
+    PdfPageView.debugTileStoreOverride = store;
+    addTearDown(() {
+      PdfPageView.tileStoreDetail = false;
+      PdfPageView.debugTileStoreOverride = null;
+      store.dispose();
+    });
+
+    final doc = PdfDocument.open(buildClassicPdf());
+    await tester.pumpWidget(
+      Center(
+        child: OverflowBox(
+          maxWidth: double.infinity,
+          maxHeight: double.infinity,
+          child: SizedBox(
+            width: 6120,
+            child: PdfPageView(
+              page: doc.page(0),
+              tileRasterBackend: backend,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    for (var i = 0; i < 300 && store.tileCount == 0; i++) {
+      await tester.pump();
+      final exception = tester.takeException();
+      if (exception != null) fail('Canvas fallback failed: $exception');
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
+    }
+
+    expect(backend.sessionCreates, 1);
+    expect(backend.rasterizations, 0);
+    expect(store.tileCount, greaterThan(0));
+  });
+
   testWidgets('tile path composites deep-zoom tiles instead of the patch',
       (tester) async {
     tester.view.devicePixelRatio = 1.0;
@@ -184,6 +335,58 @@ void main() {
       scene.dispose();
     });
   });
+}
+
+class _RecordingTileRasterBackend extends PdfTileRasterBackend {
+  _RecordingTileRasterBackend({
+    this.failCreation = false,
+    this.failRasterization = false,
+  });
+
+  final bool failCreation;
+  final bool failRasterization;
+  int sessionCreates = 0;
+  int sessionDisposals = 0;
+  int rasterizations = 0;
+
+  @override
+  String get debugLabel => 'recording';
+
+  @override
+  PdfTileRasterSession createSession(PdfRetainedScene scene) {
+    sessionCreates++;
+    if (failCreation) throw StateError('experimental backend unavailable');
+    return _RecordingTileRasterSession(this, scene);
+  }
+}
+
+class _RecordingTileRasterSession implements PdfTileRasterSession {
+  _RecordingTileRasterSession(this.backend, this.scene);
+
+  final _RecordingTileRasterBackend backend;
+
+  @override
+  final PdfRetainedScene scene;
+
+  @override
+  Future<ui.Image> rasterizeRegion(
+    Rect region, {
+    required double pixelRatio,
+    int? tracePage,
+  }) {
+    backend.rasterizations++;
+    if (backend.failRasterization) {
+      return Future<ui.Image>.error(StateError('experimental backend failed'));
+    }
+    return scene.rasterizeRegion(
+      region,
+      pixelRatio: pixelRatio,
+      tracePage: tracePage,
+    );
+  }
+
+  @override
+  void dispose() => backend.sessionDisposals++;
 }
 
 class _DelayedIndexWorker extends PdfRenderWorker {

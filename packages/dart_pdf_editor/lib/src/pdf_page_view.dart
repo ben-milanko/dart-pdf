@@ -26,6 +26,7 @@ import 'renderer.dart';
 import 'retained_scene.dart';
 import 'strips/strip_device.dart';
 import 'tile_layer.dart';
+import 'tile_raster_backend.dart';
 import 'tile_store.dart';
 
 /// Displays a single PDF page, rendered natively in Dart.
@@ -66,6 +67,7 @@ class PdfPageView extends StatefulWidget {
     this.workerImagePixelRatioCap,
     this.transformScale,
     this.transformChanges,
+    this.tileRasterBackend = const PdfCanvasTileRasterBackend(),
   });
 
   final PdfPage page;
@@ -109,6 +111,15 @@ class PdfPageView extends StatefulWidget {
   /// Null falls back to [transformScale], preserving the standalone widget's
   /// zoom-only speculation behavior.
   final Listenable? transformChanges;
+
+  /// Scene-scoped renderer for deep-zoom tile slabs.
+  ///
+  /// The default replays the retained scene through Flutter Canvas. An
+  /// experimental backend can instead retain GPU buffers and textures once
+  /// per scene. It is created lazily only after the tile path engages, so it
+  /// cannot delay the page's initial raster; null sessions and failures fall
+  /// back to the Canvas implementation.
+  final PdfTileRasterBackend tileRasterBackend;
 
   /// Shared low-res previews (see [PdfPagePreviewCache]): while this
   /// page's full render is pending - most visibly under [renderHold]
@@ -490,6 +501,13 @@ class _PdfPageViewState extends State<PdfPageView>
   /// [_picture] re-raster runs) and when [PdfPageView.retainedZoomReplay]
   /// is off. Lives and dies with [_picture] (see [_dropPicture]).
   PdfRetainedScene? _scene;
+
+  /// Tile sessions are keyed by retained-scene identity. Usually this holds
+  /// the base scene and, on image-heavy deep zooms, one sharper detail scene.
+  /// Keeping the owner here—not in PdfTileStore—makes uploads scene-lifetime
+  /// while the store remains backend-agnostic and document-revision safe.
+  final Map<PdfRetainedScene, PdfTileRasterSession> _tileRasterSessions =
+      Map.identity();
   ui.Image? _image;
   double? _pixelRatio;
   double? _layoutWidth;
@@ -743,6 +761,11 @@ class _PdfPageViewState extends State<PdfPageView>
       oldWidget.renderScheduler?.cancel(this);
       // the new scheduler picks this page up on its next _render
     }
+    if (!identical(oldWidget.tileRasterBackend, widget.tileRasterBackend)) {
+      // Cached tiles remain valid because every backend promises the same
+      // pixels. Only scene-level resources and future misses change owner.
+      _disposeTileRasterSessions();
+    }
     final oldLiveTransform = _liveTransformFor(oldWidget);
     final liveTransform = _liveTransformFor(widget);
     if (!identical(oldLiveTransform, liveTransform)) {
@@ -861,6 +884,7 @@ class _PdfPageViewState extends State<PdfPageView>
     widget.previewCache?.removeListener(_onPreviewCacheChanged);
     _renderSession.dispose();
     _dropPicture();
+    _disposeTileRasterSessions();
     _image?.dispose();
     _detailImage?.dispose();
     _tileDetailScene?.dispose();
@@ -892,7 +916,11 @@ class _PdfPageViewState extends State<PdfPageView>
     bool fromWorker = false,
     bool vectorOnly = false,
   }) {
-    _scene?.dispose();
+    final previous = _scene;
+    if (previous != null) {
+      _disposeTileRasterSession(previous);
+      previous.dispose();
+    }
     _scene = scene;
     // The image-detail decode belongs to the scene it sharpened; a new scene
     // (new content, or the same page re-recorded) invalidates it.
@@ -3025,7 +3053,11 @@ class _PdfPageViewState extends State<PdfPageView>
   /// images were decoded at, so a blurry tile WOULD otherwise be reused
   /// unchanged - the veto is what makes dropping unnecessary.)
   void _adoptTileDetailScene(PdfRetainedScene scene, Rect region, double ratio) {
-    _tileDetailScene?.dispose();
+    final previous = _tileDetailScene;
+    if (previous != null) {
+      _disposeTileRasterSession(previous);
+      previous.dispose();
+    }
     setState(() {
       _tileDetailScene = scene;
       _tileDetailRegion = region;
@@ -3047,6 +3079,7 @@ class _PdfPageViewState extends State<PdfPageView>
     _tileDetailPending = null;
     _tileDetailWanted = false;
     if (_tileDetailScene == null) return;
+    _disposeTileRasterSession(_tileDetailScene!);
     _tileDetailScene?.dispose();
     _tileDetailScene = null;
     _tileDetailRegion = null;
@@ -3101,13 +3134,12 @@ class _PdfPageViewState extends State<PdfPageView>
         // Images come from the region-scoped detail scene wherever it reaches
         // (that is the only thing the base scene cannot supply at this zoom);
         // everything else replays identically from either.
-        rasterize: (region, ratio) => (_tileDetailCovers(region, ratio)
-                ? _tileDetailScene ?? scene
-                : scene)
-            .rasterizeRegion(
+        rasterize: (region, ratio) => _rasterizeTile(
+          _tileDetailCovers(region, ratio)
+              ? _tileDetailScene ?? scene
+              : scene,
           region,
-          pixelRatio: ratio,
-          tracePage: widget.previewIndex,
+          ratio,
         ),
         canRasterize: _tileRegionRasterizable,
         // A grid-indexed CAD scene can select tens of thousands of commands
@@ -3120,6 +3152,57 @@ class _PdfPageViewState extends State<PdfPageView>
         maxNewTilesPerPaint: scene.regionIndexBuildIsHeavy ? 1 : null,
       ),
     );
+  }
+
+  Future<ui.Image> _rasterizeTile(
+    PdfRetainedScene scene,
+    Rect region,
+    double pixelRatio,
+  ) =>
+      _tileRasterSessionFor(scene).rasterizeRegion(
+        region,
+        pixelRatio: pixelRatio,
+        tracePage: widget.previewIndex,
+      );
+
+  PdfTileRasterSession _tileRasterSessionFor(PdfRetainedScene scene) =>
+      _tileRasterSessions.putIfAbsent(scene, () {
+        final backend = widget.tileRasterBackend;
+        PdfTileRasterSession? preferred;
+        try {
+          preferred = backend.createSession(scene);
+        } catch (error) {
+          PdfPerfLog.log(
+            'tile backend init fallback page=${widget.previewIndex} '
+            'backend=${backend.debugLabel} error=$error',
+          );
+        }
+        final fallback =
+            const PdfCanvasTileRasterBackend().createSession(scene);
+        if (preferred == null) return fallback;
+        if (backend is PdfCanvasTileRasterBackend) {
+          fallback.dispose();
+          return preferred;
+        }
+        return _FallbackTileRasterSession(
+          primary: preferred,
+          fallback: fallback,
+          onFallback: (error) => PdfPerfLog.log(
+            'tile backend raster fallback page=${widget.previewIndex} '
+            'backend=${backend.debugLabel} error=$error',
+          ),
+        );
+      });
+
+  void _disposeTileRasterSession(PdfRetainedScene scene) {
+    _tileRasterSessions.remove(scene)?.dispose();
+  }
+
+  void _disposeTileRasterSessions() {
+    for (final session in _tileRasterSessions.values) {
+      session.dispose();
+    }
+    _tileRasterSessions.clear();
   }
 
   /// Whether worker strip binning may be asked for at all - shared by
@@ -3570,6 +3653,60 @@ class _PdfPageViewState extends State<PdfPageView>
         );
       },
     );
+  }
+}
+
+/// Permanently retires an accelerated session after its first failure and
+/// serves that request (and every later one) through Canvas. The failed
+/// session stays owned until dispose: another slab may already be in flight,
+/// and the backend contract allows it to finish before resources are freed.
+class _FallbackTileRasterSession implements PdfTileRasterSession {
+  _FallbackTileRasterSession({
+    required PdfTileRasterSession primary,
+    required this.fallback,
+    required this.onFallback,
+  })  : _primary = primary,
+        assert(identical(primary.scene, fallback.scene));
+
+  final PdfTileRasterSession _primary;
+  final PdfTileRasterSession fallback;
+  final void Function(Object error) onFallback;
+  bool _primaryEnabled = true;
+
+  @override
+  PdfRetainedScene get scene => fallback.scene;
+
+  @override
+  Future<ui.Image> rasterizeRegion(
+    Rect region, {
+    required double pixelRatio,
+    int? tracePage,
+  }) async {
+    if (_primaryEnabled) {
+      try {
+        return await _primary.rasterizeRegion(
+          region,
+          pixelRatio: pixelRatio,
+          tracePage: tracePage,
+        );
+      } catch (error) {
+        if (_primaryEnabled) {
+          _primaryEnabled = false;
+          onFallback(error);
+        }
+      }
+    }
+    return fallback.rasterizeRegion(
+      region,
+      pixelRatio: pixelRatio,
+      tracePage: tracePage,
+    );
+  }
+
+  @override
+  void dispose() {
+    _primary.dispose();
+    fallback.dispose();
   }
 }
 

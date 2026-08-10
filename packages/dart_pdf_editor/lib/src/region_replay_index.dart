@@ -208,6 +208,28 @@ class PdfRegionReplayIndex {
     }
     return replayed;
   }
+
+  /// Selects the paint units intersecting [region] in painter order.
+  ///
+  /// This is the retained-scene backend boundary: a renderer that does not
+  /// implement [PdfDevice] can consume the same conservative culling verdict
+  /// as [replay], including the clip and blend state captured on every unit.
+  /// Unsupported indices return an empty list; callers must check
+  /// [supported] and fall back to full-scene rendering rather than treating
+  /// that as an empty region.
+  List<PdfRegionReplayUnit> select(PdfRect region) {
+    if (!supported) return const [];
+    final grid = this.grid;
+    if (grid != null) {
+      return [
+        for (final index in grid.select(region, units)) units[index],
+      ];
+    }
+    return [
+      for (final unit in units)
+        if (_intersects(unit.bounds, region)) unit,
+    ];
+  }
 }
 
 /// Uniform-grid spatial index over painter-ordered replay units.
@@ -349,6 +371,31 @@ class PdfRegionReplayGrid {
     List<PdfRenderCommand> commands,
     PdfDevice device,
   ) {
+    final candidates = select(region, units);
+    var replayed = 0;
+    for (final idx in candidates) {
+      final unit = units[idx];
+      device.save();
+      device.setBlendMode(unit.blendMode);
+      unit.clips?.replay(device);
+      replayCommands(
+        commands,
+        device,
+        start: unit.commandIndex,
+        end: unit.commandIndex + 1,
+      );
+      device.restore();
+      replayed++;
+    }
+    return replayed;
+  }
+
+  /// Unit-list indices intersecting [region], de-duplicated and sorted into
+  /// painter order.
+  List<int> select(
+    PdfRect region,
+    List<PdfRegionReplayUnit> units,
+  ) {
     final gen = ++_generation;
     // Gather candidate unit indices (deduped) from the touched cells + broad.
     final candidates = <int>[];
@@ -376,22 +423,7 @@ class PdfRegionReplayGrid {
     }
     // Painter order = ascending unit index.
     candidates.sort();
-    var replayed = 0;
-    for (final idx in candidates) {
-      final unit = units[idx];
-      device.save();
-      device.setBlendMode(unit.blendMode);
-      unit.clips?.replay(device);
-      replayCommands(
-        commands,
-        device,
-        start: unit.commandIndex,
-        end: unit.commandIndex + 1,
-      );
-      device.restore();
-      replayed++;
-    }
-    return replayed;
+    return candidates;
   }
 }
 

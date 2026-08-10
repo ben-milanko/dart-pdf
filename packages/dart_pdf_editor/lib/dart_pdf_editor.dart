@@ -84,9 +84,12 @@ export 'src/render_trace.dart';
 export 'src/render_worker.dart';
 export 'src/renderer.dart';
 export 'src/retained_scene.dart';
+export 'src/region_replay_index.dart'
+    show PdfRegionClipState, PdfRegionReplayUnit;
 export 'src/search_panel.dart';
 export 'src/scrollbar.dart';
 export 'src/theme.dart';
 export 'src/tile_layer.dart';
+export 'src/tile_raster_backend.dart';
 export 'src/tile_store.dart';
 export 'src/toast.dart';
