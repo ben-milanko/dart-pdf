@@ -61,3 +61,67 @@ Future<ui.Image?> decodeJpegWithBrowser(
     return null;
   }
 }
+
+/// Decodes a grayscale JPEG directly into a one-byte plane through the
+/// browser's 2D canvas.
+///
+/// A soft mask ultimately needs CPU alpha bytes. Routing it through
+/// [decodeJpegWithBrowser] first creates a CanvasKit texture and then calls
+/// `ui.Image.toByteData`, forcing a GPU readback. Drawing the browser-owned
+/// ImageBitmap into an OffscreenCanvas keeps decode, resize, and readback in
+/// the browser pipeline and returns only the channel the PDF compositor uses.
+Future<({Uint8List alpha, int width, int height, int sampleStride})?>
+    decodeJpegGrayWithBrowser(
+  Uint8List jpeg, {
+  int? targetWidth,
+  int? targetHeight,
+}) async {
+  if (!browserJpegDecodeAvailable || !globalContext.has('OffscreenCanvas')) {
+    return null;
+  }
+  web.ImageBitmap? bitmap;
+  try {
+    final blob = web.Blob(
+      <JSAny>[jpeg.toJS].toJS,
+      web.BlobPropertyBag(type: 'image/jpeg'),
+    );
+    final promise = targetWidth != null && targetHeight != null
+        ? web.window.createImageBitmap(
+            blob,
+            web.ImageBitmapOptions(
+              resizeWidth: targetWidth,
+              resizeHeight: targetHeight,
+              resizeQuality: 'high',
+            ),
+          )
+        : web.window.createImageBitmap(blob);
+    bitmap = await promise.toDart;
+    final width = bitmap.width;
+    final height = bitmap.height;
+    if (width <= 0 || height <= 0) return null;
+    final canvas = web.OffscreenCanvas(width, height);
+    final context =
+        canvas.getContext('2d') as web.OffscreenCanvasRenderingContext2D?;
+    if (context == null) return null;
+    context.drawImage(bitmap, 0, 0);
+    final clamped = context.getImageData(0, 0, width, height).data.toDart;
+    // Uint8List.view is zero-copy even though getImageData exposes a clamped
+    // view. PdfImageSoftMask can consume the red channel in place, avoiding a
+    // width*height Dart loop that dominates this path after dart2js.
+    final rgba = Uint8List.view(
+      clamped.buffer,
+      clamped.offsetInBytes,
+      clamped.lengthInBytes,
+    );
+    return (
+      alpha: rgba,
+      width: width,
+      height: height,
+      sampleStride: 4,
+    );
+  } catch (_) {
+    return null;
+  } finally {
+    bitmap?.close();
+  }
+}

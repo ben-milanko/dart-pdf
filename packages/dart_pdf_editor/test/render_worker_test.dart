@@ -61,6 +61,18 @@ class _SyncWorker extends PdfRenderWorker {
     final interpreter = PdfInterpreter(cos: _doc.cos, device: recorder)
       ..drawPageOperations(page, ops);
     if (annotations) interpreter.drawAnnotations(page);
+    if (decodeImages &&
+        onPartial != null &&
+        recorder.imageRequests.isNotEmpty) {
+      final partialBytes = serializeCommands(recorder.commands,
+          cos: _doc.cos,
+          decodeImages: false,
+          maxImagePixelRatio: imagePixelRatio,
+          imageDecodeRegion: imageDecodeRegion,
+          imagePlaceholders: true,
+          compactStateScopes: true);
+      if (partialBytes != null) onPartial(deserializeCommands(partialBytes));
+    }
     final bytes = serializeCommands(recorder.commands,
         cos: _doc.cos,
         decodeImages: decodeImages,
@@ -146,12 +158,12 @@ void main() {
       final worker = PdfRenderWorker.start(bytes);
       addTearDown(worker.dispose);
 
-      // The worker inline-resolves the image's stream subgraph and ships it;
-      // the main thread reconstructs and decodes it. The result must match the
-      // local recorded render pixel-for-pixel.
+      // The worker ships the image's indirect object reference; the main
+      // thread resolves and decodes it. The result must match the local
+      // recorded render pixel-for-pixel.
       final commands = await worker.record(0);
       expect(commands, isNotNull,
-          reason: 'an image XObject serializes via its inlined stream');
+          reason: 'an image XObject serializes via its indirect reference');
       // A baseline JPEG needs the platform codec, so the worker can't decode
       // it off-thread: it ships un-decoded and decodes locally.
       expect(_firstImage(commands!)?.decoded, isNull,
@@ -408,7 +420,7 @@ void main() {
         reason: 'later first visits must use the now-started worker');
   });
 
-  testWidgets('a mixed text/image page keeps the vector-first request',
+  testWidgets('a mixed text/image page fuses vector and full records',
       (tester) async {
     await tester.runAsync(() async {
       final bytes = buildEmbeddedFontImagePdf();
@@ -433,9 +445,9 @@ void main() {
       for (var i = 0; i < 80 && worker.decodeImageCalls.length < 2; i++) {
         await tester.pump(const Duration(milliseconds: 16));
       }
-      expect(worker.decodeImageCalls.take(2), orderedEquals([false, true]),
-          reason: 'real vector/text content still gets an early image-free '
-              'paint before the full image decode');
+      expect(worker.decodeImageCalls, [true],
+          reason: 'the decoding record emits its image-free first paint and '
+              'must not walk the mixed page a second time');
     });
   });
 
@@ -1131,24 +1143,28 @@ void main() {
           reason: 'the detail reuses the base transcript and image cache');
     });
 
-    test('routes new records to the least-loaded worker', () async {
+    test('speculative records keep one worker idle for foreground', () async {
       final workers = [_ManualWorker(), _ManualWorker(), _ManualWorker()];
       final pool = PdfPooledRenderWorker.fromWorkers(workers);
       // All three pages hash to worker 1 under page % 3. Keeping the futures
-      // outstanding makes the second and third records see worker 1 as loaded,
-      // so they spill to the idle siblings.
-      final futures = [
+      // outstanding makes the second spill to worker 0. The third queues on an
+      // occupied speculative lane, preserving worker 2 for visible work.
+      final speculative = [
         pool.record(1, priority: 1),
         pool.record(4, priority: 1),
         pool.record(7, priority: 1),
       ];
       expect(workers[0].calls.map((c) => c.$1), [4]);
-      expect(workers[1].calls.map((c) => c.$1), [1]);
-      expect(workers[2].calls.map((c) => c.$1), [7]);
+      expect(workers[1].calls.map((c) => c.$1), [1, 7]);
+      expect(workers[2].calls, isEmpty);
+
+      final foreground = pool.record(10, priority: 0);
+      expect(workers[2].calls.map((c) => c.$1), [10],
+          reason: 'foreground spills immediately onto the reserved idle lane');
       for (final worker in workers) {
         worker.completeAll();
       }
-      await Future.wait(futures);
+      await Future.wait([...speculative, foreground]);
     });
 
     test('cancel routes to the worker chosen by load routing', () async {
@@ -1238,7 +1254,7 @@ void main() {
       final pool = PdfPooledRenderWorker.fromWorkers(workers);
       // Page 0 sticks to worker 0; page 1 loads worker 1 to the same level.
       final first = pool.record(0, priority: 1);
-      final other = pool.record(1, priority: 1);
+      final other = pool.record(1, priority: 0);
       final repeat = pool.record(0, priority: 0);
       expect(workers[0].calls.map((c) => c.$1), [0, 0],
           reason: 'equal load keeps the sticky worker (the transcript hit '

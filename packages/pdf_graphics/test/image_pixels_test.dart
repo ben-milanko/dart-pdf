@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:image/image.dart' as img;
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -127,6 +128,40 @@ void main() {
     expect(pixels.rgba.sublist(4, 8), [0, 0, 0, 0]);
   });
 
+  test('a DCT /SMask decodes and composites on the portable path', () {
+    const width = 16;
+    final gray = img.Image(width: width, height: 1);
+    for (final pixel in gray) {
+      final value = pixel.x < width ~/ 2 ? 255 : 0;
+      pixel
+        ..r = value
+        ..g = value
+        ..b = value;
+    }
+    final smask = image({
+      'Width': const CosInteger(width),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceGray'),
+      'Filter': const CosName('DCTDecode'),
+    }, img.encodeJpg(gray, quality: 100));
+    final stream = image({
+      'Width': const CosInteger(width),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceRGB'),
+      'SMask': smask,
+    }, [
+      for (var i = 0; i < width; i++) ...[255, 0, 0],
+    ]);
+
+    final pixels = decodePdfImagePixels(cos, stream)!;
+    expect(pixels.rgba[1 * 4 + 3], greaterThan(240));
+    expect(pixels.rgba[14 * 4 + 3], lessThan(15));
+    expect(pixels.rgba.sublist(14 * 4, 14 * 4 + 3), [0, 0, 0],
+        reason: 'the transparent red base must be premultiplied');
+  });
+
   test('/SMask /Matte un-preblends the base against the matte colour', () {
     // A white pixel preblended over a red matte at coverage 0.5 stores
     // c' = m + a·(c − m) = (255, 128, 128). With /Matte [1 0 0] the decoder
@@ -160,6 +195,63 @@ void main() {
 
     final pixels = decodePdfImagePixels(cos, stream)!;
     expect(pixels.rgba.sublist(0, 4), [128, 128, 128, 128]);
+  });
+
+  test('an interleaved platform mask consumes its channel without a copy', () {
+    final rgba = Uint8List.fromList([
+      255,
+      7,
+      8,
+      9,
+      64,
+      10,
+      11,
+      12,
+    ]);
+    final base = Uint8List.fromList([
+      200,
+      100,
+      50,
+      255,
+      200,
+      100,
+      50,
+      255,
+    ]);
+
+    final result = pdfApplyImageAlpha(
+      base,
+      2,
+      1,
+      PdfImageSoftMask(rgba, 2, 1, sampleStride: 4),
+    );
+
+    expect(result.$1, [200, 100, 50, 255, 200, 100, 50, 64]);
+    expect(identical(rgba, result.$1), isFalse,
+        reason: 'the base is mutated, while the mask remains only a view');
+  });
+
+  test('mask application can fuse codec premultiplication', () {
+    final base = Uint8List.fromList([
+      200,
+      100,
+      50,
+      255,
+      20,
+      40,
+      80,
+      255,
+    ]);
+
+    final result = pdfApplyImageAlpha(
+      base,
+      2,
+      1,
+      PdfImageSoftMask(Uint8List.fromList([128, 0]), 2, 1),
+      premultiply: true,
+    );
+
+    expect(result.$1, [100, 50, 25, 128, 0, 0, 0, 0]);
   });
 
   test('color-key /Mask turns matching samples transparent', () {
@@ -248,6 +340,22 @@ void main() {
       expect(pixels.width, 16);
       expectPixel(pixels.rgba, 2, [0, 184, 241]); // pure cyan
       expectPixel(pixels.rgba, 12, [142, 15, 82]); // magenta + half K
+    });
+
+    test('target decode fuses component reduction without changing color', () {
+      final pixels = decodePdfImageBase(
+        cos,
+        cmykDct(cmykJpeg),
+        targetWidth: 1,
+        targetHeight: 1,
+      )!;
+      final expected = PdfColor.cmyk(127 / 255, 127 / 255, 0, 64 / 255);
+
+      expect((pixels.width, pixels.height), (1, 1));
+      expect(pixels.rgba[0], closeTo((expected.red * 255).round(), 3));
+      expect(pixels.rgba[1], closeTo((expected.green * 255).round(), 3));
+      expect(pixels.rgba[2], closeTo((expected.blue * 255).round(), 3));
+      expect(pixels.rgba[3], 255);
     });
   });
 
@@ -820,6 +928,21 @@ void main() {
       // Distinct inks must not collapse onto one another.
       expect(pixelAt(0), isNot(pixelAt(1)));
       expect(pixelAt(1), isNot(pixelAt(2)));
+    });
+
+    test('target-sized Separation base converts only reduced samples', () {
+      final full = separation([0, 0, 255, 255]);
+      final target = decodePdfImageBase(
+        cos,
+        full,
+        targetWidth: 2,
+        targetHeight: 1,
+      )!;
+      final expected = decodePdfImageBase(cos, separation([0, 255]))!;
+
+      expect((target.width, target.height), (2, 1));
+      expect(target.rgba, expected.rgba,
+          reason: 'uniform source cells must retain their tint colours');
     });
 
     test('every distinct sample maps through the tint transform', () {

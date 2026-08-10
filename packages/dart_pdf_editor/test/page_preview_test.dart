@@ -566,6 +566,39 @@ void main() {
     expect(cache.isFresh(0, page, requireImages: true), isTrue);
   });
 
+  testWidgets('worker-deferred preview images keep the 200px decode cap',
+      (tester) async {
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    final cache = PdfPagePreviewCache();
+    addTearDown(cache.dispose);
+    final imageCache = PdfImageCache.instance;
+    imageCache.clear();
+    addTearDown(imageCache.clear);
+    const nativeSize = 800;
+    final stream = CosStream(
+      CosDictionary({
+        'Width': const CosInteger(nativeSize),
+        'Height': const CosInteger(nativeSize),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceRGB'),
+      }),
+      Uint8List(nativeSize * nativeSize * 3),
+    );
+    final worker = _DeferredImageWorker(PdfImageRequest(
+      stream: stream,
+      transform: const PdfMatrix(612, 0, 0, 792, 0, 0),
+    ));
+
+    await tester.runAsync(() => cache.renderPreview(0, page, worker: worker));
+
+    expect(cache.isFresh(0, page, requireImages: true), isTrue);
+    expect(imageCache.bytes, greaterThan(0));
+    expect(imageCache.bytes, lessThanOrEqualTo(200 * 200 * 4),
+        reason: 'a worker-deferred image must inherit the preview ratio when '
+            'it is decoded during UI-side replay');
+  });
+
   testWidgets('command-limited previews stay partial without image draws',
       (tester) async {
     final document = PdfDocument.open(buildClassicPdf());
@@ -1196,6 +1229,32 @@ class _PreviewWorker extends PdfRenderWorker {
     );
     return [PdfDrawImageCommand(request)];
   }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {}
+
+  @override
+  void dispose() {}
+}
+
+class _DeferredImageWorker extends PdfRenderWorker {
+  _DeferredImageWorker(this.request);
+
+  final PdfImageRequest request;
+
+  @override
+  bool get isActive => true;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(int pageIndex,
+          {bool annotations = true,
+          int priority = 0,
+          double? imagePixelRatio,
+          bool decodeImages = true,
+          int? commandLimit,
+          PdfRect? imageDecodeRegion,
+          PdfPartialRecordSink? onPartial}) async =>
+      [PdfDrawImageCommand(request)];
 
   @override
   void cancel(int pageIndex, {int priority = 0}) {}

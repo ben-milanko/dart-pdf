@@ -359,6 +359,7 @@ searchMs                52.30       38.10       -27.2%    ✓ faster
 | `PERF_VISUAL_CAPTURE` | backend-aware | `screencast` for JS CanvasKit, full-compositor `screenshot` for SkWasm, or diagnostics-only `none`; SkWasm+screencast is rejected |
 | `PERF_WEB_BACKEND` | inferred | explicit result label when serving a side-by-side prebuilt backend |
 | `PERF_DART_QUERY` | *(empty)* | query parameters applied only to the Dart harness, for recorded A/B controls such as `rasterCacheMb=0` or the default-off plain-text `domSurface=1` probe |
+| `PERF_PAGES` / `PERF_ZOOMS` | scenario | comma-separated page-jump and zoom sequences for repeating a real-document trace through the competitive journey |
 | `PERF_MAX_PAGES` / `PERF_DWELL_MS` / `PERF_PASSES` / `PERF_FAST_PASS` | scenario | scroll knobs (override the scenario's) |
 | `PERF_TARGET_PAGE` | scenario | open/scroll target page |
 | `PERF_QUERY` / `PERF_REPEAT` | scenario | search needle / best-of-N |

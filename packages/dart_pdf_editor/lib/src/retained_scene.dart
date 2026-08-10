@@ -206,7 +206,7 @@ class PdfRetainedScene {
   int get decodedImageBytes {
     var total = 0;
     for (final image in _images.values) {
-      total += image.width * image.height * 4;
+      total += pdfDecodedImageBytes(image);
     }
     return total;
   }
@@ -353,16 +353,17 @@ class PdfRetainedScene {
     PdfSceneBuildTiming? timing,
     double? maxImagePixelRatio,
   }) async {
-    final images = <Object, ui.Image>{};
+    Map<Object, ui.Image> images = const <Object, ui.Image>{};
     if (includeImages) {
       final requests = <PdfImageRequest>[];
       PdfPageRenderer.collectImageRequests(commands, requests);
       // The clock exists only when a caller asked for the split; an ordinary
       // render never pays for it.
       final clock = timing == null ? null : (Stopwatch()..start());
-      images.addAll(await decodeImages(page.document.cos, requests,
+      images = await decodeImages(page.document.cos, requests,
           cache: PdfImageCache.instance,
-          maxImagePixelRatio: maxImagePixelRatio));
+          maxImagePixelRatio: maxImagePixelRatio,
+          imageDecodeHeadroom: 1);
       if (clock != null) {
         timing!.decodeMs = clock.elapsedMicroseconds / 1000.0;
       }
@@ -826,7 +827,7 @@ class PdfRetainedScene {
     _regionIndex = null;
     _bands = null;
     for (final image in _images.values) {
-      image.dispose();
+      disposePdfDecodedImage(image);
     }
   }
 }

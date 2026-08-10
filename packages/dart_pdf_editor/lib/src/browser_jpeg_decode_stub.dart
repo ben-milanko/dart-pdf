@@ -19,4 +19,15 @@ Future<ui.Image?> decodeJpegWithBrowser(
   Uint8List jpeg, {
   int? targetWidth,
   int? targetHeight,
-}) async => null;
+}) async =>
+    null;
+
+/// Decodes a grayscale JPEG to its one-byte luminance plane with the browser
+/// codec. Native platforms return null and use their portable/engine path.
+Future<({Uint8List alpha, int width, int height, int sampleStride})?>
+    decodeJpegGrayWithBrowser(
+  Uint8List jpeg, {
+  int? targetWidth,
+  int? targetHeight,
+}) async =>
+        null;

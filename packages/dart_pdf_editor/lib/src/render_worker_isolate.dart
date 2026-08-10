@@ -630,13 +630,8 @@ class _PendingRequest {
         regionBuildGrid = false,
         onPartialBytes = null;
 
-  _PendingRequest.regionIndex(
-      this.priority,
-      this.seq,
-      this.pageIndex,
-      this.annotations,
-      this.regionMaxCommands,
-      this.regionBuildGrid)
+  _PendingRequest.regionIndex(this.priority, this.seq, this.pageIndex,
+      this.annotations, this.regionMaxCommands, this.regionBuildGrid)
       : kind = _RequestKind.regionIndex,
         imagePixelRatio = null,
         decodeImages = false,
@@ -673,13 +668,8 @@ class _PendingRequest {
         regionBuildGrid = false,
         onPartialBytes = null;
 
-  _PendingRequest.update(
-      this.priority,
-      this.seq,
-      this.baseLength,
-      this.appendedBytes,
-      this.newLength,
-      this.changedPages)
+  _PendingRequest.update(this.priority, this.seq, this.baseLength,
+      this.appendedBytes, this.newLength, this.changedPages)
       : kind = _RequestKind.update,
         pageIndex = -1,
         annotations = false,
@@ -763,8 +753,8 @@ void _workerMain(_WorkerInit init) {
   // messages to fetch.
   if (init.perfEnabled) {
     PdfPerf.enabled = true;
-    PdfPerf.sink = (line) =>
-        developer.log(line, name: 'dart_pdf_editor.render_worker');
+    PdfPerf.sink =
+        (line) => developer.log(line, name: 'dart_pdf_editor.render_worker');
   }
   final requests = ReceivePort();
   final cancelPort = ReceivePort();
@@ -930,14 +920,8 @@ void _workerMain(_WorkerInit init) {
           buffer = result?.$1;
           detailPlanBuffer = result?.$2;
         } else if (kind == 'regionIndex') {
-          buffer = await _buildRegionIndexAsync(
-              doc,
-              binCommands,
-              pageIndex,
-              annotations,
-              request[4] as int,
-              request[5] as bool,
-              token);
+          buffer = await _buildRegionIndexAsync(doc, binCommands, pageIndex,
+              annotations, request[4] as int, request[5] as bool, token);
         } else if (kind == 'extractText') {
           buffer = _extractTextForWorker(doc, pageIndex);
         } else {
@@ -959,8 +943,11 @@ void _workerMain(_WorkerInit init) {
           final wantsPartials = request.length > 11 && request[11] == true;
           void emitPartial(Uint8List bytes) {
             if (activeRequestId == id && !token.cancelled) {
-              init.reply
-                  .send(['partial', id, TransferableTypedData.fromList([bytes])]);
+              init.reply.send([
+                'partial',
+                id,
+                TransferableTypedData.fromList([bytes])
+              ]);
             }
           }
 
@@ -1043,9 +1030,8 @@ Future<Uint8List?> _recordPageAsync(
   // record builds (#564 pt4). A bounded prefix (commandLimit set) stays on the
   // simple one-shot path; it is already cheap and does not stream.
   if (decodeImages || (onPartial != null && commandLimit == null)) {
-    return _recordResumablePage(
-        document, imageCache, suspended, pageIndex, annotations,
-        imagePixelRatio, commandLimit, imageDecodeRegion, token,
+    return _recordResumablePage(document, imageCache, suspended, pageIndex,
+        annotations, imagePixelRatio, commandLimit, imageDecodeRegion, token,
         decodeImages: decodeImages, onPartial: onPartial);
   }
 
@@ -1155,6 +1141,26 @@ Future<Uint8List?> _recordResumablePage(
   }
 
   if (annotations) entry.interpreter.drawAnnotations(entry.page);
+  // A fused progressive full record uses the same content walk for first ink
+  // and final pixels. Ship the complete image-free transcript before the
+  // potentially expensive image decode so the UI can paint the exact vector
+  // layer without issuing a second `decodeImages: false` record. Intermediate
+  // prefixes above remain useful on dense pages; this final prefix closes the
+  // painter-order gap between the last doubling boundary and end-of-page.
+  if (decodeImages &&
+      onPartial != null &&
+      entry.recorder.imageRequests.isNotEmpty) {
+    final vector = serializeCommands(entry.recorder.commands,
+        cos: document.cos,
+        decodeImages: false,
+        maxImagePixelRatio: imagePixelRatio,
+        pageRasterPixels:
+            pdfPageRasterPixels(entry.page.cropBox, imagePixelRatio),
+        imageDecodeRegion: imageDecodeRegion,
+        imagePlaceholders: true,
+        compactStateScopes: true);
+    if (vector != null) onPartial(vector);
+  }
   // The final serialize honours the record's own decodeImages: a decoding record
   // decodes and embeds pixels; a non-decoding (vector-first) record ships image
   // placeholders. This matches the one-shot path's output byte-for-byte, so
@@ -1225,7 +1231,9 @@ class _SuspendedRecordCache {
   /// previously stashed walk so the balancing device restore runs.
   void keep(_SuspendedRecord entry) {
     final previous = _entry;
-    if (previous != null && !identical(previous, entry)) previous.walk.abandon();
+    if (previous != null && !identical(previous, entry)) {
+      previous.walk.abandon();
+    }
     _entry = entry;
   }
 

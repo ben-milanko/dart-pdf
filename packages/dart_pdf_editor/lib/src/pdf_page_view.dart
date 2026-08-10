@@ -468,6 +468,24 @@ class PdfPageView extends StatefulWidget {
   static Duration? progressivePartialUiBudget =
       const Duration(milliseconds: 12);
 
+  /// Uses one decoding worker record for both a page's progressive
+  /// linework reveal and its final image-bearing render.
+  ///
+  /// The old path first completed a `decodeImages: false` record, then issued
+  /// an otherwise-identical decoding record. Native isolates consequently
+  /// walked the content stream twice; web workers reused the transcript but
+  /// still paid for a second request and serialization. A fused record streams
+  /// the same image-free prefixes while it walks, emits the complete vector
+  /// snapshot before image decoding, and resolves with the final decoded
+  /// commands. The optimization is shared by the isolate and web backends.
+  ///
+  /// Fit-scale first paints use this path whenever progressive painting is on.
+  /// Pages small enough to finish in one worker chunk emit only the complete
+  /// vector snapshot, so they do not pay for intermediate-prefix churn.
+  /// Deep-zoom first paints keep their separate image-free record because it
+  /// bootstraps the visible-region detail request.
+  static bool fusedProgressiveRecord = true;
+
   /// Composite deep-zoom detail from the [PdfTileStore] zoom-bucket pyramid
   /// instead of the single unbudgeted detail patch. When true (and the page
   /// retains a region-cullable scene), the visible slice is tiled: panning at
@@ -547,6 +565,14 @@ class PdfPageView extends StatefulWidget {
 
   @override
   State<PdfPageView> createState() => _PdfPageViewState();
+}
+
+class _PendingWorkerRecord {
+  const _PendingWorkerRecord(this.commands, this.imageRatio, this.waitClock);
+
+  final Future<List<PdfRenderCommand>?> commands;
+  final double imageRatio;
+  final Stopwatch? waitClock;
 }
 
 class _PdfPageViewState extends State<PdfPageView>
@@ -1836,27 +1862,31 @@ class _PdfPageViewState extends State<PdfPageView>
   /// adopts it once the render is known not to be superseded - and whether
   /// the buffer came from the worker (see [_setScene]'s fromWorker).
   Future<(ui.Picture, PdfRetainedScene?, bool)?> _interpretPicture(
-      {bool forceLocal = false}) async {
+      {bool forceLocal = false,
+      _PendingWorkerRecord? pendingWorkerRecord}) async {
     final pageIndex = widget.previewIndex;
     final worker = widget.renderWorker;
     // Phase clocks exist only while the perf log is on (the render_worker_web
     // _perfClock pattern): this runs per page render, so even a cheap
     // Stopwatch allocation stays off the ordinary path.
-    final waitClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
-    if (!forceLocal && worker != null && worker.isActive) {
+    final waitClock = pendingWorkerRecord?.waitClock ??
+        (PdfPerfLog.enabled ? (Stopwatch()..start()) : null);
+    if (!forceLocal &&
+        (pendingWorkerRecord != null || (worker != null && worker.isActive))) {
       // priority 0: the on-screen page preempts background prefetch.
       // imagePixelRatio caps embedded images to the page's on-screen
       // resolution so a CAD raster underlay isn't decoded/shipped/rasterized
       // at its native 100+ megapixels (the deep-zoom patch re-rasters the
       // visible region for sharper zoom).
-      final imageRatio = _imageRatioTarget();
+      final imageRatio = pendingWorkerRecord?.imageRatio ?? _imageRatioTarget();
       _pictureImageRatio = imageRatio;
-      final commands = await worker.record(
-        pageIndex,
-        annotations: widget.showAnnotations,
-        priority: widget.renderPriority,
-        imagePixelRatio: imageRatio,
-      );
+      final commands = await (pendingWorkerRecord?.commands ??
+          worker!.record(
+            pageIndex,
+            annotations: widget.showAnnotations,
+            priority: widget.renderPriority,
+            imagePixelRatio: imageRatio,
+          ));
       // The wait phase ends when the record reply lands; the build phase is
       // everything after - decoding images that shipped un-decoded and
       // turning the command buffer into the picture.
@@ -2522,6 +2552,33 @@ class _PdfPageViewState extends State<PdfPageView>
     return null;
   }
 
+  /// Starts the dense-page full worker record early and uses its streamed
+  /// image-free prefixes for progressive paint. The returned future is passed
+  /// straight to [_interpretPicture], so the final decoded commands are never
+  /// requested a second time.
+  _PendingWorkerRecord? _startFusedProgressiveRecord(
+      int generation, int pageIndex) {
+    final worker = widget.renderWorker;
+    if (worker == null || !worker.isActive) return null;
+    final imageRatio = _imageRatioTarget();
+    _pictureImageRatio = imageRatio;
+    final waitClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
+    final commands = worker.record(
+      pageIndex,
+      annotations: widget.showAnnotations,
+      priority: widget.renderPriority,
+      imagePixelRatio: imageRatio,
+      onPartial: (partial) {
+        final seq = ++_progressiveSeqCounter;
+        unawaited(
+          _paintProgressivePartial(generation, pageIndex, partial, seq),
+        );
+      },
+    );
+    PdfPerfLog.log('progressive-fused page=$pageIndex');
+    return _PendingWorkerRecord(commands, imageRatio, waitClock);
+  }
+
   /// Reports, when the perf log is on, how many images a worker buffer carries
   /// and their total decoded megapixels - the deciding number for why a
   /// raster-heavy page is still slow: one oversized image escaping the
@@ -2655,6 +2712,7 @@ class _PdfPageViewState extends State<PdfPageView>
     if (skipEmptyVectorPass) {
       PdfPerfLog.log('vector-first skip page=$pageIndex reason=image-only');
     }
+    _PendingWorkerRecord? pendingWorkerRecord;
     if (firstInterpret &&
         !preferLocalFirstPaint &&
         !skipEmptyVectorPass &&
@@ -2667,7 +2725,16 @@ class _PdfPageViewState extends State<PdfPageView>
       // read the field last either inherited a future belonging to an
       // abandoned paint or stole the live pass's own. A local keeps each pass
       // with exactly the completer it armed.
-      final progressiveDetail = await _paintVectorFirst(generation, pageIndex);
+      final useFusedProgressive = PdfPageView.fusedProgressiveRecord &&
+          PdfPageView.progressiveStreamingPaint &&
+          !needsRegionBootstrap;
+      final progressiveDetail = useFusedProgressive
+          ? null
+          : await _paintVectorFirst(generation, pageIndex);
+      if (useFusedProgressive) {
+        pendingWorkerRecord =
+            _startFusedProgressiveRecord(generation, pageIndex);
+      }
       if (_superseded(generation, pageIndex)) return;
       if (PdfPageView.deferFullRenderUntilDetailPaint &&
           progressiveDetail != null) {
@@ -2688,6 +2755,7 @@ class _PdfPageViewState extends State<PdfPageView>
     } else {
       final interpreted = await _interpretPicture(
         forceLocal: preferLocalFirstPaint,
+        pendingWorkerRecord: pendingWorkerRecord,
       );
       if (interpreted == null) {
         if (!_superseded(generation, pageIndex)) _render();

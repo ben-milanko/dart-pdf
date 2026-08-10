@@ -57,7 +57,24 @@ function opt(name, fallback) {
 const has = (name) => argv.includes(name);
 
 const scenarioName = opt('--scenario', REGISTRY.default);
-const scenario = REGISTRY.scenarios[scenarioName];
+const registeredScenario = REGISTRY.scenarios[scenarioName];
+const parseNumberList = (value, label) => {
+  if (value == null || value === '') return null;
+  const result = String(value).split(',').map((part) => Number(part.trim()));
+  if (result.length === 0 || result.some((number) => !Number.isFinite(number))) {
+    fail(`${label} must be a comma-separated list of finite numbers`);
+  }
+  return result;
+};
+const pageOverride = parseNumberList(process.env.PERF_PAGES, 'PERF_PAGES');
+const zoomOverride = parseNumberList(process.env.PERF_ZOOMS, 'PERF_ZOOMS');
+const scenario = registeredScenario == null
+  ? null
+  : {
+      ...registeredScenario,
+      ...(pageOverride == null ? {} : {pages: pageOverride}),
+      ...(zoomOverride == null ? {} : {zooms: zoomOverride}),
+    };
 const iterations = Number(opt('--iterations', '3'));
 const timeoutMs = Number(opt('--timeout', '300000'));
 const port = Number(opt('--port', process.env.PERF_PORT ?? '8100'));
@@ -1543,7 +1560,7 @@ async function runDartPdf(serverStats, iteration) {
         flutterFramesByAction,
         traceSample: traceLines
           .filter((line) =>
-            /interpret|webworker|scheduler|renderhold|raster|replay|decode|preview|page-raster|detail|region-index|tile|vector|surface|\[driver\]/i
+            /interpret|webworker|scheduler|renderhold|raster|replay|decode|softmask|preview|page-raster|detail|region-index|tile|vector|surface|\[driver\]/i
               .test(line),
           )
           // Keep enough context to preserve the explicit action markers on a

@@ -10,6 +10,29 @@ import 'budgeted_cache.dart';
 import 'image_decoder.dart';
 import 'perf_log.dart';
 
+const _redToAlpha = <double>[
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  1,
+  0,
+  0,
+  0,
+  0,
+];
+
 /// Paints interpreter callbacks onto a Flutter [Canvas].
 ///
 /// Expects the canvas to be set up in page space (PDF user space, y-up); the
@@ -1344,12 +1367,13 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
   void drawImage(PdfImageRequest request) {
     final image = images[pdfImageKey(request)];
     if (image == null) return; // not decodable (yet): skip silently
+    final softMask = pdfGpuSoftMaskOf(image);
     // antialiased edges leave hairline seams between abutting image slices
     // (PowerPoint and scanners split large images into strips)
     final paint = Paint()
       ..filterQuality = FilterQuality.medium
       ..isAntiAlias = false
-      ..blendMode = _elementBlend;
+      ..blendMode = softMask == null ? _elementBlend : BlendMode.srcOver;
     if (request.isStencil) {
       // stencil masks paint the fill color through the mask's alpha
       paint.colorFilter = ColorFilter.mode(
@@ -1362,12 +1386,39 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
     // image space: unit square, y-up; image pixels: y-down from the top
     canvas.translate(0, 1);
     canvas.scale(1, -1);
+    if (softMask != null) {
+      // Isolate the base + mask so the PDF blend mode applies to the finished
+      // composite, not to the base against a transparent temporary surface.
+      // The mask JPEG is grayscale, so its red sample is the specified alpha.
+      canvas.saveLayer(
+        const Rect.fromLTWH(0, 0, 1, 1),
+        Paint()..blendMode = _elementBlend,
+      );
+    }
     canvas.drawImageRect(
       image,
       Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
       const Rect.fromLTWH(0, 0, 1, 1),
       paint,
     );
+    if (softMask != null) {
+      canvas.drawImageRect(
+        softMask,
+        Rect.fromLTWH(
+          0,
+          0,
+          softMask.width.toDouble(),
+          softMask.height.toDouble(),
+        ),
+        const Rect.fromLTWH(0, 0, 1, 1),
+        Paint()
+          ..filterQuality = FilterQuality.medium
+          ..isAntiAlias = false
+          ..blendMode = BlendMode.dstIn
+          ..colorFilter = const ColorFilter.matrix(_redToAlpha),
+      );
+      canvas.restore();
+    }
     canvas.restore();
   }
 

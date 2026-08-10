@@ -225,7 +225,7 @@ class PdfPageRenderer {
     // decode handles (clones from the cache, or fresh decodes) can be freed
     // now - the cache keeps the masters for the next render.
     for (final image in images.values) {
-      image.dispose();
+      disposePdfDecodedImage(image);
     }
     return picture;
   }
@@ -293,7 +293,7 @@ class PdfPageRenderer {
     replayCommands(recorder.commands, CanvasPdfDevice(canvas, images: images));
     final picture = uiRecorder.endRecording();
     for (final image in images.values) {
-      image.dispose();
+      disposePdfDecodedImage(image);
     }
     return picture;
   }
@@ -348,11 +348,12 @@ class PdfPageRenderer {
       {bool includeImages = true, double? maxImagePixelRatio}) async {
     final requests = <PdfImageRequest>[];
     if (includeImages) collectImageRequests(commands, requests);
-    final images = requests.isEmpty
+    final Map<Object, ui.Image> images = requests.isEmpty
         ? const <Object, ui.Image>{}
         : await decodeImages(page.document.cos, requests,
             cache: PdfImageCache.instance,
-            maxImagePixelRatio: maxImagePixelRatio);
+            maxImagePixelRatio: maxImagePixelRatio,
+            imageDecodeHeadroom: 1);
 
     final box = page.cropBox;
     final size = plan.pageSize(page);
@@ -363,7 +364,7 @@ class PdfPageRenderer {
     replayCommands(commands, CanvasPdfDevice(canvas, images: images));
     final picture = recorder.endRecording();
     for (final image in images.values) {
-      image.dispose();
+      disposePdfDecodedImage(image);
     }
     return picture;
   }
@@ -476,7 +477,7 @@ class PdfPageRenderer {
         .drawAnnotation(page, annotation);
     final picture = recorder.endRecording();
     for (final image in images.values) {
-      image.dispose();
+      disposePdfDecodedImage(image);
     }
     return picture;
   }
@@ -594,7 +595,7 @@ class PdfPageRenderer {
       picture.dispose();
       device.dispose();
       for (final image in images.values) {
-        image.dispose();
+        disposePdfDecodedImage(image);
       }
     }
   }

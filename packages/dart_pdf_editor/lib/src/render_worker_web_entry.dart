@@ -952,6 +952,26 @@ Future<Uint8List?> _recordPageAsync(
     if (transcript == null) return null;
     commands = transcript.sourceCommands;
   }
+  // Complete the progressive linework reveal before image decoding. This is
+  // the web twin of the isolate backend's fused-record prefix: one decoding
+  // record supplies both the image-free first paint and the final buffer. It
+  // runs on transcript hits too, where rebuilding the placeholder wire buffer
+  // is still cheaper than the old second worker request and serialization.
+  if (decodeImages &&
+      onPartial != null &&
+      commands.any((command) => command is PdfDrawImageCommand)) {
+    final vector = serializeCommands(
+      commands,
+      cos: document.cos,
+      decodeImages: false,
+      maxImagePixelRatio: imagePixelRatio,
+      pageRasterPixels: pdfPageRasterPixels(page.cropBox, imagePixelRatio),
+      imageDecodeRegion: imageDecodeRegion,
+      imagePlaceholders: true,
+      compactStateScopes: true,
+    );
+    if (vector != null) onPartial(vector);
+  }
   if (decodeImages) {
     final decodeClock = timings == null ? null : (Stopwatch()..start());
     final tally = timings == null ? null : _BrowserDecodeTally();
@@ -990,6 +1010,7 @@ Future<Uint8List?> _recordPageAsync(
     commands,
     cos: document.cos,
     decodeImages: decodeImages,
+    imageDecodeFilter: _webWorkerImageDecodeFilter,
     maxImagePixelRatio: imagePixelRatio,
     pageRasterPixels: pdfPageRasterPixels(page.cropBox, imagePixelRatio),
     imageDecodeRegion: imageDecodeRegion,
@@ -1102,6 +1123,7 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
     sourceCommands,
     cos: document.cos,
     decodeImages: true,
+    imageDecodeFilter: _webWorkerImageDecodeFilter,
     maxImagePixelRatio: pixelRatio,
     imageDecodeRegion: imageDecodeRegion,
     imageCache: imageCache,
@@ -1135,6 +1157,46 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
     timings!.binUs += binClock.elapsedMicroseconds;
   }
   return (commandBuffer, encodeStripPlan(binner.finish()));
+}
+
+/// Keeps browser-friendly DCT images compressed until the consuming isolate
+/// on web.
+///
+/// `createImageBitmap` can hand an ordinary RGB/gray JPEG directly to Flutter
+/// without a worker-canvas readback or a multi-megabyte RGBA transfer. A CMYK
+/// JPEG is different: the browser codec cannot preserve its four PDF ink
+/// components, while the portable worker decoder is both colour-correct and
+/// cached across page records. Deferring those made a warm worker-cache hit a
+/// several-hundred-millisecond main-isolate decode on image-heavy pages.
+///
+/// Although the portable core can decode a DCT soft mask (and native isolate
+/// workers use that path), dart2js JPEG decode plus an RGBA transfer is slower
+/// and much more memory-hungry than retaining the source for browser-codec
+/// composition. Non-DCT images keep the existing worker decode, including
+/// native CompressionStream inflation for simple Flate.
+bool _webWorkerImageDecodeFilter(
+  CosDocument cos,
+  PdfImageRequest request,
+) {
+  if (request.decoded != null) return true;
+  final dict = request.stream.dictionary;
+  // The mask decides the path for the whole composite. Check it before the
+  // base: a CMYK JPEG under a DCT /SMask is not the standalone-CMYK case below
+  // and would otherwise return early after doing expensive pure JPEG work.
+  final softMask = cos.resolve(dict['SMask']);
+  if (softMask is CosStream) {
+    final maskFilters = pdfImageFilters(cos, softMask.dictionary);
+    if (maskFilters.contains('DCTDecode') || maskFilters.contains('DCT')) {
+      return false;
+    }
+  }
+  final filters = pdfImageFilters(cos, dict);
+  if (filters.contains('DCTDecode') || filters.contains('DCT')) {
+    // DeviceCMYK is precisely the DCT flavour the pure decoder supports. Keep
+    // it in the worker so repeated pages/preview records reuse converted RGBA.
+    return pdfImageColorFamily(cos, dict) == 'DeviceCMYK';
+  }
+  return true;
 }
 
 /// Builds the region-replay spatial index from the page's cached wire
@@ -1190,6 +1252,20 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
         }
         PdfDecodedPixels? decoded;
         final filters = pdfImageFilters(cos, request.stream.dictionary);
+        final hasDctBase =
+            filters.contains('DCTDecode') || filters.contains('DCT');
+        // A standalone JPEG is cheaper on the consumer: createImageBitmap can
+        // hand its ImageBitmap straight to Flutter without an OffscreenCanvas
+        // readback or a multi-megabyte RGBA transfer. Keep the worker codec for
+        // composites whose DCT soft mask requires CPU alpha bytes. CMYK bases
+        // also remain compressed here and take serializeCommands' portable,
+        // colour-correct decoder below.
+        if (hasDctBase &&
+            pdfImageDctSoftMaskBytes(cos, request.stream.dictionary) == null) {
+          tally?.decline('consumerDct');
+          out.add(command);
+          continue;
+        }
         final isFlate = filters.length == 1 &&
             (filters.single == 'FlateDecode' || filters.single == 'Fl');
         if (isFlate && maxImagePixelRatio != null) {
@@ -1573,6 +1649,7 @@ PdfImageRequest _withDecodedPixels(
       stencilColor: request.stencilColor,
       isInline: request.isInline,
       decoded: decoded,
+      sourceReference: request.sourceReference,
     );
 
 Future<PdfDecodedPixels?> _decodeWithBrowserCodec(
@@ -1603,6 +1680,7 @@ Future<PdfDecodedPixels?> _decodeWithBrowserCodec(
   }
 
   final PdfImageBase? base;
+  String? browserDecline;
   if (dctName != null) {
     final family = pdfImageColorFamily(cos, dict);
     if (family == 'DeviceCMYK') {
@@ -1615,7 +1693,12 @@ Future<PdfDecodedPixels?> _decodeWithBrowserCodec(
       base = decodePdfImageBase(cos, stream);
     } else {
       final jpeg = cos.decodeStreamData(stream, stopBeforeFilter: dctName);
-      base = await _decodeBrowserJpegBase(cos, dict, jpeg);
+      base = await _decodeBrowserJpegBase(
+        cos,
+        dict,
+        jpeg,
+        onDecline: (reason) => browserDecline = reason,
+      );
     }
   } else {
     // Pure base + DCT /SMask: reuse the pure base decoder and only lift the
@@ -1623,7 +1706,7 @@ Future<PdfDecodedPixels?> _decodeWithBrowserCodec(
     base = decodePdfImageBase(cos, stream);
   }
   if (base == null) {
-    tally?.decline('decodeNull');
+    tally?.decline(browserDecline ?? 'decodeNull');
     return null;
   }
   tally?.codec++;
@@ -1641,16 +1724,23 @@ Future<PdfDecodedPixels?> _decodeWithBrowserCodec(
       hasAlpha: !base.opaque,
     );
   }
-  final masked = pdfApplyImageAlpha(base.rgba, base.width, base.height, mask);
-  return _finishBrowserDecoded(masked.$1, masked.$2, masked.$3, hasAlpha: true);
+  final masked = pdfApplyImageAlpha(
+    base.rgba,
+    base.width,
+    base.height,
+    mask,
+    premultiply: true,
+  );
+  return PdfDecodedPixels(masked.$1, masked.$2, masked.$3);
 }
 
 Future<PdfImageBase?> _decodeBrowserJpegBase(
   CosDocument cos,
   CosDictionary dict,
-  Uint8List jpeg,
-) async {
-  final decoded = await _decodeBrowserJpegRgba(jpeg);
+  Uint8List jpeg, {
+  void Function(String reason)? onDecline,
+}) async {
+  final decoded = await _decodeBrowserJpegRgba(jpeg, onDecline: onDecline);
   if (decoded == null) return null;
   final components = switch (pdfImageColorFamily(cos, dict)) {
     'DeviceGray' => 1,
@@ -1675,11 +1765,12 @@ Future<PdfImageBase?> _decodeBrowserJpegBase(
 Future<PdfImageSoftMask?> _decodeBrowserJpegMask(Uint8List jpeg) async {
   final decoded = await _decodeBrowserJpegRgba(jpeg);
   if (decoded == null) return null;
-  final alpha = Uint8List(decoded.width * decoded.height);
-  for (var i = 0; i < alpha.length; i++) {
-    alpha[i] = decoded.rgba[i * 4];
-  }
-  return PdfImageSoftMask(alpha, decoded.width, decoded.height);
+  return PdfImageSoftMask(
+    decoded.rgba,
+    decoded.width,
+    decoded.height,
+    sampleStride: 4,
+  );
 }
 
 PdfDecodedPixels _finishBrowserDecoded(
@@ -1692,31 +1783,63 @@ PdfDecodedPixels _finishBrowserDecoded(
   return PdfDecodedPixels(rgba, width, height);
 }
 
-Future<_BrowserDecodedImage?> _decodeBrowserJpegRgba(Uint8List jpeg) async {
+Future<_BrowserDecodedImage?> _decodeBrowserJpegRgba(
+  Uint8List jpeg, {
+  void Function(String reason)? onDecline,
+}) async {
   if (!_browserImageDecodeAvailable) return null;
   web.ImageBitmap? bitmap;
+  var stage = 'blob';
   try {
+    // The worker opens its document directly over the pool's SharedArrayBuffer.
+    // Blob's constructor rejects typed-array views backed by shared memory,
+    // even though createImageBitmap accepts the resulting Blob. Copy only the
+    // compressed JPEG payload into an ordinary ArrayBuffer first; this is
+    // hundreds of kilobytes instead of the multi-megabyte RGBA result and lets
+    // the browser codec stay off the consuming isolate.
+    final ownedJpeg = Uint8List.fromList(jpeg);
     final blob = web.Blob(
-      <JSAny>[jpeg.toJS].toJS,
+      <JSAny>[ownedJpeg.toJS].toJS,
       web.BlobPropertyBag(type: 'image/jpeg'),
     );
-    final scope = globalContext as web.WorkerGlobalScope;
-    bitmap = await scope.createImageBitmap(blob).toDart;
+    stage = 'bitmap';
+    final promise = globalContext.callMethod<JSPromise<web.ImageBitmap>>(
+      'createImageBitmap'.toJS,
+      blob,
+    );
+    bitmap = await promise.toDart;
     final width = bitmap.width;
     final height = bitmap.height;
-    if (width <= 0 || height <= 0) return null;
+    if (width <= 0 || height <= 0) {
+      onDecline?.call('emptyBitmap');
+      return null;
+    }
+    stage = 'canvas';
     final canvas = web.OffscreenCanvas(width, height);
+    stage = 'context';
     final context =
         canvas.getContext('2d') as web.OffscreenCanvasRenderingContext2D?;
-    if (context == null) return null;
+    if (context == null) {
+      onDecline?.call('no2d');
+      return null;
+    }
+    stage = 'draw';
     context.drawImage(bitmap, 0, 0);
+    stage = 'readback';
     final imageData = context.getImageData(0, 0, width, height);
+    stage = 'typedData';
+    final clamped = imageData.data.toDart;
     return _BrowserDecodedImage(
-      Uint8List.fromList(imageData.data.toDart),
+      Uint8List.view(
+        clamped.buffer,
+        clamped.offsetInBytes,
+        clamped.lengthInBytes,
+      ),
       width,
       height,
     );
   } catch (_) {
+    onDecline?.call('codec-$stage');
     return null;
   } finally {
     bitmap?.close();

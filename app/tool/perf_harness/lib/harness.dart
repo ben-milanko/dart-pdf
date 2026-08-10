@@ -54,6 +54,7 @@
 //   tool       hover: armed tool                  (default ink)
 //   imageCacheMb  decoded-image cache budget, MB (default 0 = platform default)
 //   rasterCacheMb exact full-page raster budget, MB (default 32; 0 disables)
+//   previewWindow pages each side eligible for idle preview warming (default 6)
 //   domSurface    present page rasters in a DOM canvas (default false)
 //   source        full|range; range uses the public sparse-first HTTP loader
 //
@@ -120,6 +121,7 @@ final int _passes =
 final bool _fastPass = _qBool(
     'fast', const bool.fromEnvironment('PERF_FAST_PASS', defaultValue: true));
 final int _previewIdleMs = _qInt('previewIdleMs', -1);
+final int _previewWindow = _qInt('previewWindow', 6);
 
 /// `?targetPage=N`: the page whose first-content paint the `open` scenario
 /// times (and, for `scroll`, an alternate single-page target mode). -1 uses a
@@ -295,6 +297,10 @@ void main() {
   PdfPageView.progressiveStreamingPaint = _qBool('progressive', false);
   _record(
       '[perf] HARNESS progressive=${PdfPageView.progressiveStreamingPaint}');
+  // `?fused=0`: restore the two-record vector-then-image path for an A/B.
+  // Production defaults to one decoding record serving both paints.
+  PdfPageView.fusedProgressiveRecord = _qBool('fused', true);
+  _record('[perf] HARNESS fused=${PdfPageView.fusedProgressiveRecord}');
   // `?earlyPrefixMin=<bytes>`: lower the density gate that both the #527 bounded
   // early prefix and the #564 reveal share, so a portable-corpus page that sits
   // just under the 512 KB production default still engages both - letting the
@@ -1031,6 +1037,7 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
               renderWorker: _worker,
               autoRenderWorker: !_showingSparseSource,
               pagePreviews: _qBool('previews', true),
+              previewWindow: _previewWindow,
               previewIdleDelay: _previewIdleMs < 0
                   ? null
                   : Duration(milliseconds: _previewIdleMs),

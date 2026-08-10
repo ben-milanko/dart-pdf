@@ -5,11 +5,10 @@
 // codec preserves every command and value type (paths, colours, strokes,
 // gradients, meshes, text runs with glyph outlines, nested soft-mask groups).
 //
-// Image XObjects serialize too (given the source document via `cos`):
-// serializeCommands inline-resolves the image's stream subgraph, so the buffer
-// round-trips to the same transcript (the transcript captures the image's
-// transform + alpha, which survive). Without a `cos`, or for an inline image,
-// the buffer still declines to null and the caller renders that page locally.
+// Image XObjects serialize too (given the source document via `cos`): indirect
+// streams cross as compact object references and direct streams fall back to a
+// self-contained inline subgraph. Without a `cos`, or for an inline image, the
+// buffer still declines to null and the caller renders that page locally.
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -311,8 +310,8 @@ void main() {
 
   // Real pages exercise the fragile callbacks: transparency groups, soft masks
   // (their drawMask content), blend modes, gradients, knockout - and images,
-  // which round-trip through the inline-resolved stream subgraph (given `cos`)
-  // to the same transcript, or decline to null without a `cos`.
+  // which round-trip through an indirect reference or inline fallback (given
+  // `cos`) to the same transcript, or decline to null without a `cos`.
   group('corpus round-trip', () {
     final files = <String>[
       '../../test_corpora/ghent/1-CMYK/GWG168_Softmasks_Vector_part1_X4.pdf',
@@ -350,9 +349,9 @@ void main() {
             expect(noCos, isNotNull, reason: '$name page $i has no images');
           }
 
-          // With the document, image XObjects serialize via their inlined
-          // stream subgraph; the buffer round-trips to the same transcript.
-          // (An inline image would still decline - none in these fixtures.)
+          // With the document, image XObjects serialize via an indirect object
+          // reference; the buffer round-trips to the same transcript. (An
+          // inline image would still decline - none in these fixtures.)
           final bytes = serializeCommands(recorder.commands, cos: doc.cos);
           expect(bytes, isNotNull,
               reason: '$name page $i should serialize with a cos');
@@ -579,6 +578,69 @@ void main() {
       expect(restored.request.decoded!.rgba, decoded.rgba);
     });
 
+    test('deferred indirect images cross as object references', () {
+      final doc = PdfDocument.open(
+        PdfImageDocument.fromImageBytes([buildTestJpeg()]),
+      );
+      final page = doc.page(0);
+      final recorder = RecordingPdfDevice();
+      PdfInterpreter(cos: doc.cos, device: recorder).drawPageOperations(
+        page,
+        ContentStreamParser.parse(page.contentBytes()),
+      );
+      final source = recorder.imageRequests.single;
+      final reference = doc.cos.referenceTo(source.stream);
+      expect(reference, isNotNull,
+          reason: 'an XObject loaded from the page must retain its identity');
+
+      final bytes = serializeCommands(
+        recorder.commands,
+        cos: doc.cos,
+        decodeImages: false,
+      )!;
+      final restored = _imageCommands(deserializeCommands(bytes)).single;
+      expect(restored.request.sourceReference, reference);
+      expect(restored.request.isInline, isFalse);
+      expect(restored.request.stream.rawBytes, isEmpty,
+          reason: 'the worker buffer must not copy the JPEG payload');
+      expect(bytes.length, lessThan(source.stream.rawBytes.length),
+          reason: 'the reference wire record should be smaller than the JPEG');
+    });
+
+    test('an image decode filter defers selected source streams', () {
+      final cos = CosDocument.open(buildClassicPdf());
+      CosStream rgb(int value) => CosStream(
+            CosDictionary({
+              'Width': const CosInteger(1),
+              'Height': const CosInteger(1),
+              'BitsPerComponent': const CosInteger(8),
+              'ColorSpace': const CosName('DeviceRGB'),
+            }),
+            Uint8List.fromList([value, value + 1, value + 2]),
+          );
+      final embedded = rgb(10);
+      final deferred = rgb(20);
+      final bytes = serializeCommands(
+        [
+          PdfDrawImageCommand(
+              PdfImageRequest(stream: embedded, transform: PdfMatrix.identity)),
+          PdfDrawImageCommand(
+              PdfImageRequest(stream: deferred, transform: PdfMatrix.identity)),
+        ],
+        cos: cos,
+        decodeImages: true,
+        imageDecodeFilter: (_, request) => request.stream != deferred,
+      );
+
+      final images = _imageCommands(deserializeCommands(bytes!));
+      expect(images[0].request.decoded, isNotNull,
+          reason: 'accepted images still carry worker-decoded pixels');
+      expect(images[1].request.decoded, isNull,
+          reason: 'deferred direct images keep a self-contained source stream');
+      expect(images[1].request.stream.rawBytes, deferred.rawBytes,
+          reason: 'the consumer must retain enough data to decode locally');
+    });
+
     test('a shared image cache makes a re-record byte-identical and free', () {
       // The worker records the same page several times in one scroll and each
       // serialize re-decoded every image - one device page paid ~900ms of
@@ -761,6 +823,53 @@ void main() {
       expect(decoded.width, 1);
       expect(decoded.height, 1);
       expect(decoded.rgba, [40, 100, 7, 255]);
+    });
+
+    test('imageDecodeRegion reuses a retained native DCT decode', () {
+      final cos = CosDocument.open(buildClassicPdf());
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(4),
+          'Height': const CosInteger(4),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceCMYK'),
+          'Filter': const CosName('DCTDecode'),
+        }),
+        // Deliberately not a JPEG: a successful record proves the region path
+        // used the retained native pixels instead of invoking the decoder.
+        Uint8List.fromList([0xff, 0xd8, 0xff, 0xd9]),
+      );
+      final rgba = Uint8List(4 * 4 * 4);
+      for (var y = 0; y < 4; y++) {
+        for (var x = 0; x < 4; x++) {
+          final offset = (y * 4 + x) * 4;
+          rgba
+            ..[offset] = x * 40
+            ..[offset + 1] = y * 50
+            ..[offset + 2] = 7
+            ..[offset + 3] = 255;
+        }
+      }
+      final cache = PdfImageDecodeCache()
+        ..put(stream, null, null, PdfDecodedPixels(rgba, 4, 4));
+      final command = PdfDrawImageCommand(PdfImageRequest(
+        stream: stream,
+        transform: const PdfMatrix(400, 0, 0, 400, 100, 200),
+      ));
+
+      final bytes = serializeCommands(
+        [command],
+        cos: cos,
+        decodeImages: true,
+        maxImagePixelRatio: 100,
+        imageDecodeRegion: const PdfRect(200, 300, 300, 400),
+        imageCache: cache,
+      );
+
+      expect(bytes, isNotNull);
+      expect(cache.hits, 1);
+      final restored = _imageCommands(deserializeCommands(bytes!)).single;
+      expect(restored.request.decoded!.rgba, [40, 100, 7, 255]);
     });
 
     test('imageDecodeRegion skips off-region images with transparent pixels',

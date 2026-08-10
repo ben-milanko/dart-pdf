@@ -57,10 +57,11 @@ int retainedCommandGraphsWeight(
 /// Reuses the compact wire graph while restoring document-backed images.
 ///
 /// The wire codec rounds geometry to the exact float32 values consumed by the
-/// UI and removes redundant state scopes. Its reconstructed image streams are
-/// detached from the document, so later detail serialization cannot resolve
-/// every dependency. Replace only those streams while sharing every other
-/// command object and retaining the wire transform.
+/// UI and removes redundant state scopes. Its reconstructed indirect images
+/// carry compact object references but use placeholder streams; later detail
+/// decoding still needs the worker document's actual COS stream. Replace only
+/// those streams while sharing every other command object and retaining the
+/// wire transform.
 List<PdfRenderCommand>? compactTranscriptSourceCommands(
   List<PdfRenderCommand> wireCommands,
   List<PdfImageRequest> originalImages,
@@ -87,6 +88,7 @@ List<PdfRenderCommand>? compactTranscriptSourceCommands(
           stencilColor: wire.stencilColor,
           isInline: original.isInline,
           decoded: original.decoded,
+          sourceReference: original.sourceReference,
         ));
       } else if (command is PdfEndSoftMaskedCommand) {
         final maskCommands = patch(command.maskCommands);
@@ -236,7 +238,9 @@ class PdfWorkerTranscriptCache {
     // device (discarding the partial). Driving bounded chunks and checking the
     // token between them is what keeps the recording resumable (#530).
     var entry = _takeSuspended(pageIndex, annotations);
-    if (entry != null && entry.walk.isFinished) entry = null; // never resume a finished walk
+    if (entry != null && entry.walk.isFinished) {
+      entry = null; // never resume a finished walk
+    }
     if (entry == null) {
       final page = document.page(pageIndex);
       final recorder = RecordingPdfDevice();
@@ -369,7 +373,9 @@ class PdfWorkerTranscriptCache {
   /// previously stashed walk so its balancing device restore runs.
   void _keepSuspended(_SuspendedTranscriptWalk entry) {
     final previous = _suspended;
-    if (previous != null && !identical(previous, entry)) previous.walk.abandon();
+    if (previous != null && !identical(previous, entry)) {
+      previous.walk.abandon();
+    }
     _suspended = entry;
   }
 

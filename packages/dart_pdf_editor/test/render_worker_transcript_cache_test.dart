@@ -75,7 +75,8 @@ void main() {
     expect(cache.misses, 3);
   });
 
-  test('transcriptFor streams progressive partials on a doubling schedule '
+  test(
+      'transcriptFor streams progressive partials on a doubling schedule '
       '(#564 web twin core)', () async {
     // A dense linework page spans many chunks; the transcript walk (shared by the
     // web worker record path) emits interim linework prefixes on a doubling
@@ -186,8 +187,15 @@ void main() {
     final wireImage = _firstImage(transcript.wireCommands)!;
     expect(sourceImage.request.isInline, isFalse,
         reason: 'the compact source keeps the original XObject identity');
-    expect(wireImage.request.isInline, isTrue,
-        reason: 'the wire graph stays detached and value-keyed');
+    expect(wireImage.request.isInline, isFalse,
+        reason: 'an indirect wire image retains XObject semantics');
+    expect(
+      wireImage.request.sourceReference,
+      document.cos.referenceTo(sourceImage.request.stream),
+      reason: 'the detached wire graph identifies the document source',
+    );
+    expect(wireImage.request.stream.rawBytes, isEmpty,
+        reason: 'the detached wire graph must not retain the JPEG payload');
     expect(sourceImage.request.transform, wireImage.request.transform,
         reason: 'source replay keeps the exact float32 wire geometry');
     final compactBytes = serializeCommands(
@@ -313,7 +321,8 @@ void main() {
           imagePlaceholders: true,
           compactStateScopes: true,
         );
-    expect(wire(resumed!.sourceCommands), equals(wire(reference!.sourceCommands)),
+    expect(
+        wire(resumed!.sourceCommands), equals(wire(reference!.sourceCommands)),
         reason: 'resuming must reproduce the one-shot transcript exactly');
 
     // A resumed record is cached like any completed one: the next request hits.

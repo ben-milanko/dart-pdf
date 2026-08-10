@@ -200,9 +200,20 @@ class PdfImageRequest {
     this.stencilColor = PdfColor.black,
     this.isInline = false,
     this.decoded,
+    this.sourceReference,
   });
 
   final CosStream stream;
+
+  /// Indirect object identity for a worker command that deliberately omitted
+  /// the stream bytes. The consumer resolves this against its copy of the same
+  /// document revision before decoding. Null for ordinary interpreter draws,
+  /// direct streams, inline images, and legacy command buffers.
+  ///
+  /// Keeping this on the request (rather than a renderer-specific side table)
+  /// preserves the portable command model while avoiding repeated copies of a
+  /// multi-megabyte JPEG/SMask subgraph across the worker boundary.
+  final CosReference? sourceReference;
 
   /// Premultiplied RGBA pixels decoded off-thread by a [PdfRenderWorker] and
   /// carried back with the recorded command, or null when this image is to be

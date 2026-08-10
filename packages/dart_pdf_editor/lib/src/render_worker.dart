@@ -112,8 +112,10 @@ Duration pdfRenderWorkerRecordTimeout = const Duration(seconds: 90);
 /// the final decoded buffer. The caller replays each partial with
 /// `PdfPageRenderer.pictureFromCommands(includeImages: false)` for a top-down
 /// progressive reveal, then swaps in the final buffer when it arrives. A page
-/// small enough to record in one chunk emits no partial; the future still
-/// resolves normally.
+/// small enough to record in one chunk emits no intermediate prefix; an
+/// image-bearing decoding record still emits its complete image-free snapshot
+/// immediately before image decode so first and final paint can share one
+/// content walk.
 typedef PdfPartialRecordSink = void Function(List<PdfRenderCommand> partial);
 
 /// A browser-owned page canvas bound to one render worker.
@@ -581,6 +583,14 @@ abstract class PdfRenderWorker {
 /// the same pair reuse its worker; [cancel] routes through that lease table so
 /// it still reaches the worker holding the queued request.
 ///
+/// Speculative work (priority greater than zero) may occupy at most N−1 active
+/// workers. The final idle lane is left available for a visible request: pure
+/// Dart image decoding is synchronous, so a worker inside a large JPEG cannot
+/// observe a cooperative cancellation message until the expensive decode
+/// returns. This dynamic reservation adds no worker or document copy, and it
+/// disappears for a one-worker pool. Priority zero and negative priorities are
+/// foreground and may use the whole pool.
+///
 /// Each worker opens its own copy of the document, but the pool does NOT hand
 /// each one a private snapshot: it makes ONE read-only copy of the source bytes
 /// and seeds every worker (and the lazy urgent one-off lane) from that single
@@ -691,15 +701,31 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   /// expected) map through [int.abs] so routing never throws.
   int _staticWorkerIndex(int pageIndex) => pageIndex.abs() % _workers.length;
 
-  int _leastLoadedWorker(int pageIndex) {
+  int _leastLoadedWorker(int pageIndex, {int priority = 0}) {
     if (_workers.length == 1) return 0;
     final anyActive = _workers.any((worker) => worker.isActive);
     final fallback = _staticWorkerIndex(pageIndex);
 
+    var eligible = <int>[
+      for (var i = 0; i < _workers.length; i++)
+        if (!anyActive || _workers[i].isActive) i,
+    ];
+    if (priority > 0 && eligible.length > 1) {
+      final busy = [
+        for (final i in eligible)
+          if (_loads[i] > 0) i
+      ];
+      // Once speculative work occupies N-1 lanes, queue more of it on those
+      // lanes instead of consuming the last idle worker. The next foreground
+      // record sees that zero load and spills there immediately.
+      if (busy.length >= eligible.length - 1 && busy.isNotEmpty) {
+        eligible = busy;
+      }
+    }
+
     var best = -1;
     var bestLoad = 1 << 62;
-    for (var i = 0; i < _workers.length; i++) {
-      if (anyActive && !_workers[i].isActive) continue;
+    for (final i in eligible) {
       final load = _loads[i];
       if (load < bestLoad) {
         best = i;
@@ -711,8 +737,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
     // When the preferred static worker is tied for least-loaded, keep using it.
     // That preserves the old distribution in balanced cases while still spilling
     // away from a hot modulo class.
-    if ((!anyActive || _workers[fallback].isActive) &&
-        _loads[fallback] == bestLoad) {
+    if (eligible.contains(fallback) && _loads[fallback] == bestLoad) {
       return fallback;
     }
     return best;
@@ -721,7 +746,8 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   int _lease(int pageIndex, int priority) {
     final key = (pageIndex, priority);
     final existing = _routes[key];
-    final worker = existing?.worker ?? _workerForPage(pageIndex);
+    final worker =
+        existing?.worker ?? _workerForPage(pageIndex, priority: priority);
     _loads[worker]++;
     if (existing != null) {
       existing.count++;
@@ -743,12 +769,17 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   PdfRenderWorker _cancelWorkerFor(int pageIndex, int priority) {
     final route = _routes[(pageIndex, priority)];
     if (route != null) return _workers[route.worker];
-    return _workers[_workerForPage(pageIndex)];
+    return _workers[_workerForPage(pageIndex, priority: priority)];
   }
 
-  int _workerForPage(int pageIndex) {
+  int _workerForPage(int pageIndex, {int priority = 0}) {
     final existing = _pageWorkers[pageIndex];
     if (existing != null && _workers[existing].isActive) {
+      if (_wouldConsumeReservedIdle(existing, priority)) {
+        final worker = _leastLoadedWorker(pageIndex, priority: priority);
+        _pageWorkers[pageIndex] = worker;
+        return worker;
+      }
       // Stickiness buys a transcript hit: the sticky worker holds this page's
       // warm caches, so a repeat record on it is near-free, while a cold
       // worker re-records the page. Abandon that only when the page would
@@ -771,9 +802,22 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
       }
       return existing;
     }
-    final worker = _leastLoadedWorker(pageIndex);
+    final worker = _leastLoadedWorker(pageIndex, priority: priority);
     _pageWorkers[pageIndex] = worker;
     return worker;
+  }
+
+  bool _wouldConsumeReservedIdle(int worker, int priority) {
+    if (priority <= 0 || _loads[worker] != 0 || _workers.length <= 1) {
+      return false;
+    }
+    final active = <int>[
+      for (var i = 0; i < _workers.length; i++)
+        if (_workers[i].isActive) i,
+    ];
+    if (active.length <= 1 || !active.contains(worker)) return false;
+    final busy = active.where((i) => _loads[i] > 0).length;
+    return busy >= active.length - 1;
   }
 
   /// The pool can offload while any worker is still alive; a worker that dies
@@ -910,7 +954,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
     bool slugGlyphs = false,
     int priority = 0,
   }) =>
-      _workers[_workerForPage(pageIndex)].binStrips(
+      _workers[_workerForPage(pageIndex, priority: priority)].binStrips(
         pageIndex,
         annotations: annotations,
         pageToDevice: pageToDevice,
@@ -932,7 +976,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
     required PdfRect imageDecodeRegion,
     int priority = 0,
   }) =>
-      _workers[_workerForPage(pageIndex)].recordStripDetail(
+      _workers[_workerForPage(pageIndex, priority: priority)].recordStripDetail(
         pageIndex,
         annotations: annotations,
         pageToDevice: pageToDevice,
@@ -945,7 +989,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
 
   @override
   void cancelBinStrips(int pageIndex, {int priority = 0}) =>
-      _workers[_workerForPage(pageIndex)].cancelBinStrips(
+      _workers[_workerForPage(pageIndex, priority: priority)].cancelBinStrips(
         pageIndex,
         priority: priority,
       );
@@ -961,7 +1005,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
     required bool buildGrid,
     int priority = 0,
   }) =>
-      _workers[_workerForPage(pageIndex)].buildRegionIndex(
+      _workers[_workerForPage(pageIndex, priority: priority)].buildRegionIndex(
         pageIndex,
         annotations: annotations,
         maxCommands: maxCommands,
@@ -971,7 +1015,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
 
   @override
   Future<PdfPageText?> extractText(int pageIndex, {int priority = 0}) =>
-      _workers[_workerForPage(pageIndex)]
+      _workers[_workerForPage(pageIndex, priority: priority)]
           .extractText(pageIndex, priority: priority);
 
   @override

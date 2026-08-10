@@ -915,7 +915,8 @@ class PdfPagePreviewCache extends ChangeNotifier {
             page, commands,
             pageColor: pageColor,
             rotation: rotation,
-            includeImages: decodeImages);
+            includeImages: decodeImages,
+            maxImagePixelRatio: ratio);
         if (deferUiWork?.call() ?? false) {
           picture.dispose();
           return;
@@ -1019,7 +1020,9 @@ class PdfPagePreviewCache extends ChangeNotifier {
       final ui.Image image;
       if (commands != null) {
         picture = await PdfPageRenderer.pictureFromCommands(page, commands,
-            pageColor: signature.pageColor, rotation: signature.rotation);
+            pageColor: signature.pageColor,
+            rotation: signature.rotation,
+            maxImagePixelRatio: pixelRatio);
       } else {
         // No worker (or it declined): the walk runs here, exactly as it would
         // when the page arrives on screen. That is the cost being moved into

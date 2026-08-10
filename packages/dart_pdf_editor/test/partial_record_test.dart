@@ -17,6 +17,8 @@ import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/src/render_worker.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
 /// A single-page PDF whose content stream is [opCount] stroked line segments -
@@ -125,7 +127,8 @@ void main() {
     }
   });
 
-  test('a streaming vector-first (decodeImages:false) record matches the '
+  test(
+      'a streaming vector-first (decodeImages:false) record matches the '
       'one-shot final (#564 pt4)', () async {
     // pt4 routes the full non-decoding record through the resumable path when it
     // wants partials, so the progressive linework reveal can stream while it
@@ -137,8 +140,8 @@ void main() {
     addTearDown(oneShotWorker.dispose);
 
     final partials = <List<PdfRenderCommand>>[];
-    final streamed =
-        await streamWorker.record(0, decodeImages: false, onPartial: partials.add);
+    final streamed = await streamWorker.record(0,
+        decodeImages: false, onPartial: partials.add);
     final oneShot = await oneShotWorker.record(0, decodeImages: false);
 
     expect(streamed, isNotNull);
@@ -177,6 +180,31 @@ void main() {
     expect(result, isNotNull);
     expect(partialCount, 0,
         reason: 'a page recorded in one chunk has no prefix to reveal');
+  });
+
+  test('a tiny image page emits its complete vector snapshot before decode',
+      () async {
+    final image = img.Image(width: 2, height: 2)
+      ..clear(img.ColorRgb8(4, 8, 16));
+    final pdf = PdfImageDocument.fromImageBytes(
+      [Uint8List.fromList(img.encodePng(image))],
+    );
+    final worker = PdfRenderWorker.startUncached(pdf);
+    addTearDown(worker.dispose);
+
+    final partials = <List<PdfRenderCommand>>[];
+    final result = await worker.record(0, onPartial: partials.add);
+
+    expect(result, isNotNull);
+    expect(partials, hasLength(1),
+        reason: 'a single-chunk mixed page emits the complete image-free '
+            'snapshot, not an intermediate chunk');
+    final partialImage =
+        partials.single.whereType<PdfDrawImageCommand>().single.request;
+    final finalImage = result!.whereType<PdfDrawImageCommand>().single.request;
+    expect(partialImage.decoded, isNull);
+    expect(finalImage.decoded, isNotNull,
+        reason: 'the same record must still resolve with decoded pixels');
   });
 
   test('the cached production wrapper streams partials through the dedup',
