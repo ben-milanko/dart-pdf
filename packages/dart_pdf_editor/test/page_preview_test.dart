@@ -380,7 +380,7 @@ void main() {
             controller: controller,
             pageRasterCachePolicy: policy,
           ),
-        );
+    );
 
     await tester.pumpWidget(viewer(generous));
     expect(controller.pagePreviewCache!.maxFullRasterBytes,
@@ -616,6 +616,69 @@ void main() {
     expect(previewRaster, findsNothing);
     expect(scheduler.hasPending, isFalse,
         reason: 'a cache hit must not wait for scroll-settle release');
+  });
+
+  testWidgets('an off-screen cache hit promotes when it enters a zoomed view',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    final cache = PdfPagePreviewCache();
+    addTearDown(cache.dispose);
+
+    Widget pageView({required double scale, required bool onScreen}) =>
+        MaterialApp(
+          home: Center(
+            child: SizedBox(
+              width: 400,
+              child: PdfPageView(
+                page: page,
+                scale: scale,
+                onScreen: onScreen,
+                previewCache: cache,
+              ),
+            ),
+          ),
+        );
+
+    // Seed the exact fit-size raster, then dispose the page state like the lazy
+    // viewer does after it leaves the build window.
+    await tester.pumpWidget(pageView(scale: 1, onScreen: true));
+    for (var i = 0;
+        i < 50 && (fullRaster.evaluate().isEmpty || cache.fullRasterCount == 0);
+        i++) {
+      await settle(tester);
+    }
+    final fitWidth = tester.widget<RawImage>(fullRaster).image!.width;
+    expect(cache.fullRasterCount, greaterThan(0));
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+
+    // A global viewer zoom also reaches lazy-list neighbours. Off-screen pages
+    // deliberately stay at fit resolution, so this remount restores the cached
+    // fit raster even though the live transform is at 4x.
+    await tester.pumpWidget(pageView(scale: 4, onScreen: false));
+    await tester.pump();
+    expect(tester.widget<RawImage>(fullRaster).image!.width, fitWidth);
+
+    // Crossing into the viewport must promote that cache-only raster. Before
+    // the regression fix, onScreen was not a render-intent input and the cache
+    // restore carried no picture/image-ratio metadata, so this stayed enlarged
+    // from fit resolution forever.
+    await tester.pumpWidget(pageView(scale: 4, onScreen: true));
+    for (var i = 0; i < 100; i++) {
+      await settle(tester);
+      if (tester.widget<RawImage>(fullRaster).image!.width > fitWidth * 2) {
+        break;
+      }
+    }
+    expect(
+      tester.widget<RawImage>(fullRaster).image!.width,
+      greaterThan(fitWidth * 2),
+      reason: 'an on-screen zoom must replace the fit-size cached raster',
+    );
   });
 
   testWidgets('an on-screen render feeds the cache without re-interpreting',

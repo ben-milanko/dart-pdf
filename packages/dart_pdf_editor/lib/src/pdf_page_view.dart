@@ -836,18 +836,28 @@ class _PdfPageViewState extends State<PdfPageView>
     // the reduced buffer (and its raster) so the render below rebuilds it
     // sharp. Guarded on an actual ratio increase, so it fires once as the page
     // approaches focus, not as a churn loop.
-    var droppedForFocus = false;
-    if ((widget.focusDistance < oldWidget.focusDistance ||
-            (widget.onScreen && !oldWidget.onScreen)) &&
-        !_renderedAtFullImageRatio()) {
-      // _dropPicture nulls _rasteredRatio, so the render below re-rasters
-      // rather than skipping. The reduced-resolution base raster is left up
-      // (it is the right geometry, only its images are soft) until the
-      // full-resolution one replaces it - no blank flash as a page scrolls in.
-      _dropPicture();
-      droppedForFocus = true;
+    var promoteForFocus = false;
+    final enteredViewport = widget.onScreen && !oldWidget.onScreen;
+    if (widget.focusDistance < oldWidget.focusDistance || enteredViewport) {
+      if (!_renderedAtFullImageRatio()) {
+        // _dropPicture nulls _rasteredRatio, so the render below re-rasters
+        // rather than skipping. The reduced-resolution base raster is left up
+        // (it is the right geometry, only its images are soft) until the
+        // full-resolution one replaces it - no blank flash as a page scrolls in.
+        _dropPicture();
+        promoteForFocus = true;
+      }
+      // onScreen deliberately does not participate in PdfPageRenderIntent: it
+      // is a scheduling hint, not part of pixel identity. It must still wake a
+      // zoomed page, though. An off-screen page may have restored an exact
+      // fit-size raster from PdfPagePreviewCache; that restore carries no
+      // retained picture and _pictureImageRatio is null, so the image-ratio
+      // promotion above correctly has nothing to invalidate. Without this
+      // explicit wake-up the fit raster remains enlarged after it scrolls into
+      // the zoomed viewport because no render-intent field changed.
+      if (enteredViewport && widget.scale > 1.05) promoteForFocus = true;
     }
-    if (transition.scheduleRender || droppedForFocus) {
+    if (transition.scheduleRender || promoteForFocus) {
       // scale change re-rasters the page; a settle that only moved the
       // viewport refreshes the detail patch. Both route through _render so
       // they pace and coalesce through the scheduler (_renderNow skips the

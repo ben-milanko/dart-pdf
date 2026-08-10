@@ -5,6 +5,8 @@
 - Keep off-screen neighbour pages at fit-resolution base rasters during deep
   zoom, promoting them only when they enter the viewport, so navigation no
   longer allocates high-zoom full-page rasters that are immediately replaced.
+  Cache-restored fit rasters now trigger that same promotion instead of
+  remaining enlarged after entering an already-zoomed viewport.
 - Require 750 ms of continuous viewer idle time before whole-document
   thumbnail warming starts or resumes, and restart that quiet window when
   navigation changes focus.
