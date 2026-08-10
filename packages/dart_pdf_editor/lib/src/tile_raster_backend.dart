@@ -43,7 +43,11 @@ abstract class PdfTileRasterSession {
   ///
   /// The tile store may request a slab spanning several adjacent tiles and
   /// slice the returned image, so implementations should preserve the exact
-  /// output dimensions used by [PdfRetainedScene.rasterizeRegion].
+  /// output dimensions used by [PdfRetainedScene.rasterizeRegion]. A
+  /// wrong-sized result is disposed and treated as a backend failure. On
+  /// success ownership of the returned image transfers to the tile store;
+  /// sessions must return a uniquely owned image (or a clone), not a borrowed
+  /// cached image.
   Future<ui.Image> rasterizeRegion(
     Rect region, {
     required double pixelRatio,
@@ -55,7 +59,8 @@ abstract class PdfTileRasterSession {
   /// A page can be replaced while an already-submitted raster is in flight.
   /// Implementations must allow futures returned before this call to finish
   /// safely (for example by retiring resources after the command buffer has
-  /// completed).
+  /// completed). Implementations should not throw; disposal failures are
+  /// ignored so an optional backend cannot break page replacement or teardown.
   void dispose();
 }
 

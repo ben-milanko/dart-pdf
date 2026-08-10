@@ -3168,19 +3168,23 @@ class _PdfPageViewState extends State<PdfPageView>
   PdfTileRasterSession _tileRasterSessionFor(PdfRetainedScene scene) =>
       _tileRasterSessions.putIfAbsent(scene, () {
         final backend = widget.tileRasterBackend;
+        String label() => _tileBackendLabel(backend);
         PdfTileRasterSession? preferred;
         try {
           preferred = backend.createSession(scene);
         } catch (error) {
           PdfPerfLog.log(
             'tile backend init fallback page=${widget.previewIndex} '
-            'backend=${backend.debugLabel} error=$error',
+            'backend=${label()} error=$error',
           );
         }
         final fallback =
             const PdfCanvasTileRasterBackend().createSession(scene);
         if (preferred == null) return fallback;
-        if (backend is PdfCanvasTileRasterBackend) {
+        // Skip the adapter only for the stock implementation itself. A
+        // subclass may override createSession and must receive the same
+        // failure and output-validation guarantees as every other backend.
+        if (backend.runtimeType == PdfCanvasTileRasterBackend) {
           fallback.dispose();
           return preferred;
         }
@@ -3189,20 +3193,41 @@ class _PdfPageViewState extends State<PdfPageView>
           fallback: fallback,
           onFallback: (error) => PdfPerfLog.log(
             'tile backend raster fallback page=${widget.previewIndex} '
-            'backend=${backend.debugLabel} error=$error',
+            'backend=${label()} error=$error',
           ),
         );
       });
 
   void _disposeTileRasterSession(PdfRetainedScene scene) {
-    _tileRasterSessions.remove(scene)?.dispose();
+    final session = _tileRasterSessions.remove(scene);
+    if (session != null) _disposeTileRasterSessionSafely(session);
   }
 
   void _disposeTileRasterSessions() {
-    for (final session in _tileRasterSessions.values) {
-      session.dispose();
-    }
+    final sessions = _tileRasterSessions.values.toList();
     _tileRasterSessions.clear();
+    for (final session in sessions) {
+      _disposeTileRasterSessionSafely(session);
+    }
+  }
+
+  void _disposeTileRasterSessionSafely(PdfTileRasterSession session) {
+    try {
+      session.dispose();
+    } catch (error) {
+      PdfPerfLog.log(
+        'tile backend dispose ignored page=${widget.previewIndex} '
+        'session=${session.runtimeType} error=$error',
+      );
+    }
+  }
+
+  static String _tileBackendLabel(PdfTileRasterBackend backend) {
+    try {
+      return backend.debugLabel;
+    } catch (_) {
+      return backend.runtimeType.toString();
+    }
   }
 
   /// Whether worker strip binning may be asked for at all - shared by
@@ -3683,13 +3708,31 @@ class _FallbackTileRasterSession implements PdfTileRasterSession {
     int? tracePage,
   }) async {
     if (_primaryEnabled) {
+      ui.Image? image;
       try {
-        return await _primary.rasterizeRegion(
+        image = await _primary.rasterizeRegion(
           region,
           pixelRatio: pixelRatio,
           tracePage: tracePage,
         );
+        final expectedWidth =
+            (region.width * pixelRatio).ceil().clamp(1, 1 << 14);
+        final expectedHeight =
+            (region.height * pixelRatio).ceil().clamp(1, 1 << 14);
+        if (image.width != expectedWidth || image.height != expectedHeight) {
+          final actual = '${image.width}x${image.height}';
+          image.dispose();
+          image = null;
+          throw StateError(
+            'tile backend returned $actual, expected '
+            '${expectedWidth}x$expectedHeight',
+          );
+        }
+        return image;
       } catch (error) {
+        // A backend may throw after producing an image (for example from a
+        // validation getter); never leak that rejected slab.
+        image?.dispose();
         if (_primaryEnabled) {
           _primaryEnabled = false;
           onFallback(error);

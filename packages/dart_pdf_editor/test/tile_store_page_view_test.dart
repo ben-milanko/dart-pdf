@@ -14,14 +14,14 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 void main() {
-  testWidgets('tile backend is lazy, scene-scoped, and disposed',
+  testWidgets('tile backend is lazy, scene-scoped, and disposal-safe',
       (tester) async {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetDevicePixelRatio);
 
     final store =
         PdfTileStore(tilePixels: 256, registerForMemoryPressure: false);
-    final backend = _RecordingTileRasterBackend();
+    final backend = _RecordingTileRasterBackend(throwOnDispose: true);
     PdfPageView.tileStoreDetail = true;
     PdfPageView.debugTileStoreOverride = store;
     addTearDown(() {
@@ -69,6 +69,8 @@ void main() {
     expect(backend.rasterizations, greaterThan(0));
 
     await tester.pumpWidget(const SizedBox.shrink());
+    expect(tester.takeException(), isNull,
+        reason: 'an optional backend must not break page teardown');
     expect(backend.sessionDisposals, 1);
   });
 
@@ -116,6 +118,53 @@ void main() {
     expect(backend.rasterizations, greaterThan(0));
     expect(store.tileCount, greaterThan(0),
         reason: 'the failed backend request must be retried through Canvas');
+  });
+
+  testWidgets('a wrong-sized backend slab falls back to Canvas',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final store =
+        PdfTileStore(tilePixels: 256, registerForMemoryPressure: false);
+    final backend = _RecordingTileRasterBackend(wrongDimensions: true);
+    PdfPageView.tileStoreDetail = true;
+    PdfPageView.debugTileStoreOverride = store;
+    addTearDown(() {
+      PdfPageView.tileStoreDetail = false;
+      PdfPageView.debugTileStoreOverride = null;
+      store.dispose();
+    });
+
+    final doc = PdfDocument.open(buildClassicPdf());
+    await tester.pumpWidget(
+      Center(
+        child: OverflowBox(
+          maxWidth: double.infinity,
+          maxHeight: double.infinity,
+          child: SizedBox(
+            width: 6120,
+            child: PdfPageView(
+              page: doc.page(0),
+              tileRasterBackend: backend,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    for (var i = 0; i < 300 && store.tileCount == 0; i++) {
+      await tester.pump();
+      final exception = tester.takeException();
+      if (exception != null) fail('Canvas fallback failed: $exception');
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
+    }
+
+    expect(backend.sessionCreates, 1);
+    expect(backend.rasterizations, greaterThan(0));
+    expect(store.tileCount, greaterThan(0),
+        reason: 'malformed backend pixels must not enter the tile cache');
   });
 
   testWidgets('an unavailable tile backend falls back during initialization',
@@ -337,14 +386,20 @@ void main() {
   });
 }
 
-class _RecordingTileRasterBackend extends PdfTileRasterBackend {
+// Deliberately subclasses the stock backend: custom subclasses still override
+// createSession and must not bypass the failure adapter.
+class _RecordingTileRasterBackend extends PdfCanvasTileRasterBackend {
   _RecordingTileRasterBackend({
     this.failCreation = false,
     this.failRasterization = false,
+    this.wrongDimensions = false,
+    this.throwOnDispose = false,
   });
 
   final bool failCreation;
   final bool failRasterization;
+  final bool wrongDimensions;
+  final bool throwOnDispose;
   int sessionCreates = 0;
   int sessionDisposals = 0;
   int rasterizations = 0;
@@ -373,10 +428,19 @@ class _RecordingTileRasterSession implements PdfTileRasterSession {
     Rect region, {
     required double pixelRatio,
     int? tracePage,
-  }) {
+  }) async {
     backend.rasterizations++;
     if (backend.failRasterization) {
-      return Future<ui.Image>.error(StateError('experimental backend failed'));
+      throw StateError('experimental backend failed');
+    }
+    if (backend.wrongDimensions) {
+      final recorder = ui.PictureRecorder();
+      final picture = recorder.endRecording();
+      try {
+        return await picture.toImage(1, 1);
+      } finally {
+        picture.dispose();
+      }
     }
     return scene.rasterizeRegion(
       region,
@@ -386,7 +450,12 @@ class _RecordingTileRasterSession implements PdfTileRasterSession {
   }
 
   @override
-  void dispose() => backend.sessionDisposals++;
+  void dispose() {
+    backend.sessionDisposals++;
+    if (backend.throwOnDispose) {
+      throw StateError('experimental backend dispose failed');
+    }
+  }
 }
 
 class _DelayedIndexWorker extends PdfRenderWorker {
