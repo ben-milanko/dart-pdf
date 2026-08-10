@@ -76,15 +76,20 @@ numbering and render focus are untouched.
 
 Two things worth knowing:
 
-- **It rebuilds when the span changes.** Previously the page views only
-  learned their new `focusDistance` at the 200 ms transform settle or the
-  500 ms scroll settle, so a page crossing the edge kept its stale
-  prefetch treatment for the whole gesture and then re-rendered in a batch
-  at the settle - part of why the pop was so visible. The span changes at
-  most a couple of times per page crossing, so this is far cheaper than a
-  per-frame rebuild, and it lands the flag when it matters.
+- **The page views learn it when it changes, not at the next settle.**
+  Previously they only picked up their new `focusDistance` at the 200 ms
+  transform settle or the 500 ms scroll settle, so a page crossing the edge
+  kept its stale prefetch treatment for the whole gesture and then
+  re-rendered in a batch at the settle - part of why the pop was so
+  visible.
+
+  This first landed as a `setState` on the viewer, which measured badly
+  enough to be worth its own section - see "Measuring it, and the rebuild
+  that cost" below. The span ended up a `Listenable` each page subscribes
+  to instead.
 - **Scroll listeners can fire during layout**, so a mid-frame span change
-  defers its `setState` to a post-frame callback - the same hazard
+  defers to a post-frame callback before notifying (a listening page's
+  `setState` would be illegal there) - the same hazard
   `PdfViewerController._notifySafely` guards.
 
 ## Testing notes
