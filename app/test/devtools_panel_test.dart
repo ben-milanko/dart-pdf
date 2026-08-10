@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor_app/devtools.dart';
+import 'package:dart_pdf_editor_app/devtools_panel.dart';
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 
 void main() {
@@ -176,6 +177,32 @@ void main() {
     expect(find.textContaining('10.0 commands/tile'), findsOneWidget);
     expect(
         find.byKey(const ValueKey('devtools-reset-gpu-stats')), findsOneWidget);
+  });
+
+  testWidgets('web preview advertises every native GPU download',
+      (tester) async {
+    tester.view.physicalSize = const Size(1000, 1600);
+    addTearDown(tester.view.resetPhysicalSize);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: DevToolsPanel(
+          onClose: () {},
+          gpuPreviewDownloads: const {
+            'macOS': '/downloads/dartpdf-macos-gpu-preview.dmg',
+            'Windows': '/downloads/dartpdf-windows-gpu-preview.zip',
+            'Linux': '/downloads/dartpdf-linux-gpu-preview.tar.gz',
+          },
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('devtools-download-gpu-macos')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('devtools-download-gpu-windows')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('devtools-download-gpu-linux')),
+        findsOneWidget);
   });
 
   testWidgets('the deep-zoom mode switch flips the tile path statics',

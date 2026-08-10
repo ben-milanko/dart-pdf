@@ -21,14 +21,26 @@ PdfReader(
 ```
 
 Flutter GPU must also be enabled by the host. Add
-`<key>FLTEnableFlutterGPU</key><true/>` to the iOS/macOS Info.plist, or this
-inside the Android `<application>` element:
+`<key>FLTEnableFlutterGPU</key><true/>` to the iOS/macOS Info.plist (and
+`FLTEnableImpeller` where Impeller is not already the platform default), or
+this inside the Android `<application>` element:
 
 ```xml
 <meta-data
   android:name="io.flutter.embedding.android.EnableFlutterGPU"
   android:value="true" />
 ```
+
+For a desktop development launch, pass both engine opt-ins:
+
+```sh
+flutter run -d windows --enable-impeller --enable-flutter-gpu
+flutter run -d linux --enable-impeller --enable-flutter-gpu
+```
+
+Packaged desktop applications must arrange the equivalent engine settings
+before the engine starts. The DartPDF PR preview workflow demonstrates this
+with profile-mode Windows/Linux bundles and also publishes a macOS DMG.
 
 No master SDK, native-assets hook, or runtime shader compiler is required. The
 Metal, GLES/GLES3, and Vulkan runtime stages are compiled offline and checked in

@@ -22,9 +22,16 @@ import 'package:flutter/rendering.dart' show debugRepaintRainbowEnabled;
 import 'package:flutter/services.dart';
 // ignore: implementation_imports - the perf facade is deliberately unexported.
 import 'package:pdf_cos/perf.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'devtools.dart';
 import 'file_io.dart';
+
+const _defaultGpuPreviewDownloads = <String, String>{
+  'macOS': String.fromEnvironment('PDF_GPU_MACOS_PREVIEW_URL'),
+  'Windows': String.fromEnvironment('PDF_GPU_WINDOWS_PREVIEW_URL'),
+  'Linux': String.fromEnvironment('PDF_GPU_LINUX_PREVIEW_URL'),
+};
 
 /// Developer tools panel. Create it only off-release. Docks as a side panel on
 /// wide screens; pass [bottomSheet] to render it as a phone bottom sheet.
@@ -34,6 +41,7 @@ class DevToolsPanel extends StatefulWidget {
     required this.onClose,
     this.session,
     this.bottomSheet = false,
+    this.gpuPreviewDownloads = _defaultGpuPreviewDownloads,
   });
 
   final VoidCallback onClose;
@@ -45,6 +53,10 @@ class DevToolsPanel extends StatefulWidget {
   /// a rounded, height-capped card with a drag-handle affordance and its own
   /// close button, instead of the resizable side dock.
   final bool bottomSheet;
+
+  /// Native builds published beside a web preview, keyed by platform label.
+  /// Empty URLs are omitted.
+  final Map<String, String> gpuPreviewDownloads;
 
   @override
   State<DevToolsPanel> createState() => _DevToolsPanelState();
@@ -1062,12 +1074,29 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
     setState(() {});
   }
 
+  Widget _gpuPreviewDownload(String platform, String url) {
+    return OutlinedButton.icon(
+      key: ValueKey('devtools-download-gpu-${platform.toLowerCase()}'),
+      onPressed: () => unawaited(
+        launchUrl(
+          Uri.base.resolve(url),
+          mode: LaunchMode.externalApplication,
+        ),
+      ),
+      icon: const Icon(Icons.download, size: 18),
+      label: Text(platform),
+    );
+  }
+
   Widget _tileBackendSection(ThemeData theme) {
     final backend = _tools.flutterGpuTileRasterBackend;
     final stats = backend.stats;
     final mode = _tools.tileRasterBackendMode.value;
     final gpuSamples = stats.sessionsCreated + stats.sessionsRejected;
     final fallbackCount = stats.sessionsRejected + stats.rasterFallbacks;
+    final previewDownloads = widget.gpuPreviewDownloads.entries
+        .where((entry) => entry.value.isNotEmpty)
+        .toList(growable: false);
     return _section(
       theme,
       'Tile raster backend',
@@ -1129,6 +1158,20 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
               'session so first paint is unaffected. Web uses a compile-time '
               'stub and always stays on Canvas.',
         ),
+        if (previewDownloads.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: previewDownloads
+                    .map((entry) => _gpuPreviewDownload(entry.key, entry.value))
+                    .toList(growable: false),
+              ),
+            ),
+          ),
         _byteBudgetControl(
           theme,
           key: const ValueKey('devtools-gpu-texture-budget'),
