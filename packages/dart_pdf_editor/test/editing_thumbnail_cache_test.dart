@@ -118,6 +118,69 @@ void main() {
       expect(rendered, [4]);
     });
 
+    testWidgets(
+        'a granted visible tile defers its worker result and retries after '
+        'scroll settle', (tester) async {
+      // Regression for the 2026-08-11 trace: page 85 was granted while idle,
+      // spent 414 ms recording in the worker, then replayed/rasterized on the
+      // platform thread after the viewer's fast-scroll hold had begun.
+      SharedPreferences.setMockInitialValues({});
+      PdfThumbnailSidebar.debugRasterizations = 0;
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      final worker = _HeldFirstWorker();
+      final activity = _TestActivity();
+      var viewerBusy = false;
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      addTearDown(worker.dispose);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            height: 240,
+            child: Row(children: [
+              PdfThumbnailSidebar(
+                controller: editing,
+                viewerController: viewer,
+                renderWorker: worker,
+              ),
+              const Expanded(child: SizedBox()),
+            ]),
+          ),
+        ),
+      ));
+      for (var i = 0; i < 10 && !worker.firstStarted.isCompleted; i++) {
+        await tester.pump();
+      }
+      expect(worker.firstStarted.isCompleted, isTrue,
+          reason: 'the tile should already be recording off-thread');
+
+      // Replace the unmounted viewer controller's idle gate with the exact
+      // busy transition from the trace, then release the worker reply.
+      viewerBusy = true;
+      editing.thumbnailCache.bindForegroundGate(activity, () => viewerBusy);
+      worker.releaseFirst();
+      for (var i = 0; i < 8; i++) {
+        await tester.pump();
+      }
+      expect(worker.calls, 1);
+      expect(PdfThumbnailSidebar.debugRasterizations, 0,
+          reason: 'no replay/raster should land during fast scrolling');
+
+      viewerBusy = false;
+      activity.ping();
+      for (var i = 0;
+          i < 100 && PdfThumbnailSidebar.debugRasterizations == 0;
+          i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 5)));
+        await tester.pump();
+      }
+      expect(worker.calls, 2, reason: 'the deferred tile should retry once');
+      expect(PdfThumbnailSidebar.debugRasterizations, 1);
+    });
+
     testWidgets('a blocked warm logs once, not once per activity ping',
         (tester) async {
       // The render scheduler pings its activity Listenable on every grant,
@@ -444,6 +507,31 @@ void main() {
               'after the viewer begins scrolling');
     });
 
+    testWidgets('a declined worker defers the local fallback during motion',
+        (tester) async {
+      final controller = PdfEditingController(buildMultiPagePdf(1));
+      final worker = _DecliningWorker();
+      addTearDown(controller.dispose);
+      addTearDown(worker.dispose);
+
+      ui.Image? rendered;
+      await tester.runAsync(() async {
+        rendered = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          pixelWidth: 128,
+          worker: worker,
+          deferUiWork: () => true,
+        );
+      });
+
+      expect(rendered, isNull,
+          reason: 'a declined worker must not trigger a UI-thread interpret '
+              'while the viewer is moving');
+    });
+
     testWidgets('a rendered thumbnail writes through to disk and reloads',
         (tester) async {
       final store = PdfMemoryCacheStore();
@@ -546,6 +634,74 @@ class _ImmediateWorker extends PdfRenderWorker {
     PdfPartialRecordSink? onPartial,
   }) async =>
       [PdfSaveCommand(), PdfRestoreCommand()];
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {}
+
+  @override
+  void dispose() => _active = false;
+}
+
+class _HeldFirstWorker extends PdfRenderWorker {
+  bool _active = true;
+  final firstStarted = Completer<void>();
+  final _firstRelease = Completer<void>();
+  int calls = 0;
+
+  @override
+  bool get isActive => _active;
+
+  void releaseFirst() {
+    if (!_firstRelease.isCompleted) _firstRelease.complete();
+  }
+
+  @override
+  Future<List<PdfRenderCommand>?> record(
+    int pageIndex, {
+    bool annotations = true,
+    int priority = 0,
+    double? imagePixelRatio,
+    bool decodeImages = true,
+    int? commandLimit,
+    PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
+  }) async {
+    calls++;
+    if (calls == 1) {
+      firstStarted.complete();
+      await _firstRelease.future;
+    }
+    return [PdfSaveCommand(), PdfRestoreCommand()];
+  }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {}
+
+  @override
+  void dispose() {
+    _active = false;
+    releaseFirst();
+  }
+}
+
+class _DecliningWorker extends PdfRenderWorker {
+  bool _active = true;
+
+  @override
+  bool get isActive => _active;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(
+    int pageIndex, {
+    bool annotations = true,
+    int priority = 0,
+    double? imagePixelRatio,
+    bool decodeImages = true,
+    int? commandLimit,
+    PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
+  }) async =>
+      null;
 
   @override
   void cancel(int pageIndex, {int priority = 0}) {}

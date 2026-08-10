@@ -154,6 +154,15 @@ class PdfThumbnailCache {
   /// the warm behaves exactly as it did before the gate existed.
   bool get _viewerBusy => _gateBusy?.call() ?? false;
 
+  /// Whether a thumbnail result should avoid starting platform-thread work.
+  ///
+  /// A foreground tile can be granted while the viewer is idle, spend several
+  /// hundred milliseconds recording in a worker, then receive that result
+  /// after a fast scroll has begun. Callers poll this immediately before
+  /// replay/rasterization and leave their soft preview in place when true.
+  /// The viewer activity listener wakes the queued retry once motion settles.
+  bool get shouldDeferUiWork => !_disposed && _viewerBusy;
+
   /// Registers (or refreshes) [token]'s request to render on-screen tile
   /// [pageIndex]. [run] is invoked when the task's turn comes - the queue
   /// grants the pending task nearest [focus], one at a time. Calling again
