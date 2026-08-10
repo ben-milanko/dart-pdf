@@ -61,14 +61,18 @@ void main() {
     // centre (1100) is on page 1, so page 0 sits at focus distance 1 - the
     // exact shape that used to soften and blank it.
     await scrollTo(tester, 800);
-    expect(controller.currentPage, 1);
+    expect(controller.currentPage, 1,
+        reason: 'the viewport centre has moved onto page 1');
 
     final pages = mountedPages(tester);
     expect(pages[0], isNotNull);
-    expect(pages[0]!.focusDistance, 1, reason: 'the centre is on page 1');
     expect(pages[0]!.onScreen, isTrue,
         reason: 'page 0 still fills the top of the viewport');
     expect(pages[1]!.onScreen, isTrue);
+    // Deliberately not asserting page 0's focusDistance here. Focus reaches
+    // the page views on the viewer's own rebuild (the scroll/transform
+    // settle), so mid-scroll it is stale by design - which is exactly why the
+    // prefetch economies must not be the thing keyed on it.
   });
 
   testWidgets('a prefetched page just past the edge is not on screen',

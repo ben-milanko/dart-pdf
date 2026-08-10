@@ -786,6 +786,37 @@ class _ViewportNotifier extends ChangeNotifier {
   void notify() => notifyListeners();
 }
 
+/// The contiguous span of pages overlapping the viewport, as a [Listenable]
+/// the page views subscribe to individually.
+///
+/// Deliberately *not* viewer state behind a `setState`. The span changes a
+/// couple of times per page crossing - far more often than the scroll settle
+/// the page views used to rebuild on - and rebuilding the whole viewer to hand
+/// a bool to the two or three pages whose flag actually flipped costs a
+/// visible slice of the frame budget on a dense sheet (it moved `scroll-scan`'s
+/// buildP95 and buildMax when #657's fix first landed that way). Each
+/// [_PdfViewerPage] listens and rebuilds only itself, and only when its own
+/// answer changes.
+class _PdfOnScreenSpan extends ChangeNotifier {
+  /// -1 until the first layout has measured the viewport.
+  int first = -1;
+  int last = -1;
+
+  void set(int newFirst, int newLast) {
+    if (newFirst == first && newLast == last) return;
+    first = newFirst;
+    last = newLast;
+    notifyListeners();
+  }
+
+  /// Whether page [index] overlaps the viewport. Before the first measurement
+  /// every mounted page counts as on screen: the reduced-resolution prefetch
+  /// path must never be the *first* thing a page renders at, or the initial
+  /// paint lands soft.
+  bool contains(int index) =>
+      first < 0 || (index >= first && index <= last);
+}
+
 /// A [Listenable] that relays whichever [source] is currently attached.
 ///
 /// The controller outlives the viewer state it drives (and can be handed a new
@@ -3114,6 +3145,7 @@ class _PdfViewerState extends State<PdfViewer>
     _touchFlinger.dispose();
     _hBounceController.dispose();
     _focusNode.dispose();
+    _onScreenSpan.dispose();
     super.dispose();
   }
 
@@ -3359,38 +3391,23 @@ class _PdfViewerState extends State<PdfViewer>
     _setOnScreenRange(first < 0 ? current : first, last < 0 ? current : last);
   }
 
-  /// Indices of the first and last page overlapping the viewport, or (-1, -1)
-  /// before layout. Pages outside this range are prefetch neighbours: they
-  /// decode their images at reduced resolution and are the live-raster
-  /// budget's first reclaim. Tracked separately from
-  /// [PdfViewerController.currentPage] because a page can be half the screen
-  /// and still not be the one under the viewport centre - treating it as
-  /// off-screen is what blanked and softened neighbours mid-scroll (#657).
-  int _firstOnScreenPage = -1;
-  int _lastOnScreenPage = -1;
+  /// The span of pages overlapping the viewport - see [_PdfOnScreenSpan].
+  final _onScreenSpan = _PdfOnScreenSpan();
 
-  bool _onScreenPage(int index) =>
-      // Pre-layout every mounted page counts as on screen: the reduced-
-      // resolution prefetch path must never be the *first* thing a page
-      // renders at, or the initial paint lands soft.
-      _firstOnScreenPage < 0 ||
-      (index >= _firstOnScreenPage && index <= _lastOnScreenPage);
-
-  /// Rebuilds when the visible span changes so the flag reaches the page views
-  /// as they cross the edge, not at the next settle. Scroll listeners can fire
-  /// during layout, so a mid-frame change defers to after the frame (the same
-  /// hazard `PdfViewerController._notifySafely` guards).
+  /// Records the visible span, notifying the page views whose flag flipped.
+  ///
+  /// Scroll listeners can fire during layout, and a listening page's setState
+  /// would be illegal there, so a mid-frame change defers to after the frame
+  /// (the same hazard `PdfViewerController._notifySafely` guards).
   void _setOnScreenRange(int first, int last) {
-    if (first == _firstOnScreenPage && last == _lastOnScreenPage) return;
-    _firstOnScreenPage = first;
-    _lastOnScreenPage = last;
+    if (first == _onScreenSpan.first && last == _onScreenSpan.last) return;
     if (SchedulerBinding.instance.schedulerPhase ==
         SchedulerPhase.persistentCallbacks) {
       SchedulerBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() {});
+        if (mounted) _onScreenSpan.set(first, last);
       });
     } else {
-      setState(() {});
+      _onScreenSpan.set(first, last);
     }
   }
 
@@ -6220,7 +6237,7 @@ class _PdfViewerState extends State<PdfViewer>
                   ? (_mainView / firstMainAtFit).clamp(widget.minZoom, 1.0)
                   : 1.0;
         }
-        if (_firstOnScreenPage < 0) {
+        if (_onScreenSpan.first < 0) {
           // A document that opens and is never scrolled or zoomed calls
           // neither _onScroll nor _onTransformChanged, so the visible span
           // would stay uninitialised and every mounted page would read as on
@@ -6228,7 +6245,7 @@ class _PdfViewerState extends State<PdfViewer>
           // reduction on the pages behind the fold. Measure it once the
           // extents this layout creates exist.
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted && _firstOnScreenPage < 0) _updateCurrentPage();
+            if (mounted && _onScreenSpan.first < 0) _updateCurrentPage();
           });
         }
       }
@@ -6299,7 +6316,7 @@ class _PdfViewerState extends State<PdfViewer>
                 renderPriority: _renderPriority(index),
                 focusDistance:
                     (index - (_jumpFocusPage ?? _controller.currentPage)).abs(),
-                onScreen: _onScreenPage(index),
+                onScreenSpan: _onScreenSpan,
                 matches: _controller._matchesOn(index),
                 currentMatch: _controller._currentMatch >= 0
                     ? _controller._matches[_controller._currentMatch]
@@ -7094,7 +7111,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.destructiveStamp,
     required this.renderPriority,
     required this.focusDistance,
-    required this.onScreen,
+    required this.onScreenSpan,
     required this.matches,
     required this.currentMatch,
     required this.selection,
@@ -7163,9 +7180,9 @@ class _PdfViewerPage extends StatefulWidget {
   final int renderPriority;
   final int focusDistance;
 
-  /// Whether any part of this page overlaps the viewport - see
-  /// [PdfPageView.onScreen].
-  final bool onScreen;
+  /// The viewer's visible-page span. This page subscribes to it and rebuilds
+  /// only itself when its own answer flips - see [_PdfOnScreenSpan].
+  final _PdfOnScreenSpan onScreenSpan;
   final List<PdfTextMatch> matches;
   final PdfTextMatch? currentMatch;
   final List<PdfTextQuad> selection;
@@ -7241,9 +7258,40 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
   bool _rastered = false;
   bool _annotationLayerCurrent = true;
 
+  /// Whether this page overlaps the viewport (#657). Read from
+  /// [_PdfViewerPage.onScreenSpan] rather than passed down, so a span change
+  /// rebuilds only the pages whose answer actually flipped.
+  late bool _onScreen = widget.onScreenSpan.contains(widget.index);
+
+  @override
+  void initState() {
+    super.initState();
+    widget.onScreenSpan.addListener(_onSpanChanged);
+  }
+
+  void _onSpanChanged() {
+    final next = widget.onScreenSpan.contains(widget.index);
+    if (next == _onScreen || !mounted) return;
+    setState(() => _onScreen = next);
+  }
+
+  @override
+  void dispose() {
+    widget.onScreenSpan.removeListener(_onSpanChanged);
+    super.dispose();
+  }
+
   @override
   void didUpdateWidget(_PdfViewerPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.onScreenSpan, widget.onScreenSpan) ||
+        oldWidget.index != widget.index) {
+      // The lazy list reused this State for another page, or the viewer handed
+      // over a new span: re-answer for whoever this slot is now.
+      oldWidget.onScreenSpan.removeListener(_onSpanChanged);
+      widget.onScreenSpan.addListener(_onSpanChanged);
+      _onScreen = widget.onScreenSpan.contains(widget.index);
+    }
     final pageImageChanged = oldWidget.pageEpoch != widget.pageEpoch ||
         oldWidget.destructiveStamp != widget.destructiveStamp ||
         oldWidget.contentStamp != widget.contentStamp ||
@@ -7306,7 +7354,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         destructiveStamp: widget.destructiveStamp,
         renderPriority: widget.renderPriority,
         focusDistance: widget.focusDistance,
-        onScreen: widget.onScreen,
+        onScreen: _onScreen,
         pageColor: widget.pageColor,
         showAnnotations: widget.pageImagesShowAnnotations,
         trustContentStamp: widget.trustContentStamp,

@@ -122,3 +122,42 @@ window at rest, which the full-width fixture cannot produce (at 800px wide
 each page is 1035px tall and page 1 is not built until it approaches). A
 300px-wide viewer makes each page 388px tall: pages 0 and 1 share the
 screen and page 2 sits below the fold, built and off-screen.
+
+## Measuring it, and the rebuild that cost
+
+`tool/perf.sh webdiff <base> scroll-scan` (12p A3 scanned grayscale - the
+scenario built to stress image decode and the image cache) on the first
+version of this fix, 3 interleaved runs:
+
+```
+buildMax      48.74 -> 73.94   +51.7%   ✗
+buildP95       3.73 ->  4.36   +16.8%   ✗
+buildP50       2.12 ->  2.18    +3.0%   ·
+```
+
+`openPageCountMs` also tripped the 1.1x threshold (468 -> 538, +15%), but
+per-iteration it is 459/538/468 against 473/538/664 - overlapping ranges,
+and nothing in this change runs before the page-tree walk. Noise.
+
+The build numbers were not noise. p50 flat with p95 and max moving is the
+signature of *occasional* expensive frames, and the cause was
+`_setOnScreenRange` calling the viewer's own `setState`. The span changes a
+couple of times per page crossing - far more often than the settle the page
+views used to rebuild on - and the viewer's `build` is enormous (the list,
+every mounted page's whole subtree, gesture recognizers, scrollbar,
+chrome). Rebuilding all of it to hand a bool to the two or three pages
+whose flag actually flipped is most of a frame on a dense sheet.
+
+So the span is a `Listenable` (`_PdfOnScreenSpan`), not viewer state: each
+`_PdfViewerPage` subscribes, recomputes its own answer, and setStates only
+when that answer flips. Same house pattern as `viewportChanges`, which
+exists for the same reason (the controller stays quiet during scrolling so
+the thumbnail strip's indicator does not spam every listener).
+
+One consequence worth stating, because a test asserted it before and no
+longer can: `focusDistance` still only reaches the page views on a viewer
+rebuild, so it stays *stale mid-scroll* - as it always has. That is fine,
+and is rather the point. Stale focus now costs nothing that matters:
+`onScreen` (delivered promptly) decides the image ratio and shields both
+visible pages from reclaim, and focus is left doing what it is actually
+good for - ordering evictions among the pages nobody is looking at.
