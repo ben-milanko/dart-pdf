@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Stop treating a page that shares the screen with the current one as an
+  off-screen prefetch neighbour: `PdfPageView.onScreen` now gates the
+  reduced-resolution image decode and the live-raster reclaim, so pages above
+  and below no longer soften and blank as they cross the viewport edge on
+  large-format scans (#657). `PdfLiveRasterHolder` implementations must add
+  `liveRasterOnScreen`.
+
 ## 3.4.0
 
 - Add `PdfAnnotationSnapshotClipboard`, shared by default across editing

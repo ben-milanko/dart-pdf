@@ -54,6 +54,7 @@ class PdfPageView extends StatefulWidget {
     this.renderScheduler,
     this.renderPriority = 0,
     this.focusDistance = 0,
+    this.onScreen = true,
     this.previewCache,
     this.previewIndex = 0,
     this.pageEpoch = 0,
@@ -188,7 +189,24 @@ class PdfPageView extends StatefulWidget {
   /// keep record traffic down (a Flate raster underlay ships as full RGBA - a
   /// single page can reach tens of MB, starving the visible page, #451). The
   /// page re-renders at full image resolution the moment it becomes focused.
+  ///
+  /// Focus is a *ranking*, not a visibility test - see [onScreen], which is
+  /// what decides whether this page is treated as a prefetch neighbour at all.
   final int focusDistance;
+
+  /// Whether any part of this page currently overlaps the viewport.
+  ///
+  /// A page can be half the screen and still sit at [focusDistance] 1, because
+  /// focus is the single page under the viewport *centre*. Prefetch economies -
+  /// reduced-resolution image decodes, live-raster reclaim - apply to pages the
+  /// user cannot see; applying them to a visible page is what made the pages
+  /// above and below the centre soften and blank as they crossed the screen
+  /// edge on large-format scans (#657).
+  ///
+  /// Defaults to true: a page mounted on its own is on screen, and a host
+  /// embedding [PdfPageView] directly gets full-resolution behaviour without
+  /// having to say so.
+  final bool onScreen;
 
   /// Called whenever a full-page raster for the current [page] object
   /// lands on screen. Lets the editing overlay hold its just-committed
@@ -790,12 +808,14 @@ class _PdfPageViewState extends State<PdfPageView>
       }
     }
     // A prefetch neighbour decoded its images at reduced resolution
-    // ([prefetchImagePixelRatioFactor]); now that it is closer to focus and
-    // wants full-resolution images, drop the reduced buffer (and its raster) so
-    // the render below rebuilds it sharp. Guarded on an actual ratio increase,
-    // so it fires once as the page approaches focus, not as a churn loop.
+    // ([prefetchImagePixelRatioFactor]); now that it is closer to focus - or
+    // has scrolled into view at all - and wants full-resolution images, drop
+    // the reduced buffer (and its raster) so the render below rebuilds it
+    // sharp. Guarded on an actual ratio increase, so it fires once as the page
+    // approaches focus, not as a churn loop.
     var droppedForFocus = false;
-    if (widget.focusDistance < oldWidget.focusDistance &&
+    if ((widget.focusDistance < oldWidget.focusDistance ||
+            (widget.onScreen && !oldWidget.onScreen)) &&
         !_renderedAtFullImageRatio()) {
       // _dropPicture nulls _rasteredRatio, so the render below re-rasters
       // rather than skipping. The reduced-resolution base raster is left up
@@ -1018,6 +1038,9 @@ class _PdfPageViewState extends State<PdfPageView>
   int get liveRasterDistance => widget.focusDistance;
 
   @override
+  bool get liveRasterOnScreen => widget.onScreen;
+
+  @override
   void evictLiveRaster() {
     if (!mounted) return;
     // Reclaim this off-viewport page's heavy rasters: the base raster, the
@@ -1034,7 +1057,8 @@ class _PdfPageViewState extends State<PdfPageView>
     });
     PdfPerfLog.log(
       'live-raster evict page=${widget.previewIndex} '
-      'dist=${widget.focusDistance}',
+      'dist=${widget.focusDistance} '
+      'onScreen=${widget.onScreen}',
     );
   }
 
@@ -1054,12 +1078,13 @@ class _PdfPageViewState extends State<PdfPageView>
 
   /// The image-decode resolution this page's record should use: the display
   /// ratio (capped by [PdfPageView.workerImagePixelRatioCap]), reduced by
-  /// [PdfPageView.prefetchImagePixelRatioFactor] when the page is an off-focus
-  /// prefetch neighbour (#451). A focused page always gets the full ratio, so a
-  /// page re-rendered on becoming focused decodes its images at full resolution.
+  /// [PdfPageView.prefetchImagePixelRatioFactor] when the page is an off-screen
+  /// prefetch neighbour (#451). A page any part of which is on screen always
+  /// gets the full ratio, so a page scrolling in decodes sharp once instead of
+  /// landing soft and re-rendering when it reaches the centre (#657).
   double _imageRatioTarget() {
     final base = _fullImageRatio();
-    if (widget.focusDistance <= 0) return base;
+    if (widget.onScreen || widget.focusDistance <= 0) return base;
     return base * PdfPageView.prefetchImagePixelRatioFactor;
   }
 
