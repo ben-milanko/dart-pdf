@@ -109,4 +109,33 @@ void main() {
       expect(CanvasPdfDevice.debugGlyphLayoutCacheLength, greaterThan(0));
     });
   });
+
+  testWidgets('exact placement reuses cached glyph paragraphs across labels',
+      (tester) async {
+    await tester.runAsync(() async {
+      CanvasPdfDevice.clearTextLayoutCache();
+      CanvasPdfDevice.debugResetTextShape();
+      final recorder = ui.PictureRecorder();
+      final device = CanvasPdfDevice(ui.Canvas(recorder));
+      for (var i = 0; i < 100; i++) {
+        final text = 'AB${(i ~/ 10) % 10}${i % 10}';
+        device.drawText(PdfTextRun(
+          text: text,
+          charOffsets: const [0, 0.05, 0.1, 0.75, 0.8],
+          transform: const PdfMatrix(6, 0, 0, 6, 20, 80),
+          color: const PdfColor(0, 0, 0),
+          width: 0.8,
+          fontName: 'Helvetica',
+          fontSize: 6,
+        ));
+      }
+      recorder.endRecording().dispose();
+
+      expect(CanvasPdfDevice.debugTextLayoutCacheLength, 100);
+      expect(CanvasPdfDevice.debugGlyphLayoutCacheLength, lessThan(20));
+      expect(CanvasPdfDevice.debugTextPainterBuilds, lessThan(20),
+          reason: '100 unique labels must shape the alphabet, not 400 fresh '
+              'character paragraphs');
+    });
+  });
 }

@@ -384,6 +384,8 @@ void main() {
           ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
           registerForMemoryPressure: false,
         );
+        var ticks = 0;
+        store.addListener(() => ticks++);
         final raster = _Rasterizer();
         // Visible = the single centre tile (2,2) of a 5×5 grid; ring adds the
         // 8 surrounding tiles.
@@ -394,7 +396,47 @@ void main() {
           visiblePageRect: const Rect.fromLTWH(32, 32, 16, 16),
           rasterize: raster.call,
         );
-        expect(store.inFlightCount, 9); // 1 visible + 8 ring
+        expect(store.inFlightCount, 1,
+            reason: 'visible pixels must land before off-screen prefetch');
+        await raster.flush();
+        expect(ticks, 1);
+        store.viewFor(
+          id: _id(0),
+          pageSize: const Size(80, 80),
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(32, 32, 16, 16),
+          rasterize: raster.call,
+        );
+        expect(store.inFlightCount, 8,
+            reason: 'the next paint schedules the surrounding ring');
+        await raster.flush();
+        expect(ticks, 1,
+            reason: 'off-screen arrivals must not repaint current pixels');
+        store.dispose();
+      });
+    });
+
+    testWidgets('a request can suppress the configured prefetch ring',
+        (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 1,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer();
+        store.viewFor(
+          id: _id(0),
+          pageSize: const Size(80, 80),
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(32, 32, 16, 16),
+          rasterize: raster.call,
+          prefetchRingOverride: 0,
+        );
+
+        expect(store.inFlightCount, 1,
+            reason: 'only the one visible tile should be admitted');
         store.dispose();
       });
     });
@@ -711,51 +753,74 @@ void main() {
       store.dispose();
     });
 
-    test(
+    testWidgets(
         'viewFor drops the prefetch ring when the visible set fills the budget',
-        () {
-      const pageSize = Size(5120, 5120); // 10×10 grid at span 512
-      const window = Rect.fromLTWH(2048, 2048, 1536, 1536); // centre 3×3 = 9
-      final raster = _Rasterizer(tileSize: 512);
+        (tester) async {
+      await tester.runAsync(() async {
+        const pageSize = Size(5120, 5120); // 10×10 grid at span 512
+        const window = Rect.fromLTWH(2048, 2048, 1536, 1536); // centre 3×3 = 9
 
-      // Ample budget → the full 5×5 ring around the 3×3 window is scheduled.
-      final roomy = PdfTileStore(
-        tilePixels: 512,
-        prefetchRing: 1,
-        maxBytes: 128 << 20, // 128 tiles
-        ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
-        batchRasters: false,
-        registerForMemoryPressure: false,
-      );
-      roomy.viewFor(
-        id: _id(0),
-        pageSize: pageSize,
-        desiredRatio: 1.0,
-        visiblePageRect: window,
-        rasterize: raster.call,
-      );
-      expect(roomy.inFlightCount, 25, reason: '3×3 visible + full 5×5 ring');
-      roomy.dispose();
+        // Ample budget → the full 5×5 ring around the 3×3 window is scheduled.
+        final roomyRaster = _Rasterizer(tileSize: 512);
+        final roomy = PdfTileStore(
+          tilePixels: 512,
+          prefetchRing: 1,
+          maxBytes: 128 << 20, // 128 tiles
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          batchRasters: false,
+          registerForMemoryPressure: false,
+        );
+        roomy.viewFor(
+          id: _id(0),
+          pageSize: pageSize,
+          desiredRatio: 1.0,
+          visiblePageRect: window,
+          rasterize: roomyRaster.call,
+        );
+        expect(roomy.inFlightCount, 9, reason: 'visible set goes first');
+        await roomyRaster.flush();
+        roomy.viewFor(
+          id: _id(0),
+          pageSize: pageSize,
+          desiredRatio: 1.0,
+          visiblePageRect: window,
+          rasterize: roomyRaster.call,
+        );
+        expect(roomy.inFlightCount, 16,
+            reason: 'the remaining full 5×5 ring follows on the next paint');
+        await roomyRaster.flush();
+        roomy.dispose();
 
-      // Budget exactly the visible set → no headroom, ring fully dropped.
-      final tight = PdfTileStore(
-        tilePixels: 512,
-        prefetchRing: 1,
-        maxBytes: 9 << 20, // 9 tiles = the visible 3×3 exactly
-        ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
-        batchRasters: false,
-        registerForMemoryPressure: false,
-      );
-      tight.viewFor(
-        id: _id(0),
-        pageSize: pageSize,
-        desiredRatio: 1.0,
-        visiblePageRect: window,
-        rasterize: raster.call,
-      );
-      expect(tight.inFlightCount, 9,
-          reason: 'ring dropped: visible tiles only');
-      tight.dispose();
+        // Budget exactly the visible set → no headroom, ring fully dropped.
+        final tightRaster = _Rasterizer(tileSize: 512);
+        final tight = PdfTileStore(
+          tilePixels: 512,
+          prefetchRing: 1,
+          maxBytes: 9 << 20, // 9 tiles = the visible 3×3 exactly
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          batchRasters: false,
+          registerForMemoryPressure: false,
+        );
+        tight.viewFor(
+          id: _id(0),
+          pageSize: pageSize,
+          desiredRatio: 1.0,
+          visiblePageRect: window,
+          rasterize: tightRaster.call,
+        );
+        expect(tight.inFlightCount, 9, reason: 'visible set goes first');
+        await tightRaster.flush();
+        tight.viewFor(
+          id: _id(0),
+          pageSize: pageSize,
+          desiredRatio: 1.0,
+          visiblePageRect: window,
+          rasterize: tightRaster.call,
+        );
+        expect(tight.inFlightCount, 0,
+            reason: 'ring dropped after visible tiles fill the budget');
+        tight.dispose();
+      });
     });
 
     testWidgets('a budget-tight static view converges - no eviction thrash',

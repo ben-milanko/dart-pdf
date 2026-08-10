@@ -96,6 +96,20 @@ Future<ui.Image> settleRaster(WidgetTester tester, int width) async {
   fail('raster never reached $width px wide');
 }
 
+/// Whole-page raster width for the shared 612x792 fixture after the viewer's
+/// base-raster pixel ceiling. Deep zoom beyond this is supplied by a cropped
+/// detail raster rather than an unbounded full-page image.
+int vectorRasterWidth(double scale) {
+  const size = Size(612, 792);
+  final ratio = PdfPageRasterGeometry.effectiveRatio(
+    pageSize: size,
+    layoutWidth: 612,
+    devicePixelRatio: 1,
+    scale: scale,
+  );
+  return PdfPageRasterGeometry.dimensions(size, ratio).$1;
+}
+
 void main() {
   test('stripZoomReplay defaults ON, guarded by the Impeller gate', () {
     expect(PdfPageView.stripZoomReplay, isTrue,
@@ -175,8 +189,9 @@ void main() {
     // the zoom settle must re-bin through the strip device
     StripPdfDevice.resetStats();
     await tester.pumpWidget(at(3));
-    final zoomed = await settleRaster(tester, 612 * 3);
-    expect(zoomed.width, 612 * 3);
+    final expectedWidth = vectorRasterWidth(3);
+    final zoomed = await settleRaster(tester, expectedWidth);
+    expect(zoomed.width, expectedWidth);
     expect(StripPdfDevice.totalStripQuads, greaterThan(0),
         reason: 'the zoom re-raster must have binned strip quads');
   });
@@ -206,8 +221,9 @@ void main() {
     expect(base.width, 612);
 
     await tester.pumpWidget(at(3));
-    final zoomed = await settleRaster(tester, 612 * 3);
-    expect(zoomed.width, 612 * 3);
+    final expectedWidth = vectorRasterWidth(3);
+    final zoomed = await settleRaster(tester, expectedWidth);
+    expect(zoomed.width, expectedWidth);
     expect(StripPdfDevice.totalFlushes, 0,
         reason: 'flag off must never touch the strip device');
   });
@@ -237,8 +253,9 @@ void main() {
     await tester.pumpWidget(at(1));
     await settleRaster(tester, 612);
     await tester.pumpWidget(at(3));
-    final zoomed = await settleRaster(tester, 612 * 3);
-    expect(zoomed.width, 612 * 3);
+    final expectedWidth = vectorRasterWidth(3);
+    final zoomed = await settleRaster(tester, expectedWidth);
+    expect(zoomed.width, expectedWidth);
     expect(StripPdfDevice.totalFlushes, 0,
         reason: 'clip-per-shape pages must bypass fragmented atlas replay');
   });
@@ -265,8 +282,9 @@ void main() {
     await tester.pumpWidget(at(1));
     await settleRaster(tester, 612);
     await tester.pumpWidget(at(3));
-    final zoomed = await settleRaster(tester, 612 * 3);
-    expect(zoomed.width, 612 * 3);
+    final expectedWidth = vectorRasterWidth(3);
+    final zoomed = await settleRaster(tester, expectedWidth);
+    expect(zoomed.width, expectedWidth);
     expect(StripPdfDevice.totalFlushes, 0,
         reason: 'the gate must keep strips off software backends');
   });
@@ -296,8 +314,9 @@ void main() {
     await tester.pumpWidget(at(1));
     await settleRaster(tester, 612);
     await tester.pumpWidget(at(3));
-    final zoomed = await settleRaster(tester, 612 * 3);
-    expect(zoomed.width, 612 * 3);
+    final expectedWidth = vectorRasterWidth(3);
+    final zoomed = await settleRaster(tester, expectedWidth);
+    expect(zoomed.width, expectedWidth);
     expect(StripPdfDevice.totalFlushes, 0,
         reason: 'iOS must not submit shader-backed strip pictures');
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));

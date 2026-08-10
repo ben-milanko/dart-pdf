@@ -3,6 +3,7 @@
 // arrives, so navigation paints immediately instead of interpreting and
 // reading back first.
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -620,8 +621,14 @@ void main() {
       layoutWidth: 918, // 1.5x
       devicePixelRatio: 2,
     );
-    expect(ratio, closeTo(3.0, 1e-9));
-    expect(PdfPageRasterGeometry.dimensions(pageSize, ratio), (1836, 2376));
+    expect(
+      ratio,
+      closeTo(
+        math.sqrt(PdfPageRasterGeometry.maxPixels / (612 * 792)),
+        1e-9,
+      ),
+    );
+    expect(PdfPageRasterGeometry.dimensions(pageSize, ratio), (1801, 2330));
 
     // A page far larger than the per-side cap is bounded, not grown without
     // limit - deep zoom is the detail patch's job, not the base raster's.
@@ -652,8 +659,8 @@ void main() {
     expect(PdfPageRasterWarmPolicy.nearby(window: 1 + 1),
         const PdfPageRasterWarmPolicy.nearby(window: 2));
     expect(
-      PdfPageRasterWarmPolicy.document(
-          idleDelay: Duration(seconds: 1 + 1)).idleDelay,
+      PdfPageRasterWarmPolicy.document(idleDelay: Duration(seconds: 1 + 1))
+          .idleDelay,
       const Duration(seconds: 2),
     );
   });

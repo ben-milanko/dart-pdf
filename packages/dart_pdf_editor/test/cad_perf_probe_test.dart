@@ -101,6 +101,9 @@ void main() {
 
       _line('--- deep probe: page $target @ ratio ${ratio}x ---');
       final page = doc.page(target);
+      final size = PdfPageRenderer.pageSize(page);
+      final renderRatio = _renderRatio(page, ratio);
+      final pageRasterPixels = pdfPageRasterPixels(page.cropBox, renderRatio);
 
       // Interpret once (the off-thread walk) -> raw command buffer.
       final interp = Stopwatch()..start();
@@ -123,7 +126,10 @@ void main() {
       // Capped decode (the fix): cap to ~2x on-screen at `ratio`.
       final capSw = Stopwatch()..start();
       final capBuf = serializeCommands(commands,
-          cos: doc.cos, decodeImages: true, maxImagePixelRatio: ratio);
+          cos: doc.cos,
+          decodeImages: true,
+          maxImagePixelRatio: renderRatio,
+          pageRasterPixels: pageRasterPixels);
       capSw.stop();
       final capCmds = deserializeCommands(capBuf!);
       final capStats = PdfPageRenderer.decodedImageStats(capCmds);
@@ -136,7 +142,8 @@ void main() {
       final regionBuf = serializeCommands(commands,
           cos: doc.cos,
           decodeImages: true,
-          maxImagePixelRatio: ratio,
+          maxImagePixelRatio: renderRatio,
+          pageRasterPixels: pageRasterPixels,
           imageDecodeRegion: decodeRegion);
       regionSw.stop();
       final regionCmds = deserializeCommands(regionBuf!);
@@ -157,14 +164,12 @@ void main() {
       // nothing to cut (the page genuinely carries that much imagery at this
       // zoom) and a no-op is correct - so the meaningful invariant is the
       // contract, not a fixed reduction.
-      final footprintPixels = _onScreenFootprintPixels(capCmds, ratio);
-      _line('on-screen footprint @${ratio}x: '
+      final footprintPixels = _onScreenFootprintPixels(capCmds, renderRatio);
+      _line('on-screen footprint @${renderRatio.toStringAsFixed(2)}x: '
           '${_mpStr(footprintPixels)} MP '
-          '(cap ceiling ~${_mpStr(footprintPixels * 4)} MP w/ 2x headroom)');
+          '(worker headroom 1x, page budget ${_mpStr(pageRasterPixels ?? 0)} MP)');
 
       // Full render of the capped buffer (replay + raster).
-      final renderRatio = _renderRatio(page, ratio);
-      final size = PdfPageRenderer.pageSize(page);
       final renderSw = Stopwatch()..start();
       final picture = await PdfPageRenderer.pictureFromCommands(page, capCmds);
       final image = await PdfPageRenderer.rasterize(picture, size, renderRatio);
@@ -193,30 +198,31 @@ void main() {
       // 1. The cap never invents pixels.
       expect(capStats.$2, lessThanOrEqualTo(nativeStats.$2),
           reason: 'capped pixels must never exceed native');
-      // 2. The cap honored its contract: each image decodes to no more than
-      //    headroom^2 (= 4x) its on-screen footprint, with two slacks baked
+      // 2. The worker cap honored its contract: each image decodes to no more
+      //    than its on-screen footprint, with two slacks baked
       //    into cappedImagePixelSize - it leaves an image at native when a
       //    resample would save <10% (the 0.9 skip threshold, so per-image
       //    decoded can reach target/0.9) and ceil()s each edge. A no-op when
       //    native already sits under that ceiling is correct. A failure here
       //    means the cap math regressed or the worker bundle ships un-capped
       //    images.
-      const headroomArea = 2.0 * 2.0;
+      const headroomArea = 1.0;
       const skipSlack = 1 / 0.9;
       final perImageCeiling =
           (footprintPixels * headroomArea * skipSlack).round() +
               capStats.$1 * 16 +
               (1 << 20);
       // 3. The page-pixel budget bounds the TOTAL decoded pixels to
-      //    ~budgetFactor (1.0) x the 16.78 MP page raster cap, regardless of
+      //    ~budgetFactor (1.0) x the page raster cap, regardless of
       //    overlap. Decoded pixels must sit under whichever ceiling binds.
-      const pageBudget = (1.0 * (1 << 24)) + (4 << 20); // + downsample slop
+      const pageBudget = (1.0 * PdfPageRasterGeometry.maxPixels) + (4 << 20);
       final ceiling =
           perImageCeiling < pageBudget ? perImageCeiling : pageBudget;
       expect(capStats.$2.toDouble(), lessThanOrEqualTo(ceiling.toDouble()),
           reason: 'capped pixels (${_mpStr(capStats.$2)} MP) exceed the '
               'binding cap ceiling (${(ceiling / 1e6).toStringAsFixed(1)} MP) '
-              'for a ${_mpStr(footprintPixels)} MP footprint at ${ratio}x - '
+              'for a ${_mpStr(footprintPixels)} MP footprint at '
+              '${renderRatio.toStringAsFixed(2)}x - '
               'per-image or page-budget cap regressed, or worker is stale');
     });
   }, timeout: const Timeout(Duration(minutes: 20)));
@@ -404,13 +410,13 @@ int _intOf(CosObject? o) {
 
 double _len(double a, double b) => math.sqrt(a * a + b * b);
 
-/// Mirrors PdfPageView._effectiveRatio's clamp (16.7 MP / 8192 px ceilings).
+/// Mirrors PdfPageView._effectiveRatio's full-page raster ceilings.
 double _renderRatio(PdfPage page, double desired) {
   final size = PdfPageRenderer.pageSize(page);
   final w = size.width < 1 ? 1.0 : size.width;
   final h = size.height < 1 ? 1.0 : size.height;
   var r = desired;
-  final byPixels = math.sqrt((1 << 24) / (w * h));
+  final byPixels = math.sqrt(PdfPageRasterGeometry.maxPixels / (w * h));
   if (byPixels < r) r = byPixels;
   final byDim = 8192.0 / (w > h ? w : h);
   if (byDim < r) r = byDim;

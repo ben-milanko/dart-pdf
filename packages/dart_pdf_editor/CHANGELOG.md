@@ -33,6 +33,62 @@
 
 ## 3.4.0
 
+- Add a reproducible Chromium/PDFium competitive harness and reduce deep-zoom
+  memory pressure by reserving large rasters for visible-region detail,
+  reusing fit rasters as zoom bases, immediately settling discrete zooms, and
+  prioritising the focused page ahead of speculative neighbours. On web,
+  proactive off-screen preview warming now waits for a one-second idle window so
+  CanvasKit readbacks cannot extend the visible navigation response tail;
+  fast-scroll vector previews remain immediate. Small resource-simple pages
+  may take one startup-only local first paint while the worker boots, and a
+  completed web raster no longer performs an immediate duplicate preview
+  readback. Below-fit layout zooms now defer mounted neighbour refreshes just
+  like transform zooms, so only the focused page sharpens on the interaction's
+  critical path. The harness can also build SkWasm and validate its offscreen
+  canvas through symmetric full-compositor screenshot polling; custom build
+  output paths are resolved before changing directories so an A/B cannot
+  silently serve a stale bundle, and per-action Flutter frame timings make
+  page/zoom presentation tails directly attributable in the result artifact.
+  Competitive records now pin Chrome's GPU/Skia backend and diagnostics-only
+  no-capture runs cannot be used as parity gates. A prepared or revisited
+  exact raster is adopted synchronously in the focused page's first build,
+  avoiding a placeholder frame without blocking navigation to create it. A
+  default-off worker-owned Canvas2D path now covers ordinary path/text pages
+  and correctness-gated decoded images while declining unsupported command
+  profiles to the established renderer. Browser-native grayscale frames avoid
+  a Dart RGBA upload for common scans, and deep zoom overlays a viewport-sized
+  region on a retained 2× base instead of committing a full 3× page canvas.
+  A real-Chrome pixel gate checks representative pages/zooms for channel error,
+  foreground recall/precision, and foreground-coverage bounds before benchmark
+  results are accepted. The competitive runner now calibrates full-screenshot
+  pixel sampling separately from JPEG response completion, excludes its
+  pre-navigation baseline capture from cold-open time, preserves page-side
+  readiness timestamps across delayed CDP polls, and emits wheel events at a
+  fixed hardware cadence without serial acknowledgement throttling. This
+  removes capture/driver floors from page, zoom, and scroll comparisons while
+  retaining screenshot hashes as the common visible-output boundary. Cold-open
+  diagnostics now retain both full app-shell and first-PDF-request clocks, so
+  pre-Flutter startup is separated from document/render work without removing
+  application startup from the parity gate. The benchmark bootstrap can now
+  fetch once and paint page zero in the render worker before Flutter/SkWasm
+  starts, then hold that canvas through an exact hydrated-surface handoff.
+  Focused worker surfaces render directly at requested zoom-out sizes for
+  thin-line fidelity, use a 120 ms interaction settle, and retain an exact-size
+  `ImageBitmap` LRU capped at 8 MP / 32 MiB per live surface. Five-run gates for
+  the plan, scan, text, and ultra-dense diagram scenarios now meet every
+  configured PDFium p50/p95 interaction and RSS budget while the path remains
+  experimental and default-off.
+- Extend the competitive gate with a deterministic 138-page CAD journey that
+  measures normalized scrollbar scrubs, same-process warm reopen, continuous
+  peak RSS, and settled memory, plus a matched HTTP Range scenario that records
+  document first paint, complete background handoff, bytes, requests, and RSS.
+  Both five-sample gates meet their PDFium budgets. Progressive shells can stop
+  their sparse page-tree walk after the requested first-paint pages, render that
+  preview locally, then hand the complete document to the worker renderer;
+  immutable web revisions share one identity-keyed `SharedArrayBuffer` across
+  sibling workers instead of copying the full file per worker. A weekly
+  Chromium/PDFium workflow and `tool/perf.sh pdfium-gate` run all six acceptance
+  scenarios with checked-in budgets.
 - Add `PdfAnnotationSnapshotClipboard`, shared by default across editing
   controllers, so annotations copied in one document can be pasted into
   another open document (#653).

@@ -219,6 +219,7 @@ class PdfEditorView extends StatefulWidget {
     this.preferences,
     this.performance,
     this.tileRasterBackend = const PdfCanvasTileRasterBackend(),
+    this.autoRenderWorker = true,
     this.features = const PdfEditorFeatures(),
     this.onSave,
     this.onSaveAs,
@@ -263,7 +264,10 @@ class PdfEditorView extends StatefulWidget {
     this.pageRasterCachePolicy = const PdfPageRasterCachePolicy(),
     this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
   })  : source = null,
-        options = const PdfSourceLoadOptions(firstPaintPages: 1),
+        options = const PdfSourceLoadOptions(
+          firstPaintPages: 1,
+          completeFirstPaintPageTree: false,
+        ),
         onProgress = null,
         onFirstPaint = null,
         loadingBuilder = null,
@@ -291,7 +295,10 @@ class PdfEditorView extends StatefulWidget {
   const PdfEditorView.source(
     PdfByteSource this.source, {
     super.key,
-    this.options = const PdfSourceLoadOptions(firstPaintPages: 1),
+    this.options = const PdfSourceLoadOptions(
+      firstPaintPages: 1,
+      completeFirstPaintPageTree: false,
+    ),
     this.documentId,
     this.onProgress,
     this.onFirstPaint,
@@ -301,6 +308,7 @@ class PdfEditorView extends StatefulWidget {
     this.preferences,
     this.performance,
     this.tileRasterBackend = const PdfCanvasTileRasterBackend(),
+    this.autoRenderWorker = true,
     this.features = const PdfEditorFeatures(),
     this.onSave,
     this.onSaveAs,
@@ -371,6 +379,12 @@ class PdfEditorView extends StatefulWidget {
 
   /// Shown when a [source] open fails before any page could paint.
   final Widget Function(BuildContext context, Object error)? errorBuilder;
+
+  /// Whether the editor's reader surface starts an off-main-thread render
+  /// worker. Defaults to true. A source-backed editor disables it only for the
+  /// sparse, read-only first-paint buffer and restores it with the complete
+  /// editable document.
+  final bool autoRenderWorker;
 
   /// Optional persistent on-disk preview cache (see [PdfRasterCache]).
   /// Keyed by [documentId] (or, with [bytes], their [pdfContentKey]), so
@@ -628,8 +642,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
   @override
   void initState() {
     super.initState();
-    _toolShortcuts =
-        Map<PdfEditTool, PdfToolShortcut>.of(widget.toolShortcuts);
+    _toolShortcuts = Map<PdfEditTool, PdfToolShortcut>.of(widget.toolShortcuts);
     // In source mode the shell is owned by the inner byte-based PdfEditorView
     // the progressive builder mounts once the first-paint bytes arrive.
     if (_isSource) return;
@@ -640,6 +653,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
       viewerController: widget.viewerController,
       performance: widget.performance,
       documentId: widget.documentId,
+      renderWorkerEnabled: widget.autoRenderWorker,
       prepareSession: _prepareSession,
       onSessionChanged: _onSessionChanged,
     );
@@ -693,6 +707,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
       viewerController: widget.viewerController,
       performanceController: widget.performance,
       documentId: widget.documentId,
+      renderWorkerEnabled: widget.autoRenderWorker,
       prepareSession: _prepareSession,
       onSessionChanged: _onSessionChanged,
     );
@@ -729,6 +744,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         preferences: widget.preferences,
         performance: widget.performance,
         tileRasterBackend: widget.tileRasterBackend,
+        autoRenderWorker: complete && widget.autoRenderWorker,
         features: complete ? widget.features : _gatedFeatures(widget.features),
         // The first-paint buffer is incomplete: no save/change/insert/export
         // until the whole file is present.
@@ -1428,6 +1444,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         showScrollbarChapters: prefs.showScrollbarChapters,
                         highlightFormFields: prefs.highlightFormFields,
                         renderWorker: _shell.worker,
+                        autoRenderWorker: widget.autoRenderWorker,
                         performance: _performance,
                         tileRasterBackend: widget.tileRasterBackend,
                         rasterCache: widget.rasterCache,

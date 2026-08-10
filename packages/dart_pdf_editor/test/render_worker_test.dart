@@ -37,6 +37,7 @@ class _SyncWorker extends PdfRenderWorker {
   final Uint8List _bytes;
   late final PdfDocument _doc = PdfDocument.open(_bytes);
   bool _disposed = false;
+  final List<bool> decodeImageCalls = [];
 
   @override
   bool get isActive => !_disposed;
@@ -48,8 +49,10 @@ class _SyncWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async {
+      PdfRect? imageDecodeRegion,
+      PdfPartialRecordSink? onPartial}) async {
     if (_disposed || pageIndex < 0 || pageIndex >= _doc.pageCount) return null;
+    decodeImageCalls.add(decodeImages);
     final page = _doc.page(pageIndex);
     final previewOperationLimit = decodeImages ? null : commandLimit;
     final ops = ContentStreamParser.parse(page.contentBytes(),
@@ -95,6 +98,13 @@ Future<Uint8List> _rasterBytes(ui.Picture picture, Size size) async {
 }
 
 void main() {
+  test('ordinary workers decline browser page surfaces by default', () {
+    final worker = _CountingWorker();
+
+    expect(worker.supportsPageSurfaces, isFalse);
+    expect(worker.createPageSurface(Object()), isNull);
+  });
+
   testWidgets('records a vector page off-thread, replays pixel-identically',
       (tester) async {
     await tester.runAsync(() async {
@@ -225,7 +235,8 @@ void main() {
     });
   });
 
-  testWidgets('a thumbnail-ratio record is budgeted to the tile it fills '
+  testWidgets(
+      'a thumbnail-ratio record is budgeted to the tile it fills '
       '(#603)', (tester) async {
     await tester.runAsync(() async {
       // The warm pass asks for a page at ~0.4 px per point to fill a 256px
@@ -253,11 +264,11 @@ void main() {
       final (count, pixels) = PdfPageRenderer.decodedImageStats(commands!);
       expect(count, greaterThan(0), reason: 'nothing decoded - proves nothing');
 
-      // The tile's own raster, times the per-image resolution headroom (2x
-      // linear) squared. Slop: every image rounds its scaled edges up, so a
+      // The tile's own raster at display resolution. Slop: every image rounds
+      // its scaled edges up, so a
       // page of them lands a hair over the budget by construction.
       final raster = tilePixels * (size.height * tileRatio);
-      expect(pixels, lessThanOrEqualTo((4 * raster * 1.02).ceil()),
+      expect(pixels, lessThanOrEqualTo((raster * 1.02).ceil()),
           reason: '$pixels decoded pixels shipped to fill a '
               '${raster.round()}-pixel tile');
 
@@ -299,10 +310,9 @@ void main() {
   testWidgets('PdfPageView renders an image page through the worker',
       (tester) async {
     await tester.runAsync(() async {
-      // Exercises PdfPageView's worker render path end to end: the progressive
-      // vector-first pass (record decodeImages:false → paint linework) and the
-      // full pass (record decodeImages:true → re-raster with the image), which
-      // no widget test covered before (the viewer's worker is normally null).
+      // A page that is only an image has no linework for the vector-first pass
+      // to reveal. It must start the full decode immediately instead of paying
+      // for a blank decodeImages:false record first.
       final bytes = PdfImageDocument.fromImageBytes([_alphaPng()]);
       final page = PdfDocument.open(bytes).page(0);
       final worker = _SyncWorker(bytes);
@@ -326,10 +336,106 @@ void main() {
       ui.Image? rastered;
       for (var i = 0; i < 80 && rastered == null; i++) {
         await tester.pump(const Duration(milliseconds: 16));
+        // Without the interim vector readback, the first real engine task is
+        // the platform image codec. Fake-time pumps do not give that task wall
+        // time to answer, even inside runAsync, so yield briefly just as the
+        // other GPU/codec tests in this file do.
+        await Future<void>.delayed(const Duration(milliseconds: 1));
         rastered = _firstRasteredImage(tester);
       }
       expect(rastered, isNotNull,
-          reason: 'the page rasterized through the worker render path');
+          reason: 'the page rasterized through the worker render path; '
+              'calls=${worker.decodeImageCalls}');
+      expect(worker.decodeImageCalls, [true],
+          reason: 'an image-only scan skips the empty vector-first request');
+    });
+  });
+
+  testWidgets('a small resource-simple web first paint bypasses worker startup',
+      (tester) async {
+    final bytes = buildClassicPdf();
+    final page = PdfDocument.open(bytes).page(0);
+    final worker = _SyncWorker(bytes);
+    PdfPageView.debugWebLocalFirstPaintBackendOverride = true;
+    addTearDown(() {
+      PdfPageView.debugWebLocalFirstPaintBackendOverride = null;
+      worker.dispose();
+    });
+
+    await tester.pumpWidget(MediaQuery(
+      data: const MediaQueryData(),
+      child: Directionality(
+        textDirection: TextDirection.ltr,
+        child: Center(
+          child: SizedBox(
+            width: 300,
+            height: 400,
+            child: PdfPageView(page: page, renderWorker: worker),
+          ),
+        ),
+      ),
+    ));
+
+    for (var i = 0; i < 80 && _firstRasteredImage(tester) == null; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(_firstRasteredImage(tester), isNotNull);
+    expect(worker.decodeImageCalls, isEmpty,
+        reason: 'worker startup must not gate a cheap text/vector page');
+
+    // The bypass is a one-shot startup hedge for this document worker. A page
+    // first encountered later must stay asynchronous instead of interpreting
+    // on the UI isolate during navigation.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    await tester.pumpWidget(MediaQuery(
+      data: const MediaQueryData(),
+      child: Directionality(
+        textDirection: TextDirection.ltr,
+        child: Center(
+          child: SizedBox(
+            width: 300,
+            height: 400,
+            child: PdfPageView(page: page, renderWorker: worker),
+          ),
+        ),
+      ),
+    ));
+    for (var i = 0; i < 80 && worker.decodeImageCalls.isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(worker.decodeImageCalls, isNotEmpty,
+        reason: 'later first visits must use the now-started worker');
+  });
+
+  testWidgets('a mixed text/image page keeps the vector-first request',
+      (tester) async {
+    await tester.runAsync(() async {
+      final bytes = buildEmbeddedFontImagePdf();
+      final page = PdfDocument.open(bytes).page(0);
+      final worker = _SyncWorker(bytes);
+      addTearDown(worker.dispose);
+
+      await tester.pumpWidget(MediaQuery(
+        data: const MediaQueryData(),
+        child: Directionality(
+          textDirection: TextDirection.ltr,
+          child: Center(
+            child: SizedBox(
+              width: 300,
+              height: 400,
+              child: PdfPageView(page: page, renderWorker: worker),
+            ),
+          ),
+        ),
+      ));
+
+      for (var i = 0; i < 80 && worker.decodeImageCalls.length < 2; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(worker.decodeImageCalls.take(2), orderedEquals([false, true]),
+          reason: 'real vector/text content still gets an early image-free '
+              'paint before the full image decode');
     });
   });
 
@@ -635,6 +741,52 @@ void main() {
   });
 
   group('PdfCachingRenderWorker', () {
+    test('forwards browser page-surface sessions without caching them',
+        () async {
+      final inner = _SurfaceWorker();
+      final worker = PdfCachingRenderWorker(inner);
+      final surface = Object();
+      const region = PdfPageSurfaceRegion(
+        left: 10,
+        top: 20,
+        right: 210,
+        bottom: 170,
+        pixelRatio: 3,
+      );
+
+      expect(worker.supportsPageSurfaces, isTrue);
+      final session = worker.createPageSurface(surface);
+      expect(session, isNotNull);
+      expect(inner.surfaces.single, same(surface));
+
+      expect(
+        await session!.render(
+          3,
+          annotations: false,
+          width: 640,
+          height: 480,
+          pageColor: 0xff112233,
+          region: region,
+          rotation: 90,
+          priority: -10,
+        ),
+        isTrue,
+      );
+      expect(inner.sessions.single.renders.single, {
+        'pageIndex': 3,
+        'annotations': false,
+        'width': 640,
+        'height': 480,
+        'pageColor': 0xff112233,
+        'region': region,
+        'rotation': 90,
+        'priority': -10,
+      });
+
+      session.dispose();
+      expect(inner.sessions.single.disposed, isTrue);
+    });
+
     test('a repeat record for the same key hits the cache (no re-decode)',
         () async {
       final inner = _CountingWorker();
@@ -859,7 +1011,8 @@ void main() {
       await worker.record(2, decodeImages: false); // still cached
       expect(inner.calls.length, 4, reason: 'touched pages survived');
       await worker.record(1, decodeImages: false); // 1 was the LRU eviction
-      expect(inner.calls.length, 5, reason: 'the least-recently-used page went');
+      expect(inner.calls.length, 5,
+          reason: 'the least-recently-used page went');
     });
 
     test('count eviction of a heavy record frees its decoded bytes', () async {
@@ -916,6 +1069,68 @@ void main() {
   });
 
   group('PdfPooledRenderWorker', () {
+    test('binds surfaces only to capable workers and balances sessions', () {
+      final unsupported = _CountingWorker();
+      final first = _SurfaceWorker();
+      final second = _SurfaceWorker();
+      final pool = PdfPooledRenderWorker.fromWorkers([
+        unsupported,
+        first,
+        second,
+      ]);
+      addTearDown(pool.dispose);
+
+      expect(pool.supportsPageSurfaces, isTrue);
+      final surface1 = Object();
+      final surface2 = Object();
+      final firstSession = pool.createPageSurface(surface1);
+      final secondSession = pool.createPageSurface(surface2);
+
+      expect(firstSession, isNotNull);
+      expect(secondSession, isNotNull);
+      expect(first.surfaces, [same(surface1)]);
+      expect(second.surfaces, [same(surface2)]);
+
+      // Disposing a binding releases its long-lived pool load, so the next
+      // surface can reuse that worker. Double-dispose must not underflow it.
+      firstSession!
+        ..dispose()
+        ..dispose();
+      final surface3 = Object();
+      expect(pool.createPageSurface(surface3), isNotNull);
+      expect(first.surfaces, [same(surface1), same(surface3)]);
+      expect(second.surfaces, [same(surface2)]);
+    });
+
+    test('declines when no active pool worker supports page surfaces', () {
+      final capableButInactive = _SurfaceWorker()..active = false;
+      final pool = PdfPooledRenderWorker.fromWorkers([
+        _CountingWorker(),
+        capableButInactive,
+      ]);
+      addTearDown(pool.dispose);
+
+      expect(pool.supportsPageSurfaces, isFalse);
+      expect(pool.createPageSurface(Object()), isNull);
+      expect(capableButInactive.surfaces, isEmpty);
+    });
+
+    test('binds one page surface family to the same warm worker', () {
+      final first = _SurfaceWorker();
+      final second = _SurfaceWorker();
+      final pool = PdfPooledRenderWorker.fromWorkers([first, second]);
+      addTearDown(pool.dispose);
+
+      final base = Object();
+      final detail = Object();
+      expect(pool.createPageSurface(base, pageIndex: 7), isNotNull);
+      expect(pool.createPageSurface(detail, pageIndex: 7), isNotNull);
+
+      expect(first.surfaces, [same(base), same(detail)]);
+      expect(second.surfaces, isEmpty,
+          reason: 'the detail reuses the base transcript and image cache');
+    });
+
     test('routes new records to the least-loaded worker', () async {
       final workers = [_ManualWorker(), _ManualWorker(), _ManualWorker()];
       final pool = PdfPooledRenderWorker.fromWorkers(workers);
@@ -1081,7 +1296,8 @@ void main() {
       await Future.wait([first, second]);
     });
 
-    test('every worker is seeded from one shared byte snapshot, not a '
+    test(
+        'every worker is seeded from one shared byte snapshot, not a '
         'per-worker copy', () {
       final source = Uint8List.fromList(List.generate(64, (i) => i & 0xff));
       final seeds = <Uint8List>[];
@@ -1157,7 +1373,8 @@ class _SeedWorker extends PdfRenderWorker {
           double? imagePixelRatio,
           bool decodeImages = true,
           int? commandLimit,
-          PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async =>
+          PdfRect? imageDecodeRegion,
+          PdfPartialRecordSink? onPartial}) async =>
       null;
 
   @override
@@ -1193,7 +1410,8 @@ class _CountingWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async {
+      PdfRect? imageDecodeRegion,
+      PdfPartialRecordSink? onPartial}) async {
     calls.add((pageIndex, annotations, decodeImages, imagePixelRatio));
     commandLimits.add(commandLimit);
     if (returnNull || !active) return null;
@@ -1224,6 +1442,58 @@ class _CountingWorker extends PdfRenderWorker {
   }
 }
 
+class _SurfaceWorker extends _CountingWorker {
+  final surfaces = <Object>[];
+  final sessions = <_ProbePageSurfaceSession>[];
+
+  @override
+  bool get supportsPageSurfaces => active;
+
+  @override
+  PdfPageSurfaceSession? createPageSurface(
+    Object surface, {
+    int? pageIndex,
+  }) {
+    if (!active) return null;
+    surfaces.add(surface);
+    final session = _ProbePageSurfaceSession();
+    sessions.add(session);
+    return session;
+  }
+}
+
+class _ProbePageSurfaceSession extends PdfPageSurfaceSession {
+  final renders = <Map<String, Object?>>[];
+  bool disposed = false;
+
+  @override
+  Future<bool> render(
+    int pageIndex, {
+    required bool annotations,
+    required int width,
+    required int height,
+    required int pageColor,
+    PdfPageSurfaceRegion? region,
+    int? rotation,
+    int priority = 0,
+  }) async {
+    renders.add({
+      'pageIndex': pageIndex,
+      'annotations': annotations,
+      'width': width,
+      'height': height,
+      'pageColor': pageColor,
+      'region': region,
+      'rotation': rotation,
+      'priority': priority,
+    });
+    return true;
+  }
+
+  @override
+  void dispose() => disposed = true;
+}
+
 class _ManualWorker extends PdfRenderWorker {
   final calls = <(int, bool, bool, double?)>[];
   final priorities = <int>[];
@@ -1242,7 +1512,8 @@ class _ManualWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) {
+      PdfRect? imageDecodeRegion,
+      PdfPartialRecordSink? onPartial}) {
     calls.add((pageIndex, annotations, decodeImages, imagePixelRatio));
     priorities.add(priority);
     final completer = Completer<List<PdfRenderCommand>?>();
@@ -1293,7 +1564,8 @@ class _HangingWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) {
+      PdfRect? imageDecodeRegion,
+      PdfPartialRecordSink? onPartial}) {
     if (!active) return Future.value(null);
     callsByKey[(pageIndex, priority)] =
         (callsByKey[(pageIndex, priority)] ?? 0) + 1;

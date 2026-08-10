@@ -324,8 +324,7 @@ void main() {
       'BitsPerComponent': const CosInteger(8),
       'ColorSpace': CosArray([
         const CosName('ICCBased'),
-        CosStream(
-            CosDictionary({'N': const CosInteger(4)}), genericCmykIcc()),
+        CosStream(CosDictionary({'N': const CosInteger(4)}), genericCmykIcc()),
       ]),
     }, samples);
 
@@ -398,6 +397,60 @@ void main() {
       0,
       0,
       255,
+      255,
+      255,
+      255,
+      255,
+      255,
+    ]);
+  });
+
+  test('scaled unfiltered DeviceGray samples use the direct target path', () {
+    final stream = image({
+      'Width': const CosInteger(4),
+      'Height': const CosInteger(4),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceGray'),
+    }, [
+      0,
+      0,
+      64,
+      64,
+      0,
+      0,
+      64,
+      64,
+      128,
+      128,
+      255,
+      255,
+      128,
+      128,
+      255,
+      255,
+    ]);
+
+    final pixels = decodePdfImagePixelsScaled(
+      cos,
+      stream,
+      2,
+      2,
+      samplesAreDecoded: true,
+    )!;
+    expect(pixels.width, 2);
+    expect(pixels.height, 2);
+    expect(pixels.rgba, [
+      0,
+      0,
+      0,
+      255,
+      64,
+      64,
+      64,
+      255,
+      128,
+      128,
+      128,
       255,
       255,
       255,
@@ -723,7 +776,8 @@ void main() {
   group('tint transform', () {
     /// `{ dup 0.5 mul exch 0.25 mul 0.0 0.0 }`: one ink in, CMYK out, with
     /// different factors per output so a mixed-up tuple cannot pass by luck.
-    CosStream separation(List<int> samples, {Map<String, CosObject> extra = const {}}) =>
+    CosStream separation(List<int> samples,
+            {Map<String, CosObject> extra = const {}}) =>
         image({
           'Width': CosInteger(samples.length),
           'Height': const CosInteger(1),
@@ -771,21 +825,24 @@ void main() {
     test('every distinct sample maps through the tint transform', () {
       // All 256 inputs, each appearing twice: the answers must match the
       // transform evaluated directly, so sharing cannot drift from the maths.
-      final samples = [for (var i = 0; i < 256; i++) i, for (var i = 0; i < 256; i++) i];
+      final samples = [
+        for (var i = 0; i < 256; i++) i,
+        for (var i = 0; i < 256; i++) i
+      ];
       final pixels = decodePdfImagePixels(cos, separation(samples))!;
 
       for (var i = 0; i < samples.length; i++) {
         final tint = samples[i] / 255;
         // The tint transform's CMYK, converted the way the decoder does.
-        final expected = colorFromComponents(
-            [tint * 0.5, tint * 0.25, 0.0, 0.0], 4);
+        final expected =
+            colorFromComponents([tint * 0.5, tint * 0.25, 0.0, 0.0], 4);
         expect(pixels.rgba[i * 4], (expected.red * 255).round().clamp(0, 255),
             reason: 'red for sample ${samples[i]}');
         expect(pixels.rgba[i * 4 + 1],
             (expected.green * 255).round().clamp(0, 255),
             reason: 'green for sample ${samples[i]}');
-        expect(pixels.rgba[i * 4 + 2],
-            (expected.blue * 255).round().clamp(0, 255),
+        expect(
+            pixels.rgba[i * 4 + 2], (expected.blue * 255).round().clamp(0, 255),
             reason: 'blue for sample ${samples[i]}');
         expect(pixels.rgba[i * 4 + 3], 255);
       }
@@ -796,7 +853,12 @@ void main() {
       // must both key out while their neighbours stay opaque.
       final pixels = decodePdfImagePixels(
           cos,
-          separation([0, 128, 255, 128], extra: {
+          separation([
+            0,
+            128,
+            255,
+            128
+          ], extra: {
             'Mask': CosArray([const CosInteger(128), const CosInteger(128)]),
           }))!;
       expect([for (var i = 0; i < 4; i++) pixels.rgba[i * 4 + 3]],
@@ -809,7 +871,10 @@ void main() {
       final plain = decodePdfImagePixels(cos, separation([0, 255]))!;
       final inverted = decodePdfImagePixels(
           cos,
-          separation([0, 255], extra: {
+          separation([
+            0,
+            255
+          ], extra: {
             'Decode': CosArray([const CosReal(1), const CosReal(0)]),
           }))!;
       expect(inverted.rgba.sublist(0, 4), plain.rgba.sublist(4, 8));
@@ -897,7 +962,8 @@ void main() {
 
     test('decodes instead of dropping the image', () {
       // The regression: this whole image used to decode to null.
-      final pixels = decodePdfImagePixels(cos, indexedSeparation([0, 255], [0, 1]));
+      final pixels =
+          decodePdfImagePixels(cos, indexedSeparation([0, 255], [0, 1]));
       expect(pixels, isNotNull);
       expect(pixels!.width, 2);
       expect(pixels.height, 1);
@@ -906,7 +972,8 @@ void main() {
     test('each palette entry maps through the tint transform', () {
       // Two colorant tints (0 and 1) selected by index; the decoded colour must
       // match the transform's CMYK converted the way the decoder does.
-      final pixels = decodePdfImagePixels(cos, indexedSeparation([0, 255], [0, 1]))!;
+      final pixels =
+          decodePdfImagePixels(cos, indexedSeparation([0, 255], [0, 1]))!;
       for (final (i, tint) in [(0, 0.0), (1, 1.0)]) {
         final expected =
             colorFromComponents([tint * 0.5, tint * 0.25, 0.0, 0.0], 4);
@@ -915,8 +982,8 @@ void main() {
         expect(pixels.rgba[i * 4 + 1],
             (expected.green * 255).round().clamp(0, 255),
             reason: 'green for tint $tint');
-        expect(pixels.rgba[i * 4 + 2],
-            (expected.blue * 255).round().clamp(0, 255),
+        expect(
+            pixels.rgba[i * 4 + 2], (expected.blue * 255).round().clamp(0, 255),
             reason: 'blue for tint $tint');
         expect(pixels.rgba[i * 4 + 3], 255);
       }
@@ -984,7 +1051,8 @@ void main() {
           40, 41, 42,
         ]);
 
-    test('no region or target decodes at native size, like decodePdfImagePixels',
+    test(
+        'no region or target decodes at native size, like decodePdfImagePixels',
         () {
       final stream = rgbStrip();
       final facade = decodePdfImage(cos, stream)!;
@@ -996,15 +1064,16 @@ void main() {
 
     test('a region crops to the requested slice', () {
       final stream = rgbStrip();
-      final slice =
-          decodePdfImage(cos, stream, region: const PdfImageRegion(1, 0, 2, 1))!;
+      final slice = decodePdfImage(cos, stream,
+          region: const PdfImageRegion(1, 0, 2, 1))!;
       expect(slice.width, 2);
       expect(slice.height, 1);
       // premultiplied but fully opaque, so RGB is unchanged: pixels 1 and 2.
       expect(slice.rgba, [20, 21, 22, 255, 30, 31, 32, 255]);
     });
 
-    test('the fast region path and the full-decode fallback agree pixel-exactly',
+    test(
+        'the fast region path and the full-decode fallback agree pixel-exactly',
         () {
       // The façade must return identical pixels whether the region fast path
       // handled the stream or it fell back to a full decode + crop. Adding a
@@ -1023,7 +1092,12 @@ void main() {
           'Height': const CosInteger(1),
           'BitsPerComponent': const CosInteger(8),
           'ColorSpace': const CosName('DeviceGray'),
-        }, [255, 255, 255, 255]), // fully opaque mask: pixels are unchanged
+        }, [
+          255,
+          255,
+          255,
+          255
+        ]), // fully opaque mask: pixels are unchanged
       }, [
         10, 11, 12, //
         20, 21, 22, //
@@ -1039,7 +1113,8 @@ void main() {
 
     test('a smaller target downsamples to that size', () {
       final stream = rgbStrip();
-      final scaled = decodePdfImage(cos, stream, targetWidth: 2, targetHeight: 1)!;
+      final scaled =
+          decodePdfImage(cos, stream, targetWidth: 2, targetHeight: 1)!;
       expect(scaled.width, 2);
       expect(scaled.height, 1);
     });
@@ -1110,20 +1185,280 @@ void main() {
 /// test suites are independent) to exercise the JPX branch of the scaled decode
 /// façade end to end.
 const _rgbJ2kFixture = [
-  255, 79, 255, 81, 0, 47, 0, 0, 0, 0, 0, 16, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 16, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 7, 1, 1, 7,
-  1, 1, 7, 1, 1, 255, 82, 0, 12, 0, 0, 0, 1, 1, 2, 4, 4, 0, 1, 255, 92, 0,
-  10, 64, 64, 72, 72, 80, 72, 72, 80, 255, 100, 0, 37, 0, 1, 67, 114, 101,
-  97, 116, 101, 100, 32, 98, 121, 32, 79, 112, 101, 110, 74, 80, 69, 71, 32,
-  118, 101, 114, 115, 105, 111, 110, 32, 50, 46, 53, 46, 52, 255, 144, 0,
-  10, 0, 0, 0, 0, 0, 158, 0, 1, 255, 147, 223, 128, 128, 18, 15, 51, 220,
-  41, 248, 240, 83, 215, 233, 92, 255, 7, 107, 224, 63, 207, 180, 52, 6, 65,
-  148, 140, 180, 7, 54, 238, 103, 24, 210, 232, 251, 223, 128, 112, 6, 65,
-  148, 140, 180, 7, 54, 238, 103, 24, 211, 235, 51, 111, 192, 249, 2, 65,
-  243, 131, 0, 34, 24, 119, 191, 3, 127, 191, 193, 243, 133, 131, 231, 8,
-  34, 26, 8, 93, 127, 0, 207, 213, 81, 195, 234, 5, 135, 212, 10, 34, 26, 8,
-  93, 127, 0, 207, 213, 82, 63, 192, 124, 34, 64, 249, 3, 0, 54, 161, 132,
-  63, 61, 166, 52, 47, 249, 83, 192, 249, 2, 64, 249, 2, 0, 54, 161, 153,
-  207, 62, 98, 162, 175, 193, 243, 132, 131, 231, 10, 54, 161, 153, 207, 62,
-  98, 162, 176, 63, 255, 217,
+  255,
+  79,
+  255,
+  81,
+  0,
+  47,
+  0,
+  0,
+  0,
+  0,
+  0,
+  16,
+  0,
+  0,
+  0,
+  16,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  16,
+  0,
+  0,
+  0,
+  16,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  3,
+  7,
+  1,
+  1,
+  7,
+  1,
+  1,
+  7,
+  1,
+  1,
+  255,
+  82,
+  0,
+  12,
+  0,
+  0,
+  0,
+  1,
+  1,
+  2,
+  4,
+  4,
+  0,
+  1,
+  255,
+  92,
+  0,
+  10,
+  64,
+  64,
+  72,
+  72,
+  80,
+  72,
+  72,
+  80,
+  255,
+  100,
+  0,
+  37,
+  0,
+  1,
+  67,
+  114,
+  101,
+  97,
+  116,
+  101,
+  100,
+  32,
+  98,
+  121,
+  32,
+  79,
+  112,
+  101,
+  110,
+  74,
+  80,
+  69,
+  71,
+  32,
+  118,
+  101,
+  114,
+  115,
+  105,
+  111,
+  110,
+  32,
+  50,
+  46,
+  53,
+  46,
+  52,
+  255,
+  144,
+  0,
+  10,
+  0,
+  0,
+  0,
+  0,
+  0,
+  158,
+  0,
+  1,
+  255,
+  147,
+  223,
+  128,
+  128,
+  18,
+  15,
+  51,
+  220,
+  41,
+  248,
+  240,
+  83,
+  215,
+  233,
+  92,
+  255,
+  7,
+  107,
+  224,
+  63,
+  207,
+  180,
+  52,
+  6,
+  65,
+  148,
+  140,
+  180,
+  7,
+  54,
+  238,
+  103,
+  24,
+  210,
+  232,
+  251,
+  223,
+  128,
+  112,
+  6,
+  65,
+  148,
+  140,
+  180,
+  7,
+  54,
+  238,
+  103,
+  24,
+  211,
+  235,
+  51,
+  111,
+  192,
+  249,
+  2,
+  65,
+  243,
+  131,
+  0,
+  34,
+  24,
+  119,
+  191,
+  3,
+  127,
+  191,
+  193,
+  243,
+  133,
+  131,
+  231,
+  8,
+  34,
+  26,
+  8,
+  93,
+  127,
+  0,
+  207,
+  213,
+  81,
+  195,
+  234,
+  5,
+  135,
+  212,
+  10,
+  34,
+  26,
+  8,
+  93,
+  127,
+  0,
+  207,
+  213,
+  82,
+  63,
+  192,
+  124,
+  34,
+  64,
+  249,
+  3,
+  0,
+  54,
+  161,
+  132,
+  63,
+  61,
+  166,
+  52,
+  47,
+  249,
+  83,
+  192,
+  249,
+  2,
+  64,
+  249,
+  2,
+  0,
+  54,
+  161,
+  153,
+  207,
+  62,
+  98,
+  162,
+  175,
+  193,
+  243,
+  132,
+  131,
+  231,
+  10,
+  54,
+  161,
+  153,
+  207,
+  62,
+  98,
+  162,
+  176,
+  63,
+  255,
+  217,
 ];

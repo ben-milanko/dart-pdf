@@ -207,14 +207,18 @@ class PdfImageRegion {
 ///  * [targetWidth]/[targetHeight] - the display size to decode to; a target
 ///    smaller than the source (or region) avoids expanding a huge native
 ///    raster only to downsample it. Omit both to decode at native size.
+///  * [samplesAreDecoded] - [stream.rawBytes] already contains decoded samples
+///    supplied by a platform decompressor. This is false for normal PDF image
+///    streams so unfiltered document images keep the established full-decode
+///    resampling path.
 ///
 /// The façade picks the narrowest fast path that fits - region-scaled,
 /// whole-image scaled, or a plain full decode - and, when that fast path
 /// can't handle the stream (a stacked filter, an Indexed-8/ICC/Lab space, a
 /// 16-bit or /SMask'd image; the fast paths only cover single-filter Flate/
-/// raw/CCITT), transparently falls back to a full decode cropped and
-/// downsampled to the request. That fall-back-and-downscale policy used to be
-/// copied into each caller.
+/// CCITT or explicitly pre-decoded samples), transparently falls back to a
+/// full decode cropped and downsampled to the request. That fall-back-and-
+/// downscale policy used to be copied into each caller.
 ///
 /// Returns null only when even the full pure-Dart decode can't produce pixels
 /// - a non-CMYK DCTDecode base, or an image under a DCT-encoded /SMask, needs
@@ -226,6 +230,7 @@ PdfDecodedPixels? decodePdfImage(
   PdfImageRegion? region,
   int? targetWidth,
   int? targetHeight,
+  bool samplesAreDecoded = false,
 }) {
   if (region != null) {
     final tw = targetWidth ?? region.sourceWidth;
@@ -239,6 +244,7 @@ PdfDecodedPixels? decodePdfImage(
       region.sourceHeight,
       tw,
       th,
+      samplesAreDecoded: samplesAreDecoded,
     );
     if (fast != null) return fast;
     final full = decodePdfImagePixels(cos, stream);
@@ -255,7 +261,13 @@ PdfDecodedPixels? decodePdfImage(
   }
 
   if (targetWidth != null && targetHeight != null) {
-    final fast = decodePdfImagePixelsScaled(cos, stream, targetWidth, targetHeight);
+    final fast = decodePdfImagePixelsScaled(
+      cos,
+      stream,
+      targetWidth,
+      targetHeight,
+      samplesAreDecoded: samplesAreDecoded,
+    );
     if (fast != null) return fast;
     final full = decodePdfImagePixels(cos, stream);
     if (full == null) return null;
@@ -315,8 +327,9 @@ PdfDecodedPixels? decodePdfImagePixelsScaled(
   CosDocument cos,
   CosStream stream,
   int targetWidth,
-  int targetHeight,
-) {
+  int targetHeight, {
+  bool samplesAreDecoded = false,
+}) {
   final dict = stream.dictionary;
   final width = _intOf(cos.resolve(dict['Width']));
   final height = _intOf(cos.resolve(dict['Height']));
@@ -325,7 +338,7 @@ PdfDecodedPixels? decodePdfImagePixelsScaled(
   if (jpx != null) return jpx;
   return decodePdfImagePixelsRegionScaled(
       cos, stream, 0, 0, width, height, targetWidth, targetHeight,
-      wholeImageOnlyIfDownscaled: true);
+      wholeImageOnlyIfDownscaled: true, samplesAreDecoded: samplesAreDecoded);
 }
 
 /// Decodes a plain (colour, unmasked, non-Indexed) JPXDecode image at a reduced
@@ -398,6 +411,7 @@ PdfDecodedPixels? decodePdfImagePixelsRegionScaled(
   int targetWidth,
   int targetHeight, {
   bool wholeImageOnlyIfDownscaled = false,
+  bool samplesAreDecoded = false,
 }) {
   final dict = stream.dictionary;
   final width = _intOf(cos.resolve(dict['Width']));
@@ -417,11 +431,11 @@ PdfDecodedPixels? decodePdfImagePixelsRegionScaled(
   }
 
   final filters = pdfImageFilters(cos, dict);
-  if (filters.length != 1) {
-    return null;
-  }
-  final filter = filters.single;
-  final supportedFilter = filter == 'FlateDecode' ||
+  if (filters.length > 1) return null;
+  final filter = filters.singleOrNull;
+  if (samplesAreDecoded && filter != null) return null;
+  final supportedFilter = samplesAreDecoded ||
+      filter == 'FlateDecode' ||
       filter == 'Fl' ||
       filter == 'CCITTFaxDecode' ||
       filter == 'CCF';
@@ -431,7 +445,11 @@ PdfDecodedPixels? decodePdfImagePixelsRegionScaled(
   final mask = cos.resolve(dict['Mask']);
   if (!isMask && dict.containsKey('SMask')) return null;
 
-  final data = cos.decodeStreamData(stream);
+  // A platform-decompressor handoff already contains decoded samples. Keep it
+  // explicit: treating every unfiltered PDF image as this fast path changed
+  // the established interpolation of Type 3 bitmap fonts and Ghent imagery.
+  final data =
+      samplesAreDecoded ? stream.rawBytes : cos.decodeStreamData(stream);
   if (isMask) {
     return _scaledImageMaskRegion(
         cos, dict, data, width, height, sx, sy, sw, sh, tw, th);
@@ -557,28 +575,59 @@ PdfDecodedPixels? _scaledRgb8Region(
 ) {
   if (data.length < width * height * 3) return null;
   final out = Uint8List(targetWidth * targetHeight * 4);
+  if (sourceX == 0 &&
+      sourceY == 0 &&
+      sourceWidth == width &&
+      sourceHeight == height &&
+      targetWidth == width &&
+      targetHeight == height) {
+    var si = 0;
+    var di = 0;
+    while (si < width * height * 3) {
+      out[di] = data[si];
+      out[di + 1] = data[si + 1];
+      out[di + 2] = data[si + 2];
+      out[di + 3] = 255;
+      si += 3;
+      di += 4;
+    }
+    return PdfDecodedPixels(out, targetWidth, targetHeight);
+  }
+  // Horizontal sampling geometry is identical for every row and channel.
+  // Computing it inside the pixel loop used to allocate one record and run a
+  // floating-point division per output pixel. On scanned pages that was ~1.4M
+  // records per render in dart2js. Hoist it once per column; the arithmetic and
+  // rounding below remain byte-for-byte identical.
+  final x0s = Int32List(targetWidth);
+  final x1s = Int32List(targetWidth);
+  final wxs = Int32List(targetWidth);
+  for (var x = 0; x < targetWidth; x++) {
+    final sx =
+        _sourceCoordInRegion(x, sourceX, sourceWidth, width, targetWidth);
+    x0s[x] = sx.$1;
+    x1s[x] = sx.$2;
+    wxs[x] = _fixedImageWeight(sx.$3);
+  }
   var di = 0;
   for (var y = 0; y < targetHeight; y++) {
     final sy =
         _sourceCoordInRegion(y, sourceY, sourceHeight, height, targetHeight);
     final y0 = sy.$1;
     final y1 = sy.$2;
-    final wy = sy.$3;
+    final wy = _fixedImageWeight(sy.$3);
     for (var x = 0; x < targetWidth; x++) {
-      final sx =
-          _sourceCoordInRegion(x, sourceX, sourceWidth, width, targetWidth);
-      final x0 = sx.$1;
-      final x1 = sx.$2;
-      final wx = sx.$3;
+      final x0 = x0s[x];
+      final x1 = x1s[x];
+      final wx = wxs[x];
       final i00 = (y0 * width + x0) * 3;
       final i01 = (y0 * width + x1) * 3;
       final i10 = (y1 * width + x0) * 3;
       final i11 = (y1 * width + x1) * 3;
-      out[di] =
-          _bilinearByte(data[i00], data[i01], data[i10], data[i11], wx, wy);
-      out[di + 1] = _bilinearByte(
+      out[di] = _bilinearByteFixed(
+          data[i00], data[i01], data[i10], data[i11], wx, wy);
+      out[di + 1] = _bilinearByteFixed(
           data[i00 + 1], data[i01 + 1], data[i10 + 1], data[i11 + 1], wx, wy);
-      out[di + 2] = _bilinearByte(
+      out[di + 2] = _bilinearByteFixed(
           data[i00 + 2], data[i01 + 2], data[i10 + 2], data[i11 + 2], wx, wy);
       out[di + 3] = 255;
       di += 4;
@@ -600,20 +649,43 @@ PdfDecodedPixels? _scaledGray8Region(
 ) {
   if (data.length < width * height) return null;
   final out = Uint8List(targetWidth * targetHeight * 4);
+  if (sourceX == 0 &&
+      sourceY == 0 &&
+      sourceWidth == width &&
+      sourceHeight == height &&
+      targetWidth == width &&
+      targetHeight == height) {
+    var di = 0;
+    for (var si = 0; si < width * height; si++) {
+      final value = data[si];
+      out[di] = out[di + 1] = out[di + 2] = value;
+      out[di + 3] = 255;
+      di += 4;
+    }
+    return PdfDecodedPixels(out, targetWidth, targetHeight);
+  }
+  final x0s = Int32List(targetWidth);
+  final x1s = Int32List(targetWidth);
+  final wxs = Int32List(targetWidth);
+  for (var x = 0; x < targetWidth; x++) {
+    final sx =
+        _sourceCoordInRegion(x, sourceX, sourceWidth, width, targetWidth);
+    x0s[x] = sx.$1;
+    x1s[x] = sx.$2;
+    wxs[x] = _fixedImageWeight(sx.$3);
+  }
   var di = 0;
   for (var y = 0; y < targetHeight; y++) {
     final sy =
         _sourceCoordInRegion(y, sourceY, sourceHeight, height, targetHeight);
     final y0 = sy.$1;
     final y1 = sy.$2;
-    final wy = sy.$3;
+    final wy = _fixedImageWeight(sy.$3);
     for (var x = 0; x < targetWidth; x++) {
-      final sx =
-          _sourceCoordInRegion(x, sourceX, sourceWidth, width, targetWidth);
-      final x0 = sx.$1;
-      final x1 = sx.$2;
-      final wx = sx.$3;
-      final v = _bilinearByte(data[y0 * width + x0], data[y0 * width + x1],
+      final x0 = x0s[x];
+      final x1 = x1s[x];
+      final wx = wxs[x];
+      final v = _bilinearByteFixed(data[y0 * width + x0], data[y0 * width + x1],
           data[y1 * width + x0], data[y1 * width + x1], wx, wy);
       out[di] = out[di + 1] = out[di + 2] = v;
       out[di + 3] = 255;
@@ -815,22 +887,30 @@ PdfDecodedPixels? _scaledImageMaskRegion(
   return (i0, i1, p - i0);
 }
 
-int _bilinearByte(
+int _fixedImageWeight(double weight) => (weight * 256).round();
+
+int _bilinearByteFixed(
   int v00,
   int v01,
   int v10,
   int v11,
-  double wx,
-  double wy,
+  int wx,
+  int wy,
 ) {
-  final top = v00 * (1 - wx) + v01 * wx;
-  final bottom = v10 * (1 - wx) + v11 * wx;
-  return (top * (1 - wy) + bottom * wy).round().clamp(0, 255);
+  // 8.8 fixed-point weights keep the complete two-axis accumulator within a
+  // signed 32-bit integer. That maps to cheap integer arithmetic in dart2js;
+  // the old double implementation ran six floating-point multiplies for every
+  // output channel (millions per scan page). Quantising the interpolation
+  // weights can move a channel by at most one level, below the renderer's
+  // existing image-comparison tolerance.
+  final top = v00 * (256 - wx) + v01 * wx;
+  final bottom = v10 * (256 - wx) + v11 * wx;
+  return ((top * (256 - wy) + bottom * wy + 32768) >> 16).clamp(0, 255);
 }
 
 /// The pixel size an image should be decoded/stored at so it is no sharper than
-/// [headroom]× its on-screen footprint - the cap behind `serializeCommands`'s
-/// `maxImagePixelRatio` (see render_command_codec.dart), extracted as a pure
+/// [headroom]× its on-screen footprint. `serializeCommands` passes its own 1×
+/// worker budget while native rendering keeps the 2× default. This is a pure
 /// function so every branch is unit-testable without a giant fixture image.
 ///
 /// [srcWidth]/[srcHeight] are the image's native pixels; [widthPts]/[heightPts]
@@ -1007,7 +1087,8 @@ Uint8List? _jpxToRgba(JpxImage jpx) {
 /// colour), so `jpx.samples` are palette indices, not colour. Out-of-range
 /// indices clamp to 0, matching [_indexedToRgba]. Returns null when the
 /// palette can't be resolved.
-Uint8List? _jpxIndexedToRgba(CosDocument cos, CosDictionary dict, JpxImage jpx) {
+Uint8List? _jpxIndexedToRgba(
+    CosDocument cos, CosDictionary dict, JpxImage jpx) {
   if (jpx.components != 1) return null;
   final paletteInfo = _indexedPalette(cos, dict);
   if (paletteInfo == null) return null;

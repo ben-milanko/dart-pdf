@@ -32,10 +32,10 @@ class RecordingSource implements PdfByteSource {
   final List<({int start, int end})> reads = [];
   int closes = 0;
 
-  int get bytesFetched =>
-      reads.fold(0, (sum, r) => sum + (r.end - r.start));
+  int get bytesFetched => reads.fold(0, (sum, r) => sum + (r.end - r.start));
 
-  bool covers(int offset) => reads.any((r) => offset >= r.start && offset < r.end);
+  bool covers(int offset) =>
+      reads.any((r) => offset >= r.start && offset < r.end);
 
   @override
   Future<int?> get length async => knownLength ? _bytes.length : null;
@@ -113,8 +113,12 @@ void main() {
       // branch, and /Prev following through streams.
       final base = CosDocument.open(buildXrefStreamPdf());
       final updated = (CosIncrementalUpdater(base)
-            ..replaceObject(1,
-                CosDictionary({'Type': const CosName('Catalog'), 'Pages': const CosReference(2, 0)})))
+            ..replaceObject(
+                1,
+                CosDictionary({
+                  'Type': const CosName('Catalog'),
+                  'Pages': const CosReference(2, 0)
+                })))
           .save();
       final doc = await CosDocument.openSource(RecordingSource(updated));
       expect(doc.catalog.typeName, 'Catalog');
@@ -127,8 +131,12 @@ void main() {
       // stream (and its /Prev chain) fits, covering the retry path.
       final base = CosDocument.open(buildXrefStreamPdf());
       final updated = (CosIncrementalUpdater(base)
-            ..replaceObject(1,
-                CosDictionary({'Type': const CosName('Catalog'), 'Pages': const CosReference(2, 0)})))
+            ..replaceObject(
+                1,
+                CosDictionary({
+                  'Type': const CosName('Catalog'),
+                  'Pages': const CosReference(2, 0)
+                })))
           .save();
       final doc = await CosDocument.openSource(RecordingSource(updated),
           options: const PdfSourceLoadOptions(
@@ -150,7 +158,8 @@ void main() {
       // Small probes so the body is fetched separately from the header/tail,
       // making the ranged (non-blob) behaviour observable on a small file.
       await CosDocument.openSource(source,
-          options: const PdfSourceLoadOptions(headWindow: 128, tailWindow: 128));
+          options:
+              const PdfSourceLoadOptions(headWindow: 128, tailWindow: 128));
 
       // Progressive: more than one request, none of them the whole file.
       expect(source.reads.length, greaterThan(1));
@@ -315,14 +324,14 @@ void main() {
       // Some servers answer a ranged read with more bytes than requested
       // (a 206 carrying the whole file). The loader must clamp, not throw a
       // RangeError past the buffer end.
-      final doc = await CosDocument.openSource(_OverReadSource(buildClassicPdf()));
+      final doc =
+          await CosDocument.openSource(_OverReadSource(buildClassicPdf()));
       expect(doc.catalog.typeName, 'Catalog');
     });
   });
 
   group('encrypted documents', () {
-    test('decrypts through the source path with the owner password',
-        () async {
+    test('decrypts through the source path with the owner password', () async {
       final source = RecordingSource(buildEncryptedPdf());
       final doc = await CosDocument.openSource(source, password: 'owner');
       expect(doc.isEncrypted, isTrue);
@@ -402,9 +411,7 @@ void main() {
       final full = RecordingSource(bytes);
       await CosDocument.openSource(full,
           options: const PdfSourceLoadOptions(
-              headWindow: 64,
-              tailWindow: 200,
-              xrefWindow: 4096));
+              headWindow: 64, tailWindow: 200, xrefWindow: 4096));
       expect(source.bytesFetched, lessThan(full.bytesFetched));
     });
 
@@ -421,6 +428,30 @@ void main() {
       expect(source.covers(offsetOf(bytes, '(Page 4)')), isFalse);
     });
 
+    test('preview mode stops the page-tree walk at the covered leaves',
+        () async {
+      final bytes = buildMultiPagePdf(80);
+      final source = RecordingSource(bytes);
+      final doc = await CosDocument.openSource(source,
+          options: const PdfSourceLoadOptions(
+              firstPaintPages: 1,
+              completeFirstPaintPageTree: false,
+              headWindow: 64,
+              tailWindow: 200,
+              xrefWindow: 4096));
+
+      expect(doc.catalog.typeName, 'Catalog');
+      expect(source.covers(offsetOf(bytes, '(Page 1)')), isTrue);
+      expect(source.covers(offsetOf(bytes, '(Page 2)')), isFalse);
+
+      final text = latin1.decode(bytes, allowInvalid: true);
+      final firstLeaf = text.indexOf('/Type /Page /Parent');
+      final secondLeaf = text.indexOf('/Type /Page /Parent', firstLeaf + 1);
+      expect(source.covers(firstLeaf), isTrue);
+      expect(source.covers(secondLeaf), isFalse);
+      expect(source.reads.length, lessThan(12));
+    });
+
     test('page 1 is fully resolvable from the partial buffer', () async {
       final bytes = buildMultiPagePdf(5);
       final doc = await CosDocument.openSource(RecordingSource(bytes),
@@ -434,7 +465,8 @@ void main() {
       final firstKid =
           doc.resolve((pages['Kids'] as CosArray).items.first) as CosDictionary;
       final content = doc.resolve(firstKid['Contents']) as CosStream;
-      expect(latin1.decode(doc.decodeStreamData(content)), contains('(Page 1)'));
+      expect(
+          latin1.decode(doc.decodeStreamData(content)), contains('(Page 1)'));
     });
 
     test('handles a compressed (object-stream) page dictionary', () async {

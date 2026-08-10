@@ -147,12 +147,14 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
   static int debugTextShapeUs = 0;
   static int debugTextShapeMiss = 0;
   static int debugTextShapeHit = 0;
+  static int debugTextPainterBuilds = 0;
 
   /// Zeroes the shaping accumulators before a measured replay.
   static void debugResetTextShape() {
     debugTextShapeUs = 0;
     debugTextShapeMiss = 0;
     debugTextShapeHit = 0;
+    debugTextPainterBuilds = 0;
   }
 
   /// Ordered fallbacks used for normal substituted text — test hook.
@@ -960,6 +962,7 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
   }
 
   _TextLayout _shapeLayout(PdfTextRun run) {
+    debugTextPainterBuilds++;
     final painter = TextPainter(
       text: TextSpan(text: run.text, style: _styleFor(run, foreground: null)),
       textDirection: TextDirection.ltr,
@@ -996,6 +999,7 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
     final c = run.color;
     final key = '$rune ${run.fontName ?? ''} ${c.red},${c.green},${c.blue}';
     return _glyphCache.getOrAdd(key, () {
+      debugTextPainterBuilds++;
       final painter = TextPainter(
         text: TextSpan(
             text: String.fromCharCode(rune),
@@ -1105,7 +1109,13 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
       } else {
         for (var j = i; j < end;) {
           final step = _runeLengthAt(text, j);
-          final glyph = _shapeString(text.substring(j, j + step), style);
+          // The natural-width pass above has already populated this exact
+          // glyph/style in the shared cache. Retain that painter for the
+          // placed run instead of shaping a fresh paragraph for every
+          // character of every unique CAD label. The retained reference keeps
+          // it alive if the glyph-cache LRU later evicts its own ownership;
+          // disposing this placed layout releases the borrowed reference.
+          final glyph = _glyphLayout(_runeAt(text, j), run).retain();
           baseline ??= glyph.baseline;
           parts.add(_GlyphRun(glyph, offsets[j] * k));
           j += step;
@@ -1146,6 +1156,7 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink {
 
   /// One laid-out [TextPainter] for [text] in [style], owned by the caller.
   _TextLayout _shapeString(String text, TextStyle style) {
+    debugTextPainterBuilds++;
     final painter = TextPainter(
       text: TextSpan(text: text, style: style),
       textDirection: TextDirection.ltr,
@@ -1576,6 +1587,18 @@ class _TextLayout {
   final bool ownsParts;
   final double width;
   final double baseline;
+  int _references = 1;
+  bool _disposed = false;
+
+  /// Adds one owner of this immutable layout. Exact-placement run layouts use
+  /// this for glyph-cache entries they embed: cache eviction and run eviction
+  /// can then happen in either order without handing either owner a disposed
+  /// paragraph.
+  _TextLayout retain() {
+    assert(!_disposed);
+    _references++;
+    return this;
+  }
 
   /// Paints the run at [offset] in the painter's 100px-per-em space.
   void paint(Canvas canvas, Offset offset) {
@@ -1592,6 +1615,10 @@ class _TextLayout {
   /// Disposes what this layout owns: its own painter, and its parts when they
   /// were shaped for it rather than borrowed from the glyph cache.
   void dispose() {
+    if (_disposed) return;
+    _references--;
+    if (_references > 0) return;
+    _disposed = true;
     painter?.dispose();
     if (ownsParts) {
       for (final part in parts!) {

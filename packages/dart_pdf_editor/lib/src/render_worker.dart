@@ -116,6 +116,75 @@ Duration pdfRenderWorkerRecordTimeout = const Duration(seconds: 90);
 /// resolves normally.
 typedef PdfPartialRecordSink = void Function(List<PdfRenderCommand> partial);
 
+/// A browser-owned page canvas bound to one render worker.
+///
+/// This deliberately carries no `dart:ui`, Flutter, or web types: native
+/// backends decline [PdfRenderWorker.createPageSurface], while the web backend
+/// accepts an `OffscreenCanvas` behind the opaque [Object] seam. Keeping the
+/// session bound to one worker is essential because a transferred canvas
+/// cannot move back to the main isolate or hop among a worker pool.
+abstract class PdfPageSurfaceSession {
+  const PdfPageSurfaceSession();
+
+  /// Interprets and paints [pageIndex] directly into the browser canvas.
+  ///
+  /// Returns false without painting when the page uses a command the browser
+  /// device cannot reproduce. The caller can then expose the normal Flutter
+  /// raster underneath; unsupported PDFs therefore keep the established,
+  /// fully-correct renderer.
+  Future<bool> render(
+    int pageIndex, {
+    required bool annotations,
+    required int width,
+    required int height,
+    required int pageColor,
+    PdfPageSurfaceRegion? region,
+    int? rotation,
+    int priority = 0,
+  });
+
+  /// Releases worker-side bookkeeping for the transferred canvas.
+  void dispose();
+}
+
+/// A y-down page-space slice painted into a worker-owned browser surface.
+///
+/// [left], [top], [right], and [bottom] use the same post-rotation page-point
+/// coordinates as `PdfPageRenderer.rasterizeRegion`. [pixelRatio] is the
+/// backing pixels per page point. Keeping the slice explicit lets deep zoom
+/// update only the visible viewport instead of resizing a multi-megapixel
+/// full-page DOM canvas.
+class PdfPageSurfaceRegion {
+  const PdfPageSurfaceRegion({
+    required this.left,
+    required this.top,
+    required this.right,
+    required this.bottom,
+    required this.pixelRatio,
+  });
+
+  final double left;
+  final double top;
+  final double right;
+  final double bottom;
+  final double pixelRatio;
+
+  double get width => right - left;
+  double get height => bottom - top;
+
+  @override
+  bool operator ==(Object other) =>
+      other is PdfPageSurfaceRegion &&
+      other.left == left &&
+      other.top == top &&
+      other.right == right &&
+      other.bottom == bottom &&
+      other.pixelRatio == pixelRatio;
+
+  @override
+  int get hashCode => Object.hash(left, top, right, bottom, pixelRatio);
+}
+
 /// One combined deep-zoom worker result.
 ///
 /// [commands] carry images decoded for the requested visible region and
@@ -207,11 +276,10 @@ abstract class PdfRenderWorker {
   /// first paint's sparse buffer - both immutable under the worker), so a
   /// full-document snapshot here is pure waste on the big files #359 makes
   /// common.
-  static PdfRenderWorker _backend(Uint8List bytes) =>
-      pdfRenderWorkerPoolSize > 1
-          ? PdfPooledRenderWorker(bytes, pdfRenderWorkerPoolSize,
-              copySource: false)
-          : startRenderWorker(bytes);
+  static PdfRenderWorker _backend(Uint8List bytes) => pdfRenderWorkerPoolSize >
+          1
+      ? PdfPooledRenderWorker(bytes, pdfRenderWorkerPoolSize, copySource: false)
+      : startRenderWorker(bytes);
 
   /// The raw platform worker, NOT wrapped in [PdfCachingRenderWorker]. Test-
   /// only: for exercising the inner queue/cancel/priority contract, which the
@@ -416,6 +484,22 @@ abstract class PdfRenderWorker {
   Future<PdfPageText?> extractText(int pageIndex, {int priority = 0}) async =>
       null;
 
+  /// Whether this backend can bind a browser-owned zero-copy page surface.
+  ///
+  /// True only for a live Web Worker (and wrappers/pools containing one).
+  bool get supportsPageSurfaces => false;
+
+  /// Transfers an opaque browser canvas to this worker and binds it for the
+  /// lifetime of the returned session. Native and unsupported backends return
+  /// null. [pageIndex] lets a pool bind a base canvas and its deep-zoom region
+  /// to the same worker, reusing that worker's transcript and image samples.
+  /// See [PdfPageSurfaceSession] for the correctness-gated fallback.
+  PdfPageSurfaceSession? createPageSurface(
+    Object surface, {
+    int? pageIndex,
+  }) =>
+      null;
+
   /// Drops any QUEUED (not yet started) [binStrips] request for [pageIndex]
   /// at [priority], completing its future with null - and, on the native
   /// isolate backend, also preempts a matching IN-FLIGHT bin cooperatively
@@ -598,6 +682,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   Uint8List? _urgentBytes;
   final List<PdfRenderWorker> _workers;
   late final List<int> _loads;
+  late final List<int> _surfaceLoads = List.filled(_workers.length, 0);
   final _routes = <(int, int), _PoolRoute>{};
   final _pageWorkers = <int, int>{};
   PdfRenderWorker? _urgentWorker;
@@ -697,6 +782,52 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   @override
   bool get isActive =>
       _workers.any((w) => w.isActive) || (_urgentWorker?.isActive ?? false);
+
+  @override
+  bool get supportsPageSurfaces =>
+      _workers.any((worker) => worker.supportsPageSurfaces);
+
+  @override
+  PdfPageSurfaceSession? createPageSurface(
+    Object surface, {
+    int? pageIndex,
+  }) {
+    // Bind the canvas to one capable ordinary worker for life. Surface sessions
+    // are long-lived, so include their count beside transient record load when
+    // balancing; otherwise every canvas created while the pool is idle would
+    // stick to worker zero. The returned session never migrates because a
+    // transferred OffscreenCanvas cannot hop between workers.
+    var worker = pageIndex == null ? -1 : (_pageWorkers[pageIndex] ?? -1);
+    if (worker >= 0 &&
+        (!_workers[worker].isActive ||
+            !_workers[worker].supportsPageSurfaces)) {
+      worker = -1;
+    }
+    var bestLoad = 1 << 62;
+    if (worker < 0) {
+      for (var i = 0; i < _workers.length; i++) {
+        final candidate = _workers[i];
+        if (!candidate.isActive || !candidate.supportsPageSurfaces) continue;
+        final load = _loads[i] + _surfaceLoads[i];
+        if (load < bestLoad) {
+          worker = i;
+          bestLoad = load;
+        }
+      }
+    }
+    if (worker < 0) return null;
+
+    if (pageIndex != null) _pageWorkers[pageIndex] = worker;
+    final session = _workers[worker].createPageSurface(
+      surface,
+      pageIndex: pageIndex,
+    );
+    if (session == null) return null;
+    _surfaceLoads[worker]++;
+    return _PooledPageSurfaceSession(session, () {
+      if (_surfaceLoads[worker] > 0) _surfaceLoads[worker]--;
+    });
+  }
 
   /// The most recent trace across the pool's workers. Best-effort: a pool
   /// serves pages on several workers at once, so this is whichever worker most
@@ -879,6 +1010,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
     _pageWorkers.clear();
     for (var i = 0; i < _loads.length; i++) {
       _loads[i] = 0;
+      _surfaceLoads[i] = 0;
     }
     for (final worker in _workers) {
       worker.dispose();
@@ -909,6 +1041,44 @@ class _PoolRoute {
 
   final int worker;
   int count = 1;
+}
+
+class _PooledPageSurfaceSession extends PdfPageSurfaceSession {
+  _PooledPageSurfaceSession(this._inner, this._onDispose);
+
+  final PdfPageSurfaceSession _inner;
+  final void Function() _onDispose;
+  bool _disposed = false;
+
+  @override
+  Future<bool> render(
+    int pageIndex, {
+    required bool annotations,
+    required int width,
+    required int height,
+    required int pageColor,
+    PdfPageSurfaceRegion? region,
+    int? rotation,
+    int priority = 0,
+  }) =>
+      _inner.render(
+        pageIndex,
+        annotations: annotations,
+        width: width,
+        height: height,
+        pageColor: pageColor,
+        region: region,
+        rotation: rotation,
+        priority: priority,
+      );
+
+  @override
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    _inner.dispose();
+    _onDispose();
+  }
 }
 
 typedef _RecordCacheKey = (int, bool, bool, int, int?, _RegionBucket?);
@@ -945,8 +1115,7 @@ typedef _RecordCacheKey = (int, bool, bool, int, int?, _RegionBucket?);
 class PdfCachingRenderWorker extends PdfRenderWorker {
   PdfCachingRenderWorker(this._inner, {int? budgetBytes, int? maxEntries})
       : _budgetBytes = budgetBytes ?? pdfRenderWorkerCacheBudgetBytes,
-        _maxEntries =
-            math.max(1, maxEntries ?? pdfRenderWorkerCacheMaxEntries);
+        _maxEntries = math.max(1, maxEntries ?? pdfRenderWorkerCacheMaxEntries);
 
   final PdfRenderWorker _inner;
   final int _budgetBytes;
@@ -1018,6 +1187,16 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
 
   @override
   bool get isActive => _inner.isActive;
+
+  @override
+  bool get supportsPageSurfaces => _inner.supportsPageSurfaces;
+
+  @override
+  PdfPageSurfaceSession? createPageSurface(
+    Object surface, {
+    int? pageIndex,
+  }) =>
+      _inner.createPageSurface(surface, pageIndex: pageIndex);
 
   @override
   PdfRenderTrace? get lastRenderTrace => _inner.lastRenderTrace;

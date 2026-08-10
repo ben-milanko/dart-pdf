@@ -39,8 +39,21 @@ enum PdfRenderDeviceMode {
 class PdfPageRasterGeometry {
   PdfPageRasterGeometry._();
 
-  /// Pixel ceiling for one page raster (~16.7M px, 64 MB RGBA).
-  static const maxPixels = 1 << 24;
+  /// Pixel ceiling for one whole-page raster (~4.2M px, 16 MiB RGBA).
+  ///
+  /// This matches [PdfPageRasterCachePolicy]'s default per-entry budget. Once
+  /// a view asks for more resolution, the whole-page image remains a bounded
+  /// backing layer and [PdfPageView]'s visible-region detail path supplies the
+  /// sharp pixels. A larger base would be expensive to raster, rejected by the
+  /// default cache, and mostly outside the viewport.
+  static const maxPixels = 1 << 22;
+
+  /// Pixel ceiling for one visible-region detail raster (~16.7M px).
+  ///
+  /// Detail is already cropped to the viewport and its panning guard band, so
+  /// this larger transient allowance preserves sharpness without paying for a
+  /// whole page at the same density.
+  static const maxDetailPixels = 1 << 24;
 
   /// Per-side pixel ceiling for one page raster.
   static const maxDimension = 8192.0;

@@ -266,7 +266,8 @@ void main() {
       expect(restored[2], isA<PdfSetBlendModeCommand>());
     });
 
-    test('round-trips overprint state (fill/stroke/mode) through the codec', () {
+    test('round-trips overprint state (fill/stroke/mode) through the codec',
+        () {
       final commands = <PdfRenderCommand>[
         const PdfSetOverprintCommand(fill: true, stroke: false, mode: 1),
         const PdfSetOverprintCommand(fill: false, stroke: true, mode: 0),
@@ -385,13 +386,15 @@ void main() {
     expect(_imageCommands(restored).single.request.decoded, isNull);
   });
 
-  test('an inline ImageMask (stencil) serializes - Type3 pages reach the '
+  test(
+      'an inline ImageMask (stencil) serializes - Type3 pages reach the '
       'worker (#554)', () {
     final doc = PdfDocument.open(_inlineStencilPdf());
     final page = doc.page(0);
     final ops = ContentStreamParser.parse(page.contentBytes());
     final recorder = RecordingPdfDevice();
-    PdfInterpreter(cos: doc.cos, device: recorder).drawPageOperations(page, ops);
+    PdfInterpreter(cos: doc.cos, device: recorder)
+        .drawPageOperations(page, ops);
     final request = recorder.imageRequests.single;
     expect(request.isInline, isTrue);
     expect(request.isStencil, isTrue);
@@ -414,10 +417,11 @@ void main() {
     final page = doc.page(0);
     final ops = ContentStreamParser.parse(page.contentBytes());
     final recorder = RecordingPdfDevice();
-    PdfInterpreter(cos: doc.cos, device: recorder).drawPageOperations(page, ops);
+    PdfInterpreter(cos: doc.cos, device: recorder)
+        .drawPageOperations(page, ops);
 
-    final bytes = serializeCommands(recorder.commands,
-        cos: doc.cos, decodeImages: true);
+    final bytes =
+        serializeCommands(recorder.commands, cos: doc.cos, decodeImages: true);
     expect(bytes, isNotNull);
     final restored = _imageCommands(deserializeCommands(bytes!)).single.request;
     expect(restored.isStencil, isTrue);
@@ -1117,10 +1121,10 @@ void main() {
 
       final before = _decodedPixelSum(deserializeCommands(unbudgeted));
       final after = _decodedPixelSum(deserializeCommands(budgeted));
-      // The per-image 2x headroom alone ships 4 raster-fulls PER image; the
-      // page budget is that headroom squared for the whole page.
-      expect(before, 4 * 512 * 512);
-      expect(after, lessThanOrEqualTo(4 * raster + 4 * 16 + 64));
+      // The per-image display cap alone ships one raster-full per image; the
+      // page budget is one raster for the whole layered page.
+      expect(before, 4 * 256 * 256);
+      expect(after, lessThanOrEqualTo(raster + 4 * 16 + 64));
       expect(after * 4, lessThanOrEqualTo(before),
           reason: 'the tile-sized budget did not bind');
       // The record crossing the worker seam sheds every one of those pixels
@@ -1205,13 +1209,13 @@ Uint8List _layeredImagePdf({required int draws}) {
   obj(
       3,
       '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] '
-          '/Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>');
+      '/Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>');
   obj(4, '<< /Length ${contentBytes.length} >>', contentBytes);
   obj(
       5,
       '<< /Type /XObject /Subtype /Image /Width $size /Height $size '
-          '/ColorSpace /DeviceRGB /BitsPerComponent 8 '
-          '/Length ${pixels.length} >>',
+      '/ColorSpace /DeviceRGB /BitsPerComponent 8 '
+      '/Length ${pixels.length} >>',
       pixels);
 
   final xref = out.length;

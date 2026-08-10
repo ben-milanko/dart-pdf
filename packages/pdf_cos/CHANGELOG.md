@@ -2,8 +2,10 @@
 
 ## 3.4.0
 
-- Lockstep minor release to align the dart-pdf package suite at 3.4.0. No
-  public `pdf_cos` API changes since 3.3.1.
+- Add `PdfSourceLoadOptions.completeFirstPaintPageTree`. Progressive preview
+  callers can stop the initial page-tree walk after `firstPaintPages`, avoiding
+  one range request per leaf before page one can paint; the default remains the
+  correctness-first complete walk for existing callers.
 
 ## 3.3.1
 

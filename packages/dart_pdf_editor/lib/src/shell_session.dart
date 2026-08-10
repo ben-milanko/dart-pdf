@@ -38,6 +38,7 @@ class PdfShellSessionLifecycle {
     required PdfViewerController? viewerController,
     required PdfPerformanceController? performance,
     required String? documentId,
+    bool renderWorkerEnabled = true,
     PdfShellPrepareSession? prepareSession,
     PdfShellSessionChanged? onSessionChanged,
   })  : _bytes = bytes,
@@ -46,6 +47,7 @@ class PdfShellSessionLifecycle {
         _externalViewer = viewerController,
         _externalPerformance = performance,
         _documentId = documentId,
+        _renderWorkerEnabled = renderWorkerEnabled,
         _prepareSession = prepareSession,
         _onSessionChanged = onSessionChanged {
     _openSession();
@@ -58,6 +60,7 @@ class PdfShellSessionLifecycle {
   PdfViewerController? _externalViewer;
   PdfPerformanceController? _externalPerformance;
   String? _documentId;
+  bool _renderWorkerEnabled;
   PdfShellPrepareSession? _prepareSession;
   PdfShellSessionChanged? _onSessionChanged;
 
@@ -130,6 +133,10 @@ class PdfShellSessionLifecycle {
   }
 
   void _syncWorker() {
+    if (!_renderWorkerEnabled) {
+      _workerHost.dispose();
+      return;
+    }
     // The worker state machine (incremental revision update vs a fresh
     // generation, per issue #308) lives in [PdfRenderWorkerHost] so the bare
     // [PdfViewer] default worker drives the identical logic - see #396.
@@ -181,6 +188,7 @@ class PdfShellSessionLifecycle {
     required PdfViewerController? viewerController,
     required PdfPerformanceController? performanceController,
     required String? documentId,
+    bool? renderWorkerEnabled,
     PdfShellPrepareSession? prepareSession,
     PdfShellSessionChanged? onSessionChanged,
   }) {
@@ -195,6 +203,8 @@ class PdfShellSessionLifecycle {
     final viewerChanged = !identical(viewerController, _externalViewer);
     final performanceChanged =
         !identical(performanceController, _externalPerformance);
+    final workerPolicyChanged = renderWorkerEnabled != null &&
+        renderWorkerEnabled != _renderWorkerEnabled;
 
     if (sessionChanged) _closeSession();
     if (sessionChanged &&
@@ -222,6 +232,9 @@ class PdfShellSessionLifecycle {
     _externalViewer = viewerController;
     _externalPerformance = performanceController;
     _documentId = documentId;
+    if (renderWorkerEnabled != null) {
+      _renderWorkerEnabled = renderWorkerEnabled;
+    }
     _prepareSession = prepareSession;
     _onSessionChanged = onSessionChanged;
 
@@ -236,6 +249,7 @@ class PdfShellSessionLifecycle {
           documentBytes: session.bytes.length,
         );
       }
+      if (workerPolicyChanged) _syncWorker();
     }
 
     final keyChanged = oldKey != documentKey;

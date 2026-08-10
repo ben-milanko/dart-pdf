@@ -32,8 +32,10 @@ class PdfTileLayer extends StatelessWidget {
     this.canRasterize,
     this.batchRasters,
     this.maxNewTilesPerPaint,
+    this.prefetchRingOverride,
     this.filterQuality = FilterQuality.medium,
-  }) : assert(maxNewTilesPerPaint == null || maxNewTilesPerPaint > 0);
+  })  : assert(maxNewTilesPerPaint == null || maxNewTilesPerPaint > 0),
+        assert(prefetchRingOverride == null || prefetchRingOverride >= 0);
 
   /// The pyramid to composite from.
   final PdfTileStore store;
@@ -71,6 +73,10 @@ class PdfTileLayer extends StatelessWidget {
   /// paint, so the viewport still fills center-out without a timer or queue.
   final int? maxNewTilesPerPaint;
 
+  /// Overrides [PdfTileStore.prefetchRing] for this paint. Zero prioritizes
+  /// only the visible tiles; null uses the store's normal pan-ahead ring.
+  final int? prefetchRingOverride;
+
   final FilterQuality filterQuality;
 
   @override
@@ -87,6 +93,7 @@ class PdfTileLayer extends StatelessWidget {
           canRasterize: canRasterize,
           batchRasters: batchRasters,
           maxNewTilesPerPaint: maxNewTilesPerPaint,
+          prefetchRingOverride: prefetchRingOverride,
           filterQuality: filterQuality,
         ),
       );
@@ -104,6 +111,7 @@ class _TilePagePainter extends CustomPainter {
     required this.canRasterize,
     required this.batchRasters,
     required this.maxNewTilesPerPaint,
+    required this.prefetchRingOverride,
     required this.filterQuality,
   }) : super(
             // tick as sharper tiles land, and repaint on debug-border toggles
@@ -119,6 +127,7 @@ class _TilePagePainter extends CustomPainter {
   final bool Function(Rect region)? canRasterize;
   final bool? batchRasters;
   final int? maxNewTilesPerPaint;
+  final int? prefetchRingOverride;
   final FilterQuality filterQuality;
 
   @override
@@ -142,6 +151,7 @@ class _TilePagePainter extends CustomPainter {
       canRasterize: canRasterize,
       batchRasters: batchRasters,
       maxNewTiles: maxNewTilesPerPaint,
+      prefetchRingOverride: prefetchRingOverride,
     );
     if (view.isEmpty) return;
     final paint = Paint()..filterQuality = filterQuality;
@@ -185,5 +195,6 @@ class _TilePagePainter extends CustomPainter {
       !identical(old.canRasterize, canRasterize) ||
       old.batchRasters != batchRasters ||
       old.maxNewTilesPerPaint != maxNewTilesPerPaint ||
+      old.prefetchRingOverride != prefetchRingOverride ||
       old.filterQuality != filterQuality;
 }

@@ -134,6 +134,31 @@ void main() {
       expect(find.byType(PdfViewer), findsOneWidget);
     });
 
+    testWidgets('renders the sparse buffer locally, then enables the worker',
+        (tester) async {
+      final source = _RecordingSource(buildMultiPagePdf(2));
+      await pump(
+        tester,
+        PdfReader.source(
+          source,
+          documentId: 'doc-worker-handoff',
+          onFirstPaint: () => source.gate = Completer<void>(),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(tester.widget<PdfViewer>(find.byType(PdfViewer)).autoRenderWorker,
+          isFalse,
+          reason: 'the sparse full-address-space buffer must not be copied '
+              'into a worker before page one paints');
+
+      source.gate!.complete();
+      source.gate = null;
+      await tester.pumpAndSettle();
+      expect(tester.widget<PdfViewer>(find.byType(PdfViewer)).autoRenderWorker,
+          isTrue);
+    });
+
     testWidgets('cancels the in-flight read on dispose', (tester) async {
       final source = _RecordingSource(buildMultiPagePdf(2));
       source.gate = Completer<void>();
@@ -142,7 +167,8 @@ void main() {
 
       // Dispose while the first read is still gated; disposing must not throw
       // and the pending read is cancelled cooperatively.
-      await tester.pumpWidget(const MaterialApp(home: Scaffold(body: SizedBox())));
+      await tester
+          .pumpWidget(const MaterialApp(home: Scaffold(body: SizedBox())));
       source.gate!.complete();
       await tester.pumpAndSettle();
       // No exception surfaced from the abandoned load.
@@ -154,7 +180,8 @@ void main() {
       // No length -> openSource can't serve ranges and falls back to a plain
       // sequential download internally, still yielding a renderable document.
       // The widget must open and paint it just the same.
-      final source = _RecordingSource(buildMultiPagePdf(2), reportLength: false);
+      final source =
+          _RecordingSource(buildMultiPagePdf(2), reportLength: false);
       await pump(tester, PdfReader.source(source, documentId: 'doc-4'));
       await tester.pumpAndSettle();
       expect(find.byType(PdfViewer), findsOneWidget);

@@ -1,0 +1,62 @@
+# Weekly end-to-end DartPDF/PDFium acceptance run. Unlike shared-runner
+# absolute trends, every budget is an interleaved DartPDF/PDFium ratio from
+# the same Chrome, host, viewport, and PDF bytes. Raw envelopes retain the
+# host/GPU identity and are uploaded for audit.
+name: perf-pdfium
+
+on:
+  schedule:
+    - cron: '37 2 * * 0'
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: 'Interleaved samples per engine and scenario'
+        default: '5'
+      scenarios:
+        description: 'Optional space-separated scenario subset'
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: perf-pdfium
+  cancel-in-progress: false
+
+jobs:
+  parity:
+    runs-on: macos-15
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.8
+          channel: stable
+          cache: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: flutter pub get
+
+      - name: Run interleaved Chromium/PDFium gates
+        env:
+          PERF_PARITY_ITERATIONS: ${{ github.event.inputs.iterations || '5' }}
+          PERF_BUILD_OUTPUT: /tmp/dartpdf-pdfium-gate
+          PERF_SCENARIOS: ${{ github.event.inputs.scenarios }}
+        run: |
+          if [ -n "$PERF_SCENARIOS" ]; then
+            read -r -a scenarios <<< "$PERF_SCENARIOS"
+            tool/perf.sh pdfium-gate "${scenarios[@]}"
+          else
+            tool/perf.sh pdfium-gate
+          fi
+
+      - name: Upload raw parity envelopes
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pdfium-parity-${{ github.run_id }}
+          path: app/tool/perf/results-competitive-*.ndjson
+          if-no-files-found: warn
+          retention-days: 30

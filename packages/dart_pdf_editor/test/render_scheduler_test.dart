@@ -229,7 +229,7 @@ void main() {
       expect(scheduler.hasPending, isFalse);
     });
 
-    testWidgets('an in-flight render does not block other pages',
+    testWidgets('the focused render lands before neighbouring work fans out',
         (tester) async {
       final scheduler = PdfPageRenderScheduler();
       addTearDown(scheduler.dispose);
@@ -247,9 +247,34 @@ void main() {
       for (var i = 0; i < 4; i++) {
         await tester.pump();
       }
-      // Pacing is unchanged: the drain never awaits a render, only the
-      // frame. Three workers must stay busy while page 0 is recording.
+      expect(order, [0],
+          reason: 'neighbour replies must not compete with focused pixels');
+      gate.complete();
+      for (var i = 0; i < 4; i++) {
+        await tester.pump();
+      }
       expect(order, [0, 1, 2]);
+    });
+
+    testWidgets('a non-focused render still allows worker concurrency',
+        (tester) async {
+      final scheduler = PdfPageRenderScheduler();
+      addTearDown(scheduler.dispose);
+      final gate = Completer<void>();
+      final order = <int>[];
+      scheduler
+        ..focus = 10
+        ..request('a', 1, () => order.add(1))
+        ..request('b', 2, () => order.add(2))
+        ..request('c', 3, () async {
+          order.add(3);
+          await gate.future;
+        });
+
+      for (var i = 0; i < 4; i++) {
+        await tester.pump();
+      }
+      expect(order, [3, 2, 1]);
       gate.complete();
       await tester.pump();
     });

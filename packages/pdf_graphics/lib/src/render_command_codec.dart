@@ -101,7 +101,7 @@ class _UnserializableImage implements Exception {
 /// whole page locally.
 ///
 /// [maxImagePixelRatio] (screen pixels per page point, including the device
-/// pixel ratio) caps the resolution of each decoded image to ~2× the pixels it
+/// pixel ratio) caps the resolution of each decoded image to the pixels it
 /// covers on screen - a giant raster underlay on a CAD sheet is shipped (and
 /// later rasterized, and cached) at display resolution instead of its native
 /// 100+ megapixels, which is what otherwise blocks the (single-threaded, on
@@ -152,7 +152,7 @@ const double _imageBudgetFactor = 1.0;
 /// over an image's on-screen footprint, so ONE full-bleed image legitimately
 /// carries this squared times the raster's pixels. The page budget starts
 /// there, otherwise a single underlay would trip it on its own.
-const double _imageBudgetHeadroom = 2.0;
+const double _imageBudgetHeadroom = 1.0;
 
 int _imageBudgetPixels(double ratio, double factor,
     {PdfRect? imageDecodeRegion, int? pageRasterPixels}) {
@@ -353,8 +353,14 @@ double _imageBudgetScale(List<PdfRenderCommand> commands, CosDocument cos,
           final t = c.request.transform;
           final wPts = math.sqrt(t.a * t.a + t.b * t.b);
           final hPts = math.sqrt(t.c * t.c + t.d * t.d);
-          final (tw, th) =
-              cappedImagePixelSize(size.$1, size.$2, wPts, hPts, ratio);
+          final (tw, th) = cappedImagePixelSize(
+            size.$1,
+            size.$2,
+            wPts,
+            hPts,
+            ratio,
+            headroom: _imageBudgetHeadroom,
+          );
           total += tw * th;
         }
       } else if (c is PdfEndSoftMaskedCommand) {
@@ -386,7 +392,7 @@ int? _cosInt(CosObject? o) {
   return null;
 }
 
-/// Returns [decoded] resampled down to ~2× the pixels it occupies on screen
+/// Returns [decoded] resampled down to the pixels it occupies on screen
 /// (see [cappedImagePixelSize], whose ceilings match the viewer's full-page
 /// raster caps so a sheet-sized underlay stays within a GPU texture limit and
 /// the decoded-image cache), or unchanged when it already fits. [transform]
@@ -402,7 +408,13 @@ PdfDecodedPixels _capImageResolution(
   final heightPts =
       math.sqrt(transform.c * transform.c + transform.d * transform.d);
   final capped = cappedImagePixelSize(
-      decoded.width, decoded.height, widthPts, heightPts, ratio);
+    decoded.width,
+    decoded.height,
+    widthPts,
+    heightPts,
+    ratio,
+    headroom: _imageBudgetHeadroom,
+  );
   var tw = capped.$1;
   var th = capped.$2;
   if (budgetScale < 1.0) {
@@ -798,8 +810,14 @@ _CommandImage? _decodeImageForCommand(
       math.sqrt(transform.a * transform.a + transform.b * transform.b);
   final heightPts =
       math.sqrt(transform.c * transform.c + transform.d * transform.d);
-  final capped =
-      cappedImagePixelSize(size.$1, size.$2, widthPts, heightPts, ratio);
+  final capped = cappedImagePixelSize(
+    size.$1,
+    size.$2,
+    widthPts,
+    heightPts,
+    ratio,
+    headroom: _imageBudgetHeadroom,
+  );
   var tw = capped.$1;
   var th = capped.$2;
   if (budgetScale < 1.0) {
@@ -915,7 +933,13 @@ _ImageRegionPlan? _imageRegionPlan(
     final heightPts = math.sqrt(croppedTransform.c * croppedTransform.c +
         croppedTransform.d * croppedTransform.d);
     final capped = cappedImagePixelSize(
-        sourceWidth, sourceHeight, widthPts, heightPts, ratio);
+      sourceWidth,
+      sourceHeight,
+      widthPts,
+      heightPts,
+      ratio,
+      headroom: _imageBudgetHeadroom,
+    );
     targetWidth = capped.$1;
     targetHeight = capped.$2;
     if (budgetScale < 1.0) {

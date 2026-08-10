@@ -70,6 +70,47 @@ void main() {
     expect(lifecycle.debugWorkerGenerations, generations + 1);
   });
 
+  test('worker policy can defer the first generation until the full buffer',
+      () {
+    final bytes = buildMultiPagePdf(2);
+    final lifecycle = PdfShellSessionLifecycle(
+      bytes: bytes,
+      controller: null,
+      preferences: null,
+      viewerController: null,
+      performance: null,
+      documentId: 'progressive',
+      renderWorkerEnabled: false,
+    );
+    addTearDown(lifecycle.dispose);
+    expect(lifecycle.worker, isNull);
+    expect(lifecycle.debugWorkerGenerations, 0);
+
+    lifecycle.update(
+      bytes: bytes,
+      controller: null,
+      preferences: null,
+      viewerController: null,
+      performanceController: null,
+      documentId: 'progressive',
+      renderWorkerEnabled: true,
+    );
+    expect(lifecycle.worker, isNotNull);
+    expect(lifecycle.debugWorkerGenerations, 1);
+
+    lifecycle.update(
+      bytes: bytes,
+      controller: null,
+      preferences: null,
+      viewerController: null,
+      performanceController: null,
+      documentId: 'progressive',
+      renderWorkerEnabled: false,
+    );
+    expect(lifecycle.worker, isNull);
+    expect(lifecycle.debugWorkerGenerations, 1);
+  });
+
   test('form fill / edit / undo update the worker in place, no new generation',
       () {
     final lifecycle = PdfShellSessionLifecycle(

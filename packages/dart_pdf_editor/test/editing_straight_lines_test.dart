@@ -199,5 +199,6 @@ void main() {
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
 
     expect(viewer.zoom, greaterThan(before));
+    editing.finishInk();
   });
 }

@@ -104,7 +104,8 @@ void main() {
     // raster's - that difference IS the fix.
     final adopted = PdfPageView.debugTileImageDetailRatio!;
     final pageRasterCap = math.min(
-      math.sqrt((1 << 24) / (page.mediaBox.width * page.mediaBox.height)),
+      math.sqrt(PdfPageRasterGeometry.maxPixels /
+          (page.mediaBox.width * page.mediaBox.height)),
       8192 / math.max(page.mediaBox.width, page.mediaBox.height),
     );
     expect(adopted, greaterThan(pageRasterCap));

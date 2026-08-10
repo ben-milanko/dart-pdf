@@ -55,7 +55,7 @@ const targetHeight = 1684.0;
 
 // pdf_page_view's full-page raster caps, applied identically to every path
 // so the numbers reflect what the viewer would actually rasterize.
-const _maxPixels = 1 << 24;
+const _maxPixels = PdfPageRasterGeometry.maxPixels;
 const _maxDimension = 8192.0;
 
 const _defaultFiles = [
@@ -144,8 +144,8 @@ double _effectiveRatio(Size size, double desired) {
 Future<(ui.Image, double, double)> _timeRaster(
     ui.Picture picture, int width, int height) async {
   final sw = Stopwatch()..start();
-  final image = await picture.toImage(
-      width.clamp(1, 1 << 14), height.clamp(1, 1 << 14));
+  final image =
+      await picture.toImage(width.clamp(1, 1 << 14), height.clamp(1, 1 << 14));
   final rasterMs = sw.elapsedMicroseconds / 1000.0;
   sw
     ..reset()
@@ -266,7 +266,8 @@ void main() {
               ..drawPicture(cachedPicture);
             final scaled = scaledRecorder.endRecording();
             final buildA = t.elapsedMicroseconds / 1000.0;
-            final (imageA, rasterA, readbackA) = await _timeRaster(scaled, w, h);
+            final (imageA, rasterA, readbackA) =
+                await _timeRaster(scaled, w, h);
             scaled.dispose();
             imageA.dispose();
             if (record) {
