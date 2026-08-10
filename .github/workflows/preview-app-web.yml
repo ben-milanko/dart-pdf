@@ -113,8 +113,10 @@ jobs:
           flutter build macos --release
           --dart-define=PDF_BUILD_COMMIT=${PREVIEW_SHA::7}
 
-      - name: Normalize embedded code signatures
+      - name: Ad-hoc sign embedded code with preview-safe entitlements
         working-directory: app
+        env:
+          CODESIGN_ENTITLEMENTS: macos/Runner/AdHoc.entitlements
         run: >-
           bash macos/resign_embedded_code.sh
           build/macos/Build/Products/Release/DartPDF.app
