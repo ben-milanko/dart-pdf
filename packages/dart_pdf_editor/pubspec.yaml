@@ -27,7 +27,7 @@ dependencies:
   intl: ^0.20.2
   # Keychain/Keystore-backed persistence for signing identities
   # (SecureIdentityStore); the private key never touches shared_preferences.
-  flutter_secure_storage: ^10.3.1
+  flutter_secure_storage: ^11.0.0
   # Cross-platform HTTP client (VM + web via fetch) for the progressive remote
   # PDF byte source (PdfHttpByteSource); uses Range requests, no dart:io in our
   # code. See src/http_byte_source.dart.
