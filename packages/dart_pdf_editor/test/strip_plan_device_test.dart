@@ -415,7 +415,11 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     final bytes = buildSyntheticRasterUnderlaySheet(
-      underlays: const [PdfUnderlaySpec(width: 2304, height: 2304)],
+      // Keep the source just above the shared 16 MP decode ceiling. A smaller
+      // image now reaches native resolution in the focused 2x-headroom base,
+      // correctly making region speculation redundant instead of exercising
+      // the combined detail path this test is about.
+      underlays: const [PdfUnderlaySpec(width: 4352, height: 4352)],
       layers: 1,
       ops: 100,
       pageW: 612,
@@ -466,9 +470,9 @@ void main() {
     await tester.pumpWidget(at(1, 0));
     await router.settleRaster(tester, 612);
     await tester.pumpWidget(at(16, 1));
-    for (var i = 0; i < 80; i++) {
+    for (var i = 0; i < 500; i++) {
       await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 5)));
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
       await tester.pump();
       if (find.byType(RawImage).evaluate().length >= 2) break;
     }
@@ -478,9 +482,9 @@ void main() {
     // its replacement detail are still in flight. Let that foreground pass
     // drain before starting the pan, otherwise it can itself observe the new
     // translation and make the speculative result redundant before settle.
-    for (var i = 0; i < 200 && scheduler.busy; i++) {
+    for (var i = 0; i < 500 && scheduler.busy; i++) {
       await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 5)));
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
       await tester.pump();
     }
     expect(scheduler.busy, isFalse,
@@ -501,10 +505,10 @@ void main() {
     scheduler.holding = false;
     await tester.pumpWidget(at(16, 2));
     for (var i = 0;
-        i < 80 && PdfPageView.debugSpeculativeDetailHits == 0;
+        i < 500 && PdfPageView.debugSpeculativeDetailHits == 0;
         i++) {
       await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 5)));
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
       await tester.pump();
     }
     expect(PdfPageView.debugSpeculativeDetailHits, 1);
@@ -526,10 +530,10 @@ void main() {
     scheduler.holding = false;
     await tester.pumpWidget(at(16, 3));
     for (var i = 0;
-        i < 80 && PdfPageView.debugSpeculativeDetailMisses == 0;
+        i < 500 && PdfPageView.debugSpeculativeDetailMisses == 0;
         i++) {
       await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 5)));
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
       await tester.pump();
     }
     expect(PdfPageView.debugSpeculativeDetailHits, 0);

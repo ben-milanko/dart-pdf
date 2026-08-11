@@ -7031,6 +7031,7 @@ class _PdfViewerState extends State<PdfViewer>
                 renderPriority: _renderPriority(index),
                 focusDistance:
                     (index - (_jumpFocusPage ?? _controller.currentPage)).abs(),
+                forceForeground: _jumpFocusPage == index,
                 onScreenSpan: _onScreenSpan,
                 matches: _controller._matchesOn(index),
                 currentMatch: _controller._currentMatch >= 0
@@ -7805,6 +7806,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.destructiveStamp,
     required this.renderPriority,
     required this.focusDistance,
+    required this.forceForeground,
     required this.onScreenSpan,
     required this.matches,
     required this.currentMatch,
@@ -7875,6 +7877,11 @@ class _PdfViewerPage extends StatefulWidget {
   final int destructiveStamp;
   final int renderPriority;
   final int focusDistance;
+
+  /// Whether an explicit page command is waiting for this page's first
+  /// raster. Unlike [focusDistance], this cannot be stale after an ordinary
+  /// scroll and therefore may safely promote a not-yet-measured jump target.
+  final bool forceForeground;
 
   /// The viewer's visible-page span. This page subscribes to it and rebuilds
   /// only itself when its own answer flips - see [_PdfOnScreenSpan].
@@ -8083,12 +8090,12 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         destructiveStamp: widget.destructiveStamp,
         renderPriority: widget.renderPriority,
         focusDistance: widget.focusDistance,
-        onScreen: _onScreen || widget.focusDistance == 0,
+        onScreen: _onScreen || widget.forceForeground,
         // A programmatic jump can build its destination before the deferred
         // visible-span measurement catches up. The explicit focus is already
         // authoritative in that frame; otherwise the page records at the
         // adaptive cap, then immediately re-records at foreground quality.
-        qualityVisible: _qualityVisible || widget.focusDistance == 0,
+        qualityVisible: _qualityVisible || widget.forceForeground,
         pageColor: widget.pageColor,
         showAnnotations: widget.pageImagesShowAnnotations,
         trustContentStamp: widget.trustContentStamp,
