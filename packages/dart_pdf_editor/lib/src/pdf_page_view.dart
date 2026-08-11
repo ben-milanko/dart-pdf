@@ -61,6 +61,7 @@ class PdfPageView extends StatefulWidget {
     this.renderPriority = 0,
     this.focusDistance = 0,
     this.onScreen = true,
+    this.qualityVisible = true,
     this.previewCache,
     this.previewIndex = 0,
     this.pageEpoch = 0,
@@ -93,8 +94,10 @@ class PdfPageView extends StatefulWidget {
   /// Optional adaptive policy receiving first-render latency samples.
   final PdfPerformanceController? performance;
 
-  /// Caps ordinary full-page worker image decode requests. Deep-zoom region
-  /// requests stay uncapped so visible image detail can sharpen on demand.
+  /// Caps speculative/off-screen full-page image decode requests. Every page
+  /// intersecting the viewport keeps [focusedImageDecodeHeadroom] over its
+  /// base raster's physical resolution; deep-zoom region requests likewise
+  /// stay uncapped so visible content can sharpen on demand.
   final double? workerImagePixelRatioCap;
 
   /// The viewer's LIVE zoom scale (the InteractiveViewer matrix's scale on
@@ -204,7 +207,8 @@ class PdfPageView extends StatefulWidget {
   /// and shipped at a reduced resolution ([prefetchImagePixelRatioFactor]) to
   /// keep record traffic down (a Flate raster underlay ships as full RGBA - a
   /// single page can reach tens of MB, starving the visible page, #451). The
-  /// page re-renders at full image resolution the moment it becomes focused.
+  /// page re-renders at full image resolution the moment a meaningful share
+  /// of it becomes visible (see [qualityVisible]).
   ///
   /// Focus is a *ranking*, not a visibility test - see [onScreen], which is
   /// what decides whether this page is treated as a prefetch neighbour at all.
@@ -223,6 +227,12 @@ class PdfPageView extends StatefulWidget {
   /// embedding [PdfPageView] directly gets full-resolution behaviour without
   /// having to say so.
   final bool onScreen;
+
+  /// Whether enough of this page is visible to require foreground-quality
+  /// image decoding and zoom detail. A narrow page-edge sliver may be false
+  /// while [onScreen] remains true; when the viewport rests between two pages,
+  /// both pages are true. Standalone page views default to foreground quality.
+  final bool qualityVisible;
 
   /// Called whenever a full-page raster for the current [page] object
   /// lands on screen. Lets the editing overlay hold its just-committed
@@ -558,15 +568,27 @@ class PdfPageView extends StatefulWidget {
   /// guard keeps a dense view from thrashing the shared pyramid.
   static bool tileStoreDetail = pdfDefaultTileStoreDetail();
 
-  /// Factor applied to a prefetched (off-focus) page's image-decode resolution,
-  /// relative to the focused page's. Off-focus pages aren't being looked at, so
+  /// Factor applied to a prefetched off-screen page's image-decode resolution,
+  /// relative to a visible page's. Off-screen pages aren't being looked at, so
   /// shipping their embedded images at full display resolution wastes record
   /// bandwidth (a Flate raster underlay ships as full RGBA - tens of MB) and
   /// competes with the visible page on the worker (#451). 0.5 halves the image
   /// ratio (~4x smaller image payload); the page re-decodes at full resolution
-  /// the moment it becomes focused. Only images are affected - vectors and text
+  /// the moment it becomes visible. Only images are affected - vectors and text
   /// are resolution-independent commands. 1.0 disables the reduction.
   static double prefetchImagePixelRatioFactor = 0.5;
+
+  /// Linear embedded-image resolution retained above a visible page's
+  /// physical raster footprint.
+  ///
+  /// A 1:1 decode is sampled once while the PDF image is painted into the page
+  /// picture and again when that picture is rasterized/presented. In real
+  /// scanned and illustrated documents that double resampling is visibly
+  /// softer than PDFium even though the final page raster itself has enough
+  /// pixels. Two-times headroom matches the native/local rendering default,
+  /// while source dimensions and the shared 16 MP image ceiling still bound
+  /// memory. Speculative neighbours retain their lower adaptive cap.
+  static const double focusedImageDecodeHeadroom = 2.0;
 
   /// Test seam: the store the tile layer draws from. Null uses the shared
   /// [PdfTileStore.instance].
@@ -969,18 +991,37 @@ class _PdfPageViewState extends State<PdfPageView>
       return;
     }
     _layoutWidth = width;
-    // First layout of a revisited/prepared focus page can consume the exact
+    // A retained scene can be adopted from initState before LayoutBuilder has
+    // supplied the page's real width. At that point the fallback 1 px/pt
+    // target can make a 1.25x speculative scene look final-quality even when
+    // this focused page will occupy 2x physical pixels. Re-check after the
+    // first concrete layout (and after meaningful resizes), otherwise the
+    // low-LoD embedded images are replayed into a sharp 2x base raster and can
+    // remain soft indefinitely.
+    final retainedImageRatio = _pictureImageRatio;
+    if (_picture != null &&
+        widget.onScreen &&
+        widget.qualityVisible &&
+        !_renderedAtDisplayImageRatio()) {
+      _dropPicture();
+      PdfPerfLog.log(
+        'scene-cache reject page=${widget.previewIndex} reason=image-lod-layout '
+        'have=${retainedImageRatio?.toStringAsFixed(2) ?? 'unknown'} '
+        'need=${_imageRatioTarget().toStringAsFixed(2)}',
+      );
+    }
+    // First layout of a revisited/prepared visible page can consume the exact
     // raster before scheduling any render work. The build-level check below
     // remains necessary for a placeholder State whose width was established
     // while it was off-focus.
-    if (widget.focusDistance == 0 && _restoreFullRaster(duringBuild: true)) {
+    if (widget.onScreen && _restoreFullRaster(duringBuild: true)) {
       return;
     }
     // Zoom below fit-width changes the page's layout width while `scale` stays
-    // at 1. That path must obey the same focus-first rule as a transform-scale
-    // settle: the focused page gets the sharp raster now, while mounted
-    // neighbours retain their previous raster until focus moves to them.
-    if (previous != null && widget.focusDistance > 0) {
+    // at 1. Treat every intersecting page as foreground so a viewport spanning
+    // a page boundary does not leave one half soft; mounted off-screen cache
+    // neighbours retain their previous raster until they enter.
+    if (previous != null && (!widget.onScreen || !widget.qualityVisible)) {
       _deferredOffscreenRasterRefresh = true;
       widget.renderScheduler?.cancel(this);
       return;
@@ -1108,13 +1149,13 @@ class _PdfPageViewState extends State<PdfPageView>
     // State was created, so initState alone cannot see it.
     if (_picture == null &&
         _scene == null &&
-        widget.focusDistance == 0 &&
-        oldWidget.focusDistance > 0) {
+        ((widget.focusDistance == 0 && oldWidget.focusDistance > 0) ||
+            (widget.onScreen && !oldWidget.onScreen))) {
       _restoreRetainedScene();
     }
     if (_image == null &&
-        widget.focusDistance == 0 &&
-        oldWidget.focusDistance > 0) {
+        ((widget.focusDistance == 0 && oldWidget.focusDistance > 0) ||
+            (widget.onScreen && !oldWidget.onScreen))) {
       _restoreFullRaster(duringBuild: true);
     }
     // A prefetch neighbour decoded its images at reduced resolution
@@ -1125,8 +1166,13 @@ class _PdfPageViewState extends State<PdfPageView>
     // approaches focus, not as a churn loop.
     var promoteForFocus = false;
     final enteredViewport = widget.onScreen && !oldWidget.onScreen;
-    if (widget.focusDistance < oldWidget.focusDistance || enteredViewport) {
-      if (!_renderedAtFullImageRatio()) {
+    final becameQualityVisible = widget.onScreen &&
+        widget.qualityVisible &&
+        (!oldWidget.onScreen || !oldWidget.qualityVisible);
+    if ((widget.focusDistance < oldWidget.focusDistance &&
+            widget.qualityVisible) ||
+        becameQualityVisible) {
+      if (!_renderedAtDisplayImageRatio()) {
         // _dropPicture nulls _rasteredRatio, so the render below re-rasters
         // rather than skipping. The reduced-resolution base raster is left up
         // (it is the right geometry, only its images are soft) until the
@@ -1145,14 +1191,13 @@ class _PdfPageViewState extends State<PdfPageView>
       if (enteredViewport && widget.scale > 1.05) promoteForFocus = true;
     }
     final onScreen = _isOnScreen();
-    // Sharpen only the focused page at a settled zoom. A neighbouring page can
-    // overlap the viewport by a narrow strip and still be focusDistance 1;
-    // re-rasterizing it immediately serializes a second CanvasKit readback
-    // behind the page the user is looking at. Its existing raster remains
-    // transformed (briefly soft) and the deferred refresh is consumed when it
-    // becomes focus.
-    if ((scaleChanged || settleChanged) &&
-        (!onScreen || widget.focusDistance > 0)) {
+    final foreground = onScreen && widget.qualityVisible;
+    // Every page that intersects the viewport must settle sharp. Near a page
+    // boundary two pages can be equally important even though the viewer has
+    // only one integer currentPage/focusDistance == 0. The on-screen span
+    // bounds this to the small visible set; cache-window neighbours still
+    // defer their replay/readback until they actually enter.
+    if ((scaleChanged || settleChanged) && !foreground) {
       _deferredOffscreenRasterRefresh = true;
       // A request queued under the previous scale reads the State's current
       // fields when granted, so cancel it as well as declining the new one.
@@ -1163,14 +1208,11 @@ class _PdfPageViewState extends State<PdfPageView>
       // viewport refreshes the detail patch. Both route through _render so
       // they pace and coalesce through the scheduler (_renderNow skips the
       // full-page raster when the resolution is unchanged).
-      if (!_deferredOffscreenRasterRefresh ||
-          (onScreen && widget.focusDistance == 0)) {
+      if (!_deferredOffscreenRasterRefresh || foreground) {
         _deferredOffscreenRasterRefresh = false;
         _render();
       }
-    } else if (_deferredOffscreenRasterRefresh &&
-        onScreen &&
-        widget.focusDistance == 0) {
+    } else if (_deferredOffscreenRasterRefresh && foreground) {
       // Scrolling can bring a still-mounted cache-window child back on screen
       // without changing its render intent. Its first rebuild at the new focus
       // is the trigger that consumes the deferred scale refresh.
@@ -1187,7 +1229,7 @@ class _PdfPageViewState extends State<PdfPageView>
       _deferredVisibilityCheckScheduled = false;
       if (!mounted ||
           !_deferredOffscreenRasterRefresh ||
-          widget.focusDistance != 0 ||
+          !widget.qualityVisible ||
           !_isOnScreen()) {
         return;
       }
@@ -1204,9 +1246,9 @@ class _PdfPageViewState extends State<PdfPageView>
         !box.hasSize ||
         viewport == null ||
         viewport.isEmpty) {
-      // Before layout, prioritize only the page the viewer identified as its
-      // focus. A standalone PdfPageView has the default distance of zero.
-      return widget.focusDistance == 0;
+      // Before layout, trust the viewer's explicit visible-span answer. A
+      // standalone PdfPageView defaults to onScreen=true.
+      return widget.onScreen;
     }
     final pageRect = Rect.fromPoints(
       box.localToGlobal(Offset.zero),
@@ -1265,6 +1307,7 @@ class _PdfPageViewState extends State<PdfPageView>
     _slugPicture?.dispose();
     _slugPicture = null;
     _setScene(null); // the scene transcribes the same content as the picture
+    _pictureHasImageDraws = false;
     _rasteredRatio = null; // the next picture must re-raster, not be skipped
   }
 
@@ -1303,6 +1346,7 @@ class _PdfPageViewState extends State<PdfPageView>
         scene,
         plan: _renderPlan,
         fromWorker: fromWorker,
+        imagePixelRatio: _pictureImageRatio,
         estimatedBytes: estimatedBytes,
         picture: picture,
       );
@@ -1323,7 +1367,20 @@ class _PdfPageViewState extends State<PdfPageView>
       plan: _renderPlan,
     );
     if (handle == null) return;
+    final retainedImageRatio = handle.imagePixelRatio;
+    final requiredImageRatio = _imageRatioTarget();
+    if (retainedImageRatio != null &&
+        retainedImageRatio < requiredImageRatio * 0.99) {
+      handle.dispose();
+      PdfPerfLog.log(
+        'scene-cache reject page=${widget.previewIndex} reason=image-lod '
+        'have=${retainedImageRatio.toStringAsFixed(2)} '
+        'need=${requiredImageRatio.toStringAsFixed(2)}',
+      );
+      return;
+    }
     _sceneHandle = handle;
+    _pictureImageRatio = retainedImageRatio;
     _assignScene(handle.scene, fromWorker: handle.fromWorker);
     final picture = handle.picture;
     if (picture != null) _picture = Future.value(picture);
@@ -1362,6 +1419,7 @@ class _PdfPageViewState extends State<PdfPageView>
     }
     _sceneHasImageDraws =
         scene != null && PdfPageRenderer.hasImageDraws(scene.commands);
+    if (scene != null) _pictureHasImageDraws = _sceneHasImageDraws;
     _sceneFromWorker = scene != null && fromWorker;
     _sceneIsVectorOnly = scene != null && vectorOnly;
     // A vector-only scene may feed the tile path everywhere its absent image
@@ -1554,7 +1612,7 @@ class _PdfPageViewState extends State<PdfPageView>
     if (PdfPageView.directPicturePresentation &&
         _directPicture != null &&
         _intentIsCurrent(_directPictureIntent) &&
-        _renderedAtFullImageRatio()) {
+        _renderedAtDisplayImageRatio()) {
       return true;
     }
     final state = _imageState;
@@ -1664,28 +1722,109 @@ class _PdfPageViewState extends State<PdfPageView>
   /// landing soft and re-rendering when it reaches the centre (#657).
   double _imageRatioTarget() {
     final base = _fullImageRatio();
+    // The document's first cold visible page decodes at its exact physical
+    // footprint. That gets useful image pixels on screen without making open's
+    // first-content boundary pay for the 2x final-quality payload. Once that
+    // raster lands, [_scheduleFocusedImageRefinement] keeps it painted while a
+    // second record replaces the image layer at [focusedImageDecodeHeadroom].
+    // Do not repeat that two-pass transaction on navigation: by then a soft
+    // preview already supplies first pixels, and one direct final-quality
+    // record reaches stable sharpness substantially sooner.
+    if (widget.onScreen &&
+        widget.qualityVisible &&
+        (widget.renderWorker?.isActive ?? false) &&
+        widget.performance?.diagnostics.observations == 0 &&
+        _image == null &&
+        _directPicture == null &&
+        _slugPicture == null) {
+      return _effectiveRatio();
+    }
     if (widget.onScreen || widget.focusDistance <= 0) return base;
     return base * PdfPageView.prefetchImagePixelRatioFactor;
   }
 
-  /// The full (unreduced) image-decode ratio for a focused page.
-  double _fullImageRatio() => math.min(
-        _effectiveRatio(),
-        widget.workerImagePixelRatioCap ?? double.infinity,
-      );
+  /// The full (unreduced) image-decode ratio for the current page state.
+  ///
+  /// Adaptive image caps are a speculation/memory-pressure control, not a
+  /// final-quality ceiling. Once a page is on screen, decode its
+  /// images with [PdfPageView.focusedImageDecodeHeadroom] over the base
+  /// raster's physical resolution. A 1:1 image decode is sampled into the page
+  /// picture and then sampled again into the final raster; on the real-world
+  /// illustrated corpus that remains visibly softer than PDFium. Otherwise a
+  /// 1.25x conservative cap can be flattened into (and later restored as) a
+  /// 1.7-2.2x page raster, leaving image content permanently blurry while
+  /// vector text remains sharp. Off-screen pages still honor the cap and the
+  /// additional prefetch reduction in [_imageRatioTarget].
+  double _fullImageRatio() {
+    final effective = _effectiveRatio();
+    if (widget.onScreen && widget.qualityVisible) {
+      return effective * PdfPageView.focusedImageDecodeHeadroom;
+    }
+    return math.min(
+      effective,
+      widget.workerImagePixelRatioCap ?? double.infinity,
+    );
+  }
 
   /// The image ratio [_picture]/[_scene] were interpreted at, so a later render
   /// can tell a reduced-resolution prefetch buffer from a full-resolution one
-  /// and drop it when the page becomes focused (null = none / unknown).
+  /// and drop it when the page becomes visible (null = none / unknown).
   double? _pictureImageRatio;
+  bool _pictureHasImageDraws = false;
+  bool _focusedImageRefinementScheduled = false;
 
   /// Whether the current buffer decoded its images at full resolution - i.e.
   /// this is not a reduced-resolution prefetch buffer. Only such buffers seed
   /// the shared full-raster cache, so [_restoreFullRaster] never serves a
-  /// blurry prefetch raster to a page that has since become focused (#451).
+  /// blurry prefetch raster to a page that has since become visible (#451).
   bool _renderedAtFullImageRatio() =>
+      !_pictureHasImageDraws ||
       _pictureImageRatio == null ||
       _pictureImageRatio! >= _fullImageRatio() * 0.99;
+
+  /// Whether the decoded image source has at least one sample per physical
+  /// display pixel at the current scale. A picture recorded with 2x headroom
+  /// at fit scale can therefore zoom up to 2x without another decode; cache
+  /// admission still uses the stricter [_renderedAtFullImageRatio].
+  bool _renderedAtDisplayImageRatio() =>
+      !_pictureHasImageDraws ||
+      _pictureImageRatio == null ||
+      _pictureImageRatio! >= _effectiveRatio() * 0.99;
+
+  /// Refines the initial cold page's 1x embedded-image decode after its first
+  /// raster has reached the compositor. The existing raster remains the
+  /// backing layer, so this is a soft-to-sharp transition rather than another
+  /// blank/loading state. Navigation requests final quality in one pass.
+  void _scheduleFocusedImageRefinement() {
+    if (_focusedImageRefinementScheduled ||
+        !widget.onScreen ||
+        !widget.qualityVisible ||
+        _image == null ||
+        !_pictureHasImageDraws ||
+        _renderedAtFullImageRatio()) {
+      return;
+    }
+    _focusedImageRefinementScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusedImageRefinementScheduled = false;
+      if (!mounted ||
+          !widget.onScreen ||
+          !widget.qualityVisible ||
+          _image == null ||
+          !_pictureHasImageDraws ||
+          _renderedAtFullImageRatio()) {
+        return;
+      }
+      final previousRatio = _pictureImageRatio;
+      _dropPicture();
+      PdfPerfLog.log(
+        'image-refine page=${widget.previewIndex} '
+        'have=${previousRatio?.toStringAsFixed(2) ?? 'unknown'} '
+        'need=${_fullImageRatio().toStringAsFixed(2)}',
+      );
+      _render();
+    });
+  }
 
   /// [_effectiveRatio] at an explicit [scale] (see [_desiredRatioAt]).
   double _effectiveRatioAt(double scale) =>
@@ -2067,6 +2206,7 @@ class _PdfPageViewState extends State<PdfPageView>
       if (_abandoned(pageIndex)) return (_emptyPicture(), null, false);
       if (commands != null) {
         if (_renderPaused) return null;
+        _pictureHasImageDraws = PdfPageRenderer.hasImageDraws(commands);
         // A focus jump can leave the old page's worker request in flight. Its
         // background parse is harmless (and warms the worker transcript), but
         // replaying that display list can occupy the UI isolate precisely
@@ -2104,7 +2244,12 @@ class _PdfPageViewState extends State<PdfPageView>
     // The worker may be active yet decline this page (it returns null), in
     // which case the interpret runs here - the log must say so, not 'worker'.
     _lastInterpretPath = 'recorded';
-    final localImageRatio = _imageRatioTarget();
+    // The staged first-content pass is worker-only: once the worker has
+    // declined a visible page, recording it locally twice would add two UI
+    // isolate stalls. Pay for the final image quality in that single pass.
+    final localImageRatio = widget.onScreen && widget.qualityVisible
+        ? _fullImageRatio()
+        : _imageRatioTarget();
     _pictureImageRatio = localImageRatio;
     // The local path has no worker wait: record + decode + picture build are
     // one UI-thread phase, reported entirely as build.
@@ -2120,6 +2265,7 @@ class _PdfPageViewState extends State<PdfPageView>
         widget.page,
         _renderPlan,
         maxImagePixelRatio: localImageRatio,
+        imageDecodeHeadroom: 1,
       );
       stampLocalPhases();
       return (result, null, false);
@@ -2128,7 +2274,9 @@ class _PdfPageViewState extends State<PdfPageView>
     // but the command buffer and decoded images are kept for zoom replays
     // instead of being discarded after the 1:1 replay below.
     final scene = await PdfRetainedScene.record(widget.page,
-        plan: _renderPlan, maxImagePixelRatio: localImageRatio);
+        plan: _renderPlan,
+        maxImagePixelRatio: localImageRatio,
+        imageDecodeHeadroom: 1);
     _lastInterpretResultBytes = _logImageStats(pageIndex, scene.commands);
     if (!_retainScene(scene.commands)) {
       // Too dense or too fragmented to replay per zoom settle: take the 1:1
@@ -2153,7 +2301,7 @@ class _PdfPageViewState extends State<PdfPageView>
       PdfPageView.retainedZoomReplay &&
       (commands.length <= PdfPageView.retainedZoomReplayMaxCommands ||
           ((PdfPageView.retainDenseScenesOffFocus ||
-                  widget.focusDistance == 0) &&
+                  (widget.onScreen && widget.qualityVisible)) &&
               (_stripReplayCommands(commands) || _retainForTiles(commands))));
 
   /// Whether a page too dense for flat replay is still worth retaining to feed
@@ -2921,6 +3069,7 @@ class _PdfPageViewState extends State<PdfPageView>
     // bootstraps the visible-region request that can beat a slow full-page
     // image decode. Ask for it even when soft preview pixels already exist.
     final needsRegionBootstrap = widget.onScreen &&
+        widget.qualityVisible &&
         widget.scale > 1.05 &&
         _scene == null &&
         (widget.renderWorker?.isActive ?? false);
@@ -3042,7 +3191,9 @@ class _PdfPageViewState extends State<PdfPageView>
     // which is the property this path exists to preserve. This replaces the
     // base raster rather than overlaying it, so text is never double-painted
     // and painter order remains the command stream's exact order.
-    if (_slugPictureScene(retainedScene) && !_slugPictureRejected) {
+    if (_renderedAtDisplayImageRatio() &&
+        _slugPictureScene(retainedScene) &&
+        !_slugPictureRejected) {
       if (_slugPicture == null) {
         StripPlan? slugPlan;
         final dense = retainedScene!.commands.length >
@@ -3124,6 +3275,7 @@ class _PdfPageViewState extends State<PdfPageView>
     }
     final canPresentPictureDirectly = PdfPageView.directPicturePresentation &&
         widget.onScreen &&
+        _renderedAtDisplayImageRatio() &&
         retainedScene != null &&
         !_sceneIsTileOnly(retainedScene) &&
         retainedScene.commands.length <=
@@ -3258,6 +3410,7 @@ class _PdfPageViewState extends State<PdfPageView>
     }
     final detailReady = await _updateDetail();
     if (stale && detailReady) widget.onRasterReady?.call();
+    if (stale && detailReady) _scheduleFocusedImageRefinement();
     if (stale && detailReady && _renderedAtFullImageRatio()) {
       final cache = widget.previewCache;
       if (cache != null) {
@@ -3312,6 +3465,18 @@ class _PdfPageViewState extends State<PdfPageView>
     // every off-screen neighbour pay the live zoom's GPU readback and memory
     // cost despite none of those pixels being visible.
     if (!widget.onScreen) {
+      _dropDetail();
+      return true;
+    }
+
+    // A retained/direct picture keeps vector and text commands live under the
+    // viewer transform. When its decoded images already have at least one
+    // source sample per physical display pixel, that picture is the complete
+    // sharp zoom result; a region raster would only add a delayed compositor
+    // change. This is the common <=2x zoom path after a 2x-headroom base
+    // record. Beyond that ratio the detail/tile path resumes normally.
+    if ((_directPicture != null || _slugPicture != null) &&
+        _renderedAtDisplayImageRatio()) {
       _dropDetail();
       return true;
     }
@@ -4693,7 +4858,7 @@ class _PdfPageViewState extends State<PdfPageView>
           // arrival, so `_noteLayoutWidth` alone has no reason to run work.
           // Reading the LRU is synchronous; mutate this State before its
           // children are composed and defer only the parent-ready callback.
-          if (_image == null && widget.focusDistance == 0) {
+          if (_image == null && widget.onScreen) {
             _restoreFullRaster(duringBuild: true);
           }
         }
@@ -4712,7 +4877,7 @@ class _PdfPageViewState extends State<PdfPageView>
               (int, int)? webDimensions;
               _DetailGeometry? webDetailGeometry;
               if (_usesWebWorkerSurface) {
-                final desiredRatio = widget.focusDistance == 0
+                final desiredRatio = widget.onScreen && widget.qualityVisible
                     ? _desiredRatioAt(widget.scale)
                     : _effectiveRatio();
                 // Keep a reusable full-page source through 2x. Beyond that,
@@ -4721,22 +4886,21 @@ class _PdfPageViewState extends State<PdfPageView>
                 // though the viewport exposes only ~1MP.
                 final baseRatio = pdfWebSurfaceBasePixelRatio(desiredRatio);
                 final desired = _rasterDimensions(baseRatio);
-                // Match the normal raster path's focus-first zoom policy: the
-                // live transform already scales every mounted page, so only the
-                // focused page needs a sharper backing store at this settle.
-                // Repainting its two cache-window neighbours makes their later
-                // canvas commits the action's final visual change even though
-                // the user is not looking at them.
+                // Match the normal raster path's visible-span zoom policy: the
+                // live transform already scales every mounted page, so only
+                // pages intersecting the viewport need a sharper backing store
+                // at this settle. Cache-window neighbours stay deferred.
                 // A higher-resolution backing is also valid after zooming
                 // back out, so keep it rather than clearing/repainting the
                 // canvas on every alternating zoom leg.
                 _webSurfaceDimensions = pdfRetainedWebSurfaceDimensions(
                   _webSurfaceDimensions,
                   desired,
-                  focused: widget.focusDistance == 0,
+                  focused: widget.onScreen && widget.qualityVisible,
                 );
                 webDimensions = _webSurfaceDimensions;
-                if (widget.focusDistance == 0 &&
+                if (widget.onScreen &&
+                    widget.qualityVisible &&
                     desiredRatio > baseRatio * 1.05) {
                   webDetailGeometry = _detailGeometryAt(
                     widget.scale,

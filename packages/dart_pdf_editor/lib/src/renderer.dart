@@ -268,7 +268,8 @@ class PdfPageRenderer {
   static Future<ui.Picture> renderPictureRecordedWithPlan(
       PdfPage page, PdfPageRenderPlan plan,
       {bool Function(PdfAnnotation)? skipAnnotation,
-      double? maxImagePixelRatio}) async {
+      double? maxImagePixelRatio,
+      double imageDecodeHeadroom = 2}) async {
     final cos = page.document.cos;
 
     // Record the page into a flat command buffer. This single walk also
@@ -280,7 +281,9 @@ class PdfPageRenderer {
     if (plan.annotations) recording.drawAnnotations(page, skip: skipAnnotation);
 
     final images = await decodeImages(cos, recorder.imageRequests,
-        cache: PdfImageCache.instance, maxImagePixelRatio: maxImagePixelRatio);
+        cache: PdfImageCache.instance,
+        maxImagePixelRatio: maxImagePixelRatio,
+        imageDecodeHeadroom: imageDecodeHeadroom);
 
     final box = page.cropBox;
     final size = plan.pageSize(page);

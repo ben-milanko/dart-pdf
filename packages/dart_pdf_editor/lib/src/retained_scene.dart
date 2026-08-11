@@ -333,6 +333,7 @@ class PdfRetainedScene {
     PdfPageRenderPlan plan = const PdfPageRenderPlan(),
     bool Function(PdfAnnotation)? skipAnnotation,
     double? maxImagePixelRatio,
+    double imageDecodeHeadroom = 2,
     PdfSceneBuildTiming? timing,
   }) async {
     final cos = page.document.cos;
@@ -342,7 +343,9 @@ class PdfRetainedScene {
     if (plan.annotations) recording.drawAnnotations(page, skip: skipAnnotation);
     final clock = timing == null ? null : (Stopwatch()..start());
     final images = await decodeImages(cos, recorder.imageRequests,
-        cache: PdfImageCache.instance, maxImagePixelRatio: maxImagePixelRatio);
+        cache: PdfImageCache.instance,
+        maxImagePixelRatio: maxImagePixelRatio,
+        imageDecodeHeadroom: imageDecodeHeadroom);
     if (clock != null) {
       timing!.decodeMs = clock.elapsedMicroseconds / 1000.0;
     }

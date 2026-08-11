@@ -130,13 +130,19 @@ const diagnosticScreenshotDir = process.env.PERF_SCREENSHOT_DIR == null
   ? null
   : resolve(process.env.PERF_SCREENSHOT_DIR);
 
-async function captureDiagnostic(page, engine, iteration, pageIndex) {
+async function captureDiagnostic(
+  page,
+  engine,
+  iteration,
+  pageIndex,
+  stage = `page-${pageIndex + 1}`,
+) {
   if (diagnosticScreenshotDir == null) return;
   await mkdir(diagnosticScreenshotDir, {recursive: true});
   await page.screenshot({
     path: join(
       diagnosticScreenshotDir,
-      `${engine}-run-${iteration}-page-${pageIndex + 1}.png`,
+      `${engine}-run-${iteration}-${stage}.png`,
     ),
     type: 'png',
     fromSurface: true,
@@ -1384,6 +1390,13 @@ async function runDartPdf(serverStats, iteration) {
       await readyPromise;
       zoomReadySamplesMs.push(performance.now() - actionMark.at);
       const settled = await visualPromise;
+      await captureDiagnostic(
+        page,
+        'dartpdf',
+        iteration,
+        currentPage,
+        `zoom-${zoom}-page-${currentPage + 1}`,
+      );
       zoomFirstVisualSamplesMs.push(settled.firstVisualElapsedMs);
       zoomSamplesMs.push(settled.visualElapsedMs);
       screencastFrameBytes.push(...settled.frameBytes);
@@ -1814,6 +1827,13 @@ async function runPdfium(serverStats, iteration) {
       const zoomed = await readyPromise;
       zoomReadySamplesMs.push(performance.now() - actionMark.at);
       const settled = await visualPromise;
+      await captureDiagnostic(
+        page,
+        'pdfium',
+        iteration,
+        currentPage,
+        `zoom-${zoom}-page-${currentPage + 1}`,
+      );
       zoomFirstVisualSamplesMs.push(settled.firstVisualElapsedMs);
       zoomSamplesMs.push(settled.visualElapsedMs);
       screencastFrameBytes.push(...settled.frameBytes);

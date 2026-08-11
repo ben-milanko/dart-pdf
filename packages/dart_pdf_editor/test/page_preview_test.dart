@@ -159,6 +159,7 @@ void main() {
       firstScene,
       plan: const PdfPageRenderPlan(),
       fromWorker: true,
+      imagePixelRatio: 0.5,
       estimatedBytes: 1,
     );
     expect(cache.debugRetainedSceneCount, 1);
@@ -169,6 +170,8 @@ void main() {
     );
     expect(lookup, isNotNull);
     expect(identical(lookup!.scene, firstScene), isTrue);
+    expect(lookup.imagePixelRatio, 0.5,
+        reason: 'a restored scene must preserve its embedded-image LoD');
 
     final secondLease = cache.retainScene(
       1,
@@ -176,6 +179,7 @@ void main() {
       secondScene,
       plan: const PdfPageRenderPlan(),
       fromWorker: false,
+      imagePixelRatio: null,
       estimatedBytes: 1,
     );
     expect(cache.debugRetainedSceneCount, 1);

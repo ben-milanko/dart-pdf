@@ -817,11 +817,25 @@ class _PdfOnScreenSpan extends ChangeNotifier {
   /// -1 until the first layout has measured the viewport.
   int first = -1;
   int last = -1;
+  int qualityFirst = -1;
+  int qualityLast = -1;
 
-  void set(int newFirst, int newLast) {
-    if (newFirst == first && newLast == last) return;
+  void set(
+    int newFirst,
+    int newLast,
+    int newQualityFirst,
+    int newQualityLast,
+  ) {
+    if (newFirst == first &&
+        newLast == last &&
+        newQualityFirst == qualityFirst &&
+        newQualityLast == qualityLast) {
+      return;
+    }
     first = newFirst;
     last = newLast;
+    qualityFirst = newQualityFirst;
+    qualityLast = newQualityLast;
     notifyListeners();
   }
 
@@ -830,6 +844,12 @@ class _PdfOnScreenSpan extends ChangeNotifier {
   /// path must never be the *first* thing a page renders at, or the initial
   /// paint lands soft.
   bool contains(int index) => first < 0 || (index >= first && index <= last);
+
+  /// Whether page [index] occupies a meaningful share of the viewport. This
+  /// excludes narrow edge slivers but includes both pages when the viewport is
+  /// resting across their boundary.
+  bool qualityContains(int index) =>
+      qualityFirst < 0 || (index >= qualityFirst && index <= qualityLast);
 }
 
 /// A [Listenable] that relays whichever [source] is currently attached.
@@ -2529,11 +2549,13 @@ class _PdfViewerState extends State<PdfViewer>
         _commandWarmAttempts.add(page);
         final clock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
         final warmImages = PdfViewer.speculativePageWarmImages;
+        final warmImageRatio =
+            target.ratio * PdfPageView.focusedImageDecodeHeadroom;
         final commands = await worker.record(
           index,
           annotations: _pageImagesShowAnnotations,
           priority: 3,
-          imagePixelRatio: warmImages ? target.ratio : null,
+          imagePixelRatio: warmImages ? warmImageRatio : null,
           decodeImages: warmImages,
         );
         if (commands == null) {
@@ -2583,7 +2605,7 @@ class _PdfViewerState extends State<PdfViewer>
               plan: plan,
               retainDecodedPixels:
                   widget.tileRasterBackend.prefersDirectDecodedImageUploads,
-              maxImagePixelRatio: target.ratio,
+              maxImagePixelRatio: warmImageRatio,
             );
             if (!mounted ||
                 generation != _commandWarmGeneration ||
@@ -2607,6 +2629,7 @@ class _PdfViewerState extends State<PdfViewer>
               scene,
               plan: plan,
               fromWorker: true,
+              imagePixelRatio: warmImageRatio,
               estimatedBytes: estimatedBytes,
               picture: picture,
             );
@@ -4003,6 +4026,8 @@ class _PdfViewerState extends State<PdfViewer>
     var found = false;
     var first = -1;
     var last = -1;
+    var qualityFirst = -1;
+    var qualityLast = -1;
     var offset = 0.0;
     for (var i = 0; i < _pages.length; i++) {
       final main = _pageMain(i);
@@ -4013,6 +4038,13 @@ class _PdfViewerState extends State<PdfViewer>
       if (offset < viewEnd && offset + main > viewStart) {
         if (first < 0) first = i;
         last = i;
+        final overlap =
+            math.min(offset + main, viewEnd) - math.max(offset, viewStart);
+        final foregroundThreshold = math.min(main, viewEnd - viewStart) * 0.15;
+        if (overlap >= foregroundThreshold) {
+          if (qualityFirst < 0) qualityFirst = i;
+          qualityLast = i;
+        }
       }
       offset += main + widget.pageSpacing;
       if (!found && center < offset) {
@@ -4026,7 +4058,12 @@ class _PdfViewerState extends State<PdfViewer>
     _controller._setCurrentPage(current);
     // A viewport that fell entirely inside the gap between two pages overlaps
     // none of them; the page the centre is on is still what the user is at.
-    _setOnScreenRange(first < 0 ? current : first, last < 0 ? current : last);
+    _setOnScreenRange(
+      first < 0 ? current : first,
+      last < 0 ? current : last,
+      qualityFirst < 0 ? current : qualityFirst,
+      qualityLast < 0 ? current : qualityLast,
+    );
   }
 
   /// The span of pages overlapping the viewport - see [_PdfOnScreenSpan].
@@ -4037,15 +4074,27 @@ class _PdfViewerState extends State<PdfViewer>
   /// Scroll listeners can fire during layout, and a listening page's setState
   /// would be illegal there, so a mid-frame change defers to after the frame
   /// (the same hazard `PdfViewerController._notifySafely` guards).
-  void _setOnScreenRange(int first, int last) {
-    if (first == _onScreenSpan.first && last == _onScreenSpan.last) return;
+  void _setOnScreenRange(
+    int first,
+    int last,
+    int qualityFirst,
+    int qualityLast,
+  ) {
+    if (first == _onScreenSpan.first &&
+        last == _onScreenSpan.last &&
+        qualityFirst == _onScreenSpan.qualityFirst &&
+        qualityLast == _onScreenSpan.qualityLast) {
+      return;
+    }
     if (SchedulerBinding.instance.schedulerPhase ==
         SchedulerPhase.persistentCallbacks) {
       SchedulerBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _onScreenSpan.set(first, last);
+        if (mounted) {
+          _onScreenSpan.set(first, last, qualityFirst, qualityLast);
+        }
       });
     } else {
-      _onScreenSpan.set(first, last);
+      _onScreenSpan.set(first, last, qualityFirst, qualityLast);
     }
   }
 
@@ -7912,6 +7961,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
   /// [_PdfViewerPage.onScreenSpan] rather than passed down, so a span change
   /// rebuilds only the pages whose answer actually flipped.
   late bool _onScreen = widget.onScreenSpan.contains(widget.index);
+  late bool _qualityVisible = widget.onScreenSpan.qualityContains(widget.index);
 
   @override
   void initState() {
@@ -7921,8 +7971,14 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
 
   void _onSpanChanged() {
     final next = widget.onScreenSpan.contains(widget.index);
-    if (next == _onScreen || !mounted) return;
-    setState(() => _onScreen = next);
+    final nextQuality = widget.onScreenSpan.qualityContains(widget.index);
+    if ((next == _onScreen && nextQuality == _qualityVisible) || !mounted) {
+      return;
+    }
+    setState(() {
+      _onScreen = next;
+      _qualityVisible = nextQuality;
+    });
   }
 
   @override
@@ -7935,6 +7991,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
       oldWidget.onScreenSpan.removeListener(_onSpanChanged);
       widget.onScreenSpan.addListener(_onSpanChanged);
       _onScreen = widget.onScreenSpan.contains(widget.index);
+      _qualityVisible = widget.onScreenSpan.qualityContains(widget.index);
     }
     final pageImageChanged = oldWidget.pageEpoch != widget.pageEpoch ||
         oldWidget.destructiveStamp != widget.destructiveStamp ||
@@ -8026,7 +8083,12 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         destructiveStamp: widget.destructiveStamp,
         renderPriority: widget.renderPriority,
         focusDistance: widget.focusDistance,
-        onScreen: _onScreen,
+        onScreen: _onScreen || widget.focusDistance == 0,
+        // A programmatic jump can build its destination before the deferred
+        // visible-span measurement catches up. The explicit focus is already
+        // authoritative in that frame; otherwise the page records at the
+        // adaptive cap, then immediately re-records at foreground quality.
+        qualityVisible: _qualityVisible || widget.focusDistance == 0,
         pageColor: widget.pageColor,
         showAnnotations: widget.pageImagesShowAnnotations,
         trustContentStamp: widget.trustContentStamp,

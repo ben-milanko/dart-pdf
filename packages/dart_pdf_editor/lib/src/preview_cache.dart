@@ -681,6 +681,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
     PdfRetainedScene scene, {
     required PdfPageRenderPlan plan,
     required bool fromWorker,
+    double? imagePixelRatio,
     required int estimatedBytes,
     ui.Picture? picture,
   }) {
@@ -690,6 +691,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
       scene,
       picture: picture,
       fromWorker: fromWorker,
+      imagePixelRatio: imagePixelRatio,
       estimatedBytes: estimatedBytes,
     );
     final handle = entry.acquire();
@@ -1787,6 +1789,14 @@ class PdfRetainedSceneHandle {
     return entry.fromWorker;
   }
 
+  /// The screen-pixel ratio used when the scene's embedded images were
+  /// decoded. Null means the scene has no reduced image LoD to track.
+  double? get imagePixelRatio {
+    final entry = _entry;
+    if (entry == null) throw StateError('Retained scene handle is disposed');
+    return entry.imagePixelRatio;
+  }
+
   /// The complete page picture retained beside [scene], when the producer had
   /// one. It is owned by this handle/cache entry; callers must not dispose it.
   ui.Picture? get picture {
@@ -1826,6 +1836,7 @@ class _RetainedSceneEntry {
     this.scene, {
     this.picture,
     required this.fromWorker,
+    required this.imagePixelRatio,
     required this.estimatedBytes,
   });
 
@@ -1833,6 +1844,7 @@ class _RetainedSceneEntry {
   final PdfRetainedScene scene;
   final ui.Picture? picture;
   final bool fromWorker;
+  final double? imagePixelRatio;
   final int estimatedBytes;
 
   var _cacheReference = true;

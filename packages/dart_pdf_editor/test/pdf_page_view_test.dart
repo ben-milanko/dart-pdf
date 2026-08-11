@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/widgets.dart';
@@ -349,7 +350,7 @@ void main() {
     expect(ready, 1);
   });
 
-  testWidgets('a visible zoom neighbour sharpens only when it becomes focus',
+  testWidgets('both visible pages sharpen when the viewport spans a boundary',
       (tester) async {
     tester.view.physicalSize = const Size(800, 600);
     tester.view.devicePixelRatio = 1.0;
@@ -419,15 +420,15 @@ void main() {
 
     await tester.pumpWidget(pair(2, neighbourFocused: false));
     await waitForWidth(focusedKey, 1224);
-    expect(imageUnder(neighbourKey).width, 612,
-        reason: 'a partly visible neighbour keeps its transform-scaled base');
+    await waitForWidth(neighbourKey, 1224);
 
     await tester.pumpWidget(pair(2, neighbourFocused: true));
-    await waitForWidth(neighbourKey, 1224);
+    expect(imageUnder(focusedKey).width, 1224,
+        reason: 'crossing the integer current-page boundary must not make the '
+            'other still-visible page soft again');
   });
 
-  testWidgets('a layout-zoom neighbour sharpens only when it becomes focus',
-      (tester) async {
+  testWidgets('layout zoom sharpens every visible page', (tester) async {
     tester.view.physicalSize = const Size(800, 600);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
@@ -509,15 +510,15 @@ void main() {
       neighbourFocused: false,
     ));
     await waitForWidth(focusedKey, 612);
-    expect(imageUnder(neighbourKey).width, 306,
-        reason: 'layout zoom keeps a neighbour\'s prior raster');
+    await waitForWidth(neighbourKey, 612);
 
     await tester.pumpWidget(pair(
       612,
       settleGeneration: 1,
       neighbourFocused: true,
     ));
-    await waitForWidth(neighbourKey, 612);
+    expect(imageUnder(focusedKey).width, 612,
+        reason: 'both pages remain sharp while focus crosses the gap');
   });
 
   testWidgets('off-screen neighbours stay at fit raster resolution',
@@ -704,6 +705,108 @@ void main() {
     expect(narrow, same(wide));
     expect(narrow.width, 800,
         reason: 'a resize down must reuse the sharper existing raster');
+  });
+
+  testWidgets('a visible non-focused page reaches final image resolution',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final bytes = buildEmbeddedFontImagePdf();
+    final document = PdfDocument.open(bytes);
+    final worker = _RatioRecordingWorker(_LocalCommandWorker(bytes));
+    final performance = PdfPerformanceController();
+    addTearDown(worker.dispose);
+    addTearDown(performance.dispose);
+
+    await tester.pumpWidget(Center(
+      child: SizedBox(
+        width: 1224,
+        child: PdfPageView(
+          page: document.page(0),
+          renderWorker: worker,
+          performance: performance,
+          workerImagePixelRatioCap: 1.25,
+          focusDistance: 1,
+          onScreen: true,
+        ),
+      ),
+    ));
+    for (var i = 0; i < 200 && worker.imageRatios.length < 2; i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+
+    expect(worker.imageRatios, hasLength(greaterThanOrEqualTo(2)));
+    expect(worker.imageRatios.first, moreOrLessEquals(2, epsilon: 0.01),
+        reason: 'first content should use the visible physical footprint');
+    expect(worker.imageRatios.last, moreOrLessEquals(4, epsilon: 0.01),
+        reason: 'the adaptive cap may reduce speculative neighbours, but '
+            'every visible page must refine with resampling headroom above its '
+            '2x physical raster');
+  });
+
+  testWidgets('a focused mount rejects a retained reduced-image scene',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final bytes = buildEmbeddedFontImagePdf();
+    final document = PdfDocument.open(bytes);
+    final page = document.page(0);
+    final cache = PdfPagePreviewCache();
+    final worker = _RatioRecordingWorker(_LocalCommandWorker(bytes));
+    final performance = PdfPerformanceController();
+    addTearDown(cache.dispose);
+    addTearDown(worker.dispose);
+    addTearDown(performance.dispose);
+
+    late PdfRetainedScene scene;
+    late ui.Picture picture;
+    await tester.runAsync(() async {
+      scene = await PdfRetainedScene.record(page, maxImagePixelRatio: 1.25);
+      picture = scene.replay(pixelRatio: 1);
+    });
+    final producer = cache.retainScene(
+      0,
+      page,
+      scene,
+      plan: const PdfPageRenderPlan(),
+      fromWorker: false,
+      imagePixelRatio: 1.25,
+      estimatedBytes: 1,
+      picture: picture,
+    );
+    producer.dispose();
+
+    await tester.pumpWidget(Center(
+      child: SizedBox(
+        width: 1224,
+        child: PdfPageView(
+          page: page,
+          renderWorker: worker,
+          performance: performance,
+          previewCache: cache,
+          focusDistance: 0,
+          onScreen: true,
+        ),
+      ),
+    ));
+    for (var i = 0; i < 200 && worker.imageRatios.length < 2; i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+
+    expect(worker.imageRatios, hasLength(greaterThanOrEqualTo(2)),
+        reason: 'the focused page must re-record instead of flattening the '
+            'retained low-LoD scene into a final raster');
+    expect(worker.imageRatios.first, moreOrLessEquals(2, epsilon: 0.01));
+    expect(worker.imageRatios.last, moreOrLessEquals(4, epsilon: 0.01),
+        reason: 'the retained scene may look sufficient before first layout, '
+            'but must be re-evaluated against the focused physical width and '
+            'its final-quality resampling headroom');
   });
 
   testWidgets('a structural epoch bump drops the slot\'s stale raster',
@@ -1163,4 +1266,90 @@ class _DeferredRecordWorker extends PdfRenderWorker {
     release();
     _inner.dispose();
   }
+}
+
+class _RatioRecordingWorker extends PdfRenderWorker {
+  _RatioRecordingWorker(this._inner);
+
+  final PdfRenderWorker _inner;
+  final List<double> imageRatios = [];
+
+  @override
+  bool get isActive => _inner.isActive;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(
+    int pageIndex, {
+    bool annotations = true,
+    int priority = 0,
+    double? imagePixelRatio,
+    bool decodeImages = true,
+    int? commandLimit,
+    PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
+  }) {
+    if (decodeImages && imagePixelRatio != null) {
+      imageRatios.add(imagePixelRatio);
+    }
+    return _inner.record(
+      pageIndex,
+      annotations: annotations,
+      priority: priority,
+      imagePixelRatio: imagePixelRatio,
+      decodeImages: decodeImages,
+      commandLimit: commandLimit,
+      imageDecodeRegion: imageDecodeRegion,
+      onPartial: onPartial,
+    );
+  }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) =>
+      _inner.cancel(pageIndex, priority: priority);
+
+  @override
+  void dispose() => _inner.dispose();
+}
+
+/// In-process command worker used by the image-LoD tests. The production
+/// isolate may deliberately decline an inline-image buffer on some platforms,
+/// which would exercise PdfPageView's single-pass local fallback instead of
+/// the worker-backed staged refinement these tests pin.
+class _LocalCommandWorker extends PdfRenderWorker {
+  _LocalCommandWorker(List<int> bytes)
+      : _document = PdfDocument.open(Uint8List.fromList(bytes));
+
+  final PdfDocument _document;
+  bool _disposed = false;
+
+  @override
+  bool get isActive => !_disposed;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(
+    int pageIndex, {
+    bool annotations = true,
+    int priority = 0,
+    double? imagePixelRatio,
+    bool decodeImages = true,
+    int? commandLimit,
+    PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
+  }) async {
+    if (_disposed || pageIndex < 0 || pageIndex >= _document.pageCount) {
+      return null;
+    }
+    final page = _document.page(pageIndex);
+    final recorder = RecordingPdfDevice();
+    final interpreter = PdfInterpreter(cos: _document.cos, device: recorder)
+      ..drawPageContent(page, page.contentBytes());
+    if (annotations) interpreter.drawAnnotations(page);
+    return recorder.commands;
+  }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {}
+
+  @override
+  void dispose() => _disposed = true;
 }
