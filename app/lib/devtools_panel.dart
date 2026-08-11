@@ -33,6 +33,18 @@ const _defaultGpuPreviewDownloads = <String, String>{
   'Linux': String.fromEnvironment('PDF_GPU_LINUX_PREVIEW_URL'),
 };
 
+/// Identifies the exact artifact that produced a diagnostics export.
+///
+/// Version and build number are not enough for PR previews, where several
+/// commits intentionally share the same package version. Keep the compile-time
+/// commit beside them so a report can be matched to its deployed source.
+@visibleForTesting
+Map<String, String> devToolsBuildIdentity() => <String, String>{
+      'appVersion': AppInfo.version,
+      'appBuild': AppInfo.buildNumber,
+      'buildCommit': AppInfo.buildCommit,
+    };
+
 /// Developer tools panel. Create it only off-release. Docks as a side panel on
 /// wide screens; pass [bottomSheet] to render it as a phone bottom sheet.
 class DevToolsPanel extends StatefulWidget {
@@ -237,8 +249,7 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
       // Which build produced this export. Without it a report cannot be tied
       // to a revision - "slow on 2.0.0" is unactionable when several builds
       // share that version.
-      'appVersion': AppInfo.version,
-      'appBuild': AppInfo.buildNumber,
+      ...devToolsBuildIdentity(),
       'platform': kIsWeb ? 'web' : defaultTargetPlatform.name,
       'buildMode': kDebugMode
           ? 'debug'

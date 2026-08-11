@@ -71,7 +71,13 @@ Uint8List buildDenseVectorPdf({int rects = 4000}) {
   return Uint8List.fromList(buffer.toString().codeUnits);
 }
 
-Uint8List _buildTwoPageDenseVectorPdf({int rects = 8000}) {
+// Each rectangle contributes three PDF operators. Keep this above the native
+// worker's 64k-operation resumable-record chunk so the first page necessarily
+// reaches a cooperative cancellation boundary before it can finish. This test
+// used 8k rectangles when the chunk was 4k operations; the merged performance
+// work grew that chunk, making the old fixture too small to exercise
+// preemption at all.
+Uint8List _buildTwoPageDenseVectorPdf({int rects = 24000}) {
   final dense = StringBuffer();
   for (var i = 0; i < rects; i++) {
     dense.write('${(i % 10) / 10} 0 0 rg '
@@ -588,7 +594,8 @@ class _BinLogWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async {
+      PdfRect? imageDecodeRegion,
+      PdfPartialRecordSink? onPartial}) async {
     recordCalls.add((pageIndex, priority));
     return null;
   }
@@ -653,7 +660,8 @@ class _DefaultWorker extends PdfRenderWorker {
           double? imagePixelRatio,
           bool decodeImages = true,
           int? commandLimit,
-          PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) async =>
+          PdfRect? imageDecodeRegion,
+          PdfPartialRecordSink? onPartial}) async =>
       null;
 
   @override

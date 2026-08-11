@@ -65,6 +65,14 @@ void main() {
     AppDevTools.instance.clearLog();
   });
 
+  test('diagnostics identify the exact compiled revision', () {
+    final identity = devToolsBuildIdentity();
+
+    expect(identity, containsPair('appVersion', isNotEmpty));
+    expect(identity, contains('appBuild'));
+    expect(identity, containsPair('buildCommit', isNotEmpty));
+  });
+
   Future<void> pumpWithDoc(WidgetTester tester) async {
     await tester.pumpWidget(MaterialApp(
       home: EditorScreen(
