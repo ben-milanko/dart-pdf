@@ -9,7 +9,7 @@
 #   tool/perf.sh web loop [N]                   # legacy scroll loop, N iters
 #   tool/perf.sh webdiff <ref> [scenario] ...   # one-command web A/B vs a git ref
 #   tool/perf.sh competitive [scenario] ...     # DartPDF vs Chromium/PDFium journey
-#   tool/perf.sh pdfium-gate [scenario ...]      # all controlled-host parity budgets
+#   tool/perf.sh pdfium-gate [scenario ...]      # default-off surface experiment budgets
 #   tool/perf.sh screenshot-probe               # calibrate screenshot sample clock
 #   tool/perf.sh surface-check [scenario] ...   # worker canvas pixel gate
 #   tool/perf.sh compare-pdfium [corpus]        # dart-pdf vs PDFium tables

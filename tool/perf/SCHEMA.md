@@ -119,6 +119,8 @@ requests for every one PDFium request. Byte and request amplification have
 independent budgets. For range scenarios, `open*` remains a reported cold-app
 diagnostic while `document*` is the matched transport/document gate.
 
-The controlled-host acceptance front door is `tool/perf.sh pdfium-gate`. It
-runs the four representative content shapes plus the long-CAD and progressive-
-CAD scenarios with one shared build and fails if any `parity` entry is false.
+`tool/perf.sh pdfium-gate` runs the four representative content shapes plus the
+long-CAD and progressive-CAD scenarios with one shared build and fails if any
+`parity` entry is false. It currently pins the default-off SkWasm
+`domSurface=1` experiment, so it is that experiment's regression gate—not
+evidence that the default viewer or every platform has reached PDFium parity.

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Controlled-host PDFium parity acceptance suite.
+# Controlled-host regression suite for the default-off PDFium-parity surface
+# experiment. Passing it does not establish default-viewer or all-platform
+# parity; see doc/benchmarks/pdfium-parity.md.
 #
 # Absolute wall times are intentionally compared only to the interleaved
 # PDFium arm from the same run. Run this on a thermally stable machine with
@@ -40,4 +42,4 @@ for scenario in "${scenarios[@]}"; do
     --iterations "$ITERATIONS" --gate
 done
 
-echo "All PDFium parity budgets passed."
+echo "All configured experimental-surface budgets passed."

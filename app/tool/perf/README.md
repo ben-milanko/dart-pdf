@@ -51,7 +51,8 @@ tool/perf.sh competitive parity-diagram --iterations 5
 tool/perf.sh competitive parity-long-cad --iterations 5
 tool/perf.sh competitive parity-progressive-cad --iterations 5
 
-# Build once and gate all six scenarios. This is the acceptance front door.
+# Build once and gate all six scenarios for the default-off SkWasm
+# domSurface=1 experiment. A pass is not a default-viewer parity claim.
 tool/perf.sh pdfium-gate
 
 # Fail when a controlled runner misses the documented parity tolerances.
@@ -70,6 +71,11 @@ PERF_NO_BUILD=1 PERF_DART_QUERY=prewarm=0 \
 # Reproducible negative control: disable exact full-page raster retention.
 PERF_NO_BUILD=1 PERF_DART_QUERY=rasterCacheMb=0 \
   tool/perf.sh competitive parity-text --iterations 3
+
+# Save full-compositor PNGs after every stable page jump and zoom for both
+# engines. Timing readiness is not a substitute for checking the final pixels.
+PERF_SCREENSHOT_DIR=/tmp/dartpdf-parity-pixels \
+  tool/perf.sh competitive parity-scan --iterations 1
 
 # SkWasm uses an offscreen canvas, so validate it with full screenshots.
 WASM=1 PERF_VISUAL_CAPTURE=screenshot \

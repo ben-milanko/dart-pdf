@@ -133,12 +133,14 @@ budgets are:
 
 Parity requires every budget to pass across the agreed six-scenario set without
 a rendering-correctness regression. A single fast machine/run is diagnostic,
-not proof. `--gate` enforces one scenario; `tool/perf.sh pdfium-gate` builds once
-and runs all six with at least five interleaved samples per engine. The weekly
-`perf-pdfium` workflow runs that suite and uploads the raw envelopes. Interpret
-an isolated failure against the recorded host/GPU state and rerun it before
-changing an absolute product claim: hosted-runner contention can still make a
-low-margin timing result noisy even though the comparison is interleaved.
+not proof. `--gate` enforces one scenario. The existing
+`tool/perf.sh pdfium-gate` and weekly `perf-pdfium` workflow build once and run
+all six, but currently pin the default-off SkWasm `domSurface=1` experiment.
+They reproduce and guard that experiment; a green result is not a default-viewer
+or all-platform parity claim. Interpret any isolated failure against the
+recorded host/GPU state and rerun it before changing even an experiment-scoped
+claim: hosted-runner contention can still make a low-margin timing result noisy
+although the comparison is interleaved.
 
 ## Result evidence
 
@@ -158,7 +160,60 @@ The PDFium adapter uses Chrome's built-in PDF Viewer extension and validates
 the page/zoom methods before measuring. A changed Chrome contract is a harness
 failure, never a silently empty or zero-duration pass.
 
-## Provisional optimization checkpoint
+## Current default-viewer checkpoint (2026-08-11)
+
+The default JS/CanvasKit viewer is **not yet at PDFium interaction parity**.
+Five interleaved samples per engine were run at commit `b9c1f32d` on the
+reference 10-core Apple M1 Pro / Chrome 151 host with a 1400×1000 viewport and
+whole-compositor screencast timing. The runner marked the tree dirty because of
+untracked local test tooling; the built Dart sources corresponded to that
+commit. The input was the locally supplied, non-checked-in
+`8100_Time_Without_Tide_Quickstart.pdf` (62 pages, 24,121,963 bytes). Each run
+opened the full file in one request, jumped to zero-based pages 2 and 46,
+zoomed to 1.72×, then drove the standard matched down/up wheel sequence.
+
+| metric | DartPDF p50 / p95 | PDFium p50 / p95 | ratio p50 / p95 | budget result |
+|---|---:|---:|---:|---:|
+| open stable visual | 1680 / 1932 ms | 1531 / 1716 ms | 1.10× / 1.13× | pass |
+| document-only stable visual | 674 / 989 ms | 1527 / 1706 ms | 0.44× / 0.58× | diagnostic |
+| page first visual | 17 / 63 ms | 12 / 21 ms | 1.45× / 2.95× | diagnostic |
+| page stable visual | 303 / 419 ms | 129 / 142 ms | 2.34× / 2.95× | **fail** |
+| zoom first visual | 22 / 47 ms | 10 / 16 ms | 2.29× / 2.89× | diagnostic |
+| zoom stable visual | 30 / 47 ms | 10 / 16 ms | 3.17× / 2.89× | **fail** |
+| wheel journey | 320 / 397 ms | 1097 / 1237 ms | 0.29× / 0.32× | pass |
+| wheel rAF interval p95 | 25 ms | 10 ms | 2.50× | **fail** |
+| peak browser RSS p50 | 1478 MiB | 1287 MiB | 1.15× | pass |
+| settled browser RSS p50 | 1247 MiB | 1137 MiB | 1.10× | diagnostic |
+
+The split between first visual and stable visual is important. Page content
+usually appears within one or two frames, but worker record/decode/presentation
+work changes the final compositor frame hundreds of milliseconds later. The
+wheel journey also finishes much sooner than PDFium while producing a 2.5×
+worse rAF p95. Calling that journey simply “3.4× faster” would hide the
+interaction stalls the cadence metric exists to catch.
+
+The zoom-sharpening fix in this checkpoint removed the former indefinitely
+soft image layer and avoids a redundant second decode when the retained image
+already has at least one sample per physical display pixel. It did not make the
+remaining navigation and cadence gaps disappear. Post-zoom screenshots are now
+saved whenever `PERF_SCREENSHOT_DIR` is set, so future timing runs can verify
+the settled pixels rather than trusting an engine-ready flag.
+
+Reproduce this exact workload (with the PDF available at the named path) using:
+
+```sh
+PERF_PDF=/path/to/8100_Time_Without_Tide_Quickstart.pdf \
+PERF_PAGES=2,46 PERF_ZOOMS=1.72 \
+  tool/perf.sh competitive parity-plan --iterations 5
+```
+
+This is a desktop-web result. The rendering architecture is shared across
+platforms, but these ratios do not establish native macOS/Windows/Linux or
+physical iOS/Android performance.
+
+## Historical and experimental checkpoints
+
+### Initial provisional checkpoint (2026-08-09)
 
 The first three-run checkpoint was recorded on 2026-08-09 on an Apple Silicon
 Mac with 10 logical CPUs, Chrome 151, a 1400x1000 viewport, and the
@@ -470,10 +525,10 @@ Two interaction changes close the remaining repeated-work tails:
   re-decoding scans or replaying dense vector diagrams.
 
 Five interleaved clean-profile samples per engine on the reference Apple M1
-Pro / Chrome 151 host produced the following final development checkpoint.
-Each cell is DartPDF/PDFium p50 / p95; lower is better. Every configured budget
-passed. These are dirty-tree development results, and the worker-owned surface
-remains default-off.
+Pro / Chrome 151 host produced the following **experimental** checkpoint. Each
+cell is DartPDF/PDFium p50 / p95; lower is better. Every configured budget
+passed inside that experiment, but the worker-owned surface was default-off and
+these numbers do not describe the default viewer reported above.
 
 | scenario | open | page jump | zoom | wheel | rAF p95 | RSS p50 | search cold / warm |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -506,9 +561,10 @@ runner cannot infer an opt-in renderer experiment from an arbitrary build
 directory name. Result envelopes record all three values so histories cannot
 silently pool unlike paths.
 
-### Long-document and range-open acceptance (2026-08-10)
+### Long-document and range-open experimental checkpoint (2026-08-10)
 
-Two final five-sample scenarios close the long-document and transport gaps.
+Two five-sample scenarios closed the long-document and transport gaps inside
+the same default-off worker-surface experiment.
 `parity-long-cad` uses a deterministic 138-page, 4.8 MB A1 CAD document and
 adds seven normalized scrollbar scrubs, same-process warm reopen, and 250 ms
 process-tree RSS sampling through a two-second settled tail. Every gate passed:
@@ -523,9 +579,10 @@ process-tree RSS sampling through a two-second settled tail. Every gate passed:
 | warm reopen | 0.64× | 0.64× |
 
 Scroll and scrub rAF p95 were 1.00× and 0.99× PDFium. Peak and settled RSS
-were 0.85× and 0.81× respectively. This is the acceptance result for long
-documents; a point-in-time post-journey memory sample is no longer used as a
-proxy for the peak.
+were 0.85× and 0.81× respectively. This accepted the experimental
+long-document configuration; it is not an acceptance result for the current
+default viewer. A point-in-time post-journey memory sample is no longer used as
+a proxy for the peak.
 
 `parity-progressive-cad` serves the same bytes through a range-capable endpoint.
 DartPDF opens one sparse first-paint page locally, then replaces it with a
@@ -557,24 +614,30 @@ revision, avoiding one complete byte copy per worker.
 
 ## Acceptance scope and platform tiers
 
-“PDFium-class” now means that all six controlled desktop-web scenarios pass the
-checked-in budgets, their surface/corpus correctness gates remain green, and
-the run uses the default benchmark experiment recorded in the envelope
-(`SkWasm`, full-compositor screenshot timing, worker-owned strict-fallback
-surface). It does not mean every DartPDF feature is inherently faster than
-PDFium, nor that unlike platforms may reuse these ratios.
+Reserve “PDFium-class” for a configuration that passes all six controlled
+desktop-web scenarios with the checked-in budgets and green surface/corpus
+correctness gates. The configuration must be a product default, not a
+query-parameter experiment. By that definition, DartPDF does **not** currently
+have a general PDFium-class performance result. Passing the August 10
+worker-owned `domSurface=1` experiment proved that an architecture could meet
+the web budgets; it did not prove that the default CanvasKit viewer, native
+desktop builds, or mobile builds do.
 
 - **Tier A — controlled desktop web:** the six Puppeteer/Chromium journeys are
-  the acceptance gate. This tier is implemented, reproducible, and passed on
-  the reference Apple Silicon/Chrome 151 host with five samples per engine.
+  implemented and reproducible. The default viewer currently has known misses;
+  the latest real-document example is the checkpoint above. The historical
+  worker-owned experiment passed, but remains experimental evidence only.
 - **Tier B — native desktop:** use the offline PDFium raster column, Flutter
   functional/corpus tests, and native interaction/memory traces. Do not claim
   PDFium parity for a native host until a platform-specific matched journey is
-  run; the Chrome web result is evidence about the renderer and scheduling
-  architecture, not a substitute for native window/compositor measurements.
+  run. None is recorded here yet; Chrome web results are evidence about shared
+  renderer and scheduling code, not a substitute for native window/compositor
+  measurements.
 - **Tier C — mobile:** use physical iOS/Android devices and device-specific
   touch/fling, thermal, and memory budgets. Headless desktop Chrome cannot
-  establish mobile parity.
+  establish mobile parity, and no mobile parity claim is made here.
+
+There is therefore no all-platform PDFium parity claim at present.
 
 Future optimization work starts from the largest reproducible budget miss,
 profiles that exact scenario, makes one targeted change, then reruns the common
