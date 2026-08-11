@@ -1804,6 +1804,26 @@ class _PdfPageViewState extends State<PdfPageView>
       _pictureImageRatio == null ||
       _pictureImageRatio! >= _effectiveRatio() * 0.99;
 
+  /// Whether a transform-retained picture's embedded images are sharp at the
+  /// live zoom, rather than merely at the fit-size backing resolution.
+  ///
+  /// [_renderedAtDisplayImageRatio] intentionally answers the latter: it is
+  /// used to decide whether a retained picture can replace the base raster.
+  /// With [baseRasterScale] set, however, [_effectiveRatio] stays at the fit
+  /// ratio while the viewer transform can be many times larger. Using that
+  /// answer to suppress [_updateDetail] leaves vector/text transform-sharp but
+  /// permanently magnifies the fit-size image decode (the CAD symptom is crisp
+  /// labels over a blocky raster underlay). Native image pixels cannot be
+  /// improved by another decode; otherwise compare with the uncapped live
+  /// display footprint that the detail/tile path exists to supply.
+  bool _pictureImagesAreSharpAtZoom() {
+    if (!_pictureHasImageDraws) return true;
+    if (_scene?.imagesAtNativeResolution ?? false) return true;
+    final imageRatio = _pictureImageRatio;
+    return imageRatio != null &&
+        imageRatio >= _desiredRatioAt(widget.scale) * 0.99;
+  }
+
   /// Refines the initial cold page's 1x embedded-image decode after its first
   /// raster has reached the compositor. The existing raster remains the
   /// backing layer, so this is a soft-to-sharp transition rather than another
@@ -3489,7 +3509,7 @@ class _PdfPageViewState extends State<PdfPageView>
     // change. This is the common <=2x zoom path after a 2x-headroom base
     // record. Beyond that ratio the detail/tile path resumes normally.
     if ((_directPicture != null || _slugPicture != null) &&
-        _renderedAtDisplayImageRatio()) {
+        _pictureImagesAreSharpAtZoom()) {
       _dropDetail();
       return true;
     }

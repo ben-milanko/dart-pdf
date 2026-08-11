@@ -141,6 +141,86 @@ void main() {
     expect(find.byType(RawImage), findsNothing);
   });
 
+  testWidgets('a direct picture refines display-capped images at the live zoom',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    PdfPageView.directPicturePresentation = true;
+    final bytes = buildSyntheticRasterUnderlaySheet(
+      underlays: const [PdfUnderlaySpec(width: 1024, height: 1024)],
+      layers: 1,
+      ops: 0,
+      pageW: 256,
+      pageH: 256,
+    );
+    final document = PdfDocument.open(bytes);
+    final worker = _RatioRecordingWorker(_LocalCommandWorker(bytes));
+    addTearDown(worker.dispose);
+
+    Widget at(double scale, int settleGeneration) => Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 256,
+            child: PdfPageView(
+              page: document.page(0),
+              scale: scale,
+              settleGeneration: settleGeneration,
+              baseRasterScale: 1,
+              renderWorker: worker,
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(at(1, 0));
+    for (var i = 0; i < 300; i++) {
+      await tester.pump();
+      if (find
+          .byKey(const ValueKey('pdf-page-direct-picture'))
+          .evaluate()
+          .isNotEmpty) {
+        break;
+      }
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+    expect(
+      find.byKey(const ValueKey('pdf-page-direct-picture')),
+      findsOneWidget,
+      reason: 'the fit-size display list should be retained before zooming',
+    );
+    expect(worker.imageRatios, contains(moreOrLessEquals(2, epsilon: 0.01)),
+        reason: 'the retained base picture uses fit-size decode headroom');
+
+    await tester.pumpWidget(at(4, 1));
+    for (var i = 0; i < 300; i++) {
+      await tester.pump();
+      if (worker.imageRatios.any((ratio) => ratio >= 3.9) &&
+          find
+              .byKey(const ValueKey('pdf-page-detail-image'))
+              .evaluate()
+              .isNotEmpty) {
+        break;
+      }
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+
+    expect(
+      find.byKey(const ValueKey('pdf-page-direct-picture')),
+      findsOneWidget,
+      reason: 'vector and text should remain transform-sharp',
+    );
+    expect(worker.imageRatios, contains(greaterThanOrEqualTo(3.9)),
+        reason: 'the image-bearing visible region must decode at the live '
+            'zoom instead of treating the fit-size picture as complete');
+    expect(
+      find.byKey(const ValueKey('pdf-page-detail-image')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('a base scale keeps fit pixels and sharpens the visible slice',
       (tester) async {
     tester.view.devicePixelRatio = 1.0;
