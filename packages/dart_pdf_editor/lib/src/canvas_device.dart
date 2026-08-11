@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter/painting.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
@@ -40,11 +40,7 @@ const _redToAlpha = <double>[
 /// fonts, horizontally scaled to the PDF's own metrics, until the font
 /// engine produces real glyph outlines. Images must be pre-decoded into
 /// [images] (painting is synchronous).
-class CanvasPdfDevice
-    implements
-        PdfDevice,
-        PdfTiledCellSink,
-        PdfTextBatchSink {
+class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
   CanvasPdfDevice(this.canvas, {this.images = const {}, this.pixelRatio = 1});
 
   final Canvas canvas;
@@ -1466,8 +1462,36 @@ class CanvasPdfDevice
       matrix[13] = glyph.offset * transform.b +
           glyph.offsetY * transform.d +
           transform.f;
-      path.addPath(_glyphUiPath(outline), Offset.zero, matrix4: matrix);
+      // Flutter web's Path is lazy: addPath retains the matrix object in an
+      // AddPathCommand until CanvasKit materializes the destination path. If
+      // every glyph receives this same mutable list, they all observe a later
+      // glyph's translation and collapse into the corrupted text seen on the
+      // Time Without Tide pages. Native Path consumes the matrix immediately,
+      // so keep its allocation-free loop; web needs a value snapshot per
+      // deferred command.
+      path.addPath(
+        _glyphUiPath(outline),
+        Offset.zero,
+        matrix4: debugGlyphPathMatrixForEngine(matrix),
+      );
     }
+  }
+
+  /// Returns the matrix representation appropriate for an immediate or lazy
+  /// engine path command.
+  @visibleForTesting
+  static Float64List debugGlyphPathMatrixForEngine(
+    Float64List matrix, {
+    bool deferred = kIsWeb,
+  }) =>
+      deferred ? Float64List.fromList(matrix) : matrix;
+
+  /// Materializes the combined outline bounds used by the web regression test.
+  @visibleForTesting
+  static Rect debugEmbeddedGlyphPathBounds(PdfTextRun run) {
+    final path = ui.Path();
+    _appendGlyphOutlines(path, run);
+    return path.getBounds();
   }
 
   @override
@@ -1693,9 +1717,9 @@ class CanvasPdfDevice
   }
 
   static ui.Path _emptyUiPath(PdfFillRule rule) => ui.Path()
-      ..fillType = rule == PdfFillRule.evenOdd
-          ? PathFillType.evenOdd
-          : PathFillType.nonZero;
+    ..fillType = rule == PdfFillRule.evenOdd
+        ? PathFillType.evenOdd
+        : PathFillType.nonZero;
 
   static void _appendUiPath(ui.Path out, PdfPath path) {
     final cursor = path.cursor();

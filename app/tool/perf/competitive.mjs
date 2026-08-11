@@ -11,7 +11,7 @@
 //   node competitive.mjs --scenario parity-plan --iterations 3
 //   node competitive.mjs --scenario parity-scan --iterations 5 --gate
 
-import { appendFile, readFile, stat } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, stat } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { execFileSync } from 'node:child_process';
@@ -126,6 +126,22 @@ const outPath = normalize(
       join(HERE, `results-competitive-${scenarioName}.ndjson`),
   ),
 );
+const diagnosticScreenshotDir = process.env.PERF_SCREENSHOT_DIR == null
+  ? null
+  : resolve(process.env.PERF_SCREENSHOT_DIR);
+
+async function captureDiagnostic(page, engine, iteration, pageIndex) {
+  if (diagnosticScreenshotDir == null) return;
+  await mkdir(diagnosticScreenshotDir, {recursive: true});
+  await page.screenshot({
+    path: join(
+      diagnosticScreenshotDir,
+      `${engine}-run-${iteration}-page-${pageIndex + 1}.png`,
+    ),
+    type: 'png',
+    fromSurface: true,
+  });
+}
 const pdfPath = normalize(
   process.env.PERF_PDF ??
     (scenario ? join(REPO_ROOT, scenario.pdf) : ''),
@@ -1318,6 +1334,7 @@ async function runDartPdf(serverStats, iteration) {
       const readyAt = await readyPromise;
       navigationReadySamplesMs.push(readyAt - actionMark.at);
       const settled = await visualPromise;
+      await captureDiagnostic(page, 'dartpdf', iteration, target);
       navigationFirstVisualSamplesMs.push(settled.firstVisualElapsedMs);
       navigationSamplesMs.push(settled.visualElapsedMs);
       screencastFrameBytes.push(...settled.frameBytes);
@@ -1769,6 +1786,7 @@ async function runPdfium(serverStats, iteration) {
       const arrived = await readyPromise;
       navigationReadySamplesMs.push(performance.now() - actionMark.at);
       const settled = await visualPromise;
+      await captureDiagnostic(page, 'pdfium', iteration, target);
       navigationFirstVisualSamplesMs.push(settled.firstVisualElapsedMs);
       navigationSamplesMs.push(settled.visualElapsedMs);
       screencastFrameBytes.push(...settled.frameBytes);
