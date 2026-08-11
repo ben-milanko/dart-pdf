@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Promote fast-scroll page previews through a configurable 200 -> 400 -> 800
+  px LoD ladder before the final display raster. Intermediate levels warm only
+  around the viewport, share a 32 MiB byte-budgeted LRU, and are generated from
+  completed page rasters by serial image blits when possible; live pages never
+  downgrade when a cached level is evicted. Expose LoD occupancy and evictions
+  through `PdfViewerController.pagePreviewLodStats` and perf logs.
 - Let a tile raster session opt out of adjacent-tile slab batching and cap new
   work admitted by each paint, while preserving Canvas batching and existing
   third-party session compatibility. Expose the exact visible-tile budget

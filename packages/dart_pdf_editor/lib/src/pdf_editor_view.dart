@@ -261,6 +261,7 @@ class PdfEditorView extends StatefulWidget {
     this.viewerTheme,
     this.rasterCache,
     this.textCache,
+    this.pagePreviewLodPolicy = const PdfPagePreviewLodPolicy(),
     this.pageRasterCachePolicy = const PdfPageRasterCachePolicy(),
     this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
   })  : source = null,
@@ -350,6 +351,7 @@ class PdfEditorView extends StatefulWidget {
     this.viewerTheme,
     this.rasterCache,
     this.textCache,
+    this.pagePreviewLodPolicy = const PdfPagePreviewLodPolicy(),
     this.pageRasterCachePolicy = const PdfPageRasterCachePolicy(),
     this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
   })  : bytes = null,
@@ -397,6 +399,10 @@ class PdfEditorView extends StatefulWidget {
   /// active edit session mutates page content, so its text is never served
   /// from the content-keyed persistent cache (in-memory only).
   final PdfPageTextCache? textCache;
+
+  /// Intermediate fast-scroll preview levels and their shared memory budget.
+  /// See [PdfViewer.pagePreviewLodPolicy].
+  final PdfPagePreviewLodPolicy pagePreviewLodPolicy;
 
   /// Memory policy for exact full-resolution rasters of previously visited
   /// pages. See [PdfViewer.pageRasterCachePolicy].
@@ -1449,6 +1455,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         tileRasterBackend: widget.tileRasterBackend,
                         rasterCache: widget.rasterCache,
                         textCache: widget.textCache,
+                        pagePreviewLodPolicy: widget.pagePreviewLodPolicy,
                         pageRasterCachePolicy: widget.pageRasterCachePolicy,
                         pageRasterWarmPolicy: widget.pageRasterWarmPolicy,
                         documentId: _documentKey,
