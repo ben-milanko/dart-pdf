@@ -13,9 +13,25 @@ import 'package:pdf_graphics/raster.dart';
 import 'package:web/web.dart' as web;
 
 import 'region_replay_index.dart';
+import 'jpeg_accelerator.dart';
 import 'render_worker_transcript_cache.dart';
 import 'web_canvas_device.dart';
 import 'web_surface_profile.dart';
+
+const _workerPerfLogEnabled = bool.fromEnvironment('PDF_PERF_LOG');
+
+// One worker task handoff per chunk keeps cancellation responsive. Dense CAD
+// pages made the old 4096-op interval spend a material fraction of record time
+// in ~165 browser task turns; 64k reduces that to about 11 while keeping the
+// measured worst chunk near 50ms on the corpus.
+const _webRecordYieldOperations = 65536;
+
+void _workerPerfLog(String message) {
+  if (_workerPerfLogEnabled) _workerConsoleLog('[perf] $message'.toJS);
+}
+
+@JS('console.log')
+external void _workerConsoleLog(JSAny? message);
 
 // Cached smaller backings per live surface. Eight megapixels in total bounds
 // each surface to 32 MiB RGBA; A1 2x canvases (~16 MP / 64 MiB) deliberately
@@ -155,6 +171,7 @@ bool _presentPageSurfaceBitmap(
 ///   pixelRatio, regionLeft..regionTop}` → replies with transferable command
 ///   and plan buffers produced by one cancellable worker job.
 void runPdfRenderWorker() {
+  installPdfJpegAccelerator();
   final scope = globalContext as web.DedicatedWorkerGlobalScope;
   PdfDocument? document;
   // One decoded-image cache per open document. A worker records the same page
@@ -164,6 +181,7 @@ void runPdfRenderWorker() {
   // (stream, target size), so it cannot change what a record renders.
   var imageCache = PdfImageDecodeCache();
   var flateSampleCache = _BrowserFlateSampleCache();
+  var flatePredecoder = _BrowserFlatePredecoder(flateSampleCache);
   var reuseTranscripts = true;
   var collectTimings = false;
   PdfCancellationToken? activeToken;
@@ -208,6 +226,7 @@ void runPdfRenderWorker() {
         document = PdfDocument.open(bytes);
         imageCache = PdfImageDecodeCache(); // new document, new streams
         flateSampleCache = _BrowserFlateSampleCache();
+        flatePredecoder = _BrowserFlatePredecoder(flateSampleCache);
         for (final cached in pageSurfaceBitmaps.values) {
           cached.dispose();
         }
@@ -370,12 +389,18 @@ void runPdfRenderWorker() {
               );
             }
             if (!painted) {
+              await flatePredecoder.prepare(
+                doc,
+                pageIndex,
+                token,
+                timings: timings,
+              );
               final transcript = await transcriptCache.transcriptFor(
                 doc,
                 pageIndex,
                 annotations,
                 token,
-                yieldInterval: 4096,
+                yieldInterval: _webRecordYieldOperations,
                 timings: timings,
               );
               if (transcript != null && !token.cancelled) {
@@ -417,6 +442,14 @@ void runPdfRenderWorker() {
                       maxPixelRatio: surfaceRegion == null ? ratio : 2,
                     );
                     if (grayFrames == null) {
+                      final budgetScale = ratio == null
+                          ? 1.0
+                          : pdfCommandImageBudgetScale(
+                              commands,
+                              doc.cos,
+                              ratio,
+                              pageRasterPixels: width * height,
+                            );
                       commands = await _withBrowserDecodedImages(
                         doc.cos,
                         imageCache,
@@ -424,6 +457,7 @@ void runPdfRenderWorker() {
                         token,
                         tally,
                         maxImagePixelRatio: ratio,
+                        imageBudgetScale: budgetScale,
                         flateSampleCache: flateSampleCache,
                       );
                     } else {
@@ -434,7 +468,11 @@ void runPdfRenderWorker() {
                       decodeClock.stop();
                       timings!.decodeUs += decodeClock.elapsedMicroseconds;
                       timings.imageDecodeSummary = grayFrames == null
-                          ? tally!.format()
+                          ? '${tally!.format()} '
+                              'cache=${imageCache.hits}h/'
+                              '${imageCache.misses}m/${imageCache.length}e/'
+                              '${imageCache.bytes}B '
+                              'flateSamples=${flateSampleCache.bytes}B'
                           : 'videoGray=${grayFrames.frames.length}';
                     }
                   }
@@ -532,6 +570,12 @@ void runPdfRenderWorker() {
         final doc = document;
         try {
           if (doc != null) {
+            await flatePredecoder.prepare(
+              doc,
+              page,
+              token,
+              timings: timings,
+            );
             if (kind == 'detail') {
               final region = PdfRect(
                 (data.getProperty('regionLeft'.toJS) as JSNumber).toDartDouble,
@@ -626,6 +670,12 @@ void runPdfRenderWorker() {
         final doc = document;
         try {
           if (doc != null) {
+            await flatePredecoder.prepare(
+              doc,
+              page,
+              token,
+              timings: timings,
+            );
             out = await _buildRegionIndexAsync(
               doc,
               transcriptCache,
@@ -751,9 +801,16 @@ void runPdfRenderWorker() {
       final doc = document;
       try {
         if (doc != null) {
+          await flatePredecoder.prepare(
+            doc,
+            page,
+            token,
+            timings: timings,
+          );
           out = await _recordPageAsync(
             doc,
             imageCache,
+            flateSampleCache,
             transcriptCache,
             reuseTranscripts,
             page,
@@ -811,8 +868,11 @@ void _postResult(
     scope.postMessage(result);
     return;
   }
-  // Copy to an exact-length buffer, then transfer it (zero-copy).
-  final jsBuffer = Uint8List.fromList(out).buffer.toJS;
+  // Command-codec results are already tight buffers (`_Writer.takeBytes`).
+  // Transfer that storage directly instead of copying the whole transcript a
+  // second time on the worker immediately before detaching it. Keep the
+  // defensive slice for any future caller that hands this helper a view.
+  final jsBuffer = _tightTransferBuffer(out);
   result.setProperty('buffer'.toJS, jsBuffer);
   scope.postMessage(result, <JSAny>[jsBuffer].toJS);
 }
@@ -826,7 +886,7 @@ void _postPartial(
   int id,
   Uint8List partial,
 ) {
-  final jsBuffer = Uint8List.fromList(partial).buffer.toJS;
+  final jsBuffer = _tightTransferBuffer(partial);
   final message = JSObject()
     ..setProperty('kind'.toJS, 'partial'.toJS)
     ..setProperty('id'.toJS, id.toJS)
@@ -842,8 +902,8 @@ void _postDetailResult(
   PdfWorkerPhaseTimings? timings,
   int? workerUs,
 ) {
-  final commandBuffer = Uint8List.fromList(commands).buffer.toJS;
-  final planBuffer = Uint8List.fromList(plan).buffer.toJS;
+  final commandBuffer = _tightTransferBuffer(commands);
+  final planBuffer = _tightTransferBuffer(plan);
   final result = JSObject()
     ..setProperty('kind'.toJS, 'result'.toJS)
     ..setProperty('id'.toJS, id.toJS)
@@ -851,6 +911,14 @@ void _postDetailResult(
     ..setProperty('planBuffer'.toJS, planBuffer);
   _attachTimings(result, timings, workerUs);
   scope.postMessage(result, <JSAny>[commandBuffer, planBuffer].toJS);
+}
+
+JSArrayBuffer _tightTransferBuffer(Uint8List bytes) {
+  final tight = bytes.offsetInBytes == 0 &&
+          bytes.lengthInBytes == bytes.buffer.lengthInBytes
+      ? bytes
+      : Uint8List.fromList(bytes);
+  return tight.buffer.toJS;
 }
 
 void _attachTimings(
@@ -895,6 +963,7 @@ JSUint8Array _jsUint8View(JSObject buffer) {
 Future<Uint8List?> _recordPageAsync(
   PdfDocument document,
   PdfImageDecodeCache imageCache,
+  _BrowserFlateSampleCache flateSampleCache,
   PdfWorkerTranscriptCache cache,
   bool reuseTranscripts,
   int pageIndex,
@@ -926,7 +995,7 @@ Future<Uint8List?> _recordPageAsync(
       page,
       page.contentBytes(),
       operationLimit: previewOperationLimit,
-      yieldInterval: 4096,
+      yieldInterval: _webRecordYieldOperations,
     );
     if (streamClock != null) {
       streamClock.stop();
@@ -945,7 +1014,7 @@ Future<Uint8List?> _recordPageAsync(
       pageIndex,
       annotations,
       token,
-      yieldInterval: 4096,
+      yieldInterval: _webRecordYieldOperations,
       timings: timings,
       onPartial: onPartial,
     );
@@ -975,6 +1044,16 @@ Future<Uint8List?> _recordPageAsync(
   if (decodeImages) {
     final decodeClock = timings == null ? null : (Stopwatch()..start());
     final tally = timings == null ? null : _BrowserDecodeTally();
+    final pageRasterPixels = pdfPageRasterPixels(page.cropBox, imagePixelRatio);
+    final imageBudgetScale = imagePixelRatio == null
+        ? 1.0
+        : pdfCommandImageBudgetScale(
+            commands,
+            document.cos,
+            imagePixelRatio,
+            imageDecodeRegion: imageDecodeRegion,
+            pageRasterPixels: pageRasterPixels,
+          );
     commands = await _withBrowserDecodedImages(
       document.cos,
       imageCache,
@@ -982,6 +1061,8 @@ Future<Uint8List?> _recordPageAsync(
       token,
       tally,
       maxImagePixelRatio: imagePixelRatio,
+      imageBudgetScale: imageBudgetScale,
+      flateSampleCache: flateSampleCache,
     );
     if (decodeClock != null) {
       decodeClock.stop();
@@ -994,7 +1075,8 @@ Future<Uint8List?> _recordPageAsync(
     if (tally != null) {
       timings!.imageDecodeSummary = '${tally.format()} '
           'cache=${imageCache.hits}h/${imageCache.misses}m'
-          '/${imageCache.length}e';
+          '/${imageCache.length}e/${imageCache.bytes}B '
+          'flateSamples=${flateSampleCache.bytes}B';
     }
   }
   // Decode the page's images in the worker too: the buffer carries
@@ -1044,7 +1126,7 @@ Future<Uint8List?> _binStripsAsync(
     pageIndex,
     annotations,
     token,
-    yieldInterval: 4096,
+    yieldInterval: _webRecordYieldOperations,
     timings: timings,
   );
   if (transcript == null) return null;
@@ -1094,7 +1176,7 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
     pageIndex,
     annotations,
     token,
-    yieldInterval: 4096,
+    yieldInterval: _webRecordYieldOperations,
     timings: timings,
   );
   if (transcript == null) return null;
@@ -1116,7 +1198,11 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
     decodeClock.stop();
     timings!.decodeUs += decodeClock.elapsedMicroseconds;
   }
-  if (tally != null) timings!.imageDecodeSummary = tally.format();
+  if (tally != null) {
+    timings!.imageDecodeSummary = '${tally.format()} '
+        'cache=${imageCache.hits}h/${imageCache.misses}m'
+        '/${imageCache.length}e/${imageCache.bytes}B';
+  }
   if (token.cancelled) throw const PdfCancelledException();
   final serializeClock = timings == null ? null : (Stopwatch()..start());
   final commandBuffer = serializeCommands(
@@ -1169,11 +1255,15 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
 /// cached across page records. Deferring those made a warm worker-cache hit a
 /// several-hundred-millisecond main-isolate decode on image-heavy pages.
 ///
-/// Although the portable core can decode a DCT soft mask (and native isolate
-/// workers use that path), dart2js JPEG decode plus an RGBA transfer is slower
-/// and much more memory-hungry than retaining the source for browser-codec
-/// composition. Non-DCT images keep the existing worker decode, including
-/// native CompressionStream inflation for simple Flate.
+/// A DCT soft mask over a portable non-DCT base stays in this worker: the
+/// installed libjpeg-turbo module supplies the grayscale plane without a
+/// platform readback, while browser-native Flate preparation has already
+/// seeded the base stream. That produces one composited surface instead of a
+/// base+mask pair and removes the consumer's saveLayer cost. When the base is
+/// itself DCT, keep both streams compressed for the consumer; otherwise the
+/// worker would also have to materialize the colour JPEG before transfer.
+/// Non-DCT images keep the existing worker decode, including native
+/// CompressionStream inflation for simple Flate.
 bool _webWorkerImageDecodeFilter(
   CosDocument cos,
   PdfImageRequest request,
@@ -1187,7 +1277,8 @@ bool _webWorkerImageDecodeFilter(
   if (softMask is CosStream) {
     final maskFilters = pdfImageFilters(cos, softMask.dictionary);
     if (maskFilters.contains('DCTDecode') || maskFilters.contains('DCT')) {
-      return false;
+      final baseFilters = pdfImageFilters(cos, dict);
+      return !baseFilters.contains('DCTDecode') && !baseFilters.contains('DCT');
     }
   }
   final filters = pdfImageFilters(cos, dict);
@@ -1218,7 +1309,7 @@ Future<Uint8List?> _buildRegionIndexAsync(
     pageIndex,
     annotations,
     token,
-    yieldInterval: 4096,
+    yieldInterval: _webRecordYieldOperations,
     timings: timings,
   );
   if (transcript == null) return null;
@@ -1238,6 +1329,7 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
   PdfCancellationToken token,
   _BrowserDecodeTally? tally, {
   double? maxImagePixelRatio,
+  double imageBudgetScale = 1.0,
   _BrowserFlateSampleCache? flateSampleCache,
 }) async {
   var changed = false;
@@ -1262,63 +1354,111 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
         // colour-correct decoder below.
         if (hasDctBase &&
             pdfImageDctSoftMaskBytes(cos, request.stream.dictionary) == null) {
-          tally?.decline('consumerDct');
-          out.add(command);
-          continue;
-        }
-        final isFlate = filters.length == 1 &&
-            (filters.single == 'FlateDecode' || filters.single == 'Fl');
-        if (isFlate && maxImagePixelRatio != null) {
-          // dart2js's package:archive inflate dominated scanned pages even
-          // after their RGBA payload was capped to the fit raster. Let Chrome's
-          // native Compression Streams implementation inflate simple Flate
-          // RGB/gray samples, then use the same target-sized pure-Dart colour
-          // conversion as every other decoder. Unsupported image semantics
-          // fall through untouched to serializeCommands' general path.
-          final target = _browserFlateTarget(cos, request, maxImagePixelRatio);
-          if (target != null) {
-            decoded = imageCache.get(
-              request.stream,
-              target.$1,
-              target.$2,
+          if (maxImagePixelRatio != null &&
+              pdfImageColorFamily(cos, request.stream.dictionary) ==
+                  'DeviceCMYK') {
+            final target = _browserImageTarget(
+              cos,
+              request,
+              maxImagePixelRatio,
+              imageBudgetScale,
             );
-            if (decoded == null) {
-              decoded = await _decodeBrowserFlate(
-                cos,
+            if (target != null) {
+              decoded = imageCache.get(
                 request.stream,
-                filters.single,
                 target.$1,
                 target.$2,
-                flateSampleCache,
               );
-              if (decoded != null) {
-                imageCache.put(
+              if (decoded == null) {
+                decoded = await _decodeBrowserFlateSoftMaskComposite(
+                  cos,
                   request.stream,
                   target.$1,
                   target.$2,
-                  decoded,
+                  flateSampleCache,
                 );
-                tally?.flate++;
+                if (decoded != null) {
+                  imageCache.put(
+                    request.stream,
+                    target.$1,
+                    target.$2,
+                    decoded,
+                  );
+                  tally?.flate++;
+                }
               } else {
-                tally?.decline('flateNative');
+                tally?.reused();
+              }
+            }
+          }
+          if (decoded == null) {
+            tally?.decline('consumerDct');
+            out.add(command);
+            continue;
+          }
+        }
+        if (decoded == null) {
+          final isFlate = filters.length == 1 &&
+              (filters.single == 'FlateDecode' || filters.single == 'Fl');
+          if (isFlate && maxImagePixelRatio != null) {
+            // dart2js's package:archive inflate dominated scanned pages even
+            // after their RGBA payload was capped to the fit raster. Let
+            // Chrome's native Compression Streams implementation inflate
+            // simple Flate RGB/gray samples, then use the same target-sized
+            // pure-Dart colour conversion as every other decoder. Unsupported
+            // image semantics fall through untouched to serializeCommands'
+            // general path.
+            final target =
+                _browserFlateTarget(cos, request, maxImagePixelRatio);
+            if (target != null) {
+              decoded = imageCache.get(
+                request.stream,
+                target.$1,
+                target.$2,
+              );
+              if (decoded == null) {
+                decoded = await _decodeBrowserFlate(
+                  cos,
+                  request.stream,
+                  filters.single,
+                  target.$1,
+                  target.$2,
+                  flateSampleCache,
+                );
+                if (decoded != null) {
+                  imageCache.put(
+                    request.stream,
+                    target.$1,
+                    target.$2,
+                    decoded,
+                  );
+                  tally?.flate++;
+                } else {
+                  tally?.decline('flateNative');
+                }
+              } else {
+                tally?.reused();
+              }
+            }
+          } else {
+            // The browser JPEG codec decodes at native resolution with no
+            // target, so one entry per stream serves every record of the page.
+            // Uncached, a page recorded three times in a scroll ran the codec
+            // three times - ~330-630ms each in the device trace (#451).
+            decoded = imageCache.get(
+              request.stream,
+              null,
+              null,
+            );
+            if (decoded == null) {
+              decoded =
+                  await _decodeWithBrowserCodec(cos, request.stream, tally);
+              if (decoded != null) {
+                imageCache.put(request.stream, null, null, decoded);
               }
             } else {
               tally?.reused();
             }
-          }
-        } else {
-          // The browser JPEG codec decodes at native resolution with no target,
-          // so one entry per stream serves every record of the page. Uncached,
-          // a page recorded three times in a scroll ran the codec three times -
-          // ~330-630ms each in the device trace (#451).
-          decoded = imageCache.get(request.stream, null, null);
-          if (decoded == null) {
-            decoded = await _decodeWithBrowserCodec(cos, request.stream, tally);
-            if (decoded != null) {
-              imageCache.put(request.stream, null, null, decoded);
-            }
-          } else {
-            tally?.reused();
           }
         }
         if (decoded == null) {
@@ -1342,6 +1482,7 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
           token,
           tally,
           maxImagePixelRatio: maxImagePixelRatio,
+          imageBudgetScale: imageBudgetScale,
           flateSampleCache: flateSampleCache,
         );
         if (!identical(decodedMaskCommands, maskCommands)) changed = true;
@@ -1369,14 +1510,46 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
 ) {
   if (!globalContext.has('DecompressionStream')) return null;
   final dict = request.stream.dictionary;
-  if (cos.resolve(dict['ImageMask']) == const CosBoolean(true) ||
-      dict.containsKey('SMask') ||
-      dict.containsKey('Mask')) {
-    return null;
-  }
+  if (dict.containsKey('SMask')) return null;
   final bits = cos.resolve(dict['BitsPerComponent']);
-  if (bits is! CosInteger || bits.value != 8) return null;
+  if (bits is! CosInteger) return null;
+  final isMask = cos.resolve(dict['ImageMask']) == const CosBoolean(true);
+  final mask = cos.resolve(dict['Mask']);
   final family = pdfImageColorFamily(cos, dict);
+  final supportedMask =
+      mask is CosNull || mask is CosArray || mask is CosStream;
+
+  // The shared scaled decoder handles packed Indexed samples directly,
+  // without ever expanding the native image to RGBA. Large-format CAD exports
+  // commonly pair an 8-bit Indexed underlay with a separate 1-bit stencil
+  // /Mask (ly9 page 22 is one). Keeping that pair on dart2js's zlib path made
+  // a fit-width page spend more than a second inflating a few megabytes of
+  // samples, even though the final raster needed under one megapixel.
+  // Browser-native inflate changes only how the Flate filters are evaluated;
+  // the established shared decoder still owns /Decode polarity, palette
+  // lookup, masking, and target-sized scaling. If the mask itself is not a
+  // simple Flate stream, _decodeBrowserFlate declines and the serializer's
+  // fully general portable path remains the fallback.
+  if (family == 'Indexed' &&
+      supportedMask &&
+      (bits.value == 1 ||
+          bits.value == 2 ||
+          bits.value == 4 ||
+          bits.value == 8)) {
+    return _browserImageTarget(cos, request, ratio);
+  }
+
+  // One-bit gray/stencil images use the same direct packed-sample path.
+  if (bits.value == 1) {
+    if (isMask) return _browserImageTarget(cos, request, ratio);
+    final colorSpace = cos.resolve(dict['ColorSpace']);
+    final directGray = family == 'DeviceGray' &&
+        colorSpace is CosName &&
+        (colorSpace.value == 'DeviceGray' || colorSpace.value == 'G') &&
+        supportedMask;
+    return directGray ? _browserImageTarget(cos, request, ratio) : null;
+  }
+  if (bits.value != 8 || dict.containsKey('Mask')) return null;
   final components = switch (family) {
     'DeviceGray' => 1,
     'DeviceRGB' => 3,
@@ -1395,6 +1568,13 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
           colorSpace.value != 'RGB')) {
     return null;
   }
+  return _browserImageTarget(cos, request, ratio);
+}
+
+(int, int)? _browserImageTarget(
+    CosDocument cos, PdfImageRequest request, double ratio,
+    [double budgetScale = 1.0]) {
+  final dict = request.stream.dictionary;
   final width = cos.resolve(dict['Width']);
   final height = cos.resolve(dict['Height']);
   if (width is! CosInteger ||
@@ -1408,7 +1588,7 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
       math.sqrt(transform.a * transform.a + transform.b * transform.b);
   final heightPts =
       math.sqrt(transform.c * transform.c + transform.d * transform.d);
-  return cappedImagePixelSize(
+  final capped = cappedImagePixelSize(
     width.value,
     height.value,
     widthPts,
@@ -1416,6 +1596,91 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
     ratio,
     headroom: 1,
   );
+  if (budgetScale >= 1) return capped;
+  return (
+    (capped.$1 * budgetScale).ceil().clamp(1, width.value),
+    (capped.$2 * budgetScale).ceil().clamp(1, height.value),
+  );
+}
+
+Future<PdfDecodedPixels?> _decodeBrowserFlateSoftMaskComposite(
+  CosDocument cos,
+  CosStream stream,
+  int targetWidth,
+  int targetHeight,
+  _BrowserFlateSampleCache? sampleCache,
+) async {
+  final dict = stream.dictionary;
+  final softMask = cos.resolve(dict['SMask']);
+  if (softMask is! CosStream) return null;
+  final filters = pdfImageFilters(cos, softMask.dictionary);
+  if (filters.length != 1 ||
+      (filters.single != 'FlateDecode' && filters.single != 'Fl')) {
+    return null;
+  }
+  try {
+    final clock = _workerPerfLogEnabled ? (Stopwatch()..start()) : null;
+    final samples = await _inflateBrowserFlateSamples(
+      cos,
+      softMask,
+      filters.single,
+      sampleCache,
+    );
+    final inflateMs = clock?.elapsedMicroseconds ?? 0;
+    final maskEntries = Map<String, CosObject>.from(
+      softMask.dictionary.entries,
+    )
+      ..remove('Filter')
+      ..remove('DecodeParms')
+      ..remove('DP');
+    final parentEntries = Map<String, CosObject>.from(dict.entries)
+      ..['SMask'] = CosStream(CosDictionary(maskEntries), samples);
+    final base = decodePdfImageBase(
+      cos,
+      stream,
+      targetWidth: targetWidth,
+      targetHeight: targetHeight,
+    );
+    if (base == null) return null;
+    final baseMs = (clock?.elapsedMicroseconds ?? 0) - inflateMs;
+    final mask = pdfImageSoftMask(
+      cos,
+      CosDictionary(parentEntries),
+      targetWidth: base.width,
+      targetHeight: base.height,
+    );
+    if (mask == null) return null;
+    final maskMs =
+        (clock?.elapsedMicroseconds ?? inflateMs + baseMs) - inflateMs - baseMs;
+    final applied = pdfApplyImageAlpha(
+      base.rgba,
+      base.width,
+      base.height,
+      mask,
+      premultiply: true,
+    );
+    if (clock != null) {
+      final totalUs = clock.elapsedMicroseconds;
+      final alphaUs = totalUs - inflateMs - baseMs - maskMs;
+      _workerPerfLog(
+        'flate-smask ${base.width}x${base.height} '
+        'baseFilters=${pdfImageFilters(cos, dict).join('+')} '
+        'baseEncoded=${stream.rawBytes.length} '
+        'colorSpace=${cos.resolve(dict['ColorSpace'])} '
+        'decode=${cos.resolve(dict['Decode'])} '
+        'colorKey=${cos.resolve(dict['Mask'])} '
+        'samples=${samples.length} '
+        'inflate=${(inflateMs / 1000).toStringAsFixed(1)}ms '
+        'base=${(baseMs / 1000).toStringAsFixed(1)}ms '
+        'mask=${(maskMs / 1000).toStringAsFixed(1)}ms '
+        'alpha=${(alphaUs / 1000).toStringAsFixed(1)}ms '
+        'total=${(totalUs / 1000).toStringAsFixed(1)}ms',
+      );
+    }
+    return PdfDecodedPixels(applied.$1, applied.$2, applied.$3);
+  } catch (_) {
+    return null;
+  }
 }
 
 Future<PdfDecodedPixels?> _decodeBrowserFlate(
@@ -1441,6 +1706,25 @@ Future<PdfDecodedPixels?> _decodeBrowserFlate(
       ..remove('Filter')
       ..remove('DecodeParms')
       ..remove('DP');
+    final mask = cos.resolve(entries['Mask']);
+    if (mask is CosStream) {
+      final maskFilters = pdfImageFilters(cos, mask.dictionary);
+      if (maskFilters.length != 1 ||
+          (maskFilters.single != 'FlateDecode' && maskFilters.single != 'Fl')) {
+        return null;
+      }
+      final maskSamples = await _inflateBrowserFlateSamples(
+        cos,
+        mask,
+        maskFilters.single,
+        sampleCache,
+      );
+      final maskEntries = Map<String, CosObject>.from(mask.dictionary.entries)
+        ..remove('Filter')
+        ..remove('DecodeParms')
+        ..remove('DP');
+      entries['Mask'] = CosStream(CosDictionary(maskEntries), maskSamples);
+    }
     return decodePdfImage(
       cos,
       CosStream(CosDictionary(entries), samples),
@@ -1462,6 +1746,8 @@ Future<Uint8List> _inflateBrowserFlateSamples(
   final cached = sampleCache?[stream];
   if (cached != null) return cached;
 
+  final clock = _workerPerfLogEnabled ? (Stopwatch()..start()) : null;
+
   // stopBeforeFilter still performs object-key decryption, when needed, but
   // leaves the zlib payload for the browser's native inflater.
   final encoded = cos.decodeStreamData(stream, stopBeforeFilter: filter);
@@ -1470,6 +1756,7 @@ Future<Uint8List> _inflateBrowserFlateSamples(
   // this still-compressed payload (tens of KB for a multi-megapixel scan) is
   // cheap and keeps the multi-megabyte inflated plane native.
   final owned = Uint8List.fromList(encoded);
+  final prepareUs = clock?.elapsedMicroseconds ?? 0;
   final decompressor = web.DecompressionStream('deflate');
   // Start the reader before writing so stream backpressure cannot deadlock a
   // large inflated image waiting for a consumer.
@@ -1479,6 +1766,7 @@ Future<Uint8List> _inflateBrowserFlateSamples(
   await writer.close().toDart;
   final buffer = await output;
   var samples = buffer.toDart.asUint8List();
+  final inflateUs = (clock?.elapsedMicroseconds ?? prepareUs) - prepareUs;
 
   final paramsObject = cos.resolve(
     stream.dictionary['DecodeParms'] ?? stream.dictionary['DP'],
@@ -1491,6 +1779,15 @@ Future<Uint8List> _inflateBrowserFlateSamples(
     if (first is CosDictionary) params = first;
   }
   samples = applyPredictor(samples, params);
+  if (clock != null) {
+    final totalUs = clock.elapsedMicroseconds;
+    _workerPerfLog(
+      'flate-native encoded=${encoded.length} decoded=${samples.length} '
+      'prepare=${(prepareUs / 1000).toStringAsFixed(1)}ms '
+      'stream=${(inflateUs / 1000).toStringAsFixed(1)}ms '
+      'predictor=${((totalUs - prepareUs - inflateUs) / 1000).toStringAsFixed(1)}ms',
+    );
+  }
   sampleCache?.put(stream, samples);
   return samples;
 }
@@ -1619,6 +1916,8 @@ class _BrowserFlateSampleCache {
       LinkedHashMap<CosStream, Uint8List>.identity();
   int _bytes = 0;
 
+  int get bytes => _bytes;
+
   Uint8List? operator [](CosStream stream) {
     final samples = _entries.remove(stream);
     if (samples != null) _entries[stream] = samples;
@@ -1634,6 +1933,219 @@ class _BrowserFlateSampleCache {
     }
     _entries[stream] = samples;
     _bytes += samples.length;
+  }
+}
+
+/// Warms the COS decoded-stream cache with the browser's native inflater.
+///
+/// Dart2JS's portable zlib decoder is a material part of first-stable-paint on
+/// dense real-world pages. The interpreter itself is synchronous, so waiting
+/// until it asks [PdfPage.contentBytes] for a compressed page stream is too
+/// late to hand that stream to an async browser API. Warm `/Contents`, the
+/// compressed object streams needed to resolve the page's resource graph, and
+/// only non-image resource streams large enough to benefit. Tiny resource
+/// streams remain demand-driven because starting a browser stream costs more
+/// than their portable decode. Every consumer afterwards still uses
+/// [CosDocument.decodeStreamData], preserving the cross-platform code path and
+/// its portable fallback.
+class _BrowserFlatePredecoder {
+  _BrowserFlatePredecoder(this._sampleCache);
+
+  static const _resourceStreamThreshold = 4096;
+
+  final _BrowserFlateSampleCache _sampleCache;
+
+  final Set<int> _preparedPages = <int>{};
+  final Map<CosStream, Future<int>> _attempts =
+      HashMap<CosStream, Future<int>>.identity();
+
+  Future<void> prepare(
+    PdfDocument document,
+    int pageIndex,
+    PdfCancellationToken token, {
+    PdfWorkerPhaseTimings? timings,
+  }) async {
+    if (_preparedPages.contains(pageIndex) ||
+        !globalContext.has('DecompressionStream') ||
+        pageIndex < 0 ||
+        pageIndex >= document.pageCount) {
+      return;
+    }
+    if (token.cancelled) throw const PdfCancelledException();
+
+    final clock = timings == null && !_workerPerfLogEnabled
+        ? null
+        : (Stopwatch()..start());
+    final visited = HashSet<CosObject>.identity();
+    final counted = HashSet<CosStream>.identity();
+    final resourceStreams = HashMap<CosStream, String>.identity();
+    final overprintImages = <(CosStream, String)>[];
+    final cos = document.cos;
+    var declaresOverprint = false;
+    var decodedBytes = 0;
+    var decodedStreams = 0;
+
+    Future<int> inflate(CosStream stream, String filter) async {
+      final attempt =
+          _attempts[stream] ??= _inflateAndSeed(cos, stream, filter);
+      final bytes = await attempt;
+      if (bytes > 0 && counted.add(stream)) {
+        decodedStreams++;
+        decodedBytes += bytes;
+      }
+      return bytes;
+    }
+
+    Future<void> prepareContainingObjectStream(CosReference reference) async {
+      try {
+        final entry = cos.xrefEntry(reference.objectNumber);
+        if (entry == null || entry.type != CosXrefEntryType.compressed) return;
+        final object = cos.getObject(entry.streamObjectNumber, 0);
+        if (object is! CosStream) return;
+        final filter = _singleFlateFilter(cos, object.dictionary);
+        if (filter != null) await inflate(object, filter);
+      } catch (_) {
+        // Resource discovery is opportunistic; the parser remains the fallback.
+      }
+    }
+
+    Future<void> visit(CosObject? source, {bool forceStream = false}) async {
+      if (token.cancelled) throw const PdfCancelledException();
+      if (source is CosReference) {
+        await prepareContainingObjectStream(source);
+        if (token.cancelled) throw const PdfCancelledException();
+      }
+      final CosObject object;
+      try {
+        object = cos.resolve(source);
+      } catch (_) {
+        return;
+      }
+      if (!visited.add(object)) return;
+
+      switch (object) {
+        case CosStream(:final dictionary):
+          // Image planes have their own size-aware browser path and pixel LRU.
+          // Only overprint analysis needs their native-resolution samples
+          // before the final, size-aware decode.
+          final subtype = cos.resolve(dictionary['Subtype']);
+          final filter = _singleFlateFilter(cos, dictionary);
+          if (subtype is CosName && subtype.value == 'Image') {
+            if (filter != null &&
+                object.rawBytes.length >= _resourceStreamThreshold) {
+              overprintImages.add((object, filter));
+            }
+            return;
+          }
+          if (filter != null &&
+              (forceStream ||
+                  object.rawBytes.length >= _resourceStreamThreshold)) {
+            resourceStreams[object] = filter;
+          }
+          for (final value in dictionary.entries.values) {
+            await visit(value);
+          }
+        case CosDictionary(:final entries):
+          if (_resolvesTrue(cos, entries['OP']) ||
+              _resolvesTrue(cos, entries['op'])) {
+            declaresOverprint = true;
+          }
+          for (final value in entries.values) {
+            await visit(value);
+          }
+        case CosArray(:final items):
+          for (final value in items) {
+            await visit(value, forceStream: forceStream);
+          }
+        default:
+          break;
+      }
+    }
+
+    final page = document.page(pageIndex);
+    await visit(page.dict['Contents'], forceStream: true);
+    await visit(page.dict['Resources'] ?? page.resources);
+    final planned = HashMap<CosStream, String>.identity()
+      ..addAll(resourceStreams);
+    if (declaresOverprint) {
+      for (final (stream, filter) in overprintImages) {
+        planned[stream] = filter;
+      }
+    }
+    // Independent streams have no ordering dependency. Four concurrent native
+    // inflaters hide browser setup/backpressure latency without allowing a page
+    // of image tiles to materialize every full-resolution plane at once.
+    const concurrency = 4;
+    final entries = planned.entries.toList(growable: false);
+    for (var start = 0; start < entries.length; start += concurrency) {
+      if (token.cancelled) throw const PdfCancelledException();
+      final end = math.min(start + concurrency, entries.length);
+      await Future.wait([
+        for (var i = start; i < end; i++)
+          inflate(entries[i].key, entries[i].value),
+      ]);
+    }
+    if (token.cancelled) throw const PdfCancelledException();
+    _preparedPages.add(pageIndex);
+
+    if (clock != null) {
+      clock.stop();
+      timings?.streamUs += clock.elapsedMicroseconds;
+      _workerPerfLog(
+        'flate-predecode page=$pageIndex streams=$decodedStreams '
+        'bytes=$decodedBytes total='
+        '${(clock.elapsedMicroseconds / 1000).toStringAsFixed(1)}ms',
+      );
+    }
+  }
+
+  Future<int> _inflateAndSeed(
+    CosDocument cos,
+    CosStream stream,
+    String filter,
+  ) async {
+    try {
+      final decoded = await _inflateBrowserFlateSamples(
+        cos,
+        stream,
+        filter,
+        _sampleCache,
+      );
+      cos.seedDecodedStreamData(stream, decoded, allowOversize: true);
+      return decoded.length;
+    } catch (_) {
+      // Unsupported/corrupt streams retain the normal lenient portable path.
+      return 0;
+    }
+  }
+}
+
+String? _singleFlateFilter(CosDocument cos, CosDictionary dictionary) {
+  try {
+    final filter = cos.resolve(dictionary['Filter']);
+    if (filter is CosName) {
+      return filter.value == 'FlateDecode' || filter.value == 'Fl'
+          ? filter.value
+          : null;
+    }
+    if (filter is CosArray && filter.items.length == 1) {
+      final only = cos.resolve(filter.items.single);
+      if (only is CosName &&
+          (only.value == 'FlateDecode' || only.value == 'Fl')) {
+        return only.value;
+      }
+    }
+  } catch (_) {
+    // A malformed resource keeps the ordinary parser/decoder fallback.
+  }
+  return null;
+}
+
+bool _resolvesTrue(CosDocument cos, CosObject? value) {
+  try {
+    return cos.resolve(value) == const CosBoolean(true);
+  } catch (_) {
+    return false;
   }
 }
 

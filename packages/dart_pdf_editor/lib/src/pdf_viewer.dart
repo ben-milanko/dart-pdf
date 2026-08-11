@@ -825,8 +825,7 @@ class _PdfOnScreenSpan extends ChangeNotifier {
   /// every mounted page counts as on screen: the reduced-resolution prefetch
   /// path must never be the *first* thing a page renders at, or the initial
   /// paint lands soft.
-  bool contains(int index) =>
-      first < 0 || (index >= first && index <= last);
+  bool contains(int index) => first < 0 || (index >= first && index <= last);
 }
 
 /// A [Listenable] that relays whichever [source] is currently attached.
@@ -973,6 +972,52 @@ class PdfViewer extends StatefulWidget {
   /// instant the pointer crosses it. 512KB of encoded content is comfortably
   /// above any ordinary text page and well below a heavy vector drawing.
   static int hoverTextExtractMaxRawContentBytes = 512 * 1024;
+
+  /// Nearby pages whose worker transcripts and display-sized image handles
+  /// are warmed after the current page becomes visually ready.
+  ///
+  /// Zero disables warming. Warming is speculative and low-priority:
+  /// foreground page records preempt it, the worker/cache budgets remain the
+  /// owners of retained memory, and no picture replay or raster readback is
+  /// performed. Parallel backends reserve one lane for foreground work; serial
+  /// backends warm only bounded-size documents (see
+  /// [speculativeSerialWarmMaxPages]). Three pages covers ordinary forward/back
+  /// reading without turning a document into an eager decode.
+  static int speculativePageWarmRadius = 3;
+
+  /// Largest document on which a serial worker performs speculative command
+  /// warming. A serial lane cannot overlap speculation with foreground work;
+  /// the real 62-page Quickstart benefits from the warm cache, while the
+  /// 138-page CAD journey loses time and memory to distant work. Larger
+  /// documents therefore render only on demand unless their backend has a
+  /// genuinely parallel pool. Set below zero to disable serial warming.
+  static int speculativeSerialWarmMaxPages = 96;
+
+  /// Whether speculative command warming also decodes display-sized images.
+  ///
+  /// False records only the reusable vector/content transcript. That reaches
+  /// more neighbours in the same idle window and retains far less memory;
+  /// the visible request still decodes its images at foreground priority.
+  /// True additionally prepares worker pixels and platform image handles.
+  static bool speculativePageWarmImages = true;
+
+  /// Whether image-bearing speculative records also create platform image
+  /// handles before the page is visible.
+  ///
+  /// Keeping this false still caches the worker's decoded command result, but
+  /// avoids a burst of GPU uploads from several neighbours competing with the
+  /// foreground page. The visible cache hit then creates only its own handles.
+  static bool speculativePageWarmPlatformImages = false;
+
+  /// Size of the document's encoded-content heavy tail considered once at
+  /// startup. Candidates run shortest-first and serially so a pathological
+  /// page cannot monopolise the idle window or worker memory.
+  ///
+  /// Dense pages are the worst cold-jump stalls and [PdfPage.rawContentLength]
+  /// ranks them without decoding. Zero disables this branch independently of
+  /// [speculativePageWarmRadius]. Four captured the meaningful heavy tail in
+  /// the real-world corpus without becoming document-wide preloading.
+  static int speculativeHeavyPageWarmCount = 4;
 
   /// Test seam: set false to suppress the owned default worker
   /// ([autoRenderWorker]) suite-wide, so widget tests keep the deterministic,
@@ -1556,6 +1601,14 @@ class _PdfViewerState extends State<PdfViewer>
   int _previewScheduleGeneration = 0;
   bool _previewRestartPending = false;
 
+  /// Pages offered to the low-priority command/image warm in this document.
+  /// Identity keys naturally re-arm on a document revision; explicit clears
+  /// below cover memory pressure and same-object display-policy changes.
+  final _commandWarmAttempts = Set<PdfPage>.identity();
+  int _commandWarmGeneration = 0;
+  int? _commandWarmAnchor;
+  bool _commandHeavyWarmStarted = false;
+
   /// Pages the idle full-raster warm already produced (or gave up on), by page
   /// object identity - so a revision swap re-arms the whole pass and a page
   /// whose render throws is not retried forever. A page abandoned mid-warm
@@ -2033,6 +2086,10 @@ class _PdfViewerState extends State<PdfViewer>
         'freed ${liveFreed >> 20}MB of live rasters'
         '${PdfPerfLog.rssSuffix()}');
     _previews.clear();
+    _commandWarmAttempts.clear();
+    _commandWarmAnchor = null;
+    _commandHeavyWarmStarted = false;
+    _commandWarmGeneration++;
   }
 
   void _onPerformanceChanged() {
@@ -2340,13 +2397,162 @@ class _PdfViewerState extends State<PdfViewer>
     _scrollSettleTimer = null;
     _scrollSamples.clear();
     _vectorFirstPrefetch = false;
-    _jumpFocusPage = null;
+    // A programmatic jump may have reached its scroll offset before the
+    // destination page has produced a full raster. Keep that explicit target
+    // as the render/warm focus until its pixels arrive; otherwise the
+    // viewport-centre heuristic can report an adjacent page at a page edge
+    // and the destination loses both foreground priority and neighbour warm.
+    final jumpFocus = _jumpFocusPage;
+    if (jumpFocus == null || _rasteredPages.contains(jumpFocus)) {
+      _jumpFocusPage = null;
+    }
+    if (PdfPerfLog.enabled && jumpFocus != null) {
+      PdfPerfLog.log('jump-focus settle page=$jumpFocus '
+          'ready=${_rasteredPages.contains(jumpFocus)} '
+          'retained=${_jumpFocusPage != null}');
+    }
     // stay held while the viewer is paused (a view overlays it)
     _settleRenderHold();
     if (mounted) setState(() => _settleGeneration++);
     // the prerender pauses while the user scrolls; pick it back up
     _schedulePreviewPrerender();
     _scheduleRasterWarm();
+  }
+
+  /// Warms the next likely navigation targets without replaying or
+  /// rasterizing them. The worker owns parsing/image conversion at priority 3;
+  /// once a result lands, [PdfPageRenderer.predecodeCommandImages] admits only
+  /// the display-sized platform image handles into the bounded shared cache.
+  ///
+  /// Forward pages go first because ordinary reading advances; reverse pages
+  /// follow so a back-step is equally cheap once the forward lane is queued.
+  /// A pool keeps one worker lane reserved for foreground work, and any new
+  /// page request preempts these records.
+  void _warmNearbyPageCommands(int anchor) {
+    final radius = PdfViewer.speculativePageWarmRadius;
+    final worker = _effectiveRenderWorker;
+    if (worker == null ||
+        !worker.isActive ||
+        !mounted ||
+        !widget.active ||
+        anchor < 0 ||
+        anchor >= _pages.length ||
+        _commandWarmAnchor == anchor) {
+      return;
+    }
+    // A serial worker has no lane to reserve for foreground work. On long
+    // documents even a nearby record can spend hundreds of milliseconds
+    // serializing image resources and strand the next visible page. Bounded
+    // documents keep warming because the measured revisit win outweighs that
+    // short queue; larger ones require a real spare lane.
+    if (worker.concurrentRecordCapacity < 2 &&
+        (_pages.length > PdfViewer.speculativeSerialWarmMaxPages ||
+            PdfViewer.speculativeSerialWarmMaxPages < 0)) {
+      return;
+    }
+    final heavyCount = PdfViewer.speculativeHeavyPageWarmCount;
+    if (radius <= 0 && heavyCount <= 0) return;
+    _commandWarmAnchor = anchor;
+    final generation = ++_commandWarmGeneration;
+    final includeHeavy = heavyCount > 0 && !_commandHeavyWarmStarted;
+    if (includeHeavy) _commandHeavyWarmStarted = true;
+    final heavy = includeHeavy
+        ? (<(int, int)>[
+            for (var i = 0; i < _pages.length; i++)
+              if (i != anchor) (i, _pages[i].rawContentLength),
+          ]..sort((a, b) => b.$2.compareTo(a.$2)))
+        : const <(int, int)>[];
+    // Pick the genuinely heavy tail first, then process that bounded set from
+    // cheapest to dearest. The speculative pool deliberately leaves a lane
+    // idle for foreground work, so shortest-job-first maximises how many cold
+    // cliffs become reusable during a small idle window; one pathological
+    // stream must not strand every other candidate behind it.
+    final selectedHeavy = heavy.take(math.max(0, heavyCount)).toList()
+      ..sort((a, b) => a.$2.compareTo(b.$2));
+    final indices = <int>{
+      for (final entry in selectedHeavy) entry.$1,
+      for (var distance = 1; distance <= radius; distance++)
+        if (anchor + distance < _pages.length) anchor + distance,
+      for (var distance = 1; distance <= radius; distance++)
+        if (anchor - distance >= 0) anchor - distance,
+    }.toList(growable: false);
+
+    unawaited(() async {
+      for (final index in indices) {
+        if (!mounted || generation != _commandWarmGeneration) return;
+        // A visible page owns the foreground record and, for dense content,
+        // asks the worker to stream progressive linework. If speculation wins
+        // the in-flight de-duplication race first, that fixed worker request
+        // has no partial sink and the page stays on its soft preview until the
+        // complete multi-megabyte command buffer arrives. Leave on-screen
+        // indices to PdfPageView; warming is only useful beyond the viewport.
+        if (_onScreenSpan.contains(index)) continue;
+        final page = _pages[index];
+        final target = _rasterWarmTarget(index, page);
+        if (target == null ||
+            _commandWarmAttempts.contains(page) ||
+            _previews.hasFullRaster(target.signature, page)) {
+          continue;
+        }
+        _commandWarmAttempts.add(page);
+        final clock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
+        final warmImages = PdfViewer.speculativePageWarmImages;
+        final commands = await worker.record(
+          index,
+          annotations: _pageImagesShowAnnotations,
+          priority: 3,
+          imagePixelRatio: warmImages ? target.ratio : null,
+          decodeImages: warmImages,
+        );
+        if (commands == null) {
+          _commandWarmAttempts.remove(page);
+          continue;
+        }
+        // The worker-side transcript/image caches are now reusable even if a
+        // newer anchor superseded this pass. Stop the old sequence, but do not
+        // discard that completed work or re-offer it redundantly.
+        if (!mounted || generation != _commandWarmGeneration) return;
+        if (!warmImages) {
+          if (clock != null) {
+            PdfPerfLog.log('command-warm page=$index anchor=$anchor '
+                'commands=${commands.length} images=false '
+                'elapsed=${clock.elapsedMilliseconds}ms');
+          }
+          continue;
+        }
+        if (!PdfViewer.speculativePageWarmPlatformImages) {
+          if (clock != null) {
+            PdfPerfLog.log('command-warm page=$index anchor=$anchor '
+                'commands=${commands.length} images=worker '
+                'elapsed=${clock.elapsedMilliseconds}ms');
+          }
+          continue;
+        }
+        // Platform uploads share the presentation process with the foreground
+        // page. Worker-only records above are safe to retain during motion;
+        // GPU-handle warming waits for a genuinely idle anchor instead.
+        if (_renderScheduler.busy || _motionRenderHoldActive) {
+          _commandWarmAttempts.remove(page);
+          return;
+        }
+        try {
+          await PdfPageRenderer.predecodeCommandImages(
+            page,
+            commands,
+            maxImagePixelRatio: target.ratio,
+          );
+          if (clock != null) {
+            PdfPerfLog.log('command-warm page=$index anchor=$anchor '
+                'commands=${commands.length} '
+                'elapsed=${clock.elapsedMilliseconds}ms');
+          }
+        } catch (_) {
+          // Speculation must never change foreground rendering. A visible
+          // request keeps the normal lenient decoder path and may retry.
+          _commandWarmAttempts.remove(page);
+        }
+      }
+    }());
   }
 
   /// Fills [_previews] for pages that have never rendered on screen, one
@@ -2905,6 +3111,10 @@ class _PdfViewerState extends State<PdfViewer>
       // paper color and annotation visibility are part of the raster
       // signature, so every warmed raster just became unreachable
       _rasterWarmAttempts.clear();
+      _commandWarmAttempts.clear();
+      _commandWarmAnchor = null;
+      _commandHeavyWarmStarted = false;
+      _commandWarmGeneration++;
       _schedulePreviewPrerender();
       _scheduleRasterWarm();
     } else if (!identical(oldWidget.rasterCache, widget.rasterCache) ||
@@ -2938,6 +3148,8 @@ class _PdfViewerState extends State<PdfViewer>
     if (oldWidget.active != widget.active) {
       _renderScheduler.parked = !widget.active;
       if (!widget.active) {
+        _commandWarmAnchor = null;
+        _commandWarmGeneration++;
         _cancelPreviewPrerenderSchedule();
         _renderScheduler.holding = true;
       } else {
@@ -3062,6 +3274,10 @@ class _PdfViewerState extends State<PdfViewer>
     final count = document.pageCount;
     _pages = [for (var i = 0; i < count; i++) document.page(i)];
     _rasteredPages.clear();
+    _commandWarmAttempts.clear();
+    _commandWarmAnchor = null;
+    _commandHeavyWarmStarted = false;
+    _commandWarmGeneration++;
     _pageLabels = null; // recompute lazily for the (possibly new) document
     _outline = null; // outline entries may change in an editing revision
     _recomputeAspects();
@@ -3073,7 +3289,34 @@ class _PdfViewerState extends State<PdfViewer>
   void _setPageRasterReady(int index, bool ready) {
     final changed =
         ready ? _rasteredPages.add(index) : _rasteredPages.remove(index);
-    if (changed) _controller._pageRenderActivity.notify();
+    if (!changed) return;
+    _controller._pageRenderActivity.notify();
+    final completedJump = ready && index == _jumpFocusPage;
+    if (PdfPerfLog.enabled && ready) {
+      PdfPerfLog.log('page-ready page=$index jump=$_jumpFocusPage '
+          'current=${_controller.currentPage} live=${_rasteredPages.length}');
+    }
+    if (ready &&
+        (PdfViewer.speculativePageWarmRadius > 0 ||
+            PdfViewer.speculativeHeavyPageWarmCount > 0) &&
+        (_rasteredPages.length == 1 ||
+            index == (_jumpFocusPage ?? _controller.currentPage))) {
+      // Let the ready frame submit before any speculative platform image
+      // uploads begin. `addPostFrameCallback` does not itself request a frame,
+      // and direct-picture readiness commonly arrives at endOfFrame; explicitly
+      // schedule the idle frame or the warm would sleep until the user's next
+      // navigation. No Timer: widget tests must not inherit pending clocks.
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _rasteredPages.contains(index)) {
+          _warmNearbyPageCommands(index);
+        }
+      });
+      SchedulerBinding.instance.scheduleFrame();
+    }
+    if (completedJump) {
+      _jumpFocusPage = null;
+      _renderScheduler.focus = _controller.currentPage;
+    }
   }
 
   /// The document's logical page labels (/PageLabels), parsed once per
@@ -3217,6 +3460,10 @@ class _PdfViewerState extends State<PdfViewer>
     // rotation is part of the raster signature (and changes the page's
     // physical size): nothing warmed under the old one can be reused
     _rasterWarmAttempts.clear();
+    _commandWarmAttempts.clear();
+    _commandWarmAnchor = null;
+    _commandHeavyWarmStarted = false;
+    _commandWarmGeneration++;
     setState(() {});
     _schedulePreviewPrerender();
     _scheduleRasterWarm();
@@ -3274,6 +3521,7 @@ class _PdfViewerState extends State<PdfViewer>
 
   @override
   void dispose() {
+    _commandWarmGeneration++;
     WidgetsBinding.instance.removeObserver(this);
     _defaultWorkerHost?.dispose();
     _revisionController?.removeListener(_onRevisionControllerChanged);
@@ -3525,8 +3773,7 @@ class _PdfViewerState extends State<PdfViewer>
     // Unproject the viewport (along the scroll axis) through the zoom window.
     // The old scroll+viewport/2 calculation was only valid while the
     // transform's main-axis translation sat at its focal-centred default.
-    final viewStart =
-        _scroll.offset - matrix.storage[_mainTranslate] / scale;
+    final viewStart = _scroll.offset - matrix.storage[_mainTranslate] / scale;
     final viewEnd = viewStart + _mainView / scale;
     final center = viewStart + _mainView / (2 * scale);
     var current = _pages.length - 1;
@@ -5155,6 +5402,10 @@ class _PdfViewerState extends State<PdfViewer>
     _suppressTap = false;
     _lastPointerKind = event.kind;
     _lastPointerLocal = event.localPosition;
+    // Direct manipulation supersedes any programmatic jump whose target has
+    // not painted yet. Do not leave render priority pinned to an abandoned
+    // destination while the user scrolls elsewhere.
+    _jumpFocusPage = null;
     // A fresh drag starts a fresh velocity window (see _touchVelocityTracker).
     _touchVelocityTracker = null;
     _panFlinger.stop();
@@ -7452,12 +7703,6 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
   }
 
   @override
-  void dispose() {
-    widget.onScreenSpan.removeListener(_onSpanChanged);
-    super.dispose();
-  }
-
-  @override
   void didUpdateWidget(_PdfViewerPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.onScreenSpan, widget.onScreenSpan) ||
@@ -7520,6 +7765,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
 
   @override
   void dispose() {
+    widget.onScreenSpan.removeListener(_onSpanChanged);
     if (_rastered) widget.onRasterStateChanged(widget.index, false);
     super.dispose();
   }

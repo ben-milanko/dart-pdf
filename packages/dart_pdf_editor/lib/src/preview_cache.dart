@@ -353,6 +353,31 @@ class PdfPagePreviewCache extends ChangeNotifier {
     return entry.image.clone();
   }
 
+  /// Returns a complete preview that already meets [width] × [height].
+  ///
+  /// Unlike [imageFor], this rejects command-limited/vector-only previews and
+  /// stale page revisions. A caller may therefore use the returned clone as
+  /// its final display raster instead of interpreting the same page again.
+  /// This matters for mixed-format CAD documents: a panoramic sheet can make
+  /// ordinary pages display at thumbnail size, where the normal 200 px preview
+  /// is already at or above the requested physical resolution.
+  ui.Image? completeImageFor(
+    int index,
+    PdfPage page, {
+    required int width,
+    required int height,
+  }) {
+    final entry = _entries.take(index); // a successful lookup is an LRU use
+    if (entry == null ||
+        !identical(entry.page, page) ||
+        !entry.includesImages ||
+        entry.image.width < width ||
+        entry.image.height < height) {
+      return null;
+    }
+    return entry.image.clone();
+  }
+
   /// Returns a lease on a complete retained scene for this page and display
   /// plan, or null when the scene has fallen out of the bounded LRU.
   ///

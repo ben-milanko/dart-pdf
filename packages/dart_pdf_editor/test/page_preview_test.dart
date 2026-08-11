@@ -73,6 +73,68 @@ void main() {
     clone.dispose();
   });
 
+  testWidgets('a complete preview can satisfy a smaller physical raster',
+      (tester) async {
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    final cache = PdfPagePreviewCache();
+    addTearDown(cache.dispose);
+    await tester.runAsync(() => cache.renderPreview(0, page));
+
+    final preview = cache.imageFor(0)!;
+    final sufficient = cache.completeImageFor(
+      0,
+      page,
+      width: preview.width,
+      height: preview.height,
+    );
+    expect(sufficient, isNotNull);
+    sufficient!.dispose();
+    expect(
+      cache.completeImageFor(
+        0,
+        page,
+        width: preview.width + 1,
+        height: preview.height,
+      ),
+      isNull,
+    );
+    preview.dispose();
+  });
+
+  testWidgets('a sufficient preview bypasses first-render hold',
+      (tester) async {
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    final cache = PdfPagePreviewCache();
+    final scheduler = PdfPageRenderScheduler()..holding = true;
+    addTearDown(cache.dispose);
+    addTearDown(scheduler.dispose);
+    await tester.runAsync(() => cache.renderPreview(0, page));
+    var ready = 0;
+
+    await tester.pumpWidget(MaterialApp(
+      home: Center(
+        child: SizedBox(
+          // Flutter widget tests default to a 3x device-pixel ratio. Keep the
+          // physical target below the cache's 200 px preview ceiling.
+          width: 40,
+          child: PdfPageView(
+            page: page,
+            previewCache: cache,
+            renderScheduler: scheduler,
+            onRasterReady: () => ready++,
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    expect(ready, 1);
+    expect(scheduler.hasPending, isFalse,
+        reason: 'an already-sharp complete preview needs no interpretation');
+  });
+
   testWidgets('retained scene leases survive LRU eviction until released',
       (tester) async {
     final document = PdfDocument.open(buildMultiPagePdf(2));

@@ -56,6 +56,16 @@ function opt(name, fallback) {
 }
 const has = (name) => argv.includes(name);
 
+// Several visual-settle probes intentionally run in parallel with a separate
+// engine-readiness wait. Attach a handler immediately so a fast rejection is
+// not treated as an unhandled promise by newer Node releases before the probe
+// is awaited a few lines later. Awaiting the original promise still surfaces
+// the error through the normal benchmark try/catch.
+function awaitLater(promise) {
+  void promise.catch(() => {});
+  return promise;
+}
+
 const scenarioName = opt('--scenario', REGISTRY.default);
 const registeredScenario = REGISTRY.scenarios[scenarioName];
 const parseNumberList = (value, label) => {
@@ -522,8 +532,9 @@ class ScreenshotVisualTracker {
       captureResponseAt: responseAt,
       captureDurationMs: responseAt - startedAt,
     });
+    const traceWindowMs = Number(process.env.PERF_CAPTURE_TRACE_MS ?? 3000);
     if (process.env.PERF_CAPTURE_TRACE === 'true' &&
-        startedAt - this.traceOrigin < 3000) {
+        startedAt - this.traceOrigin < traceWindowMs) {
       console.error(
         `[capture] start=${(startedAt - this.traceOrigin).toFixed(1)} ` +
         `sample=${(at - this.traceOrigin).toFixed(1)} ` +
@@ -965,10 +976,10 @@ async function measureDartWarmOpen(browser, iteration) {
       : null;
     let visualPromise = preloadReadyAt == null
       ? null
-      : visualTracker.settle(mark, {
+      : awaitLater(visualTracker.settle(mark, {
           ready: Promise.resolve(preloadReadyAt),
           label: 'DartPDF warm reopen',
-        });
+        }));
     const logical = await logicalPromise;
     const flutterReadyPromise = waitUntil(
       () => page.evaluate(() => {
@@ -987,10 +998,11 @@ async function measureDartWarmOpen(browser, iteration) {
     const readyPromise = preloadReadyAt == null
       ? flutterReadyPromise
       : Promise.resolve(preloadReadyAt);
-    visualPromise ??= visualTracker.settle(mark, {
+    visualPromise ??= awaitLater(visualTracker.settle(mark, {
       ready: readyPromise,
       label: 'DartPDF warm reopen',
-    });
+    }));
+    await Promise.race([readyPromise, visualPromise]);
     await readyPromise;
     const visual = await visualPromise;
     await flutterReadyPromise;
@@ -1044,10 +1056,10 @@ async function measurePdfiumWarmOpen(browser, iteration) {
       (state) => state.initialLoadComplete,
       'warm-reopen initial page load',
     );
-    const visualPromise = visualTracker.settle(mark, {
+    const visualPromise = awaitLater(visualTracker.settle(mark, {
       ready: readyPromise,
       label: 'PDFium warm reopen',
-    });
+    }));
     const visual = await visualPromise;
     const full = await waitPdfium(
       page,
@@ -1086,6 +1098,7 @@ async function runDartPdf(serverStats, iteration) {
       atMs: performance.now() - rssStartedAt,
       bytes,
       byTypeBytes: snapshot?.byTypeBytes ?? {},
+      topProcesses: snapshot?.processes?.slice(0, 12) ?? [],
     });
     return bytes;
   };
@@ -1199,9 +1212,9 @@ async function runDartPdf(serverStats, iteration) {
       : null;
     let openVisualPromise = preloadReadyAt == null
       ? null
-      : visualTracker.settle(openRenderMark, {
+      : awaitLater(visualTracker.settle(openRenderMark, {
           ready: Promise.resolve(preloadReadyAt),
-        });
+        }));
     const logical = await logicalPromise;
     const logicalAt = pageTimestampOnDriverClock(logical);
     openLogicalReadyMs = logicalAt - started;
@@ -1238,10 +1251,10 @@ async function runDartPdf(serverStats, iteration) {
     if (openVisualPromise == null && transport === 'range') {
       await flutterReadyPromise;
     }
-    openVisualPromise ??= visualTracker.settle(openRenderMark, {
+    openVisualPromise ??= awaitLater(visualTracker.settle(openRenderMark, {
       ready: openReadyPromise,
       label: 'DartPDF cold open',
-    });
+    }));
     await openReadyPromise;
     await installRafProbe(page);
     const initial = await openVisualPromise;
@@ -1285,18 +1298,23 @@ async function runDartPdf(serverStats, iteration) {
       const readyPromise = waitUntil(
         () => page.evaluate((pageIndex) => {
           const at = Number(globalThis.__perfPageReadyAt?.(pageIndex));
-          if (globalThis.__perfCurrentPage() !== pageIndex ||
-              !globalThis.__perfPageVisible(pageIndex) ||
+          // A panoramic page can occupy less than half the viewport at
+          // fit-width. Jumping to it correctly places it at the leading edge,
+          // while the viewport centre (and therefore `currentPage`) belongs
+          // to the following page. Readiness is the requested page being
+          // visible and fully rastered, not an unrelated centre-page label.
+          if (!globalThis.__perfPageVisible(pageIndex) ||
               !globalThis.__perfPageReady(pageIndex) ||
               !Number.isFinite(at) || at < 0) return null;
           return { at };
         }, target),
         `DartPDF page ${target + 1}`,
       ).then(pageTimestampOnDriverClock);
-      const visualPromise = visualTracker.settle(actionMark, {
+      const visualPromise = awaitLater(visualTracker.settle(actionMark, {
         ready: readyPromise,
         label: `DartPDF page ${target + 1}`,
-      });
+      }));
+      await Promise.race([readyPromise, visualPromise]);
       const readyAt = await readyPromise;
       navigationReadySamplesMs.push(readyAt - actionMark.at);
       const settled = await visualPromise;
@@ -1310,7 +1328,15 @@ async function runDartPdf(serverStats, iteration) {
         endMs: await markFlutterFrames(page),
       });
       sampleRss(`page:${target + 1}`);
-      currentPage = target;
+      // Navigation readiness is intentionally based on the requested page
+      // being visible and raster-ready. A short panoramic page can satisfy
+      // that contract while the viewport centre (the viewer's currentPage)
+      // belongs to a following page. Carry the viewer's authoritative centre
+      // page into zoom readiness; retaining `target` here makes a later zoom
+      // wait forever for a page that the zoom correctly moved off-screen.
+      currentPage = await page.evaluate(
+        () => globalThis.__perfCurrentPage(),
+      );
     }
 
     for (const zoom of scenario.zooms.map(Number)) {
@@ -1333,10 +1359,11 @@ async function runDartPdf(serverStats, iteration) {
         ),
         `DartPDF zoom ${zoom}`,
       );
-      const visualPromise = visualTracker.settle(actionMark, {
+      const visualPromise = awaitLater(visualTracker.settle(actionMark, {
         ready: readyPromise,
         label: `DartPDF zoom ${zoom}`,
-      });
+      }));
+      await Promise.race([readyPromise, visualPromise]);
       await readyPromise;
       zoomReadySamplesMs.push(performance.now() - actionMark.at);
       const settled = await visualPromise;
@@ -1350,6 +1377,9 @@ async function runDartPdf(serverStats, iteration) {
         endMs: await markFlutterFrames(page),
       });
       sampleRss(`zoom:${zoom}`);
+      currentPage = await page.evaluate(
+        () => globalThis.__perfCurrentPage(),
+      );
     }
 
     const scroll = await driveScrollJourney(
@@ -1392,10 +1422,11 @@ async function runDartPdf(serverStats, iteration) {
         ...sample,
         at: pageTimestampOnDriverClock(sample),
       }));
-      const visualPromise = visualTracker.settle(actionMark, {
+      const visualPromise = awaitLater(visualTracker.settle(actionMark, {
         ready: readyPromise.then((sample) => sample.at),
         label: `DartPDF scrub ${(fraction * 100).toFixed(0)}%`,
-      });
+      }));
+      await Promise.race([readyPromise, visualPromise]);
       const ready = await readyPromise;
       scrubReadySamplesMs.push(ready.at - actionMark.at);
       const settled = await visualPromise;
@@ -1560,7 +1591,7 @@ async function runDartPdf(serverStats, iteration) {
         flutterFramesByAction,
         traceSample: traceLines
           .filter((line) =>
-            /interpret|webworker|scheduler|renderhold|raster|replay|decode|softmask|preview|page-raster|detail|region-index|tile|vector|surface|\[driver\]/i
+            /interpret|webworker|scheduler|renderhold|raster|replay|decode|flate|image|jpeg|softmask|preview|page-raster|page-ready|jump-focus|command-warm|record-cache|detail|region-index|tile|vector|surface|\[driver\]/i
               .test(line),
           )
           // Keep enough context to preserve the explicit action markers on a
@@ -1572,6 +1603,32 @@ async function runDartPdf(serverStats, iteration) {
         warmScreenshotCaptureDurationMs: warmCaptureSummary,
       },
     };
+  } catch (error) {
+    if (process.env.PERF_DUMP_ON_ERROR === 'true' && page != null) {
+      let dumpLines = [];
+      try {
+        const dump = await Promise.race([
+          page.evaluate(() => globalThis.__perfDump?.() ?? '')
+            .catch(() => null),
+          sleep(1000).then(() => null),
+        ]);
+        if (dump != null) dumpLines = String(dump).split('\n');
+      } catch (_) {
+        // The page may already have crashed or navigated away. Console output
+        // collected by Puppeteer is still useful in that case.
+      }
+      const failureTrace = [...dumpLines, ...consoleLines]
+        .filter((line) =>
+          /interpret|webworker|scheduler|renderhold|raster|replay|decode|flate|image|jpeg|softmask|preview|page-raster|page-ready|jump-focus|command-warm|detail|region-index|tile|vector|surface|\[driver\]/i
+            .test(line),
+        )
+        .slice(-1000);
+      if (failureTrace.length > 0) {
+        console.error('\n── DartPDF failure trace ──');
+        console.error(failureTrace.join('\n'));
+      }
+    }
+    throw error;
   } finally {
     if (rssTimer != null) clearInterval(rssTimer);
     await visualTracker?.stop().catch(() => {});
@@ -1596,6 +1653,7 @@ async function runPdfium(serverStats, iteration) {
       atMs: performance.now() - rssStartedAt,
       bytes,
       byTypeBytes: snapshot?.byTypeBytes ?? {},
+      topProcesses: snapshot?.processes?.slice(0, 12) ?? [],
     });
     return bytes;
   };
@@ -1667,10 +1725,10 @@ async function runPdfium(serverStats, iteration) {
       openEngineReadyMs = performance.now() - started;
       return initial;
     })();
-    const openVisualPromise = visualTracker.settle(openRenderMark, {
+    const openVisualPromise = awaitLater(visualTracker.settle(openRenderMark, {
       ready: openReadyPromise,
       label: 'PDFium cold open',
-    });
+    }));
     const initial = await openReadyPromise;
     await installRafProbe(initial.frame);
     const visual = await openVisualPromise;
@@ -1704,10 +1762,10 @@ async function runPdfium(serverStats, iteration) {
         (state) => state.currentPage === target,
         `page ${target + 1}`,
       );
-      const visualPromise = visualTracker.settle(actionMark, {
+      const visualPromise = awaitLater(visualTracker.settle(actionMark, {
         ready: readyPromise,
         label: `PDFium page ${target + 1}`,
-      });
+      }));
       const arrived = await readyPromise;
       navigationReadySamplesMs.push(performance.now() - actionMark.at);
       const settled = await visualPromise;
@@ -1731,10 +1789,10 @@ async function runPdfium(serverStats, iteration) {
         (state) => Math.abs(state.zoom - zoom) < 0.02,
         `zoom ${zoom}`,
       );
-      const visualPromise = visualTracker.settle(actionMark, {
+      const visualPromise = awaitLater(visualTracker.settle(actionMark, {
         ready: readyPromise,
         label: `PDFium zoom ${zoom}`,
-      });
+      }));
       const zoomed = await readyPromise;
       zoomReadySamplesMs.push(performance.now() - actionMark.at);
       const settled = await visualPromise;
@@ -1777,10 +1835,10 @@ async function runPdfium(serverStats, iteration) {
           Math.abs(state.scrollFraction - fraction) <= 0.005,
         `scrub ${(fraction * 100).toFixed(0)}%`,
       );
-      const visualPromise = visualTracker.settle(actionMark, {
+      const visualPromise = awaitLater(visualTracker.settle(actionMark, {
         ready: readyPromise,
         label: `PDFium scrub ${(fraction * 100).toFixed(0)}%`,
-      });
+      }));
       const arrived = await readyPromise;
       scrubReadySamplesMs.push(performance.now() - actionMark.at);
       const settled = await visualPromise;
@@ -1990,7 +2048,7 @@ async function main() {
   let chromeVersion = null;
   console.log(`\n══ DartPDF ↔ Chromium/PDFium: ${scenarioName}`);
   console.log(`   ${scenario.note}`);
-  console.log(`   pdf=${scenario.pdf} iterations=${iterations} headless=${headless}`);
+  console.log(`   pdf=${pdfPath} iterations=${iterations} headless=${headless}`);
   try {
     // Alternate order each iteration to distribute temperature/background
     // drift rather than always handing one engine the cold machine.
@@ -2070,6 +2128,8 @@ async function main() {
     scenario: scenarioName,
     params: {
       iterations,
+      pdfPath,
+      registeredPdfPath: scenario.pdf,
       viewport: VIEWPORT,
       webDirectory: WEB_DIR,
       visualCaptureMode,

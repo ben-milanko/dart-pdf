@@ -355,6 +355,7 @@ export function processTreeRssSnapshot(rootPid) {
   const seen = new Set();
   let totalKb = 0;
   const byTypeKb = {};
+  const processes = [];
   while (pending.length) {
     const pid = pending.pop();
     if (seen.has(pid)) continue;
@@ -375,6 +376,7 @@ export function processTreeRssSnapshot(rootPid) {
               ? 'zygote'
               : 'other';
     byTypeKb[type] = (byTypeKb[type] ?? 0) + rssKb;
+    processes.push({pid, type, rssBytes: rssKb * 1024});
     pending.push(...(children.get(pid) ?? []));
   }
   if (totalKb <= 0) return null;
@@ -383,6 +385,7 @@ export function processTreeRssSnapshot(rootPid) {
     byTypeBytes: Object.fromEntries(
       Object.entries(byTypeKb).map(([type, kb]) => [type, kb * 1024]),
     ),
+    processes: processes.sort((a, b) => b.rssBytes - a.rssBytes),
   };
 }
 

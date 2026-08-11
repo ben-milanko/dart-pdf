@@ -399,6 +399,34 @@ class PdfPageRenderer {
     return requests.isNotEmpty;
   }
 
+  /// Decodes the image payloads in a retained command buffer into the shared
+  /// image cache without replaying or rasterizing the page.
+  ///
+  /// This is the cheap UI-side half of speculative nearby-page warming: the
+  /// worker can parse and decode off-thread, then the platform image handles
+  /// are admitted while the current page is already stable. A later visible
+  /// render receives cache clones and only pays command replay. Every temporary
+  /// handle is released here; [PdfImageCache] retains its bounded masters.
+  static Future<void> predecodeCommandImages(
+    PdfPage page,
+    List<PdfRenderCommand> commands, {
+    double? maxImagePixelRatio,
+  }) async {
+    final requests = <PdfImageRequest>[];
+    collectImageRequests(commands, requests);
+    if (requests.isEmpty) return;
+    final images = await decodeImages(
+      page.document.cos,
+      requests,
+      cache: PdfImageCache.instance,
+      maxImagePixelRatio: maxImagePixelRatio,
+      imageDecodeHeadroom: 1,
+    );
+    for (final image in images.values) {
+      disposePdfDecodedImage(image);
+    }
+  }
+
   /// Gathers every image draw request in [commands], descending into soft-mask
   /// groups (whose own commands can draw images), in replay order.
   static void collectImageRequests(

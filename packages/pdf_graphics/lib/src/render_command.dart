@@ -174,6 +174,19 @@ abstract interface class PdfTiledCellSink {
   void drawTiledCell(PdfDrawTiledCellCommand command);
 }
 
+/// Optional replay capability for devices that can consume adjacent text
+/// commands as one batch.
+///
+/// The command list and half-open index range avoid allocating a temporary
+/// list for what is often hundreds of consecutive text draws. Devices must
+/// preserve painter order and may decline individual runs inside the range.
+/// Direct interpreter output still uses [PdfDevice.drawText] unchanged; this
+/// is only a retained-command replay optimization.
+abstract interface class PdfTextBatchSink {
+  void drawTextBatch(
+      List<PdfRenderCommand> commands, int start, int endExclusive);
+}
+
 /// Replays [commands] into [device], reproducing the original interpreter
 /// callbacks in order. The dispatch is total over the [PdfRenderCommand]
 /// hierarchy - adding a command without a case here is a compile error.
@@ -190,7 +203,12 @@ void replayCommands(List<PdfRenderCommand> commands, PdfDevice device,
         device.save();
       case PdfRestoreCommand():
         device.restore();
-      case PdfFillPathCommand(:final path, :final color, :final rule, :final alpha):
+      case PdfFillPathCommand(
+          :final path,
+          :final color,
+          :final rule,
+          :final alpha
+        ):
         device.fillPath(path, color, rule, alpha);
       case PdfFillPathGradientCommand(
           :final path,
@@ -211,7 +229,16 @@ void replayCommands(List<PdfRenderCommand> commands, PdfDevice device,
       case PdfClipPathCommand(:final path, :final rule):
         device.clipPath(path, rule);
       case PdfDrawTextCommand(:final run):
-        device.drawText(run);
+        if (device is PdfTextBatchSink) {
+          var batchEnd = i + 1;
+          while (batchEnd < stop && commands[batchEnd] is PdfDrawTextCommand) {
+            batchEnd++;
+          }
+          (device as PdfTextBatchSink).drawTextBatch(commands, i, batchEnd);
+          i = batchEnd - 1;
+        } else {
+          device.drawText(run);
+        }
       case PdfDrawImageCommand(:final request):
         device.drawImage(request);
       case PdfSetBlendModeCommand(:final mode):

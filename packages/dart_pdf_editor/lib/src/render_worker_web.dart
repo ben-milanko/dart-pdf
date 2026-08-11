@@ -1214,8 +1214,38 @@ class _WebRequestTrace {
       'bin=${_traceMs(binUs)} transfer=${_traceMs(transferUs)} '
       'deserialize=${_traceMs(deserializeUs)} total=${_traceMs(totalUs)} '
       'transcript=${transcriptHit ? 'hit' : 'miss'}'
-      '${imageDecodeSummary == null ? '' : ' imageDecode=$imageDecodeSummary'}',
+      '${imageDecodeSummary == null ? '' : ' imageDecode=$imageDecodeSummary'}'
+      '${_imagePhaseSummary(cosStatsJson)}',
     );
+  }
+}
+
+String _imagePhaseSummary(String? json) {
+  if (json == null) return '';
+  try {
+    final stats = PdfPerfStats.fromJson(
+      jsonDecode(json) as Map<String, Object?>,
+    );
+    final phases = <String>[];
+    void add(String label, PdfPerfPhase phase) {
+      final us = stats.phaseTotalUs(phase);
+      if (us > 0) phases.add('$label=${_traceMs(us)}');
+    }
+
+    add('image', PdfPerfPhase.imageDecode);
+    add('scale', PdfPerfPhase.imageDownsample);
+    add('color', PdfPerfPhase.imageColorConvert);
+    add('alpha', PdfPerfPhase.imageAlpha);
+    add('flate', PdfPerfPhase.flate);
+    add('dct', PdfPerfPhase.dct);
+    add('tokenize', PdfPerfPhase.contentTokenize);
+    final contentOps = stats.count(PdfPerfCount.contentOps);
+    final contentBytes = stats.count(PdfPerfCount.contentBytes);
+    if (contentOps > 0) phases.add('ops=$contentOps');
+    if (contentBytes > 0) phases.add('contentBytes=$contentBytes');
+    return phases.isEmpty ? '' : ' imagePhases=${phases.join(',')}';
+  } catch (_) {
+    return '';
   }
 }
 

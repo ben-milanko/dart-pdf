@@ -10,7 +10,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
@@ -38,6 +38,7 @@ class _SyncWorker extends PdfRenderWorker {
   late final PdfDocument _doc = PdfDocument.open(_bytes);
   bool _disposed = false;
   final List<bool> decodeImageCalls = [];
+  final List<(int page, int priority)> calls = [];
 
   @override
   bool get isActive => !_disposed;
@@ -52,6 +53,7 @@ class _SyncWorker extends PdfRenderWorker {
       PdfRect? imageDecodeRegion,
       PdfPartialRecordSink? onPartial}) async {
     if (_disposed || pageIndex < 0 || pageIndex >= _doc.pageCount) return null;
+    calls.add((pageIndex, priority));
     decodeImageCalls.add(decodeImages);
     final page = _doc.page(pageIndex);
     final previewOperationLimit = decodeImages ? null : commandLimit;
@@ -224,6 +226,42 @@ void main() {
     });
   });
 
+  testWidgets('a DCT soft mask is deferred to the platform consumer',
+      (tester) async {
+    await tester.runAsync(() async {
+      final bytes = _dctSoftMaskPdf();
+      final document = PdfDocument.open(bytes);
+      final worker = PdfRenderWorker.startUncached(bytes);
+      addTearDown(worker.dispose);
+
+      final commands = await worker.record(0);
+      expect(commands, isNotNull);
+      final request = _firstImage(commands!);
+      expect(request, isNotNull);
+      expect(request!.decoded, isNull,
+          reason: 'the background isolate must not run the portable JPEG '
+              'decoder for a mask the Flutter codec can retain on the GPU');
+
+      final size = PdfPageRenderer.pageSize(document.page(0));
+      final workerPicture = await PdfPageRenderer.pictureFromCommands(
+        document.page(0),
+        commands,
+      );
+      final localPicture =
+          await PdfPageRenderer.renderPictureRecorded(document.page(0));
+      try {
+        expect(
+          await _rasterBytes(workerPicture, size),
+          await _rasterBytes(localPicture, size),
+          reason: 'deferral must preserve the exact soft-mask composite',
+        );
+      } finally {
+        workerPicture.dispose();
+        localPicture.dispose();
+      }
+    });
+  });
+
   testWidgets('imagePixelRatio caps a decoded image to display resolution',
       (tester) async {
     await tester.runAsync(() async {
@@ -361,6 +399,103 @@ void main() {
       expect(worker.decodeImageCalls, [true],
           reason: 'an image-only scan skips the empty vector-first request');
     });
+  });
+
+  testWidgets('page readiness schedules an idle command-warm frame',
+      (tester) async {
+    final oldRadius = PdfViewer.speculativePageWarmRadius;
+    final oldHeavy = PdfViewer.speculativeHeavyPageWarmCount;
+    final oldImages = PdfViewer.speculativePageWarmImages;
+    final oldHandles = PdfViewer.speculativePageWarmPlatformImages;
+    PdfViewer.speculativePageWarmRadius = 1;
+    PdfViewer.speculativeHeavyPageWarmCount = 0;
+    PdfViewer.speculativePageWarmImages = false;
+    PdfViewer.speculativePageWarmPlatformImages = false;
+    addTearDown(() {
+      PdfViewer.speculativePageWarmRadius = oldRadius;
+      PdfViewer.speculativeHeavyPageWarmCount = oldHeavy;
+      PdfViewer.speculativePageWarmImages = oldImages;
+      PdfViewer.speculativePageWarmPlatformImages = oldHandles;
+    });
+
+    final bytes = buildMultiPagePdf(3);
+    final worker = _SyncWorker(bytes);
+    final controller = PdfViewerController();
+    addTearDown(worker.dispose);
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          document: PdfDocument.open(bytes),
+          controller: controller,
+          initialFit: PdfViewerFit.width,
+          pagePreviews: false,
+          renderWorker: worker,
+          autoRenderWorker: false,
+        ),
+      ),
+    ));
+
+    for (var i = 0; i < 100 && !worker.calls.any((call) => call.$2 == 3); i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 1)),
+      );
+    }
+
+    expect(worker.calls, contains((1, 3)),
+        reason: 'onRasterReady commonly fires at endOfFrame; the viewer must '
+            'request the follow-up frame itself so idle warming starts before '
+            'the next user navigation');
+  });
+
+  testWidgets('a serial worker does not occupy its only lane with speculation',
+      (tester) async {
+    final oldRadius = PdfViewer.speculativePageWarmRadius;
+    final oldHeavy = PdfViewer.speculativeHeavyPageWarmCount;
+    final oldSerialMax = PdfViewer.speculativeSerialWarmMaxPages;
+    final oldImages = PdfViewer.speculativePageWarmImages;
+    final oldHandles = PdfViewer.speculativePageWarmPlatformImages;
+    PdfViewer.speculativePageWarmRadius = 1;
+    PdfViewer.speculativeHeavyPageWarmCount = 2;
+    PdfViewer.speculativeSerialWarmMaxPages = -1;
+    PdfViewer.speculativePageWarmImages = true;
+    PdfViewer.speculativePageWarmPlatformImages = false;
+    addTearDown(() {
+      PdfViewer.speculativePageWarmRadius = oldRadius;
+      PdfViewer.speculativeHeavyPageWarmCount = oldHeavy;
+      PdfViewer.speculativeSerialWarmMaxPages = oldSerialMax;
+      PdfViewer.speculativePageWarmImages = oldImages;
+      PdfViewer.speculativePageWarmPlatformImages = oldHandles;
+    });
+
+    final bytes = buildMultiPagePdf(4);
+    final worker = _SyncWorker(bytes);
+    final controller = PdfViewerController();
+    addTearDown(worker.dispose);
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          document: PdfDocument.open(bytes),
+          controller: controller,
+          initialFit: PdfViewerFit.width,
+          pagePreviews: false,
+          renderWorker: worker,
+          autoRenderWorker: false,
+        ),
+      ),
+    ));
+
+    for (var i = 0; i < 100; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 1)),
+      );
+    }
+
+    expect(worker.calls.where((call) => call.$2 == 3), isEmpty,
+        reason: 'a serial backend cannot reserve a foreground lane');
   });
 
   testWidgets('a small resource-simple web first paint bypasses worker startup',
@@ -827,6 +962,35 @@ void main() {
       expect(inner.calls.length, 1);
     });
 
+    test('a foreground join promotes an in-flight speculative record',
+        () async {
+      final inner = _ManualWorker();
+      final worker = PdfCachingRenderWorker(inner);
+      addTearDown(worker.dispose);
+
+      final warm = worker.record(3, priority: 3, imagePixelRatio: 2);
+      final visible = worker.record(3, priority: 0, imagePixelRatio: 2);
+
+      expect(identical(warm, visible), isTrue,
+          reason: 'all callers keep sharing one cache-level result');
+      expect(inner.priorities, [3, 0],
+          reason: 'the same key is re-enqueued at foreground priority');
+      expect(inner.cancels, [(3, 3)],
+          reason: 'a queued speculative copy is removed before promotion');
+
+      const promoted = [PdfSaveCommand(), PdfRestoreCommand()];
+      inner._pending[1].complete(promoted);
+      expect(await visible, same(promoted));
+      expect(await warm, same(promoted));
+
+      // A late completion from the superseded dispatch neither replaces the
+      // promoted result nor poisons the completed cache entry.
+      inner._pending[0].complete(null);
+      await Future<void>.delayed(Duration.zero);
+      expect(await worker.record(3, imagePixelRatio: 2), same(promoted));
+      expect(inner.calls.length, 2);
+    });
+
     test('ratio bucket, annotations, and decodeImages are part of the key',
         () async {
       final inner = _CountingWorker();
@@ -1063,6 +1227,69 @@ void main() {
       expect(worker.cacheMaxEntries, 9);
     });
 
+    test('retained command slots evict dense records by LRU', () async {
+      final inner = _CountingWorker(commandCount: 4);
+      final worker = PdfCachingRenderWorker(
+        inner,
+        maxEntries: 64,
+        maxRetainedCommands: 5,
+      );
+      addTearDown(worker.dispose);
+
+      await worker.record(0, decodeImages: false); // {0}: four slots
+      expect(worker.cachedRetainedCommandCount, 4);
+      await worker.record(1, decodeImages: false); // {1}: evicts page 0
+      expect(worker.cachedEntryCount, 1);
+      expect(worker.cachedRetainedCommandCount, 4);
+
+      await worker.record(1, decodeImages: false); // hot page still hits
+      expect(inner.calls.length, 2);
+      await worker.record(0, decodeImages: false); // page 0 was the LRU
+      expect(inner.calls.length, 3);
+    });
+
+    test('one oversize dense record remains reusable', () async {
+      final inner = _CountingWorker(commandCount: 8);
+      final worker = PdfCachingRenderWorker(
+        inner,
+        maxRetainedCommands: 5,
+      );
+      addTearDown(worker.dispose);
+
+      await worker.record(0, decodeImages: false);
+      expect(worker.cachedEntryCount, 1);
+      expect(worker.cachedRetainedCommandCount, 8);
+      await worker.record(0, decodeImages: false);
+      expect(inner.calls.length, 1,
+          reason: 'the newest difficult page must remain a hot cache hit');
+    });
+
+    test('uses the runtime default retained-command budget when not overridden',
+        () {
+      final previous = pdfRenderWorkerCacheMaxRetainedCommands;
+      addTearDown(() => pdfRenderWorkerCacheMaxRetainedCommands = previous);
+
+      pdfRenderWorkerCacheMaxRetainedCommands = 7;
+      final worker = PdfCachingRenderWorker(_CountingWorker());
+      addTearDown(worker.dispose);
+
+      expect(worker.cacheMaxRetainedCommands, 7);
+    });
+
+    test('explicit retained-command budget overrides the runtime default', () {
+      final previous = pdfRenderWorkerCacheMaxRetainedCommands;
+      addTearDown(() => pdfRenderWorkerCacheMaxRetainedCommands = previous);
+
+      pdfRenderWorkerCacheMaxRetainedCommands = 7;
+      final worker = PdfCachingRenderWorker(
+        _CountingWorker(),
+        maxRetainedCommands: 9,
+      );
+      addTearDown(worker.dispose);
+
+      expect(worker.cacheMaxRetainedCommands, 9);
+    });
+
     test('record bypasses the cache while the inner worker is inactive',
         () async {
       final inner = _CountingWorker()..active = false;
@@ -1081,6 +1308,20 @@ void main() {
   });
 
   group('PdfPooledRenderWorker', () {
+    test('reports record capacity through the cache wrapper', () {
+      final pool = PdfPooledRenderWorker.fromWorkers([
+        _CountingWorker(),
+        _CountingWorker(),
+        _CountingWorker(),
+      ]);
+      final cached = PdfCachingRenderWorker(pool);
+      addTearDown(cached.dispose);
+
+      expect(pool.concurrentRecordCapacity, 3);
+      expect(cached.concurrentRecordCapacity, 3);
+      expect(_CountingWorker().concurrentRecordCapacity, 1);
+    });
+
     test('binds surfaces only to capable workers and balances sessions', () {
       final unsupported = _CountingWorker();
       final first = _SurfaceWorker();
@@ -1266,15 +1507,17 @@ void main() {
       await Future.wait([first, other, repeat]);
     });
 
-    test('a page re-routes to an idle worker when its sticky worker is busier',
-        () async {
+    test('a page re-routes from unrelated work to an idle worker', () async {
       final workers = [_ManualWorker(), _ManualWorker()];
       final pool = PdfPooledRenderWorker.fromWorkers(workers);
-      // A background prefetch occupies page 0's sticky worker; the on-screen
-      // record (another priority, so a fresh lease) must not queue behind it.
-      final background = pool.record(0, priority: 1);
+      // Establish page 0's affinity, then occupy that worker with another
+      // page. The on-screen page must not queue behind unrelated work.
+      final first = pool.record(0, priority: 1);
+      workers[0].completeAll();
+      await first;
+      final background = pool.record(2, priority: 1);
       final onScreen = pool.record(0, priority: 0);
-      expect(workers[0].calls.map((c) => c.$1), [0]);
+      expect(workers[0].calls.map((c) => c.$1), [0, 2]);
       expect(workers[1].calls.map((c) => c.$1), [0],
           reason: 'a strictly-less-loaded active worker wins over stickiness');
       for (final worker in workers) {
@@ -1283,10 +1526,30 @@ void main() {
       await Future.wait([background, onScreen]);
     });
 
+    test('a visible page stays with its in-flight speculative warm', () async {
+      final workers = [_ManualWorker(), _ManualWorker(), _ManualWorker()];
+      final pool = PdfPooledRenderWorker.fromWorkers(workers);
+      final warm = pool.record(1, priority: 3);
+      final onScreen = pool.record(1, priority: 0);
+
+      expect(workers[1].calls.map((c) => c.$1), [1, 1],
+          reason: 'the foreground enqueue preempts/resumes the warm transcript '
+              'instead of cold-starting on the reserved lane');
+      expect(workers[0].calls, isEmpty);
+      expect(workers[2].calls, isEmpty);
+      for (final worker in workers) {
+        worker.completeAll();
+      }
+      await Future.wait([warm, onScreen]);
+    });
+
     test('a re-routed page follows its new worker afterwards', () async {
       final workers = [_ManualWorker(), _ManualWorker()];
       final pool = PdfPooledRenderWorker.fromWorkers(workers);
-      final background = pool.record(0, priority: 1);
+      final first = pool.record(0, priority: 1);
+      workers[0].completeAll();
+      await first;
+      final background = pool.record(2, priority: 1);
       final onScreen = pool.record(0, priority: 0); // re-routes to worker 1
       for (final worker in workers) {
         worker.completeAll();
@@ -1296,7 +1559,7 @@ void main() {
       final revisit = pool.record(0);
       expect(workers[1].calls.map((c) => c.$1), [0, 0],
           reason: 'the page sticks to the worker it was re-routed to');
-      expect(workers[0].calls, hasLength(1));
+      expect(workers[0].calls.map((c) => c.$1), [0, 2]);
       workers[1].completeAll();
       await revisit;
     });
@@ -1404,12 +1667,17 @@ class _SeedWorker extends PdfRenderWorker {
 /// buffer of a chosen decoded weight - for exercising [PdfCachingRenderWorker]
 /// without a real isolate or document.
 class _CountingWorker extends PdfRenderWorker {
-  _CountingWorker({this.decodedPixels = 0, this.returnNull = false});
+  _CountingWorker({
+    this.decodedPixels = 0,
+    this.returnNull = false,
+    this.commandCount = 2,
+  });
 
   /// Decoded pixels carried by each returned buffer (an N×N image, so the
   /// cache weight is decodedPixels*4 bytes). 0 returns image-free commands.
   final int decodedPixels;
   final bool returnNull;
+  final int commandCount;
   final calls = <(int, bool, bool, double?)>[];
   final commandLimits = <int?>[];
   final cancels = <(int, int)>[];
@@ -1435,7 +1703,11 @@ class _CountingWorker extends PdfRenderWorker {
     // cached buffer weighs nothing - mirror that so the cache's weight-aware
     // eviction can be exercised.
     if (decodedPixels == 0 || !decodeImages) {
-      return const [PdfSaveCommand(), PdfRestoreCommand()];
+      return List<PdfRenderCommand>.unmodifiable(List.generate(
+        commandCount,
+        (index) =>
+            index.isEven ? const PdfSaveCommand() : const PdfRestoreCommand(),
+      ));
     }
     final side = math.sqrt(decodedPixels).round();
     final pixels = PdfDecodedPixels(Uint8List(side * side * 4), side, side);
@@ -1647,4 +1919,85 @@ Uint8List _inlineImagePdf() {
   buffer.write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n'
       'startxref\n$xref\n%%EOF\n');
   return Uint8List.fromList(buffer.toString().codeUnits);
+}
+
+/// A tiny uncompressed RGB image under a DCT-encoded grayscale soft mask.
+/// This is the shape the native worker must leave for Flutter's platform JPEG
+/// codec instead of decoding through package:image in the background isolate.
+Uint8List _dctSoftMaskPdf() {
+  const width = 8;
+  const height = 4;
+  final gray = img.Image(width: width, height: height);
+  for (final pixel in gray) {
+    final value = pixel.x < width ~/ 2 ? 255 : 0;
+    pixel
+      ..r = value
+      ..g = value
+      ..b = value;
+  }
+  final maskBytes = Uint8List.fromList(img.encodeJpg(gray, quality: 100));
+  final builder = CosDocumentBuilder();
+  final mask = builder.add(CosStream(
+    CosDictionary({
+      'Type': const CosName('XObject'),
+      'Subtype': const CosName('Image'),
+      'Width': const CosInteger(width),
+      'Height': const CosInteger(height),
+      'ColorSpace': const CosName('DeviceGray'),
+      'BitsPerComponent': const CosInteger(8),
+      'Filter': const CosName('DCTDecode'),
+      'Length': CosInteger(maskBytes.length),
+    }),
+    maskBytes,
+  ));
+  final rgb = Uint8List(width * height * 3);
+  for (var i = 0; i < width * height; i++) {
+    rgb[i * 3] = 220;
+    rgb[i * 3 + 1] = 40;
+    rgb[i * 3 + 2] = 20;
+  }
+  final image = builder.add(CosStream(
+    CosDictionary({
+      'Type': const CosName('XObject'),
+      'Subtype': const CosName('Image'),
+      'Width': const CosInteger(width),
+      'Height': const CosInteger(height),
+      'ColorSpace': const CosName('DeviceRGB'),
+      'BitsPerComponent': const CosInteger(8),
+      'SMask': mask,
+      'Length': CosInteger(rgb.length),
+    }),
+    rgb,
+  ));
+  final contentBytes = Uint8List.fromList(
+    'q 200 0 0 100 0 0 cm /Im0 Do Q'.codeUnits,
+  );
+  final content = builder.add(CosStream(
+    CosDictionary({'Length': CosInteger(contentBytes.length)}),
+    contentBytes,
+  ));
+  final pages = CosDictionary({'Type': const CosName('Pages')});
+  final pagesRef = builder.add(pages);
+  final page = builder.add(CosDictionary({
+    'Type': const CosName('Page'),
+    'Parent': pagesRef,
+    'MediaBox': CosArray([
+      const CosInteger(0),
+      const CosInteger(0),
+      const CosInteger(200),
+      const CosInteger(100),
+    ]),
+    'Resources': CosDictionary({
+      'XObject': CosDictionary({'Im0': image}),
+    }),
+    'Contents': content,
+  }));
+  pages
+    ..['Kids'] = CosArray([page])
+    ..['Count'] = const CosInteger(1);
+  final root = builder.add(CosDictionary({
+    'Type': const CosName('Catalog'),
+    'Pages': pagesRef,
+  }));
+  return builder.build(root: root);
 }

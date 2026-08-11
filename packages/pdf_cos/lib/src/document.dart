@@ -155,7 +155,8 @@ class CosDocument {
   Set<int> applyIncrementalUpdate(Uint8List newBytes) {
     if (startXref <= 0) {
       // A recovered document has no trustworthy xref chain to hang a /Prev off.
-      throw CosParseException('cannot incrementally update a recovered document');
+      throw CosParseException(
+          'cannot incrementally update a recovered document');
     }
     if (newBytes.length <= bytes.length) {
       throw CosParseException('incremental update is not an append');
@@ -332,8 +333,7 @@ class CosDocument {
           if (object is CosDictionary) {
             final type = document.resolve(object['Type']);
             if (type is CosName && type.value == 'Catalog') {
-              trailer.entries['Root'] =
-                  CosReference(number, entry.generation);
+              trailer.entries['Root'] = CosReference(number, entry.generation);
               break;
             }
           }
@@ -427,8 +427,8 @@ class CosDocument {
       final first = resolve(id[0]);
       if (first is CosString) firstId = first.bytes;
     }
-    _encryption =
-        StandardSecurityHandler.fromEncrypt(encrypt, firstId, password, resolve);
+    _encryption = StandardSecurityHandler.fromEncrypt(
+        encrypt, firstId, password, resolve);
   }
 
   /// The version from the file header, e.g. `1.7`. The catalog's /Version
@@ -520,8 +520,8 @@ class CosDocument {
             // strings decrypt with the owning object's key the moment it
             // loads; stream payloads wait for decodeStreamData
             if (_encryption != null && objectNumber != _encryptObjectNumber) {
-              _encryption!
-                  .decryptObjectGraph(result, objectNumber, indirect.generation);
+              _encryption!.decryptObjectGraph(
+                  result, objectNumber, indirect.generation);
             }
           }
         case CosXrefEntryType.compressed:
@@ -583,8 +583,7 @@ class CosDocument {
     if (_scannedHeaders == null) {
       PdfPerf.event(PdfPerfEvent.objectRescueScanBuilt);
     }
-    final headers =
-        _scannedHeaders ??= _scanObjectHeaders(bytes, _offsetShift);
+    final headers = _scannedHeaders ??= _scanObjectHeaders(bytes, _offsetShift);
     final entry = headers[objectNumber];
     if (entry == null || entry.type != CosXrefEntryType.inUse) return null;
     final rescued = _parseIndirectAt(entry.offset, objectNumber);
@@ -620,6 +619,31 @@ class CosDocument {
     return decoded;
   }
 
+  /// Seeds the decoded-stream cache with bytes produced by an equivalent
+  /// platform decoder.
+  ///
+  /// This is an acceleration seam for hosts that can perform part of the PDF
+  /// filter pipeline asynchronously or natively (for example a browser
+  /// `DecompressionStream`). [decoded] must be exactly the bytes that
+  /// [decodeStreamData] would return for the same [stream] and
+  /// [stopBeforeFilter]. Supplying different bytes changes document semantics.
+  ///
+  /// Results above [decodedStreamCacheItemCapBytes] are ignored unless
+  /// [allowOversize] is true. The total LRU budget still applies; as with the
+  /// ordinary cache, one oversize hot entry may remain resident by itself.
+  void seedDecodedStreamData(
+    CosStream stream,
+    Uint8List decoded, {
+    String? stopBeforeFilter,
+    bool allowOversize = false,
+  }) {
+    _cacheDecoded(
+      _DecodedKey(stream, stopBeforeFilter),
+      decoded,
+      allowOversize: allowOversize,
+    );
+  }
+
   /// The decrypt-then-filter-decode work behind [decodeStreamData], without the
   /// cache. Used directly for object streams, whose decoded bytes are already
   /// held (and reused) by [_objectStreams] - caching them again would only pin a
@@ -642,10 +666,32 @@ class CosDocument {
         resolve: _resolveRef, stopBeforeFilter: stopBeforeFilter);
   }
 
+  /// Takes a platform-seeded full decode when present, otherwise decodes
+  /// normally. Object-stream bytes are retained by [_objectStreams] for the
+  /// rest of the document lifetime, so removing the seed here avoids keeping
+  /// the same potentially-large buffer in both caches.
+  Uint8List _decodeObjectStreamData(CosStream stream) {
+    final key = _DecodedKey(stream, null);
+    final seeded = _decodedCache.remove(key);
+    if (seeded != null) {
+      _decodedCacheBytes -= seeded.length;
+      return seeded;
+    }
+    return _decodeStreamUncached(stream, null);
+  }
+
   /// Stores [decoded] under [key] when it is small enough to cache, evicting
   /// least-recently-used entries until the total is back within budget.
-  void _cacheDecoded(_DecodedKey key, Uint8List decoded) {
-    if (decoded.length > decodedStreamCacheItemCapBytes) return;
+  void _cacheDecoded(
+    _DecodedKey key,
+    Uint8List decoded, {
+    bool allowOversize = false,
+  }) {
+    if (!allowOversize && decoded.length > decodedStreamCacheItemCapBytes) {
+      return;
+    }
+    final replaced = _decodedCache.remove(key);
+    if (replaced != null) _decodedCacheBytes -= replaced.length;
     _decodedCache[key] = decoded;
     _decodedCacheBytes += decoded.length;
     while (_decodedCacheBytes > decodedStreamCacheBudgetBytes &&
@@ -667,7 +713,7 @@ class CosDocument {
           throw CosParseException(
               'object stream $streamObjectNumber is not a stream');
         }
-        final data = _decodeStreamUncached(object, null);
+        final data = _decodeObjectStreamData(object);
         final count = resolve(object.dictionary['N']);
         final first = resolve(object.dictionary['First']);
         if (count is! CosInteger || first is! CosInteger) {
@@ -690,7 +736,6 @@ class CosDocument {
     }
     return index;
   }
-
 }
 
 /// Key for the decoded-stream cache: a [CosStream] by identity plus the

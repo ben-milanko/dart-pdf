@@ -185,6 +185,9 @@ void main() {
     await tester.pumpWidget(at(1));
     final base = await settleRaster(tester, 612);
     expect(base.width, 612);
+    expect(StripPdfDevice.totalFlushes, 0,
+        reason: 'the first base raster must flatten the completed picture; '
+            'strip binning is only useful when a later settle changes scale');
 
     // the zoom settle must re-bin through the strip device
     StripPdfDevice.resetStats();

@@ -15,6 +15,13 @@ import 'package:test/test.dart';
 void main() {
   late CosDocument cos;
   setUp(() => cos = CosDocument.open(buildClassicPdf()));
+  tearDown(() {
+    pdfDctCmykDecoder = null;
+    pdfDctGrayDecoder = null;
+    pdfDctRgbaDecoder = null;
+    pdfDeviceCmykToRgba = null;
+    pdfComponentBoxDownsampler = null;
+  });
 
   CosStream image(Map<String, CosObject> dict, List<int> data) =>
       CosStream(CosDictionary(dict), Uint8List.fromList(data));
@@ -160,6 +167,58 @@ void main() {
     expect(pixels.rgba[14 * 4 + 3], lessThan(15));
     expect(pixels.rgba.sublist(14 * 4, 14 * 4 + 3), [0, 0, 0],
         reason: 'the transparent red base must be premultiplied');
+  });
+
+  test('a targeted DCT /SMask uses the grayscale accelerator', () {
+    var calls = 0;
+    pdfDctGrayDecoder = (
+      bytes, {
+      targetWidth,
+      targetHeight,
+    }) {
+      calls++;
+      expect(bytes, [1, 2, 3]);
+      expect((targetWidth, targetHeight), (1, 1));
+      return PdfDctGraySamples(Uint8List.fromList([255, 0]), 2, 1);
+    };
+    final smask = image({
+      'Width': const CosInteger(2),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceGray'),
+      'Filter': const CosName('DCTDecode'),
+    }, [
+      1,
+      2,
+      3,
+    ]);
+    final stream = image({
+      'Width': const CosInteger(2),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceCMYK'),
+      'SMask': smask,
+    }, [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+    ]);
+
+    final pixels = decodePdfImage(
+      cos,
+      stream,
+      targetWidth: 1,
+      targetHeight: 1,
+    )!;
+
+    expect(calls, 1);
+    expect((pixels.width, pixels.height), (1, 1));
+    expect(pixels.rgba, [127, 127, 127, 127]);
   });
 
   test('/SMask /Matte un-preblends the base against the matte colour', () {
@@ -356,6 +415,230 @@ void main() {
       expect(pixels.rgba[1], closeTo((expected.green * 255).round(), 3));
       expect(pixels.rgba[2], closeTo((expected.blue * 255).round(), 3));
       expect(pixels.rgba[3], 255);
+    });
+
+    test('accelerated CMYK samples retain the common PDF colour pipeline', () {
+      var calls = 0;
+      pdfDctCmykDecoder = (
+        bytes, {
+        targetWidth,
+        targetHeight,
+      }) {
+        calls++;
+        expect(bytes, base64Decode(cmykJpeg));
+        expect((targetWidth, targetHeight), (1, 1));
+        final samples = Uint8List(16 * 8 * 4);
+        for (var y = 0; y < 8; y++) {
+          for (var x = 0; x < 16; x++) {
+            final i = (y * 16 + x) * 4;
+            if (x < 8) {
+              samples[i] = 255;
+            } else {
+              samples[i + 1] = 255;
+              samples[i + 3] = 128;
+            }
+          }
+        }
+        return PdfDctCmykSamples(samples, 16, 8);
+      };
+
+      final pixels = decodePdfImageBase(
+        cos,
+        cmykDct(cmykJpeg),
+        targetWidth: 1,
+        targetHeight: 1,
+      )!;
+      final expected = PdfColor.cmyk(127 / 255, 127 / 255, 0, 64 / 255);
+
+      expect(calls, 1);
+      expect((pixels.width, pixels.height), (1, 1));
+      expect(pixels.rgba[0], closeTo((expected.red * 255).round(), 3));
+      expect(pixels.rgba[1], closeTo((expected.green * 255).round(), 3));
+      expect(pixels.rgba[2], closeTo((expected.blue * 255).round(), 3));
+      expect(pixels.rgba[3], 255);
+    });
+
+    test('accelerator failures fall back to the portable decoder', () {
+      pdfDctCmykDecoder = (
+        _, {
+        targetWidth,
+        targetHeight,
+      }) =>
+          throw StateError('codec unavailable');
+
+      final pixels = decodePdfImagePixels(cos, cmykDct(ycckJpeg))!;
+      expectPixel(pixels.rgba, 2, [0, 7, 39]);
+      expectPixel(pixels.rgba, 12, [140, 17, 11]);
+    });
+
+    test('bulk DeviceCMYK conversion accepts only the image sample span', () {
+      final expected = Uint8List.fromList([
+        1,
+        2,
+        3,
+        255,
+        4,
+        5,
+        6,
+        255,
+      ]);
+      var calls = 0;
+      pdfDeviceCmykToRgba = (samples) {
+        calls++;
+        expect(samples, [0, 0, 0, 0, 255, 0, 0, 0]);
+        return expected;
+      };
+      final stream = image({
+        'Width': const CosInteger(2),
+        'Height': const CosInteger(1),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceCMYK'),
+      }, [
+        0,
+        0,
+        0,
+        0,
+        255,
+        0,
+        0,
+        0,
+        99, // tolerated trailing stream data must not reach the accelerator
+      ]);
+
+      final pixels = decodePdfImagePixels(cos, stream)!;
+      expect(calls, 1);
+      expect(pixels.rgba, expected);
+    });
+
+    test('bulk DeviceCMYK conversion receives samples after /Decode', () {
+      var calls = 0;
+      pdfDeviceCmykToRgba = (samples) {
+        calls++;
+        expect(samples, [254, 253, 252, 251]);
+        return Uint8List.fromList([7, 8, 9, 255]);
+      };
+      final stream = image({
+        'Width': const CosInteger(1),
+        'Height': const CosInteger(1),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceCMYK'),
+        'Decode': CosArray([
+          const CosInteger(1),
+          const CosInteger(0),
+          const CosInteger(1),
+          const CosInteger(0),
+          const CosInteger(1),
+          const CosInteger(0),
+          const CosInteger(1),
+          const CosInteger(0),
+        ]),
+      }, [
+        1,
+        2,
+        3,
+        4
+      ]);
+
+      final pixels = decodePdfImagePixels(cos, stream)!;
+      expect(calls, 1);
+      expect(pixels.rgba, [7, 8, 9, 255]);
+    });
+
+    test('targeted masked CMYK decode keeps the target through both halves',
+        () {
+      var calls = 0;
+      pdfDctCmykDecoder = (
+        _, {
+        targetWidth,
+        targetHeight,
+      }) {
+        calls++;
+        expect((targetWidth, targetHeight), (1, 1));
+        final samples = Uint8List(16 * 8 * 4);
+        for (var i = 0; i < 16 * 8; i++) {
+          samples[i * 4] = i < 64 ? 255 : 0;
+        }
+        return PdfDctCmykSamples(samples, 16, 8);
+      };
+      final mask = flateImage({
+        'Width': const CosInteger(16),
+        'Height': const CosInteger(8),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceGray'),
+      }, [
+        ...List.filled(64, 255),
+        ...List.filled(64, 0),
+      ]);
+      final stream = image({
+        'Width': const CosInteger(16),
+        'Height': const CosInteger(8),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceCMYK'),
+        'Filter': const CosName('DCTDecode'),
+        'SMask': mask,
+      }, base64Decode(cmykJpeg));
+
+      final pixels = decodePdfImage(
+        cos,
+        stream,
+        targetWidth: 1,
+        targetHeight: 1,
+      )!;
+
+      expect(calls, 1);
+      expect((pixels.width, pixels.height), (1, 1));
+      expect(pixels.rgba[3], 127);
+    });
+
+    test('component box accelerator handles the base and Flate soft mask', () {
+      pdfDctCmykDecoder = (
+        _, {
+        targetWidth,
+        targetHeight,
+      }) {
+        final samples = Uint8List(16 * 8 * 4);
+        return PdfDctCmykSamples(samples, 16, 8);
+      };
+      final calls = <int>[];
+      pdfComponentBoxDownsampler = (
+        samples,
+        width,
+        height,
+        components,
+        targetWidth,
+        targetHeight,
+      ) {
+        calls.add(components);
+        expect((width, height), (16, 8));
+        expect((targetWidth, targetHeight), (1, 1));
+        return components == 4
+            ? Uint8List.fromList([0, 0, 0, 0])
+            : Uint8List.fromList([128]);
+      };
+      final mask = flateImage({
+        'Width': const CosInteger(16),
+        'Height': const CosInteger(8),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceGray'),
+      }, List.filled(16 * 8, 128));
+      final stream = image({
+        'Width': const CosInteger(16),
+        'Height': const CosInteger(8),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceCMYK'),
+        'Filter': const CosName('DCTDecode'),
+        'SMask': mask,
+      }, base64Decode(cmykJpeg));
+
+      final pixels = decodePdfImage(
+        cos,
+        stream,
+        targetWidth: 1,
+        targetHeight: 1,
+      )!;
+
+      expect(calls, [4, 1]);
+      expect(pixels.rgba, [128, 128, 128, 128]);
     });
   });
 
@@ -769,6 +1052,37 @@ void main() {
       0,
       0,
     ]);
+
+    final decodedMask = image({
+      'ImageMask': const CosBoolean(true),
+      'Width': const CosInteger(4),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(1),
+    }, [
+      0xb0
+    ]);
+    final decodedStream = image({
+      'Width': const CosInteger(4),
+      'Height': const CosInteger(1),
+      'BitsPerComponent': const CosInteger(1),
+      'ColorSpace': CosArray([
+        const CosName('Indexed'),
+        const CosName('DeviceRGB'),
+        const CosInteger(1),
+        CosString(Uint8List.fromList([0, 0, 0, 255, 0, 0])),
+      ]),
+      'Mask': decodedMask,
+    }, [
+      0x50
+    ]);
+    final predecoded = decodePdfImagePixelsScaled(
+      cos,
+      decodedStream,
+      2,
+      1,
+      samplesAreDecoded: true,
+    )!;
+    expect(predecoded.rgba, pixels.rgba);
   });
 
   test('scaled CCITT gray avoids native RGBA expansion', () {
@@ -943,6 +1257,51 @@ void main() {
       expect((target.width, target.height), (2, 1));
       expect(target.rgba, expected.rgba,
           reason: 'uniform source cells must retain their tint colours');
+    });
+
+    test('targeted nonlinear ink decode matches full RGBA box filtering', () {
+      final stream = separation([0, 255]);
+      final full = decodePdfImagePixels(cos, stream)!;
+      final expected = downsamplePdfDecodedPixels(full, 1, 1);
+      final targeted = decodePdfImage(
+        cos,
+        stream,
+        targetWidth: 1,
+        targetHeight: 1,
+      )!;
+
+      expect(targeted.rgba, expected.rgba,
+          reason: 'a tint transform is nonlinear, so component samples must '
+              'be converted before they are averaged');
+    });
+
+    test('targeted DeviceCMYK decode matches full RGBA box filtering', () {
+      final stream = flateImage({
+        'Width': const CosInteger(2),
+        'Height': const CosInteger(1),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceCMYK'),
+      }, [
+        0,
+        0,
+        0,
+        0,
+        255,
+        255,
+        255,
+        255,
+      ]);
+      final full = decodePdfImagePixels(cos, stream)!;
+      final expected = downsamplePdfDecodedPixels(full, 1, 1);
+      final targeted = decodePdfImage(
+        cos,
+        stream,
+        targetWidth: 1,
+        targetHeight: 1,
+      )!;
+
+      expect(targeted.rgba, expected.rgba,
+          reason: 'the DeviceCMYK polynomial must run before box filtering');
     });
 
     test('every distinct sample maps through the tint transform', () {

@@ -202,7 +202,9 @@ void main() {
     // already does a full decode plus downsample itself.
     test('true for DCTDecode - it has no scaled decode path', () {
       final cos = CosDocument.open(buildClassicPdf());
-      expect(pdfImageDecodeIgnoresTarget(cos, streamWith(const CosName('DCTDecode'))),
+      expect(
+          pdfImageDecodeIgnoresTarget(
+              cos, streamWith(const CosName('DCTDecode'))),
           isTrue);
       expect(
           pdfImageDecodeIgnoresTarget(
@@ -213,6 +215,22 @@ void main() {
               ]))),
           isTrue,
           reason: 'a wrapped DCT stream still ends at the DCT decoder');
+    });
+
+    test('CMYK DCT honours targets after entropy decode', () {
+      final cos = CosDocument.open(buildClassicPdf());
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(4),
+          'Height': const CosInteger(4),
+          'Filter': const CosName('DCTDecode'),
+          'ColorSpace': const CosName('DeviceCMYK'),
+        }),
+        Uint8List(0),
+      );
+
+      expect(pdfImageDecodeIgnoresTarget(cos, stream), isFalse);
+      expect(pdfImageDecodeIgnoresRegion(cos, stream), isTrue);
     });
 
     test('false where a scaled decode path exists', () {

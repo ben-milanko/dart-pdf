@@ -51,16 +51,20 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
         Uri.base.queryParameters['domSurface'] == '1';
     // Log/frame-timing capture for the F12 developer tools.
     if (kDevToolsEnabled) AppDevTools.instance.install();
-    // A small pool gives heavy CAD/image pages real overlap without multiplying
-    // document memory too far. Mobile-class targets get a lower default; the
-    // perf harness is allowed to be more aggressive.
-    pdfRenderWorkerPoolSize = switch (defaultTargetPlatform) {
-      TargetPlatform.android ||
-      TargetPlatform.iOS ||
-      TargetPlatform.fuchsia =>
-        2,
-      _ => 3,
-    };
+    // A small pool gives native heavy CAD/image pages real overlap without
+    // multiplying document memory too far. In Chromium, one worker matched
+    // two-worker visual latency on the real-world journey while removing a
+    // complete document/decode working set; the runtime performance policy
+    // uses the same web default.
+    pdfRenderWorkerPoolSize = kIsWeb
+        ? 1
+        : switch (defaultTargetPlatform) {
+            TargetPlatform.android ||
+            TargetPlatform.iOS ||
+            TargetPlatform.fuchsia =>
+              2,
+            _ => 3,
+          };
     // Warm the render worker now, before any document is opened: on the web this
     // fetches, compiles, and boots the ~1 MB worker script (~1.45 s on a phone,
     // #450) so that cost overlaps the user choosing a file instead of blocking

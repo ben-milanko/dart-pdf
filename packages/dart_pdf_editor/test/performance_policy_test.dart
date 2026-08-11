@@ -28,6 +28,10 @@ void main() {
         3);
     expect(
         PdfPerformancePolicy.initialWorkerCount(
+            env(platform: PdfPerformancePlatform.web), auto),
+        1);
+    expect(
+        PdfPerformancePolicy.initialWorkerCount(
             env(platform: PdfPerformancePlatform.web, cores: 2), auto),
         1);
     expect(PdfPerformancePolicy.initialWorkerCount(env(pages: 6), auto), 1,
@@ -69,8 +73,7 @@ void main() {
   });
 
   test('slow samples tune safe knobs live and defer worker resize', () {
-    final controller = PdfPerformanceController(
-        environment: env(platform: PdfPerformancePlatform.web));
+    final controller = PdfPerformanceController(environment: env());
     addTearDown(controller.dispose);
     expect(controller.beginWorkerGeneration(), 3);
 

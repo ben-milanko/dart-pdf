@@ -93,6 +93,9 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   String get debugLabel => 'flutter_gpu';
 
   @override
+  bool get prefersDirectDecodedImageUploads => true;
+
+  @override
   PdfTileRasterSession? createSession(PdfRetainedScene scene) {
     _lastSessionRejection = null;
     try {
@@ -721,7 +724,7 @@ class _FlutterGpuTileSession
           throw StateError('flutter_gpu tile session disposed');
         }
         return _ready = compiled;
-      });
+      }).whenComplete(scene.releaseDecodedImagePixels);
 
   @override
   Future<ui.Image> rasterizeRegion(
@@ -772,6 +775,7 @@ class _FlutterGpuTileSession
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    scene.releaseDecodedImagePixels();
     _ready?.dispose();
     _ready = null;
     _compiled = null;

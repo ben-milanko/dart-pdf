@@ -53,9 +53,17 @@
 //   events     hover: pointer-hover events        (default 240)
 //   tool       hover: armed tool                  (default ink)
 //   imageCacheMb  decoded-image cache budget, MB (default 0 = platform default)
+//   workerCacheMb retained worker-record budget, MB (default 0 = package default)
 //   rasterCacheMb exact full-page raster budget, MB (default 32; 0 disables)
 //   previewWindow pages each side eligible for idle preview warming (default 6)
 //   domSurface    present page rasters in a DOM canvas (default false)
+//   directPicture present bounded retained pictures without toImage (default true)
+//   finalFirst    skip bounded intermediate vector raster (default true)
+//   outlineBatch  batch adjacent embedded-outline text fills (default true)
+//   warmRadius    nearby pages to command/image-warm after ready (default 3)
+//   heavyWarm     encoded-content heavy-tail candidate count (default 4)
+//   warmImages    include decoded images in command warming (default true)
+//   warmHandles   upload warmed images to the platform cache (default false)
 //   source        full|range; range uses the public sparse-first HTTP loader
 //
 // The driver reads these JS globals this installs:
@@ -182,14 +190,21 @@ PdfPageRasterWarmPolicy get _warmPolicy => switch (_warmMode) {
 /// driver sweeps it to measure what each budget costs a real tab (issue #281).
 final int _imageCacheMb = _qInt('imageCacheMb', 0);
 
+/// Retained worker command-buffer budget, MB. Zero keeps the package default.
+/// This isolates CPU transcript retention from the decoded engine-image cache:
+/// the real-world memory journey can reduce one without accidentally making
+/// every navigation re-upload image pixels.
+final int _workerCacheMb = _qInt('workerCacheMb', 0);
+
 /// `?worker=N`: render-worker pool size; `?worker=0` disables the web render
 /// worker entirely (`pdfRenderWorkerScriptUrl = null`), forcing every page -
 /// interpret AND image decode - onto the main thread. That is the only way to
 /// A/B the main-thread `_decodeOne` DCT path on desktop (#458's browser-JPEG
 /// fallback): with the worker on, DCT images decode off-thread and the main
-/// path never runs. Defaults to the package/app desktop pool so the parity
-/// harness measures the configuration users actually get.
-final int _workerPool = _qInt('worker', defaultPdfRenderWorkerPoolSize);
+/// path never runs. Defaults to the production web policy so the parity
+/// harness measures the configuration users actually get; `?worker=N` remains
+/// the explicit fixed-pool experiment seam.
+final int _workerPool = _qInt('worker', 1);
 
 /// `?perGlyph=1` turns on per-glyph substituted-text composition (#454) so the
 /// same build can A/B it: `?perGlyph=0` turns it OFF (whole-run shaping) - watch
@@ -281,6 +296,9 @@ void main() {
   // Reassigning debugPrint (a mutable foundation global) captures every
   // PdfPerfLog line without the console throttle dropping any under load.
   PdfPerfLog.enabled = true;
+  if (_workerCacheMb > 0) {
+    pdfRenderWorkerCacheBudgetBytes = _workerCacheMb * 1024 * 1024;
+  }
   if (_workerPool <= 0) {
     // Worker off: everything renders on the main thread. #458's A/B lever.
     pdfRenderWorkerScriptUrl = null;
@@ -289,12 +307,23 @@ void main() {
     pdfRenderWorkerPoolSize = _workerPool;
   }
   _record('[perf] HARNESS workerPool=$_workerPool');
+  _record('[perf] HARNESS workerCacheBudget='
+      '${pdfRenderWorkerCacheBudgetBytes ~/ (1024 * 1024)}MB');
   CanvasPdfDevice.perGlyphSubstitutedText = _perGlyph;
   _record('[perf] HARNESS perGlyph=$_perGlyph');
+  CanvasPdfDevice.batchEmbeddedTextOutlines = _qBool(
+    'outlineBatch',
+    CanvasPdfDevice.batchEmbeddedTextOutlines,
+  );
+  _record('[perf] HARNESS outlineBatch='
+      '${CanvasPdfDevice.batchEmbeddedTextOutlines}');
   // `?progressive=1`: light up the #564 progressive top-down reveal (the
   // vector-first record streams growing linework prefixes into the preview),
   // so an `open` A/B can measure its first-content win vs the bounded prefix.
-  PdfPageView.progressiveStreamingPaint = _qBool('progressive', false);
+  PdfPageView.progressiveStreamingPaint = _qBool(
+    'progressive',
+    PdfPageView.progressiveStreamingPaint,
+  );
   _record(
       '[perf] HARNESS progressive=${PdfPageView.progressiveStreamingPaint}');
   // `?fused=0`: restore the two-record vector-then-image path for an A/B.
@@ -318,6 +347,68 @@ void main() {
   PdfPageView.webDomRasterPresentation = _qBool('domSurface', false);
   _record('[perf] HARNESS domSurface='
       '${PdfPageView.webDomRasterPresentation}');
+  PdfPageView.directPicturePresentation = _qBool(
+    'directPicture',
+    PdfPageView.directPicturePresentation,
+  );
+  _record('[perf] HARNESS directPicture='
+      '${PdfPageView.directPicturePresentation}');
+  // Dense-page strip replay is cross-platform (web plus supported Impeller
+  // backends) and materially changes both CAD settle time and retained command
+  // memory. Keep a harness-only A/B seam so real-document runs can prove the
+  // tradeoff before production defaults move.
+  PdfPageView.stripZoomReplay = _qBool(
+    'stripZoom',
+    PdfPageView.stripZoomReplay,
+  );
+  _record('[perf] HARNESS stripZoom=${PdfPageView.stripZoomReplay}');
+  PdfPageView.retainedZoomReplay = _qBool(
+    'retainedReplay',
+    PdfPageView.retainedZoomReplay,
+  );
+  _record('[perf] HARNESS retainedReplay=${PdfPageView.retainedZoomReplay}');
+  PdfPageView.retainDenseScenesOffFocus = _qBool(
+    'denseScenesOffFocus',
+    PdfPageView.retainDenseScenesOffFocus,
+  );
+  _record('[perf] HARNESS denseScenesOffFocus='
+      '${PdfPageView.retainDenseScenesOffFocus}');
+  PdfPageView.prioritizeBoundedFinalPicture = _qBool(
+    'finalFirst',
+    PdfPageView.prioritizeBoundedFinalPicture,
+  );
+  _record('[perf] HARNESS finalFirst='
+      '${PdfPageView.prioritizeBoundedFinalPicture}');
+  PdfViewer.speculativePageWarmRadius = _qInt(
+    'warmRadius',
+    PdfViewer.speculativePageWarmRadius,
+  );
+  _record('[perf] HARNESS warmRadius='
+      '${PdfViewer.speculativePageWarmRadius}');
+  PdfViewer.speculativeSerialWarmMaxPages = _qInt(
+    'serialWarmMaxPages',
+    PdfViewer.speculativeSerialWarmMaxPages,
+  );
+  _record('[perf] HARNESS serialWarmMaxPages='
+      '${PdfViewer.speculativeSerialWarmMaxPages}');
+  PdfViewer.speculativeHeavyPageWarmCount = _qInt(
+    'heavyWarm',
+    PdfViewer.speculativeHeavyPageWarmCount,
+  );
+  _record('[perf] HARNESS heavyWarm='
+      '${PdfViewer.speculativeHeavyPageWarmCount}');
+  PdfViewer.speculativePageWarmImages = _qBool(
+    'warmImages',
+    PdfViewer.speculativePageWarmImages,
+  );
+  _record('[perf] HARNESS warmImages='
+      '${PdfViewer.speculativePageWarmImages}');
+  PdfViewer.speculativePageWarmPlatformImages = _qBool(
+    'warmHandles',
+    PdfViewer.speculativePageWarmPlatformImages,
+  );
+  _record('[perf] HARNESS warmHandles='
+      '${PdfViewer.speculativePageWarmPlatformImages}');
   debugPrint = (String? message, {int? wrapWidth}) {
     if (message != null) _record(message);
   };

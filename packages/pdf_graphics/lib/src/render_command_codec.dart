@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import 'color.dart';
@@ -220,6 +221,36 @@ int? pdfPageRasterPixels(PdfRect box, double? ratio) {
   return pixels.ceil();
 }
 
+/// The shared page-wide decoded-image scale used by [serializeCommands].
+///
+/// Browser render workers use this before serialization when they predecode a
+/// Flate stream asynchronously. Exposing the exact calculation keeps that
+/// predecode at the same dimensions as the subsequent command serializer;
+/// otherwise layered pages can be decoded at native size only to be capped a
+/// second time by the page raster budget.
+double pdfCommandImageBudgetScale(
+  List<PdfRenderCommand> commands,
+  CosDocument cos,
+  double ratio, {
+  PdfRect? imageDecodeRegion,
+  double imageBudgetFactor = _imageBudgetFactor,
+  int? pageRasterPixels,
+}) {
+  if (!(ratio > 0)) return 1;
+  return _imageBudgetScale(
+    commands,
+    cos,
+    ratio,
+    _imageBudgetPixels(
+      ratio,
+      imageBudgetFactor,
+      imageDecodeRegion: imageDecodeRegion,
+      pageRasterPixels: pageRasterPixels,
+    ),
+    imageDecodeRegion: imageDecodeRegion,
+  );
+}
+
 Uint8List? serializeCommands(List<PdfRenderCommand> commands,
     {CosDocument? cos,
     bool decodeImages = false,
@@ -243,14 +274,14 @@ Uint8List? serializeCommands(List<PdfRenderCommand> commands,
   // overflow the budget.
   var budgetScale = 1.0;
   if (decodeImages && maxImagePixelRatio != null && cos != null) {
-    budgetScale = _imageBudgetScale(
-        wireCommands,
-        cos,
-        maxImagePixelRatio,
-        _imageBudgetPixels(maxImagePixelRatio, imageBudgetFactor,
-            imageDecodeRegion: imageDecodeRegion,
-            pageRasterPixels: pageRasterPixels),
-        imageDecodeRegion: imageDecodeRegion);
+    budgetScale = pdfCommandImageBudgetScale(
+      wireCommands,
+      cos,
+      maxImagePixelRatio,
+      imageDecodeRegion: imageDecodeRegion,
+      imageBudgetFactor: imageBudgetFactor,
+      pageRasterPixels: pageRasterPixels,
+    );
   }
   try {
     _writeCommands(w, wireCommands, cos,
@@ -649,8 +680,13 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
             (request.decoded != null ||
                 imageDecodeFilter == null ||
                 imageDecodeFilter(document, request))) {
-          decodedImage = _decodeImageForCommand(document, request,
-              maxImageRatio, budgetScale, imageDecodeRegion, imageCache);
+          final imageT0 = PdfPerf.begin();
+          try {
+            decodedImage = _decodeImageForCommand(document, request,
+                maxImageRatio, budgetScale, imageDecodeRegion, imageCache);
+          } finally {
+            PdfPerf.end(PdfPerfPhase.imageDecode, imageT0);
+          }
         }
         CosReference? sourceReference;
         CosObject? inlined = decodedImage?.streamForKey;
@@ -768,13 +804,13 @@ _CommandImage? _decodeImageForCommand(
         regionPlan.targetHeight,
       );
     } else if (imageCache != null &&
-        pdfImageDecodeIgnoresTarget(document, request.stream)) {
+        pdfImageDecodeIgnoresRegion(document, request.stream)) {
       // DCT has no region/scaled entropy path: decodePdfImage(region:) already
       // decodes the whole JPEG and then crops it. Retain that native result so
       // adjacent deep-zoom tiles and later zoom levels crop the same pixels
       // instead of repeating the expensive entropy/IDCT pass (notably CMYK).
       // This is byte-identical to the generic region fallback by definition of
-      // pdfImageDecodeIgnoresTarget; formats with true scaled decoders never
+      // pdfImageDecodeIgnoresRegion; formats with true region decoders never
       // enter this branch.
       final full = imageCache.decode(request.stream, null, null,
           () => decodePdfImagePixels(document, request.stream));
@@ -1276,33 +1312,27 @@ PdfPath? _readGlyphOutline(_Reader r) {
 }
 
 void _writePath(_Writer w, PdfPath path) {
-  w.u32(path.segments.length);
-  for (final s in path.segments) {
-    switch (s) {
-      case PdfMoveTo(:final x, :final y):
+  w.u32(path.segmentCount);
+  final cursor = path.cursor();
+  while (cursor.moveNext()) {
+    switch (cursor.verb) {
+      case PdfPathVerb.moveTo:
         w.u8(0);
-        w.f32(x);
-        w.f32(y);
-      case PdfLineTo(:final x, :final y):
+        w.f32(cursor.x1);
+        w.f32(cursor.y1);
+      case PdfPathVerb.lineTo:
         w.u8(1);
-        w.f32(x);
-        w.f32(y);
-      case PdfCubicTo(
-          :final x1,
-          :final y1,
-          :final x2,
-          :final y2,
-          :final x3,
-          :final y3
-        ):
+        w.f32(cursor.x1);
+        w.f32(cursor.y1);
+      case PdfPathVerb.cubicTo:
         w.u8(2);
-        w.f32(x1);
-        w.f32(y1);
-        w.f32(x2);
-        w.f32(y2);
-        w.f32(x3);
-        w.f32(y3);
-      case PdfClosePath():
+        w.f32(cursor.x1);
+        w.f32(cursor.y1);
+        w.f32(cursor.x2);
+        w.f32(cursor.y2);
+        w.f32(cursor.x3);
+        w.f32(cursor.y3);
+      case PdfPathVerb.close:
         w.u8(3);
     }
   }
@@ -1310,21 +1340,40 @@ void _writePath(_Writer w, PdfPath path) {
 
 PdfPath _readPath(_Reader r) {
   final n = r.u32();
-  final segments = List<PdfPathSegment>.filled(
-    n,
-    const PdfClosePath(),
-    growable: true,
-  );
+  // Count coordinates without widening them or allocating segment objects.
+  // The wire interleaves one tag with its float32 payload, so this cheap first
+  // pass lets the retained Float32List be exact-sized rather than reserving
+  // six coordinates for every move/line/close as well as every cubic.
+  final start = r._o;
+  var coordinateCount = 0;
   for (var i = 0; i < n; i++) {
-    segments[i] = switch (r.u8()) {
-      0 => PdfMoveTo(r.f32(), r.f32()),
-      1 => PdfLineTo(r.f32(), r.f32()),
-      2 => PdfCubicTo(r.f32(), r.f32(), r.f32(), r.f32(), r.f32(), r.f32()),
-      3 => const PdfClosePath(),
+    final count = switch (r.u8()) {
+      0 || 1 => 2,
+      2 => 6,
+      3 => 0,
       _ => throw FormatException('unknown path segment tag'),
     };
+    coordinateCount += count;
+    r._o += count * 4;
   }
-  return PdfPath(segments);
+
+  r._o = start;
+  final verbs = Uint8List(n);
+  final coordinates = Float32List(coordinateCount);
+  var coordinateIndex = 0;
+  for (var i = 0; i < n; i++) {
+    final tag = verbs[i] = r.u8();
+    final count = switch (tag) {
+      0 || 1 => 2,
+      2 => 6,
+      3 => 0,
+      _ => throw FormatException('unknown path segment tag'),
+    };
+    for (var j = 0; j < count; j++) {
+      coordinates[coordinateIndex++] = r.f32();
+    }
+  }
+  return PdfPath.packedFloat32(verbs, coordinates, n);
 }
 
 void _writeColor(_Writer w, PdfColor c) {

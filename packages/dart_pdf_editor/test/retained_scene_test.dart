@@ -75,11 +75,45 @@ void main() {
       final page = PdfDocument.open(buildEmbeddedFontImagePdf()).page(0);
       final scene = await PdfRetainedScene.record(page);
       addTearDown(scene.dispose);
-      final imageCommand = scene.commands.whereType<PdfDrawImageCommand>().first;
+      final imageCommand =
+          scene.commands.whereType<PdfDrawImageCommand>().first;
       final image = scene.imageFor(imageCommand.request);
       expect(image, isNotNull);
       expect(image!.width, greaterThan(0));
       expect(image.height, greaterThan(0));
+    });
+  });
+
+  testWidgets('retained scene releases uploaded worker RGBA', (tester) async {
+    await tester.runAsync(() async {
+      final page = PdfDocument.open(buildEmbeddedFontImagePdf()).page(0);
+      final source = await PdfRetainedScene.record(page);
+      final original = source.commands.whereType<PdfDrawImageCommand>().first;
+      final request = PdfImageRequest(
+        stream: original.request.stream,
+        transform: original.request.transform,
+        alpha: original.request.alpha,
+        isStencil: original.request.isStencil,
+        stencilColor: original.request.stencilColor,
+        isInline: original.request.isInline,
+        sourceReference: original.request.sourceReference,
+        decoded: PdfDecodedPixels(Uint8List.fromList([255, 0, 0, 255]), 1, 1),
+      );
+      final scene = await PdfRetainedScene.fromCommands(
+        page,
+        [PdfDrawImageCommand(request)],
+      );
+      addTearDown(source.dispose);
+      addTearDown(scene.dispose);
+
+      expect(request.decoded, isNull,
+          reason: 'the engine image now owns the uploaded pixels');
+      expect(request.decodedWidth, 1);
+      expect(request.decodedHeight, 1);
+      final image = scene.imageFor(request);
+      expect(image, isNotNull);
+      expect(image!.width, 1);
+      expect(image.height, 1);
     });
   });
 
@@ -219,8 +253,8 @@ void main() {
           1,
         ),
       ];
-      final bounded =
-          await PdfRetainedScene.fromCommands(page, commands, includeImages: false);
+      final bounded = await PdfRetainedScene.fromCommands(page, commands,
+          includeImages: false);
       addTearDown(bounded.dispose);
       final boundedImage = await bounded.rasterizeRegion(
         const Rect.fromLTWH(0, 0, 220, 220),
@@ -233,8 +267,8 @@ void main() {
       // Over the linear ceiling but UNDER the grid ceiling: escalates to the
       // grid spatial index rather than full-replaying the transcript.
       PdfRetainedScene.spatialGridReplayMaxCommands = 1000;
-      final escalated =
-          await PdfRetainedScene.fromCommands(page, commands, includeImages: false);
+      final escalated = await PdfRetainedScene.fromCommands(page, commands,
+          includeImages: false);
       addTearDown(escalated.dispose);
       final escalatedImage = await escalated.rasterizeRegion(
         const Rect.fromLTWH(0, 0, 220, 220),

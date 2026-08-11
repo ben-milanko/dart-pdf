@@ -67,12 +67,15 @@ void main() {
       final pdfPath = Platform.environment['PDF_PATH'];
       final pageIndex =
           int.tryParse(Platform.environment['PDF_PAGE'] ?? '') ?? 0;
+      final pixelRatio =
+          double.tryParse(Platform.environment['PDF_PIXEL_RATIO'] ?? '') ?? 2;
       final bytes =
           pdfPath == null ? buildClassicPdf() : File(pdfPath).readAsBytesSync();
 
       final doc = PdfDocument.open(bytes);
       final page = doc.page(pageIndex.clamp(0, doc.pageCount - 1));
-      final image = await PdfPageRenderer.renderImage(page, pixelRatio: 2);
+      final image =
+          await PdfPageRenderer.renderImage(page, pixelRatio: pixelRatio);
 
       expect(image.width, greaterThan(0));
       expect(image.height, greaterThan(0));

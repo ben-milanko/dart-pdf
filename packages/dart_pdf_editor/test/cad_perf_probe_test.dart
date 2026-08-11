@@ -111,6 +111,31 @@ void main() {
       interp.stop();
       _line('interpret: ${interp.elapsedMilliseconds} ms, '
           '${commands.length} commands');
+      final imageKinds = <String, int>{};
+      final uniqueImages = <CosStream>{};
+      for (final request in _imageRequests(doc, target)) {
+        uniqueImages.add(request.stream);
+        final dict = request.stream.dictionary;
+        final filters = pdfImageFilters(doc.cos, dict);
+        final family = pdfImageColorFamily(doc.cos, dict);
+        final width = _intOf(doc.cos.resolve(dict['Width']));
+        final height = _intOf(doc.cos.resolve(dict['Height']));
+        final smask = doc.cos.resolve(dict['SMask']) is CosStream;
+        final mask = doc.cos.resolve(dict['Mask']);
+        final maskKind = smask
+            ? ' smask'
+            : mask is CosStream
+                ? ' stencil-mask'
+                : mask is CosArray
+                    ? ' color-key'
+                    : '';
+        final key = '${filters.isEmpty ? '(raw)' : filters.join('+')} '
+            '$family ${width}x$height$maskKind';
+        imageKinds[key] = (imageKinds[key] ?? 0) + 1;
+      }
+      _line('image formats: '
+          '${imageKinds.entries.map((entry) => '${entry.key}=${entry.value}').join(', ')} '
+          '(${uniqueImages.length} unique streams)');
 
       // Native decode (cap off): what the worker shipped before the fix.
       final nativeSw = Stopwatch()..start();

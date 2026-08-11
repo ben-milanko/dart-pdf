@@ -286,10 +286,8 @@ class PdfRegionReplayGrid {
     rows = rows.clamp(1, math.max(1, maxCells ~/ cols));
     final cellW = w / cols, cellH = h / rows;
 
-    int colOf(double x) =>
-        ((x - left) / cellW).floor().clamp(0, cols - 1);
-    int rowOf(double y) =>
-        ((y - bottom) / cellH).floor().clamp(0, rows - 1);
+    int colOf(double x) => ((x - left) / cellW).floor().clamp(0, cols - 1);
+    int rowOf(double y) => ((y - bottom) / cellH).floor().clamp(0, rows - 1);
 
     // A unit is "broad" if it covers more than broadCellFraction of the grid
     // in either axis — smearing those across thousands of cells is the memory
@@ -401,7 +399,8 @@ class PdfRegionReplayGrid {
     final candidates = <int>[];
     final c0 = ((region.left - _originX) / _cellW).floor().clamp(0, _cols - 1);
     final c1 = ((region.right - _originX) / _cellW).floor().clamp(0, _cols - 1);
-    final r0 = ((region.bottom - _originY) / _cellH).floor().clamp(0, _rows - 1);
+    final r0 =
+        ((region.bottom - _originY) / _cellH).floor().clamp(0, _rows - 1);
     final r1 = ((region.top - _originY) / _cellH).floor().clamp(0, _rows - 1);
     for (var r = r0; r <= r1; r++) {
       final base = r * _cols;
@@ -577,23 +576,17 @@ PdfRect? pdfRenderPathBounds(PdfPath path) {
     top = top == null ? y : math.max(top!, y);
   }
 
-  for (final segment in path.segments) {
-    switch (segment) {
-      case PdfMoveTo(:final x, :final y) || PdfLineTo(:final x, :final y):
-        include(x, y);
-      case PdfCubicTo(
-          :final x1,
-          :final y1,
-          :final x2,
-          :final y2,
-          :final x3,
-          :final y3
-        ):
+  final cursor = path.cursor();
+  while (cursor.moveNext()) {
+    switch (cursor.verb) {
+      case PdfPathVerb.moveTo || PdfPathVerb.lineTo:
+        include(cursor.x1, cursor.y1);
+      case PdfPathVerb.cubicTo:
         // A cubic lies inside the convex hull of its endpoints/control points.
-        include(x1, y1);
-        include(x2, y2);
-        include(x3, y3);
-      case PdfClosePath():
+        include(cursor.x1, cursor.y1);
+        include(cursor.x2, cursor.y2);
+        include(cursor.x3, cursor.y3);
+      case PdfPathVerb.close:
         break;
     }
   }
@@ -841,7 +834,8 @@ void _idxWriteRect(_IdxWriter w, PdfRect rect) {
   w.f64(rect.top);
 }
 
-PdfRect _idxReadRect(_IdxReader r) => PdfRect(r.f64(), r.f64(), r.f64(), r.f64());
+PdfRect _idxReadRect(_IdxReader r) =>
+    PdfRect(r.f64(), r.f64(), r.f64(), r.f64());
 
 void _idxWriteOptRect(_IdxWriter w, PdfRect? rect) {
   w.boolean(rect != null);

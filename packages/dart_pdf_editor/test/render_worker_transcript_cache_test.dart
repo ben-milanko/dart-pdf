@@ -84,7 +84,13 @@ void main() {
     // chunk count, each a strictly larger prefix buffer.
     final document =
         PdfDocument.open(buildSyntheticCadStrip(ops: 20000, streams: 2));
-    final cache = PdfWorkerTranscriptCache(capacity: 2);
+    // Pin a multi-chunk test cadence. The production chunk is deliberately
+    // much larger (64K operations) after the CAD task-turn benchmark, so this
+    // schedule unit test must not depend on that performance tuning constant.
+    final cache = PdfWorkerTranscriptCache(
+      capacity: 2,
+      resumeChunkOperations: 4096,
+    );
     final partials = <Uint8List>[];
     final transcript = await cache.transcriptFor(
       document,

@@ -32,6 +32,16 @@ abstract class PdfTileRasterBackend {
   /// Implementations that do not expose a reason may leave this null.
   String? get lastSessionRejection => null;
 
+  /// Whether worker-decoded RGBA should stay attached to a retained scene
+  /// until this backend has created its scene resources.
+  ///
+  /// The Canvas backend only needs the engine [ui.Image], so dropping the
+  /// duplicate worker payload immediately saves memory. A backend that can
+  /// upload those bytes directly may opt in and release them after its
+  /// one-time scene compilation through
+  /// [PdfRetainedScene.releaseDecodedImagePixels].
+  bool get prefersDirectDecodedImageUploads => false;
+
   /// Creates a lightweight owner for resources retained across tile renders.
   ///
   /// This is called lazily, when the tile path first needs pixels—not while

@@ -207,22 +207,17 @@ class _BrowserCanvasDevice implements PdfDevice {
 
   void _path(PdfPath path) {
     context.beginPath();
-    for (final segment in path.segments) {
-      switch (segment) {
-        case PdfMoveTo(:final x, :final y):
-          context.moveTo(x, y);
-        case PdfLineTo(:final x, :final y):
-          context.lineTo(x, y);
-        case PdfCubicTo(
-            :final x1,
-            :final y1,
-            :final x2,
-            :final y2,
-            :final x3,
-            :final y3
-          ):
-          context.bezierCurveTo(x1, y1, x2, y2, x3, y3);
-        case PdfClosePath():
+    final cursor = path.cursor();
+    while (cursor.moveNext()) {
+      switch (cursor.verb) {
+        case PdfPathVerb.moveTo:
+          context.moveTo(cursor.x1, cursor.y1);
+        case PdfPathVerb.lineTo:
+          context.lineTo(cursor.x1, cursor.y1);
+        case PdfPathVerb.cubicTo:
+          context.bezierCurveTo(
+              cursor.x1, cursor.y1, cursor.x2, cursor.y2, cursor.x3, cursor.y3);
+        case PdfPathVerb.close:
           context.closePath();
       }
     }

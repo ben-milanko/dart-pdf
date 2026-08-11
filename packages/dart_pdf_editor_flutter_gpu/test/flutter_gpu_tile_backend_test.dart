@@ -288,14 +288,22 @@ void main() {
         for (var i = 0; i < 4; i++) ...const [30, 90, 180, 255],
       ]);
       const transform = PdfMatrix(100, 0, 0, 100, 20, 30);
-      final firstScene = await PdfRetainedScene.fromCommands(page, [
-        _decodedImage(pixels, transform, 'shared-worker-image',
-            workerReconstructed: true),
-      ]);
-      final secondScene = await PdfRetainedScene.fromCommands(page, [
-        _decodedImage(pixels, transform, 'shared-worker-image',
-            workerReconstructed: true),
-      ]);
+      final firstScene = await PdfRetainedScene.fromCommands(
+        page,
+        [
+          _decodedImage(pixels, transform, 'shared-worker-image',
+              workerReconstructed: true),
+        ],
+        retainDecodedPixels: true,
+      );
+      final secondScene = await PdfRetainedScene.fromCommands(
+        page,
+        [
+          _decodedImage(pixels, transform, 'shared-worker-image',
+              workerReconstructed: true),
+        ],
+        retainDecodedPixels: true,
+      );
       addTearDown(firstScene.dispose);
       addTearDown(secondScene.dispose);
       final backend = FlutterGpuTileRasterBackend(maxTextureBytes: 1 << 20);
@@ -311,6 +319,15 @@ void main() {
       expect(backend.stats.texturesUploaded, 1);
       expect(backend.stats.textureDirectUploads, 1);
       expect(backend.stats.textureCacheHits, 1);
+      expect(
+        (firstScene.commands.single as PdfDrawImageCommand).request.decoded,
+        isNull,
+        reason: 'the GPU upload releases the duplicate worker RGBA',
+      );
+      expect(
+        (secondScene.commands.single as PdfDrawImageCommand).request.decoded,
+        isNull,
+      );
     });
   });
 
@@ -494,20 +511,24 @@ void main() {
         transform,
         'mask',
       );
-      final scene = await PdfRetainedScene.fromCommands(page, [
-        const PdfSaveCommand(),
-        PdfClipPathCommand(_rect(80, 120, 190, 250), PdfFillRule.nonzero),
-        const PdfBeginGroupCommand(0.75),
-        const PdfBeginSoftMaskedCommand(),
-        content,
-        PdfEndSoftMaskedCommand(
-          luminosity: true,
-          backdrop: page.cropBox,
-          maskCommands: [mask],
-        ),
-        const PdfEndGroupCommand(),
-        const PdfRestoreCommand(),
-      ]);
+      final scene = await PdfRetainedScene.fromCommands(
+        page,
+        [
+          const PdfSaveCommand(),
+          PdfClipPathCommand(_rect(80, 120, 190, 250), PdfFillRule.nonzero),
+          const PdfBeginGroupCommand(0.75),
+          const PdfBeginSoftMaskedCommand(),
+          content,
+          PdfEndSoftMaskedCommand(
+            luminosity: true,
+            backdrop: page.cropBox,
+            maskCommands: [mask],
+          ),
+          const PdfEndGroupCommand(),
+          const PdfRestoreCommand(),
+        ],
+        retainDecodedPixels: true,
+      );
       addTearDown(scene.dispose);
       final backend = FlutterGpuTileRasterBackend();
       final session = backend.createSession(scene);
@@ -528,6 +549,8 @@ void main() {
       expect(backend.stats.textureDirectUploads, 2);
       expect(backend.stats.textureReadbacks, 0);
       expect(backend.stats.textureCacheMisses, 2);
+      expect(content.request.decoded, isNull);
+      expect(mask.request.decoded, isNull);
     });
   });
 

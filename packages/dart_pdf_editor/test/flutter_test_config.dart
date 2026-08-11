@@ -2,7 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:dart_pdf_editor/dart_pdf_editor.dart' show PdfViewer;
+import 'package:dart_pdf_editor/dart_pdf_editor.dart'
+    show PdfPageView, PdfViewer;
 import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -25,6 +26,13 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   // viewer and turn synchronous render assertions async. Tests that exercise the
   // default worker re-enable it (see default_worker_test.dart).
   PdfViewer.debugAutoRenderWorkerEnabled = false;
+  // Production command warming is intentionally asynchronous and
+  // low-priority. Keep unrelated widget tests deterministic; focused warming
+  // tests opt back in with explicit values and restore them afterwards.
+  PdfViewer.speculativePageWarmRadius = 0;
+  PdfViewer.speculativeHeavyPageWarmCount = 0;
+  PdfPageView.directPicturePresentation = false;
+  PdfPageView.prioritizeBoundedFinalPicture = false;
   await _registerBundledDejaVu();
   await testMain();
 }
