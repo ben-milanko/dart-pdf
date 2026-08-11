@@ -291,6 +291,112 @@ void main() {
     expect(store.tileCount, greaterThan(0));
   });
 
+  testWidgets('an active tile target never steps down in quality',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final store =
+        PdfTileStore(tilePixels: 256, registerForMemoryPressure: false);
+    final oldRegionLimit = PdfRetainedScene.spatialRegionReplayMaxCommands;
+    PdfRetainedScene.spatialRegionReplayMaxCommands = 0;
+    PdfPageView.tileStoreDetail = true;
+    PdfPageView.debugTileStoreOverride = store;
+    addTearDown(() {
+      PdfRetainedScene.spatialRegionReplayMaxCommands = oldRegionLimit;
+      PdfPageView.tileStoreDetail = false;
+      PdfPageView.debugTileStoreOverride = null;
+      store.dispose();
+    });
+
+    final doc = PdfDocument.open(buildClassicPdf());
+    Widget page(double width) => Center(
+          child: OverflowBox(
+            maxWidth: double.infinity,
+            maxHeight: double.infinity,
+            child: SizedBox(
+              width: width,
+              child: PdfPageView(page: doc.page(0)),
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(page(6120));
+    final layer = find.byKey(const ValueKey('pdf-page-tile-layer'));
+    for (var i = 0; i < 300 && layer.evaluate().isEmpty; i++) {
+      await tester.pump();
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
+    }
+    expect(layer, findsOneWidget);
+    double desiredRatio() =>
+        ((tester.widget<CustomPaint>(layer).painter as dynamic).desiredRatio
+            as double);
+    final sharpRatio = desiredRatio();
+
+    // Narrowing the layout lowers the newly-computed target while the same
+    // enlarged page remains visible. Re-run enough frames for the layout-width
+    // refresh; the existing sharp rung must remain the presentation target.
+    await tester.pumpWidget(page(4880));
+    for (var i = 0; i < 30; i++) {
+      await tester.pump();
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
+    }
+    expect(layer, findsOneWidget);
+    expect(desiredRatio(), sharpRatio,
+        reason: 'a completed sharp view must not be replaced by a lower rung');
+  });
+
+  testWidgets('shared foreground pages disable ring and coarse fallback',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final store =
+        PdfTileStore(tilePixels: 512, registerForMemoryPressure: false);
+    final oldRegionLimit = PdfRetainedScene.spatialRegionReplayMaxCommands;
+    PdfRetainedScene.spatialRegionReplayMaxCommands = 0;
+    PdfPageView.tileStoreDetail = true;
+    PdfPageView.debugTileStoreOverride = store;
+    addTearDown(() {
+      PdfRetainedScene.spatialRegionReplayMaxCommands = oldRegionLimit;
+      PdfPageView.tileStoreDetail = false;
+      PdfPageView.debugTileStoreOverride = null;
+      store.dispose();
+    });
+
+    final doc = PdfDocument.open(buildClassicPdf());
+    await tester.pumpWidget(
+      Center(
+        child: OverflowBox(
+          maxWidth: double.infinity,
+          maxHeight: double.infinity,
+          child: SizedBox(
+            width: 6120,
+            child: PdfPageView(
+              page: doc.page(0),
+              qualityPageCount: 2,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final layer = find.byKey(const ValueKey('pdf-page-tile-layer'));
+    for (var i = 0; i < 300 && layer.evaluate().isEmpty; i++) {
+      await tester.pump();
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
+    }
+    expect(layer, findsOneWidget);
+    final painter = tester.widget<CustomPaint>(layer).painter as dynamic;
+    expect(painter.prefetchRingOverride, 0,
+        reason: 'shared pages cannot spend one another\'s budget on pan rings');
+    expect(painter.allowCoarserFallback, isFalse,
+        reason: 'combined coarse sets would consume the reserved headroom');
+  });
+
   testWidgets('heavy index warm does not launch an obsolete detail record',
       (tester) async {
     tester.view.devicePixelRatio = 1.0;
@@ -398,6 +504,70 @@ void main() {
     expect(landed, isTrue, reason: 'over budget → the single detail patch');
     expect(find.byKey(const ValueKey('pdf-page-tile-layer')), findsNothing);
     expect(store.tileCount, 0, reason: 'nothing rastered into the pyramid');
+  });
+
+  testWidgets('foreground pages divide the shared tile budget', (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    // Eight 4096px tiles fit in this synthetic store. This viewport touches
+    // four of them: it fits the ordinary six-tile admission limit, but not
+    // either page's three-tile share when two meaningful pages are visible at
+    // once. No tile is actually allocated because admission rejects the view.
+    final store = PdfTileStore(
+      tilePixels: 4096,
+      maxBytes: 512 << 20,
+      maxBatchTilesPerAxis: 4,
+      registerForMemoryPressure: false,
+    );
+    final logs = <String>[];
+    PdfPerfLog.enabled = true;
+    PdfPerfLog.sink = logs.add;
+    PdfPageView.tileStoreDetail = true;
+    PdfPageView.debugTileStoreOverride = store;
+    addTearDown(() {
+      PdfPageView.tileStoreDetail = false;
+      PdfPageView.debugTileStoreOverride = null;
+      PdfPerfLog.enabled = false;
+      PdfPerfLog.sink = null;
+      store.dispose();
+    });
+
+    final doc = PdfDocument.open(buildClassicPdf());
+    await tester.pumpWidget(
+      Center(
+        child: OverflowBox(
+          maxWidth: double.infinity,
+          maxHeight: double.infinity,
+          child: SizedBox(
+            width: 6120,
+            child: PdfPageView(
+              page: doc.page(0),
+              qualityPageCount: 2,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final detail = find.byKey(const ValueKey('pdf-page-detail-image'));
+    for (var i = 0; i < 500 && detail.evaluate().isEmpty; i++) {
+      await tester.pump();
+      final exception = tester.takeException();
+      if (exception != null) fail('shared-budget fallback failed: $exception');
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
+    }
+
+    expect(detail, findsOneWidget,
+        reason: 'the page must use the stable single patch for its share');
+    expect(find.byKey(const ValueKey('pdf-page-tile-layer')), findsNothing);
+    expect(store.tileCount, 0);
+    expect(
+      logs,
+      contains(contains('foregroundPages=2')),
+      reason: 'the collective budget, not the old per-page limit, rejected it',
+    );
   });
 
   testWidgets('a soft-mask-free scene reports region-cullable', (tester) async {

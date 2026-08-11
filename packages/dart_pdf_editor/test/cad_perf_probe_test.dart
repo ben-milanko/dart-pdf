@@ -297,8 +297,21 @@ void main() {
       ),
     ));
     await tester.pump();
-    await controller.jumpToPage(target);
-    await tester.pump(const Duration(milliseconds: 100));
+    // PdfViewer navigation completes through scheduled frames. Awaiting it
+    // before pumping deadlocks inside the widget test's fake-async clock.
+    var navigated = false;
+    final navigation = controller.jumpToPage(target).whenComplete(() {
+      navigated = true;
+    });
+    for (var i = 0; i < 60 && !navigated; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(navigated, isTrue,
+        reason: 'the real-document probe must finish navigating');
+    await navigation;
+    expect(controller.visiblePageRegion(target), isNotNull,
+        reason: 'the requested probe page must be visible; a short page can '
+            'legitimately leave the following page as current');
     controller.setZoom(panZoom);
     await tester.pump(const Duration(milliseconds: 250));
     await tester

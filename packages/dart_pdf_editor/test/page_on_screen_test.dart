@@ -69,6 +69,9 @@ void main() {
     expect(pages[0]!.onScreen, isTrue,
         reason: 'page 0 still fills the top of the viewport');
     expect(pages[1]!.onScreen, isTrue);
+    expect(pages[0]!.qualityPageCount, 2);
+    expect(pages[1]!.qualityPageCount, 2,
+        reason: 'both pages must divide shared foreground render caches');
     // Deliberately not asserting page 0's focusDistance here. Focus reaches
     // the page views on the viewer's own rebuild (the scroll/transform
     // settle), so mid-scroll it is stale by design - which is exactly why the
@@ -85,6 +88,7 @@ void main() {
 
     final pages = mountedPages(tester);
     expect(pages[0]!.onScreen, isTrue);
+    expect(pages[0]!.qualityPageCount, 1);
     expect(pages[1], isNotNull,
         reason: 'the page below is prefetched into the cache window');
     expect(pages[1]!.onScreen, isFalse);
@@ -110,7 +114,8 @@ void main() {
       final pages = mountedPages(tester);
       expect(pages, isNotEmpty);
       for (final entry in pages.entries) {
-        expect(entry.value.onScreen, controller.visiblePageRegion(entry.key) != null,
+        expect(entry.value.onScreen,
+            controller.visiblePageRegion(entry.key) != null,
             reason: 'page ${entry.key} at scroll offset $offset');
       }
     }

@@ -33,6 +33,7 @@ class PdfTileLayer extends StatelessWidget {
     this.batchRasters,
     this.maxNewTilesPerPaint,
     this.prefetchRingOverride,
+    this.allowCoarserFallback = true,
     this.filterQuality = FilterQuality.medium,
   })  : assert(maxNewTilesPerPaint == null || maxNewTilesPerPaint > 0),
         assert(prefetchRingOverride == null || prefetchRingOverride >= 0);
@@ -77,6 +78,12 @@ class PdfTileLayer extends StatelessWidget {
   /// only the visible tiles; null uses the store's normal pan-ahead ring.
   final int? prefetchRingOverride;
 
+  /// Whether a missing exact tile may be covered by an upscaled lower rung.
+  /// Disable this when the layer sits over a retained vector picture: the
+  /// picture is sharper than that fallback and should remain visible until
+  /// the exact tile lands.
+  final bool allowCoarserFallback;
+
   final FilterQuality filterQuality;
 
   @override
@@ -94,6 +101,7 @@ class PdfTileLayer extends StatelessWidget {
           batchRasters: batchRasters,
           maxNewTilesPerPaint: maxNewTilesPerPaint,
           prefetchRingOverride: prefetchRingOverride,
+          allowCoarserFallback: allowCoarserFallback,
           filterQuality: filterQuality,
         ),
       );
@@ -112,6 +120,7 @@ class _TilePagePainter extends CustomPainter {
     required this.batchRasters,
     required this.maxNewTilesPerPaint,
     required this.prefetchRingOverride,
+    required this.allowCoarserFallback,
     required this.filterQuality,
   }) : super(
             // tick as sharper tiles land, and repaint on debug-border toggles
@@ -128,6 +137,7 @@ class _TilePagePainter extends CustomPainter {
   final bool? batchRasters;
   final int? maxNewTilesPerPaint;
   final int? prefetchRingOverride;
+  final bool allowCoarserFallback;
   final FilterQuality filterQuality;
 
   @override
@@ -152,6 +162,7 @@ class _TilePagePainter extends CustomPainter {
       batchRasters: batchRasters,
       maxNewTiles: maxNewTilesPerPaint,
       prefetchRingOverride: prefetchRingOverride,
+      allowCoarserFallback: allowCoarserFallback,
     );
     if (view.isEmpty) return;
     final paint = Paint()..filterQuality = filterQuality;
@@ -196,5 +207,6 @@ class _TilePagePainter extends CustomPainter {
       old.batchRasters != batchRasters ||
       old.maxNewTilesPerPaint != maxNewTilesPerPaint ||
       old.prefetchRingOverride != prefetchRingOverride ||
+      old.allowCoarserFallback != allowCoarserFallback ||
       old.filterQuality != filterQuality;
 }

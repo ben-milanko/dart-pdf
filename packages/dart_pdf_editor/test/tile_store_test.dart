@@ -487,6 +487,47 @@ void main() {
       });
     });
 
+    testWidgets('coarser presentation can be suppressed above a sharper base',
+        (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 32,
+          prefetchRing: 0,
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer(tileSize: 32);
+        addTearDown(store.dispose);
+
+        // Seed the exact area at a coarse rung.
+        store.viewFor(
+          id: _id(0),
+          pageSize: const Size(128, 128),
+          desiredRatio: 1,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 32, 32),
+          rasterize: raster.call,
+        );
+        await raster.flush();
+        expect(store.tileCount, 1);
+
+        // A retained vector picture below the tile layer is sharper than an
+        // upscaled version of that cache entry. The exact request must still
+        // start, but the coarse square must not be painted in the meantime.
+        final view = store.viewFor(
+          id: _id(0),
+          pageSize: const Size(128, 128),
+          desiredRatio: 4,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 32, 32),
+          rasterize: raster.call,
+          allowCoarserFallback: false,
+        );
+        expect(view.complete, isFalse);
+        expect(view.placements, isEmpty,
+            reason: 'the sharper retained base should show through');
+        expect(store.inFlightCount, greaterThan(0),
+            reason: 'presentation suppression must not block exact work');
+      });
+    });
+
     testWidgets('no fallback and no cache yields an empty (base-only) view',
         (tester) async {
       await tester.runAsync(() async {

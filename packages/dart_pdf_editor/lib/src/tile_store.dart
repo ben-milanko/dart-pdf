@@ -506,6 +506,11 @@ class PdfTileStore extends ChangeNotifier {
   /// before spending work on pan headroom, then restore the configured ring on
   /// subsequent pan settles.
   ///
+  /// [allowCoarserFallback] controls presentation only: exact misses are still
+  /// scheduled, but a false value leaves their area transparent instead of
+  /// upscaling a lower-rung tile. This is useful above a retained vector base,
+  /// which is already sharper than a coarse raster fallback.
+  ///
   /// Synchronous and side-effecting: every tile it *places* is touched to
   /// most-recently-used, so a concurrent completion's eviction can only drop
   /// tiles outside the current view (the budget floor keeps a viewport's worth
@@ -523,6 +528,7 @@ class PdfTileStore extends ChangeNotifier {
     bool? batchRasters,
     int? maxNewTiles,
     int? prefetchRingOverride,
+    bool allowCoarserFallback = true,
   }) {
     assert(maxNewTiles == null || maxNewTiles > 0);
     assert(prefetchRingOverride == null || prefetchRingOverride >= 0);
@@ -594,7 +600,9 @@ class PdfTileStore extends ChangeNotifier {
       } else {
         complete = false;
         schedule(key, notifyOnLand: true);
-        final fallback = _coarserFallback(id, rung, tx, ty, span, pageSize);
+        final fallback = allowCoarserFallback
+            ? _coarserFallback(id, rung, tx, ty, span, pageSize)
+            : null;
         if (fallback != null) placements.add(fallback);
       }
     }

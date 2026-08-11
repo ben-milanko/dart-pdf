@@ -850,6 +850,15 @@ class _PdfOnScreenSpan extends ChangeNotifier {
   /// resting across their boundary.
   bool qualityContains(int index) =>
       qualityFirst < 0 || (index >= qualityFirst && index <= qualityLast);
+
+  /// Number of pages currently sharing foreground-quality rendering.
+  ///
+  /// Before the first measurement, treat the standalone/initial page as the
+  /// only foreground claimant. Once measured this lets page-local renderers
+  /// divide shared caches without making either page at a boundary believe it
+  /// owns the whole budget.
+  int get qualityCount =>
+      qualityFirst < 0 ? 1 : math.max(1, qualityLast - qualityFirst + 1);
 }
 
 /// A [Listenable] that relays whichever [source] is currently attached.
@@ -7969,6 +7978,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
   /// rebuilds only the pages whose answer actually flipped.
   late bool _onScreen = widget.onScreenSpan.contains(widget.index);
   late bool _qualityVisible = widget.onScreenSpan.qualityContains(widget.index);
+  late int _qualityPageCount = widget.onScreenSpan.qualityCount;
 
   @override
   void initState() {
@@ -7977,14 +7987,19 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
   }
 
   void _onSpanChanged() {
+    if (!mounted) return;
     final next = widget.onScreenSpan.contains(widget.index);
     final nextQuality = widget.onScreenSpan.qualityContains(widget.index);
-    if ((next == _onScreen && nextQuality == _qualityVisible) || !mounted) {
+    final nextQualityPageCount = widget.onScreenSpan.qualityCount;
+    if (next == _onScreen &&
+        nextQuality == _qualityVisible &&
+        nextQualityPageCount == _qualityPageCount) {
       return;
     }
     setState(() {
       _onScreen = next;
       _qualityVisible = nextQuality;
+      _qualityPageCount = nextQualityPageCount;
     });
   }
 
@@ -7999,6 +8014,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
       widget.onScreenSpan.addListener(_onSpanChanged);
       _onScreen = widget.onScreenSpan.contains(widget.index);
       _qualityVisible = widget.onScreenSpan.qualityContains(widget.index);
+      _qualityPageCount = widget.onScreenSpan.qualityCount;
     }
     final pageImageChanged = oldWidget.pageEpoch != widget.pageEpoch ||
         oldWidget.destructiveStamp != widget.destructiveStamp ||
@@ -8096,6 +8112,8 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         // authoritative in that frame; otherwise the page records at the
         // adaptive cap, then immediately re-records at foreground quality.
         qualityVisible: _qualityVisible || widget.forceForeground,
+        qualityPageCount: _qualityPageCount +
+            (widget.forceForeground && !_qualityVisible ? 1 : 0),
         pageColor: widget.pageColor,
         showAnnotations: widget.pageImagesShowAnnotations,
         trustContentStamp: widget.trustContentStamp,

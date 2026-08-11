@@ -62,6 +62,7 @@ class PdfPageView extends StatefulWidget {
     this.focusDistance = 0,
     this.onScreen = true,
     this.qualityVisible = true,
+    this.qualityPageCount = 1,
     this.previewCache,
     this.previewIndex = 0,
     this.pageEpoch = 0,
@@ -74,7 +75,7 @@ class PdfPageView extends StatefulWidget {
     this.transformScale,
     this.transformChanges,
     this.tileRasterBackend = const PdfCanvasTileRasterBackend(),
-  });
+  }) : assert(qualityPageCount >= 1);
 
   final PdfPage page;
 
@@ -233,6 +234,14 @@ class PdfPageView extends StatefulWidget {
   /// while [onScreen] remains true; when the viewport rests between two pages,
   /// both pages are true. Standalone page views default to foreground quality.
   final bool qualityVisible;
+
+  /// Number of pages simultaneously receiving foreground-quality rendering.
+  ///
+  /// Tile storage is shared across the viewer. At a page boundary each
+  /// foreground page must therefore admit only its share of that cache, or
+  /// both pages can pass a page-local budget check and evict one another on
+  /// every tile completion. Standalone page views default to one claimant.
+  final int qualityPageCount;
 
   /// Called whenever a full-page raster for the current [page] object
   /// lands on screen. Lets the editing overlay hold its just-committed
@@ -1042,6 +1051,8 @@ class _PdfPageViewState extends State<PdfPageView>
     }
     final scaleChanged = oldWidget.scale != widget.scale;
     final settleChanged = oldWidget.settleGeneration != widget.settleGeneration;
+    final tileShareChanged =
+        oldWidget.qualityPageCount != widget.qualityPageCount;
     if (scaleChanged) {
       _tightDetailGeneration = widget.settleGeneration;
     }
@@ -1203,7 +1214,9 @@ class _PdfPageViewState extends State<PdfPageView>
       // fields when granted, so cancel it as well as declining the new one.
       widget.renderScheduler?.cancel(this);
     }
-    if (transition.scheduleRender || promoteForFocus) {
+    if (transition.scheduleRender ||
+        promoteForFocus ||
+        (tileShareChanged && foreground && widget.scale > 1.05)) {
       // scale change re-rasters the page; a settle that only moved the
       // viewport refreshes the detail patch. Both route through _render so
       // they pace and coalesce through the scheduler (_renderNow skips the
@@ -4085,9 +4098,15 @@ class _PdfPageViewState extends State<PdfPageView>
     var tiling = false;
     if (_useTilePath) {
       final geom = _detailGeometryAt(widget.scale, inflation: _tileInflation);
-      if (geom != null && _tilesFitBudget(geom.fraction)) {
+      // Never replace a visible sharp rung with a coarser one merely because
+      // the settle target dipped (rounding, a tiny zoom-out, or a worker image
+      // detail landing). Keep the active resolution until tiling ends; a
+      // later independent tile session may start at the then-current target.
+      final requested = _desiredRatioAt(widget.scale);
+      final candidate = math.max(requested, _tileDesiredRatio ?? 0);
+      if (geom != null && _tilesFitBudget(geom.fraction, candidate)) {
         fraction = geom.fraction;
-        desired = _desiredRatioAt(widget.scale);
+        desired = candidate;
         tiling = true;
       }
     }
@@ -4290,11 +4309,10 @@ class _PdfPageViewState extends State<PdfPageView>
   /// Whether the shared tile store can hold [fraction]'s tiles at the current
   /// zoom without evicting them out from under the view that just asked for
   /// them - see [PdfTileStore.viewFitsBudget].
-  bool _tilesFitBudget(Rect fraction) {
+  bool _tilesFitBudget(Rect fraction, double desired) {
     final store = PdfPageView.debugTileStoreOverride ?? PdfTileStore.instance;
     final size = _renderPlan.pageSize(widget.page);
     if (size.width <= 0 || size.height <= 0) return false;
-    final desired = _desiredRatioAt(widget.scale);
     final status = store.viewBudgetStatus(
       pageSize: size,
       desiredRatio: desired,
@@ -4312,15 +4330,19 @@ class _PdfPageViewState extends State<PdfPageView>
       );
       return false;
     }
-    if (!status.fits) {
+    final sharedLimit = math.max(1, status.limit ~/ widget.qualityPageCount);
+    final fits = status.visibleTiles <= sharedLimit;
+    if (!fits) {
       PdfPerfLog.log(
         'tile fallback page=${widget.previewIndex} reason=budget '
         'rung=${status.rung} visible=${status.visibleTiles} '
-        'limit=${status.limit} capacity=${status.capacity} '
+        'limit=${status.limit} perPageLimit=$sharedLimit '
+        'foregroundPages=${widget.qualityPageCount} '
+        'capacity=${status.capacity} '
         'desired=${desired.toStringAsFixed(2)}',
       );
     }
-    return status.fits;
+    return fits;
   }
 
   /// The [PdfTileStore] deep-zoom composite for this page, or null when the
@@ -4382,8 +4404,20 @@ class _PdfPageViewState extends State<PdfPageView>
         // A scale-changing frame sharpens the visible tiles first. Once a pan
         // advances the settle generation, the store's configured ring resumes
         // and supplies the usual pan-ahead headroom.
-        prefetchRingOverride:
-            _tightDetailGeneration == widget.settleGeneration ? 0 : null,
+        prefetchRingOverride: widget.qualityPageCount > 1 ||
+                _tightDetailGeneration == widget.settleGeneration
+            ? 0
+            : null,
+        // A retained picture keeps vector/text edges transform-sharp. An
+        // upscaled coarser raster tile would cover that better base with a
+        // visibly blurry square while the exact tile is pending. Coarse tiles
+        // are also excluded when pages share the viewport: their combined
+        // fallback sets can consume the headroom reserved above and restart
+        // the same cross-page LRU churn the collective admission prevents.
+        // Exact tiles still land; misses simply show the stable base through.
+        allowCoarserFallback: widget.qualityPageCount == 1 &&
+            _slugPicture == null &&
+            _directPicture == null,
       ),
     );
   }
