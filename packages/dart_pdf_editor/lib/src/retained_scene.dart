@@ -899,6 +899,10 @@ class PdfRetainedScene {
     _disposed = true;
     _regionIndex = null;
     _bands = null;
+    // An accelerated backend normally drops worker-carried RGBA immediately
+    // after uploading it. A speculative scene can be evicted before any GPU
+    // session compiles it, so disposal is the other ownership boundary.
+    releaseDecodedImagePixels();
     for (final image in _images.values) {
       disposePdfDecodedImage(image);
     }

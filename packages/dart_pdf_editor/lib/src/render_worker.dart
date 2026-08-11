@@ -412,6 +412,14 @@ abstract class PdfRenderWorker {
   /// [PdfPageView] does this by abandoning when it is unmounted or superseded.
   void cancel(int pageIndex, {int priority = 0});
 
+  /// Releases completed reusable command records for [pageIndex].
+  ///
+  /// Most callers should keep the cache warm. A caller that has promoted the
+  /// same command graph into a longer-lived retained scene can drop the
+  /// duplicate cache ownership explicitly; backends without a main-side
+  /// record cache inherit this no-op.
+  void releaseCachedPage(int pageIndex) {}
+
   /// Bins page [pageIndex]'s sparse strips off-thread for the exact device
   /// geometry a strip-routed zoom settle is about to rasterize, returning a
   /// [StripPlan] the caller feeds to `StripPdfDevice(precomputed:)` (via
@@ -1547,6 +1555,12 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
   @override
   void cancel(int pageIndex, {int priority = 0}) =>
       _inner.cancel(pageIndex, priority: priority);
+
+  @override
+  void releaseCachedPage(int pageIndex) {
+    _cache.evictWhere((key) => key.$1 == pageIndex);
+    _inner.releaseCachedPage(pageIndex);
+  }
 
   /// Pure passthrough - strip plans are never cached. A plan is only valid
   /// for the exact zoom/region matrix it was binned for, and every settle

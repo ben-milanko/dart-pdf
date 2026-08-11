@@ -449,6 +449,74 @@ void main() {
             'the next user navigation');
   });
 
+  testWidgets('retained command warm is adopted without a foreground record',
+      (tester) async {
+    final oldRadius = PdfViewer.speculativePageWarmRadius;
+    final oldHeavy = PdfViewer.speculativeHeavyPageWarmCount;
+    final oldImages = PdfViewer.speculativePageWarmImages;
+    final oldScenes = PdfViewer.speculativePageWarmRetainedScenes;
+    final oldDirect = PdfPageView.directPicturePresentation;
+    PdfViewer.speculativePageWarmRadius = 1;
+    PdfViewer.speculativeHeavyPageWarmCount = 0;
+    PdfViewer.speculativePageWarmImages = true;
+    PdfViewer.speculativePageWarmRetainedScenes = true;
+    PdfPageView.directPicturePresentation = true;
+    addTearDown(() {
+      PdfViewer.speculativePageWarmRadius = oldRadius;
+      PdfViewer.speculativeHeavyPageWarmCount = oldHeavy;
+      PdfViewer.speculativePageWarmImages = oldImages;
+      PdfViewer.speculativePageWarmRetainedScenes = oldScenes;
+      PdfPageView.directPicturePresentation = oldDirect;
+    });
+
+    final bytes = buildMultiPagePdf(3);
+    final document = PdfDocument.open(bytes);
+    final worker = _SyncWorker(bytes);
+    final controller = PdfViewerController();
+    addTearDown(worker.dispose);
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          document: document,
+          controller: controller,
+          initialFit: PdfViewerFit.width,
+          pagePreviews: false,
+          renderWorker: worker,
+          autoRenderWorker: false,
+        ),
+      ),
+    ));
+
+    PdfRetainedSceneHandle? warmed;
+    for (var i = 0; i < 160 && warmed == null; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 1)),
+      );
+      warmed = controller.debugPreviewCache!.retainedSceneFor(
+        1,
+        document.page(1),
+        plan: const PdfPageRenderPlan(rotation: 0),
+      );
+    }
+    expect(warmed, isNotNull,
+        reason: 'the next forward target was replayed and retained while idle; '
+            'calls=${worker.calls}, cache='
+            '${controller.debugPreviewCache!.debugRetainedSceneCount}');
+    warmed!.dispose();
+    expect(worker.calls, contains((1, 3)));
+
+    unawaited(controller.jumpToPage(1));
+    for (var i = 0; i < 100 && !controller.isPageRasterReady(1); i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(controller.isPageRasterReady(1), isTrue);
+    expect(worker.calls.where((call) => call == (1, 0)), isEmpty,
+        reason: 'the arriving page must submit the retained picture instead '
+            'of recording and replaying the page again');
+  });
+
   testWidgets('a serial worker does not occupy its only lane with speculation',
       (tester) async {
     final oldRadius = PdfViewer.speculativePageWarmRadius;
@@ -943,6 +1011,25 @@ void main() {
       expect(inner.calls.length, 1, reason: 'the second record is a cache hit');
       expect(identical(first, second), isTrue,
           reason: 'the cached buffer is reused as-is');
+    });
+
+    test('releaseCachedPage drops every variant for only that page', () async {
+      final inner = _CountingWorker();
+      final worker = PdfCachingRenderWorker(inner);
+      addTearDown(worker.dispose);
+
+      await worker.record(7, imagePixelRatio: 1);
+      await worker.record(7, imagePixelRatio: 2);
+      await worker.record(8, imagePixelRatio: 1);
+      expect(worker.cachedEntryCount, 3);
+
+      worker.releaseCachedPage(7);
+      expect(worker.cachedEntryCount, 1);
+      await worker.record(8, imagePixelRatio: 1);
+      expect(inner.calls.length, 3, reason: 'the unrelated page stayed warm');
+      await worker.record(7, imagePixelRatio: 1);
+      expect(inner.calls.length, 4,
+          reason: 'the promoted page no longer has duplicate cache ownership');
     });
 
     test('a concurrent record for an in-flight key shares one decode',

@@ -64,6 +64,7 @@
 //   heavyWarm     encoded-content heavy-tail candidate count (default 4)
 //   warmImages    include decoded images in command warming (default true)
 //   warmHandles   upload warmed images to the platform cache (default false)
+//   warmScenes    retain complete warmed scenes/pictures (default true)
 //   source        full|range; range uses the public sparse-first HTTP loader
 //
 // The driver reads these JS globals this installs:
@@ -409,6 +410,12 @@ void main() {
   );
   _record('[perf] HARNESS warmHandles='
       '${PdfViewer.speculativePageWarmPlatformImages}');
+  PdfViewer.speculativePageWarmRetainedScenes = _qBool(
+    'warmScenes',
+    PdfViewer.speculativePageWarmRetainedScenes,
+  );
+  _record('[perf] HARNESS warmScenes='
+      '${PdfViewer.speculativePageWarmRetainedScenes}');
   debugPrint = (String? message, {int? wrapWidth}) {
     if (message != null) _record(message);
   };

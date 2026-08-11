@@ -1078,8 +1078,16 @@ class _PdfPageViewState extends State<PdfPageView>
     // A far page can already have a placeholder State in the lazy sliver's
     // cache window. Its layout width therefore does not change when a page
     // command makes it the focus, so the first-layout cache adoption above is
-    // not revisited. Consume a prepared exact raster here, still inside the
-    // parent build, before composing the destination frame.
+    // not revisited. Consume a prepared retained scene/picture and then an
+    // exact raster here, still inside the parent build, before composing the
+    // destination frame. Command warming commonly lands after the placeholder
+    // State was created, so initState alone cannot see it.
+    if (_picture == null &&
+        _scene == null &&
+        widget.focusDistance == 0 &&
+        oldWidget.focusDistance > 0) {
+      _restoreRetainedScene();
+    }
     if (_image == null &&
         widget.focusDistance == 0 &&
         oldWidget.focusDistance > 0) {

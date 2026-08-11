@@ -1009,6 +1009,20 @@ class PdfViewer extends StatefulWidget {
   /// foreground page. The visible cache hit then creates only its own handles.
   static bool speculativePageWarmPlatformImages = false;
 
+  /// Whether eligible speculative records are also replayed into a retained
+  /// scene and complete engine picture before the page becomes visible.
+  ///
+  /// This moves the platform-thread decode/replay out of the navigation path:
+  /// an arriving [PdfPageView] leases the exact scene/picture from the bounded
+  /// preview cache and only has to submit it for painting. The work is still
+  /// strictly speculative, so it is limited to pages eligible for direct
+  /// picture presentation and stops whenever foreground rendering resumes.
+  /// The bounded cache plus duplicate worker-record release keep this enabled
+  /// by default: on the real 62-page Quickstart journey it moved page-jump p50
+  /// below PDFium while keeping peak browser RSS at parity. Dense pages above
+  /// the direct-picture ceiling retain the existing command-only warm path.
+  static bool speculativePageWarmRetainedScenes = true;
+
   /// Size of the document's encoded-content heavy tail considered once at
   /// startup. Candidates run shortest-first and serially so a pathological
   /// page cannot monopolise the idle window or worker memory.
@@ -2512,6 +2526,103 @@ class _PdfViewerState extends State<PdfViewer>
         // newer anchor superseded this pass. Stop the old sequence, but do not
         // discard that completed work or re-offer it redundantly.
         if (!mounted || generation != _commandWarmGeneration) return;
+        final warmScene = warmImages &&
+            PdfViewer.speculativePageWarmRetainedScenes &&
+            PdfPageView.retainedZoomReplay &&
+            PdfPageView.directPicturePresentation &&
+            commands.length <= PdfPageView.retainedZoomReplayMaxCommands &&
+            commands.length <= PdfPageView.directPicturePresentationMaxCommands;
+        if (warmScene) {
+          // Unlike the worker record above, scene construction and picture
+          // replay run in the presentation process. Only start once the
+          // foreground has genuinely gone idle; a later visible request can
+          // preempt the worker but cannot interrupt a synchronous canvas
+          // replay already under way.
+          if (!await _waitForCommandWarmUiIdle(generation)) {
+            _commandWarmAttempts.remove(page);
+            return;
+          }
+          final plan = PdfPageRenderPlan(
+            pageColor: widget.pageColor,
+            annotations: _pageImagesShowAnnotations,
+            rotation: _effectiveRotation(index),
+          );
+          final existing = _previews.retainedSceneFor(
+            index,
+            page,
+            plan: plan,
+          );
+          if (existing != null) {
+            existing.dispose();
+            continue;
+          }
+          PdfRetainedScene? scene;
+          ui.Picture? picture;
+          try {
+            scene = await PdfRetainedScene.fromCommands(
+              page,
+              commands,
+              plan: plan,
+              retainDecodedPixels:
+                  widget.tileRasterBackend.prefersDirectDecodedImageUploads,
+              maxImagePixelRatio: target.ratio,
+            );
+            if (!mounted ||
+                generation != _commandWarmGeneration ||
+                _renderScheduler.busy ||
+                _motionRenderHoldActive) {
+              scene.dispose();
+              return;
+            }
+            picture = scene.replay(pixelRatio: 1);
+            if (!mounted || generation != _commandWarmGeneration) {
+              picture.dispose();
+              scene.dispose();
+              return;
+            }
+            final estimatedBytes = commands.length * 260 +
+                picture.approximateBytesUsed +
+                scene.decodedImageBytes;
+            final handle = _previews.retainScene(
+              index,
+              page,
+              scene,
+              plan: plan,
+              fromWorker: true,
+              estimatedBytes: estimatedBytes,
+              picture: picture,
+            );
+            final admitted = _previews.retainedSceneFor(
+              index,
+              page,
+              plan: plan,
+            );
+            admitted?.dispose();
+            // The cache now owns the producer reference. An oversize scene is
+            // rejected by retainScene and is disposed when this lease drops.
+            handle.dispose();
+            // The scene now owns exactly the command graph and decoded image
+            // handles navigation needs. Keeping the caching worker's entry as
+            // well pins a second owner (and, on JS, delays collection of the
+            // transferred graph) without providing another reuse path.
+            if (admitted != null) worker.releaseCachedPage(index);
+            scene = null;
+            picture = null;
+            if (clock != null) {
+              PdfPerfLog.log('command-warm page=$index anchor=$anchor '
+                  'commands=${commands.length} scene=true '
+                  'bytes=$estimatedBytes admitted=${admitted != null} '
+                  'elapsed=${clock.elapsedMilliseconds}ms');
+            }
+          } catch (_) {
+            picture?.dispose();
+            scene?.dispose();
+            // Speculation must never poison the visible path. Let a future
+            // anchor retry this page through the normal foreground renderer.
+            _commandWarmAttempts.remove(page);
+          }
+          continue;
+        }
         if (!warmImages) {
           if (clock != null) {
             PdfPerfLog.log('command-warm page=$index anchor=$anchor '
@@ -2553,6 +2664,25 @@ class _PdfViewerState extends State<PdfViewer>
         }
       }
     }());
+  }
+
+  /// Gives an already-completed worker warm a short chance to hand its
+  /// platform replay to a genuinely idle frame.
+  ///
+  /// Page readiness and scheduler release can straddle adjacent frames. A
+  /// one-shot `busy` check therefore discarded useful warmed commands in that
+  /// narrow gap. Yielding is safe (no platform work has started yet), bounded,
+  /// and a new navigation supersedes the generation immediately.
+  Future<bool> _waitForCommandWarmUiIdle(int generation) async {
+    for (var frame = 0; frame < 16; frame++) {
+      if (!mounted || generation != _commandWarmGeneration) return false;
+      if (!_renderScheduler.busy && !_motionRenderHoldActive) return true;
+      await SchedulerBinding.instance.endOfFrame;
+    }
+    return mounted &&
+        generation == _commandWarmGeneration &&
+        !_renderScheduler.busy &&
+        !_motionRenderHoldActive;
   }
 
   /// Fills [_previews] for pages that have never rendered on screen, one

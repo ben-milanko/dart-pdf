@@ -31,6 +31,7 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   // tests opt back in with explicit values and restore them afterwards.
   PdfViewer.speculativePageWarmRadius = 0;
   PdfViewer.speculativeHeavyPageWarmCount = 0;
+  PdfViewer.speculativePageWarmRetainedScenes = false;
   PdfPageView.directPicturePresentation = false;
   PdfPageView.prioritizeBoundedFinalPicture = false;
   await _registerBundledDejaVu();

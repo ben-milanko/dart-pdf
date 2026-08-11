@@ -117,6 +117,33 @@ void main() {
     });
   });
 
+  testWidgets('disposing an uncompiled GPU scene releases worker RGBA',
+      (tester) async {
+    await tester.runAsync(() async {
+      final page = PdfDocument.open(buildEmbeddedFontImagePdf()).page(0);
+      final source = await PdfRetainedScene.record(page);
+      addTearDown(source.dispose);
+      final original = source.commands.whereType<PdfDrawImageCommand>().first;
+      final request = PdfImageRequest(
+        stream: original.request.stream,
+        transform: original.request.transform,
+        decoded: PdfDecodedPixels(Uint8List.fromList([255, 0, 0, 255]), 1, 1),
+      );
+      final scene = await PdfRetainedScene.fromCommands(
+        page,
+        [PdfDrawImageCommand(request)],
+        retainDecodedPixels: true,
+      );
+
+      expect(request.decoded, isNotNull,
+          reason: 'the direct-upload backend still owns the worker payload');
+      scene.dispose();
+      expect(request.decoded, isNull,
+          reason: 'an evicted speculative scene may never compile a GPU '
+              'session, so disposal must close the ownership path');
+    });
+  });
+
   testWidgets(
       'region replay selects paints, preserves clips, and stays bounded',
       (tester) async {
