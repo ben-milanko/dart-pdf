@@ -41,6 +41,7 @@ class PdfComparisonView extends StatefulWidget {
     this.showNavigator = true,
     this.pixelRatio = 1.5,
     this.viewerTheme,
+    this.pagePreviewLodPolicy = const PdfPagePreviewLodPolicy(),
     this.pageRasterCachePolicy = const PdfPageRasterCachePolicy(),
     this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
     this.tileRasterBackend = const PdfCanvasTileRasterBackend(),
@@ -62,6 +63,9 @@ class PdfComparisonView extends StatefulWidget {
 
   /// Wraps both panes in a [PdfViewerTheme].
   final PdfViewerThemeData? viewerTheme;
+
+  /// Intermediate fast-scroll preview levels and their shared memory budget.
+  final PdfPagePreviewLodPolicy pagePreviewLodPolicy;
 
   /// Memory policy for exact full-resolution rasters of previously visited
   /// pages in each comparison pane.
@@ -213,6 +217,7 @@ class _PdfComparisonViewState extends State<PdfComparisonView> {
             document: _beforeDoc,
             controller: _beforeCtl,
             initialFit: PdfViewerFit.width,
+            pagePreviewLodPolicy: widget.pagePreviewLodPolicy,
             pageRasterCachePolicy: widget.pageRasterCachePolicy,
             pageRasterWarmPolicy: widget.pageRasterWarmPolicy,
             tileRasterBackend: widget.tileRasterBackend,
@@ -228,6 +233,7 @@ class _PdfComparisonViewState extends State<PdfComparisonView> {
             document: _afterDoc,
             controller: _afterCtl,
             initialFit: PdfViewerFit.width,
+            pagePreviewLodPolicy: widget.pagePreviewLodPolicy,
             pageRasterCachePolicy: widget.pageRasterCachePolicy,
             pageRasterWarmPolicy: widget.pageRasterWarmPolicy,
             tileRasterBackend: widget.tileRasterBackend,
@@ -246,6 +252,7 @@ class _PdfComparisonViewState extends State<PdfComparisonView> {
       document: _afterDoc,
       controller: _afterCtl,
       initialFit: PdfViewerFit.width,
+      pagePreviewLodPolicy: widget.pagePreviewLodPolicy,
       pageRasterCachePolicy: widget.pageRasterCachePolicy,
       pageRasterWarmPolicy: widget.pageRasterWarmPolicy,
       tileRasterBackend: widget.tileRasterBackend,

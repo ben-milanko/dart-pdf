@@ -55,6 +55,9 @@ void main() {
       maxBytes: 256 * 1024 * 1024,
       maxEntryBytes: 64 * 1024 * 1024,
     );
+    const lodPolicy = PdfPagePreviewLodPolicy(
+      intermediateLongestSides: [360, 720],
+    );
     final tileBackend = _TestTileBackend();
 
     await tester.pumpWidget(MaterialApp(
@@ -62,6 +65,7 @@ void main() {
         body: PdfComparisonView(
           before: before,
           after: after,
+          pagePreviewLodPolicy: lodPolicy,
           pageRasterCachePolicy: rasterPolicy,
           tileRasterBackend: tileBackend,
         ),
@@ -83,6 +87,12 @@ void main() {
     expect(
       tester
           .widgetList<PdfViewer>(find.byType(PdfViewer))
+          .map((viewer) => viewer.pagePreviewLodPolicy),
+      everyElement(lodPolicy),
+    );
+    expect(
+      tester
+          .widgetList<PdfViewer>(find.byType(PdfViewer))
           .map((viewer) => viewer.tileRasterBackend),
       everyElement(same(tileBackend)),
     );
@@ -98,6 +108,10 @@ void main() {
     expect(
       tester.widget<PdfViewer>(find.byType(PdfViewer)).pageRasterCachePolicy,
       rasterPolicy,
+    );
+    expect(
+      tester.widget<PdfViewer>(find.byType(PdfViewer)).pagePreviewLodPolicy,
+      lodPolicy,
     );
     expect(tester.widget<PdfViewer>(find.byType(PdfViewer)).tileRasterBackend,
         same(tileBackend));

@@ -146,6 +146,7 @@ class PdfReader extends StatefulWidget {
     this.viewerTheme,
     this.rasterCache,
     this.textCache,
+    this.pagePreviewLodPolicy = const PdfPagePreviewLodPolicy(),
     this.pageRasterCachePolicy = const PdfPageRasterCachePolicy(),
     this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
   })  : source = null,
@@ -193,6 +194,7 @@ class PdfReader extends StatefulWidget {
     this.viewerTheme,
     this.rasterCache,
     this.textCache,
+    this.pagePreviewLodPolicy = const PdfPagePreviewLodPolicy(),
     this.pageRasterCachePolicy = const PdfPageRasterCachePolicy(),
     this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
   }) : bytes = null;
@@ -231,6 +233,10 @@ class PdfReader extends StatefulWidget {
   /// by [documentId], so reopening a document searches it without re-walking
   /// every page's content stream.
   final PdfPageTextCache? textCache;
+
+  /// Intermediate fast-scroll preview levels and their shared memory budget.
+  /// See [PdfViewer.pagePreviewLodPolicy].
+  final PdfPagePreviewLodPolicy pagePreviewLodPolicy;
 
   /// Memory policy for exact full-resolution rasters of previously visited
   /// pages. See [PdfViewer.pageRasterCachePolicy].
@@ -561,6 +567,7 @@ class _PdfReaderState extends State<PdfReader> {
                           tileRasterBackend: widget.tileRasterBackend,
                           rasterCache: widget.rasterCache,
                           textCache: widget.textCache,
+                          pagePreviewLodPolicy: widget.pagePreviewLodPolicy,
                           pageRasterCachePolicy: widget.pageRasterCachePolicy,
                           pageRasterWarmPolicy: widget.pageRasterWarmPolicy,
                           documentId: _documentKey,

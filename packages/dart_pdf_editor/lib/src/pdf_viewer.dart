@@ -435,6 +435,10 @@ class PdfViewerController extends ChangeNotifier {
   /// shows during a fast scroll, shared rather than re-rendered.
   PdfPagePreviewCache? get pagePreviewCache => _state?._previews;
 
+  /// Current occupancy and evictions for the base/intermediate fast-scroll
+  /// preview ladder. Null when no viewer is attached.
+  PdfPagePreviewLodStats? get pagePreviewLodStats => _state?._previews.lodStats;
+
   /// Test hook: whether the attached viewer is currently holding page
   /// renders back for a fast scroll; false when no viewer is attached.
   @visibleForTesting
@@ -1009,6 +1013,7 @@ class PdfViewer extends StatefulWidget {
     this.highlightFormFields = true,
     this.interactiveForms = true,
     this.pagePreviews = true,
+    this.pagePreviewLodPolicy = const PdfPagePreviewLodPolicy(),
     this.previewWindow = 6,
     this.pageRasterCachePolicy = const PdfPageRasterCachePolicy(),
     this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
@@ -1419,9 +1424,16 @@ class PdfViewer extends StatefulWidget {
   /// free as pages are viewed; pages never seen are filled in by a
   /// background prerender (nearest the viewport first, paused while the
   /// user scrolls). Costs one interpreter walk per page over the
-  /// session plus up to ~40 MB of preview pixels on very long
-  /// documents.
+  /// session plus up to ~40 MB of tiny previews on very long documents;
+  /// [pagePreviewLodPolicy] adds a separate byte-bounded nearby working set
+  /// (32 MiB by default).
   final bool pagePreviews;
+
+  /// The intermediate steps between the tiny fast-scroll fallback and the
+  /// final display raster. The default 200 -> 400 -> 800 -> final ladder is
+  /// warmed only near the viewport and shares a byte-budgeted LRU; see
+  /// [PdfPagePreviewLodPolicy]. [pagePreviews] must be true.
+  final PdfPagePreviewLodPolicy pagePreviewLodPolicy;
 
   /// See the constructor doc - false pauses page rendering and the preview
   /// prerender while another view overlays the viewer.
@@ -1528,6 +1540,7 @@ class _PdfViewerState extends State<PdfViewer>
   /// identity), so a page whose render throws can't be retried forever.
   final _previewAttempts = Set<PdfPage>.identity();
   final _previewVectorAttempts = Set<PdfPage>.identity();
+  final Map<double, Set<PdfPage>> _intermediatePreviewAttempts = {};
   bool _prerendering = false;
 
   /// Pages the idle full-raster warm already produced (or gave up on), by page
@@ -1940,10 +1953,12 @@ class _PdfViewerState extends State<PdfViewer>
         if (animation != null) _transform.value = animation.value;
       });
     _previews.configureFullRasterCache(widget.pageRasterCachePolicy);
+    _previews.configurePreviewLods(widget.pagePreviewLodPolicy);
     // Background full-raster encodes yield to scrolling and to a foreground
     // render holding the raster thread (#615).
     _previews.deferBackgroundIo = () => !mounted || _motionRenderHoldActive;
     _loadPages();
+    _previews.bindPages(_pages);
     _snapshotContentStamps();
     _bindRasterCache();
     _scroll.addListener(_onScroll);
@@ -2004,6 +2019,9 @@ class _PdfViewerState extends State<PdfViewer>
         'freed ${liveFreed >> 20}MB of live rasters'
         '${PdfPerfLog.rssSuffix()}');
     _previews.clear();
+    _previewAttempts.clear();
+    _previewVectorAttempts.clear();
+    _intermediatePreviewAttempts.clear();
   }
 
   void _onPerformanceChanged() {
@@ -2307,7 +2325,9 @@ class _PdfViewerState extends State<PdfViewer>
             workerActive &&
             (widget.performance?.tuning.vectorFirstPreviews ?? false) &&
             _nextPreviewIndex(_pages,
-                    requireImages: false, allowNearViewport: false) !=
+                    requireImages: false,
+                    allowNearViewport: false,
+                    targetLongestSide: null) !=
                 null;
         final vectorOnly = motionVector || policyVector;
         if (!vectorOnly &&
@@ -2323,12 +2343,42 @@ class _PdfViewerState extends State<PdfViewer>
           continue;
         }
         final pages = _pages;
-        final index = _nextPreviewIndex(pages,
-            requireImages: !vectorOnly, allowNearViewport: false);
+        double? targetLongestSide;
+        var index = _nextPreviewIndex(
+          pages,
+          requireImages: !vectorOnly,
+          allowNearViewport: false,
+          targetLongestSide: null,
+        );
+        // Base coverage always wins: the 200px level is the only one cheap
+        // enough to be the immediate fallback everywhere. Once it is covered,
+        // promote the near working set one geometric level at a time. Never
+        // do these image-complete promotions during motion/vector-first mode.
+        if (index == null && !vectorOnly) {
+          for (final target in _previews.intermediateLongestSides) {
+            index = _nextPreviewIndex(
+              pages,
+              requireImages: true,
+              allowNearViewport: false,
+              targetLongestSide: target,
+            );
+            if (index != null) {
+              targetLongestSide = target;
+              break;
+            }
+          }
+        }
         if (index == null) return; // every page covered (or attempted)
         final page = pages[index];
         if (vectorOnly) {
           _previewVectorAttempts.add(page);
+        } else if (targetLongestSide != null) {
+          _intermediatePreviewAttempts
+              .putIfAbsent(
+                targetLongestSide,
+                () => Set<PdfPage>.identity(),
+              )
+              .add(page);
         } else {
           _previewAttempts.add(page);
         }
@@ -2339,6 +2389,7 @@ class _PdfViewerState extends State<PdfViewer>
             worker: _effectiveRenderWorker,
             rotation: _effectiveRotation(index),
             decodeImages: !vectorOnly,
+            targetLongestSide: targetLongestSide,
             commandLimit: vectorOnly ? _jumpPreviewOperationLimit : null,
             deferUiWork: vectorOnly
                 ? () {
@@ -2347,6 +2398,18 @@ class _PdfViewerState extends State<PdfViewer>
                     return defer;
                   }
                 : null);
+        if (targetLongestSide != null &&
+            _previews.isFresh(
+              index,
+              page,
+              requireImages: true,
+              targetLongestSide: targetLongestSide,
+            )) {
+          // Success is represented by the cache itself, not the failure guard:
+          // if the byte LRU later evicts this level after the viewport moves,
+          // returning here should make it eligible for promotion again.
+          _intermediatePreviewAttempts[targetLongestSide]?.remove(page);
+        }
         if (deferredPreview && mounted) {
           // The worker may finish while the gesture is still moving. In that
           // case renderPreview deliberately skips the UI replay/raster step;
@@ -2371,7 +2434,15 @@ class _PdfViewerState extends State<PdfViewer>
   /// window render fully on their own - their full picture feeds the
   /// cache, so prerendering them too would interpret twice).
   int? _nextPreviewIndex(List<PdfPage> pages,
-      {required bool requireImages, required bool allowNearViewport}) {
+      {required bool requireImages,
+      required bool allowNearViewport,
+      required double? targetLongestSide}) {
+    if (targetLongestSide != null &&
+        (!widget.pagePreviewLodPolicy.enabled ||
+            widget.pagePreviewLodPolicy.intermediateWindow == 0 ||
+            !_previews.intermediateLongestSides.contains(targetLongestSide))) {
+      return null;
+    }
     final current =
         pages.isEmpty ? 0 : _controller.currentPage.clamp(0, pages.length - 1);
     final hasMetrics = _scroll.hasClients && _viewWidth > 0;
@@ -2398,14 +2469,27 @@ class _PdfViewerState extends State<PdfViewer>
       // bound the proactive warm to a window around the viewport - far
       // pages render on demand on arrival (render hold) and feed the
       // cache for free when scrolled through (putFromPicture)
-      final window = _effectivePreviewWindow(requireImages: requireImages);
+      final window = targetLongestSide == null
+          ? _effectivePreviewWindow(requireImages: requireImages)
+          : widget.pagePreviewLodPolicy.intermediateWindow;
       if (window > 0 && distance > window) continue;
-      if (requireImages) {
+      if (targetLongestSide != null) {
+        if ((_intermediatePreviewAttempts[targetLongestSide]
+                ?.contains(pages[i]) ??
+            false)) {
+          continue;
+        }
+      } else if (requireImages) {
         if (_previewAttempts.contains(pages[i])) continue;
       } else if (_previewVectorAttempts.contains(pages[i])) {
         continue;
       }
-      if (_previews.isFresh(i, pages[i], requireImages: requireImages)) {
+      if (_previews.isFresh(
+        i,
+        pages[i],
+        requireImages: requireImages,
+        targetLongestSide: targetLongestSide,
+      )) {
         continue;
       }
       if (distance < bestDistance) {
@@ -2733,6 +2817,13 @@ class _PdfViewerState extends State<PdfViewer>
       _rasterWarmAttempts.clear();
       _scheduleRasterWarm();
     }
+    if (oldWidget.pagePreviewLodPolicy != widget.pagePreviewLodPolicy) {
+      _previews.configurePreviewLods(widget.pagePreviewLodPolicy);
+      _intermediatePreviewAttempts.clear();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _prerenderPreviews();
+      });
+    }
     // Re-evaluate the owned default worker: a host worker may have been
     // supplied/removed, autoRenderWorker toggled, or the document swapped.
     _syncDefaultWorker();
@@ -2750,6 +2841,7 @@ class _PdfViewerState extends State<PdfViewer>
       _bindRasterCache();
       _previewAttempts.clear();
       _previewVectorAttempts.clear();
+      _intermediatePreviewAttempts.clear();
       // paper color and annotation visibility are part of the raster
       // signature, so every warmed raster just became unreachable
       _rasterWarmAttempts.clear();
@@ -2832,6 +2924,7 @@ class _PdfViewerState extends State<PdfViewer>
     _controller.clearSearch();
     _clearSelection();
     _loadPages();
+    _previews.bindPages(_pages);
     // an edit revision keeps its previews (rebound to the new page
     // objects - edited pages refresh from their on-screen render); a
     // different document starts clean
@@ -2860,6 +2953,7 @@ class _PdfViewerState extends State<PdfViewer>
     _bindRasterCache(prime: !sameGeometry);
     _previewAttempts.clear();
     _previewVectorAttempts.clear();
+    _intermediatePreviewAttempts.clear();
     // page objects changed, so every warmed raster is either rebound (content
     // unchanged) or gone; re-arm the pass over the new revision's pages
     _rasterWarmAttempts.clear();
@@ -3055,6 +3149,7 @@ class _PdfViewerState extends State<PdfViewer>
     _bindRasterCache();
     _previewAttempts.clear();
     _previewVectorAttempts.clear();
+    _intermediatePreviewAttempts.clear();
     // rotation is part of the raster signature (and changes the page's
     // physical size): nothing warmed under the old one can be reused
     _rasterWarmAttempts.clear();

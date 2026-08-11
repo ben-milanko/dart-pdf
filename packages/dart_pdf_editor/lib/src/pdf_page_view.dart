@@ -613,6 +613,7 @@ class _PdfPageViewState extends State<PdfPageView>
   /// Clone of this page's cached low-res preview; painted while no full
   /// raster exists, dropped (to free the buffer) the moment one lands.
   ui.Image? _preview;
+  int? _previewCacheGeneration;
 
   /// Monotonic sequence assigned to each streamed progressive partial (#564),
   /// never reset - so partials from a newer render pass always outrank an older
@@ -735,7 +736,7 @@ class _PdfPageViewState extends State<PdfPageView>
     if (!mounted ||
         _image != null ||
         _slugPicture != null ||
-        _preview != null) {
+        (_preview != null && _previewCacheGeneration == null)) {
       return;
     }
     setState(_refreshPreview);
@@ -744,11 +745,32 @@ class _PdfPageViewState extends State<PdfPageView>
   void _refreshPreview() {
     final cache = widget.previewCache;
     if (cache == null || _image != null || _slugPicture != null) return;
-    final next = cache.imageFor(widget.previewIndex);
-    if (next == null) return; // keep whatever we already hold
+    final frame = cache.previewFor(widget.previewIndex);
+    if (frame == null) return; // keep whatever we already hold
+    final next = frame.image;
+    if (_preview != null) {
+      if (_previewCacheGeneration == frame.generation) {
+        next.dispose();
+        return;
+      }
+      final currentPixels = _preview!.width * _preview!.height;
+      final nextPixels = next.width * next.height;
+      if (nextPixels < currentPixels) {
+        // A byte-budget eviction can remove the sharpest cached LoD while the
+        // page still owns a live clone. Keep painting that clone rather than
+        // visibly stepping backward to the base preview.
+        next.dispose();
+        return;
+      }
+    }
     _preview?.dispose();
     _preview = next;
-    PdfPerfLog.log('preview-paint page=${widget.previewIndex}');
+    _previewCacheGeneration = frame.generation;
+    PdfPerfLog.log(
+      'preview-paint page=${widget.previewIndex} '
+      'lod=${frame.lod == PdfPagePreviewLod.base ? 'base' : '${frame.targetLongestSide}px'} '
+      '${next.width}x${next.height}',
+    );
   }
 
   @override
@@ -824,6 +846,7 @@ class _PdfPageViewState extends State<PdfPageView>
       widget.previewCache?.addListener(_onPreviewCacheChanged);
       _preview?.dispose();
       _preview = null;
+      _previewCacheGeneration = null;
       _refreshPreview();
     }
     if (transition.dropBaseRaster) {
@@ -843,6 +866,7 @@ class _PdfPageViewState extends State<PdfPageView>
       _imageState = null;
       _preview?.dispose();
       _preview = null;
+      _previewCacheGeneration = null;
     }
     if (transition.dropPicture) {
       // Re-interpret at the new content/page. Unless we blanked above, the
@@ -1726,6 +1750,7 @@ class _PdfPageViewState extends State<PdfPageView>
     setState(() {
       _preview?.dispose();
       _preview = image;
+      _previewCacheGeneration = null;
     });
     PdfPerfLog.log('early-prefix page=$pageIndex commands=${commands.length} '
         'limit=${PdfPageView.earlyPrefixCommandLimit}${PdfPerfLog.rssSuffix()}');
@@ -1821,6 +1846,7 @@ class _PdfPageViewState extends State<PdfPageView>
     setState(() {
       _preview?.dispose();
       _preview = image;
+      _previewCacheGeneration = null;
     });
     PdfPerfLog.log('progressive-partial page=$pageIndex seq=$seq '
         'commands=${commands.length} ui='

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -218,7 +219,13 @@ void main() {
         await tester.runAsync(() async {
           final data =
               (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!;
-          final i = (py * image.width + px) * 4;
+          // [px]/[py] are expressed in the historical 200px preview grid.
+          // The cache now returns its sharpest available LoD, so preserve the
+          // same page-space sample when that is a 400/800px promotion.
+          final scale = math.max(image.width, image.height) / 200;
+          final sampleX = (px * scale).round().clamp(0, image.width - 1);
+          final sampleY = (py * scale).round().clamp(0, image.height - 1);
+          final i = (sampleY * image.width + sampleX) * 4;
           luma = (data.getUint8(i) + data.getUint8(i + 1) + data.getUint8(i + 2)) ~/ 3;
         });
         image.dispose();
