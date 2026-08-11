@@ -134,7 +134,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@65eb853c7ba17dde3be364c3d2858773e7144260
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@7654d458321ee25acccccfdb86cd48bd95768ff1
     with:
       environment: pub.dev
       working-directory: packages/pdf_cos
@@ -145,7 +145,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@65eb853c7ba17dde3be364c3d2858773e7144260
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@7654d458321ee25acccccfdb86cd48bd95768ff1
     with:
       environment: pub.dev
       working-directory: packages/pdf_test_fixtures
@@ -156,7 +156,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@65eb853c7ba17dde3be364c3d2858773e7144260
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@7654d458321ee25acccccfdb86cd48bd95768ff1
     with:
       environment: pub.dev
       working-directory: packages/pdf_document
@@ -167,7 +167,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@65eb853c7ba17dde3be364c3d2858773e7144260
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@7654d458321ee25acccccfdb86cd48bd95768ff1
     with:
       environment: pub.dev
       working-directory: packages/pdf_graphics
@@ -178,7 +178,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@65eb853c7ba17dde3be364c3d2858773e7144260
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@7654d458321ee25acccccfdb86cd48bd95768ff1
     with:
       environment: pub.dev
       working-directory: packages/dart_pdf_editor
@@ -197,7 +197,7 @@ jobs:
           persist-credentials: false
       # Provision pub.dev's OIDC token before Flutter's SDK shadows `dart`;
       # this is the ordering used by dart-lang/setup-dart's publish workflow.
-      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260
+      - uses: dart-lang/setup-dart@7654d458321ee25acccccfdb86cd48bd95768ff1
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: 3.44.8
@@ -222,7 +222,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@65eb853c7ba17dde3be364c3d2858773e7144260
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@7654d458321ee25acccccfdb86cd48bd95768ff1
     with:
       environment: pub.dev
       working-directory: packages/pdf_ocr_vlm
@@ -233,7 +233,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@65eb853c7ba17dde3be364c3d2858773e7144260
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@7654d458321ee25acccccfdb86cd48bd95768ff1
     with:
       environment: pub.dev
       working-directory: packages/pdf_ocr_ondevice
