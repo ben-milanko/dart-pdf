@@ -174,6 +174,78 @@ void main() {
     expect(PdfPageView.debugTileImageDetailAdoptions, 0);
   });
 
+  testWidgets('tiles retain the completed visible patch while sharpening',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final bytes = _scannedSheet();
+    setUpTiles(bytes);
+    final doc = PdfDocument.open(bytes);
+    final page = doc.page(0);
+
+    Widget at(int settleGeneration) => Center(
+          child: OverflowBox(
+            maxWidth: double.infinity,
+            maxHeight: double.infinity,
+            child: SizedBox(
+              width: page.mediaBox.width * 5,
+              child: PdfPageView(
+                page: page,
+                settleGeneration: settleGeneration,
+                renderWorker: worker,
+              ),
+            ),
+          ),
+        );
+
+    // First take the single-patch route. It is the quick visible answer that
+    // used to disappear as soon as the reusable pyramid engaged.
+    PdfPageView.tileStoreDetail = false;
+    await tester.pumpWidget(at(0));
+    for (var i = 0; i < 100; i++) {
+      await tester.pump();
+      if (find
+          .byKey(const ValueKey('pdf-page-detail-image'))
+          .evaluate()
+          .isNotEmpty) {
+        break;
+      }
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+    }
+    expect(
+      find.byKey(const ValueKey('pdf-page-detail-image')),
+      findsOneWidget,
+      reason: 'the visible-region refinement must land before tile prefetch',
+    );
+
+    // A translation settle switches back to the reusable tile pyramid. The
+    // completed patch remains the visual fallback under its sparse tiles;
+    // previously the two widgets were mutually exclusive and the page fell
+    // back to its low-resolution full raster until the tile image scene landed.
+    PdfPageView.tileStoreDetail = true;
+    await tester.pumpWidget(at(1));
+    for (var i = 0; i < 20; i++) {
+      await tester.pump();
+      if (find
+          .byKey(const ValueKey('pdf-page-tile-layer'))
+          .evaluate()
+          .isNotEmpty) {
+        break;
+      }
+    }
+    expect(find.byKey(const ValueKey('pdf-page-tile-layer')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pdf-page-detail-image')), findsOneWidget,
+        reason: 'engaging tiles must not hide already-sharp visible pixels');
+    final painter = tester
+        .widget<CustomPaint>(find.byKey(const ValueKey('pdf-page-tile-layer')))
+        .painter as dynamic;
+    expect(painter.fallbackOcclusionFraction, isNotNull,
+        reason: 'a coarse retained rung must not cover the sharper patch');
+  });
+
   testWidgets('a worker that declines the region record still lets tiles land',
       (tester) async {
     tester.view.devicePixelRatio = 1.0;

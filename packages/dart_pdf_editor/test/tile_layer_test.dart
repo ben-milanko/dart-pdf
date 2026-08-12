@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -15,6 +16,17 @@ Future<ui.Image> _solidImage(int w, int h) {
   final image = picture.toImage(w, h);
   picture.dispose();
   return image;
+}
+
+Future<Color> _pixel(ui.Image image, int x, int y) async {
+  final bytes = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+  final offset = (y * image.width + x) * 4;
+  return Color.fromARGB(
+    bytes!.getUint8(offset + 3),
+    bytes.getUint8(offset),
+    bytes.getUint8(offset + 1),
+    bytes.getUint8(offset + 2),
+  );
 }
 
 class _Rasterizer {
@@ -124,6 +136,67 @@ void main() {
         ),
       );
       expect(tester.takeException(), isNull);
+      store.dispose();
+    });
+  });
+
+  testWidgets('a coarse fallback cannot cover a sharper patch', (tester) async {
+    await tester.runAsync(() async {
+      final store = PdfTileStore(
+        tilePixels: 32,
+        prefetchRing: 0,
+        registerForMemoryPressure: false,
+      );
+      final raster = _Rasterizer(tileSize: 32);
+      const boundaryKey = ValueKey('tile-fallback-occlusion');
+
+      Widget layer(double ratio, {Rect? occlusion}) => Directionality(
+            textDirection: TextDirection.ltr,
+            child: Center(
+              child: RepaintBoundary(
+                key: boundaryKey,
+                child: SizedBox(
+                  width: 64,
+                  height: 64,
+                  child: ColoredBox(
+                    color: const Color(0xFFFF0000),
+                    child: PdfTileLayer(
+                      store: store,
+                      identity: _id(0),
+                      pageSize: const Size(64, 64),
+                      desiredRatio: ratio,
+                      visibleFraction: const Rect.fromLTRB(0, 0, 1, 1),
+                      rasterize: raster.call,
+                      fallbackOcclusionFraction: occlusion,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+
+      // Seed a complete blue 1x rung.
+      await tester.pumpWidget(layer(1));
+      await raster.flush();
+      await tester.pump();
+
+      // Ask for 2x but leave those exact tiles pending. The store now presents
+      // the blue 1x rung as a fallback; the central refined fraction must show
+      // the red backing through instead of being covered by stretched blue.
+      await tester.pumpWidget(layer(
+        2,
+        occlusion: const Rect.fromLTRB(0.25, 0.25, 0.75, 0.75),
+      ));
+      await tester.pump();
+      final boundary = tester.renderObject<RenderRepaintBoundary>(
+        find.byKey(boundaryKey),
+      );
+      final image = await boundary.toImage();
+      expect(await _pixel(image, 4, 4), const Color(0xFF2277EE),
+          reason: 'fallback remains useful outside the sharp patch');
+      expect(await _pixel(image, 32, 32), const Color(0xFFFF0000),
+          reason: 'fallback is clipped out of the sharp patch');
+      image.dispose();
       store.dispose();
     });
   });

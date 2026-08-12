@@ -3492,7 +3492,6 @@ class _PdfPageViewState extends State<PdfPageView>
     _DetailGeometry? detailGeometry,
     VoidCallback? onPaint,
   }) async {
-    final generation = _renderSession.beginDetail();
     if (_renderPaused) return false;
     // The viewer's global transform reaches cache-window neighbours too. They
     // keep a bounded fit-resolution base, but a detail raster is useful only
@@ -3603,6 +3602,15 @@ class _PdfPageViewState extends State<PdfPageView>
       );
       return true;
     }
+
+    // Claim the detail generation only when this pass is actually about to
+    // produce a replacement patch. The tile route above is a successful
+    // no-op for the single-patch adapter: beginning a generation before that
+    // return used to cancel an already-decoded tight zoom patch during the
+    // follow-up full-render grant. On the large raster CAD sheets that patch
+    // was ready in ~1.5 s, but was discarded immediately before rasterization;
+    // the user then waited for an 8-9 s, ~70 MB tile-prefetch decode instead.
+    final generation = _renderSession.beginDetail();
 
     // Dense strip-routed pages ask for one combined worker result: commands
     // whose images were decoded for this region plus the StripPlan binned
@@ -4441,8 +4449,8 @@ class _PdfPageViewState extends State<PdfPageView>
   /// tile path is inactive or the page is not zoomed past the base raster.
   ///
   /// [size] is the page-point size (the tile grid space). Placed above the base
-  /// raster so uncovered gaps show it through; it replaces the single detail
-  /// patch when active.
+  /// raster and any completed visible-region patch, so uncovered gaps keep the
+  /// sharpest already-available pixels while exact tiles land over them.
   Widget? _tileLayerWidget(Size size) {
     if (!_useTilePath) return null;
     final scene = _scene;
@@ -4510,6 +4518,13 @@ class _PdfPageViewState extends State<PdfPageView>
         allowCoarserFallback: widget.qualityPageCount == 1 &&
             _slugPicture == null &&
             _directPicture == null,
+        // An old pyramid rung is useful pan-ahead outside the current patch,
+        // but must not cover that sharper patch with stretched pixels. Exact
+        // tiles are not clipped and replace it normally as they land.
+        fallbackOcclusionFraction:
+            _detailImage != null && _detailContentIsCurrent()
+                ? _detailFraction
+                : null,
       ),
     );
   }
@@ -5087,8 +5102,10 @@ class _PdfPageViewState extends State<PdfPageView>
               // Publish this page's patch bounds for the thumbnail debug
               // overlay (report coalesces its notify past this build).
               if (pdfDebugPaintDetailBounds.value) {
-                PdfDebugDetailRegions.instance.report(widget.previewIndex,
-                    tileLayer == null && detail != null ? fraction : null);
+                PdfDebugDetailRegions.instance.report(
+                  widget.previewIndex,
+                  detail != null ? fraction : null,
+                );
               }
               return Stack(
                 alignment: Alignment.topLeft,
@@ -5130,9 +5147,14 @@ class _PdfPageViewState extends State<PdfPageView>
                     ),
                   if (webSurface != null) webSurface,
                   if (webDetail != null) webDetail,
-                  if (tileLayer != null)
-                    tileLayer
-                  else if (detail != null && fraction != null && w.isFinite)
+                  // Keep the fast, viewport-sized refinement underneath the
+                  // pyramid. The tile layer is sparse while its region image
+                  // decode is pending; making these alternatives hid the
+                  // completed refinement and exposed the soft base raster as
+                  // a conspicuous strip until the much larger tile scene
+                  // arrived. Exact tiles paint afterward and therefore can
+                  // only improve—not downgrade—the pixels below.
+                  if (detail != null && fraction != null && w.isFinite)
                     Positioned(
                       left: fraction.left * w,
                       top: fraction.top * h,
@@ -5161,6 +5183,7 @@ class _PdfPageViewState extends State<PdfPageView>
                               ),
                       ),
                     ),
+                  if (tileLayer != null) tileLayer,
                 ],
               );
             },

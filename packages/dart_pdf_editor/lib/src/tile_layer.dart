@@ -7,6 +7,8 @@
 /// widget layer.
 library;
 
+import 'dart:ui' as ui show ClipOp;
+
 import 'package:flutter/widgets.dart';
 
 import 'debug_overlays.dart';
@@ -34,6 +36,7 @@ class PdfTileLayer extends StatelessWidget {
     this.maxNewTilesPerPaint,
     this.prefetchRingOverride,
     this.allowCoarserFallback = true,
+    this.fallbackOcclusionFraction,
     this.filterQuality = FilterQuality.medium,
   })  : assert(maxNewTilesPerPaint == null || maxNewTilesPerPaint > 0),
         assert(prefetchRingOverride == null || prefetchRingOverride >= 0);
@@ -84,6 +87,13 @@ class PdfTileLayer extends StatelessWidget {
   /// the exact tile lands.
   final bool allowCoarserFallback;
 
+  /// Page fraction whose existing pixels are sharper than a coarse tile.
+  ///
+  /// Exact-rung tiles still paint across this region. Upscaled fallback tiles
+  /// are clipped out of it, so a fast visible-region refinement cannot regress
+  /// to a blurry rectangle while the exact rung is still being produced.
+  final Rect? fallbackOcclusionFraction;
+
   final FilterQuality filterQuality;
 
   @override
@@ -102,6 +112,7 @@ class PdfTileLayer extends StatelessWidget {
           maxNewTilesPerPaint: maxNewTilesPerPaint,
           prefetchRingOverride: prefetchRingOverride,
           allowCoarserFallback: allowCoarserFallback,
+          fallbackOcclusionFraction: fallbackOcclusionFraction,
           filterQuality: filterQuality,
         ),
       );
@@ -121,6 +132,7 @@ class _TilePagePainter extends CustomPainter {
     required this.maxNewTilesPerPaint,
     required this.prefetchRingOverride,
     required this.allowCoarserFallback,
+    required this.fallbackOcclusionFraction,
     required this.filterQuality,
   }) : super(
             // tick as sharper tiles land, and repaint on debug-border toggles
@@ -138,6 +150,7 @@ class _TilePagePainter extends CustomPainter {
   final int? maxNewTilesPerPaint;
   final int? prefetchRingOverride;
   final bool allowCoarserFallback;
+  final Rect? fallbackOcclusionFraction;
   final FilterQuality filterQuality;
 
   @override
@@ -166,6 +179,14 @@ class _TilePagePainter extends CustomPainter {
     );
     if (view.isEmpty) return;
     final paint = Paint()..filterQuality = filterQuality;
+    final fallbackOcclusion = fallbackOcclusionFraction == null
+        ? null
+        : Rect.fromLTRB(
+            fallbackOcclusionFraction!.left * size.width,
+            fallbackOcclusionFraction!.top * size.height,
+            fallbackOcclusionFraction!.right * size.width,
+            fallbackOcclusionFraction!.bottom * size.height,
+          );
     final debugBounds = pdfDebugPaintDetailBounds.value;
     final exactBorder = debugBounds
         ? (Paint()
@@ -186,11 +207,24 @@ class _TilePagePainter extends CustomPainter {
         placement.destFraction.right * size.width,
         placement.destFraction.bottom * size.height,
       );
+      final clipFallback = placement.isFallback &&
+          fallbackOcclusion != null &&
+          dest.overlaps(fallbackOcclusion);
+      if (clipFallback) {
+        canvas.save();
+        canvas.clipRect(dest, doAntiAlias: false);
+        canvas.clipRect(
+          fallbackOcclusion,
+          clipOp: ui.ClipOp.difference,
+          doAntiAlias: false,
+        );
+      }
       canvas.drawImageRect(placement.image, placement.src, dest, paint);
       if (debugBounds) {
         canvas.drawRect(
             dest, placement.isFallback ? fallbackBorder! : exactBorder!);
       }
+      if (clipFallback) canvas.restore();
     }
   }
 
@@ -208,5 +242,6 @@ class _TilePagePainter extends CustomPainter {
       old.maxNewTilesPerPaint != maxNewTilesPerPaint ||
       old.prefetchRingOverride != prefetchRingOverride ||
       old.allowCoarserFallback != allowCoarserFallback ||
+      old.fallbackOcclusionFraction != fallbackOcclusionFraction ||
       old.filterQuality != filterQuality;
 }
