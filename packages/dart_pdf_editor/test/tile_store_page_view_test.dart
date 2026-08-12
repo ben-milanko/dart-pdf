@@ -80,6 +80,8 @@ void main() {
         reason: 'a final-texture backend must bypass slab slicing');
     expect((tilePaint.painter as dynamic).maxNewTilesPerPaint, 1,
         reason: 'the backend session owns its per-frame admission policy');
+    expect((tilePaint.painter as dynamic).maxInFlightTiles, 2,
+        reason: 'repaints must not grow the backend submission queue');
 
     await tester.pumpWidget(const SizedBox.shrink());
     expect(tester.takeException(), isNull,
@@ -287,6 +289,8 @@ void main() {
     );
     expect((tilePaint.painter as dynamic).maxNewTilesPerPaint, 1,
         reason: 'grid-indexed scenes must pace replay one tile per paint');
+    expect((tilePaint.painter as dynamic).maxInFlightTiles, 2,
+        reason: 'the cross-frame queue remains bounded while tiles land');
     // The base raster is still the only RawImage (tiles paint via CustomPaint).
     expect(find.byType(RawImage), findsOneWidget);
     // Real tiles rastered from the page's retained scene.
@@ -412,6 +416,171 @@ void main() {
         reason: 'deliberately different late tile pixels must stay occluded '
             'by the exact visible patch');
     expect(tester.widget<RawImage>(find.byKey(detailKey)).image, same(exact));
+  });
+
+  testWidgets('translation cannot abandon exact-first recovery for tiles',
+      (tester) async {
+    tester.view.physicalSize = const Size(400, 300);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final store = PdfTileStore(
+      tilePixels: 128,
+      prefetchRing: 1,
+      registerForMemoryPressure: false,
+    );
+    final oldTiles = PdfPageView.tileStoreDetail;
+    PdfPageView.tileStoreDetail = true;
+    PdfPageView.debugTileStoreOverride = store;
+    addTearDown(() {
+      PdfPageView.tileStoreDetail = oldTiles;
+      PdfPageView.debugTileStoreOverride = null;
+      store.dispose();
+    });
+
+    final doc = PdfDocument.open(buildClassicPdf());
+    Widget page(double scale, int generation, double dx) => Center(
+          child: Transform.translate(
+            offset: Offset(dx, 0),
+            child: OverflowBox(
+              maxWidth: double.infinity,
+              maxHeight: double.infinity,
+              child: SizedBox(
+                width: 1024,
+                child: PdfPageView(
+                  page: doc.page(0),
+                  baseRasterScale: 1,
+                  scale: scale,
+                  settleGeneration: generation,
+                ),
+              ),
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(page(1, 0, 0));
+    for (var i = 0; i < 200 && find.byType(RawImage).evaluate().isEmpty; i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+
+    await tester.pumpWidget(page(4, 1, 0));
+    expect(find.byKey(const ValueKey('pdf-page-tile-layer')), findsNothing,
+        reason: 'a scale settle keeps incremental tiles hidden');
+
+    // Reproduce the trace: a tiny translation advances the settle while the
+    // exact region is still in flight. The old generation-based gate forgot
+    // the exact-first obligation here and exposed a staggered tile tail.
+    await tester.pumpWidget(page(4, 2, -12));
+    expect(find.byKey(const ValueKey('pdf-page-tile-layer')), findsNothing,
+        reason: 'translation must retain exact-first recovery');
+
+    for (var i = 0;
+        i < 300 &&
+            find
+                .byKey(const ValueKey('pdf-page-detail-image'))
+                .evaluate()
+                .isEmpty;
+        i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+    expect(find.byKey(const ValueKey('pdf-page-detail-image')), findsOneWidget);
+    for (var i = 0;
+        i < 50 &&
+            find
+                .byKey(const ValueKey('pdf-page-tile-layer'))
+                .evaluate()
+                .isEmpty;
+        i++) {
+      await tester.pump();
+    }
+    expect(find.byKey(const ValueKey('pdf-page-tile-layer')), findsOneWidget,
+        reason: 'tiles become pan-ahead only after exact pixels paint');
+  });
+
+  testWidgets('a page entered at deep zoom paints exact before tile batches',
+      (tester) async {
+    tester.view.physicalSize = const Size(400, 300);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final store = PdfTileStore(
+      tilePixels: 512,
+      prefetchRing: 1,
+      registerForMemoryPressure: false,
+    );
+    final logs = <String>[];
+    final oldTiles = PdfPageView.tileStoreDetail;
+    PdfPageView.tileStoreDetail = true;
+    PdfPageView.debugTileStoreOverride = store;
+    PdfPerfLog.enabled = true;
+    PdfPerfLog.sink = logs.add;
+    addTearDown(() {
+      PdfPageView.tileStoreDetail = oldTiles;
+      PdfPageView.debugTileStoreOverride = null;
+      PdfPerfLog.enabled = false;
+      PdfPerfLog.sink = null;
+      store.dispose();
+    });
+
+    final doc = PdfDocument.open(buildClassicPdf());
+    await tester.pumpWidget(
+      Center(
+        child: OverflowBox(
+          maxWidth: double.infinity,
+          maxHeight: double.infinity,
+          child: SizedBox(
+            width: 1024,
+            child: PdfPageView(
+              page: doc.page(0),
+              baseRasterScale: 1,
+              scale: 4,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    for (var i = 0;
+        i < 300 &&
+            (find
+                    .byKey(const ValueKey('pdf-page-tile-layer'))
+                    .evaluate()
+                    .isEmpty ||
+                store.tileCount == 0);
+        i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+
+    final exactPaint = logs.indexWhere(
+      (line) => line.contains('detail paint page=0 pass=visible'),
+    );
+    final firstTile = logs.indexWhere(
+      (line) =>
+          line.contains('tile slice page=0') && line.contains('class=visible'),
+    );
+    expect(exactPaint, greaterThanOrEqualTo(0));
+    expect(firstTile, greaterThan(exactPaint),
+        reason: 'a newly visible deep-zoom page must not sharpen in patches');
+    expect(find.byKey(const ValueKey('pdf-page-detail-image')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pdf-page-tile-layer')), findsOneWidget);
+    final painter = tester
+        .widget<CustomPaint>(
+          find.byKey(const ValueKey('pdf-page-tile-layer')),
+        )
+        .painter as dynamic;
+    expect(painter.maxInFlightTiles, 8,
+        reason: 'ordinary scenes get one bounded visible slab at a time');
   });
 
   testWidgets('an active tile target never steps down in quality',

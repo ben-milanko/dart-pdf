@@ -264,11 +264,13 @@ class PdfTileStore extends ChangeNotifier {
     this.ladder = const PdfTileZoomLadder(),
     int maxBytes = _defaultMaxBytes,
     this.prefetchRing = 1,
+    this.maxPrefetchInFlightTiles = 4,
     this.maxFallbackDepth = 4,
     this.batchRasters = true,
     this.maxBatchTilesPerAxis = 8,
     bool registerForMemoryPressure = true,
-  })  : assert(tilePixels * maxBatchTilesPerAxis <= 1 << 14,
+  })  : assert(maxPrefetchInFlightTiles > 0),
+        assert(tilePixels * maxBatchTilesPerAxis <= 1 << 14,
             'a batch slab must fit the engine texture limit'),
         _cache = PdfBudgetedCache<PdfTileKey, PdfTile>(
           weigher: (tile) => tile.bytes,
@@ -304,6 +306,12 @@ class PdfTileStore extends ChangeNotifier {
   /// How many tiles beyond the visible range to pre-raster on each side, so a
   /// pan reveals ready tiles instead of blanks.
   final int prefetchRing;
+
+  /// Maximum exact-rung prefetch tiles submitted concurrently for one page
+  /// view. Ring work is background work: bounding it prevents unrelated
+  /// repaints from filling the Canvas/GPU queue with every off-screen batch.
+  /// A newly visible tile then waits behind at most this small window.
+  final int maxPrefetchInFlightTiles;
 
   /// How many buckets coarser [viewFor] will search for an upscaled fallback
   /// before leaving the base raster to show through.
@@ -548,6 +556,10 @@ class PdfTileStore extends ChangeNotifier {
   /// Tiles already cached or in flight are unaffected. A landed tile ticks the
   /// store, so a painting caller can use a small cap to spread synchronous
   /// retained-scene replay across frames while the view fills center-out.
+  /// [maxInFlightTiles] additionally caps the number of admitted visible tiles
+  /// that may remain unresolved across repeated paints. Unlike [maxNewTiles],
+  /// this closes the loophole where unrelated frames each admitted one more
+  /// raster before the first completion freed the queue.
   /// [batchRasters] overrides this store's batching policy for this view. This
   /// lets a GPU session request final tile textures directly while Canvas
   /// sessions using the same shared store continue to amortize slab replay.
@@ -578,10 +590,12 @@ class PdfTileStore extends ChangeNotifier {
     bool Function(Rect region)? canRasterize,
     bool? batchRasters,
     int? maxNewTiles,
+    int? maxInFlightTiles,
     int? prefetchRingOverride,
     bool allowCoarserFallback = true,
   }) {
     assert(maxNewTiles == null || maxNewTiles > 0);
+    assert(maxInFlightTiles == null || maxInFlightTiles > 0);
     assert(prefetchRingOverride == null || prefetchRingOverride >= 0);
     if (_disposed) return PdfTileView.empty;
     final grid = _tileGrid(pageSize, desiredRatio, visiblePageRect);
@@ -619,8 +633,20 @@ class PdfTileStore extends ChangeNotifier {
     final placements = <PdfTilePlacement>[];
     final pending = (batchRasters ?? this.batchRasters) ? <PdfTileKey>[] : null;
     var newTiles = 0;
-    bool schedule(PdfTileKey key, {required bool notifyOnLand}) {
+    var inFlightForView =
+        _inFlight.where((key) => key.id == id && key.rung == rung).length;
+    bool schedule(
+      PdfTileKey key, {
+      required bool notifyOnLand,
+      int? inFlightLimit,
+    }) {
       if (maxNewTiles != null && newTiles >= maxNewTiles) return false;
+      // Already-admitted work consumes no new slot. Its original visible/ring
+      // completion will tick the layer, so the current view will see it land.
+      if (_inFlight.contains(key)) return false;
+      if (inFlightLimit != null && inFlightForView >= inFlightLimit) {
+        return false;
+      }
       final scheduled = _schedule(
         key,
         id,
@@ -633,7 +659,10 @@ class PdfTileStore extends ChangeNotifier {
         canRasterize,
         notifyOnLand: notifyOnLand,
       );
-      if (scheduled) newTiles++;
+      if (scheduled) {
+        newTiles++;
+        inFlightForView++;
+      }
       return scheduled;
     }
 
@@ -650,7 +679,11 @@ class PdfTileStore extends ChangeNotifier {
         ));
       } else {
         complete = false;
-        schedule(key, notifyOnLand: true);
+        schedule(
+          key,
+          notifyOnLand: true,
+          inFlightLimit: maxInFlightTiles,
+        );
         final fallback = allowCoarserFallback
             ? _coarserFallback(id, rung, tx, ty, span, pageSize)
             : null;
@@ -685,7 +718,11 @@ class PdfTileStore extends ChangeNotifier {
             if (ringHeadroom-- <= 0) break ring;
             schedule(
               PdfTileKey(id, rung, tx, ty),
-              notifyOnLand: false,
+              // The bounded ring is advanced by completion ticks. This also
+              // promotes a ring tile cleanly when a pan makes it visible while
+              // its raster is already in flight.
+              notifyOnLand: true,
+              inFlightLimit: maxPrefetchInFlightTiles,
             );
           }
         }
@@ -702,10 +739,10 @@ class PdfTileStore extends ChangeNotifier {
           ratio,
           rasterize,
           persistence,
-          // Ring batches are admitted only when the visible set was already
-          // complete. Their landing changes no current pixels, so avoid a
-          // redundant compositor frame; the next pan rebuild reads the cache.
-          notifyOnLand: !complete,
+          // Ring batches are bounded and advance on their own completion tick;
+          // visible batches already need that tick to present their pixels.
+          notifyOnLand: true,
+          prefetch: complete,
         );
       }
     }
@@ -877,6 +914,7 @@ class PdfTileStore extends ChangeNotifier {
     PdfTileRasterizer rasterize,
     PdfTilePersistence? persistence, {
     required bool notifyOnLand,
+    required bool prefetch,
   }) {
     Rect tileRegion(PdfTileKey key) => _clampToPage(
         Rect.fromLTWH(key.tx * span, key.ty * span, span, span), pageSize);
@@ -923,6 +961,7 @@ class PdfTileStore extends ChangeNotifier {
       final sliceElapsedMs = (sliceClock?.elapsedMicroseconds ?? 0) / 1000;
       PdfPerfLog.log(
         'tile slice page=${id.pageIndex} rung=${batch.first.rung} '
+        'class=${prefetch ? 'prefetch' : 'visible'} '
         'tiles=${batch.length} '
         'elapsed=${sliceElapsedMs.toStringAsFixed(1)}ms '
         'retained=${_cache.weight} entries=${_cache.length}'

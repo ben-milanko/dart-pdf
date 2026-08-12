@@ -5,9 +5,11 @@
 - Sharpen deep-zoom pages visible-first: the foreground render now covers the
   exact viewport. Once that sharp frame paints, tile-capable pages grow bounded
   pan-ahead underneath it; fallback pages avoid a second unpreemptible raster.
-  New settles cancel pending promotion, foreground paint telemetry remains
-  distinct, and every retained detail allocation rebalances the live-raster
-  budget, preventing visible quality and memory from stepping backwards.
+  Translation settles cannot abandon an in-flight exact recovery, and tile
+  admission is bounded across frames so unrelated repaints cannot build a long
+  GPU queue. Foreground paint telemetry remains distinct, and every retained
+  detail allocation rebalances the live-raster budget, preventing visible
+  quality and memory from stepping backwards.
 - Promote fast-scroll page previews through a configurable 200 -> 400 -> 800
   px LoD ladder before the final display raster. Intermediate levels warm only
   around the viewport, share a 32 MiB byte-budgeted LRU, and are generated from

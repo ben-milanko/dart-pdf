@@ -34,11 +34,13 @@ class PdfTileLayer extends StatelessWidget {
     this.canRasterize,
     this.batchRasters,
     this.maxNewTilesPerPaint,
+    this.maxInFlightTiles,
     this.prefetchRingOverride,
     this.allowCoarserFallback = true,
     this.fallbackOcclusionFraction,
     this.filterQuality = FilterQuality.medium,
   })  : assert(maxNewTilesPerPaint == null || maxNewTilesPerPaint > 0),
+        assert(maxInFlightTiles == null || maxInFlightTiles > 0),
         assert(prefetchRingOverride == null || prefetchRingOverride >= 0);
 
   /// The pyramid to composite from.
@@ -77,6 +79,11 @@ class PdfTileLayer extends StatelessWidget {
   /// paint, so the viewport still fills center-out without a timer or queue.
   final int? maxNewTilesPerPaint;
 
+  /// Optional cross-paint cap for unresolved visible tile rasters. This pairs
+  /// with [maxNewTilesPerPaint]: the per-paint cap protects one frame, while
+  /// this cap prevents unrelated frames from growing an unbounded GPU queue.
+  final int? maxInFlightTiles;
+
   /// Overrides [PdfTileStore.prefetchRing] for this paint. Zero prioritizes
   /// only the visible tiles; null uses the store's normal pan-ahead ring.
   final int? prefetchRingOverride;
@@ -110,6 +117,7 @@ class PdfTileLayer extends StatelessWidget {
           canRasterize: canRasterize,
           batchRasters: batchRasters,
           maxNewTilesPerPaint: maxNewTilesPerPaint,
+          maxInFlightTiles: maxInFlightTiles,
           prefetchRingOverride: prefetchRingOverride,
           allowCoarserFallback: allowCoarserFallback,
           fallbackOcclusionFraction: fallbackOcclusionFraction,
@@ -130,6 +138,7 @@ class _TilePagePainter extends CustomPainter {
     required this.canRasterize,
     required this.batchRasters,
     required this.maxNewTilesPerPaint,
+    required this.maxInFlightTiles,
     required this.prefetchRingOverride,
     required this.allowCoarserFallback,
     required this.fallbackOcclusionFraction,
@@ -148,6 +157,7 @@ class _TilePagePainter extends CustomPainter {
   final bool Function(Rect region)? canRasterize;
   final bool? batchRasters;
   final int? maxNewTilesPerPaint;
+  final int? maxInFlightTiles;
   final int? prefetchRingOverride;
   final bool allowCoarserFallback;
   final Rect? fallbackOcclusionFraction;
@@ -174,6 +184,7 @@ class _TilePagePainter extends CustomPainter {
       canRasterize: canRasterize,
       batchRasters: batchRasters,
       maxNewTiles: maxNewTilesPerPaint,
+      maxInFlightTiles: maxInFlightTiles,
       prefetchRingOverride: prefetchRingOverride,
       allowCoarserFallback: allowCoarserFallback,
     );
@@ -240,6 +251,7 @@ class _TilePagePainter extends CustomPainter {
       !identical(old.canRasterize, canRasterize) ||
       old.batchRasters != batchRasters ||
       old.maxNewTilesPerPaint != maxNewTilesPerPaint ||
+      old.maxInFlightTiles != maxInFlightTiles ||
       old.prefetchRingOverride != prefetchRingOverride ||
       old.allowCoarserFallback != allowCoarserFallback ||
       old.fallbackOcclusionFraction != fallbackOcclusionFraction ||

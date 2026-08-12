@@ -337,6 +337,44 @@ void main() {
       });
     });
 
+    testWidgets('an in-flight cap survives unrelated repaint passes',
+        (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          batchRasters: false,
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer();
+
+        void paint() => store.viewFor(
+              id: _id(0),
+              pageSize: const Size(64, 64),
+              desiredRatio: 1,
+              visiblePageRect: const Rect.fromLTWH(0, 0, 64, 64),
+              rasterize: raster.call,
+              maxNewTiles: 1,
+              maxInFlightTiles: 2,
+            );
+
+        for (var i = 0; i < 20; i++) {
+          paint();
+        }
+        expect(store.inFlightCount, 2,
+            reason: 'per-paint admission must not grow into a long GPU queue');
+        expect(raster.calls, hasLength(2));
+
+        await raster.flush();
+        paint();
+        expect(store.inFlightCount, 1,
+            reason: 'a completion frees the next center-out admission slot');
+        expect(raster.calls, hasLength(3));
+        await raster.flush();
+        store.dispose();
+      });
+    });
+
     testWidgets('a view can bypass the store slab policy', (tester) async {
       await tester.runAsync(() async {
         final store = PdfTileStore(
@@ -453,11 +491,21 @@ void main() {
           visiblePageRect: const Rect.fromLTWH(32, 32, 16, 16),
           rasterize: raster.call,
         );
-        expect(store.inFlightCount, 8,
-            reason: 'the next paint schedules the surrounding ring');
+        expect(store.inFlightCount, 4,
+            reason: 'only a bounded window of the ring may enter the queue');
         await raster.flush();
-        expect(ticks, 1,
-            reason: 'off-screen arrivals must not repaint current pixels');
+        expect(ticks, 2,
+            reason: 'the completion tick advances the next bounded window');
+        store.viewFor(
+          id: _id(0),
+          pageSize: const Size(80, 80),
+          desiredRatio: 1.0,
+          visiblePageRect: const Rect.fromLTWH(32, 32, 16, 16),
+          rasterize: raster.call,
+        );
+        expect(store.inFlightCount, 4);
+        await raster.flush();
+        expect(ticks, 3);
         store.dispose();
       });
     });
@@ -883,6 +931,7 @@ void main() {
         final roomy = PdfTileStore(
           tilePixels: 512,
           prefetchRing: 1,
+          maxPrefetchInFlightTiles: 16,
           maxBytes: 128 << 20, // 128 tiles
           ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
           batchRasters: false,
