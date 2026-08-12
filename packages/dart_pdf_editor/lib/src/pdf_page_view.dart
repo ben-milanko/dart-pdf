@@ -4494,6 +4494,7 @@ class _PdfPageViewState extends State<PdfPageView>
         : sceneCap == null
             ? sessionCap
             : math.min(sessionCap, sceneCap);
+    final fallbackOcclusion = _fallbackOcclusionFraction(store, desired);
     return Positioned.fill(
       child: PdfTileLayer(
         store: store,
@@ -4546,12 +4547,32 @@ class _PdfPageViewState extends State<PdfPageView>
         // An old pyramid rung is useful pan-ahead outside the current patch,
         // but must not cover that sharper patch with stretched pixels. Exact
         // tiles are not clipped and replace it normally as they land.
-        fallbackOcclusionFraction:
-            _detailImage != null && _detailContentIsCurrent()
-                ? _detailFraction
-                : null,
+        fallbackOcclusionFraction: fallbackOcclusion,
       ),
     );
+  }
+
+  /// The retained detail patch may hide a coarse tile only when it is at least
+  /// as dense as the sharpest fallback the store can present for this view.
+  ///
+  /// A scale change deliberately keeps the previous patch visible while the
+  /// new pixels are prepared. Without this ratio gate, that old patch (for
+  /// example 2x) could clip out a newer cached fallback (4x) merely because
+  /// the latter is still below the requested exact rung (5.7x), visibly
+  /// stepping the page backwards until the exact tiles landed.
+  Rect? _fallbackOcclusionFraction(PdfTileStore store, double desired) {
+    final detailRatio = _detailPixelRatio;
+    final fraction = _detailFraction;
+    if (_detailImage == null ||
+        detailRatio == null ||
+        fraction == null ||
+        !_detailContentIsCurrent()) {
+      return null;
+    }
+    final rung = store.ladder.rungAtOrAbove(desired);
+    if (rung <= store.ladder.minRung) return null;
+    final sharpestFallbackRatio = store.ladder.ratioFor(rung - 1);
+    return detailRatio >= sharpestFallbackRatio * 0.99 ? fraction : null;
   }
 
   PdfTilePersistence? get _tilePersistence {

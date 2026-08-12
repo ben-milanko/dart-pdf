@@ -247,6 +247,75 @@ void main() {
         reason: 'a coarse retained rung must not cover the sharper patch');
   });
 
+  testWidgets('an older detail patch cannot hide a sharper fallback rung',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final bytes = _scannedSheet();
+    setUpTiles(bytes);
+    final doc = PdfDocument.open(bytes);
+    final page = doc.page(0);
+
+    Widget at(double widthFactor, int settleGeneration) => Center(
+          child: OverflowBox(
+            maxWidth: double.infinity,
+            maxHeight: double.infinity,
+            child: SizedBox(
+              width: page.mediaBox.width * widthFactor,
+              child: PdfPageView(
+                key: const ValueKey('quality-monotonic-page'),
+                page: page,
+                settleGeneration: settleGeneration,
+                renderWorker: worker,
+              ),
+            ),
+          ),
+        );
+
+    // Land a 2x single-patch refinement first.
+    PdfPageView.tileStoreDetail = false;
+    await tester.pumpWidget(at(2, 0));
+    for (var i = 0; i < 100; i++) {
+      await tester.pump();
+      if (find
+          .byKey(const ValueKey('pdf-page-detail-image'))
+          .evaluate()
+          .isNotEmpty) {
+        break;
+      }
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+    }
+    expect(find.byKey(const ValueKey('pdf-page-detail-image')), findsOneWidget);
+
+    // At 5x the requested exact rung is 5.657x and its sharpest fallback is
+    // 4x. The retained 2x patch should remain as backing pixels, but it must
+    // not clip that sharper 4x fallback out of the tile layer.
+    PdfPageView.tileStoreDetail = true;
+    await tester.pumpWidget(at(5, 1));
+    for (var i = 0; i < 20; i++) {
+      await tester.pump();
+      if (find
+          .byKey(const ValueKey('pdf-page-tile-layer'))
+          .evaluate()
+          .isNotEmpty) {
+        break;
+      }
+    }
+    expect(find.byKey(const ValueKey('pdf-page-tile-layer')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pdf-page-detail-image')), findsOneWidget);
+    final painter = tester
+        .widget<CustomPaint>(find.byKey(const ValueKey('pdf-page-tile-layer')))
+        .painter as dynamic;
+    expect(
+      painter.fallbackOcclusionFraction,
+      isNull,
+      reason: 'a lower-density patch must not hide a sharper cached rung',
+    );
+  });
+
   testWidgets('panning coalesces tile image detail behind one worker record',
       (tester) async {
     tester.view.devicePixelRatio = 1.0;
