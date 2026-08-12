@@ -1062,6 +1062,7 @@ Future<Uint8List?> _recordPageAsync(
       tally,
       maxImagePixelRatio: imagePixelRatio,
       imageBudgetScale: imageBudgetScale,
+      imageDecodeRegion: imageDecodeRegion,
       flateSampleCache: flateSampleCache,
     );
     if (decodeClock != null) {
@@ -1193,6 +1194,7 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
     sourceCommands,
     token,
     tally,
+    imageDecodeRegion: imageDecodeRegion,
   );
   if (decodeClock != null) {
     decodeClock.stop();
@@ -1330,6 +1332,7 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
   _BrowserDecodeTally? tally, {
   double? maxImagePixelRatio,
   double imageBudgetScale = 1.0,
+  PdfRect? imageDecodeRegion,
   _BrowserFlateSampleCache? flateSampleCache,
 }) async {
   var changed = false;
@@ -1339,6 +1342,21 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
     switch (command) {
       case PdfDrawImageCommand(:final request):
         if (request.isInline || request.decoded != null) {
+          out.add(command);
+          continue;
+        }
+        // Region records eventually pass through serializeCommands, whose
+        // imageDecodeRegion path replaces an axis-aligned off-region draw with
+        // one transparent pixel. Do not predecode that draw first. The native
+        // Flate acceleration used to inflate and colour-convert every image on
+        // the page here, only for the serializer to throw almost all of those
+        // pixels away. A tiled CAD sheet with 52 requests consequently spent
+        // ~8.5 s per small pan and queued newer viewport regions behind stale
+        // work. Unsupported rotated/skewed transforms deliberately keep the
+        // general path: the serializer cannot region-retarget those either.
+        if (imageDecodeRegion != null &&
+            _axisAlignedImageOutsideRegion(request, imageDecodeRegion)) {
+          tally?.regionSkip();
           out.add(command);
           continue;
         }
@@ -1483,6 +1501,7 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
           tally,
           maxImagePixelRatio: maxImagePixelRatio,
           imageBudgetScale: imageBudgetScale,
+          imageDecodeRegion: imageDecodeRegion,
           flateSampleCache: flateSampleCache,
         );
         if (!identical(decodedMaskCommands, maskCommands)) changed = true;
@@ -1501,6 +1520,28 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
     }
   }
   return changed ? out : commands;
+}
+
+bool _axisAlignedImageOutsideRegion(
+  PdfImageRequest request,
+  PdfRect region,
+) {
+  final transform = request.transform;
+  const epsilon = 1e-9;
+  if (transform.a.abs() <= epsilon ||
+      transform.d.abs() <= epsilon ||
+      transform.b.abs() > epsilon ||
+      transform.c.abs() > epsilon) {
+    return false;
+  }
+  final left = math.min(transform.e, transform.e + transform.a);
+  final right = math.max(transform.e, transform.e + transform.a);
+  final bottom = math.min(transform.f, transform.f + transform.d);
+  final top = math.max(transform.f, transform.f + transform.d);
+  return right <= region.left ||
+      left >= region.right ||
+      top <= region.bottom ||
+      bottom >= region.top;
 }
 
 (int, int)? _browserFlateTarget(
@@ -2382,6 +2423,7 @@ List<String> _browserImageDecodeMissing() => <String>[
 class _BrowserDecodeTally {
   int codec = 0;
   int flate = 0;
+  int regionSkipped = 0;
 
   /// Images served from a previous record's decode instead of re-running the
   /// codec (#451). Reported separately so a trace shows the reuse directly
@@ -2394,17 +2436,25 @@ class _BrowserDecodeTally {
 
   void reused() => reusedCount++;
 
+  void regionSkip() => regionSkipped++;
+
   String format() {
     final declined = _declined.values.fold(0, (a, b) => a + b);
-    if (codec == 0 && flate == 0 && declined == 0 && reusedCount == 0) {
+    if (codec == 0 &&
+        flate == 0 &&
+        declined == 0 &&
+        reusedCount == 0 &&
+        regionSkipped == 0) {
       return 'none';
     }
     final nativeFlate = flate == 0 ? '' : ' flate=$flate';
     final reuse = reusedCount == 0 ? '' : ' reused=$reusedCount';
-    if (declined == 0) return 'codec=$codec$nativeFlate$reuse';
+    final region = regionSkipped == 0 ? '' : ' regionSkip=$regionSkipped';
+    if (declined == 0) return 'codec=$codec$nativeFlate$reuse$region';
     final reasons =
         _declined.entries.map((e) => '${e.key}:${e.value}').join(',');
-    return 'codec=$codec$nativeFlate$reuse declined=$declined($reasons)';
+    return 'codec=$codec$nativeFlate$reuse$region '
+        'declined=$declined($reasons)';
   }
 }
 

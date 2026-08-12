@@ -4102,6 +4102,16 @@ class _PdfPageViewState extends State<PdfPageView>
   /// so the painter's identity check doesn't see a fresh closure every build.
   bool Function(Rect region)? _tileCanRasterize;
 
+  /// Whether the viewport moved beyond the one image-detail record currently
+  /// in flight. Only one region record is allowed at a time; when it finishes,
+  /// the latest stored geometry is re-evaluated once. Before this coalescing,
+  /// every small pan queued another multi-second decode for the same CAD page,
+  /// so the region on screen could sit tens of seconds behind the worker.
+  bool _tileDetailDeferred = false;
+
+  /// Invalidates an async tile-detail result when the page/scene is dropped.
+  int _tileDetailRequestGeneration = 0;
+
   /// Pan-ahead guard band for the tile path's visible slice, as a fraction of
   /// the viewport per side. Zero: the pyramid's prefetch ring already
   /// pre-rasters the border, so - unlike the single patch - the tile slice
@@ -4274,9 +4284,11 @@ class _PdfPageViewState extends State<PdfPageView>
     if (region == null || region.width <= 0 || region.height <= 0) return;
     if (_tileDetailCovers(region, imageRatio)) return;
     final pending = _tileDetailPending;
-    if (pending != null &&
-        pending.$2 >= imageRatio * 0.99 &&
-        _rectCovers(pending.$1, region, 0.5 / tileRatio)) {
+    if (pending != null) {
+      if (pending.$2 < imageRatio * 0.99 ||
+          !_rectCovers(pending.$1, region, 0.5 / tileRatio)) {
+        _tileDetailDeferred = true;
+      }
       return;
     }
     if (widget.renderWorker?.isActive != true) return;
@@ -4299,6 +4311,7 @@ class _PdfPageViewState extends State<PdfPageView>
       Rect region, double tileRatio, double imageRatio) async {
     final pageIndex = widget.previewIndex;
     final intent = _renderIntent(widget);
+    final generation = ++_tileDetailRequestGeneration;
     // Claim the slot BEFORE anything that can return: the `finally` clears the
     // tile veto only for the request that owns it, so an early return that
     // never claimed would leave tiles vetoed for good.
@@ -4317,7 +4330,12 @@ class _PdfPageViewState extends State<PdfPageView>
         imagePixelRatio: imageRatio,
         imageDecodeRegion: _pdfRegionForRasterRegion(region),
       );
-      if (commands == null || !mounted || _abandoned(pageIndex)) return;
+      if (commands == null ||
+          !mounted ||
+          _abandoned(pageIndex) ||
+          generation != _tileDetailRequestGeneration) {
+        return;
+      }
       if (!_intentIsCurrent(intent) || _renderPaused) return;
       final scene = await PdfRetainedScene.fromCommands(
         widget.page,
@@ -4327,7 +4345,10 @@ class _PdfPageViewState extends State<PdfPageView>
             widget.tileRasterBackend.prefersDirectDecodedImageUploads,
         maxImagePixelRatio: imageRatio,
       );
-      if (!mounted || _abandoned(pageIndex) || !_intentIsCurrent(intent)) {
+      if (!mounted ||
+          _abandoned(pageIndex) ||
+          !_intentIsCurrent(intent) ||
+          generation != _tileDetailRequestGeneration) {
         scene.dispose();
         return;
       }
@@ -4335,13 +4356,15 @@ class _PdfPageViewState extends State<PdfPageView>
     } catch (error) {
       PdfPerfLog.log('tile image detail failed page=$pageIndex error=$error');
     } finally {
-      if (_tileDetailPending?.$1 == region &&
-          _tileDetailPending?.$2 == imageRatio) {
+      if (generation == _tileDetailRequestGeneration) {
+        final rerun = _tileDetailDeferred;
+        _tileDetailDeferred = false;
         _tileDetailPending = null;
         // Whether it landed or not, stop holding tiles back: an adopted scene
         // now answers through [_tileDetailCovers], and a declined one must not
         // veto the page's tiles forever.
         _setTileDetailWanted(false);
+        if (rerun && mounted) _ensureTileImageDetail();
       }
     }
   }
@@ -4396,7 +4419,9 @@ class _PdfPageViewState extends State<PdfPageView>
   /// Frees the tile image-detail scene. Called wherever the page's content or
   /// retained scene is replaced - the decode is bound to both.
   void _dropTileImageDetail() {
+    _tileDetailRequestGeneration++;
     _tileDetailPending = null;
+    _tileDetailDeferred = false;
     _tileDetailWanted = false;
     if (_tileDetailScene == null) return;
     _disposeTileRasterSession(_tileDetailScene!);

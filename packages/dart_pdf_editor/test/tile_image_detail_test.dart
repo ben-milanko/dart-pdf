@@ -9,6 +9,7 @@
 // raster's ~120 dpi no matter how far in you zoomed - visibly fuzzier than
 // PDFium/PDF.js, which sample the native JPEG for the window they draw. These
 // tests pin the region-scoped re-decode that closes the gap.
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -246,6 +247,72 @@ void main() {
         reason: 'a coarse retained rung must not cover the sharper patch');
   });
 
+  testWidgets('panning coalesces tile image detail behind one worker record',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final bytes = _scannedSheet();
+    store = PdfTileStore(tilePixels: 256, registerForMemoryPressure: false);
+    final blocking = _BlockingFirstDetailWorker(
+      PdfRenderWorker.startUncached(bytes),
+    );
+    worker = blocking;
+    PdfPageView.tileStoreDetail = true;
+    PdfPageView.debugTileStoreOverride = store;
+
+    final doc = PdfDocument.open(bytes);
+    final page = doc.page(0);
+    Widget at(double dy, int settleGeneration) => Center(
+          child: OverflowBox(
+            maxWidth: double.infinity,
+            maxHeight: double.infinity,
+            child: Transform.translate(
+              // The synthetic page is 6000pt tall. Moving by 3000 layout
+              // pixels shifts the requested PDF region by 600pt while the
+              // page remains on screen, well beyond one viewport of decode
+              // headroom.
+              offset: Offset(0, dy),
+              child: SizedBox(
+                width: page.mediaBox.width * 5,
+                child: PdfPageView(
+                  key: const ValueKey('coalesced-detail-page'),
+                  page: page,
+                  settleGeneration: settleGeneration,
+                  renderWorker: blocking,
+                ),
+              ),
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(at(0, 0));
+    for (var i = 0; i < 100 && blocking.detailRecords == 0; i++) {
+      await _settle(tester, rounds: 1);
+    }
+    expect(blocking.detailRecords, 1,
+        reason: 'the first viewport should start one region record');
+
+    // Move far enough that the first region no longer covers the viewport,
+    // while leaving that first decode deliberately blocked. This used to
+    // enqueue another record after every settle and produced 20-36 second
+    // worker queue waits in the CAD trace.
+    await tester.pumpWidget(at(-3000, 1));
+    await _settle(tester, rounds: 10);
+    expect(blocking.detailRecords, 1,
+        reason: 'a new viewport must coalesce behind the active decode');
+    expect(blocking.maxActiveDetails, 1);
+
+    blocking.releaseFirst();
+    for (var i = 0; i < 150 && blocking.detailRecords < 2; i++) {
+      await _settle(tester, rounds: 1);
+    }
+    expect(blocking.detailRecords, 2,
+        reason: 'completion should immediately re-evaluate the latest view');
+    expect(blocking.maxActiveDetails, 1,
+        reason: 'tile image detail records must remain serialized');
+  });
+
   testWidgets('a worker that declines the region record still lets tiles land',
       (tester) async {
     tester.view.devicePixelRatio = 1.0;
@@ -349,4 +416,84 @@ class _DecliningDetailWorker extends PdfRenderWorker {
 
   @override
   void dispose() => inner.dispose();
+}
+
+class _BlockingFirstDetailWorker extends PdfRenderWorker {
+  _BlockingFirstDetailWorker(this.inner);
+
+  final PdfRenderWorker inner;
+  final Completer<void> _firstRelease = Completer<void>();
+  int detailRecords = 0;
+  int activeDetails = 0;
+  int maxActiveDetails = 0;
+
+  void releaseFirst() {
+    if (!_firstRelease.isCompleted) _firstRelease.complete();
+  }
+
+  @override
+  bool get isActive => inner.isActive;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(
+    int pageIndex, {
+    bool annotations = true,
+    int priority = 0,
+    double? imagePixelRatio,
+    bool decodeImages = true,
+    int? commandLimit,
+    PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
+  }) async {
+    if (imageDecodeRegion != null) {
+      detailRecords++;
+      activeDetails++;
+      maxActiveDetails = math.max(maxActiveDetails, activeDetails);
+      try {
+        if (detailRecords == 1) await _firstRelease.future;
+        // The scheduling behavior under test does not depend on pixel data;
+        // complete immediately once released so fake-async time is spent on
+        // the PageView state machine, not a second synthetic image decode.
+        return const <PdfRenderCommand>[];
+      } finally {
+        activeDetails--;
+      }
+    }
+    return inner.record(
+      pageIndex,
+      annotations: annotations,
+      priority: priority,
+      imagePixelRatio: imagePixelRatio,
+      decodeImages: decodeImages,
+      commandLimit: commandLimit,
+      imageDecodeRegion: imageDecodeRegion,
+      onPartial: onPartial,
+    );
+  }
+
+  @override
+  Future<PdfRegionReplayIndex?> buildRegionIndex(
+    int pageIndex, {
+    required bool annotations,
+    required int maxCommands,
+    required bool buildGrid,
+    int priority = 0,
+  }) =>
+      inner.buildRegionIndex(
+        pageIndex,
+        annotations: annotations,
+        maxCommands: maxCommands,
+        buildGrid: buildGrid,
+        priority: priority,
+      );
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) =>
+      inner.cancel(pageIndex, priority: priority);
+
+  @override
+  void dispose() {
+    releaseFirst();
+    inner.dispose();
+  }
 }
