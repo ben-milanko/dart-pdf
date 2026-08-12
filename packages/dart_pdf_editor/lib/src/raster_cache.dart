@@ -190,7 +190,10 @@ class PdfRasterCache implements PdfTilePersistence {
   /// Whether LoD tiles can be read and written for this bound document.
   bool get storesTiles => tiles != null && documentKey.isNotEmpty;
 
-  static const String tileVersion = '1';
+  // Version 2 excludes tiles cached before image-detail requests were aligned
+  // to the tile grid. Those entries can carry a sharp-rung key while their
+  // images came from the capped base scene, so they must not survive a reload.
+  static const String tileVersion = '2';
 
   String _tileKey(PdfTileKey key, ui.Rect region, double pixelRatio, int width,
       int height) {

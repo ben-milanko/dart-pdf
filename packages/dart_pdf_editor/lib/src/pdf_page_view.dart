@@ -642,6 +642,8 @@ class PdfPageView extends StatefulWidget {
   static int debugTileImageDetailAdoptions = 0;
   @visibleForTesting
   static double? debugTileImageDetailRatio;
+  @visibleForTesting
+  static Rect? debugTileImageDetailRegion;
 
   static void debugResetSpeculativeStats() {
     debugSpeculativePlanHits = 0;
@@ -4207,14 +4209,13 @@ class _PdfPageViewState extends State<PdfPageView>
     final baseImageRatio = _pictureImageRatio;
     if (baseImageRatio != null && ratio <= baseImageRatio * 1.05) return;
     final size = _renderPlan.pageSize(widget.page);
-    final region = Rect.fromLTRB(
+    final visibleRegion = Rect.fromLTRB(
       fraction.left * size.width,
       fraction.top * size.height,
       fraction.right * size.width,
       fraction.bottom * size.height,
     );
-    if (region.width <= 0 || region.height <= 0) return;
-    if (_tileDetailCovers(region, ratio)) return;
+    if (visibleRegion.width <= 0 || visibleRegion.height <= 0) return;
     // A base decode that already landed on the stream's native pixels cannot be
     // improved by re-decoding it for a region, so the round trip would buy
     // nothing. This is the ordinary case on backends whose worker ships JPEGs
@@ -4222,25 +4223,42 @@ class _PdfPageViewState extends State<PdfPageView>
     // web worker, which decodes in-worker and ships display-capped pixels, is
     // the one that needs the re-decode.
     if (scene.imagesAtNativeResolution) return;
+    // Pan headroom: the tile slice itself carries none ([_tileInflation] is 0
+    // because the pyramid prefetches its own ring), but a decode round trip is
+    // far more expensive than a tile raster, so the decode covers a viewport of
+    // slack per side and survives the pans in between.
+    final inflated = Rect.fromLTRB(
+      math.max(0, visibleRegion.left - visibleRegion.width * 0.5),
+      math.max(0, visibleRegion.top - visibleRegion.height * 0.5),
+      math.min(size.width, visibleRegion.right + visibleRegion.width * 0.5),
+      math.min(size.height, visibleRegion.bottom + visibleRegion.height * 0.5),
+    );
+    final store = PdfPageView.debugTileStoreOverride ?? PdfTileStore.instance;
+    // Decode the WHOLE grid cells the tile store may raster, including the
+    // ring it schedules after the visible cells land. Decoding only the
+    // visible slice can leave a whole tile partially uncovered; that tile then
+    // replays from the capped base scene and is cached indefinitely at the
+    // sharp rung (most visible when a viewport straddles two pages).
+    final region = store.rasterCoverageForView(
+      pageSize: size,
+      desiredRatio: desired,
+      visiblePageRect: inflated,
+      // Always cover the normal ring. A scale-changing paint may temporarily
+      // suppress it, but a later store repaint can restore it without another
+      // page-geometry refresh.
+      prefetchRingOverride: store.prefetchRing,
+    );
+    if (region == null || region.width <= 0 || region.height <= 0) return;
+    if (_tileDetailCovers(region, ratio)) return;
     final pending = _tileDetailPending;
     if (pending != null &&
         pending.$2 >= ratio * 0.99 &&
         _rectCovers(pending.$1, region, 0.5 / ratio)) {
       return;
     }
-    // Pan headroom: the tile slice itself carries none ([_tileInflation] is 0
-    // because the pyramid prefetches its own ring), but a decode round trip is
-    // far more expensive than a tile raster, so the decode covers a viewport of
-    // slack per side and survives the pans in between.
-    final inflated = Rect.fromLTRB(
-      math.max(0, region.left - region.width * 0.5),
-      math.max(0, region.top - region.height * 0.5),
-      math.min(size.width, region.right + region.width * 0.5),
-      math.min(size.height, region.bottom + region.height * 0.5),
-    );
     if (widget.renderWorker?.isActive != true) return;
     _setTileDetailWanted(true);
-    unawaited(_requestTileImageDetail(inflated, ratio));
+    unawaited(_requestTileImageDetail(region, ratio));
   }
 
   /// Flips the tile admission gate, repainting the layer so the new verdict
@@ -4303,15 +4321,31 @@ class _PdfPageViewState extends State<PdfPageView>
     }
   }
 
-  /// Installs a sharper image-detail scene. No tile invalidation is needed:
-  /// [_tileDetailWanted] held back every tile this scene now covers, so none of
-  /// them was ever rastered from the base scene's capped pixels. (A tile's key
-  /// carries the page's visual identity and zoom bucket, not the resolution its
-  /// images were decoded at, so a blurry tile WOULD otherwise be reused
-  /// unchanged - the veto is what makes dropping unnecessary.)
+  /// Installs a sharper image-detail scene and evicts only newly covered tiles
+  /// that were not guaranteed sharp under the previous scene.
+  ///
+  /// Normally the grid-aligned request plus [_tileDetailWanted] prevents such
+  /// tiles from landing. The selective eviction closes the remaining race with
+  /// a tile already dispatched as the visible region grows, without throwing
+  /// away sharp tiles retained for the previous pan position.
   void _adoptTileDetailScene(
       PdfRetainedScene scene, Rect region, double ratio) {
     final previous = _tileDetailScene;
+    final previousRegion = _tileDetailRegion;
+    final previousRatio = _tileDetailRatio;
+    final store = PdfPageView.debugTileStoreOverride ?? PdfTileStore.instance;
+    store.invalidatePageTilesWhere(widget.previewIndex, (tile) {
+      final tileRatio = store.ladder.ratioFor(tile.rung);
+      final slack = 0.5 / tileRatio;
+      if (tileRatio > ratio * 1.01 ||
+          !_rectCovers(region, tile.region, slack)) {
+        return false;
+      }
+      return previousRegion == null ||
+          previousRatio == null ||
+          previousRatio < tileRatio * 0.99 ||
+          !_rectCovers(previousRegion, tile.region, slack);
+    });
     if (previous != null) {
       _disposeTileRasterSession(previous);
       previous.dispose();
@@ -4323,6 +4357,7 @@ class _PdfPageViewState extends State<PdfPageView>
     });
     PdfPageView.debugTileImageDetailAdoptions++;
     PdfPageView.debugTileImageDetailRatio = ratio;
+    PdfPageView.debugTileImageDetailRegion = region;
     PdfPerfLog.log(
       'tile image detail page=${widget.previewIndex} '
       'ratio=${ratio.toStringAsFixed(2)} '

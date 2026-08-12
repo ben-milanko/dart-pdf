@@ -56,6 +56,7 @@ void main() {
     PdfPageView.debugTileStoreOverride = store;
     PdfPageView.debugTileImageDetailAdoptions = 0;
     PdfPageView.debugTileImageDetailRatio = null;
+    PdfPageView.debugTileImageDetailRegion = null;
   }
 
   tearDown(() {
@@ -63,6 +64,7 @@ void main() {
     PdfPageView.debugTileStoreOverride = null;
     PdfPageView.debugTileImageDetailAdoptions = 0;
     PdfPageView.debugTileImageDetailRatio = null;
+    PdfPageView.debugTileImageDetailRegion = null;
     worker.dispose();
     store.dispose();
   });
@@ -114,6 +116,31 @@ void main() {
     );
     expect(adopted, greaterThan(pageRasterCap));
     expect(adopted, closeTo(tileRatio, 1e-9));
+
+    // Every retained exact-rung tile must fit inside the image-detail decode.
+    // Previously the decode followed the visible rectangle while the store
+    // rasterized whole cells. A partially covered cell then used the blurry
+    // base scene and was cached forever at this sharp rung.
+    final detailRegion = PdfPageView.debugTileImageDetailRegion!;
+    final retained = store
+        .debugTileFractionsForPage(0)
+        .where((tile) => tile.rung == store.ladder.rungFor(5));
+    expect(retained, isNotEmpty);
+    for (final tile in retained) {
+      final region = Rect.fromLTRB(
+        tile.fraction.left * page.mediaBox.width,
+        tile.fraction.top * page.mediaBox.height,
+        tile.fraction.right * page.mediaBox.width,
+        tile.fraction.bottom * page.mediaBox.height,
+      );
+      expect(
+        region.left,
+        greaterThanOrEqualTo(detailRegion.left - 1e-6),
+      );
+      expect(region.top, greaterThanOrEqualTo(detailRegion.top - 1e-6));
+      expect(region.right, lessThanOrEqualTo(detailRegion.right + 1e-6));
+      expect(region.bottom, lessThanOrEqualTo(detailRegion.bottom + 1e-6));
+    }
   });
 
   testWidgets('a page the base raster already covers asks for no re-decode',

@@ -444,6 +444,39 @@ class PdfTileStore extends ChangeNotifier {
     );
   }
 
+  /// The page-point region containing every tile [viewFor] can schedule for
+  /// this view, including its configured prefetch ring.
+  ///
+  /// Region-scoped image decoders use this before admitting tile work. A
+  /// merely visible-pixel-aligned decode is insufficient: [viewFor] rasters
+  /// whole grid cells, so a tile that extends outside that decode would have
+  /// to replay from a lower-resolution base scene and then remain cached under
+  /// the same zoom key.
+  Rect? rasterCoverageForView({
+    required Size pageSize,
+    required double desiredRatio,
+    required Rect visiblePageRect,
+    int? prefetchRingOverride,
+  }) {
+    assert(prefetchRingOverride == null || prefetchRingOverride >= 0);
+    final grid = _tileGrid(pageSize, desiredRatio, visiblePageRect);
+    if (grid == null) return null;
+    final ring = prefetchRingOverride ?? prefetchRing;
+    final tx0 = math.max(0, grid.tx0 - ring);
+    final ty0 = math.max(0, grid.ty0 - ring);
+    final tx1 = math.min(grid.nx - 1, grid.tx1 + ring);
+    final ty1 = math.min(grid.ny - 1, grid.ty1 + ring);
+    return _clampToPage(
+      Rect.fromLTRB(
+        tx0 * grid.span,
+        ty0 * grid.span,
+        (tx1 + 1) * grid.span,
+        (ty1 + 1) * grid.span,
+      ),
+      pageSize,
+    );
+  }
+
   /// Whether tiling this view fits the weight budget with margin - so a
   /// [viewFor] pass will not thrash the shared LRU. Counts the visible
   /// exact-bucket tiles only (the prefetch ring is dropped under pressure
@@ -749,6 +782,11 @@ class PdfTileStore extends ChangeNotifier {
       if (_disposed || _isStale(id.pageIndex, dispatchEpoch)) {
         image.dispose();
         debugTilesDiscarded++;
+        // Invalidation can race a visible raster. Its completion releases the
+        // in-flight key, so repaint now and let the current scene reschedule
+        // the tile; otherwise the stale result disappears with no event to
+        // replace it.
+        if (notifyOnLand) _scheduleTick();
         return;
       }
       if (_cache.containsKey(key)) {
@@ -847,6 +885,7 @@ class PdfTileStore extends ChangeNotifier {
       if (_disposed || _isStale(id.pageIndex, dispatchEpoch)) {
         slab.dispose();
         debugTilesDiscarded += batch.length;
+        if (notifyOnLand) _scheduleTick();
         return;
       }
       final sliceClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
@@ -978,6 +1017,25 @@ class PdfTileStore extends ChangeNotifier {
       }
       _cache.evictWhere((key) => pages.contains(key.id.pageIndex));
     }
+  }
+
+  /// Drops retained tiles on [pageIndex] that satisfy [test], while marking
+  /// every in-flight tile for that page stale.
+  ///
+  /// The selective retained eviction lets a newly expanded image-detail scene
+  /// replace tiles that could only have come from the capped base decode while
+  /// preserving already-sharp tiles in the scene's previous coverage.
+  void invalidatePageTilesWhere(
+    int pageIndex,
+    bool Function(PdfTile tile) test,
+  ) {
+    if (_disposed) return;
+    _pageEpoch[pageIndex] = ++_epochCounter;
+    _cache.evictWhere((key) {
+      if (key.id.pageIndex != pageIndex) return false;
+      final tile = _cache.peek(key);
+      return tile != null && test(tile);
+    });
   }
 
   void _scheduleTick() {

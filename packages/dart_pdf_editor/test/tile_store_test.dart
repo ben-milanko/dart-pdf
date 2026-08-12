@@ -136,6 +136,27 @@ void main() {
   });
 
   group('PdfTileStore.viewFor', () {
+    test('raster coverage follows whole cells and includes the prefetch ring',
+        () {
+      final store = PdfTileStore(
+        tilePixels: 512,
+        prefetchRing: 1,
+        registerForMemoryPressure: false,
+      );
+      addTearDown(store.dispose);
+
+      // A3 CAD page at the 0.5x rung is two cells wide and one cell high.
+      // Even a small visible slice in the right cell needs both cells decoded:
+      // viewFor will raster the whole right cell, then prefetch its left peer.
+      final coverage = store.rasterCoverageForView(
+        pageSize: const Size(1190.55, 841.89),
+        desiredRatio: 0.57,
+        visiblePageRect: const Rect.fromLTWH(1060, 300, 80, 200),
+      );
+
+      expect(coverage, const Rect.fromLTWH(0, 0, 1190.55, 841.89));
+    });
+
     testWidgets('persistent hit races and wins without blocking raster start',
         (tester) async {
       await tester.runAsync(() async {
@@ -552,6 +573,37 @@ void main() {
   });
 
   group('PdfTileStore.invalidate', () {
+    testWidgets('selective invalidation preserves unrelated sharp tiles',
+        (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer();
+        store.viewFor(
+          id: _id(0),
+          pageSize: const Size(32, 16),
+          desiredRatio: 1,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 32, 16),
+          rasterize: raster.call,
+        );
+        await raster.flush();
+        expect(store.tileCount, 2);
+
+        store.invalidatePageTilesWhere(
+          0,
+          (tile) => tile.region.left >= 16,
+        );
+
+        expect(store.containsTile(PdfTileKey(_id(0), 0, 0, 0)), isTrue);
+        expect(store.containsTile(PdfTileKey(_id(0), 0, 1, 0)), isFalse);
+        store.dispose();
+      });
+    });
+
     testWidgets('drops only the named pages; others survive', (tester) async {
       await tester.runAsync(() async {
         final store = PdfTileStore(
