@@ -736,13 +736,28 @@ class _PdfPageViewState extends State<PdfPageView>
   double? _detailPixelRatio;
   PdfPageRenderIntent? _detailIntent;
 
-  /// The settle generation whose scale change should sharpen only the visible
-  /// slice plus a small guard. A zoom has an existing raster transformed under
-  /// it, so its first sharp frame should not pay for a half-viewport of unseen
-  /// pixels on every side. A later pan increments [widget.settleGeneration]
-  /// without changing [widget.scale] and falls back to the normal, generous
-  /// guard that makes successive pan settles reusable.
+  /// Low-priority pan-ahead pixels live underneath the exact foreground patch
+  /// instead of replacing it. Keeping the foreground layer on top makes the
+  /// overlap byte-for-byte stable: a late background completion cannot nudge
+  /// antialiasing or restart the visible-settle clock.
+  ui.Image? _detailHeadroomImage;
+  Rect? _detailHeadroomFraction;
+  double? _detailHeadroomPixelRatio;
+  PdfPageRenderIntent? _detailHeadroomIntent;
+
+  /// The settle generation whose scale change should temporarily bypass the
+  /// tile layer and sharpen the exact visible slice first. Translation-only
+  /// settles use the same visible-first patch geometry, but may keep the tile
+  /// route when its retained scene can answer the view.
   int? _tightDetailGeneration;
+
+  /// Invalidates the optional low-priority pan-ahead pass. The foreground
+  /// patch always covers exactly the visible slice; once that sharp frame has
+  /// reached the compositor, a second pass may grow it by a small guard band.
+  /// A viewport/content change increments this token before scheduling its
+  /// replacement, so stale post-frame callbacks never start work.
+  int _detailHeadroomGeneration = 0;
+  bool _detailHeadroomScheduledOrRunning = false;
 
   /// A scale or layout-width update reached this lazy-list child while another
   /// page owns focus. Keep the previous raster (it remains a valid soft preview
@@ -1059,6 +1074,23 @@ class _PdfPageViewState extends State<PdfPageView>
       _tightDetailGeneration = widget.settleGeneration;
     }
     final transition = _renderSession.update(_renderIntent(widget));
+    if (transition.scheduleRender ||
+        oldWidget.previewIndex != widget.previewIndex ||
+        !identical(oldWidget.renderWorker, widget.renderWorker) ||
+        oldWidget.renderPriority != widget.renderPriority) {
+      if (oldWidget.previewIndex != widget.previewIndex ||
+          !identical(oldWidget.renderWorker, widget.renderWorker)) {
+        oldWidget.renderWorker?.cancel(
+          oldWidget.previewIndex,
+          priority: _detailHeadroomWorkerPriority,
+        );
+        oldWidget.renderWorker?.cancelBinStrips(
+          oldWidget.previewIndex,
+          priority: _detailHeadroomWorkerPriority,
+        );
+      }
+      _cancelDetailHeadroom();
+    }
     if (!identical(oldWidget.renderWorker, widget.renderWorker) ||
         oldWidget.previewIndex != widget.previewIndex ||
         !identical(oldWidget.page, widget.page) ||
@@ -1280,6 +1312,7 @@ class _PdfPageViewState extends State<PdfPageView>
     widget.renderHold?.removeListener(_onRenderHoldChanged);
     _liveTransformFor(widget)?.removeListener(_onLiveTransformChanged);
     _speculateTimer?.cancel();
+    _cancelDetailHeadroom();
     // any pending speculative bin is reaped by the cancelBinStrips below;
     // its null result resolves into a future nobody awaits any more
     _speculativeStripPlan = null;
@@ -1304,6 +1337,7 @@ class _PdfPageViewState extends State<PdfPageView>
     _disposeTileRasterSessions();
     _image?.dispose();
     _detailImage?.dispose();
+    _detailHeadroomImage?.dispose();
     _tileDetailScene?.dispose();
     _preview?.dispose();
     super.dispose();
@@ -1568,31 +1602,170 @@ class _PdfPageViewState extends State<PdfPageView>
   }
 
   void _dropDetail() {
+    _cancelDetailHeadroom();
     _invalidateTiles();
     _dropTileImageDetail();
     _renderSession.invalidateDetail();
-    final hadImage = _detailImage != null;
+    final hadImage = _detailImage != null || _detailHeadroomImage != null;
     _detailImage?.dispose();
     _detailImage = null;
     _detailFraction = null;
     _detailPixelRatio = null;
     _detailIntent = null;
+    _detailHeadroomImage?.dispose();
+    _detailHeadroomImage = null;
+    _detailHeadroomFraction = null;
+    _detailHeadroomPixelRatio = null;
+    _detailHeadroomIntent = null;
     if (hadImage && mounted) setState(() {});
   }
 
-  void _adoptDetail(
-    ui.Image image,
-    Rect fraction,
-    double pixelRatio,
-  ) {
-    _detailImage?.dispose();
-    _detailImage = image;
-    _detailFraction = fraction;
-    _detailPixelRatio = pixelRatio;
-    _detailIntent = _renderIntent(widget);
+  void _adoptDetail(ui.Image image, Rect fraction, double pixelRatio,
+      {bool scheduleHeadroom = true}) {
+    if (scheduleHeadroom) {
+      _detailImage?.dispose();
+      _detailImage = image;
+      _detailFraction = fraction;
+      _detailPixelRatio = pixelRatio;
+      _detailIntent = _renderIntent(widget);
+      _detailHeadroomImage?.dispose();
+      _detailHeadroomImage = null;
+      _detailHeadroomFraction = null;
+      _detailHeadroomPixelRatio = null;
+      _detailHeadroomIntent = null;
+      _scheduleDetailHeadroom();
+    } else {
+      _detailHeadroomImage?.dispose();
+      _detailHeadroomImage = image;
+      _detailHeadroomFraction = fraction;
+      _detailHeadroomPixelRatio = pixelRatio;
+      _detailHeadroomIntent = _renderIntent(widget);
+    }
+  }
+
+  void _cancelDetailHeadroom() {
+    _detailHeadroomGeneration++;
+    _detailHeadroomScheduledOrRunning = false;
+    final worker = widget.renderWorker;
+    if (worker == null) return;
+    worker.cancel(
+      widget.previewIndex,
+      priority: _detailHeadroomWorkerPriority,
+    );
+    worker.cancelBinStrips(
+      widget.previewIndex,
+      priority: _detailHeadroomWorkerPriority,
+    );
+  }
+
+  bool _detailHeadroomContextIsCurrent(
+    int token,
+    int settleGeneration,
+    double scale,
+  ) =>
+      mounted &&
+      token == _detailHeadroomGeneration &&
+      settleGeneration == widget.settleGeneration &&
+      scale == widget.scale &&
+      !_renderPaused;
+
+  /// Grows a completed exact-visible patch only after that sharp frame has
+  /// painted. The request runs in the worker's speculative priority class, so
+  /// a subsequent foreground settle preempts it on every worker backend. The
+  /// current exact patch remains on top after the same-density guarded layer
+  /// lands; if the larger region would lower the density under the raster caps,
+  /// it is skipped rather than stepping quality backwards.
+  void _scheduleDetailHeadroom() {
+    if (_detailHeadroomScheduledOrRunning) return;
+    _detailHeadroomScheduledOrRunning = true;
+    final token = ++_detailHeadroomGeneration;
+    final settleGeneration = widget.settleGeneration;
+    final scale = widget.scale;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_detailHeadroomContextIsCurrent(
+            token,
+            settleGeneration,
+            scale,
+          ) ||
+          !_detailContentIsCurrent()) {
+        if (token == _detailHeadroomGeneration) {
+          _detailHeadroomScheduledOrRunning = false;
+        }
+        return;
+      }
+      final existingFraction = _detailFraction;
+      final existingRatio = _detailPixelRatio;
+      if (_detailImage == null ||
+          existingFraction == null ||
+          existingRatio == null) {
+        _detailHeadroomScheduledOrRunning = false;
+        return;
+      }
+      final headroom = _detailGeometryAt(
+        scale,
+        inflation: _panDetailInflation,
+      );
+      final retainedHeadroomFraction = _detailHeadroomFraction;
+      final retainedHeadroomRatio = _detailHeadroomPixelRatio;
+      if (headroom == null ||
+          headroom.pixelRatio < existingRatio * 0.99 ||
+          !_detailPatchCovers(
+            existingFraction,
+            headroom.visibleFraction,
+          ) ||
+          (_detailHeadroomImage != null &&
+              retainedHeadroomFraction != null &&
+              retainedHeadroomRatio != null &&
+              _detailHeadroomContentIsCurrent() &&
+              retainedHeadroomRatio >= headroom.pixelRatio * 0.99 &&
+              _detailPatchCovers(
+                retainedHeadroomFraction,
+                headroom.fraction,
+              )) ||
+          _detailPatchCovers(existingFraction, headroom.fraction)) {
+        _detailHeadroomScheduledOrRunning = false;
+        return;
+      }
+      PdfPerfLog.log(
+        'detail headroom page=${widget.previewIndex} '
+        'visible=${headroom.visibleFraction.width.toStringAsFixed(3)}x'
+        '${headroom.visibleFraction.height.toStringAsFixed(3)} '
+        'guarded=${headroom.fraction.width.toStringAsFixed(3)}x'
+        '${headroom.fraction.height.toStringAsFixed(3)} '
+        'ratio=${headroom.pixelRatio.toStringAsFixed(2)}',
+      );
+      unawaited(() async {
+        try {
+          await _updateDetail(
+            detailGeometry: headroom,
+            headroomPass: true,
+            workerPriority: _detailHeadroomWorkerPriority,
+            stillRelevant: () => _detailHeadroomContextIsCurrent(
+              token,
+              settleGeneration,
+              scale,
+            ),
+          );
+        } catch (error) {
+          // This pass is opportunistic: a failed guard-band render must never
+          // replace the already-sharp visible patch or escape as an unhandled
+          // asynchronous error.
+          PdfPerfLog.log(
+            'detail headroom failed page=${widget.previewIndex} error=$error',
+          );
+        } finally {
+          if (token == _detailHeadroomGeneration) {
+            _detailHeadroomScheduledOrRunning = false;
+          }
+        }
+      }());
+    });
   }
 
   bool _detailContentIsCurrent() => _intentIsCurrent(_detailIntent);
+
+  bool _detailHeadroomContentIsCurrent() =>
+      _intentIsCurrent(_detailHeadroomIntent);
 
   /// Whether pixels taken under [intent] still depict this page's current
   /// content. Shared by the detail patch and the base raster - both ask exactly
@@ -1684,6 +1857,7 @@ class _PdfPageViewState extends State<PdfPageView>
   int get liveRasterBytes =>
       _imageBytes(_image) +
       _imageBytes(_detailImage) +
+      _imageBytes(_detailHeadroomImage) +
       (_scene?.decodedImageBytes ?? 0) +
       (_tileDetailScene?.decodedImageBytes ?? 0);
 
@@ -2727,8 +2901,12 @@ class _PdfPageViewState extends State<PdfPageView>
     // its sharp region. Give it a clear lead over ordinary neighbouring-page
     // work so it preempts the pool instead of being cancelled and requeued as
     // the scheduler drains the cache window around it.
-    final visibleDetailRequested =
-        _detailGeometryAt(widget.scale, force: true, inflation: 0.125) != null;
+    final visibleDetailRequested = _detailGeometryAt(
+          widget.scale,
+          force: true,
+          inflation: _visibleDetailInflation,
+        ) !=
+        null;
     final priority = visibleDetailRequested
         ? widget.renderPriority - 100
         : widget.renderPriority;
@@ -2827,7 +3005,7 @@ class _PdfPageViewState extends State<PdfPageView>
     final progressiveDetail = _detailGeometryAt(
       widget.scale,
       force: true,
-      inflation: 0.125,
+      inflation: _visibleDetailInflation,
     );
     final needsDetail = progressiveDetail != null;
     PdfPerfLog.log(
@@ -3485,12 +3663,16 @@ class _PdfPageViewState extends State<PdfPageView>
     }());
   }
 
-  /// Renders (or drops) the deep-zoom patch: the visible slice of the
-  /// page, inflated by half a viewport on each side, at the resolution
-  /// the zoom actually asks for.
+  /// Renders (or drops) the deep-zoom patch at the resolution the zoom asks
+  /// for. Foreground calls cover exactly the visible slice; once it paints,
+  /// [headroomPass] may grow it by [_panDetailInflation] at speculative worker
+  /// priority without delaying the first sharp frame.
   Future<bool> _updateDetail({
     _DetailGeometry? detailGeometry,
     VoidCallback? onPaint,
+    bool headroomPass = false,
+    int? workerPriority,
+    bool Function()? stillRelevant,
   }) async {
     if (_renderPaused) return false;
     // The viewer's global transform reaches cache-window neighbours too. They
@@ -3525,7 +3707,7 @@ class _PdfPageViewState extends State<PdfPageView>
     // index. Do not guard this call on _useTilePath: that gate cannot become
     // true until the very warm-up this call starts has completed.
     final tightDetail = _tightDetailGeneration == widget.settleGeneration;
-    if (PdfPageView.tileStoreDetail && !tightDetail) {
+    if (PdfPageView.tileStoreDetail && (!tightDetail || headroomPass)) {
       if (_refreshTileGeometry()) return true;
       // A worker-built grid takes a few hundred milliseconds on the dense CAD
       // pages that need it. Keep the already-visible capped base raster during
@@ -3560,9 +3742,7 @@ class _PdfPageViewState extends State<PdfPageView>
     }
     detailGeometry ??= _detailGeometryAt(
       widget.scale,
-      inflation: _tightDetailGeneration == widget.settleGeneration
-          ? _zoomDetailInflation
-          : 0.5,
+      inflation: _visibleDetailInflation,
     );
     if (detailGeometry == null) {
       _dropDetail();
@@ -3572,12 +3752,11 @@ class _PdfPageViewState extends State<PdfPageView>
     final region = detailGeometry.region;
     final ratio = detailGeometry.pixelRatio;
 
-    // The single-patch fallback deliberately rasterizes half a viewport of
-    // headroom on every side. Keep using those pixels while they still cover
-    // the live viewport instead of rebuilding an almost-identical 3-6 MP
-    // raster after every wheel-scroll settle. This is the fallback for pages
-    // that cannot use the reusable tile pyramid, so without this coverage
-    // check the guard band was pure extra work.
+    // Foreground work asks only for the live viewport. A completed background
+    // pass may already contain that viewport plus its small pan guard; keep
+    // using those pixels rather than rebuilding them. The headroom pass checks
+    // its whole requested fraction so the exact patch does not make it return
+    // early merely because the visible centre is already sharp.
     //
     // Content identity is checked separately: additive edits intentionally
     // leave the old patch painted until its replacement lands, but that stale
@@ -3585,20 +3764,31 @@ class _PdfPageViewState extends State<PdfPageView>
     // in, or a smaller cap-bound region) also gets a fresh raster.
     final existingFraction = _detailFraction;
     final existingRatio = _detailPixelRatio;
-    if (_detailImage != null &&
+    final requiredFraction =
+        headroomPass ? detailGeometry.fraction : detailGeometry.visibleFraction;
+    final primaryCovers = _detailImage != null &&
         existingFraction != null &&
         existingRatio != null &&
         _detailContentIsCurrent() &&
         existingRatio >= ratio * 0.99 &&
-        _detailPatchCovers(
-          existingFraction,
-          detailGeometry.visibleFraction,
-        )) {
+        _detailPatchCovers(existingFraction, requiredFraction);
+    final headroomFraction = _detailHeadroomFraction;
+    final headroomRatio = _detailHeadroomPixelRatio;
+    final headroomCovers = _detailHeadroomImage != null &&
+        headroomFraction != null &&
+        headroomRatio != null &&
+        _detailHeadroomContentIsCurrent() &&
+        headroomRatio >= ratio * 0.99 &&
+        _detailPatchCovers(headroomFraction, requiredFraction);
+    if (primaryCovers || headroomCovers) {
       PdfPageView.debugDetailPatchReuses++;
       onPaint?.call();
+      if (!headroomPass && !headroomCovers) _scheduleDetailHeadroom();
       PdfPerfLog.log(
         'detail reuse page=${widget.previewIndex} '
-        'ratio=${existingRatio.toStringAsFixed(2)}',
+        'pass=${headroomPass ? 'headroom' : 'visible'} '
+        'source=${primaryCovers ? 'visible' : 'headroom'} '
+        'ratio=${(primaryCovers ? existingRatio : headroomRatio)!.toStringAsFixed(2)}',
       );
       return true;
     }
@@ -3620,8 +3810,10 @@ class _PdfPageViewState extends State<PdfPageView>
     // through to the retained base scene below.
     final heldScene = PdfPageView.retainedZoomReplay ? _scene : null;
     final stripDetail = heldScene != null && _stripReplayScene(heldScene);
-    final progressivePriority =
-        _sceneIsVectorOnly ? widget.renderPriority - 1 : widget.renderPriority;
+    final progressivePriority = workerPriority ??
+        (_sceneIsVectorOnly
+            ? widget.renderPriority - 1
+            : widget.renderPriority);
     // Whether replaying the retained vector-only scene alone yields the
     // FINISHED region rather than a placeholder to be replaced. It does exactly
     // when no image draw reaches the region - the same invariant that lets the
@@ -3640,6 +3832,7 @@ class _PdfPageViewState extends State<PdfPageView>
     final detailClock = Stopwatch()..start();
     PdfPerfLog.log(
       'detail request page=${widget.previewIndex} '
+      'pass=${headroomPass ? 'headroom' : 'visible'} '
       'strip=$stripDetail vectorOnly=$_sceneIsVectorOnly '
       'retainedCovers=$retainedCoversRegion '
       // scene/tiles: why this page does or does not get reusable tiles instead
@@ -3677,7 +3870,8 @@ class _PdfPageViewState extends State<PdfPageView>
     // worker pass was started to replace it.
     if (retainedCoversRegion) {
       final cachedPicture = await _picture;
-      if (!mounted ||
+      if (!(stillRelevant?.call() ?? true) ||
+          !mounted ||
           !_renderSession.acceptsDetail(generation) ||
           _renderPaused) {
         return false;
@@ -3691,14 +3885,20 @@ class _PdfPageViewState extends State<PdfPageView>
             ? heldScene.rasterizeRegion(region, pixelRatio: ratio)
             : PdfPageRenderer.rasterizeRegion(cachedPicture, region, ratio),
       );
-      if (!mounted ||
+      if (!(stillRelevant?.call() ?? true) ||
+          !mounted ||
           !_renderSession.acceptsDetail(generation) ||
           _renderPaused) {
         retainedImage.dispose();
         return false;
       }
       setState(() {
-        _adoptDetail(retainedImage, fraction, ratio);
+        _adoptDetail(
+          retainedImage,
+          fraction,
+          ratio,
+          scheduleHeadroom: !headroomPass,
+        );
       });
       onPaint?.call();
       _logDetailPaintAfterFrame(generation, detailClock, source: 'retained');
@@ -3716,7 +3916,8 @@ class _PdfPageViewState extends State<PdfPageView>
       'elapsed=${detailClock.elapsedMilliseconds}ms '
       'stripImage=${workerStripImage != null} picture=${workerPicture != null}',
     );
-    if (!mounted ||
+    if (!(stillRelevant?.call() ?? true) ||
+        !mounted ||
         !_renderSession.acceptsDetail(generation) ||
         _renderPaused) {
       workerStripImage?.dispose();
@@ -3725,7 +3926,12 @@ class _PdfPageViewState extends State<PdfPageView>
     }
     if (workerStripImage != null) {
       setState(() {
-        _adoptDetail(workerStripImage, fraction, ratio);
+        _adoptDetail(
+          workerStripImage,
+          fraction,
+          ratio,
+          scheduleHeadroom: !headroomPass,
+        );
       });
       onPaint?.call();
       _logDetailPaintAfterFrame(
@@ -3745,14 +3951,20 @@ class _PdfPageViewState extends State<PdfPageView>
             PdfPageRenderer.rasterizeRegion(workerPicture, region, ratio),
       );
       workerPicture.dispose();
-      if (!mounted ||
+      if (!(stillRelevant?.call() ?? true) ||
+          !mounted ||
           !_renderSession.acceptsDetail(generation) ||
           _renderPaused) {
         image.dispose();
         return false;
       }
       setState(() {
-        _adoptDetail(image, fraction, ratio);
+        _adoptDetail(
+          image,
+          fraction,
+          ratio,
+          scheduleHeadroom: !headroomPass,
+        );
       });
       onPaint?.call();
       _logDetailPaintAfterFrame(
@@ -3787,7 +3999,8 @@ class _PdfPageViewState extends State<PdfPageView>
       widget.page,
       _renderPlan,
     ));
-    if (!mounted ||
+    if (!(stillRelevant?.call() ?? true) ||
+        !mounted ||
         !_renderSession.acceptsDetail(generation) ||
         _renderPaused) {
       return false;
@@ -3810,7 +4023,8 @@ class _PdfPageViewState extends State<PdfPageView>
         pixelRatio: ratio,
         region: region,
       );
-      if (!mounted ||
+      if (!(stillRelevant?.call() ?? true) ||
+          !mounted ||
           !_renderSession.acceptsDetail(generation) ||
           _renderPaused) {
         return false;
@@ -3838,14 +4052,20 @@ class _PdfPageViewState extends State<PdfPageView>
       region: (width: region.width, height: region.height),
       rasterize: rasterize,
     );
-    if (!mounted ||
+    if (!(stillRelevant?.call() ?? true) ||
+        !mounted ||
         !_renderSession.acceptsDetail(generation) ||
         _renderPaused) {
       image.dispose();
       return false;
     }
     setState(() {
-      _adoptDetail(image, fraction, ratio);
+      _adoptDetail(
+        image,
+        fraction,
+        ratio,
+        scheduleHeadroom: !headroomPass,
+      );
     });
     onPaint?.call();
     _logDetailPaintAfterFrame(generation, detailClock, source: 'local');
@@ -3922,7 +4142,7 @@ class _PdfPageViewState extends State<PdfPageView>
   _DetailGeometry? _detailGeometryAt(
     double scale, {
     bool force = false,
-    double inflation = 0.5,
+    double inflation = _visibleDetailInflation,
   }) {
     final desired = _desiredRatioAt(scale);
     final effective = _effectiveRatioAt(scale);
@@ -3940,10 +4160,9 @@ class _PdfPageViewState extends State<PdfPageView>
       return null;
     }
 
-    // Visible slice as fractions of the page. Settled cap-driven patches use
-    // 50% per-side panning headroom. The progressive region-first request is
-    // deliberately tighter: its job is to beat the still-warming full page,
-    // and a large guard band would re-decode most of that page again.
+    // Visible slice as fractions of the page. Foreground patches deliberately
+    // use the exact viewport: their job is to beat the still-soft base. A
+    // small guarded replacement is requested only after those pixels paint.
     Rect fractionAt(double amount) => Rect.fromLTRB(
           ((visible.left - pageRect.left - visible.width * amount) /
                   pageRect.width)
@@ -3981,11 +4200,19 @@ class _PdfPageViewState extends State<PdfPageView>
     return _DetailGeometry(fraction, visibleFraction, region, ratio);
   }
 
-  /// The first sharp zoom patch covers exactly the visible viewport. It lands
-  /// before any pan-ahead work and avoids rasterizing 56% extra pixels for the
-  /// old 1/8-viewport guard. A later translation-only settle uses the normal
-  /// 0.5 guard above, so sustained panning still gains reusable headroom.
-  static const _zoomDetailInflation = 0.0;
+  /// Foreground detail always covers exactly the visible viewport. This keeps
+  /// time-to-sharp proportional to visible pixels on zoom and pan settles.
+  static const _visibleDetailInflation = 0.0;
+
+  /// Optional pan-ahead growth after the exact patch paints. One eighth of a
+  /// viewport per side makes the guarded image 1.25x in each dimension (1.56x
+  /// the pixels), versus the historical 0.5-per-side patch's 4x cost.
+  static const _panDetailInflation = 0.125;
+
+  /// Positive priorities are speculative in [PdfPooledRenderWorker]: they
+  /// preserve one worker lane for foreground work and are preempted by a new
+  /// visible-page request on both isolate and web-worker backends.
+  static const _detailHeadroomWorkerPriority = 1;
 
   /// Whether the [PdfPageView.tileStoreDetail] tile path drives deep-zoom
   /// detail for this page: the flag is on and the retained scene is
@@ -4713,7 +4940,10 @@ class _PdfPageViewState extends State<PdfPageView>
     // Past the full-page pixel cap the settle does not re-raster the base; it
     // moves a sharper region patch instead. Compute that patch from the live
     // post-transform page bounds so translation-only pans can speculate too.
-    final detail = _detailGeometryAt(anticipated);
+    final detail = _detailGeometryAt(
+      anticipated,
+      inflation: _visibleDetailInflation,
+    );
     if (detail != null) {
       // A retained scene whose image samples are already complete for this
       // region takes the direct replay path in _updateDetail. Do not enqueue a
@@ -5057,6 +5287,8 @@ class _PdfPageViewState extends State<PdfPageView>
               final h = inner.maxHeight;
               final detail = _detailImage;
               final fraction = _detailFraction;
+              final detailHeadroom = _detailHeadroomImage;
+              final headroomFraction = _detailHeadroomFraction;
               final slugPicture = _slugPicture;
               final directPicture = _directPicture;
               final tileLayer = _tileLayerWidget(size);
@@ -5092,7 +5324,7 @@ class _PdfPageViewState extends State<PdfPageView>
                   webDetailGeometry = _detailGeometryAt(
                     widget.scale,
                     force: true,
-                    inflation: _zoomDetailInflation,
+                    inflation: _visibleDetailInflation,
                   );
                 }
               }
@@ -5193,6 +5425,25 @@ class _PdfPageViewState extends State<PdfPageView>
                     ),
                   if (webSurface != null) webSurface,
                   if (webDetail != null) webDetail,
+                  // Pan-ahead is painted first. The exact visible patch stays
+                  // on top, so background completion cannot alter a pixel in
+                  // the viewport that just reached sharpness. As the user
+                  // pans, the guarded layer is already waiting underneath.
+                  if (detailHeadroom != null &&
+                      headroomFraction != null &&
+                      w.isFinite)
+                    Positioned(
+                      left: headroomFraction.left * w,
+                      top: headroomFraction.top * h,
+                      width: headroomFraction.width * w,
+                      height: headroomFraction.height * h,
+                      child: RawImage(
+                        key: const ValueKey('pdf-page-detail-headroom-image'),
+                        image: detailHeadroom,
+                        fit: BoxFit.fill,
+                        filterQuality: FilterQuality.medium,
+                      ),
+                    ),
                   // Keep the fast, viewport-sized refinement underneath the
                   // pyramid. The tile layer is sparse while its region image
                   // decode is pending; making these alternatives hid the
