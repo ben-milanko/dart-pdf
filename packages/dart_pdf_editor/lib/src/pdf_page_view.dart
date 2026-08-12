@@ -4162,7 +4162,7 @@ class _PdfPageViewState extends State<PdfPageView>
   /// the blurry base scene instead.
   double _tileRasterRatio(double desired) {
     final store = PdfPageView.debugTileStoreOverride ?? PdfTileStore.instance;
-    final rung = store.ladder.rungFor(desired);
+    final rung = store.ladder.rungAtOrAbove(desired);
     return store.ladder.ratioFor(rung);
   }
 

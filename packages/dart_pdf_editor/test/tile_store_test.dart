@@ -4,6 +4,7 @@
 // rasters), and stay under its byte budget - all the behaviour the deep-zoom
 // composite depends on.
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -133,6 +134,19 @@ void main() {
       expect(ladder.rungFor(0.001), -2); // clamped to minRung
       expect(ladder.rungFor(0), -2); // degenerate ratio → safe 0.05, clamped
     });
+
+    test('settled sharp rung never undersamples the display ratio', () {
+      const ladder = PdfTileZoomLadder();
+      expect(ladder.rungAtOrAbove(0.5), -2);
+      expect(ladder.rungAtOrAbove(0.57), -1);
+      expect(ladder.ratioFor(ladder.rungAtOrAbove(0.57)),
+          closeTo(math.sqrt(0.5), 1e-9));
+      expect(ladder.rungAtOrAbove(1), 0);
+      expect(ladder.rungAtOrAbove(1.01), 1);
+      for (final rung in [-4, -1, 0, 3, 7]) {
+        expect(ladder.rungAtOrAbove(ladder.ratioFor(rung)), rung);
+      }
+    });
   });
 
   group('PdfTileStore.viewFor', () {
@@ -145,9 +159,9 @@ void main() {
       );
       addTearDown(store.dispose);
 
-      // A3 CAD page at the 0.5x rung is two cells wide and one cell high.
-      // Even a small visible slice in the right cell needs both cells decoded:
-      // viewFor will raster the whole right cell, then prefetch its left peer.
+      // A3 CAD page displayed at 0.57x targets the next sharp rung (sqrt(0.5)),
+      // a 2x2 grid. Even a small visible slice in the right-hand cells needs
+      // the whole grid decoded once the one-cell prefetch ring is included.
       final coverage = store.rasterCoverageForView(
         pageSize: const Size(1190.55, 841.89),
         desiredRatio: 0.57,
@@ -155,6 +169,17 @@ void main() {
       );
 
       expect(coverage, const Rect.fromLTWH(0, 0, 1190.55, 841.89));
+      expect(
+        store
+            .viewBudgetStatus(
+              pageSize: const Size(1190.55, 841.89),
+              desiredRatio: 0.57,
+              visiblePageRect: const Rect.fromLTWH(1060, 300, 80, 200),
+            )!
+            .rung,
+        -1,
+        reason: '57% must target 70.7%, never permanently upscale 50%',
+      );
     });
 
     testWidgets('persistent hit races and wins without blocking raster start',

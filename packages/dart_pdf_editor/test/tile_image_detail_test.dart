@@ -108,7 +108,7 @@ void main() {
     // The re-decode happens at the tile rung's resolution, not merely the
     // continuous view ratio or the page raster's ratio.
     final adopted = PdfPageView.debugTileImageDetailRatio!;
-    final tileRatio = store.ladder.ratioFor(store.ladder.rungFor(5));
+    final tileRatio = store.ladder.ratioFor(store.ladder.rungAtOrAbove(5));
     final pageRasterCap = math.min(
       math.sqrt(PdfPageRasterGeometry.maxPixels /
           (page.mediaBox.width * page.mediaBox.height)),
@@ -124,7 +124,7 @@ void main() {
     final detailRegion = PdfPageView.debugTileImageDetailRegion!;
     final retained = store
         .debugTileFractionsForPage(0)
-        .where((tile) => tile.rung == store.ladder.rungFor(5));
+        .where((tile) => tile.rung == store.ladder.rungAtOrAbove(5));
     expect(retained, isNotEmpty);
     for (final tile in retained) {
       final region = Rect.fromLTRB(

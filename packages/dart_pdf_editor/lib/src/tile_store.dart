@@ -95,6 +95,20 @@ class PdfTileZoomLadder {
     return raw.round().clamp(minRung, maxRung);
   }
 
+  /// The first rung whose pixel ratio is at or above [ratio], clamped.
+  ///
+  /// Exact settled tiles use this rung so they are never permanently
+  /// upscaled. A cached lower rung may still be presented as a temporary
+  /// fallback while this sharper rung is rasterizing.
+  int rungAtOrAbove(double ratio) {
+    final safe = ratio <= 0 ? 0.05 : ratio;
+    final raw = (math.log(safe) / math.ln2) * stepsPerOctave;
+    // Subtract a tiny tolerance so ratioFor(rung) round-trips to that rung
+    // despite floating-point log/pow noise instead of spuriously jumping one
+    // level higher.
+    return (raw - 1e-10).ceil().clamp(minRung, maxRung);
+  }
+
   /// The exact pixel ratio a [rung]'s tiles are rastered at.
   double ratioFor(int rung) => math.pow(2, rung / stepsPerOctave).toDouble();
 }
@@ -419,7 +433,11 @@ class PdfTileStore extends ChangeNotifier {
         visiblePageRect.isEmpty) {
       return null;
     }
-    final rung = ladder.rungFor(desiredRatio);
+    // A settled exact tile must carry at least one source pixel per physical
+    // display pixel. Nearest-rung snapping can choose the lower level (for
+    // example 0.50x at a 0.57x display ratio), leaving a permanently upscaled
+    // page that is technically "complete" but still visibly soft.
+    final rung = ladder.rungAtOrAbove(desiredRatio);
     final ratio = ladder.ratioFor(rung);
     final span = tilePixels / ratio; // page points per tile side
     if (!span.isFinite || span <= 0) return null;
