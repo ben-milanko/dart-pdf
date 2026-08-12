@@ -20,8 +20,8 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
-/// A page dominated by one image denser than the full-page raster cap lets the
-/// base scene decode - the scanned-document shape.
+/// A page dominated by layered images denser than the full-page raster cap
+/// lets the base scene decode - the scanned/CAD-underlay shape.
 ///
 /// The page is deliberately long and narrow: the cap that binds is the raster's
 /// 8192-px max edge, so an elongated page reaches it at a modest image size and
@@ -30,7 +30,7 @@ import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 /// base decode to ~61% linear.
 Uint8List _scannedSheet() => buildSyntheticRasterUnderlaySheet(
       underlays: const [PdfUnderlaySpec(width: 2048, height: 1024)],
-      layers: 1,
+      layers: 2,
       ops: 8,
       pageW: 600,
       pageH: 6000,
@@ -105,8 +105,10 @@ void main() {
       greaterThan(0),
       reason: 'tiles must not magnify the base scene\'s capped image decode',
     );
-    // The re-decode happens at the tile rung's resolution, not merely the
-    // continuous view ratio or the page raster's ratio.
+    // The re-decode happens above the tile rung's resolution, not merely at
+    // the continuous view ratio or the page raster's ratio. The same 2x image
+    // headroom used by visible full-page rendering keeps raster underlays from
+    // looking softer than vectors after the tile is flattened and presented.
     final adopted = PdfPageView.debugTileImageDetailRatio!;
     final tileRatio = store.ladder.ratioFor(store.ladder.rungAtOrAbove(5));
     final pageRasterCap = math.min(
@@ -115,7 +117,10 @@ void main() {
       8192 / math.max(page.mediaBox.width, page.mediaBox.height),
     );
     expect(adopted, greaterThan(pageRasterCap));
-    expect(adopted, closeTo(tileRatio, 1e-9));
+    expect(
+      adopted,
+      closeTo(tileRatio * PdfPageView.focusedImageDecodeHeadroom, 1e-9),
+    );
 
     // Every retained exact-rung tile must fit inside the image-detail decode.
     // Previously the decode followed the visible rectangle while the store

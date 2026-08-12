@@ -4151,20 +4151,33 @@ class _PdfPageViewState extends State<PdfPageView>
     if (!_tileDetailWanted) return true;
     final desired = _tileDesiredRatio;
     return desired != null &&
-        _tileDetailCovers(region, _tileRasterRatio(desired));
+        _tileDetailCovers(
+          region,
+          _tileImageRatio(_tileRasterRatio(desired)),
+        );
   }
 
   /// The actual ratio at which the tile pyramid will rasterize [desired].
   ///
-  /// Tile keys live on a discrete zoom ladder. Image-detail decodes must use
-  /// that same snapped ratio: a 3.5x decode is not sufficient for the 4x tile
-  /// rung, and rejecting it at raster time would silently replay the tile from
-  /// the blurry base scene instead.
+  /// Tile keys live on a discrete zoom ladder. Image-detail requirements must
+  /// start from that snapped ratio: using the continuous view ratio can leave
+  /// a tile rung sharper than the decoded images replayed into it.
   double _tileRasterRatio(double desired) {
     final store = PdfPageView.debugTileStoreOverride ?? PdfTileStore.instance;
     final rung = store.ladder.rungAtOrAbove(desired);
     return store.ladder.ratioFor(rung);
   }
+
+  /// The image-decode ratio retained behind a tile rasterized at [tileRatio].
+  ///
+  /// Visible full-page rendering keeps [PdfPageView.focusedImageDecodeHeadroom]
+  /// because flattening an image into a picture and then into the presented
+  /// raster otherwise leaves it visibly softer than adjacent vector content.
+  /// Tile detail must preserve the same policy: decoding at merely the tile
+  /// ratio made a raster CAD underlay look low resolution even after the
+  /// vector/text parts of the tile had sharpened.
+  double _tileImageRatio(double tileRatio) =>
+      tileRatio * PdfPageView.focusedImageDecodeHeadroom;
 
   /// Whether [outer] covers [inner], with [slack] page points of tolerance.
   ///
@@ -4177,16 +4190,17 @@ class _PdfPageViewState extends State<PdfPageView>
       inner.right <= outer.right + slack &&
       inner.bottom <= outer.bottom + slack;
 
-  /// Whether [_tileDetailScene] can serve a tile covering [region] at [ratio]:
-  /// its images must cover the region and be at least as sharp as asked.
-  bool _tileDetailCovers(Rect region, double ratio) {
+  /// Whether [_tileDetailScene] can serve a tile covering [region] at
+  /// [imageRatio]: its images must cover the region and be at least as sharp
+  /// as asked.
+  bool _tileDetailCovers(Rect region, double imageRatio) {
     final have = _tileDetailRegion;
     final haveRatio = _tileDetailRatio;
-    if (have == null || haveRatio == null || !(ratio > 0)) return false;
-    if (haveRatio < ratio * 0.99) return false;
+    if (have == null || haveRatio == null || !(imageRatio > 0)) return false;
+    if (haveRatio < imageRatio * 0.99) return false;
     // Half a device pixel of slack: the region round-trips through page space
     // and back, so an exactly-abutting tile must not read as uncovered.
-    return _rectCovers(have, region, 0.5 / ratio);
+    return _rectCovers(have, region, 0.5 / imageRatio);
   }
 
   /// Requests a region-scoped, zoom-resolution image decode for the tile
@@ -4201,13 +4215,14 @@ class _PdfPageViewState extends State<PdfPageView>
     final desired = _tileDesiredRatio;
     if (scene == null || fraction == null || desired == null) return;
     // PdfTileLayer snaps the continuous view ratio onto its zoom ladder before
-    // it invokes rasterize. Decode images for that exact rung as well, so the
-    // sharp scene satisfies _tileDetailCovers when the tile actually lands.
-    final ratio = _tileRasterRatio(desired);
+    // it invokes rasterize. Base image quality on that exact rung, then retain
+    // the same decode headroom as the visible full-page path.
+    final tileRatio = _tileRasterRatio(desired);
+    final imageRatio = _tileImageRatio(tileRatio);
     // Vectors tile sharply from the base scene at any ratio; only the decoded
     // image pixels are capped. Nothing to do until the zoom outruns them.
     final baseImageRatio = _pictureImageRatio;
-    if (baseImageRatio != null && ratio <= baseImageRatio * 1.05) return;
+    if (baseImageRatio != null && imageRatio <= baseImageRatio * 1.05) return;
     final size = _renderPlan.pageSize(widget.page);
     final visibleRegion = Rect.fromLTRB(
       fraction.left * size.width,
@@ -4249,16 +4264,16 @@ class _PdfPageViewState extends State<PdfPageView>
       prefetchRingOverride: store.prefetchRing,
     );
     if (region == null || region.width <= 0 || region.height <= 0) return;
-    if (_tileDetailCovers(region, ratio)) return;
+    if (_tileDetailCovers(region, imageRatio)) return;
     final pending = _tileDetailPending;
     if (pending != null &&
-        pending.$2 >= ratio * 0.99 &&
-        _rectCovers(pending.$1, region, 0.5 / ratio)) {
+        pending.$2 >= imageRatio * 0.99 &&
+        _rectCovers(pending.$1, region, 0.5 / tileRatio)) {
       return;
     }
     if (widget.renderWorker?.isActive != true) return;
     _setTileDetailWanted(true);
-    unawaited(_requestTileImageDetail(region, ratio));
+    unawaited(_requestTileImageDetail(region, tileRatio, imageRatio));
   }
 
   /// Flips the tile admission gate, repainting the layer so the new verdict
@@ -4272,13 +4287,14 @@ class _PdfPageViewState extends State<PdfPageView>
     setState(() => _tileDetailWanted = wanted);
   }
 
-  Future<void> _requestTileImageDetail(Rect region, double ratio) async {
+  Future<void> _requestTileImageDetail(
+      Rect region, double tileRatio, double imageRatio) async {
     final pageIndex = widget.previewIndex;
     final intent = _renderIntent(widget);
     // Claim the slot BEFORE anything that can return: the `finally` clears the
     // tile veto only for the request that owns it, so an early return that
     // never claimed would leave tiles vetoed for good.
-    _tileDetailPending = (region, ratio);
+    _tileDetailPending = (region, imageRatio);
     try {
       final worker = widget.renderWorker;
       // Region-scoped decoding lives in the command codec, which only the
@@ -4290,7 +4306,7 @@ class _PdfPageViewState extends State<PdfPageView>
         pageIndex,
         annotations: widget.showAnnotations,
         priority: widget.renderPriority,
-        imagePixelRatio: ratio,
+        imagePixelRatio: imageRatio,
         imageDecodeRegion: _pdfRegionForRasterRegion(region),
       );
       if (commands == null || !mounted || _abandoned(pageIndex)) return;
@@ -4301,17 +4317,18 @@ class _PdfPageViewState extends State<PdfPageView>
         plan: _renderPlan,
         retainDecodedPixels:
             widget.tileRasterBackend.prefersDirectDecodedImageUploads,
-        maxImagePixelRatio: ratio,
+        maxImagePixelRatio: imageRatio,
       );
       if (!mounted || _abandoned(pageIndex) || !_intentIsCurrent(intent)) {
         scene.dispose();
         return;
       }
-      _adoptTileDetailScene(scene, region, ratio);
+      _adoptTileDetailScene(scene, region, tileRatio, imageRatio);
     } catch (error) {
       PdfPerfLog.log('tile image detail failed page=$pageIndex error=$error');
     } finally {
-      if (_tileDetailPending?.$1 == region && _tileDetailPending?.$2 == ratio) {
+      if (_tileDetailPending?.$1 == region &&
+          _tileDetailPending?.$2 == imageRatio) {
         _tileDetailPending = null;
         // Whether it landed or not, stop holding tiles back: an adopted scene
         // now answers through [_tileDetailCovers], and a declined one must not
@@ -4328,22 +4345,23 @@ class _PdfPageViewState extends State<PdfPageView>
   /// tiles from landing. The selective eviction closes the remaining race with
   /// a tile already dispatched as the visible region grows, without throwing
   /// away sharp tiles retained for the previous pan position.
-  void _adoptTileDetailScene(
-      PdfRetainedScene scene, Rect region, double ratio) {
+  void _adoptTileDetailScene(PdfRetainedScene scene, Rect region,
+      double tileRatio, double imageRatio) {
     final previous = _tileDetailScene;
     final previousRegion = _tileDetailRegion;
     final previousRatio = _tileDetailRatio;
     final store = PdfPageView.debugTileStoreOverride ?? PdfTileStore.instance;
     store.invalidatePageTilesWhere(widget.previewIndex, (tile) {
-      final tileRatio = store.ladder.ratioFor(tile.rung);
-      final slack = 0.5 / tileRatio;
-      if (tileRatio > ratio * 1.01 ||
+      final retainedTileRatio = store.ladder.ratioFor(tile.rung);
+      final slack = 0.5 / retainedTileRatio;
+      final requiredImageRatio = _tileImageRatio(retainedTileRatio);
+      if (requiredImageRatio > imageRatio * 1.01 ||
           !_rectCovers(region, tile.region, slack)) {
         return false;
       }
       return previousRegion == null ||
           previousRatio == null ||
-          previousRatio < tileRatio * 0.99 ||
+          previousRatio < requiredImageRatio * 0.99 ||
           !_rectCovers(previousRegion, tile.region, slack);
     });
     if (previous != null) {
@@ -4353,14 +4371,15 @@ class _PdfPageViewState extends State<PdfPageView>
     setState(() {
       _tileDetailScene = scene;
       _tileDetailRegion = region;
-      _tileDetailRatio = ratio;
+      _tileDetailRatio = imageRatio;
     });
     PdfPageView.debugTileImageDetailAdoptions++;
-    PdfPageView.debugTileImageDetailRatio = ratio;
+    PdfPageView.debugTileImageDetailRatio = imageRatio;
     PdfPageView.debugTileImageDetailRegion = region;
     PdfPerfLog.log(
       'tile image detail page=${widget.previewIndex} '
-      'ratio=${ratio.toStringAsFixed(2)} '
+      'tileRatio=${tileRatio.toStringAsFixed(2)} '
+      'imageRatio=${imageRatio.toStringAsFixed(2)} '
       'region=${region.width.toStringAsFixed(0)}x'
       '${region.height.toStringAsFixed(0)}pt',
     );
