@@ -4147,7 +4147,21 @@ class _PdfPageViewState extends State<PdfPageView>
     final base = _tileCanRasterize;
     if (base != null && !base(region)) return false;
     if (!_tileDetailWanted) return true;
-    return _tileDetailCovers(region, _tileDesiredRatio ?? 0);
+    final desired = _tileDesiredRatio;
+    return desired != null &&
+        _tileDetailCovers(region, _tileRasterRatio(desired));
+  }
+
+  /// The actual ratio at which the tile pyramid will rasterize [desired].
+  ///
+  /// Tile keys live on a discrete zoom ladder. Image-detail decodes must use
+  /// that same snapped ratio: a 3.5x decode is not sufficient for the 4x tile
+  /// rung, and rejecting it at raster time would silently replay the tile from
+  /// the blurry base scene instead.
+  double _tileRasterRatio(double desired) {
+    final store = PdfPageView.debugTileStoreOverride ?? PdfTileStore.instance;
+    final rung = store.ladder.rungFor(desired);
+    return store.ladder.ratioFor(rung);
   }
 
   /// Whether [outer] covers [inner], with [slack] page points of tolerance.
@@ -4182,8 +4196,12 @@ class _PdfPageViewState extends State<PdfPageView>
     if (!_sceneHasImageDraws || _sceneIsVectorOnly) return;
     final scene = _scene;
     final fraction = _tileFraction;
-    final ratio = _tileDesiredRatio;
-    if (scene == null || fraction == null || ratio == null) return;
+    final desired = _tileDesiredRatio;
+    if (scene == null || fraction == null || desired == null) return;
+    // PdfTileLayer snaps the continuous view ratio onto its zoom ladder before
+    // it invokes rasterize. Decode images for that exact rung as well, so the
+    // sharp scene satisfies _tileDetailCovers when the tile actually lands.
+    final ratio = _tileRasterRatio(desired);
     // Vectors tile sharply from the base scene at any ratio; only the decoded
     // image pixels are capped. Nothing to do until the zoom outruns them.
     final baseImageRatio = _pictureImageRatio;

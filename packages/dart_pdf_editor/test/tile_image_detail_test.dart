@@ -79,13 +79,16 @@ void main() {
 
     // Laid out several times its point width: only a slice fits, and the zoom
     // asks for far more resolution than the capped full-page raster can hold.
+    // Five deliberately lies between tile-pyramid rungs: it rounds up to
+    // sqrt(2)^5. A detail decode at 5x cannot sharpen a tile rasterized at
+    // 5.657x, so the decode must use the snapped tile ratio.
     await tester.pumpWidget(
       Center(
         child: OverflowBox(
           maxWidth: double.infinity,
           maxHeight: double.infinity,
           child: SizedBox(
-            width: page.mediaBox.width * 6,
+            width: page.mediaBox.width * 5,
             child: PdfPageView(page: page, renderWorker: worker),
           ),
         ),
@@ -100,15 +103,17 @@ void main() {
       greaterThan(0),
       reason: 'tiles must not magnify the base scene\'s capped image decode',
     );
-    // The re-decode happens at the zoom's own resolution, not the page
-    // raster's - that difference IS the fix.
+    // The re-decode happens at the tile rung's resolution, not merely the
+    // continuous view ratio or the page raster's ratio.
     final adopted = PdfPageView.debugTileImageDetailRatio!;
+    final tileRatio = store.ladder.ratioFor(store.ladder.rungFor(5));
     final pageRasterCap = math.min(
       math.sqrt(PdfPageRasterGeometry.maxPixels /
           (page.mediaBox.width * page.mediaBox.height)),
       8192 / math.max(page.mediaBox.width, page.mediaBox.height),
     );
     expect(adopted, greaterThan(pageRasterCap));
+    expect(adopted, closeTo(tileRatio, 1e-9));
   });
 
   testWidgets('a page the base raster already covers asks for no re-decode',
