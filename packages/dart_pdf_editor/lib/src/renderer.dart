@@ -485,7 +485,12 @@ class PdfPageRenderer {
   /// Renders one annotation's appearance into a picture in the same page
   /// raster space as [renderPicture] (post-rotation, y down, 1 unit =
   /// 1 point) but with a transparent background - for live drag/resize
-  /// previews. Null when the annotation has no appearance stream.
+  /// previews and the viewer's annotation layer. Null when the annotation has
+  /// no appearance stream.
+  ///
+  /// The picture is scale-independent: callers replay it at any page-to-view
+  /// scale, so stroke widths stay in page space (no device-pixel floor - see
+  /// [CanvasPdfDevice.pixelRatio]).
   static Future<ui.Picture?> renderAnnotationPicture(
       PdfPage page, PdfAnnotation annotation,
       {int? rotation}) async {
@@ -504,7 +509,21 @@ class PdfPageRenderer {
     final canvas = Canvas(recorder);
     _applyPageTransform(canvas, page, size, box, rotation: rotation);
 
-    PdfInterpreter(cos: cos, device: CanvasPdfDevice(canvas, images: images))
+    // pixelRatio 0 turns the one-device-pixel stroke floor off (#660). This
+    // picture is scale-independent - the appearance layer replays it at
+    // whatever page-to-view scale the viewer is at - so flooring here would
+    // bake a scale-dependent choice in: every positive width under 1 pt
+    // would become a Skia hairline that stays one pixel at 333% zoom. A
+    // pressure-sensitive ink stroke is exactly that case (a 1.5 pt pen at
+    // zero pressure draws 0.6 pt), and it visibly snapped from its live
+    // width to a hairline the moment this picture replaced the overlay.
+    // A genuine `0 w` stroke arrives here as 0 and still paints as Skia's
+    // hairline, which is what §8.4.3.2 asks for. The raster paths that do
+    // know their output scale keep their positive ratio, so #426's
+    // CAD-linework floor is untouched.
+    PdfInterpreter(
+            cos: cos,
+            device: CanvasPdfDevice(canvas, images: images, pixelRatio: 0))
         .drawAnnotation(page, annotation);
     final picture = recorder.endRecording();
     for (final image in images.values) {

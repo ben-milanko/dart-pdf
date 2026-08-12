@@ -48,8 +48,13 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
   /// Device pixels per page unit at the scale this device is painting for.
   ///
   /// Only used to floor stroke widths at one device pixel (see
-  /// [_strokeWidthFor]). 1 is the identity assumption for a picture recorded
+  /// [strokeWidthFor]). 1 is the identity assumption for a picture recorded
   /// without a known target scale.
+  ///
+  /// 0 (or any non-positive value) turns the floor off, which is what a
+  /// picture that is deliberately replayed at *several* scales wants when its
+  /// widths are meaningful page-space measurements rather than "as thin as the
+  /// device can draw" - the annotation appearance picture (#660).
   final double pixelRatio;
 
   /// Stroke width to paint, never thinner than one device pixel.
