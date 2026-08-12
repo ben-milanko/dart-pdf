@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -1112,7 +1111,7 @@ void main() {
         moreOrLessEquals(10, epsilon: 0.5)); // the uncapped desired ratio
   });
 
-  testWidgets('zoom and pan sharpen visibly before growing a small guard',
+  testWidgets('zoom and pan sharpen exactly the visible viewport',
       (tester) async {
     tester.view.physicalSize = const Size(800, 600);
     tester.view.devicePixelRatio = 1.0;
@@ -1120,8 +1119,16 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final doc = PdfDocument.open(buildClassicPdf());
     final page = doc.page(0);
+    final logs = <String>[];
+    final oldPerfEnabled = PdfPerfLog.enabled;
+    final oldPerfSink = PdfPerfLog.sink;
+    PdfPerfLog.enabled = true;
+    PdfPerfLog.sink = logs.add;
+    addTearDown(() {
+      PdfPerfLog.enabled = oldPerfEnabled;
+      PdfPerfLog.sink = oldPerfSink;
+    });
     const detailKey = ValueKey('pdf-page-detail-image');
-    const headroomKey = ValueKey('pdf-page-detail-headroom-image');
 
     Widget at(double scale, int generation, {double dx = 0}) => Center(
           child: Transform.translate(
@@ -1174,175 +1181,66 @@ void main() {
     final panned = await waitForDetail(differentFrom: tight.image);
     expect(panned.image!.width, closeTo(1600, 2));
     expect(panned.image!.height, closeTo(1200, 2));
-
-    // Only after that exact patch paints does a low-priority 1/8-viewport
-    // guard replace it: 100x75pt, or 1.56x rather than 4x the visible pixels.
-    for (var i = 0;
-        i < 200 && find.byKey(headroomKey).evaluate().isEmpty;
-        i++) {
-      await tester.pump();
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)),
-      );
-    }
-    final guarded = tester.widget<RawImage>(find.byKey(headroomKey));
-    expect(guarded.image!.width, closeTo(2000, 2));
-    expect(guarded.image!.height, closeTo(1500, 2));
-    expect(tester.widget<RawImage>(find.byKey(detailKey)).image,
-        same(panned.image),
-        reason: 'pan-ahead must not replace the exact foreground pixels');
+    expect(
+      find.byKey(const ValueKey('pdf-page-detail-headroom-image')),
+      findsNothing,
+      reason: 'the fallback must not start an unpreemptible second raster',
+    );
+    final paintLogs = logs.where((line) => line.contains('detail paint'));
+    expect(paintLogs.length, greaterThanOrEqualTo(3));
+    expect(paintLogs, everyElement(contains('pass=visible')),
+        reason: 'foreground time-to-sharp observations must survive later '
+            'pan-ahead scheduling');
   });
 
-  testWidgets('pan headroom is lower priority and cancelled by a new settle',
+  testWidgets('detail adoption rebalances reclaimable live rasters',
       (tester) async {
-    tester.view.physicalSize = const Size(400, 300);
     tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    final bytes = buildSyntheticRasterUnderlaySheet(
-      underlays: const [PdfUnderlaySpec(width: 2048, height: 2048)],
-      layers: 1,
-      ops: 0,
-      pageW: 256,
-      pageH: 256,
-    );
-    final document = PdfDocument.open(bytes);
-    final worker = _HeadroomTrackingWorker(_LocalCommandWorker(bytes));
-    addTearDown(worker.dispose);
+    final budget = PdfLiveRasterBudget.instance;
+    final oldMax = budget.maxBytes;
+    final reclaimable = _BudgetProbeHolder(bytes: 1, distance: 9);
+    addTearDown(() {
+      budget.unregister(reclaimable);
+      budget.maxBytes = oldMax;
+    });
 
-    Widget at(double dx, int generation) => Center(
-          child: Transform.translate(
-            offset: Offset(dx, 0),
-            child: OverflowBox(
-              maxWidth: double.infinity,
-              maxHeight: double.infinity,
-              child: SizedBox(
-                width: 512,
-                child: PdfPageView(
-                  page: document.page(0),
-                  baseRasterScale: 1,
-                  scale: 4,
-                  settleGeneration: generation,
-                  renderWorker: worker,
-                ),
-              ),
-            ),
-          ),
-        );
-
-    await tester.pumpWidget(at(0, 0));
-    for (var i = 0; i < 300 && worker.headroomStarts == 0; i++) {
-      await tester.pump();
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 5)),
-      );
-    }
-    expect(worker.headroomStarts, 1,
-        reason: 'the exact visible patch should paint before guarded work');
-    final visible = worker.regionRequests.firstWhere((r) => r.$1 <= 0).$2;
-    final guarded = worker.regionRequests.firstWhere((r) => r.$1 == 1).$2;
-    final visibleArea =
-        (visible.right - visible.left) * (visible.top - visible.bottom);
-    final guardedArea =
-        (guarded.right - guarded.left) * (guarded.top - guarded.bottom);
-    expect(guardedArea / visibleArea, moreOrLessEquals(1.5625, epsilon: 0.02));
-
-    // The low-priority worker request is deliberately held. Moving beyond the
-    // exact patch must invalidate and cancel it before starting replacement
-    // foreground work for the new viewport.
-    await tester.pumpWidget(at(-200, 1));
-    for (var i = 0; i < 50 && worker.regionRequests.last.$1 > 0; i++) {
-      await tester.pump();
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 2)),
-      );
-    }
-    expect(worker.headroomCancels, 1);
-    expect(worker.regionRequests.last.$1, lessThanOrEqualTo(0),
-        reason: 'the replacement viewport must return to foreground priority');
-
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
-
-  testWidgets('pan headroom changes zero pixels under the exact patch',
-      (tester) async {
-    tester.view.physicalSize = const Size(400, 300);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    final bytes = buildSyntheticRasterUnderlaySheet(
-      underlays: const [PdfUnderlaySpec(width: 2048, height: 2048)],
-      layers: 1,
-      ops: 0,
-      pageW: 256,
-      pageH: 256,
-    );
-    final document = PdfDocument.open(bytes);
-    final worker = _HeadroomTrackingWorker(_LocalCommandWorker(bytes));
-    addTearDown(worker.dispose);
-    const boundaryKey = ValueKey('detail-pixel-boundary');
-    const headroomKey = ValueKey('pdf-page-detail-headroom-image');
-
-    await tester.pumpWidget(RepaintBoundary(
-      key: boundaryKey,
-      child: Center(
-        child: OverflowBox(
-          maxWidth: double.infinity,
-          maxHeight: double.infinity,
+    final doc = PdfDocument.open(buildClassicPdf());
+    Widget page(double scale, int generation) => Center(
           child: SizedBox(
-            width: 512,
+            width: 612,
             child: PdfPageView(
-              page: document.page(0),
-              baseRasterScale: 1,
-              scale: 4,
-              renderWorker: worker,
+              page: doc.page(0),
+              baseRasterScale: 4,
+              scale: scale,
+              settleGeneration: generation,
             ),
           ),
-        ),
-      ),
-    ));
-    for (var i = 0; i < 300 && worker.headroomStarts == 0; i++) {
+        );
+
+    await tester.pumpWidget(page(1, 0));
+    for (var i = 0; i < 200 && find.byType(RawImage).evaluate().isEmpty; i++) {
       await tester.pump();
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 5)),
       );
     }
-    expect(worker.headroomStarts, 1);
-
-    Future<Uint8List> pixels() async {
-      return (await tester.runAsync(() async {
-        final boundary = tester.renderObject<RenderRepaintBoundary>(
-          find.byKey(boundaryKey),
-        );
-        final image = await boundary.toImage(pixelRatio: 1);
-        final data = await image.toByteData(
-          format: ui.ImageByteFormat.rawRgba,
-        );
-        image.dispose();
-        return data!.buffer.asUint8List();
-      }))!;
-    }
-
-    final exactPixels = await pixels();
-    worker.releaseHeadroom();
-    for (var i = 0;
-        i < 300 && find.byKey(headroomKey).evaluate().isEmpty;
-        i++) {
-      await tester.pump();
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 5)),
-      );
-    }
-    expect(find.byKey(headroomKey), findsOneWidget);
+    // Drain the base raster's own post-frame rebalance before introducing the
+    // probe. The scale change below retains that capped base and adds only the
+    // exact deep-zoom detail allocation.
     await tester.pump();
-    final guardedPixels = await pixels();
-    var changed = 0;
-    for (var i = 0; i < exactPixels.length; i++) {
-      if (exactPixels[i] != guardedPixels[i]) changed++;
+    budget.register(reclaimable);
+    budget.maxBytes = budget.totalBytes - 1;
+
+    await tester.pumpWidget(page(8, 1));
+    for (var i = 0; i < 300 && !reclaimable.evicted; i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
     }
-    expect(changed, 0,
-        reason: 'the guarded layer must remain completely occluded by the '
-            'already-sharp exact patch inside the current viewport');
+    expect(reclaimable.evicted, isTrue,
+        reason: 'retaining the new detail image must run the global budget');
   });
 
   testWidgets('deep zoom reuses a current fit raster as its base',
@@ -1386,7 +1284,7 @@ void main() {
         reason: 'deep zoom must not replace the whole-page backing raster');
   });
 
-  testWidgets('detail guard band reuses the patch across small pan settles',
+  testWidgets('exact detail reuse still validates current content',
       (tester) async {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -1396,7 +1294,6 @@ void main() {
     final doc = PdfDocument.open(buildClassicPdf());
     final page = doc.page(0);
     const detailKey = ValueKey('pdf-page-detail-image');
-    const headroomKey = ValueKey('pdf-page-detail-headroom-image');
 
     Widget at(double dx, int generation, {int contentStamp = 0}) => Center(
           child: Transform.translate(
@@ -1418,8 +1315,6 @@ void main() {
 
     Object detailImage() =>
         tester.widget<RawImage>(find.byKey(detailKey)).image!;
-    Object headroomImage() =>
-        tester.widget<RawImage>(find.byKey(headroomKey)).image!;
 
     Future<void> waitForDetail({Object? differentFrom}) async {
       for (var i = 0; i < 200; i++) {
@@ -1438,41 +1333,52 @@ void main() {
     await tester.pumpWidget(at(0, 0));
     await waitForDetail();
     final visible = detailImage();
-    for (var i = 0;
-        i < 200 && find.byKey(headroomKey).evaluate().isEmpty;
-        i++) {
-      await tester.pump();
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)),
-      );
-    }
-    final guarded = headroomImage();
 
-    // The background patch adds 1/8 viewport per side. A 100 px pan remains
-    // inside it, so the next settle must reuse the exact raster without
-    // delaying the initial sharp frame to buy that headroom.
-    await tester.pumpWidget(at(-100, 1));
+    // A settle with unchanged geometry reuses the exact current patch.
+    await tester.pumpWidget(at(0, 1));
     for (var i = 0; i < 20 && PdfPageView.debugDetailPatchReuses == 0; i++) {
       await tester.pump();
     }
     expect(PdfPageView.debugDetailPatchReuses, 1);
     expect(detailImage(), same(visible));
-    expect(headroomImage(), same(guarded));
 
     // An additive edit leaves the old sharp patch painted while the
     // replacement is rendering. It must not be mistaken for reusable current
     // content even though its geometry still covers the viewport.
-    await tester.pumpWidget(at(-100, 2, contentStamp: 1));
+    await tester.pumpWidget(at(0, 2, contentStamp: 1));
     await waitForDetail(differentFrom: visible);
     final edited = detailImage();
     expect(PdfPageView.debugDetailPatchReuses, 1);
 
-    // Move farther than the guard band. The old patch no longer covers the
-    // viewport, so a replacement must land.
+    // A moved viewport no longer fits the exact patch, so a replacement lands.
     await tester.pumpWidget(at(-1000, 3, contentStamp: 1));
     await waitForDetail(differentFrom: edited);
     expect(PdfPageView.debugDetailPatchReuses, 1);
   });
+}
+
+class _BudgetProbeHolder implements PdfLiveRasterHolder {
+  _BudgetProbeHolder({required int bytes, required this.distance})
+      : _bytes = bytes;
+
+  int _bytes;
+  final int distance;
+  bool evicted = false;
+
+  @override
+  int get liveRasterBytes => _bytes;
+
+  @override
+  int get liveRasterDistance => distance;
+
+  @override
+  bool get liveRasterOnScreen => false;
+
+  @override
+  void evictLiveRaster() {
+    evicted = true;
+    _bytes = 0;
+  }
 }
 
 class _DeferredRecordWorker extends PdfRenderWorker {
@@ -1575,77 +1481,6 @@ class _RatioRecordingWorker extends PdfRenderWorker {
 
   @override
   void dispose() => _inner.dispose();
-}
-
-class _HeadroomTrackingWorker extends PdfRenderWorker {
-  _HeadroomTrackingWorker(this._inner);
-
-  final PdfRenderWorker _inner;
-  final List<(int, PdfRect)> regionRequests = [];
-  Completer<void>? _headroomGate;
-  bool _headroomCancelled = false;
-  int headroomStarts = 0;
-  int headroomCancels = 0;
-
-  @override
-  bool get isActive => _inner.isActive;
-
-  @override
-  Future<List<PdfRenderCommand>?> record(
-    int pageIndex, {
-    bool annotations = true,
-    int priority = 0,
-    double? imagePixelRatio,
-    bool decodeImages = true,
-    int? commandLimit,
-    PdfRect? imageDecodeRegion,
-    PdfPartialRecordSink? onPartial,
-  }) async {
-    if (imageDecodeRegion != null) {
-      regionRequests.add((priority, imageDecodeRegion));
-    }
-    if (priority == 1 && imageDecodeRegion != null) {
-      headroomStarts++;
-      final gate = _headroomGate = Completer<void>();
-      await gate.future;
-      _headroomGate = null;
-      if (_headroomCancelled) {
-        _headroomCancelled = false;
-        return null;
-      }
-    }
-    return _inner.record(
-      pageIndex,
-      annotations: annotations,
-      priority: priority,
-      imagePixelRatio: imagePixelRatio,
-      decodeImages: decodeImages,
-      commandLimit: commandLimit,
-      imageDecodeRegion: imageDecodeRegion,
-      onPartial: onPartial,
-    );
-  }
-
-  @override
-  void cancel(int pageIndex, {int priority = 0}) {
-    if (priority == 1 && _headroomGate != null && !_headroomGate!.isCompleted) {
-      headroomCancels++;
-      _headroomCancelled = true;
-      _headroomGate!.complete();
-    }
-    _inner.cancel(pageIndex, priority: priority);
-  }
-
-  void releaseHeadroom() {
-    final gate = _headroomGate;
-    if (gate != null && !gate.isCompleted) gate.complete();
-  }
-
-  @override
-  void dispose() {
-    if (!(_headroomGate?.isCompleted ?? true)) _headroomGate!.complete();
-    _inner.dispose();
-  }
 }
 
 /// In-process command worker used by the image-LoD tests. The production

@@ -3,10 +3,11 @@
 ## Unreleased
 
 - Sharpen deep-zoom pages visible-first: the foreground render now covers the
-  exact viewport, then grows a preemptible 12.5% pan-ahead guard only after the
-  sharp frame paints. New settles cancel that speculative work, and the guard
-  is skipped when raster caps would reduce pixel density, preventing visible
-  quality from stepping backwards.
+  exact viewport. Once that sharp frame paints, tile-capable pages grow bounded
+  pan-ahead underneath it; fallback pages avoid a second unpreemptible raster.
+  New settles cancel pending promotion, foreground paint telemetry remains
+  distinct, and every retained detail allocation rebalances the live-raster
+  budget, preventing visible quality and memory from stepping backwards.
 - Promote fast-scroll page previews through a configurable 200 -> 400 -> 800
   px LoD ladder before the final display raster. Intermediate levels warm only
   around the viewport, share a 32 MiB byte-budgeted LRU, and are generated from

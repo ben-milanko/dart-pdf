@@ -3,10 +3,12 @@
 // keeps showing through. Kept in its own file so the global flag mutation can't
 // leak into other page-view tests.
 import 'dart:async';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/region_replay_index.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -289,6 +291,127 @@ void main() {
     expect(find.byType(RawImage), findsOneWidget);
     // Real tiles rastered from the page's retained scene.
     expect(store.tileCount, greaterThan(0));
+  });
+
+  testWidgets('late tile pan-ahead changes no exact foreground pixels',
+      (tester) async {
+    tester.view.physicalSize = const Size(400, 300);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final store = PdfTileStore(
+      tilePixels: 128,
+      prefetchRing: 1,
+      registerForMemoryPressure: false,
+    );
+    final backend = _SolidTileRasterBackend();
+    final oldTiles = PdfPageView.tileStoreDetail;
+    final oldDirect = PdfPageView.directPicturePresentation;
+    PdfPageView.tileStoreDetail = false;
+    PdfPageView.directPicturePresentation = false;
+    PdfPageView.debugTileStoreOverride = store;
+    addTearDown(() {
+      PdfPageView.tileStoreDetail = oldTiles;
+      PdfPageView.directPicturePresentation = oldDirect;
+      PdfPageView.debugTileStoreOverride = null;
+      store.dispose();
+    });
+
+    final bytes = buildSyntheticRasterUnderlaySheet(
+      underlays: const [PdfUnderlaySpec(width: 2048, height: 2048)],
+      layers: 1,
+      ops: 0,
+      pageW: 256,
+      pageH: 256,
+    );
+    final doc = PdfDocument.open(bytes);
+    const boundaryKey = ValueKey('tile-under-detail-boundary');
+    const detailKey = ValueKey('pdf-page-detail-image');
+    const tileKey = ValueKey('pdf-page-tile-layer');
+
+    Widget page(double scale, int generation) => RepaintBoundary(
+          key: boundaryKey,
+          child: Center(
+            child: OverflowBox(
+              maxWidth: double.infinity,
+              maxHeight: double.infinity,
+              child: SizedBox(
+                width: 2560,
+                child: PdfPageView(
+                  page: doc.page(0),
+                  baseRasterScale: 1,
+                  scale: scale,
+                  settleGeneration: generation,
+                  tileRasterBackend: backend,
+                ),
+              ),
+            ),
+          ),
+        );
+
+    Future<ui.Image> waitForDetail() async {
+      for (var i = 0; i < 300; i++) {
+        await tester.pump();
+        if (find.byKey(detailKey).evaluate().isNotEmpty) {
+          final image = tester.widget<RawImage>(find.byKey(detailKey)).image;
+          if (image != null) return image;
+        }
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)),
+        );
+      }
+      fail('exact detail did not land');
+    }
+
+    Future<Uint8List> pixels() async {
+      final boundary = tester.renderObject<RenderRepaintBoundary>(
+        find.byKey(boundaryKey),
+      );
+      for (var i = 0; i < 300 && boundary.debugNeedsPaint; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+      }
+      expect(boundary.debugNeedsPaint, isFalse);
+      return (await tester.runAsync(() async {
+        final image = await boundary.toImage(pixelRatio: 1);
+        final data = await image.toByteData(
+          format: ui.ImageByteFormat.rawRgba,
+        );
+        image.dispose();
+        return data!.buffer.asUint8List();
+      }))!;
+    }
+
+    await tester.pumpWidget(page(2, 0));
+    final exact = await waitForDetail();
+    final before = await pixels();
+
+    // Enable the production-default tile route on a new settle with unchanged
+    // geometry. The current exact patch is reused; its post-paint callback then
+    // admits the pyramid and its ring underneath.
+    PdfPageView.tileStoreDetail = true;
+    await tester.pumpWidget(page(2, 1));
+    for (var i = 0;
+        i < 300 &&
+            (find.byKey(tileKey).evaluate().isEmpty || store.tileCount == 0);
+        i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+    expect(find.byKey(tileKey), findsOneWidget);
+    expect(backend.rasterizations, greaterThan(0));
+    expect(store.tileCount, greaterThan(0));
+    await tester.pump();
+    final after = await pixels();
+    expect(after, orderedEquals(before),
+        reason: 'deliberately different late tile pixels must stay occluded '
+            'by the exact visible patch');
+    expect(tester.widget<RawImage>(find.byKey(detailKey)).image, same(exact));
   });
 
   testWidgets('an active tile target never steps down in quality',
@@ -580,6 +703,58 @@ void main() {
       scene.dispose();
     });
   });
+}
+
+class _SolidTileRasterBackend extends PdfCanvasTileRasterBackend {
+  int rasterizations = 0;
+
+  @override
+  String get debugLabel => 'solid';
+
+  @override
+  PdfTileRasterSession createSession(PdfRetainedScene scene) =>
+      _SolidTileRasterSession(this, scene);
+}
+
+class _SolidTileRasterSession
+    implements PdfTileRasterSession, PdfTileRasterScheduling {
+  _SolidTileRasterSession(this.backend, this.scene);
+
+  final _SolidTileRasterBackend backend;
+
+  @override
+  final PdfRetainedScene scene;
+
+  @override
+  bool get batchAdjacentTiles => false;
+
+  @override
+  int get maxNewTilesPerPaint => 1;
+
+  @override
+  Future<ui.Image> rasterizeRegion(
+    Rect region, {
+    required double pixelRatio,
+    int? tracePage,
+  }) async {
+    backend.rasterizations++;
+    final width = (region.width * pixelRatio).ceil().clamp(1, 1 << 14);
+    final height = (region.height * pixelRatio).ceil().clamp(1, 1 << 14);
+    final recorder = ui.PictureRecorder();
+    ui.Canvas(recorder).drawRect(
+      Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+      ui.Paint()..color = const Color(0xFFFF00FF),
+    );
+    final picture = recorder.endRecording();
+    try {
+      return await picture.toImage(width, height);
+    } finally {
+      picture.dispose();
+    }
+  }
+
+  @override
+  void dispose() {}
 }
 
 // Deliberately subclasses the stock backend: custom subclasses still override
