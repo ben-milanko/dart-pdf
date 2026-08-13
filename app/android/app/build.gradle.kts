@@ -18,9 +18,9 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace = "dev.milanko.dart_pdf_editor_app"
-    // Pinned above the template default: the file_selector/share_plus/
-    // url_launcher plugins must compile against SDK 36.
-    compileSdk = 36
+    // Pinned above the template default: flutter_secure_storage 11 requires
+    // consumers to compile against SDK 37.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
