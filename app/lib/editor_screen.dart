@@ -1286,20 +1286,49 @@ class _EditorScreenState extends State<EditorScreen>
     _addTab(tab);
   }
 
+  /// True while a device scan is up. The platform scanner runs one session at a
+  /// time - a second request while the camera is open comes straight back as an
+  /// error ("Another scan is already running") - so a second tap no-ops instead
+  /// of turning into a failure toast.
+  bool _scanInFlight = false;
+
+  /// Runs the device scanner. Null means "no pages": cancelled, unavailable, or
+  /// failed - a failure has already been logged and toasted by the time this
+  /// returns, so callers just stop.
+  ///
+  /// The toast carries the platform's own reason. "The camera never opened" and
+  /// "the capture couldn't be read back" are different bugs with the same
+  /// symptom, and the message has to say which one happened.
+  Future<Uint8List?> _runScan() async {
+    final scan = _documentScanner;
+    if (scan == null || _scanInFlight) return null;
+    _scanInFlight = true;
+    try {
+      return await scan();
+    } catch (e) {
+      AppDevTools.instance.addLog('scan failed: $e', level: DevLogLevel.error);
+      if (mounted) {
+        _toast(_scanFailureMessage(e), duration: const Duration(seconds: 6));
+      }
+      return null;
+    } finally {
+      _scanInFlight = false;
+    }
+  }
+
+  /// The localized "couldn't scan" sentence plus the underlying error, trimmed
+  /// to something a snack bar can hold.
+  String _scanFailureMessage(Object error) {
+    var detail = error.toString();
+    if (detail.length > 140) detail = '${detail.substring(0, 140)}…';
+    return '${appL10n(context).editorScanFailed} $detail';
+  }
+
   /// Scans a document with the device camera (mobile/tablet only) and opens
   /// the captured pages as a new tab. The scanner returns the pages as a PDF;
   /// a cancelled scan is a silent no-op, a failed one toasts.
   Future<void> _newDocumentFromScan() async {
-    final scan = _documentScanner;
-    if (scan == null) return;
-    final Uint8List? bytes;
-    try {
-      bytes = await scan();
-    } catch (e) {
-      AppDevTools.instance.addLog('scan failed: $e', level: DevLogLevel.error);
-      if (mounted) _toast(appL10n(context).editorScanFailed);
-      return;
-    }
+    final bytes = await _runScan();
     if (!mounted || bytes == null) return;
     final tab = DocumentTab.document(
       title: _nextUntitledTitle(),
@@ -1314,17 +1343,9 @@ class _EditorScreenState extends State<EditorScreen>
   /// Scans a document (mobile/tablet only) and inserts its pages into [tab]'s
   /// edit session, after the page currently in view. One undoable step.
   Future<void> _insertScan(DocumentTab tab) async {
-    final scan = _documentScanner;
     final session = tab.session;
-    if (scan == null || session == null) return;
-    final Uint8List? bytes;
-    try {
-      bytes = await scan();
-    } catch (e) {
-      AppDevTools.instance.addLog('scan failed: $e', level: DevLogLevel.error);
-      if (mounted) _toast(appL10n(context).editorScanFailed);
-      return;
-    }
+    if (session == null) return;
+    final bytes = await _runScan();
     if (!mounted || bytes == null) return;
     final insertedAt = (tab.viewer?.currentPage ?? 0) + 1;
     try {
@@ -2223,7 +2244,10 @@ class _EditorScreenState extends State<EditorScreen>
     ];
   }
 
-  void _toast(String message) {
+  /// Shows a transient message. [duration] overrides the default for the rare
+  /// toast that carries something to read rather than to acknowledge (an error
+  /// with the platform's reason in it).
+  void _toast(String message, {Duration? duration}) {
     // Toasts are transient; mirroring them into the devtools log keeps a
     // history (and puts them in the exported snapshot).
     AppDevTools.instance.addLog('toast: $message');
@@ -2233,7 +2257,7 @@ class _EditorScreenState extends State<EditorScreen>
         content: Text(message),
         behavior: SnackBarBehavior.floating,
         margin: pdfFloatingToastMargin(context),
-        duration: const Duration(seconds: 2),
+        duration: duration ?? const Duration(seconds: 2),
       ));
   }
 

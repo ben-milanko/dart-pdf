@@ -9,6 +9,8 @@
 // enables the semantics tree, and a later document swap (the insert path)
 // re-renders the viewer, which trips a debug semantics-build assertion. Keeping
 // semantics off sidesteps that framework check.
+import 'dart:async';
+
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -148,7 +150,13 @@ void main() {
     await tester.pump(); // reject the future
     await tester.pump(); // show the snack bar
 
-    expect(find.text("Couldn't scan the document."), findsOneWidget);
+    // The toast carries the platform's own reason after the sentence - which
+    // failure it was is the whole diagnostic value.
+    expect(
+      find.textContaining("Couldn't scan the document."),
+      findsOneWidget,
+    );
+    expect(find.textContaining('scanner unavailable'), findsOneWidget);
     expect(find.text('Untitled.pdf'), findsNothing);
   });
 
@@ -169,7 +177,43 @@ void main() {
     await tester.pump(); // reject the future
     await tester.pump(); // show the snack bar
 
-    expect(find.text("Couldn't scan the document."), findsOneWidget);
+    // The toast carries the platform's own reason after the sentence - which
+    // failure it was is the whole diagnostic value.
+    expect(
+      find.textContaining("Couldn't scan the document."),
+      findsOneWidget,
+    );
+    expect(find.textContaining('scanner unavailable'), findsOneWidget);
+  });
+
+  testWidgets('a second scan request while one is up is ignored',
+      (tester) async {
+    // The platform scanner runs one session at a time and answers a second
+    // request with an error instead of a camera, so the app must not make one.
+    var scanned = 0;
+    final gate = Completer<Uint8List?>();
+    await tester.pumpWidget(MaterialApp(
+      home: EditorScreen(
+        prefs: prefs,
+        documentScanner: () {
+          scanned++;
+          return gate.future;
+        },
+      ),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await openMenu(tester);
+    await tester.tap(find.byKey(const ValueKey('menu-scan-document')));
+    await tester.pump();
+    await openMenu(tester);
+    await tester.tap(find.byKey(const ValueKey('menu-scan-document')));
+    await tester.pump();
+
+    expect(scanned, 1);
+    gate.complete(null); // cancel, so the in-flight scan settles
+    await tester.pumpAndSettle();
   });
 
   testWidgets('no scan entries where scanning is unsupported', (tester) async {

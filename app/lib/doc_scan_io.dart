@@ -53,9 +53,9 @@ Future<Uint8List?> scanDocumentToPdf() async {
 /// `dart:io`-readable path: depending on the Play Services build it is either a
 /// `file://` URI into the app's cache or a `content://` URI served by ML Kit's
 /// own FileProvider, and even the `file://` form points into a scratch
-/// directory the app has no business opening by path. Reading it by path is why
-/// scanning appeared to do nothing on Android - the read failed, the failure
-/// looked exactly like a cancelled scan, and no page ever arrived.
+/// directory the app has no business opening by path. Reading it by path
+/// therefore fails on some devices, and (before this was split from a cancelled
+/// scan) failed silently: no page, no error.
 ///
 /// So: try the plain path first (the iOS shape, and the Android shape that
 /// happens to be readable), and on Android fall back to the runner's
