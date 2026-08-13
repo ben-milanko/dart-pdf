@@ -237,7 +237,10 @@ void main() {
         break;
       }
     }
+    const foregroundKey = ValueKey('pdf-page-sharp-tile-foreground');
     expect(find.byKey(const ValueKey('pdf-page-tile-layer')), findsOneWidget);
+    expect(find.byKey(foregroundKey), findsNothing,
+        reason: 'a partially populated rung must remain behind the patch');
     expect(find.byKey(const ValueKey('pdf-page-detail-image')), findsOneWidget,
         reason: 'engaging tiles must not hide already-sharp visible pixels');
     final painter = tester
@@ -245,6 +248,20 @@ void main() {
         .painter as dynamic;
     expect(painter.fallbackOcclusionFraction, isNotNull,
         reason: 'a coarse retained rung must not cover the sharper patch');
+
+    // Once the region-scoped image decode and every visible exact-rung tile
+    // have landed, that complete layer is a real quality upgrade over the
+    // quick patch and must move in front atomically. The patch stays mounted
+    // underneath as the fallback for a later pan.
+    for (var i = 0;
+        i < 150 && find.byKey(foregroundKey).evaluate().isEmpty;
+        i++) {
+      await _settle(tester, rounds: 1);
+    }
+    expect(find.byKey(foregroundKey), findsOneWidget,
+        reason: 'completed higher-detail tiles must become visible');
+    expect(find.byKey(const ValueKey('pdf-page-detail-image')), findsOneWidget,
+        reason: 'the exact patch remains underneath as an atomic fallback');
   });
 
   testWidgets('an older detail patch cannot hide a sharper fallback rung',

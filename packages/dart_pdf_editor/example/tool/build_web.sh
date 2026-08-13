@@ -13,7 +13,7 @@ FLUTTER="${FLUTTER:-fvm flutter}"
 
 echo "==> Regenerating the bundled render worker asset"
 $DART run dart_pdf_editor:build_web_worker \
-  --out ../assets/web/pdf_render_worker.dart.js
+  --out ../../dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
 
 echo "==> flutter build web $*"
 $FLUTTER build web "$@"

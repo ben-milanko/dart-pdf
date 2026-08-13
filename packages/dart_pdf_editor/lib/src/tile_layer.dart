@@ -38,6 +38,7 @@ class PdfTileLayer extends StatelessWidget {
     this.prefetchRingOverride,
     this.allowCoarserFallback = true,
     this.fallbackOcclusionFraction,
+    this.onExactViewReady,
     this.filterQuality = FilterQuality.medium,
   })  : assert(maxNewTilesPerPaint == null || maxNewTilesPerPaint > 0),
         assert(maxInFlightTiles == null || maxInFlightTiles > 0),
@@ -101,6 +102,15 @@ class PdfTileLayer extends StatelessWidget {
   /// to a blurry rectangle while the exact rung is still being produced.
   final Rect? fallbackOcclusionFraction;
 
+  /// Called after a frame in which every visible tile was present at the
+  /// exact requested rung.
+  ///
+  /// The callback is deliberately post-paint: callers may use it to promote
+  /// this layer above an older foreground raster without changing the widget
+  /// tree during paint. Missing tiles, vetoed regions, and coarser fallbacks
+  /// never report ready.
+  final ValueChanged<PdfTileView>? onExactViewReady;
+
   final FilterQuality filterQuality;
 
   @override
@@ -121,6 +131,7 @@ class PdfTileLayer extends StatelessWidget {
           prefetchRingOverride: prefetchRingOverride,
           allowCoarserFallback: allowCoarserFallback,
           fallbackOcclusionFraction: fallbackOcclusionFraction,
+          onExactViewReady: onExactViewReady,
           filterQuality: filterQuality,
         ),
       );
@@ -142,6 +153,7 @@ class _TilePagePainter extends CustomPainter {
     required this.prefetchRingOverride,
     required this.allowCoarserFallback,
     required this.fallbackOcclusionFraction,
+    required this.onExactViewReady,
     required this.filterQuality,
   }) : super(
             // tick as sharper tiles land, and repaint on debug-border toggles
@@ -161,7 +173,9 @@ class _TilePagePainter extends CustomPainter {
   final int? prefetchRingOverride;
   final bool allowCoarserFallback;
   final Rect? fallbackOcclusionFraction;
+  final ValueChanged<PdfTileView>? onExactViewReady;
   final FilterQuality filterQuality;
+  bool _reportedExactView = false;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -188,6 +202,16 @@ class _TilePagePainter extends CustomPainter {
       prefetchRingOverride: prefetchRingOverride,
       allowCoarserFallback: allowCoarserFallback,
     );
+    if (view.complete && !view.isEmpty) {
+      if (!_reportedExactView && onExactViewReady != null) {
+        _reportedExactView = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          onExactViewReady!(view);
+        });
+      }
+    } else {
+      _reportedExactView = false;
+    }
     if (view.isEmpty) return;
     final paint = Paint()..filterQuality = filterQuality;
     final fallbackOcclusion = fallbackOcclusionFraction == null

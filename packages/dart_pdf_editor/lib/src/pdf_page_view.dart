@@ -753,6 +753,13 @@ class _PdfPageViewState extends State<PdfPageView>
   bool _tilePanAheadScheduled = false;
   bool _tilePanAheadActive = false;
 
+  /// A fully resident exact-rung tile view that is allowed to paint above the
+  /// quick visible patch. Promotion is intentionally limited to a
+  /// region-decoded image-detail scene: ordinary pan-ahead tiles keep the
+  /// already-settled patch in front, while tiles carrying demonstrably sharper
+  /// image samples can become the final foreground atomically.
+  ({Rect fraction, int rung, PdfRetainedScene scene})? _tileForeground;
+
   /// A scale or layout-width update reached this lazy-list child while another
   /// page owns focus. Keep the previous raster (it remains a valid soft preview
   /// under the transform) and sharpen it only when it becomes focus. Otherwise
@@ -1620,6 +1627,7 @@ class _PdfPageViewState extends State<PdfPageView>
     _detailFraction = null;
     _detailPixelRatio = null;
     _detailIntent = null;
+    _tileForeground = null;
     if (hadImage && mounted) setState(() {});
   }
 
@@ -1629,6 +1637,7 @@ class _PdfPageViewState extends State<PdfPageView>
     _detailFraction = fraction;
     _detailPixelRatio = pixelRatio;
     _detailIntent = _renderIntent(widget);
+    _tileForeground = null;
     _scheduleBudgetRebalance();
   }
 
@@ -1636,6 +1645,7 @@ class _PdfPageViewState extends State<PdfPageView>
     _tilePanAheadGeneration++;
     _tilePanAheadScheduled = false;
     _tilePanAheadActive = false;
+    _tileForeground = null;
   }
 
   bool _tilePanAheadContextIsCurrent(
@@ -4300,6 +4310,7 @@ class _PdfPageViewState extends State<PdfPageView>
       setState(() {
         _tileFraction = fraction;
         _tileDesiredRatio = desired;
+        _tileForeground = null;
       });
     }
     if (tiling) _ensureTileImageDetail();
@@ -4549,6 +4560,7 @@ class _PdfPageViewState extends State<PdfPageView>
       _tileDetailScene = scene;
       _tileDetailRegion = region;
       _tileDetailRatio = imageRatio;
+      _tileForeground = null;
     });
     PdfPageView.debugTileImageDetailAdoptions++;
     PdfPageView.debugTileImageDetailRatio = imageRatio;
@@ -4569,6 +4581,7 @@ class _PdfPageViewState extends State<PdfPageView>
     _tileDetailPending = null;
     _tileDetailDeferred = false;
     _tileDetailWanted = false;
+    _tileForeground = null;
     if (_tileDetailScene == null) return;
     _disposeTileRasterSession(_tileDetailScene!);
     _tileDetailScene?.dispose();
@@ -4619,10 +4632,10 @@ class _PdfPageViewState extends State<PdfPageView>
   /// The [PdfTileStore] deep-zoom composite for this page, or null when the
   /// tile path is inactive or the page is not zoomed past the base raster.
   ///
-  /// [size] is the page-point size (the tile grid space). Placed above the base
-  /// raster but below any completed exact-visible patch, so tiles can fill the
-  /// surrounding pan-ahead area without changing pixels that already settled.
-  Widget? _tileLayerWidget(Size size) {
+  /// [size] is the page-point size (the tile grid space). Ordinary tiles stay
+  /// below the completed exact-visible patch; a complete image-detail rung may
+  /// be rebuilt above it after [_promoteSharpTileForeground] approves it.
+  Widget? _tileLayerWidget(Size size, {required bool foreground}) {
     // Keep the already-stable base/old patch on screen until the exact region
     // has painted. Showing newly landing tiles during this interval is the
     // checkerboard tail this state exists to remove; the pyramid continues to
@@ -4652,7 +4665,9 @@ class _PdfPageViewState extends State<PdfPageView>
     final maxInFlightTiles =
         maxNewTiles == null ? 8 : math.max(2, maxNewTiles * 2);
     final fallbackOcclusion = _fallbackOcclusionFraction(store, desired);
+    final tileDetailScene = _tileDetailScene;
     return Positioned.fill(
+      key: foreground ? const ValueKey('pdf-page-sharp-tile-foreground') : null,
       child: PdfTileLayer(
         store: store,
         identity: PdfTilePageIdentity(
@@ -4707,8 +4722,93 @@ class _PdfPageViewState extends State<PdfPageView>
         // but must not cover that sharper patch with stretched pixels. Exact
         // tiles are not clipped and replace it normally as they land.
         fallbackOcclusionFraction: fallbackOcclusion,
+        onExactViewReady: (view) => _promoteSharpTileForeground(
+          view,
+          fraction,
+          tileDetailScene,
+        ),
       ),
     );
+  }
+
+  /// Promotes a completed tile view only when it is a genuine quality upgrade
+  /// over the quick exact patch.
+  ///
+  /// The tile painter reports readiness after painting a complete exact rung.
+  /// Requiring the same current region-decoded scene closes the race where an
+  /// older, softer tile set completes just as a sharper image scene is
+  /// adopted and its tiles are invalidated. The old patch remains mounted
+  /// underneath, so the promotion itself cannot expose a gap.
+  void _promoteSharpTileForeground(
+    PdfTileView view,
+    Rect fraction,
+    PdfRetainedScene? detailScene,
+  ) {
+    if (!mounted ||
+        !view.complete ||
+        view.isEmpty ||
+        detailScene == null ||
+        !identical(detailScene, _tileDetailScene) ||
+        fraction != _tileFraction ||
+        _detailImage == null ||
+        !_detailContentIsCurrent()) {
+      return;
+    }
+    final desired = _tileDesiredRatio;
+    final patchRatio = _detailPixelRatio;
+    if (desired == null || patchRatio == null) return;
+    final store = PdfPageView.debugTileStoreOverride ?? PdfTileStore.instance;
+    final expectedRung = store.ladder.rungAtOrAbove(desired);
+    if (view.rung != expectedRung) return;
+    final tileRatio = store.ladder.ratioFor(view.rung);
+    // Never replace the patch with fewer output samples. Equal output density
+    // is still an upgrade when the tile scene carries the 2x image-decode
+    // headroom that the quick patch deliberately omits.
+    if (tileRatio < patchRatio * 0.99) return;
+    final pageSize = _renderPlan.pageSize(widget.page);
+    final visibleRegion = Rect.fromLTRB(
+      fraction.left * pageSize.width,
+      fraction.top * pageSize.height,
+      fraction.right * pageSize.width,
+      fraction.bottom * pageSize.height,
+    );
+    final imageRatio = _tileImageRatio(tileRatio);
+    if (!_tileDetailCovers(visibleRegion, imageRatio) ||
+        (_tileDetailRatio ?? 0) <= patchRatio * 1.05) {
+      return;
+    }
+    final next = (fraction: fraction, rung: view.rung, scene: detailScene);
+    final current = _tileForeground;
+    if (current != null &&
+        current.fraction == next.fraction &&
+        current.rung == next.rung &&
+        identical(current.scene, next.scene)) {
+      return;
+    }
+    setState(() => _tileForeground = next);
+    PdfPerfLog.log(
+      'tile foreground promote page=${widget.previewIndex} '
+      'rung=${view.rung} tileRatio=${tileRatio.toStringAsFixed(2)} '
+      'patchRatio=${patchRatio.toStringAsFixed(2)} '
+      'imageRatio=${imageRatio.toStringAsFixed(2)}',
+    );
+  }
+
+  bool _sharpTileForegroundIsCurrent() {
+    final foreground = _tileForeground;
+    final fraction = _tileFraction;
+    final desired = _tileDesiredRatio;
+    if (foreground == null ||
+        fraction == null ||
+        desired == null ||
+        foreground.fraction != fraction ||
+        !identical(foreground.scene, _tileDetailScene) ||
+        _detailImage == null ||
+        !_detailContentIsCurrent()) {
+      return false;
+    }
+    final store = PdfPageView.debugTileStoreOverride ?? PdfTileStore.instance;
+    return foreground.rung == store.ladder.rungAtOrAbove(desired);
   }
 
   /// The retained detail patch may hide a coarse tile only when it is at least
@@ -5221,7 +5321,11 @@ class _PdfPageViewState extends State<PdfPageView>
               final fraction = _detailFraction;
               final slugPicture = _slugPicture;
               final directPicture = _directPicture;
-              final tileLayer = _tileLayerWidget(size);
+              final sharpTilesInFront = _sharpTileForegroundIsCurrent();
+              final tileLayer = _tileLayerWidget(
+                size,
+                foreground: sharpTilesInFront,
+              );
               final worker = widget.renderWorker;
               (int, int)? webDimensions;
               _DetailGeometry? webDetailGeometry;
@@ -5355,12 +5459,10 @@ class _PdfPageViewState extends State<PdfPageView>
                     ),
                   if (webSurface != null) webSurface,
                   if (webDetail != null) webDetail,
-                  // The pyramid grows pan-ahead in bounded tiles after the
-                  // foreground patch paints. Keep it underneath that exact
-                  // patch: late tiles can populate the surrounding page but
-                  // cannot restart the visible-settle clock or perturb an
-                  // already-sharp viewport pixel.
-                  if (tileLayer != null) tileLayer,
+                  // Ordinary pan-ahead remains under the exact patch. A fully
+                  // covered rung carrying a sharper region image decode is
+                  // promoted as one foreground layer only after it paints.
+                  if (tileLayer != null && !sharpTilesInFront) tileLayer,
                   if (detail != null && fraction != null && w.isFinite)
                     Positioned(
                       left: fraction.left * w,
@@ -5390,6 +5492,7 @@ class _PdfPageViewState extends State<PdfPageView>
                               ),
                       ),
                     ),
+                  if (tileLayer != null && sharpTilesInFront) tileLayer,
                 ],
               );
             },
