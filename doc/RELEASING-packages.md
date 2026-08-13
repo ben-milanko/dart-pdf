@@ -1,12 +1,16 @@
 # Releasing the pub.dev packages
 
-This covers the eight workspace **packages** (`pdf_cos`, `pdf_test_fixtures`,
-`pdf_document`, `pdf_graphics`, `dart_pdf_editor`,
-`dart_pdf_editor_assets`, `pdf_ocr_vlm`, `pdf_ocr_ondevice`). The standalone
+This covers the nine publishable workspace **packages** (`pdf_cos`,
+`pdf_test_fixtures`, `pdf_document`, `pdf_graphics`, `dart_pdf_editor`,
+`dart_pdf_editor_flutter_gpu`, `dart_pdf_editor_assets`, `pdf_ocr_vlm`,
+`pdf_ocr_ondevice`). The eight established packages release in lockstep. The
+experimental GPU companion is independently versioned at `0.x` because it has
+a newer Flutter requirement and a deliberately evolving API. The standalone
 **app** ships separately - see
 [`app/RELEASING.md`](../app/RELEASING.md).
 
-The packages are released **in lockstep** at one version. Cutting a release is:
+The established packages are released **in lockstep** at one version; bump the
+GPU companion only when it has changes. Cutting a release is:
 
 1. Bump `version:` in every package's `pubspec.yaml` to the new `X.Y.Z`.
 2. Roll each `## Unreleased` changelog section into `## X.Y.Z` (add a
@@ -41,7 +45,7 @@ self-configure them.
 
 #### 1. Enable automated publishing on pub.dev (per package)
 
-For **each** of the eight packages, on pub.dev → the package → **Admin** tab →
+For **each** of the nine packages, on pub.dev → the package → **Admin** tab →
 **Automated publishing**:
 
 - Enable **Publishing from GitHub Actions**.
@@ -95,7 +99,7 @@ Always works; needs a pub.dev login on the machine.
 ```bash
 fvm dart pub login                 # once, OAuth in a browser
 tool/release.sh                    # dry-run every package (no publishing)
-tool/release.sh --publish --yes    # publish all 8 in dependency order
+tool/release.sh --publish --yes    # publish all 9 in dependency order
 ```
 
 The script publishes dependencies first and waits for each version to be
@@ -104,7 +108,8 @@ resolve). Afterwards, push the tags for the record:
 
 ```bash
 for p in pdf_cos pdf_test_fixtures pdf_document pdf_graphics \
-         dart_pdf_editor dart_pdf_editor_assets pdf_ocr_vlm \
+         dart_pdf_editor dart_pdf_editor_flutter_gpu \
+         dart_pdf_editor_assets pdf_ocr_vlm \
          pdf_ocr_ondevice; do
   git tag -a "$p-v<version>" -m "Release $p <version>"
 done
