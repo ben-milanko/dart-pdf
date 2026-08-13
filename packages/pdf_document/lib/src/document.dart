@@ -7,10 +7,17 @@ import 'page.dart';
 
 /// A PDF document with page-level semantics on top of the COS layer.
 class PdfDocument {
-  PdfDocument._(this.cos);
+  PdfDocument._(this.cos, [this._sourcePageCountHint]);
 
   /// The underlying COS-level document, for anything not surfaced here yet.
   final CosDocument cos;
+
+  // A short-lived sparse source preview may deliberately fetch only its first
+  // N page leaves. Do not make pageCount resolve every intentionally absent
+  // /Kids reference (which can trigger xref recovery scans over a large sparse
+  // address space). The complete replacement document has no hint and keeps
+  // the correctness-first full leaf walk below.
+  final int? _sourcePageCountHint;
 
   /// Opens a document. For encrypted files [password] is tried first as
   /// the user and then as the owner password (the empty default is what
@@ -32,9 +39,16 @@ class PdfDocument {
     PdfByteSource source, {
     String password = '',
     PdfSourceLoadOptions options = const PdfSourceLoadOptions(),
-  }) async =>
-      PdfDocument._(await CosDocument.openSource(source,
-          password: password, options: options));
+  }) async {
+    final result = await openCosDocumentFromSourceWithStatus(source,
+        password: password, options: options);
+    final hint = result.isFirstPaintBuffer &&
+            options.firstPaintPages != null &&
+            !options.completeFirstPaintPageTree
+        ? options.firstPaintPages
+        : null;
+    return PdfDocument._(result.document, hint);
+  }
 
   String get version => cos.version;
 
@@ -53,7 +67,7 @@ class PdfDocument {
   /// reference to a stream), and an index below pageCount must never
   /// make [page] throw. The walk caches in [_leafCache]; /Count is still
   /// used as the subtree-skipping hint inside [page].
-  int get pageCount => _leaves.length;
+  int get pageCount => _sourcePageCountHint ?? _leaves.length;
 
   /// Document information dictionary (/Title, /Author, ...) as text.
   Map<String, String> get info {
@@ -74,13 +88,17 @@ class PdfDocument {
     if (index < 0) {
       throw RangeError.range(index, 0, null, 'index');
     }
+    final sourceLimit = _sourcePageCountHint;
+    if (sourceLimit != null && index >= sourceLimit) {
+      throw RangeError.range(index, 0, sourceLimit - 1, 'index');
+    }
     final cached = _pageCache[index];
     if (cached != null) return cached;
     // The fast walk trusts /Count on intermediate nodes to skip whole
     // subtrees. Real-world files lie about /Count, so a miss falls back
     // to walking every leaf before giving up.
-    final fast = _findPage(_pagesRoot, _Counter(index), const _Inherited(),
-        <CosDictionary>{});
+    final fast = _findPage(
+        _pagesRoot, _Counter(index), const _Inherited(), <CosDictionary>{});
     if (fast != null) return _pageCache[index] = fast;
     final counter = _Counter(index);
     final found = _findPage(
@@ -174,8 +192,8 @@ class PdfDocument {
   /// so identity comparison is sound. Used to resolve link destinations.
   int pageIndexOf(CosDictionary pageDict) => _leafIndex[pageDict] ?? -1;
 
-  void _collectLeaves(CosDictionary node, List<CosDictionary> out,
-      Set<CosDictionary> visited) {
+  void _collectLeaves(
+      CosDictionary node, List<CosDictionary> out, Set<CosDictionary> visited) {
     if (!visited.add(node)) return;
     if (_isLeaf(node)) {
       out.add(node);

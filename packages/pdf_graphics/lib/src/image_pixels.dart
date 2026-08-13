@@ -18,6 +18,7 @@ import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_cos/perf.dart';
 
 import 'calibrated_color.dart';
 import 'color.dart';
@@ -36,14 +37,129 @@ class PdfDecodedPixels {
   final int height;
 }
 
+/// Four-channel JPEG samples in PDF CMYK polarity (0 = no ink, 255 = full
+/// ink), before the image XObject's colour space and `/Decode` are applied.
+///
+/// An embedding renderer may install [pdfDctCmykDecoder] to replace the
+/// portable `package:image` entropy/IDCT stage with an accelerated codec. The
+/// colour-management, masking, downsampling, and premultiplication pipeline
+/// remains here, so accelerated and fallback decoders share PDF semantics.
+final class PdfDctCmykSamples {
+  const PdfDctCmykSamples(this.samples, this.width, this.height);
+
+  final Uint8List samples;
+  final int width;
+  final int height;
+}
+
+/// Grayscale samples returned by a platform DCT accelerator.
+final class PdfDctGraySamples {
+  const PdfDctGraySamples(this.samples, this.width, this.height);
+
+  final Uint8List samples;
+  final int width;
+  final int height;
+}
+
+/// Opaque RGBA samples returned by a platform DCT accelerator.
+final class PdfDctRgbaSamples {
+  const PdfDctRgbaSamples(this.samples, this.width, this.height);
+
+  final Uint8List samples;
+  final int width;
+  final int height;
+}
+
+/// Synchronous accelerator seam for four-component DCT images.
+///
+/// The decoder may return the native JPEG dimensions or a smaller result near
+/// [targetWidth] x [targetHeight]. Invalid output, exceptions, and null all
+/// fall back to the pure-Dart decoder. The hook is isolate-local; render-worker
+/// implementations must install it inside each worker.
+typedef PdfDctCmykDecoder = PdfDctCmykSamples? Function(
+  Uint8List jpegBytes, {
+  int? targetWidth,
+  int? targetHeight,
+});
+
+/// Optional four-component JPEG accelerator used by [decodePdfImageBase].
+///
+/// Null preserves the portable pure-Dart implementation. Renderers should set
+/// this once at isolate/worker startup rather than changing it between calls.
+PdfDctCmykDecoder? pdfDctCmykDecoder;
+
+/// Optional grayscale JPEG accelerator, primarily for large `/SMask` images.
+typedef PdfDctGrayDecoder = PdfDctGraySamples? Function(
+  Uint8List jpegBytes, {
+  int? targetWidth,
+  int? targetHeight,
+});
+
+/// Isolate-local grayscale JPEG accelerator installed by the UI package.
+PdfDctGrayDecoder? pdfDctGrayDecoder;
+
+/// Optional RGB JPEG accelerator used by the `dart:ui` residual pipeline.
+typedef PdfDctRgbaDecoder = PdfDctRgbaSamples? Function(
+  Uint8List jpegBytes, {
+  int? targetWidth,
+  int? targetHeight,
+});
+
+/// Isolate-local RGB-to-RGBA JPEG accelerator installed by the UI package.
+PdfDctRgbaDecoder? pdfDctRgbaDecoder;
+
+/// Optional bulk converter for unmanaged DeviceCMYK samples.
+///
+/// The callback must implement the same SWOP-class transform as
+/// [PdfColor.cmyk] and return opaque RGBA bytes. It is used only for identity
+/// `/Decode`, no ICC profile, and no colour-key mask; all managed or keyed
+/// images retain the portable per-pixel path below.
+typedef PdfDeviceCmykToRgba = Uint8List? Function(Uint8List samples);
+
+/// Isolate-local unmanaged DeviceCMYK bulk conversion accelerator.
+PdfDeviceCmykToRgba? pdfDeviceCmykToRgba;
+
+/// Optional exact box-filter accelerator for packed 8-bit component samples.
+///
+/// The callback must return `targetWidth * targetHeight * components` bytes
+/// using the same integer-cell average as the portable implementation. Invalid
+/// output, exceptions, and null all retain the pure-Dart fallback. Keeping the
+/// hook here lets a renderer accelerate Flate masks and non-DCT colour planes,
+/// not only samples produced by its JPEG codec.
+typedef PdfComponentBoxDownsampler = Uint8List? Function(
+  Uint8List samples,
+  int width,
+  int height,
+  int components,
+  int targetWidth,
+  int targetHeight,
+);
+
+/// Isolate-local packed-component box-filter accelerator.
+PdfComponentBoxDownsampler? pdfComponentBoxDownsampler;
+
 /// A grayscale alpha plane lifted from an /SMask or stencil /Mask
 /// (§11.6.5.2 / §8.9.6.3), to be baked into a base image's alpha channel.
 class PdfImageSoftMask {
-  PdfImageSoftMask(this.alpha, this.width, this.height, {this.matte});
+  PdfImageSoftMask(
+    this.alpha,
+    this.width,
+    this.height, {
+    this.matte,
+    this.sampleStride = 1,
+  }) : assert(sampleStride > 0);
 
+  /// Bytes containing the mask samples. Normally this is a compact one-byte
+  /// plane. A platform codec may instead expose an RGBA buffer with
+  /// [sampleStride] 4; retaining that view avoids a full-image channel-copy
+  /// before the mask is consumed.
   final Uint8List alpha;
   final int width;
   final int height;
+
+  /// Distance in [alpha] between consecutive coverage samples. The coverage
+  /// byte is always the first byte of each sample.
+  final int sampleStride;
 
   /// The /Matte colour (§11.6.5.3) the base image was preblended against,
   /// as straight sRGB bytes `[r, g, b]`, or null when the mask carries no
@@ -81,7 +197,18 @@ class PdfImageBase {
 /// stencils. Splitting the base out lets the `dart:ui` layer pair a purely
 /// decoded base with a DCT-encoded soft mask (e.g. a CMYK image under a JPEG
 /// /SMask) without re-decoding the base.
-PdfImageBase? decodePdfImageBase(CosDocument cos, CosStream stream) {
+///
+/// [targetWidth]/[targetHeight] may request a smaller base. For the expensive
+/// 8-bit Separation/DeviceN and CMYK paths, component samples are reduced
+/// before the tint/ICC/device conversion, so a masked page image does not
+/// allocate and colour-convert a native RGBA surface merely to shrink it one
+/// layer up. Other formats retain their established full-resolution decode.
+PdfImageBase? decodePdfImageBase(
+  CosDocument cos,
+  CosStream stream, {
+  int? targetWidth,
+  int? targetHeight,
+}) {
   final dict = stream.dictionary;
   final filters = pdfImageFilters(cos, dict);
   final isMask = cos.resolve(dict['ImageMask']) == const CosBoolean(true);
@@ -101,10 +228,23 @@ PdfImageBase? decodePdfImageBase(CosDocument cos, CosStream stream) {
     if (pdfImageColorFamily(cos, dict) != 'DeviceCMYK') {
       return null; // non-CMYK JPEG → platform codec
     }
-    final cmyk = _decodeDctCmyk(jpeg);
+    final cmyk = _decodeDctCmyk(
+      jpeg,
+      targetWidth: targetWidth,
+      targetHeight: targetHeight,
+    );
     if (cmyk == null) return null;
-    final rgba = _toRgba(cos, dict, cmyk.samples, cmyk.width, cmyk.height, 8,
-        icc: _iccProfileFor(cos, dict));
+    final colorT0 = PdfPerf.begin();
+    final rgba = _toRgba(
+      cos,
+      dict,
+      cmyk.samples,
+      cmyk.width,
+      cmyk.height,
+      8,
+      icc: _iccProfileFor(cos, dict),
+    );
+    PdfPerf.end(PdfPerfPhase.imageColorConvert, colorT0);
     if (rgba == null) return null;
     return PdfImageBase(rgba, cmyk.width, cmyk.height, opaque: !colorKeyed);
   }
@@ -147,29 +287,224 @@ PdfImageBase? decodePdfImageBase(CosDocument cos, CosStream stream) {
     data = cos.decodeStreamData(stream);
   }
 
-  final rgba = isMask
-      ? _stencilToRgba(cos, dict, data, width, height)
-      : _toRgba(cos, dict, data, width, height, bits,
-          icc: _iccProfileFor(cos, dict));
+  final family = pdfImageColorFamily(cos, dict);
+  final alternate = _alternateColorSpaceFor(cos, dict);
+  final components = alternate?.channels ??
+      switch (family) {
+        'DeviceCMYK' => 4,
+        _ => 0,
+      };
+  final shouldScale = targetWidth != null &&
+      targetHeight != null &&
+      !isMask &&
+      !colorKeyed &&
+      bits == 8 &&
+      components > 0 &&
+      (family == 'Separation' || family == 'DeviceN' || family == 'DeviceCMYK');
+  final colorT0 = PdfPerf.begin();
+  final converted = shouldScale
+      ? _convertAndDownsampleRgba(
+          cos,
+          dict,
+          data,
+          width,
+          height,
+          bits,
+          components,
+          targetWidth,
+          targetHeight,
+        )
+      : null;
+  final rgba = converted?.rgba ??
+      (isMask
+          ? _stencilToRgba(cos, dict, data, width, height)
+          : _toRgba(cos, dict, data, width, height, bits,
+              icc: _iccProfileFor(cos, dict)));
+  PdfPerf.end(PdfPerfPhase.imageColorConvert, colorT0);
   if (rgba == null) return null;
   // An /ImageMask decodes to a stencil with real (0/255) alpha.
-  return PdfImageBase(rgba, width, height, opaque: !isMask && !colorKeyed);
+  return PdfImageBase(
+      rgba, converted?.width ?? width, converted?.height ?? height,
+      opaque: !isMask && !colorKeyed);
+}
+
+/// Converts nonlinear ink spaces before box filtering, matching the historical
+/// full-RGBA decode byte-for-byte without retaining that full RGBA surface.
+///
+/// Separation/DeviceN tint transforms, ICC profiles, and the DeviceCMYK
+/// polynomial do not commute with averaging: converting the average component
+/// tuple is not the same colour as averaging the converted source pixels. The
+/// former was faster but visibly shifted raster artwork and failed the Ghent
+/// overprint baselines. Convert bounded stripes of source rows, box-filter all
+/// output rows fed by each stripe, then release it. A stripe amortizes tint/
+/// ICC lookup construction across many output rows without retaining the full
+/// native RGBA image. Peak temporary RGBA is bounded to about 4 MiB (or one
+/// source-to-output row group when that alone is larger), while the output
+/// remains identical to
+/// `downsamplePdfDecodedPixels(decodePdfImagePixels(...))` for opaque bases.
+({Uint8List rgba, int width, int height})? _convertAndDownsampleRgba(
+  CosDocument cos,
+  CosDictionary dict,
+  Uint8List samples,
+  int sourceWidth,
+  int sourceHeight,
+  int bits,
+  int components,
+  int targetWidth,
+  int targetHeight,
+) {
+  if (bits != 8 ||
+      components <= 0 ||
+      samples.length < sourceWidth * sourceHeight * components ||
+      targetWidth <= 0 ||
+      targetHeight <= 0 ||
+      (targetWidth >= sourceWidth && targetHeight >= sourceHeight)) {
+    return null;
+  }
+  final width = targetWidth.clamp(1, sourceWidth);
+  final height = targetHeight.clamp(1, sourceHeight);
+  final output = Uint8List(width * height * 4);
+  final icc = _iccProfileFor(cos, dict);
+  const maxStripeBytes = 4 * 1024 * 1024;
+  final maxStripeRows = math.max(1, maxStripeBytes ~/ (sourceWidth * 4));
+  var targetY = 0;
+
+  while (targetY < height) {
+    final stripeTargetY0 = targetY;
+    final stripeSourceY0 = stripeTargetY0 * sourceHeight ~/ height;
+    var stripeTargetY1 = stripeTargetY0 + 1;
+    while (stripeTargetY1 < height) {
+      final nextSourceY1 = (stripeTargetY1 + 1) * sourceHeight ~/ height;
+      if (nextSourceY1 - stripeSourceY0 > maxStripeRows) break;
+      stripeTargetY1++;
+    }
+    final stripeSourceY1 = stripeTargetY1 * sourceHeight ~/ height;
+    final stripeSamples = Uint8List.sublistView(
+      samples,
+      stripeSourceY0 * sourceWidth * components,
+      stripeSourceY1 * sourceWidth * components,
+    );
+    final stripeHeight = stripeSourceY1 - stripeSourceY0;
+    final converted = _toRgba(
+      cos,
+      dict,
+      stripeSamples,
+      sourceWidth,
+      stripeHeight,
+      bits,
+      icc: icc,
+    );
+    if (converted == null) return null;
+
+    for (; targetY < stripeTargetY1; targetY++) {
+      final sourceY0 = targetY * sourceHeight ~/ height;
+      final sourceY1 = (targetY + 1) * sourceHeight ~/ height;
+      final localSourceY0 = sourceY0 - stripeSourceY0;
+      final localSourceY1 = sourceY1 - stripeSourceY0;
+      var outputOffset = targetY * width * 4;
+      for (var targetX = 0; targetX < width; targetX++) {
+        final sourceX0 = targetX * sourceWidth ~/ width;
+        final sourceX1 = (targetX + 1) * sourceWidth ~/ width;
+        var red = 0, green = 0, blue = 0, alpha = 0, count = 0;
+        for (var row = localSourceY0; row < localSourceY1; row++) {
+          var sourceOffset = (row * sourceWidth + sourceX0) * 4;
+          for (var sourceX = sourceX0; sourceX < sourceX1; sourceX++) {
+            red += converted[sourceOffset];
+            green += converted[sourceOffset + 1];
+            blue += converted[sourceOffset + 2];
+            alpha += converted[sourceOffset + 3];
+            sourceOffset += 4;
+            count++;
+          }
+        }
+        output[outputOffset] = red ~/ count;
+        output[outputOffset + 1] = green ~/ count;
+        output[outputOffset + 2] = blue ~/ count;
+        output[outputOffset + 3] = alpha ~/ count;
+        outputOffset += 4;
+      }
+    }
+  }
+  return (rgba: output, width: width, height: height);
+}
+
+({Uint8List samples, int width, int height}) _targetSizedColorSamples(
+  Uint8List samples,
+  int width,
+  int height,
+  int components,
+  int? targetWidth,
+  int? targetHeight,
+) {
+  if (targetWidth == null ||
+      targetHeight == null ||
+      targetWidth <= 0 ||
+      targetHeight <= 0 ||
+      (targetWidth >= width && targetHeight >= height) ||
+      samples.length < width * height * components) {
+    return (samples: samples, width: width, height: height);
+  }
+  final tw = targetWidth.clamp(1, width);
+  final th = targetHeight.clamp(1, height);
+  final accelerator = pdfComponentBoxDownsampler;
+  if (accelerator != null) {
+    try {
+      final accelerated = accelerator(
+        samples,
+        width,
+        height,
+        components,
+        tw,
+        th,
+      );
+      if (accelerated != null && accelerated.length == tw * th * components) {
+        return (samples: accelerated, width: tw, height: th);
+      }
+    } catch (_) {
+      // Acceleration is opportunistic; retain the exact portable reducer.
+    }
+  }
+  final out = Uint8List(tw * th * components);
+  final sums = Int32List(components);
+  var di = 0;
+  for (var ty = 0; ty < th; ty++) {
+    final sy0 = ty * height ~/ th;
+    var sy1 = (ty + 1) * height ~/ th;
+    if (sy1 <= sy0) sy1 = sy0 + 1;
+    for (var tx = 0; tx < tw; tx++) {
+      final sx0 = tx * width ~/ tw;
+      var sx1 = (tx + 1) * width ~/ tw;
+      if (sx1 <= sx0) sx1 = sx0 + 1;
+      sums.fillRange(0, components, 0);
+      var count = 0;
+      for (var sy = sy0; sy < sy1; sy++) {
+        var si = (sy * width + sx0) * components;
+        for (var sx = sx0; sx < sx1; sx++) {
+          for (var c = 0; c < components; c++) {
+            sums[c] += samples[si + c];
+          }
+          si += components;
+          count++;
+        }
+      }
+      for (var c = 0; c < components; c++) {
+        out[di++] = sums[c] ~/ count;
+      }
+    }
+  }
+  return (samples: out, width: tw, height: th);
 }
 
 /// Decodes an image XObject [stream] to premultiplied, codec-ready RGBA
 /// **purely** (no `dart:ui`), or returns null when the platform JPEG codec is
 /// needed - a non-CMYK DCTDecode base, or any image paired with a DCTDecode-
-/// encoded /SMask - or the image can't be decoded. On null the caller falls
-/// back to the `dart:ui` decode path ([decodePdfImageBase] + the codec).
+/// encoded base - or the image can't be decoded. DCT grayscale soft masks are
+/// decoded portably through `package:image`, so a Flate/CMYK base under one can
+/// stay entirely on a render worker. On null the caller falls back to the
+/// `dart:ui` decode path ([decodePdfImageBase] + the codec).
 PdfDecodedPixels? decodePdfImagePixels(CosDocument cos, CosStream stream) {
   final dict = stream.dictionary;
   final isStencil = cos.resolve(dict['ImageMask']) == const CosBoolean(true);
-
-  // Bail before decoding the base, not after: a DCTDecode /SMask sends the
-  // image to the `dart:ui` path whatever the base holds, and that path decodes
-  // the base itself ([decodePdfImageBase]), so a base decoded here is thrown
-  // away and paid for twice. A stencil ignores the soft mask, so it stays.
-  if (!isStencil && _softMaskIsDct(cos, dict)) return null;
 
   final base = decodePdfImageBase(cos, stream);
   if (base == null) return null;
@@ -179,11 +514,21 @@ PdfDecodedPixels? decodePdfImagePixels(CosDocument cos, CosStream stream) {
     return _finish(base.rgba, base.width, base.height, hasAlpha: true);
   }
   final mask = pdfImageSoftMask(cos, dict) ?? pdfImageStencilMask(cos, dict);
+  // A declared DCT mask that failed the portable JPEG decoder is not the same
+  // as no mask. Let the dart:ui layer try its platform codec instead of
+  // silently painting the base opaque.
+  if (mask == null && pdfImageDctSoftMaskBytes(cos, dict) != null) return null;
   if (mask == null) {
     return _finish(base.rgba, base.width, base.height, hasAlpha: !base.opaque);
   }
-  final m = pdfApplyImageAlpha(base.rgba, base.width, base.height, mask);
-  return _finish(m.$1, m.$2, m.$3, hasAlpha: true);
+  final m = pdfApplyImageAlpha(
+    base.rgba,
+    base.width,
+    base.height,
+    mask,
+    premultiply: true,
+  );
+  return PdfDecodedPixels(m.$1, m.$2, m.$3);
 }
 
 /// A rectangular source-pixel region of an image, in the top-left origin of
@@ -207,14 +552,18 @@ class PdfImageRegion {
 ///  * [targetWidth]/[targetHeight] - the display size to decode to; a target
 ///    smaller than the source (or region) avoids expanding a huge native
 ///    raster only to downsample it. Omit both to decode at native size.
+///  * [samplesAreDecoded] - [stream.rawBytes] already contains decoded samples
+///    supplied by a platform decompressor. This is false for normal PDF image
+///    streams so unfiltered document images keep the established full-decode
+///    resampling path.
 ///
 /// The façade picks the narrowest fast path that fits - region-scaled,
 /// whole-image scaled, or a plain full decode - and, when that fast path
 /// can't handle the stream (a stacked filter, an Indexed-8/ICC/Lab space, a
 /// 16-bit or /SMask'd image; the fast paths only cover single-filter Flate/
-/// raw/CCITT), transparently falls back to a full decode cropped and
-/// downsampled to the request. That fall-back-and-downscale policy used to be
-/// copied into each caller.
+/// CCITT or explicitly pre-decoded samples), transparently falls back to a
+/// full decode cropped and downsampled to the request. That fall-back-and-
+/// downscale policy used to be copied into each caller.
 ///
 /// Returns null only when even the full pure-Dart decode can't produce pixels
 /// - a non-CMYK DCTDecode base, or an image under a DCT-encoded /SMask, needs
@@ -226,6 +575,7 @@ PdfDecodedPixels? decodePdfImage(
   PdfImageRegion? region,
   int? targetWidth,
   int? targetHeight,
+  bool samplesAreDecoded = false,
 }) {
   if (region != null) {
     final tw = targetWidth ?? region.sourceWidth;
@@ -239,6 +589,7 @@ PdfDecodedPixels? decodePdfImage(
       region.sourceHeight,
       tw,
       th,
+      samplesAreDecoded: samplesAreDecoded,
     );
     if (fast != null) return fast;
     final full = decodePdfImagePixels(cos, stream);
@@ -255,14 +606,96 @@ PdfDecodedPixels? decodePdfImage(
   }
 
   if (targetWidth != null && targetHeight != null) {
-    final fast = decodePdfImagePixelsScaled(cos, stream, targetWidth, targetHeight);
+    final fast = decodePdfImagePixelsScaled(
+      cos,
+      stream,
+      targetWidth,
+      targetHeight,
+      samplesAreDecoded: samplesAreDecoded,
+    );
     if (fast != null) return fast;
+    final targeted = _decodePdfImagePixelsTargeted(
+      cos,
+      stream,
+      targetWidth,
+      targetHeight,
+    );
+    if (targeted != null) return targeted;
     final full = decodePdfImagePixels(cos, stream);
     if (full == null) return null;
     return downsamplePdfDecodedPixels(full, targetWidth, targetHeight);
   }
 
   return decodePdfImagePixels(cos, stream);
+}
+
+/// Target-aware form of the general portable decode.
+///
+/// The narrow scaled fast paths above intentionally decline alternate colour
+/// spaces and masked images. Falling straight back to [decodePdfImagePixels]
+/// used to throw the requested size away: a display-sized render of a press
+/// JPEG or DeviceN/Flate image under a soft mask expanded and colour-converted
+/// every native sample, composited every native pixel, and only then shrank
+/// the RGBA result. Keep those general PDF semantics, but pass the target into
+/// the base and mask halves before they meet.
+PdfDecodedPixels? _decodePdfImagePixelsTargeted(
+  CosDocument cos,
+  CosStream stream,
+  int targetWidth,
+  int targetHeight,
+) {
+  final dict = stream.dictionary;
+  final isStencil = cos.resolve(dict['ImageMask']) == const CosBoolean(true);
+  final base = decodePdfImageBase(
+    cos,
+    stream,
+    targetWidth: targetWidth,
+    targetHeight: targetHeight,
+  );
+  if (base == null) return null;
+
+  PdfDecodedPixels decoded;
+  if (isStencil) {
+    decoded = _finish(base.rgba, base.width, base.height, hasAlpha: true);
+  } else {
+    final mask = pdfImageSoftMask(
+          cos,
+          dict,
+          targetWidth: base.width,
+          targetHeight: base.height,
+        ) ??
+        pdfImageStencilMask(
+          cos,
+          dict,
+          targetWidth: base.width,
+          targetHeight: base.height,
+        );
+    if (mask == null && pdfImageDctSoftMaskBytes(cos, dict) != null) {
+      return null;
+    }
+    if (mask == null) {
+      decoded = _finish(
+        base.rgba,
+        base.width,
+        base.height,
+        hasAlpha: !base.opaque,
+      );
+    } else {
+      final applied = pdfApplyImageAlpha(
+        base.rgba,
+        base.width,
+        base.height,
+        mask,
+        premultiply: true,
+      );
+      decoded = PdfDecodedPixels(applied.$1, applied.$2, applied.$3);
+    }
+  }
+
+  if (decoded.width == targetWidth && decoded.height == targetHeight) {
+    return decoded;
+  }
+  return downsamplePdfDecodedPixels(decoded, targetWidth, targetHeight);
 }
 
 /// Crops premultiplied [decoded] to the source rectangle and downsamples it to
@@ -315,8 +748,9 @@ PdfDecodedPixels? decodePdfImagePixelsScaled(
   CosDocument cos,
   CosStream stream,
   int targetWidth,
-  int targetHeight,
-) {
+  int targetHeight, {
+  bool samplesAreDecoded = false,
+}) {
   final dict = stream.dictionary;
   final width = _intOf(cos.resolve(dict['Width']));
   final height = _intOf(cos.resolve(dict['Height']));
@@ -325,7 +759,7 @@ PdfDecodedPixels? decodePdfImagePixelsScaled(
   if (jpx != null) return jpx;
   return decodePdfImagePixelsRegionScaled(
       cos, stream, 0, 0, width, height, targetWidth, targetHeight,
-      wholeImageOnlyIfDownscaled: true);
+      wholeImageOnlyIfDownscaled: true, samplesAreDecoded: samplesAreDecoded);
 }
 
 /// Decodes a plain (colour, unmasked, non-Indexed) JPXDecode image at a reduced
@@ -398,6 +832,7 @@ PdfDecodedPixels? decodePdfImagePixelsRegionScaled(
   int targetWidth,
   int targetHeight, {
   bool wholeImageOnlyIfDownscaled = false,
+  bool samplesAreDecoded = false,
 }) {
   final dict = stream.dictionary;
   final width = _intOf(cos.resolve(dict['Width']));
@@ -417,11 +852,11 @@ PdfDecodedPixels? decodePdfImagePixelsRegionScaled(
   }
 
   final filters = pdfImageFilters(cos, dict);
-  if (filters.length != 1) {
-    return null;
-  }
-  final filter = filters.single;
-  final supportedFilter = filter == 'FlateDecode' ||
+  if (filters.length > 1) return null;
+  final filter = filters.singleOrNull;
+  if (samplesAreDecoded && filter != null) return null;
+  final supportedFilter = samplesAreDecoded ||
+      filter == 'FlateDecode' ||
       filter == 'Fl' ||
       filter == 'CCITTFaxDecode' ||
       filter == 'CCF';
@@ -430,42 +865,57 @@ PdfDecodedPixels? decodePdfImagePixelsRegionScaled(
   final isMask = cos.resolve(dict['ImageMask']) == const CosBoolean(true);
   final mask = cos.resolve(dict['Mask']);
   if (!isMask && dict.containsKey('SMask')) return null;
-
-  final data = cos.decodeStreamData(stream);
-  if (isMask) {
-    return _scaledImageMaskRegion(
-        cos, dict, data, width, height, sx, sy, sw, sh, tw, th);
-  }
-
   final bits = _intOf(cos.resolve(dict['BitsPerComponent']), fallback: 8);
   final space = pdfImageColorFamily(cos, dict);
-  if (space == 'DeviceGray' && bits == 1) {
-    if (mask is! CosNull && mask is! CosArray) return null;
-    if (!_isDirectDeviceColorSpace(cos, dict, space)) return null;
-    return _scaledGray1Region(
-        cos, dict, data, width, height, sx, sy, sw, sh, tw, th);
-  }
-  if (space == 'Indexed' && bits == 1) {
-    if (mask is! CosNull && mask is! CosStream) return null;
-    return _scaledIndexed1Region(cos, dict, data, width, height, sx, sy, sw, sh,
-        tw, th, mask is CosStream ? mask : null);
-  }
-  if (mask is! CosNull) return null;
-  if (bits != 8) return null;
-  final components = switch (space) {
+  final directComponents = switch (space) {
     'DeviceRGB' => 3,
     'DeviceGray' => 1,
     _ => 0,
   };
-  if (components == 0) return null;
-  if (!_isDirectDeviceColorSpace(cos, dict, space)) return null;
-  if (pdfImageDecodeRanges(cos, dict, components) != null) return null;
 
-  return switch (components) {
-    3 => _scaledRgb8Region(data, width, height, sx, sy, sw, sh, tw, th),
-    1 => _scaledGray8Region(data, width, height, sx, sy, sw, sh, tw, th),
-    _ => null,
-  };
+  // Establish that one of the narrow scaled paths can actually consume the
+  // samples *before* inflating them. The old order decoded every declined
+  // alternate-colour image here, then decoded it a second time in the general
+  // fallback below. Large DeviceN/Separation Flate images (common in exported
+  // press artwork) therefore paid two inflates and two predictor buffers just
+  // to discover that this direct-device fast path did not apply. Apart from
+  // the duplicated CPU, those short-lived multi-megabyte planes caused GC
+  // pauses between the instrumented inflate/scale/colour phases.
+  final supported = isMask ||
+      (space == 'DeviceGray' &&
+          bits == 1 &&
+          (mask is CosNull || mask is CosArray) &&
+          _isDirectDeviceColorSpace(cos, dict, space)) ||
+      (space == 'Indexed' &&
+          bits == 1 &&
+          (mask is CosNull || mask is CosStream)) ||
+      (mask is CosNull &&
+          bits == 8 &&
+          directComponents != 0 &&
+          _isDirectDeviceColorSpace(cos, dict, space) &&
+          pdfImageDecodeRanges(cos, dict, directComponents) == null);
+  if (!supported) return null;
+
+  // A platform-decompressor handoff already contains decoded samples. Keep it
+  // explicit: treating every unfiltered PDF image as this fast path changed
+  // the established interpolation of Type 3 bitmap fonts and Ghent imagery.
+  final data =
+      samplesAreDecoded ? stream.rawBytes : cos.decodeStreamData(stream);
+  if (isMask) {
+    return _scaledImageMaskRegion(
+        cos, dict, data, width, height, sx, sy, sw, sh, tw, th);
+  }
+  if (space == 'DeviceGray' && bits == 1) {
+    return _scaledGray1Region(
+        cos, dict, data, width, height, sx, sy, sw, sh, tw, th);
+  }
+  if (space == 'Indexed' && bits == 1) {
+    return _scaledIndexed1Region(cos, dict, data, width, height, sx, sy, sw, sh,
+        tw, th, mask is CosStream ? mask : null);
+  }
+  return directComponents == 3
+      ? _scaledRgb8Region(data, width, height, sx, sy, sw, sh, tw, th)
+      : _scaledGray8Region(data, width, height, sx, sy, sw, sh, tw, th);
 }
 
 bool _isDirectDeviceColorSpace(
@@ -500,6 +950,20 @@ PdfDecodedPixels _finish(Uint8List rgba, int width, int height,
 /// target is at least as large on both axes. The caller passes target
 /// dimensions that already preserve the aspect it wants; this only resamples.
 PdfDecodedPixels downsamplePdfDecodedPixels(
+    PdfDecodedPixels pixels, int targetWidth, int targetHeight) {
+  final scaleT0 = PdfPerf.begin();
+  try {
+    return _downsamplePdfDecodedPixelsUnprofiled(
+      pixels,
+      targetWidth,
+      targetHeight,
+    );
+  } finally {
+    PdfPerf.end(PdfPerfPhase.imageDownsample, scaleT0);
+  }
+}
+
+PdfDecodedPixels _downsamplePdfDecodedPixelsUnprofiled(
     PdfDecodedPixels pixels, int targetWidth, int targetHeight) {
   final sw = pixels.width;
   final sh = pixels.height;
@@ -557,28 +1021,59 @@ PdfDecodedPixels? _scaledRgb8Region(
 ) {
   if (data.length < width * height * 3) return null;
   final out = Uint8List(targetWidth * targetHeight * 4);
+  if (sourceX == 0 &&
+      sourceY == 0 &&
+      sourceWidth == width &&
+      sourceHeight == height &&
+      targetWidth == width &&
+      targetHeight == height) {
+    var si = 0;
+    var di = 0;
+    while (si < width * height * 3) {
+      out[di] = data[si];
+      out[di + 1] = data[si + 1];
+      out[di + 2] = data[si + 2];
+      out[di + 3] = 255;
+      si += 3;
+      di += 4;
+    }
+    return PdfDecodedPixels(out, targetWidth, targetHeight);
+  }
+  // Horizontal sampling geometry is identical for every row and channel.
+  // Computing it inside the pixel loop used to allocate one record and run a
+  // floating-point division per output pixel. On scanned pages that was ~1.4M
+  // records per render in dart2js. Hoist it once per column; the arithmetic and
+  // rounding below remain byte-for-byte identical.
+  final x0s = Int32List(targetWidth);
+  final x1s = Int32List(targetWidth);
+  final wxs = Int32List(targetWidth);
+  for (var x = 0; x < targetWidth; x++) {
+    final sx =
+        _sourceCoordInRegion(x, sourceX, sourceWidth, width, targetWidth);
+    x0s[x] = sx.$1;
+    x1s[x] = sx.$2;
+    wxs[x] = _fixedImageWeight(sx.$3);
+  }
   var di = 0;
   for (var y = 0; y < targetHeight; y++) {
     final sy =
         _sourceCoordInRegion(y, sourceY, sourceHeight, height, targetHeight);
     final y0 = sy.$1;
     final y1 = sy.$2;
-    final wy = sy.$3;
+    final wy = _fixedImageWeight(sy.$3);
     for (var x = 0; x < targetWidth; x++) {
-      final sx =
-          _sourceCoordInRegion(x, sourceX, sourceWidth, width, targetWidth);
-      final x0 = sx.$1;
-      final x1 = sx.$2;
-      final wx = sx.$3;
+      final x0 = x0s[x];
+      final x1 = x1s[x];
+      final wx = wxs[x];
       final i00 = (y0 * width + x0) * 3;
       final i01 = (y0 * width + x1) * 3;
       final i10 = (y1 * width + x0) * 3;
       final i11 = (y1 * width + x1) * 3;
-      out[di] =
-          _bilinearByte(data[i00], data[i01], data[i10], data[i11], wx, wy);
-      out[di + 1] = _bilinearByte(
+      out[di] = _bilinearByteFixed(
+          data[i00], data[i01], data[i10], data[i11], wx, wy);
+      out[di + 1] = _bilinearByteFixed(
           data[i00 + 1], data[i01 + 1], data[i10 + 1], data[i11 + 1], wx, wy);
-      out[di + 2] = _bilinearByte(
+      out[di + 2] = _bilinearByteFixed(
           data[i00 + 2], data[i01 + 2], data[i10 + 2], data[i11 + 2], wx, wy);
       out[di + 3] = 255;
       di += 4;
@@ -600,20 +1095,43 @@ PdfDecodedPixels? _scaledGray8Region(
 ) {
   if (data.length < width * height) return null;
   final out = Uint8List(targetWidth * targetHeight * 4);
+  if (sourceX == 0 &&
+      sourceY == 0 &&
+      sourceWidth == width &&
+      sourceHeight == height &&
+      targetWidth == width &&
+      targetHeight == height) {
+    var di = 0;
+    for (var si = 0; si < width * height; si++) {
+      final value = data[si];
+      out[di] = out[di + 1] = out[di + 2] = value;
+      out[di + 3] = 255;
+      di += 4;
+    }
+    return PdfDecodedPixels(out, targetWidth, targetHeight);
+  }
+  final x0s = Int32List(targetWidth);
+  final x1s = Int32List(targetWidth);
+  final wxs = Int32List(targetWidth);
+  for (var x = 0; x < targetWidth; x++) {
+    final sx =
+        _sourceCoordInRegion(x, sourceX, sourceWidth, width, targetWidth);
+    x0s[x] = sx.$1;
+    x1s[x] = sx.$2;
+    wxs[x] = _fixedImageWeight(sx.$3);
+  }
   var di = 0;
   for (var y = 0; y < targetHeight; y++) {
     final sy =
         _sourceCoordInRegion(y, sourceY, sourceHeight, height, targetHeight);
     final y0 = sy.$1;
     final y1 = sy.$2;
-    final wy = sy.$3;
+    final wy = _fixedImageWeight(sy.$3);
     for (var x = 0; x < targetWidth; x++) {
-      final sx =
-          _sourceCoordInRegion(x, sourceX, sourceWidth, width, targetWidth);
-      final x0 = sx.$1;
-      final x1 = sx.$2;
-      final wx = sx.$3;
-      final v = _bilinearByte(data[y0 * width + x0], data[y0 * width + x1],
+      final x0 = x0s[x];
+      final x1 = x1s[x];
+      final wx = wxs[x];
+      final v = _bilinearByteFixed(data[y0 * width + x0], data[y0 * width + x1],
           data[y1 * width + x0], data[y1 * width + x1], wx, wy);
       out[di] = out[di + 1] = out[di + 2] = v;
       out[di + 3] = 255;
@@ -648,8 +1166,13 @@ PdfDecodedPixels? _scaledIndexed1Region(
   var maskInverted = false;
   if (mask != null) {
     final filters = pdfImageFilters(cos, mask.dictionary);
-    if (filters.length != 1 ||
-        (filters.single != 'FlateDecode' && filters.single != 'Fl')) {
+    // An unfiltered mask is legal, and is also how a platform inflater hands
+    // already-decoded packed samples back into this shared fast path. Keep the
+    // existing single-Flate gate for compressed masks; all other filter stacks
+    // still fall back to the general decoder.
+    if (filters.isNotEmpty &&
+        (filters.length != 1 ||
+            (filters.single != 'FlateDecode' && filters.single != 'Fl'))) {
       return null;
     }
     final mw = _intOf(cos.resolve(mask.dictionary['Width']));
@@ -815,22 +1338,30 @@ PdfDecodedPixels? _scaledImageMaskRegion(
   return (i0, i1, p - i0);
 }
 
-int _bilinearByte(
+int _fixedImageWeight(double weight) => (weight * 256).round();
+
+int _bilinearByteFixed(
   int v00,
   int v01,
   int v10,
   int v11,
-  double wx,
-  double wy,
+  int wx,
+  int wy,
 ) {
-  final top = v00 * (1 - wx) + v01 * wx;
-  final bottom = v10 * (1 - wx) + v11 * wx;
-  return (top * (1 - wy) + bottom * wy).round().clamp(0, 255);
+  // 8.8 fixed-point weights keep the complete two-axis accumulator within a
+  // signed 32-bit integer. That maps to cheap integer arithmetic in dart2js;
+  // the old double implementation ran six floating-point multiplies for every
+  // output channel (millions per scan page). Quantising the interpolation
+  // weights can move a channel by at most one level, below the renderer's
+  // existing image-comparison tolerance.
+  final top = v00 * (256 - wx) + v01 * wx;
+  final bottom = v10 * (256 - wx) + v11 * wx;
+  return ((top * (256 - wy) + bottom * wy + 32768) >> 16).clamp(0, 255);
 }
 
 /// The pixel size an image should be decoded/stored at so it is no sharper than
-/// [headroom]× its on-screen footprint - the cap behind `serializeCommands`'s
-/// `maxImagePixelRatio` (see render_command_codec.dart), extracted as a pure
+/// [headroom]× its on-screen footprint. `serializeCommands` passes its own 1×
+/// worker budget while native rendering keeps the 2× default. This is a pure
 /// function so every branch is unit-testable without a giant fixture image.
 ///
 /// [srcWidth]/[srcHeight] are the image's native pixels; [widthPts]/[heightPts]
@@ -897,10 +1428,118 @@ class _DctCmykImage {
   final int height;
 }
 
+class _DctGrayImage {
+  const _DctGrayImage(this.samples, this.width, this.height);
+
+  final Uint8List samples;
+  final int width;
+  final int height;
+}
+
+/// Decodes the luminance component of a JPEG without `dart:ui`.
+///
+/// A soft mask is DeviceGray by definition. Baseline encoders normally store
+/// one component; accepting the first (Y) component also handles a needlessly
+/// RGB/Y'CbCr-encoded mask without paying for colour conversion. The component
+/// line representation is the same one the CMYK decoder below uses and keeps
+/// the worker result to one byte per source pixel until the parent applies it.
+_DctGrayImage? _decodeDctGray(
+  Uint8List jpegBytes, {
+  int? targetWidth,
+  int? targetHeight,
+}) {
+  final dctT0 = PdfPerf.begin();
+  try {
+    final accelerator = pdfDctGrayDecoder;
+    if (accelerator != null) {
+      try {
+        final decoded = accelerator(
+          jpegBytes,
+          targetWidth: targetWidth,
+          targetHeight: targetHeight,
+        );
+        if (decoded != null &&
+            decoded.width > 0 &&
+            decoded.height > 0 &&
+            decoded.samples.length == decoded.width * decoded.height) {
+          final sized = _targetSizedSoftMask(
+            PdfImageSoftMask(
+              decoded.samples,
+              decoded.width,
+              decoded.height,
+            ),
+            targetWidth,
+            targetHeight,
+          );
+          return _DctGrayImage(sized.alpha, sized.width, sized.height);
+        }
+      } catch (_) {
+        // Acceleration is opportunistic; preserve the portable JPEG decoder.
+      }
+    }
+    return _decodeDctGrayPortable(jpegBytes);
+  } finally {
+    PdfPerf.end(PdfPerfPhase.dct, dctT0);
+  }
+}
+
+_DctGrayImage? _decodeDctGrayPortable(Uint8List jpegBytes) {
+  final jpeg = img.JpegData()..read(jpegBytes);
+  if (jpeg.components.isEmpty) return null;
+  final width = jpeg.width;
+  final height = jpeg.height;
+  if (width == null || height == null || width <= 0 || height <= 0) {
+    return null;
+  }
+  final component = jpeg.components.first;
+  final out = Uint8List(width * height);
+  for (var y = 0; y < height; y++) {
+    final line = component.lines[y >> component.vScaleShift];
+    if (line == null) return null;
+    final row = y * width;
+    for (var x = 0; x < width; x++) {
+      out[row + x] = line[x >> component.hScaleShift];
+    }
+  }
+  return _DctGrayImage(out, width, height);
+}
+
 /// Decodes 4-component JPEG samples in PDF polarity: 0 = no ink,
 /// 255 = full ink. Platform codecs convert these directly to RGB as Adobe
 /// inverted CMYK and lose the original K, producing very dark images.
-_DctCmykImage? _decodeDctCmyk(Uint8List jpegBytes) {
+_DctCmykImage? _decodeDctCmyk(
+  Uint8List jpegBytes, {
+  int? targetWidth,
+  int? targetHeight,
+}) {
+  final accelerator = pdfDctCmykDecoder;
+  if (accelerator != null) {
+    try {
+      final decoded = accelerator(
+        jpegBytes,
+        targetWidth: targetWidth,
+        targetHeight: targetHeight,
+      );
+      if (decoded != null &&
+          decoded.width > 0 &&
+          decoded.height > 0 &&
+          decoded.samples.length == decoded.width * decoded.height * 4) {
+        final scaled = _targetSizedColorSamples(
+          decoded.samples,
+          decoded.width,
+          decoded.height,
+          4,
+          targetWidth,
+          targetHeight,
+        );
+        return _DctCmykImage(scaled.samples, scaled.width, scaled.height);
+      }
+    } catch (_) {
+      // An accelerator is an optimization only. Malformed JPEG handling and
+      // platform/library availability must retain the portable fallback.
+    }
+  }
+
   final jpeg = img.JpegData()..read(jpegBytes);
   if (jpeg.components.length != 4) return null;
   final width = jpeg.width;
@@ -915,6 +1554,73 @@ _DctCmykImage? _decodeDctCmyk(Uint8List jpegBytes) {
   final component3 = jpeg.components[2];
   final component4 = jpeg.components[3];
   final ycck = (jpeg.adobe?.transformCode ?? 0) != 0;
+
+  // A display-sized render needs only a fraction of a large press JPEG. Fuse
+  // the existing box reduction with component extraction: every source sample
+  // is still transformed and accumulated in the same order, but the native
+  // width*height*4 CMYK staging buffer and the second full-image walk vanish.
+  // JPEG entropy/IDCT remains in package:image; this removes the avoidable
+  // allocation and copy around it on every platform.
+  final reduce = targetWidth != null &&
+      targetHeight != null &&
+      targetWidth > 0 &&
+      targetHeight > 0 &&
+      !(targetWidth >= width && targetHeight >= height);
+  if (reduce) {
+    final tw = targetWidth.clamp(1, width);
+    final th = targetHeight.clamp(1, height);
+    final out = Uint8List(tw * th * 4);
+    final sums = Int32List(4);
+    var di = 0;
+    for (var ty = 0; ty < th; ty++) {
+      final sy0 = ty * height ~/ th;
+      var sy1 = (ty + 1) * height ~/ th;
+      if (sy1 <= sy0) sy1 = sy0 + 1;
+      for (var tx = 0; tx < tw; tx++) {
+        final sx0 = tx * width ~/ tw;
+        var sx1 = (tx + 1) * width ~/ tw;
+        if (sx1 <= sx0) sx1 = sx0 + 1;
+        sums.fillRange(0, 4, 0);
+        var count = 0;
+        for (var y = sy0; y < sy1; y++) {
+          final line1 = component1.lines[y >> component1.vScaleShift];
+          final line2 = component2.lines[y >> component2.vScaleShift];
+          final line3 = component3.lines[y >> component3.vScaleShift];
+          final line4 = component4.lines[y >> component4.vScaleShift];
+          if (line1 == null ||
+              line2 == null ||
+              line3 == null ||
+              line4 == null) {
+            return null;
+          }
+          for (var x = sx0; x < sx1; x++) {
+            var c = line1[x >> component1.hScaleShift];
+            var m = line2[x >> component2.hScaleShift];
+            var yy = line3[x >> component3.hScaleShift];
+            final k = line4[x >> component4.hScaleShift];
+            if (ycck) {
+              final cr = yy - 128;
+              final cb = m - 128;
+              final yScaled = c << 8;
+              c = 255 - _shiftR(yScaled + 359 * cr, 8).clamp(0, 255);
+              m = 255 - _shiftR(yScaled - 88 * cb - 183 * cr, 8).clamp(0, 255);
+              yy = 255 - _shiftR(yScaled + 454 * cb, 8).clamp(0, 255);
+            }
+            sums[0] += c;
+            sums[1] += m;
+            sums[2] += yy;
+            sums[3] += k;
+            count++;
+          }
+        }
+        out[di++] = sums[0] ~/ count;
+        out[di++] = sums[1] ~/ count;
+        out[di++] = sums[2] ~/ count;
+        out[di++] = sums[3] ~/ count;
+      }
+    }
+    return _DctCmykImage(out, tw, th);
+  }
 
   for (var y = 0; y < height; y++) {
     final y1 = y >> component1.vScaleShift;
@@ -1007,7 +1713,8 @@ Uint8List? _jpxToRgba(JpxImage jpx) {
 /// colour), so `jpx.samples` are palette indices, not colour. Out-of-range
 /// indices clamp to 0, matching [_indexedToRgba]. Returns null when the
 /// palette can't be resolved.
-Uint8List? _jpxIndexedToRgba(CosDocument cos, CosDictionary dict, JpxImage jpx) {
+Uint8List? _jpxIndexedToRgba(
+    CosDocument cos, CosDictionary dict, JpxImage jpx) {
   if (jpx.components != 1) return null;
   final paletteInfo = _indexedPalette(cos, dict);
   if (paletteInfo == null) return null;
@@ -1053,14 +1760,6 @@ Uint8List? _jbig2Globals(CosDocument cos, CosDictionary dict) {
   }
 }
 
-/// Whether the image's /SMask is DCTDecode-encoded - that mask needs the
-/// platform JPEG codec, so the pure path declines the whole image.
-bool _softMaskIsDct(CosDocument cos, CosDictionary dict) {
-  final smask = cos.resolve(dict['SMask']);
-  if (smask is! CosStream) return false;
-  return pdfImageFilters(cos, smask.dictionary).contains('DCTDecode');
-}
-
 /// The DCTDecode-encoded /SMask's JPEG bytes (wrapping filters undone), or null
 /// when the /SMask is absent or not DCT. The `dart:ui` layer decodes these
 /// with the platform codec to recover the alpha plane.
@@ -1077,27 +1776,56 @@ Uint8List? pdfImageDctSoftMaskBytes(CosDocument cos, CosDictionary dict) {
   }
 }
 
-/// Decodes a non-DCT /SMask: a grayscale image whose samples become the alpha
-/// channel of its parent image (§11.6.5.2). Returns null when there is no
-/// /SMask, or it is DCT-encoded (use [pdfImageDctSoftMaskBytes]), or its shape
-/// is unsupported.
-PdfImageSoftMask? pdfImageSoftMask(CosDocument cos, CosDictionary dict) {
+/// Decodes an /SMask: a grayscale image whose samples become the alpha channel
+/// of its parent image (§11.6.5.2). Baseline DCT masks use the portable JPEG
+/// component decoder so render workers can composite them without `dart:ui`.
+/// Returns null when there is no /SMask or its shape is unsupported.
+PdfImageSoftMask? pdfImageSoftMask(
+  CosDocument cos,
+  CosDictionary dict, {
+  int? targetWidth,
+  int? targetHeight,
+}) {
   final smask = cos.resolve(dict['SMask']);
   if (smask is! CosStream) return null;
   try {
-    if (pdfImageFilters(cos, smask.dictionary).contains('DCTDecode')) {
-      return null; // DCT mask: the caller handles it via the platform codec
+    final filters = pdfImageFilters(cos, smask.dictionary);
+    final matte = _matteColor(cos, dict, smask.dictionary);
+    if (filters.contains('DCTDecode')) {
+      final bytes = cos.decodeStreamData(
+        smask,
+        stopBeforeFilter: 'DCTDecode',
+      );
+      final gray = _decodeDctGray(
+        bytes,
+        targetWidth: targetWidth,
+        targetHeight: targetHeight,
+      );
+      if (gray == null) return null;
+      return _targetSizedSoftMask(
+        PdfImageSoftMask(
+          gray.samples,
+          gray.width,
+          gray.height,
+          matte: matte,
+        ),
+        targetWidth,
+        targetHeight,
+      );
     }
     final width = _intOf(cos.resolve(smask.dictionary['Width']));
     final height = _intOf(cos.resolve(smask.dictionary['Height']));
     if (width <= 0 || height <= 0) return null;
     final bits =
         _intOf(cos.resolve(smask.dictionary['BitsPerComponent']), fallback: 8);
-    final matte = _matteColor(cos, dict, smask.dictionary);
     final data = cos.decodeStreamData(smask);
 
     if (bits == 8 && data.length >= width * height) {
-      return PdfImageSoftMask(data, width, height, matte: matte);
+      return _targetSizedSoftMask(
+        PdfImageSoftMask(data, width, height, matte: matte),
+        targetWidth,
+        targetHeight,
+      );
     }
     if (bits == 1) {
       final rowBytes = (width + 7) ~/ 8;
@@ -1109,7 +1837,11 @@ PdfImageSoftMask? pdfImageSoftMask(CosDocument cos, CosDictionary dict) {
           alpha[y * width + x] = bit == 1 ? 255 : 0;
         }
       }
-      return PdfImageSoftMask(alpha, width, height, matte: matte);
+      return _targetSizedSoftMask(
+        PdfImageSoftMask(alpha, width, height, matte: matte),
+        targetWidth,
+        targetHeight,
+      );
     }
     return null;
   } on Exception {
@@ -1143,7 +1875,12 @@ List<int>? _matteColor(
 
 /// An explicit /Mask stencil stream (§8.9.6.3): 1-bit samples where 1
 /// means "masked out" (transparent); /Decode [1 0] flips the polarity.
-PdfImageSoftMask? pdfImageStencilMask(CosDocument cos, CosDictionary dict) {
+PdfImageSoftMask? pdfImageStencilMask(
+  CosDocument cos,
+  CosDictionary dict, {
+  int? targetWidth,
+  int? targetHeight,
+}) {
   final mask = cos.resolve(dict['Mask']);
   if (mask is! CosStream) return null;
   try {
@@ -1168,10 +1905,95 @@ PdfImageSoftMask? pdfImageStencilMask(CosDocument cos, CosDictionary dict) {
         alpha[y * width + x] = masked ? 0 : 255;
       }
     }
-    return PdfImageSoftMask(alpha, width, height);
+    return _targetSizedSoftMask(
+      PdfImageSoftMask(alpha, width, height),
+      targetWidth,
+      targetHeight,
+    );
   } on Exception {
     return null; // unsupported mask: leave the image opaque
   }
+}
+
+PdfImageSoftMask _targetSizedSoftMask(
+  PdfImageSoftMask mask,
+  int? targetWidth,
+  int? targetHeight,
+) {
+  final scaleT0 = PdfPerf.begin();
+  try {
+    return _targetSizedSoftMaskUnprofiled(mask, targetWidth, targetHeight);
+  } finally {
+    PdfPerf.end(PdfPerfPhase.imageDownsample, scaleT0);
+  }
+}
+
+PdfImageSoftMask _targetSizedSoftMaskUnprofiled(
+  PdfImageSoftMask mask,
+  int? targetWidth,
+  int? targetHeight,
+) {
+  if (targetWidth == null ||
+      targetHeight == null ||
+      targetWidth <= 0 ||
+      targetHeight <= 0 ||
+      (targetWidth >= mask.width && targetHeight >= mask.height)) {
+    return mask;
+  }
+  final width = targetWidth.clamp(1, mask.width);
+  final height = targetHeight.clamp(1, mask.height);
+  final accelerator = pdfComponentBoxDownsampler;
+  if (mask.sampleStride == 1 && accelerator != null) {
+    try {
+      final accelerated = accelerator(
+        mask.alpha,
+        mask.width,
+        mask.height,
+        1,
+        width,
+        height,
+      );
+      if (accelerated != null && accelerated.length == width * height) {
+        return PdfImageSoftMask(
+          accelerated,
+          width,
+          height,
+          matte: mask.matte,
+        );
+      }
+    } catch (_) {
+      // Acceleration is opportunistic; retain the exact portable reducer.
+    }
+  }
+  final alpha = Uint8List(width * height);
+  var output = 0;
+  for (var y = 0; y < height; y++) {
+    final sourceY0 = y * mask.height ~/ height;
+    var sourceY1 = (y + 1) * mask.height ~/ height;
+    if (sourceY1 <= sourceY0) sourceY1 = sourceY0 + 1;
+    for (var x = 0; x < width; x++) {
+      final sourceX0 = x * mask.width ~/ width;
+      var sourceX1 = (x + 1) * mask.width ~/ width;
+      if (sourceX1 <= sourceX0) sourceX1 = sourceX0 + 1;
+      var sum = 0;
+      var count = 0;
+      for (var sourceY = sourceY0; sourceY < sourceY1; sourceY++) {
+        var source = (sourceY * mask.width + sourceX0) * mask.sampleStride;
+        for (var sourceX = sourceX0; sourceX < sourceX1; sourceX++) {
+          sum += mask.alpha[source];
+          source += mask.sampleStride;
+          count++;
+        }
+      }
+      alpha[output++] = sum ~/ count;
+    }
+  }
+  return PdfImageSoftMask(
+    alpha,
+    width,
+    height,
+    matte: mask.matte,
+  );
 }
 
 /// Per-component (min, max) pairs from /Decode, or null when absent or
@@ -1290,9 +2112,37 @@ void pdfApplyImageDecodeAndColorKey(Uint8List rgba, int components,
 /// built at the mask's resolution with the colour bilinearly upsampled, so the
 /// cutout's detail survives instead of being crushed to the base grid (which
 /// the device would then upscale into visible blocks). Otherwise the mask is
-/// point-sampled onto the base in place.
+/// point-sampled onto the base in place. When [premultiply] is true, RGB is
+/// premultiplied by the new coverage in the same pixel walk; codec-ready paths
+/// use this to avoid immediately scanning the whole image a second time.
 (Uint8List, int, int) pdfApplyImageAlpha(
-    Uint8List rgba, int width, int height, PdfImageSoftMask mask) {
+  Uint8List rgba,
+  int width,
+  int height,
+  PdfImageSoftMask mask, {
+  bool premultiply = false,
+}) {
+  final alphaT0 = PdfPerf.begin();
+  try {
+    return _pdfApplyImageAlphaUnprofiled(
+      rgba,
+      width,
+      height,
+      mask,
+      premultiply: premultiply,
+    );
+  } finally {
+    PdfPerf.end(PdfPerfPhase.imageAlpha, alphaT0);
+  }
+}
+
+(Uint8List, int, int) _pdfApplyImageAlphaUnprofiled(
+  Uint8List rgba,
+  int width,
+  int height,
+  PdfImageSoftMask mask, {
+  required bool premultiply,
+}) {
   final matte = mask.matte;
   if (mask.width * mask.height <= width * height) {
     for (var y = 0; y < height; y++) {
@@ -1300,10 +2150,15 @@ void pdfApplyImageDecodeAndColorKey(Uint8List rgba, int components,
       for (var x = 0; x < width; x++) {
         final maskX = x * mask.width ~/ width;
         final i = (y * width + x) * 4;
-        final a = mask.alpha[maskY * mask.width + maskX];
+        final a = mask.alpha[(maskY * mask.width + maskX) * mask.sampleStride];
         rgba[i + 3] = a;
         if (matte != null && a > 0 && a < 255) {
           _unpreblend(rgba, i, a, matte);
+        }
+        if (premultiply && a != 255) {
+          rgba[i] = rgba[i] * a ~/ 255;
+          rgba[i + 1] = rgba[i + 1] * a ~/ 255;
+          rgba[i + 2] = rgba[i + 2] * a ~/ 255;
         }
       }
     }
@@ -1334,10 +2189,15 @@ void pdfApplyImageDecodeAndColorKey(Uint8List rgba, int components,
         final bot = rgba[i10 + c] * (1 - wx) + rgba[i11 + c] * wx;
         out[o + c] = (top * (1 - wy) + bot * wy).round().clamp(0, 255);
       }
-      final a = mask.alpha[my * mw + mx];
+      final a = mask.alpha[(my * mw + mx) * mask.sampleStride];
       out[o + 3] = a;
       if (matte != null && a > 0 && a < 255) {
         _unpreblend(out, o, a, matte);
+      }
+      if (premultiply && a != 255) {
+        out[o] = out[o] * a ~/ 255;
+        out[o + 1] = out[o + 1] * a ~/ 255;
+        out[o + 2] = out[o + 2] * a ~/ 255;
       }
     }
   }
@@ -1542,6 +2402,41 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
           lut3 = _lutFor(ranges, 3);
       final cmykIcc = icc != null && icc.channels == 4 ? icc : null;
       final key = colorKey;
+      final accelerator = pdfDeviceCmykToRgba;
+      if (accelerator != null && cmykIcc == null && key == null) {
+        try {
+          // Stream decoders may legally leave trailing bytes after the image
+          // samples. Do not make an otherwise valid fast path fail its output
+          // length check, or ask a native/WASM converter to read them.
+          var samples = data.length == count * 4
+              ? data
+              : Uint8List.sublistView(data, 0, count * 4);
+          // `/Decode` is semantic sample mapping, not colour management. Fold
+          // its four tiny lookup tables into one linear byte pass, then retain
+          // the bulk converter for the expensive CMYK polynomial. This is
+          // particularly important for Adobe CMYK JPEGs, which commonly carry
+          // `/Decode [1 0 1 0 1 0 1 0]`: falling back to the per-pixel Dart
+          // polynomial made a display-sized scan hundreds of milliseconds
+          // slower in dart2js even though its JPEG IDCT was already native.
+          if (ranges != null) {
+            final decoded = Uint8List(count * 4);
+            for (var i = 0; i < decoded.length; i += 4) {
+              decoded[i] = lut0[samples[i]];
+              decoded[i + 1] = lut1[samples[i + 1]];
+              decoded[i + 2] = lut2[samples[i + 2]];
+              decoded[i + 3] = lut3[samples[i + 3]];
+            }
+            samples = decoded;
+          }
+          final accelerated = accelerator(samples);
+          if (accelerated != null && accelerated.length == count * 4) {
+            return accelerated;
+          }
+        } catch (_) {
+          // As with the JPEG hook, native/WASM acceleration is opportunistic;
+          // malformed output or a missing runtime keeps the portable path.
+        }
+      }
       // CMYK→RGB is the heaviest per-pixel path by a wide margin: a quadratic
       // polynomial, or - for an ICCBased CMYK press profile - a 4-D CLUT
       // interpolation over 16 cell corners. Measured at ratio 2.0 on the Ghent
@@ -1567,20 +2462,18 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
             s3 = data[base + 3];
         var rgb = memo == null ? -1 : memo.lookup(data, base);
         if (rgb < 0) {
-          final PdfColor color;
           if (cmykIcc != null) {
             iccValues![0] = lut0[s0] / 255;
             iccValues[1] = lut1[s1] / 255;
             iccValues[2] = lut2[s2] / 255;
             iccValues[3] = lut3[s3] / 255;
-            color = cmykIcc.toSrgb(iccValues);
+            final color = cmykIcc.toSrgb(iccValues);
+            rgb = ((color.red * 255).round().clamp(0, 255) << 16) |
+                ((color.green * 255).round().clamp(0, 255) << 8) |
+                (color.blue * 255).round().clamp(0, 255);
           } else {
-            color = PdfColor.cmyk(
-                lut0[s0] / 255, lut1[s1] / 255, lut2[s2] / 255, lut3[s3] / 255);
+            rgb = _deviceCmykRgb8(lut0[s0], lut1[s1], lut2[s2], lut3[s3]);
           }
-          rgb = ((color.red * 255).round().clamp(0, 255) << 16) |
-              ((color.green * 255).round().clamp(0, 255) << 8) |
-              (color.blue * 255).round().clamp(0, 255);
           memo?.store(data, base, rgb);
         }
         out[base] = (rgb >> 16) & 0xff;
@@ -1601,6 +2494,73 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
       return out;
   }
   return null;
+}
+
+/// The DeviceCMYK polynomial from [PdfColor.cmyk], evaluated directly into
+/// packed 8-bit sRGB for image pixels. The image path already has clamped
+/// bytes, so constructing a three-double [PdfColor], clamping four normalized
+/// inputs, and immediately quantizing it back to bytes is pure overhead in the
+/// hottest decode loop.
+int _deviceCmykRgb8(int cyan, int magenta, int yellow, int black) {
+  final c = cyan / 255;
+  final m = magenta / 255;
+  final y = yellow / 255;
+  final k = black / 255;
+
+  final r = 255 +
+      c *
+          (-4.387332384609988 * c +
+              54.48615194189176 * m +
+              18.82290502165302 * y +
+              212.25662451639585 * k +
+              -285.2331026137004) +
+      m *
+          (1.7149763477362134 * m +
+              -5.6096736904047315 * y +
+              -17.873870861415444 * k +
+              -5.497006427196366) +
+      y *
+          (-2.5217340131683033 * y +
+              -21.248923337353073 * k +
+              17.5119270841813) +
+      k * (-21.86122147463605 * k + -189.48180835922747);
+
+  final g = 255 +
+      c *
+          (8.841041422036149 * c +
+              60.118027045597366 * m +
+              6.871425592049007 * y +
+              31.159100130055922 * k +
+              -79.2970844816548) +
+      m *
+          (-15.310361306967817 * m +
+              17.575251261109482 * y +
+              131.35250912493976 * k +
+              -190.9453302588951) +
+      y * (4.444339102852739 * y + 9.8632861493405 * k + -24.86741582555878) +
+      k * (-20.737325471181034 * k + -187.80453709719578);
+
+  final b = 255 +
+      c *
+          (0.8842522430003296 * c +
+              8.078677503112928 * m +
+              30.89978309703729 * y +
+              -0.23883238689178934 * k +
+              -14.183576799673286) +
+      m *
+          (10.49593273432072 * m +
+              63.02378494754052 * y +
+              50.606957656360734 * k +
+              -112.23884253719248) +
+      y *
+          (0.03296041114873217 * y +
+              115.60384449646641 * k +
+              -193.58209356861505) +
+      k * (-22.33816807309886 * k + -180.12613974708367);
+
+  return (r.round().clamp(0, 255) << 16) |
+      (g.round().clamp(0, 255) << 8) |
+      b.round().clamp(0, 255);
 }
 
 /// A fixed-size, direct-mapped memo from an 8-bit sample tuple to the packed
@@ -1725,6 +2685,56 @@ Uint8List? _alternateToRgba(
   final components = alternate.channels;
   if (data.length < count * components) return null;
   final luts = [for (var c = 0; c < components; c++) _lutFor(ranges, c)];
+  // A one-colorant Separation/DeviceN image has only 256 possible input
+  // tuples. Resolve the tint transform once per byte value and use a direct
+  // LUT instead of hashing and comparing the same one-byte key for every
+  // pixel. This is exact (the LUT calls the same transform with the same
+  // decoded sample) and is the common press-artwork case.
+  if (components == 1) {
+    final rgbLut = Int32List(256);
+    final values = Float64List(1);
+    final key = colorKey?.first;
+    for (var sample = 0; sample < 256; sample++) {
+      values[0] = luts[0][sample] / 255;
+      final color = alternate.toSrgb(values);
+      rgbLut[sample] = ((color.red * 255).round().clamp(0, 255) << 16) |
+          ((color.green * 255).round().clamp(0, 255) << 8) |
+          (color.blue * 255).round().clamp(0, 255);
+    }
+
+    // RGBA8888 is one native-endian 32-bit word on every supported browser
+    // and mainstream Flutter target. Expanding the 8-bit tint image one word
+    // at a time instead of four indexed byte stores removes most of this hot
+    // loop's dart2js overhead while retaining a portable byte-order fallback.
+    if (Endian.host == Endian.little) {
+      final rgbaLut = Uint32List(256);
+      for (var sample = 0; sample < 256; sample++) {
+        final rgb = rgbLut[sample];
+        final alpha =
+            key != null && sample >= key.$1 && sample <= key.$2 ? 0 : 0xff;
+        rgbaLut[sample] = (alpha << 24) |
+            ((rgb & 0xff) << 16) |
+            (rgb & 0xff00) |
+            ((rgb >> 16) & 0xff);
+      }
+      final words = Uint32List.view(out.buffer, out.offsetInBytes, count);
+      for (var i = 0; i < count; i++) {
+        words[i] = rgbaLut[data[i]];
+      }
+      return out;
+    }
+    for (var i = 0; i < count; i++) {
+      final sample = data[i];
+      final rgb = rgbLut[sample];
+      final outBase = i * 4;
+      out[outBase] = (rgb >> 16) & 0xff;
+      out[outBase + 1] = (rgb >> 8) & 0xff;
+      out[outBase + 2] = rgb & 0xff;
+      out[outBase + 3] =
+          key != null && sample >= key.$1 && sample <= key.$2 ? 0 : 255;
+    }
+    return out;
+  }
   final memo = _ColorMemo.forPixels(count, components);
   // Reused across pixels: evaluateAt reads its input and keeps no reference.
   final values = Float64List(components);

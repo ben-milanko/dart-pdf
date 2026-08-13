@@ -3,6 +3,7 @@
 // raster instead of blank paper - Bluebeam-style. The cache is fed for
 // free from on-screen renders and by the viewer's background prerender.
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -13,6 +14,18 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
+
+Future<ui.Image> _solidImage(int width, int height, Color color) async {
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  canvas.drawColor(color, BlendMode.src);
+  final picture = recorder.endRecording();
+  try {
+    return await picture.toImage(width, height);
+  } finally {
+    picture.dispose();
+  }
+}
 
 void main() {
   /// Lets the real async renderer make progress, then pumps a frame.
@@ -59,6 +72,235 @@ void main() {
     expect(clone.width, greaterThan(0));
     expect(clone.width, lessThanOrEqualTo(200));
     clone.dispose();
+  });
+
+  testWidgets('a complete preview can satisfy a smaller physical raster',
+      (tester) async {
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    final cache = PdfPagePreviewCache();
+    addTearDown(cache.dispose);
+    await tester.runAsync(() => cache.renderPreview(0, page));
+
+    final preview = cache.imageFor(0)!;
+    final sufficient = cache.completeImageFor(
+      0,
+      page,
+      width: preview.width,
+      height: preview.height,
+    );
+    expect(sufficient, isNotNull);
+    sufficient!.dispose();
+    expect(
+      cache.completeImageFor(
+        0,
+        page,
+        width: preview.width + 1,
+        height: preview.height,
+      ),
+      isNull,
+    );
+    preview.dispose();
+  });
+
+  testWidgets('a sufficient preview bypasses first-render hold',
+      (tester) async {
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    final cache = PdfPagePreviewCache();
+    final scheduler = PdfPageRenderScheduler()..holding = true;
+    addTearDown(cache.dispose);
+    addTearDown(scheduler.dispose);
+    await tester.runAsync(() => cache.renderPreview(0, page));
+    var ready = 0;
+
+    await tester.pumpWidget(MaterialApp(
+      home: Center(
+        child: SizedBox(
+          // Flutter widget tests default to a 3x device-pixel ratio. Keep the
+          // physical target below the cache's 200 px preview ceiling.
+          width: 40,
+          child: PdfPageView(
+            page: page,
+            previewCache: cache,
+            renderScheduler: scheduler,
+            onRasterReady: () => ready++,
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    expect(ready, 1);
+    expect(scheduler.hasPending, isFalse,
+        reason: 'an already-sharp complete preview needs no interpretation');
+  });
+
+  testWidgets('retained scene leases survive LRU eviction until released',
+      (tester) async {
+    final document = PdfDocument.open(buildMultiPagePdf(2));
+    final first = document.page(0);
+    final second = document.page(1);
+    final cache = PdfPagePreviewCache(
+      maxRetainedSceneBytes: 1024,
+      maxRetainedSceneEntries: 1,
+    );
+    addTearDown(cache.dispose);
+    late PdfRetainedScene firstScene;
+    late PdfRetainedScene secondScene;
+    await tester.runAsync(() async {
+      firstScene = await PdfRetainedScene.record(first);
+      secondScene = await PdfRetainedScene.record(second);
+    });
+
+    final firstLease = cache.retainScene(
+      0,
+      first,
+      firstScene,
+      plan: const PdfPageRenderPlan(),
+      fromWorker: true,
+      imagePixelRatio: 0.5,
+      estimatedBytes: 1,
+    );
+    expect(cache.debugRetainedSceneCount, 1);
+    final lookup = cache.retainedSceneFor(
+      0,
+      first,
+      plan: const PdfPageRenderPlan(),
+    );
+    expect(lookup, isNotNull);
+    expect(identical(lookup!.scene, firstScene), isTrue);
+    expect(lookup.imagePixelRatio, 0.5,
+        reason: 'a restored scene must preserve its embedded-image LoD');
+
+    final secondLease = cache.retainScene(
+      1,
+      second,
+      secondScene,
+      plan: const PdfPageRenderPlan(),
+      fromWorker: false,
+      imagePixelRatio: null,
+      estimatedBytes: 1,
+    );
+    expect(cache.debugRetainedSceneCount, 1);
+    expect(
+      cache.retainedSceneFor(0, first, plan: const PdfPageRenderPlan()),
+      isNull,
+      reason: 'the one-entry LRU evicts the first cache reference',
+    );
+
+    // Both outstanding leases still pin the evicted scene and can replay it.
+    final picture = firstLease.scene.replay(pixelRatio: 1);
+    picture.dispose();
+    firstLease.dispose();
+    final secondPicture = lookup.scene.replay(pixelRatio: 1);
+    secondPicture.dispose();
+    lookup.dispose();
+    expect(() => firstScene.replay(pixelRatio: 1), throwsAssertionError,
+        reason: 'the final lease releases an already-evicted scene');
+
+    secondLease.dispose();
+  });
+
+  testWidgets('cache promotes through a geometric preview ladder',
+      (tester) async {
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    const levels = [400.0, 800.0];
+    final cache = PdfPagePreviewCache(
+      lodPolicy: const PdfPagePreviewLodPolicy(
+        intermediateLongestSides: levels,
+        maxBytes: 8 * 1024 * 1024,
+        maxEntryBytes: 4 * 1024 * 1024,
+      ),
+    );
+    addTearDown(cache.dispose);
+
+    await tester.runAsync(() async {
+      await cache.renderPreview(0, page);
+      await cache.renderPreview(0, page, targetLongestSide: levels[0]);
+      await cache.renderPreview(0, page, targetLongestSide: levels[1]);
+    });
+
+    expect(cache.hasIntermediate(0, targetLongestSide: levels[0]), isTrue);
+    expect(cache.hasIntermediate(0, targetLongestSide: levels[1]), isTrue);
+    expect(cache.lodStats.baseEntries, 1);
+    expect(cache.lodStats.intermediateEntries, 2);
+    expect(
+        cache.lodStats.intermediateBytes, lessThanOrEqualTo(8 * 1024 * 1024));
+
+    final frame = cache.previewFor(0)!;
+    expect(frame.lod, PdfPagePreviewLod.intermediate);
+    expect(frame.targetLongestSide, levels[1]);
+    expect(math.max(frame.image.width, frame.image.height),
+        inInclusiveRange(790, 800),
+        reason: 'preview ratios do not upscale a sub-800pt page past 1x');
+    frame.image.dispose();
+  });
+
+  testWidgets('a late intermediate promotion cannot cross page revisions',
+      (tester) async {
+    final before = PdfDocument.open(buildClassicPdf());
+    final after = PdfDocument.open(buildClassicPdf());
+    final oldPage = before.page(0);
+    final newPage = after.page(0);
+    final cache = PdfPagePreviewCache();
+    addTearDown(cache.dispose);
+    cache.bindPages([oldPage]);
+
+    await tester.runAsync(() async {
+      final image = await PdfPageRenderer.renderImage(oldPage);
+      cache.putFullImage(
+        0,
+        oldPage,
+        image,
+        pageColor: Colors.white,
+        annotations: true,
+        rotation: null,
+      );
+      // The 400/800px scales are asynchronous. Invalidate their source page
+      // before they finish, exactly as a destructive edit does.
+      cache.rebind([newPage], changed: (_) => true);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      image.dispose();
+    });
+
+    expect(cache.hasIntermediate(0), isFalse);
+    expect(cache.fullRasterCount, 0);
+  });
+
+  testWidgets('intermediate levels share a configurable byte LRU',
+      (tester) async {
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    const levels = [400.0, 800.0];
+    final cache = PdfPagePreviewCache(
+      lodPolicy: const PdfPagePreviewLodPolicy(
+        intermediateLongestSides: levels,
+        maxBytes: 8 * 1024 * 1024,
+        maxEntryBytes: 4 * 1024 * 1024,
+      ),
+    );
+    addTearDown(cache.dispose);
+    await tester.runAsync(() async {
+      await cache.renderPreview(0, page, targetLongestSide: levels[0]);
+      await cache.renderPreview(0, page, targetLongestSide: levels[1]);
+    });
+    final sharp = cache.previewFor(0)!;
+    final sharpBytes = sharp.image.width * sharp.image.height * 4;
+    sharp.image.dispose();
+
+    cache.configurePreviewLods(PdfPagePreviewLodPolicy(
+      intermediateLongestSides: levels,
+      maxBytes: sharpBytes,
+      maxEntryBytes: sharpBytes,
+    ));
+
+    expect(cache.intermediateBytes, lessThanOrEqualTo(sharpBytes));
+    expect(cache.intermediateCount, 1,
+        reason: 'the shared budget should retain the touched 800px level');
+    expect(cache.hasIntermediate(0, targetLongestSide: levels[0]), isFalse);
+    expect(cache.hasIntermediate(0, targetLongestSide: levels[1]), isTrue);
   });
 
   testWidgets('exact raster cache enforces entry and total pixel budgets',
@@ -236,13 +478,59 @@ void main() {
     expect(fit, isNotNull, reason: 'the fit-size raster survived the zoom');
     fit!.dispose();
 
-    // Two is the cap: a third resolution drops the least-recently-used
-    // variant rather than letting a page accumulate stale rasters (the
-    // 2026-07-29 `miss reason=dimensions` waste).
+    // Two is the cap: a third resolution drops the least-recently-used exact
+    // variant rather than letting a page accumulate stale rasters. The new
+    // sharper variant can nevertheless satisfy a lookup at that evicted
+    // intermediate size by scaling down, avoiding a redundant render.
     put(third);
     expect(cache.fullRasterCount, 2);
-    expect(lookup(zoomed), isNull,
-        reason: 'the least-recently-used variant is the one dropped');
+    final downsampled = lookup(zoomed);
+    expect(downsampled, isNotNull);
+    expect(downsampled!.width, third.width);
+    expect(downsampled.height, third.height);
+    downsampled.dispose();
+
+    // The inverse is never allowed: a smaller retained raster must not be
+    // stretched up to satisfy a sharper request.
+    final tooSharp = cache.fullImageFor(
+      0,
+      page,
+      width: third.width + 1,
+      height: third.height + 1,
+      pageColor: const Color(0xFFFFFFFF),
+      annotations: true,
+      rotation: null,
+    );
+    expect(tooSharp, isNull);
+
+    // Nor may a physically larger but differently-shaped image masquerade as
+    // the same page geometry.
+    final wrongShape = await _solidImage(
+      third.width + 100,
+      third.height,
+      const Color(0xFF123456),
+    );
+    addTearDown(wrongShape.dispose);
+    final wrongShapeCache = PdfPagePreviewCache();
+    addTearDown(wrongShapeCache.dispose);
+    wrongShapeCache.putFullImage(
+      0,
+      page,
+      wrongShape,
+      pageColor: const Color(0xFFFFFFFF),
+      annotations: true,
+      rotation: null,
+    );
+    final aspectMismatch = wrongShapeCache.fullImageFor(
+      0,
+      page,
+      width: third.width,
+      height: third.height,
+      pageColor: const Color(0xFFFFFFFF),
+      annotations: true,
+      rotation: null,
+    );
+    expect(aspectMismatch, isNull);
 
     // A revision swap is different in kind: those pixels are of a page that no
     // longer exists, so every variant of it goes.
@@ -383,13 +671,38 @@ void main() {
         );
 
     await tester.pumpWidget(viewer(generous));
-    expect(controller.pagePreviewCache!.maxFullRasterBytes,
-        generous.maxBytes);
+    expect(controller.pagePreviewCache!.maxFullRasterBytes, generous.maxBytes);
 
-    await tester
-        .pumpWidget(viewer(const PdfPageRasterCachePolicy.disabled()));
+    await tester.pumpWidget(viewer(const PdfPageRasterCachePolicy.disabled()));
     expect(controller.pagePreviewCache!.maxFullRasterBytes, 0);
     expect(controller.pagePreviewCache!.fullRasterCount, 0);
+  });
+
+  testWidgets('viewer applies intermediate LoD policy updates', (tester) async {
+    final document = PdfDocument.open(buildClassicPdf());
+    final controller = PdfViewerController();
+    addTearDown(controller.dispose);
+
+    Widget viewer(PdfPagePreviewLodPolicy policy) => MaterialApp(
+          home: PdfViewer(
+            document: document,
+            controller: controller,
+            pagePreviewLodPolicy: policy,
+          ),
+        );
+
+    await tester.pumpWidget(viewer(const PdfPagePreviewLodPolicy.disabled()));
+    expect(controller.pagePreviewCache!.intermediateLongestSides, isEmpty);
+
+    const custom = PdfPagePreviewLodPolicy(
+      intermediateLongestSides: [360, 720, 1440],
+      intermediateWindow: 3,
+      maxBytes: 64 * 1024 * 1024,
+      maxEntryBytes: 8 * 1024 * 1024,
+    );
+    await tester.pumpWidget(viewer(custom));
+    expect(controller.pagePreviewCache!.intermediateLongestSides,
+        [360, 720, 1440]);
   });
 
   testWidgets('rebind drops previews of pages whose content changed',
@@ -446,6 +759,39 @@ void main() {
     expect(worker.calls.last.$3, isNotNull,
         reason: 'full preview decodes at the low preview ratio');
     expect(cache.isFresh(0, page, requireImages: true), isTrue);
+  });
+
+  testWidgets('worker-deferred preview images keep the 200px decode cap',
+      (tester) async {
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    final cache = PdfPagePreviewCache();
+    addTearDown(cache.dispose);
+    final imageCache = PdfImageCache.instance;
+    imageCache.clear();
+    addTearDown(imageCache.clear);
+    const nativeSize = 800;
+    final stream = CosStream(
+      CosDictionary({
+        'Width': const CosInteger(nativeSize),
+        'Height': const CosInteger(nativeSize),
+        'BitsPerComponent': const CosInteger(8),
+        'ColorSpace': const CosName('DeviceRGB'),
+      }),
+      Uint8List(nativeSize * nativeSize * 3),
+    );
+    final worker = _DeferredImageWorker(PdfImageRequest(
+      stream: stream,
+      transform: const PdfMatrix(612, 0, 0, 792, 0, 0),
+    ));
+
+    await tester.runAsync(() => cache.renderPreview(0, page, worker: worker));
+
+    expect(cache.isFresh(0, page, requireImages: true), isTrue);
+    expect(imageCache.bytes, greaterThan(0));
+    expect(imageCache.bytes, lessThanOrEqualTo(200 * 200 * 4),
+        reason: 'a worker-deferred image must inherit the preview ratio when '
+            'it is decoded during UI-side replay');
   });
 
   testWidgets('command-limited previews stay partial without image draws',
@@ -568,6 +914,72 @@ void main() {
     expect(previewRaster, findsNothing);
   });
 
+  testWidgets('a held page promotes through cached preview LoDs',
+      (tester) async {
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    final cache = PdfPagePreviewCache();
+    addTearDown(cache.dispose);
+    await tester.runAsync(() => cache.renderPreview(0, page));
+
+    final hold = ValueNotifier<bool>(true);
+    addTearDown(hold.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Center(
+        child: SizedBox(
+          width: 400,
+          child: PdfPageView(
+            page: page,
+            renderHold: hold,
+            previewCache: cache,
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    expect(previewRaster, findsOneWidget);
+
+    await tester
+        .runAsync(() => cache.renderPreview(0, page, targetLongestSide: 400));
+    await tester.pump();
+    var image = tester.widget<RawImage>(find.byType(RawImage)).image!;
+    expect(math.max(image.width, image.height), inInclusiveRange(399, 400));
+
+    await tester
+        .runAsync(() => cache.renderPreview(0, page, targetLongestSide: 800));
+    await tester.pump();
+    image = tester.widget<RawImage>(find.byType(RawImage)).image!;
+    expect(math.max(image.width, image.height), inInclusiveRange(790, 800));
+    expect(hold.value, isTrue,
+        reason: 'preview promotion must not release the full render hold');
+  });
+
+  testWidgets('completed display raster seeds every intermediate LoD by blit',
+      (tester) async {
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    final cache = PdfPagePreviewCache();
+    addTearDown(cache.dispose);
+    final image = await PdfPageRenderer.renderImage(page, pixelRatio: 2);
+    addTearDown(image.dispose);
+
+    cache.putFullImage(
+      0,
+      page,
+      image,
+      pageColor: const Color(0xFFFFFFFF),
+      annotations: true,
+      rotation: null,
+    );
+    for (var i = 0; i < 50 && cache.intermediateCount < 2; i++) {
+      await settle(tester);
+    }
+
+    expect(cache.hasIntermediate(0, targetLongestSide: 400), isTrue);
+    expect(cache.hasIntermediate(0, targetLongestSide: 800), isTrue);
+    expect(cache.lodStats.intermediateEntries, 2);
+  });
+
   testWidgets('a recycled page restores its exact raster through render hold',
       (tester) async {
     final document = PdfDocument.open(buildClassicPdf());
@@ -599,23 +1011,88 @@ void main() {
     }
     expect(fullRaster, findsOneWidget);
     expect(cache.debugFullRasterPixels, greaterThan(0));
+    expect(cache.debugRetainedSceneCount, 1,
+        reason: 'the complete command scene is retained with the raster');
 
     // Simulate the lazy list disposing the off-screen page, then revisit it
     // while fast-scroll hold is still raised. Reuse is safe ahead of the
     // scheduler because this exact physical-size raster already exists.
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
+    expect(cache.debugRetainedSceneCount, 1,
+        reason: 'lazy page disposal releases its lease, not the LRU scene');
     final scheduler = PdfPageRenderScheduler()..holding = true;
     addTearDown(scheduler.dispose);
     await tester.pumpWidget(pageView(scheduler: scheduler));
-    await tester.pump();
-    await tester.pump();
 
     expect(fullRaster, findsOneWidget,
-        reason: 'the recent exact raster should replace blur immediately');
+        reason: 'the first revisit frame should adopt the exact raster');
     expect(previewRaster, findsNothing);
     expect(scheduler.hasPending, isFalse,
         reason: 'a cache hit must not wait for scroll-settle release');
+  });
+
+  testWidgets('an off-screen cache hit promotes when it enters a zoomed view',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    final cache = PdfPagePreviewCache();
+    addTearDown(cache.dispose);
+
+    Widget pageView({required double scale, required bool onScreen}) =>
+        MaterialApp(
+          home: Center(
+            child: SizedBox(
+              width: 400,
+              child: PdfPageView(
+                page: page,
+                scale: scale,
+                onScreen: onScreen,
+                previewCache: cache,
+              ),
+            ),
+          ),
+        );
+
+    // Seed the exact fit-size raster, then dispose the page state like the lazy
+    // viewer does after it leaves the build window.
+    await tester.pumpWidget(pageView(scale: 1, onScreen: true));
+    for (var i = 0;
+        i < 50 && (fullRaster.evaluate().isEmpty || cache.fullRasterCount == 0);
+        i++) {
+      await settle(tester);
+    }
+    final fitWidth = tester.widget<RawImage>(fullRaster).image!.width;
+    expect(cache.fullRasterCount, greaterThan(0));
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+
+    // A global viewer zoom also reaches lazy-list neighbours. Off-screen pages
+    // deliberately stay at fit resolution, so this remount restores the cached
+    // fit raster even though the live transform is at 4x.
+    await tester.pumpWidget(pageView(scale: 4, onScreen: false));
+    await tester.pump();
+    expect(tester.widget<RawImage>(fullRaster).image!.width, fitWidth);
+
+    // Crossing into the viewport must promote that cache-only raster. Before
+    // the regression fix, onScreen was not a render-intent input and the cache
+    // restore carried no picture/image-ratio metadata, so this stayed enlarged
+    // from fit resolution forever.
+    await tester.pumpWidget(pageView(scale: 4, onScreen: true));
+    for (var i = 0; i < 100; i++) {
+      await settle(tester);
+      if (tester.widget<RawImage>(fullRaster).image!.width > fitWidth * 2) {
+        break;
+      }
+    }
+    expect(
+      tester.widget<RawImage>(fullRaster).image!.width,
+      greaterThan(fitWidth * 2),
+      reason: 'an on-screen zoom must replace the fit-size cached raster',
+    );
   });
 
   testWidgets('an on-screen render feeds the cache without re-interpreting',
@@ -634,6 +1111,36 @@ void main() {
       await settle(tester);
     }
     expect(cache.isFresh(0, page), isTrue);
+  });
+
+  testWidgets('full raster readiness precedes the preview downscale',
+      (tester) async {
+    final document = PdfDocument.open(buildClassicPdf());
+    final cache = PdfPagePreviewCache();
+    final events = <String>[];
+    cache.addListener(() => events.add('preview'));
+    addTearDown(cache.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Center(
+        child: SizedBox(
+          width: 400,
+          child: PdfPageView(
+            page: document.page(0),
+            previewCache: cache,
+            onRasterReady: () => events.add('ready'),
+          ),
+        ),
+      ),
+    ));
+    for (var i = 0;
+        i < 50 && !(events.contains('ready') && events.contains('preview'));
+        i++) {
+      await settle(tester);
+    }
+
+    expect(events, containsAll(<String>['ready', 'preview']));
+    expect(events.indexOf('ready'), lessThan(events.indexOf('preview')),
+        reason: 'preview population must not delay requested-page readiness');
   });
 
   testWidgets('prerender warms previews of pages never seen on screen',
@@ -673,6 +1180,122 @@ void main() {
       await settle(tester);
     }
     expect(fullRaster, findsWidgets);
+  });
+
+  testWidgets('proactive previews wait for the configured idle delay',
+      (tester) async {
+    final document = PdfDocument.open(buildMultiPagePdf(8));
+    final controller = PdfViewerController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          document: document,
+          controller: controller,
+          initialFit: PdfViewerFit.width,
+          previewWindow: 8,
+          previewIdleDelay: const Duration(seconds: 1),
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    // Let initial fitting settle and visible-page work finish. That settle
+    // starts the quiet window from its final interaction boundary.
+    await tester.pump(const Duration(milliseconds: 250));
+    for (var i = 0; i < 50 && fullRaster.evaluate().isEmpty; i++) {
+      await settle(tester);
+    }
+    final cache = controller.debugPreviewCache!;
+    expect(cache.has(7), isFalse);
+
+    await tester.pump(const Duration(milliseconds: 900));
+    expect(cache.has(7), isFalse,
+        reason: 'far-page warming must not steal the interaction tail');
+
+    await tester.pump(const Duration(milliseconds: 150));
+    for (var i = 0; i < 100 && !cache.has(7); i++) {
+      await settle(tester);
+    }
+    expect(cache.has(7), isTrue,
+        reason: 'the normal preview warm resumes once the viewer is idle');
+  });
+
+  testWidgets('foreground worker render starts before background previews',
+      (tester) async {
+    final document = PdfDocument.open(buildMultiPagePdf(8));
+    final controller = PdfViewerController();
+    final worker = _BlockingPreviewWorker();
+    addTearDown(controller.dispose);
+    addTearDown(() {
+      if (!worker.release.isCompleted) worker.release.complete();
+    });
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          document: document,
+          controller: controller,
+          renderWorker: worker,
+          initialFit: PdfViewerFit.width,
+          previewWindow: 8,
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    for (var i = 0; i < 20 && worker.calls.isEmpty; i++) {
+      await tester.pump();
+    }
+    expect(worker.calls, isNotEmpty);
+    expect(
+      worker.calls.where((page) => page >= 2),
+      isEmpty,
+      reason: 'off-screen preview work must not enter the worker queue while '
+          'the visible page render is still in flight',
+    );
+
+    worker.release.complete();
+    await tester.pumpWidget(const SizedBox());
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+  });
+
+  testWidgets('idle prerender promotes only the nearby LoD working set',
+      (tester) async {
+    final document = PdfDocument.open(buildMultiPagePdf(8));
+    final controller = PdfViewerController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          document: document,
+          controller: controller,
+          initialFit: PdfViewerFit.width,
+          previewWindow: 4,
+          pagePreviewLodPolicy: const PdfPagePreviewLodPolicy(
+            intermediateLongestSides: [400, 800],
+            intermediateWindow: 2,
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    final cache = controller.debugPreviewCache!;
+
+    for (var i = 0;
+        i < 150 && !cache.hasIntermediate(2, targetLongestSide: 800);
+        i++) {
+      await settle(tester);
+    }
+    expect(cache.hasIntermediate(2, targetLongestSide: 400), isTrue);
+    expect(cache.hasIntermediate(2, targetLongestSide: 800), isTrue);
+    expect(cache.has(4), isTrue,
+        reason: 'the inexpensive base level covers the wider preview window');
+    expect(cache.hasIntermediate(4), isFalse,
+        reason: 'middle levels stay inside their tighter byte working set');
+    expect(controller.pagePreviewLodStats!.intermediateEntries,
+        greaterThanOrEqualTo(2));
   });
 
   testWidgets('the prerender warms only a window of pages around the viewport',
@@ -760,8 +1383,9 @@ void main() {
     await tester.pump();
 
     // Large documents cap full-image background warming to ±3 pages even when
-    // the configured window is wider. Vector-only passes still use the wider
-    // window during fast scrolling, but they do not count as image-fresh.
+    // the configured window is wider. Fast-scroll vector passes are tighter
+    // still (the immediate neighbor only): their raster readback is useful
+    // only near the live viewport, and they do not count as image-fresh.
     final cache = controller.debugPreviewCache!;
     for (var i = 0; i < 100 && !cache.has(3); i++) {
       await settle(tester);
@@ -902,6 +1526,60 @@ class _PreviewWorker extends PdfRenderWorker {
           : null,
     );
     return [PdfDrawImageCommand(request)];
+  }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {}
+
+  @override
+  void dispose() {}
+}
+
+class _DeferredImageWorker extends PdfRenderWorker {
+  _DeferredImageWorker(this.request);
+
+  final PdfImageRequest request;
+
+  @override
+  bool get isActive => true;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(int pageIndex,
+          {bool annotations = true,
+          int priority = 0,
+          double? imagePixelRatio,
+          bool decodeImages = true,
+          int? commandLimit,
+          PdfRect? imageDecodeRegion,
+          PdfPartialRecordSink? onPartial}) async =>
+      [PdfDrawImageCommand(request)];
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) {}
+
+  @override
+  void dispose() {}
+}
+
+class _BlockingPreviewWorker extends PdfRenderWorker {
+  final calls = <int>[];
+  final release = Completer<void>();
+
+  @override
+  bool get isActive => true;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(int pageIndex,
+      {bool annotations = true,
+      int priority = 0,
+      double? imagePixelRatio,
+      bool decodeImages = true,
+      int? commandLimit,
+      PdfRect? imageDecodeRegion,
+      PdfPartialRecordSink? onPartial}) async {
+    calls.add(pageIndex);
+    await release.future;
+    return const [];
   }
 
   @override

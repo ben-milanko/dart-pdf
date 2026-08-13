@@ -77,6 +77,7 @@ class PdfSourceLoadOptions {
     this.coalesceGap = 65536,
     this.downloadChunk = 1 << 20,
     this.firstPaintPages,
+    this.completeFirstPaintPageTree = true,
     this.onProgress,
   })  : assert(headWindow > 0),
         assert(tailWindow > 0),
@@ -119,6 +120,19 @@ class PdfSourceLoadOptions {
   /// ranged reads, so a first-paint open never fails where a full one would.
   final int? firstPaintPages;
 
+  /// Whether a page-scoped first-paint open also fetches every leaf dictionary
+  /// in the page tree.
+  ///
+  /// The default is true, preserving an authoritative [PdfDocument.pageCount]
+  /// and navigation surface in the returned sparse document. Set this to false
+  /// only for a short-lived preview that will be replaced by a complete buffer:
+  /// the loader then stops the page-tree walk after [firstPaintPages] leaves,
+  /// avoiding one remote request per page in a long document. Until the full
+  /// document replaces it, the sparse preview exposes only those covered pages.
+  /// This does not trust `/Count`; the full document still performs the normal
+  /// correctness-first leaf walk.
+  final bool completeFirstPaintPageTree;
+
   /// Optional progress callback, invoked after each fetch.
   final PdfSourceProgress? onProgress;
 }
@@ -139,18 +153,53 @@ Future<CosDocument> openCosDocumentFromSource(
   PdfByteSource source, {
   String password = '',
   PdfSourceLoadOptions options = const PdfSourceLoadOptions(),
+}) async =>
+    (await openCosDocumentFromSourceWithStatus(
+      source,
+      password: password,
+      options: options,
+    ))
+        .document;
+
+/// The document and completeness metadata produced by a source open.
+///
+/// [isFirstPaintBuffer] is true only when [PdfSourceLoadOptions.firstPaintPages]
+/// successfully stopped the object fetch at its first-paint closure. It is
+/// false when ranged loading fell back to a complete sequential download or
+/// when the loader fetched the complete live-object closure. Higher layers use
+/// this distinction to avoid treating a fallback's complete page tree as if it
+/// were still the intentionally limited preview.
+class CosSourceOpenResult {
+  const CosSourceOpenResult(this.document, {required this.isFirstPaintBuffer});
+
+  final CosDocument document;
+  final bool isFirstPaintBuffer;
+}
+
+/// Opens [source] like [openCosDocumentFromSource] and reports whether the
+/// returned document is an intentionally limited first-paint buffer.
+Future<CosSourceOpenResult> openCosDocumentFromSourceWithStatus(
+  PdfByteSource source, {
+  String password = '',
+  PdfSourceLoadOptions options = const PdfSourceLoadOptions(),
 }) async {
-  Uint8List buffer;
+  late final Uint8List buffer;
+  var isFirstPaintBuffer = false;
   final t0 = PdfPerf.begin();
   try {
-    buffer = await _ProgressiveLoader(source, options).load();
+    final loaded = await _ProgressiveLoader(source, options).load();
+    buffer = loaded.bytes;
+    isFirstPaintBuffer = loaded.isFirstPaintBuffer;
   } on _FallbackToFullDownload {
     PdfPerf.add(PdfPerfCount.fullDownloadFallback);
     PdfPerf.event(PdfPerfEvent.rangedSourceFellBack);
     buffer = await _downloadFully(source, options);
   }
   PdfPerf.end(PdfPerfPhase.sourceFetch, t0);
-  return CosDocument.open(buffer, password: password);
+  return CosSourceOpenResult(
+    CosDocument.open(buffer, password: password),
+    isFirstPaintBuffer: isFirstPaintBuffer,
+  );
 }
 
 /// Sentinel that unwinds the progressive path to the full-download fallback.
@@ -211,7 +260,7 @@ class _ProgressiveLoader {
   final List<_Range> _present = [];
   int _fetched = 0;
 
-  Future<Uint8List> load() async {
+  Future<({Uint8List bytes, bool isFirstPaintBuffer})> load() async {
     final len = await source.length;
     if (len == null || len <= 0) throw const _FallbackToFullDownload();
     _length = len;
@@ -237,11 +286,11 @@ class _ProgressiveLoader {
     // where a whole-object open would.
     if (options.firstPaintPages != null &&
         await _fetchFirstPaintClosure(startXref, shift, offsets)) {
-      return _buffer;
+      return (bytes: _buffer, isFirstPaintBuffer: true);
     }
 
     await _fetchObjects(offsets);
-    return _buffer;
+    return (bytes: _buffer, isFirstPaintBuffer: false);
   }
 
   /// Absolute offsets of the cross-reference sections visited by [_walkXref].
@@ -280,9 +329,8 @@ class _ProgressiveLoader {
   /// at [start] can safely be assumed to end.
   int _objectEnd(List<int> sortedOffsets, int index) {
     final start = sortedOffsets[index];
-    var end = index + 1 < sortedOffsets.length
-        ? sortedOffsets[index + 1]
-        : _length;
+    var end =
+        index + 1 < sortedOffsets.length ? sortedOffsets[index + 1] : _length;
     for (final xref in _xrefOffsets) {
       if (xref > start && xref < end) end = xref;
     }
@@ -549,13 +597,19 @@ class _ProgressiveLoader {
 
       final pagesRef = catalog['Pages'];
       if (pagesRef is! CosReference) return false;
+      final wanted = options.firstPaintPages!;
       final leaves = <CosDictionary>[];
-      if (!await _walkPageTree(pagesRef.objectNumber, shift, leaves, <int>{})) {
+      if (!await _walkPageTree(
+        pagesRef.objectNumber,
+        shift,
+        leaves,
+        <int>{},
+        leafLimit: options.completeFirstPaintPageTree ? null : wanted,
+      )) {
         return false;
       }
       if (leaves.isEmpty) return false;
 
-      final wanted = options.firstPaintPages!;
       final visited = <int>{};
       for (var i = 0; i < leaves.length && i < wanted; i++) {
         await _fetchLeafRenderClosure(leaves[i], shift, visited);
@@ -573,8 +627,14 @@ class _ProgressiveLoader {
   /// Walks the page tree depth-first in reading order, fetching every node and
   /// leaf dictionary (small) and collecting the page leaves into [leaves].
   /// Returns false on a shape it can't follow, so the caller falls back.
-  Future<bool> _walkPageTree(int nodeNumber, int shift,
-      List<CosDictionary> leaves, Set<int> visited) async {
+  Future<bool> _walkPageTree(
+    int nodeNumber,
+    int shift,
+    List<CosDictionary> leaves,
+    Set<int> visited, {
+    int? leafLimit,
+  }) async {
+    if (leafLimit != null && leaves.length >= leafLimit) return true;
     if (!visited.add(nodeNumber)) return true;
     if (visited.length > 1000000) return false;
     final node = await _loadObject(nodeNumber, shift);
@@ -585,8 +645,15 @@ class _ProgressiveLoader {
       return true;
     }
     for (final kid in kids.items) {
+      if (leafLimit != null && leaves.length >= leafLimit) break;
       if (kid is! CosReference) return false; // inline kid: bail to fetch-all
-      if (!await _walkPageTree(kid.objectNumber, shift, leaves, visited)) {
+      if (!await _walkPageTree(
+        kid.objectNumber,
+        shift,
+        leaves,
+        visited,
+        leafLimit: leafLimit,
+      )) {
         return false;
       }
     }
@@ -615,8 +682,7 @@ class _ProgressiveLoader {
   /// Fetches the transitive closure of indirect objects reachable from [root]
   /// (a resources dict, a /Contents ref/array, ...). Bounded: a page's resource
   /// graph never reaches other pages.
-  Future<void> _fetchGraph(
-      CosObject? root, int shift, Set<int> visited) async {
+  Future<void> _fetchGraph(CosObject? root, int shift, Set<int> visited) async {
     if (root == null) return;
     final queue = <CosReference>[..._enumerateRefs(root)];
     while (queue.isNotEmpty) {
@@ -659,7 +725,8 @@ class _ProgressiveLoader {
         if (start < 0 || start >= _length) return null;
         await _fetch(start, _boundedEnd(start));
         try {
-          final indirect = CosParser(_buffer, offset: start).parseIndirectObject();
+          final indirect =
+              CosParser(_buffer, offset: start).parseIndirectObject();
           if (indirect.objectNumber == objectNumber) result = indirect.object;
         } on Object {
           result = null;

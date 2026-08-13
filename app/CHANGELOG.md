@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.5.0
+
+- Large and visually dense PDFs stay responsive while scrolling, panning, and
+  zooming, with the visible region sharpening before bounded background work.
+- Fast navigation now moves through progressively clearer page previews rather
+  than waiting on one final full-detail raster.
+- Keep pages sharp and visible as they cross viewport edges, reduce redundant
+  off-screen detail work, and make remote and web document loading faster and
+  more memory-predictable.
+- Add a live Canvas/flutter_gpu tile-backend switch to Developer tools, along
+  with persistent texture/geometry ceilings and diagnostics for actual route,
+  fallback reasons, compile/replay time, cache pressure, uploads/readbacks,
+  and live resource leases. Export all GPU metrics in the JSON snapshot. PR
+  web previews link to downloadable macOS, Windows, and Linux native builds so
+  the real Impeller backend can be tested even though flutter_gpu has no web
+  runtime. The ad-hoc macOS preview/release packages now omit the provisioned
+  Keychain entitlement so macOS can launch them normally.
+
 ## 3.4.0
 
 - Copy and paste annotations between open documents, save placed stamps back

@@ -44,8 +44,8 @@ plugs:
 parts:
   dartpdf:
     plugin: dump
-    source: https://github.com/ben-milanko/dart-pdf/releases/download/app-v3.3.1/dartpdf-linux-x64.tar.gz
+    source: https://github.com/ben-milanko/dart-pdf/releases/download/app-v3.4.0/dartpdf-linux-x64.tar.gz
     source-type: tar
-    source-checksum: sha256/9a3205a638af561d10adcff802aa6431e8ce5f35e187d2aeb243fcb6c46648c4
+    source-checksum: sha256/57ef3076fb8068325f25c95b10cb55e0f0fd668560dff2e61663bbfd8c4f2ff6
     parse-info:
       - share/metainfo/dev.milanko.dartpdf.metainfo.xml

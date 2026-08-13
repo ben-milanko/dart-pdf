@@ -75,7 +75,7 @@ void main() {
     });
   });
 
-  testWidgets('detail raster yields to the mixed Slug base during live zoom',
+  testWidgets('mixed Slug base stays sharp without a redundant detail raster',
       (tester) async {
     PdfPageView.webSlugGlyphLayer = true;
     PdfPageView.debugWebSlugGlyphLayerBackendOverride = true;
@@ -110,7 +110,9 @@ void main() {
     final slug = find.byKey(const ValueKey('pdf-page-slug-picture'));
     final detail = find.byKey(const ValueKey('pdf-page-detail-image'));
     await _waitFor(tester, slug, label: 'mixed Slug picture');
-    await _waitFor(tester, detail, label: 'high-resolution detail');
+    expect(detail, findsNothing,
+        reason: 'the image decode already has display-resolution headroom, '
+            'so a raster overlay would only cover transform-sharp Slug text');
     final picture =
         (tester.widget<CustomPaint>(slug).painter! as dynamic).picture;
     final quads = StripPdfDevice.totalSlugQuads;
@@ -128,8 +130,14 @@ void main() {
 
     await tester.pump(const Duration(milliseconds: 60));
     await tester.pumpWidget(at(1));
-    await _waitFor(tester, detail, label: 'settled replacement detail');
     expect(slug, findsOneWidget);
+    expect(detail, findsNothing,
+        reason: 'a settle must keep using the complete retained picture');
+    expect(
+        identical(
+            (tester.widget<CustomPaint>(slug).painter! as dynamic).picture,
+            picture),
+        isTrue);
     expect(StripPdfDevice.totalSlugQuads, quads,
         reason: 'settles must reuse the transform-time Slug picture');
   });
@@ -291,7 +299,8 @@ class _DeferredFullRecordWorker extends PdfRenderWorker {
       double? imagePixelRatio,
       bool decodeImages = true,
       int? commandLimit,
-      PdfRect? imageDecodeRegion, PdfPartialRecordSink? onPartial}) {
+      PdfRect? imageDecodeRegion,
+      PdfPartialRecordSink? onPartial}) {
     if (decodeImages && imageDecodeRegion != null) {
       if (!regionRecordStarted.isCompleted) regionRecordStarted.complete();
       return _regionRecord.future;

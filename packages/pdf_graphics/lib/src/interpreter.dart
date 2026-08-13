@@ -368,7 +368,7 @@ class PdfInterpreter {
   PdfRect? _pageBox;
 
   // current path, built in page space
-  List<PdfPathSegment> _segments = [];
+  PdfPathBuilder _segments = PdfPathBuilder();
   double _currentX = 0, _currentY = 0; // user-space current point
   double _startX = 0, _startY = 0;
   PdfFillRule? _pendingClip;
@@ -1436,6 +1436,65 @@ class PdfInterpreter {
   }
 
   void _execOp(ContentOperation op, CosDictionary resources, int formDepth) {
+    final numbers = op.numberOperands;
+    if (numbers != null) {
+      // The incremental parser leaves number-only instructions unboxed. Keep
+      // the dominant CAD path on primitive numbers all the way into path
+      // construction: this avoids millions of short-lived CosReal objects and
+      // their repeated runtime type checks. Programmatically-created
+      // ContentOperations retain the general COS-object switch below.
+      switch (op.operator) {
+        case 'm':
+          _moveTo(_number(numbers, 0), _number(numbers, 1));
+          return;
+        case 'l':
+          _lineTo(_number(numbers, 0), _number(numbers, 1));
+          return;
+        case 'c':
+          _curveTo(
+            _number(numbers, 0),
+            _number(numbers, 1),
+            _number(numbers, 2),
+            _number(numbers, 3),
+            _number(numbers, 4),
+            _number(numbers, 5),
+          );
+          return;
+        case 'v':
+          _curveTo(
+            _currentX,
+            _currentY,
+            _number(numbers, 0),
+            _number(numbers, 1),
+            _number(numbers, 2),
+            _number(numbers, 3),
+          );
+          return;
+        case 'y':
+          final x2 = _number(numbers, 2), y2 = _number(numbers, 3);
+          _curveTo(_number(numbers, 0), _number(numbers, 1), x2, y2, x2, y2);
+          return;
+        case 're':
+          final x = _number(numbers, 0), y = _number(numbers, 1);
+          final w = _number(numbers, 2), h = _number(numbers, 3);
+          _moveTo(x, y);
+          _lineTo(x + w, y);
+          _lineTo(x + w, y + h);
+          _lineTo(x, y + h);
+          _closePath();
+          return;
+        case 'cm':
+          _state.ctm = PdfMatrix(
+            _number(numbers, 0),
+            _number(numbers, 1),
+            _number(numbers, 2),
+            _number(numbers, 3),
+            _number(numbers, 4),
+            _number(numbers, 5),
+          ).concat(_state.ctm);
+          return;
+      }
+    }
     final o = op.operands;
     // A `d1` Type3 glyph forbids colour operators (§9.6.5): the glyph paints
     // in the text colour that invoked it. The flag is false on every ordinary
@@ -1912,11 +1971,12 @@ class PdfInterpreter {
     _currentX = _startX = x;
     _currentY = _startY = y;
     final m = _state.ctm;
-    final px = m.transformX(x, y), py = m.transformY(x, y);
+    final px = m.a * x + m.c * y + m.e;
+    final py = m.b * x + m.d * y + m.f;
     if (_scanImages) {
       _scanPoint(px, py);
     } else {
-      _segments.add(PdfMoveTo(px, py));
+      _segments.moveTo(px, py);
     }
   }
 
@@ -1924,41 +1984,41 @@ class PdfInterpreter {
     _currentX = x;
     _currentY = y;
     final m = _state.ctm;
-    final px = m.transformX(x, y), py = m.transformY(x, y);
+    final px = m.a * x + m.c * y + m.e;
+    final py = m.b * x + m.d * y + m.f;
     if (_scanImages) {
       _scanPoint(px, py);
     } else {
-      _segments.add(PdfLineTo(px, py));
+      _segments.lineTo(px, py);
     }
   }
 
   void _curveTo(
       double x1, double y1, double x2, double y2, double x3, double y3) {
     final m = _state.ctm;
+    final px1 = m.a * x1 + m.c * y1 + m.e;
+    final py1 = m.b * x1 + m.d * y1 + m.f;
+    final px2 = m.a * x2 + m.c * y2 + m.e;
+    final py2 = m.b * x2 + m.d * y2 + m.f;
+    final px3 = m.a * x3 + m.c * y3 + m.e;
+    final py3 = m.b * x3 + m.d * y3 + m.f;
     if (_scanImages) {
       // The Bézier hull (control points included) bounds the curve.
-      _scanPoint(m.transformX(x1, y1), m.transformY(x1, y1));
-      _scanPoint(m.transformX(x2, y2), m.transformY(x2, y2));
-      _scanPoint(m.transformX(x3, y3), m.transformY(x3, y3));
+      _scanPoint(px1, py1);
+      _scanPoint(px2, py2);
+      _scanPoint(px3, py3);
       _currentX = x3;
       _currentY = y3;
       return;
     }
-    _segments.add(PdfCubicTo(
-      m.transformX(x1, y1),
-      m.transformY(x1, y1),
-      m.transformX(x2, y2),
-      m.transformY(x2, y2),
-      m.transformX(x3, y3),
-      m.transformY(x3, y3),
-    ));
+    _segments.cubicTo(px1, py1, px2, py2, px3, py3);
     _currentX = x3;
     _currentY = y3;
   }
 
   void _closePath() {
     // In scan mode the box already covers every point; nothing to add.
-    if (!_scanImages) _segments.add(const PdfClosePath());
+    if (!_scanImages) _segments.close();
     _currentX = _startX;
     _currentY = _startY;
   }
@@ -2091,14 +2151,13 @@ class PdfInterpreter {
       _resetScanBox();
       return;
     }
-    final path = PdfPath(_segments);
+    final path = _segments.takePath();
     // Reset the builder *before* dispatching: a pattern fill below re-enters
     // the interpreter to run the pattern's cell content, and with the live
     // list still installed the cell's first path ops would append into this
     // already-captured path - the outer region's geometry then leaked into
     // the first tile's paint (and, once cells are recorded and replayed for
     // #524, into every tile).
-    _segments = [];
     final overprint = _overprint;
     if (!path.isEmpty && _contentVisible) {
       if (fill != null) {
@@ -2145,7 +2204,7 @@ class PdfInterpreter {
       }
     }
     _pendingClip = null;
-    _segments = [];
+    _segments.clear();
   }
 
   // ---------- color ----------
@@ -2800,7 +2859,7 @@ class PdfInterpreter {
     final savedClipPending = _textClipPending;
     final savedClipSegments = List.of(_textClipSegments);
     final savedSegments = _segments;
-    _segments = [];
+    _segments = PdfPathBuilder();
     // A `d1` inside this CharProc locks colour to the text colour; the lock
     // is per-glyph, so snapshot and clear it (a nested glyph mustn't inherit
     // an outer glyph's lock) and restore it afterwards. The glyph's effective
@@ -3170,7 +3229,7 @@ class PdfInterpreter {
     // builds next (and the enclosing region's captured path must never grow
     // under a recorded cell - see _paintPath's early reset).
     final savedSegments = _segments;
-    _segments = [];
+    _segments = PdfPathBuilder();
     _overprint?.save();
     device.save();
     try {
@@ -3546,6 +3605,9 @@ class PdfInterpreter {
 
   static double _num(List<CosObject> operands, int index) =>
       index < operands.length ? _numOf(operands[index]) : 0;
+
+  static double _number(List<num> operands, int index) =>
+      index < operands.length ? operands[index].toDouble() : 0;
 
   static PdfMatrix _matrixFrom(List<CosObject> o) => PdfMatrix(
       _num(o, 0), _num(o, 1), _num(o, 2), _num(o, 3), _num(o, 4), _num(o, 5));

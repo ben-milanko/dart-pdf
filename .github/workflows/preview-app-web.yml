@@ -1,4 +1,4 @@
-name: Preview App Web
+name: Preview App
 
 on:
   pull_request:
@@ -10,6 +10,7 @@ on:
       - packages/pdf_document/**
       - packages/pdf_graphics/**
       - packages/dart_pdf_editor/**
+      - packages/dart_pdf_editor_flutter_gpu/**
 
 concurrency:
   group: app-web-preview-${{ github.event.pull_request.number }}
@@ -52,6 +53,9 @@ jobs:
       - run: >-
           flutter build web --release
           --dart-define=PDF_BUILD_COMMIT=${PREVIEW_SHA::7}
+          --dart-define=PDF_GPU_MACOS_PREVIEW_URL=/downloads/dartpdf-macos-gpu-preview.dmg
+          --dart-define=PDF_GPU_WINDOWS_PREVIEW_URL=/downloads/dartpdf-windows-gpu-preview.zip
+          --dart-define=PDF_GPU_LINUX_PREVIEW_URL=/downloads/dartpdf-linux-gpu-preview.tar.gz
         working-directory: app
         env:
           PREVIEW_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -71,6 +75,207 @@ jobs:
           path: ${{ runner.temp }}/app-preview
           if-no-files-found: error
 
+  # flutter_gpu is backed by native Impeller bindings and has no web runtime.
+  # Give every same-PR web preview a real native build so reviewers can test
+  # the GPU/Canvas switch instead of exposing a misleading web-only toggle.
+  macos-gpu:
+    runs-on: macos-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.8
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Neutralize code signing for the unsigned CI build
+        working-directory: app
+        run: |
+          sed -i '' \
+            -e 's/"Apple Development"/"-"/g' \
+            -e 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' \
+            -e 's/DEVELOPMENT_TEAM = N5K9GK8B27;/DEVELOPMENT_TEAM = "";/g' \
+            macos/Runner.xcodeproj/project.pbxproj
+
+      - name: Build macOS flutter_gpu preview
+        working-directory: app
+        env:
+          PREVIEW_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: >-
+          flutter build macos --release
+          --dart-define=PDF_BUILD_COMMIT=${PREVIEW_SHA::7}
+
+      - name: Ad-hoc sign embedded code with preview-safe entitlements
+        working-directory: app
+        env:
+          CODESIGN_ENTITLEMENTS: macos/Runner/AdHoc.entitlements
+        run: >-
+          bash macos/resign_embedded_code.sh
+          build/macos/Build/Products/Release/DartPDF.app
+
+      - name: Package unsigned GPU preview DMG
+        working-directory: app
+        run: |
+          mkdir -p build/gpu-preview-dmg
+          cp -R "build/macos/Build/Products/Release/DartPDF.app" build/gpu-preview-dmg/
+          ln -s /Applications build/gpu-preview-dmg/Applications
+          hdiutil create -volname "DartPDF GPU Preview" \
+            -srcfolder build/gpu-preview-dmg \
+            -ov -format UDZO dartpdf-macos-gpu-preview.dmg
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: app-macos-gpu-preview
+          path: app/dartpdf-macos-gpu-preview.dmg
+          if-no-files-found: error
+
+  windows-gpu:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.8
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      # Desktop engine switches are intentionally ignored by release-mode
+      # Flutter. Build a profile preview and bake the two opt-ins into this
+      # runner-only source copy so launching the downloaded exe enables the
+      # real Impeller context without requiring a command prompt wrapper.
+      - name: Enable Impeller and flutter_gpu in the preview runner
+        working-directory: app
+        shell: pwsh
+        run: |
+          $path = "windows/runner/main.cpp"
+          $source = Get-Content $path -Raw
+          $marker = "  // Attach to console when present"
+          $switches = @"
+            ::SetEnvironmentVariableA("FLUTTER_ENGINE_SWITCHES", "2");
+            ::SetEnvironmentVariableA("FLUTTER_ENGINE_SWITCH_1", "enable-impeller=true");
+            ::SetEnvironmentVariableA("FLUTTER_ENGINE_SWITCH_2", "enable-flutter-gpu=true");
+
+          "@
+          if (-not $source.Contains($marker)) { throw "runner injection marker missing" }
+          $source = $source.Replace($marker, $switches + $marker)
+          Set-Content $path $source -Encoding UTF8
+
+      - name: Build Windows flutter_gpu preview
+        working-directory: app
+        shell: pwsh
+        run: >-
+          flutter build windows --profile
+          --dart-define=PDF_BUILD_COMMIT=${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Package portable Windows preview
+        working-directory: app
+        shell: pwsh
+        run: |
+          $bundle = "build/windows/x64/runner/Profile"
+          Copy-Item "$env:SystemRoot\System32\msvcp140.dll",
+                    "$env:SystemRoot\System32\vcruntime140.dll",
+                    "$env:SystemRoot\System32\vcruntime140_1.dll" `
+                    -Destination $bundle -Force
+          @"
+          DartPDF flutter_gpu PR preview (profile build)
+
+          Start dart_pdf_editor_app.exe normally. This preview runner enables
+          Impeller and flutter_gpu before the Flutter engine starts. Use F12,
+          then Tile raster backend, to switch between Canvas and flutter_gpu.
+          "@ | Set-Content "$bundle/README-GPU-PREVIEW.txt" -Encoding UTF8
+          Compress-Archive -Path "$bundle/*" `
+            -DestinationPath dartpdf-windows-gpu-preview.zip -Force
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: app-windows-gpu-preview
+          path: app/dartpdf-windows-gpu-preview.zip
+          if-no-files-found: error
+
+  linux-gpu:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Linux desktop build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ninja-build libgtk-3-dev libsecret-1-dev libjsoncpp-dev
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.8
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Build Linux flutter_gpu preview
+        working-directory: app
+        run: >-
+          flutter build linux --profile
+          --dart-define=PDF_BUILD_COMMIT=${PREVIEW_SHA::7}
+        env:
+          PREVIEW_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      # As on Windows, Flutter reads desktop engine switches only outside a
+      # release engine. Keep the real executable beside a launcher so desktop
+      # files and direct shell launches both acquire the opt-in context.
+      - name: Package portable Linux preview
+        working-directory: app
+        run: |
+          set -euo pipefail
+          bundle=build/linux/x64/profile/bundle
+          mv "$bundle/dart_pdf_editor_app" "$bundle/dart_pdf_editor_app.bin"
+          cat > "$bundle/dart_pdf_editor_app" <<'SH'
+          #!/usr/bin/env sh
+          set -eu
+          export FLUTTER_ENGINE_SWITCHES=2
+          export FLUTTER_ENGINE_SWITCH_1=enable-impeller=true
+          export FLUTTER_ENGINE_SWITCH_2=enable-flutter-gpu=true
+          here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+          exec "$here/dart_pdf_editor_app.bin" "$@"
+          SH
+          chmod +x "$bundle/dart_pdf_editor_app"
+          cat > "$bundle/README-GPU-PREVIEW.txt" <<'TXT'
+          DartPDF flutter_gpu PR preview (profile build)
+
+          Start ./dart_pdf_editor_app. The launcher enables Impeller and
+          flutter_gpu before the Flutter engine starts. Use F12, then Tile
+          raster backend, to switch between Canvas and flutter_gpu. DevTools
+          will report a Canvas fallback if the host graphics stack cannot
+          provide an Impeller context.
+          TXT
+          tar -C build/linux/x64/profile -czf dartpdf-linux-gpu-preview.tar.gz bundle
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: app-linux-gpu-preview
+          path: app/dartpdf-linux-gpu-preview.tar.gz
+          if-no-files-found: error
+
   deploy:
     # Fork and Dependabot PRs do not receive repository secrets. Other same-repo
     # PRs deploy only the static build artifact from the build job; this job does
@@ -78,7 +283,7 @@ jobs:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.user.login != 'dependabot[bot]'
-    needs: build
+    needs: [build, macos-gpu, windows-gpu, linux-gpu]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -90,6 +295,21 @@ jobs:
         with:
           name: app-web-preview
           path: preview
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: app-macos-gpu-preview
+          path: preview/build/web/downloads
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: app-windows-gpu-preview
+          path: preview/build/web/downloads
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: app-linux-gpu-preview
+          path: preview/build/web/downloads
 
       - name: Write trusted Firebase config
         working-directory: preview

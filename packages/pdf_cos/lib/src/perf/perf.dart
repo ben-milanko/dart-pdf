@@ -67,6 +67,18 @@ enum PdfPerfPhase {
   runLength,
   asciiFilter,
 
+  /// Decoding an image for a serialized render command, end to end.
+  imageDecode,
+
+  /// Reducing decoded component samples to their display-sized target.
+  imageDownsample,
+
+  /// Mapping decoded image samples through their PDF colour space to RGBA.
+  imageColorConvert,
+
+  /// Applying an image soft/stencil mask and premultiplying its RGBA result.
+  imageAlpha,
+
   /// Content-stream tokenization (ContentStreamParser).
   contentTokenize,
 
@@ -375,7 +387,9 @@ class PdfPerfStats {
     for (final e in PdfPerfEvent.values) {
       if (events[e.index] != 0) lines.add('  ${e.name}: ${events[e.index]}');
     }
-    return lines.isEmpty ? 'PdfPerfStats(empty)' : 'PdfPerfStats:\n${lines.join('\n')}';
+    return lines.isEmpty
+        ? 'PdfPerfStats(empty)'
+        : 'PdfPerfStats:\n${lines.join('\n')}';
   }
 }
 

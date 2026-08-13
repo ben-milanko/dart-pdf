@@ -33,7 +33,8 @@ Future<Map<PdfImageRequest, PdfDecodedPixels>> _decodeVectorPrintImages(
     CosDocument cos, List<PdfImageRequest> requests) async {
   // Cold decode (no cache): printing is infrequent and we dispose the images
   // right after reading their bytes, so we don't want to churn the render cache.
-  final images = await decodeImages(cos, requests);
+  final images =
+      await decodeImages(cos, requests, deferSimpleDctSoftMasks: false);
   // Read each decoded image back to pixels once, keyed by pdfImageKey - a page
   // that draws the same image many times (a tiled underlay) shares one ui.Image
   // and must share one GPU readback rather than repeating it per draw.
@@ -61,7 +62,7 @@ Future<Map<PdfImageRequest, PdfDecodedPixels>> _decodeVectorPrintImages(
     }
   } finally {
     for (final image in images.values) {
-      image.dispose();
+      disposePdfDecodedImage(image);
     }
   }
   return out;

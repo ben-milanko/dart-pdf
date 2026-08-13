@@ -2878,6 +2878,7 @@ class _PageThumbnailState extends State<_PageThumbnail> {
       // nothing may escape: a single failing page must neither poison the
       // queue nor surface - it just keeps its placeholder
       try {
+        var deferred = false;
         final image = await rasterizeThumbnail(
           controller: controller,
           pageIndex: pageIndex,
@@ -2885,11 +2886,28 @@ class _PageThumbnailState extends State<_PageThumbnail> {
           annotations: annotations,
           pixelWidth: pixelWidth,
           worker: worker,
+          // The task may have been granted before a fast scroll and return
+          // from its worker during the render hold. Do not replay/rasterize
+          // that stale result on the platform thread; keep the viewer preview
+          // and let the shared queue retry after its foreground gate clears.
+          deferUiWork: () {
+            final value = cache.shouldDeferUiWork;
+            deferred |= value;
+            return value;
+          },
           // only persist/read disk for pages untouched this session - the
           // disk key is content-derived and render stamps reset per session
           disk: controller.pageRenderStamp(pageIndex) == 0 ? cache.disk : null,
         );
-        if (image == null) return;
+        if (image == null) {
+          if (deferred && mounted && _pendingKey == key) {
+            // This request has already been removed from the queue. Put the
+            // same token back while the gate is closed; its activity listener
+            // will grant it when the viewer becomes idle again.
+            _enqueue(key, pixelWidth);
+          }
+          return;
+        }
         PdfThumbnailSidebar.debugRasterizations++;
         cache.put(key, image);
         if (!mounted || _pendingKey != key) return;
@@ -3052,11 +3070,11 @@ Future<ui.Image?> rasterizeThumbnail({
         : null;
     final recordMs = sw.elapsedMicroseconds / 1000.0;
     if (commands != null) {
-      // A background warm may have started while the viewer was idle, then
-      // received its worker result after scrolling began. Do not turn that
-      // result into a picture/raster on the platform thread now: the page's
-      // visible tile already has a soft viewer preview, and foreground motion
-      // wins. The warm pass may leave this page for its on-demand tile render.
+      // A thumbnail may have started while the viewer was idle, then received
+      // its worker result after scrolling began. Do not turn that result into
+      // a picture/raster on the platform thread now: the tile already has a
+      // soft viewer preview, and foreground motion wins. A visible tile is
+      // re-queued; a warm pass may leave the page for its on-demand render.
       if (deferUiWork?.call() ?? false) {
         trace.instant('defer ui replay', arguments: {'ms': recordMs});
         PdfPerfLog.log('thumbnail page=$pageIndex $reason px=$pixelWidth '
@@ -3116,6 +3134,16 @@ Future<ui.Image?> rasterizeThumbnail({
       PdfPerfLog.log('thumbnail page=$pageIndex $reason px=$pixelWidth '
           'skip local fallback record=${_traceMs(recordMs)} '
           '${usingWorker ? '(worker declined)' : '(no worker)'}');
+      return null;
+    }
+    // The worker may have declined only after the viewer started moving. A
+    // visible tile normally falls back to a local interpret here, which is
+    // even more disruptive than replaying a returned command buffer; defer it
+    // under the same gate and retry after settle.
+    if (deferUiWork?.call() ?? false) {
+      trace.instant('defer ui local fallback', arguments: {'ms': recordMs});
+      PdfPerfLog.log('thumbnail page=$pageIndex $reason px=$pixelWidth '
+          'defer ui local fallback record=${_traceMs(recordMs)}');
       return null;
     }
     sw.reset();

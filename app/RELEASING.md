@@ -95,7 +95,7 @@ always served fresh, so it skips the check.
 |---|---|---|
 | Android | `app-release.apk`, `app-release.aab` | Debug keys unless a release keystore is configured (below) |
 | iOS | `…-ios-unsigned.zip` (`.app`) | **No**, not installable; needs your Apple signing |
-| macOS | `…-macos.dmg` | Ad-hoc signed for internal consistency; needs Developer ID signing + notarization for public distribution |
+| macOS | `…-macos.dmg` | Ad-hoc signed with `Runner/AdHoc.entitlements`; needs Developer ID signing + notarization for public distribution |
 | Windows | `…-windows-installer.exe`, `…-windows-portable.exe`, `…-windows-x64.zip` | **No**, needs an Authenticode cert for non-Store distribution |
 | Windows (Store) | `dartpdf-windows-store.msix` (separate workflow, see below) | Intentionally unsigned - Microsoft re-signs Store submissions |
 | Linux | `…-linux-x64.tar.gz`, `…-linux-x86_64.AppImage` | Flatpak repository is GPG-signed; raw artifacts are unsigned |

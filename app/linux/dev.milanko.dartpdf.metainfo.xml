@@ -95,6 +95,26 @@
     <!-- Generated from app/fastlane/metadata/android/en-US/changelogs/ and
          app/release-notes/. Newest first; keep the top entry in sync with the
          version the Flatpak/AUR packages pin. -->
+    <release version="3.5.0" date="2026-08-13">
+      <description>
+        <ul>
+          <li>Large and highly detailed PDFs remain responsive and sharpen the visible area first.</li>
+          <li>Page previews progress through clearer detail levels during fast navigation.</li>
+          <li>Pages stay sharp and visible as they cross viewport edges.</li>
+          <li>Remote and web documents load faster with more predictable memory use.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.4.0" date="2026-08-09">
+      <description>
+        <ul>
+          <li>Copy and paste annotations between open documents and save placed stamps back to the stamp collection.</li>
+          <li>Drop PDFs between page thumbnails to insert pages at an exact position.</li>
+          <li>Text selection and substituted-font rendering align more precisely.</li>
+          <li>Tab grids, trackpad zooming, progressive file access, and print previews are more reliable.</li>
+        </ul>
+      </description>
+    </release>
     <release version="3.3.1" date="2026-08-02">
       <description>
         <ul>

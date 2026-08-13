@@ -124,7 +124,8 @@ void main() {
 
     testWidgets('position tracks scrolling', (tester) async {
       final controller = await pumpViewer(tester);
-      expect(controller.scrollMetrics!.position, moreOrLessEquals(0, epsilon: 0.001));
+      expect(controller.scrollMetrics!.position,
+          moreOrLessEquals(0, epsilon: 0.001));
 
       scrollPosition(tester).jumpTo(scrollPosition(tester).maxScrollExtent);
       await tester.pump();
@@ -154,7 +155,8 @@ void main() {
 
       controller.jumpToNormalized(1);
       await tester.pump();
-      expect(position.pixels, moreOrLessEquals(position.maxScrollExtent, epsilon: 0.5));
+      expect(position.pixels,
+          moreOrLessEquals(position.maxScrollExtent, epsilon: 0.5));
       expect(controller.scrollMetrics!.position,
           moreOrLessEquals(1, epsilon: 0.001));
 
@@ -181,7 +183,8 @@ void main() {
 
       controller.jumpToNormalized(5);
       await tester.pump();
-      expect(position.pixels, moreOrLessEquals(position.maxScrollExtent, epsilon: 0.5));
+      expect(position.pixels,
+          moreOrLessEquals(position.maxScrollExtent, epsilon: 0.5));
 
       controller.jumpToNormalized(-5);
       await tester.pump();
@@ -195,6 +198,16 @@ void main() {
       unawaited(controller.animateToPage(3));
       await tester.pumpAndSettle();
       expect(controller.currentPage, 3);
+    });
+
+    testWidgets('zero duration snaps even when the page is nearby',
+        (tester) async {
+      final controller = await pumpViewer(tester, pages: 8);
+
+      await controller.animateToPage(1, duration: Duration.zero);
+      await tester.pump();
+
+      expect(controller.currentPage, 1);
     });
   });
 
@@ -241,7 +254,8 @@ void main() {
       expect(built, 0);
     });
 
-    testWidgets('a scrubber drag through the controller scrolls', (tester) async {
+    testWidgets('a scrubber drag through the controller scrolls',
+        (tester) async {
       final controller = await pumpViewer(
         tester,
         pages: 8,

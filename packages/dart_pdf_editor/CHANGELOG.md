@@ -1,7 +1,108 @@
 # Changelog
 
+## 3.5.0
+
+- Sharpen deep-zoom pages visible-first: the foreground render now covers the
+  exact viewport. Once that sharp frame paints, tile-capable pages grow bounded
+  pan-ahead underneath it; fallback pages avoid a second unpreemptible raster.
+  Translation settles cannot abandon an in-flight exact recovery, and tile
+  admission is bounded across frames so unrelated repaints cannot build a long
+  GPU queue. Foreground paint telemetry remains distinct, and every retained
+  detail allocation rebalances the live-raster budget, preventing visible
+  quality and memory from stepping backwards.
+- Promote fast-scroll page previews through a configurable 200 -> 400 -> 800
+  px LoD ladder before the final display raster. Intermediate levels warm only
+  around the viewport, share a 32 MiB byte-budgeted LRU, and are generated from
+  completed page rasters by serial image blits when possible; live pages never
+  downgrade when a cached level is evicted. Expose LoD occupancy and evictions
+  through `PdfViewerController.pagePreviewLodStats` and perf logs.
+- Let a tile raster session opt out of adjacent-tile slab batching and cap new
+  work admitted by each paint, while preserving Canvas batching and existing
+  third-party session compatibility. Expose the exact visible-tile budget
+  decision in diagnostics so single-patch fallbacks are explainable.
+- Keep off-screen neighbour pages at fit-resolution base rasters during deep
+  zoom, promoting them only when they enter the viewport, so navigation no
+  longer allocates high-zoom full-page rasters that are immediately replaced.
+  Cache-restored fit rasters now trigger that same promotion instead of
+  remaining enlarged after entering an already-zoomed viewport.
+- Require 750 ms of continuous viewer idle time before whole-document
+  thumbnail warming starts or resumes, and restart that quiet window when
+  navigation changes focus.
+- Let optional tile backends expose their latest session rejection reason and
+  include requested backend, actual route, reason, and command count in perf
+  logs.
+- Add an optional persistent tier for 512 px LoD tiles. Disk reads race live
+  rendering, writes happen after display admission, cache keys include the
+  complete page visual identity, and the existing byte-budgeted memory LRU and
+  coarse-tile fallback remain authoritative. Export the retained-scene bounds
+  and content-stable image-key helpers used by optional raster backends.
+- Let `PdfComparisonView` receive the same optional tile raster backend as the
+  reader, editor, and viewer, so hosts can switch every mounted view together.
+- Stop treating a page that shares the screen with the current one as an
+  off-screen prefetch neighbour: `PdfPageView.onScreen` now gates the
+  reduced-resolution image decode and the live-raster reclaim, so pages above
+  and below no longer soften and blank as they cross the viewport edge on
+  large-format scans (#657). `PdfLiveRasterHolder` implementations must add
+  `liveRasterOnScreen`.
+
 ## 3.4.0
 
+- Add a reproducible Chromium/PDFium competitive harness and reduce deep-zoom
+  memory pressure by reserving large rasters for visible-region detail,
+  reusing fit rasters as zoom bases, immediately settling discrete zooms, and
+  prioritising the focused page ahead of speculative neighbours. On web,
+  proactive off-screen preview warming now waits for a one-second idle window so
+  CanvasKit readbacks cannot extend the visible navigation response tail;
+  fast-scroll vector previews remain immediate. Small resource-simple pages
+  may take one startup-only local first paint while the worker boots, and a
+  completed web raster no longer performs an immediate duplicate preview
+  readback. Below-fit layout zooms now defer mounted neighbour refreshes just
+  like transform zooms, so only the focused page sharpens on the interaction's
+  critical path. The harness can also build SkWasm and validate its offscreen
+  canvas through symmetric full-compositor screenshot polling; custom build
+  output paths are resolved before changing directories so an A/B cannot
+  silently serve a stale bundle, and per-action Flutter frame timings make
+  page/zoom presentation tails directly attributable in the result artifact.
+  Competitive records now pin Chrome's GPU/Skia backend and diagnostics-only
+  no-capture runs cannot be used as parity gates. A prepared or revisited
+  exact raster is adopted synchronously in the focused page's first build,
+  avoiding a placeholder frame without blocking navigation to create it. A
+  default-off worker-owned Canvas2D path now covers ordinary path/text pages
+  and correctness-gated decoded images while declining unsupported command
+  profiles to the established renderer. Browser-native grayscale frames avoid
+  a Dart RGBA upload for common scans, and deep zoom overlays a viewport-sized
+  region on a retained 2× base instead of committing a full 3× page canvas.
+  A real-Chrome pixel gate checks representative pages/zooms for channel error,
+  foreground recall/precision, and foreground-coverage bounds before benchmark
+  results are accepted. The competitive runner now calibrates full-screenshot
+  pixel sampling separately from JPEG response completion, excludes its
+  pre-navigation baseline capture from cold-open time, preserves page-side
+  readiness timestamps across delayed CDP polls, and emits wheel events at a
+  fixed hardware cadence without serial acknowledgement throttling. This
+  removes capture/driver floors from page, zoom, and scroll comparisons while
+  retaining screenshot hashes as the common visible-output boundary. Cold-open
+  diagnostics now retain both full app-shell and first-PDF-request clocks, so
+  pre-Flutter startup is separated from document/render work without removing
+  application startup from the parity gate. The benchmark bootstrap can now
+  fetch once and paint page zero in the render worker before Flutter/SkWasm
+  starts, then hold that canvas through an exact hydrated-surface handoff.
+  Focused worker surfaces render directly at requested zoom-out sizes for
+  thin-line fidelity, use a 120 ms interaction settle, and retain an exact-size
+  `ImageBitmap` LRU capped at 8 MP / 32 MiB per live surface. Five-run gates for
+  the plan, scan, text, and ultra-dense diagram scenarios now meet every
+  configured PDFium p50/p95 interaction and RSS budget while the path remains
+  experimental and default-off.
+- Extend the competitive gate with a deterministic 138-page CAD journey that
+  measures normalized scrollbar scrubs, same-process warm reopen, continuous
+  peak RSS, and settled memory, plus a matched HTTP Range scenario that records
+  document first paint, complete background handoff, bytes, requests, and RSS.
+  Both five-sample gates meet their PDFium budgets. Progressive shells can stop
+  their sparse page-tree walk after the requested first-paint pages, render that
+  preview locally, then hand the complete document to the worker renderer;
+  immutable web revisions share one identity-keyed `SharedArrayBuffer` across
+  sibling workers instead of copying the full file per worker. A weekly
+  Chromium/PDFium workflow and `tool/perf.sh pdfium-gate` run all six acceptance
+  scenarios with checked-in budgets.
 - Add `PdfAnnotationSnapshotClipboard`, shared by default across editing
   controllers, so annotations copied in one document can be pasted into
   another open document (#653).

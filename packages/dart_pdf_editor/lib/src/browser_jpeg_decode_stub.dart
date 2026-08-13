@@ -19,4 +19,28 @@ Future<ui.Image?> decodeJpegWithBrowser(
   Uint8List jpeg, {
   int? targetWidth,
   int? targetHeight,
-}) async => null;
+}) async =>
+    null;
+
+/// Decodes a grayscale JPEG to its one-byte luminance plane with the browser
+/// codec. Native platforms return null and use their portable/engine path.
+Future<({Uint8List alpha, int width, int height, int sampleStride})?>
+    decodeJpegGrayWithBrowser(
+  Uint8List jpeg, {
+  int? targetWidth,
+  int? targetHeight,
+}) async =>
+        null;
+
+/// Uploads already-premultiplied RGBA pixels through the browser's bitmap
+/// pipeline. Native Flutter uses the engine's raw-image descriptor instead.
+Future<ui.Image?> uploadRgbaWithBrowser(
+  Uint8List rgba,
+  int width,
+  int height,
+) async =>
+    null;
+
+/// Inflates one zlib stream with the browser's native decompressor. Other
+/// platforms return null and retain the portable PDF filter implementation.
+Future<Uint8List?> inflateZlibWithBrowser(Uint8List encoded) async => null;

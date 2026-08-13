@@ -17,7 +17,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
-import 'package:pdf_cos/pdf_cos.dart' show CosInteger;
+import 'package:pdf_cos/pdf_cos.dart' show CosInteger, CosStream;
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
@@ -51,7 +51,13 @@ class PdfSceneBuildTiming {
 /// the cache window (outstanding pictures keep painting - `ui.Image.dispose`
 /// on a picture-referenced image is safe, the picture holds its own ref).
 class PdfRetainedScene {
-  PdfRetainedScene._(this.page, this.plan, this.commands, this._images);
+  PdfRetainedScene._(
+    this.page,
+    this.plan,
+    this.commands,
+    this._images, [
+    this._retainedDecodedRequests,
+  ]);
 
   /// Scenes holding sheddable spatial metadata (a region index or banded
   /// transcript), weakly held so a coordinated memory-pressure sweep can drop
@@ -206,7 +212,7 @@ class PdfRetainedScene {
   int get decodedImageBytes {
     var total = 0;
     for (final image in _images.values) {
-      total += image.width * image.height * 4;
+      total += pdfDecodedImageBytes(image);
     }
     return total;
   }
@@ -235,11 +241,17 @@ class PdfRetainedScene {
     for (final request in requests) {
       final image = _images[pdfImageKey(request)];
       if (image == null) continue;
-      final dict = request.stream.dictionary;
       final cos = page.document.cos;
+      final referenced = request.sourceReference;
+      final resolved = referenced == null ? null : cos.resolve(referenced);
+      final stream = resolved is CosStream ? resolved : request.stream;
+      final dict = stream.dictionary;
       final width = cos.resolve(dict['Width']);
       final height = cos.resolve(dict['Height']);
-      if (width is! CosInteger || height is! CosInteger) continue;
+      // A worker-wire request carries a tiny placeholder stream beside its
+      // source reference. If that reference cannot be resolved, native size
+      // is unknown rather than proven: keep deep-zoom refinement eligible.
+      if (width is! CosInteger || height is! CosInteger) return false;
       if (image.width < width.value || image.height < height.value) {
         return false;
       }
@@ -281,6 +293,23 @@ class PdfRetainedScene {
   /// Decoded images keyed by [pdfImageKey], owned by this scene.
   final Map<Object, ui.Image> _images;
 
+  /// The small subset of image requests whose worker RGBA was deliberately
+  /// retained for a direct accelerated-backend upload.
+  ///
+  /// Keeping this list avoids rediscovering images by walking a very large CAD
+  /// transcript when the backend finishes compiling or disposes its session.
+  List<PdfImageRequest>? _retainedDecodedRequests;
+
+  /// The already-decoded image for [request], or null when its codec failed or
+  /// this is a deliberate vector-only progressive scene.
+  ///
+  /// Accelerated backends use this to upload each image once at session
+  /// creation instead of decoding or uploading it once per tile.
+  ui.Image? imageFor(PdfImageRequest request) {
+    assert(!_disposed, 'imageFor after dispose');
+    return _images[pdfImageKey(request)];
+  }
+
   bool _disposed = false;
 
   /// Page size in points after the plan's rotation - the raster size at
@@ -304,14 +333,22 @@ class PdfRetainedScene {
     PdfPageRenderPlan plan = const PdfPageRenderPlan(),
     bool Function(PdfAnnotation)? skipAnnotation,
     double? maxImagePixelRatio,
+    double imageDecodeHeadroom = 2,
+    PdfSceneBuildTiming? timing,
   }) async {
     final cos = page.document.cos;
     final recorder = RecordingPdfDevice();
     final recording = PdfInterpreter(cos: cos, device: recorder)
       ..drawPageContent(page, page.contentBytes());
     if (plan.annotations) recording.drawAnnotations(page, skip: skipAnnotation);
+    final clock = timing == null ? null : (Stopwatch()..start());
     final images = await decodeImages(cos, recorder.imageRequests,
-        cache: PdfImageCache.instance, maxImagePixelRatio: maxImagePixelRatio);
+        cache: PdfImageCache.instance,
+        maxImagePixelRatio: maxImagePixelRatio,
+        imageDecodeHeadroom: imageDecodeHeadroom);
+    if (clock != null) {
+      timing!.decodeMs = clock.elapsedMicroseconds / 1000.0;
+    }
     return PdfRetainedScene._(page, plan, recorder.commands, images);
   }
 
@@ -335,24 +372,79 @@ class PdfRetainedScene {
     List<PdfRenderCommand> commands, {
     PdfPageRenderPlan plan = const PdfPageRenderPlan(),
     bool includeImages = true,
+    bool retainDecodedPixels = false,
     PdfSceneBuildTiming? timing,
     double? maxImagePixelRatio,
   }) async {
-    final images = <Object, ui.Image>{};
+    Map<Object, ui.Image> images = const <Object, ui.Image>{};
+    final requests = <PdfImageRequest>[];
     if (includeImages) {
-      final requests = <PdfImageRequest>[];
       PdfPageRenderer.collectImageRequests(commands, requests);
       // The clock exists only when a caller asked for the split; an ordinary
       // render never pays for it.
       final clock = timing == null ? null : (Stopwatch()..start());
-      images.addAll(await decodeImages(page.document.cos, requests,
+      images = await decodeImages(page.document.cos, requests,
           cache: PdfImageCache.instance,
-          maxImagePixelRatio: maxImagePixelRatio));
+          maxImagePixelRatio: maxImagePixelRatio,
+          imageDecodeHeadroom: 1);
+      if (!retainDecodedPixels) {
+        _releaseDecodedImagePixels(requests, images);
+      }
       if (clock != null) {
         timing!.decodeMs = clock.elapsedMicroseconds / 1000.0;
       }
     }
-    return PdfRetainedScene._(page, plan, commands, images);
+    final retainedRequests = !retainDecodedPixels
+        ? null
+        : <PdfImageRequest>[
+            for (final request in requests)
+              if (request.decoded != null &&
+                  images.containsKey(pdfImageKey(request)))
+                request,
+          ];
+    return PdfRetainedScene._(
+      page,
+      plan,
+      commands,
+      images,
+      retainedRequests,
+    );
+  }
+
+  /// Releases worker-carried RGBA after an accelerated backend has uploaded
+  /// its scene textures.
+  ///
+  /// Retained Canvas replay continues to use [_images]. The command requests
+  /// keep their decoded dimensions, so inline-image lookup identity remains
+  /// stable after the payload is dropped. This is idempotent.
+  void releaseDecodedImagePixels() {
+    final requests = _retainedDecodedRequests;
+    if (requests == null) return;
+    _retainedDecodedRequests = null;
+    _releaseDecodedImagePixels(requests, _images);
+  }
+
+  static void _releaseDecodedImagePixels(
+    Iterable<PdfImageRequest> requests,
+    Map<Object, ui.Image> images,
+  ) {
+    var releasedBytes = 0;
+    var releasedImages = 0;
+    for (final request in requests) {
+      final decoded = request.decoded;
+      if (decoded == null || !images.containsKey(pdfImageKey(request))) {
+        continue;
+      }
+      releasedBytes += decoded.rgba.length;
+      releasedImages++;
+      request.releaseDecodedPixels();
+    }
+    if (releasedBytes > 0) {
+      PdfPerfLog.log(
+        'image worker-handoff released=$releasedBytes '
+        'images=$releasedImages',
+      );
+    }
   }
 
   /// Replays the retained commands into a fresh picture with [pixelRatio]
@@ -423,8 +515,7 @@ class PdfRetainedScene {
       );
       if (tracePage != null) {
         final replayElapsedMs = (replayMs ?? 0) / 1000;
-        final rasterElapsedMs =
-            (rasterClock?.elapsedMicroseconds ?? 0) / 1000;
+        final rasterElapsedMs = (rasterClock?.elapsedMicroseconds ?? 0) / 1000;
         PdfPerfLog.log(
           'tile replay page=$tracePage '
           'region=${region.width.toStringAsFixed(0)}x'
@@ -469,6 +560,24 @@ class PdfRetainedScene {
       maxCommands: params.maxCommands,
       buildGrid: params.buildGrid,
     );
+  }
+
+  /// Selects the painter-order units needed for [rasterRegion].
+  ///
+  /// [rasterRegion] uses the same page-point, y-down space as
+  /// [rasterizeRegion]. Each returned unit carries its command index plus the
+  /// clip and blend state active at that command. Null means the scene cannot
+  /// be split safely (for example, it contains an isolated group or soft
+  /// mask), so a backend must decline the scene and let the Canvas fallback
+  /// render it whole. An empty list means the supported region is genuinely
+  /// blank.
+  List<PdfRegionReplayUnit>? selectRegion(Rect rasterRegion) {
+    assert(!_disposed, 'selectRegion after dispose');
+    final index = _ensureRegionIndex();
+    if (!index.supported) return null;
+    final pageRegion = _pageSpaceRegion(rasterRegion);
+    if (pageRegion == null) return null;
+    return index.select(pageRegion);
   }
 
   /// The `(maxCommands, buildGrid)` the region index builds under for this
@@ -793,8 +902,12 @@ class PdfRetainedScene {
     _disposed = true;
     _regionIndex = null;
     _bands = null;
+    // An accelerated backend normally drops worker-carried RGBA immediately
+    // after uploading it. A speculative scene can be evicted before any GPU
+    // session compiles it, so disposal is the other ownership boundary.
+    releaseDecodedImagePixels();
     for (final image in _images.values) {
-      image.dispose();
+      disposePdfDecodedImage(image);
     }
   }
 }

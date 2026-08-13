@@ -76,7 +76,7 @@ void main() {
       expect(find.byType(PdfViewer), findsOneWidget);
     });
 
-    testWidgets('forwards the visited-page raster cache policy',
+    testWidgets('forwards page preview and raster cache policies',
         (tester) async {
       final viewer = PdfViewerController();
       addTearDown(viewer.dispose);
@@ -84,15 +84,21 @@ void main() {
         maxBytes: 2 * 1024 * 1024 * 1024,
         maxEntryBytes: 64 * 1024 * 1024,
       );
+      const lodPolicy = PdfPagePreviewLodPolicy(
+        intermediateLongestSides: [360, 720],
+      );
       await pump(
         tester,
         PdfReader(
           bytes: buildMultiPagePdf(2),
           controller: viewer,
+          pagePreviewLodPolicy: lodPolicy,
           pageRasterCachePolicy: policy,
         ),
       );
       expect(viewer.pagePreviewCache!.maxFullRasterBytes, policy.maxBytes);
+      expect(viewer.pagePreviewCache!.intermediateLongestSides,
+          lodPolicy.intermediateLongestSides);
     });
 
     testWidgets('zoom menu changes and resets viewer zoom', (tester) async {
@@ -334,7 +340,7 @@ void main() {
           find.byKey(const ValueKey('pdf-shell-reflow-view')), findsOneWidget);
     });
 
-    testWidgets('forwards the visited-page raster cache policy',
+    testWidgets('forwards page preview and raster cache policies',
         (tester) async {
       final viewer = PdfViewerController();
       addTearDown(viewer.dispose);
@@ -342,15 +348,21 @@ void main() {
         maxBytes: 2 * 1024 * 1024 * 1024,
         maxEntryBytes: 64 * 1024 * 1024,
       );
+      const lodPolicy = PdfPagePreviewLodPolicy(
+        intermediateLongestSides: [360, 720],
+      );
       await pump(
         tester,
         PdfEditorView(
           bytes: buildMultiPagePdf(2),
           viewerController: viewer,
+          pagePreviewLodPolicy: lodPolicy,
           pageRasterCachePolicy: policy,
         ),
       );
       expect(viewer.pagePreviewCache!.maxFullRasterBytes, policy.maxBytes);
+      expect(viewer.pagePreviewCache!.intermediateLongestSides,
+          lodPolicy.intermediateLongestSides);
     });
 
     testWidgets('customStamps are supplied to the owned editor session',

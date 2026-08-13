@@ -26,6 +26,14 @@ void main() {
     AppDevTools.instance.useAutoPageRasterCache();
     AppDevTools.instance
         .setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.disabled());
+    AppDevTools.instance.setGpuTileBudgets(
+      maxTextureBytes: 256 << 20,
+      maxGeometryBytes: 256 << 20,
+    );
+    AppDevTools.instance.setGpuOverprintApproximation(false);
+    AppDevTools.instance
+        .setTileRasterBackendMode(TileRasterBackendMode.flutterGpu);
+    AppDevTools.instance.flutterGpuTileRasterBackend.stats.reset();
     PdfPerfLog.enabled = false;
     pdfRenderWorkerPoolSize = defaultPdfRenderWorkerPoolSize;
   });
@@ -35,6 +43,12 @@ void main() {
     final tools = AppDevTools.instance;
 
     tools.setDeepZoomMode(AppDevTools.modeBatched);
+    tools.setTileRasterBackendMode(TileRasterBackendMode.flutterGpu);
+    tools.setGpuTileBudgets(
+      maxTextureBytes: 1 << 30,
+      maxGeometryBytes: 512 << 20,
+    );
+    tools.setGpuOverprintApproximation(true);
     pdfDebugPaintDetailBounds.value = true;
     pdfDebugShowRenderWindow.value = true;
     pdfRenderWorkerPoolSize = 5;
@@ -46,6 +60,12 @@ void main() {
 
     // "Restart": globals back to defaults, then restore.
     tools.setDeepZoomMode(AppDevTools.modePatch);
+    tools.setTileRasterBackendMode(TileRasterBackendMode.canvas);
+    tools.setGpuTileBudgets(
+      maxTextureBytes: 256 << 20,
+      maxGeometryBytes: 256 << 20,
+    );
+    tools.setGpuOverprintApproximation(false);
     pdfDebugPaintDetailBounds.value = false;
     pdfDebugShowRenderWindow.value = false;
     pdfRenderWorkerPoolSize = 3;
@@ -53,6 +73,12 @@ void main() {
     await tools.restoreOptions();
 
     expect(tools.deepZoomMode, AppDevTools.modeBatched);
+    expect(tools.tileRasterBackendMode.value, TileRasterBackendMode.flutterGpu);
+    expect(tools.flutterGpuTileRasterBackend.maxTextureBytes, 1 << 30);
+    expect(tools.flutterGpuTileRasterBackend.maxGeometryBytes, 512 << 20);
+    expect(tools.gpuOverprintApproximation, isTrue);
+    expect(
+        tools.flutterGpuTileRasterBackend.allowOverprintApproximation, isTrue);
     expect(PdfPageView.tileStoreDetail, isTrue);
     expect(PdfPageView.debugTileStoreOverride!.batchRasters, isTrue);
     expect(pdfDebugPaintDetailBounds.value, isTrue);
@@ -115,8 +141,8 @@ void main() {
     await tools.persistOptions();
     tools.setPageRasterWarmPolicy(const PdfPageRasterWarmPolicy.disabled());
     await tools.restoreOptions();
-    expect(tools.pageRasterWarmPolicy.value.mode,
-        PdfPageRasterWarmMode.document);
+    expect(
+        tools.pageRasterWarmPolicy.value.mode, PdfPageRasterWarmMode.document);
   });
 
   test('restore with nothing persisted leaves the defaults alone', () async {
@@ -145,8 +171,8 @@ void main() {
         {'flutter.devtools.options': '{not json'});
     await AppDevTools.instance.restoreOptions();
     expect(
-      AppDevTools.instance.log.any(
-          (e) => e.message.contains('devtools options restore failed')),
+      AppDevTools.instance.log
+          .any((e) => e.message.contains('devtools options restore failed')),
       isTrue,
     );
   });

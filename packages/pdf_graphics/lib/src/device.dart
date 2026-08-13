@@ -192,17 +192,30 @@ class PdfTextRun {
 /// An image draw request. Decoding is left to the device, which may have
 /// platform codecs (and may need to be async - devices can pre-collect).
 class PdfImageRequest {
-  const PdfImageRequest({
+  PdfImageRequest({
     required this.stream,
     required this.transform,
     this.alpha = 1,
     this.isStencil = false,
     this.stencilColor = PdfColor.black,
     this.isInline = false,
-    this.decoded,
-  });
+    PdfDecodedPixels? decoded,
+    this.sourceReference,
+  })  : _decoded = decoded,
+        decodedWidth = decoded?.width,
+        decodedHeight = decoded?.height;
 
   final CosStream stream;
+
+  /// Indirect object identity for a worker command that deliberately omitted
+  /// the stream bytes. The consumer resolves this against its copy of the same
+  /// document revision before decoding. Null for ordinary interpreter draws,
+  /// direct streams, inline images, and legacy command buffers.
+  ///
+  /// Keeping this on the request (rather than a renderer-specific side table)
+  /// preserves the portable command model while avoiding repeated copies of a
+  /// multi-megabyte JPEG/SMask subgraph across the worker boundary.
+  final CosReference? sourceReference;
 
   /// Premultiplied RGBA pixels decoded off-thread by a [PdfRenderWorker] and
   /// carried back with the recorded command, or null when this image is to be
@@ -211,7 +224,27 @@ class PdfImageRequest {
   /// pure-Dart decode - the point of the worker's image-decode offload. The
   /// [stream] is still serialized so the decoded pixels cache by content like
   /// every other render path.
-  final PdfDecodedPixels? decoded;
+  PdfDecodedPixels? _decoded;
+
+  /// Worker-decoded pixels that have not yet been handed off to an engine
+  /// image. A retained-scene consumer may release this CPU payload after the
+  /// corresponding engine image is live; the source stream/reference remains
+  /// available for a later cache miss to decode again.
+  PdfDecodedPixels? get decoded => _decoded;
+
+  /// Dimensions of the worker payload, retained after [releaseDecodedPixels]
+  /// so inline-image cache identity does not change during the handoff.
+  final int? decodedWidth;
+  final int? decodedHeight;
+
+  /// Releases the worker's CPU-side RGBA payload after an engine image has
+  /// successfully adopted the same pixels.
+  ///
+  /// Render-command buffers deliberately share their request objects with the
+  /// worker-record cache. Clearing here therefore also stops a large decoded
+  /// image view from pinning the whole transferred command buffer. Rendering
+  /// remains reproducible from [stream] or [sourceReference].
+  void releaseDecodedPixels() => _decoded = null;
 
   /// True for inline images (`BI .. ID .. EI`). Their [stream] is
   /// synthesized fresh on every interpretation pass, so consumers that

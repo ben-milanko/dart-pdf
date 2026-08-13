@@ -1,0 +1,22 @@
+# Changelog
+
+## 0.1.0
+
+- Render final GPU tile textures directly and admit one per repaint, avoiding
+  deferred slab-to-tile texture-copy bursts. Track synchronous issue time and
+  command-buffer completion latency, failures, and in-flight submissions.
+- Render ordinary non-rectangular PDF clip stacks exactly with retained
+  stencil geometry, including nested even-odd/nonzero clips and save/restore;
+  rectangular clips keep the cheaper scissor path.
+- Report compiled clip paths and per-tile clip-mask rebuilds in backend stats.
+- Add an opt-in Impeller `flutter_gpu` backend for retained-scene LoD tiles.
+- Retain geometry and byte-budgeted image textures across tile renders and
+  combine supported image soft masks directly in the tile shader.
+- Pack command-heavy CAD geometry into backend-wide reusable 16 MiB device
+  buffers under a strict byte budget, releasing leases only after GPU work
+  completes and falling back instead of overshooting the ceiling.
+- Fall back to the Canvas backend for unsupported pages and expose a web stub
+  that preserves the same host API.
+- Expose JSON-safe diagnostics for the latest tile route, accepted/rejected/
+  active sessions, runtime fallbacks, compile/replay timings, cache pressure,
+  uploads/readbacks, and live GPU resource leases.

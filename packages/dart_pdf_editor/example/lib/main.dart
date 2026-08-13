@@ -8,6 +8,7 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart' show PdfPageTextCache;
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
+import 'package:dart_pdf_editor_flutter_gpu/dart_pdf_editor_flutter_gpu.dart';
 import 'package:pdf_ocr_vlm/pdf_ocr_vlm.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -218,6 +219,12 @@ class ViewerScreen extends StatefulWidget {
 class _ViewerScreenState extends State<ViewerScreen> {
   PdfEditingPreferences get _prefs => widget.prefs;
 
+  /// Opt-in scene-retained tile backend. Unsupported pages and platforms
+  /// decline their session and transparently keep using the Canvas backend.
+  /// Keeping one instance also makes its diagnostics meaningful app-wide.
+  late final FlutterGpuTileRasterBackend _tileRasterBackend =
+      FlutterGpuTileRasterBackend();
+
   /// App-wide on-disk caches sharing one persistent backend (filesystem on
   /// native, IndexedDB on web - see persistent_cache.dart). The raster
   /// cache makes a reopened document paint soft page content immediately
@@ -226,6 +233,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// namespaces keep their byte budgets independent.
   late final PdfCacheStore _cacheStore =
       widget.cacheStore ?? createPersistentCacheStore();
+
   /// `fullRasters` opts the demo into the persistent exact-raster tier: an
   /// already-rendered page at the same physical size reopens straight from
   /// the store instead of being interpreted and rasterized again. It is a
@@ -237,6 +245,11 @@ class _ViewerScreenState extends State<ViewerScreen> {
     fullRasters: PdfDiskCache(
       _cacheStore,
       namespace: 'page-rasters',
+      maxBytes: 256 * 1024 * 1024,
+    ),
+    tiles: PdfDiskCache(
+      _cacheStore,
+      namespace: 'lod-tiles',
       maxBytes: 256 * 1024 * 1024,
     ),
   );
@@ -1621,6 +1634,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                 controller: tab.viewer,
                                 preferences: _prefs,
                                 performance: _performance,
+                                tileRasterBackend: _tileRasterBackend,
                                 rasterCache: _rasterCache,
                                 textCache: _textCache,
                                 pageLayout: _pageLayout,
@@ -1639,6 +1653,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                                 controller: tab.session,
                                 viewerController: tab.viewer,
                                 performance: _performance,
+                                tileRasterBackend: _tileRasterBackend,
                                 rasterCache: _rasterCache,
                                 textCache: _textCache,
                                 pageLayout: _pageLayout,

@@ -208,6 +208,28 @@ class PdfRegionReplayIndex {
     }
     return replayed;
   }
+
+  /// Selects the paint units intersecting [region] in painter order.
+  ///
+  /// This is the retained-scene backend boundary: a renderer that does not
+  /// implement [PdfDevice] can consume the same conservative culling verdict
+  /// as [replay], including the clip and blend state captured on every unit.
+  /// Unsupported indices return an empty list; callers must check
+  /// [supported] and fall back to full-scene rendering rather than treating
+  /// that as an empty region.
+  List<PdfRegionReplayUnit> select(PdfRect region) {
+    if (!supported) return const [];
+    final grid = this.grid;
+    if (grid != null) {
+      return [
+        for (final index in grid.select(region, units)) units[index],
+      ];
+    }
+    return [
+      for (final unit in units)
+        if (_intersects(unit.bounds, region)) unit,
+    ];
+  }
 }
 
 /// Uniform-grid spatial index over painter-ordered replay units.
@@ -264,10 +286,8 @@ class PdfRegionReplayGrid {
     rows = rows.clamp(1, math.max(1, maxCells ~/ cols));
     final cellW = w / cols, cellH = h / rows;
 
-    int colOf(double x) =>
-        ((x - left) / cellW).floor().clamp(0, cols - 1);
-    int rowOf(double y) =>
-        ((y - bottom) / cellH).floor().clamp(0, rows - 1);
+    int colOf(double x) => ((x - left) / cellW).floor().clamp(0, cols - 1);
+    int rowOf(double y) => ((y - bottom) / cellH).floor().clamp(0, rows - 1);
 
     // A unit is "broad" if it covers more than broadCellFraction of the grid
     // in either axis — smearing those across thousands of cells is the memory
@@ -349,12 +369,38 @@ class PdfRegionReplayGrid {
     List<PdfRenderCommand> commands,
     PdfDevice device,
   ) {
+    final candidates = select(region, units);
+    var replayed = 0;
+    for (final idx in candidates) {
+      final unit = units[idx];
+      device.save();
+      device.setBlendMode(unit.blendMode);
+      unit.clips?.replay(device);
+      replayCommands(
+        commands,
+        device,
+        start: unit.commandIndex,
+        end: unit.commandIndex + 1,
+      );
+      device.restore();
+      replayed++;
+    }
+    return replayed;
+  }
+
+  /// Unit-list indices intersecting [region], de-duplicated and sorted into
+  /// painter order.
+  List<int> select(
+    PdfRect region,
+    List<PdfRegionReplayUnit> units,
+  ) {
     final gen = ++_generation;
     // Gather candidate unit indices (deduped) from the touched cells + broad.
     final candidates = <int>[];
     final c0 = ((region.left - _originX) / _cellW).floor().clamp(0, _cols - 1);
     final c1 = ((region.right - _originX) / _cellW).floor().clamp(0, _cols - 1);
-    final r0 = ((region.bottom - _originY) / _cellH).floor().clamp(0, _rows - 1);
+    final r0 =
+        ((region.bottom - _originY) / _cellH).floor().clamp(0, _rows - 1);
     final r1 = ((region.top - _originY) / _cellH).floor().clamp(0, _rows - 1);
     for (var r = r0; r <= r1; r++) {
       final base = r * _cols;
@@ -376,22 +422,7 @@ class PdfRegionReplayGrid {
     }
     // Painter order = ascending unit index.
     candidates.sort();
-    var replayed = 0;
-    for (final idx in candidates) {
-      final unit = units[idx];
-      device.save();
-      device.setBlendMode(unit.blendMode);
-      unit.clips?.replay(device);
-      replayCommands(
-        commands,
-        device,
-        start: unit.commandIndex,
-        end: unit.commandIndex + 1,
-      );
-      device.restore();
-      replayed++;
-    }
-    return replayed;
+    return candidates;
   }
 }
 
@@ -545,23 +576,17 @@ PdfRect? pdfRenderPathBounds(PdfPath path) {
     top = top == null ? y : math.max(top!, y);
   }
 
-  for (final segment in path.segments) {
-    switch (segment) {
-      case PdfMoveTo(:final x, :final y) || PdfLineTo(:final x, :final y):
-        include(x, y);
-      case PdfCubicTo(
-          :final x1,
-          :final y1,
-          :final x2,
-          :final y2,
-          :final x3,
-          :final y3
-        ):
+  final cursor = path.cursor();
+  while (cursor.moveNext()) {
+    switch (cursor.verb) {
+      case PdfPathVerb.moveTo || PdfPathVerb.lineTo:
+        include(cursor.x1, cursor.y1);
+      case PdfPathVerb.cubicTo:
         // A cubic lies inside the convex hull of its endpoints/control points.
-        include(x1, y1);
-        include(x2, y2);
-        include(x3, y3);
-      case PdfClosePath():
+        include(cursor.x1, cursor.y1);
+        include(cursor.x2, cursor.y2);
+        include(cursor.x3, cursor.y3);
+      case PdfPathVerb.close:
         break;
     }
   }
@@ -809,7 +834,8 @@ void _idxWriteRect(_IdxWriter w, PdfRect rect) {
   w.f64(rect.top);
 }
 
-PdfRect _idxReadRect(_IdxReader r) => PdfRect(r.f64(), r.f64(), r.f64(), r.f64());
+PdfRect _idxReadRect(_IdxReader r) =>
+    PdfRect(r.f64(), r.f64(), r.f64(), r.f64());
 
 void _idxWriteOptRect(_IdxWriter w, PdfRect? rect) {
   w.boolean(rect != null);

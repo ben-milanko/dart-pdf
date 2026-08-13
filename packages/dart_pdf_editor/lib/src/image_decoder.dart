@@ -10,6 +10,8 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'browser_jpeg_decode.dart';
 import 'budgeted_cache.dart';
+import 'jpeg_accelerator.dart';
+import 'perf_log.dart';
 import 'performance_policy.dart';
 
 /// Map key for a decoded image. Image XObjects key by stream identity -
@@ -27,10 +29,11 @@ import 'performance_policy.dart';
 Object pdfImageKey(PdfImageRequest request) {
   final content = pdfImageContentKey(request);
   if (!request.isInline) return content;
-  final decoded = request.decoded;
-  return decoded == null
+  final width = request.decodedWidth;
+  final height = request.decodedHeight;
+  return width == null || height == null
       ? content
-      : PdfSizedImageKey(content, decoded.width, decoded.height);
+      : PdfSizedImageKey(content, width, height);
 }
 
 /// Identifies [request]'s source image irrespective of the resolution anything
@@ -41,7 +44,8 @@ Object pdfImageKey(PdfImageRequest request) {
 /// which qualifies it with the size the image actually ends up at so every
 /// path addressing the same pixels agrees on one entry.
 Object pdfImageContentKey(PdfImageRequest request) =>
-    request.isInline ? PdfInlineImageKey(request.stream) : request.stream;
+    request.sourceReference ??
+    (request.isInline ? PdfInlineImageKey(request.stream) : request.stream);
 
 /// A content key qualified by a decoded resolution - see [pdfImageKey].
 ///
@@ -96,6 +100,38 @@ class PdfInlineImageKey {
       _data.isEmpty ? 0 : _data.first, _data.isEmpty ? 0 : _data.last);
 }
 
+// A simple DCT grayscale /SMask can stay as its own GPU image and be applied
+// when CanvasPdfDevice records the parent image. Keeping the association on the
+// base ui.Image preserves the existing map API while avoiding an eager
+// Picture.toImage barrier (and, more importantly, the old GPU readback + Dart
+// pixel multiply). Every clone/dispose site for decoded images goes through the
+// helpers below so the companion surface has exactly the base surface's
+// lifetime.
+final Expando<ui.Image> _gpuSoftMasks = Expando<ui.Image>('pdfGpuSoftMask');
+
+ui.Image? pdfGpuSoftMaskOf(ui.Image image) => _gpuSoftMasks[image];
+
+ui.Image clonePdfDecodedImage(ui.Image image) {
+  final clone = image.clone();
+  final mask = _gpuSoftMasks[image];
+  if (mask != null) _gpuSoftMasks[clone] = mask.clone();
+  return clone;
+}
+
+void disposePdfDecodedImage(ui.Image image) {
+  final mask = _gpuSoftMasks[image];
+  _gpuSoftMasks[image] = null;
+  mask?.dispose();
+  image.dispose();
+}
+
+int pdfDecodedImageBytes(ui.Image image) {
+  final mask = _gpuSoftMasks[image];
+  return (image.width * image.height +
+          (mask == null ? 0 : mask.width * mask.height)) *
+      4;
+}
+
 /// A process-wide cache of decoded image XObjects, so repeat renders of a
 /// page reuse the already-decoded [ui.Image] instead of re-running the
 /// codec. The same image is decoded once and shared by every render path -
@@ -126,10 +162,10 @@ class PdfImageCache {
   /// it, so short-lived test caches stay out of the registry.
   PdfImageCache({int? maxBytes, bool registerForPressure = false})
       : _cache = PdfBudgetedCache<Object, ui.Image>(
-          weigher: (image) => image.width * image.height * 4,
+          weigher: pdfDecodedImageBytes,
           maxWeight: maxBytes ?? pdfDefaultImageCacheBytes(),
-          cloner: (image) => image.clone(),
-          disposer: (image) => image.dispose(),
+          cloner: clonePdfDecodedImage,
+          disposer: disposePdfDecodedImage,
           clearsUnderMemoryPressure: registerForPressure,
           debugLabel: 'decoded-image',
         );
@@ -280,9 +316,25 @@ class ImageCollector implements PdfDevice, PdfTiledCellSink {
 /// Null still applies the hard ceilings ([cappedImagePixelSize]'s 8192-px max
 /// edge and 16 MP cap) so no path ever hands the engine a texture past the
 /// common GPU limit; only the display-size refinement is skipped.
+/// [imageDecodeHeadroom] is the linear resolution multiplier over the final
+/// on-screen footprint. Local retained scenes keep the 2x default for future
+/// zoom replay; worker command buffers pass 1x because their embedded-image
+/// budget was recorded at 1x and deep zoom has its own region re-render.
+///
+/// When [deferSimpleDctSoftMasks] is true, a plain grayscale DCT /SMask stays
+/// as a companion GPU image and [CanvasPdfDevice] applies it while recording
+/// the draw. This avoids a GPU readback and a second upload. Set it to false
+/// for consumers that inspect the returned image directly (for example with
+/// [ui.Image.toByteData]) instead of drawing it through [CanvasPdfDevice].
 Future<Map<Object, ui.Image>> decodeImages(
     CosDocument cos, Iterable<PdfImageRequest> requests,
-    {PdfImageCache? cache, double? maxImagePixelRatio}) async {
+    {PdfImageCache? cache,
+    double? maxImagePixelRatio,
+    double imageDecodeHeadroom = 2,
+    bool deferSimpleDctSoftMasks = true}) async {
+  final batchClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
+  installPdfJpegAccelerator();
+  final grayDctImages = _DctGrayBatchCache();
   final out = <Object, ui.Image>{};
   // Plan the work synchronously first: dedup by key, resolve cache hits, and
   // collect the misses. Deciding all of this before the first await is what
@@ -290,13 +342,22 @@ Future<Map<Object, ui.Image>> decodeImages(
   // and two tasks never race the cache on the same key (#454).
   final pending = <_PendingDecode>[];
   final seen = <Object>{};
+  var cacheHits = 0;
+  var requestCount = 0;
   for (final request in requests) {
+    requestCount++;
     final key = pdfImageKey(request);
     if (!seen.add(key)) continue;
+    final sourceRequest = _resolveReferencedImage(cos, request);
     // Worker-decoded pixels are already sized; only a local decode is capped.
-    final target = request.decoded != null
+    final target = sourceRequest.decoded != null
         ? null
-        : _decodeTarget(cos, request, maxImagePixelRatio);
+        : _decodeTarget(
+            cos,
+            sourceRequest,
+            maxImagePixelRatio,
+            imageDecodeHeadroom,
+          );
     // The returned map keys by the ratio-independent [pdfImageKey] so the paint
     // side (which has no ratio) always matches.
     //
@@ -309,49 +370,158 @@ Future<Map<Object, ui.Image>> decodeImages(
     // cached twice under different keys - and a record whose pixels were
     // dropped would miss the entry its own decode had populated. They happened
     // to coincide whenever the cap was a no-op, which hid it.
-    final size = _decodedSize(cos, request, target);
+    final size = _decodedSize(cos, sourceRequest, target);
     final cacheKey = size == null
         ? key
-        : PdfSizedImageKey(pdfImageContentKey(request), size.$1, size.$2);
+        : PdfSizedImageKey(
+            pdfImageContentKey(sourceRequest),
+            size.$1,
+            size.$2,
+          );
     final hit = cache?.take(cacheKey);
     if (hit != null) {
+      cacheHits++;
       out[key] = hit;
       continue;
     }
-    pending.add(_PendingDecode(key, cacheKey, request, target));
+    pending.add(_PendingDecode(
+        key, cacheKey, sourceRequest, target, deferSimpleDctSoftMasks));
   }
+  final planUs = batchClock?.elapsedMicroseconds ?? 0;
   // Decode the misses concurrently. `instantiateImageCodec` / the browser codec
   // hand the work to a codec thread, so awaiting each image serially left that
   // thread idle between them - on an image-heavy page that serialisation was a
   // large slice of the first-paint wait (#454). Overlapping them keeps the
   // codec busy; the results land in a shared map and the distinct-key cache,
   // so single-threaded interleaving at the awaits cannot collide.
-  await Future.wait(pending.map((p) async {
-    try {
-      final decoded = p.request.decoded;
-      final image = decoded != null
-          ? await _imageFromPremultiplied(
-              decoded.rgba, decoded.width, decoded.height)
-          : await _decodeOne(cos, p.request.stream,
-              targetWidth: p.target?.$1, targetHeight: p.target?.$2);
-      if (image != null) {
-        out[p.key] = cache == null ? image : cache.put(p.cacheKey, image);
+  try {
+    await Future.wait(pending.map((p) async {
+      try {
+        final decoded = p.request.decoded;
+        ui.Image? image;
+        if (decoded != null) {
+          final clock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
+          image = await _imageFromPremultiplied(
+              decoded.rgba, decoded.width, decoded.height);
+          if (clock != null) {
+            PdfPerfLog.log('image worker-upload '
+                '${decoded.width}x${decoded.height} '
+                'ms=${(clock.elapsedMicroseconds / 1000).toStringAsFixed(1)}');
+          }
+        } else {
+          image = await _decodeOne(cos, p.request.stream,
+              targetWidth: p.target?.$1,
+              targetHeight: p.target?.$2,
+              deferSimpleDctSoftMask: p.deferSimpleDctSoftMask,
+              grayDctImages: grayDctImages);
+        }
+        if (image != null) {
+          out[p.key] = cache == null ? image : cache.put(p.cacheKey, image);
+        }
+      } on Exception catch (error) {
+        if (PdfPerfLog.enabled) {
+          PdfPerfLog.log('image decode-failed '
+              'family=${pdfImageColorFamily(cos, p.request.stream.dictionary)} '
+              'filters=${pdfImageFilters(cos, p.request.stream.dictionary).join(',')} '
+              'target=${p.target?.$1 ?? 0}x${p.target?.$2 ?? 0} '
+              'error=$error');
+        }
+        // undecodable image: the device will skip it
       }
-    } on Exception {
-      // undecodable image: the device will skip it
-    }
-  }));
+    }));
+  } finally {
+    await grayDctImages.dispose();
+  }
+  if (batchClock != null) {
+    PdfPerfLog.log('image batch '
+        'requests=$requestCount unique=${seen.length} hits=$cacheHits '
+        'pending=${pending.length} '
+        'plan=${(planUs / 1000).toStringAsFixed(1)}ms '
+        'work=${((batchClock.elapsedMicroseconds - planUs) / 1000).toStringAsFixed(1)}ms '
+        'total=${(batchClock.elapsedMicroseconds / 1000).toStringAsFixed(1)}ms');
+  }
   return out;
+}
+
+PdfImageRequest _resolveReferencedImage(
+  CosDocument cos,
+  PdfImageRequest request,
+) {
+  final reference = request.sourceReference;
+  if (reference == null) return request;
+  final stream = cos.resolve(reference);
+  if (stream is! CosStream) return request;
+  return PdfImageRequest(
+    stream: stream,
+    transform: request.transform,
+    alpha: request.alpha,
+    isStencil: request.isStencil,
+    stencilColor: request.stencilColor,
+    isInline: false,
+    decoded: request.decoded,
+    sourceReference: reference,
+  );
 }
 
 /// One image whose decode was deferred so [decodeImages] can run the misses
 /// concurrently. Holds everything the synchronous planning pass resolved.
 class _PendingDecode {
-  _PendingDecode(this.key, this.cacheKey, this.request, this.target);
+  _PendingDecode(this.key, this.cacheKey, this.request, this.target,
+      this.deferSimpleDctSoftMask);
   final Object key;
   final Object cacheKey;
   final PdfImageRequest request;
   final (int, int)? target;
+  final bool deferSimpleDctSoftMask;
+}
+
+final class _DctGrayBatchKey {
+  const _DctGrayBatchKey(this.stream, this.width, this.height);
+
+  final CosStream stream;
+  final int? width;
+  final int? height;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _DctGrayBatchKey &&
+      identical(stream, other.stream) &&
+      width == other.width &&
+      height == other.height;
+
+  @override
+  int get hashCode => Object.hash(identityHashCode(stream), width, height);
+}
+
+/// Shares one grayscale JPEG decode/upload between an XObject used directly
+/// and the same XObject reused as another image's `/SMask` in one page batch.
+/// Every caller receives a clone so normal image-cache disposal stays local.
+final class _DctGrayBatchCache {
+  final Map<_DctGrayBatchKey, Future<ui.Image?>> _masters = {};
+
+  Future<ui.Image?> take(
+    CosStream stream,
+    int? width,
+    int? height,
+    Future<ui.Image?> Function() decode,
+  ) async {
+    final key = _DctGrayBatchKey(stream, width, height);
+    final master = await _masters.putIfAbsent(key, () async {
+      try {
+        return await decode();
+      } on Exception {
+        return null;
+      }
+    });
+    return master?.clone();
+  }
+
+  Future<void> dispose() async {
+    for (final future in _masters.values) {
+      (await future)?.dispose();
+    }
+    _masters.clear();
+  }
 }
 
 /// The resolution [request]'s image ends up at, whichever path produced it:
@@ -391,7 +561,11 @@ class _PendingDecode {
 /// a no-op (the image is already at or below the target), so those images keep
 /// their byte-identical native decode and a bare cache key.
 (int, int)? _decodeTarget(
-    CosDocument cos, PdfImageRequest request, double? ratio) {
+  CosDocument cos,
+  PdfImageRequest request,
+  double? ratio,
+  double headroom,
+) {
   final native = _nativeSize(cos, request);
   if (native == null) return null;
   final (w, h) = native;
@@ -401,7 +575,8 @@ class _PendingDecode {
   final widthPts = math.sqrt(t.a * t.a + t.b * t.b);
   final heightPts = math.sqrt(t.c * t.c + t.d * t.d);
   final (tw, th) = ratio != null && ratio > 0 && widthPts > 0 && heightPts > 0
-      ? cappedImagePixelSize(w, h, widthPts, heightPts, ratio)
+      ? cappedImagePixelSize(w, h, widthPts, heightPts, ratio,
+          headroom: headroom)
       : _clampToCeilings(w, h);
   return (tw == w && th == h) ? null : (tw, th);
 }
@@ -440,23 +615,120 @@ int? _intOrNull(CosObject? o) => o is CosInteger ? o.value : null;
 /// stays at the target size. The pixels are geometrically identical to a native
 /// decode drawn through the same transform, just at fewer samples.
 Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream,
-    {int? targetWidth, int? targetHeight}) async {
+    {int? targetWidth,
+    int? targetHeight,
+    bool deferSimpleDctSoftMask = true,
+    _DctGrayBatchCache? grayDctImages}) async {
   final scaled = targetWidth != null && targetHeight != null;
-  final pixels = scaled
-      ? decodePdfImage(cos, stream,
-          targetWidth: targetWidth, targetHeight: targetHeight)
-      : decodePdfImagePixels(cos, stream);
-  if (pixels != null) {
-    return _imageFromPremultiplied(pixels.rgba, pixels.width, pixels.height);
-  }
-
   final dict = stream.dictionary;
+  final filters = pdfImageFilters(cos, dict);
+  // The UI-side residual path owns bases that a worker intentionally left for
+  // the platform JPEG codec (notably Flate DeviceN under a DCT soft mask).
+  // Warm a simple Flate base with the same native browser inflater used for
+  // portable masks before entering the synchronous colour conversion below.
+  await _seedBrowserFlateImage(cos, stream, filters);
+  final dctMaskBytes = pdfImageDctSoftMaskBytes(cos, dict);
+  // pdf_graphics can decode DCT masks portably for worker isolates. Once back
+  // in a dart:ui isolate, keep the platform-codec path: it avoids running the
+  // JPEG decoder synchronously here and lets the engine/browser codec handle
+  // entropy decode before the unavoidable alpha readback.
+  final pureClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
+  final pixels = dctMaskBytes != null
+      ? null
+      : scaled
+          ? decodePdfImage(cos, stream,
+              targetWidth: targetWidth, targetHeight: targetHeight)
+          : decodePdfImagePixels(cos, stream);
+  if (pixels != null) {
+    final decodeMs =
+        pureClock == null ? null : pureClock.elapsedMicroseconds / 1000.0;
+    final uploadClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
+    final image =
+        await _imageFromPremultiplied(pixels.rgba, pixels.width, pixels.height);
+    if (pureClock != null && uploadClock != null) {
+      PdfPerfLog.log('image pure '
+          'family=${pdfImageColorFamily(cos, dict)} '
+          '${pixels.width}x${pixels.height} '
+          'decode=${decodeMs!.toStringAsFixed(1)}ms '
+          'upload=${(uploadClock.elapsedMicroseconds / 1000).toStringAsFixed(1)}ms');
+    }
+    return image;
+  }
 
   // A purely-decoded base that only returned null because its /SMask is
   // DCT-encoded: decode the base here and apply the JPEG mask via the codec
   // (e.g. a CMYK or Flate image under a DCTDecode soft mask).
-  final pureBase = decodePdfImageBase(cos, stream);
+  final baseClock = dctMaskBytes != null && PdfPerfLog.enabled
+      ? (Stopwatch()..start())
+      : null;
+  var pureBase = decodePdfImageBase(
+    cos,
+    stream,
+    targetWidth: targetWidth,
+    targetHeight: targetHeight,
+  );
+  if (baseClock != null) {
+    PdfPerfLog.log('softmask base '
+        'family=${pdfImageColorFamily(cos, dict)} '
+        'target=${targetWidth ?? 0}x${targetHeight ?? 0} '
+        'result=${pureBase?.width ?? 0}x${pureBase?.height ?? 0} '
+        'ms=${(baseClock.elapsedMicroseconds / 1000).toStringAsFixed(1)}');
+  }
+  // decodePdfImagePixels cannot cross a DCT soft mask, so the generic scaled
+  // façade above returns null and this split-base path takes over. Preserve
+  // the caller's display cap here too: these bases are opaque (the mask is
+  // separate), so area-averaging their straight RGBA is identical to the
+  // premultiplied helper and avoids uploading/masking four times the pixels
+  // on a worker replay configured for 1x headroom.
+  if (pureBase != null &&
+      pureBase.opaque &&
+      scaled &&
+      (pureBase.width != targetWidth || pureBase.height != targetHeight)) {
+    final downsampled = downsamplePdfDecodedPixels(
+      PdfDecodedPixels(pureBase.rgba, pureBase.width, pureBase.height),
+      targetWidth,
+      targetHeight,
+    );
+    pureBase = PdfImageBase(
+      downsampled.rgba,
+      downsampled.width,
+      downsampled.height,
+      opaque: true,
+    );
+  }
   if (pureBase != null) {
+    // The common DCT /SMask shape needs no CPU access to the mask samples.
+    // Decode both surfaces through the platform codec and let the rendering
+    // backend apply the grayscale mask with dstIn. The old path below pulled
+    // the mask texture back to RGBA, copied it, multiplied every base pixel on
+    // the UI isolate, then uploaded the composite again - hundreds of
+    // milliseconds on the large real-world sheets this renderer targets.
+    // /Matte and non-default /Decode need per-pixel colour correction, so they
+    // deliberately keep the established CPU path.
+    final uploadClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
+    final baseImage = pureBase.opaque
+        ? await _imageFromPremultiplied(
+            pureBase.rgba, pureBase.width, pureBase.height)
+        : await _imageFromStraight(
+            pureBase.rgba, pureBase.width, pureBase.height);
+    if (uploadClock != null) {
+      PdfPerfLog.log('softmask base-upload '
+          '${pureBase.width}x${pureBase.height} '
+          'ms=${(uploadClock.elapsedMicroseconds / 1000).toStringAsFixed(1)}');
+    }
+    final gpuMask = deferSimpleDctSoftMask
+        ? await _decodeSimpleSoftMaskImage(
+            cos,
+            dict,
+            baseImage,
+            grayDctImages: grayDctImages,
+          )
+        : null;
+    if (gpuMask != null) {
+      _gpuSoftMasks[baseImage] = gpuMask;
+      return baseImage;
+    }
+    baseImage.dispose();
     final mask = await _resolveDartUiMask(cos, dict,
         targetWidth: pureBase.width, targetHeight: pureBase.height);
     if (mask == null) {
@@ -467,12 +739,16 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream,
     }
     final fitted = _fitMask(mask, pureBase.width, pureBase.height);
     final m = pdfApplyImageAlpha(
-        pureBase.rgba, pureBase.width, pureBase.height, fitted);
-    return _imageFromStraight(m.$1, m.$2, m.$3);
+      pureBase.rgba,
+      pureBase.width,
+      pureBase.height,
+      fitted,
+      premultiply: true,
+    );
+    return _imageFromPremultiplied(m.$1, m.$2, m.$3);
   }
 
   if (cos.resolve(dict['ImageMask']) == const CosBoolean(true)) return null;
-  final filters = pdfImageFilters(cos, dict);
   final dctName = filters.contains('DCTDecode')
       ? 'DCTDecode'
       : filters.contains('DCT')
@@ -482,6 +758,100 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream,
 
   // undo any wrapping filters (e.g. [/FlateDecode /DCTDecode])
   final jpeg = cos.decodeStreamData(stream, stopBeforeFilter: dctName);
+  final colorFamily = pdfImageColorFamily(cos, dict);
+  final acceleratedGrayRanges =
+      colorFamily == 'DeviceGray' ? pdfImageDecodeRanges(cos, dict, 1) : null;
+  final acceleratedGrayColorKey =
+      colorFamily == 'DeviceGray' ? pdfImageColorKeyRanges(cos, dict, 1) : null;
+  // Grayscale JPEGs occur both as direct images and as the image inside a
+  // transparency-group soft mask. The browser ImageBitmap path is excellent
+  // for colour JPEGs that can stay GPU-resident, but these one-channel images
+  // were already being decoded by libjpeg-turbo when used as a direct /SMask
+  // and then decoded a second time through ImageBitmap when the same XObject
+  // appeared in the mask group's command stream. Reuse the same accelerator
+  // for an ordinary, semantically plain DeviceGray DCT image. The strict gate
+  // leaves /Decode, colour-key, and nested-mask semantics on the established
+  // generic path below.
+  if (colorFamily == 'DeviceGray' &&
+      acceleratedGrayRanges == null &&
+      acceleratedGrayColorKey == null &&
+      cos.resolve(dict['SMask']) is! CosStream &&
+      cos.resolve(dict['Mask']) is! CosStream &&
+      cos.resolve(dict['Mask']) is! CosArray) {
+    final grayClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
+    final sharedWidth = targetWidth ?? _intOrNull(cos.resolve(dict['Width']));
+    final sharedHeight =
+        targetHeight ?? _intOrNull(cos.resolve(dict['Height']));
+    final accelerated = await (grayDctImages?.take(
+          stream,
+          sharedWidth,
+          sharedHeight,
+          () => _acceleratedDctGrayImage(
+            jpeg,
+            targetWidth: targetWidth,
+            targetHeight: targetHeight,
+          ),
+        ) ??
+        _acceleratedDctGrayImage(
+          jpeg,
+          targetWidth: targetWidth,
+          targetHeight: targetHeight,
+        ));
+    if (accelerated != null) {
+      if (grayClock != null) {
+        PdfPerfLog.log('jpeg gray-accelerated '
+            '${accelerated.width}x${accelerated.height} '
+            'ms=${(grayClock.elapsedMicroseconds / 1000).toStringAsFixed(1)}');
+      }
+      return accelerated;
+    }
+  }
+  final acceleratedRgbRanges =
+      colorFamily == 'DeviceRGB' ? pdfImageDecodeRanges(cos, dict, 3) : null;
+  final acceleratedRgbColorKey =
+      colorFamily == 'DeviceRGB' ? pdfImageColorKeyRanges(cos, dict, 3) : null;
+  if (colorFamily == 'DeviceRGB' &&
+      acceleratedRgbRanges == null &&
+      acceleratedRgbColorKey == null) {
+    final rgbClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
+    final accelerated = await _acceleratedDctRgbImage(
+      jpeg,
+      targetWidth: targetWidth,
+      targetHeight: targetHeight,
+    );
+    if (accelerated != null) {
+      final smask = cos.resolve(dict['SMask']);
+      final mask = cos.resolve(dict['Mask']);
+      if (deferSimpleDctSoftMask && smask is CosStream) {
+        final gpuMask = await _decodeSimpleSoftMaskImage(
+          cos,
+          dict,
+          accelerated,
+          allowNonDct: true,
+          grayDctImages: grayDctImages,
+        );
+        if (gpuMask != null) {
+          _gpuSoftMasks[accelerated] = gpuMask;
+          if (rgbClock != null) {
+            PdfPerfLog.log('jpeg rgba-accelerated '
+                '${accelerated.width}x${accelerated.height} '
+                'ms=${(rgbClock.elapsedMicroseconds / 1000).toStringAsFixed(1)}');
+          }
+          return accelerated;
+        }
+      } else if (smask is! CosStream &&
+          mask is! CosStream &&
+          mask is! CosArray) {
+        if (rgbClock != null) {
+          PdfPerfLog.log('jpeg rgba-accelerated '
+              '${accelerated.width}x${accelerated.height} '
+              'ms=${(rgbClock.elapsedMicroseconds / 1000).toStringAsFixed(1)}');
+        }
+        return accelerated;
+      }
+      accelerated.dispose();
+    }
+  }
   // On web, decode through the browser's native codec first: it is far faster
   // than the engine's WASM codec under CanvasKit (a ~640 ms main-thread cost on
   // the reported doc) and lands a GPU image with no readback. The worker
@@ -492,23 +862,34 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream,
   // The platform codec downscales during decode when a target is given -
   // decisive on the web, where the alternative is decoding 100+ MP and reading
   // it back off the GPU for the soft-mask multiply.
+  final jpegClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
+  var browserDecoded = true;
   var base = scaled
       ? await decodeJpegWithBrowser(jpeg,
           targetWidth: targetWidth, targetHeight: targetHeight)
       : await decodeJpegWithBrowser(jpeg);
   if (base == null) {
+    browserDecoded = false;
     final codec = scaled
         ? await ui.instantiateImageCodec(jpeg,
             targetWidth: targetWidth, targetHeight: targetHeight)
         : await ui.instantiateImageCodec(jpeg);
-    base = (await codec.getNextFrame()).image;
+    try {
+      base = (await codec.getNextFrame()).image;
+    } finally {
+      codec.dispose();
+    }
   }
-  final mask = await _resolveDartUiMask(cos, dict,
-      targetWidth: base.width, targetHeight: base.height);
+  if (jpegClock != null) {
+    PdfPerfLog.log('jpeg base '
+        'codec=${browserDecoded ? 'browser' : 'engine'} '
+        '${base.width}x${base.height} '
+        'ms=${(jpegClock.elapsedMicroseconds / 1000).toStringAsFixed(1)}');
+  }
   // /Decode and color-key /Mask apply to the decoded samples; gray
   // JPEGs decode to RGBA with the sample replicated, so one channel
   // stands in for the raw sample either way.
-  final components = switch (pdfImageColorFamily(cos, dict)) {
+  final components = switch (colorFamily) {
     'DeviceGray' => 1,
     'DeviceRGB' => 3,
     _ => 0,
@@ -517,7 +898,24 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream,
       components > 0 ? pdfImageDecodeRanges(cos, dict, components) : null;
   final colorKey =
       components > 0 ? pdfImageColorKeyRanges(cos, dict, components) : null;
-  if (mask == null && ranges == null && colorKey == null) return base;
+  if (deferSimpleDctSoftMask && ranges == null && colorKey == null) {
+    final gpuMask = await _decodeSimpleSoftMaskImage(
+      cos,
+      dict,
+      base,
+      allowNonDct: true,
+      grayDctImages: grayDctImages,
+    );
+    if (gpuMask != null) {
+      _gpuSoftMasks[base] = gpuMask;
+      return base;
+    }
+  }
+  final mask = await _resolveDartUiMask(cos, dict,
+      targetWidth: base.width, targetHeight: base.height);
+  if (mask == null && ranges == null && colorKey == null) {
+    return base;
+  }
   final raw = await base.toByteData(format: ui.ImageByteFormat.rawRgba);
   if (raw == null) return base;
   final rgba = Uint8List.fromList(raw.buffer.asUint8List());
@@ -527,8 +925,285 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream,
   final m = mask == null
       ? (rgba, base.width, base.height)
       : pdfApplyImageAlpha(
-          rgba, base.width, base.height, _fitMask(mask, base.width, base.height));
-  return _imageFromStraight(m.$1, m.$2, m.$3);
+          rgba,
+          base.width,
+          base.height,
+          _fitMask(mask, base.width, base.height),
+          premultiply: true,
+        );
+  final result = mask == null
+      ? await _imageFromStraight(m.$1, m.$2, m.$3)
+      : await _imageFromPremultiplied(m.$1, m.$2, m.$3);
+  base.dispose();
+  return result;
+}
+
+/// Keeps the simple and overwhelmingly common grayscale /SMask on the GPU.
+///
+/// DCT masks use the JPEG accelerator/browser codec. When [allowNonDct] is
+/// true, a portable mask is decoded directly to its final size and uploaded;
+/// either route avoids reading the already-decoded base image back to Dart.
+///
+/// Returns null for the uncommon semantics that genuinely require inspecting
+/// and rewriting the base samples. The caller then uses [_resolveDartUiMask]
+/// and [pdfApplyImageAlpha], preserving the existing correctness path.
+Future<ui.Image?> _decodeSimpleSoftMaskImage(
+  CosDocument cos,
+  CosDictionary imageDict,
+  ui.Image base, {
+  bool allowNonDct = false,
+  _DctGrayBatchCache? grayDctImages,
+}) async {
+  final smask = cos.resolve(imageDict['SMask']);
+  if (smask is! CosStream) return null;
+  final maskDict = smask.dictionary;
+  final filters = pdfImageFilters(cos, maskDict);
+  final isDct = filters.contains('DCTDecode') || filters.contains('DCT');
+  if (!isDct && !allowNonDct) return null;
+  if (maskDict.containsKey('Matte')) return null;
+  if (!_isDefaultSoftMaskDecode(cos, maskDict['Decode'])) return null;
+
+  final colorSpace = cos.resolve(maskDict['ColorSpace']);
+  if (colorSpace is! CosName ||
+      (colorSpace.value != 'DeviceGray' && colorSpace.value != 'G')) {
+    return null;
+  }
+  if (cos.resolve(maskDict['SMask']) is CosStream ||
+      cos.resolve(maskDict['Mask']) is CosStream ||
+      cos.resolve(maskDict['Mask']) is CosArray) {
+    return null;
+  }
+
+  final clock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
+  if (!isDct) {
+    try {
+      await _seedBrowserFlateImage(cos, smask, filters);
+      final decodeClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
+      final decoded = decodePdfImage(
+        cos,
+        smask,
+        targetWidth: base.width,
+        targetHeight: base.height,
+      );
+      if (decoded == null) return null;
+      final decodeMs = decodeClock?.elapsedMicroseconds ?? 0;
+      final mask = await uploadRgbaWithBrowser(
+            decoded.rgba,
+            decoded.width,
+            decoded.height,
+          ) ??
+          await _imageFromPremultiplied(
+            decoded.rgba,
+            decoded.width,
+            decoded.height,
+          );
+      if (clock != null) {
+        PdfPerfLog.log('softmask decoded-mask '
+            '${decoded.width}x${decoded.height} '
+            'decode=${(decodeMs / 1000).toStringAsFixed(1)}ms '
+            'ms=${(clock.elapsedMicroseconds / 1000).toStringAsFixed(1)}');
+      }
+      return mask;
+    } on Exception {
+      return null;
+    }
+  }
+
+  Uint8List bytes;
+  try {
+    bytes = cos.decodeStreamData(
+      smask,
+      stopBeforeFilter: filters.contains('DCTDecode') ? 'DCTDecode' : 'DCT',
+    );
+  } on Exception {
+    return null;
+  }
+
+  ui.Codec? codec;
+  ui.Image? mask;
+  try {
+    final accelerated = await (grayDctImages?.take(
+          smask,
+          base.width,
+          base.height,
+          () => _acceleratedDctGrayImage(
+            bytes,
+            targetWidth: base.width,
+            targetHeight: base.height,
+          ),
+        ) ??
+        _acceleratedDctGrayImage(
+          bytes,
+          targetWidth: base.width,
+          targetHeight: base.height,
+        ));
+    if (accelerated != null) {
+      if (clock != null) {
+        PdfPerfLog.log('softmask accelerated-mask '
+            '${accelerated.width}x${accelerated.height} '
+            'ms=${(clock.elapsedMicroseconds / 1000).toStringAsFixed(1)}');
+      }
+      return accelerated;
+    }
+    mask = await decodeJpegWithBrowser(
+      bytes,
+      targetWidth: base.width,
+      targetHeight: base.height,
+    );
+    if (mask == null) {
+      codec = await ui.instantiateImageCodec(
+        bytes,
+        targetWidth: base.width,
+        targetHeight: base.height,
+      );
+      mask = (await codec.getNextFrame()).image;
+    }
+
+    if (clock != null) {
+      PdfPerfLog.log('softmask gpu-mask '
+          '${base.width}x${base.height} '
+          'ms=${(clock.elapsedMicroseconds / 1000).toStringAsFixed(1)}');
+    }
+    final result = mask;
+    mask = null;
+    return result;
+  } on Exception {
+    return null;
+  } finally {
+    mask?.dispose();
+    codec?.dispose();
+  }
+}
+
+/// Seeds the shared decoded-stream cache using the browser's native zlib
+/// implementation, then applies the PDF predictor in the portable layer.
+///
+/// This is intentionally opportunistic: native Flutter and browsers without
+/// Compression Streams retain [CosDocument.decodeStreamData]'s normal path.
+Future<void> _seedBrowserFlateImage(
+  CosDocument cos,
+  CosStream stream,
+  List<String> filters,
+) async {
+  if (filters.length != 1 ||
+      (filters.single != 'FlateDecode' && filters.single != 'Fl')) {
+    return;
+  }
+  try {
+    final encoded = cos.decodeStreamData(
+      stream,
+      stopBeforeFilter: filters.single,
+    );
+    final inflated = await inflateZlibWithBrowser(encoded);
+    if (inflated == null) return;
+    CosDictionary? params;
+    final paramsObject = cos.resolve(
+      stream.dictionary['DecodeParms'] ?? stream.dictionary['DP'],
+    );
+    if (paramsObject is CosDictionary) {
+      params = paramsObject;
+    } else if (paramsObject is CosArray && paramsObject.items.isNotEmpty) {
+      final first = cos.resolve(paramsObject.items.first);
+      if (first is CosDictionary) params = first;
+    }
+    final decoded = applyPredictor(inflated, params);
+    cos.seedDecodedStreamData(stream, decoded, allowOversize: true);
+  } on Exception {
+    // The normal lenient decoder remains the fallback for malformed streams.
+  }
+}
+
+/// Decodes a plain grayscale JPEG through the installed accelerator and
+/// uploads its one-byte samples as opaque RGBA. Null preserves the caller's
+/// browser/engine fallback when no accelerator is installed or it declines.
+Future<ui.Image?> _acceleratedDctGrayImage(
+  Uint8List bytes, {
+  int? targetWidth,
+  int? targetHeight,
+}) async {
+  final accelerated = pdfDctGrayDecoder?.call(
+    bytes,
+    targetWidth: targetWidth,
+    targetHeight: targetHeight,
+  );
+  if (accelerated == null ||
+      accelerated.width <= 0 ||
+      accelerated.height <= 0 ||
+      accelerated.samples.length < accelerated.width * accelerated.height) {
+    return null;
+  }
+  final pixelCount = accelerated.width * accelerated.height;
+  final rgba = Uint8List(pixelCount * 4);
+  if (Endian.host == Endian.little) {
+    final words = Uint32List.view(rgba.buffer);
+    for (var i = 0; i < pixelCount; i++) {
+      words[i] = 0xFF000000 | accelerated.samples[i] * 0x010101;
+    }
+  } else {
+    for (var i = 0; i < pixelCount; i++) {
+      final value = accelerated.samples[i];
+      final offset = i * 4;
+      rgba[offset] = value;
+      rgba[offset + 1] = value;
+      rgba[offset + 2] = value;
+      rgba[offset + 3] = 255;
+    }
+  }
+  return _imageFromPremultiplied(
+    rgba,
+    accelerated.width,
+    accelerated.height,
+  );
+}
+
+/// Decodes a semantically plain DeviceRGB JPEG through the installed
+/// accelerator and uploads its already-opaque RGBA bytes. Null preserves the
+/// browser/engine codec fallback on unsupported platforms or malformed data.
+Future<ui.Image?> _acceleratedDctRgbImage(
+  Uint8List bytes, {
+  int? targetWidth,
+  int? targetHeight,
+}) async {
+  final accelerated = pdfDctRgbaDecoder?.call(
+    bytes,
+    targetWidth: targetWidth,
+    targetHeight: targetHeight,
+  );
+  if (accelerated == null ||
+      accelerated.width <= 0 ||
+      accelerated.height <= 0 ||
+      accelerated.samples.length < accelerated.width * accelerated.height * 4) {
+    return null;
+  }
+  return await uploadRgbaWithBrowser(
+        accelerated.samples,
+        accelerated.width,
+        accelerated.height,
+      ) ??
+      _imageFromPremultiplied(
+        accelerated.samples,
+        accelerated.width,
+        accelerated.height,
+      );
+}
+
+bool _isDefaultSoftMaskDecode(CosDocument cos, CosObject? value) {
+  if (value == null) return true;
+  final resolved = cos.resolve(value);
+  if (resolved is! CosArray || resolved.length != 2) return false;
+  final low = cos.resolve(resolved[0]);
+  final high = cos.resolve(resolved[1]);
+  final lowValue = switch (low) {
+    CosInteger(:final value) => value.toDouble(),
+    CosReal(:final value) => value,
+    _ => null,
+  };
+  final highValue = switch (high) {
+    CosInteger(:final value) => value.toDouble(),
+    CosReal(:final value) => value,
+    _ => null,
+  };
+  return lowValue == 0 && highValue == 1;
 }
 
 /// The soft/stencil mask for a platform-decoded JPEG. A DCT-encoded /SMask is
@@ -540,27 +1215,75 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream,
 /// the mask's own native size and are fitted to the base by the caller
 /// ([_fitMask]) - so the whole composite lands at the target, never ballooning
 /// back to a mask that is larger than the capped base.
-Future<PdfImageSoftMask?> _resolveDartUiMask(CosDocument cos, CosDictionary dict,
+Future<PdfImageSoftMask?> _resolveDartUiMask(
+    CosDocument cos, CosDictionary dict,
     {int? targetWidth, int? targetHeight}) async {
   final dctBytes = pdfImageDctSoftMaskBytes(cos, dict);
   if (dctBytes != null) {
+    final clock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
+    final gray = await decodeJpegGrayWithBrowser(
+      dctBytes,
+      targetWidth: targetWidth,
+      targetHeight: targetHeight,
+    );
+    if (gray != null) {
+      if (clock != null) {
+        PdfPerfLog.log('softmask browser-gray '
+            '${gray.width}x${gray.height} '
+            'ms=${(clock.elapsedMicroseconds / 1000).toStringAsFixed(1)}');
+      }
+      return PdfImageSoftMask(
+        gray.alpha,
+        gray.width,
+        gray.height,
+        sampleStride: gray.sampleStride,
+      );
+    }
+    ui.Codec? codec;
+    ui.Image? image;
     try {
-      final codec = targetWidth != null && targetHeight != null
-          ? await ui.instantiateImageCodec(dctBytes,
+      // Match the JPEG-base path above on web. Chromium's native decoder is
+      // substantially faster than CanvasKit's codec for these grayscale masks;
+      // the readback is unavoidable because the bytes become alpha, but JPEG
+      // entropy decode no longer compounds it. Native platforms retain the
+      // engine-codec fallback, whose work already runs on the raster thread.
+      image = targetWidth != null && targetHeight != null
+          ? await decodeJpegWithBrowser(dctBytes,
               targetWidth: targetWidth, targetHeight: targetHeight)
-          : await ui.instantiateImageCodec(dctBytes);
-      final image = (await codec.getNextFrame()).image;
+          : await decodeJpegWithBrowser(dctBytes);
+      if (image == null) {
+        codec = targetWidth != null && targetHeight != null
+            ? await ui.instantiateImageCodec(dctBytes,
+                targetWidth: targetWidth, targetHeight: targetHeight)
+            : await ui.instantiateImageCodec(dctBytes);
+        image = (await codec.getNextFrame()).image;
+      }
       final raw = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
       if (raw != null) {
-        final rgba = raw.buffer.asUint8List();
-        final alpha = Uint8List(image.width * image.height);
-        for (var i = 0; i < alpha.length; i++) {
-          alpha[i] = rgba[i * 4]; // gray: any channel works
+        final rgba = raw.buffer.asUint8List(
+          raw.offsetInBytes,
+          raw.lengthInBytes,
+        );
+        if (clock != null) {
+          PdfPerfLog.log('softmask engine-readback '
+              '${image.width}x${image.height} '
+              'ms=${(clock.elapsedMicroseconds / 1000).toStringAsFixed(1)}');
         }
-        return PdfImageSoftMask(alpha, image.width, image.height);
+        return PdfImageSoftMask(
+          rgba,
+          image.width,
+          image.height,
+          sampleStride: 4,
+        );
       }
     } on Exception {
       // fall through to a stencil /Mask, like the pre-extraction code did
+    } finally {
+      // These are intermediate mask surfaces, not images retained by the page
+      // cache. Releasing both objects here avoids keeping one native texture
+      // per masked XObject alive through a long navigation run.
+      image?.dispose();
+      codec?.dispose();
     }
   }
   return pdfImageSoftMask(cos, dict) ?? pdfImageStencilMask(cos, dict);
@@ -582,7 +1305,8 @@ PdfImageSoftMask _fitMask(PdfImageSoftMask mask, int width, int height) {
     final row = my * mask.width;
     final orow = y * tw;
     for (var x = 0; x < tw; x++) {
-      out[orow + x] = mask.alpha[row + (x * mask.width ~/ tw)];
+      out[orow + x] =
+          mask.alpha[(row + (x * mask.width ~/ tw)) * mask.sampleStride];
     }
   }
   return PdfImageSoftMask(out, tw, th);

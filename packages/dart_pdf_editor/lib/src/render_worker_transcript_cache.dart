@@ -57,10 +57,11 @@ int retainedCommandGraphsWeight(
 /// Reuses the compact wire graph while restoring document-backed images.
 ///
 /// The wire codec rounds geometry to the exact float32 values consumed by the
-/// UI and removes redundant state scopes. Its reconstructed image streams are
-/// detached from the document, so later detail serialization cannot resolve
-/// every dependency. Replace only those streams while sharing every other
-/// command object and retaining the wire transform.
+/// UI and removes redundant state scopes. Its reconstructed indirect images
+/// carry compact object references but use placeholder streams; later detail
+/// decoding still needs the worker document's actual COS stream. Replace only
+/// those streams while sharing every other command object and retaining the
+/// wire transform.
 List<PdfRenderCommand>? compactTranscriptSourceCommands(
   List<PdfRenderCommand> wireCommands,
   List<PdfImageRequest> originalImages,
@@ -87,6 +88,7 @@ List<PdfRenderCommand>? compactTranscriptSourceCommands(
           stencilColor: wire.stencilColor,
           isInline: original.isInline,
           decoded: original.decoded,
+          sourceReference: original.sourceReference,
         ));
       } else if (command is PdfEndSoftMaskedCommand) {
         final maskCommands = patch(command.maskCommands);
@@ -137,7 +139,16 @@ List<PdfRenderCommand>? compactTranscriptSourceCommands(
 /// path (#530, mirrors the isolate worker's constant of the same value). Bounds
 /// the post-cancel overshoot before the walk suspends; the walk still yields
 /// internally so the worker keeps servicing the cancel message within a chunk.
-const int _resumeRecordChunkOperations = 4096;
+// A dense CAD operation is tiny (usually one path coordinate append). At 4096
+// operations a 670k-op page crossed the worker event loop ~165 times; browser
+// task handoffs became a material part of its wall time. 64k cuts that to about
+// 11 turns while keeping the measured worst chunk near 50ms on the CAD corpus.
+const int _resumeRecordChunkOperations = 65536;
+
+// Progressive visible-page records start with one small chunk so medium-dense
+// pages expose useful ink before a 64k throughput chunk finishes the walk.
+// Non-streaming records and every later chunk retain the measured 64k policy.
+const int _initialProgressiveRecordChunkOperations = 4096;
 
 /// A page transcript record cancelled mid-walk, held so the next
 /// [PdfWorkerTranscriptCache.transcriptFor] of the same page resumes it instead
@@ -236,7 +247,9 @@ class PdfWorkerTranscriptCache {
     // device (discarding the partial). Driving bounded chunks and checking the
     // token between them is what keeps the recording resumable (#530).
     var entry = _takeSuspended(pageIndex, annotations);
-    if (entry != null && entry.walk.isFinished) entry = null; // never resume a finished walk
+    if (entry != null && entry.walk.isFinished) {
+      entry = null; // never resume a finished walk
+    }
     if (entry == null) {
       final page = document.page(pageIndex);
       final recorder = RecordingPdfDevice();
@@ -249,10 +262,19 @@ class PdfWorkerTranscriptCache {
     final streamClock = timings == null ? null : (Stopwatch()..start());
     final walk = entry.walk;
     while (true) {
-      final complete = yieldInterval == null
-          ? await walk.advance(operations: _resumeChunk)
-          : await walk.advance(
-              operations: _resumeChunk, yieldInterval: yieldInterval);
+      final chunkOperations = onPartial != null &&
+              entry.chunksAdvanced == 0 &&
+              _resumeChunk > _initialProgressiveRecordChunkOperations
+          ? _initialProgressiveRecordChunkOperations
+          : _resumeChunk;
+      final complete = await walk.advance(
+        operations: chunkOperations,
+        // The caller checks cancellation immediately after every bounded
+        // chunk. When it has no tighter platform requirement, one task yield
+        // at that boundary is sufficient; falling back to the interpreter's
+        // 512-op default over-yields the same chunk dozens of times.
+        yieldInterval: yieldInterval ?? chunkOperations,
+      );
       if (complete) break;
       if (token.cancelled) {
         // Keep the partial recording so the requeued record resumes here.
@@ -369,7 +391,9 @@ class PdfWorkerTranscriptCache {
   /// previously stashed walk so its balancing device restore runs.
   void _keepSuspended(_SuspendedTranscriptWalk entry) {
     final previous = _suspended;
-    if (previous != null && !identical(previous, entry)) previous.walk.abandon();
+    if (previous != null && !identical(previous, entry)) {
+      previous.walk.abandon();
+    }
     _suspended = entry;
   }
 

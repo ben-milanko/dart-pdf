@@ -22,11 +22,16 @@ class CosLexer {
       byte == 0x20;
 
   static bool isDelimiter(int byte) =>
-      byte == 0x28 || byte == 0x29 || // ( )
-      byte == 0x3C || byte == 0x3E || // < >
-      byte == 0x5B || byte == 0x5D || // [ ]
-      byte == 0x7B || byte == 0x7D || // { }
-      byte == 0x2F || byte == 0x25; // / %
+      byte == 0x28 ||
+      byte == 0x29 || // ( )
+      byte == 0x3C ||
+      byte == 0x3E || // < >
+      byte == 0x5B ||
+      byte == 0x5D || // [ ]
+      byte == 0x7B ||
+      byte == 0x7D || // { }
+      byte == 0x2F ||
+      byte == 0x25; // / %
 
   static bool isRegular(int byte) => !isWhitespace(byte) && !isDelimiter(byte);
 
@@ -70,53 +75,66 @@ class CosLexer {
     }
   }
 
-  CosToken nextToken() {
+  /// Returns the next token.
+  ///
+  /// When [reuse] is supplied, the returned object is that same mutable
+  /// buffer. The caller must consume it before the next call that reuses it.
+  CosToken nextToken([CosTokenBuffer? reuse]) {
     skipWhitespaceAndComments();
     final start = position;
-    if (position >= bytes.length) return CosToken(CosTokenType.eof, start);
+    if (position >= bytes.length) {
+      return _token(reuse, CosTokenType.eof, start);
+    }
     final b = bytes[position];
     switch (b) {
       case 0x5B:
         position++;
-        return CosToken(CosTokenType.arrayOpen, start);
+        return _token(reuse, CosTokenType.arrayOpen, start);
       case 0x5D:
         position++;
-        return CosToken(CosTokenType.arrayClose, start);
+        return _token(reuse, CosTokenType.arrayClose, start);
       case 0x3C:
         if (position + 1 < bytes.length && bytes[position + 1] == 0x3C) {
           position += 2;
-          return CosToken(CosTokenType.dictOpen, start);
+          return _token(reuse, CosTokenType.dictOpen, start);
         }
-        return _hexString(start);
+        return _hexString(start, reuse);
       case 0x3E:
         if (position + 1 < bytes.length && bytes[position + 1] == 0x3E) {
           position += 2;
-          return CosToken(CosTokenType.dictClose, start);
+          return _token(reuse, CosTokenType.dictClose, start);
         }
         throw CosParseException('unexpected ">"', start);
       case 0x28:
-        return _literalString(start);
+        return _literalString(start, reuse);
       case 0x29:
         throw CosParseException('unexpected ")"', start);
       case 0x2F:
-        return _name(start);
+        return _name(start, reuse);
       // { and } only occur inside PostScript calculator functions; surface
       // them as keywords so a function parser can handle them.
       case 0x7B:
         position++;
-        return CosToken(CosTokenType.keyword, start, '{');
+        return _token(reuse, CosTokenType.keyword, start, '{');
       case 0x7D:
         position++;
-        return CosToken(CosTokenType.keyword, start, '}');
+        return _token(reuse, CosTokenType.keyword, start, '}');
       default:
         if (b == 0x2B || b == 0x2D || b == 0x2E || _isDigit(b)) {
-          return _number(start);
+          return _number(start, reuse);
         }
-        return _keyword(start);
+        return _keyword(start, reuse);
     }
   }
 
-  CosToken _number(int start) {
+  CosToken _token(CosTokenBuffer? reuse, CosTokenType type, int offset,
+      [Object? value]) {
+    if (reuse == null) return CosToken(type, offset, value);
+    reuse.setToken(type, offset, value);
+    return reuse;
+  }
+
+  CosToken _number(int start, CosTokenBuffer? reuse) {
     // Content streams are number-dense (every coordinate, colour, index), so
     // this is the tokenizer's hottest path. Scan the digit/sign/dot run once
     // and parse straight from the bytes - no per-char StringBuffer.
@@ -139,12 +157,12 @@ class CosLexer {
       // Parse the integer directly when it can't overflow (≤18 digits); this
       // is bit-for-bit identical to int.tryParse over the same byte range.
       final v = _parseIntRange(start, p);
-      if (v != null) return CosToken(CosTokenType.integer, start, v);
+      if (v != null) return _token(reuse, CosTokenType.integer, start, v);
       // Overflowing or malformed: fall back to the exact string semantics.
       final raw = String.fromCharCodes(bytes, start, p);
       final iv = int.tryParse(raw);
       if (iv == null) throw CosParseException('malformed number "$raw"', start);
-      return CosToken(CosTokenType.integer, start, iv);
+      return _token(reuse, CosTokenType.integer, start, iv);
     }
 
     // PDF reals have no exponent (§7.3.3): sign, digits, one dot. With ≤15
@@ -153,7 +171,7 @@ class CosLexer {
     // identical to double.parse - without the string allocation. Content
     // streams are real-dense (every coordinate), so this is hot.
     final fast = _parseRealRange(start, p);
-    if (fast != null) return CosToken(CosTokenType.real, start, fast);
+    if (fast != null) return _token(reuse, CosTokenType.real, start, fast);
 
     final raw = String.fromCharCodes(bytes, start, p);
     var s = raw;
@@ -162,7 +180,7 @@ class CosLexer {
     if (s.endsWith('.')) s = '${s}0';
     final v = double.tryParse(s);
     if (v == null) throw CosParseException('malformed number "$raw"', start);
-    return CosToken(CosTokenType.real, start, v);
+    return _token(reuse, CosTokenType.real, start, v);
   }
 
   static const List<double> _pow10 = [
@@ -230,7 +248,7 @@ class CosLexer {
     return negative ? -value : value;
   }
 
-  CosToken _literalString(int start) {
+  CosToken _literalString(int start, CosTokenBuffer? reuse) {
     position++; // (
     var depth = 1;
     final out = BytesBuilder();
@@ -302,10 +320,10 @@ class CosLexer {
         out.addByte(0x0A);
       }
     }
-    return CosToken(CosTokenType.string, start, out.takeBytes());
+    return _token(reuse, CosTokenType.string, start, out.takeBytes());
   }
 
-  CosToken _hexString(int start) {
+  CosToken _hexString(int start, CosTokenBuffer? reuse) {
     position++; // <
     final out = BytesBuilder();
     int? pending;
@@ -329,25 +347,25 @@ class CosLexer {
     }
     // an odd final digit is padded with zero (§7.3.4.3)
     if (pending != null) out.addByte(pending << 4);
-    return CosToken(CosTokenType.hexString, start, out.takeBytes());
+    return _token(reuse, CosTokenType.hexString, start, out.takeBytes());
   }
 
-  CosToken _name(int start) {
+  CosToken _name(int start, CosTokenBuffer? reuse) {
     position++; // /
     final nameStart = position;
     // Fast path: a name with no `#XX` escape is just the regular-byte run, so
     // build the string straight from the range (most names have no escapes).
     while (position < bytes.length && isRegular(bytes[position])) {
       if (bytes[position] == 0x23) {
-        return _nameWithEscapes(start, nameStart);
+        return _nameWithEscapes(start, nameStart, reuse);
       }
       position++;
     }
-    return CosToken(
-        CosTokenType.name, start, String.fromCharCodes(bytes, nameStart, position));
+    return _token(reuse, CosTokenType.name, start,
+        String.fromCharCodes(bytes, nameStart, position));
   }
 
-  CosToken _nameWithEscapes(int start, int nameStart) {
+  CosToken _nameWithEscapes(int start, int nameStart, CosTokenBuffer? reuse) {
     position = nameStart;
     final out = BytesBuilder();
     while (position < bytes.length && isRegular(bytes[position])) {
@@ -362,11 +380,11 @@ class CosLexer {
       }
       out.addByte(b);
     }
-    return CosToken(
-        CosTokenType.name, start, String.fromCharCodes(out.takeBytes()));
+    return _token(
+        reuse, CosTokenType.name, start, String.fromCharCodes(out.takeBytes()));
   }
 
-  CosToken _keyword(int start) {
+  CosToken _keyword(int start, CosTokenBuffer? reuse) {
     var p = position;
     while (p < bytes.length && isRegular(bytes[p])) {
       p++;
@@ -376,7 +394,7 @@ class CosLexer {
           'unexpected byte 0x${bytes[position].toRadixString(16)}', start);
     }
     position = p;
-    return CosToken(CosTokenType.keyword, start, _internKeyword(start, p));
+    return _token(reuse, CosTokenType.keyword, start, _internKeyword(start, p));
   }
 
   /// Interned strings for keywords up to 3 bytes, packed little-endian into
@@ -391,6 +409,91 @@ class CosLexer {
     var packed = bytes[start];
     if (len > 1) packed |= bytes[start + 1] << 8;
     if (len > 2) packed |= bytes[start + 2] << 16;
+    // The content interpreter consumes a fixed operator vocabulary. Return
+    // those canonical literals without a hash-table probe: a vector-dense CAD
+    // stream can contain hundreds of thousands of one- and two-byte operators.
+    // Unknown short keywords still use the bounded interner below, preserving
+    // the general lexer contract for extensions and malformed real-world PDFs.
+    final known = switch (packed) {
+      0x6d => 'm',
+      0x6c => 'l',
+      0x63 => 'c',
+      0x76 => 'v',
+      0x79 => 'y',
+      0x6572 => 're',
+      0x6d63 => 'cm',
+      0x68 => 'h',
+      0x53 => 'S',
+      0x73 => 's',
+      0x66 => 'f',
+      0x46 => 'F',
+      0x2a66 => 'f*',
+      0x42 => 'B',
+      0x2a42 => 'B*',
+      0x62 => 'b',
+      0x2a62 => 'b*',
+      0x6e => 'n',
+      0x57 => 'W',
+      0x2a57 => 'W*',
+      0x71 => 'q',
+      0x51 => 'Q',
+      0x77 => 'w',
+      0x4a => 'J',
+      0x6a => 'j',
+      0x4d => 'M',
+      0x64 => 'd',
+      0x7367 => 'gs',
+      0x6972 => 'ri',
+      0x69 => 'i',
+      0x67 => 'g',
+      0x47 => 'G',
+      0x6772 => 'rg',
+      0x4752 => 'RG',
+      0x6b => 'k',
+      0x4b => 'K',
+      0x7363 => 'cs',
+      0x5343 => 'CS',
+      0x6373 => 'sc',
+      0x6e6373 => 'scn',
+      0x4353 => 'SC',
+      0x4e4353 => 'SCN',
+      0x5442 => 'BT',
+      0x5445 => 'ET',
+      0x6654 => 'Tf',
+      0x6454 => 'Td',
+      0x4454 => 'TD',
+      0x6d54 => 'Tm',
+      0x2a54 => 'T*',
+      0x4c54 => 'TL',
+      0x6354 => 'Tc',
+      0x7754 => 'Tw',
+      0x7a54 => 'Tz',
+      0x7354 => 'Ts',
+      0x7254 => 'Tr',
+      0x6a54 => 'Tj',
+      0x27 => "'",
+      0x22 => '"',
+      0x4a54 => 'TJ',
+      0x6f44 => 'Do',
+      0x4942 => 'BI',
+      0x4449 => 'ID',
+      0x4945 => 'EI',
+      0x6873 => 'sh',
+      0x434442 => 'BDC',
+      0x434d42 => 'BMC',
+      0x434d45 => 'EMC',
+      0x504d => 'MP',
+      0x5044 => 'DP',
+      0x5842 => 'BX',
+      0x5845 => 'EX',
+      0x3064 => 'd0',
+      0x3164 => 'd1',
+      0x52 => 'R',
+      0x6a626f => 'obj',
+      0x646e65 => 'end',
+      _ => null,
+    };
+    if (known != null) return known;
     final hit = _keywordIntern[packed];
     if (hit != null) return hit;
     final s = String.fromCharCodes(bytes, start, end);

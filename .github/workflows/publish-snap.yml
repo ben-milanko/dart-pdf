@@ -82,6 +82,7 @@ jobs:
         run: |
           app/packaging/snap/build-release-snap.sh \
             --archive "$RUNNER_TEMP/snap-input/dartpdf-linux-x64.tar.gz" \
+            --version "${{ steps.release.outputs.version }}" \
             --output "$RUNNER_TEMP/snap-output"
 
       - name: Install and smoke-test snap

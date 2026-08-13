@@ -7,8 +7,10 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart' show StripPlan;
 
 import 'budgeted_cache.dart';
+import 'perf_log.dart';
 import 'region_replay_index.dart';
 import 'render_trace.dart';
+import 'render_worker_transcript_cache.dart' show retainedCommandGraphWeight;
 import 'render_worker_stub.dart'
     if (dart.library.io) 'render_worker_isolate.dart'
     if (dart.library.js_interop) 'render_worker_web.dart';
@@ -60,7 +62,12 @@ const int defaultPdfRenderWorkerPoolSize = 3;
 int pdfRenderWorkerPoolSize = defaultPdfRenderWorkerPoolSize;
 
 /// Default decoded-image command-buffer cache budget for one render worker.
-const int defaultPdfRenderWorkerCacheBudgetBytes = 96 << 20;
+// The viewer has separate raster, preview, and worker-side decode caches. A
+// 96 MiB record cache made the combined steady-state working set exceed
+// Chromium/PDFium on the real-world plan journey without improving its warm
+// navigation window; 72 MiB still retains several image-heavy page records
+// while leaving room for those other cross-platform caches.
+const int defaultPdfRenderWorkerCacheBudgetBytes = 72 << 20;
 
 /// Decoded-image command-buffer cache budget for each render worker.
 ///
@@ -84,6 +91,23 @@ const int defaultPdfRenderWorkerCacheMaxEntries = 64;
 /// stays well above the on-screen plus preview-warm working set, so ordinary
 /// revisits still hit. Lower it once at startup on memory-constrained devices.
 int pdfRenderWorkerCacheMaxEntries = defaultPdfRenderWorkerCacheMaxEntries;
+
+/// Default maximum number of command slots retained by the main-side render
+/// record cache.
+const int defaultPdfRenderWorkerCacheMaxRetainedCommands = 250000;
+
+/// Maximum number of command slots retained by the main-side render cache.
+///
+/// Decoded pixels have a reliable byte size and are bounded separately by
+/// [pdfRenderWorkerCacheBudgetBytes]. Command objects do not: a dense CAD page
+/// can carry hundreds of thousands of small path/state objects while weighing
+/// zero under the decoded-pixel budget. This second LRU bound uses the same
+/// stable recursive command-slot measure as the platform-worker transcript
+/// cache. The newest record is protected even when it alone exceeds the bound,
+/// so one difficult visible page remains reusable without letting several such
+/// pages accumulate.
+int pdfRenderWorkerCacheMaxRetainedCommands =
+    defaultPdfRenderWorkerCacheMaxRetainedCommands;
 
 /// Whether newly-created web render workers reuse one image-free page
 /// transcript across progressive record, image, detail, and strip phases.
@@ -112,9 +136,80 @@ Duration pdfRenderWorkerRecordTimeout = const Duration(seconds: 90);
 /// the final decoded buffer. The caller replays each partial with
 /// `PdfPageRenderer.pictureFromCommands(includeImages: false)` for a top-down
 /// progressive reveal, then swaps in the final buffer when it arrives. A page
-/// small enough to record in one chunk emits no partial; the future still
-/// resolves normally.
+/// small enough to record in one chunk emits no intermediate prefix; an
+/// image-bearing decoding record still emits its complete image-free snapshot
+/// immediately before image decode so first and final paint can share one
+/// content walk.
 typedef PdfPartialRecordSink = void Function(List<PdfRenderCommand> partial);
+
+/// A browser-owned page canvas bound to one render worker.
+///
+/// This deliberately carries no `dart:ui`, Flutter, or web types: native
+/// backends decline [PdfRenderWorker.createPageSurface], while the web backend
+/// accepts an `OffscreenCanvas` behind the opaque [Object] seam. Keeping the
+/// session bound to one worker is essential because a transferred canvas
+/// cannot move back to the main isolate or hop among a worker pool.
+abstract class PdfPageSurfaceSession {
+  const PdfPageSurfaceSession();
+
+  /// Interprets and paints [pageIndex] directly into the browser canvas.
+  ///
+  /// Returns false without painting when the page uses a command the browser
+  /// device cannot reproduce. The caller can then expose the normal Flutter
+  /// raster underneath; unsupported PDFs therefore keep the established,
+  /// fully-correct renderer.
+  Future<bool> render(
+    int pageIndex, {
+    required bool annotations,
+    required int width,
+    required int height,
+    required int pageColor,
+    PdfPageSurfaceRegion? region,
+    int? rotation,
+    int priority = 0,
+  });
+
+  /// Releases worker-side bookkeeping for the transferred canvas.
+  void dispose();
+}
+
+/// A y-down page-space slice painted into a worker-owned browser surface.
+///
+/// [left], [top], [right], and [bottom] use the same post-rotation page-point
+/// coordinates as `PdfPageRenderer.rasterizeRegion`. [pixelRatio] is the
+/// backing pixels per page point. Keeping the slice explicit lets deep zoom
+/// update only the visible viewport instead of resizing a multi-megapixel
+/// full-page DOM canvas.
+class PdfPageSurfaceRegion {
+  const PdfPageSurfaceRegion({
+    required this.left,
+    required this.top,
+    required this.right,
+    required this.bottom,
+    required this.pixelRatio,
+  });
+
+  final double left;
+  final double top;
+  final double right;
+  final double bottom;
+  final double pixelRatio;
+
+  double get width => right - left;
+  double get height => bottom - top;
+
+  @override
+  bool operator ==(Object other) =>
+      other is PdfPageSurfaceRegion &&
+      other.left == left &&
+      other.top == top &&
+      other.right == right &&
+      other.bottom == bottom &&
+      other.pixelRatio == pixelRatio;
+
+  @override
+  int get hashCode => Object.hash(left, top, right, bottom, pixelRatio);
+}
 
 /// One combined deep-zoom worker result.
 ///
@@ -179,6 +274,14 @@ PdfRenderWorker startPdfRenderWorker(
 abstract class PdfRenderWorker {
   const PdfRenderWorker();
 
+  /// Maximum number of page records this backend can execute concurrently.
+  ///
+  /// Callers use this to avoid starting non-preemptible speculative image
+  /// work on a serial backend. A pool reports its lane count; wrappers forward
+  /// the capacity of the backend they own. The conservative default keeps
+  /// custom and platform workers source-compatible.
+  int get concurrentRecordCapacity => 1;
+
   /// Starts the platform's worker over [bytes] (the document image the page
   /// indices passed to [record] refer to). Native: a long-lived background
   /// isolate that opens its own [PdfDocument]. Web: a Web Worker over the
@@ -207,11 +310,10 @@ abstract class PdfRenderWorker {
   /// first paint's sparse buffer - both immutable under the worker), so a
   /// full-document snapshot here is pure waste on the big files #359 makes
   /// common.
-  static PdfRenderWorker _backend(Uint8List bytes) =>
-      pdfRenderWorkerPoolSize > 1
-          ? PdfPooledRenderWorker(bytes, pdfRenderWorkerPoolSize,
-              copySource: false)
-          : startRenderWorker(bytes);
+  static PdfRenderWorker _backend(Uint8List bytes) => pdfRenderWorkerPoolSize >
+          1
+      ? PdfPooledRenderWorker(bytes, pdfRenderWorkerPoolSize, copySource: false)
+      : startRenderWorker(bytes);
 
   /// The raw platform worker, NOT wrapped in [PdfCachingRenderWorker]. Test-
   /// only: for exercising the inner queue/cancel/priority contract, which the
@@ -309,6 +411,14 @@ abstract class PdfRenderWorker {
   /// must not fall back to a local interpret (the work would be wasted);
   /// [PdfPageView] does this by abandoning when it is unmounted or superseded.
   void cancel(int pageIndex, {int priority = 0});
+
+  /// Releases completed reusable command records for [pageIndex].
+  ///
+  /// Most callers should keep the cache warm. A caller that has promoted the
+  /// same command graph into a longer-lived retained scene can drop the
+  /// duplicate cache ownership explicitly; backends without a main-side
+  /// record cache inherit this no-op.
+  void releaseCachedPage(int pageIndex) {}
 
   /// Bins page [pageIndex]'s sparse strips off-thread for the exact device
   /// geometry a strip-routed zoom settle is about to rasterize, returning a
@@ -416,6 +526,22 @@ abstract class PdfRenderWorker {
   Future<PdfPageText?> extractText(int pageIndex, {int priority = 0}) async =>
       null;
 
+  /// Whether this backend can bind a browser-owned zero-copy page surface.
+  ///
+  /// True only for a live Web Worker (and wrappers/pools containing one).
+  bool get supportsPageSurfaces => false;
+
+  /// Transfers an opaque browser canvas to this worker and binds it for the
+  /// lifetime of the returned session. Native and unsupported backends return
+  /// null. [pageIndex] lets a pool bind a base canvas and its deep-zoom region
+  /// to the same worker, reusing that worker's transcript and image samples.
+  /// See [PdfPageSurfaceSession] for the correctness-gated fallback.
+  PdfPageSurfaceSession? createPageSurface(
+    Object surface, {
+    int? pageIndex,
+  }) =>
+      null;
+
   /// Drops any QUEUED (not yet started) [binStrips] request for [pageIndex]
   /// at [priority], completing its future with null - and, on the native
   /// isolate backend, also preempts a matching IN-FLIGHT bin cooperatively
@@ -496,6 +622,14 @@ abstract class PdfRenderWorker {
 /// siblings. While a `(page, priority)` record is outstanding, later records for
 /// the same pair reuse its worker; [cancel] routes through that lease table so
 /// it still reaches the worker holding the queued request.
+///
+/// Speculative work (priority greater than zero) may occupy at most N−1 active
+/// workers. The final idle lane is left available for a visible request: pure
+/// Dart image decoding is synchronous, so a worker inside a large JPEG cannot
+/// observe a cooperative cancellation message until the expensive decode
+/// returns. This dynamic reservation adds no worker or document copy, and it
+/// disappears for a one-worker pool. Priority zero and negative priorities are
+/// foreground and may use the whole pool.
 ///
 /// Each worker opens its own copy of the document, but the pool does NOT hand
 /// each one a private snapshot: it makes ONE read-only copy of the source bytes
@@ -597,7 +731,11 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   // document, not the stale spawn snapshot. Null in the test seam.
   Uint8List? _urgentBytes;
   final List<PdfRenderWorker> _workers;
+
+  @override
+  int get concurrentRecordCapacity => _workers.length;
   late final List<int> _loads;
+  late final List<int> _surfaceLoads = List.filled(_workers.length, 0);
   final _routes = <(int, int), _PoolRoute>{};
   final _pageWorkers = <int, int>{};
   PdfRenderWorker? _urgentWorker;
@@ -606,15 +744,31 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   /// expected) map through [int.abs] so routing never throws.
   int _staticWorkerIndex(int pageIndex) => pageIndex.abs() % _workers.length;
 
-  int _leastLoadedWorker(int pageIndex) {
+  int _leastLoadedWorker(int pageIndex, {int priority = 0}) {
     if (_workers.length == 1) return 0;
     final anyActive = _workers.any((worker) => worker.isActive);
     final fallback = _staticWorkerIndex(pageIndex);
 
+    var eligible = <int>[
+      for (var i = 0; i < _workers.length; i++)
+        if (!anyActive || _workers[i].isActive) i,
+    ];
+    if (priority > 0 && eligible.length > 1) {
+      final busy = [
+        for (final i in eligible)
+          if (_loads[i] > 0) i
+      ];
+      // Once speculative work occupies N-1 lanes, queue more of it on those
+      // lanes instead of consuming the last idle worker. The next foreground
+      // record sees that zero load and spills there immediately.
+      if (busy.length >= eligible.length - 1 && busy.isNotEmpty) {
+        eligible = busy;
+      }
+    }
+
     var best = -1;
     var bestLoad = 1 << 62;
-    for (var i = 0; i < _workers.length; i++) {
-      if (anyActive && !_workers[i].isActive) continue;
+    for (final i in eligible) {
       final load = _loads[i];
       if (load < bestLoad) {
         best = i;
@@ -626,8 +780,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
     // When the preferred static worker is tied for least-loaded, keep using it.
     // That preserves the old distribution in balanced cases while still spilling
     // away from a hot modulo class.
-    if ((!anyActive || _workers[fallback].isActive) &&
-        _loads[fallback] == bestLoad) {
+    if (eligible.contains(fallback) && _loads[fallback] == bestLoad) {
       return fallback;
     }
     return best;
@@ -636,7 +789,8 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   int _lease(int pageIndex, int priority) {
     final key = (pageIndex, priority);
     final existing = _routes[key];
-    final worker = existing?.worker ?? _workerForPage(pageIndex);
+    final worker =
+        existing?.worker ?? _workerForPage(pageIndex, priority: priority);
     _loads[worker]++;
     if (existing != null) {
       existing.count++;
@@ -658,12 +812,34 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   PdfRenderWorker _cancelWorkerFor(int pageIndex, int priority) {
     final route = _routes[(pageIndex, priority)];
     if (route != null) return _workers[route.worker];
-    return _workers[_workerForPage(pageIndex)];
+    return _workers[_workerForPage(pageIndex, priority: priority)];
   }
 
-  int _workerForPage(int pageIndex) {
+  int _workerForPage(int pageIndex, {int priority = 0}) {
+    if (priority == 0) {
+      // A visible request for a page already being speculatively recorded must
+      // reach that same worker. Its priority-0 enqueue preempts the lower-
+      // priority walk, which the transcript cache suspends and resumes; moving
+      // to the reserved idle lane would throw away that partial and cold-parse
+      // the page from byte zero. Foreground work for a DIFFERENT page still
+      // spills to the idle lane below.
+      for (final entry in _routes.entries) {
+        if (entry.key.$1 == pageIndex &&
+            entry.key.$2 > 0 &&
+            entry.value.count > 0 &&
+            _workers[entry.value.worker].isActive) {
+          _pageWorkers[pageIndex] = entry.value.worker;
+          return entry.value.worker;
+        }
+      }
+    }
     final existing = _pageWorkers[pageIndex];
     if (existing != null && _workers[existing].isActive) {
+      if (_wouldConsumeReservedIdle(existing, priority)) {
+        final worker = _leastLoadedWorker(pageIndex, priority: priority);
+        _pageWorkers[pageIndex] = worker;
+        return worker;
+      }
       // Stickiness buys a transcript hit: the sticky worker holds this page's
       // warm caches, so a repeat record on it is near-free, while a cold
       // worker re-records the page. Abandon that only when the page would
@@ -686,9 +862,22 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
       }
       return existing;
     }
-    final worker = _leastLoadedWorker(pageIndex);
+    final worker = _leastLoadedWorker(pageIndex, priority: priority);
     _pageWorkers[pageIndex] = worker;
     return worker;
+  }
+
+  bool _wouldConsumeReservedIdle(int worker, int priority) {
+    if (priority <= 0 || _loads[worker] != 0 || _workers.length <= 1) {
+      return false;
+    }
+    final active = <int>[
+      for (var i = 0; i < _workers.length; i++)
+        if (_workers[i].isActive) i,
+    ];
+    if (active.length <= 1 || !active.contains(worker)) return false;
+    final busy = active.where((i) => _loads[i] > 0).length;
+    return busy >= active.length - 1;
   }
 
   /// The pool can offload while any worker is still alive; a worker that dies
@@ -697,6 +886,52 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
   @override
   bool get isActive =>
       _workers.any((w) => w.isActive) || (_urgentWorker?.isActive ?? false);
+
+  @override
+  bool get supportsPageSurfaces =>
+      _workers.any((worker) => worker.supportsPageSurfaces);
+
+  @override
+  PdfPageSurfaceSession? createPageSurface(
+    Object surface, {
+    int? pageIndex,
+  }) {
+    // Bind the canvas to one capable ordinary worker for life. Surface sessions
+    // are long-lived, so include their count beside transient record load when
+    // balancing; otherwise every canvas created while the pool is idle would
+    // stick to worker zero. The returned session never migrates because a
+    // transferred OffscreenCanvas cannot hop between workers.
+    var worker = pageIndex == null ? -1 : (_pageWorkers[pageIndex] ?? -1);
+    if (worker >= 0 &&
+        (!_workers[worker].isActive ||
+            !_workers[worker].supportsPageSurfaces)) {
+      worker = -1;
+    }
+    var bestLoad = 1 << 62;
+    if (worker < 0) {
+      for (var i = 0; i < _workers.length; i++) {
+        final candidate = _workers[i];
+        if (!candidate.isActive || !candidate.supportsPageSurfaces) continue;
+        final load = _loads[i] + _surfaceLoads[i];
+        if (load < bestLoad) {
+          worker = i;
+          bestLoad = load;
+        }
+      }
+    }
+    if (worker < 0) return null;
+
+    if (pageIndex != null) _pageWorkers[pageIndex] = worker;
+    final session = _workers[worker].createPageSurface(
+      surface,
+      pageIndex: pageIndex,
+    );
+    if (session == null) return null;
+    _surfaceLoads[worker]++;
+    return _PooledPageSurfaceSession(session, () {
+      if (_surfaceLoads[worker] > 0) _surfaceLoads[worker]--;
+    });
+  }
 
   /// The most recent trace across the pool's workers. Best-effort: a pool
   /// serves pages on several workers at once, so this is whichever worker most
@@ -779,7 +1014,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
     bool slugGlyphs = false,
     int priority = 0,
   }) =>
-      _workers[_workerForPage(pageIndex)].binStrips(
+      _workers[_workerForPage(pageIndex, priority: priority)].binStrips(
         pageIndex,
         annotations: annotations,
         pageToDevice: pageToDevice,
@@ -801,7 +1036,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
     required PdfRect imageDecodeRegion,
     int priority = 0,
   }) =>
-      _workers[_workerForPage(pageIndex)].recordStripDetail(
+      _workers[_workerForPage(pageIndex, priority: priority)].recordStripDetail(
         pageIndex,
         annotations: annotations,
         pageToDevice: pageToDevice,
@@ -814,7 +1049,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
 
   @override
   void cancelBinStrips(int pageIndex, {int priority = 0}) =>
-      _workers[_workerForPage(pageIndex)].cancelBinStrips(
+      _workers[_workerForPage(pageIndex, priority: priority)].cancelBinStrips(
         pageIndex,
         priority: priority,
       );
@@ -830,7 +1065,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
     required bool buildGrid,
     int priority = 0,
   }) =>
-      _workers[_workerForPage(pageIndex)].buildRegionIndex(
+      _workers[_workerForPage(pageIndex, priority: priority)].buildRegionIndex(
         pageIndex,
         annotations: annotations,
         maxCommands: maxCommands,
@@ -840,7 +1075,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
 
   @override
   Future<PdfPageText?> extractText(int pageIndex, {int priority = 0}) =>
-      _workers[_workerForPage(pageIndex)]
+      _workers[_workerForPage(pageIndex, priority: priority)]
           .extractText(pageIndex, priority: priority);
 
   @override
@@ -879,6 +1114,7 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
     _pageWorkers.clear();
     for (var i = 0; i < _loads.length; i++) {
       _loads[i] = 0;
+      _surfaceLoads[i] = 0;
     }
     for (final worker in _workers) {
       worker.dispose();
@@ -909,6 +1145,44 @@ class _PoolRoute {
 
   final int worker;
   int count = 1;
+}
+
+class _PooledPageSurfaceSession extends PdfPageSurfaceSession {
+  _PooledPageSurfaceSession(this._inner, this._onDispose);
+
+  final PdfPageSurfaceSession _inner;
+  final void Function() _onDispose;
+  bool _disposed = false;
+
+  @override
+  Future<bool> render(
+    int pageIndex, {
+    required bool annotations,
+    required int width,
+    required int height,
+    required int pageColor,
+    PdfPageSurfaceRegion? region,
+    int? rotation,
+    int priority = 0,
+  }) =>
+      _inner.render(
+        pageIndex,
+        annotations: annotations,
+        width: width,
+        height: height,
+        pageColor: pageColor,
+        region: region,
+        rotation: rotation,
+        priority: priority,
+      );
+
+  @override
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    _inner.dispose();
+    _onDispose();
+  }
 }
 
 typedef _RecordCacheKey = (int, bool, bool, int, int?, _RegionBucket?);
@@ -943,18 +1217,33 @@ typedef _RecordCacheKey = (int, bool, bool, int, int?, _RegionBucket?);
 /// those repeats into one decode per page. A scrolled-away page is cancelled
 /// for every sharer at once, which is correct - none of them want it any more.
 class PdfCachingRenderWorker extends PdfRenderWorker {
-  PdfCachingRenderWorker(this._inner, {int? budgetBytes, int? maxEntries})
-      : _budgetBytes = budgetBytes ?? pdfRenderWorkerCacheBudgetBytes,
-        _maxEntries =
-            math.max(1, maxEntries ?? pdfRenderWorkerCacheMaxEntries);
+  PdfCachingRenderWorker(
+    this._inner, {
+    int? budgetBytes,
+    int? maxEntries,
+    int? maxRetainedCommands,
+  })  : _budgetBytes = budgetBytes ?? pdfRenderWorkerCacheBudgetBytes,
+        _maxEntries = math.max(1, maxEntries ?? pdfRenderWorkerCacheMaxEntries),
+        _maxRetainedCommands = math.max(
+          1,
+          maxRetainedCommands ?? pdfRenderWorkerCacheMaxRetainedCommands,
+        );
 
   final PdfRenderWorker _inner;
+
+  @override
+  int get concurrentRecordCapacity => _inner.concurrentRecordCapacity;
+
   final int _budgetBytes;
 
   /// Hard cap on retained records, bounding the weight-0 (image-free /
   /// vector-first) records the byte budget cannot see. See
   /// [pdfRenderWorkerCacheMaxEntries].
   final int _maxEntries;
+
+  /// Command-slot cap for records retained on the UI/main isolate. See
+  /// [pdfRenderWorkerCacheMaxRetainedCommands].
+  final int _maxRetainedCommands;
 
   // The shared budgeted LRU: bounded by decoded image bytes ([_budgetBytes])
   // and, so the weight-0 vector-first records the byte budget can't see stay
@@ -1020,6 +1309,16 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
   bool get isActive => _inner.isActive;
 
   @override
+  bool get supportsPageSurfaces => _inner.supportsPageSurfaces;
+
+  @override
+  PdfPageSurfaceSession? createPageSurface(
+    Object surface, {
+    int? pageIndex,
+  }) =>
+      _inner.createPageSurface(surface, pageIndex: pageIndex);
+
+  @override
   PdfRenderTrace? get lastRenderTrace => _inner.lastRenderTrace;
 
   /// Decoded image bytes currently retained by completed cached records.
@@ -1037,6 +1336,16 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
 
   /// Maximum records this cache retains regardless of weight.
   int get cacheMaxEntries => _maxEntries;
+
+  /// Command slots currently retained by completed cached records.
+  int get cachedRetainedCommandCount => _cache.values.fold(
+        0,
+        (total, record) => total + record.commandWeight,
+      );
+
+  /// Maximum command slots this cache retains, except that one oversize
+  /// most-recent record is protected.
+  int get cacheMaxRetainedCommands => _maxRetainedCommands;
 
   /// Fraction of [cacheBudgetBytes] currently occupied by decoded image data.
   double get cachePressure {
@@ -1101,15 +1410,38 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
       // if this caller wants partials and the dispatcher enabled streaming -
       // subscribe (replaying any already-emitted prefixes first).
       if (onPartial != null) pending.subscribe(onPartial);
+      if (priority < pending.priority) {
+        // In-flight dedup must not turn a speculative record into a priority
+        // inversion. Re-dispatch the SAME key at the foreground priority: the
+        // pooled backend keeps it on the page's current worker, whose queue
+        // then preempts/suspends the low-priority walk. Every waiter remains
+        // attached to [pending], so both the warmer and visible page complete
+        // from the promoted result rather than starting independent UI work.
+        final oldPriority = pending.priority;
+        _inner.cancel(pageIndex, priority: oldPriority);
+        _dispatchInflight(
+          pending,
+          key,
+          pageIndex,
+          annotations: annotations,
+          priority: priority,
+          imagePixelRatio: imagePixelRatio,
+          decodeImages: decodeImages,
+          imageDecodeRegion: effectiveRegion,
+          dispatchEpoch: _epoch,
+          streamPartials: onPartial != null,
+        );
+      }
       return pending.future;
     }
     // Fresh dispatch. Register the record BEFORE starting the decode so a partial
     // the backend emits synchronously (a fake, or a fast page) has a live sink
     // target, and so a concurrent joiner on a later turn finds it.
-    final record = _InflightRecord();
+    final record = _InflightRecord(priority);
     _inflight[key] = record;
     if (onPartial != null) record.subscribe(onPartial);
-    _recordAndStore(
+    _dispatchInflight(
+      record,
       key,
       pageIndex,
       annotations: annotations,
@@ -1118,10 +1450,8 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
       decodeImages: decodeImages,
       imageDecodeRegion: effectiveRegion,
       dispatchEpoch: _epoch,
-      // Ask the backend for partials only when the dispatcher opted in, so an
-      // all-null workload never pays the streaming path.
-      onPartial: onPartial == null ? null : record.emit,
-    ).then(record.complete, onError: record.completeError);
+      streamPartials: onPartial != null,
+    );
     // Clear the slot only if it still holds THIS record. An updateRevision may
     // have dropped the entry mid-decode and a newer request re-populated it; a
     // stale decode's completion must not evict the fresh in-flight record, or
@@ -1130,6 +1460,45 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
       if (identical(_inflight[key], record)) _inflight.remove(key);
     });
     return record.future;
+  }
+
+  void _dispatchInflight(
+    _InflightRecord record,
+    _RecordCacheKey key,
+    int pageIndex, {
+    required bool annotations,
+    required int priority,
+    required double? imagePixelRatio,
+    required bool decodeImages,
+    required PdfRect? imageDecodeRegion,
+    required int dispatchEpoch,
+    required bool streamPartials,
+  }) {
+    final dispatch = record.beginDispatch(priority);
+    _recordAndStore(
+      key,
+      pageIndex,
+      annotations: annotations,
+      priority: priority,
+      imagePixelRatio: imagePixelRatio,
+      decodeImages: decodeImages,
+      imageDecodeRegion: imageDecodeRegion,
+      dispatchEpoch: dispatchEpoch,
+      isCurrent: () =>
+          identical(_inflight[key], record) && record.isCurrent(dispatch),
+      // Ask the backend for partials only when the dispatching caller opted
+      // in. Promotion preserves all existing subscribers on [record].
+      onPartial: streamPartials ? record.emit : null,
+    ).then(
+      (commands) {
+        if (record.isCurrent(dispatch)) record.complete(commands);
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (record.isCurrent(dispatch)) {
+          record.completeError(error, stackTrace);
+        }
+      },
+    );
   }
 
   Future<List<PdfRenderCommand>?> _recordAndStore(
@@ -1141,6 +1510,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
     required bool decodeImages,
     required PdfRect? imageDecodeRegion,
     required int dispatchEpoch,
+    required bool Function() isCurrent,
     PdfPartialRecordSink? onPartial,
   }) async {
     final timeout = pdfRenderWorkerRecordTimeout;
@@ -1158,6 +1528,9 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
         .timeout(
       timeout,
       onTimeout: () {
+        // A promoted low-priority dispatch can outlive the foreground result.
+        // Its watchdog must not tear down the healthy worker generation.
+        if (!isCurrent()) return null;
         _inner.cancel(pageIndex, priority: priority);
         _inner.dispose();
         return null;
@@ -1167,11 +1540,14 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
     // after this decode was dispatched: the worker's document has moved on,
     // so the buffer is stale and must not be cached (a later request would
     // hit it and paint pre-edit content).
-    if (commands != null && _invalidationEpochFor(pageIndex) <= dispatchEpoch) {
+    if (commands != null &&
+        isCurrent() &&
+        _invalidationEpochFor(pageIndex) <= dispatchEpoch) {
       final weight = _weigh(commands);
+      final commandWeight = retainedCommandGraphWeight(commands);
       final storeKey =
           key.$6 != null && weight == 0 ? _withoutRegion(key) : key;
-      _store(storeKey, commands, weight);
+      _store(storeKey, commands, weight, commandWeight);
     }
     return commands;
   }
@@ -1179,6 +1555,12 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
   @override
   void cancel(int pageIndex, {int priority = 0}) =>
       _inner.cancel(pageIndex, priority: priority);
+
+  @override
+  void releaseCachedPage(int pageIndex) {
+    _cache.evictWhere((key) => key.$1 == pageIndex);
+    _inner.releaseCachedPage(pageIndex);
+  }
 
   /// Pure passthrough - strip plans are never cached. A plan is only valid
   /// for the exact zoom/region matrix it was binned for, and every settle
@@ -1279,6 +1661,7 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
     _RecordCacheKey key,
     List<PdfRenderCommand> commands,
     int weight,
+    int commandWeight,
   ) {
     // PdfBudgetedCache applies every bound: it rejects a single record bigger
     // than the whole budget outright (rejectOversize - one page must not starve
@@ -1286,7 +1669,21 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
     // buffers under the byte budget (skipping the costless weight-0 vector-first
     // buffers), and caps total record count so those weight-0 buffers still stay
     // bounded on a long scroll (#283) - never evicting the record just inserted.
-    _cache.put(key, _CachedRecord(commands, weight));
+    _cache.put(key, _CachedRecord(commands, weight, commandWeight));
+    // The decoded-byte and entry-count trims above cannot see a dense
+    // image-free command graph. Apply a third LRU bound over recursive command
+    // slots, protecting the record just inserted even when it alone is larger
+    // than the budget. This mirrors PdfWorkerTranscriptCache and prevents a
+    // CAD navigation run from pinning several 300k-700k-command pages here.
+    while (_cache.length > 1 &&
+        cachedRetainedCommandCount > _maxRetainedCommands) {
+      _cache.evict(_cache.keys.first);
+    }
+    PdfPerfLog.log(
+      'record-cache store page=${key.$1} bytes=${_cache.weight}/$_budgetBytes '
+      'commands=$cachedRetainedCommandCount/$_maxRetainedCommands '
+      'entries=${_cache.length}/$_maxEntries',
+    );
   }
 
   /// Quantises the image-pixel ratio so tiny per-frame jitter (a 1px layout
@@ -1326,9 +1723,10 @@ class PdfCachingRenderWorker extends PdfRenderWorker {
 }
 
 class _CachedRecord {
-  _CachedRecord(this.commands, this.weight);
+  _CachedRecord(this.commands, this.weight, this.commandWeight);
   final List<PdfRenderCommand> commands;
   final int weight;
+  final int commandWeight;
 }
 
 /// One key's in-flight decode in [PdfCachingRenderWorker]: a single shared final
@@ -1341,7 +1739,11 @@ class _CachedRecord {
 /// When the dispatcher opted out of streaming, no partials are ever emitted and
 /// there is nothing to replay - joiners then simply await [future].
 class _InflightRecord {
+  _InflightRecord(this.priority);
+
   final _completer = Completer<List<PdfRenderCommand>?>();
+  int priority;
+  int _dispatch = 0;
 
   /// The most recent partial, kept so a late [subscribe] can catch a joiner up.
   /// Only the latest is retained, not the whole history: every partial is a
@@ -1354,6 +1756,13 @@ class _InflightRecord {
   var _done = false;
 
   Future<List<PdfRenderCommand>?> get future => _completer.future;
+
+  int beginDispatch(int priority) {
+    this.priority = priority;
+    return ++_dispatch;
+  }
+
+  bool isCurrent(int dispatch) => !_done && dispatch == _dispatch;
 
   /// Delivers a partial to every current subscriber and retains it as the latest
   /// for late joiners. A no-op once the record has completed (a stray late

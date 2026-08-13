@@ -23,6 +23,7 @@ import 'search_panel.dart';
 import 'shell_chrome.dart';
 import 'shell_session.dart';
 import 'theme.dart';
+import 'tile_raster_backend.dart';
 
 /// Which pieces of chrome a [PdfReader] shows. Everything defaults on;
 /// turn features off rather than rebuilding the layout by hand.
@@ -129,6 +130,8 @@ class PdfReader extends StatefulWidget {
     this.controller,
     this.preferences,
     this.performance,
+    this.tileRasterBackend = const PdfCanvasTileRasterBackend(),
+    this.autoRenderWorker = true,
     this.features = const PdfReaderFeatures(),
     this.onAction,
     this.onAnnotationTap,
@@ -144,10 +147,14 @@ class PdfReader extends StatefulWidget {
     this.viewerTheme,
     this.rasterCache,
     this.textCache,
+    this.pagePreviewLodPolicy = const PdfPagePreviewLodPolicy(),
     this.pageRasterCachePolicy = const PdfPageRasterCachePolicy(),
     this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
   })  : source = null,
-        options = const PdfSourceLoadOptions(firstPaintPages: 1),
+        options = const PdfSourceLoadOptions(
+          firstPaintPages: 1,
+          completeFirstPaintPageTree: false,
+        ),
         onProgress = null,
         onFirstPaint = null,
         loadingBuilder = null,
@@ -166,7 +173,10 @@ class PdfReader extends StatefulWidget {
   const PdfReader.source(
     PdfByteSource this.source, {
     super.key,
-    this.options = const PdfSourceLoadOptions(firstPaintPages: 1),
+    this.options = const PdfSourceLoadOptions(
+      firstPaintPages: 1,
+      completeFirstPaintPageTree: false,
+    ),
     this.documentId,
     this.onProgress,
     this.onFirstPaint,
@@ -175,6 +185,8 @@ class PdfReader extends StatefulWidget {
     this.controller,
     this.preferences,
     this.performance,
+    this.tileRasterBackend = const PdfCanvasTileRasterBackend(),
+    this.autoRenderWorker = true,
     this.features = const PdfReaderFeatures(),
     this.onAction,
     this.onAnnotationTap,
@@ -190,6 +202,7 @@ class PdfReader extends StatefulWidget {
     this.viewerTheme,
     this.rasterCache,
     this.textCache,
+    this.pagePreviewLodPolicy = const PdfPagePreviewLodPolicy(),
     this.pageRasterCachePolicy = const PdfPageRasterCachePolicy(),
     this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
   }) : bytes = null;
@@ -229,6 +242,10 @@ class PdfReader extends StatefulWidget {
   /// every page's content stream.
   final PdfPageTextCache? textCache;
 
+  /// Intermediate fast-scroll preview levels and their shared memory budget.
+  /// See [PdfViewer.pagePreviewLodPolicy].
+  final PdfPagePreviewLodPolicy pagePreviewLodPolicy;
+
   /// Memory policy for exact full-resolution rasters of previously visited
   /// pages. See [PdfViewer.pageRasterCachePolicy].
   final PdfPageRasterCachePolicy pageRasterCachePolicy;
@@ -254,6 +271,17 @@ class PdfReader extends StatefulWidget {
   /// Auto controller. Pass one to select fixed worker settings at runtime or
   /// expose [PdfPerformanceController.diagnostics] in host UI.
   final PdfPerformanceController? performance;
+
+  /// See [PdfViewer.tileRasterBackend].
+  final PdfTileRasterBackend tileRasterBackend;
+
+  /// Whether the reader starts an off-main-thread page render worker.
+  ///
+  /// Defaults to true. [PdfReader.source] temporarily disables it for the
+  /// sparse first-paint buffer: that buffer has the full file's address space,
+  /// so handing it to a worker can copy hundreds of megabytes before page one
+  /// appears. The complete-buffer handoff turns the worker back on.
+  final bool autoRenderWorker;
 
   final PdfReaderFeatures features;
 
@@ -327,6 +355,7 @@ class _PdfReaderState extends State<PdfReader> {
       viewerController: widget.controller,
       performance: widget.performance,
       documentId: widget.documentId,
+      renderWorkerEnabled: widget.autoRenderWorker,
     );
   }
 
@@ -341,6 +370,7 @@ class _PdfReaderState extends State<PdfReader> {
       viewerController: widget.controller,
       performanceController: widget.performance,
       documentId: widget.documentId,
+      renderWorkerEnabled: widget.autoRenderWorker,
     );
   }
 
@@ -551,9 +581,12 @@ class _PdfReaderState extends State<PdfReader> {
                           showScrollbarChapters: prefs.showScrollbarChapters,
                           highlightFormFields: prefs.highlightFormFields,
                           renderWorker: _shell.worker,
+                          autoRenderWorker: widget.autoRenderWorker,
                           performance: _performance,
+                          tileRasterBackend: widget.tileRasterBackend,
                           rasterCache: widget.rasterCache,
                           textCache: widget.textCache,
+                          pagePreviewLodPolicy: widget.pagePreviewLodPolicy,
                           pageRasterCachePolicy: widget.pageRasterCachePolicy,
                           pageRasterWarmPolicy: widget.pageRasterWarmPolicy,
                           documentId: _documentKey,
@@ -615,6 +648,8 @@ class _PdfReaderState extends State<PdfReader> {
         controller: widget.controller,
         preferences: widget.preferences,
         performance: widget.performance,
+        tileRasterBackend: widget.tileRasterBackend,
+        autoRenderWorker: complete && widget.autoRenderWorker,
         features: widget.features,
         onAction: widget.onAction,
         onAnnotationTap: widget.onAnnotationTap,

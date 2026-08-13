@@ -10,7 +10,7 @@ PORT=${CAD_PERF_PORT:-8770}
 
 if [[ "${CAD_PERF_SKIP_WORKER_BUILD:-0}" != "1" ]]; then
   fvm dart run dart_pdf_editor:build_web_worker \
-    --out ../assets/web/pdf_render_worker.dart.js
+    --out ../../dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
 fi
 
 python3 - "$ROOT/corpus" "$PORT" <<'PY' &

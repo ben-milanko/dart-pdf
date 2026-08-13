@@ -3,6 +3,7 @@ import 'dart:developer' as developer;
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:pdf_cos/pdf_cos.dart' show CosDocument;
 import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 
@@ -12,6 +13,7 @@ import 'package:pdf_graphics/raster.dart'
     show StripPlan, StripPlanBinner, decodeStripPlan, encodeStripPlan;
 
 import 'region_replay_index.dart';
+import 'jpeg_accelerator.dart';
 import 'render_worker.dart';
 import 'render_worker_transcript_cache.dart'
     show compactTranscriptSourceCommands, retainedCommandGraphsWeight;
@@ -630,13 +632,8 @@ class _PendingRequest {
         regionBuildGrid = false,
         onPartialBytes = null;
 
-  _PendingRequest.regionIndex(
-      this.priority,
-      this.seq,
-      this.pageIndex,
-      this.annotations,
-      this.regionMaxCommands,
-      this.regionBuildGrid)
+  _PendingRequest.regionIndex(this.priority, this.seq, this.pageIndex,
+      this.annotations, this.regionMaxCommands, this.regionBuildGrid)
       : kind = _RequestKind.regionIndex,
         imagePixelRatio = null,
         decodeImages = false,
@@ -673,13 +670,8 @@ class _PendingRequest {
         regionBuildGrid = false,
         onPartialBytes = null;
 
-  _PendingRequest.update(
-      this.priority,
-      this.seq,
-      this.baseLength,
-      this.appendedBytes,
-      this.newLength,
-      this.changedPages)
+  _PendingRequest.update(this.priority, this.seq, this.baseLength,
+      this.appendedBytes, this.newLength, this.changedPages)
       : kind = _RequestKind.update,
         pageIndex = -1,
         annotations = false,
@@ -757,14 +749,15 @@ class _WorkerInit {
 /// requests until the worker is killed. Uses the async walks so the event
 /// loop can receive cancel messages mid-job.
 void _workerMain(_WorkerInit init) {
+  installPdfJpegAccelerator();
   // Statics are isolate-local: the worker's PdfPerf must be switched on here
   // (mirroring the spawner's PdfPerfLog state). Rare structural events route
   // to developer.log; accumulated stats stay in-isolate for future protocol
   // messages to fetch.
   if (init.perfEnabled) {
     PdfPerf.enabled = true;
-    PdfPerf.sink = (line) =>
-        developer.log(line, name: 'dart_pdf_editor.render_worker');
+    PdfPerf.sink =
+        (line) => developer.log(line, name: 'dart_pdf_editor.render_worker');
   }
   final requests = ReceivePort();
   final cancelPort = ReceivePort();
@@ -930,14 +923,8 @@ void _workerMain(_WorkerInit init) {
           buffer = result?.$1;
           detailPlanBuffer = result?.$2;
         } else if (kind == 'regionIndex') {
-          buffer = await _buildRegionIndexAsync(
-              doc,
-              binCommands,
-              pageIndex,
-              annotations,
-              request[4] as int,
-              request[5] as bool,
-              token);
+          buffer = await _buildRegionIndexAsync(doc, binCommands, pageIndex,
+              annotations, request[4] as int, request[5] as bool, token);
         } else if (kind == 'extractText') {
           buffer = _extractTextForWorker(doc, pageIndex);
         } else {
@@ -959,8 +946,11 @@ void _workerMain(_WorkerInit init) {
           final wantsPartials = request.length > 11 && request[11] == true;
           void emitPartial(Uint8List bytes) {
             if (activeRequestId == id && !token.cancelled) {
-              init.reply
-                  .send(['partial', id, TransferableTypedData.fromList([bytes])]);
+              init.reply.send([
+                'partial',
+                id,
+                TransferableTypedData.fromList([bytes])
+              ]);
             }
           }
 
@@ -1043,9 +1033,8 @@ Future<Uint8List?> _recordPageAsync(
   // record builds (#564 pt4). A bounded prefix (commandLimit set) stays on the
   // simple one-shot path; it is already cheap and does not stream.
   if (decodeImages || (onPartial != null && commandLimit == null)) {
-    return _recordResumablePage(
-        document, imageCache, suspended, pageIndex, annotations,
-        imagePixelRatio, commandLimit, imageDecodeRegion, token,
+    return _recordResumablePage(document, imageCache, suspended, pageIndex,
+        annotations, imagePixelRatio, commandLimit, imageDecodeRegion, token,
         decodeImages: decodeImages, onPartial: onPartial);
   }
 
@@ -1072,9 +1061,19 @@ Future<Uint8List?> _recordPageAsync(
 /// the walk suspends (the walk carries no cancellation token, so it cannot abort
 /// mid-chunk - see [_recordResumablePage]); small enough that the post-cancel
 /// overshoot is a sliver of a heavy page, large enough that the per-chunk cost
-/// stays noise. The walk still yields internally every 512 ops, so the isolate
-/// keeps servicing the cancel port within a chunk.
-const int _resumeRecordChunkOperations = 4096;
+/// stays noise. The walk yields at each chunk boundary so the isolate keeps
+/// servicing the cancel port between bounded pieces of work.
+// Match PdfWorkerTranscriptCache: dense vector pages need task-level
+// cancellation points, but 4k operators over-yields and dominates web worker
+// wall time. 64k kept the measured worst chunk near 50ms on the CAD corpus.
+const int _resumeRecordChunkOperations = 65536;
+
+// A progressive visible-page record needs one genuinely early prefix. Using
+// the 64k throughput chunk from byte zero lets medium-dense pages finish before
+// they expose any boundary at all. Pay one 4k chunk only when a sink is present,
+// then return to 64k chunks; main-side latest-only pacing ensures that early
+// prefix cannot grow into a replay backlog.
+const int _initialProgressiveRecordChunkOperations = 4096;
 
 /// The full-page record that survives preemption. Resumes a walk [suspended] by
 /// an earlier cancel of this same page, or starts a fresh one, then advances in
@@ -1123,7 +1122,15 @@ Future<Uint8List?> _recordResumablePage(
   // full serialize. It also fronts the reveals: dense early (1,2,4...), when a
   // top-down reveal matters most, sparse late. `entry.emittedChunks` persists
   // across a preempt/resume so the schedule doesn't restart on requeue.
-  while (!await walk.advance(operations: _resumeRecordChunkOperations)) {
+  while (true) {
+    final chunkOperations = onPartial != null && entry.chunksAdvanced == 0
+        ? _initialProgressiveRecordChunkOperations
+        : _resumeRecordChunkOperations;
+    final complete = await walk.advance(
+      operations: chunkOperations,
+      yieldInterval: chunkOperations,
+    );
+    if (complete) break;
     if (token.cancelled) {
       // Keep the partial recording so the requeued render resumes here rather
       // than re-walking the prefix.
@@ -1155,6 +1162,26 @@ Future<Uint8List?> _recordResumablePage(
   }
 
   if (annotations) entry.interpreter.drawAnnotations(entry.page);
+  // A fused progressive full record uses the same content walk for first ink
+  // and final pixels. Ship the complete image-free transcript before the
+  // potentially expensive image decode so the UI can paint the exact vector
+  // layer without issuing a second `decodeImages: false` record. Intermediate
+  // prefixes above remain useful on dense pages; this final prefix closes the
+  // painter-order gap between the last doubling boundary and end-of-page.
+  if (decodeImages &&
+      onPartial != null &&
+      entry.recorder.imageRequests.isNotEmpty) {
+    final vector = serializeCommands(entry.recorder.commands,
+        cos: document.cos,
+        decodeImages: false,
+        maxImagePixelRatio: imagePixelRatio,
+        pageRasterPixels:
+            pdfPageRasterPixels(entry.page.cropBox, imagePixelRatio),
+        imageDecodeRegion: imageDecodeRegion,
+        imagePlaceholders: true,
+        compactStateScopes: true);
+    if (vector != null) onPartial(vector);
+  }
   // The final serialize honours the record's own decodeImages: a decoding record
   // decodes and embeds pixels; a non-decoding (vector-first) record ships image
   // placeholders. This matches the one-shot path's output byte-for-byte, so
@@ -1169,8 +1196,31 @@ Future<Uint8List?> _recordResumablePage(
       imageDecodeRegion: imageDecodeRegion,
       imagePlaceholders: !decodeImages,
       imageCache: imageCache,
+      imageDecodeFilter: decodeImages ? _decodeImageInBackgroundIsolate : null,
       commandLimit: commandLimit,
       compactStateScopes: true);
+}
+
+/// Keeps a DCT soft mask on the consumer when its base is otherwise portable.
+///
+/// `dart:ui` is unavailable in the background isolate. Decoding this shape
+/// there therefore runs the pure-Dart JPEG entropy/IDCT path and bakes a full
+/// RGBA composite before transfer. On every Flutter platform the consumer has
+/// a native JPEG codec and can retain the base and mask as GPU images instead;
+/// page 27 of the real-world benchmark spent ~330 ms in the portable worker
+/// serialization for exactly this shape. Standalone DCT bases already decline
+/// naturally, and a DCT base with a DCT mask stays in the worker because the
+/// consumer would otherwise have to decode that base portably on its UI
+/// isolate too.
+bool _decodeImageInBackgroundIsolate(
+  CosDocument document,
+  PdfImageRequest request,
+) {
+  if (pdfImageDctSoftMaskBytes(document, request.stream.dictionary) == null) {
+    return true;
+  }
+  final filters = pdfImageFilters(document, request.stream.dictionary);
+  return filters.contains('DCTDecode') || filters.contains('DCT');
 }
 
 /// A full-page record cancelled mid-walk, held so the next record of the same
@@ -1225,7 +1275,9 @@ class _SuspendedRecordCache {
   /// previously stashed walk so the balancing device restore runs.
   void keep(_SuspendedRecord entry) {
     final previous = _entry;
-    if (previous != null && !identical(previous, entry)) previous.walk.abandon();
+    if (previous != null && !identical(previous, entry)) {
+      previous.walk.abandon();
+    }
     _entry = entry;
   }
 

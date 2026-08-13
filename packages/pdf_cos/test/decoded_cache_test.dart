@@ -63,6 +63,33 @@ void main() {
           isTrue);
     });
 
+    test('a platform decoder can seed an exact cache entry', () {
+      final stream = _flate(ascii('portable decoder result'));
+      final seeded = ascii('platform decoder result');
+
+      doc.seedDecodedStreamData(stream, seeded);
+
+      expect(identical(doc.decodeStreamData(stream), seeded), isTrue);
+      expect(doc.debugDecodedCacheBytes, seeded.length);
+      final encoded = doc.decodeStreamData(
+        stream,
+        stopBeforeFilter: 'FlateDecode',
+      );
+      expect(identical(encoded, seeded), isFalse,
+          reason: 'a seed only populates its exact stop-before key');
+    });
+
+    test('an explicitly allowed oversize platform result stays cached', () {
+      CosDocument.decodedStreamCacheItemCapBytes = 8;
+      final stream = _flate(ascii('portable decoder result'));
+      final seeded = ascii('platform decoder result');
+
+      doc.seedDecodedStreamData(stream, seeded, allowOversize: true);
+
+      expect(identical(doc.decodeStreamData(stream), seeded), isTrue);
+      expect(doc.debugDecodedCacheBytes, seeded.length);
+    });
+
     test('a different stream object is a cache miss (immutability contract)',
         () {
       final bytes = ascii('same content, different object');

@@ -75,20 +75,19 @@ bool pdfDefaultTileStoreDetail() => true;
 /// - **Mobile** takes 128 MB: it still covers 94% of documents outright, and on
 ///   the documents it cannot hold, the ~100 MB it gives back matters under an
 ///   iOS jetsam limit far more than 2 ms/page does.
-/// - **Web** takes 128 MB, less on a small device. A tab is the tightest target
-///   (Chrome caps the JS heap near 4 GB) and CanvasKit's wasm heap, where
-///   decoded pixels live, never shrinks back. Notably this budget is *not* what
-///   pressures a tab: measured over a 62-page scroll, tab memory ran to ~2.3 GB
-///   whatever the budget, of which the image cache was ~60-200 MB - the rest is
-///   per-page retention (issue #283). 128 MB is cheap insurance under a
-///   ceiling that other retention is already spending, not a fix for it.
+/// - **Web** takes 64 MB. A tab is the tightest target (Chrome caps the JS heap
+///   near 4 GB) and CanvasKit image resources are also retained by the active
+///   page pictures and worker records. The matched real-world PDFium journey
+///   showed that dropping below this tier does not reliably lower CanvasKit's
+///   high-water RSS, while a true 1 MB run slowed page first-visual/navigation.
+///   The smaller ceiling still avoids the old 128 MB tier duplicating a large
+///   decoded working set beside those pictures and records.
 int pdfDefaultImageCacheBytes({
   PdfPerformancePlatform? platform,
   double? deviceMemoryGb,
 }) {
   const mb = 1024 * 1024;
   final family = platform ?? detectedPdfPerformancePlatform;
-  final ram = deviceMemoryGb ?? detectedPdfDeviceMemoryGb;
   return switch (family) {
     PdfPerformancePlatform.desktop => 256 * mb,
     PdfPerformancePlatform.mobile => 128 * mb,
@@ -96,8 +95,11 @@ int pdfDefaultImageCacheBytes({
     // the constant is the common case rather than the fallback. A device that
     // admits to 2 GB or less is a phone browser, where the tab's ceiling is
     // lower than the desktop's by more than this budget is wide.
-    PdfPerformancePlatform.web =>
-      ram != null && ram <= 2 ? 64 * mb : 128 * mb,
+    // The PDFium journey retained the same navigation/zoom latency at 32 MiB
+    // while removing another decoded-pixel working set from the browser tab.
+    // Native keeps its larger budgets; web can re-decode from the worker
+    // record/source when this smaller LRU misses.
+    PdfPerformancePlatform.web => 32 * mb,
     PdfPerformancePlatform.other => 128 * mb,
   };
 }
@@ -308,7 +310,11 @@ class PdfPerformancePolicy {
     final platformBase = switch (env.platform) {
       PdfPerformancePlatform.mobile => 2,
       PdfPerformancePlatform.desktop => 3,
-      PdfPerformancePlatform.web => 3,
+      // One matched the two-worker pool's page/zoom latency on the real-world
+      // Quickstart journey while removing another parsed document and decode
+      // working set from Chrome's renderer process (about 110 MiB). Native
+      // desktop/mobile retain their parallel pools.
+      PdfPerformancePlatform.web => 1,
       PdfPerformancePlatform.other => 2,
     };
     var count = math.min(platformBase, math.min(available, mode.maxWorkers));

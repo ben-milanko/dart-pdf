@@ -17,6 +17,8 @@ import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/src/render_worker.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
+import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
 /// A single-page PDF whose content stream is [opCount] stroked line segments -
@@ -56,8 +58,9 @@ Uint8List _linesPdf(int opCount) {
 }
 
 void main() {
-  // The worker chunks at 4096 operators; ~9000 operators here spans several
-  // chunks, so the resumable record emits partials between them.
+  // A streaming worker starts with one 4096-operator reveal chunk before
+  // returning to its 64k throughput chunk. ~9000 operators therefore emit one
+  // useful early prefix before the final.
   final bytes = _linesPdf(3000);
 
   test('a full-page record streams linework partials before the final',
@@ -98,12 +101,10 @@ void main() {
 
   test('the doubling emit schedule keeps partial count logarithmic (#564 pt3)',
       () async {
-    // A large page spans many worker chunks (4096 ops each). Emitting a partial
-    // every chunk would re-serialize the whole growing prefix each time -
-    // O(commands^2). The doubling schedule (emit after chunks 1, 2, 4, 8, ...)
-    // caps the emit count at O(log chunks), so a page with ~15 chunks yields a
-    // handful of partials, not fifteen. This pins that bound.
-    final big = _linesPdf(20000); // ~60k ops -> ~15 worker chunks
+    // A large page gets one early 4k reveal, then advances in 64k throughput
+    // chunks. If it spans several of those chunks, the doubling schedule still
+    // bounds cumulative serialization. This pins the small constant result.
+    final big = _linesPdf(20000); // ~60k ops
     final worker = PdfRenderWorker.startUncached(big);
     addTearDown(worker.dispose);
 
@@ -111,11 +112,8 @@ void main() {
     final result = await worker.record(0, onPartial: partials.add);
 
     expect(result, isNotNull);
-    // ~15 chunks -> emits at chunks 1,2,4,8 = 4 partials. Bound generously to
-    // stay robust to chunk-count drift while still proving it is logarithmic,
-    // not linear (linear would be ~15).
-    expect(partials.length, greaterThanOrEqualTo(2));
-    expect(partials.length, lessThanOrEqualTo(6),
+    expect(partials.length, greaterThanOrEqualTo(1));
+    expect(partials.length, lessThanOrEqualTo(3),
         reason: 'doubling schedule must keep emits logarithmic in chunks, '
             'got ${partials.length}');
     // Each doubling step is a strictly larger prefix (a real reveal, not repeats).
@@ -125,7 +123,8 @@ void main() {
     }
   });
 
-  test('a streaming vector-first (decodeImages:false) record matches the '
+  test(
+      'a streaming vector-first (decodeImages:false) record matches the '
       'one-shot final (#564 pt4)', () async {
     // pt4 routes the full non-decoding record through the resumable path when it
     // wants partials, so the progressive linework reveal can stream while it
@@ -137,8 +136,8 @@ void main() {
     addTearDown(oneShotWorker.dispose);
 
     final partials = <List<PdfRenderCommand>>[];
-    final streamed =
-        await streamWorker.record(0, decodeImages: false, onPartial: partials.add);
+    final streamed = await streamWorker.record(0,
+        decodeImages: false, onPartial: partials.add);
     final oneShot = await oneShotWorker.record(0, decodeImages: false);
 
     expect(streamed, isNotNull);
@@ -177,6 +176,31 @@ void main() {
     expect(result, isNotNull);
     expect(partialCount, 0,
         reason: 'a page recorded in one chunk has no prefix to reveal');
+  });
+
+  test('a tiny image page emits its complete vector snapshot before decode',
+      () async {
+    final image = img.Image(width: 2, height: 2)
+      ..clear(img.ColorRgb8(4, 8, 16));
+    final pdf = PdfImageDocument.fromImageBytes(
+      [Uint8List.fromList(img.encodePng(image))],
+    );
+    final worker = PdfRenderWorker.startUncached(pdf);
+    addTearDown(worker.dispose);
+
+    final partials = <List<PdfRenderCommand>>[];
+    final result = await worker.record(0, onPartial: partials.add);
+
+    expect(result, isNotNull);
+    expect(partials, hasLength(1),
+        reason: 'a single-chunk mixed page emits the complete image-free '
+            'snapshot, not an intermediate chunk');
+    final partialImage =
+        partials.single.whereType<PdfDrawImageCommand>().single.request;
+    final finalImage = result!.whereType<PdfDrawImageCommand>().single.request;
+    expect(partialImage.decoded, isNull);
+    expect(finalImage.decoded, isNotNull,
+        reason: 'the same record must still resolve with decoded pixels');
   });
 
   test('the cached production wrapper streams partials through the dedup',

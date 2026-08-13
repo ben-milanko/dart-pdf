@@ -265,8 +265,9 @@ void main() {
     await router.settleRaster(tester, 612);
 
     await tester.pumpWidget(at(3));
-    final zoomed = await router.settleRaster(tester, 612 * 3);
-    expect(zoomed.width, 612 * 3);
+    final expectedWidth = router.vectorRasterWidth(3);
+    final zoomed = await router.settleRaster(tester, expectedWidth);
+    expect(zoomed.width, expectedWidth);
     expect(StripPdfDevice.totalPlanPictures, greaterThan(0),
         reason: 'the settle must consume a worker-binned plan');
     expect(StripPdfDevice.totalPlanMismatches, 0);
@@ -326,8 +327,9 @@ void main() {
     // The viewer's settle: the same quantized scale, a bumped generation.
     StripPdfDevice.resetStats();
     await tester.pumpWidget(at(3, 1));
-    final zoomed = await router.settleRaster(tester, 612 * 3);
-    expect(zoomed.width, 612 * 3);
+    final expectedWidth = router.vectorRasterWidth(3);
+    final zoomed = await router.settleRaster(tester, expectedWidth);
+    expect(zoomed.width, expectedWidth);
     expect(PdfPageView.debugSpeculativePlanHits, 1,
         reason: 'the settle must consume the speculative plan');
     expect(PdfPageView.debugSpeculativePlanMisses, 0);
@@ -385,8 +387,9 @@ void main() {
     // still a plan-fed strip raster at the right size.
     StripPdfDevice.resetStats();
     await tester.pumpWidget(at(3, 1));
-    final zoomed = await router.settleRaster(tester, 612 * 3);
-    expect(zoomed.width, 612 * 3);
+    final expectedWidth = router.vectorRasterWidth(3);
+    final zoomed = await router.settleRaster(tester, expectedWidth);
+    expect(zoomed.width, expectedWidth);
     expect(PdfPageView.debugSpeculativePlanHits, 0);
     expect(PdfPageView.debugSpeculativePlanMisses, 1,
         reason: 'the mismatched speculation must be counted');
@@ -411,7 +414,17 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    final bytes = buildVectorPdf();
+    final bytes = buildSyntheticRasterUnderlaySheet(
+      // Keep the source just above the shared 16 MP decode ceiling. A smaller
+      // image now reaches native resolution in the focused 2x-headroom base,
+      // correctly making region speculation redundant instead of exercising
+      // the combined detail path this test is about.
+      underlays: const [PdfUnderlaySpec(width: 4352, height: 4352)],
+      layers: 1,
+      ops: 100,
+      pageW: 612,
+      pageH: 792,
+    );
     final doc = PdfDocument.open(bytes);
     final page = doc.page(0);
     late PdfRenderWorker worker;
@@ -457,14 +470,25 @@ void main() {
     await tester.pumpWidget(at(1, 0));
     await router.settleRaster(tester, 612);
     await tester.pumpWidget(at(16, 1));
-    for (var i = 0; i < 80; i++) {
+    for (var i = 0; i < 500; i++) {
       await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 5)));
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
       await tester.pump();
       if (find.byType(RawImage).evaluate().length >= 2) break;
     }
     expect(find.byType(RawImage).evaluate().length, greaterThanOrEqualTo(2),
         reason: 'deep zoom must have a base raster and detail patch');
+    // The first progressive patch can paint while the image-complete base and
+    // its replacement detail are still in flight. Let that foreground pass
+    // drain before starting the pan, otherwise it can itself observe the new
+    // translation and make the speculative result redundant before settle.
+    for (var i = 0; i < 500 && scheduler.busy; i++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
+      await tester.pump();
+    }
+    expect(scheduler.busy, isFalse,
+        reason: 'the priming render must finish before measuring speculation');
     PdfPageView.debugResetSpeculativeStats();
 
     // Translate without changing scale. One frame applies the transform;
@@ -481,10 +505,10 @@ void main() {
     scheduler.holding = false;
     await tester.pumpWidget(at(16, 2));
     for (var i = 0;
-        i < 80 && PdfPageView.debugSpeculativeDetailHits == 0;
+        i < 500 && PdfPageView.debugSpeculativeDetailHits == 0;
         i++) {
       await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 5)));
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
       await tester.pump();
     }
     expect(PdfPageView.debugSpeculativeDetailHits, 1);
@@ -506,10 +530,10 @@ void main() {
     scheduler.holding = false;
     await tester.pumpWidget(at(16, 3));
     for (var i = 0;
-        i < 80 && PdfPageView.debugSpeculativeDetailMisses == 0;
+        i < 500 && PdfPageView.debugSpeculativeDetailMisses == 0;
         i++) {
       await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 5)));
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
       await tester.pump();
     }
     expect(PdfPageView.debugSpeculativeDetailHits, 0);

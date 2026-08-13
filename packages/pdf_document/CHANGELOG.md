@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.5.0
+
+- Let `PdfDocument.openSource` expose its requested first-paint page count as a
+  temporary page-count hint when the source deliberately omits the rest of the
+  page-tree walk. The full document opened during progressive handoff remains
+  authoritative, while sparse page-one previews avoid recovery-scanning every
+  intentionally absent leaf reference.
+
 ## 3.4.0
 
 - Preserve the unresolved vector template on authored stamp annotations and

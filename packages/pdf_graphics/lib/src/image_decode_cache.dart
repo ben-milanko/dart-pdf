@@ -107,8 +107,7 @@ class PdfImageDecodeCache {
   }
 
   /// Retains [pixels] for [stream] at this size. Pairs with [get].
-  void put(
-      CosStream stream, int? width, int? height, PdfDecodedPixels pixels) {
+  void put(CosStream stream, int? width, int? height, PdfDecodedPixels pixels) {
     final size = pixels.rgba.length;
     if (size > maxBytes) return;
     final key = _Key(stream, width, height);
@@ -139,17 +138,25 @@ class PdfImageDecodeCache {
 /// decoding it whole - i.e. the decoder has no scaled fast path for it and
 /// falls back to a full decode plus [downsamplePdfDecodedPixels].
 ///
-/// True for DCTDecode. `decodePdfImagePixelsScaled`'s fast paths are JPX
-/// reduced-resolution levels and single-filter Flate/CCITT region decodes, and
-/// a DCT stream is neither, so it always takes the full-decode fallback. This
-/// was measured, not assumed: a 1241x1621 CMYK JPEG asked for 250x326 costs
-/// 1.01x what the full decode costs, while the Flate path costs 0.37x
-/// (`tool/bench_image_scale_cost.dart`).
+/// True for DCTDecode except four-component JPEGs. A CMYK DCT still performs
+/// entropy/IDCT at native resolution, but [decodePdfImageBase] reduces its
+/// component plane before the expensive PDF colour conversion and mask
+/// composite. Its target result is therefore both cheaper and intentionally
+/// distinct from RGBA-downsampling a native composite.
 ///
 /// Callers use it to decide whether a retained *native* decode may be
 /// downsampled to serve a smaller request. Where it is false, doing so would
 /// change pixels; where it is true, it is exactly what the decoder does.
 bool pdfImageDecodeIgnoresTarget(CosDocument cos, CosStream stream) =>
+    pdfImageFilters(cos, stream.dictionary).contains('DCTDecode') &&
+    pdfImageColorFamily(cos, stream.dictionary) != 'DeviceCMYK';
+
+/// Whether [stream] has no source-region entropy path.
+///
+/// CMYK DCT can honour a whole-image target, but it still has to decode the
+/// full JPEG before cropping a deep-zoom slice. Region reuse therefore keeps a
+/// native decode even though ordinary target-size caching does not.
+bool pdfImageDecodeIgnoresRegion(CosDocument cos, CosStream stream) =>
     pdfImageFilters(cos, stream.dictionary).contains('DCTDecode');
 
 class _Key {

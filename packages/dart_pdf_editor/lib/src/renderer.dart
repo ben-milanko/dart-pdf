@@ -39,8 +39,21 @@ enum PdfRenderDeviceMode {
 class PdfPageRasterGeometry {
   PdfPageRasterGeometry._();
 
-  /// Pixel ceiling for one page raster (~16.7M px, 64 MB RGBA).
-  static const maxPixels = 1 << 24;
+  /// Pixel ceiling for one whole-page raster (~4.2M px, 16 MiB RGBA).
+  ///
+  /// This matches [PdfPageRasterCachePolicy]'s default per-entry budget. Once
+  /// a view asks for more resolution, the whole-page image remains a bounded
+  /// backing layer and [PdfPageView]'s visible-region detail path supplies the
+  /// sharp pixels. A larger base would be expensive to raster, rejected by the
+  /// default cache, and mostly outside the viewport.
+  static const maxPixels = 1 << 22;
+
+  /// Pixel ceiling for one visible-region detail raster (~16.7M px).
+  ///
+  /// Detail is already cropped to the viewport and its panning guard band, so
+  /// this larger transient allowance preserves sharpness without paying for a
+  /// whole page at the same density.
+  static const maxDetailPixels = 1 << 24;
 
   /// Per-side pixel ceiling for one page raster.
   static const maxDimension = 8192.0;
@@ -212,7 +225,7 @@ class PdfPageRenderer {
     // decode handles (clones from the cache, or fresh decodes) can be freed
     // now - the cache keeps the masters for the next render.
     for (final image in images.values) {
-      image.dispose();
+      disposePdfDecodedImage(image);
     }
     return picture;
   }
@@ -255,7 +268,8 @@ class PdfPageRenderer {
   static Future<ui.Picture> renderPictureRecordedWithPlan(
       PdfPage page, PdfPageRenderPlan plan,
       {bool Function(PdfAnnotation)? skipAnnotation,
-      double? maxImagePixelRatio}) async {
+      double? maxImagePixelRatio,
+      double imageDecodeHeadroom = 2}) async {
     final cos = page.document.cos;
 
     // Record the page into a flat command buffer. This single walk also
@@ -267,7 +281,9 @@ class PdfPageRenderer {
     if (plan.annotations) recording.drawAnnotations(page, skip: skipAnnotation);
 
     final images = await decodeImages(cos, recorder.imageRequests,
-        cache: PdfImageCache.instance, maxImagePixelRatio: maxImagePixelRatio);
+        cache: PdfImageCache.instance,
+        maxImagePixelRatio: maxImagePixelRatio,
+        imageDecodeHeadroom: imageDecodeHeadroom);
 
     final box = page.cropBox;
     final size = plan.pageSize(page);
@@ -280,7 +296,7 @@ class PdfPageRenderer {
     replayCommands(recorder.commands, CanvasPdfDevice(canvas, images: images));
     final picture = uiRecorder.endRecording();
     for (final image in images.values) {
-      image.dispose();
+      disposePdfDecodedImage(image);
     }
     return picture;
   }
@@ -335,11 +351,12 @@ class PdfPageRenderer {
       {bool includeImages = true, double? maxImagePixelRatio}) async {
     final requests = <PdfImageRequest>[];
     if (includeImages) collectImageRequests(commands, requests);
-    final images = requests.isEmpty
+    final Map<Object, ui.Image> images = requests.isEmpty
         ? const <Object, ui.Image>{}
         : await decodeImages(page.document.cos, requests,
             cache: PdfImageCache.instance,
-            maxImagePixelRatio: maxImagePixelRatio);
+            maxImagePixelRatio: maxImagePixelRatio,
+            imageDecodeHeadroom: 1);
 
     final box = page.cropBox;
     final size = plan.pageSize(page);
@@ -350,7 +367,7 @@ class PdfPageRenderer {
     replayCommands(commands, CanvasPdfDevice(canvas, images: images));
     final picture = recorder.endRecording();
     for (final image in images.values) {
-      image.dispose();
+      disposePdfDecodedImage(image);
     }
     return picture;
   }
@@ -383,6 +400,34 @@ class PdfPageRenderer {
     final requests = <PdfImageRequest>[];
     collectImageRequests(commands, requests);
     return requests.isNotEmpty;
+  }
+
+  /// Decodes the image payloads in a retained command buffer into the shared
+  /// image cache without replaying or rasterizing the page.
+  ///
+  /// This is the cheap UI-side half of speculative nearby-page warming: the
+  /// worker can parse and decode off-thread, then the platform image handles
+  /// are admitted while the current page is already stable. A later visible
+  /// render receives cache clones and only pays command replay. Every temporary
+  /// handle is released here; [PdfImageCache] retains its bounded masters.
+  static Future<void> predecodeCommandImages(
+    PdfPage page,
+    List<PdfRenderCommand> commands, {
+    double? maxImagePixelRatio,
+  }) async {
+    final requests = <PdfImageRequest>[];
+    collectImageRequests(commands, requests);
+    if (requests.isEmpty) return;
+    final images = await decodeImages(
+      page.document.cos,
+      requests,
+      cache: PdfImageCache.instance,
+      maxImagePixelRatio: maxImagePixelRatio,
+      imageDecodeHeadroom: 1,
+    );
+    for (final image in images.values) {
+      disposePdfDecodedImage(image);
+    }
   }
 
   /// Gathers every image draw request in [commands], descending into soft-mask
@@ -440,7 +485,12 @@ class PdfPageRenderer {
   /// Renders one annotation's appearance into a picture in the same page
   /// raster space as [renderPicture] (post-rotation, y down, 1 unit =
   /// 1 point) but with a transparent background - for live drag/resize
-  /// previews. Null when the annotation has no appearance stream.
+  /// previews and the viewer's annotation layer. Null when the annotation has
+  /// no appearance stream.
+  ///
+  /// The picture is scale-independent: callers replay it at any page-to-view
+  /// scale, so stroke widths stay in page space (no device-pixel floor - see
+  /// [CanvasPdfDevice.pixelRatio]).
   static Future<ui.Picture?> renderAnnotationPicture(
       PdfPage page, PdfAnnotation annotation,
       {int? rotation}) async {
@@ -459,11 +509,25 @@ class PdfPageRenderer {
     final canvas = Canvas(recorder);
     _applyPageTransform(canvas, page, size, box, rotation: rotation);
 
-    PdfInterpreter(cos: cos, device: CanvasPdfDevice(canvas, images: images))
+    // pixelRatio 0 turns the one-device-pixel stroke floor off (#660). This
+    // picture is scale-independent - the appearance layer replays it at
+    // whatever page-to-view scale the viewer is at - so flooring here would
+    // bake a scale-dependent choice in: every positive width under 1 pt
+    // would become a Skia hairline that stays one pixel at 333% zoom. A
+    // pressure-sensitive ink stroke is exactly that case (a 1.5 pt pen at
+    // zero pressure draws 0.6 pt), and it visibly snapped from its live
+    // width to a hairline the moment this picture replaced the overlay.
+    // A genuine `0 w` stroke arrives here as 0 and still paints as Skia's
+    // hairline, which is what §8.4.3.2 asks for. The raster paths that do
+    // know their output scale keep their positive ratio, so #426's
+    // CAD-linework floor is untouched.
+    PdfInterpreter(
+            cos: cos,
+            device: CanvasPdfDevice(canvas, images: images, pixelRatio: 0))
         .drawAnnotation(page, annotation);
     final picture = recorder.endRecording();
     for (final image in images.values) {
-      image.dispose();
+      disposePdfDecodedImage(image);
     }
     return picture;
   }
@@ -581,7 +645,7 @@ class PdfPageRenderer {
       picture.dispose();
       device.dispose();
       for (final image in images.values) {
-        image.dispose();
+        disposePdfDecodedImage(image);
       }
     }
   }

@@ -13,6 +13,7 @@ import '../preview_cache.dart';
 import '../raster_warm.dart';
 import '../scrollbar.dart';
 import '../theme.dart';
+import '../tile_raster_backend.dart';
 import 'document_comparison.dart';
 
 /// How a [PdfComparisonView] presents the two documents.
@@ -40,8 +41,10 @@ class PdfComparisonView extends StatefulWidget {
     this.showNavigator = true,
     this.pixelRatio = 1.5,
     this.viewerTheme,
+    this.pagePreviewLodPolicy = const PdfPagePreviewLodPolicy(),
     this.pageRasterCachePolicy = const PdfPageRasterCachePolicy(),
     this.pageRasterWarmPolicy = const PdfPageRasterWarmPolicy.disabled(),
+    this.tileRasterBackend = const PdfCanvasTileRasterBackend(),
   });
 
   /// The original ("before") document bytes.
@@ -61,6 +64,9 @@ class PdfComparisonView extends StatefulWidget {
   /// Wraps both panes in a [PdfViewerTheme].
   final PdfViewerThemeData? viewerTheme;
 
+  /// Intermediate fast-scroll preview levels and their shared memory budget.
+  final PdfPagePreviewLodPolicy pagePreviewLodPolicy;
+
   /// Memory policy for exact full-resolution rasters of previously visited
   /// pages in each comparison pane.
   final PdfPageRasterCachePolicy pageRasterCachePolicy;
@@ -68,6 +74,10 @@ class PdfComparisonView extends StatefulWidget {
   /// Whether idle time is spent baking exact page rasters ahead of
   /// navigation. See [PdfViewer.pageRasterWarmPolicy].
   final PdfPageRasterWarmPolicy pageRasterWarmPolicy;
+
+  /// Renderer used by the shared deep-zoom tile store in each comparison
+  /// pane. Unsupported accelerated scenes fall back to Canvas normally.
+  final PdfTileRasterBackend tileRasterBackend;
 
   @override
   State<PdfComparisonView> createState() => _PdfComparisonViewState();
@@ -207,8 +217,10 @@ class _PdfComparisonViewState extends State<PdfComparisonView> {
             document: _beforeDoc,
             controller: _beforeCtl,
             initialFit: PdfViewerFit.width,
+            pagePreviewLodPolicy: widget.pagePreviewLodPolicy,
             pageRasterCachePolicy: widget.pageRasterCachePolicy,
             pageRasterWarmPolicy: widget.pageRasterWarmPolicy,
+            tileRasterBackend: widget.tileRasterBackend,
           ),
         ),
       ),
@@ -221,8 +233,10 @@ class _PdfComparisonViewState extends State<PdfComparisonView> {
             document: _afterDoc,
             controller: _afterCtl,
             initialFit: PdfViewerFit.width,
+            pagePreviewLodPolicy: widget.pagePreviewLodPolicy,
             pageRasterCachePolicy: widget.pageRasterCachePolicy,
             pageRasterWarmPolicy: widget.pageRasterWarmPolicy,
+            tileRasterBackend: widget.tileRasterBackend,
           ),
         ),
       ),
@@ -238,8 +252,10 @@ class _PdfComparisonViewState extends State<PdfComparisonView> {
       document: _afterDoc,
       controller: _afterCtl,
       initialFit: PdfViewerFit.width,
+      pagePreviewLodPolicy: widget.pagePreviewLodPolicy,
       pageRasterCachePolicy: widget.pageRasterCachePolicy,
       pageRasterWarmPolicy: widget.pageRasterWarmPolicy,
+      tileRasterBackend: widget.tileRasterBackend,
       pageOverlayBuilder: _overlayBuilder,
     );
   }
@@ -468,11 +484,7 @@ class _PdfDiffNavigatorPanelState extends State<PdfDiffNavigatorPanel> {
         return (icon: Icons.add, color: const Color(0xFF2E7D32), prefix: '');
       case PdfDiffChangeKind.deleted:
       case PdfDiffChangeKind.pageRemoved:
-        return (
-          icon: Icons.remove,
-          color: const Color(0xFFE53935),
-          prefix: ''
-        );
+        return (icon: Icons.remove, color: const Color(0xFFE53935), prefix: '');
       case PdfDiffChangeKind.replaced:
         return (
           icon: Icons.swap_horiz,
@@ -493,7 +505,9 @@ class _PdfDiffNavigatorPanelState extends State<PdfDiffNavigatorPanel> {
       selectedTileColor: scheme.secondaryContainer,
       selectedColor: scheme.onSecondaryContainer,
       title: Text(
-        change.label.isEmpty ? pdfL10n(context).compareEmptyLabel : change.label,
+        change.label.isEmpty
+            ? pdfL10n(context).compareEmptyLabel
+            : change.label,
         style: Theme.of(context).textTheme.bodySmall,
         maxLines: 2,
         overflow: TextOverflow.ellipsis,

@@ -4,6 +4,12 @@
   "private": true,
   "type": "module",
   "description": "Headless-Chrome driver for the dart-pdf render-worker web perf harness",
+  "scripts": {
+    "test": "node --test competitive_common_test.mjs surface_compare_common_test.mjs",
+    "competitive": "node competitive.mjs",
+    "screenshot-probe": "node screenshot_timing_probe.mjs",
+    "surface-check": "node surface_compare.mjs"
+  },
   "dependencies": {
     "puppeteer-core": "^23.0.0"
   }
