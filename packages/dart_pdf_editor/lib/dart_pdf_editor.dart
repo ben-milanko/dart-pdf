@@ -61,7 +61,8 @@ export 'package:pdf_cos/pdf_cos.dart'
 export 'src/http_byte_source.dart';
 export 'l10n/dart_pdf_editor_localizations.dart';
 export 'src/l10n/pdf_l10n.dart';
-export 'src/image_decoder.dart' show PdfImageCache, pdfImageContentKey;
+export 'src/image_decoder.dart'
+    show PdfImageCache, pdfImageContentKey, pdfGpuSoftMaskOf;
 export 'src/ocr.dart';
 export 'src/page_export.dart';
 export 'src/print_rasterize.dart';
