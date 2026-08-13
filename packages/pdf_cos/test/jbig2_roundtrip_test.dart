@@ -30,7 +30,8 @@ void main() {
   ) {
     final page = Jbig2Bitmap(width, height);
     for (final placement in placements) {
-      final symbol = symbols[placement.symbol];
+      // A refined instance draws its own ink, not the dictionary symbol.
+      final symbol = placement.refined ?? symbols[placement.symbol];
       for (var y = 0; y < symbol.height; y++) {
         for (var x = 0; x < symbol.width; x++) {
           if (symbol.get(x, y) != 0) page.set(placement.x + x, placement.y + y, 1);
@@ -119,6 +120,59 @@ void main() {
     expect(cold, isNotNull);
     expect(warm, cold);
     expect(ink(cold!, width, height),
+        expected(width, height, symbols, placements));
+  });
+
+  test('refined symbol instances decode to their own ink (§6.4.11)', () {
+    final symbols = sortSymbolsForDictionary([
+      for (var i = 0; i < 6; i++) glyph(i, 8 + i % 3, 12),
+    ]);
+    final globals = encodeJbig2Globals(symbols);
+
+    const width = 160;
+    const height = 48;
+    // A scanner refines the instances whose ink drifted from the dictionary
+    // shape, and places the rest verbatim - so the region has to carry both,
+    // with the shared refinement stats adapting across them.
+    final placements = <Jbig2Placement>[];
+    var x = 3;
+    for (var i = 0; i < 12; i++) {
+      final id = i % symbols.length;
+      final reference = symbols[id];
+      Jbig2Bitmap? refined;
+      var rdx = 0;
+      var rdy = 0;
+      if (i.isEven) {
+        // Grow or shrink the instance so RDW/RDH are non-zero in both
+        // directions, and shift it so the RDX/RDY term is exercised too.
+        final grow = i % 4 == 0 ? 1 : -1;
+        refined = Jbig2Bitmap(reference.width + grow, reference.height + grow)
+          ..fillRect(1, 1, 2, reference.height - 2);
+        if (i % 3 == 0) refined.fillRect(2, 4 + (i % 3), 3, 2);
+        rdx = i % 4 == 0 ? 1 : 0;
+        rdy = i % 8 == 0 ? -1 : 0;
+      }
+      placements.add(Jbig2Placement(id, x, 8 + (i % 2) * 20,
+          refined: refined, refinedDx: rdx, refinedDy: rdy));
+      x += (refined ?? reference).width + 3;
+    }
+
+    final page = encodeJbig2TextPage(
+      width: width,
+      height: height,
+      symbols: symbols,
+      placements: placements,
+    );
+
+    Jbig2Decoder.debugResetGlobalsCache();
+    final decoded = Jbig2Decoder.decode(
+      data: page,
+      globals: globals,
+      width: width,
+      height: height,
+    );
+    expect(decoded, isNotNull);
+    expect(ink(decoded!, width, height),
         expected(width, height, symbols, placements));
   });
 

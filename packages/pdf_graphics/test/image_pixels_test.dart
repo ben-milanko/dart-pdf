@@ -103,6 +103,96 @@ void main() {
     expect(pixels.rgba[7], 0); // skipped
   });
 
+  test('a JBIG2 stencil /Mask decodes through the image codec', () {
+    // The MRC shape every scanner emits: a colour layer stencilled by a
+    // JBIG2-coded text mask. JBIG2 is an image codec, not a stream filter, so
+    // the mask cannot come back through the plain filter chain - and a mask
+    // that fails to decode leaves the colour layer fully opaque, which on a
+    // scanned page covers the whole sheet.
+    const size = 16;
+    final symbol = Jbig2Bitmap(4, 4)..fillRect(0, 0, 4, 4);
+    final globals = encodeJbig2Globals([symbol]);
+    final page = encodeJbig2TextPage(
+      width: size,
+      height: size,
+      symbols: [symbol],
+      placements: const [Jbig2Placement(0, 2, 2)],
+    );
+    Jbig2Decoder.debugResetGlobalsCache();
+
+    final mask = image({
+      'ImageMask': const CosBoolean(true),
+      'Width': const CosInteger(size),
+      'Height': const CosInteger(size),
+      'BitsPerComponent': const CosInteger(1),
+      'Filter': const CosName('JBIG2Decode'),
+      'DecodeParms': CosDictionary({
+        'JBIG2Globals': CosStream(CosDictionary({}), globals),
+      }),
+    }, page);
+    final stream = image({
+      'Width': const CosInteger(size),
+      'Height': const CosInteger(size),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceRGB'),
+      'Mask': mask,
+    }, List.filled(size * size * 3, 255));
+
+    final pixels = decodePdfImagePixels(cos, stream)!;
+    expect(pixels.width, size);
+    expect(pixels.height, size);
+    int alphaAt(int x, int y) => pixels.rgba[(y * size + x) * 4 + 3];
+    // The symbol's ink is black - a 0 sample, which /Mask paints - and the
+    // rest of the page is white, which it masks out.
+    expect(alphaAt(2, 2), 255);
+    expect(alphaAt(5, 5), 255);
+    expect(alphaAt(1, 2), 0);
+    expect(alphaAt(6, 5), 0);
+    expect(alphaAt(0, 0), 0);
+  });
+
+  test('a JPX /SMask decodes through the image codec', () {
+    const size = 16;
+    final smask = image({
+      'Width': const CosInteger(size),
+      'Height': const CosInteger(size),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceGray'),
+      'Filter': const CosName('JPXDecode'),
+    }, grayJpxCodestream);
+    final stream = image({
+      'Width': const CosInteger(size),
+      'Height': const CosInteger(size),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceRGB'),
+      'SMask': smask,
+    }, List.filled(size * size * 3, 255));
+
+    final pixels = decodePdfImagePixels(cos, stream)!;
+    expect(
+      [for (var i = 0; i < size * size; i++) pixels.rgba[i * 4 + 3]],
+      grayJpxExpectedSamples,
+    );
+    // White under that alpha premultiplies to the alpha value itself.
+    expect(
+      [for (var i = 0; i < size * size; i++) pixels.rgba[i * 4]],
+      grayJpxExpectedSamples,
+    );
+  });
+
+  test('a colour JPX /SMask carries no alpha plane to read', () {
+    // Three components are an image, not a mask: better to leave the base
+    // opaque than to invent an alpha channel out of one of them.
+    final smask = image({
+      'Width': const CosInteger(2),
+      'Height': const CosInteger(2),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceRGB'),
+      'Filter': const CosName('JPXDecode'),
+    }, const [0, 0]); // not a codestream at all: the decoder bails
+    expect(pdfImageSoftMask(cos, CosDictionary({'SMask': smask})), isNull);
+  });
+
   test('/SMask bakes into alpha and premultiplies', () {
     final smask = image({
       'Width': const CosInteger(2),
