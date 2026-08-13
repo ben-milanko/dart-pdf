@@ -22,6 +22,7 @@ env:
     pdf_document:packages/pdf_document
     pdf_graphics:packages/pdf_graphics
     dart_pdf_editor:packages/dart_pdf_editor
+    dart_pdf_editor_flutter_gpu:packages/dart_pdf_editor_flutter_gpu
     dart_pdf_editor_assets:packages/dart_pdf_editor_assets
     pdf_ocr_vlm:packages/pdf_ocr_vlm
     pdf_ocr_ondevice:packages/pdf_ocr_ondevice

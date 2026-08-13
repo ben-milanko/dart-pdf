@@ -4,6 +4,14 @@ Opt-in retained-scene tile backend for `dart_pdf_editor`. It compiles supported
 PDF commands and uploads decoded images once per retained scene, then renders
 LoD tile slabs directly with Impeller's `package:flutter_gpu` API.
 
+This is an experimental `0.x` companion package: its public API may evolve as
+Flutter's GPU API matures. Unsupported content and platforms fall back to the
+stable Canvas renderer instead of approximating PDF output.
+
+```sh
+flutter pub add dart_pdf_editor dart_pdf_editor_flutter_gpu
+```
+
 This companion deliberately stays outside `dart_pdf_editor`'s dependency graph.
 The core viewer keeps its Flutter 3.24 minimum and Canvas/web behavior; apps that
 choose this backend use Flutter 3.44 or newer and pass it explicitly:

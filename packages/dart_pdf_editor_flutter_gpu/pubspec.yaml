@@ -1,9 +1,14 @@
 name: dart_pdf_editor_flutter_gpu
 description: Opt-in Impeller flutter_gpu tile backend for dart_pdf_editor.
 version: 0.1.0
-publish_to: none
 repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/dart_pdf_editor_flutter_gpu
 issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
+topics:
+  - pdf
+  - pdf-rendering
+  - flutter
+  - gpu
+  - impeller
 resolution: workspace
 
 environment:

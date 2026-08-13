@@ -29,7 +29,7 @@ On Ubuntu 24.04 or newer:
 sudo snap install snapcraft --classic
 app/packaging/snap/build-release-snap.sh \
   --archive /path/to/dartpdf-linux-x64.tar.gz \
-  --version 3.4.0 \
+  --version 3.5.0 \
   --output /tmp/dartpdf-snap
 sudo snap install --dangerous /tmp/dartpdf-snap/dartpdf_*.snap
 snap run dartpdf

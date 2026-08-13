@@ -20,6 +20,7 @@ on:
       - 'pdf_document-v*'
       - 'pdf_graphics-v*'
       - 'dart_pdf_editor-v*'
+      - 'dart_pdf_editor_flutter_gpu-v*'
       - 'dart_pdf_editor_assets-v*'
       - 'pdf_ocr_vlm-v*'
       - 'pdf_ocr_ondevice-v*'
@@ -82,6 +83,11 @@ jobs:
               package="dart_pdf_editor"
               directory="packages/dart_pdf_editor"
               version="${tag#dart_pdf_editor-v}"
+              ;;
+            dart_pdf_editor_flutter_gpu-v*)
+              package="dart_pdf_editor_flutter_gpu"
+              directory="packages/dart_pdf_editor_flutter_gpu"
+              version="${tag#dart_pdf_editor_flutter_gpu-v}"
               ;;
             dart_pdf_editor_assets-v*)
               package="dart_pdf_editor_assets"
@@ -215,6 +221,17 @@ jobs:
       - name: Publish to pub.dev
         working-directory: packages/dart_pdf_editor_assets
         run: dart pub publish --force
+
+  publish-dart-pdf-editor-flutter-gpu:
+    needs: check-publish-needed
+    if: needs.check-publish-needed.outputs.package == 'dart_pdf_editor_flutter_gpu' && needs.check-publish-needed.outputs.publish_needed == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@7654d458321ee25acccccfdb86cd48bd95768ff1
+    with:
+      environment: pub.dev
+      working-directory: packages/dart_pdf_editor_flutter_gpu
 
   publish-pdf-ocr-vlm:
     needs: check-publish-needed

@@ -183,10 +183,10 @@ fallback and visible-first scheduling. Hosts can give `PdfRasterCache` a
 separate persistent `tiles` store; disk reads race live rasterization and disk
 writes start only after the fresh tile is displayable, so persistence never
 extends first paint. For supported native targets, the optional
-`dart_pdf_editor_flutter_gpu` companion compiles a conservative subset of a
-retained page scene once, reuses scene-spanning image textures, and replays
-tiles through Impeller. Unsupported pages and all web builds keep the Canvas
-backend automatically.
+[`dart_pdf_editor_flutter_gpu`](https://pub.dev/packages/dart_pdf_editor_flutter_gpu)
+companion compiles a conservative subset of a retained page scene once, reuses
+scene-spanning image textures, and replays tiles through Impeller. Unsupported
+pages and all web builds keep the Canvas backend automatically.
 
 ## Viewing
 

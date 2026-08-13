@@ -1,7 +1,9 @@
 // Enforces the workspace's lockstep versioning invariant.
 //
-// The packages in this monorepo are released together at a single version.
-// Because of that, whenever one workspace package depends on another, its
+// The core packages in this monorepo are released together at a single
+// version. Independently versioned companion packages still depend on that
+// exact current core floor. Because of that, whenever one workspace package
+// depends on another, its
 // dependency lower bound MUST equal that sibling's current version
 // (`sibling: ^<sibling.version>`). A looser bound - e.g. `pdf_document: ^1.2.0`
 // while the editor calls an API that pdf_document only grew in 1.2.3 - makes
