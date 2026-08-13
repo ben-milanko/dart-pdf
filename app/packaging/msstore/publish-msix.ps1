@@ -5,8 +5,8 @@
 
 .DESCRIPTION
   Installs a pinned msstore CLI (checksum-verified), configures it from the
-  Partner Center credentials in the environment, and pushes the package into
-  the app's submission.
+  Partner Center certificate credential in the environment, and pushes the
+  package into the app's submission.
 
   Defaults to leaving the submission as a **draft** (`--noCommit`), matching how
   release-app.yml creates a *draft* GitHub Release: nothing reaches the public
@@ -28,7 +28,9 @@
 
 .EXAMPLE
   $env:MSSTORE_TENANT_ID = '...'; $env:MSSTORE_SELLER_ID = '...'
-  $env:MSSTORE_CLIENT_ID = '...'; $env:MSSTORE_CLIENT_SECRET = '...'
+  $env:MSSTORE_CLIENT_ID = '...'
+  $env:MSSTORE_CERTIFICATE_BASE64 = '...'
+  $env:MSSTORE_CERTIFICATE_PASSWORD = '...'
   $env:MSSTORE_PRODUCT_ID = '9NABCDEFGHIJ'
   ./publish-msix.ps1 -MsixPath ../../build/windows/msstore/dartpdf-windows-store.msix
 #>
@@ -59,7 +61,8 @@ function Get-RequiredEnv {
 $tenantId     = Get-RequiredEnv 'MSSTORE_TENANT_ID' 'Partner Center > Account settings > User management > Azure AD applications.'
 $sellerId     = Get-RequiredEnv 'MSSTORE_SELLER_ID' 'Partner Center > Account settings > Account details > Seller ID.'
 $clientId     = Get-RequiredEnv 'MSSTORE_CLIENT_ID' 'The Azure AD app registration associated with the Partner Center account.'
-$clientSecret = Get-RequiredEnv 'MSSTORE_CLIENT_SECRET' 'A client secret on that Azure AD app registration.'
+$certificateBase64 = Get-RequiredEnv 'MSSTORE_CERTIFICATE_BASE64' 'A base64-encoded PFX whose public certificate is registered on the Azure AD app.'
+$certificatePassword = Get-RequiredEnv 'MSSTORE_CERTIFICATE_PASSWORD' 'The password protecting the PFX certificate.'
 $productId    = Get-RequiredEnv 'MSSTORE_PRODUCT_ID' 'Partner Center > Product > Product identity > Store ID.'
 
 # --- Install the CLI ------------------------------------------------------
@@ -97,34 +100,52 @@ if ($LASTEXITCODE -ne 0) {
 # Telemetry off before any authenticated call, so a CI run reports nothing.
 & $msstore settings --enableTelemetry false | Out-Null
 
-# This repo is public, so Actions logs are world-readable. GitHub masks
-# registered secret values, but don't rely on that - just never echo them.
-Write-Host 'Configuring msstore CLI from the Partner Center credentials in the environment'
-& $msstore reconfigure `
-  --tenantId $tenantId `
-  --sellerId $sellerId `
-  --clientId $clientId `
-  --clientSecret $clientSecret | Out-Null
-if ($LASTEXITCODE -ne 0) { throw "msstore reconfigure failed ($LASTEXITCODE)" }
-
-# --- Publish --------------------------------------------------------------
-# --appId is needed because we never ran `msstore init` - the package is built
-# by build-msix.ps1, not by the CLI, so there is no CLI-side project state.
-$publishArgs = @('publish', '--inputFile', $MsixPath, '--appId', $productId)
-if (-not $Commit) {
-  Write-Host 'Uploading as a DRAFT submission (pass -Commit to send to certification)'
-  $publishArgs += '--noCommit'
-} else {
-  Write-Host 'Uploading and COMMITTING the submission - this sends it to Store certification'
-  if ($RolloutPercentage -ge 0) {
-    $publishArgs += @('--packageRolloutPercentage', "$RolloutPercentage")
+# Decode the PFX only on the ephemeral runner and delete it even when the
+# authenticated Store call fails. The public certificate is registered in
+# Entra; the private key and password exist only as GitHub encrypted secrets.
+$certificatePath = Join-Path ([System.IO.Path]::GetTempPath()) 'dartpdf-msstore-publishing.pfx'
+try {
+  try {
+    [System.IO.File]::WriteAllBytes(
+      $certificatePath,
+      [Convert]::FromBase64String($certificateBase64)
+    )
+  } catch {
+    throw 'MSSTORE_CERTIFICATE_BASE64 is not valid base64 certificate data.'
   }
+
+  # This repo is public, so Actions logs are world-readable. GitHub masks
+  # registered secret values, but don't rely on that - just never echo them.
+  Write-Host 'Configuring msstore CLI from the Partner Center certificate credential'
+  & $msstore reconfigure `
+    --tenantId $tenantId `
+    --sellerId $sellerId `
+    --clientId $clientId `
+    --certificateFilePath $certificatePath `
+    --certificatePassword $certificatePassword | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "msstore reconfigure failed ($LASTEXITCODE)" }
+
+  # --- Publish ------------------------------------------------------------
+  # --appId is needed because we never ran `msstore init` - the package is built
+  # by build-msix.ps1, not by the CLI, so there is no CLI-side project state.
+  $publishArgs = @('publish', '--inputFile', $MsixPath, '--appId', $productId)
+  if (-not $Commit) {
+    Write-Host 'Uploading as a DRAFT submission (pass -Commit to send to certification)'
+    $publishArgs += '--noCommit'
+  } else {
+    Write-Host 'Uploading and COMMITTING the submission - this sends it to Store certification'
+    if ($RolloutPercentage -ge 0) {
+      $publishArgs += @('--packageRolloutPercentage', "$RolloutPercentage")
+    }
+  }
+
+  & $msstore @publishArgs
+  if ($LASTEXITCODE -ne 0) { throw "msstore publish failed ($LASTEXITCODE)" }
+
+  Write-Host "`nSubmission status:"
+  & $msstore submission status $productId
+
+  Write-Host "`nReview the submission at https://partner.microsoft.com/dashboard"
+} finally {
+  Remove-Item -LiteralPath $certificatePath -Force -ErrorAction SilentlyContinue
 }
-
-& $msstore @publishArgs
-if ($LASTEXITCODE -ne 0) { throw "msstore publish failed ($LASTEXITCODE)" }
-
-Write-Host "`nSubmission status:"
-& $msstore submission status $productId
-
-Write-Host "`nReview the submission at https://partner.microsoft.com/dashboard"
