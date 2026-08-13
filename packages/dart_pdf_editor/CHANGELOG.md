@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 3.5.0
 
 - Sharpen deep-zoom pages visible-first: the foreground render now covers the
   exact viewport. Once that sharp frame paints, tile-capable pages grow bounded

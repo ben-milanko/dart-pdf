@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.5.0
+
+- Regenerate the bundled web render worker for `dart_pdf_editor` 3.5.0 and
+  align the optional asset package with the lockstep release.
+
 ## 3.4.0
 
 - Lockstep minor release to align the optional bundled assets with

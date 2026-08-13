@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.5.0
+
+- Add compact path traversal and replay primitives used by retained and tiled
+  renderers, including exact clip-stack preservation and bounded region replay.
+- Add batched text-device delivery and richer render-command serialization so
+  worker and retained-scene renderers can reduce per-command overhead without
+  changing page geometry.
+- Improve display-resolution image decoding, downsampling, masks, and decoded
+  image reuse for large scan and CAD workloads.
+
 ## 3.4.0
 
 - Add exact per-character pen offsets to `PdfTextRun` and

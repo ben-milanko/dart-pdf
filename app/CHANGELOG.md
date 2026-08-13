@@ -1,7 +1,14 @@
 # Changelog
 
-## Unreleased
+## 3.5.0
 
+- Large and visually dense PDFs stay responsive while scrolling, panning, and
+  zooming, with the visible region sharpening before bounded background work.
+- Fast navigation now moves through progressively clearer page previews rather
+  than waiting on one final full-detail raster.
+- Keep pages sharp and visible as they cross viewport edges, reduce redundant
+  off-screen detail work, and make remote and web document loading faster and
+  more memory-predictable.
 - Add a live Canvas/flutter_gpu tile-backend switch to Developer tools, along
   with persistent texture/geometry ceilings and diagnostics for actual route,
   fallback reasons, compile/replay time, cache pressure, uploads/readbacks,
