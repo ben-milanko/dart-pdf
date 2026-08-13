@@ -128,7 +128,12 @@ try {
   # --- Publish ------------------------------------------------------------
   # --appId is needed because we never ran `msstore init` - the package is built
   # by build-msix.ps1, not by the CLI, so there is no CLI-side project state.
-  $publishArgs = @('publish', '--inputFile', $MsixPath, '--appId', $productId)
+  # v0.3.9 accepts a package directory, not a package-file argument; this
+  # directory contains only the single deterministic Store MSIX.
+  $inputDirectory = Split-Path -Parent $MsixPath
+  $publishArgs = @(
+    'publish', '--inputDirectory', $inputDirectory, '--appId', $productId
+  )
   if (-not $Commit) {
     Write-Host 'Uploading as a DRAFT submission (pass -Commit to send to certification)'
     $publishArgs += '--noCommit'
