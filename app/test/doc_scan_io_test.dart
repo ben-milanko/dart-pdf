@@ -52,6 +52,13 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
+  test('DocumentScanException names the location it could not read', () {
+    // This string is what reaches the dev log behind the "Couldn't scan"
+    // toast, so it has to carry the URI that failed.
+    const e = DocumentScanException('content://media/document/1');
+    expect(e.toString(), contains('content://media/document/1'));
+  });
+
   group('readScannedFile', () {
     late Directory dir;
     setUp(() => dir = Directory.systemTemp.createTempSync('doc_scan_test'));
@@ -113,6 +120,21 @@ void main() {
         await readScannedFile('content://media/document/1', channel: channel),
         isNull,
       );
+    });
+
+    test('falls back for a file:// URI that is not a path at all', () async {
+      // An authority ("file://host/x.pdf") and a malformed one both blow up in
+      // toFilePath/parse; neither may take the read down with it.
+      final tokens = mockReadUri(Uint8List.fromList([37, 80, 68, 70]));
+      expect(
+        await readScannedFile('file://example.com/scan.pdf', channel: channel),
+        [37, 80, 68, 70],
+      );
+      expect(
+        await readScannedFile('file://[bad/scan.pdf', channel: channel),
+        [37, 80, 68, 70],
+      );
+      expect(tokens, ['file://example.com/scan.pdf', 'file://[bad/scan.pdf']);
     });
 
     test('treats an empty scan file as unreadable', () async {
