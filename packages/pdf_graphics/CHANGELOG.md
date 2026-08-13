@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.5.1
+
+- Decode JBIG2 and JPEG 2000 data through image mask and soft-mask paths so
+  scanned MRC pages retain their text, background, and transparency layers.
+
 ## 3.5.0
 
 - Add compact path traversal and replay primitives used by retained and tiled

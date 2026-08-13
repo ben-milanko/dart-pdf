@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.5.1
+
+- Add JBIG2 refinement and JPEG 2000 fixtures used to verify scanned MRC masks
+  and refined text symbols.
+
 ## 3.5.0
 
 - Lockstep minor release to align the dart-pdf package suite at 3.5.0. No

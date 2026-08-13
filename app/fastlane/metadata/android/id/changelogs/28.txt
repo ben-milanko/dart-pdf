@@ -2,3 +2,4 @@ Yang baru di 3.5.1
 
 - Halaman MRC dan JBIG2 yang dipindai kini mempertahankan lapisan teks, latar belakang, dan mask.
 - Gambar dengan soft mask tidak lagi tampil sebagai blok hitam di Impeller atau perender GPU opsional.
+- Pemindaian dokumen Android kini membaca hasil dari penyedia konten sistem dengan andal dan menampilkan kesalahan yang dapat ditindaklanjuti.

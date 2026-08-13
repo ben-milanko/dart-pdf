@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.5.1
+
+- Lockstep patch release for the scanned-page rendering fixes in `pdf_cos`,
+  `pdf_graphics`, and `dart_pdf_editor`. No public document API changes.
+
 ## 3.5.0
 
 - Let `PdfDocument.openSource` expose its requested first-paint page count as a

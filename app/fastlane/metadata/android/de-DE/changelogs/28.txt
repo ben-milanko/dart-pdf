@@ -2,3 +2,4 @@ Neu in 3.5.1
 
 - Gescannte MRC- und JBIG2-Seiten behalten jetzt ihre Text-, Hintergrund- und Maskenebenen.
 - Bilder mit Transparenzmaske erscheinen mit Impeller oder dem optionalen GPU-Renderer nicht mehr als schwarze Flächen.
+- Android-Dokumentenscans lesen Ergebnisse zuverlässig über den System-Inhaltsanbieter und zeigen verständliche Fehler an.

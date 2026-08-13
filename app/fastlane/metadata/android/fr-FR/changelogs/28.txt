@@ -2,3 +2,4 @@ Nouveautés de la version 3.5.1
 
 - Les pages MRC et JBIG2 numérisées conservent désormais leurs calques de texte, d’arrière-plan et de masque.
 - Les images avec masque de transparence ne s’affichent plus sous forme de blocs noirs avec Impeller ou le moteur GPU facultatif.
+- La numérisation de documents Android lit correctement les résultats du fournisseur de contenu système et affiche des erreurs utiles.
