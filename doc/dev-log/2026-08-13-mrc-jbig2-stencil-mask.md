@@ -63,6 +63,15 @@ Two things to get right there:
 
 `curS` advances by the *refined* width, not the dictionary symbol's.
 
+A third thing, caught in review: the refined bitmap is allocated from decoded
+deltas before a pixel is drawn, so it does need a bound - but **not** the text
+region's own size. Composition clips a symbol at the region edge
+(`_drawSymbol` → `_Bitmap.compose`), so a legitimate instance may be larger
+than the region or hang off it, and bounding by `w`/`h` made the decoder
+return null and drop the whole page image. The guard is now an independent
+defensive ceiling (`_maxRefinedSymbolExtent` / `_maxRefinedSymbolPixels`), with
+the per-dimension cap also keeping the area product from overflowing.
+
 ## Testing
 
 `pdf_test_fixtures`' JBIG2 encoder learned to emit refined instances

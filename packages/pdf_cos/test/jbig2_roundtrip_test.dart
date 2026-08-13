@@ -176,6 +176,41 @@ void main() {
         expected(width, height, symbols, placements));
   });
 
+  test('a refined instance may be bigger than the text region', () {
+    // Composition clips a symbol at the region edge, so an instance that
+    // hangs off it is legal - the decoder must not read that as corrupt and
+    // skip the whole page image.
+    final symbols = sortSymbolsForDictionary([glyph(1, 8, 10), glyph(2, 9, 10)]);
+    final globals = encodeJbig2Globals(symbols);
+
+    const width = 24;
+    const height = 12;
+    final reference = symbols[0];
+    // Larger than the region in both axes, and placed to overhang the right
+    // edge as well.
+    final refined = Jbig2Bitmap(reference.width + 6, reference.height + 6)
+      ..fillRect(0, 0, reference.width + 6, reference.height + 6);
+    final placements = [Jbig2Placement(0, 18, 1, refined: refined)];
+
+    final page = encodeJbig2TextPage(
+      width: width,
+      height: height,
+      symbols: symbols,
+      placements: placements,
+    );
+
+    Jbig2Decoder.debugResetGlobalsCache();
+    final decoded = Jbig2Decoder.decode(
+      data: page,
+      globals: globals,
+      width: width,
+      height: height,
+    );
+    expect(decoded, isNotNull);
+    expect(ink(decoded!, width, height),
+        expected(width, height, symbols, placements));
+  });
+
   test('the page stream alone carries no symbols', () {
     final symbols = sortSymbolsForDictionary([glyph(1, 8, 12), glyph(2, 9, 12)]);
     final page = encodeJbig2TextPage(

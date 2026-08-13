@@ -774,6 +774,15 @@ class Jbig2Decoder {
 
   // ---------- text region (§6.4) ----------
 
+  /// Defensive ceilings on a refined symbol instance (§6.4.11), whose bitmap
+  /// is allocated from decoded RDW/RDH deltas before a single pixel is drawn.
+  /// A corrupt stream can code a delta of any magnitude, and nothing in the
+  /// segment bounds it - the text region's own size does not, since
+  /// composition clips. These are far above any real glyph; the per-dimension
+  /// cap also keeps the area product from overflowing.
+  static const _maxRefinedSymbolExtent = 1 << 20;
+  static const _maxRefinedSymbolPixels = 1 << 26;
+
   void _readTextRegion(Uint8List data, List<int> referred) {
     final view = ByteData.sublistView(data);
     final (w, h, x, y, op) = _regionInfo(view);
@@ -875,10 +884,15 @@ class Jbig2Decoder {
           final rdy = decoder.decodeInt(iardy) ?? 0;
           final rw = symbol.width + rdw;
           final rh = symbol.height + rdh;
-          // A corrupt stream can decode an arbitrarily large delta, so the
-          // allocation has to be bounded: no encoder codes an instance bigger
-          // than the region it is drawn into.
-          if (rw <= 0 || rh <= 0 || rw > w || rh > h) {
+          // The region's own size is NOT the bound: composition clips a symbol
+          // at the region edge (see _drawSymbol), so a legitimate instance may
+          // hang off it. Only guard the allocation against a corrupt stream's
+          // arbitrarily large delta.
+          if (rw <= 0 ||
+              rh <= 0 ||
+              rw > _maxRefinedSymbolExtent ||
+              rh > _maxRefinedSymbolExtent ||
+              rw * rh > _maxRefinedSymbolPixels) {
             throw const FormatException('bad refined symbol size');
           }
           symbol = _decodeRefinement(
