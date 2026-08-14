@@ -4,7 +4,8 @@
 derivatives, so users can `paru -S dartpdf-bin` / `yay -S dartpdf-bin`.
 
 - **Package:** binary (`-bin`) — installs the release bundle under
-  `/opt/dartpdf` and symlinks `/usr/bin/dartpdf`.
+  `/opt/dartpdf`, preserves the GUI launcher at `/usr/bin/dartpdf`, and exposes
+  the bundled CLI/MCP sidecar as `/usr/bin/dartpdf-cli`.
 - **Source of truth for the `PKGBUILD`:** this directory. The AUR git repo is a
   publish target; keep this copy authoritative and push from here.
 
@@ -29,7 +30,8 @@ from the matching release tag.
    makepkg -f                       # builds the package locally
    namcap PKGBUILD *.pkg.tar.zst    # lint (optional but recommended)
    ```
-4. Test-install: `sudo pacman -U dartpdf-bin-*.pkg.tar.zst`, then `dartpdf`.
+4. Test-install: `sudo pacman -U dartpdf-bin-*.pkg.tar.zst`, then launch
+   `dartpdf` and check the bundled CLI with `dartpdf-cli --version`.
 
 > **Note:** `.SRCINFO` in this repo is hand-maintained to mirror the `PKGBUILD`.
 > Always regenerate it with `makepkg --printsrcinfo > .SRCINFO` before pushing —

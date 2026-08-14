@@ -21,6 +21,14 @@ sudo snap connect dartpdf:removable-media
 sudo snap connect dartpdf:password-manager-service
 ```
 
+The GUI owns the package's `dartpdf` command. The bundled CLI/MCP sidecar is
+available as `dartpdf.cli`:
+
+```sh
+dartpdf.cli inspect "$HOME/document.pdf" --json
+dartpdf.cli mcp --root "$HOME/PDFs"
+```
+
 ## Local build
 
 On Ubuntu 24.04 or newer:

@@ -52,7 +52,10 @@ fi
 
 if [[ -d "$macos_dir" ]]; then
   while IFS= read -r -d '' file; do
-    if [[ "$file" == *.dylib ]] && /usr/bin/file -b "$file" | grep -q 'Mach-O'; then
+    # `dartpdf-cli` is the compiled CLI/MCP sidecar. Sign it as nested code
+    # before signing the outer app, like dylibs copied into this directory.
+    if [[ "$file" == *.dylib || "$(basename "$file")" == dartpdf-cli ]] &&
+        /usr/bin/file -b "$file" | grep -q 'Mach-O'; then
       sign_code "$file"
     fi
   done < <(find "$macos_dir" -maxdepth 1 -type f -print0)

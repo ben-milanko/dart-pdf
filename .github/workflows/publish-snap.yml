@@ -91,6 +91,7 @@ jobs:
           snap_file="$(find "$RUNNER_TEMP/snap-output" -name 'dartpdf_*.snap' -print -quit)"
           sudo snap install --dangerous "$snap_file"
           snap info "$SNAP_NAME"
+          sudo snap run "$SNAP_NAME.cli" --version
           set +e
           # GitHub hosts the runner inside a non-interactive system service,
           # so its user has no PAM-created session cgroup for snap-confine.
@@ -133,6 +134,7 @@ jobs:
           sudo snap install "$SNAP_NAME"
           [[ "$(snap info "$SNAP_NAME" | sed -n 's/^installed:[[:space:]]*\([^[:space:]]*\).*/\1/p')" == \
             "$EXPECTED_VERSION" ]]
+          sudo snap run "$SNAP_NAME.cli" --version
           set +e
           sudo install -d -m 700 /run/user/0 /root/snap/dartpdf/common
           sudo env XDG_RUNTIME_DIR=/run/user/0 \

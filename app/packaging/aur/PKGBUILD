@@ -34,12 +34,14 @@ package() {
   # runner resolves its real path via readlink and finds data/ + lib/ next to
   # it, so a /usr/bin symlink works.
   install -d "${pkgdir}/opt/dartpdf"
-  cp -r "${srcdir}/dart_pdf_editor_app" "${srcdir}/data" "${srcdir}/lib" \
-        "${pkgdir}/opt/dartpdf/"
-  chmod 755 "${pkgdir}/opt/dartpdf/dart_pdf_editor_app"
+  cp -r "${srcdir}/dart_pdf_editor_app" "${srcdir}/dartpdf-cli" \
+        "${srcdir}/data" "${srcdir}/lib" "${pkgdir}/opt/dartpdf/"
+  chmod 755 "${pkgdir}/opt/dartpdf/dart_pdf_editor_app" \
+            "${pkgdir}/opt/dartpdf/dartpdf-cli"
 
   install -d "${pkgdir}/usr/bin"
   ln -s /opt/dartpdf/dart_pdf_editor_app "${pkgdir}/usr/bin/dartpdf"
+  ln -s /opt/dartpdf/dartpdf-cli "${pkgdir}/usr/bin/dartpdf-cli"
 
   install -d "${pkgdir}/usr/share"
   cp -r "${srcdir}/share/." "${pkgdir}/usr/share/"

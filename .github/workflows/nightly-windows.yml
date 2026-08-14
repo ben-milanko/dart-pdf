@@ -99,6 +99,8 @@ jobs:
             --build-number="${{ github.run_number }}" `
             --dart-define="PDF_BUILD_COMMIT=${{ needs.changes.outputs.head_sha }}"
           if ($LASTEXITCODE -ne 0) { throw "flutter build windows failed ($LASTEXITCODE)" }
+          & build/windows/x64/runner/Release/dartpdf.exe --version
+          if ($LASTEXITCODE -ne 0) { throw "dartpdf.exe smoke check failed ($LASTEXITCODE)" }
 
       - name: Package portable build
         working-directory: app

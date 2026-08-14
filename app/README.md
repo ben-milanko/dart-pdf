@@ -53,6 +53,10 @@ AppImage and portable tarball builds remain available from
   JSON. Web keeps Canvas through the companion's compile-time stub; pull-request
   web previews provide macOS, Windows, and Linux download buttons in this
   section for testing the native backend.
+- Desktop builds include the native `dartpdf` CLI and stdio MCP server for
+  bounded inspection, text extraction, form listing, and annotation listing.
+  See [`dart_pdf_cli`](../packages/dart_pdf_cli) for installed paths and agent
+  registration.
 - Dirty-state tracking with a save indicator and crash recovery: unsaved
   revisions are mirrored in the background and offered for restoration after
   a restart.
@@ -104,8 +108,10 @@ cd app && fvm flutter test
 
 ## Build
 
-`flutter build <apk|appbundle|ios|macos|windows|linux|web> --release`. Releases
-are automated on `app-v*` tags. See [RELEASING.md](RELEASING.md).
+`flutter build <apk|appbundle|ios|macos|windows|linux|web> --release`. The three
+desktop native projects compile and bundle the `dartpdf` CLI/MCP sidecar as part
+of the ordinary build. Releases are automated on `app-v*` tags. See
+[RELEASING.md](RELEASING.md).
 
 ## Manual device-test matrix
 

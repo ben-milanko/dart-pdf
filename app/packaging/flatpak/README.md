@@ -67,6 +67,14 @@ flatpak-builder --user --install --force-clean \
 flatpak run dev.milanko.dartpdf
 ```
 
+The package also carries the CLI/MCP sidecar. Strict confinement has no broad
+filesystem grant, so explicitly expose the working tree used as an MCP root:
+
+```sh
+flatpak run --filesystem="$PWD" --command=dartpdf-cli \
+  dev.milanko.dartpdf inspect "$PWD/document.pdf" --json
+```
+
 After changing desktop metadata or icons, run:
 
 ```sh

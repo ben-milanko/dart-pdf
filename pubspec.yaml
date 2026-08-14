@@ -9,6 +9,7 @@ workspace:
   - packages/pdf_cos
   - packages/pdf_document
   - packages/pdf_graphics
+  - packages/dart_pdf_cli
   - packages/pdf_ocr_vlm
   - packages/pdf_ocr_ondevice
   - packages/dart_pdf_editor

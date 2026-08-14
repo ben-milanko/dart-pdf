@@ -127,6 +127,7 @@ jobs:
           flatpak install --user --noninteractive -y \
             dartpdf-local "$FLATPAK_ID//stable"
           flatpak info --user "$FLATPAK_ID"
+          flatpak run --user --command=dartpdf-cli "$FLATPAK_ID" --version
           set +e
           timeout 12s dbus-run-session -- xvfb-run -a \
             flatpak run --user "$FLATPAK_ID" \

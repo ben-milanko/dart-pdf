@@ -101,6 +101,29 @@ always served fresh, so it skips the check.
 | Linux | `…-linux-x64.tar.gz`, `…-linux-x86_64.AppImage` | Flatpak repository is GPG-signed; raw artifacts are unsigned |
 | Web | `…-web.zip` | n/a |
 
+### Desktop CLI / MCP sidecar
+
+Every macOS, Windows, and Linux native build compiles the VM-only
+`packages/dart_pdf_cli/bin/dartpdf.dart` entrypoint into a self-contained target
+executable. It uses the same architecture as the Flutter runner; a universal
+macOS release compiles its arm64 and x64 slices on native GitHub runners and
+merges them with `lipo` before codesigning. (A local macOS build contains the
+host-native sidecar.) The native project files place it in:
+
+- macOS: `DartPDF.app/Contents/MacOS/dartpdf-cli` (the suffix avoids a
+  case-insensitive collision with the `DartPDF` GUI executable; it is signed as
+  nested code before the outer app bundle);
+- Windows: `dartpdf.exe` beside `dart_pdf_editor_app.exe`;
+- Linux: `dartpdf-cli` beside `dart_pdf_editor_app` (`dartpdf` remains the
+  established GUI launcher in Linux packages).
+
+Because the release packagers archive those native bundles, the sidecar also
+travels in the DMG, Windows installer/portable/MSIX outputs, Linux tarball, and
+AppImage. Linux store packages expose it as `/app/bin/dartpdf-cli` for Flatpak
+and `dartpdf.cli` for Snap; the AUR package installs `/usr/bin/dartpdf-cli`.
+The macOS and Windows installers deliberately do not alter `PATH`. See the CLI
+package README for MCP registration commands.
+
 ## The credential boundary
 
 DartPDF ships to the **RES (Railway Engineering Solutions) Google Play

@@ -178,7 +178,9 @@ jobs:
       - run: flutter pub get
       - name: Build Linux
         working-directory: app
-        run: flutter build linux --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+        run: |
+          flutter build linux --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+          build/linux/x64/release/bundle/dartpdf-cli --version
       - name: Tar bundle (portable folder)
         working-directory: app
         # The bundle now carries the desktop-integration files under share/
@@ -238,7 +240,12 @@ jobs:
       - run: flutter pub get
       - name: Build Windows
         working-directory: app
-        run: flutter build windows --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }} --dart-define=PDF_BUILD_COMMIT=${{ github.sha }}
+        shell: pwsh
+        run: |
+          flutter build windows --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }} --dart-define=PDF_BUILD_COMMIT=${{ github.sha }}
+          if ($LASTEXITCODE -ne 0) { throw "flutter build windows failed ($LASTEXITCODE)" }
+          & build/windows/x64/runner/Release/dartpdf.exe --version
+          if ($LASTEXITCODE -ne 0) { throw "dartpdf.exe smoke check failed ($LASTEXITCODE)" }
       - name: Bundle MSVC runtime (makes the folder portable on clean PCs)
         working-directory: app
         shell: pwsh
@@ -370,9 +377,43 @@ jobs:
             app/dartpdf-windows-portable.exe
             app/dartpdf-windows-installer.exe
 
-  macos:
+  macos_cli:
+    name: Build macOS CLI (${{ matrix.arch }})
     needs: setup
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Compile native CLI/MCP slice
+        run: |
+          dart tool/build_desktop_cli.dart \
+            --output app/build/dartpdf-cli/dartpdf-${{ matrix.arch }} \
+            --target-os macos \
+            --target-arch ${{ matrix.arch }}
+          file app/build/dartpdf-cli/dartpdf-${{ matrix.arch }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-cli-${{ matrix.arch }}
+          path: app/build/dartpdf-cli/dartpdf-${{ matrix.arch }}
+
+  macos:
+    needs: [setup, macos_cli]
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
         with:
@@ -398,6 +439,21 @@ jobs:
       - name: Build macOS
         working-directory: app
         run: flutter build macos --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: macos-cli-*
+          path: app/build/dartpdf-cli-slices
+          merge-multiple: true
+      - name: Install universal CLI/MCP sidecar
+        working-directory: app
+        run: |
+          /usr/bin/lipo -create \
+            build/dartpdf-cli-slices/dartpdf-arm64 \
+            build/dartpdf-cli-slices/dartpdf-x64 \
+            -output build/macos/Build/Products/Release/DartPDF.app/Contents/MacOS/dartpdf-cli
+          chmod 755 build/macos/Build/Products/Release/DartPDF.app/Contents/MacOS/dartpdf-cli
+          /usr/bin/lipo -info build/macos/Build/Products/Release/DartPDF.app/Contents/MacOS/dartpdf-cli
+          build/macos/Build/Products/Release/DartPDF.app/Contents/MacOS/dartpdf-cli --version
       - name: Ad-hoc sign macOS app with distributable entitlements
         working-directory: app
         env:
@@ -456,7 +512,15 @@ jobs:
         with:
           name: DartPDF ${{ needs.setup.outputs.version }}
           draft: true
-          files: artifacts/**/*
+          # The macos-cli-* artifacts are internal slices used to create the
+          # universal sidecar; only user-facing package artifacts are released.
+          files: |
+            artifacts/android/**/*
+            artifacts/web/**/*
+            artifacts/linux/**/*
+            artifacts/windows/**/*
+            artifacts/macos/**/*
+            artifacts/ios/**/*
           body: |
             Standalone DartPDF ${{ needs.setup.outputs.version }}.
 
