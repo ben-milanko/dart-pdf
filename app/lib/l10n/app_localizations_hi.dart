@@ -422,13 +422,13 @@ class AppLocalizationsHi extends AppLocalizations {
   String get editorMenuNewDocument => 'नया दस्तावेज़…';
 
   @override
-  String get editorMenuNewWindow => 'New window';
+  String get editorMenuNewWindow => 'नई विंडो';
 
   @override
-  String get editorMoveToNewWindow => 'Move to new window';
+  String get editorMoveToNewWindow => 'नई विंडो में ले जाएँ';
 
   @override
-  String get editorUnableToOpenNewWindow => 'Couldn’t open a new window';
+  String get editorUnableToOpenNewWindow => 'नई विंडो नहीं खोली जा सकी';
 
   @override
   String get editorMenuOcr => 'OCR…';

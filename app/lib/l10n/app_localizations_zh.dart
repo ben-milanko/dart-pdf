@@ -412,13 +412,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get editorMenuNewDocument => '新建文档…';
 
   @override
-  String get editorMenuNewWindow => 'New window';
+  String get editorMenuNewWindow => '新建窗口';
 
   @override
-  String get editorMoveToNewWindow => 'Move to new window';
+  String get editorMoveToNewWindow => '移至新窗口';
 
   @override
-  String get editorUnableToOpenNewWindow => 'Couldn’t open a new window';
+  String get editorUnableToOpenNewWindow => '无法打开新窗口';
 
   @override
   String get editorMenuOcr => 'OCR…';
@@ -1381,6 +1381,15 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get editorMenuNewDocument => '新文件…';
+
+  @override
+  String get editorMenuNewWindow => '新增視窗';
+
+  @override
+  String get editorMoveToNewWindow => '移至新視窗';
+
+  @override
+  String get editorUnableToOpenNewWindow => '無法開啟新視窗';
 
   @override
   String get editorMenuOcr => 'OCR…';

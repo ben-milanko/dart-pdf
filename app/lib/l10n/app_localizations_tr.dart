@@ -423,13 +423,13 @@ class AppLocalizationsTr extends AppLocalizations {
   String get editorMenuNewDocument => 'Yeni belge…';
 
   @override
-  String get editorMenuNewWindow => 'New window';
+  String get editorMenuNewWindow => 'Yeni pencere';
 
   @override
-  String get editorMoveToNewWindow => 'Move to new window';
+  String get editorMoveToNewWindow => 'Yeni pencereye taşı';
 
   @override
-  String get editorUnableToOpenNewWindow => 'Couldn’t open a new window';
+  String get editorUnableToOpenNewWindow => 'Yeni pencere açılamadı';
 
   @override
   String get editorMenuOcr => 'OCR…';

@@ -426,13 +426,13 @@ class AppLocalizationsNl extends AppLocalizations {
   String get editorMenuNewDocument => 'Nieuw document…';
 
   @override
-  String get editorMenuNewWindow => 'New window';
+  String get editorMenuNewWindow => 'Nieuw venster';
 
   @override
-  String get editorMoveToNewWindow => 'Move to new window';
+  String get editorMoveToNewWindow => 'Naar nieuw venster verplaatsen';
 
   @override
-  String get editorUnableToOpenNewWindow => 'Couldn’t open a new window';
+  String get editorUnableToOpenNewWindow => 'Kan geen nieuw venster openen';
 
   @override
   String get editorMenuOcr => 'OCR…';

@@ -427,13 +427,13 @@ class AppLocalizationsRu extends AppLocalizations {
   String get editorMenuNewDocument => 'Новый документ…';
 
   @override
-  String get editorMenuNewWindow => 'New window';
+  String get editorMenuNewWindow => 'Новое окно';
 
   @override
-  String get editorMoveToNewWindow => 'Move to new window';
+  String get editorMoveToNewWindow => 'Переместить в новое окно';
 
   @override
-  String get editorUnableToOpenNewWindow => 'Couldn’t open a new window';
+  String get editorUnableToOpenNewWindow => 'Не удалось открыть новое окно';
 
   @override
   String get editorMenuOcr => 'OCR…';

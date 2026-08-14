@@ -420,13 +420,13 @@ class AppLocalizationsVi extends AppLocalizations {
   String get editorMenuNewDocument => 'Tài liệu mới…';
 
   @override
-  String get editorMenuNewWindow => 'New window';
+  String get editorMenuNewWindow => 'Cửa sổ mới';
 
   @override
-  String get editorMoveToNewWindow => 'Move to new window';
+  String get editorMoveToNewWindow => 'Chuyển sang cửa sổ mới';
 
   @override
-  String get editorUnableToOpenNewWindow => 'Couldn’t open a new window';
+  String get editorUnableToOpenNewWindow => 'Không thể mở cửa sổ mới';
 
   @override
   String get editorMenuOcr => 'OCR…';
