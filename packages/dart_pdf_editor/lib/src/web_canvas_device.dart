@@ -173,6 +173,7 @@ class _BrowserCanvasDevice implements PdfDevice {
   final double hairlineWidth;
   final Map<Object, web.CanvasImageSource> browserImages;
   final Map<PdfDecodedPixels, web.OffscreenCanvas> _images = {};
+  final Map<String, double> _textWidths = {};
 
   // Canvas2D property writes cross the Dart/JS boundary. Dense CAD pages can
   // contain hundreds of thousands of adjacent strokes with the same colour,
@@ -322,6 +323,7 @@ class _BrowserCanvasDevice implements PdfDevice {
     final style = name.contains('Italic') || name.contains('Oblique')
         ? 'italic'
         : 'normal';
+    final font = '$style $weight ${renderSize}px "$family"';
 
     context.save();
     context.transform(
@@ -333,12 +335,34 @@ class _BrowserCanvasDevice implements PdfDevice {
       run.transform.f,
     );
     context
-      ..font = '$style $weight ${renderSize}px "$family"'
+      ..font = font
       ..textAlign = 'left'
       ..textBaseline = 'alphabetic'
-      ..letterSpacing = '${run.letterSpacing * renderSize}px'
-      ..wordSpacing = '${run.wordSpacing * renderSize}px'
+      // The exact-placement plan already carries Tc/Tw in its offsets. Keep
+      // Canvas2D's own spacing out of its measurements and glyph shapes.
+      ..letterSpacing = '0px'
+      ..wordSpacing = '0px'
       ..fillStyle = _rgbCss(run.color).toJS;
+
+    final placed = pdfCanvas2dTextLayout(
+      run,
+      (text) => _textWidths.putIfAbsent(
+        '$font\u0000$text',
+        () => context.measureText(text).width,
+      ),
+    );
+    if (placed != null) {
+      context.scale(1 / placed.unitsPerEm, -1 / renderSize);
+      for (final part in placed.parts) {
+        context.fillText(part.text, part.x, 0);
+      }
+      context.restore();
+      return;
+    }
+
+    context
+      ..letterSpacing = '${run.letterSpacing * renderSize}px'
+      ..wordSpacing = '${run.wordSpacing * renderSize}px';
     final naturalWidth = context.measureText(run.text).width;
     final scaleX = run.width > 0 && naturalWidth > 0
         ? run.width * renderSize / naturalWidth

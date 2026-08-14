@@ -9,16 +9,20 @@ PdfTextRun _run({
   List<PdfGlyphPlacement>? glyphs,
   bool fill = true,
   PdfColor? strokeColor,
+  String text = 'DartPDF',
+  double width = 3.5,
+  List<double>? charOffsets,
 }) =>
     PdfTextRun(
-      text: 'DartPDF',
+      text: text,
       transform: PdfMatrix.identity,
       color: PdfColor.black,
-      width: 3.5,
+      width: width,
       fontName: 'Helvetica',
       glyphs: glyphs,
       fill: fill,
       strokeColor: strokeColor,
+      charOffsets: charOffsets,
     );
 
 void main() {
@@ -41,6 +45,117 @@ void main() {
     );
     expect(supportsPdfTextPageSurface(const []), isTrue,
         reason: 'a blank page still needs its paper colour painted');
+  });
+
+  test('Canvas2D substituted glyphs use the PDF character advances', () {
+    // The Century Gothic Bold run from the reported PDF. Canvas2D substitutes
+    // Helvetica here; these are representative 100px Helvetica advances.
+    const natural = <String, double>{
+      'B': 72.2,
+      'O': 77.8,
+      'K': 72.2,
+      '1': 55.6,
+    };
+    final layout = pdfCanvas2dTextLayout(
+      _run(
+        text: 'BOOK 1B',
+        width: 4.3002916666666655,
+        charOffsets: const [
+          0,
+          0.5800416666666666,
+          1.4200833333333331,
+          2.260125,
+          2.8801666666666663,
+          3.160208333333333,
+          3.720249999999999,
+          4.3002916666666655,
+        ],
+      ),
+      (text) => natural[text] ?? 30,
+    );
+
+    expect(layout, isNotNull);
+    expect(
+      layout!.parts.map((part) => part.text),
+      ['B', 'O', 'O', 'K', '1', 'B'],
+      reason: 'mismatched words must not keep fallback-font distribution',
+    );
+    final origins = layout.parts
+        .map((part) => part.x / layout.unitsPerEm)
+        .toList(growable: false);
+    const expected = [
+      0.0,
+      0.5800416666666666,
+      1.4200833333333331,
+      2.260125,
+      3.160208333333333,
+      3.720249999999999,
+    ];
+    for (var i = 0; i < expected.length; i++) {
+      expect(
+        origins[i],
+        closeTo(expected[i], 1e-12),
+        reason: 'painted glyph $i must recover its PDF offset',
+      );
+    }
+  });
+
+  test('Canvas2D keeps a word whole when its interior advances agree', () {
+    final layout = pdfCanvas2dTextLayout(
+      _run(
+        text: 'BOOK',
+        width: 4,
+        charOffsets: const [0, 1, 2, 3, 4],
+      ),
+      (_) => 100,
+    );
+    expect(layout, isNotNull);
+    expect(layout!.parts, hasLength(1));
+    expect(layout.parts.single.text, 'BOOK');
+    expect(layout.parts.single.x, 0);
+  });
+
+  test('Canvas2D exact placement declines complex and malformed runs', () {
+    expect(
+      pdfCanvas2dTextLayout(
+        _run(
+          text: 'مرحبا',
+          width: 3,
+          charOffsets: const [0, 0.6, 1.2, 1.8, 2.4, 3],
+        ),
+        (_) => 100,
+      ),
+      isNull,
+      reason: 'Arabic must retain whole-run joining and shaping',
+    );
+    expect(
+      pdfCanvas2dTextLayout(
+        _run(text: 'AB', width: 2, charOffsets: const [0, 2]),
+        (_) => 100,
+      ),
+      isNull,
+      reason: 'one boundary per character plus the closing edge is required',
+    );
+    expect(
+      pdfCanvas2dTextLayout(
+        _run(
+          text: 'AB',
+          width: double.nan,
+          charOffsets: const [0, 1, 2],
+        ),
+        (_) => 100,
+      ),
+      isNull,
+      reason: 'non-finite run geometry must retain the safe fallback',
+    );
+    expect(
+      pdfCanvas2dTextLayout(
+        _run(text: 'AB', width: 2, charOffsets: const [0, 1, 0.5]),
+        (_) => 100,
+      ),
+      isNull,
+      reason: 'character boundaries must remain monotonic',
+    );
   });
 
   test('solid path fills and strokes fit the browser surface profile', () {
