@@ -1262,27 +1262,22 @@ Future<Map<PdfEditTool, PdfToolShortcut>?> showPdfShellShortcutsSheet(
     return showDialog<PdfToolShortcut>(
       context: context,
       builder: (context) {
-        final focusNode = FocusNode(debugLabel: 'PdfShortcutCapture');
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (focusNode.canRequestFocus) focusNode.requestFocus();
-        });
         return AlertDialog(
           title: Text(pdfL10n(context).shellPressAKey),
-          content: KeyboardListener(
-            focusNode: focusNode,
+          content: Focus(
             autofocus: true,
-            onKeyEvent: (event) {
-              if (event is! KeyDownEvent) return;
+            onKeyEvent: (_, event) {
+              if (event is! KeyDownEvent) return KeyEventResult.handled;
               final key = event.logicalKey;
               if (key == LogicalKeyboardKey.escape) {
-                Navigator.of(context).maybePop();
-                return;
+                Navigator.of(context).pop();
+                return KeyEventResult.handled;
               }
               if (key == LogicalKeyboardKey.delete ||
                   key == LogicalKeyboardKey.backspace) {
                 Navigator.of(context)
                     .pop(const PdfToolShortcut(LogicalKeyboardKey(0)));
-                return;
+                return KeyEventResult.handled;
               }
               // Hold Shift to record a Shift-extended shortcut; bare Shift
               // (and other modifier keys) carry a multi-character keyLabel,
@@ -1291,12 +1286,13 @@ Future<Map<PdfEditTool, PdfToolShortcut>?> showPdfShellShortcutsSheet(
                 Navigator.of(context).pop(PdfToolShortcut(key,
                     shift: HardwareKeyboard.instance.isShiftPressed));
               }
+              return KeyEventResult.handled;
             },
             child: Text(pdfL10n(context).shellPressLetterKeyHint),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(context).maybePop(),
+              onPressed: () => Navigator.of(context).pop(),
               child: Text(pdfL10n(context).cancel),
             ),
           ],
@@ -1728,8 +1724,7 @@ class PdfShellViewOptionsButton extends StatelessWidget {
   final VoidCallback? onAuthorPressed;
 
   final Map<PdfEditTool, PdfToolShortcut>? toolShortcuts;
-  final ValueChanged<Map<PdfEditTool, PdfToolShortcut>>?
-      onToolShortcutsChanged;
+  final ValueChanged<Map<PdfEditTool, PdfToolShortcut>>? onToolShortcutsChanged;
   final Set<PdfEditTool>? tools;
 
   String _hex(Color color) {

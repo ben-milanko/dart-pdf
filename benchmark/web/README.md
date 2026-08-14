@@ -26,7 +26,7 @@ benchmark/web/run.sh [corpus_dir] [count] [scale] [maxPages] [repeat]
 # defaults: corpus=test_corpora/pdfjs count=20 scale=2 maxPages=5 repeat=3
 ```
 
-Requirements: fvm/flutter 3.44.8, Node, a global Playwright with Chromium
+Requirements: fvm/flutter 3.47.0, Node, a global Playwright with Chromium
 (`PLAYWRIGHT_BROWSERS_PATH`), and `python3` for the compare table. `run.sh`
 generates a manifest, builds both renderers, serves + drives each, and runs
 `benchmark/compare.py`.

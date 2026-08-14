@@ -33,7 +33,7 @@ permissions:
   contents: read
 
 env:
-  FLUTTER_VERSION: '3.44.8'
+  FLUTTER_VERSION: '3.47.0'
   DOTNET_VERSION: '9.0.x'
 
 jobs:

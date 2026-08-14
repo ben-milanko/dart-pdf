@@ -18,7 +18,7 @@ dependencies:
     sdk: flutter
   # Localized message formatting (ICU plurals/select, DateFormat/NumberFormat)
   # and the generated AppLocalizations bundle. Pinned to the version
-  # flutter_localizations resolves against Flutter 3.44.8.
+  # flutter_localizations resolves against Flutter 3.47.0.
   intl: ^0.20.2
   cupertino_icons: ^1.0.8
 
@@ -26,7 +26,7 @@ dependencies:
   dart_pdf_editor: ^3.5.1
   # Optional Impeller-backed renderer for the existing deep-zoom tile store.
   # Its web export is an inert capability stub and Canvas remains the fallback.
-  dart_pdf_editor_flutter_gpu: ^0.1.2
+  dart_pdf_editor_flutter_gpu: ^0.1.3
   # The optional editor fonts + web render worker; registered at startup so the
   # app keeps the full-featured editor. A viewer-only app would omit this.
   dart_pdf_editor_assets: ^3.5.1

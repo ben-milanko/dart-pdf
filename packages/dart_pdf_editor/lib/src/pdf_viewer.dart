@@ -2090,7 +2090,7 @@ class _PdfViewerState extends State<PdfViewer>
     // on each one means the warm can only run after the viewer has genuinely
     // stopped rendering - and resumes without waiting for a scroll settle that
     // may never come (the last queued page simply finished).
-    _renderScheduler.activity.addListener(_scheduleRasterWarm);
+    _renderScheduler.activity.addListener(_onRenderSchedulerActivity);
     HardwareKeyboard.instance.addHandler(_onKeyEvent);
     // on the web the browser's native context menu pops on right-click and
     // pre-empts the viewer's own annotation/text menus - suppress it while
@@ -2158,6 +2158,19 @@ class _PdfViewerState extends State<PdfViewer>
     setState(() {});
     _schedulePreviewPrerender();
     _scheduleRasterWarm();
+  }
+
+  /// Restarts background work once the visible-page scheduler goes idle.
+  ///
+  /// The preview loop used to poll [PdfPageRenderScheduler.busy] by awaiting
+  /// every frame. Besides spending frames while there was nothing useful to
+  /// paint, that kept `pumpAndSettle` alive indefinitely when a foreground
+  /// render was waiting on asynchronous work. The scheduler already reports
+  /// every transition that can change [PdfPageRenderScheduler.busy], so use
+  /// that notification as the wake-up edge instead.
+  void _onRenderSchedulerActivity() {
+    _scheduleRasterWarm();
+    if (!_renderScheduler.busy) _schedulePreviewPrerender();
   }
 
   void _onPerformanceTimings(List<FrameTiming> timings) {
@@ -2778,9 +2791,11 @@ class _PdfViewerState extends State<PdfViewer>
           // [hasPending] is false in that window, but starting a background
           // preview can make its large worker reply/replay land ahead of the
           // visible page (#603). Keep the entire foreground transaction clear.
-          await SchedulerBinding.instance.endOfFrame;
-          if (!mounted) return;
-          continue;
+          // The scheduler's activity notification restarts this loop when
+          // the foreground transaction completes. Do not poll by scheduling
+          // frames here: an asynchronous render may legitimately stay busy
+          // without producing another frame in the meantime.
+          return;
         }
         final pages = _pages;
         double? targetLongestSide;
@@ -3787,7 +3802,7 @@ class _PdfViewerState extends State<PdfViewer>
     HardwareKeyboard.instance.removeHandler(_onKeyEvent);
     _restoreBrowserContextMenu();
     _lifecycle.dispose();
-    _renderScheduler.activity.removeListener(_scheduleRasterWarm);
+    _renderScheduler.activity.removeListener(_onRenderSchedulerActivity);
     _settleTimer?.cancel();
     _scrollSettleTimer?.cancel();
     _motionHoldReleaseTimer?.cancel();

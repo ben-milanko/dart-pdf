@@ -362,7 +362,7 @@ subsampling/PCRL-CPRL progressions.
 
 ## Development
 
-This repo uses [fvm](https://fvm.app) (Flutter 3.44.8) and pub workspaces.
+This repo uses [fvm](https://fvm.app) (Flutter 3.47.0) and pub workspaces.
 
 ```sh
 fvm flutter pub get          # resolve the whole workspace

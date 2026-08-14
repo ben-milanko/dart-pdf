@@ -49,8 +49,8 @@ constraint when you bump versions (or run `dart pub upgrade --tighten`).
 ## Setup
 
 Flutter is pinned with [fvm](https://fvm.app) (see `.fvmrc`, currently
-**3.44.8**). Use `fvm flutter` / `fvm dart`, or the binaries under
-`~/fvm/versions/3.44.8/bin/`.
+**3.47.0**). Use `fvm flutter` / `fvm dart`, or the binaries under
+`~/fvm/versions/3.47.0/bin/`.
 
 ```bash
 fvm install            # once, installs the pinned Flutter
