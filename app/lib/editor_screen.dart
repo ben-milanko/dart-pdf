@@ -46,6 +46,7 @@ import 'update_installer.dart';
 import 'update_platform.dart';
 import 'web_launch.dart';
 import 'welcome_screen.dart';
+import 'window_support.dart';
 
 /// Height of the AppBar's browser-style tab strip.
 const double _tabStripHeight = 42;
@@ -98,6 +99,9 @@ class EditorScreen extends StatefulWidget {
     this.textClipboardReader,
     this.unsavedChangesStore,
     this.documentScanner,
+    this.onNewWindow,
+    this.initialHandoff,
+    this.ownsApplicationSession = true,
   });
 
   final PdfEditingPreferences prefs;
@@ -193,6 +197,26 @@ class EditorScreen extends StatefulWidget {
   /// ([scanDocumentToPdf]); where scanning isn't supported the entries hide.
   final DocumentScanner? documentScanner;
 
+  /// Opens another native editor window. A [document] moves a live tab into
+  /// it; null creates an empty window. The boolean reports whether the native
+  /// window was registered successfully.
+  ///
+  /// Null keeps all multi-window UI and shortcuts hidden. Production supplies
+  /// null because Flutter's windowing API is still experimental.
+  final bool Function(
+    BuildContext context, {
+    DocumentHandoff? document,
+  })? onNewWindow;
+
+  /// A document moved from another window and opened during initialization.
+  final DocumentHandoff? initialHandoff;
+
+  /// Whether this window owns process-wide session restoration, incoming OS
+  /// file events, update checks, and the application-exit confirmation.
+  /// Secondary windows set this false so they cannot race or replace the
+  /// primary window's state.
+  final bool ownsApplicationSession;
+
   @override
   State<EditorScreen> createState() => _EditorScreenState();
 }
@@ -222,6 +246,9 @@ class _EditorScreenState extends State<EditorScreen>
   final _incoming = IncomingFileService();
   final _ocr = OnDeviceOcr();
   StreamSubscription<IncomingFile>? _incomingSub;
+  final Object _windowCloseOwner = Object();
+  DartPdfWindowCloseCoordinator? _windowCloseCoordinator;
+  bool _nativeWindowCloseApproved = false;
 
   /// Gates session persistence until the previous session has been read back,
   /// so an early tab open (e.g. an OS file-open) doesn't clobber the stored set
@@ -299,24 +326,40 @@ class _EditorScreenState extends State<EditorScreen>
     _recents.load().then((_) {
       if (mounted) _pruneRecentCache();
     });
-    // Files the OS opens in the app: the launch file, then any later opens.
-    _incoming.start();
-    _incomingSub = _incoming.files.listen(_openIncoming);
-    _incoming.initialFile().then((file) {
-      if (file != null && mounted) _openIncoming(file);
-    });
-    _openLaunchArgs();
-    // PWA file-handler opens (installed web app); no-op off the web.
-    startWebLaunchQueue(_openIncoming);
+    if (widget.ownsApplicationSession) {
+      // One process-wide owner receives OS file-open events. Method channels
+      // have one Dart handler, so letting every window register would make the
+      // newest secondary window steal delivery from the primary.
+      _incoming.start();
+      _incomingSub = _incoming.files.listen(_openIncoming);
+      _incoming.initialFile().then((file) {
+        if (file != null && mounted) _openIncoming(file);
+      });
+      _openLaunchArgs();
+      // PWA file-handler opens (installed web app); no-op off the web.
+      startWebLaunchQueue(_openIncoming);
+    }
     final doc = widget.initialDocument;
     if (doc != null) _openBytes(doc.bytes, doc.title);
+    final handoff = widget.initialHandoff;
+    if (handoff != null) _openHandoff(handoff);
     // Re-open the documents that were open when the app last closed, unless the
     // app was launched to open a specific file (that explicit target wins).
-    unawaited(_restoreSession());
+    if (widget.ownsApplicationSession) unawaited(_restoreSession());
     if (widget.autoCheckUpdates && _updates.supported) {
       _updates.addListener(_onUpdateStatus);
       unawaited(_startupUpdateCheck());
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final coordinator = DartPdfWindowCloseScope.maybeOf(context);
+    if (identical(coordinator, _windowCloseCoordinator)) return;
+    _windowCloseCoordinator?.unregister(_windowCloseOwner);
+    _windowCloseCoordinator = coordinator;
+    coordinator?.register(_windowCloseOwner, _requestNativeWindowClose);
   }
 
   /// Runs the one-shot startup update check. When we built the service
@@ -390,6 +433,7 @@ class _EditorScreenState extends State<EditorScreen>
 
   @override
   void dispose() {
+    _windowCloseCoordinator?.unregister(_windowCloseOwner);
     WidgetsBinding.instance.removeObserver(this);
     if (kDevToolsEnabled) {
       HardwareKeyboard.instance.removeHandler(_onGlobalKeyEvent);
@@ -415,6 +459,8 @@ class _EditorScreenState extends State<EditorScreen>
   /// discard. On platforms that don't ask (mobile/web) this is a no-op.
   @override
   Future<ui.AppExitResponse> didRequestAppExit() async {
+    if (_nativeWindowCloseApproved) return ui.AppExitResponse.exit;
+    if (!widget.ownsApplicationSession) return ui.AppExitResponse.exit;
     final dirty = _tabs.where((t) => t.isDirty).length;
     if (dirty == 0) return ui.AppExitResponse.exit;
     final proceed = await _confirmDiscard(
@@ -426,6 +472,19 @@ class _EditorScreenState extends State<EditorScreen>
     // already declined.
     await _autosave.discardAll();
     return ui.AppExitResponse.exit;
+  }
+
+  Future<bool> _requestNativeWindowClose() async {
+    final dirty = _tabs.where((tab) => tab.isDirty).length;
+    if (dirty > 0) {
+      final proceed = await _confirmDiscard(
+        appL10n(context).editorUnsavedChangesCount(dirty),
+      );
+      if (!proceed || !mounted) return false;
+      await _autosave.discardAll();
+    }
+    _nativeWindowCloseApproved = true;
+    return true;
   }
 
   /// Mirrors pending edits when the app leaves the foreground. On mobile and
@@ -448,6 +507,7 @@ class _EditorScreenState extends State<EditorScreen>
   /// case the explicit target wins and we don't also restore the last session.
   bool get _hasExplicitLaunchTarget =>
       widget.initialDocument != null ||
+      widget.initialHandoff != null ||
       (!kIsWeb &&
           widget.launchArgs.any((a) => a.toLowerCase().endsWith('.pdf')));
 
@@ -619,7 +679,7 @@ class _EditorScreenState extends State<EditorScreen>
     // ahead of the session-load gate below: a document opened before the last
     // session has been read back still deserves its unsaved edits protected.
     _autosave.syncTracking(_tabs);
-    if (!_sessionLoaded) return;
+    if (!widget.ownsApplicationSession || !_sessionLoaded) return;
     final documents = <SessionDocument>[];
     final seen = <String>{};
     for (final tab in _tabs) {
@@ -670,6 +730,25 @@ class _EditorScreenState extends State<EditorScreen>
     AppDevTools.instance
         .addLog('open error: $title - $error', level: DevLogLevel.error);
     _addTab(DocumentTab.error(title: title, error: error));
+  }
+
+  void _openHandoff(DocumentHandoff handoff) {
+    _addTab(DocumentTab.document(
+      title: handoff.title,
+      bytes: handoff.bytes,
+      preferences: _prefs,
+      originPath: handoff.originPath,
+      originBookmark: handoff.originBookmark,
+      originToken: handoff.originToken,
+      cachePath: handoff.cachePath,
+      savedLength: handoff.savedLength,
+    ));
+    _recents.add(
+      title: handoff.title,
+      path: handoff.originPath,
+      cachePath: handoff.cachePath,
+      bookmark: handoff.originBookmark,
+    );
   }
 
   void _addTab(DocumentTab tab) {
@@ -1286,6 +1365,14 @@ class _EditorScreenState extends State<EditorScreen>
     _addTab(tab);
   }
 
+  void _newWindow() {
+    final open = widget.onNewWindow;
+    if (open == null) return;
+    if (!open(context)) {
+      _toast(appL10n(context).editorUnableToOpenNewWindow);
+    }
+  }
+
   /// True while a device scan is up. The platform scanner runs one session at a
   /// time - a second request while the camera is open comes straight back as an
   /// error ("Another scan is already running") - so a second tap no-ops instead
@@ -1730,6 +1817,12 @@ class _EditorScreenState extends State<EditorScreen>
       );
       if (!ok || !mounted) return;
     }
+    _removeTabs(targets);
+  }
+
+  /// Removes tabs after their contents have either been discarded or handed
+  /// safely to another window.
+  void _removeTabs(List<DocumentTab> targets) {
     final active = _active;
     // Chrome-style width hold: while the cursor is over the strip, keep the
     // surviving tabs at their current width so the next close button lands
@@ -1757,6 +1850,29 @@ class _EditorScreenState extends State<EditorScreen>
       }
     });
     unawaited(_persistSession());
+  }
+
+  void _moveTabToNewWindow(DocumentTab tab) {
+    final open = widget.onNewWindow;
+    final session = tab.session;
+    if (open == null || session == null) return;
+
+    final handoff = DocumentHandoff(
+      // Detach the buffer from the source controller before that controller is
+      // disposed after removal.
+      bytes: Uint8List.fromList(session.bytes),
+      title: tab.title,
+      savedLength: tab.savedLength,
+      originPath: tab.originPath,
+      originBookmark: tab.originBookmark,
+      originToken: tab.originToken,
+      cachePath: tab.cachePath,
+    );
+    if (!open(context, document: handoff)) {
+      _toast(appL10n(context).editorUnableToOpenNewWindow);
+      return;
+    }
+    _removeTabs([tab]);
   }
 
   /// Opens the right-click context menu for the tab at [index] at [position]
@@ -1788,6 +1904,15 @@ class _EditorScreenState extends State<EditorScreen>
             height: _appMenuItemHeight(),
             value: _TabMenuAction.openFolder,
             child: Text(openContainingFolderLabel),
+          ),
+          const PopupMenuDivider(),
+        ],
+        if (widget.onNewWindow != null && tab.session != null) ...[
+          PopupMenuItem(
+            key: const ValueKey('tab-menu-move-window'),
+            height: _appMenuItemHeight(),
+            value: _TabMenuAction.moveToNewWindow,
+            child: Text(appL10n(context).editorMoveToNewWindow),
           ),
           const PopupMenuDivider(),
         ],
@@ -1831,6 +1956,8 @@ class _EditorScreenState extends State<EditorScreen>
         if (!opened && mounted) {
           _toast(appL10n(context).editorCouldNotOpenFolder);
         }
+      case _TabMenuAction.moveToNewWindow:
+        _moveTabToNewWindow(tab);
       case _TabMenuAction.close:
         await _closeTabs([tab]);
       case _TabMenuAction.closeOthers:
@@ -2425,6 +2552,17 @@ class _EditorScreenState extends State<EditorScreen>
             shortcut: _menuShortcut('N'),
           ),
         ),
+        if (widget.onNewWindow != null)
+          PopupMenuItem(
+            key: const ValueKey('menu-new-window'),
+            height: _appMenuItemHeight(),
+            value: _newWindow,
+            child: _appMenuTile(
+              icon: Icons.open_in_new,
+              title: appL10n(context).editorMenuNewWindow,
+              shortcut: _menuShortcut('N', shift: true),
+            ),
+          ),
         if (_canScan)
           PopupMenuItem(
             key: const ValueKey('menu-scan-document'),
@@ -2598,6 +2736,12 @@ class _EditorScreenState extends State<EditorScreen>
               _newDocument,
           const SingleActivator(LogicalKeyboardKey.keyN, control: true):
               _newDocument,
+          if (widget.onNewWindow != null)
+            const SingleActivator(LogicalKeyboardKey.keyN,
+                meta: true, shift: true): _newWindow,
+          if (widget.onNewWindow != null)
+            const SingleActivator(LogicalKeyboardKey.keyN,
+                control: true, shift: true): _newWindow,
           const SingleActivator(LogicalKeyboardKey.keyO,
               meta: true, shift: true): _openMostRecent,
           const SingleActivator(LogicalKeyboardKey.keyO,
@@ -3383,7 +3527,14 @@ class _ProgressivePreview extends StatelessWidget {
 }
 
 /// The actions offered by a tab's right-click context menu.
-enum _TabMenuAction { openFolder, close, closeOthers, closeRight, closeAll }
+enum _TabMenuAction {
+  openFolder,
+  moveToNewWindow,
+  close,
+  closeOthers,
+  closeRight,
+  closeAll,
+}
 
 /// Shows a non-interactive thumbnail card for an inactive desktop tab after a
 /// short hover. This uses a plain [OverlayEntry], not an OverlayPortal: the tab

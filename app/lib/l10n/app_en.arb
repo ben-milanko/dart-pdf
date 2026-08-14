@@ -571,6 +571,18 @@
   "@editorMenuNewDocument": {
     "description": "App menu item to create a new blank document."
   },
+  "editorMenuNewWindow": "New window",
+  "@editorMenuNewWindow": {
+    "description": "Experimental desktop app menu item to open another native editor window."
+  },
+  "editorMoveToNewWindow": "Move to new window",
+  "@editorMoveToNewWindow": {
+    "description": "Desktop tab context-menu item that moves the document into another native window."
+  },
+  "editorUnableToOpenNewWindow": "Couldn’t open a new window",
+  "@editorUnableToOpenNewWindow": {
+    "description": "Toast shown when the experimental native window could not be created."
+  },
   "editorMenuOcr": "OCR…",
   "@editorMenuOcr": {
     "description": "App menu item to run on-device OCR over the document."

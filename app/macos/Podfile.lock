@@ -14,9 +14,9 @@ EXTERNAL SOURCES:
     :path: Flutter/ephemeral/.symlinks/plugins/onnxruntime/macos
 
 SPEC CHECKSUMS:
-  FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
-  onnxruntime: 07de55f2042e50ef3769768feb45eb69552cff05
+  FlutterMacOS: c232990155153907050900a2e175c7773903ba4e
+  onnxruntime: 922a85d3c9ed1b3c2b515ec903fc4d9b8f51d96b
 
-PODFILE CHECKSUM: 54d867c82ac51cbd61b565781b9fada492027009
+PODFILE CHECKSUM: 1e95c36afbfd1cb6423ceca4de7a8e1b256fb6ac
 
 COCOAPODS: 1.17.0

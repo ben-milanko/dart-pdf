@@ -13,6 +13,7 @@ import 'l10n/app_localizations.dart';
 
 import 'app.dart' deferred as app;
 import 'app_info.dart' deferred as app_info;
+import 'window_support.dart';
 
 /// The git commit this build was compiled from, or `unknown` for a build that
 /// did not pass one. Supplied by the build scripts as
@@ -42,7 +43,7 @@ Future<void> main(List<String> args) async {
     PdfPerfLog.enabled = true;
   }
 
-  runApp(_DeferredApp(launchArgs: args));
+  runDartPdfApp(_DeferredApp(launchArgs: args));
 
   // Do not block first paint or the initial loading unit on package metadata.
   // The About box refreshes from this best-effort value after the shell is

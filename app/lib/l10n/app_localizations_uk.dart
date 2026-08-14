@@ -426,6 +426,15 @@ class AppLocalizationsUk extends AppLocalizations {
   String get editorMenuNewDocument => 'Новий документ…';
 
   @override
+  String get editorMenuNewWindow => 'New window';
+
+  @override
+  String get editorMoveToNewWindow => 'Move to new window';
+
+  @override
+  String get editorUnableToOpenNewWindow => 'Couldn’t open a new window';
+
+  @override
   String get editorMenuOcr => 'OCR…';
 
   @override

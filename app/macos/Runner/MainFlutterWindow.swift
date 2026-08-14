@@ -3,6 +3,17 @@ import Darwin
 import FlutterMacOS
 import PDFKit
 
+enum DartPdfWindowingBootstrap {
+  static var isEnabled: Bool {
+    guard let value = ProcessInfo.processInfo.environment[
+      "DARTPDF_EXPERIMENTAL_WINDOWING"
+    ]?.lowercased() else {
+      return false
+    }
+    return value == "1" || value == "true"
+  }
+}
+
 /// Runs security-scoped filesystem work away from AppKit's main thread.
 ///
 /// Flutter invokes macOS method-channel handlers on the main thread. A read
@@ -56,17 +67,46 @@ final class FileAccessExecutor {
 
 class MainFlutterWindow: NSWindow {
   private let fileAccess = FileAccessExecutor()
+  private var channelsConfigured = false
 
   override func awakeFromNib() {
+    // In experimental multi-window mode AppDelegate owns a headless engine and
+    // Dart creates every native window. Adding this template view controller
+    // first would make Flutter abort when it enables multiview.
+    if DartPdfWindowingBootstrap.isEnabled {
+      super.awakeFromNib()
+      return
+    }
+
     let flutterViewController = FlutterViewController()
     let windowFrame = self.frame
     self.contentViewController = flutterViewController
     self.setFrame(windowFrame, display: true)
 
+    configureChannels(
+      binaryMessenger: flutterViewController.engine.binaryMessenger,
+      registry: flutterViewController)
+
+    super.awakeFromNib()
+  }
+
+  /// Rehosts the normal runner's plugins and platform channels on the
+  /// headless engine used by Flutter's experimental multi-window bootstrap.
+  func configureWindowingEngine(_ engine: FlutterEngine) {
+    configureChannels(binaryMessenger: engine.binaryMessenger, registry: engine)
+  }
+
+  private func configureChannels(
+    binaryMessenger: FlutterBinaryMessenger,
+    registry: FlutterPluginRegistry
+  ) {
+    guard !channelsConfigured else { return }
+    channelsConfigured = true
+
     // Wire the incoming-file channel to the Dart IncomingFileService.
     let channel = FlutterMethodChannel(
       name: "dev.milanko.dartpdf/incoming",
-      binaryMessenger: flutterViewController.engine.binaryMessenger)
+      binaryMessenger: binaryMessenger)
     if let appDelegate = NSApp.delegate as? AppDelegate {
       appDelegate.incomingChannel = channel
       channel.setMethodCallHandler { (call, result) in
@@ -83,7 +123,7 @@ class MainFlutterWindow: NSWindow {
 
     let memoryChannel = FlutterMethodChannel(
       name: "dev.milanko.dartpdf/memory",
-      binaryMessenger: flutterViewController.engine.binaryMessenger)
+      binaryMessenger: binaryMessenger)
     memoryChannel.setMethodCallHandler { (call, result) in
       guard call.method == "snapshot" else {
         result(FlutterMethodNotImplemented)
@@ -101,7 +141,7 @@ class MainFlutterWindow: NSWindow {
 
     let fileAccessChannel = FlutterMethodChannel(
       name: "dev.milanko.dartpdf/file_access",
-      binaryMessenger: flutterViewController.engine.binaryMessenger)
+      binaryMessenger: binaryMessenger)
     fileAccessChannel.setMethodCallHandler { (call, result) in
       switch call.method {
       case "bookmarkForPath":
@@ -165,7 +205,7 @@ class MainFlutterWindow: NSWindow {
 
     let imageClipboardChannel = FlutterMethodChannel(
       name: "dev.milanko.dartpdf/image_clipboard",
-      binaryMessenger: flutterViewController.engine.binaryMessenger)
+      binaryMessenger: binaryMessenger)
     imageClipboardChannel.setMethodCallHandler { (call, result) in
       if call.method == "readImage" {
         result(self.readImageFromClipboard())
@@ -192,7 +232,7 @@ class MainFlutterWindow: NSWindow {
     // keeping text selectable.
     let nativePrintChannel = FlutterMethodChannel(
       name: "dev.milanko.dartpdf/native_print",
-      binaryMessenger: flutterViewController.engine.binaryMessenger)
+      binaryMessenger: binaryMessenger)
     nativePrintChannel.setMethodCallHandler { (call, result) in
       switch call.method {
       case "printPdf":
@@ -211,9 +251,7 @@ class MainFlutterWindow: NSWindow {
       }
     }
 
-    RegisterGeneratedPlugins(registry: flutterViewController)
-
-    super.awakeFromNib()
+    RegisterGeneratedPlugins(registry: registry)
   }
 
   /// `os_proc_available_memory` is not exposed by Swift's Darwin module map.

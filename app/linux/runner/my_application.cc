@@ -16,6 +16,12 @@
 struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
+  // The experimental windowing runner starts one engine without a template
+  // FlView. Dart then creates every GtkWindow/FlView pair through Flutter's
+  // RegularWindowController implementation.
+  FlEngine* windowing_engine;
+  gboolean engine_started;
+  gboolean application_held;
   // The top-level window, used to anchor the print dialog and to know whether
   // the UI has already been built (non-null once activated).
   GtkWindow* window;
@@ -34,6 +40,12 @@ struct _MyApplication {
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
+
+static gboolean experimental_windowing_enabled() {
+  const gchar* value = g_getenv("DARTPDF_EXPERIMENTAL_WINDOWING");
+  return g_strcmp0(value, "1") == 0 ||
+         g_ascii_strcasecmp(value == nullptr ? "" : value, "true") == 0;
+}
 
 // Drops the accumulated print page buffers.
 static void clear_print_pages(MyApplication* self) {
@@ -572,14 +584,86 @@ static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
 }
 
+static void present_existing_window(MyApplication* self) {
+  if (self->window != nullptr) {
+    gtk_window_present(self->window);
+    return;
+  }
+
+  // Flutter's Dart-owned RegularWindows are plain GTK toplevels rather than
+  // GtkApplicationWindows, so they do not appear in
+  // gtk_application_get_windows(). Surface the active one (or any visible one)
+  // when a second process forwards a file to the headless runner.
+  GList* windows = gtk_window_list_toplevels();
+  GtkWindow* candidate = nullptr;
+  for (GList* link = windows; link != nullptr; link = link->next) {
+    if (!GTK_IS_WINDOW(link->data) ||
+        !gtk_widget_get_visible(GTK_WIDGET(link->data))) {
+      continue;
+    }
+    candidate = GTK_WINDOW(link->data);
+    if (gtk_window_is_active(candidate)) break;
+  }
+  if (candidate != nullptr) gtk_window_present(candidate);
+  g_list_free(windows);
+}
+
+static void register_platform_channels(MyApplication* self,
+                                       FlBinaryMessenger* messenger) {
+  g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
+  self->native_print_channel = fl_method_channel_new(
+      messenger, "dev.milanko.dartpdf/native_print", FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(
+      self->native_print_channel, native_print_method_call_cb, self, nullptr);
+
+  self->incoming_channel = fl_method_channel_new(
+      messenger, "dev.milanko.dartpdf/incoming", FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(
+      self->incoming_channel, incoming_method_call_cb, self, nullptr);
+
+  self->memory_channel = fl_method_channel_new(
+      messenger, "dev.milanko.dartpdf/memory", FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(
+      self->memory_channel, memory_method_call_cb, self, nullptr);
+}
+
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
 
   // Single-instance: a second launch (the `open` handler activates us, or the
   // user re-runs the binary) reuses the window that already exists.
-  if (self->window != nullptr) {
-    gtk_window_present(self->window);
+  if (self->engine_started) {
+    present_existing_window(self);
+    return;
+  }
+
+  g_autoptr(FlDartProject) project = fl_dart_project_new();
+  fl_dart_project_set_dart_entrypoint_arguments(
+      project, self->dart_entrypoint_arguments);
+
+  if (experimental_windowing_enabled()) {
+    // fl_engine_new_headless starts the engine without installing an implicit
+    // view. This is the Linux equivalent of the engine-owned bootstrap used
+    // by Flutter's Windows and macOS multi-window examples.
+    self->windowing_engine = fl_engine_new_headless(project);
+    if (self->windowing_engine == nullptr) {
+      g_warning("Failed to start DartPDF's windowing engine");
+      g_application_quit(application);
+      return;
+    }
+    fl_register_plugins(FL_PLUGIN_REGISTRY(self->windowing_engine));
+    register_platform_channels(
+        self,
+        fl_engine_get_binary_messenger(self->windowing_engine));
+    self->engine_started = TRUE;
+
+    // Without a GtkApplicationWindow owned by this application, GApplication
+    // would otherwise drop its last reference before Dart creates the primary
+    // RegularWindow. System.exitApplication releases the run loop via
+    // g_application_quit when the final Dart-owned window closes.
+    g_application_hold(application);
+    self->application_held = TRUE;
     return;
   }
 
@@ -615,10 +699,6 @@ static void my_application_activate(GApplication* application) {
 
   gtk_window_set_default_size(window, 1280, 720);
 
-  g_autoptr(FlDartProject) project = fl_dart_project_new();
-  fl_dart_project_set_dart_entrypoint_arguments(
-      project, self->dart_entrypoint_arguments);
-
   FlView* view = fl_view_new(project);
   GdkRGBA background_color;
   // Background defaults to black, override it here if necessary, e.g. #00000000
@@ -639,23 +719,8 @@ static void my_application_activate(GApplication* application) {
   // Register the native print channel on this view's engine.
   self->window = window;
   FlEngine* engine = fl_view_get_engine(view);
-  FlBinaryMessenger* messenger = fl_engine_get_binary_messenger(engine);
-  g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
-  self->native_print_channel = fl_method_channel_new(
-      messenger, "dev.milanko.dartpdf/native_print", FL_METHOD_CODEC(codec));
-  fl_method_channel_set_method_call_handler(
-      self->native_print_channel, native_print_method_call_cb, self, nullptr);
-
-  // Bridge OS file opens to the Dart IncomingFileService.
-  self->incoming_channel = fl_method_channel_new(
-      messenger, "dev.milanko.dartpdf/incoming", FL_METHOD_CODEC(codec));
-  fl_method_channel_set_method_call_handler(
-      self->incoming_channel, incoming_method_call_cb, self, nullptr);
-
-  self->memory_channel = fl_method_channel_new(
-      messenger, "dev.milanko.dartpdf/memory", FL_METHOD_CODEC(codec));
-  fl_method_channel_set_method_call_handler(
-      self->memory_channel, memory_method_call_cb, self, nullptr);
+  register_platform_channels(self, fl_engine_get_binary_messenger(engine));
+  self->engine_started = TRUE;
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
@@ -674,7 +739,7 @@ static void my_application_open(GApplication* application, GFile** files,
     path = g_file_get_path(files[i]);
   }
 
-  if (self->window == nullptr) {
+  if (!self->engine_started) {
     // Cold start: deliver the file the way the Dart side reads it on Linux -
     // as an entrypoint argument (see editor_screen.dart's _openLaunchArgs) -
     // then build the UI. dart_entrypoint_arguments is consumed in activate.
@@ -693,7 +758,7 @@ static void my_application_open(GApplication* application, GFile** files,
                                       payload, nullptr, nullptr, nullptr);
     }
     g_free(path);
-    gtk_window_present(self->window);
+    present_existing_window(self);
   }
 }
 
@@ -708,9 +773,11 @@ static void my_application_startup(GApplication* application) {
 
 // Implements GApplication::shutdown.
 static void my_application_shutdown(GApplication* application) {
-  // MyApplication* self = MY_APPLICATION(object);
-
-  // Perform any actions required at application shutdown.
+  MyApplication* self = MY_APPLICATION(application);
+  if (self->application_held) {
+    self->application_held = FALSE;
+    g_application_release(application);
+  }
 
   G_APPLICATION_CLASS(my_application_parent_class)->shutdown(application);
 }
@@ -722,6 +789,7 @@ static void my_application_dispose(GObject* object) {
   g_clear_object(&self->native_print_channel);
   g_clear_object(&self->incoming_channel);
   g_clear_object(&self->memory_channel);
+  g_clear_object(&self->windowing_engine);
   g_clear_pointer(&self->print_pages, g_ptr_array_unref);
   g_clear_pointer(&self->print_job_name, g_free);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);

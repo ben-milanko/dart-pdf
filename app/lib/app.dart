@@ -7,15 +7,22 @@ import 'package:flutter/material.dart';
 
 import 'adaptive_memory.dart';
 import 'devtools.dart';
+import 'document_tab.dart';
 import 'editor_screen.dart';
+import 'keyless_signing.dart';
 import 'l10n/app_localizations.dart';
 import 'oidc_signin.dart';
 import 'platform_fonts.dart';
+import 'window_support.dart';
 
 /// The DartPDF application. Owns the device-local UI preferences so
 /// the MaterialApp can follow the persisted light/dark choice and every
 /// editing session shares the same tool styles, panel layout, and viewport
 /// memory.
+///
+/// Experimental secondary windows reuse this state so preferences, memory
+/// budgets, developer options, and the keyless-signing session remain
+/// process-wide rather than being initialized once per native window.
 class DartPdfEditorApp extends StatefulWidget {
   const DartPdfEditorApp({super.key, this.launchArgs = const []});
 
@@ -124,11 +131,76 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
     super.dispose();
   }
 
+  bool _openNewWindow(
+    BuildContext context, {
+    DocumentHandoff? document,
+  }) {
+    return openRegularWindow(
+      context,
+      title: 'DartPDF',
+      builder: (_) => _DartPdfWindow(
+        prefs: _prefs,
+        onNewWindow: _openNewWindow,
+        initialHandoff: document,
+        oidcTokenProvider: _oidcTokenProvider?.call,
+        oidcSilentTokenProvider: _oidcTokenProvider == null
+            ? null
+            : (context) => _oidcTokenProvider.silentToken(),
+        // Only the primary owns process-wide file opens, crash recovery,
+        // session persistence, update checks, and the application-exit prompt.
+        ownsApplicationSession: false,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _DartPdfWindow(
+      prefs: _prefs,
+      launchArgs: widget.launchArgs,
+      autoCheckUpdates: true,
+      onNewWindow: multiWindowSupported ? _openNewWindow : null,
+      oidcTokenProvider: _oidcTokenProvider?.call,
+      oidcSilentTokenProvider: _oidcTokenProvider == null
+          ? null
+          : (context) => _oidcTokenProvider.silentToken(),
+    );
+  }
+}
+
+/// One native window's Material application and editor screen.
+///
+/// Each window needs its own Navigator, focus tree, overlays, and editor tabs,
+/// while the owning [DartPdfEditorApp] supplies shared process state.
+class _DartPdfWindow extends StatelessWidget {
+  const _DartPdfWindow({
+    required this.prefs,
+    this.launchArgs = const [],
+    this.autoCheckUpdates = false,
+    this.onNewWindow,
+    this.initialHandoff,
+    this.oidcTokenProvider,
+    this.oidcSilentTokenProvider,
+    this.ownsApplicationSession = true,
+  });
+
+  final PdfEditingPreferences prefs;
+  final List<String> launchArgs;
+  final bool autoCheckUpdates;
+  final bool ownsApplicationSession;
+  final DocumentHandoff? initialHandoff;
+  final OidcTokenProvider? oidcTokenProvider;
+  final OidcTokenProvider? oidcSilentTokenProvider;
+  final bool Function(
+    BuildContext context, {
+    DocumentHandoff? document,
+  })? onNewWindow;
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: Listenable.merge([
-        _prefs,
+        prefs,
         AppDevTools.instance.showPerformanceOverlay,
         AppDevTools.instance.localeOverride,
       ]),
@@ -148,7 +220,7 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
         // until the next rebuild for another reason. Feeding it here re-resolves
         // immediately when the user picks a language or flips the DevTools
         // override.
-        locale: AppDevTools.instance.localeOverride.value ?? _prefs.locale,
+        locale: AppDevTools.instance.localeOverride.value ?? prefs.locale,
         // The DevTools override still wins and is returned verbatim, so it can
         // force a locale that isn't in supportedLocales (untranslated app
         // strings fall back to English, but Directionality and the Material
@@ -169,20 +241,16 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
           brightness: Brightness.dark,
           useMaterial3: true,
         ),
-        themeMode: _prefs.themeMode,
+        themeMode: prefs.themeMode,
         home: EditorScreen(
-          prefs: _prefs,
-          launchArgs: widget.launchArgs,
-          autoCheckUpdates: true,
-          // Keyless signing via Sigstore's public OAuth broker. Loopback
-          // capture needs a local server, so it's offered off the web only.
-          // A still-valid login is reused rather than re-prompting each time.
-          oidcTokenProvider: _oidcTokenProvider?.call,
-          // Silent source for pre-selecting keyless on open: it never opens
-          // the browser (returns null when interactive sign-in would be needed).
-          oidcSilentTokenProvider: _oidcTokenProvider == null
-              ? null
-              : (context) => _oidcTokenProvider.silentToken(),
+          prefs: prefs,
+          launchArgs: launchArgs,
+          autoCheckUpdates: autoCheckUpdates,
+          onNewWindow: onNewWindow,
+          initialHandoff: initialHandoff,
+          oidcTokenProvider: oidcTokenProvider,
+          oidcSilentTokenProvider: oidcSilentTokenProvider,
+          ownsApplicationSession: ownsApplicationSession,
         ),
       ),
     );

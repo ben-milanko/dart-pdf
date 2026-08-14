@@ -4,6 +4,8 @@ import FlutterMacOS
 @main
 class AppDelegate: FlutterAppDelegate {
   private let fileAccess = FileAccessExecutor()
+  private var windowingEngine: FlutterEngine?
+  private var windowingServicesWindow: MainFlutterWindow?
 
   /// Channel to the Dart `IncomingFileService`; set by MainFlutterWindow once
   /// the engine exists.
@@ -18,8 +20,42 @@ class AppDelegate: FlutterAppDelegate {
   /// during cold start; sending then drops the file on the floor.
   var dartIncomingReady = false
 
+  override func applicationDidFinishLaunching(_ notification: Notification) {
+    guard DartPdfWindowingBootstrap.isEnabled else {
+      super.applicationDidFinishLaunching(notification)
+      return
+    }
+
+    // Keep the NIB-created object only as the owner of DartPDF's native
+    // services. It deliberately has no FlutterViewController in this mode;
+    // Dart's RegularWindowController creates the visible primary window.
+    guard let servicesWindow = mainFlutterWindow as? MainFlutterWindow else {
+      assertionFailure("DartPDF multi-window bootstrap has no services window")
+      return
+    }
+    servicesWindow.orderOut(nil)
+    windowingServicesWindow = servicesWindow
+
+    let engine = FlutterEngine(name: "dartpdf-windowing", project: nil)
+    windowingEngine = engine
+    _ = engine.run(withEntrypoint: nil)
+    servicesWindow.configureWindowingEngine(engine)
+  }
+
+  override func applicationWillTerminate(_ notification: Notification) {
+    windowingEngine?.shutDownEngine()
+    windowingEngine = nil
+    super.applicationWillTerminate(notification)
+  }
+
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-    return true
+    // Hiding the NIB-created services window briefly leaves AppKit with no
+    // visible window while Dart constructs its primary RegularWindow. Letting
+    // AppKit terminate at that point races the experimental bootstrap and can
+    // tear down every Dart-owned view just after launch. The Dart window
+    // lifetime coordinator calls SystemNavigator.pop after its final window;
+    // the normal single-window runner keeps the historical AppKit behavior.
+    return !DartPdfWindowingBootstrap.isEnabled
   }
 
   override func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
