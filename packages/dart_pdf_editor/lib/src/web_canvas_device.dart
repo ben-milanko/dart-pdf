@@ -354,7 +354,12 @@ class _BrowserCanvasDevice implements PdfDevice {
     if (placed != null) {
       context.scale(1 / placed.unitsPerEm, -1 / renderSize);
       for (final part in placed.parts) {
-        context.fillText(part.text, part.x, 0);
+        final maxWidth = part.maxWidth;
+        if (maxWidth == null) {
+          context.fillText(part.text, part.x, 0);
+        } else {
+          context.fillText(part.text, part.x, 0, maxWidth);
+        }
       }
       context.restore();
       return;

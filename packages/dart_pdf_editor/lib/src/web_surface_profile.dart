@@ -8,10 +8,17 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 /// [PdfCanvas2dTextLayout.unitsPerEm]. Scaling both by the reciprocal places
 /// the substring at its exact PDF advance in em space.
 class PdfCanvas2dTextPart {
-  const PdfCanvas2dTextPart(this.text, this.x);
+  const PdfCanvas2dTextPart(this.text, this.x, {this.maxWidth});
 
   final String text;
   final double x;
+
+  /// Maximum width in device-font units, or null when the part fits naturally.
+  ///
+  /// Canvas2D applies this as a horizontal condensation only when a split
+  /// fallback glyph would otherwise extend into the following PDF character
+  /// cell. Whole words keep their natural shaping.
+  final double? maxWidth;
 }
 
 /// Exact-placement plan for a substituted Canvas2D text run.
@@ -33,8 +40,10 @@ const double _canvas2dPlacementToleranceEm = 0.02;
 /// wrong when (for example) unembedded Century Gothic is painted with
 /// Helvetica. [measureText] measures one character in the active Canvas2D font;
 /// the returned plan applies one uniform horizontal glyph scale while placing
-/// each mismatched character at its PDF offset. Words whose interior already
-/// agrees within 0.02 em remain whole so their shaping and kerning are kept.
+/// each mismatched character at its PDF offset. A split glyph wider than its
+/// PDF cell is additionally condensed to that cell, preventing its ink from
+/// touching the following glyph. Words whose interior already agrees within
+/// 0.02 em remain whole so their shaping and kerning are kept.
 ///
 /// Returns null for missing/malformed offsets, all-whitespace text, or scripts
 /// that need joining, reordering, combining, or multi-code-unit shaping. Those
@@ -98,9 +107,13 @@ PdfCanvas2dTextLayout? pdfCanvas2dTextLayout(
       ));
     } else {
       for (var i = start; i < end; i++) {
+        final naturalWidth = widthOf(text.codeUnitAt(i));
+        final cellWidth = (offsets[i + 1] - offsets[i]) * unitsPerEm;
         parts.add(PdfCanvas2dTextPart(
           text.substring(i, i + 1),
           offsets[i] * unitsPerEm,
+          maxWidth:
+              cellWidth > 0 && naturalWidth > cellWidth ? cellWidth : null,
         ));
       }
     }
