@@ -6,6 +6,7 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:web/web.dart' as web;
 
+import 'font_substitution.dart';
 import 'web_surface_profile.dart';
 
 bool _sameDoubles(List<double>? a, List<double> b) {
@@ -313,17 +314,12 @@ class _BrowserCanvasDevice implements PdfDevice {
     if (run.invisible || run.text.isEmpty) return;
     const renderSize = 100.0;
     final name = run.fontName ?? '';
-    final family = switch (name) {
-      _ when name.contains('Courier') || name.contains('Mono') => 'Courier',
-      _ when name.contains('Times') || name.contains('Serif') =>
-        'Times New Roman',
-      _ => 'Helvetica',
-    };
+    final family = pdfCanvas2dSubstituteFamily(name);
     final weight = name.contains('Bold') ? 'bold' : 'normal';
     final style = name.contains('Italic') || name.contains('Oblique')
         ? 'italic'
         : 'normal';
-    final font = '$style $weight ${renderSize}px "$family"';
+    final font = '$style $weight ${renderSize}px $family';
 
     context.save();
     context.transform(
@@ -354,12 +350,7 @@ class _BrowserCanvasDevice implements PdfDevice {
     if (placed != null) {
       context.scale(1 / placed.unitsPerEm, -1 / renderSize);
       for (final part in placed.parts) {
-        final maxWidth = part.maxWidth;
-        if (maxWidth == null) {
-          context.fillText(part.text, part.x, 0);
-        } else {
-          context.fillText(part.text, part.x, 0, maxWidth);
-        }
+        context.fillText(part.text, part.x, 0);
       }
       context.restore();
       return;

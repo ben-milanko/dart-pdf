@@ -5,9 +5,10 @@
 - Keep image soft-mask compositing correct on Impeller by applying the mask at
   the layer boundary, preventing masked images from rendering as black blocks.
 - Place substituted text on the worker-owned web Canvas2D surface at the PDF's
-  per-character advances and constrain overwide fallback glyphs to their PDF
-  cells, preventing unembedded fonts with different fallback metrics from
-  producing uneven spacing or touching letters.
+  per-character advances. Unembedded Century Gothic and Avant Garde now use
+  the metric-compatible TeX Gyre Adventor fallback supplied by the optional
+  assets package, preserving natural glyph proportions without uneven gaps or
+  touching letters.
 
 ## 3.5.0
 

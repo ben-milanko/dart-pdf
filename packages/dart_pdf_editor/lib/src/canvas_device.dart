@@ -7,6 +7,7 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'budgeted_cache.dart';
+import 'font_substitution.dart';
 import 'image_decoder.dart';
 import 'perf_log.dart';
 
@@ -1575,25 +1576,30 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
     final name = run.fontName ?? '';
     final cjk = _cjkPrimaryFontFor(name);
     final symbol = name.contains('ZapfDingbats') || name.contains('Symbol');
+    final adventor = pdfUsesAdventorSubstitute(name);
     return TextStyle(
       color: foreground == null ? _toColor(run.color, 1) : null,
       foreground: foreground,
       fontSize: 100,
       fontFamily: cjk ??
-          switch (name) {
-            _ when name.contains('ZapfDingbats') => 'Zapf Dingbats',
-            _ when name.contains('Symbol') => 'Symbol',
-            _ when name.contains('Courier') || name.contains('Mono') =>
-              'Courier',
-            _ when name.contains('Times') || name.contains('Serif') =>
-              'Times New Roman',
-            _ => 'Helvetica',
-          },
+          (adventor
+              ? pdfBundledAdventorFontFamily
+              : switch (name) {
+                  _ when name.contains('ZapfDingbats') => 'Zapf Dingbats',
+                  _ when name.contains('Symbol') => 'Symbol',
+                  _ when name.contains('Courier') || name.contains('Mono') =>
+                    'Courier',
+                  _ when name.contains('Times') || name.contains('Serif') =>
+                    'Times New Roman',
+                  _ => 'Helvetica',
+                }),
       fontFamilyFallback: cjk != null
           ? _cjkFontFallbacks
-          : symbol
-              ? _symbolFontFallbacks
-              : _defaultFontFallbacks,
+          : adventor
+              ? _adventorFontFallbacks
+              : symbol
+                  ? _symbolFontFallbacks
+                  : _defaultFontFallbacks,
       fontWeight: name.contains('Bold') ? FontWeight.bold : FontWeight.normal,
       fontStyle: name.contains('Italic') || name.contains('Oblique')
           ? FontStyle.italic
@@ -1661,6 +1667,15 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
     'Noto Sans CJK JP',
     'Source Han Sans SC',
     'Microsoft YaHei',
+  ];
+
+  static const _adventorFontFallbacks = [
+    pdfAdventorFontFamily,
+    'Century Gothic',
+    'URW Gothic L',
+    'Avenir Next',
+    'Futura',
+    ..._defaultFontFallbacks,
   ];
 
   static const _symbolFontFallbacks = [

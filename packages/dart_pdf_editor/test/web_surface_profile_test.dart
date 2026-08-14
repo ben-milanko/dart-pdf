@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:dart_pdf_editor/src/font_substitution.dart';
 import 'package:dart_pdf_editor/src/web_surface_profile.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_cos/pdf_cos.dart';
@@ -12,13 +13,14 @@ PdfTextRun _run({
   String text = 'DartPDF',
   double width = 3.5,
   List<double>? charOffsets,
+  String fontName = 'Helvetica',
 }) =>
     PdfTextRun(
       text: text,
       transform: PdfMatrix.identity,
       color: PdfColor.black,
       width: width,
-      fontName: 'Helvetica',
+      fontName: fontName,
       glyphs: glyphs,
       fill: fill,
       strokeColor: strokeColor,
@@ -113,24 +115,25 @@ void main() {
     expect(layout!.parts, hasLength(1));
     expect(layout.parts.single.text, 'BOOK');
     expect(layout.parts.single.x, 0);
-    expect(layout.parts.single.maxWidth, isNull);
   });
 
-  test('Canvas2D constrains overwide split glyphs to their PDF cells', () {
-    // Exact advances for "Territory" in the reported Century Gothic Bold run,
-    // with representative 100px bold Helvetica fallback measurements.
+  test('Adventor keeps Century Gothic words whole without glyph distortion',
+      () {
+    // TeX Gyre Adventor Bold is metric-compatible with the reported PDF's
+    // Century Gothic Bold /Widths. The tiny difference is the PDF's Tc.
     const natural = <String, double>{
-      'T': 61.1,
-      'e': 55.6,
-      'r': 38.9,
-      'i': 27.8,
-      't': 33.3,
-      'o': 61.1,
-      'y': 55.6,
+      'T': 42,
+      'e': 64,
+      'r': 32,
+      'i': 24,
+      't': 30,
+      'o': 64,
+      'y': 58,
     };
     final layout = pdfCanvas2dTextLayout(
       _run(
         text: 'Territory',
+        fontName: 'CenturyGothic-Bold',
         width: 3.785327868852459,
         charOffsets: const [
           0,
@@ -149,36 +152,21 @@ void main() {
     );
 
     expect(layout, isNotNull);
-    final parts = layout!.parts;
-    expect(parts.map((part) => part.text).join(), 'Territory');
-    for (final index in [0, 2, 3, 4, 5, 7]) {
-      final part = parts[index];
-      expect(part.maxWidth, isNotNull, reason: '${part.text} must not overrun');
-      expect(
-        part.maxWidth! / layout.unitsPerEm,
-        closeTo(
-          const [
-            0.4205919854280502,
-            0.6405919854280508,
-            0.32059198542805056,
-            0.32059198542805234,
-            0.2405919854280505,
-            0.300591985428051,
-            0.6405919854280508,
-            0.32059198542805234,
-            0.5805919854280504,
-          ][index],
-          1e-12,
-        ),
-      );
-    }
-    for (final index in [1, 6, 8]) {
-      expect(
-        parts[index].maxWidth,
-        isNull,
-        reason: '${parts[index].text} already fits and must not be widened',
-      );
-    }
+    expect(layout!.parts, hasLength(1));
+    expect(layout.parts.single.text, 'Territory');
+    expect(layout.parts.single.x, 0);
+  });
+
+  test('Century Gothic routes to the metric-compatible Canvas2D family', () {
+    expect(pdfUsesAdventorSubstitute('ABCDEF+CenturyGothic-Bold'), isTrue);
+    expect(pdfUsesAdventorSubstitute('AvantGarde-Demi'), isTrue);
+    expect(pdfUsesAdventorSubstitute('MS-Gothic'), isFalse);
+    expect(
+      pdfCanvas2dSubstituteFamily('CenturyGothic-Bold'),
+      '"TeX Gyre Adventor", "Century Gothic", "URW Gothic L", '
+      '"Avenir Next", Futura, Helvetica',
+    );
+    expect(pdfCanvas2dSubstituteFamily('Helvetica-Bold'), 'Helvetica');
   });
 
   test('Canvas2D exact placement declines complex and malformed runs', () {
