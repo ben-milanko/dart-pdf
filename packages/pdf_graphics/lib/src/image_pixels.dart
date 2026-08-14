@@ -1776,6 +1776,60 @@ Uint8List? pdfImageDctSoftMaskBytes(CosDocument cos, CosDictionary dict) {
   }
 }
 
+/// The decoded samples of a mask stream - an /SMask or a stencil /Mask -
+/// together with the shape they came out in.
+///
+/// A mask is an image XObject, so it may be encoded with an image codec rather
+/// than a stream filter, and `decodeStreamData` throws
+/// `UnsupportedFilterException` on /JBIG2Decode and /JPXDecode. The mask
+/// helpers swallow that and return null, which paints the masked image fully
+/// opaque - on a scanned MRC page (a low-resolution JPX colour layer stencilled
+/// by a high-resolution JBIG2 text mask, the shape every MRC scanner emits)
+/// that covers the whole sheet with the dark colour layer. Route those two
+/// through the same decoders [decodePdfImageBase] uses.
+///
+/// The codec, not the dictionary, is authoritative about the samples it
+/// produced: JPX carries its own dimensions and always yields 8-bit samples.
+({Uint8List data, int width, int height, int bits})? _maskSampleData(
+  CosDocument cos,
+  CosStream stream,
+  int width,
+  int height,
+  int bits,
+) {
+  final filters = pdfImageFilters(cos, stream.dictionary);
+  if (filters.contains('JBIG2Decode')) {
+    final decoded = Jbig2Decoder.decode(
+      data: cos.decodeStreamData(stream, stopBeforeFilter: 'JBIG2Decode'),
+      globals: _jbig2Globals(cos, stream.dictionary),
+      width: width,
+      height: height,
+    );
+    if (decoded == null) return null;
+    return (data: decoded, width: width, height: height, bits: 1);
+  }
+  if (filters.contains('JPXDecode')) {
+    final jpx = JpxDecoder.decode(
+        cos.decodeStreamData(stream, stopBeforeFilter: 'JPXDecode'));
+    // Only a single-component codestream is an alpha plane; a colour one
+    // carries no mask this layer can read.
+    if (jpx == null || jpx.components != 1) return null;
+    if (jpx.samples.length < jpx.width * jpx.height) return null;
+    return (
+      data: jpx.samples,
+      width: jpx.width,
+      height: jpx.height,
+      bits: 8,
+    );
+  }
+  return (
+    data: cos.decodeStreamData(stream),
+    width: width,
+    height: height,
+    bits: bits,
+  );
+}
+
 /// Decodes an /SMask: a grayscale image whose samples become the alpha channel
 /// of its parent image (§11.6.5.2). Baseline DCT masks use the portable JPEG
 /// component decoder so render workers can composite them without `dart:ui`.
@@ -1813,12 +1867,21 @@ PdfImageSoftMask? pdfImageSoftMask(
         targetHeight,
       );
     }
-    final width = _intOf(cos.resolve(smask.dictionary['Width']));
-    final height = _intOf(cos.resolve(smask.dictionary['Height']));
-    if (width <= 0 || height <= 0) return null;
-    final bits =
-        _intOf(cos.resolve(smask.dictionary['BitsPerComponent']), fallback: 8);
-    final data = cos.decodeStreamData(smask);
+    final declaredWidth = _intOf(cos.resolve(smask.dictionary['Width']));
+    final declaredHeight = _intOf(cos.resolve(smask.dictionary['Height']));
+    if (declaredWidth <= 0 || declaredHeight <= 0) return null;
+    final samples = _maskSampleData(
+      cos,
+      smask,
+      declaredWidth,
+      declaredHeight,
+      _intOf(cos.resolve(smask.dictionary['BitsPerComponent']), fallback: 8),
+    );
+    if (samples == null) return null;
+    final data = samples.data;
+    final width = samples.width;
+    final height = samples.height;
+    final bits = samples.bits;
 
     if (bits == 8 && data.length >= width * height) {
       return _targetSizedSoftMask(
@@ -1884,17 +1947,24 @@ PdfImageSoftMask? pdfImageStencilMask(
   final mask = cos.resolve(dict['Mask']);
   if (mask is! CosStream) return null;
   try {
-    final width = _intOf(cos.resolve(mask.dictionary['Width']));
-    final height = _intOf(cos.resolve(mask.dictionary['Height']));
-    if (width <= 0 || height <= 0) return null;
-    final bits =
+    final declaredWidth = _intOf(cos.resolve(mask.dictionary['Width']));
+    final declaredHeight = _intOf(cos.resolve(mask.dictionary['Height']));
+    if (declaredWidth <= 0 || declaredHeight <= 0) return null;
+    final declaredBits =
         _intOf(cos.resolve(mask.dictionary['BitsPerComponent']), fallback: 1);
-    if (bits != 1) return null;
+    if (declaredBits != 1) return null;
     final decode = cos.resolve(mask.dictionary['Decode']);
     final inverted = decode is CosArray &&
         decode.length > 0 &&
         _numOf(cos.resolve(decode[0])) == 1;
-    final data = cos.decodeStreamData(mask);
+    final samples = _maskSampleData(
+        cos, mask, declaredWidth, declaredHeight, declaredBits);
+    // A codec that hands back wider samples is not a stencil (§8.9.6.3
+    // requires 1 bit per sample), whatever the dictionary declared.
+    if (samples == null || samples.bits != 1) return null;
+    final data = samples.data;
+    final width = samples.width;
+    final height = samples.height;
     final rowBytes = (width + 7) ~/ 8;
     if (data.length < rowBytes * height) return null;
     final alpha = Uint8List(width * height);

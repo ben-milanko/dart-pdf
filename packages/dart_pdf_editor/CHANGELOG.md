@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.5.1
+
+- Keep image soft-mask compositing correct on Impeller by applying the mask at
+  the layer boundary, preventing masked images from rendering as black blocks.
+
 ## 3.5.0
 
 - Sharpen deep-zoom pages visible-first: the foreground render now covers the

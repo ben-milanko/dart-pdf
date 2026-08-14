@@ -1,6 +1,4 @@
-Novità nella versione 3.5.0
+Novità nella versione 3.5.1
 
-- I PDF grandi e dettagliati restano reattivi durante scorrimento, panoramica e zoom, rendendo nitida prima l'area visibile.
-- Le anteprime acquistano dettaglio progressivamente durante la navigazione rapida.
-- Le pagine restano nitide e visibili vicino ai bordi della vista.
-- Caricamento più rapido dei documenti remoti e uso della memoria più prevedibile.
+- Le pagine MRC e JBIG2 acquisite ora mantengono correttamente i livelli di testo, sfondo e maschera.
+- Le immagini con maschera di trasparenza non vengono più visualizzate come blocchi neri con Impeller o con il renderer GPU opzionale.

@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.5.1
+
+- Decode JBIG2 refined text symbols, including refinement deltas, offsets, and
+  shared arithmetic contexts, so scanned MRC text layers render correctly.
+
 ## 3.5.0
 
 - Add `PdfSourceLoadOptions.completeFirstPaintPageTree`. Progressive preview

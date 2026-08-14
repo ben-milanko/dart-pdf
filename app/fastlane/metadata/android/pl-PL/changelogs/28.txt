@@ -1,0 +1,5 @@
+Nowości w wersji 3.5.1
+
+- Zeskanowane strony MRC i JBIG2 zachowują teraz warstwy tekstu, tła i masek.
+- Obrazy z maską przezroczystości nie są już wyświetlane jako czarne bloki w Impellerze ani opcjonalnym rendererze GPU.
+- Skanowanie dokumentów w Androidzie niezawodnie odczytuje wyniki z systemowego dostawcy treści i pokazuje pomocne błędy.

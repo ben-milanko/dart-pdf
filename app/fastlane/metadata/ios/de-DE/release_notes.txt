@@ -1,6 +1,4 @@
-Neu in 3.5.0
+Neu in 3.5.1
 
-- Große und detailreiche PDFs reagieren beim Scrollen, Verschieben und Zoomen flüssiger; der sichtbare Bereich wird zuerst geschärft.
-- Seitenvorschauen werden bei schneller Navigation schrittweise klarer.
-- Seiten bleiben an den Rändern des Ansichtsbereichs scharf und sichtbar.
-- Schnellere Remote-Dokumente bei besser vorhersehbarer Speichernutzung.
+- Gescannte MRC- und JBIG2-Seiten behalten jetzt ihre Text-, Hintergrund- und Maskenebenen.
+- Bilder mit Transparenzmaske erscheinen mit Impeller oder dem optionalen GPU-Renderer nicht mehr als schwarze Flächen.

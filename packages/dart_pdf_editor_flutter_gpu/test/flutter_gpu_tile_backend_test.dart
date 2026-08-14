@@ -1,3 +1,4 @@
+import 'dart:io' show ZLibCodec;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -6,6 +7,7 @@ import 'package:dart_pdf_editor_flutter_gpu/dart_pdf_editor_flutter_gpu.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_gpu/gpu.dart' as gpu;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -603,4 +605,68 @@ void main() {
           reason: 'arbitrary PDF clips should use the exact stencil route');
     });
   });
+
+  testWidgets('an image whose /SMask stayed a companion surface falls back',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      // A non-CMYK JPEG decodes through the platform codec, which keeps a
+      // simple grayscale /SMask as a companion `ui.Image` that only
+      // CanvasPdfDevice knows how to compose. This backend uploads one texture
+      // per image, so it must decline the scene rather than paint the base
+      // opaque - the JPEG's masked-out area is solid black (#675).
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        PdfDrawImageCommand(PdfImageRequest(
+          stream: _maskedJpegStream(),
+          transform: PdfMatrix(100, 0, 0, 100, 50, 50),
+        )),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      expect(backend.createSession(scene), isNull);
+      expect(backend.stats.lastRejection, contains('soft mask'));
+    });
+  });
+}
+
+/// A solid-colour JPEG with a Flate grayscale /SMask: the shape whose mask the
+/// decoder defers to paint time as a companion GPU surface.
+CosStream _maskedJpegStream() {
+  const size = 32;
+  final rgb = img.Image(width: size, height: size);
+  for (final p in rgb) {
+    p
+      ..r = 40
+      ..g = 200
+      ..b = 90;
+  }
+  final mask = Uint8List(size * size)..fillRange(0, size * size ~/ 2, 0xFF);
+  final maskBytes = Uint8List.fromList(ZLibCodec(level: 6).encode(mask));
+  return CosStream(
+    CosDictionary({
+      'Subtype': const CosName('Image'),
+      'Width': const CosInteger(size),
+      'Height': const CosInteger(size),
+      'BitsPerComponent': const CosInteger(8),
+      'ColorSpace': const CosName('DeviceRGB'),
+      'Filter': const CosName('DCTDecode'),
+      'SMask': CosStream(
+        CosDictionary({
+          'Subtype': const CosName('Image'),
+          'Width': const CosInteger(size),
+          'Height': const CosInteger(size),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceGray'),
+          'Filter': const CosName('FlateDecode'),
+          'Length': CosInteger(maskBytes.length),
+        }),
+        maskBytes,
+      ),
+    }),
+    Uint8List.fromList(img.encodeJpg(rgb, quality: 100)),
+  );
 }

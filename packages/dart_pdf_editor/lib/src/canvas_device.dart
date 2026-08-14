@@ -1538,6 +1538,19 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
       paint,
     );
     if (softMask != null) {
+      // The dstIn and the red->alpha filter go on a *layer* paint, not on the
+      // mask's own draw paint. Impeller ignores a draw paint's blend mode when
+      // that same paint also carries a colour filter: the mask then composites
+      // srcOver, painting its filtered samples (opaque black where the mask is
+      // white) over the base instead of cutting the base's alpha - every
+      // /SMask'd JPEG on the page turns into a black rectangle (#675). Skia
+      // honours both on one paint, and both engines honour this shape.
+      canvas.saveLayer(
+        const Rect.fromLTWH(0, 0, 1, 1),
+        Paint()
+          ..blendMode = BlendMode.dstIn
+          ..colorFilter = const ColorFilter.matrix(_redToAlpha),
+      );
       canvas.drawImageRect(
         softMask,
         Rect.fromLTWH(
@@ -1549,10 +1562,9 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
         const Rect.fromLTWH(0, 0, 1, 1),
         Paint()
           ..filterQuality = FilterQuality.medium
-          ..isAntiAlias = false
-          ..blendMode = BlendMode.dstIn
-          ..colorFilter = const ColorFilter.matrix(_redToAlpha),
+          ..isAntiAlias = false,
       );
+      canvas.restore();
       canvas.restore();
     }
     canvas.restore();

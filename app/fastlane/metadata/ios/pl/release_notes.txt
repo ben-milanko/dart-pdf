@@ -1,6 +1,4 @@
-Nowości w wersji 3.5.0
+Nowości w wersji 3.5.1
 
-- Duże i szczegółowe pliki PDF działają płynnie podczas przewijania, przesuwania i powiększania, a widoczny obszar wyostrza się jako pierwszy.
-- Podglądy stron stopniowo zyskują szczegóły podczas szybkiej nawigacji.
-- Strony pozostają ostre i widoczne przy krawędziach widoku.
-- Szybsze wczytywanie zdalnych dokumentów i bardziej przewidywalne użycie pamięci.
+- Zeskanowane strony MRC i JBIG2 zachowują teraz warstwy tekstu, tła i masek.
+- Obrazy z maską przezroczystości nie są już wyświetlane jako czarne bloki w Impellerze ani opcjonalnym rendererze GPU.

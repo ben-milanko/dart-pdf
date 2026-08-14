@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1
+
+- Fall back to the Canvas renderer for deferred image soft masks that the GPU
+  backend cannot yet reproduce exactly, preserving correct output on Impeller.
+
 ## 0.1.0
 
 - Render final GPU tile textures directly and admit one per repaint, avoiding

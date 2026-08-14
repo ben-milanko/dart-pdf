@@ -1,6 +1,4 @@
-Điểm mới trong 3.5.0
+Điểm mới trong 3.5.1
 
-- PDF lớn và nhiều chi tiết vẫn phản hồi tốt khi cuộn, kéo và thu phóng; vùng đang xem được làm nét trước.
-- Bản xem trước trang rõ dần theo từng mức khi điều hướng nhanh.
-- Trang vẫn sắc nét và hiển thị ổn định gần mép khung xem.
-- Tải tài liệu từ xa nhanh hơn và sử dụng bộ nhớ dễ dự đoán hơn.
+- Các trang MRC và JBIG2 được quét nay giữ đúng các lớp văn bản, nền và mặt nạ.
+- Ảnh có mặt nạ trong suốt không còn hiển thị thành khối đen với Impeller hoặc trình kết xuất GPU tùy chọn.

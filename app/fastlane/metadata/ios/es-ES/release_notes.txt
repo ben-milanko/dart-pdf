@@ -1,6 +1,4 @@
-Novedades de 3.5.0
+Novedades de 3.5.1
 
-- Los PDF grandes y detallados responden mejor al desplazarse y ampliar, y la zona visible se enfoca primero.
-- Las vistas previas ganan detalle progresivamente durante la navegación rápida.
-- Las páginas siguen nítidas y visibles cerca de los bordes de la vista.
-- Carga más rápida de documentos remotos y uso de memoria más predecible.
+- Las páginas MRC y JBIG2 escaneadas conservan ahora sus capas de texto, fondo y máscara.
+- Las imágenes con máscara de transparencia ya no aparecen como bloques negros con Impeller ni con el renderizador GPU opcional.

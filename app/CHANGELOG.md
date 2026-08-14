@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.5.1
+
+- Fix scanned MRC and JBIG2 pages whose text, background, or mask layers could
+  be missing or opaque.
+- Fix soft-masked images that could render as black blocks with Impeller or the
+  optional GPU renderer.
+- Fix Android document scans that returned a `content://` URI, and show the
+  actual read-back error instead of treating every failure as cancellation.
+
 ## 3.5.0
 
 - Large and visually dense PDFs stay responsive while scrolling, panning, and

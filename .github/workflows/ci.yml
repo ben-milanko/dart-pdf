@@ -101,6 +101,25 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
+      # Every other render test here runs on Skia, but the shipped Android app
+      # runs on Impeller - which honours a slightly different subset of the
+      # canvas API (issue #675: a draw paint's blend mode is dropped when the
+      # same paint carries a colour filter). Run the compositing tests that
+      # encode those invariants on Impeller too, so the divergence is caught
+      # here rather than on a device.
+      - name: Test dart_pdf_editor compositing on Impeller
+        working-directory: packages/dart_pdf_editor
+        run: flutter test --enable-impeller test/image_soft_mask_composite_test.dart
+
+      # The optional flutter_gpu tile backend is the default wherever the
+      # platform supports it (Android ships with it enabled), and its corpus
+      # suite asserts GPU/Canvas parity on every page it accepts. Every
+      # assertion self-skips when the runner cannot open a GPU context, so this
+      # is a no-op rather than a failure on a host without one.
+      - name: Test dart_pdf_editor_flutter_gpu
+        working-directory: packages/dart_pdf_editor_flutter_gpu
+        run: flutter test --enable-impeller --enable-flutter-gpu
+
       - name: Test pdf_ocr_vlm
         working-directory: packages/pdf_ocr_vlm
         run: flutter test --coverage

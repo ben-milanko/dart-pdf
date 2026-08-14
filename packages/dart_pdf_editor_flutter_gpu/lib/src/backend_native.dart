@@ -175,7 +175,18 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
         case PdfFillMeshCommand():
           break;
         case PdfDrawImageCommand(:final request):
-          if (scene.imageFor(request) == null) return 'missing image pixels';
+          final image = scene.imageFor(request);
+          if (image == null) return 'missing image pixels';
+          // A platform-codec base keeps its /SMask as a companion GPU surface
+          // that only CanvasPdfDevice knows how to compose (dstIn over the
+          // base). This backend uploads one texture per image, so drawing it
+          // here would paint the base opaque - the JPEG's masked-out area is
+          // usually solid black, so a cut-out sticker renders as a black
+          // rectangle (#675). Hand the scene to Canvas until the mask is
+          // uploaded as its own texture.
+          if (pdfGpuSoftMaskOf(image) != null) {
+            return 'deferred image soft mask';
+          }
         case PdfDrawTextCommand(:final run):
           if (run.invisible) continue;
           if (run.glyphs == null ||

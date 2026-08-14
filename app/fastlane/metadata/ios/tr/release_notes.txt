@@ -1,6 +1,4 @@
-3.5.0 sürümündeki yenilikler
+3.5.1 sürümündeki yenilikler
 
-- Büyük ve ayrıntılı PDF'ler kaydırma, taşıma ve yakınlaştırma sırasında akıcı kalır; önce görünür alan netleşir.
-- Hızlı gezinme sırasında sayfa önizlemeleri aşamalı olarak daha net hâle gelir.
-- Sayfalar görünüm kenarlarında net ve görünür kalır.
-- Uzak belgeler daha hızlı yüklenir ve bellek kullanımı daha öngörülebilirdir.
+- Taranan MRC ve JBIG2 sayfaları artık metin, arka plan ve maske katmanlarını doğru biçimde koruyor.
+- Yumuşak maskeli görüntüler Impeller veya isteğe bağlı GPU işleyicisinde artık siyah bloklar olarak görünmüyor.

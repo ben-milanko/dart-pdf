@@ -1,6 +1,4 @@
-Nieuw in 3.5.0
+Nieuw in 3.5.1
 
-- Grote, gedetailleerde pdf's blijven soepel tijdens scrollen, pannen en zoomen; het zichtbare gebied wordt eerst verscherpt.
-- Paginavoorbeelden worden tijdens snelle navigatie stapsgewijs duidelijker.
-- Pagina's blijven scherp en zichtbaar bij de randen van de weergave.
-- Externe documenten laden sneller met voorspelbaarder geheugengebruik.
+- Gescande MRC- en JBIG2-pagina’s behouden nu hun tekst-, achtergrond- en maskerlagen.
+- Afbeeldingen met een transparantiemasker verschijnen niet langer als zwarte vlakken met Impeller of de optionele GPU-renderer.

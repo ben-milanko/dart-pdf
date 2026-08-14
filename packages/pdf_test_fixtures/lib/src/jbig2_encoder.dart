@@ -10,13 +10,15 @@
 /// * MQ arithmetic coding (Annex E), no Huffman tables;
 /// * generic region template 0 with the nominal AT pixels, TPGDON off;
 /// * one symbol dictionary segment (SDHUFF=0, REFAGG=0) per globals stream;
-/// * one page-info + one immediate text region segment (SBHUFF=0, REFINE=0,
-///   SBSTRIPS=1, TOPLEFT reference corner) per page stream.
+/// * one page-info + one immediate text region segment (SBHUFF=0, SBSTRIPS=1,
+///   TOPLEFT reference corner) per page stream, optionally with per-instance
+///   refinement (SBRTEMPLATE=0, TPGRON off) - see [Jbig2Placement.refined].
 ///
-/// Real-world *encoding* quality (symbol clustering, refinement, generic-region
-/// tuning) is out of scope - the goal is a decodable, representative workload,
-/// not a competitive encoder. The round-trip is asserted against the shipping
-/// decoder in `pdf_cos/test/jbig2_roundtrip_test.dart`.
+/// Real-world *encoding* quality (symbol clustering, choosing what to refine,
+/// generic-region tuning) is out of scope - the goal is a decodable,
+/// representative workload, not a competitive encoder. The round-trip is
+/// asserted against the shipping decoder in
+/// `pdf_cos/test/jbig2_roundtrip_test.dart`.
 library;
 
 import 'dart:typed_data';
@@ -52,11 +54,30 @@ class Jbig2Bitmap {
 /// One symbol instance on a page: [symbol] drawn with its top-left corner at
 /// ([x], [y]) in image pixels.
 class Jbig2Placement {
-  const Jbig2Placement(this.symbol, this.x, this.y);
+  const Jbig2Placement(
+    this.symbol,
+    this.x,
+    this.y, {
+    this.refined,
+    this.refinedDx = 0,
+    this.refinedDy = 0,
+  });
 
   final int symbol;
   final int x;
   final int y;
+
+  /// The bitmap actually drawn, coded as a refinement of `symbols[symbol]`
+  /// (§6.4.11) rather than placing the dictionary symbol verbatim. This is how
+  /// a scanner keeps one shared symbol dictionary while still reproducing each
+  /// instance's own ink, and it is what every MRC scanner emits for a text
+  /// mask. Null places the symbol as-is.
+  final Jbig2Bitmap? refined;
+
+  /// RDX/RDY: how far the reference symbol shifts inside the refined bitmap,
+  /// on top of the centring the size deltas imply. Ignored without [refined].
+  final int refinedDx;
+  final int refinedDy;
 }
 
 /// Encodes [symbols] as a standalone `/JBIG2Globals` stream: a single
@@ -167,22 +188,33 @@ Uint8List encodeJbig2TextPage({
   }
   if (codeLength == 0) codeLength = 1;
 
+  final refine = placements.any((placement) => placement.refined != null);
+
   final region = BytesBuilder()
     ..add(_u32(width)) // region width
     ..add(_u32(height)) // region height
     ..add(_u32(0)) // region X
     ..add(_u32(0)) // region Y
     ..addByte(0) // external combination operator: OR
-    // SBHUFF=0, REFINE=0, LOGSBSTRIPS=0, REFCORNER=TOPLEFT, TRANSPOSED=0,
-    // SBCOMBOP=OR, SBDEFPIXEL=0, SBDSOFFSET=0, SBRTEMPLATE=0
-    ..add(_u16(1 << 4))
-    ..add(_u32(placements.length));
+    // SBHUFF=0, LOGSBSTRIPS=0, REFCORNER=TOPLEFT, TRANSPOSED=0, SBCOMBOP=OR,
+    // SBDEFPIXEL=0, SBDSOFFSET=0, SBRTEMPLATE=0
+    ..add(_u16((1 << 4) | (refine ? 1 << 1 : 0)));
+  // SBRAT follows the flags whenever refinement uses template 0.
+  if (refine) region.add(_atBytes([_refinementAt0, _refinementAt1]));
+  region.add(_u32(placements.length));
 
   final mq = _MqEncoder();
   final iadt = _ArithContexts(512);
   final iafs = _ArithContexts(512);
   final iads = _ArithContexts(512);
   final iaid = _ArithContexts(1 << (codeLength + 1));
+  final iari = _ArithContexts(512);
+  final iardw = _ArithContexts(512);
+  final iardh = _ArithContexts(512);
+  final iardx = _ArithContexts(512);
+  final iardy = _ArithContexts(512);
+  // One refinement context set is shared by every refined instance (§6.4.11).
+  final refinement = _ArithContexts(1 << 13);
 
   mq.encodeInt(iadt, 0); // STRIPT: the first strip's T is absolute
   var stripT = 0;
@@ -202,7 +234,29 @@ Uint8List encodeJbig2TextPage({
         curS = strip[i].x;
       }
       mq.encodeId(iaid, codeLength, strip[i].symbol);
-      curS += symbols[strip[i].symbol].width - 1;
+      final reference = symbols[strip[i].symbol];
+      final refined = strip[i].refined;
+      if (refine) mq.encodeInt(iari, refined == null ? 0 : 1);
+      if (refined == null) {
+        curS += reference.width - 1;
+      } else {
+        final rdw = refined.width - reference.width;
+        final rdh = refined.height - reference.height;
+        mq
+          ..encodeInt(iardw, rdw)
+          ..encodeInt(iardh, rdh)
+          ..encodeInt(iardx, strip[i].refinedDx)
+          ..encodeInt(iardy, strip[i].refinedDy);
+        _encodeRefinement(
+          mq,
+          refinement,
+          refined,
+          reference,
+          (rdw >> 1) + strip[i].refinedDx,
+          (rdh >> 1) + strip[i].refinedDy,
+        );
+        curS += refined.width - 1;
+      }
       placed++;
       // The decoder stops on the instance count without reading a closing
       // OOB, so the last strip must not emit one.
@@ -258,6 +312,46 @@ void _encodeGeneric(_MqEncoder mq, _ArithContexts cx, Jbig2Bitmap bitmap) {
       for (final (dx, dy) in pixels) {
         context = (context << 1) | bitmap.get(x + dx, y + dy);
       }
+      mq.encode(cx, context, bitmap.get(x, y));
+    }
+  }
+}
+
+/// Nominal AT pixels for refinement template 0 (T.88 figure 12).
+const _refinementAt0 = (-1, -1);
+const _refinementAt1 = (-1, -1);
+
+/// Encodes [bitmap] with the generic refinement procedure (§6.3), template 0,
+/// TPGRON off: [bitmap] pixel (x, y) refines [reference] pixel
+/// (x - [dx], y - [dy]).
+///
+/// The context layout mirrors `Jbig2Decoder._refinementContext0` bit for bit -
+/// that agreement is the whole contract between the two.
+void _encodeRefinement(
+  _MqEncoder mq,
+  _ArithContexts cx,
+  Jbig2Bitmap bitmap,
+  Jbig2Bitmap reference,
+  int dx,
+  int dy,
+) {
+  for (var y = 0; y < bitmap.height; y++) {
+    final ry = y - dy;
+    for (var x = 0; x < bitmap.width; x++) {
+      final rx = x - dx;
+      final context = bitmap.get(x - 1, y) |
+          (bitmap.get(x + 1, y - 1) << 1) |
+          (bitmap.get(x, y - 1) << 2) |
+          (bitmap.get(x + _refinementAt0.$1, y + _refinementAt0.$2) << 3) |
+          (reference.get(rx + 1, ry + 1) << 4) |
+          (reference.get(rx, ry + 1) << 5) |
+          (reference.get(rx - 1, ry + 1) << 6) |
+          (reference.get(rx + 1, ry) << 7) |
+          (reference.get(rx, ry) << 8) |
+          (reference.get(rx - 1, ry) << 9) |
+          (reference.get(rx + 1, ry - 1) << 10) |
+          (reference.get(rx, ry - 1) << 11) |
+          (reference.get(rx + _refinementAt1.$1, ry + _refinementAt1.$2) << 12);
       mq.encode(cx, context, bitmap.get(x, y));
     }
   }

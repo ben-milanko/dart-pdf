@@ -1,0 +1,5 @@
+Điểm mới trong 3.5.1
+
+- Các trang MRC và JBIG2 được quét nay giữ đúng các lớp văn bản, nền và mặt nạ.
+- Ảnh có mặt nạ trong suốt không còn hiển thị thành khối đen với Impeller hoặc trình kết xuất GPU tùy chọn.
+- Quét tài liệu trên Android đọc kết quả từ trình cung cấp nội dung hệ thống một cách ổn định và hiển thị lỗi hữu ích.

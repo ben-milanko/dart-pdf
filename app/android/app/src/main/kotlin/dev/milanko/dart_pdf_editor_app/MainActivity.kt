@@ -25,6 +25,7 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.util.concurrent.Executors
 
@@ -176,6 +177,23 @@ class MainActivity : FlutterActivity() {
                     }
                 }
             }
+            "readUri" -> {
+                val token = call.argument<String>("token")
+                if (token == null) {
+                    result.error("bad_args", "readUri expects a token", null)
+                    return
+                }
+                fileIoExecutor.execute {
+                    try {
+                        val bytes = readWhole(Uri.parse(token))
+                        runOnUiThread { result.success(bytes) }
+                    } catch (e: Exception) {
+                        runOnUiThread {
+                            result.error("read_failed", e.message, null)
+                        }
+                    }
+                }
+            }
             else -> result.notImplemented()
         }
     }
@@ -316,6 +334,17 @@ class MainActivity : FlutterActivity() {
             return if (read == length) buffer else buffer.copyOf(read)
         }
         return ByteArray(0)
+    }
+
+    /// Reads [uri] whole through the ContentResolver, which resolves `content://`
+    /// and `file://` alike. This is the read the document scanner needs: ML Kit
+    /// hands back a Uri into its own scratch space, and which scheme it carries
+    /// depends on the Play Services build, so the Dart side can't open it by
+    /// path. Throws when the Uri can't be opened, so the caller sees the reason
+    /// instead of an empty result.
+    private fun readWhole(uri: Uri): ByteArray {
+        return contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            ?: throw FileNotFoundException("Cannot open $uri")
     }
 
     /// Hands the whole PDF to Android's print framework, which renders it.
