@@ -18,7 +18,7 @@ dependencies:
   pdf_document: ^3.5.1
   pdf_graphics: ^3.5.1
   dart_pdf_editor: ^3.5.1
-  dart_pdf_editor_flutter_gpu: ^0.1.1
+  dart_pdf_editor_flutter_gpu: ^0.1.2
   # Optional bundled editor fonts + web render worker (registered in main()).
   dart_pdf_editor_assets: ^3.5.1
   pdf_ocr_vlm: ^3.5.1

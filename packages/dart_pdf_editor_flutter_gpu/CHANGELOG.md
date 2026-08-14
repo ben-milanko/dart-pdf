@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2
+
+- Support both the Flutter 3.44 and 3.47 `flutter_gpu` APIs after shader
+  loading became asynchronous and draw vertex counts moved to `draw`.
+
 ## 0.1.1
 
 - Fall back to the Canvas renderer for deferred image soft masks that the GPU

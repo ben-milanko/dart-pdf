@@ -26,7 +26,7 @@ dependencies:
   dart_pdf_editor: ^3.5.1
   # Optional Impeller-backed renderer for the existing deep-zoom tile store.
   # Its web export is an inert capability stub and Canvas remains the fallback.
-  dart_pdf_editor_flutter_gpu: ^0.1.1
+  dart_pdf_editor_flutter_gpu: ^0.1.2
   # The optional editor fonts + web render worker; registered at startup so the
   # app keeps the full-featured editor. A viewer-only app would omit this.
   dart_pdf_editor_assets: ^3.5.1

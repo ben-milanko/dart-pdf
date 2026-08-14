@@ -710,7 +710,7 @@ class _FlutterGpuTileSession
   @override
   int get maxNewTilesPerPaint => 1;
   final gpu.GpuContext context;
-  final _GpuPipelines pipelines;
+  final Future<_GpuPipelines> pipelines;
   final List<_GpuUnit> units;
   final bool msaa;
   final FlutterGpuTileBackendStats stats;
@@ -746,6 +746,7 @@ class _FlutterGpuTileSession
     if (_disposed) throw StateError('flutter_gpu tile session disposed');
     try {
       final compiled = await _compile();
+      final gpuPipelines = await pipelines;
       if (_disposed) throw StateError('flutter_gpu tile session disposed');
       final issue = Stopwatch()..start();
       final selected = _selectGpuUnits(units, compiled.pageToRaster, region);
@@ -754,7 +755,7 @@ class _FlutterGpuTileSession
         selected,
         region: region,
         pixelRatio: pixelRatio,
-        pipelines: pipelines,
+        pipelines: gpuPipelines,
         useMsaa: msaa,
         tracePage: tracePage,
       );
@@ -1842,6 +1843,7 @@ class _GpuEncoder {
   _GpuClipState? _clipState;
   int _activeClipBit = 0;
   int clipMaskRebuilds = 0;
+  bool? _separateVertexCountApi;
 
   static final _srcOver = gpu.ColorBlendEquation(
     sourceColorBlendFactor: gpu.BlendFactor.one,
@@ -1927,9 +1929,8 @@ class _GpuEncoder {
           writeMask: nextBit,
         ))
         ..bindPipeline(pipelines.solid)
-        ..bindUniform(pipelines.solidTransform, transform)
-        ..bindVertexBuffer(draw.cover.view, draw.cover.vertices)
-        ..draw();
+        ..bindUniform(pipelines.solidTransform, transform);
+      _drawBuffer(draw.cover);
       // The lower bits are scratch. Clearing them here leaves the final clip
       // bit intact and makes the following PDF fill independent of how many
       // contours built this mask.
@@ -1943,9 +1944,8 @@ class _GpuEncoder {
     pass
       ..setColorBlendEquation(_srcOver)
       ..bindPipeline(pipelines.solid)
-      ..bindUniform(pipelines.solidTransform, transform)
-      ..bindVertexBuffer(vertices.view, vertices.vertices)
-      ..draw();
+      ..bindUniform(pipelines.solidTransform, transform);
+    _drawBuffer(vertices);
   }
 
   void stencil(_GpuBuffer fan, _GpuBuffer cover,
@@ -1963,9 +1963,8 @@ class _GpuEncoder {
         writeMask: _pathMask,
       ))
       ..bindPipeline(pipelines.solid)
-      ..bindUniform(pipelines.solidTransform, transform)
-      ..bindVertexBuffer(cover.view, cover.vertices)
-      ..draw();
+      ..bindUniform(pipelines.solidTransform, transform);
+    _drawBuffer(cover);
   }
 
   void _accumulateStencil(
@@ -2005,9 +2004,7 @@ class _GpuEncoder {
           targetFace: gpu.StencilFace.back,
         );
     }
-    pass
-      ..bindVertexBuffer(fan.view, fan.vertices)
-      ..draw();
+    _drawBuffer(fan);
   }
 
   void _clearStencil(int mask) {
@@ -2022,9 +2019,8 @@ class _GpuEncoder {
         writeMask: mask,
       ))
       ..bindPipeline(pipelines.solid)
-      ..bindUniform(pipelines.solidTransform, transform)
-      ..bindVertexBuffer(stencilClear.view, stencilClear.vertices)
-      ..draw();
+      ..bindUniform(pipelines.solidTransform, transform);
+    _drawBuffer(stencilClear);
   }
 
   void texture(_GpuBuffer vertices, gpu.Texture texture, gpu.BufferView info) {
@@ -2041,9 +2037,8 @@ class _GpuEncoder {
           minFilter: gpu.MinMagFilter.linear,
           magFilter: gpu.MinMagFilter.linear,
         ),
-      )
-      ..bindVertexBuffer(vertices.view, vertices.vertices)
-      ..draw();
+      );
+    _drawBuffer(vertices);
     pass.clearBindings();
   }
 
@@ -2062,10 +2057,36 @@ class _GpuEncoder {
       ..bindTexture(pipelines.softMaskContentSampler, contentTexture,
           sampler: sampler)
       ..bindTexture(pipelines.softMaskMaskSampler, maskTexture,
-          sampler: sampler)
-      ..bindVertexBuffer(vertices.view, vertices.vertices)
-      ..draw();
+          sampler: sampler);
+    _drawBuffer(vertices);
     pass.clearBindings();
+  }
+
+  // flutter_gpu is experimental. Flutter 3.47 split vertex count out of
+  // bindVertexBuffer and into draw; 3.44 uses the original pair. Keep this
+  // package usable across both stable SDKs without exposing that churn to
+  // callers. The one-time dynamic probe is cached for every render pass.
+  void _drawBuffer(_GpuBuffer buffer) {
+    final dynamic dynamicPass = pass;
+    if (_separateVertexCountApi == true) {
+      dynamicPass.bindVertexBuffer(buffer.view);
+      dynamicPass.draw(buffer.vertices);
+      return;
+    }
+    if (_separateVertexCountApi == false) {
+      dynamicPass.bindVertexBuffer(buffer.view, buffer.vertices);
+      dynamicPass.draw();
+      return;
+    }
+    try {
+      dynamicPass.bindVertexBuffer(buffer.view);
+      _separateVertexCountApi = true;
+      dynamicPass.draw(buffer.vertices);
+    } on NoSuchMethodError {
+      _separateVertexCountApi = false;
+      dynamicPass.bindVertexBuffer(buffer.view, buffer.vertices);
+      dynamicPass.draw();
+    }
   }
 
   void _defaultStencil() {
@@ -2112,18 +2133,24 @@ class _GpuPipelines {
         softMaskMaskSampler =
             library['PdfTileSoftMaskFragment']!.getUniformSlot('mask_tex');
 
-  static _GpuPipelines? _instance;
+  static Future<_GpuPipelines>? _instance;
 
-  static _GpuPipelines instance(gpu.GpuContext context) =>
-      _instance ??= _GpuPipelines._(context, _loadLibrary());
+  static Future<_GpuPipelines> instance(gpu.GpuContext context) =>
+      _instance ??= _loadLibrary().then(
+        (library) => _GpuPipelines._(context, library),
+      );
 
-  static gpu.ShaderLibrary _loadLibrary() {
+  static Future<gpu.ShaderLibrary> _loadLibrary() async {
     for (final asset in const [
       'packages/dart_pdf_editor_flutter_gpu/assets/shaders/pdf_tile_gpu.shaderbundle',
       'assets/shaders/pdf_tile_gpu.shaderbundle',
     ]) {
       try {
-        final library = gpu.ShaderLibrary.fromAsset(asset);
+        // This was synchronous through Flutter 3.44 and returns a Future from
+        // 3.47 onward. `await` deliberately accepts both call shapes.
+        final library = await Future<gpu.ShaderLibrary?>.value(
+          gpu.ShaderLibrary.fromAsset(asset),
+        );
         if (library != null) return library;
       } catch (_) {
         // Package-prefixed in an app, bare while this package is the test root.
