@@ -90,6 +90,21 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
+      - name: Test dart_pdf_cli
+        working-directory: packages/dart_pdf_cli
+        run: |
+          dart test --coverage=coverage
+          dart pub global run coverage:format_coverage \
+            --lcov --in=coverage --out=coverage/lcov.info \
+            --report-on=lib --packages=../../.dart_tool/package_config.json
+      - name: Upload dart_pdf_cli coverage
+        uses: codecov/codecov-action@v7
+        with:
+          files: packages/dart_pdf_cli/coverage/lcov.info
+          flags: dart_pdf_cli
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
       - name: Test dart_pdf_editor
         working-directory: packages/dart_pdf_editor
         run: flutter test --coverage

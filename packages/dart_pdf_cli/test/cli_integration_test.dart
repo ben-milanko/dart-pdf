@@ -23,7 +23,7 @@ void main() {
       () async {
     final result = await Process.run(
       Platform.resolvedExecutable,
-      ['run', 'bin/dartpdf.dart', 'inspect', '--json', pdf.path],
+      ['run', 'bin/dartpdf.dart', 'inspect', pdf.path, '--json'],
       workingDirectory: Directory.current.path,
     );
 
@@ -44,6 +44,30 @@ void main() {
     expect(result.exitCode, 64);
     expect(result.stdout, isEmpty);
     expect(result.stderr, contains('requires exactly one input PDF path'));
+  });
+
+  test('password files are bounded instead of being read without limit',
+      () async {
+    final password = File('${temporary.path}/password.txt');
+    await password.writeAsString(List.filled(4097, 'x').join());
+    final result = await Process.run(
+      Platform.resolvedExecutable,
+      [
+        'run',
+        'bin/dartpdf.dart',
+        'inspect',
+        pdf.path,
+        '--password-file',
+        password.path,
+        '--json',
+      ],
+      workingDirectory: Directory.current.path,
+    );
+
+    expect(result.exitCode, 64);
+    expect(result.stdout, isEmpty);
+    expect(
+        result.stderr, contains('password input exceeds the 4096-byte limit'));
   });
 
   test('stdio MCP lists and calls the shared inspect handler', () async {
@@ -104,6 +128,15 @@ void main() {
           'list_pdf_annotations',
         ]),
       );
+      final inspectTool =
+          tools.singleWhere((tool) => tool['name'] == 'inspect_pdf');
+      final inspectSchema = inspectTool['inputSchema'] as Map<String, dynamic>;
+      final inspectProperties =
+          inspectSchema['properties'] as Map<String, dynamic>;
+      expect(
+        (inspectProperties['path'] as Map<String, dynamic>)['maxLength'],
+        32768,
+      );
 
       send({
         'jsonrpc': '2.0',
@@ -138,6 +171,22 @@ void main() {
             as Map<String, dynamic>)['text'],
         contains('outside configured MCP filesystem roots'),
       );
+
+      send({
+        'jsonrpc': '2.0',
+        'id': 5,
+        'method': 'tools/call',
+        'params': {
+          'name': 'inspect_pdf',
+          'arguments': {'path': List.filled(5000, 'x').join()},
+        },
+      });
+      final boundedError = await response(5);
+      final boundedResult = boundedError['result'] as Map<String, dynamic>;
+      expect(boundedResult['isError'], isTrue);
+      final errorText = ((boundedResult['content'] as List<dynamic>).single
+          as Map<String, dynamic>)['text'] as String;
+      expect(errorText.length, lessThanOrEqualTo(4130));
     } finally {
       process.kill();
       await process.stdin.close();

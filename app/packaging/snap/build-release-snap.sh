@@ -78,6 +78,10 @@ mkdir -p "$work_dir/snap" "$output"
 cp "$script_dir/snap/snapcraft.yaml" "$work_dir/snap/snapcraft.yaml"
 mkdir -p "$work_dir/release-payload"
 tar -xzf "$archive" -C "$work_dir/release-payload"
+if [[ ! -x "$work_dir/release-payload/dartpdf-cli" ]]; then
+  echo "Release archive does not contain the dartpdf-cli sidecar: $archive" >&2
+  exit 1
+fi
 install -Dm644 "$metainfo" \
   "$work_dir/release-payload/share/metainfo/dev.milanko.dartpdf.metainfo.xml"
 tar -C "$work_dir/release-payload" -czf \
@@ -93,6 +97,20 @@ import sys
 
 path = Path(sys.argv[1])
 text = path.read_text()
+apps_marker = '''
+# Ask snapd to install the CUPS proxy'''
+cli_app = '''
+  # Snap reserves the package command `dartpdf` for the GUI. The bundled
+  # CLI/MCP sidecar is therefore exposed as `dartpdf.cli` in this channel.
+  cli:
+    command: dartpdf-cli
+    plugs:
+      - home
+      - removable-media
+'''
+if apps_marker not in text:
+    raise SystemExit('could not locate the snap apps insertion point')
+text = text.replace(apps_marker, cli_app + apps_marker, 1)
 text, count = re.subn(
     r'(?m)^    source: https://github\.com/[^\n]+\n'
     r'    source-type: tar\n'

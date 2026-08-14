@@ -23,7 +23,9 @@ dart pub global activate dart_pdf_cli
 dartpdf --help
 ```
 
-The DartPDF desktop app also ships the same self-contained native executable:
+Sidecar-enabled DartPDF desktop releases ship the same self-contained native
+executable (older package-manager releases naturally do not gain it
+retroactively):
 
 | Desktop build | CLI/MCP executable |
 |---|---|
@@ -40,9 +42,10 @@ use the explicit path above when registering their copy with an MCP host.
 
 ## Commands
 
-All successful commands write JSON to stdout. Diagnostics go to stderr and
-failures use non-zero exit codes. Output is indented by default; `--json`
-selects compact JSON for scripts and agents.
+Successful PDF operations write JSON to stdout (`--help` and `--version` are
+human-readable). Diagnostics go to stderr and failures use non-zero exit codes.
+Output is indented by default; `--json` selects compact JSON for scripts and
+agents.
 
 ```sh
 dartpdf inspect input.pdf --json
@@ -59,9 +62,10 @@ changed.
 count, encryption state, form and annotation counts, and compact signature
 state. It does not perform trust-store validation.
 
-`text`, `forms list`, and `annotations list` have hard result limits. The JSON
-reports `truncated: true` when a page, character, field, annotation, or
-annotation-text limit was reached. Password-form values are never returned.
+Every operation has hard limits for variable strings and collections. The JSON
+reports `truncated: true` when a metadata, signature, subtype, page, character,
+field, widget, option, annotation, or annotation-text limit was reached.
+Password-form values are never returned.
 
 ## Passwords
 
@@ -76,7 +80,8 @@ dartpdf inspect secured.pdf --password-file /secure/password.txt --json
 ```
 
 Only one trailing line ending is removed from stdin or password-file input;
-other whitespace remains part of the password.
+other whitespace remains part of the password. Protected password inputs are
+limited to 4096 bytes and rejected rather than silently truncated.
 
 ## JSON compatibility
 
@@ -132,7 +137,9 @@ codex mcp add dartpdf -- \
 
 MCP password sources are `passwordEnv` or `passwordFile`; raw password tool
 arguments are not accepted. Hosts can therefore apply their own approval and
-secret policies without exposing the password in the server command.
+secret policies without exposing the password in the server command. Tool
+schemas also cap path, page-range, and environment-name strings, and MCP error
+text is bounded independently of parser diagnostics.
 
 ## Scope
 

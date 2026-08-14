@@ -4,8 +4,9 @@
 derivatives, so users can `paru -S dartpdf-bin` / `yay -S dartpdf-bin`.
 
 - **Package:** binary (`-bin`) — installs the release bundle under
-  `/opt/dartpdf`, preserves the GUI launcher at `/usr/bin/dartpdf`, and exposes
-  the bundled CLI/MCP sidecar as `/usr/bin/dartpdf-cli`.
+  `/opt/dartpdf`, preserves the GUI launcher at `/usr/bin/dartpdf`, and, for
+  sidecar-enabled releases, exposes the CLI/MCP executable as
+  `/usr/bin/dartpdf-cli`.
 - **Source of truth for the `PKGBUILD`:** this directory. The AUR git repo is a
   publish target; keep this copy authoritative and push from here.
 
@@ -15,6 +16,10 @@ As of `app-v3.4.0`, the official release tarball carries the runner, `data/`,
 `lib/`, and the complete desktop-integration `share/` tree. The `PKGBUILD`
 installs that immutable payload directly and fetches only the Apache license
 from the matching release tag.
+
+The checked-in `3.5.0` pin predates the CLI sidecar. Its install is conditional
+so this recipe remains reproducible until the first sidecar-enabled app release
+is published and the normal version/checksum bump is made.
 
 ## Per-release update
 

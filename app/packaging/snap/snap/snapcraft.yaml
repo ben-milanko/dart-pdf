@@ -30,14 +30,6 @@ apps:
       - removable-media
       - password-manager-service
       - cups
-  # Snap reserves the package command `dartpdf` for the GUI. The bundled
-  # CLI/MCP sidecar is therefore exposed as `dartpdf.cli` in this channel.
-  cli:
-    command: dartpdf-cli
-    plugs:
-      - home
-      - removable-media
-
 # Ask snapd to install the CUPS proxy on systems that do not already provide a
 # compatible print service. The app only needs the non-administrative `cups`
 # interface above; it never requests `cups-control`.

@@ -12,6 +12,7 @@ const _version = '0.1.0';
 const _usageExit = 64;
 const _dataExit = 65;
 const _inputExit = 66;
+const _maxPasswordBytes = 4096;
 
 Future<void> main(List<String> arguments) async {
   exitCode = await _DartPdfCli().run(arguments);
@@ -140,7 +141,7 @@ class _DartPdfCli {
           'choose only one password source: stdin, environment, or file');
     }
     if (fromStdin) {
-      return _trimLineEnding(await stdin.transform(utf8.decoder).join());
+      return _readPassword(await _boundedBytes(stdin));
     }
     if (envName != null) {
       final value = Platform.environment[envName];
@@ -151,7 +152,7 @@ class _DartPdfCli {
       return value;
     }
     if (fileName != null) {
-      return _trimLineEnding(await File(fileName).readAsString());
+      return _readPassword(await _boundedBytes(File(fileName).openRead()));
     }
     return '';
   }
@@ -272,8 +273,8 @@ class _RootedFileAccess {
       return value;
     }
     if (fileName != null) {
-      return _trimLineEnding(
-          await (await _resolveFile(fileName)).readAsString());
+      final file = await _resolveFile(fileName);
+      return _readPassword(await _boundedBytes(file.openRead()));
     }
     return '';
   }
@@ -304,6 +305,24 @@ String _trimLineEnding(String value) {
   if (value.endsWith('\n')) return value.substring(0, value.length - 1);
   return value;
 }
+
+Future<List<int>> _boundedBytes(Stream<List<int>> input) async {
+  final output = BytesBuilder(copy: false);
+  var length = 0;
+  await for (final chunk in input) {
+    length += chunk.length;
+    if (length > _maxPasswordBytes) {
+      throw const DartPdfRequestException(
+        'password input exceeds the 4096-byte limit',
+      );
+    }
+    output.add(chunk);
+  }
+  return output.takeBytes();
+}
+
+String _readPassword(List<int> bytes) =>
+    _trimLineEnding(utf8.decode(bytes, allowMalformed: false));
 
 class _UsageException implements Exception {
   const _UsageException(this.message, this.usage);

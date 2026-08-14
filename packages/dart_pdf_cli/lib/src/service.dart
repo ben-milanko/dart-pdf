@@ -12,20 +12,41 @@ class DartPdfLimits {
     this.maxPages = 50,
     this.maxTextCharsPerPage = 100000,
     this.maxTextChars = 500000,
+    this.maxInspectMetadataEntries = 100,
+    this.maxInspectSignatures = 100,
+    this.maxInspectAnnotationSubtypes = 100,
+    this.maxInspectTextChars = 100000,
     this.maxFields = 1000,
+    this.maxFormWidgets = 2000,
+    this.maxFormOptions = 5000,
+    this.maxFormTextChars = 200000,
     this.maxAnnotations = 1000,
     this.maxAnnotationTextChars = 20000,
   })  : assert(maxPages > 0),
         assert(maxTextCharsPerPage > 0),
         assert(maxTextChars > 0),
+        assert(maxInspectMetadataEntries > 0),
+        assert(maxInspectSignatures > 0),
+        assert(maxInspectAnnotationSubtypes > 0),
+        assert(maxInspectTextChars > 0),
         assert(maxFields > 0),
+        assert(maxFormWidgets > 0),
+        assert(maxFormOptions > 0),
+        assert(maxFormTextChars > 0),
         assert(maxAnnotations > 0),
         assert(maxAnnotationTextChars > 0);
 
   final int maxPages;
   final int maxTextCharsPerPage;
   final int maxTextChars;
+  final int maxInspectMetadataEntries;
+  final int maxInspectSignatures;
+  final int maxInspectAnnotationSubtypes;
+  final int maxInspectTextChars;
   final int maxFields;
+  final int maxFormWidgets;
+  final int maxFormOptions;
+  final int maxFormTextChars;
   final int maxAnnotations;
   final int maxAnnotationTextChars;
 }
@@ -141,19 +162,75 @@ class DartPdfDocument {
   Map<String, Object?> inspect() {
     final form = PdfAcroForm.of(document);
     final signatures = PdfSignature.of(document);
+    final textBudget = _TextBudget(limits.maxInspectTextChars);
+    final metadata = <String, String>{};
+    var metadataTruncated = false;
+    var metadataSeen = 0;
+    for (final entry in document.info.entries) {
+      if (metadataSeen >= limits.maxInspectMetadataEntries ||
+          textBudget.remaining == 0) {
+        metadataTruncated = true;
+        textBudget.markTruncated();
+        break;
+      }
+      metadataSeen++;
+      // Metadata keys become JSON object keys, so do not truncate them into a
+      // collision. Omit an oversized key and report the compact result as
+      // truncated instead.
+      if (!textBudget.canTake(entry.key)) {
+        metadataTruncated = true;
+        textBudget.markTruncated();
+        continue;
+      }
+      final key = textBudget.take(entry.key);
+      final value = textBudget.take(entry.value);
+      metadata[key] = value;
+      if (value.length < entry.value.length) metadataTruncated = true;
+    }
+
     var annotationCount = 0;
+    var otherAnnotationSubtypeCount = 0;
     final annotationTypes = <String, int>{};
     for (var pageIndex = 0; pageIndex < document.pageCount; pageIndex++) {
       for (final annotation in document.page(pageIndex).annotations) {
         annotationCount++;
-        annotationTypes.update(annotation.subtype, (count) => count + 1,
-            ifAbsent: () => 1);
+        final subtype = annotation.subtype;
+        final existing = annotationTypes[subtype];
+        if (existing != null) {
+          annotationTypes[subtype] = existing + 1;
+        } else if (annotationTypes.length <
+                limits.maxInspectAnnotationSubtypes &&
+            textBudget.canTake(subtype)) {
+          annotationTypes[textBudget.take(subtype)] = 1;
+        } else {
+          otherAnnotationSubtypeCount++;
+          textBudget.markTruncated();
+        }
       }
     }
 
+    final signatureItems = <Map<String, Object?>>[];
+    final signatureTake = signatures.length < limits.maxInspectSignatures
+        ? signatures.length
+        : limits.maxInspectSignatures;
+    for (final signature in signatures.take(signatureTake)) {
+      final item = <String, Object?>{
+        'documentTimestamp': signature.isDocumentTimeStamp,
+      };
+      textBudget.add(item, 'field', signature.field.name);
+      textBudget.add(item, 'signer', signature.signerName);
+      textBudget.add(item, 'subFilter', signature.subFilter);
+      if (signature.signingTime != null) {
+        item['signingTime'] = signature.signingTime!.toIso8601String();
+      }
+      signatureItems.add(item);
+    }
+    final signaturesTruncated = signatureTake < signatures.length;
+
     return _result('inspect', {
       'version': document.version,
-      'metadata': document.info,
+      'metadata': metadata,
+      if (metadataTruncated) 'metadataTruncated': true,
       'pageCount': document.pageCount,
       'encrypted': document.cos.isEncrypted,
       'forms': {
@@ -163,22 +240,21 @@ class DartPdfDocument {
       'annotations': {
         'count': annotationCount,
         'bySubtype': annotationTypes,
+        if (otherAnnotationSubtypeCount > 0)
+          'otherSubtypeCount': otherAnnotationSubtypeCount,
+        if (otherAnnotationSubtypeCount > 0) 'subtypesTruncated': true,
       },
       'signatures': {
         'signed': signatures.isNotEmpty,
         'count': signatures.length,
-        'items': [
-          for (final signature in signatures)
-            {
-              'field': signature.field.name,
-              if (signature.signerName != null) 'signer': signature.signerName,
-              if (signature.subFilter != null) 'subFilter': signature.subFilter,
-              if (signature.signingTime != null)
-                'signingTime': signature.signingTime!.toIso8601String(),
-              'documentTimestamp': signature.isDocumentTimeStamp,
-            },
-        ],
+        'items': signatureItems,
+        if (signaturesTruncated) 'truncated': true,
       },
+      if (metadataTruncated ||
+          otherAnnotationSubtypeCount > 0 ||
+          signaturesTruncated ||
+          textBudget.truncated)
+        'truncated': true,
     });
   }
 
@@ -200,7 +276,7 @@ class DartPdfDocument {
       final pageLimit = remaining < limits.maxTextCharsPerPage
           ? remaining
           : limits.maxTextCharsPerPage;
-      final take = extracted.length < pageLimit ? extracted.length : pageLimit;
+      final take = _safePrefixLength(extracted, pageLimit);
       final pageTruncated = take < extracted.length;
       output.add({
         'page': pageIndex + 1,
@@ -228,14 +304,17 @@ class DartPdfDocument {
     final fields = form?.fields ?? const <PdfFormField>[];
     final take =
         fields.length < limits.maxFields ? fields.length : limits.maxFields;
+    final budget = _FormBudget(limits);
+    final output = <Map<String, Object?>>[];
+    for (final field in fields.take(take)) {
+      output.add(_fieldJson(field, budget));
+    }
     return _result('forms.list', {
       'present': form != null,
       'total': fields.length,
       'returned': take,
-      'truncated': take < fields.length,
-      'fields': [
-        for (final field in fields.take(take)) _fieldJson(field),
-      ],
+      'truncated': take < fields.length || budget.truncated,
+      'fields': output,
     });
   }
 
@@ -247,15 +326,13 @@ class DartPdfDocument {
     );
     final annotations = <Map<String, Object?>>[];
     var total = 0;
-    var textBudget = limits.maxAnnotationTextChars;
-    var textTruncated = false;
+    final textBudget = _TextBudget(limits.maxAnnotationTextChars);
     for (final pageIndex in selection.indices) {
       for (final annotation in document.page(pageIndex).annotations) {
         total++;
         if (annotations.length >= limits.maxAnnotations) continue;
         final item = <String, Object?>{
           'page': pageIndex + 1,
-          'subtype': annotation.subtype,
           'rect': _rectJson(annotation.rect),
           'flags': annotation.flags,
           'hidden': annotation.isHidden,
@@ -263,20 +340,10 @@ class DartPdfDocument {
           'readOnly': annotation.isReadOnly,
           'locked': annotation.isLocked,
         };
-        void addBoundedText(String key, String? value) {
-          if (value == null) return;
-          final take = value.length < textBudget ? value.length : textBudget;
-          item[key] = value.substring(0, take);
-          if (take < value.length) {
-            item['${key}Truncated'] = true;
-            textTruncated = true;
-          }
-          textBudget -= take;
-        }
-
-        addBoundedText('name', annotation.name);
-        addBoundedText('author', annotation.author);
-        addBoundedText('contents', annotation.contents);
+        textBudget.add(item, 'subtype', annotation.subtype);
+        textBudget.add(item, 'name', annotation.name);
+        textBudget.add(item, 'author', annotation.author);
+        textBudget.add(item, 'contents', annotation.contents);
         annotations.add(item);
       }
     }
@@ -285,39 +352,61 @@ class DartPdfDocument {
       'selectedPages': [for (final index in selection.indices) index + 1],
       'total': total,
       'returned': annotations.length,
-      'truncated':
-          selection.truncated || annotations.length < total || textTruncated,
+      'truncated': selection.truncated ||
+          annotations.length < total ||
+          textBudget.truncated,
       'annotations': annotations,
     });
   }
 
-  Map<String, Object?> _fieldJson(PdfFormField field) {
-    final widgets = <Map<String, Object?>>[];
-    for (var index = 0; index < field.widgets.length; index++) {
-      final rect = field.widgetRect(index);
-      final pageIndex = field.widgetPageIndex(index);
-      widgets.add({
-        'page': pageIndex < 0 ? null : pageIndex + 1,
-        if (rect != null) 'rect': _rectJson(rect),
-        if (field.widgetOnState(index) != null)
-          'onState': field.widgetOnState(index),
-      });
-    }
-    return {
-      'name': field.name,
+  Map<String, Object?> _fieldJson(PdfFormField field, _FormBudget budget) {
+    final item = <String, Object?>{
       'type': field.type.name,
-      if (!field.isPassword && field.value != null) 'value': field.value,
-      if (field.isPassword && field.value != null) 'valueRedacted': true,
       'readOnly': field.isReadOnly,
       'required': field.isRequired,
       if (field.type == PdfFieldType.text) 'multiline': field.isMultiline,
-      if (field.options.isNotEmpty)
-        'options': [
-          for (final option in field.options)
-            {'value': option.$1, 'label': option.$2},
-        ],
-      'widgets': widgets,
     };
+    budget.text.add(item, 'name', field.name);
+    if (!field.isPassword) budget.text.add(item, 'value', field.value);
+    if (field.isPassword && field.value != null) item['valueRedacted'] = true;
+
+    final options = field.options;
+    if (options.isNotEmpty) {
+      final take = options.length < budget.optionsRemaining
+          ? options.length
+          : budget.optionsRemaining;
+      item['options'] = [
+        for (final option in options.take(take))
+          budget.optionJson(option.$1, option.$2),
+      ];
+      budget.optionsRemaining -= take;
+      if (take < options.length) {
+        item['optionsTruncated'] = true;
+        budget.markTruncated();
+      }
+    }
+
+    final widgets = <Map<String, Object?>>[];
+    final widgetTake = field.widgets.length < budget.widgetsRemaining
+        ? field.widgets.length
+        : budget.widgetsRemaining;
+    for (var index = 0; index < widgetTake; index++) {
+      final rect = field.widgetRect(index);
+      final pageIndex = field.widgetPageIndex(index);
+      final widget = <String, Object?>{
+        'page': pageIndex < 0 ? null : pageIndex + 1,
+        if (rect != null) 'rect': _rectJson(rect),
+      };
+      budget.text.add(widget, 'onState', field.widgetOnState(index));
+      widgets.add(widget);
+    }
+    budget.widgetsRemaining -= widgetTake;
+    if (widgetTake < field.widgets.length) {
+      item['widgetsTruncated'] = true;
+      budget.markTruncated();
+    }
+    item['widgets'] = widgets;
+    return item;
   }
 
   Map<String, Object?> _result(String operation, Map<String, Object?> data) => {
@@ -332,4 +421,65 @@ class DartPdfDocument {
         rect.right,
         rect.top,
       ];
+}
+
+class _TextBudget {
+  _TextBudget(this.remaining);
+
+  int remaining;
+  bool truncated = false;
+
+  bool canTake(String value) => value.length <= remaining;
+
+  String take(String value) {
+    final length = _safePrefixLength(value, remaining);
+    final result = value.substring(0, length);
+    remaining -= length;
+    if (length < value.length) truncated = true;
+    return result;
+  }
+
+  void add(Map<String, Object?> output, String key, String? value) {
+    if (value == null) return;
+    final bounded = take(value);
+    output[key] = bounded;
+    if (bounded.length < value.length) output['${key}Truncated'] = true;
+  }
+
+  void markTruncated() => truncated = true;
+}
+
+class _FormBudget {
+  _FormBudget(DartPdfLimits limits)
+      : text = _TextBudget(limits.maxFormTextChars),
+        widgetsRemaining = limits.maxFormWidgets,
+        optionsRemaining = limits.maxFormOptions;
+
+  final _TextBudget text;
+  int widgetsRemaining;
+  int optionsRemaining;
+  bool _collectionTruncated = false;
+
+  bool get truncated => _collectionTruncated || text.truncated;
+
+  Map<String, Object?> optionJson(String value, String label) {
+    final output = <String, Object?>{};
+    text.add(output, 'value', value);
+    text.add(output, 'label', label);
+    return output;
+  }
+
+  void markTruncated() => _collectionTruncated = true;
+}
+
+int _safePrefixLength(String value, int maximum) {
+  var length = value.length < maximum ? value.length : maximum;
+  if (length > 0 && length < value.length) {
+    final last = value.codeUnitAt(length - 1);
+    final next = value.codeUnitAt(length);
+    if (last >= 0xD800 && last <= 0xDBFF && next >= 0xDC00 && next <= 0xDFFF) {
+      length--;
+    }
+  }
+  return length;
 }

@@ -34,14 +34,20 @@ package() {
   # runner resolves its real path via readlink and finds data/ + lib/ next to
   # it, so a /usr/bin symlink works.
   install -d "${pkgdir}/opt/dartpdf"
-  cp -r "${srcdir}/dart_pdf_editor_app" "${srcdir}/dartpdf-cli" \
-        "${srcdir}/data" "${srcdir}/lib" "${pkgdir}/opt/dartpdf/"
-  chmod 755 "${pkgdir}/opt/dartpdf/dart_pdf_editor_app" \
-            "${pkgdir}/opt/dartpdf/dartpdf-cli"
+  cp -r "${srcdir}/dart_pdf_editor_app" "${srcdir}/data" "${srcdir}/lib" \
+        "${pkgdir}/opt/dartpdf/"
+  chmod 755 "${pkgdir}/opt/dartpdf/dart_pdf_editor_app"
 
   install -d "${pkgdir}/usr/bin"
   ln -s /opt/dartpdf/dart_pdf_editor_app "${pkgdir}/usr/bin/dartpdf"
-  ln -s /opt/dartpdf/dartpdf-cli "${pkgdir}/usr/bin/dartpdf-cli"
+  # The checked-in PKGBUILD remains pinned to the stable release while the
+  # next release is prepared. Install the sidecar as soon as that release
+  # archive contains it without breaking reproducible builds of the old pin.
+  if [[ -f "${srcdir}/dartpdf-cli" ]]; then
+    install -Dm755 "${srcdir}/dartpdf-cli" \
+      "${pkgdir}/opt/dartpdf/dartpdf-cli"
+    ln -s /opt/dartpdf/dartpdf-cli "${pkgdir}/usr/bin/dartpdf-cli"
+  fi
 
   install -d "${pkgdir}/usr/share"
   cp -r "${srcdir}/share/." "${pkgdir}/usr/share/"

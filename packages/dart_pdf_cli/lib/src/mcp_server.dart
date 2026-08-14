@@ -5,6 +5,11 @@ import 'package:mcp_dart/mcp_dart.dart';
 
 import 'service.dart';
 
+const _maxMcpPathChars = 32768;
+const _maxMcpPageSpecChars = 4096;
+const _maxMcpEnvironmentNameChars = 1024;
+const _maxMcpErrorChars = 4096;
+
 /// Reads one PDF path after the host has applied its filesystem policy.
 typedef DartPdfFileReader = Future<Uint8List> Function(String path);
 
@@ -34,12 +39,16 @@ McpServer createDartPdfMcpServer({
   final inputSchema = JsonSchema.object(
     properties: {
       'path': JsonSchema.string(
+        minLength: 1,
+        maxLength: _maxMcpPathChars,
         description: 'PDF path inside one of the server configured roots.',
       ),
       'passwordEnv': JsonSchema.string(
+        maxLength: _maxMcpEnvironmentNameChars,
         description: 'Environment variable holding the PDF password.',
       ),
       'passwordFile': JsonSchema.string(
+        maxLength: _maxMcpPathChars,
         description:
             'Protected password file inside a configured filesystem root.',
       ),
@@ -49,16 +58,21 @@ McpServer createDartPdfMcpServer({
   final pagedInputSchema = JsonSchema.object(
     properties: {
       'path': JsonSchema.string(
+        minLength: 1,
+        maxLength: _maxMcpPathChars,
         description: 'PDF path inside one of the server configured roots.',
       ),
       'pages': JsonSchema.string(
+        maxLength: _maxMcpPageSpecChars,
         description:
             'One-based pages/ranges such as "1-5,8". Defaults to a bounded prefix.',
       ),
       'passwordEnv': JsonSchema.string(
+        maxLength: _maxMcpEnvironmentNameChars,
         description: 'Environment variable holding the PDF password.',
       ),
       'passwordFile': JsonSchema.string(
+        maxLength: _maxMcpPathChars,
         description:
             'Protected password file inside a configured filesystem root.',
       ),
@@ -166,7 +180,16 @@ Future<CallToolResult> _runTool(
 }
 
 String _toolErrorMessage(Object error) {
-  final message =
+  var message =
       error is DartPdfRequestException ? error.message : error.toString();
+  if (message.length > _maxMcpErrorChars) {
+    var end = _maxMcpErrorChars;
+    final last = message.codeUnitAt(end - 1);
+    final next = message.codeUnitAt(end);
+    if (last >= 0xD800 && last <= 0xDBFF && next >= 0xDC00 && next <= 0xDFFF) {
+      end--;
+    }
+    message = '${message.substring(0, end)}…';
+  }
   return 'DartPDF request failed: $message';
 }

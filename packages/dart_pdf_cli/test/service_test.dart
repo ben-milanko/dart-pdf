@@ -81,6 +81,31 @@ void main() {
       expect(result['metadata'], containsPair('Title', 'Secret Title'));
     });
 
+    test('inspect bounds variable metadata and annotation subtype output', () {
+      const metadataService = DartPdfService(
+        limits: DartPdfLimits(maxInspectTextChars: 7),
+      );
+      final metadata = metadataService
+          .open(
+            buildEncryptedPdf(userPassword: 'secret'),
+            password: 'secret',
+          )
+          .inspect();
+      expect(metadata['metadata'], containsPair('Title', 'Se'));
+      expect(metadata['metadataTruncated'], isTrue);
+      expect(metadata['truncated'], isTrue);
+
+      const subtypeService = DartPdfService(
+        limits: DartPdfLimits(maxInspectAnnotationSubtypes: 1),
+      );
+      final result = subtypeService.open(buildAnnotatedPdf()).inspect();
+      final annotations = result['annotations']! as Map<String, Object?>;
+      expect(annotations['bySubtype'], hasLength(1));
+      expect(annotations['otherSubtypeCount'], greaterThan(0));
+      expect(annotations['subtypesTruncated'], isTrue);
+      expect(result['truncated'], isTrue);
+    });
+
     test('text is page-addressable', () {
       final result = const DartPdfService()
           .open(buildMultiPagePdf(3))
@@ -130,6 +155,41 @@ void main() {
       expect(size['options'], hasLength(3));
     });
 
+    test('forms list bounds nested widgets and options globally', () {
+      const service = DartPdfService(
+        limits: DartPdfLimits(
+          maxFormWidgets: 2,
+          maxFormOptions: 1,
+        ),
+      );
+      final result = service.open(buildAcroFormPdf()).listForms();
+      final fields =
+          (result['fields']! as List<Object?>).cast<Map<String, Object?>>();
+      final widgetCount = fields.fold<int>(
+        0,
+        (total, field) => total + (field['widgets']! as List<Object?>).length,
+      );
+      final optionCount = fields.fold<int>(
+        0,
+        (total, field) =>
+            total + ((field['options'] as List<Object?>?)?.length ?? 0),
+      );
+
+      expect(widgetCount, 2);
+      expect(optionCount, 1);
+      expect(
+          fields,
+          contains(predicate<Map<String, Object?>>(
+            (field) => field['widgetsTruncated'] == true,
+          )));
+      expect(
+          fields,
+          contains(predicate<Map<String, Object?>>(
+            (field) => field['optionsTruncated'] == true,
+          )));
+      expect(result['truncated'], isTrue);
+    });
+
     test('annotation list can select pages and is bounded', () {
       const service = DartPdfService(
         limits: DartPdfLimits(maxAnnotations: 2),
@@ -143,6 +203,22 @@ void main() {
       expect(result['truncated'], isTrue);
       final annotations = result['annotations']! as List<Object?>;
       expect(annotations.first, containsPair('subtype', 'Link'));
+    });
+
+    test('annotation list bounds subtype text as well as optional text', () {
+      const service = DartPdfService(
+        limits: DartPdfLimits(
+          maxAnnotations: 1,
+          maxAnnotationTextChars: 1,
+        ),
+      );
+      final result = service.open(buildAnnotatedPdf()).listAnnotations();
+      final annotation = (result['annotations']! as List<Object?>).single
+          as Map<String, Object?>;
+
+      expect(annotation['subtype'], 'L');
+      expect(annotation['subtypeTruncated'], isTrue);
+      expect(result['truncated'], isTrue);
     });
   });
 }
