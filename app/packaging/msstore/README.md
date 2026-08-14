@@ -1,7 +1,8 @@
 # Microsoft Store packaging for DartPDF
 
 Builds the Store MSIX and pushes it into a Partner Center submission. Both
-halves are plain CLI, so the per-release path is fully headless:
+halves are plain CLI, so the per-release path is fully headless after the first
+submission has a package registered in Partner Center:
 
 | Step | Tool | Script |
 |---|---|---|
@@ -46,10 +47,15 @@ needs a package already uploaded by step 6. Partner Center is at
 - [ ] **5. Set the 5 repository secrets** (same page, *Secrets* tab).
 - [ ] **6. Dry-run the pipeline.** Actions → *Release Windows Store* → Run
       workflow, **`commit` unchecked**. This builds the MSIX and uploads it as a
-      draft — the first end-to-end proof, since `makeappx`/`makepri` and the
-      upload cannot be tested off Windows. Check the `windows-store-msix`
-      artifact exists and the run didn't skip (a skip means a value from 4-5 is
-      missing; the log's `::notice::` names which).
+      draft — the first end-to-end proof, since `makeappx`/`makepri` and Store
+      authentication cannot be tested off Windows. Check the
+      `windows-store-msix` artifact exists and the run didn't skip (a skip means
+      a value from 4-5 is missing; the log's `::notice::` names which). On a
+      brand-new product, Microsoft Store Developer CLI v0.3.9 can report a
+      successful `--noCommit` upload without attaching that first package in
+      the Partner Center UI. If *Packages* is still incomplete, download the
+      artifact and upload the MSIX there once. After that bootstrap, the CLI
+      updates the registered submission on later releases.
 - [ ] **7. Complete the first submission in the UI.** Listing description,
       screenshots, category, privacy policy URL (host `app/PRIVACY.md`, as Play
       does) and the age-rating questionnaire. Screenshots and age rating are not
