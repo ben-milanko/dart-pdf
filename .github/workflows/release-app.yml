@@ -179,7 +179,7 @@ jobs:
       - name: Build Linux
         working-directory: app
         run: |
-          flutter build linux --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+          flutter build linux --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }} --dart-define=PDF_BUILD_COMMIT=${{ github.sha }}
           build/linux/x64/release/bundle/dartpdf-cli --version
       - name: Tar bundle (portable folder)
         working-directory: app
@@ -438,7 +438,7 @@ jobs:
             macos/Runner.xcodeproj/project.pbxproj
       - name: Build macOS
         working-directory: app
-        run: flutter build macos --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }}
+        run: flutter build macos --release --build-name=${{ needs.setup.outputs.version }} --build-number=${{ github.run_number }} --dart-define=PDF_BUILD_COMMIT=${{ github.sha }}
       - uses: actions/download-artifact@v8
         with:
           pattern: macos-cli-*

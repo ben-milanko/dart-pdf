@@ -121,12 +121,24 @@ class PdfTileZoomLadder {
 @immutable
 class PdfTilePageIdentity {
   const PdfTilePageIdentity({
+    this.cacheNamespace,
     required this.pageIndex,
     required this.pageEpoch,
     required this.contentStamp,
     required this.destructiveStamp,
     required this.plan,
   });
+
+  /// Stable identity of the viewer/document lineage that owns this tile.
+  ///
+  /// [PdfTileStore.instance] is process-wide, including across tabs and native
+  /// windows. Page index and revision stamps are only unique inside one
+  /// document, so omitting this boundary lets page 58 in one tab consume page
+  /// 58's pixels from another. Keep the same value across incremental
+  /// revisions to preserve unchanged-page reuse, and replace it when a viewer
+  /// opens an unrelated document. Null remains useful for isolated stores and
+  /// backwards-compatible tests.
+  final Object? cacheNamespace;
 
   final int pageIndex;
   final int pageEpoch;
@@ -137,6 +149,7 @@ class PdfTilePageIdentity {
   @override
   bool operator ==(Object other) =>
       other is PdfTilePageIdentity &&
+      identical(cacheNamespace, other.cacheNamespace) &&
       pageIndex == other.pageIndex &&
       pageEpoch == other.pageEpoch &&
       contentStamp == other.contentStamp &&
@@ -144,8 +157,24 @@ class PdfTilePageIdentity {
       plan == other.plan;
 
   @override
-  int get hashCode =>
-      Object.hash(pageIndex, pageEpoch, contentStamp, destructiveStamp, plan);
+  int get hashCode => Object.hash(identityHashCode(cacheNamespace), pageIndex,
+      pageEpoch, contentStamp, destructiveStamp, plan);
+}
+
+class _PdfTilePageSlot {
+  const _PdfTilePageSlot(this.cacheNamespace, this.pageIndex);
+
+  final Object? cacheNamespace;
+  final int pageIndex;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _PdfTilePageSlot &&
+      identical(cacheNamespace, other.cacheNamespace) &&
+      pageIndex == other.pageIndex;
+
+  @override
+  int get hashCode => Object.hash(identityHashCode(cacheNamespace), pageIndex);
 }
 
 /// The full cache key of a single tile.
@@ -361,7 +390,8 @@ class PdfTileStore extends ChangeNotifier {
   /// measured at a 55% discard rate in issue #427).
   int _epochCounter = 0;
   int _allPagesEpoch = -1;
-  final Map<int, int> _pageEpoch = {};
+  final Map<Object?, int> _namespaceEpoch = Map<Object?, int>.identity();
+  final Map<_PdfTilePageSlot, int> _pageEpoch = {};
 
   bool _tickScheduled = false;
   bool _disposed = false;
@@ -384,6 +414,23 @@ class PdfTileStore extends ChangeNotifier {
 
   /// Tiles whose raster is currently in flight.
   int get inFlightCount => _inFlight.length;
+
+  /// Distinct viewer/document namespaces currently represented by retained
+  /// or in-flight tiles. Exported support snapshots use this to make
+  /// cross-tab cache isolation directly auditable.
+  int get debugNamespaceCount {
+    final namespaces = Set<Object?>.identity();
+    for (final key in _cache.keys) {
+      namespaces.add(key.id.cacheNamespace);
+    }
+    for (final key in _inFlight) {
+      namespaces.add(key.id.cacheNamespace);
+    }
+    for (final key in _persistentInFlight) {
+      namespaces.add(key.id.cacheNamespace);
+    }
+    return namespaces.length;
+  }
 
   /// The weight budget, live-adjustable (a device-memory tier could lower it).
   int get maxBytes => _cache.maxWeight;
@@ -834,7 +881,7 @@ class PdfTileStore extends ChangeNotifier {
     final dispatchEpoch = _epochCounter;
     rasterize(region, ratio).then((image) {
       _inFlight.remove(key);
-      if (_disposed || _isStale(id.pageIndex, dispatchEpoch)) {
+      if (_disposed || _isStale(id, dispatchEpoch)) {
         image.dispose();
         debugTilesDiscarded++;
         // Invalidation can race a visible raster. Its completion releases the
@@ -842,12 +889,14 @@ class PdfTileStore extends ChangeNotifier {
         // the tile; otherwise the stale result disappears with no event to
         // replace it.
         if (notifyOnLand) _scheduleTick();
+        _dropNamespaceFenceIfIdle(id.cacheNamespace);
         return;
       }
       if (_cache.containsKey(key)) {
         // A persistent hit won the race. Keep its already-visible pixels and
         // release the duplicate raster without replacing/promoting the entry.
         image.dispose();
+        _dropNamespaceFenceIfIdle(id.cacheNamespace);
         return;
       }
       _cache.put(
@@ -855,9 +904,11 @@ class PdfTileStore extends ChangeNotifier {
       debugTilesLanded++;
       _storePersistentTile(key, image, region, ratio, persistence);
       if (notifyOnLand) _scheduleTick();
+      _dropNamespaceFenceIfIdle(id.cacheNamespace);
     }, onError: (Object _, StackTrace __) {
       _inFlight.remove(key);
       debugTilesDiscarded++;
+      _dropNamespaceFenceIfIdle(id.cacheNamespace);
     });
     return true;
   }
@@ -938,10 +989,11 @@ class PdfTileStore extends ChangeNotifier {
       for (final key in batch) {
         _inFlight.remove(key);
       }
-      if (_disposed || _isStale(id.pageIndex, dispatchEpoch)) {
+      if (_disposed || _isStale(id, dispatchEpoch)) {
         slab.dispose();
         debugTilesDiscarded += batch.length;
         if (notifyOnLand) _scheduleTick();
+        _dropNamespaceFenceIfIdle(id.cacheNamespace);
         return;
       }
       final sliceClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
@@ -968,11 +1020,13 @@ class PdfTileStore extends ChangeNotifier {
         '${PdfPerfLog.rssSuffix()}',
       );
       if (notifyOnLand) _scheduleTick();
+      _dropNamespaceFenceIfIdle(id.cacheNamespace);
     }, onError: (Object _, StackTrace __) {
       for (final key in batch) {
         _inFlight.remove(key);
       }
       debugTilesDiscarded += batch.length;
+      _dropNamespaceFenceIfIdle(id.cacheNamespace);
     });
   }
 
@@ -1027,11 +1081,13 @@ class PdfTileStore extends ChangeNotifier {
             region: region, pixelRatio: ratio, width: width, height: height)
         .then((image) {
       _persistentInFlight.remove(key);
-      if (image == null) return;
-      if (_disposed ||
-          _isStale(id.pageIndex, dispatchEpoch) ||
-          _cache.containsKey(key)) {
+      if (image == null) {
+        _dropNamespaceFenceIfIdle(id.cacheNamespace);
+        return;
+      }
+      if (_disposed || _isStale(id, dispatchEpoch) || _cache.containsKey(key)) {
         image.dispose();
+        _dropNamespaceFenceIfIdle(id.cacheNamespace);
         return;
       }
       _cache.put(
@@ -1039,8 +1095,10 @@ class PdfTileStore extends ChangeNotifier {
       debugPersistentHits++;
       debugTilesLanded++;
       if (notifyOnLand) _scheduleTick();
+      _dropNamespaceFenceIfIdle(id.cacheNamespace);
     }, onError: (Object _, StackTrace __) {
       _persistentInFlight.remove(key);
+      _dropNamespaceFenceIfIdle(id.cacheNamespace);
     });
   }
 
@@ -1054,15 +1112,52 @@ class PdfTileStore extends ChangeNotifier {
         region: region, pixelRatio: pixelRatio));
   }
 
-  bool _isStale(int pageIndex, int dispatchEpoch) =>
+  bool _isStale(PdfTilePageIdentity id, int dispatchEpoch) =>
       _allPagesEpoch > dispatchEpoch ||
-      (_pageEpoch[pageIndex] ?? -1) > dispatchEpoch;
+      (_namespaceEpoch[id.cacheNamespace] ?? -1) > dispatchEpoch ||
+      (_pageEpoch[_PdfTilePageSlot(id.cacheNamespace, id.pageIndex)] ?? -1) >
+          dispatchEpoch;
+
+  /// Drops every retained and in-flight tile belonging to one viewer/document
+  /// lineage, without disturbing the other tabs sharing this process store.
+  ///
+  /// Structural page edits call this before replacing their namespace. The
+  /// epoch check makes any raster or persistent load already in flight for the
+  /// old page slots dispose its result instead of repopulating dead cache
+  /// entries after the edit.
+  void invalidateNamespace(Object? cacheNamespace) {
+    if (_disposed) return;
+    _namespaceEpoch[cacheNamespace] = ++_epochCounter;
+    _cache.evictWhere(
+      (key) => identical(key.id.cacheNamespace, cacheNamespace),
+    );
+    _pageEpoch.removeWhere(
+      (slot, _) => identical(slot.cacheNamespace, cacheNamespace),
+    );
+    _dropNamespaceFenceIfIdle(cacheNamespace);
+  }
+
+  /// An invalidated namespace needs a strong epoch fence only while one of its
+  /// old asynchronous requests can still complete. Drop it afterward so a
+  /// long editing session with many page operations does not retain every
+  /// superseded namespace object forever.
+  void _dropNamespaceFenceIfIdle(Object? cacheNamespace) {
+    if (!_namespaceEpoch.containsKey(cacheNamespace)) return;
+    final active = _inFlight.any(
+          (key) => identical(key.id.cacheNamespace, cacheNamespace),
+        ) ||
+        _persistentInFlight.any(
+          (key) => identical(key.id.cacheNamespace, cacheNamespace),
+        );
+    if (!active) _namespaceEpoch.remove(cacheNamespace);
+  }
 
   /// Drops retained (and in-flight) tiles. With [pages] null every tile is
-  /// dropped; otherwise only tiles for those page slots - the model
+  /// dropped; otherwise only tiles for those page slots inside
+  /// [cacheNamespace] - the model
   /// [PdfCachingRenderWorker.updateRevision]'s `changedPages` feeds. In-flight
   /// rasters for the affected pages are discarded on completion.
-  void invalidate({Set<int>? pages}) {
+  void invalidate({Set<int>? pages, Object? cacheNamespace}) {
     if (_disposed) return;
     final epoch = ++_epochCounter;
     if (pages == null) {
@@ -1070,9 +1165,11 @@ class PdfTileStore extends ChangeNotifier {
       _cache.clear();
     } else {
       for (final page in pages) {
-        _pageEpoch[page] = epoch;
+        _pageEpoch[_PdfTilePageSlot(cacheNamespace, page)] = epoch;
       }
-      _cache.evictWhere((key) => pages.contains(key.id.pageIndex));
+      _cache.evictWhere((key) =>
+          identical(key.id.cacheNamespace, cacheNamespace) &&
+          pages.contains(key.id.pageIndex));
     }
   }
 
@@ -1082,14 +1179,15 @@ class PdfTileStore extends ChangeNotifier {
   /// The selective retained eviction lets a newly expanded image-detail scene
   /// replace tiles that could only have come from the capped base decode while
   /// preserving already-sharp tiles in the scene's previous coverage.
-  void invalidatePageTilesWhere(
-    int pageIndex,
-    bool Function(PdfTile tile) test,
-  ) {
+  void invalidatePageTilesWhere(int pageIndex, bool Function(PdfTile tile) test,
+      {Object? cacheNamespace}) {
     if (_disposed) return;
-    _pageEpoch[pageIndex] = ++_epochCounter;
+    _pageEpoch[_PdfTilePageSlot(cacheNamespace, pageIndex)] = ++_epochCounter;
     _cache.evictWhere((key) {
-      if (key.id.pageIndex != pageIndex) return false;
+      if (!identical(key.id.cacheNamespace, cacheNamespace) ||
+          key.id.pageIndex != pageIndex) {
+        return false;
+      }
       final tile = _cache.peek(key);
       return tile != null && test(tile);
     });

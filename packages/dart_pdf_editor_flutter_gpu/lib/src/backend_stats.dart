@@ -2,6 +2,9 @@
 class FlutterGpuTileBackendStats {
   String? lastRejection;
   String? lastTileRoute;
+  int? lastContextIdentity;
+  int contextsSeen = 0;
+  int contextSwitches = 0;
   int sessionsCreated = 0;
   int sessionsRejected = 0;
   int sessionsDisposed = 0;
@@ -44,6 +47,9 @@ class FlutterGpuTileBackendStats {
   Map<String, Object?> toJson() => {
         'lastRejection': lastRejection,
         'lastTileRoute': lastTileRoute,
+        'lastContextIdentity': lastContextIdentity,
+        'contextsSeen': contextsSeen,
+        'contextSwitches': contextSwitches,
         'sessionsCreated': sessionsCreated,
         'sessionsRejected': sessionsRejected,
         'sessionsDisposed': sessionsDisposed,
@@ -93,6 +99,7 @@ class FlutterGpuTileBackendStats {
     sessionsRejected = 0;
     sessionsDisposed = 0;
     rasterFallbacks = 0;
+    contextSwitches = 0;
     peakActiveSessions = activeSessions;
     overprintApproximationSessions = 0;
     scenesCompiled = 0;
@@ -126,6 +133,8 @@ class FlutterGpuTileBackendStats {
   @override
   String toString() => 'sessions=$sessionsCreated rejected=$sessionsRejected '
       'disposed=$sessionsDisposed rasterFallbacks=$rasterFallbacks '
+      'contexts=$contextsSeen contextSwitches=$contextSwitches '
+      'lastContext=$lastContextIdentity '
       'activeSessions=$activeSessions peakActiveSessions=$peakActiveSessions '
       'overprintApprox=$overprintApproximationSessions '
       'compiled=$scenesCompiled compileUs=$compileMicros '

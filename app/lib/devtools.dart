@@ -142,12 +142,12 @@ class AppDevTools extends ChangeNotifier {
   /// it rebuilds the mounted viewer in place; [PdfPageView] then retires its
   /// old scene sessions without reopening the PDF; the base raster stays
   /// visible while the selected backend repopulates the invalidated LoD.
+  ///
+  /// The custom flutter_gpu backend is experimental. Keep Canvas as the safe
+  /// default even on supported platforms; developers can opt into flutter_gpu
+  /// from the panel when they are deliberately testing it.
   late final ValueNotifier<TileRasterBackendMode> tileRasterBackendMode =
-      ValueNotifier(
-    flutterGpuTileRasterBackend.isPlatformSupported
-        ? TileRasterBackendMode.flutterGpu
-        : TileRasterBackendMode.canvas,
-  );
+      ValueNotifier(TileRasterBackendMode.canvas);
 
   /// Changes when the selected backend instance is replaced without changing
   /// its mode (for example after editing a GPU byte ceiling).
@@ -159,6 +159,7 @@ class AppDevTools extends ChangeNotifier {
   int _gpuTextureBytes = 256 << 20;
   int _gpuGeometryBytes = 256 << 20;
   bool _gpuOverprintApproximation = false;
+  bool _flutterGpuOptIn = false;
 
   bool get gpuOverprintApproximation => _gpuOverprintApproximation;
 
@@ -177,7 +178,13 @@ class AppDevTools extends ChangeNotifier {
           ? flutterGpuTileRasterBackend
           : _canvasTileRasterBackend;
 
-  void setTileRasterBackendMode(TileRasterBackendMode mode) {
+  void setTileRasterBackendMode(
+    TileRasterBackendMode mode, {
+    bool recordOptIn = true,
+  }) {
+    if (recordOptIn) {
+      _flutterGpuOptIn = mode == TileRasterBackendMode.flutterGpu;
+    }
     if (tileRasterBackendMode.value == mode) return;
     tileRasterBackendMode.value = mode;
     // A backend A/B switch must not keep serving already-rendered slabs from
@@ -635,10 +642,22 @@ class AppDevTools extends ChangeNotifier {
         final restored = TileRasterBackendMode.values
             .where((value) => value.name == mode)
             .firstOrNull;
-        if (restored != null &&
-            (restored != TileRasterBackendMode.flutterGpu ||
-                flutterGpuTileRasterBackend.isPlatformSupported)) {
-          setTileRasterBackendMode(restored);
+        if (restored != null) {
+          // Older releases selected flutter_gpu automatically on supported
+          // Macs and then persisted that choice. Requiring this new marker
+          // migrates those installs back to Canvas while preserving a
+          // deliberate Developer Tools opt-in made after this change.
+          final restoreFlutterGpu =
+              restored == TileRasterBackendMode.flutterGpu &&
+                  map['flutterGpuOptIn'] == true &&
+                  flutterGpuTileRasterBackend.isPlatformSupported;
+          _flutterGpuOptIn = restoreFlutterGpu;
+          setTileRasterBackendMode(
+            restoreFlutterGpu
+                ? TileRasterBackendMode.flutterGpu
+                : TileRasterBackendMode.canvas,
+            recordOptIn: false,
+          );
         }
       }
       if (map['tileBorders'] case final bool v) {
@@ -701,6 +720,7 @@ class AppDevTools extends ChangeNotifier {
         jsonEncode({
           'deepZoomMode': deepZoomMode,
           'tileRasterBackend': tileRasterBackendMode.value.name,
+          'flutterGpuOptIn': _flutterGpuOptIn,
           'gpuTextureBytes': flutterGpuTileRasterBackend.maxTextureBytes,
           'gpuGeometryBytes': flutterGpuTileRasterBackend.maxGeometryBytes,
           'gpuOverprintApproximation': _gpuOverprintApproximation,

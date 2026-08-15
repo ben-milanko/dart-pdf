@@ -258,13 +258,18 @@ void main() {
       final region = Offset.zero & scene.pageSize;
 
       final first = backend.createSession(scene)!;
-      (await first.rasterizeRegion(region, pixelRatio: 0.25)).dispose();
+      final firstImage = await first.rasterizeRegion(region, pixelRatio: 0.25);
+      await _pixels(firstImage);
+      firstImage.dispose();
       first.dispose();
       expect(backend.stats.texturesUploaded, 1);
       expect(backend.stats.textureBytes, greaterThan(0));
 
       final second = backend.createSession(scene)!;
-      (await second.rasterizeRegion(region, pixelRatio: 0.25)).dispose();
+      final secondImage =
+          await second.rasterizeRegion(region, pixelRatio: 0.25);
+      await _pixels(secondImage);
+      secondImage.dispose();
       second.dispose();
       expect(backend.stats.texturesUploaded, 1);
       expect(backend.stats.textureCacheHits, 1);
@@ -272,11 +277,51 @@ void main() {
       backend.clearImageCache();
       expect(backend.stats.textureBytes, 0);
       final third = backend.createSession(scene)!;
-      (await third.rasterizeRegion(region, pixelRatio: 0.25)).dispose();
+      final thirdImage = await third.rasterizeRegion(region, pixelRatio: 0.25);
+      await _pixels(thirdImage);
+      thirdImage.dispose();
       third.dispose();
       expect(backend.stats.texturesUploaded, 2);
     });
   });
+
+  testWidgets('disposing an in-flight scene keeps its image texture leased',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final scene = await PdfRetainedScene.record(
+          PdfDocument.open(buildEmbeddedFontImagePdf()).page(0));
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend(maxTextureBytes: 1 << 20);
+      final session = backend.createSession(scene)!;
+
+      // rasterizeRegion returns the resolve image as soon as the Metal command
+      // buffer is submitted; the readback below is what waits for completion.
+      // A page-tree edit can dispose the session in precisely this window.
+      final image = await session.rasterizeRegion(
+        Offset.zero & scene.pageSize,
+        pixelRatio: 2,
+      );
+      expect(backend.stats.inFlightSubmissions, 1);
+      expect(backend.stats.activeTextureLeases, 1);
+
+      session.dispose();
+      expect(backend.stats.activeTextureLeases, 1,
+          reason: 'the submitted render pass still references the texture');
+
+      await _pixels(image);
+      image.dispose();
+      for (var i = 0; i < 100 && backend.stats.activeTextureLeases != 0; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(backend.stats.inFlightSubmissions, 0);
+      expect(backend.stats.activeTextureLeases, 0,
+          reason: 'the completion fence releases the retired scene');
+    });
+  }, timeout: const Timeout(Duration(minutes: 2)));
 
   testWidgets('content identity survives worker-reconstructed scenes',
       (tester) async {
@@ -376,6 +421,9 @@ void main() {
           reason: 'a refused scene must not overshoot the byte ceiling');
 
       pinned.dispose();
+      for (var i = 0; i < 100 && backend.stats.activeTextureLeases != 0; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
       expect(backend.stats.activeTextureLeases, 0);
       final admitted = backend.createSession(secondScene)!;
       (await admitted.rasterizeRegion(region, pixelRatio: 1)).dispose();

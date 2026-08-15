@@ -2775,6 +2775,8 @@ class _EditorScreenState extends State<EditorScreen>
                         DevToolsPanel(
                           onClose: _toggleDevTools,
                           session: tab?.session,
+                          viewerController: tab?.viewer,
+                          documentTitle: tab?.title,
                         ),
                     ],
                   ),
@@ -2801,6 +2803,8 @@ class _EditorScreenState extends State<EditorScreen>
                       child: DevToolsPanel(
                         onClose: _toggleDevTools,
                         session: tab?.session,
+                        viewerController: tab?.viewer,
+                        documentTitle: tab?.title,
                         bottomSheet: true,
                       ),
                     ),

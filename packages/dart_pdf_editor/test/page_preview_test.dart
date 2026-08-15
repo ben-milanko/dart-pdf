@@ -1182,6 +1182,42 @@ void main() {
     expect(fullRaster, findsWidgets);
   });
 
+  testWidgets('same-geometry document swap clears previews and tile identity',
+      (tester) async {
+    final first = PdfDocument.open(buildClassicPdf());
+    final second = PdfDocument.open(buildMultiPagePdf(1));
+    final controller = PdfViewerController();
+    addTearDown(controller.dispose);
+
+    Widget viewer(PdfDocument document, {required bool active}) => MaterialApp(
+          home: Scaffold(
+            body: PdfViewer(
+              document: document,
+              controller: controller,
+              initialFit: PdfViewerFit.width,
+              previewWindow: 1,
+              active: active,
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(viewer(first, active: true));
+    final cache = controller.debugPreviewCache!;
+    for (var i = 0; i < 100 && !cache.has(0); i++) {
+      await settle(tester);
+    }
+    expect(cache.has(0), isTrue);
+    final firstNamespace = controller.debugTileCacheNamespace;
+
+    // Keep the replacement parked so it cannot refill the cache before the
+    // assertion. The documents deliberately have identical page geometry:
+    // geometry is not proof that their pixels share an identity.
+    await tester.pumpWidget(viewer(second, active: false));
+    expect(controller.debugTileCacheNamespace, isNot(same(firstNamespace)));
+    expect(cache.has(0), isFalse,
+        reason: 'the first document\'s preview must not survive the swap');
+  });
+
   testWidgets('proactive previews wait for the configured idle delay',
       (tester) async {
     final document = PdfDocument.open(buildMultiPagePdf(8));

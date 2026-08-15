@@ -46,6 +46,7 @@ import 'retained_scene.dart';
 import 'scrollbar.dart';
 import 'theme.dart';
 import 'tile_raster_backend.dart';
+import 'tile_store.dart';
 import 'toast.dart';
 import 'viewport.dart';
 
@@ -427,6 +428,26 @@ class PdfViewerController extends ChangeNotifier {
   /// [PdfViewer.pagePreviews]); null when no viewer is attached.
   @visibleForTesting
   PdfPagePreviewCache? get debugPreviewCache => _state?._previews;
+
+  /// Test hook: the namespace isolating this viewer's process-wide LoD tiles.
+  @visibleForTesting
+  Object? get debugTileCacheNamespace => _state?._tileCacheNamespace;
+
+  /// Opaque identity matching this viewer to [PdfTileRasterDiagnostics].
+  ///
+  /// Intended for support snapshots only. It is process-local and must not be
+  /// persisted or used as a document identifier.
+  int? get tileCacheNamespaceIdentity {
+    final namespace = _state?._tileCacheNamespace;
+    return namespace == null ? null : identityHashCode(namespace);
+  }
+
+  /// Generation of the attached viewer's page-presentation state.
+  ///
+  /// It advances when pages are inserted, removed, or reordered. Support
+  /// snapshots include it so a report can distinguish a raster produced for
+  /// the current page slots from one that belonged to the pre-edit structure.
+  int? get pagePresentationEpoch => _state?._pageEpoch;
 
   /// The attached viewer's low-res page previews (see [PdfViewer.pagePreviews]),
   /// or null when no viewer is attached or previews are off. The page
@@ -1653,6 +1674,12 @@ class _PdfViewerState extends State<PdfViewer>
   /// what keeps fast-scrolled pages from being blank (see
   /// [PdfViewer.pagePreviews]).
   final _previews = PdfPagePreviewCache();
+
+  /// Process-wide tile-cache boundary for this viewer's document lineage.
+  /// Incremental revisions retain it; replacing the document/controller does
+  /// not. Without this boundary, two tabs at the same page/revision coordinates
+  /// can paint each other's cached tiles.
+  Object _tileCacheNamespace = Object();
 
   /// Pages the background prerender already tried (by page object
   /// identity), so a page whose render throws can't be retried forever.
@@ -3472,6 +3499,15 @@ class _PdfViewerState extends State<PdfViewer>
   void _swapDocument({bool preserveRevisionViewport = false}) {
     final document = _document;
     final sameGeometry = _sameGeometryAs(document);
+    if (!preserveRevisionViewport) {
+      // The old namespace cannot be reached after an unrelated document swap.
+      // Evict it now and fence its asynchronous completions; otherwise dead
+      // tiles consume the global LRU until pressure happens to remove them,
+      // and per-page invalidation epochs retain the old viewer token forever.
+      (PdfPageView.debugTileStoreOverride ?? PdfTileStore.instance)
+          .invalidateNamespace(_tileCacheNamespace);
+      _tileCacheNamespace = Object();
+    }
     final oldPageRefs =
         preserveRevisionViewport ? _pageRefs : const <(int, int)?>[];
     final oldCurrentPage = _pages.isEmpty
@@ -3504,6 +3540,18 @@ class _PdfViewerState extends State<PdfViewer>
             Iterable<int>.generate(oldPageRefs.length).any(
               (i) => oldPageRefs[i] != newPageRefs[i],
             ));
+    if (pageOrderChanged) {
+      // A structural revision is a new page-slot lineage. pageEpoch is part of
+      // every tile key, but the store is process-wide and old raster requests
+      // may still be completing while the new revision is built. Give the new
+      // slots their own namespace as well: old completions then remain
+      // unreachable even if a backend or persistence layer mishandles an
+      // invalidation edge. Ordinary content/annotation revisions retain the
+      // namespace and keep their unaffected tile reuse.
+      (PdfPageView.debugTileStoreOverride ?? PdfTileStore.instance)
+          .invalidateNamespace(_tileCacheNamespace);
+      _tileCacheNamespace = Object();
+    }
     PdfViewport? remappedViewport;
     if (oldViewport != null && (!sameGeometry || pageOrderChanged)) {
       final page = _remapPageIndex(
@@ -3523,10 +3571,13 @@ class _PdfViewerState extends State<PdfViewer>
       );
     }
     _previews.bindPages(_pages);
-    // an edit revision keeps its previews (rebound to the new page
-    // objects - edited pages refresh from their on-screen render); a
-    // different document starts clean
-    if (sameGeometry && !pageOrderChanged) {
+    // Only an edit revision keeps its previews (rebound to the new page
+    // objects - edited pages refresh from their on-screen render). Geometry
+    // alone is not identity: swapping two unrelated same-sized documents in
+    // one viewer must not briefly paint the previous file's previews.
+    final canRebindPreviews =
+        preserveRevisionViewport && sameGeometry && !pageOrderChanged;
+    if (canRebindPreviews) {
       // a page whose content stamp advanced changed materially (a
       // redaction burn removes glyphs/images): drop its stale preview so
       // a fast scroll can't flash the deleted content, instead of
@@ -3548,7 +3599,7 @@ class _PdfViewerState extends State<PdfViewer>
     // re-point (and, for a different file, re-prime) the persistent
     // preview backing; an edit revision keeps its rebound previews so the
     // prime is a no-op there
-    _bindRasterCache(prime: !sameGeometry || pageOrderChanged);
+    _bindRasterCache(prime: !canRebindPreviews);
     _previewAttempts.clear();
     _previewVectorAttempts.clear();
     _intermediatePreviewAttempts.clear();
@@ -3880,6 +3931,11 @@ class _PdfViewerState extends State<PdfViewer>
   @override
   void dispose() {
     _commandWarmGeneration++;
+    // A namespace is private to this State and cannot be reused after dispose.
+    // Retire it explicitly so the process-wide store neither lands an old
+    // asynchronous raster nor retains an unreachable viewer token.
+    (PdfPageView.debugTileStoreOverride ?? PdfTileStore.instance)
+        .invalidateNamespace(_tileCacheNamespace);
     WidgetsBinding.instance.removeObserver(this);
     _defaultWorkerHost?.dispose();
     _revisionController?.removeListener(_onRevisionControllerChanged);
@@ -7109,81 +7165,95 @@ class _PdfViewerState extends State<PdfViewer>
                 right: widget.pageSpacing + widget.trailingPadding)
             : EdgeInsets.only(
                 bottom: widget.pageSpacing + widget.trailingPadding),
-        itemBuilder: (context, index) => Padding(
-          padding: _horizontal
-              ? EdgeInsets.only(left: index == 0 ? 0 : widget.pageSpacing)
-              : EdgeInsets.only(top: index == 0 ? 0 : widget.pageSpacing),
-          // each page lays out at its real size relative to the reference
-          // page (times the layout zoom), centred on the cross axis - so
-          // pages keep their true sizes instead of stretching to the viewport
-          child: Center(
-            child: FractionallySizedBox(
-              widthFactor: _horizontal ? null : _crossFactor(index),
-              heightFactor: _horizontal ? _crossFactor(index) : null,
-              child: _PdfViewerPage(
-                page: _pages[index],
-                effectiveRotation: _effectiveRotation(index),
-                index: index,
-                pageColor: widget.pageColor,
-                showAnnotations: widget.showAnnotations,
-                pageImagesShowAnnotations: _pageImagesShowAnnotations,
-                trustContentStamp: _annotationLayerController != null ||
-                    widget.editing != null ||
-                    (widget.interactiveForms && widget.formController != null),
-                formFields: widget.highlightFormFields && widget.showAnnotations
-                    ? _formFieldRects(index)
-                    : const [],
-                interactiveForms:
-                    widget.interactiveForms && widget.showAnnotations,
-                scale: _renderScale,
-                settleGeneration: _settleGeneration,
-                pageEpoch: _pageEpoch,
-                contentStamp: _contentStamp(index),
-                destructiveStamp: _destructiveStamp(index),
-                renderPriority: _renderPriority(index),
-                focusDistance:
-                    (index - (_jumpFocusPage ?? _controller.currentPage)).abs(),
-                forceForeground: _jumpFocusPage == index,
-                onScreenSpan: _onScreenSpan,
-                matches: _controller._matchesOn(index),
-                currentMatch: _controller._currentMatch >= 0
-                    ? _controller._matches[_controller._currentMatch]
-                    : null,
-                selection: _selectionQuadsOn(index),
-                textSelection: _textSelectionOn(index),
-                overlayBuilder: widget.pageOverlayBuilder,
-                editing: editing,
-                formController: editing ?? widget.formController,
-                editingTextPrompt:
-                    widget.editingTextPrompt ?? showPdfTextPrompt,
-                formImagePicker: widget.formImagePicker,
-                imagePicker: widget.imagePicker,
-                onSnapshot: widget.onSnapshot,
-                onPlaceSignature: widget.onPlaceSignature,
-                onAnnotationTap: widget.onAnnotationTap,
-                contextMenuEnabled: widget.contextMenuEnabled,
-                interactionHost: PdfEditingInteractionHost(
-                  panViewport: _touchGrabPanBy,
-                  endViewportPan: _flingViewport,
-                  edgeAutoScroll: _edgeAutoScrollDelta,
-                  showAnnotationMenu: _showSelectionMenu,
-                  showFormFieldMenu: _showFormFieldMenu,
-                  requestContextMenu: _requestContextMenu,
-                  resolvePagePoint: _resolvePagePointGlobal,
-                  moveDragPreview: _onMoveDragPreview,
-                  textEditClosed: _reclaimFocusAfterTextEdit,
+        itemBuilder: (context, index) => KeyedSubtree(
+          // Insert/remove/reorder used to update a slot's existing page State
+          // in place. Its generation guards rejected stale Futures, but native
+          // compositor resources already submitted by the old State could
+          // outlive that Dart Future and paint into a later frame. A structure
+          // epoch therefore owns the complete presentation subtree: changing
+          // it disposes the old raster/scene/tile/annotation layers and mounts
+          // a clean State for the page now occupying this slot.
+          key: ValueKey((_tileCacheNamespace, _pageEpoch, index)),
+          child: Padding(
+            padding: _horizontal
+                ? EdgeInsets.only(left: index == 0 ? 0 : widget.pageSpacing)
+                : EdgeInsets.only(top: index == 0 ? 0 : widget.pageSpacing),
+            // each page lays out at its real size relative to the reference
+            // page (times the layout zoom), centred on the cross axis - so
+            // pages keep their true sizes instead of stretching to the viewport
+            child: Center(
+              child: FractionallySizedBox(
+                widthFactor: _horizontal ? null : _crossFactor(index),
+                heightFactor: _horizontal ? _crossFactor(index) : null,
+                child: _PdfViewerPage(
+                  page: _pages[index],
+                  tileCacheNamespace: _tileCacheNamespace,
+                  effectiveRotation: _effectiveRotation(index),
+                  index: index,
+                  pageColor: widget.pageColor,
+                  showAnnotations: widget.showAnnotations,
+                  pageImagesShowAnnotations: _pageImagesShowAnnotations,
+                  trustContentStamp: _annotationLayerController != null ||
+                      widget.editing != null ||
+                      (widget.interactiveForms &&
+                          widget.formController != null),
+                  formFields:
+                      widget.highlightFormFields && widget.showAnnotations
+                          ? _formFieldRects(index)
+                          : const [],
+                  interactiveForms:
+                      widget.interactiveForms && widget.showAnnotations,
+                  scale: _renderScale,
+                  settleGeneration: _settleGeneration,
+                  pageEpoch: _pageEpoch,
+                  contentStamp: _contentStamp(index),
+                  destructiveStamp: _destructiveStamp(index),
+                  renderPriority: _renderPriority(index),
+                  focusDistance:
+                      (index - (_jumpFocusPage ?? _controller.currentPage))
+                          .abs(),
+                  forceForeground: _jumpFocusPage == index,
+                  onScreenSpan: _onScreenSpan,
+                  matches: _controller._matchesOn(index),
+                  currentMatch: _controller._currentMatch >= 0
+                      ? _controller._matches[_controller._currentMatch]
+                      : null,
+                  selection: _selectionQuadsOn(index),
+                  textSelection: _textSelectionOn(index),
+                  overlayBuilder: widget.pageOverlayBuilder,
+                  editing: editing,
+                  formController: editing ?? widget.formController,
+                  editingTextPrompt:
+                      widget.editingTextPrompt ?? showPdfTextPrompt,
+                  formImagePicker: widget.formImagePicker,
+                  imagePicker: widget.imagePicker,
+                  onSnapshot: widget.onSnapshot,
+                  onPlaceSignature: widget.onPlaceSignature,
+                  onAnnotationTap: widget.onAnnotationTap,
+                  contextMenuEnabled: widget.contextMenuEnabled,
+                  interactionHost: PdfEditingInteractionHost(
+                    panViewport: _touchGrabPanBy,
+                    endViewportPan: _flingViewport,
+                    edgeAutoScroll: _edgeAutoScrollDelta,
+                    showAnnotationMenu: _showSelectionMenu,
+                    showFormFieldMenu: _showFormFieldMenu,
+                    requestContextMenu: _requestContextMenu,
+                    resolvePagePoint: _resolvePagePointGlobal,
+                    moveDragPreview: _onMoveDragPreview,
+                    textEditClosed: _reclaimFocusAfterTextEdit,
+                  ),
+                  interactionSession: widget.interactionSession,
+                  crossPageGhost: _crossPageGhostFor(index),
+                  transformScale: _transformScale,
+                  transformChanges: _transform,
+                  renderScheduler: _renderScheduler,
+                  previewCache: widget.pagePreviews ? _previews : null,
+                  renderWorker: _effectiveRenderWorker,
+                  performance: widget.performance,
+                  tileRasterBackend: widget.tileRasterBackend,
+                  predictStrokes: widget.predictStrokes,
+                  onRasterStateChanged: _setPageRasterReady,
                 ),
-                interactionSession: widget.interactionSession,
-                crossPageGhost: _crossPageGhostFor(index),
-                transformScale: _transformScale,
-                transformChanges: _transform,
-                renderScheduler: _renderScheduler,
-                previewCache: widget.pagePreviews ? _previews : null,
-                renderWorker: _effectiveRenderWorker,
-                performance: widget.performance,
-                tileRasterBackend: widget.tileRasterBackend,
-                predictStrokes: widget.predictStrokes,
-                onRasterStateChanged: _setPageRasterReady,
               ),
             ),
           ),
@@ -7903,6 +7973,7 @@ class _AnnotationAppearancePainter extends CustomPainter {
 class _PdfViewerPage extends StatefulWidget {
   const _PdfViewerPage({
     required this.page,
+    required this.tileCacheNamespace,
     required this.effectiveRotation,
     required this.index,
     required this.pageColor,
@@ -7949,6 +8020,7 @@ class _PdfViewerPage extends StatefulWidget {
   });
 
   final PdfPage page;
+  final Object tileCacheNamespace;
 
   /// The combined document + view rotation for this page.
   final int effectiveRotation;
@@ -8197,6 +8269,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
     return Stack(children: [
       PdfPageView(
         page: widget.page,
+        tileCacheNamespace: widget.tileCacheNamespace,
         rotation: widget.effectiveRotation,
         scale: widget.scale,
         // Keep one fit-size backing image and sharpen only the visible slice

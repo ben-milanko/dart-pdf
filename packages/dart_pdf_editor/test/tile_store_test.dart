@@ -103,8 +103,14 @@ class _Persistence implements PdfTilePersistence {
 
 const _plan = PdfPageRenderPlan();
 
-PdfTilePageIdentity _id(int page, {int epoch = 0, int content = 0}) =>
+PdfTilePageIdentity _id(
+  int page, {
+  int epoch = 0,
+  int content = 0,
+  Object? namespace,
+}) =>
     PdfTilePageIdentity(
+      cacheNamespace: namespace,
       pageIndex: page,
       pageEpoch: epoch,
       contentStamp: content,
@@ -646,6 +652,104 @@ void main() {
   });
 
   group('PdfTileStore.invalidate', () {
+    testWidgets('isolates equal page coordinates between document namespaces',
+        (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          registerForMemoryPressure: false,
+        );
+        final firstRaster = _Rasterizer();
+        final secondRaster = _Rasterizer();
+        final first = Object();
+        final second = Object();
+        const region = Rect.fromLTWH(0, 0, 16, 16);
+
+        store.viewFor(
+          id: _id(0, namespace: first),
+          pageSize: const Size(16, 16),
+          desiredRatio: 1,
+          visiblePageRect: region,
+          rasterize: firstRaster.call,
+        );
+        await firstRaster.flush();
+        expect(store.tileCount, 1);
+
+        final secondView = store.viewFor(
+          id: _id(0, namespace: second),
+          pageSize: const Size(16, 16),
+          desiredRatio: 1,
+          visiblePageRect: region,
+          rasterize: secondRaster.call,
+        );
+        expect(secondView.complete, isFalse,
+            reason: 'a second document must not consume the first tile');
+        await secondRaster.flush();
+        expect(store.tileCount, 2);
+
+        store.invalidate(pages: {0}, cacheNamespace: first);
+        expect(
+          store.containsTile(PdfTileKey(_id(0, namespace: first), 0, 0, 0)),
+          isFalse,
+        );
+        expect(
+          store.containsTile(PdfTileKey(_id(0, namespace: second), 0, 0, 0)),
+          isTrue,
+          reason: 'page invalidation must remain inside its document',
+        );
+        store.dispose();
+      });
+    });
+
+    testWidgets('namespace invalidation evicts and fences only that lineage',
+        (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 0,
+          ladder: const PdfTileZoomLadder(stepsPerOctave: 1),
+          registerForMemoryPressure: false,
+        );
+        final oldNamespace = Object();
+        final otherNamespace = Object();
+        final oldRaster = _Rasterizer();
+        final otherRaster = _Rasterizer();
+
+        // Keep the old lineage in flight while another tab lands a tile.
+        store.viewFor(
+          id: _id(0, namespace: oldNamespace),
+          pageSize: const Size(32, 16),
+          desiredRatio: 1,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 32, 16),
+          rasterize: oldRaster.call,
+        );
+        store.viewFor(
+          id: _id(0, namespace: otherNamespace),
+          pageSize: const Size(16, 16),
+          desiredRatio: 1,
+          visiblePageRect: const Rect.fromLTWH(0, 0, 16, 16),
+          rasterize: otherRaster.call,
+        );
+        await otherRaster.flush();
+        expect(store.tileCount, 1);
+
+        store.invalidateNamespace(oldNamespace);
+        await oldRaster.flush();
+
+        expect(store.debugTilesDiscarded, 2,
+            reason: 'pre-edit completions cannot revive the old lineage');
+        expect(
+          store.containsTile(
+              PdfTileKey(_id(0, namespace: otherNamespace), 0, 0, 0)),
+          isTrue,
+          reason: 'another tab shares the store but not the invalidation',
+        );
+        store.dispose();
+      });
+    });
+
     testWidgets('selective invalidation preserves unrelated sharp tiles',
         (tester) async {
       await tester.runAsync(() async {

@@ -1,6 +1,8 @@
 // Devtools options persist across app restarts: every panel change writes
 // the whole option set to SharedPreferences, and restoreOptions applies it
 // over the platform defaults at startup.
+import 'dart:convert';
+
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -31,11 +33,17 @@ void main() {
       maxGeometryBytes: 256 << 20,
     );
     AppDevTools.instance.setGpuOverprintApproximation(false);
-    AppDevTools.instance
-        .setTileRasterBackendMode(TileRasterBackendMode.flutterGpu);
+    AppDevTools.instance.setTileRasterBackendMode(TileRasterBackendMode.canvas);
     AppDevTools.instance.flutterGpuTileRasterBackend.stats.reset();
     PdfPerfLog.enabled = false;
     pdfRenderWorkerPoolSize = defaultPdfRenderWorkerPoolSize;
+  });
+
+  test('Canvas is the default tile raster backend', () {
+    expect(
+      AppDevTools.instance.tileRasterBackendMode.value,
+      TileRasterBackendMode.canvas,
+    );
   });
 
   test('options round-trip through SharedPreferences', () async {
@@ -148,6 +156,7 @@ void main() {
   test('restore with nothing persisted leaves the defaults alone', () async {
     SharedPreferences.setMockInitialValues({});
     pdfRenderWorkerPoolSize = 3;
+    AppDevTools.instance.setTileRasterBackendMode(TileRasterBackendMode.canvas);
     AppDevTools.instance.setPageRasterCachePolicy(
       const PdfPageRasterCachePolicy(),
     );
@@ -158,12 +167,35 @@ void main() {
     AppDevTools.instance.useAutoPageRasterCache();
     await AppDevTools.instance.restoreOptions();
     expect(AppDevTools.instance.deepZoomMode, AppDevTools.modePatch);
+    expect(
+      AppDevTools.instance.tileRasterBackendMode.value,
+      TileRasterBackendMode.canvas,
+    );
     expect(pdfRenderWorkerPoolSize, 3);
     expect(
       AppDevTools.instance.pageRasterCachePolicy.value,
       const PdfPageRasterCachePolicy(),
     );
     expect(AppDevTools.instance.pageRasterWarmPolicy.value.enabled, isFalse);
+  });
+
+  test('legacy automatic flutter_gpu selection migrates to Canvas', () async {
+    SharedPreferences.setMockInitialValues({
+      'flutter.devtools.options': jsonEncode({
+        'tileRasterBackend': TileRasterBackendMode.flutterGpu.name,
+      }),
+    });
+    final tools = AppDevTools.instance;
+    tools.setTileRasterBackendMode(TileRasterBackendMode.flutterGpu);
+
+    await tools.restoreOptions();
+
+    expect(tools.tileRasterBackendMode.value, TileRasterBackendMode.canvas);
+
+    await tools.persistOptions();
+    final stored =
+        (await SharedPreferences.getInstance()).getString('devtools.options');
+    expect(jsonDecode(stored!)['flutterGpuOptIn'], isFalse);
   });
 
   test('a corrupt payload is logged, not thrown', () async {

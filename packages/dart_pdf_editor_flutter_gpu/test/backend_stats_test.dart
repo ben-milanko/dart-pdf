@@ -8,6 +8,9 @@ void main() {
       ..sessionsRejected = 2
       ..sessionsDisposed = 1
       ..rasterFallbacks = 1
+      ..lastContextIdentity = 1234
+      ..contextsSeen = 2
+      ..contextSwitches = 3
       ..activeSessions = 3
       ..peakActiveSessions = 4
       ..activeTextureLeases = 5
@@ -31,10 +34,16 @@ void main() {
     expect(stats.toJson(), containsPair('lastTileRoute', 'canvas-fallback'));
     expect(stats.toJson(), containsPair('completedSubmissions', 8));
     expect(stats.toJson(), containsPair('maxCompletionMicros', 9000));
+    expect(stats.toJson(), containsPair('lastContextIdentity', 1234));
+    expect(stats.toJson(), containsPair('contextsSeen', 2));
+    expect(stats.toJson(), containsPair('contextSwitches', 3));
 
     stats.reset();
     expect(stats.sessionsCreated, 0);
     expect(stats.rasterFallbacks, 0);
+    expect(stats.lastContextIdentity, 1234);
+    expect(stats.contextsSeen, 2);
+    expect(stats.contextSwitches, 0);
     expect(stats.lastRejection, isNull);
     expect(stats.lastTileRoute, isNull);
     expect(stats.activeSessions, 3);
