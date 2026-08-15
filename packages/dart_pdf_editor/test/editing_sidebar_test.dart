@@ -488,6 +488,56 @@ void main() {
     expect(find.text('Stamp'), findsOneWidget);
   });
 
+  testWidgets('collapse all applies to the page groups visible in a filter',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(2))
+      ..addNote(0, 100, 700, 'first note')
+      ..addStamp(1, const PdfRect(100, 600, 240, 650), 'DRAFT');
+    addTearDown(editing.dispose);
+    await pumpSidebarOnly(tester, editing);
+
+    // Page 1 is folded while page 2 remains open.
+    await tester
+        .tap(find.byKey(const ValueKey('pdf-annotation-page-toggle-0')));
+    await tester.pump();
+
+    // The filter hides the still-open page 2. The global control should now
+    // expand the only displayed group on its first click, not silently fold
+    // the hidden page first.
+    await tester.enterText(
+        find.byKey(const ValueKey('pdf-annotation-search')), 'note');
+    await tester.pump();
+    expect(find.text('Note'), findsNothing);
+
+    await tester
+        .tap(find.byKey(const ValueKey('pdf-annotation-pages-toggle-all')));
+    await tester.pump();
+    expect(find.text('Note'), findsOneWidget);
+    expect(find.text('Stamp'), findsNothing);
+  });
+
+  testWidgets('collapsed pages do not leak into a replacement controller',
+      (tester) async {
+    final first = PdfEditingController(buildMultiPagePdf(1))
+      ..addNote(0, 100, 700, 'first note');
+    final second = PdfEditingController(buildMultiPagePdf(1))
+      ..addRectangle(0, const PdfRect(100, 100, 200, 150));
+    addTearDown(first.dispose);
+    addTearDown(second.dispose);
+
+    await pumpSidebarOnly(tester, first);
+    await tester
+        .tap(find.byKey(const ValueKey('pdf-annotation-page-toggle-0')));
+    await tester.pump();
+    expect(find.text('Note'), findsNothing);
+
+    // Both controllers are at revision 1, so revision-id comparison alone
+    // cannot distinguish them.
+    expect(first.revisionId, second.revisionId);
+    await pumpSidebarOnly(tester, second);
+    expect(find.text('Square'), findsOneWidget);
+  });
+
   testWidgets('the current page header stays pinned while its rows scroll',
       (tester) async {
     final editing = PdfEditingController(buildMultiPagePdf(2));

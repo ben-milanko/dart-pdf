@@ -157,6 +157,20 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
   @override
   void didUpdateWidget(PdfAnnotationSidebar old) {
     super.didUpdateWidget(old);
+    if (!identical(old.controller, widget.controller)) {
+      // Revision ids and page indices are controller-local. A replacement
+      // controller can start at the same revision number as the old one, so
+      // explicitly discard state that would otherwise be applied to an
+      // unrelated document.
+      _builtForRevision = null;
+      _checked.clear();
+      _hoveredSlot = null;
+      _selecting = false;
+      _anchor = null;
+      _collapsedPages.clear();
+      _pageTexts.clear();
+      _replyingTo = null;
+    }
     if (!identical(old.controller.preferences, _preferences)) {
       old.controller.preferences.removeListener(_onPreferences);
       _preferences.addListener(_onPreferences);
@@ -901,7 +915,6 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
             }
             final query = _search.text.trim().toLowerCase();
             final sections = <_AnnotationPageSection>[];
-            final annotatedPages = <int>[];
             // every displayed, selectable slot in display order - the axis
             // a shift-click range runs along. Filled as tiles are built and
             // captured by each row's tap handler (complete by tap time).
@@ -935,7 +948,6 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
                   thread: threadByDict[annotation.dict],
                 ));
               }
-              if (pageCount > 0) annotatedPages.add(page);
               if (rows.isNotEmpty) {
                 sections.add(_AnnotationPageSection(
                   page: page,
@@ -945,8 +957,13 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
               }
             }
             _collapsedPages.removeWhere((page) => page >= document.pageCount);
-            final allCollapsed = annotatedPages.isNotEmpty &&
-                annotatedPages.every(_collapsedPages.contains);
+            // While filtering, the panel-level action applies to what the
+            // user can see. Including hidden page groups can make the first
+            // click appear to do nothing (the visible group is already
+            // collapsed while some hidden group is still open).
+            final visiblePages = [for (final section in sections) section.page];
+            final allCollapsed = visiblePages.isNotEmpty &&
+                visiblePages.every(_collapsedPages.contains);
 
             final slivers = <Widget>[];
             for (final section in sections) {
@@ -1037,13 +1054,13 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
               _searchField(
                 context,
                 geometry,
-                hasPages: annotatedPages.isNotEmpty,
+                hasPages: visiblePages.isNotEmpty,
                 allCollapsed: allCollapsed,
                 onToggleAll: () => setState(() {
                   if (allCollapsed) {
-                    _collapsedPages.removeAll(annotatedPages);
+                    _collapsedPages.removeAll(visiblePages);
                   } else {
-                    _collapsedPages.addAll(annotatedPages);
+                    _collapsedPages.addAll(visiblePages);
                   }
                 }),
               ),

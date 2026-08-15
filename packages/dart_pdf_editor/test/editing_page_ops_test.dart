@@ -151,6 +151,20 @@ void main() {
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
       expectViewport(editing, viewer, page: 1, label: 'Page 3');
     });
+
+    testWidgets('reordering pages follows the viewed page by identity',
+        (tester) async {
+      final (editing, viewer) = await pumpViewer(tester);
+      expectViewport(editing, viewer, page: 3, label: 'Page 4');
+
+      editing.movePage(3, 0);
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      expectViewport(editing, viewer, page: 0, label: 'Page 4');
+
+      editing.undo();
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      expectViewport(editing, viewer, page: 3, label: 'Page 4');
+    });
   });
 
   group('duplicatePages', () {
