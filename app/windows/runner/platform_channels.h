@@ -36,6 +36,8 @@ class DartPdfPlatformChannels {
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       memory_channel_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      window_geometry_channel_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       image_clipboard_channel_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       native_print_channel_;

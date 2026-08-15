@@ -8,6 +8,7 @@
 #include <cairo.h>
 
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 
@@ -36,6 +37,8 @@ struct _MyApplication {
   FlMethodChannel* incoming_channel;
   // Physical/available memory snapshots for the adaptive PDF cache policy.
   FlMethodChannel* memory_channel;
+  // Resolves a desktop-native tab drag back to a Dart-owned GtkWindow/FlView.
+  FlMethodChannel* window_geometry_channel;
   GPtrArray* print_pages;  // GBytes* per accumulated page image
   char* print_job_name;
 };
@@ -578,6 +581,99 @@ static void memory_method_call_cb(FlMethodChannel* channel,
   }
 }
 
+static GtkWidget* find_flutter_view(GtkWidget* widget) {
+  if (widget == nullptr) return nullptr;
+  if (FL_IS_VIEW(widget)) return widget;
+  if (!GTK_IS_CONTAINER(widget)) return nullptr;
+  GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+  GtkWidget* result = nullptr;
+  for (GList* child = children; child != nullptr && result == nullptr;
+       child = child->next) {
+    result = find_flutter_view(GTK_WIDGET(child->data));
+  }
+  g_list_free(children);
+  return result;
+}
+
+// Native drag coordinates are not reliably global on Wayland. Ask GDK for the
+// actual surface under the pointer, match its GtkWindow against Flutter 3.47's
+// windowHandle values, then read the pointer relative to that window's FlView.
+static void window_geometry_method_call_cb(FlMethodChannel* channel,
+                                           FlMethodCall* method_call,
+                                           gpointer user_data) {
+  const gchar* method = fl_method_call_get_name(method_call);
+  g_autoptr(FlMethodResponse) response = nullptr;
+  FlValue* args = fl_method_call_get_args(method_call);
+  FlValue* handles =
+      args != nullptr && fl_value_get_type(args) == FL_VALUE_TYPE_MAP
+          ? fl_value_lookup_string(args, "handles")
+          : nullptr;
+  if (strcmp(method, "locateDrop") != 0) {
+    response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
+  } else if (handles == nullptr ||
+             fl_value_get_type(handles) != FL_VALUE_TYPE_LIST) {
+    response = FL_METHOD_RESPONSE(fl_method_error_response_new(
+        "bad_args", "locateDrop expects a handles list", nullptr));
+  } else {
+    GdkDisplay* display = gdk_display_get_default();
+    GdkSeat* seat = display == nullptr
+                        ? nullptr
+                        : gdk_display_get_default_seat(display);
+    GdkDevice* pointer = seat == nullptr ? nullptr : gdk_seat_get_pointer(seat);
+    gint ignored_x = 0;
+    gint ignored_y = 0;
+    GdkWindow* under = pointer == nullptr
+                           ? nullptr
+                           : gdk_device_get_window_at_position(
+                                 pointer, &ignored_x, &ignored_y);
+    GtkWidget* under_widget = nullptr;
+    if (under != nullptr) {
+      gdk_window_get_user_data(under,
+                               reinterpret_cast<gpointer*>(&under_widget));
+    }
+    GtkWidget* top = under_widget == nullptr
+                         ? nullptr
+                         : gtk_widget_get_toplevel(under_widget);
+    const gint64 top_address = static_cast<gint64>(
+        reinterpret_cast<intptr_t>(top));
+    gboolean registered = FALSE;
+    for (size_t i = 0; i < fl_value_get_length(handles); i++) {
+      FlValue* value = fl_value_get_list_value(handles, i);
+      if (fl_value_get_type(value) == FL_VALUE_TYPE_INT &&
+          fl_value_get_int(value) == top_address) {
+        registered = TRUE;
+        break;
+      }
+    }
+
+    GtkWidget* view = registered ? find_flutter_view(top) : nullptr;
+    GdkWindow* view_window =
+        view == nullptr ? nullptr : gtk_widget_get_window(view);
+    if (view_window == nullptr || pointer == nullptr) {
+      g_autoptr(FlValue) nothing = fl_value_new_null();
+      response = FL_METHOD_RESPONSE(fl_method_success_response_new(nothing));
+    } else {
+      gdouble local_x = 0;
+      gdouble local_y = 0;
+      GdkModifierType mask = static_cast<GdkModifierType>(0);
+      gdk_window_get_device_position_double(
+          view_window, pointer, &local_x, &local_y, &mask);
+      g_autoptr(FlValue) location = fl_value_new_map();
+      fl_value_set_string_take(location, "handle",
+                               fl_value_new_int(top_address));
+      fl_value_set_string_take(location, "x", fl_value_new_float(local_x));
+      fl_value_set_string_take(location, "y", fl_value_new_float(local_y));
+      response =
+          FL_METHOD_RESPONSE(fl_method_success_response_new(location));
+    }
+  }
+
+  g_autoptr(GError) error = nullptr;
+  if (!fl_method_call_respond(method_call, response, &error)) {
+    g_warning("Failed to send window geometry response: %s", error->message);
+  }
+}
+
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
@@ -624,6 +720,13 @@ static void register_platform_channels(MyApplication* self,
       messenger, "dev.milanko.dartpdf/memory", FL_METHOD_CODEC(codec));
   fl_method_channel_set_method_call_handler(
       self->memory_channel, memory_method_call_cb, self, nullptr);
+
+  self->window_geometry_channel = fl_method_channel_new(
+      messenger, "dev.milanko.dartpdf/window_geometry",
+      FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(
+      self->window_geometry_channel, window_geometry_method_call_cb, self,
+      nullptr);
 }
 
 // Implements GApplication::activate.
@@ -788,6 +891,7 @@ static void my_application_dispose(GObject* object) {
   g_clear_object(&self->native_print_channel);
   g_clear_object(&self->incoming_channel);
   g_clear_object(&self->memory_channel);
+  g_clear_object(&self->window_geometry_channel);
   g_clear_object(&self->windowing_engine);
   g_clear_pointer(&self->print_pages, g_ptr_array_unref);
   g_clear_pointer(&self->print_job_name, g_free);

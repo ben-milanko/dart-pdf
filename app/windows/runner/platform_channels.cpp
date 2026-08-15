@@ -2,6 +2,7 @@
 
 #include <flutter/standard_method_codec.h>
 
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -20,6 +21,8 @@ constexpr char kImageClipboardChannelName[] =
 constexpr char kNativePrintChannelName[] =
     "dev.milanko.dartpdf/native_print";
 constexpr char kMemoryChannelName[] = "dev.milanko.dartpdf/memory";
+constexpr char kWindowGeometryChannelName[] =
+    "dev.milanko.dartpdf/window_geometry";
 
 const flutter::EncodableValue* Lookup(const flutter::EncodableMap& map,
                                       const char* key) {
@@ -36,6 +39,24 @@ std::wstring Utf16FromUtf8(const std::string& utf8) {
   ::MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()),
                         utf16.data(), len);
   return utf16;
+}
+
+std::optional<double> Number(const flutter::EncodableValue* value) {
+  if (value == nullptr) return std::nullopt;
+  if (const auto* number = std::get_if<double>(value)) return *number;
+  if (const auto* number = std::get_if<int64_t>(value)) {
+    return static_cast<double>(*number);
+  }
+  if (const auto* number = std::get_if<int32_t>(value)) {
+    return static_cast<double>(*number);
+  }
+  return std::nullopt;
+}
+
+std::optional<int64_t> Integer(const flutter::EncodableValue& value) {
+  if (const auto* number = std::get_if<int64_t>(&value)) return *number;
+  if (const auto* number = std::get_if<int32_t>(&value)) return *number;
+  return std::nullopt;
 }
 
 flutter::EncodableValue FilePayload(const std::wstring& path) {
@@ -109,6 +130,66 @@ void DartPdfPlatformChannels::Register(flutter::BinaryMessenger* messenger) {
                  static_cast<int64_t>(status.ullAvailPhys))},
             {flutter::EncodableValue("lowMemory"),
              flutter::EncodableValue(status.dwMemoryLoad >= 90)},
+        }));
+      });
+
+  window_geometry_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          messenger, kWindowGeometryChannelName,
+          &flutter::StandardMethodCodec::GetInstance());
+  window_geometry_channel_->SetMethodCallHandler(
+      [](const flutter::MethodCall<flutter::EncodableValue>& call,
+         std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+             result) {
+        if (call.method_name() != "locateDrop") {
+          result->NotImplemented();
+          return;
+        }
+        const auto* args =
+            std::get_if<flutter::EncodableMap>(call.arguments());
+        const auto* handles_value =
+            args == nullptr ? nullptr : Lookup(*args, "handles");
+        const auto* handles = handles_value == nullptr
+                                  ? nullptr
+                                  : std::get_if<flutter::EncodableList>(
+                                        handles_value);
+        const auto x = args == nullptr ? std::nullopt
+                                       : Number(Lookup(*args, "x"));
+        const auto y = args == nullptr ? std::nullopt
+                                       : Number(Lookup(*args, "y"));
+        if (handles == nullptr || !x.has_value() || !y.has_value()) {
+          result->Error("bad_args", "locateDrop expects handles, x and y");
+          return;
+        }
+
+        POINT point{static_cast<LONG>(std::lround(*x)),
+                    static_cast<LONG>(std::lround(*y))};
+        HWND hit = ::WindowFromPoint(point);
+        if (hit != nullptr) hit = ::GetAncestor(hit, GA_ROOT);
+        bool registered = false;
+        for (const auto& value : *handles) {
+          const auto address = Integer(value);
+          if (address.has_value() &&
+              reinterpret_cast<HWND>(static_cast<intptr_t>(*address)) == hit) {
+            registered = true;
+            break;
+          }
+        }
+        if (!registered || hit == nullptr || !::ScreenToClient(hit, &point)) {
+          result->Success();
+          return;
+        }
+
+        const UINT dpi = ::GetDpiForWindow(hit);
+        const double scale = dpi == 0 ? 1.0 : static_cast<double>(dpi) / 96.0;
+        result->Success(flutter::EncodableValue(flutter::EncodableMap{
+            {flutter::EncodableValue("handle"),
+             flutter::EncodableValue(
+                 static_cast<int64_t>(reinterpret_cast<intptr_t>(hit)))},
+            {flutter::EncodableValue("x"),
+             flutter::EncodableValue(point.x / scale)},
+            {flutter::EncodableValue("y"),
+             flutter::EncodableValue(point.y / scale)},
         }));
       });
 

@@ -143,7 +143,10 @@ class _DartPdfWindowHost extends StatelessWidget {
               RegularWindow(
                 key: ObjectKey(entry.controller),
                 controller: entry.controller,
-                child: entry.builder(context),
+                child: DartPdfNativeWindowScope(
+                  windowHandle: entry.windowHandle,
+                  child: entry.builder(context),
+                ),
               ),
           ],
         ),
@@ -175,6 +178,38 @@ class _DartPdfWindowEntry {
 
   final RegularWindowController controller;
   final WidgetBuilder builder;
+
+  /// Flutter 3.47 exposes the platform controller's HWND, NSWindow, or
+  /// GtkWindow as a pointer. Keep the platform casts quarantined here beside
+  /// the rest of the experimental API: every desktop implementation exposes
+  /// the same `windowHandle.address` shape even though the common controller
+  /// interface intentionally does not yet declare it.
+  int get windowHandle {
+    final dynamic platformController = controller;
+    final dynamic handle = platformController.windowHandle;
+    return handle.address as int;
+  }
+}
+
+/// Supplies the direct native handle for the [RegularWindow] containing a
+/// subtree. Tab dragging uses it to route a native desktop drag back to the
+/// correct Flutter view.
+class DartPdfNativeWindowScope extends InheritedWidget {
+  const DartPdfNativeWindowScope({
+    super.key,
+    required this.windowHandle,
+    required super.child,
+  });
+
+  final int windowHandle;
+
+  static int? maybeHandleOf(BuildContext context) => context
+      .dependOnInheritedWidgetOfExactType<DartPdfNativeWindowScope>()
+      ?.windowHandle;
+
+  @override
+  bool updateShouldNotify(DartPdfNativeWindowScope oldWidget) =>
+      windowHandle != oldWidget.windowHandle;
 }
 
 class _DartPdfWindowRegistryScope extends InheritedWidget {

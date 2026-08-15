@@ -62,6 +62,9 @@ dependencies:
   # Content-addresses those snapshots so reopening the same PDF reuses one file.
   crypto: ^3.0.0
   desktop_drop: ^0.7.0
+  # Native drag sessions can cross Flutter views and top-level desktop windows;
+  # the framework's Draggable/Reorderable widgets are confined to one view.
+  super_drag_and_drop: 0.10.0-dev.2
   # Polls GitHub Releases for a newer build (in-app update checker). Works on
   # the web build too, though the updater skips the check there.
   http: ^1.2.0

@@ -20,6 +20,25 @@ class DocumentHandoff {
     this.cachePath,
   });
 
+  /// Snapshots an editable tab without sharing its mutable controller with a
+  /// second Flutter view. The source remains alive until the destination has
+  /// accepted this handoff, so a failed native drop cannot lose edits.
+  factory DocumentHandoff.fromTab(DocumentTab tab) {
+    final session = tab.session;
+    if (session == null) {
+      throw StateError('Only editable document tabs can move between windows');
+    }
+    return DocumentHandoff(
+      bytes: Uint8List.fromList(session.bytes),
+      title: tab.title,
+      savedLength: tab.savedLength,
+      originPath: tab.originPath,
+      originBookmark: tab.originBookmark,
+      originToken: tab.originToken,
+      cachePath: tab.cachePath,
+    );
+  }
+
   final Uint8List bytes;
   final String title;
   final int savedLength;

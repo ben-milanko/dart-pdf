@@ -134,6 +134,53 @@ class MainFlutterWindow: NSWindow {
       result(snapshot)
     }
 
+    // Flutter's multi-window controllers expose their NSWindow pointers to
+    // Dart. Native tab drags report screen coordinates, so resolve the actual
+    // frontmost DartPDF window here and convert the point into that Flutter
+    // view's top-left logical coordinate system.
+    let windowGeometryChannel = FlutterMethodChannel(
+      name: "dev.milanko.dartpdf/window_geometry",
+      binaryMessenger: binaryMessenger)
+    windowGeometryChannel.setMethodCallHandler { (call, result) in
+      guard call.method == "locateDrop" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      guard let args = call.arguments as? [String: Any],
+            let handles = args["handles"] as? [NSNumber],
+            let x = args["x"] as? NSNumber,
+            let y = args["y"] as? NSNumber else {
+        result(FlutterError(
+          code: "bad_args",
+          message: "locateDrop expects handles, x and y",
+          details: nil))
+        return
+      }
+
+      let registered = Set(handles.map { Int(truncating: $0) })
+      let screenPoint = NSPoint(x: x.doubleValue, y: y.doubleValue)
+      guard let window = NSApp.orderedWindows.first(where: { candidate in
+        let address = Int(bitPattern: Unmanaged.passUnretained(candidate).toOpaque())
+        return registered.contains(address) &&
+          candidate.isVisible && candidate.frame.contains(screenPoint)
+      }), let contentView = window.contentViewController?.view ?? window.contentView
+      else {
+        result(nil)
+        return
+      }
+
+      let windowPoint = window.convertPoint(fromScreen: screenPoint)
+      let contentPoint = contentView.convert(windowPoint, from: nil)
+      let localY = contentView.isFlipped
+        ? contentPoint.y
+        : contentView.bounds.height - contentPoint.y
+      result([
+        "handle": Int(bitPattern: Unmanaged.passUnretained(window).toOpaque()),
+        "x": contentPoint.x,
+        "y": localY,
+      ])
+    }
+
     let fileAccessChannel = FlutterMethodChannel(
       name: "dev.milanko.dartpdf/file_access",
       binaryMessenger: binaryMessenger)

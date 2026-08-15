@@ -13,6 +13,7 @@ import 'keyless_signing.dart';
 import 'l10n/app_localizations.dart';
 import 'oidc_signin.dart';
 import 'platform_fonts.dart';
+import 'tab_drag.dart';
 import 'window_support.dart';
 
 /// The DartPDF application. Owns the device-local UI preferences so
@@ -35,6 +36,7 @@ class DartPdfEditorApp extends StatefulWidget {
 
 class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
   final _prefs = PdfEditingPreferences();
+  final _tabDragCoordinator = TabDragCoordinator();
   late final AdaptiveMemoryBudgetController _memoryBudget =
       AdaptiveMemoryBudgetController();
 
@@ -127,6 +129,7 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
   @override
   void dispose() {
     _memoryBudget.dispose();
+    _tabDragCoordinator.dispose();
     _prefs.dispose();
     super.dispose();
   }
@@ -140,6 +143,7 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
       title: 'DartPDF',
       builder: (_) => _DartPdfWindow(
         prefs: _prefs,
+        tabDragCoordinator: _tabDragCoordinator,
         onNewWindow: _openNewWindow,
         initialHandoff: document,
         oidcTokenProvider: _oidcTokenProvider?.call,
@@ -157,6 +161,7 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
   Widget build(BuildContext context) {
     return _DartPdfWindow(
       prefs: _prefs,
+      tabDragCoordinator: _tabDragCoordinator,
       launchArgs: widget.launchArgs,
       autoCheckUpdates: true,
       onNewWindow: multiWindowSupported ? _openNewWindow : null,
@@ -175,6 +180,7 @@ class _DartPdfEditorAppState extends State<DartPdfEditorApp> {
 class _DartPdfWindow extends StatelessWidget {
   const _DartPdfWindow({
     required this.prefs,
+    required this.tabDragCoordinator,
     this.launchArgs = const [],
     this.autoCheckUpdates = false,
     this.onNewWindow,
@@ -185,6 +191,7 @@ class _DartPdfWindow extends StatelessWidget {
   });
 
   final PdfEditingPreferences prefs;
+  final TabDragCoordinator tabDragCoordinator;
   final List<String> launchArgs;
   final bool autoCheckUpdates;
   final bool ownsApplicationSession;
@@ -244,6 +251,7 @@ class _DartPdfWindow extends StatelessWidget {
         themeMode: prefs.themeMode,
         home: EditorScreen(
           prefs: prefs,
+          tabDragCoordinator: tabDragCoordinator,
           launchArgs: launchArgs,
           autoCheckUpdates: autoCheckUpdates,
           onNewWindow: onNewWindow,
