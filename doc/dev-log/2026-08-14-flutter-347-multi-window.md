@@ -11,25 +11,22 @@ This rebuild targets the API shipped in the repo's pinned Flutter 3.47 SDK:
 - `RegularWindowController(size:)`, `RegularWindow`, and the multi-view host
   are quarantined in `app/lib/window_support.dart`. Nothing else imports
   Flutter's internal windowing library.
-- macOS, Windows, and Linux have an engine-owned experimental bootstrap. The
+- macOS, Windows, and Linux always use an engine-owned bootstrap. The
   engine starts without a template Flutter view; Dart creates the primary and
   every secondary native window.
-- Normal launches still use the existing single-window runners. Each native
-  runner reads Flutter's generated `FLUTTER_ENABLED_FEATURE_FLAGS` define
-  before constructing its engine, so native and Dart code cannot enter
-  different halves of the experimental path.
+- Dart enables Flutter's matching internal feature before
+  `WidgetsFlutterBinding` initializes its windowing owner. Native and Dart code
+  therefore cannot enter different halves of the experimental path.
 
-Run a desktop debug build with:
+Run a desktop build normally:
 
 ```sh
-fvm flutter config --enable-windowing
 fvm flutter run -d macos
 ```
 
-Substitute `windows` or `linux` on those hosts. Flutter encodes the feature in
-`DART_DEFINES`; each desktop build reduces that generated value to one native
-bootstrap bit without exposing unrelated Dart defines. Run `fvm flutter config
---no-enable-windowing` and rebuild to return to the normal single-window mode.
+Substitute `windows` or `linux` on those hosts. No global Flutter configuration
+or process environment flag is required; windowing is also the default for
+release and Store builds.
 
 ## App ownership and handoff
 
@@ -61,26 +58,24 @@ primary would make all secondary view widgets children of the primary, so
 closing that first window could tear down their host tree. The root registry
 lets the primary close while another window stays usable.
 
-On macOS, `applicationShouldTerminateAfterLastWindowClosed` must return false
-in this mode. The NIB services window is hidden before Dart constructs its
-primary window; allowing AppKit to own last-window shutdown creates a race in
-that gap. Normal launches retain the old `true` behavior.
+On macOS, `applicationShouldTerminateAfterLastWindowClosed` must return false.
+The NIB services window is hidden before Dart constructs its primary window;
+allowing AppKit to own last-window shutdown creates a race in that gap.
 
 ## Verification and limits
 
-- The classic and windowing-enabled macOS debug builds compile on Flutter
-  3.47. The opt-in build created two real AppKit windows; closing the original
+- The default macOS debug build compiles on Flutter 3.47 and created two real
+  AppKit windows; closing the original
   left the secondary usable, and closing the final window terminated the
   headless process. A digital-signature dialog also opens as a native dialog
   window without trying to retrofit multi-view onto an attached engine.
 - `app/test/multi_window_test.dart` covers hidden production affordances,
   menu/shortcut routing, lossless handoff, failed-creation safety, secondary
   session isolation, and cancel/confirm close behavior.
-- Windows and Linux runners mirror Flutter's engine-owned bootstrap but need a
-  final compile/run on their native hosts; the macOS machine cannot link those
-  runners.
+- Windows and Linux CI builds compile their matching engine-owned bootstraps;
+  the Linux release smoke also launches successfully under Xvfb.
 
 Flutter still marks this entire API `@internal` and explicitly permits breaking
-changes in patch releases. Keep it opt-in and out of Store builds until Flutter
-publishes a supported desktop windowing API; when that happens, replace only
-`window_support.dart` and simplify the runner gates.
+changes in patch releases. Keep the Flutter SDK pinned and exercise all three
+desktop builds before upgrading it; when Flutter publishes a supported desktop
+windowing API, replace only `window_support.dart` and simplify the runners.

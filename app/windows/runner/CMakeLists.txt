@@ -23,9 +23,6 @@ add_executable(${BINARY_NAME} WIN32
 # that need different build settings.
 apply_standard_settings(${BINARY_NAME})
 
-include("${CMAKE_CURRENT_SOURCE_DIR}/../../native/windowing_bootstrap.cmake")
-dart_pdf_embed_flutter_feature_flags(${BINARY_NAME})
-
 # Add preprocessor definitions for the build version.
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION=\"${FLUTTER_VERSION}\"")
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_MAJOR=${FLUTTER_VERSION_MAJOR}")

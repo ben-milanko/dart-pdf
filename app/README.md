@@ -83,20 +83,16 @@ fvm flutter run -d macos      # or -d chrome, -d windows, -d linux, or a device
 Open a specific file on startup: `fvm flutter run -d macos path/to/file.pdf`
 (desktop), or use the in-app Open button anywhere.
 
-Flutter 3.47 multi-window support is available for desktop development behind
-Flutter's experimental feature flag:
+Desktop multi-window support is enabled by default:
 
 ```sh
-fvm flutter config --enable-windowing
 fvm flutter run -d macos  # or windows / linux
 ```
 
-The native runner reads Flutter's generated build flag and automatically starts
-the required headless multi-view engine, so dialogs and regular windows cannot
-end up on incompatible engine modes. It remains off in normal and Store builds
-whose Flutter SDK has not enabled the experiment. Use `fvm flutter config
---no-enable-windowing` and rebuild to return to the classic single-window
-engine. See
+Each desktop runner always starts the required headless multi-view engine, and
+Dart enables Flutter's matching framework feature before binding
+initialization. This applies to debug, release, and Store builds, so dialogs
+and regular windows cannot end up on incompatible engine modes. See
 [the implementation notes](../doc/dev-log/2026-08-14-flutter-347-multi-window.md).
 
 On web, `dart_pdf_editor` uses its bundled page-render worker asset

@@ -25,6 +25,10 @@ const kBuildCommit =
 /// On Windows and Linux the OS launches the app with the opened file as a
 /// command-line argument; the Flutter runner forwards it here.
 Future<void> main(List<String> args) async {
+  // This must run before binding initialization: WidgetsFlutterBinding picks
+  // its windowing owner in its constructor.
+  enableDartPdfWindowing();
+
   // PackageInfo (loaded below) needs the binding; ensure it before awaiting.
   WidgetsFlutterBinding.ensureInitialized();
 
