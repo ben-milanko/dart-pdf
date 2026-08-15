@@ -12,6 +12,7 @@
 #include <cstring>
 
 #include "flutter/generated_plugin_registrant.h"
+#include "../../native/windowing_bootstrap.h"
 
 struct _MyApplication {
   GtkApplication parent_instance;
@@ -42,9 +43,7 @@ struct _MyApplication {
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
 static gboolean experimental_windowing_enabled() {
-  const gchar* value = g_getenv("DARTPDF_EXPERIMENTAL_WINDOWING");
-  return g_strcmp0(value, "1") == 0 ||
-         g_ascii_strcasecmp(value == nullptr ? "" : value, "true") == 0;
+  return dart_pdf::FlutterWindowingEnabled();
 }
 
 // Drops the accumulated print page buffers.

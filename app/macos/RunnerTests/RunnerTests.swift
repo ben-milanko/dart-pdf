@@ -5,6 +5,18 @@ import XCTest
 
 class RunnerTests: XCTestCase {
 
+  func testWindowingBootstrapReadsGeneratedFlag() {
+    XCTAssertTrue(DartPdfWindowingBootstrap.isEnabled(flag: "1"))
+    XCTAssertTrue(DartPdfWindowingBootstrap.isEnabled(flag: " 1\n"))
+  }
+
+  func testWindowingBootstrapRejectsMissingOrDisabledFlag() {
+    XCTAssertFalse(DartPdfWindowingBootstrap.isEnabled(flag: nil))
+    XCTAssertFalse(DartPdfWindowingBootstrap.isEnabled(flag: ""))
+    XCTAssertFalse(DartPdfWindowingBootstrap.isEnabled(flag: "0\n"))
+    XCTAssertFalse(DartPdfWindowingBootstrap.isEnabled(flag: "true"))
+  }
+
   func testFileRangeReaderReturnsRequestedBytesAndShortReadsAtEOF() throws {
     let directory = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }

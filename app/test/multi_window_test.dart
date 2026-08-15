@@ -1,8 +1,16 @@
 import 'dart:convert';
+import 'dart:io';
+
+// This regression must inspect the same experimental internal feature gate
+// that MaterialApp/showDialog read.
+// ignore_for_file: implementation_imports, invalid_use_of_internal_member
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/src/foundation/_features.dart' show isWindowingEnabled;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -19,6 +27,56 @@ import 'package:dart_pdf_editor_app/window_support.dart';
 // failure safety, process-service isolation, and the native close handshake.
 void main() {
   late PdfEditingPreferences prefs;
+
+  test('desktop startup follows Flutter compiled windowing feature', () {
+    final original = isWindowingEnabled;
+    final originalPlatform = debugDefaultTargetPlatformOverride;
+    try {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      isWindowingEnabled = false;
+      expect(multiWindowSupported, isFalse);
+
+      isWindowingEnabled = true;
+      expect(multiWindowSupported, isTrue);
+    } finally {
+      isWindowingEnabled = original;
+      debugDefaultTargetPlatformOverride = originalPlatform;
+    }
+  });
+
+  test('native bootstrap extracts only Flutter windowing feature', () async {
+    String encoded(String value) => base64Encode(utf8.encode(value));
+
+    Future<String> detect(String dartDefines) async {
+      final ProcessResult result;
+      if (Platform.isWindows) {
+        result = await Process.run('powershell', [
+          '-NoProfile',
+          '-NonInteractive',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-File',
+          'native/windowing_feature_flag.ps1',
+          dartDefines,
+        ]);
+      } else {
+        result = await Process.run('/bin/sh', [
+          'native/windowing_feature_flag.sh',
+          dartDefines,
+        ]);
+      }
+      expect(result.exitCode, 0, reason: result.stderr as String?);
+      return (result.stdout as String).trim();
+    }
+
+    final unrelated = encoded('answer=42');
+    final enabled = encoded('FLUTTER_ENABLED_FEATURE_FLAGS=windowing,other');
+    final disabled = encoded('FLUTTER_ENABLED_FEATURE_FLAGS=other');
+
+    expect(await detect('$unrelated,$enabled'), '1');
+    expect(await detect('not-base64,$unrelated,$disabled'), '0');
+    expect(await detect(''), '0');
+  });
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});

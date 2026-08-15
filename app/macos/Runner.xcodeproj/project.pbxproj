@@ -252,6 +252,7 @@
 				3399D490228B24CF009A79C7 /* ShellScript */,
 				5975975C07391F9DBA9A20E1 /* [CP] Embed Pods Frameworks */,
 				DA0CDD0F000000000000FB03 /* Build DartPDF CLI */,
+				8A6F08E62E11A00100DAD002 /* Generate Windowing Bootstrap Flag */,
 				8A6F08E62E11A00100DAD001 /* Normalize Embedded Code Signatures */,
 			);
 			buildRules = (
@@ -463,6 +464,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "bash \"$PROJECT_DIR/build_dartpdf_cli.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		8A6F08E62E11A00100DAD002 /* Generate Windowing Bootstrap Flag */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(PROJECT_DIR)/../native/windowing_feature_flag.sh",
+			);
+			name = "Generate Windowing Bootstrap Flag";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/DartPdfWindowing.flag",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\noutput=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/DartPdfWindowing.flag\"\nmkdir -p \"$(dirname \"$output\")\"\n/bin/sh \"$PROJECT_DIR/../native/windowing_feature_flag.sh\" \"${DART_DEFINES:-}\" > \"$output\"\n";
 			showEnvVarsInLog = 0;
 		};
 		A405F26670DE5C0390092CB1 /* [CP] Check Pods Manifest.lock */ = {

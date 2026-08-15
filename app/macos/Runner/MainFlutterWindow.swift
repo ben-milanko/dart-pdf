@@ -4,13 +4,21 @@ import FlutterMacOS
 import PDFKit
 
 enum DartPdfWindowingBootstrap {
+  /// The build phase reduces Flutter's generated feature define to this one
+  /// resource bit, avoiding exposure of unrelated `--dart-define` values.
+  static func isEnabled(flag: String?) -> Bool {
+    flag?.trimmingCharacters(in: .whitespacesAndNewlines) == "1"
+  }
+
   static var isEnabled: Bool {
-    guard let value = ProcessInfo.processInfo.environment[
-      "DARTPDF_EXPERIMENTAL_WINDOWING"
-    ]?.lowercased() else {
+    guard
+      let url = Bundle.main.url(
+        forResource: "DartPdfWindowing", withExtension: "flag"),
+      let flag = try? String(contentsOf: url, encoding: .utf8)
+    else {
       return false
     }
-    return value == "1" || value == "true"
+    return isEnabled(flag: flag)
   }
 }
 

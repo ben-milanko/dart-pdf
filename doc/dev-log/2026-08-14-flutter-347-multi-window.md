@@ -14,22 +14,22 @@ This rebuild targets the API shipped in the repo's pinned Flutter 3.47 SDK:
 - macOS, Windows, and Linux have an engine-owned experimental bootstrap. The
   engine starts without a template Flutter view; Dart creates the primary and
   every secondary native window.
-- Normal launches still use the existing single-window runners. Multi-window
-  requires both Flutter's tool flag and DartPDF's matching runner flag, so a
-  Store/release build cannot enter half of the experimental path by accident.
+- Normal launches still use the existing single-window runners. Each native
+  runner reads Flutter's generated `FLUTTER_ENABLED_FEATURE_FLAGS` define
+  before constructing its engine, so native and Dart code cannot enter
+  different halves of the experimental path.
 
 Run a desktop debug build with:
 
 ```sh
-DARTPDF_EXPERIMENTAL_WINDOWING=1 \
-FLUTTER_WINDOWING=true \
+fvm flutter config --enable-windowing
 fvm flutter run -d macos
 ```
 
-Substitute `windows` or `linux` on those hosts. Both variables are required:
-`FLUTTER_WINDOWING` compiles/enables Flutter's framework feature, while
-`DARTPDF_EXPERIMENTAL_WINDOWING` selects the compatible native runner at
-process start. Omitting either leaves DartPDF in its normal single-window mode.
+Substitute `windows` or `linux` on those hosts. Flutter encodes the feature in
+`DART_DEFINES`; each desktop build reduces that generated value to one native
+bootstrap bit without exposing unrelated Dart defines. Run `fvm flutter config
+--no-enable-windowing` and rebuild to return to the normal single-window mode.
 
 ## App ownership and handoff
 
@@ -68,10 +68,11 @@ that gap. Normal launches retain the old `true` behavior.
 
 ## Verification and limits
 
-- The normal and `FLUTTER_WINDOWING=true` macOS debug builds compile on Flutter
+- The classic and windowing-enabled macOS debug builds compile on Flutter
   3.47. The opt-in build created two real AppKit windows; closing the original
   left the secondary usable, and closing the final window terminated the
-  headless process.
+  headless process. A digital-signature dialog also opens as a native dialog
+  window without trying to retrofit multi-view onto an attached engine.
 - `app/test/multi_window_test.dart` covers hidden production affordances,
   menu/shortcut routing, lossless handoff, failed-creation safety, secondary
   session isolation, and cancel/confirm close behavior.

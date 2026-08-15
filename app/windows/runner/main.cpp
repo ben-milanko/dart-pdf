@@ -13,6 +13,7 @@
 #include "flutter/generated_plugin_registrant.h"
 #include "platform_channels.h"
 #include "utils.h"
+#include "../../native/windowing_bootstrap.h"
 
 namespace {
 
@@ -29,13 +30,7 @@ constexpr const wchar_t kWindowingMessageClassName[] =
 constexpr UINT kSurfaceWindowingApp = WM_APP + 0x445;
 
 bool ExperimentalWindowingEnabled() {
-  wchar_t value[16] = {};
-  const DWORD length = ::GetEnvironmentVariableW(
-      L"DARTPDF_EXPERIMENTAL_WINDOWING", value,
-      static_cast<DWORD>(sizeof(value) / sizeof(value[0])));
-  if (length == 0 || length >= sizeof(value) / sizeof(value[0])) return false;
-  return ::_wcsicmp(value, L"1") == 0 ||
-         ::_wcsicmp(value, L"true") == 0;
+  return dart_pdf::FlutterWindowingEnabled();
 }
 
 // Returns the first `.pdf` path on the command line, or an empty string. This
