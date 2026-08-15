@@ -193,6 +193,17 @@ class MainFlutterWindow: NSWindow {
         }
         self.readFileRange(
           bookmark: bookmark, offset: offset, length: length, result: result)
+      case "revealFile":
+        guard let args = call.arguments as? [String: Any],
+              let path = args["path"] as? String else {
+          result(FlutterError(
+            code: "bad_args",
+            message: "revealFile expects a path",
+            details: nil))
+          return
+        }
+        self.revealFile(
+          path: path, bookmark: args["bookmark"] as? String, result: result)
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -376,6 +387,33 @@ class MainFlutterWindow: NSWindow {
       let scoped = url.startAccessingSecurityScopedResource()
       defer { if scoped { url.stopAccessingSecurityScopedResource() } }
       try bytes.write(to: url, options: .atomic)
+      return true
+    }
+  }
+
+  /// Reveals a selected document without asking the sandbox for access to its
+  /// parent directory. That distinction matters for File Provider locations:
+  /// an NSOpenPanel grant covers the OneDrive file but not the folder that
+  /// contains it. Keep the file's security scope active while Finder accepts
+  /// the reveal request.
+  private func revealFile(
+    path: String, bookmark: String?, result: @escaping FlutterResult
+  ) {
+    fileAccess.perform(errorCode: "reveal_failed", result: result) {
+      let url: URL
+      if let bookmark, !bookmark.isEmpty {
+        // A stale/corrupt bookmark should not block a path that is still
+        // reachable through the current session or a broader entitlement.
+        url = (try? self.resolveBookmarkedURL(bookmark))
+          ?? URL(fileURLWithPath: path)
+      } else {
+        url = URL(fileURLWithPath: path)
+      }
+      let scoped = url.startAccessingSecurityScopedResource()
+      defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+      DispatchQueue.main.sync {
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+      }
       return true
     }
   }

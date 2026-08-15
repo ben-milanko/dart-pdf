@@ -1952,7 +1952,10 @@ class _EditorScreenState extends State<EditorScreen>
     if (i < 0) return;
     switch (selected) {
       case _TabMenuAction.openFolder:
-        final opened = await openContainingFolder(tab.originPath);
+        final opened = await openContainingFolder(
+          tab.originPath,
+          bookmark: tab.originBookmark,
+        );
         if (!opened && mounted) {
           _toast(appL10n(context).editorCouldNotOpenFolder);
         }

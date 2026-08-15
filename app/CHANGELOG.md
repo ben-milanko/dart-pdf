@@ -2,6 +2,7 @@
 
 ## 3.5.1
 
+- Fix Open in Finder for PDFs stored in sandboxed OneDrive folders.
 - Fix scanned MRC and JBIG2 pages whose text, background, or mask layers could
   be missing or opaque.
 - Fix soft-masked images that could render as black blocks with Impeller or the
