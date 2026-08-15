@@ -57,6 +57,7 @@ void main() {
     testWidgets('returns false without a usable path on desktop',
         (tester) async {
       expect(await openContainingFolder(null), isFalse);
+      expect(await openContainingFolder('file.pdf'), isFalse);
     }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 
     testWidgets('macOS reveals the selected file with its security bookmark',

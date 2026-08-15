@@ -414,6 +414,8 @@ String? containingFolderPath(String path) {
 /// reactivates that grant while Finder handles the reveal request.
 Future<bool> openContainingFolder(String? path, {String? bookmark}) async {
   if (!supportsOpenContainingFolder || path == null) return false;
+  final folder = containingFolderPath(path);
+  if (folder == null) return false;
   if (_isMacOSDesktop) {
     try {
       return await _macosFileAccessChannel.invokeMethod<bool>(
@@ -431,8 +433,6 @@ Future<bool> openContainingFolder(String? path, {String? bookmark}) async {
       return false;
     }
   }
-  final folder = containingFolderPath(path);
-  if (folder == null) return false;
   return launchUrl(Uri.file(folder), mode: LaunchMode.externalApplication);
 }
 
