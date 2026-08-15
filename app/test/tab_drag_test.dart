@@ -1,4 +1,5 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -16,10 +17,7 @@ class _FakeLocator implements TabDropLocator {
   int calls = 0;
 
   @override
-  Future<TabDropLocation?> locate(
-    Iterable<int> windowHandles,
-    Offset screenPoint,
-  ) async {
+  Future<TabDropLocation?> locate(Iterable<int> windowHandles) async {
     calls++;
     if (failure case final error?) throw error;
     return location;
@@ -98,16 +96,11 @@ void main() {
       expect(call.method, 'locateDrop');
       expect(call.arguments, {
         'handles': [11, 22],
-        'x': 1400.5,
-        'y': 300.25,
       });
       return {'handle': 22, 'x': 75.5, 'y': 20.25};
     });
 
-    final location = await const NativeTabDropLocator().locate(
-      [11, 22],
-      const Offset(1400.5, 300.25),
-    );
+    final location = await const NativeTabDropLocator().locate([11, 22]);
 
     expect(location?.windowHandle, 22);
     expect(location?.localPoint, const Offset(75.5, 20.25));
@@ -153,7 +146,6 @@ void main() {
       await coordinator.finish(
         token,
         userCancelled: false,
-        screenPoint: const Offset(1200, 100),
       ),
       TabDragResult.movedToWindow,
     );
@@ -193,7 +185,6 @@ void main() {
       await coordinator.finish(
         compactToken,
         userCancelled: false,
-        screenPoint: const Offset(1100, 100),
       ),
       TabDragResult.movedToWindow,
     );
@@ -206,6 +197,28 @@ void main() {
       findsOneWidget,
     );
     expect(compactSource.tabs, isEmpty);
+
+    // Exercise the actual pointer source, not just the coordinator. This is
+    // the regression for native drag plugins binding to the bootstrap view
+    // instead of the engine-owned window that contains this tab.
+    final compactLabel = find.descendant(
+      of: find.byKey(const ValueKey('tab-strip')),
+      matching: find.text('compact.pdf'),
+    );
+    final callsBeforeDrag = locator.calls;
+    locator.location = TabDropLocation(
+      windowHandle: 22,
+      localPoint: tester.getCenter(compactLabel),
+    );
+    final gesture = await tester.startGesture(
+      tester.getCenter(compactLabel),
+      kind: PointerDeviceKind.mouse,
+    );
+    await gesture.moveBy(const Offset(-80, 0));
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+    expect(locator.calls, callsBeforeDrag + 1);
 
     await tester.pumpWidget(const SizedBox.shrink());
     coordinator.dispose();
@@ -233,7 +246,6 @@ void main() {
     final result = await coordinator.finish(
       token,
       userCancelled: false,
-      screenPoint: const Offset(900, 300),
     );
 
     expect(result, TabDragResult.reordered);
@@ -265,7 +277,6 @@ void main() {
     final result = await coordinator.finish(
       token,
       userCancelled: false,
-      screenPoint: const Offset(1200, 250),
     );
 
     expect(result, TabDragResult.movedToWindow);
@@ -294,7 +305,6 @@ void main() {
     final result = await coordinator.finish(
       token,
       userCancelled: false,
-      screenPoint: const Offset(1200, 250),
     );
 
     expect(result, TabDragResult.failed);
@@ -317,7 +327,6 @@ void main() {
     final result = await coordinator.finish(
       token,
       userCancelled: false,
-      screenPoint: const Offset(1800, 900),
     );
 
     expect(result, TabDragResult.openedNewWindow);
@@ -344,7 +353,6 @@ void main() {
       await coordinator.finish(
         token,
         userCancelled: false,
-        screenPoint: const Offset(1800, 900),
       ),
       TabDragResult.failed,
     );
@@ -359,7 +367,6 @@ void main() {
       await coordinator.finish(
         token,
         userCancelled: false,
-        screenPoint: const Offset(1200, 700),
       ),
       TabDragResult.cancelled,
     );
@@ -381,7 +388,6 @@ void main() {
       await coordinator.finish(
         token,
         userCancelled: false,
-        screenPoint: const Offset(1800, 900),
       ),
       TabDragResult.failed,
     );
@@ -413,7 +419,6 @@ void main() {
       await coordinator.finish(
         token,
         userCancelled: false,
-        screenPoint: const Offset(1200, 250),
       ),
       TabDragResult.movedToWindow,
     );
@@ -429,7 +434,6 @@ void main() {
       await coordinator.finish(
         token,
         userCancelled: false,
-        screenPoint: const Offset(1200, 250),
       ),
       TabDragResult.failed,
     );
@@ -451,7 +455,6 @@ void main() {
       await coordinator.finish(
         token,
         userCancelled: true,
-        screenPoint: const Offset(1800, 900),
       ),
       TabDragResult.cancelled,
     );
@@ -462,7 +465,6 @@ void main() {
       await coordinator.finish(
         token,
         userCancelled: false,
-        screenPoint: const Offset(1800, 900),
       ),
       TabDragResult.cancelled,
     );

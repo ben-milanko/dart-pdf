@@ -37,7 +37,7 @@ struct _MyApplication {
   FlMethodChannel* incoming_channel;
   // Physical/available memory snapshots for the adaptive PDF cache policy.
   FlMethodChannel* memory_channel;
-  // Resolves a desktop-native tab drag back to a Dart-owned GtkWindow/FlView.
+  // Resolves a tab-drag pointer back to a Dart-owned GtkWindow/FlView.
   FlMethodChannel* window_geometry_channel;
   GPtrArray* print_pages;  // GBytes* per accumulated page image
   char* print_job_name;
@@ -595,8 +595,8 @@ static GtkWidget* find_flutter_view(GtkWidget* widget) {
   return result;
 }
 
-// Native drag coordinates are not reliably global on Wayland. Ask GDK for the
-// actual surface under the pointer, match its GtkWindow against Flutter 3.47's
+// Coordinates are not reliably global on Wayland. Ask GDK for the actual
+// surface under the pointer, match its GtkWindow against Flutter 3.47's
 // windowHandle values, then read the pointer relative to that window's FlView.
 static void window_geometry_method_call_cb(FlMethodChannel* channel,
                                            FlMethodCall* method_call,

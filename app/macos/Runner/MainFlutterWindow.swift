@@ -135,9 +135,8 @@ class MainFlutterWindow: NSWindow {
     }
 
     // Flutter's multi-window controllers expose their NSWindow pointers to
-    // Dart. Native tab drags report screen coordinates, so resolve the actual
-    // frontmost DartPDF window here and convert the point into that Flutter
-    // view's top-left logical coordinate system.
+    // Dart. Resolve the window under the current cursor and convert the point
+    // into that Flutter view's top-left logical coordinate system.
     let windowGeometryChannel = FlutterMethodChannel(
       name: "dev.milanko.dartpdf/window_geometry",
       binaryMessenger: binaryMessenger)
@@ -147,18 +146,16 @@ class MainFlutterWindow: NSWindow {
         return
       }
       guard let args = call.arguments as? [String: Any],
-            let handles = args["handles"] as? [NSNumber],
-            let x = args["x"] as? NSNumber,
-            let y = args["y"] as? NSNumber else {
+            let handles = args["handles"] as? [NSNumber] else {
         result(FlutterError(
           code: "bad_args",
-          message: "locateDrop expects handles, x and y",
+          message: "locateDrop expects a handles list",
           details: nil))
         return
       }
 
       let registered = Set(handles.map { Int(truncating: $0) })
-      let screenPoint = NSPoint(x: x.doubleValue, y: y.doubleValue)
+      let screenPoint = NSEvent.mouseLocation
       guard let window = NSApp.orderedWindows.first(where: { candidate in
         let address = Int(bitPattern: Unmanaged.passUnretained(candidate).toOpaque())
         return registered.contains(address) &&

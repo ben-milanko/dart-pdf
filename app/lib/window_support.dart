@@ -192,7 +192,7 @@ class _DartPdfWindowEntry {
 }
 
 /// Supplies the direct native handle for the [RegularWindow] containing a
-/// subtree. Tab dragging uses it to route a native desktop drag back to the
+/// subtree. Tab dragging uses it to route a desktop pointer release back to the
 /// correct Flutter view.
 class DartPdfNativeWindowScope extends InheritedWidget {
   const DartPdfNativeWindowScope({

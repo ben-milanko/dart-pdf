@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
@@ -8,7 +6,7 @@ import 'document_tab.dart';
 const _windowGeometryChannel =
     MethodChannel('dev.milanko.dartpdf/window_geometry');
 
-/// The native window and Flutter-local point under a desktop drag.
+/// The native window and Flutter-local point under the current cursor.
 @immutable
 class TabDropLocation {
   const TabDropLocation({required this.windowHandle, required this.localPoint});
@@ -17,35 +15,27 @@ class TabDropLocation {
   final Offset localPoint;
 }
 
-/// Maps a native drag's screen coordinate back into one of DartPDF's views.
+/// Locates the current desktop cursor in one of DartPDF's native views.
 ///
 /// The native drag APIs use different coordinate systems on macOS, Windows,
 /// and Linux. Keeping that conversion beside the native runners also lets the
 /// Linux implementation ask GDK which surface is under the pointer on Wayland,
 /// where a process cannot reliably calculate global window bounds itself.
 abstract interface class TabDropLocator {
-  Future<TabDropLocation?> locate(
-    Iterable<int> windowHandles,
-    Offset screenPoint,
-  );
+  Future<TabDropLocation?> locate(Iterable<int> windowHandles);
 }
 
 class NativeTabDropLocator implements TabDropLocator {
   const NativeTabDropLocator();
 
   @override
-  Future<TabDropLocation?> locate(
-    Iterable<int> windowHandles,
-    Offset screenPoint,
-  ) async {
+  Future<TabDropLocation?> locate(Iterable<int> windowHandles) async {
     final handles = windowHandles.toList(growable: false);
     if (handles.isEmpty) return null;
     final value = await _windowGeometryChannel.invokeMapMethod<String, Object?>(
       'locateDrop',
       <String, Object?>{
         'handles': handles,
-        'x': screenPoint.dx,
-        'y': screenPoint.dy,
       },
     );
     final handle = value?['handle'];
@@ -59,7 +49,7 @@ class NativeTabDropLocator implements TabDropLocator {
   }
 }
 
-/// One editor window participating in native tab drags.
+/// One editor window participating in process-wide tab drags.
 abstract interface class TabDragWindow {
   int get windowHandle;
 
@@ -95,12 +85,12 @@ class _TabTransfer {
   final DocumentHandoff Function() createHandoff;
 }
 
-/// Process-wide router for native tab drag sessions.
+/// Process-wide router for tab drag sessions.
 ///
-/// Native drag-and-drop supplies a pointer across the whole desktop, while
-/// the Flutter framework's render hit test is scoped to one view. This router
-/// uses Flutter 3.47's native window handles to identify the destination view,
-/// then asks that view for the tab insertion slot in its own coordinates.
+/// Flutter captures the pointer in the source view, but its render hit test is
+/// scoped to that view. At release, this router uses Flutter 3.47's native
+/// window handles to identify the destination view, then asks that view for
+/// the tab insertion slot in its own coordinates.
 class TabDragCoordinator {
   TabDragCoordinator({TabDropLocator locator = const NativeTabDropLocator()})
       : _locator = locator;
@@ -121,9 +111,7 @@ class TabDragCoordinator {
     _transfers.removeWhere((_, transfer) => identical(transfer.source, window));
   }
 
-  /// Begins a transfer and returns the codec-safe token placed in native local
-  /// drag data. The actual controllers remain in this isolate, never in the
-  /// platform message payload.
+  /// Begins a transfer and returns its process-local token.
   String begin(
     TabDragWindow source,
     DocumentTab tab,
@@ -141,17 +129,16 @@ class TabDragCoordinator {
 
   void cancel(String token) => _transfers.remove(token);
 
-  /// Completes a native drag exactly once.
+  /// Completes a drag exactly once.
   ///
   /// The destination always accepts before the source removes. If locating,
   /// snapshotting, or destination creation fails, the live source is retained.
   Future<TabDragResult> finish(
     String token, {
     required bool userCancelled,
-    required Offset? screenPoint,
   }) async {
     final transfer = _transfers.remove(token);
-    if (transfer == null || userCancelled || screenPoint == null) {
+    if (transfer == null || userCancelled) {
       return TabDragResult.cancelled;
     }
     final source = transfer.source;
@@ -161,7 +148,7 @@ class TabDragCoordinator {
 
     TabDropLocation? location;
     try {
-      location = await _locator.locate(_windows.keys, screenPoint);
+      location = await _locator.locate(_windows.keys);
     } on Object {
       return TabDragResult.failed;
     }

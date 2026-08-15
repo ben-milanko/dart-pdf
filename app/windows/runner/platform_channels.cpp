@@ -2,7 +2,6 @@
 
 #include <flutter/standard_method_codec.h>
 
-#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -39,18 +38,6 @@ std::wstring Utf16FromUtf8(const std::string& utf8) {
   ::MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()),
                         utf16.data(), len);
   return utf16;
-}
-
-std::optional<double> Number(const flutter::EncodableValue* value) {
-  if (value == nullptr) return std::nullopt;
-  if (const auto* number = std::get_if<double>(value)) return *number;
-  if (const auto* number = std::get_if<int64_t>(value)) {
-    return static_cast<double>(*number);
-  }
-  if (const auto* number = std::get_if<int32_t>(value)) {
-    return static_cast<double>(*number);
-  }
-  return std::nullopt;
 }
 
 std::optional<int64_t> Integer(const flutter::EncodableValue& value) {
@@ -153,17 +140,16 @@ void DartPdfPlatformChannels::Register(flutter::BinaryMessenger* messenger) {
                                   ? nullptr
                                   : std::get_if<flutter::EncodableList>(
                                         handles_value);
-        const auto x = args == nullptr ? std::nullopt
-                                       : Number(Lookup(*args, "x"));
-        const auto y = args == nullptr ? std::nullopt
-                                       : Number(Lookup(*args, "y"));
-        if (handles == nullptr || !x.has_value() || !y.has_value()) {
-          result->Error("bad_args", "locateDrop expects handles, x and y");
+        if (handles == nullptr) {
+          result->Error("bad_args", "locateDrop expects a handles list");
           return;
         }
 
-        POINT point{static_cast<LONG>(std::lround(*x)),
-                    static_cast<LONG>(std::lround(*y))};
+        POINT point{};
+        if (!::GetCursorPos(&point)) {
+          result->Success();
+          return;
+        }
         HWND hit = ::WindowFromPoint(point);
         if (hit != nullptr) hit = ::GetAncestor(hit, GA_ROOT);
         bool registered = false;

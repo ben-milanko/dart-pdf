@@ -11,8 +11,6 @@ import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
-import 'package:super_drag_and_drop/super_drag_and_drop.dart'
-    show DragItem, DragItemWidget, DraggableWidget, DropOperation;
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_info.dart';
@@ -306,8 +304,7 @@ class _EditorScreenState extends State<EditorScreen>
   final _tabScrollController = ScrollController();
   TabDragCoordinator? _registeredTabDragCoordinator;
   int? _nativeWindowHandle;
-  final Expando<String> _nativeTabDragTokens = Expando<String>();
-  final Expando<bool> _configuredNativeTabDrags = Expando<bool>();
+  final Map<DocumentTab, String> _nativeTabDragTokens = Map.identity();
   int _nextNativeTabDragToken = 0;
 
   /// Whether the pointer is currently hovering the desktop tab strip. While it
@@ -3584,9 +3581,9 @@ class _EditorScreenState extends State<EditorScreen>
       ),
     );
 
-    // A native drag owns editable tabs when this window participates in the
-    // process-wide router. Placeholders keep the local reorder recognizer until
-    // their bytes have materialized and can be handed to another window.
+    // The process-wide drag owns editable tabs when this window participates
+    // in the router. Placeholders keep the local reorder recognizer until their
+    // bytes have materialized and can be handed to another window.
     final dragSource = _nativeTabDragging && tab.session != null
         ? _buildNativeTabDragSource(tab, chrome)
         : _TabDragStartListener(index: index, child: chrome);
@@ -3600,60 +3597,54 @@ class _EditorScreenState extends State<EditorScreen>
 
   Widget _buildNativeTabDragSource(DocumentTab tab, Widget child) {
     final coordinator = _registeredTabDragCoordinator!;
-    return DragItemWidget(
-      allowedOperations: () => const [DropOperation.move],
-      dragItemProvider: (request) {
+    final scheme = Theme.of(context).colorScheme;
+    return Draggable<String>(
+      maxSimultaneousDrags: 1,
+      data: 'dartpdf-tab',
+      dragAnchorStrategy: childDragAnchorStrategy,
+      feedback: Material(
+        color: scheme.surfaceContainerHigh,
+        elevation: 6,
+        borderRadius: BorderRadius.circular(8),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 260),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+            child: Text(
+              tab.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: scheme.onSurface),
+            ),
+          ),
+        ),
+      ),
+      childWhenDragging: Opacity(opacity: 0.45, child: child),
+      onDragStarted: () {
+        if (!containsTab(tab) || tab.session == null) return;
         final token =
             '$windowHandle:${_nextNativeTabDragToken++}:${identityHashCode(tab)}';
-        _nativeTabDragTokens[request.session] = token;
-        return DragItem(
-          suggestedName: tab.title,
-          localData: <String, Object>{
-            'kind': 'dartpdf-tab',
-            'token': token,
-            'sourceWindow': windowHandle,
-          },
+        final previous = _nativeTabDragTokens[tab];
+        if (previous != null) coordinator.cancel(previous);
+        _nativeTabDragTokens[tab] = token;
+        coordinator.begin(
+          this,
+          tab,
+          () => DocumentHandoff.fromTab(tab),
+          token: token,
         );
       },
-      dragBuilder: (context, child) => Opacity(opacity: 0.9, child: child),
-      child: DraggableWidget(
-        hitTestBehavior: HitTestBehavior.opaque,
-        onDragConfiguration: (configuration, session) {
-          final token = _nativeTabDragTokens[session];
-          if (token == null || !containsTab(tab) || tab.session == null) {
-            return null;
+      onDragEnd: (_) {
+        final token = _nativeTabDragTokens.remove(tab);
+        if (token == null) return;
+        unawaited(
+            coordinator.finish(token, userCancelled: false).then((result) {
+          if (mounted && result == TabDragResult.failed) {
+            _toast(appL10n(context).editorUnableToOpenNewWindow);
           }
-          if (_configuredNativeTabDrags[session] == true) return configuration;
-          _configuredNativeTabDrags[session] = true;
-          coordinator.begin(
-            this,
-            tab,
-            () => DocumentHandoff.fromTab(tab),
-            token: token,
-          );
-
-          void completed() {
-            final operation = session.dragCompleted.value;
-            if (operation == null) return;
-            final point = session.lastScreenLocation.value;
-            unawaited(coordinator
-                .finish(
-              token,
-              userCancelled: operation == DropOperation.userCancelled,
-              screenPoint: point,
-            )
-                .then((result) {
-              if (mounted && result == TabDragResult.failed) {
-                _toast(appL10n(context).editorUnableToOpenNewWindow);
-              }
-            }));
-          }
-
-          session.dragCompleted.addListener(completed);
-          return configuration;
-        },
-        child: child,
-      ),
+        }));
+      },
+      child: child,
     );
   }
 }
