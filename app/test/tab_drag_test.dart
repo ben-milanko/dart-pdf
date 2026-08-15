@@ -37,6 +37,14 @@ class _FakeWindow implements TabDragWindow {
   bool acceptNewWindow = true;
   int? reorderedTo;
   int newWindows = 0;
+  int closeRequests = 0;
+
+  @override
+  void closeWindowIfEmpty() {
+    if (tabs.isNotEmpty) return;
+    events?.add('close');
+    closeRequests++;
+  }
 
   @override
   bool containsTab(DocumentTab tab) => tabs.contains(tab);
@@ -116,14 +124,20 @@ void main() {
     final prefs = PdfEditingPreferences();
     final locator = _FakeLocator();
     final coordinator = TabDragCoordinator(locator: locator);
+    var closeRequests = 0;
     await tester.pumpWidget(DartPdfNativeWindowScope(
       windowHandle: 22,
-      child: MaterialApp(
-        home: EditorScreen(
-          prefs: prefs,
-          tabDragCoordinator: coordinator,
-          onNewWindow: (_, {document}) => true,
-          ownsApplicationSession: false,
+      child: DartPdfWindowCloseScope(
+        coordinator: DartPdfWindowCloseCoordinator(
+          closeWindow: () async => closeRequests++,
+        ),
+        child: MaterialApp(
+          home: EditorScreen(
+            prefs: prefs,
+            tabDragCoordinator: coordinator,
+            onNewWindow: (_, {document}) => true,
+            ownsApplicationSession: false,
+          ),
         ),
       ),
     ));
@@ -198,17 +212,23 @@ void main() {
     );
     expect(compactSource.tabs, isEmpty);
 
-    // Exercise the actual pointer source, not just the coordinator. This is
-    // the regression for native drag plugins binding to the bootstrap view
-    // instead of the engine-owned window that contains this tab.
+    // Exercise the actual pointer source and live destination marker, not just
+    // the coordinator. Dragging the second tab before the first is the
+    // regression for replacing the ReorderableListView handle with a plain
+    // Draggable without restoring same-strip routing.
     final compactLabel = find.descendant(
       of: find.byKey(const ValueKey('tab-strip')),
       matching: find.text('compact.pdf'),
     );
-    final callsBeforeDrag = locator.calls;
+    final draggedLabel = find.descendant(
+      of: find.byKey(const ValueKey('tab-strip')),
+      matching: find.text('dragged.pdf'),
+    );
+    final firstRect = tester.getRect(draggedLabel);
+    final tabListRect = tester.getRect(find.byKey(const ValueKey('tab-strip')));
     locator.location = TabDropLocation(
       windowHandle: 22,
-      localPoint: tester.getCenter(compactLabel),
+      localPoint: Offset(tabListRect.left + 6, firstRect.center.dy),
     );
     final gesture = await tester.startGesture(
       tester.getCenter(compactLabel),
@@ -216,9 +236,74 @@ void main() {
     );
     await gesture.moveBy(const Offset(-80, 0));
     await tester.pump();
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('tab-drag-feedback-over-strip')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('tab-drag-insertion-indicator')),
+      findsOneWidget,
+    );
+
+    // Crossing off the tab strip changes both the feedback card and the
+    // destination chrome before release.
+    locator.location = const TabDropLocation(
+      windowHandle: 22,
+      localPoint: Offset(300, 300),
+    );
+    await gesture.moveBy(const Offset(-10, 10));
+    await tester.pump();
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('tab-drag-feedback-detached')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('tab-drag-insertion-indicator')),
+      findsNothing,
+    );
+
+    locator.location = TabDropLocation(
+      windowHandle: 22,
+      localPoint: Offset(tabListRect.left + 6, firstRect.center.dy),
+    );
+    await gesture.moveBy(const Offset(-10, 0));
+    await tester.pump();
+    await tester.pump();
+    expect(coordinator.preview?.insertionIndex, 0);
     await gesture.up();
     await tester.pump();
-    expect(locator.calls, callsBeforeDrag + 1);
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(tester.getCenter(compactLabel).dx,
+        lessThan(tester.getCenter(draggedLabel).dx));
+
+    // Moving both tabs to another registered window closes this source only
+    // after the second accepted handoff empties it.
+    final target = _FakeWindow(44);
+    coordinator.register(target);
+    locator.location = const TabDropLocation(
+      windowHandle: 44,
+      localPoint: Offset(40, 20),
+    );
+    for (final title in ['compact.pdf', 'dragged.pdf']) {
+      final label = find.descendant(
+        of: find.byKey(const ValueKey('tab-strip')),
+        matching: find.text(title),
+      );
+      final move = await tester.startGesture(
+        tester.getCenter(label),
+        kind: PointerDeviceKind.mouse,
+      );
+      await move.moveBy(const Offset(40, 0));
+      await tester.pump();
+      await move.up();
+      await tester.pump();
+      await tester.pump();
+      if (title == 'compact.pdf') expect(closeRequests, 0);
+    }
+    expect(target.inserted, hasLength(2));
+    expect(closeRequests, 1);
 
     await tester.pumpWidget(const SizedBox.shrink());
     coordinator.dispose();
@@ -280,9 +365,10 @@ void main() {
     );
 
     expect(result, TabDragResult.movedToWindow);
-    expect(events, ['insert', 'remove']);
+    expect(events, ['insert', 'remove', 'close']);
     expect(target.inserted, [same(handoff)]);
     expect(source.tabs, isEmpty);
+    expect(source.closeRequests, 1);
     coordinator.dispose();
   });
 
@@ -330,13 +416,14 @@ void main() {
     );
 
     expect(result, TabDragResult.openedNewWindow);
-    expect(events, ['open', 'remove']);
+    expect(events, ['open', 'remove', 'close']);
     expect(source.newWindows, 1);
     expect(source.tabs, isEmpty);
+    expect(source.closeRequests, 1);
     coordinator.dispose();
   });
 
-  test('failed new window and drop below another tab strip retain source',
+  test('drop off a tab strip opens a new window and failures retain source',
       () async {
     final locator = _FakeLocator();
     final coordinator = TabDragCoordinator(locator: locator);
@@ -358,6 +445,7 @@ void main() {
     );
     expect(source.tabs, [same(tab)]);
 
+    source.acceptNewWindow = true;
     locator.location = const TabDropLocation(
       windowHandle: 22,
       localPoint: Offset(300, 500),
@@ -368,10 +456,49 @@ void main() {
         token,
         userCancelled: false,
       ),
-      TabDragResult.cancelled,
+      TabDragResult.openedNewWindow,
     );
-    expect(source.tabs, [same(tab)]);
-    expect(source.newWindows, 0);
+    expect(source.tabs, isEmpty);
+    expect(source.newWindows, 1);
+    expect(source.closeRequests, 1);
+    coordinator.dispose();
+  });
+
+  test('live preview distinguishes tab strips from detached drops', () async {
+    final locator = _FakeLocator()
+      ..location = const TabDropLocation(
+        windowHandle: 22,
+        localPoint: Offset(80, 20),
+      );
+    final coordinator = TabDragCoordinator(locator: locator);
+    final source = _FakeWindow(11);
+    final target = _FakeWindow(22)..insertionIndex = 1;
+    final tab = DocumentTab.error(title: 'dragged.pdf', error: 'fixture');
+    source.tabs.add(tab);
+    coordinator
+      ..register(source)
+      ..register(target);
+
+    final token = coordinator.begin(source, tab, () => _handoff());
+    coordinator.update(token);
+    await pumpEventQueue();
+    expect(coordinator.previewFor(tab)?.isOverTabStrip, isTrue);
+    expect(coordinator.preview?.targetWindowHandle, 22);
+    expect(coordinator.insertionIndexFor(22), 1);
+
+    target.insertionIndex = null;
+    locator.location = const TabDropLocation(
+      windowHandle: 22,
+      localPoint: Offset(80, 400),
+    );
+    coordinator.update(token);
+    await pumpEventQueue();
+    expect(coordinator.previewFor(tab)?.isOverTabStrip, isFalse);
+    expect(coordinator.preview?.targetWindowHandle, isNull);
+    expect(coordinator.insertionIndexFor(22), isNull);
+
+    coordinator.cancel(token);
+    expect(coordinator.preview, isNull);
     coordinator.dispose();
   });
 

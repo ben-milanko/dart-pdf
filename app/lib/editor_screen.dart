@@ -300,7 +300,6 @@ class _EditorScreenState extends State<EditorScreen>
   final List<DocumentTab> _tabs = [];
   int _activeIndex = 0;
   final _tabStripGeometryKey = GlobalKey();
-  final _tabListGeometryKey = GlobalKey();
   final _tabScrollController = ScrollController();
   TabDragCoordinator? _registeredTabDragCoordinator;
   int? _nativeWindowHandle;
@@ -316,6 +315,7 @@ class _EditorScreenState extends State<EditorScreen>
   /// strip layout, captured so a close can pin to it.
   double _lastNaturalTabWidth = 0;
   double _lastRenderedTabWidth = 0;
+  double _lastRenderedTabsWidth = 0;
 
   /// When non-null, the tabs render at this fixed width instead of growing to
   /// fill the freed space. Set on close while the strip is hovered and released
@@ -833,6 +833,18 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   @override
+  void closeWindowIfEmpty() {
+    if (!mounted || _tabs.isNotEmpty) return;
+    // Let _removeTabs finish painting out the transferred tab and dispose its
+    // session before the native view disappears. Its post-frame callback was
+    // registered first, so disposal also runs before this close request.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _tabs.isNotEmpty) return;
+      unawaited(_windowCloseCoordinator?.closeWindow());
+    });
+  }
+
+  @override
   bool openTabInNewWindow(DocumentHandoff handoff) {
     final open = widget.onNewWindow;
     return mounted && open != null && open(context, document: handoff);
@@ -857,21 +869,19 @@ class _EditorScreenState extends State<EditorScreen>
     if (!stripRect.contains(localPoint)) return null;
     if (_tabs.isEmpty) return 0;
 
-    final list = _tabListGeometryKey.currentContext?.findRenderObject();
-    if (list is! RenderBox || !list.attached || _lastRenderedTabWidth <= 0) {
+    if (_lastRenderedTabWidth <= 0 || _lastRenderedTabsWidth <= 0) {
       return _tabs.length;
     }
-    final listRect = list.localToGlobal(Offset.zero) & list.size;
     final rtl = Directionality.of(context) == TextDirection.rtl;
-    if (!listRect.contains(localPoint)) {
-      final before = rtl
-          ? localPoint.dx >= listRect.right
-          : localPoint.dx <= listRect.left;
-      return before ? 0 : _tabs.length;
-    }
-
+    // The tab list is always the Row's first child, so it begins at the
+    // strip's logical leading edge. Derive its coordinates from the stable
+    // outer strip instead of a GlobalKey on the MouseRegion: rebuilding that
+    // region for live hover feedback briefly left its RenderObject unavailable
+    // and every same-strip drop fell back to the append slot.
     final visibleOffset =
-        rtl ? listRect.right - localPoint.dx : localPoint.dx - listRect.left;
+        rtl ? stripRect.right - localPoint.dx : localPoint.dx - stripRect.left;
+    if (visibleOffset < 0) return 0;
+    if (visibleOffset > _lastRenderedTabsWidth) return _tabs.length;
     final scrollOffset =
         _tabScrollController.hasClients ? _tabScrollController.offset : 0.0;
     const listPadding = 4.0;
@@ -3170,11 +3180,8 @@ class _EditorScreenState extends State<EditorScreen>
     // Keep a real drop target in an otherwise empty desktop window. This is
     // the natural destination after New window, and lets the first dragged tab
     // populate it without requiring a placeholder document.
-    return SizedBox(
-      key: _tabStripGeometryKey,
-      height: _tabStripHeight,
-      width: double.infinity,
-      child: const Align(
+    return _buildTabDropSurface(
+      const Align(
         alignment: AlignmentDirectional.centerStart,
         child: Text('DartPDF'),
       ),
@@ -3185,14 +3192,39 @@ class _EditorScreenState extends State<EditorScreen>
     if (!_nativeTabDragging) return child;
     // Narrow desktop windows use the compact single-title chrome. It cannot
     // expose a precise insertion slot, but remains a valid append target.
-    return SizedBox(
-      key: _tabStripGeometryKey,
-      height: _tabStripHeight,
-      width: double.infinity,
-      child: Align(
+    return _buildTabDropSurface(
+      Align(
         alignment: AlignmentDirectional.centerStart,
         child: child,
       ),
+    );
+  }
+
+  Widget _buildTabDropSurface(Widget child) {
+    final coordinator = _registeredTabDragCoordinator;
+    Widget buildSurface() {
+      final targeted = coordinator?.insertionIndexFor(windowHandle) != null;
+      final scheme = Theme.of(context).colorScheme;
+      return AnimatedContainer(
+        key: _tabStripGeometryKey,
+        duration: const Duration(milliseconds: 90),
+        height: _tabStripHeight,
+        width: double.infinity,
+        foregroundDecoration: targeted
+            ? BoxDecoration(
+                color: scheme.primary.withAlpha(0x18),
+                border: Border.all(color: scheme.primary, width: 2),
+                borderRadius: BorderRadius.circular(8),
+              )
+            : null,
+        child: child,
+      );
+    }
+
+    if (coordinator == null) return buildSurface();
+    return ListenableBuilder(
+      listenable: coordinator,
+      builder: (context, _) => buildSurface(),
     );
   }
 
@@ -3397,101 +3429,164 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Widget _buildTabStrip() {
-    return SizedBox(
-      height: _tabStripHeight,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          const buttonWidth = 40.0;
-          const controlsWidth = buttonWidth * 2;
-          const listPadding = 8.0; // 4px each side (see the list's padding).
-          final maxTabsWidth = (constraints.maxWidth - controlsWidth)
-              .clamp(0.0, double.infinity)
-              .toDouble();
+    final coordinator = _registeredTabDragCoordinator;
+    Widget buildStrip() => SizedBox(
+          height: _tabStripHeight,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              const buttonWidth = 40.0;
+              const controlsWidth = buttonWidth * 2;
+              const listPadding =
+                  8.0; // 4px each side (see the list's padding).
+              final maxTabsWidth = (constraints.maxWidth - controlsWidth)
+                  .clamp(0.0, double.infinity)
+                  .toDouble();
 
-          // Chrome-style sizing: every tab gets an equal share of the strip,
-          // clamped between the min and max tab width. As tabs are added the
-          // share shrinks until it hits the floor, after which the list scrolls.
-          final natural = _chromeTabWidth(maxTabsWidth - listPadding);
-          _lastNaturalTabWidth = natural;
-          // While a close streak is held, keep the surviving tabs at the pinned
-          // width; otherwise use the natural share (never wider than natural, so
-          // a stale hold can't overflow after a resize).
-          final tabWidth = _heldTabWidth == null
-              ? natural
-              : math.min(_heldTabWidth!, natural);
-          _lastRenderedTabWidth = tabWidth;
-          final tabsWidth = _tabs.isEmpty
-              ? 0.0
-              : math.min(tabWidth * _tabs.length + listPadding, maxTabsWidth);
+              // Chrome-style sizing: every tab gets an equal share of the strip,
+              // clamped between the min and max tab width. As tabs are added the
+              // share shrinks until it hits the floor, after which the list scrolls.
+              final natural = _chromeTabWidth(maxTabsWidth - listPadding);
+              _lastNaturalTabWidth = natural;
+              // While a close streak is held, keep the surviving tabs at the pinned
+              // width; otherwise use the natural share (never wider than natural, so
+              // a stale hold can't overflow after a resize).
+              final tabWidth = _heldTabWidth == null
+                  ? natural
+                  : math.min(_heldTabWidth!, natural);
+              _lastRenderedTabWidth = tabWidth;
+              final tabsWidth = _tabs.isEmpty
+                  ? 0.0
+                  : math.min(
+                      tabWidth * _tabs.length + listPadding, maxTabsWidth);
+              _lastRenderedTabsWidth = tabsWidth;
+              final insertion = coordinator?.insertionIndexFor(windowHandle);
+              final scheme = Theme.of(context).colorScheme;
 
-          return SizedBox(
-            key: _tabStripGeometryKey,
-            child: Row(
-              mainAxisSize: MainAxisSize.max,
-              children: [
-                if (tabsWidth > 0)
-                  MouseRegion(
-                    key: _tabListGeometryKey,
-                    onEnter: (_) => _tabStripHovered = true,
-                    onExit: (_) {
-                      _tabStripHovered = false;
-                      _releaseTabWidthHold();
-                    },
-                    // Grow back smoothly once the hold releases; both the strip
-                    // and each tab animate to the same width with a linear curve,
-                    // so they stay pixel-consistent throughout.
-                    child: AnimatedContainer(
-                      duration: _tabResizeDuration,
-                      curve: Curves.linear,
-                      width: tabsWidth,
-                      child: ReorderableListView.builder(
-                        key: const ValueKey('tab-strip'),
-                        scrollController: _tabScrollController,
-                        scrollDirection: Axis.horizontal,
-                        // The whole tab is the drag handle (see _buildTab); the
-                        // stock trailing handles don't fit a horizontal tab strip.
-                        buildDefaultDragHandles: false,
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        itemCount: _tabs.length,
-                        onReorderItem: _reorderTabs,
-                        itemBuilder: (context, i) => _buildTab(i, tabWidth),
-                      ),
+              return SizedBox(
+                key: _tabStripGeometryKey,
+                child: Stack(
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.max,
+                      children: [
+                        if (tabsWidth > 0)
+                          MouseRegion(
+                            onEnter: (_) => _tabStripHovered = true,
+                            onExit: (_) {
+                              _tabStripHovered = false;
+                              _releaseTabWidthHold();
+                            },
+                            // Grow back smoothly once the hold releases; both the strip
+                            // and each tab animate to the same width with a linear curve,
+                            // so they stay pixel-consistent throughout.
+                            child: AnimatedContainer(
+                              duration: _tabResizeDuration,
+                              curve: Curves.linear,
+                              width: tabsWidth,
+                              child: ReorderableListView.builder(
+                                key: const ValueKey('tab-strip'),
+                                scrollController: _tabScrollController,
+                                scrollDirection: Axis.horizontal,
+                                // The whole tab is the drag handle (see _buildTab); the
+                                // stock trailing handles don't fit a horizontal tab strip.
+                                buildDefaultDragHandles: false,
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 4),
+                                itemCount: _tabs.length,
+                                onReorderItem: _reorderTabs,
+                                itemBuilder: (context, i) =>
+                                    _buildTab(i, tabWidth),
+                              ),
+                            ),
+                          ),
+                        SizedBox(
+                          width: buttonWidth,
+                          height: _tabStripHeight,
+                          child: IconButton(
+                            key: const ValueKey('desktop-tab-add-button'),
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints.tightFor(
+                                width: buttonWidth),
+                            icon: const Icon(Icons.add),
+                            tooltip: appL10n(context).editorOpenPdfNewTab,
+                            onPressed: _pickAndOpen,
+                          ),
+                        ),
+                        const Spacer(key: ValueKey('desktop-tabs-spacer')),
+                        SizedBox(
+                          width: buttonWidth,
+                          height: _tabStripHeight,
+                          child: IconButton(
+                            key: const ValueKey('desktop-tabs-button'),
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints.tightFor(
+                                width: buttonWidth),
+                            icon: const Icon(Icons.grid_view),
+                            tooltip: appL10n(context).editorViewAllTabs,
+                            onPressed: _showTabsDialog,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                SizedBox(
-                  width: buttonWidth,
-                  height: _tabStripHeight,
-                  child: IconButton(
-                    key: const ValueKey('desktop-tab-add-button'),
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints:
-                        const BoxConstraints.tightFor(width: buttonWidth),
-                    icon: const Icon(Icons.add),
-                    tooltip: appL10n(context).editorOpenPdfNewTab,
-                    onPressed: _pickAndOpen,
-                  ),
+                    if (insertion != null)
+                      PositionedDirectional(
+                        start: 0,
+                        width: tabsWidth > 0 ? tabsWidth : maxTabsWidth,
+                        top: 0,
+                        bottom: 0,
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            key: const ValueKey('tab-drag-drop-highlight'),
+                            decoration: BoxDecoration(
+                              color: scheme.primary.withAlpha(0x12),
+                              border: Border.all(
+                                color: scheme.primary.withAlpha(0xB0),
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (insertion != null && tabsWidth > 0)
+                      PositionedDirectional(
+                        start: (4 +
+                                insertion * tabWidth -
+                                (_tabScrollController.hasClients
+                                    ? _tabScrollController.offset
+                                    : 0.0))
+                            .clamp(2.0, math.max(2.0, tabsWidth - 2))
+                            .toDouble(),
+                        top: 4,
+                        bottom: 4,
+                        child: IgnorePointer(
+                          child: Container(
+                            key: const ValueKey('tab-drag-insertion-indicator'),
+                            width: 3,
+                            decoration: BoxDecoration(
+                              color: scheme.primary,
+                              borderRadius: BorderRadius.circular(2),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: scheme.shadow.withAlpha(0x50),
+                                  blurRadius: 3,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
-                const Spacer(key: ValueKey('desktop-tabs-spacer')),
-                SizedBox(
-                  width: buttonWidth,
-                  height: _tabStripHeight,
-                  child: IconButton(
-                    key: const ValueKey('desktop-tabs-button'),
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints:
-                        const BoxConstraints.tightFor(width: buttonWidth),
-                    icon: const Icon(Icons.grid_view),
-                    tooltip: appL10n(context).editorViewAllTabs,
-                    onPressed: _showTabsDialog,
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
+              );
+            },
+          ),
+        );
+    if (coordinator == null) return buildStrip();
+    return ListenableBuilder(
+      listenable: coordinator,
+      builder: (context, _) => buildStrip(),
     );
   }
 
@@ -3602,22 +3697,90 @@ class _EditorScreenState extends State<EditorScreen>
       maxSimultaneousDrags: 1,
       data: 'dartpdf-tab',
       dragAnchorStrategy: childDragAnchorStrategy,
-      feedback: Material(
-        color: scheme.surfaceContainerHigh,
-        elevation: 6,
-        borderRadius: BorderRadius.circular(8),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 260),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-            child: Text(
-              tab.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: scheme.onSurface),
+      feedback: ListenableBuilder(
+        listenable: coordinator,
+        builder: (context, _) {
+          final preview = coordinator.previewFor(tab);
+          // Before the first native cursor poll returns the drag has only just
+          // started on this strip, so paint the in-strip state by default.
+          final overStrip = preview?.isOverTabStrip ?? true;
+          final movingToAnotherWindow = overStrip &&
+              preview?.targetWindowHandle != null &&
+              preview!.targetWindowHandle != windowHandle;
+          return Material(
+            key: ValueKey(overStrip
+                ? 'tab-drag-feedback-over-strip'
+                : 'tab-drag-feedback-detached'),
+            color:
+                overStrip ? scheme.primaryContainer : scheme.tertiaryContainer,
+            elevation: 8,
+            shape: RoundedRectangleBorder(
+              side: BorderSide(
+                color: overStrip ? scheme.primary : scheme.tertiary,
+                width: 2,
+              ),
+              borderRadius: BorderRadius.circular(8),
             ),
-          ),
-        ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 280),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      overStrip
+                          ? (movingToAnotherWindow
+                              ? Icons.move_to_inbox_outlined
+                              : Icons.reorder)
+                          : Icons.open_in_new,
+                      size: 18,
+                      color: overStrip
+                          ? scheme.onPrimaryContainer
+                          : scheme.onTertiaryContainer,
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            tab.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: overStrip
+                                  ? scheme.onPrimaryContainer
+                                  : scheme.onTertiaryContainer,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Text(
+                            overStrip
+                                ? appL10n(context).editorTabs
+                                : appL10n(context).editorMoveToNewWindow,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelSmall
+                                ?.copyWith(
+                                  color: overStrip
+                                      ? scheme.onPrimaryContainer
+                                      : scheme.onTertiaryContainer,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
       ),
       childWhenDragging: Opacity(opacity: 0.45, child: child),
       onDragStarted: () {
@@ -3633,6 +3796,11 @@ class _EditorScreenState extends State<EditorScreen>
           () => DocumentHandoff.fromTab(tab),
           token: token,
         );
+        coordinator.update(token);
+      },
+      onDragUpdate: (_) {
+        final token = _nativeTabDragTokens[tab];
+        if (token != null) coordinator.update(token);
       },
       onDragEnd: (_) {
         final token = _nativeTabDragTokens.remove(tab);

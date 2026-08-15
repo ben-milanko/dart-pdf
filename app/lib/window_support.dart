@@ -50,17 +50,22 @@ void runDartPdfApp(Widget root) {
   }
 
   final registry = _DartPdfWindowRegistry();
-  final closeCoordinator = DartPdfWindowCloseCoordinator();
+  late final _RegisteredWindowDelegate delegate;
+  late final RegularWindowController controller;
+  final closeCoordinator = DartPdfWindowCloseCoordinator(
+    closeWindow: () => delegate.requestClose(controller),
+  );
   late final _DartPdfWindowEntry entry;
   _windowLifetime.opened();
-  final controller = RegularWindowController(
+  delegate = _RegisteredWindowDelegate(
+    onUnregister: () => registry.unregister(entry),
+    closeCoordinator: closeCoordinator,
+    onDestroyed: _windowLifetime.closed,
+  );
+  controller = RegularWindowController(
     size: _defaultWindowSize,
     title: 'DartPDF',
-    delegate: _RegisteredWindowDelegate(
-      onUnregister: () => registry.unregister(entry),
-      closeCoordinator: closeCoordinator,
-      onDestroyed: _windowLifetime.closed,
-    ),
+    delegate: delegate,
   );
   entry = _DartPdfWindowEntry(
     controller: controller,
@@ -91,14 +96,18 @@ bool openRegularWindow(
 
   try {
     late final _DartPdfWindowEntry entry;
-    final closeCoordinator = DartPdfWindowCloseCoordinator();
+    late final _RegisteredWindowDelegate delegate;
+    late final RegularWindowController controller;
+    final closeCoordinator = DartPdfWindowCloseCoordinator(
+      closeWindow: () => delegate.requestClose(controller),
+    );
     _windowLifetime.opened();
-    final delegate = _RegisteredWindowDelegate(
+    delegate = _RegisteredWindowDelegate(
       onUnregister: () => registry.unregister(entry),
       closeCoordinator: closeCoordinator,
       onDestroyed: _windowLifetime.closed,
     );
-    final controller = RegularWindowController(
+    controller = RegularWindowController(
       size: size,
       title: title,
       delegate: delegate,
@@ -232,6 +241,10 @@ class _DartPdfWindowRegistryScope extends InheritedWidget {
 /// Per-window close handshake used by [EditorScreen] without exposing
 /// Flutter's internal controller classes outside this file.
 class DartPdfWindowCloseCoordinator {
+  DartPdfWindowCloseCoordinator({Future<void> Function()? closeWindow})
+      : _closeWindow = closeWindow;
+
+  final Future<void> Function()? _closeWindow;
   Object? _owner;
   Future<bool> Function()? _handler;
 
@@ -247,6 +260,10 @@ class DartPdfWindowCloseCoordinator {
   }
 
   Future<bool> requestClose() => _handler?.call() ?? Future<bool>.value(true);
+
+  /// Requests the containing native window to close through the same delegate
+  /// handshake as its title-bar close button.
+  Future<void> closeWindow() => _closeWindow?.call() ?? Future<void>.value();
 }
 
 class DartPdfWindowCloseScope extends InheritedWidget {
@@ -292,8 +309,7 @@ class _RegisteredWindowDelegate with RegularWindowControllerDelegate {
     onUnregister?.call();
   }
 
-  @override
-  void onWindowCloseRequested(RegularWindowController controller) async {
+  Future<void> requestClose(RegularWindowController controller) async {
     if (_closePending || _destroyed) return;
     _closePending = true;
     final allowed = await closeCoordinator.requestClose();
@@ -301,6 +317,11 @@ class _RegisteredWindowDelegate with RegularWindowControllerDelegate {
     if (!allowed || _destroyed) return;
     _unregister();
     controller.destroy();
+  }
+
+  @override
+  void onWindowCloseRequested(RegularWindowController controller) {
+    unawaited(requestClose(controller));
   }
 
   @override

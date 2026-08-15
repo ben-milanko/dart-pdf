@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
@@ -63,6 +65,27 @@ abstract interface class TabDragWindow {
   bool insertTab(DocumentHandoff handoff, int insertionIndex);
   bool removeTab(DocumentTab tab);
   bool openTabInNewWindow(DocumentHandoff handoff);
+
+  /// Closes this native window when the completed transfer removed its final
+  /// tab. Implementations may defer until the current frame has finished.
+  void closeWindowIfEmpty();
+}
+
+/// The live destination resolved for a process-wide tab drag.
+@immutable
+class TabDragPreview {
+  const TabDragPreview({
+    required this.tab,
+    required this.targetWindowHandle,
+    required this.insertionIndex,
+  });
+
+  final DocumentTab tab;
+  final int? targetWindowHandle;
+  final int? insertionIndex;
+
+  bool get isOverTabStrip =>
+      targetWindowHandle != null && insertionIndex != null;
 }
 
 enum TabDragResult {
@@ -91,7 +114,7 @@ class _TabTransfer {
 /// scoped to that view. At release, this router uses Flutter 3.47's native
 /// window handles to identify the destination view, then asks that view for
 /// the tab insertion slot in its own coordinates.
-class TabDragCoordinator {
+class TabDragCoordinator extends ChangeNotifier {
   TabDragCoordinator({TabDropLocator locator = const NativeTabDropLocator()})
       : _locator = locator;
 
@@ -99,6 +122,23 @@ class TabDragCoordinator {
   final Map<int, TabDragWindow> _windows = <int, TabDragWindow>{};
   final Map<String, _TabTransfer> _transfers = <String, _TabTransfer>{};
   int _nextToken = 0;
+  TabDragPreview? _preview;
+  String? _previewToken;
+  String? _queuedPreviewToken;
+  bool _previewLookupInFlight = false;
+
+  /// The current resolved destination, or null before the first pointer poll.
+  TabDragPreview? get preview => _preview;
+
+  /// Returns the insertion marker that [windowHandle] should paint.
+  int? insertionIndexFor(int windowHandle) =>
+      _preview?.targetWindowHandle == windowHandle
+          ? _preview?.insertionIndex
+          : null;
+
+  /// Returns the current visual state only when [tab] owns the active drag.
+  TabDragPreview? previewFor(DocumentTab tab) =>
+      identical(_preview?.tab, tab) ? _preview : null;
 
   void register(TabDragWindow window) {
     _windows[window.windowHandle] = window;
@@ -108,7 +148,16 @@ class TabDragCoordinator {
     if (identical(_windows[window.windowHandle], window)) {
       _windows.remove(window.windowHandle);
     }
-    _transfers.removeWhere((_, transfer) => identical(transfer.source, window));
+    final removedTokens = <String>[];
+    _transfers.removeWhere((token, transfer) {
+      final remove = identical(transfer.source, window);
+      if (remove) removedTokens.add(token);
+      return remove;
+    });
+    if (removedTokens.contains(_previewToken) ||
+        _preview?.targetWindowHandle == window.windowHandle) {
+      _clearPreview();
+    }
   }
 
   /// Begins a transfer and returns its process-local token.
@@ -119,6 +168,9 @@ class TabDragCoordinator {
     String? token,
   }) {
     final resolvedToken = token ?? '${source.windowHandle}:${_nextToken++}';
+    if (_previewToken != null && _previewToken != resolvedToken) {
+      _clearPreview();
+    }
     _transfers[resolvedToken] = _TabTransfer(
       source: source,
       tab: tab,
@@ -127,7 +179,46 @@ class TabDragCoordinator {
     return resolvedToken;
   }
 
-  void cancel(String token) => _transfers.remove(token);
+  void cancel(String token) {
+    _transfers.remove(token);
+    if (_previewToken == token) _clearPreview();
+  }
+
+  /// Refreshes the live drop target from the native cursor position.
+  ///
+  /// Pointer updates can arrive faster than the platform channel can answer.
+  /// Keep only the newest token while one lookup is running; the drain performs
+  /// at most one follow-up lookup and stale sessions can never repaint a newer
+  /// drag's destination.
+  void update(String token) {
+    if (!_transfers.containsKey(token)) return;
+    _queuedPreviewToken = token;
+    if (_previewLookupInFlight) return;
+    _previewLookupInFlight = true;
+    unawaited(_drainPreviewUpdates());
+  }
+
+  Future<void> _drainPreviewUpdates() async {
+    while (_queuedPreviewToken != null) {
+      final token = _queuedPreviewToken!;
+      _queuedPreviewToken = null;
+      final transfer = _transfers[token];
+      if (transfer == null) continue;
+      try {
+        final location = await _locator.locate(_windows.keys);
+        if (!identical(_transfers[token], transfer)) continue;
+        _setPreview(token, _previewAt(transfer, location));
+      } on Object {
+        // A transient hover lookup failure must not alter the last trustworthy
+        // marker. [finish] performs its own lookup and retains the source tab
+        // if that final query fails.
+      }
+    }
+    _previewLookupInFlight = false;
+    // An update can be queued between the loop condition and clearing the
+    // in-flight flag. Re-enter once so it cannot be stranded.
+    if (_queuedPreviewToken != null) update(_queuedPreviewToken!);
+  }
 
   /// Completes a drag exactly once.
   ///
@@ -138,6 +229,7 @@ class TabDragCoordinator {
     required bool userCancelled,
   }) async {
     final transfer = _transfers.remove(token);
+    if (_previewToken == token) _clearPreview();
     if (transfer == null || userCancelled) {
       return TabDragResult.cancelled;
     }
@@ -157,22 +249,17 @@ class TabDragCoordinator {
     }
 
     try {
-      if (location == null) {
+      final target = location == null ? null : _windows[location.windowHandle];
+      final insertion = target?.tabInsertionIndex(location!.localPoint);
+      if (target == null || insertion == null) {
         final handoff = transfer.createHandoff();
         if (!source.openTabInNewWindow(handoff)) {
           return TabDragResult.failed;
         }
-        return source.removeTab(transfer.tab)
-            ? TabDragResult.openedNewWindow
-            : TabDragResult.failed;
+        if (!source.removeTab(transfer.tab)) return TabDragResult.failed;
+        source.closeWindowIfEmpty();
+        return TabDragResult.openedNewWindow;
       }
-
-      final target = _windows[location.windowHandle];
-      if (target == null) return TabDragResult.cancelled;
-      final insertion = target.tabInsertionIndex(location.localPoint);
-      // Releasing over an existing DartPDF window but outside its tab strip is
-      // a cancelled move, not a request for a third window.
-      if (insertion == null) return TabDragResult.cancelled;
 
       if (identical(target, source)) {
         return source.reorderTab(transfer.tab, insertion)
@@ -186,9 +273,9 @@ class TabDragCoordinator {
       if (!target.insertTab(handoff, insertion)) {
         return TabDragResult.failed;
       }
-      return source.removeTab(transfer.tab)
-          ? TabDragResult.movedToWindow
-          : TabDragResult.failed;
+      if (!source.removeTab(transfer.tab)) return TabDragResult.failed;
+      source.closeWindowIfEmpty();
+      return TabDragResult.movedToWindow;
     } on Object {
       return TabDragResult.failed;
     }
@@ -197,8 +284,45 @@ class TabDragCoordinator {
   bool _isRegistered(TabDragWindow window) =>
       identical(_windows[window.windowHandle], window);
 
+  TabDragPreview _previewAt(
+    _TabTransfer transfer,
+    TabDropLocation? location,
+  ) {
+    final target = location == null ? null : _windows[location.windowHandle];
+    final insertion = target?.tabInsertionIndex(location!.localPoint);
+    return TabDragPreview(
+      tab: transfer.tab,
+      targetWindowHandle: insertion == null ? null : target!.windowHandle,
+      insertionIndex: insertion,
+    );
+  }
+
+  void _setPreview(String token, TabDragPreview preview) {
+    if (_previewToken == token &&
+        identical(_preview?.tab, preview.tab) &&
+        _preview?.targetWindowHandle == preview.targetWindowHandle &&
+        _preview?.insertionIndex == preview.insertionIndex) {
+      return;
+    }
+    _previewToken = token;
+    _preview = preview;
+    notifyListeners();
+  }
+
+  void _clearPreview() {
+    if (_preview == null && _previewToken == null) return;
+    _preview = null;
+    _previewToken = null;
+    notifyListeners();
+  }
+
+  @override
   void dispose() {
+    _queuedPreviewToken = null;
     _transfers.clear();
     _windows.clear();
+    _preview = null;
+    _previewToken = null;
+    super.dispose();
   }
 }
