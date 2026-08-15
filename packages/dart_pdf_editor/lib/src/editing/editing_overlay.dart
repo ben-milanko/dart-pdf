@@ -1072,6 +1072,26 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     return zoom.isFinite && zoom > 0 ? 1 / zoom : 1.0;
   }
 
+  /// Keeps Flutter's Apple-platform two-device-pixel cursor nudge constant in
+  /// screen space. The editor lives inside the viewer transform, so the stock
+  /// `-2 / devicePixelRatio` local offset otherwise grows with deep zoom and
+  /// leaves the caret visibly detached from both ends of centred text.
+  Widget _zoomAwareCursor(BuildContext context, Widget child) {
+    final media = MediaQuery.of(context);
+    final platform = Theme.of(context).platform;
+    if (platform != TargetPlatform.iOS && platform != TargetPlatform.macOS) {
+      return child;
+    }
+    final scale = _chromeScale;
+    if (!scale.isFinite || scale <= 0) return child;
+    return MediaQuery(
+      data: media.copyWith(
+        devicePixelRatio: media.devicePixelRatio / scale,
+      ),
+      child: child,
+    );
+  }
+
   /// Null while the eyedropper is armed without a tool, or while a
   /// default-mode (mouse click) selection exists without one.
   PdfEditTool? get _tool => _controller.tool;
@@ -5601,7 +5621,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                             final direction = _flutterTextDirection(value.text);
                             return Directionality(
                               textDirection: direction,
-                              child: TextField(
+                              child: _zoomAwareCursor(context, TextField(
                                 key: ValueKey(_textEditFieldName == null
                                     ? 'pdf-freetext-editor'
                                     : 'pdf-form-text-editor'),
@@ -5703,7 +5723,7 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                     3 * _geometry.scale,
                                   ),
                                 ),
-                              ),
+                              )),
                             );
                           },
                         ),

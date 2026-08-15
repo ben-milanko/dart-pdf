@@ -438,6 +438,65 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets(
+        'macOS caret stays attached to centered text at deep zoom',
+        (tester) async {
+      final (editing, viewer) = await pumpEditor(tester);
+      const rect = PdfRect(270, 550, 343.221, 567.7585);
+      editing.preferences
+        ..fontSize = 8
+        ..textAlign = PdfTextAlign.center;
+      editing
+        ..addFreeText(0, rect, 'UBX/UNX')
+        ..selectAnnotation(0, 0);
+      await tester.pump();
+
+      // Keep this box at the viewport centre while the outer viewer transform
+      // magnifies it. Flutter's stock macOS caret nudge is in local pixels;
+      // without compensation the zoom turns its 2px adjustment into a large
+      // visible gap at both the start and end of the centred line.
+      viewer.setZoom(4);
+      await tester.pump();
+      expect(editing.requestEditSelectedTextInline(), isTrue);
+      await tester.pump();
+
+      final finder = find.byKey(editorKey);
+      final field = tester.widget<TextField>(finder);
+      final editable = find.descendant(
+          of: finder, matching: find.byType(EditableText));
+      final render = tester.state<EditableTextState>(editable).renderEditable;
+      final chromeScale = field.cursorWidth / 2;
+      expect(chromeScale, lessThan(0.5));
+      expect(
+        render.cursorOffset.dx,
+        closeTo(
+          -2 / tester.view.devicePixelRatio * chromeScale,
+          1e-6,
+        ),
+      );
+
+      final textBox = render
+          .getBoxesForSelection(
+              const TextSelection(baseOffset: 0, extentOffset: 7))
+          .single;
+      final start = render
+          .getLocalRectForCaret(const TextPosition(offset: 0));
+      final end = render
+          .getLocalRectForCaret(const TextPosition(offset: 7));
+      expect(
+        (start.left - textBox.left) / chromeScale,
+        closeTo(-2 / tester.view.devicePixelRatio, 0.5),
+      );
+      expect(
+        (end.left - textBox.right) / chromeScale,
+        closeTo(-2 / tester.view.devicePixelRatio, 0.5),
+      );
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await settle(tester);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
+
     testWidgets('tapping without dragging places a default-sized text box',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);
