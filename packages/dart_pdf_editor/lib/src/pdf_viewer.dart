@@ -1699,6 +1699,7 @@ class _PdfViewerState extends State<PdfViewer>
   final Map<int, int> _contentStamps = {};
 
   late List<PdfPage> _pages;
+  late List<(int, int)?> _pageRefs;
   late List<double> _aspects; // height / width, after /Rotate
 
   /// The controller that owns the document revisions for a given viewer
@@ -3471,15 +3472,13 @@ class _PdfViewerState extends State<PdfViewer>
   void _swapDocument({bool preserveRevisionViewport = false}) {
     final document = _document;
     final sameGeometry = _sameGeometryAs(document);
-    final oldPageRefs = preserveRevisionViewport
-        ? [for (final page in _pages) _pageReferenceKey(page)]
-        : const <(int, int)?>[];
+    final oldPageRefs =
+        preserveRevisionViewport ? _pageRefs : const <(int, int)?>[];
     final oldCurrentPage = _pages.isEmpty
         ? 0
         : _controller.currentPage.clamp(0, _pages.length - 1);
-    final oldCurrentRef = oldPageRefs.isEmpty
-        ? null
-        : oldPageRefs[oldCurrentPage];
+    final oldCurrentRef =
+        oldPageRefs.isEmpty ? null : oldPageRefs[oldCurrentPage];
     final oldViewport = preserveRevisionViewport && _pages.isNotEmpty
         ? _pendingViewport ??
             _captureViewport() ??
@@ -3498,9 +3497,8 @@ class _PdfViewerState extends State<PdfViewer>
     _controller.clearSearch();
     _clearSelection();
     _loadPages();
-    final newPageRefs = preserveRevisionViewport
-        ? [for (final page in _pages) _pageReferenceKey(page)]
-        : const <(int, int)?>[];
+    final newPageRefs =
+        preserveRevisionViewport ? _pageRefs : const <(int, int)?>[];
     final pageOrderChanged = preserveRevisionViewport &&
         (oldPageRefs.length != newPageRefs.length ||
             Iterable<int>.generate(oldPageRefs.length).any(
@@ -3578,7 +3576,11 @@ class _PdfViewerState extends State<PdfViewer>
 
   /// The stable identity of a page across incremental revisions. Structural
   /// edits rewrite the page tree but retain every surviving leaf's indirect
-  /// object number; newly inserted pages receive new numbers.
+  /// object number; newly inserted pages receive new numbers. These keys are
+  /// captured when pages load: an incremental edit evicts the reverse-cache
+  /// entry for every rewritten page before the viewer is notified, so asking
+  /// an old [PdfPage] for its reference during the swap would return null and
+  /// make an annotation-only edit look like a page reorder.
   (int, int)? _pageReferenceKey(PdfPage page) {
     final ref = page.document.cos.referenceTo(page.dict);
     return ref == null ? null : (ref.objectNumber, ref.generation);
@@ -3627,6 +3629,7 @@ class _PdfViewerState extends State<PdfViewer>
     _loadedDocument = document;
     final count = document.pageCount;
     _pages = [for (var i = 0; i < count; i++) document.page(i)];
+    _pageRefs = [for (final page in _pages) _pageReferenceKey(page)];
     _rasteredPages.clear();
     _commandWarmAttempts.clear();
     _commandWarmAnchor = null;
