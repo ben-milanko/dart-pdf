@@ -72,6 +72,8 @@ class PdfTextRun {
     this.fill = true,
     this.strokeColor,
     this.strokeWidth = 0,
+    this.fillAlpha = 1,
+    this.strokeAlpha = 1,
     this.letterSpacing = 0,
     this.wordSpacing = 0,
     this.visibleWidth,
@@ -98,6 +100,12 @@ class PdfTextRun {
   /// Stroke line width in page space (the current line width mapped through
   /// the CTM, like every other stroke); 0 means the thinnest renderable line.
   final double strokeWidth;
+
+  /// Nonstroking opacity (`ca`) in effect for the filled glyphs.
+  final double fillAlpha;
+
+  /// Stroking opacity (`CA`) in effect for the outlined glyphs.
+  final double strokeAlpha;
 
   /// Render mode 3 (§9.4.3): the run paints nothing but still occupies
   /// its geometry - the OCR text layer of scanned documents. Painting

@@ -443,7 +443,7 @@ class StripPdfDevice extends StripBinningDevice {
       super.drawText(run);
       return;
     }
-    if (!_addSlugRun(glyphs, run, stripArgbColor(run.color, 1))) {
+    if (!_addSlugRun(glyphs, run, stripArgbColor(run.color, run.fillAlpha))) {
       _slugFallbackOutlineRuns++;
       totalSlugFallbackOutlineRuns++;
       super.drawText(run);

@@ -2405,15 +2405,18 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
       final ls = _controller.lineSpacing;
       final cs = _controller.charSpacing;
       final ul = _controller.textUnderline;
+      final opacity = _controller.preferences.opacity;
       final defaultUnderline = _textEditText.defaultStyle.underline;
       if (align != _textEditAlign ||
           ls != _textEditLineSpacing ||
           cs != _textEditCharSpacing ||
+          opacity != _textEditOpacity ||
           (ul != defaultUnderline && !_textEditText.hasRichStyles)) {
         setState(() {
           _textEditAlign = align;
           _textEditLineSpacing = ls;
           _textEditCharSpacing = cs;
+          _textEditOpacity = opacity;
           if (ul != defaultUnderline && !_textEditText.hasRichStyles) {
             _textEditText.resetStyles(
                 _textEditText.defaultStyle.merge(underline: ul));
@@ -5634,7 +5637,10 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                 // in view pixels, same leading/spacing,
                                 // matching family, color and underline
                                 style: TextStyle(
-                                  color: _textEditColor,
+                                  color: _textEditFieldName == null
+                                      ? _textEditColor.withValues(
+                                          alpha: _textEditOpacity.clamp(0.0, 1.0))
+                                      : _textEditColor,
                                   fontSize: _textEditSize * _geometry.scale,
                                   height: _textEditLineSpacing,
                                   letterSpacing:

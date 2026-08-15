@@ -380,6 +380,27 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('the inline text editor previews opacity changes',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing
+        ..preferences.opacity = 0.25
+        ..tool = PdfEditTool.freeText;
+      await tester.pump();
+
+      await drag(tester, view(100, 700), view(300, 640));
+      TextField field() => tester.widget<TextField>(find.byKey(editorKey));
+      expect(field().style!.color!.a, closeTo(0.25, 1e-6));
+
+      editing.preferences.opacity = 0.6;
+      await tester.pump();
+      expect(field().style!.color!.a, closeTo(0.6, 1e-6));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await settle(tester);
+    });
+
     testWidgets('tapping without dragging places a default-sized text box',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);

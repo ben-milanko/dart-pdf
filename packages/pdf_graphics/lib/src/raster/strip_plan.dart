@@ -144,7 +144,7 @@ class StripPlanBinner extends StripBinningDevice {
       return;
     }
     flushPending();
-    if (!_addSlugRun(glyphs, run, stripArgbColor(run.color, 1))) {
+    if (!_addSlugRun(glyphs, run, stripArgbColor(run.color, run.fillAlpha))) {
       slugFallbackOutlineRuns++;
       slugFallbackOrdinals.add(flushPointCount - 1);
       super.drawText(run);

@@ -349,9 +349,11 @@ class _BrowserCanvasDevice implements PdfDevice {
     );
     if (placed != null) {
       context.scale(1 / placed.unitsPerEm, -1 / renderSize);
-      for (final part in placed.parts) {
-        context.fillText(part.text, part.x, 0);
-      }
+      _paintWithAlpha(run.fillAlpha, () {
+        for (final part in placed.parts) {
+          context.fillText(part.text, part.x, 0);
+        }
+      });
       context.restore();
       return;
     }
@@ -364,7 +366,7 @@ class _BrowserCanvasDevice implements PdfDevice {
         ? run.width * renderSize / naturalWidth
         : 1.0;
     context.scale(scaleX / renderSize, -1 / renderSize);
-    context.fillText(run.text, 0, 0);
+    _paintWithAlpha(run.fillAlpha, () => context.fillText(run.text, 0, 0));
     context.restore();
   }
 

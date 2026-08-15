@@ -54,7 +54,7 @@ import 'text_extraction.dart';
 /// Format: little notion of versioning beyond a leading byte; the producer and
 /// consumer are the same build, shipped together, so a version mismatch is a
 /// programming error, asserted on read.
-const int _formatVersion = 6;
+const int _formatVersion = 7;
 
 /// Microseconds spent reconstructing worker command buffers on the consuming
 /// isolate. Accumulated for performance probes; this is the UI-thread half of
@@ -1512,6 +1512,8 @@ void _writeTextRun(_Writer w, PdfTextRun run) {
     _writeColor(w, run.strokeColor!);
   }
   w.f64(run.strokeWidth);
+  w.f64(run.fillAlpha);
+  w.f64(run.strokeAlpha);
   // Substitute-font spacing geometry (Tc/Tw and the visible-glyph advance): a
   // painting consumer needs these to reproduce word/char spacing and to keep
   // edge whitespace from stretching the visible glyphs.
@@ -1567,6 +1569,8 @@ PdfTextRun _readTextRun(_Reader r) {
   final fill = r.boolean();
   final strokeColor = r.boolean() ? _readColor(r) : null;
   final strokeWidth = r.f64();
+  final fillAlpha = r.f64();
+  final strokeAlpha = r.f64();
   final letterSpacing = r.f64();
   final wordSpacing = r.f64();
   final leadingSpace = r.f64();
@@ -1587,6 +1591,8 @@ PdfTextRun _readTextRun(_Reader r) {
     fill: fill,
     strokeColor: strokeColor,
     strokeWidth: strokeWidth,
+    fillAlpha: fillAlpha,
+    strokeAlpha: strokeAlpha,
     letterSpacing: letterSpacing,
     wordSpacing: wordSpacing,
     leadingSpace: leadingSpace,

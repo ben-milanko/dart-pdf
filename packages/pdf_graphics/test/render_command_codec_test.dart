@@ -201,6 +201,24 @@ void main() {
       final b = serializeCommands(recorder.commands)!;
       expect(a, equals(b));
     });
+
+    test('text opacity survives command serialization', () {
+      const run = PdfTextRun(
+        text: 'Faded',
+        transform: PdfMatrix.identity,
+        color: PdfColor.black,
+        width: 3,
+        fillAlpha: 0.25,
+        strokeColor: PdfColor(1, 0, 0),
+        strokeAlpha: 0.6,
+      );
+
+      final restored = deserializeCommands(
+        serializeCommands([const PdfDrawTextCommand(run)])!,
+      ).single as PdfDrawTextCommand;
+      expect(restored.run.fillAlpha, 0.25);
+      expect(restored.run.strokeAlpha, 0.6);
+    });
   });
 
   group('worker state-scope compaction', () {

@@ -861,6 +861,8 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
                     foreground: Paint()
                       ..shader = _shaderFor(gradient,
                           transform: gradient.transform.concat(pageToLocal))
+                      ..color = const Color(0xFFFFFFFF)
+                          .withValues(alpha: paintRun.fillAlpha)
                       ..blendMode = _elementBlend)),
             textDirection: TextDirection.ltr,
           )..layout();
@@ -884,7 +886,7 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
             foreground: Paint()
               ..style = PaintingStyle.stroke
               ..strokeWidth = ts > 0 ? w * renderSize / ts : w
-              ..color = _toColor(paintRun.strokeColor!, 1)
+              ..color = _toColor(paintRun.strokeColor!, paintRun.strokeAlpha)
               ..blendMode = _elementBlend,
           ),
         ),
@@ -947,6 +949,7 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
           run.fill &&
           run.gradient == null &&
           run.strokeColor == null &&
+          run.fillAlpha == 1 &&
           _elementBlend == BlendMode.srcOver;
       if (!canBatch) {
         flush();
@@ -1018,6 +1021,8 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
       fill: run.fill,
       strokeColor: run.strokeColor,
       strokeWidth: run.strokeWidth,
+      fillAlpha: run.fillAlpha,
+      strokeAlpha: run.strokeAlpha,
       letterSpacing: run.letterSpacing,
       wordSpacing: run.wordSpacing,
       mcid: run.mcid,
@@ -1051,7 +1056,7 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
     if (compose) return _composeLayout(run);
     final c = run.color;
     final key = '${run.text} ${run.fontName ?? ''} '
-        '${c.red},${c.green},${c.blue} '
+        '${c.red},${c.green},${c.blue},${run.fillAlpha} '
         '${run.letterSpacing},${run.wordSpacing}';
     return _cachedLayout(key, () => _shapeLayout(run));
   }
@@ -1113,7 +1118,8 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
   /// glyph would double-count it - and it would make the key a lie.
   _TextLayout _glyphLayout(int rune, PdfTextRun run) {
     final c = run.color;
-    final key = '$rune ${run.fontName ?? ''} ${c.red},${c.green},${c.blue}';
+    final key = '$rune ${run.fontName ?? ''} '
+        '${c.red},${c.green},${c.blue},${run.fillAlpha}';
     return _glyphCache.getOrAdd(key, () {
       debugTextPainterBuilds++;
       final painter = TextPainter(
@@ -1154,7 +1160,8 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
   _TextLayout _placedLayout(PdfTextRun run, List<double> offsets) {
     final c = run.color;
     final key = '${run.text} ${run.fontName ?? ''} '
-        '${c.red},${c.green},${c.blue} p${_offsetsHash(offsets)}';
+        '${c.red},${c.green},${c.blue},${run.fillAlpha} '
+        'p${_offsetsHash(offsets)}';
     // A run with nothing to scale against falls back to whole-run shaping,
     // cached under this key too so the failed attempt is not repeated.
     return _cachedLayout(
@@ -1424,7 +1431,11 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
       if (gradient != null) {
         paint.shader = _shaderFor(gradient);
       } else {
-        paint.color = _toColor(run.color, 1);
+        paint.color = _toColor(run.color, run.fillAlpha);
+      }
+      if (gradient != null) {
+        paint.color = const Color(0xFFFFFFFF)
+            .withValues(alpha: run.fillAlpha.clamp(0, 1));
       }
       canvas.drawPath(path, paint);
     }
@@ -1435,7 +1446,7 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = run.strokeWidth
-          ..color = _toColor(run.strokeColor!, 1)
+          ..color = _toColor(run.strokeColor!, run.strokeAlpha)
           ..blendMode = _elementBlend,
       );
     }
@@ -1578,7 +1589,7 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
     final symbol = name.contains('ZapfDingbats') || name.contains('Symbol');
     final adventor = pdfUsesAdventorSubstitute(name);
     return TextStyle(
-      color: foreground == null ? _toColor(run.color, 1) : null,
+      color: foreground == null ? _toColor(run.color, run.fillAlpha) : null,
       foreground: foreground,
       fontSize: 100,
       fontFamily: cjk ??
