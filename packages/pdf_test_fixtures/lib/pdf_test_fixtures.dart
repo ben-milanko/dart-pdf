@@ -399,6 +399,60 @@ Uint8List buildAppearanceAnnotationsPdf() {
   return ascii(buffer.toString());
 }
 
+/// Builds a minimal Bluebeam-style FreeText annotation.
+///
+/// Bluebeam stores centre alignment and 13.8pt leading in `/DS`/`/RC`, omits
+/// `/Q`, and uses a bare carriage return between the two `/Contents` lines.
+/// Its appearance also uses page-space coordinates with a translating form
+/// matrix. This combination is a compatibility fixture for inline editing and
+/// appearance regeneration.
+Uint8List buildBluebeamFreeTextPdf() {
+  const appearance = 'q BT 1 0 0 rg /Helv 12 Tf '
+      '1 0 0 1 190 632 Tm (PJ) Tj '
+      '1 0 0 1 176 618.2 Tm (202/7) Tj ET Q';
+  const ds = 'font: Helvetica 12pt; text-align:center; margin:3pt; '
+      'line-height:13.8pt; color:#FF0000';
+  const rc = '<body style="font:Helvetica 12pt; text-align:center; '
+      'margin:3pt; line-height:13.8pt; color:#FF0000">'
+      '<p style="text-align:center; line-height:13.8pt">PJ</p>'
+      '<p style="text-align:center; line-height:13.8pt">202/7</p></body>';
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+        '/Contents 4 0 R /Annots [5 0 R] >>',
+    '<< /Length 0 >>\nstream\n\nendstream',
+    '<< /Type /Annot /Subtype /FreeText /P 3 0 R '
+        '/Rect [100 600 300 660] /F 4 /C [] '
+        '/Contents (PJ\\r202/7) /DA (1 0 0 rg /Helv 12 Tf) '
+        '/DS ($ds) /RC ($rc) /BS << /W 0 >> /AP << /N 6 0 R >> >>',
+    '<< /Type /XObject /Subtype /Form /FormType 1 '
+        '/BBox [100 600 300 660] /Matrix [1 0 0 1 -100 -600] '
+        '/Resources << /Font << /Helv 7 0 R >> >> '
+        '/Length ${appearance.length} >>\nstream\n$appearance\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica '
+        '/Encoding /WinAnsiEncoding >>',
+  ];
+
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${objects.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return ascii(buffer.toString());
+}
+
 /// Builds a one-page PDF with an interactive AcroForm:
 ///
 /// - text field "name" (merged widget) at [72 700 300 724], own

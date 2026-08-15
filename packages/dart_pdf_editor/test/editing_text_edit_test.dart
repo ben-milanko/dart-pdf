@@ -301,11 +301,12 @@ void main() {
     }
 
     Future<(PdfEditingController, PdfViewerController)> pumpEditor(
-        WidgetTester tester) async {
+        WidgetTester tester,
+        {Uint8List? bytes}) async {
       // the preference tests above seed the global mock store - these
       // tests assert on default styles, so start from an empty one
       SharedPreferences.setMockInitialValues({});
-      final editing = PdfEditingController(buildMultiPagePdf(2));
+      final editing = PdfEditingController(bytes ?? buildMultiPagePdf(2));
       final viewer = PdfViewerController();
       addTearDown(editing.dispose);
       addTearDown(viewer.dispose);
@@ -398,6 +399,42 @@ void main() {
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();
+      await settle(tester);
+    });
+
+    testWidgets(
+        'Bluebeam text keeps its CSS layout, line breaks, caret, and opacity',
+        (tester) async {
+      final (editing, _) =
+          await pumpEditor(tester, bytes: buildBluebeamFreeTextPdf());
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      await tester.pump();
+      expect(editing.requestEditSelectedTextInline(), isTrue);
+      await tester.pump();
+
+      final finder = find.byKey(editorKey);
+      final field = tester.widget<TextField>(finder);
+      expect(field.controller!.text, 'PJ\n202/7');
+      expect(field.controller!.selection,
+          const TextSelection.collapsed(offset: 8));
+      expect(field.textAlign, TextAlign.center);
+      expect(field.strutStyle!.height, closeTo(1.15, 1e-9));
+
+      // Opacity changes while the existing box is still being edited must be
+      // visible immediately, then survive the text rewrite on commit.
+      expect(editing.restyleSelected(opacity: 0.35), isTrue);
+      await tester.pump();
+      expect(tester.widget<TextField>(finder).style!.color!.a,
+          closeTo(0.35, 1e-6));
+
+      await tester.enterText(finder, 'PJ\n202/19');
+      await tap(tester, view(450, 400));
+
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.contents, 'PJ\n202/19');
+      expect(annotation.freeTextStyle!.alignment, PdfTextAlign.center);
+      expect(annotation.freeTextStyle!.lineSpacing, closeTo(1.15, 1e-9));
+      expect(annotation.appearanceOpacity, closeTo(0.35, 1e-9));
       await settle(tester);
     });
 

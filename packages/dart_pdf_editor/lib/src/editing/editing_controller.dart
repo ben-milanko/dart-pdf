@@ -6199,7 +6199,13 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// The selected annotation's text, for pre-filling an edit prompt.
-  String? get selectedText => selectedAnnotation?.contents;
+  String? get selectedText {
+    final annotation = selectedAnnotation;
+    final text = annotation?.contents;
+    return annotation?.subtype == 'FreeText' && text != null
+        ? pdfNormalizeLineEndings(text)
+        : text;
+  }
 
   /// Parses a free-text annotation's /DA: the font it was written with
   /// and its size, falling back to the current preferences.
@@ -6595,6 +6601,9 @@ class PdfEditingController extends ChangeNotifier {
     bool? underline,
   }) {
     if (_selected.isEmpty) return;
+    final rewrittenText = annotation.subtype == 'FreeText'
+        ? pdfNormalizeLineEndings(text)
+        : text;
     final page = _selected.last.$1;
     // a rotated text box flattens to horizontal under plain remove +
     // re-add (addFreeText/addStamp/addNote bake a horizontal matrix), so
@@ -6619,7 +6628,7 @@ class PdfEditingController extends ChangeNotifier {
             e.addFreeText(
               page,
               rect,
-              text,
+              rewrittenText,
               fontSize: size ?? style.size,
               font: font ?? style.font,
               // keep the box's own alignment unless this edit changes it
@@ -6647,7 +6656,7 @@ class PdfEditingController extends ChangeNotifier {
             e.addStamp(
               page,
               rect,
-              text,
+              rewrittenText,
               color: color ?? 0xC03030,
               pageRotation: _page(page).rotation,
               author: by,
@@ -6658,7 +6667,7 @@ class PdfEditingController extends ChangeNotifier {
               page,
               rect.left,
               rect.top,
-              text,
+              rewrittenText,
               color: color ?? 0xFFD100,
               pageRotation: _page(page).rotation,
               author: by,
