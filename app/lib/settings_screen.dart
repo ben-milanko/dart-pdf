@@ -48,7 +48,7 @@ Future<void> _openDefaultAppsSettings(BuildContext context) async {
 }
 
 Future<void> _showDefaultAppSetup(BuildContext context) {
-  return showDialog<void>(
+  return showPdfDialog<void>(
     context: context,
     builder: (context) => AlertDialog(
       title: Text(appL10n(context).settingsSetUpAsDefault),
@@ -85,7 +85,7 @@ Future<void> showAppSettings(
   UpdateInstaller? updateInstaller,
   VoidCallback? onOpenDevTools,
 }) {
-  return showDialog<void>(
+  return showPdfDialog<void>(
     context: context,
     builder: (context) => _SettingsDialog(
       prefs: prefs,

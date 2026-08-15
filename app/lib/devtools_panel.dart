@@ -503,7 +503,7 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
   }
 
   void _explain(String title, String text) {
-    showDialog<void>(
+    showPdfDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(title),

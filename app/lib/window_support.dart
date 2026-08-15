@@ -70,6 +70,7 @@ void runDartPdfApp(Widget root) {
     ),
   );
   registry.register(entry);
+  controller.activate();
   runWidget(_DartPdfWindowHost(registry: registry));
 }
 
@@ -110,6 +111,7 @@ bool openRegularWindow(
       ),
     );
     registry.register(entry);
+    controller.activate();
     return true;
   } on UnsupportedError {
     _windowLifetime.abandonOpen();

@@ -201,8 +201,8 @@ class EditorScreen extends StatefulWidget {
   /// it; null creates an empty window. The boolean reports whether the native
   /// window was registered successfully.
   ///
-  /// Null keeps all multi-window UI and shortcuts hidden. Production supplies
-  /// null because Flutter's windowing API is still experimental.
+  /// Null keeps all multi-window UI and shortcuts hidden. DartPDF's desktop
+  /// shell supplies the native opener; embedded hosts may leave it absent.
   final bool Function(
     BuildContext context, {
     DocumentHandoff? document,
@@ -1628,7 +1628,7 @@ class _EditorScreenState extends State<EditorScreen>
   /// new tabs or have their pages inserted into the current document. Returns
   /// null when cancelled.
   Future<_DropAction?> _promptDropAction(int count, String title) {
-    return showDialog<_DropAction>(
+    return showPdfDialog<_DropAction>(
       context: context,
       builder: (context) => AlertDialog(
         key: const ValueKey('drop-action-dialog'),
@@ -1971,7 +1971,7 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Future<bool> _confirmDiscard(String message) async {
-    final result = await showDialog<bool>(
+    final result = await showPdfDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(appL10n(context).editorDiscardChangesTitle),
@@ -2234,7 +2234,7 @@ class _EditorScreenState extends State<EditorScreen>
               !dialogShown &&
               mounted) {
             dialogShown = true;
-            unawaited(showDialog<void>(
+            unawaited(showPdfDialog<void>(
               context: context,
               barrierDismissible: false,
               useRootNavigator: true,
@@ -3100,7 +3100,7 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Future<void> _showTabsDialog() async {
-    await showDialog<void>(
+    await showPdfDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) {

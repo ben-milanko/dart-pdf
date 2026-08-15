@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'dialog.dart';
 import 'l10n/pdf_l10n.dart';
 
 /// Asks the user for an inclusive page range, returning it 0-based as
@@ -18,7 +19,7 @@ Future<({int start, int end})?> showPdfPageRangeDialog(
   String title = 'Export pages',
   String confirmLabel = 'Export',
 }) {
-  return showDialog<({int start, int end})>(
+  return showPdfDialog<({int start, int end})>(
     context: context,
     builder: (context) => _PdfPageRangeDialog(
       pageCount: pageCount,

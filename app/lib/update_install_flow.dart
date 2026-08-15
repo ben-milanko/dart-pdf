@@ -1,3 +1,4 @@
+import 'package:dart_pdf_editor/dart_pdf_editor.dart' show showPdfDialog;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -41,7 +42,7 @@ Future<void> startUpdateInstall(
       ValueNotifier<_UpdateProgress>(const _UpdateProgress(fraction: null));
   var cancelled = false;
 
-  final dialogFuture = showDialog<void>(
+  final dialogFuture = showPdfDialog<void>(
     context: context,
     barrierDismissible: false,
     builder: (context) => _UpdateProgressDialog(

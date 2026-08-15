@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
+import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'editing_color_picker.dart';
 import 'editing_controller.dart';
@@ -15,7 +16,7 @@ Future<int?> showPdfColorProcessingDialog(
   required PdfEditingController controller,
   required PdfEditingPreferences preferences,
 }) {
-  return showDialog<int>(
+  return showPdfDialog<int>(
     context: context,
     builder: (context) => _ColorProcessingDialog(
       controller: controller,

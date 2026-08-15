@@ -9,6 +9,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:intl/intl.dart' as intl;
 import 'package:pdf_document/pdf_document.dart';
 
+import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'editing_color_picker.dart';
 import 'editing_controller.dart';
@@ -229,7 +230,7 @@ Future<void> showPdfStampPicker(BuildContext context,
         PdfImagePicker? imagePicker,
         PdfStampExportCallback? onExportStamps,
         PdfStampImportCallback? onImportStamps}) =>
-    showDialog<void>(
+    showPdfDialog<void>(
       context: context,
       builder: (context) => PdfStampPickerDialog(
         controller: controller,
@@ -464,7 +465,7 @@ Future<PdfCustomStamp?> showPdfStampEditor(BuildContext context,
             PdfEditingController.stampTemplateBuiltinFields,
         PdfImagePicker? imagePicker,
         PdfCustomStamp? initial}) =>
-    showDialog<PdfCustomStamp>(
+    showPdfDialog<PdfCustomStamp>(
       context: context,
       builder: (context) => PdfStampEditorDialog(
         fields: fields,

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart' show HardwareKeyboard;
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
+import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import '../pdf_viewer.dart';
 import 'annotation_presentation.dart';
@@ -426,7 +427,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
   Future<void> _confirmRemoveSignature(
       BuildContext context, PdfSignature signature) async {
     final name = signature.signerName;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showPdfDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(pdfL10n(context).sidebarRemoveSignatureTitle),

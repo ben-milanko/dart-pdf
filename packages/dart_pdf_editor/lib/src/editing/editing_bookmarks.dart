@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf_document/pdf_document.dart';
 
+import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import '../pdf_viewer.dart';
 import 'editing_controller.dart';
@@ -406,7 +407,7 @@ Future<_BookmarkEditResult?> _showBookmarkDialog(
   required bool initialOpen,
   required bool editing,
 }) =>
-    showDialog<_BookmarkEditResult>(
+    showPdfDialog<_BookmarkEditResult>(
       context: context,
       builder: (context) => _BookmarkDialog(
         pageCount: pageCount,

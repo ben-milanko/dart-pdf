@@ -4,6 +4,7 @@ import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'dialog.dart';
 import 'editing/editing_color_picker.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_panel.dart';
@@ -1259,7 +1260,7 @@ Future<Map<PdfEditTool, PdfToolShortcut>?> showPdfShellShortcutsSheet(
   var searchQuery = '';
 
   Future<PdfToolShortcut?> captureKey(BuildContext context) {
-    return showDialog<PdfToolShortcut>(
+    return showPdfDialog<PdfToolShortcut>(
       context: context,
       builder: (context) {
         return AlertDialog(

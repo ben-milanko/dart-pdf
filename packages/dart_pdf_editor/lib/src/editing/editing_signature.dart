@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart'
     show pdfInkCurveControls, pdfInkStrokeWidth;
 
+import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'stroke_prediction.dart';
 
@@ -115,7 +116,7 @@ class PdfInkSignature {
 /// [PdfViewer.predictStrokes]); display only, never committed.
 Future<PdfInkSignature?> showPdfSignatureDialog(BuildContext context,
         {bool predictStrokes = true}) =>
-    showDialog<PdfInkSignature>(
+    showPdfDialog<PdfInkSignature>(
       context: context,
       builder: (context) => PdfSignatureDialog(predictStrokes: predictStrokes),
     );

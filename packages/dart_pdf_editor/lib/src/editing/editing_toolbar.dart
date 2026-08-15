@@ -13,6 +13,7 @@ import 'package:pdf_document/pdf_document.dart'
         PdfTextAlign,
         PdfTextFont;
 
+import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import '../pdf_viewer.dart';
 import '../toast.dart';
@@ -1109,7 +1110,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   }
 
   Future<void> _applyRedactions(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showPdfDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         key: const ValueKey('pdf-redaction-confirm'),
