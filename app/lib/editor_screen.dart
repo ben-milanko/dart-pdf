@@ -303,6 +303,8 @@ class _EditorScreenState extends State<EditorScreen>
   final _tabScrollController = ScrollController();
   TabDragCoordinator? _registeredTabDragCoordinator;
   int? _nativeWindowHandle;
+  OverlayEntry? _destinationTabDragOverlay;
+  TabDragPreview? _destinationTabDragPreview;
   final Map<DocumentTab, String> _nativeTabDragTokens = Map.identity();
   int _nextNativeTabDragToken = 0;
 
@@ -393,13 +395,79 @@ class _EditorScreenState extends State<EditorScreen>
         _nativeWindowHandle == handle) {
       return;
     }
-    _registeredTabDragCoordinator?.unregister(this);
+    _registeredTabDragCoordinator
+      ?..removeListener(_syncDestinationTabDragOverlay)
+      ..unregister(this);
+    _removeDestinationTabDragOverlay();
     _registeredTabDragCoordinator = null;
     _nativeWindowHandle = handle;
     if (coordinator != null && handle != null) {
       _registeredTabDragCoordinator = coordinator;
       coordinator.register(this);
+      coordinator.addListener(_syncDestinationTabDragOverlay);
     }
+  }
+
+  void _syncDestinationTabDragOverlay() {
+    if (!mounted) return;
+    final preview = _registeredTabDragCoordinator?.preview;
+    final show = preview?.isOverTabStrip == true &&
+        preview?.targetWindowHandle == _nativeWindowHandle &&
+        preview?.localPoint != null &&
+        !_tabs.contains(preview?.tab);
+    if (!show) {
+      _removeDestinationTabDragOverlay();
+      return;
+    }
+
+    _destinationTabDragPreview = preview;
+    final existingEntry = _destinationTabDragOverlay;
+    if (existingEntry != null) {
+      existingEntry.markNeedsBuild();
+      return;
+    }
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    if (overlay == null) return;
+    final entry = OverlayEntry(
+      builder: (overlayContext) {
+        final current = _destinationTabDragPreview;
+        final point = current?.localPoint;
+        if (current == null || point == null) return const SizedBox.shrink();
+        final size = MediaQuery.sizeOf(overlayContext);
+        const cardWidth = 280.0;
+        const estimatedHeight = 64.0;
+        final left = (point.dx + 12)
+            .clamp(8.0, math.max(8.0, size.width - cardWidth - 8))
+            .toDouble();
+        final top = (point.dy + 12)
+            .clamp(8.0, math.max(8.0, size.height - estimatedHeight - 8))
+            .toDouble();
+        return Positioned(
+          left: left,
+          top: top,
+          child: IgnorePointer(
+            child: _buildTabDragFeedback(
+              overlayContext,
+              current.tab,
+              overStrip: true,
+              movingToAnotherWindow: true,
+              key: const ValueKey('tab-drag-destination-feedback'),
+            ),
+          ),
+        );
+      },
+    );
+    _destinationTabDragOverlay = entry;
+    overlay.insert(entry);
+  }
+
+  void _removeDestinationTabDragOverlay() {
+    _destinationTabDragPreview = null;
+    final entry = _destinationTabDragOverlay;
+    if (entry == null) return;
+    _destinationTabDragOverlay = null;
+    entry.remove();
+    entry.dispose();
   }
 
   /// Runs the one-shot startup update check. When we built the service
@@ -473,7 +541,10 @@ class _EditorScreenState extends State<EditorScreen>
 
   @override
   void dispose() {
-    _registeredTabDragCoordinator?.unregister(this);
+    _registeredTabDragCoordinator
+      ?..removeListener(_syncDestinationTabDragOverlay)
+      ..unregister(this);
+    _removeDestinationTabDragOverlay();
     _tabScrollController.dispose();
     _windowCloseCoordinator?.unregister(_windowCloseOwner);
     WidgetsBinding.instance.removeObserver(this);
@@ -885,11 +956,57 @@ class _EditorScreenState extends State<EditorScreen>
     final scrollOffset =
         _tabScrollController.hasClients ? _tabScrollController.offset : 0.0;
     const listPadding = 4.0;
-    final contentOffset = visibleOffset + scrollOffset - listPadding;
+    var contentOffset = visibleOffset + scrollOffset - listPadding;
+    final externalGap = _externalTabDragGap;
+    if (externalGap != null) {
+      final gapStart = externalGap * _lastRenderedTabWidth;
+      final gapEnd = gapStart + _lastRenderedTabWidth;
+      if (contentOffset >= gapStart && contentOffset <= gapEnd) {
+        return externalGap;
+      }
+      if (contentOffset > gapEnd) contentOffset -= _lastRenderedTabWidth;
+    }
     return ((contentOffset / _lastRenderedTabWidth) + 0.5)
         .floor()
         .clamp(0, _tabs.length)
         .toInt();
+  }
+
+  int? get _externalTabDragGap {
+    final preview = _registeredTabDragCoordinator?.preview;
+    if (preview?.targetWindowHandle != _nativeWindowHandle ||
+        preview?.insertionIndex == null ||
+        _tabs.contains(preview?.tab)) {
+      return null;
+    }
+    return preview!.insertionIndex!.clamp(0, _tabs.length).toInt();
+  }
+
+  double _tabDragShift(int index) {
+    final preview = _registeredTabDragCoordinator?.preview;
+    final insertion = preview?.targetWindowHandle == _nativeWindowHandle
+        ? preview?.insertionIndex
+        : null;
+    if (insertion == null) return 0;
+
+    final sourceIndex = _tabs.indexOf(preview!.tab);
+    if (sourceIndex < 0) return index >= insertion ? 1 : 0;
+    if (index == sourceIndex) return 0;
+
+    var destination = insertion.clamp(0, _tabs.length).toInt();
+    if (sourceIndex < destination) destination--;
+    destination = destination.clamp(0, _tabs.length - 1).toInt();
+    if (destination < sourceIndex &&
+        index >= destination &&
+        index < sourceIndex) {
+      return 1;
+    }
+    if (destination > sourceIndex &&
+        index > sourceIndex &&
+        index <= destination) {
+      return -1;
+    }
+    return 0;
   }
 
   void _addTab(DocumentTab tab) {
@@ -3454,13 +3571,18 @@ class _EditorScreenState extends State<EditorScreen>
                   ? natural
                   : math.min(_heldTabWidth!, natural);
               _lastRenderedTabWidth = tabWidth;
+              final externalGap = _externalTabDragGap;
+              final visualTabCount =
+                  _tabs.length + (externalGap == null ? 0 : 1);
               final tabsWidth = _tabs.isEmpty
                   ? 0.0
                   : math.min(
-                      tabWidth * _tabs.length + listPadding, maxTabsWidth);
+                      tabWidth * visualTabCount + listPadding, maxTabsWidth);
               _lastRenderedTabsWidth = tabsWidth;
               final insertion = coordinator?.insertionIndexFor(windowHandle);
               final scheme = Theme.of(context).colorScheme;
+              final rtl = Directionality.of(context) == TextDirection.rtl;
+              final gapPadding = externalGap == null ? 0.0 : tabWidth;
 
               return SizedBox(
                 key: _tabStripGeometryKey,
@@ -3490,8 +3612,10 @@ class _EditorScreenState extends State<EditorScreen>
                                 // The whole tab is the drag handle (see _buildTab); the
                                 // stock trailing handles don't fit a horizontal tab strip.
                                 buildDefaultDragHandles: false,
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 4),
+                                padding: EdgeInsets.only(
+                                  left: rtl ? 4 + gapPadding : 4,
+                                  right: rtl ? 4 : 4 + gapPadding,
+                                ),
                                 itemCount: _tabs.length,
                                 onReorderItem: _reorderTabs,
                                 itemBuilder: (context, i) =>
@@ -3682,24 +3806,42 @@ class _EditorScreenState extends State<EditorScreen>
     final dragSource = _nativeTabDragging && tab.session != null
         ? _buildNativeTabDragSource(tab, chrome)
         : _TabDragStartListener(index: index, child: chrome);
-    return _TabHoverPreview(
-      key: ValueKey(tab),
+    final hoverPreview = _TabHoverPreview(
       tab: tab,
       enabled: !selected,
       child: dragSource,
+    );
+    final coordinator = _registeredTabDragCoordinator;
+    if (coordinator == null) {
+      return KeyedSubtree(key: ValueKey(tab), child: hoverPreview);
+    }
+    return ListenableBuilder(
+      key: ValueKey(tab),
+      listenable: coordinator,
+      builder: (context, child) {
+        final logicalShift = _tabDragShift(index);
+        final direction =
+            Directionality.of(context) == TextDirection.rtl ? -1 : 1;
+        return AnimatedSlide(
+          offset: Offset(logicalShift * direction, 0),
+          duration: const Duration(milliseconds: 140),
+          curve: Curves.easeOutCubic,
+          child: child,
+        );
+      },
+      child: hoverPreview,
     );
   }
 
   Widget _buildNativeTabDragSource(DocumentTab tab, Widget child) {
     final coordinator = _registeredTabDragCoordinator!;
-    final scheme = Theme.of(context).colorScheme;
     return Draggable<String>(
       maxSimultaneousDrags: 1,
       data: 'dartpdf-tab',
       dragAnchorStrategy: childDragAnchorStrategy,
       feedback: ListenableBuilder(
         listenable: coordinator,
-        builder: (context, _) {
+        builder: (feedbackContext, _) {
           final preview = coordinator.previewFor(tab);
           // Before the first native cursor poll returns the drag has only just
           // started on this strip, so paint the in-strip state by default.
@@ -3707,82 +3849,18 @@ class _EditorScreenState extends State<EditorScreen>
           final movingToAnotherWindow = overStrip &&
               preview?.targetWindowHandle != null &&
               preview!.targetWindowHandle != windowHandle;
-          return Material(
+          return _buildTabDragFeedback(
+            feedbackContext,
+            tab,
+            overStrip: overStrip,
+            movingToAnotherWindow: movingToAnotherWindow,
             key: ValueKey(overStrip
                 ? 'tab-drag-feedback-over-strip'
                 : 'tab-drag-feedback-detached'),
-            color:
-                overStrip ? scheme.primaryContainer : scheme.tertiaryContainer,
-            elevation: 8,
-            shape: RoundedRectangleBorder(
-              side: BorderSide(
-                color: overStrip ? scheme.primary : scheme.tertiary,
-                width: 2,
-              ),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 280),
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      overStrip
-                          ? (movingToAnotherWindow
-                              ? Icons.move_to_inbox_outlined
-                              : Icons.reorder)
-                          : Icons.open_in_new,
-                      size: 18,
-                      color: overStrip
-                          ? scheme.onPrimaryContainer
-                          : scheme.onTertiaryContainer,
-                    ),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            tab.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: overStrip
-                                  ? scheme.onPrimaryContainer
-                                  : scheme.onTertiaryContainer,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Text(
-                            overStrip
-                                ? appL10n(context).editorTabs
-                                : appL10n(context).editorMoveToNewWindow,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelSmall
-                                ?.copyWith(
-                                  color: overStrip
-                                      ? scheme.onPrimaryContainer
-                                      : scheme.onTertiaryContainer,
-                                ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
           );
         },
       ),
-      childWhenDragging: Opacity(opacity: 0.45, child: child),
+      childWhenDragging: Opacity(opacity: 0, child: child),
       onDragStarted: () {
         if (!containsTab(tab) || tab.session == null) return;
         final token =
@@ -3813,6 +3891,85 @@ class _EditorScreenState extends State<EditorScreen>
         }));
       },
       child: child,
+    );
+  }
+
+  Widget _buildTabDragFeedback(
+    BuildContext feedbackContext,
+    DocumentTab tab, {
+    required bool overStrip,
+    required bool movingToAnotherWindow,
+    required Key key,
+  }) {
+    final scheme = Theme.of(feedbackContext).colorScheme;
+    return Material(
+      key: key,
+      color: overStrip ? scheme.primaryContainer : scheme.tertiaryContainer,
+      elevation: 8,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(
+          color: overStrip ? scheme.primary : scheme.tertiary,
+          width: 2,
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 280),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                overStrip
+                    ? (movingToAnotherWindow
+                        ? Icons.move_to_inbox_outlined
+                        : Icons.reorder)
+                    : Icons.open_in_new,
+                size: 18,
+                color: overStrip
+                    ? scheme.onPrimaryContainer
+                    : scheme.onTertiaryContainer,
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      tab.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: overStrip
+                            ? scheme.onPrimaryContainer
+                            : scheme.onTertiaryContainer,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      overStrip
+                          ? appL10n(feedbackContext).editorTabs
+                          : appL10n(feedbackContext).editorMoveToNewWindow,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(feedbackContext)
+                          .textTheme
+                          .labelSmall
+                          ?.copyWith(
+                            color: overStrip
+                                ? scheme.onPrimaryContainer
+                                : scheme.onTertiaryContainer,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -3928,7 +4085,6 @@ enum _TabMenuAction {
 /// subtree while the list is laying out or moving its drag proxy.
 class _TabHoverPreview extends StatefulWidget {
   const _TabHoverPreview({
-    super.key,
     required this.tab,
     required this.enabled,
     required this.child,

@@ -179,10 +179,10 @@ void main() {
 
     locator.location = TabDropLocation(
       windowHandle: 22,
-      localPoint: tester.getCenter(find.descendant(
-        of: find.byKey(const ValueKey('tab-strip')),
-        matching: find.text('dragged.pdf'),
-      )),
+      // The add button sits after the rendered list but inside the strip, so
+      // this deterministically appends instead of landing on a midpoint tie.
+      localPoint: tester
+          .getCenter(find.byKey(const ValueKey('desktop-tab-add-button'))),
     );
     final compactSource = _FakeWindow(33);
     final compactTab =
@@ -212,6 +212,66 @@ void main() {
     );
     expect(compactSource.tabs, isEmpty);
 
+    // A drag owned by another native view paints its feedback in this view's
+    // Overlay (the source Overlay is clipped to its own native window) and
+    // opens a real animated gap at the resolved insertion slot.
+    final incomingSource = _FakeWindow(55);
+    final incomingTab =
+        DocumentTab.error(title: 'incoming.pdf', error: 'fixture');
+    incomingSource.tabs.add(incomingTab);
+    coordinator.register(incomingSource);
+    final firstTabBefore = tester.getCenter(find.descendant(
+      of: find.byKey(const ValueKey('tab-strip')),
+      matching: find.text('dragged.pdf'),
+    ));
+    final targetListRect =
+        tester.getRect(find.byKey(const ValueKey('tab-strip')));
+    locator.location = TabDropLocation(
+      windowHandle: 22,
+      localPoint: Offset(targetListRect.left + 6, firstTabBefore.dy),
+    );
+    final incomingToken = coordinator.begin(
+      incomingSource,
+      incomingTab,
+      () => _handoff('incoming.pdf'),
+    );
+    coordinator.update(incomingToken);
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 180));
+    expect(
+      find.byKey(const ValueKey('tab-drag-destination-feedback')),
+      findsOneWidget,
+    );
+    final destinationFeedback =
+        find.byKey(const ValueKey('tab-drag-destination-feedback'));
+    final feedbackLeft = tester.getTopLeft(destinationFeedback).dx;
+    locator.location = TabDropLocation(
+      windowHandle: 22,
+      localPoint: Offset(targetListRect.left + 46, firstTabBefore.dy),
+    );
+    coordinator.update(incomingToken);
+    await tester.pump();
+    await tester.pump();
+    expect(tester.getTopLeft(destinationFeedback).dx,
+        greaterThan(feedbackLeft + 20));
+    expect(
+      tester
+          .getCenter(find.descendant(
+            of: find.byKey(const ValueKey('tab-strip')),
+            matching: find.text('dragged.pdf'),
+          ))
+          .dx,
+      greaterThan(firstTabBefore.dx + 100),
+    );
+    coordinator.cancel(incomingToken);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 180));
+    expect(
+      find.byKey(const ValueKey('tab-drag-destination-feedback')),
+      findsNothing,
+    );
+
     // Exercise the actual pointer source and live destination marker, not just
     // the coordinator. Dragging the second tab before the first is the
     // regression for replacing the ReorderableListView handle with a plain
@@ -225,6 +285,7 @@ void main() {
       matching: find.text('dragged.pdf'),
     );
     final firstRect = tester.getRect(draggedLabel);
+    final firstCenterBeforeReorder = tester.getCenter(draggedLabel);
     final tabListRect = tester.getRect(find.byKey(const ValueKey('tab-strip')));
     locator.location = TabDropLocation(
       windowHandle: 22,
@@ -236,7 +297,7 @@ void main() {
     );
     await gesture.moveBy(const Offset(-80, 0));
     await tester.pump();
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 180));
     expect(
       find.byKey(const ValueKey('tab-drag-feedback-over-strip')),
       findsOneWidget,
@@ -245,6 +306,8 @@ void main() {
       find.byKey(const ValueKey('tab-drag-insertion-indicator')),
       findsOneWidget,
     );
+    expect(tester.getCenter(draggedLabel).dx,
+        greaterThan(firstCenterBeforeReorder.dx + 100));
 
     // Crossing off the tab strip changes both the feedback card and the
     // destination chrome before release.
@@ -254,7 +317,7 @@ void main() {
     );
     await gesture.moveBy(const Offset(-10, 10));
     await tester.pump();
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 180));
     expect(
       find.byKey(const ValueKey('tab-drag-feedback-detached')),
       findsOneWidget,
@@ -270,7 +333,7 @@ void main() {
     );
     await gesture.moveBy(const Offset(-10, 0));
     await tester.pump();
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 180));
     expect(coordinator.preview?.insertionIndex, 0);
     await gesture.up();
     await tester.pump();

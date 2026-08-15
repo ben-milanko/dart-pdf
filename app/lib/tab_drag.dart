@@ -78,11 +78,13 @@ class TabDragPreview {
     required this.tab,
     required this.targetWindowHandle,
     required this.insertionIndex,
+    required this.localPoint,
   });
 
   final DocumentTab tab;
   final int? targetWindowHandle;
   final int? insertionIndex;
+  final Offset? localPoint;
 
   bool get isOverTabStrip =>
       targetWindowHandle != null && insertionIndex != null;
@@ -294,6 +296,7 @@ class TabDragCoordinator extends ChangeNotifier {
       tab: transfer.tab,
       targetWindowHandle: insertion == null ? null : target!.windowHandle,
       insertionIndex: insertion,
+      localPoint: location?.localPoint,
     );
   }
 
@@ -301,7 +304,8 @@ class TabDragCoordinator extends ChangeNotifier {
     if (_previewToken == token &&
         identical(_preview?.tab, preview.tab) &&
         _preview?.targetWindowHandle == preview.targetWindowHandle &&
-        _preview?.insertionIndex == preview.insertionIndex) {
+        _preview?.insertionIndex == preview.insertionIndex &&
+        _preview?.localPoint == preview.localPoint) {
       return;
     }
     _previewToken = token;
