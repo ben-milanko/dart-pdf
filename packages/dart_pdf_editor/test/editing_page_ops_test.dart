@@ -74,6 +74,85 @@ void main() {
     });
   });
 
+  group('viewer position across page edits', () {
+    Future<(PdfEditingController, PdfViewerController)> pumpViewer(
+      WidgetTester tester,
+    ) async {
+      final editing = PdfEditingController(buildMultiPagePdf(5));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            editing: editing,
+            controller: viewer,
+            initialFit: PdfViewerFit.width,
+            pagePreviews: false,
+          ),
+        ),
+      ));
+      await tester.pump();
+      viewer.restoreViewport(
+        const PdfViewport(page: 3, top: 0.18, left: 0.12, zoom: 1.5),
+      );
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      return (editing, viewer);
+    }
+
+    void expectViewport(
+      PdfEditingController editing,
+      PdfViewerController viewer, {
+      required int page,
+      required String label,
+    }) {
+      final viewport = viewer.captureViewport();
+      expect(viewport, isNotNull);
+      expect(viewport!.page, page);
+      expect(viewer.currentPage, page);
+      expect(labelOf(editing.document, page), label);
+      expect(viewport.top, closeTo(0.18, 0.02));
+      expect(viewport.left, closeTo(0.12, 0.02));
+      expect(viewport.zoom, closeTo(1.5, 0.02));
+    }
+
+    testWidgets('adding pages keeps the current page and zoom',
+        (tester) async {
+      final (editing, viewer) = await pumpViewer(tester);
+      expectViewport(editing, viewer, page: 3, label: 'Page 4');
+
+      editing.addBlankPage(at: 1);
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      expectViewport(editing, viewer, page: 4, label: 'Page 4');
+
+      editing.addBlankPage();
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      expectViewport(editing, viewer, page: 4, label: 'Page 4');
+    });
+
+    testWidgets('deleting pages keeps the nearest surviving view',
+        (tester) async {
+      final (editing, viewer) = await pumpViewer(tester);
+      expectViewport(editing, viewer, page: 3, label: 'Page 4');
+
+      // A deletion before the viewport follows the same page to its new slot.
+      editing.removePage(0);
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      expectViewport(editing, viewer, page: 2, label: 'Page 4');
+
+      // Deleting the viewed page keeps its position and shows the page that
+      // moved into that slot instead of returning to page 1.
+      editing.removePage(2);
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      expectViewport(editing, viewer, page: 2, label: 'Page 5');
+
+      // At the end of the document the previous page is the nearest survivor.
+      editing.removePage(2);
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      expectViewport(editing, viewer, page: 1, label: 'Page 3');
+    });
+  });
+
   group('duplicatePages', () {
     test('copies one page right after itself', () {
       final editing = PdfEditingController(buildMultiPagePdf(3));
@@ -1106,10 +1185,9 @@ void main() {
 
     testWidgets('⌘V paste reveals the new page instead of jumping to the top',
         (tester) async {
-      // A paste inserts pages, so the viewer resets its scroll to the top in
-      // a post-frame callback (a geometry-changing revision). The following
-      // strip must not chase that reset back to page 0 - it should land on
-      // the pages that were just pasted.
+      // Structural edits preserve the existing view by default. Pasting from
+      // the strip intentionally overrides that anchor and reveals the pages
+      // that were just pasted.
       tester.view.physicalSize = const Size(800, 1400);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);

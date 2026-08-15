@@ -518,9 +518,12 @@ void main() {
       expect(strip.padding, const EdgeInsets.fromLTRB(0, 8, 10, 8));
 
       // right-docked annotation list: the grip rides the far edge, so
-      // just the bar's 14px
-      final list = tester.widget<ListView>(find.byType(ListView));
-      expect(list.padding, const EdgeInsets.only(right: 14));
+      // just the bar's 14px. Each sticky page group carries the inset.
+      final annotationPadding = tester.widget<SliverPadding>(find.descendant(
+        of: find.byKey(const ValueKey('pdf-annotation-list')),
+        matching: find.byType(SliverPadding),
+      ));
+      expect(annotationPadding.padding, const EdgeInsets.only(right: 14));
       await tester.pump(const Duration(seconds: 2)); // drain tile renders
     });
 
@@ -545,8 +548,11 @@ void main() {
       ));
       await tester.pump();
 
-      final list = tester.widget<ListView>(find.byType(ListView));
-      expect(list.padding, const EdgeInsets.only(right: 22));
+      final annotationPadding = tester.widget<SliverPadding>(find.descendant(
+        of: find.byKey(const ValueKey('pdf-annotation-list')),
+        matching: find.byType(SliverPadding),
+      ));
+      expect(annotationPadding.padding, const EdgeInsets.only(right: 22));
     });
   });
 }

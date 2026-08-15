@@ -387,6 +387,24 @@ void main() {
     expect((doc.cos.resolve(helv['Widths']) as CosArray).length, 95);
   });
 
+  test('free text opacity is baked into and preserved by its appearance', () {
+    final doc = roundTrip((e) => e.addFreeText(
+          0,
+          const PdfRect(72, 600, 240, 680),
+          'Translucent text',
+          fillColor: 0xFFFFE0,
+          opacity: 0.4,
+        ));
+    final box = doc.page(0).annotations.single;
+    expect(box.appearanceOpacity, closeTo(0.4, 1e-9));
+    expect(appearanceText(doc, box), startsWith('/GS0 gs'));
+
+    final editor = PdfEditor(doc)
+      ..resizeAnnotation(0, box, const PdfRect(72, 600, 360, 700));
+    final resized = PdfDocument.open(editor.save()).page(0).annotations.single;
+    expect(resized.appearanceOpacity, closeTo(0.4, 1e-9));
+  });
+
   test('free text can lay out RTL visual order and right alignment', () {
     expect(pdfTextLooksRtl('שלום 123'), isTrue);
     expect(pdfVisualText('שלום 123', PdfTextDirection.rtl), '123 םולש');

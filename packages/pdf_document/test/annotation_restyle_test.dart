@@ -164,6 +164,33 @@ void main() {
         contains('${rgb(0xFFF59D)} rg'));
   });
 
+  test('free text opacity restyles in place and preserves rich runs', () {
+    final doc = edited(
+        PdfDocument.open(buildMultiPagePdf(1)),
+        (e) => e.addFreeTextRich(
+              0,
+              const PdfRect(100, 560, 320, 630),
+              const [
+                PdfFreeTextRun('Bold ',
+                    font: PdfStandardFont.helveticaBold),
+                PdfFreeTextRun('red', color: 0xFF0000),
+              ],
+              opacity: 0.7,
+            ));
+    final before = doc.page(0).annotations.single;
+
+    final out = edited(
+        doc,
+        (e) => e.restyleAnnotation(0, before, opacity: 0.25));
+    final after = out.page(0).annotations.single;
+    final appearance = content(out, after);
+
+    expect(after.appearanceOpacity, closeTo(0.25, 1e-9));
+    expect(after.richContent, isNotNull);
+    expect(appearance, contains('/HelvBold'));
+    expect(appearance, contains('1 0 0 rg'));
+  });
+
   test('note and stamp recolor with regenerated artwork', () {
     final doc = edited(PdfDocument.open(buildMultiPagePdf(1)), (e) {
       e.addNote(0, 100, 700, 'A note');

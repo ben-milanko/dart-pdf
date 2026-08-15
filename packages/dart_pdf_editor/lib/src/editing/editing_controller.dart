@@ -2711,6 +2711,7 @@ class PdfEditingController extends ChangeNotifier {
           fillColor: _rgbOf(preferences.textFillColor),
           borderColor: _rgbOf(preferences.textBorderColor),
           borderWidth: preferences.strokeWidth,
+          opacity: preferences.opacity,
           lineSpacing: _lineSpacing,
           charSpacing: _charSpacing,
           horizontalScale: _fontWidth,
@@ -2744,6 +2745,7 @@ class PdfEditingController extends ChangeNotifier {
           // text color so the arrow always has a definite color/width
           strokeColor: _rgbOf(preferences.textBorderColor) ?? _colorValue,
           strokeWidth: preferences.strokeWidth,
+          opacity: preferences.opacity,
           pageRotation: _page(pageIndex).rotation,
           author: preferences.author,
         ),
@@ -2763,6 +2765,7 @@ class PdfEditingController extends ChangeNotifier {
           fillColor: _rgbOf(preferences.textFillColor),
           borderColor: _rgbOf(preferences.textBorderColor),
           borderWidth: preferences.strokeWidth,
+          opacity: preferences.opacity,
           lineSpacing: _lineSpacing,
           charSpacing: _charSpacing,
           horizontalScale: _fontWidth,
@@ -2807,6 +2810,7 @@ class PdfEditingController extends ChangeNotifier {
         fillColor: _rgbOf(preferences.textFillColor),
         borderColor: _rgbOf(preferences.textBorderColor),
         borderWidth: preferences.strokeWidth,
+        opacity: preferences.opacity,
         pageRotation: _page(pageIndex).rotation,
         author: preferences.author,
       ),
@@ -6625,6 +6629,7 @@ class PdfEditingController extends ChangeNotifier {
               borderColor: border != null ? border.$1 : parsed?.borderColor,
               borderWidth: borderWidth ??
                   ((parsed?.borderWidth ?? 0) > 0 ? parsed!.borderWidth : 1),
+              opacity: annotation.appearanceOpacity,
               // keep the box's own spacing/decoration unless changed
               lineSpacing: lineSpacing ??
                   parsed?.lineSpacing ??
@@ -6708,6 +6713,7 @@ class PdfEditingController extends ChangeNotifier {
           fillColor: parsed?.fillColor,
           borderColor: parsed?.borderColor,
           borderWidth: (parsed?.borderWidth ?? 0) > 0 ? parsed!.borderWidth : 1,
+          opacity: annotation.appearanceOpacity,
           lineSpacing: lineSpacing ??
               parsed?.lineSpacing ??
               kPdfFreeTextDefaultLineSpacing,

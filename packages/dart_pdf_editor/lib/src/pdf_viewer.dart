@@ -772,8 +772,15 @@ class PdfViewerController extends ChangeNotifier {
 
   void _setPageCount(int count) {
     _pageCount = count;
-    // survive a same-size document swap (an edit revision) in place
-    if (_currentPage >= count) _currentPage = 0;
+    // Keep the nearest valid page while a structural edit relays the viewer
+    // out. The viewer restores the exact page/fraction after layout; jumping
+    // straight to zero here made deleting the last page visibly flash page 1
+    // (and made following sidebars chase that transient reset).
+    if (count <= 0) {
+      _currentPage = 0;
+    } else if (_currentPage >= count) {
+      _currentPage = count - 1;
+    }
     _notifySafely();
   }
 
@@ -3322,7 +3329,12 @@ class _PdfViewerState extends State<PdfViewer>
     // host rebuilt with a fresh document/controller or the controller advanced
     // a revision (handled directly in _onRevisionControllerChanged)
     final documentSwapped = !identical(_loadedDocument, _document);
-    if (documentSwapped) _swapDocument();
+    if (documentSwapped) {
+      _swapDocument(
+        preserveRevisionViewport: newRevisionController != null &&
+            identical(oldRevisionController, newRevisionController),
+      );
+    }
     if (oldWidget.pageRasterCachePolicy != widget.pageRasterCachePolicy) {
       _previews.configureFullRasterCache(widget.pageRasterCachePolicy);
       // Only a *raised* budget can admit pages the warm previously declined,
@@ -3441,21 +3453,44 @@ class _PdfViewerState extends State<PdfViewer>
     // the effective worker, so a resumed render sees current pages, not stale.
     _syncDefaultWorker();
     if (!identical(_loadedDocument, _document)) {
-      _swapDocument();
+      _swapDocument(preserveRevisionViewport: true);
     } else {
       setState(() {});
     }
   }
 
   /// Reconciles cached state to a document swap - from [_loadedDocument] to
-  /// the current [_document]. An edit revision with the same page geometry
-  /// keeps the reading position; a genuinely different document resets. Runs
-  /// from [didUpdateWidget] (a host rebuild with a new document/controller)
-  /// and from [_onRevisionControllerChanged] (a new revision with no host
-  /// rebuild).
-  void _swapDocument() {
+  /// the current [_document]. An edit revision keeps the reading position,
+  /// including when pages were inserted, removed, reordered, or rotated; a
+  /// genuinely different document resets. Existing pages are matched across
+  /// revisions by their stable indirect-object references, so inserting or
+  /// deleting before the viewport does not change which page is on screen.
+  /// Runs from [didUpdateWidget] (a host rebuild with a new
+  /// document/controller) and from [_onRevisionControllerChanged] (a new
+  /// revision with no host rebuild).
+  void _swapDocument({bool preserveRevisionViewport = false}) {
     final document = _document;
     final sameGeometry = _sameGeometryAs(document);
+    final oldPageRefs = preserveRevisionViewport
+        ? [for (final page in _pages) _pageReferenceKey(page)]
+        : const <(int, int)?>[];
+    final oldCurrentPage = _pages.isEmpty
+        ? 0
+        : _controller.currentPage.clamp(0, _pages.length - 1);
+    final oldCurrentRef = oldPageRefs.isEmpty
+        ? null
+        : oldPageRefs[oldCurrentPage];
+    final oldViewport = preserveRevisionViewport && _pages.isNotEmpty
+        ? _pendingViewport ??
+            _captureViewport() ??
+            PdfViewport(
+              page: oldCurrentPage,
+              zoom: _currentZoom,
+            )
+        : null;
+    final oldViewportRef = oldViewport == null || oldPageRefs.isEmpty
+        ? null
+        : oldPageRefs[oldViewport.page.clamp(0, oldPageRefs.length - 1)];
     _textCache.clear();
     _annotCache.clear();
     _visibleAnnotCache.clear();
@@ -3463,11 +3498,37 @@ class _PdfViewerState extends State<PdfViewer>
     _controller.clearSearch();
     _clearSelection();
     _loadPages();
+    final newPageRefs = preserveRevisionViewport
+        ? [for (final page in _pages) _pageReferenceKey(page)]
+        : const <(int, int)?>[];
+    final pageOrderChanged = preserveRevisionViewport &&
+        (oldPageRefs.length != newPageRefs.length ||
+            Iterable<int>.generate(oldPageRefs.length).any(
+              (i) => oldPageRefs[i] != newPageRefs[i],
+            ));
+    PdfViewport? remappedViewport;
+    if (oldViewport != null && (!sameGeometry || pageOrderChanged)) {
+      final page = _remapPageIndex(
+        oldViewport.page,
+        oldViewportRef,
+        newPageRefs,
+      );
+      remappedViewport = PdfViewport(
+        page: page,
+        top: oldViewport.top,
+        left: oldViewport.left,
+        zoom: oldViewport.zoom,
+      );
+      _pendingViewport = remappedViewport;
+      _controller._setCurrentPage(
+        _remapPageIndex(oldCurrentPage, oldCurrentRef, newPageRefs),
+      );
+    }
     _previews.bindPages(_pages);
     // an edit revision keeps its previews (rebound to the new page
     // objects - edited pages refresh from their on-screen render); a
     // different document starts clean
-    if (sameGeometry) {
+    if (sameGeometry && !pageOrderChanged) {
       // a page whose content stamp advanced changed materially (a
       // redaction burn removes glyphs/images): drop its stale preview so
       // a fast scroll can't flash the deleted content, instead of
@@ -3489,7 +3550,7 @@ class _PdfViewerState extends State<PdfViewer>
     // re-point (and, for a different file, re-prime) the persistent
     // preview backing; an edit revision keeps its rebound previews so the
     // prime is a no-op there
-    _bindRasterCache(prime: !sameGeometry);
+    _bindRasterCache(prime: !sameGeometry || pageOrderChanged);
     _previewAttempts.clear();
     _previewVectorAttempts.clear();
     _intermediatePreviewAttempts.clear();
@@ -3498,7 +3559,7 @@ class _PdfViewerState extends State<PdfViewer>
     _rasterWarmAttempts.clear();
     _schedulePreviewPrerender();
     _scheduleRasterWarm();
-    if (!sameGeometry) {
+    if (!sameGeometry && remappedViewport == null) {
       // didUpdateWidget/a controller notification can land mid-build, and
       // jumpTo synchronously dispatches a ScrollNotification - ancestors
       // listening through a ScrollNotificationObserver (a Material AppBar's
@@ -3513,6 +3574,30 @@ class _PdfViewerState extends State<PdfViewer>
       _appliedInitialFit = false;
     }
     setState(() {});
+  }
+
+  /// The stable identity of a page across incremental revisions. Structural
+  /// edits rewrite the page tree but retain every surviving leaf's indirect
+  /// object number; newly inserted pages receive new numbers.
+  (int, int)? _pageReferenceKey(PdfPage page) {
+    final ref = page.document.cos.referenceTo(page.dict);
+    return ref == null ? null : (ref.objectNumber, ref.generation);
+  }
+
+  /// Maps an old page into the new page list by identity. If that page was
+  /// deleted, the page now occupying its index wins (the following page), or
+  /// the new last page when the deleted page was last.
+  int _remapPageIndex(
+    int oldIndex,
+    (int, int)? oldRef,
+    List<(int, int)?> newRefs,
+  ) {
+    if (newRefs.isEmpty) return 0;
+    if (oldRef != null) {
+      final matched = newRefs.indexOf(oldRef);
+      if (matched >= 0) return matched;
+    }
+    return oldIndex.clamp(0, newRefs.length - 1);
   }
 
   /// Whether [document] lays out exactly like the one on screen: same

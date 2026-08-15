@@ -18,6 +18,10 @@ import 'editing_preferences.dart';
 /// current value; link tiles show the text under the link and where it
 /// goes (the URI, or the target page).
 ///
+/// Page headers stay pinned while their annotations scroll, show the number
+/// of annotations on that page, and can be collapsed individually or through
+/// the panel-level collapse/expand-all control.
+///
 /// Tapping a tile zooms the viewer to the annotation, selects it
 /// (arming the select tool), and pulses an attention flash around it on
 /// the page. On mouse hover a row reveals its trailing actions: a "more"
@@ -112,6 +116,11 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
   (int, int)? _anchor;
 
   final ScrollController _scroll = ScrollController();
+
+  /// Page sections the user has folded closed. Page indices are intentional:
+  /// the state follows the visible page number through ordinary annotation
+  /// edits without holding stale annotation identities across revisions.
+  final Set<int> _collapsedPages = {};
 
   /// The filter text; tiles whose title or subtitle don't contain it
   /// (case-insensitive) are hidden. Survives revisions - a search isn't
@@ -252,8 +261,11 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
 
   Widget _searchField(
     BuildContext context,
-    PdfSidebarPanelGeometry geometry,
-  ) {
+    PdfSidebarPanelGeometry geometry, {
+    required bool hasPages,
+    required bool allCollapsed,
+    required VoidCallback onToggleAll,
+  }) {
     // the docked panel's close button rides the right of the filter row;
     // a bottom sheet supplies its own in its sheet chrome
     final closeButton = geometry.closeButton(
@@ -263,6 +275,18 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
       key: const ValueKey('pdf-annotation-panel-move'),
     );
     final trailing = <Widget>[
+      IconButton(
+        key: const ValueKey('pdf-annotation-pages-toggle-all'),
+        tooltip: allCollapsed
+            ? pdfL10n(context).bookmarkExpand
+            : pdfL10n(context).bookmarkCollapse,
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+        padding: EdgeInsets.zero,
+        icon: Icon(allCollapsed ? Icons.unfold_more : Icons.unfold_less,
+            size: 20),
+        onPressed: hasPages ? onToggleAll : null,
+      ),
       if (moveHandle != null) moveHandle,
       if (closeButton != null) closeButton,
     ];
@@ -876,7 +900,8 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
               _replyingTo = null;
             }
             final query = _search.text.trim().toLowerCase();
-            final children = <Widget>[];
+            final sections = <_AnnotationPageSection>[];
+            final annotatedPages = <int>[];
             // every displayed, selectable slot in display order - the axis
             // a shift-click range runs along. Filled as tiles are built and
             // captured by each row's tap handler (complete by tap time).
@@ -890,7 +915,8 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
                 for (final thread in widget.controller.commentThreads(page))
                   thread.root.annotation.dict: thread,
               };
-              final tiles = <Widget>[];
+              final rows = <_AnnotationSidebarRow>[];
+              var pageCount = 0;
               for (var i = 0; i < annotations.length; i++) {
                 final annotation = annotations[i];
                 if (_unlisted.contains(annotation.subtype)) continue;
@@ -900,34 +926,83 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
                 if (annotation.isReply || annotation.isStateAnnotation) {
                   continue;
                 }
+                pageCount++;
                 listed++;
                 if (!_matches(query, page, annotation)) continue;
-                final thread = threadByDict[annotation.dict];
-                if (annotation.behavior.selectable &&
-                    widget.controller.isAnnotationEditable(annotation)) {
-                  ordered.add((page, i));
-                }
-                tiles.add(_tile(context, page, i, annotation, thread, ordered));
-                // a signed signature field shows its validation status inline
-                final signature = _signatureFor(annotation);
-                if (signature != null) {
-                  tiles.addAll(_signatureSection(context, signature));
-                }
-                // a markup annotation hosts a comment thread
-                if (annotation.behavior.selectable) {
-                  tiles.addAll(
-                      _threadSection(context, page, annotation, thread));
+                rows.add(_AnnotationSidebarRow(
+                  slot: i,
+                  annotation: annotation,
+                  thread: threadByDict[annotation.dict],
+                ));
+              }
+              if (pageCount > 0) annotatedPages.add(page);
+              if (rows.isNotEmpty) {
+                sections.add(_AnnotationPageSection(
+                  page: page,
+                  annotationCount: pageCount,
+                  rows: rows,
+                ));
+              }
+            }
+            _collapsedPages.removeWhere((page) => page >= document.pageCount);
+            final allCollapsed = annotatedPages.isNotEmpty &&
+                annotatedPages.every(_collapsedPages.contains);
+
+            final slivers = <Widget>[];
+            for (final section in sections) {
+              final collapsed = _collapsedPages.contains(section.page);
+              final tiles = <Widget>[];
+              if (!collapsed) {
+                for (final row in section.rows) {
+                  final annotation = row.annotation;
+                  if (annotation.behavior.selectable &&
+                      widget.controller.isAnnotationEditable(annotation)) {
+                    ordered.add((section.page, row.slot));
+                  }
+                  tiles.add(_tile(context, section.page, row.slot, annotation,
+                      row.thread, ordered));
+                  // a signed signature field shows its validation status
+                  // inline
+                  final signature = _signatureFor(annotation);
+                  if (signature != null) {
+                    tiles.addAll(_signatureSection(context, signature));
+                  }
+                  // a markup annotation hosts a comment thread
+                  if (annotation.behavior.selectable) {
+                    tiles.addAll(_threadSection(context, section.page,
+                        annotation, row.thread));
+                  }
                 }
               }
-              if (tiles.isNotEmpty) {
-                children
-                  ..add(Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                    child: Text(pdfL10n(context).sidebarPageHeader(page + 1),
-                        style: Theme.of(context).textTheme.labelLarge),
-                  ))
-                  ..addAll(tiles);
-              }
+              slivers.add(
+                SliverPadding(
+                  padding:
+                      EdgeInsets.only(right: geometry.scrollbarClearance),
+                  sliver: SliverMainAxisGroup(slivers: [
+                    SliverPersistentHeader(
+                      pinned: true,
+                      delegate: _AnnotationPageHeaderDelegate(
+                        page: section.page,
+                        label: pdfL10n(context)
+                            .sidebarPageHeader(section.page + 1),
+                        countLabel: pdfL10n(context)
+                            .propAnnotationCount(section.annotationCount),
+                        collapsed: collapsed,
+                        onToggle: () => setState(() {
+                          if (!_collapsedPages.add(section.page)) {
+                            _collapsedPages.remove(section.page);
+                          }
+                        }),
+                        toggleTooltip: collapsed
+                            ? pdfL10n(context).bookmarkExpand
+                            : pdfL10n(context).bookmarkCollapse,
+                      ),
+                    ),
+                    if (tiles.isNotEmpty)
+                      SliverList(delegate: SliverChildListDelegate(tiles)),
+                  ]),
+                ),
+              );
             }
             // the viewer-style scrollbar replaces the implicit
             // desktop bar; it wraps only the list, so the
@@ -936,7 +1011,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
             // (right) edge.
             // keep the list clear of the overlay scrollbar's zone so
             // the bar never covers a tile's trailing button
-            final list = children.isEmpty
+            final list = sections.isEmpty
                 ? Center(
                     child: Text(listed > 0 && query.isNotEmpty
                         ? pdfL10n(context).sidebarNoMatchingAnnotations
@@ -947,11 +1022,11 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
                     child: ScrollConfiguration(
                       behavior: ScrollConfiguration.of(context)
                           .copyWith(scrollbars: false),
-                      child: ListView(
-                          controller: _scroll,
-                          padding: EdgeInsets.only(
-                              right: geometry.scrollbarClearance),
-                          children: children),
+                      child: CustomScrollView(
+                        key: const ValueKey('pdf-annotation-scroll-view'),
+                        controller: _scroll,
+                        slivers: slivers,
+                      ),
                     ),
                   );
             // one shape for both modes, with the list keyed: the
@@ -959,7 +1034,19 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
             // element (the controller would sit attached to two
             // scroll views for a frame)
             return Column(children: [
-              _searchField(context, geometry),
+              _searchField(
+                context,
+                geometry,
+                hasPages: annotatedPages.isNotEmpty,
+                allCollapsed: allCollapsed,
+                onToggleAll: () => setState(() {
+                  if (allCollapsed) {
+                    _collapsedPages.removeAll(annotatedPages);
+                  } else {
+                    _collapsedPages.addAll(annotatedPages);
+                  }
+                }),
+              ),
               if (_selecting) _selectionHeader(context),
               Expanded(
                 key: const ValueKey('pdf-annotation-list'),
@@ -971,6 +1058,116 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
       ),
     );
   }
+}
+
+class _AnnotationSidebarRow {
+  const _AnnotationSidebarRow({
+    required this.slot,
+    required this.annotation,
+    required this.thread,
+  });
+
+  final int slot;
+  final PdfAnnotation annotation;
+  final PdfCommentThread? thread;
+}
+
+class _AnnotationPageSection {
+  const _AnnotationPageSection({
+    required this.page,
+    required this.annotationCount,
+    required this.rows,
+  });
+
+  final int page;
+  final int annotationCount;
+  final List<_AnnotationSidebarRow> rows;
+}
+
+/// Fixed-height page chrome for the annotation list. Each delegate lives in
+/// its own [SliverMainAxisGroup], so it pins to the top while that page's rows
+/// scroll and is then pushed away by the following page header.
+class _AnnotationPageHeaderDelegate extends SliverPersistentHeaderDelegate {
+  const _AnnotationPageHeaderDelegate({
+    required this.page,
+    required this.label,
+    required this.countLabel,
+    required this.collapsed,
+    required this.onToggle,
+    required this.toggleTooltip,
+  });
+
+  static const double height = 40;
+
+  final int page;
+  final String label;
+  final String countLabel;
+  final bool collapsed;
+  final VoidCallback onToggle;
+  final String toggleTooltip;
+
+  @override
+  double get minExtent => height;
+
+  @override
+  double get maxExtent => height;
+
+  @override
+  Widget build(
+      BuildContext context, double shrinkOffset, bool overlapsContent) {
+    final scheme = Theme.of(context).colorScheme;
+    // Persistent-header children receive a loose main-axis constraint. Fill it
+    // explicitly so paintExtent matches the fixed 40px layoutExtent even when
+    // the row's intrinsic height is only one text line.
+    return SizedBox.expand(
+      child: Material(
+        key: ValueKey('pdf-annotation-page-header-$page'),
+        color: scheme.surfaceContainerLow,
+        elevation: overlapsContent ? 1 : 0,
+        child: Tooltip(
+          message: toggleTooltip,
+          child: InkWell(
+            key: ValueKey('pdf-annotation-page-toggle-$page'),
+            onTap: onToggle,
+            child: Padding(
+              padding: const EdgeInsetsDirectional.only(start: 8, end: 12),
+              child: Row(children: [
+                Icon(collapsed ? Icons.chevron_right : Icons.expand_more,
+                    size: 20),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(label,
+                      style: Theme.of(context).textTheme.labelLarge,
+                      overflow: TextOverflow.ellipsis),
+                ),
+                Container(
+                  key: ValueKey('pdf-annotation-page-count-$page'),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(countLabel,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          )),
+                ),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _AnnotationPageHeaderDelegate oldDelegate) =>
+      page != oldDelegate.page ||
+      label != oldDelegate.label ||
+      countLabel != oldDelegate.countLabel ||
+      collapsed != oldDelegate.collapsed ||
+      toggleTooltip != oldDelegate.toggleTooltip;
 }
 
 /// The actions a markup row's "more" menu offers on its comment thread.
