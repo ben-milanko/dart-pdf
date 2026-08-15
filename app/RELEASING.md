@@ -52,12 +52,10 @@ not the next rolling build.
 > `xcodebuild archive` + `-exportArchive` for macOS) and staged into
 > `app/build/releases/<version>/`.
 >
-> A local `flutter build appbundle --release` currently **fails** on
-> `:onnxruntime:checkReleaseAarMetadata` - the plugin pins
-> `compileSdkVersion 33` while a transitive `androidx.fragment` needs 34+.
-> CI works around this in `release-app.yml`'s `patch_gradle()` step, which
-> rewrites the hosted plugin Gradle files in `~/.pub-cache`; apply the same
-> patch locally before building.
+> Keep the hosted Android compatibility patch in `release-app.yml` until the
+> affected plugins migrate to Flutter's current Android toolchain. Local
+> release builds use the app's configured compile SDK and should be verified
+> before each Play upload.
 
 ## In-app update checker
 
@@ -100,6 +98,29 @@ always served fresh, so it skips the check.
 | Windows (Store) | `dartpdf-windows-store.msix` (separate workflow, see below) | Intentionally unsigned - Microsoft re-signs Store submissions |
 | Linux | `…-linux-x64.tar.gz`, `…-linux-x86_64.AppImage` | Flatpak repository is GPG-signed; raw artifacts are unsigned |
 | Web | `…-web.zip` | n/a |
+
+### Desktop CLI / MCP sidecar
+
+Every macOS, Windows, and Linux native build compiles the VM-only
+`packages/dart_pdf_cli/bin/dartpdf.dart` entrypoint into a self-contained target
+executable. It uses the same architecture as the Flutter runner; a universal
+macOS release compiles its arm64 and x64 slices on native GitHub runners and
+merges them with `lipo` before codesigning. (A local macOS build contains the
+host-native sidecar.) The native project files place it in:
+
+- macOS: `DartPDF.app/Contents/MacOS/dartpdf-cli` (the suffix avoids a
+  case-insensitive collision with the `DartPDF` GUI executable; it is signed as
+  nested code before the outer app bundle);
+- Windows: `dartpdf.exe` beside `dart_pdf_editor_app.exe`;
+- Linux: `dartpdf-cli` beside `dart_pdf_editor_app` (`dartpdf` remains the
+  established GUI launcher in Linux packages).
+
+Because the release packagers archive those native bundles, the sidecar also
+travels in the DMG, Windows installer/portable/MSIX outputs, Linux tarball, and
+AppImage. Linux store packages expose it as `/app/bin/dartpdf-cli` for Flatpak
+and `dartpdf.cli` for Snap; the AUR package installs `/usr/bin/dartpdf-cli`.
+The macOS and Windows installers deliberately do not alter `PATH`. See the CLI
+package README for MCP registration commands.
 
 ## The credential boundary
 

@@ -40,6 +40,14 @@ package() {
 
   install -d "${pkgdir}/usr/bin"
   ln -s /opt/dartpdf/dart_pdf_editor_app "${pkgdir}/usr/bin/dartpdf"
+  # The checked-in PKGBUILD remains pinned to the stable release while the
+  # next release is prepared. Install the sidecar as soon as that release
+  # archive contains it without breaking reproducible builds of the old pin.
+  if [[ -f "${srcdir}/dartpdf-cli" ]]; then
+    install -Dm755 "${srcdir}/dartpdf-cli" \
+      "${pkgdir}/opt/dartpdf/dartpdf-cli"
+    ln -s /opt/dartpdf/dartpdf-cli "${pkgdir}/usr/bin/dartpdf-cli"
+  fi
 
   install -d "${pkgdir}/usr/share"
   cp -r "${srcdir}/share/." "${pkgdir}/usr/share/"

@@ -11,6 +11,7 @@ add_executable(${BINARY_NAME} WIN32
   "image_clipboard.cpp"
   "main.cpp"
   "native_print.cpp"
+  "platform_channels.cpp"
   "utils.cpp"
   "win32_window.cpp"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"

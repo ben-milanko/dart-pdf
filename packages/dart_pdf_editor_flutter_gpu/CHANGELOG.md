@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.4
+
+- Isolate pipelines, geometry buffers, and image textures by Flutter GPU
+  context so native windows never reuse resources owned by another view.
+- Keep image-texture leases alive until in-flight command buffers complete,
+  preventing stale blocks or unrelated fragments after structural edits.
+- Report context identities and switches in the backend diagnostics.
+
 ## 0.1.3
 
 - Rebuild the packaged shader bundle with Flutter 3.47's `impellerc` so the

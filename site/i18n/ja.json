@@ -53,7 +53,8 @@
 
   "dl_eyebrow": "ダウンロード",
   "dl_h2": "お使いのプラットフォームでDartPDFを。",
-  "dl_intro": "App StoreやGoogle Playで入手、デスクトップアプリをインストール、あるいはブラウザでそのまま利用できます。",
+  "dl_intro": "このデバイスに最適なダウンロードを表示します。ほかのプラットフォームもワンクリックで確認できます。",
+  "dl_otherPlatforms": "その他のプラットフォーム",
   "dl_get": "ダウンロード",
   "dl_open": "開く",
   "dlMac_meta": "直接 .dmg · 署名・公証済み",
@@ -65,7 +66,7 @@
 
   "dev_eyebrow": "開発者向け",
   "dev_h2": "あなたも使える、純Dart製のPDFエンジン。",
-  "dev_p": "このエンジンはPDFiumやネイティブバインディングの代わりにDartを使うため、DartとFlutterが動くあらゆる場所で動作します。パッケージはApache-2.0ライセンスで、pub.devに公開されています。ベンチマークや商用SDKとの比較については、<a href=\"/sdk\"\n            style=\"color:#6fd0ff;font-weight:700;\">Flutter PDF SDK概要</a>をご覧ください。",
+  "dev_p": "このエンジンはPDFiumやネイティブバインディングの代わりにDartを使うため、DartとFlutterが動くあらゆる場所で動作します。パッケージはApache-2.0ライセンスで、pub.devに公開されています。ベンチマークや商用SDKとの比較については、<a href=\"/flutter-pdf-editor\"\n            style=\"color:#6fd0ff;font-weight:700;\">Flutter PDF SDK概要</a>をご覧ください。",
   "dev_ctaGithub": "GitHubで見る",
   "dev_ctaPub": "pub.devのパッケージ",
   "dev_bTitle": "オープンソースパッケージ",

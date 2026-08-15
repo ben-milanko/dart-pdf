@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.6.0
+
+- Add a Bluebeam-style FreeText fixture covering `/DS` and rich-text `/RC`
+  CSS fallbacks for alignment, leading, letter spacing, font stretch, and
+  underline.
+
 ## 3.5.1
 
 - Add JBIG2 refinement and JPEG 2000 fixtures used to verify scanned MRC masks

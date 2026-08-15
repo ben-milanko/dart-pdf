@@ -763,6 +763,24 @@ abstract class AppLocalizations {
   /// **'New document…'**
   String get editorMenuNewDocument;
 
+  /// Experimental desktop app menu item to open another native editor window.
+  ///
+  /// In en, this message translates to:
+  /// **'New window'**
+  String get editorMenuNewWindow;
+
+  /// Desktop tab context-menu item that moves the document into another native window.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to new window'**
+  String get editorMoveToNewWindow;
+
+  /// Toast shown when the experimental native window could not be created.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn’t open a new window'**
+  String get editorUnableToOpenNewWindow;
+
   /// App menu item to run on-device OCR over the document.
   ///
   /// In en, this message translates to:

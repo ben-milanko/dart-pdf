@@ -1,11 +1,12 @@
 # Releasing the pub.dev packages
 
-This covers the nine publishable workspace **packages** (`pdf_cos`,
+This covers the ten publishable workspace **packages** (`pdf_cos`,
 `pdf_test_fixtures`, `pdf_document`, `pdf_graphics`, `dart_pdf_editor`,
 `dart_pdf_editor_flutter_gpu`, `dart_pdf_editor_assets`, `pdf_ocr_vlm`,
-`pdf_ocr_ondevice`). The eight established packages release in lockstep. The
-experimental GPU companion is independently versioned at `0.x` because it has
-a newer Flutter requirement and a deliberately evolving API. The standalone
+`pdf_ocr_ondevice`, `dart_pdf_cli`). The eight established packages release in
+lockstep. The experimental GPU companion and CLI are independently versioned
+at `0.x`; the GPU package has a newer Flutter requirement and a deliberately
+evolving API, while the CLI follows its own command/API lifecycle. The standalone
 **app** ships separately - see
 [`app/RELEASING.md`](../app/RELEASING.md).
 
@@ -30,6 +31,11 @@ is how 1.1.0–1.2.3 actually shipped.
 
 ### Automated (tag-driven OIDC) - preferred
 
+The first release of a brand-new package cannot use this route because its
+pub.dev Admin page does not exist yet. Publish that package once with the
+manual path, then enable automated publishing before its next release. For
+this release, that applies to `dart_pdf_cli` 0.1.0.
+
 Push the version bumps to `main`, then merge `main` into `deploy` and push it.
 `release-pub-tags.yml` runs the test suite, then for each package whose version
 isn't yet on pub.dev it pushes a `<pkg>-v<version>` tag. Each tag triggers
@@ -45,7 +51,7 @@ self-configure them.
 
 #### 1. Enable automated publishing on pub.dev (per package)
 
-For **each** of the nine packages, on pub.dev → the package → **Admin** tab →
+For **each** of the ten packages, on pub.dev → the package → **Admin** tab →
 **Automated publishing**:
 
 - Enable **Publishing from GitHub Actions**.
@@ -99,7 +105,7 @@ Always works; needs a pub.dev login on the machine.
 ```bash
 fvm dart pub login                 # once, OAuth in a browser
 tool/release.sh                    # dry-run every package (no publishing)
-tool/release.sh --publish --yes    # publish all 9 in dependency order
+tool/release.sh --publish --yes    # publish all 10 in dependency order
 ```
 
 The script publishes dependencies first and waits for each version to be
@@ -108,7 +114,7 @@ resolve). Afterwards, push the tags for the record:
 
 ```bash
 for p in pdf_cos pdf_test_fixtures pdf_document pdf_graphics \
-         dart_pdf_editor dart_pdf_editor_flutter_gpu \
+         dart_pdf_cli dart_pdf_editor dart_pdf_editor_flutter_gpu \
          dart_pdf_editor_assets pdf_ocr_vlm \
          pdf_ocr_ondevice; do
   git tag -a "$p-v<version>" -m "Release $p <version>"

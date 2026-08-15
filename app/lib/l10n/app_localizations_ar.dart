@@ -437,6 +437,15 @@ class AppLocalizationsAr extends AppLocalizations {
   String get editorMenuNewDocument => 'مستند جديد…';
 
   @override
+  String get editorMenuNewWindow => 'نافذة جديدة';
+
+  @override
+  String get editorMoveToNewWindow => 'نقل إلى نافذة جديدة';
+
+  @override
+  String get editorUnableToOpenNewWindow => 'تعذّر فتح نافذة جديدة';
+
+  @override
   String get editorMenuOcr => 'OCR…';
 
   @override

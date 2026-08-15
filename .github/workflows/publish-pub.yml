@@ -19,6 +19,7 @@ on:
       - 'pdf_test_fixtures-v*'
       - 'pdf_document-v*'
       - 'pdf_graphics-v*'
+      - 'dart_pdf_cli-v*'
       - 'dart_pdf_editor-v*'
       - 'dart_pdf_editor_flutter_gpu-v*'
       - 'dart_pdf_editor_assets-v*'
@@ -78,6 +79,11 @@ jobs:
               package="pdf_graphics"
               directory="packages/pdf_graphics"
               version="${tag#pdf_graphics-v}"
+              ;;
+            dart_pdf_cli-v*)
+              package="dart_pdf_cli"
+              directory="packages/dart_pdf_cli"
+              version="${tag#dart_pdf_cli-v}"
               ;;
             dart_pdf_editor-v*)
               package="dart_pdf_editor"
@@ -177,6 +183,17 @@ jobs:
     with:
       environment: pub.dev
       working-directory: packages/pdf_graphics
+
+  publish-dart-pdf-cli:
+    needs: check-publish-needed
+    if: needs.check-publish-needed.outputs.package == 'dart_pdf_cli' && needs.check-publish-needed.outputs.publish_needed == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@7654d458321ee25acccccfdb86cd48bd95768ff1
+    with:
+      environment: pub.dev
+      working-directory: packages/dart_pdf_cli
 
   publish-dart-pdf-editor:
     needs: check-publish-needed

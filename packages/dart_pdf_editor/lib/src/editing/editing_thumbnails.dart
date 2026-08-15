@@ -312,12 +312,10 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
     if (!widget.controller.pastePages(at: at)) return;
     _focusPage(at);
     if (widget.followsViewer) {
-      // A paste inserts pages, so the viewer resets its scroll to the top in
-      // a post-frame callback (a geometry-changing revision). A following
-      // strip chases that reset via [_onViewerChanged] and scrolls back to
-      // the top, burying the pages that just landed. Drive the viewer to the
-      // paste target after its reset settles so the strip reveals the new
-      // pages instead - the same route the menu/header paste paths take.
+      // Structural revisions preserve the existing reading position. This
+      // action deliberately reveals the newly pasted page instead, once the
+      // new list metrics exist - the same route the menu/header paste paths
+      // take.
       unawaited(_jumpToInsertedPage(widget.viewerController, at));
     } else {
       _revealPage(at);
@@ -1111,9 +1109,9 @@ class _PageActionsButton extends StatelessWidget {
     try {
       final insertedAt = viewerController.currentPage + 1;
       controller.insertPagesFromBytes(bytes, at: insertedAt);
-      // A page-count change rebuilds the viewer and resets its scroll metrics.
-      // Navigate only after that reset so the newly inserted pages stay in
-      // view instead of the replacement document opening at page one.
+      // The structural revision keeps the old reading position by default;
+      // this explicit Insert action reveals the newly imported pages once the
+      // rebuilt list has its new metrics.
       unawaited(_jumpToInsertedPage(viewerController, insertedAt));
     } catch (_) {
       // a non-PDF, corrupt, or password-protected file can't be opened -
@@ -2745,10 +2743,10 @@ Future<void> _jumpToInsertedPage(
   int pageIndex,
 ) async {
   // The controller notification first rebuilds the viewer with the new page
-  // list. A geometry-changing revision then resets its old scroll position in
-  // a post-frame callback, so navigate on the following frame, after both the
-  // new list metrics and that reset have landed. `endOfFrame` schedules a
-  // frame when idle and avoids leaving a test-host timer behind.
+  // list and restores its existing reading anchor. Navigate on the following
+  // frame, after both the new list metrics and that restoration have landed,
+  // so this deliberate reveal of the inserted page wins. `endOfFrame`
+  // schedules a frame when idle and avoids leaving a test-host timer behind.
   await SchedulerBinding.instance.endOfFrame;
   await SchedulerBinding.instance.endOfFrame;
   await viewerController.jumpToPage(pageIndex);

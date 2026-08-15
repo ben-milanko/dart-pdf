@@ -53,7 +53,8 @@
 
   "dl_eyebrow": "Tải xuống",
   "dl_h2": "Nhận DartPDF trên nền tảng của bạn.",
-  "dl_intro": "Nhận trên App Store và Google Play, cài đặt ứng dụng máy tính để bàn, hoặc dùng ngay trong trình duyệt.",
+  "dl_intro": "Chúng tôi sẽ hiển thị các bản tải xuống phù hợp nhất cho thiết bị này. Mọi nền tảng khác vẫn chỉ cách một lần nhấp.",
+  "dl_otherPlatforms": "Nền tảng khác",
   "dl_get": "Tải xuống",
   "dl_open": "Mở",
   "dlMac_meta": "Tệp .dmg trực tiếp · đã ký & công chứng",
@@ -65,7 +66,7 @@
 
   "dev_eyebrow": "Nhà phát triển",
   "dev_h2": "Một công cụ PDF thuần Dart mà bạn cũng có thể dùng.",
-  "dev_p": "Công cụ này sử dụng Dart thay vì PDFium hay các liên kết native, nên nó chạy ở bất cứ đâu Dart và Flutter chạy được. Các\n          gói được cấp phép Apache-2.0 và xuất bản trên pub.dev. Đọc <a href=\"/sdk\"\n            style=\"color:#6fd0ff;font-weight:700;\">tổng quan Flutter PDF SDK</a> để xem điểm chuẩn và so sánh với\n          các SDK thương mại.",
+  "dev_p": "Công cụ này sử dụng Dart thay vì PDFium hay các liên kết native, nên nó chạy ở bất cứ đâu Dart và Flutter chạy được. Các\n          gói được cấp phép Apache-2.0 và xuất bản trên pub.dev. Đọc <a href=\"/flutter-pdf-editor\"\n            style=\"color:#6fd0ff;font-weight:700;\">tổng quan Flutter PDF SDK</a> để xem điểm chuẩn và so sánh với\n          các SDK thương mại.",
   "dev_ctaGithub": "Xem trên GitHub",
   "dev_ctaPub": "Gói trên pub.dev",
   "dev_bTitle": "Các gói mã nguồn mở",

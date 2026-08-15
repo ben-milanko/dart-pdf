@@ -284,7 +284,7 @@ abstract class StripBinningDevice implements PdfDevice {
       return;
     }
     if (!binningEnabled) return;
-    final color = stripArgbColor(run.color, 1);
+    final color = stripArgbColor(run.color, run.fillAlpha);
     for (final glyph in glyphs) {
       final outline = glyph.outline;
       if (outline == null) continue;

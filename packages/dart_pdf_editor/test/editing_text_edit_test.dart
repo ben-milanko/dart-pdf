@@ -149,6 +149,25 @@ void main() {
       expect(style.borderWidth, 3);
     });
 
+    test('text opacity flows through creation, restyling, and text edits', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..preferences.opacity = 0.4
+        ..addFreeText(0, const PdfRect(100, 600, 300, 660), 'Faded');
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      expect(editing.selectedAnnotation!.behavior.supportsOpacity, isTrue);
+      expect(
+          editing.selectedAnnotation!.appearanceOpacity, closeTo(0.4, 1e-9));
+
+      expect(editing.restyleSelected(opacity: 0.65), isTrue);
+      expect(
+          editing.selectedAnnotation!.appearanceOpacity, closeTo(0.65, 1e-9));
+
+      editing.setSelectedText('Still faded');
+      expect(editing.selectedAnnotation!.contents, 'Still faded');
+      expect(
+          editing.selectedAnnotation!.appearanceOpacity, closeTo(0.65, 1e-9));
+    });
+
     test('restyleSelectedText sets, keeps, and clears fill and border', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..addFreeText(0, const PdfRect(100, 600, 300, 660), 'Plain');
@@ -282,11 +301,12 @@ void main() {
     }
 
     Future<(PdfEditingController, PdfViewerController)> pumpEditor(
-        WidgetTester tester) async {
+        WidgetTester tester,
+        {Uint8List? bytes}) async {
       // the preference tests above seed the global mock store - these
       // tests assert on default styles, so start from an empty one
       SharedPreferences.setMockInitialValues({});
-      final editing = PdfEditingController(buildMultiPagePdf(2));
+      final editing = PdfEditingController(bytes ?? buildMultiPagePdf(2));
       final viewer = PdfViewerController();
       addTearDown(editing.dispose);
       addTearDown(viewer.dispose);
@@ -360,6 +380,122 @@ void main() {
       expect(annotation.contents, 'Hello in place');
       await settle(tester);
     });
+
+    testWidgets('the inline text editor previews opacity changes',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing
+        ..preferences.opacity = 0.25
+        ..tool = PdfEditTool.freeText;
+      await tester.pump();
+
+      await drag(tester, view(100, 700), view(300, 640));
+      TextField field() => tester.widget<TextField>(find.byKey(editorKey));
+      expect(field().style!.color!.a, closeTo(0.25, 1e-6));
+
+      editing.preferences.opacity = 0.6;
+      await tester.pump();
+      expect(field().style!.color!.a, closeTo(0.6, 1e-6));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await settle(tester);
+    });
+
+    testWidgets(
+        'Bluebeam text keeps its CSS layout, line breaks, caret, and opacity',
+        (tester) async {
+      final (editing, _) =
+          await pumpEditor(tester, bytes: buildBluebeamFreeTextPdf());
+      expect(editing.selectAnnotation(0, 0), isTrue);
+      await tester.pump();
+      expect(editing.requestEditSelectedTextInline(), isTrue);
+      await tester.pump();
+
+      final finder = find.byKey(editorKey);
+      final field = tester.widget<TextField>(finder);
+      expect(field.controller!.text, 'PJ\n202/7');
+      expect(field.controller!.selection,
+          const TextSelection.collapsed(offset: 8));
+      expect(field.textAlign, TextAlign.center);
+      expect(field.strutStyle!.height, closeTo(1.15, 1e-9));
+
+      // Opacity changes while the existing box is still being edited must be
+      // visible immediately, then survive the text rewrite on commit.
+      expect(editing.restyleSelected(opacity: 0.35), isTrue);
+      await tester.pump();
+      expect(tester.widget<TextField>(finder).style!.color!.a,
+          closeTo(0.35, 1e-6));
+
+      await tester.enterText(finder, 'PJ\n202/19');
+      await tap(tester, view(450, 400));
+
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.contents, 'PJ\n202/19');
+      expect(annotation.freeTextStyle!.alignment, PdfTextAlign.center);
+      expect(annotation.freeTextStyle!.lineSpacing, closeTo(1.15, 1e-9));
+      expect(annotation.appearanceOpacity, closeTo(0.35, 1e-9));
+      await settle(tester);
+    });
+
+    testWidgets(
+        'macOS caret stays attached to centered text at deep zoom',
+        (tester) async {
+      final (editing, viewer) = await pumpEditor(tester);
+      const rect = PdfRect(270, 550, 343.221, 567.7585);
+      editing.preferences
+        ..fontSize = 8
+        ..textAlign = PdfTextAlign.center;
+      editing
+        ..addFreeText(0, rect, 'UBX/UNX')
+        ..selectAnnotation(0, 0);
+      await tester.pump();
+
+      // Keep this box at the viewport centre while the outer viewer transform
+      // magnifies it. Flutter's stock macOS caret nudge is in local pixels;
+      // without compensation the zoom turns its 2px adjustment into a large
+      // visible gap at both the start and end of the centred line.
+      viewer.setZoom(4);
+      await tester.pump();
+      expect(editing.requestEditSelectedTextInline(), isTrue);
+      await tester.pump();
+
+      final finder = find.byKey(editorKey);
+      final field = tester.widget<TextField>(finder);
+      final editable = find.descendant(
+          of: finder, matching: find.byType(EditableText));
+      final render = tester.state<EditableTextState>(editable).renderEditable;
+      final chromeScale = field.cursorWidth / 2;
+      expect(chromeScale, lessThan(0.5));
+      expect(
+        render.cursorOffset.dx,
+        closeTo(
+          -2 / tester.view.devicePixelRatio * chromeScale,
+          1e-6,
+        ),
+      );
+
+      final textBox = render
+          .getBoxesForSelection(
+              const TextSelection(baseOffset: 0, extentOffset: 7))
+          .single;
+      final start = render
+          .getLocalRectForCaret(const TextPosition(offset: 0));
+      final end = render
+          .getLocalRectForCaret(const TextPosition(offset: 7));
+      expect(
+        (start.left - textBox.left) / chromeScale,
+        closeTo(-2 / tester.view.devicePixelRatio, 0.5),
+      );
+      expect(
+        (end.left - textBox.right) / chromeScale,
+        closeTo(-2 / tester.view.devicePixelRatio, 0.5),
+      );
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await settle(tester);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 
     testWidgets('tapping without dragging places a default-sized text box',
         (tester) async {

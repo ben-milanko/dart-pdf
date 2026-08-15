@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.6.0
+
+- Regenerate the bundled web render worker for `dart_pdf_editor` 3.6.0.
+- Bundle TeX Gyre Adventor regular and bold as metric-compatible fallbacks for
+  unembedded Century Gothic and Avant Garde text.
+
 ## 3.5.1
 
 - Regenerate the bundled web render worker for `dart_pdf_editor` 3.5.1 and

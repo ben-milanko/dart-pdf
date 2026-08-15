@@ -152,7 +152,7 @@ Future<DigitalSignatureOptions?> showDigitalSigningDialog(
   int pageCount = 1,
   SignatureAppearanceStore? appearanceStore,
 }) =>
-    showDialog<DigitalSignatureOptions>(
+    showPdfDialog<DigitalSignatureOptions>(
       context: context,
       builder: (context) => DigitalSignatureDialog(
         privateKeyPicker: privateKeyPicker ??

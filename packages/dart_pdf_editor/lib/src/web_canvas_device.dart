@@ -6,6 +6,7 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:web/web.dart' as web;
 
+import 'font_substitution.dart';
 import 'web_surface_profile.dart';
 
 bool _sameDoubles(List<double>? a, List<double> b) {
@@ -173,6 +174,7 @@ class _BrowserCanvasDevice implements PdfDevice {
   final double hairlineWidth;
   final Map<Object, web.CanvasImageSource> browserImages;
   final Map<PdfDecodedPixels, web.OffscreenCanvas> _images = {};
+  final Map<String, double> _textWidths = {};
 
   // Canvas2D property writes cross the Dart/JS boundary. Dense CAD pages can
   // contain hundreds of thousands of adjacent strokes with the same colour,
@@ -312,16 +314,12 @@ class _BrowserCanvasDevice implements PdfDevice {
     if (run.invisible || run.text.isEmpty) return;
     const renderSize = 100.0;
     final name = run.fontName ?? '';
-    final family = switch (name) {
-      _ when name.contains('Courier') || name.contains('Mono') => 'Courier',
-      _ when name.contains('Times') || name.contains('Serif') =>
-        'Times New Roman',
-      _ => 'Helvetica',
-    };
+    final family = pdfCanvas2dSubstituteFamily(name);
     final weight = name.contains('Bold') ? 'bold' : 'normal';
     final style = name.contains('Italic') || name.contains('Oblique')
         ? 'italic'
         : 'normal';
+    final font = '$style $weight ${renderSize}px $family';
 
     context.save();
     context.transform(
@@ -333,18 +331,42 @@ class _BrowserCanvasDevice implements PdfDevice {
       run.transform.f,
     );
     context
-      ..font = '$style $weight ${renderSize}px "$family"'
+      ..font = font
       ..textAlign = 'left'
       ..textBaseline = 'alphabetic'
-      ..letterSpacing = '${run.letterSpacing * renderSize}px'
-      ..wordSpacing = '${run.wordSpacing * renderSize}px'
+      // The exact-placement plan already carries Tc/Tw in its offsets. Keep
+      // Canvas2D's own spacing out of its measurements and glyph shapes.
+      ..letterSpacing = '0px'
+      ..wordSpacing = '0px'
       ..fillStyle = _rgbCss(run.color).toJS;
+
+    final placed = pdfCanvas2dTextLayout(
+      run,
+      (text) => _textWidths.putIfAbsent(
+        '$font\u0000$text',
+        () => context.measureText(text).width,
+      ),
+    );
+    if (placed != null) {
+      context.scale(1 / placed.unitsPerEm, -1 / renderSize);
+      _paintWithAlpha(run.fillAlpha, () {
+        for (final part in placed.parts) {
+          context.fillText(part.text, part.x, 0);
+        }
+      });
+      context.restore();
+      return;
+    }
+
+    context
+      ..letterSpacing = '${run.letterSpacing * renderSize}px'
+      ..wordSpacing = '${run.wordSpacing * renderSize}px';
     final naturalWidth = context.measureText(run.text).width;
     final scaleX = run.width > 0 && naturalWidth > 0
         ? run.width * renderSize / naturalWidth
         : 1.0;
     context.scale(scaleX / renderSize, -1 / renderSize);
-    context.fillText(run.text, 0, 0);
+    _paintWithAlpha(run.fillAlpha, () => context.fillText(run.text, 0, 0));
     context.restore();
   }
 

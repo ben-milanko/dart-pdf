@@ -420,6 +420,15 @@ class AppLocalizationsTh extends AppLocalizations {
   String get editorMenuNewDocument => 'เอกสารใหม่…';
 
   @override
+  String get editorMenuNewWindow => 'หน้าต่างใหม่';
+
+  @override
+  String get editorMoveToNewWindow => 'ย้ายไปยังหน้าต่างใหม่';
+
+  @override
+  String get editorUnableToOpenNewWindow => 'ไม่สามารถเปิดหน้าต่างใหม่ได้';
+
+  @override
   String get editorMenuOcr => 'OCR…';
 
   @override

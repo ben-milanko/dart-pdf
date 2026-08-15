@@ -186,6 +186,7 @@ void main() {
 
   testWidgets('an unavailable tile backend falls back during initialization',
       (tester) async {
+    PdfTileRasterDiagnostics.instance.clear();
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetDevicePixelRatio);
 
@@ -203,6 +204,7 @@ void main() {
       store.dispose();
       PdfPerfLog.enabled = false;
       PdfPerfLog.sink = null;
+      PdfTileRasterDiagnostics.instance.clear();
     });
 
     final doc = PdfDocument.open(buildClassicPdf());
@@ -239,6 +241,14 @@ void main() {
           'requested=recording route=canvas reason=test unsupported clip')),
       reason: 'field traces must explain why the requested backend declined',
     );
+    final pageDiagnostic = PdfTileRasterDiagnostics.instance.snapshot().last;
+    expect(pageDiagnostic['pageNumber'], 1);
+    expect(pageDiagnostic['requestedBackend'], 'recording');
+    expect(pageDiagnostic['effectiveBackend'], 'canvas');
+    expect(pageDiagnostic['fallbackReason'], 'test unsupported clip');
+    expect(pageDiagnostic['pageColor'], '#FFFFFFFF');
+    expect(pageDiagnostic['tileRasters'], greaterThan(0));
+    expect(pageDiagnostic['lastTile'], isA<Map<String, Object?>>());
   });
 
   testWidgets('tile path composites deep-zoom tiles instead of the patch',

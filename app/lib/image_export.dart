@@ -33,7 +33,7 @@ const _dpiChoices = <double>[72, 150, 300, 600];
 Future<ImageExportOptions?> showImageExportDialog(BuildContext context) {
   var format = ImageExportFormat.png;
   var dpi = 150.0;
-  return showDialog<ImageExportOptions>(
+  return showPdfDialog<ImageExportOptions>(
     context: context,
     builder: (context) => StatefulBuilder(
       builder: (context, setState) => AlertDialog(

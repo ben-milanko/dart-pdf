@@ -53,7 +53,8 @@
 
   "dl_eyebrow": "下載",
   "dl_h2": "在您的平台上取得 DartPDF。",
-  "dl_intro": "在 App Store 與 Google Play 上取得，安裝桌面應用程式，或直接在瀏覽器中使用。",
+  "dl_intro": "我們會顯示最適合此裝置的下載選項。其他平台仍可一鍵查看。",
+  "dl_otherPlatforms": "其他平台",
   "dl_get": "下載",
   "dl_open": "開啟",
   "dlMac_meta": "直接下載 .dmg · 已簽署並公證",
@@ -65,7 +66,7 @@
 
   "dev_eyebrow": "開發者",
   "dev_h2": "一套您也能使用的純 Dart PDF 引擎。",
-  "dev_p": "此引擎使用 Dart 而非 PDFium 或原生繫結，因此可在任何支援 Dart 與 Flutter 的環境執行。這些\n          套件採用 Apache-2.0 授權並發佈於 pub.dev。請閱讀 <a href=\"/sdk\"\n            style=\"color:#6fd0ff;font-weight:700;\">Flutter PDF SDK 概覽</a> 以了解基準測試以及\n          與商業 SDK 的比較。",
+  "dev_p": "此引擎使用 Dart 而非 PDFium 或原生繫結，因此可在任何支援 Dart 與 Flutter 的環境執行。這些\n          套件採用 Apache-2.0 授權並發佈於 pub.dev。請閱讀 <a href=\"/flutter-pdf-editor\"\n            style=\"color:#6fd0ff;font-weight:700;\">Flutter PDF SDK 概覽</a> 以了解基準測試以及\n          與商業 SDK 的比較。",
   "dev_ctaGithub": "在 GitHub 上檢視",
   "dev_ctaPub": "pub.dev 上的套件",
   "dev_bTitle": "開放原始碼套件",

@@ -1,6 +1,6 @@
-![dart-pdf, pure-Dart PDF renderer & editor for Flutter](https://raw.githubusercontent.com/ben-milanko/dart-pdf/main/doc/banner.png)
+![dart-pdf, an open-source Flutter PDF editor and pure-Dart renderer](https://raw.githubusercontent.com/ben-milanko/dart-pdf/main/doc/banner.png)
 
-# dart_pdf_editor
+# Flutter PDF editor: dart_pdf_editor
 
 [![pub package](https://img.shields.io/pub/v/dart_pdf_editor.svg)](https://pub.dev/packages/dart_pdf_editor)
 [![pub points](https://img.shields.io/pub/points/dart_pdf_editor)](https://pub.dev/packages/dart_pdf_editor/score)
@@ -8,9 +8,9 @@
 [![codecov](https://codecov.io/gh/ben-milanko/dart-pdf/branch/main/graph/badge.svg?flag=dart_pdf_editor)](https://codecov.io/gh/ben-milanko/dart-pdf)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/ben-milanko/dart-pdf/blob/main/LICENSE)
 
-A Flutter PDF viewer and editor rendered natively in Dart, with no
-platform views or native PDF libraries. The same code runs on iOS,
-Android, macOS, Windows, Linux, and the web.
+`dart_pdf_editor` is a complete, open-source Flutter PDF editor and viewer
+rendered natively in Dart, with no platform views or native PDF libraries. The
+same code runs on iOS, Android, macOS, Windows, Linux, and the web.
 
 ![The example app: PdfEditorView showing the feature showcase document](https://raw.githubusercontent.com/ben-milanko/dart-pdf/main/doc/dart_pdf_editor_example.jpg)
 
@@ -76,6 +76,10 @@ PdfEditorView(
 
 Try the [live demo](https://dart-pdf-demo.web.app) of the example app
 on Flutter web, with a built-in feature showcase document.
+
+The [Flutter PDF editor overview](https://dart-pdf.com/flutter-pdf-editor)
+covers the architecture, supported editing features, package layout, and
+measured performance.
 
 Built on the pure-Dart
 [dart-pdf suite](https://github.com/ben-milanko/dart-pdf): `pdf_cos`

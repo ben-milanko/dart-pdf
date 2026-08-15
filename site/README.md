@@ -10,6 +10,8 @@ up against the real product facts.
 - `index.html` is the landing page (hero, features, privacy band, download,
   developers, footer). Self-contained: only external dependency is the Manrope
   web font from Google Fonts.
+- `sdk.html` serves the canonical `/flutter-pdf-editor` developer landing page.
+  Firebase permanently redirects the old `/sdk` URL to it.
 - `privacy.html` is the privacy policy, mirroring `app/PRIVACY.md`. This is the
   URL to use for the App Store / Play Store "privacy policy" listing field.
 - `404.html` is the not-found page. Firebase Hosting serves it automatically

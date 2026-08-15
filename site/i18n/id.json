@@ -53,7 +53,8 @@
 
   "dl_eyebrow": "Unduh",
   "dl_h2": "Dapatkan DartPDF di platform Anda.",
-  "dl_intro": "Dapatkan di App Store dan Google Play, pasang aplikasi desktop, atau gunakan langsung di browser Anda.",
+  "dl_intro": "Kami menampilkan unduhan terbaik untuk perangkat ini. Semua platform lain tetap dapat diakses dengan satu klik.",
+  "dl_otherPlatforms": "Platform lain",
   "dl_get": "Unduh",
   "dl_open": "Buka",
   "dlMac_meta": "Langsung .dmg · ditandatangani & dinotarisasi",
@@ -65,7 +66,7 @@
 
   "dev_eyebrow": "Pengembang",
   "dev_h2": "Mesin PDF pure-Dart yang juga bisa Anda gunakan.",
-  "dev_p": "Mesin ini menggunakan Dart alih-alih PDFium atau binding native, sehingga berjalan di mana pun Dart dan Flutter berjalan. Paket-paketnya\n          berlisensi Apache-2.0 dan dipublikasikan di pub.dev. Baca <a href=\"/sdk\"\n            style=\"color:#6fd0ff;font-weight:700;\">ikhtisar Flutter PDF SDK</a> untuk tolok ukur dan perbandingan dengan\n          SDK komersial.",
+  "dev_p": "Mesin ini menggunakan Dart alih-alih PDFium atau binding native, sehingga berjalan di mana pun Dart dan Flutter berjalan. Paket-paketnya\n          berlisensi Apache-2.0 dan dipublikasikan di pub.dev. Baca <a href=\"/flutter-pdf-editor\"\n            style=\"color:#6fd0ff;font-weight:700;\">ikhtisar Flutter PDF SDK</a> untuk tolok ukur dan perbandingan dengan\n          SDK komersial.",
   "dev_ctaGithub": "Lihat di GitHub",
   "dev_ctaPub": "Paket di pub.dev",
   "dev_bTitle": "Paket open source",

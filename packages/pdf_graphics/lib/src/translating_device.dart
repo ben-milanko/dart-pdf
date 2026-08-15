@@ -99,6 +99,8 @@ class TranslatingPdfDevice implements PdfDevice {
         fill: run.fill,
         strokeColor: run.strokeColor,
         strokeWidth: run.strokeWidth,
+        fillAlpha: run.fillAlpha,
+        strokeAlpha: run.strokeAlpha,
         mcid: run.mcid,
         // Em-space, so a page-space translation leaves them alone - but they
         // still have to be carried, or a tiled cell's substituted text loses

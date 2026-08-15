@@ -4,6 +4,7 @@ import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'dialog.dart';
 import 'editing/editing_color_picker.dart';
 import 'editing/editing_controller.dart';
 import 'editing/editing_panel.dart';
@@ -337,10 +338,21 @@ class _PdfPanelTabGroupState extends State<PdfPanelTabGroup> {
           _tabStrip(context, geometry, entries, selected),
           const Divider(height: 1),
           Expanded(
-            child: IndexedStack(
-              index: selected,
-              sizing: StackFit.expand,
-              children: [for (final e in entries) e.body],
+            // The tab body is built in chromeless/bottom-sheet mode, so it
+            // does not know about this outer frame's resize grip. Keep the
+            // whole body (especially its edge-mounted scrollbar) out of the
+            // grip's hit strip; otherwise the divider paints through the
+            // scrollbar thumb in a left-docked tab group.
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: geometry.contentStartInset,
+                right: geometry.contentEndInset,
+              ),
+              child: IndexedStack(
+                index: selected,
+                sizing: StackFit.expand,
+                children: [for (final e in entries) e.body],
+              ),
             ),
           ),
         ]),
@@ -1259,7 +1271,7 @@ Future<Map<PdfEditTool, PdfToolShortcut>?> showPdfShellShortcutsSheet(
   var searchQuery = '';
 
   Future<PdfToolShortcut?> captureKey(BuildContext context) {
-    return showDialog<PdfToolShortcut>(
+    return showPdfDialog<PdfToolShortcut>(
       context: context,
       builder: (context) {
         return AlertDialog(

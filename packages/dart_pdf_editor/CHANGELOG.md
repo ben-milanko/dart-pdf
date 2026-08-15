@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.6.0
+
+- Add `showPdfDialog`, a view-local Material dialog helper for hosts using
+  Flutter's desktop multi-window support.
+- Keep the annotation sidebar's selected item visible, make page and
+  annotation navigation more reliable across edits, and preserve FreeText
+  opacity in live editing and raster output.
+- Preserve substituted glyph advances on the worker-owned web Canvas2D
+  surface. Unembedded Century Gothic and Avant Garde use the metric-compatible
+  TeX Gyre Adventor fallback supplied by the optional assets package.
+- Preserve Bluebeam FreeText alignment, spacing, and caret placement while
+  editing annotations that describe their style through CSS metadata.
+
 ## 3.5.1
 
 - Keep image soft-mask compositing correct on Impeller by applying the mask at

@@ -426,6 +426,15 @@ class AppLocalizationsId extends AppLocalizations {
   String get editorMenuNewDocument => 'Dokumen baru…';
 
   @override
+  String get editorMenuNewWindow => 'Jendela baru';
+
+  @override
+  String get editorMoveToNewWindow => 'Pindahkan ke jendela baru';
+
+  @override
+  String get editorUnableToOpenNewWindow => 'Tidak dapat membuka jendela baru';
+
+  @override
   String get editorMenuOcr => 'OCR…';
 
   @override

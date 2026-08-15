@@ -1,3 +1,4 @@
+import 'package:dart_pdf_editor/dart_pdf_editor.dart' show showPdfDialog;
 import 'package:flutter/material.dart';
 import 'package:pdf_document/pdf_document.dart';
 
@@ -22,7 +23,7 @@ enum _PageSizePreset {
 Future<PdfPageSize?> showNewDocumentDialog(BuildContext context) {
   var preset = _PageSizePreset.a4;
   var orientation = Orientation.portrait;
-  return showDialog<PdfPageSize>(
+  return showPdfDialog<PdfPageSize>(
     context: context,
     builder: (context) => StatefulBuilder(
       builder: (context, setState) => AlertDialog(

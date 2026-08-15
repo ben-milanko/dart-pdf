@@ -53,7 +53,8 @@
 
   "dl_eyebrow": "Downloaden",
   "dl_h2": "Haal DartPDF op je platform.",
-  "dl_intro": "Haal het in de App Store en Google Play, installeer de desktop-app of gebruik het direct in je browser.",
+  "dl_intro": "We tonen de beste downloads voor dit apparaat. Alle andere platforms blijven met één klik bereikbaar.",
+  "dl_otherPlatforms": "Andere platforms",
   "dl_get": "Downloaden",
   "dl_open": "Openen",
   "dlMac_meta": "Directe .dmg · ondertekend en genotariseerd",
@@ -65,7 +66,7 @@
 
   "dev_eyebrow": "Ontwikkelaars",
   "dev_h2": "Een pure-Dart PDF-engine die jij ook kunt gebruiken.",
-  "dev_p": "De engine gebruikt Dart in plaats van PDFium of native bindings, dus het draait overal waar Dart en Flutter draaien. De\n          pakketten zijn Apache-2.0 gelicentieerd en gepubliceerd op pub.dev. Lees het <a href=\"/sdk\"\n            style=\"color:#6fd0ff;font-weight:700;\">Flutter PDF SDK-overzicht</a> voor benchmarks en een vergelijking met\n          commerciële SDK's.",
+  "dev_p": "De engine gebruikt Dart in plaats van PDFium of native bindings, dus het draait overal waar Dart en Flutter draaien. De\n          pakketten zijn Apache-2.0 gelicentieerd en gepubliceerd op pub.dev. Lees het <a href=\"/flutter-pdf-editor\"\n            style=\"color:#6fd0ff;font-weight:700;\">Flutter PDF SDK-overzicht</a> voor benchmarks en een vergelijking met\n          commerciële SDK's.",
   "dev_ctaGithub": "Bekijk op GitHub",
   "dev_ctaPub": "Pakketten op pub.dev",
   "dev_bTitle": "Open-source pakketten",

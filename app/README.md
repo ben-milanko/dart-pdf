@@ -53,6 +53,10 @@ AppImage and portable tarball builds remain available from
   JSON. Web keeps Canvas through the companion's compile-time stub; pull-request
   web previews provide macOS, Windows, and Linux download buttons in this
   section for testing the native backend.
+- Desktop builds include the native `dartpdf` CLI and stdio MCP server for
+  bounded inspection, text extraction, form listing, and annotation listing.
+  See [`dart_pdf_cli`](../packages/dart_pdf_cli) for installed paths and agent
+  registration.
 - Dirty-state tracking with a save indicator and crash recovery: unsaved
   revisions are mirrored in the background and offered for restoration after
   a restart.
@@ -79,6 +83,18 @@ fvm flutter run -d macos      # or -d chrome, -d windows, -d linux, or a device
 Open a specific file on startup: `fvm flutter run -d macos path/to/file.pdf`
 (desktop), or use the in-app Open button anywhere.
 
+Desktop multi-window support is enabled by default:
+
+```sh
+fvm flutter run -d macos  # or windows / linux
+```
+
+Each desktop runner always starts the required headless multi-view engine, and
+Dart enables Flutter's matching framework feature before binding
+initialization. This applies to debug, release, and Store builds, so dialogs
+and regular windows cannot end up on incompatible engine modes. See
+[the implementation notes](../doc/dev-log/2026-08-14-flutter-347-multi-window.md).
+
 On web, `dart_pdf_editor` uses its bundled page-render worker asset
 automatically. If the browser cannot load it, rendering falls back to the main
 thread.
@@ -92,8 +108,10 @@ cd app && fvm flutter test
 
 ## Build
 
-`flutter build <apk|appbundle|ios|macos|windows|linux|web> --release`. Releases
-are automated on `app-v*` tags. See [RELEASING.md](RELEASING.md).
+`flutter build <apk|appbundle|ios|macos|windows|linux|web> --release`. The three
+desktop native projects compile and bundle the `dartpdf` CLI/MCP sidecar as part
+of the ordinary build. Releases are automated on `app-v*` tags. See
+[RELEASING.md](RELEASING.md).
 
 ## Manual device-test matrix
 

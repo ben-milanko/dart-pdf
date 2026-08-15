@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.6.0
+
+- Lockstep minor release to align the dart-pdf package suite at 3.6.0. No
+  public `pdf_cos` API changes since 3.5.1.
+
 ## 3.5.1
 
 - Decode JBIG2 refined text symbols, including refinement deltas, offsets, and

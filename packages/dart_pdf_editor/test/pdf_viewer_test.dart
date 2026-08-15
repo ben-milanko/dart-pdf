@@ -1466,6 +1466,40 @@ void main() {
           reason: 'the viewer tracks the controller revision by itself');
     });
 
+    testWidgets('page deletion starts a fresh presentation generation',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      addTearDown(editing.dispose);
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            initialFit: PdfViewerFit.width,
+            editing: editing,
+            controller: controller,
+          ),
+        ),
+      ));
+      await tester.pump();
+      final oldNamespace = controller.debugTileCacheNamespace;
+      final oldEpoch = controller.pagePresentationEpoch;
+      final oldPageState = tester.state(find.byType(PdfPageView).first);
+
+      editing.removePage(0);
+      await tester.pump();
+
+      expect(controller.pageCount, 2);
+      expect(controller.pagePresentationEpoch, oldEpoch! + 1);
+      expect(controller.debugTileCacheNamespace, isNot(same(oldNamespace)),
+          reason: 'pre-delete tile completions must be unreachable');
+      expect(tester.state(find.byType(PdfPageView).first),
+          isNot(same(oldPageState)),
+          reason: 'a shifted page slot must not inherit native render state');
+    });
+
     testWidgets('a stale standalone document never desyncs the viewer',
         (tester) async {
       SharedPreferences.setMockInitialValues({});

@@ -8,14 +8,22 @@
 #include <cairo.h>
 
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 
 #include "flutter/generated_plugin_registrant.h"
+#include "../../native/windowing_bootstrap.h"
 
 struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
+  // The experimental windowing runner starts one engine without a template
+  // FlView. Dart then creates every GtkWindow/FlView pair through Flutter's
+  // RegularWindowController implementation.
+  FlEngine* windowing_engine;
+  gboolean engine_started;
+  gboolean application_held;
   // The top-level window, used to anchor the print dialog and to know whether
   // the UI has already been built (non-null once activated).
   GtkWindow* window;
@@ -29,11 +37,17 @@ struct _MyApplication {
   FlMethodChannel* incoming_channel;
   // Physical/available memory snapshots for the adaptive PDF cache policy.
   FlMethodChannel* memory_channel;
+  // Resolves a tab-drag pointer back to a Dart-owned GtkWindow/FlView.
+  FlMethodChannel* window_geometry_channel;
   GPtrArray* print_pages;  // GBytes* per accumulated page image
   char* print_job_name;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
+
+static gboolean experimental_windowing_enabled() {
+  return dart_pdf::FlutterWindowingEnabled();
+}
 
 // Drops the accumulated print page buffers.
 static void clear_print_pages(MyApplication* self) {
@@ -567,9 +581,152 @@ static void memory_method_call_cb(FlMethodChannel* channel,
   }
 }
 
+static GtkWidget* find_flutter_view(GtkWidget* widget) {
+  if (widget == nullptr) return nullptr;
+  if (FL_IS_VIEW(widget)) return widget;
+  if (!GTK_IS_CONTAINER(widget)) return nullptr;
+  GList* children = gtk_container_get_children(GTK_CONTAINER(widget));
+  GtkWidget* result = nullptr;
+  for (GList* child = children; child != nullptr && result == nullptr;
+       child = child->next) {
+    result = find_flutter_view(GTK_WIDGET(child->data));
+  }
+  g_list_free(children);
+  return result;
+}
+
+// Coordinates are not reliably global on Wayland. Ask GDK for the actual
+// surface under the pointer, match its GtkWindow against Flutter 3.47's
+// windowHandle values, then read the pointer relative to that window's FlView.
+static void window_geometry_method_call_cb(FlMethodChannel* channel,
+                                           FlMethodCall* method_call,
+                                           gpointer user_data) {
+  const gchar* method = fl_method_call_get_name(method_call);
+  g_autoptr(FlMethodResponse) response = nullptr;
+  FlValue* args = fl_method_call_get_args(method_call);
+  FlValue* handles =
+      args != nullptr && fl_value_get_type(args) == FL_VALUE_TYPE_MAP
+          ? fl_value_lookup_string(args, "handles")
+          : nullptr;
+  if (strcmp(method, "locateDrop") != 0) {
+    response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
+  } else if (handles == nullptr ||
+             fl_value_get_type(handles) != FL_VALUE_TYPE_LIST) {
+    response = FL_METHOD_RESPONSE(fl_method_error_response_new(
+        "bad_args", "locateDrop expects a handles list", nullptr));
+  } else {
+    GdkDisplay* display = gdk_display_get_default();
+    GdkSeat* seat = display == nullptr
+                        ? nullptr
+                        : gdk_display_get_default_seat(display);
+    GdkDevice* pointer = seat == nullptr ? nullptr : gdk_seat_get_pointer(seat);
+    gint ignored_x = 0;
+    gint ignored_y = 0;
+    GdkWindow* under = pointer == nullptr
+                           ? nullptr
+                           : gdk_device_get_window_at_position(
+                                 pointer, &ignored_x, &ignored_y);
+    GtkWidget* under_widget = nullptr;
+    if (under != nullptr) {
+      gdk_window_get_user_data(under,
+                               reinterpret_cast<gpointer*>(&under_widget));
+    }
+    GtkWidget* top = under_widget == nullptr
+                         ? nullptr
+                         : gtk_widget_get_toplevel(under_widget);
+    const gint64 top_address = static_cast<gint64>(
+        reinterpret_cast<intptr_t>(top));
+    gboolean registered = FALSE;
+    for (size_t i = 0; i < fl_value_get_length(handles); i++) {
+      FlValue* value = fl_value_get_list_value(handles, i);
+      if (fl_value_get_type(value) == FL_VALUE_TYPE_INT &&
+          fl_value_get_int(value) == top_address) {
+        registered = TRUE;
+        break;
+      }
+    }
+
+    GtkWidget* view = registered ? find_flutter_view(top) : nullptr;
+    GdkWindow* view_window =
+        view == nullptr ? nullptr : gtk_widget_get_window(view);
+    if (view_window == nullptr || pointer == nullptr) {
+      g_autoptr(FlValue) nothing = fl_value_new_null();
+      response = FL_METHOD_RESPONSE(fl_method_success_response_new(nothing));
+    } else {
+      gdouble local_x = 0;
+      gdouble local_y = 0;
+      GdkModifierType mask = static_cast<GdkModifierType>(0);
+      gdk_window_get_device_position_double(
+          view_window, pointer, &local_x, &local_y, &mask);
+      g_autoptr(FlValue) location = fl_value_new_map();
+      fl_value_set_string_take(location, "handle",
+                               fl_value_new_int(top_address));
+      fl_value_set_string_take(location, "x", fl_value_new_float(local_x));
+      fl_value_set_string_take(location, "y", fl_value_new_float(local_y));
+      response =
+          FL_METHOD_RESPONSE(fl_method_success_response_new(location));
+    }
+  }
+
+  g_autoptr(GError) error = nullptr;
+  if (!fl_method_call_respond(method_call, response, &error)) {
+    g_warning("Failed to send window geometry response: %s", error->message);
+  }
+}
+
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
+}
+
+static void present_existing_window(MyApplication* self) {
+  if (self->window != nullptr) {
+    gtk_window_present(self->window);
+    return;
+  }
+
+  // Flutter's Dart-owned RegularWindows are plain GTK toplevels rather than
+  // GtkApplicationWindows, so they do not appear in
+  // gtk_application_get_windows(). Surface the active one (or any visible one)
+  // when a second process forwards a file to the headless runner.
+  GList* windows = gtk_window_list_toplevels();
+  GtkWindow* candidate = nullptr;
+  for (GList* link = windows; link != nullptr; link = link->next) {
+    if (!GTK_IS_WINDOW(link->data) ||
+        !gtk_widget_get_visible(GTK_WIDGET(link->data))) {
+      continue;
+    }
+    candidate = GTK_WINDOW(link->data);
+    if (gtk_window_is_active(candidate)) break;
+  }
+  if (candidate != nullptr) gtk_window_present(candidate);
+  g_list_free(windows);
+}
+
+static void register_platform_channels(MyApplication* self,
+                                       FlBinaryMessenger* messenger) {
+  g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
+  self->native_print_channel = fl_method_channel_new(
+      messenger, "dev.milanko.dartpdf/native_print", FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(
+      self->native_print_channel, native_print_method_call_cb, self, nullptr);
+
+  self->incoming_channel = fl_method_channel_new(
+      messenger, "dev.milanko.dartpdf/incoming", FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(
+      self->incoming_channel, incoming_method_call_cb, self, nullptr);
+
+  self->memory_channel = fl_method_channel_new(
+      messenger, "dev.milanko.dartpdf/memory", FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(
+      self->memory_channel, memory_method_call_cb, self, nullptr);
+
+  self->window_geometry_channel = fl_method_channel_new(
+      messenger, "dev.milanko.dartpdf/window_geometry",
+      FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(
+      self->window_geometry_channel, window_geometry_method_call_cb, self,
+      nullptr);
 }
 
 // Implements GApplication::activate.
@@ -578,8 +735,37 @@ static void my_application_activate(GApplication* application) {
 
   // Single-instance: a second launch (the `open` handler activates us, or the
   // user re-runs the binary) reuses the window that already exists.
-  if (self->window != nullptr) {
-    gtk_window_present(self->window);
+  if (self->engine_started) {
+    present_existing_window(self);
+    return;
+  }
+
+  g_autoptr(FlDartProject) project = fl_dart_project_new();
+  fl_dart_project_set_dart_entrypoint_arguments(
+      project, self->dart_entrypoint_arguments);
+
+  if (experimental_windowing_enabled()) {
+    // fl_engine_new_headless starts the engine without installing an implicit
+    // view. This is the Linux equivalent of the engine-owned bootstrap used
+    // by Flutter's Windows and macOS multi-window examples.
+    self->windowing_engine = fl_engine_new_headless(project);
+    if (self->windowing_engine == nullptr) {
+      g_warning("Failed to start DartPDF's windowing engine");
+      g_application_quit(application);
+      return;
+    }
+    fl_register_plugins(FL_PLUGIN_REGISTRY(self->windowing_engine));
+    register_platform_channels(
+        self,
+        fl_engine_get_binary_messenger(self->windowing_engine));
+    self->engine_started = TRUE;
+
+    // Without a GtkApplicationWindow owned by this application, GApplication
+    // would otherwise drop its last reference before Dart creates the primary
+    // RegularWindow. System.exitApplication releases the run loop via
+    // g_application_quit when the final Dart-owned window closes.
+    g_application_hold(application);
+    self->application_held = TRUE;
     return;
   }
 
@@ -615,10 +801,6 @@ static void my_application_activate(GApplication* application) {
 
   gtk_window_set_default_size(window, 1280, 720);
 
-  g_autoptr(FlDartProject) project = fl_dart_project_new();
-  fl_dart_project_set_dart_entrypoint_arguments(
-      project, self->dart_entrypoint_arguments);
-
   FlView* view = fl_view_new(project);
   GdkRGBA background_color;
   // Background defaults to black, override it here if necessary, e.g. #00000000
@@ -639,23 +821,8 @@ static void my_application_activate(GApplication* application) {
   // Register the native print channel on this view's engine.
   self->window = window;
   FlEngine* engine = fl_view_get_engine(view);
-  FlBinaryMessenger* messenger = fl_engine_get_binary_messenger(engine);
-  g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
-  self->native_print_channel = fl_method_channel_new(
-      messenger, "dev.milanko.dartpdf/native_print", FL_METHOD_CODEC(codec));
-  fl_method_channel_set_method_call_handler(
-      self->native_print_channel, native_print_method_call_cb, self, nullptr);
-
-  // Bridge OS file opens to the Dart IncomingFileService.
-  self->incoming_channel = fl_method_channel_new(
-      messenger, "dev.milanko.dartpdf/incoming", FL_METHOD_CODEC(codec));
-  fl_method_channel_set_method_call_handler(
-      self->incoming_channel, incoming_method_call_cb, self, nullptr);
-
-  self->memory_channel = fl_method_channel_new(
-      messenger, "dev.milanko.dartpdf/memory", FL_METHOD_CODEC(codec));
-  fl_method_channel_set_method_call_handler(
-      self->memory_channel, memory_method_call_cb, self, nullptr);
+  register_platform_channels(self, fl_engine_get_binary_messenger(engine));
+  self->engine_started = TRUE;
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
@@ -674,7 +841,7 @@ static void my_application_open(GApplication* application, GFile** files,
     path = g_file_get_path(files[i]);
   }
 
-  if (self->window == nullptr) {
+  if (!self->engine_started) {
     // Cold start: deliver the file the way the Dart side reads it on Linux -
     // as an entrypoint argument (see editor_screen.dart's _openLaunchArgs) -
     // then build the UI. dart_entrypoint_arguments is consumed in activate.
@@ -693,7 +860,7 @@ static void my_application_open(GApplication* application, GFile** files,
                                       payload, nullptr, nullptr, nullptr);
     }
     g_free(path);
-    gtk_window_present(self->window);
+    present_existing_window(self);
   }
 }
 
@@ -708,9 +875,11 @@ static void my_application_startup(GApplication* application) {
 
 // Implements GApplication::shutdown.
 static void my_application_shutdown(GApplication* application) {
-  // MyApplication* self = MY_APPLICATION(object);
-
-  // Perform any actions required at application shutdown.
+  MyApplication* self = MY_APPLICATION(application);
+  if (self->application_held) {
+    self->application_held = FALSE;
+    g_application_release(application);
+  }
 
   G_APPLICATION_CLASS(my_application_parent_class)->shutdown(application);
 }
@@ -722,6 +891,8 @@ static void my_application_dispose(GObject* object) {
   g_clear_object(&self->native_print_channel);
   g_clear_object(&self->incoming_channel);
   g_clear_object(&self->memory_channel);
+  g_clear_object(&self->window_geometry_channel);
+  g_clear_object(&self->windowing_engine);
   g_clear_pointer(&self->print_pages, g_ptr_array_unref);
   g_clear_pointer(&self->print_job_name, g_free);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);

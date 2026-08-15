@@ -2711,6 +2711,7 @@ class PdfEditingController extends ChangeNotifier {
           fillColor: _rgbOf(preferences.textFillColor),
           borderColor: _rgbOf(preferences.textBorderColor),
           borderWidth: preferences.strokeWidth,
+          opacity: preferences.opacity,
           lineSpacing: _lineSpacing,
           charSpacing: _charSpacing,
           horizontalScale: _fontWidth,
@@ -2744,6 +2745,7 @@ class PdfEditingController extends ChangeNotifier {
           // text color so the arrow always has a definite color/width
           strokeColor: _rgbOf(preferences.textBorderColor) ?? _colorValue,
           strokeWidth: preferences.strokeWidth,
+          opacity: preferences.opacity,
           pageRotation: _page(pageIndex).rotation,
           author: preferences.author,
         ),
@@ -2763,6 +2765,7 @@ class PdfEditingController extends ChangeNotifier {
           fillColor: _rgbOf(preferences.textFillColor),
           borderColor: _rgbOf(preferences.textBorderColor),
           borderWidth: preferences.strokeWidth,
+          opacity: preferences.opacity,
           lineSpacing: _lineSpacing,
           charSpacing: _charSpacing,
           horizontalScale: _fontWidth,
@@ -2807,6 +2810,7 @@ class PdfEditingController extends ChangeNotifier {
         fillColor: _rgbOf(preferences.textFillColor),
         borderColor: _rgbOf(preferences.textBorderColor),
         borderWidth: preferences.strokeWidth,
+        opacity: preferences.opacity,
         pageRotation: _page(pageIndex).rotation,
         author: preferences.author,
       ),
@@ -6195,7 +6199,13 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// The selected annotation's text, for pre-filling an edit prompt.
-  String? get selectedText => selectedAnnotation?.contents;
+  String? get selectedText {
+    final annotation = selectedAnnotation;
+    final text = annotation?.contents;
+    return annotation?.subtype == 'FreeText' && text != null
+        ? pdfNormalizeLineEndings(text)
+        : text;
+  }
 
   /// Parses a free-text annotation's /DA: the font it was written with
   /// and its size, falling back to the current preferences.
@@ -6591,6 +6601,9 @@ class PdfEditingController extends ChangeNotifier {
     bool? underline,
   }) {
     if (_selected.isEmpty) return;
+    final rewrittenText = annotation.subtype == 'FreeText'
+        ? pdfNormalizeLineEndings(text)
+        : text;
     final page = _selected.last.$1;
     // a rotated text box flattens to horizontal under plain remove +
     // re-add (addFreeText/addStamp/addNote bake a horizontal matrix), so
@@ -6615,7 +6628,7 @@ class PdfEditingController extends ChangeNotifier {
             e.addFreeText(
               page,
               rect,
-              text,
+              rewrittenText,
               fontSize: size ?? style.size,
               font: font ?? style.font,
               // keep the box's own alignment unless this edit changes it
@@ -6625,6 +6638,7 @@ class PdfEditingController extends ChangeNotifier {
               borderColor: border != null ? border.$1 : parsed?.borderColor,
               borderWidth: borderWidth ??
                   ((parsed?.borderWidth ?? 0) > 0 ? parsed!.borderWidth : 1),
+              opacity: annotation.appearanceOpacity,
               // keep the box's own spacing/decoration unless changed
               lineSpacing: lineSpacing ??
                   parsed?.lineSpacing ??
@@ -6642,7 +6656,7 @@ class PdfEditingController extends ChangeNotifier {
             e.addStamp(
               page,
               rect,
-              text,
+              rewrittenText,
               color: color ?? 0xC03030,
               pageRotation: _page(page).rotation,
               author: by,
@@ -6653,7 +6667,7 @@ class PdfEditingController extends ChangeNotifier {
               page,
               rect.left,
               rect.top,
-              text,
+              rewrittenText,
               color: color ?? 0xFFD100,
               pageRotation: _page(page).rotation,
               author: by,
@@ -6708,6 +6722,7 @@ class PdfEditingController extends ChangeNotifier {
           fillColor: parsed?.fillColor,
           borderColor: parsed?.borderColor,
           borderWidth: (parsed?.borderWidth ?? 0) > 0 ? parsed!.borderWidth : 1,
+          opacity: annotation.appearanceOpacity,
           lineSpacing: lineSpacing ??
               parsed?.lineSpacing ??
               kPdfFreeTextDefaultLineSpacing,

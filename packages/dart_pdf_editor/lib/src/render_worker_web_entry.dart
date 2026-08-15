@@ -12,6 +12,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart';
 import 'package:web/web.dart' as web;
 
+import 'font_substitution.dart';
 import 'region_replay_index.dart';
 import 'jpeg_accelerator.dart';
 import 'render_worker_transcript_cache.dart';
@@ -184,6 +185,7 @@ void runPdfRenderWorker() {
   var flatePredecoder = _BrowserFlatePredecoder(flateSampleCache);
   var reuseTranscripts = true;
   var collectTimings = false;
+  Future<void>? adventorFontsReady;
   PdfCancellationToken? activeToken;
   int? activeRequestId;
   final transcriptCache = PdfWorkerTranscriptCache();
@@ -410,6 +412,13 @@ void runPdfRenderWorker() {
                   allowUndecodedImages: true,
                 );
                 if (profile != null) {
+                  if (commands.any((command) =>
+                      command is PdfDrawTextCommand &&
+                      pdfUsesAdventorSubstitute(command.run.fontName))) {
+                    await (adventorFontsReady ??=
+                        _loadWorkerAdventorFonts(scope));
+                    if (token.cancelled) throw PdfCancelledException();
+                  }
                   Map<Object, web.CanvasImageSource> browserImages = const {};
                   var browserFrames = const <web.VideoFrame>[];
                   if (profile.needsImageDecode) {
@@ -2410,6 +2419,35 @@ List<String> _browserImageDecodeMissing() => <String>[
       if (!globalContext.has('createImageBitmap')) 'createImageBitmap',
       if (!globalContext.has('OffscreenCanvas')) 'OffscreenCanvas',
     ];
+
+/// Loads the optional asset package's metric-compatible Century Gothic faces
+/// into this worker's own FontFaceSet.
+///
+/// Flutter's main-document FontManifest does not cross the worker boundary.
+/// The prebuilt worker and these fonts are siblings under the optional
+/// `dart_pdf_editor_assets/assets` tree, so resolving from the worker script
+/// keeps the URL correct under Flutter's package-asset prefix. A self-hosted
+/// worker without the faces safely falls through to system Century Gothic or
+/// the later geometric-sans names in [pdfCanvas2dSubstituteFamily].
+Future<void> _loadWorkerAdventorFonts(
+    web.DedicatedWorkerGlobalScope scope) async {
+  final base = Uri.parse(scope.location.href).resolve('../fonts/');
+  for (final face in const [
+    (file: 'TeXGyreAdventor-Regular.otf', weight: '400'),
+    (file: 'TeXGyreAdventor-Bold.otf', weight: '700'),
+  ]) {
+    try {
+      final font = web.FontFace(
+        pdfAdventorFontFamily,
+        'url("${base.resolve(face.file)}") format("opentype")'.toJS,
+        web.FontFaceDescriptors(weight: face.weight),
+      );
+      scope.fonts.add(await font.load().toDart);
+    } catch (_) {
+      // Optional enhancement only: a custom worker may not ship these files.
+    }
+  }
+}
 
 /// Per-job tally of how the browser image codec fared, folded into
 /// [PdfWorkerPhaseTimings.imageDecodeSummary] for the phase log (#458). Only

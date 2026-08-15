@@ -75,9 +75,17 @@ class PdfPageView extends StatefulWidget {
     this.transformScale,
     this.transformChanges,
     this.tileRasterBackend = const PdfCanvasTileRasterBackend(),
+    this.tileCacheNamespace,
   }) : assert(qualityPageCount >= 1);
 
   final PdfPage page;
+
+  /// Stable owner identity for entries in the process-wide tile cache.
+  ///
+  /// Viewers supply a token that survives incremental document revisions but
+  /// differs across tabs/windows. A standalone page view falls back to its
+  /// current [PdfDocument] identity.
+  final Object? tileCacheNamespace;
 
   /// Display rotation override. When set, the page renders at this
   /// rotation instead of its own /Rotate - the view rotation feature
@@ -882,6 +890,9 @@ class _PdfPageViewState extends State<PdfPageView>
         rotation: widget.rotation,
       );
 
+  Object get _effectiveTileCacheNamespace =>
+      widget.tileCacheNamespace ?? widget.page.document;
+
   PdfPageRenderIntent _renderIntent(PdfPageView source) => PdfPageRenderIntent(
         page: source.page,
         pageIndex: source.previewIndex,
@@ -1612,8 +1623,10 @@ class _PdfPageViewState extends State<PdfPageView>
   /// any in-flight raster from the superseded scene (issue #308's model).
   void _invalidateTiles() {
     if (!PdfPageView.tileStoreDetail) return;
-    (PdfPageView.debugTileStoreOverride ?? PdfTileStore.instance)
-        .invalidate(pages: {widget.previewIndex});
+    (PdfPageView.debugTileStoreOverride ?? PdfTileStore.instance).invalidate(
+      pages: {widget.previewIndex},
+      cacheNamespace: _effectiveTileCacheNamespace,
+    );
   }
 
   void _dropDetail() {
@@ -4539,19 +4552,23 @@ class _PdfPageViewState extends State<PdfPageView>
     final previousRegion = _tileDetailRegion;
     final previousRatio = _tileDetailRatio;
     final store = PdfPageView.debugTileStoreOverride ?? PdfTileStore.instance;
-    store.invalidatePageTilesWhere(widget.previewIndex, (tile) {
-      final retainedTileRatio = store.ladder.ratioFor(tile.rung);
-      final slack = 0.5 / retainedTileRatio;
-      final requiredImageRatio = _tileImageRatio(retainedTileRatio);
-      if (requiredImageRatio > imageRatio * 1.01 ||
-          !_rectCovers(region, tile.region, slack)) {
-        return false;
-      }
-      return previousRegion == null ||
-          previousRatio == null ||
-          previousRatio < requiredImageRatio * 0.99 ||
-          !_rectCovers(previousRegion, tile.region, slack);
-    });
+    store.invalidatePageTilesWhere(
+      widget.previewIndex,
+      (tile) {
+        final retainedTileRatio = store.ladder.ratioFor(tile.rung);
+        final slack = 0.5 / retainedTileRatio;
+        final requiredImageRatio = _tileImageRatio(retainedTileRatio);
+        if (requiredImageRatio > imageRatio * 1.01 ||
+            !_rectCovers(region, tile.region, slack)) {
+          return false;
+        }
+        return previousRegion == null ||
+            previousRatio == null ||
+            previousRatio < requiredImageRatio * 0.99 ||
+            !_rectCovers(previousRegion, tile.region, slack);
+      },
+      cacheNamespace: _effectiveTileCacheNamespace,
+    );
     if (previous != null) {
       _disposeTileRasterSession(previous);
       previous.dispose();
@@ -4671,6 +4688,7 @@ class _PdfPageViewState extends State<PdfPageView>
       child: PdfTileLayer(
         store: store,
         identity: PdfTilePageIdentity(
+          cacheNamespace: _effectiveTileCacheNamespace,
           pageIndex: widget.previewIndex,
           pageEpoch: widget.pageEpoch,
           contentStamp: widget.contentStamp,
@@ -4843,21 +4861,46 @@ class _PdfPageViewState extends State<PdfPageView>
     PdfRetainedScene scene,
     Rect region,
     double pixelRatio,
-  ) =>
-      _tileRasterSessionFor(scene).rasterizeRegion(
+  ) async {
+    try {
+      final image = await _tileRasterSessionFor(scene).rasterizeRegion(
         region,
         pixelRatio: pixelRatio,
         tracePage: widget.previewIndex,
       );
+      PdfTileRasterDiagnostics.instance.reportTile(
+        cacheNamespace: _effectiveTileCacheNamespace,
+        pageIndex: widget.previewIndex,
+        region: region,
+        pixelRatio: pixelRatio,
+        width: image.width,
+        height: image.height,
+      );
+      return image;
+    } catch (error) {
+      PdfTileRasterDiagnostics.instance.reportTile(
+        cacheNamespace: _effectiveTileCacheNamespace,
+        pageIndex: widget.previewIndex,
+        region: region,
+        pixelRatio: pixelRatio,
+        width: 0,
+        height: 0,
+        error: error,
+      );
+      rethrow;
+    }
+  }
 
   PdfTileRasterSession _tileRasterSessionFor(PdfRetainedScene scene) =>
       _tileRasterSessions.putIfAbsent(scene, () {
         final backend = widget.tileRasterBackend;
         String label() => _tileBackendLabel(backend);
         PdfTileRasterSession? preferred;
+        Object? initializationError;
         try {
           preferred = backend.createSession(scene);
         } catch (error) {
+          initializationError = error;
           PdfPerfLog.log(
             'tile backend init fallback page=${widget.previewIndex} '
             'backend=${label()} error=$error',
@@ -4867,14 +4910,41 @@ class _PdfPageViewState extends State<PdfPageView>
             const PdfCanvasTileRasterBackend().createSession(scene);
         if (preferred == null) {
           scene.releaseDecodedImagePixels();
+          PdfTileRasterDiagnostics.instance.reportSession(
+            cacheNamespace: _effectiveTileCacheNamespace,
+            document: widget.page.document,
+            scene: scene,
+            pageIndex: widget.previewIndex,
+            requestedBackend: label(),
+            effectiveBackend: 'canvas',
+            fallbackReason: backend.lastSessionRejection ??
+                initializationError?.toString() ??
+                'backend declined',
+            commandCount: scene.commands.length,
+            pageColor: scene.plan.pageColor.toARGB32(),
+            annotations: scene.plan.annotations,
+            rotation: scene.plan.rotation,
+          );
           PdfPerfLog.log(
             'tile backend session page=${widget.previewIndex} '
             'requested=${label()} route=canvas '
-            'reason=${backend.lastSessionRejection ?? 'backend declined'} '
+            'reason=${backend.lastSessionRejection ?? initializationError ?? 'backend declined'} '
             'commands=${scene.commands.length}',
           );
           return fallback;
         }
+        PdfTileRasterDiagnostics.instance.reportSession(
+          cacheNamespace: _effectiveTileCacheNamespace,
+          document: widget.page.document,
+          scene: scene,
+          pageIndex: widget.previewIndex,
+          requestedBackend: label(),
+          effectiveBackend: label(),
+          commandCount: scene.commands.length,
+          pageColor: scene.plan.pageColor.toARGB32(),
+          annotations: scene.plan.annotations,
+          rotation: scene.plan.rotation,
+        );
         PdfPerfLog.log(
           'tile backend session page=${widget.previewIndex} '
           'requested=${label()} route=${preferred == fallback ? 'canvas' : label()} '
@@ -4890,10 +4960,17 @@ class _PdfPageViewState extends State<PdfPageView>
         return _FallbackTileRasterSession(
           primary: preferred,
           fallback: fallback,
-          onFallback: (error) => PdfPerfLog.log(
-            'tile backend raster fallback page=${widget.previewIndex} '
-            'backend=${label()} error=$error',
-          ),
+          onFallback: (error) {
+            PdfTileRasterDiagnostics.instance.reportFallback(
+              cacheNamespace: _effectiveTileCacheNamespace,
+              pageIndex: widget.previewIndex,
+              error: error,
+            );
+            PdfPerfLog.log(
+              'tile backend raster fallback page=${widget.previewIndex} '
+              'backend=${label()} error=$error',
+            );
+          },
         );
       });
 

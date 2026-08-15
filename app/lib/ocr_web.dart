@@ -63,7 +63,7 @@ class OnDeviceOcr {
       return;
     }
 
-    final approved = await showDialog<bool>(
+    final approved = await showPdfDialog<bool>(
       context: context,
       builder: (_) => const _WebOcrConfirmDialog(),
     );

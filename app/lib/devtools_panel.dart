@@ -52,6 +52,8 @@ class DevToolsPanel extends StatefulWidget {
     super.key,
     required this.onClose,
     this.session,
+    this.viewerController,
+    this.documentTitle,
     this.bottomSheet = false,
     this.gpuPreviewDownloads = _defaultGpuPreviewDownloads,
   });
@@ -60,6 +62,13 @@ class DevToolsPanel extends StatefulWidget {
 
   /// The active tab's edit session, when one is open.
   final PdfEditingController? session;
+
+  /// The active tab's viewer, used to tie page/backend diagnostics to what the
+  /// user was actually looking at when the snapshot was exported.
+  final PdfViewerController? viewerController;
+
+  /// Human-readable active tab title. This is diagnostic metadata only.
+  final String? documentTitle;
 
   /// Render as a bottom sheet (phones) rather than a right-docked side panel:
   /// a rounded, height-capped card with a drag-handle affordance and its own
@@ -301,9 +310,11 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
         'overprintApproximation': _tools.gpuOverprintApproximation,
         'stats': _tools.flutterGpuTileRasterBackend.stats.toJson(),
       },
+      'tileRasterPages': PdfTileRasterDiagnostics.instance.snapshot(),
       if (store != null)
         'tileStore': {
           'tiles': store.tileCount,
+          'namespaces': store.debugNamespaceCount,
           'retainedBytes': store.retainedBytes,
           'inFlight': store.inFlightCount,
           'scheduled': store.debugTilesScheduled,
@@ -312,12 +323,52 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
           'batches': store.debugBatchesDispatched,
         },
       'pdfPerf': PdfPerf.snapshot().toJson(),
+      if (widget.viewerController != null)
+        'activeView': {
+          'documentTitle': widget.documentTitle,
+          'currentPage': widget.viewerController!.currentPage + 1,
+          'pagePresentationEpoch':
+              widget.viewerController!.pagePresentationEpoch,
+          'tileCacheNamespace':
+              widget.viewerController!.tileCacheNamespaceIdentity,
+        },
       if (session != null)
         'session': {
+          'documentTitle': widget.documentTitle,
+          'sessionIdentity': identityHashCode(session),
+          'documentIdentity': identityHashCode(session.document),
+          'tileCacheNamespace':
+              widget.viewerController?.tileCacheNamespaceIdentity,
           'pages': session.document.pageCount,
+          'currentPage': widget.viewerController == null
+              ? null
+              : widget.viewerController!.currentPage + 1,
+          'pageColor':
+              '#${session.preferences.pageColor.toARGB32().toRadixString(16).padLeft(8, '0').toUpperCase()}',
+          'showAnnotations': session.preferences.showAnnotations,
+          'highlightFormFields': session.preferences.highlightFormFields,
           'currentRevisionBytes': session.bytes.length,
           'sessionBufferBytes': session.sessionBufferBytes,
           'revisions': session.revisionCount,
+          'revisionId': session.revisionId,
+          'lastWorkerRevisionIncremental': session.lastRevisionDelta != null,
+          'pagePresentationEpoch':
+              widget.viewerController?.pagePresentationEpoch,
+          'currentPageRenderStamp': widget.viewerController == null
+              ? null
+              : session.pageRenderStamp(
+                  widget.viewerController!.currentPage,
+                ),
+          'currentPageContentStamp': widget.viewerController == null
+              ? null
+              : session.pageContentRenderStamp(
+                  widget.viewerController!.currentPage,
+                ),
+          'currentPageDestructiveStamp': widget.viewerController == null
+              ? null
+              : session.pageDestructiveStamp(
+                  widget.viewerController!.currentPage,
+                ),
         },
       'log': [
         for (final entry in _tools.log)
@@ -503,7 +554,7 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
   }
 
   void _explain(String title, String text) {
-    showDialog<void>(
+    showPdfDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(title),
@@ -1430,6 +1481,15 @@ class _DevToolsPanelState extends State<DevToolsPanel> {
     return _section(theme, 'Session', [
       _kv(theme, 'Pages', '${session.document.pageCount}',
           help: 'Page count of the active document.'),
+      if (widget.viewerController != null)
+        _kv(
+          theme,
+          'Page presentation epoch',
+          '${widget.viewerController!.pagePresentationEpoch ?? '-'}',
+          help: 'Advances after page insert, remove, or reorder. A rendering '
+              'artifact report should show the current epoch and a new tile '
+              'namespace after a structural edit.',
+        ),
       _kv(theme, 'Current revision', _mb(session.bytes.length),
           help: 'Byte size of the document as it stands now - what Save '
               'writes. Every edit appends an incremental revision, so this '

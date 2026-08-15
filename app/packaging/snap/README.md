@@ -21,6 +21,14 @@ sudo snap connect dartpdf:removable-media
 sudo snap connect dartpdf:password-manager-service
 ```
 
+The GUI owns the package's `dartpdf` command. Sidecar-enabled releases expose
+the bundled CLI/MCP executable as `dartpdf.cli`:
+
+```sh
+dartpdf.cli inspect "$HOME/document.pdf" --json
+dartpdf.cli mcp --root "$HOME/PDFs"
+```
+
 ## Local build
 
 On Ubuntu 24.04 or newer:
@@ -36,8 +44,10 @@ snap run dartpdf
 ```
 
 The checked-in recipe pins the current stable GitHub release and SHA-256 for
-reproducible local builds. CI replaces that URL with the already-downloaded,
-digest-verified release archive.
+reproducible local builds. That pinned release predates the sidecar, so the
+release builder verifies that a newly supplied archive contains `dartpdf-cli`
+and adds the `dartpdf.cli` app entry only to that generated recipe. CI replaces
+the pinned URL with the already-downloaded, digest-verified release archive.
 
 ## Publishing
 

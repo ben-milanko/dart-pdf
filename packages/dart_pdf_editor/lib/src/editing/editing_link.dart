@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import 'editing_controller.dart';
 
@@ -20,7 +21,7 @@ Future<PdfLinkTarget?> showPdfAddLinkDialog(
   required int currentPage,
   String initialUrl = '',
 }) {
-  return showDialog<PdfLinkTarget>(
+  return showPdfDialog<PdfLinkTarget>(
     context: context,
     builder: (context) => _AddLinkDialog(
       pageCount: pageCount,

@@ -86,10 +86,19 @@ double pdfTextBoxLineX(
   }
 }
 
+/// Normalizes the three line-ending forms found in PDF strings to `\n`.
+///
+/// Bluebeam commonly stores FreeText paragraphs with bare carriage returns,
+/// while Flutter edits with line feeds. Treating a retained `\r` as a glyph
+/// changes line measurement and makes centred text jump horizontally after an
+/// edit.
+String pdfNormalizeLineEndings(String text) =>
+    text.replaceAll(RegExp(r'\r\n?'), '\n');
+
 /// Greedy word-wrap of [text] to [maxWidth] using [measure] to size a
-/// candidate line. Paragraphs (split on `\n`) always contribute at least one
-/// line; a single word wider than [maxWidth] overflows onto its own line (and
-/// is clipped by the appearance).
+/// candidate line. Paragraphs (with CR, LF, or CRLF separators) always
+/// contribute at least one line; a single word wider than [maxWidth] overflows
+/// onto its own line (and is clipped by the appearance).
 ///
 /// [tolerance] is the slack allowed before a line breaks. A box auto-sized to
 /// its content sets its width to `lineWidth + 2*pad` and wraps at
@@ -103,7 +112,7 @@ List<String> pdfWrapText(
   double tolerance = 0,
 }) {
   final lines = <String>[];
-  for (final paragraph in text.split('\n')) {
+  for (final paragraph in pdfNormalizeLineEndings(text).split('\n')) {
     var line = '';
     for (final word in paragraph.split(' ')) {
       final candidate = line.isEmpty ? word : '$line $word';

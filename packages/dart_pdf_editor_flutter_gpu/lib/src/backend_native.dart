@@ -72,6 +72,11 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   final FlutterGpuTileBackendStats stats;
   final _GpuImageCache _imageCache;
   final _GpuGeometryPool _geometryPool;
+  // Contexts belong to Flutter views and can disappear when a native window
+  // closes. Keep only weak membership so diagnostics do not turn every view
+  // ever opened into a process-lifetime root.
+  final Expando<bool> _seenContexts = Expando<bool>('pdf-gpu-context');
+  gpu.GpuContext? _lastContext;
   String? _lastSessionRejection;
 
   @override
@@ -100,6 +105,16 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
     _lastSessionRejection = null;
     try {
       final context = gpu.gpuContext;
+      if (_seenContexts[context] != true) {
+        _seenContexts[context] = true;
+        stats.contextsSeen++;
+      }
+      final previousContext = _lastContext;
+      if (previousContext != null && !identical(previousContext, context)) {
+        stats.contextSwitches++;
+      }
+      _lastContext = context;
+      stats.lastContextIdentity = identityHashCode(context);
       final unitBuild = _buildGpuUnits(scene.commands);
       final units = unitBuild.units;
       if (units == null) {
@@ -900,20 +915,35 @@ class _CompiledScene {
   final _GpuGeometryPool geometryPool;
   final List<_GpuGeometryResource> geometryLeases;
   bool _disposed = false;
+  bool _texturesReleased = false;
   bool _geometryReleased = false;
   int _inFlight = 0;
 
   void dispose() {
     if (_disposed) return;
     _disposed = true;
-    imageCache.releaseAll(textureLeases, stats);
-    _releaseGeometryIfReady();
+    _releaseResourcesIfReady();
   }
 
-  void _releaseGeometryIfReady() {
-    if (!_disposed || _inFlight != 0 || _geometryReleased) return;
-    _geometryReleased = true;
-    geometryPool.releaseAll(geometryLeases, stats);
+  void _releaseResourcesIfReady() {
+    if (!_disposed || _inFlight != 0) return;
+    // The render pass references both the scene's geometry buffers and image
+    // textures until its completion callback fires. A structural document
+    // edit disposes the old page scene immediately; releasing the texture
+    // leases here used to make them eviction-eligible while that scene's last
+    // command buffer was still executing. Under Impeller/Metal the evicted
+    // texture could then disappear underneath the submitted pass, producing
+    // solid-colour rectangles or unrelated image fragments after page
+    // insert/remove/reorder. Geometry already observed the completion fence;
+    // image leases must share that exact lifetime.
+    if (!_texturesReleased) {
+      _texturesReleased = true;
+      imageCache.releaseAll(textureLeases, stats);
+    }
+    if (!_geometryReleased) {
+      _geometryReleased = true;
+      geometryPool.releaseAll(geometryLeases, stats);
+    }
   }
 
   void _completeSubmission(
@@ -938,7 +968,7 @@ class _CompiledScene {
       'queue=${(elapsed / 1000).toStringAsFixed(1)}ms '
       'success=$success inFlight=${stats.inFlightSubmissions}',
     );
-    _releaseGeometryIfReady();
+    _releaseResourcesIfReady();
   }
 
   ui.Image render(
@@ -1072,7 +1102,7 @@ class _CompiledScene {
       stats
         ..inFlightSubmissions = math.max(0, stats.inFlightSubmissions - 1)
         ..failedSubmissions += 1;
-      _releaseGeometryIfReady();
+      _releaseResourcesIfReady();
       rethrow;
     }
     stats
@@ -1243,7 +1273,8 @@ class _GpuImageTexture {
 }
 
 class _GpuTextureKey {
-  const _GpuTextureKey(this.content, this.width, this.height);
+  const _GpuTextureKey(this.context, this.content, this.width, this.height);
+  final gpu.GpuContext context;
   final Object content;
   final int width;
   final int height;
@@ -1251,12 +1282,14 @@ class _GpuTextureKey {
   @override
   bool operator ==(Object other) =>
       other is _GpuTextureKey &&
+      identical(other.context, context) &&
       other.content == content &&
       other.width == width &&
       other.height == height;
 
   @override
-  int get hashCode => Object.hash(content, width, height);
+  int get hashCode =>
+      Object.hash(identityHashCode(context), content, width, height);
 }
 
 class _GpuImageCache {
@@ -1274,8 +1307,8 @@ class _GpuImageCache {
     ui.Image image,
     FlutterGpuTileBackendStats stats,
   ) async {
-    final key =
-        _GpuTextureKey(pdfImageContentKey(request), image.width, image.height);
+    final key = _GpuTextureKey(
+        context, pdfImageContentKey(request), image.width, image.height);
     final hit = _entries.remove(key);
     if (hit != null) {
       _entries[key] = hit;
@@ -1683,7 +1716,11 @@ class _GpuGeometryPool {
         ((data.lengthInBytes + chunkBytes - 1) ~/ chunkBytes) * chunkBytes;
     _GpuGeometryResource? resource;
     for (final candidate in _resources) {
-      if (candidate.leased || candidate.capacity < capacity) continue;
+      if (!identical(candidate.context, context) ||
+          candidate.leased ||
+          candidate.capacity < capacity) {
+        continue;
+      }
       if (resource == null || candidate.capacity < resource.capacity) {
         resource = candidate;
       }
@@ -1697,6 +1734,7 @@ class _GpuGeometryPool {
         );
       }
       resource = _GpuGeometryResource(
+        context,
         context.createDeviceBuffer(gpu.StorageMode.hostVisible, capacity),
         capacity,
       );
@@ -1730,7 +1768,8 @@ class _GpuGeometryPool {
 }
 
 class _GpuGeometryResource {
-  _GpuGeometryResource(this.buffer, this.capacity);
+  _GpuGeometryResource(this.context, this.buffer, this.capacity);
+  final gpu.GpuContext context;
   final gpu.DeviceBuffer buffer;
   final int capacity;
   bool leased = false;
@@ -2133,12 +2172,23 @@ class _GpuPipelines {
         softMaskMaskSampler =
             library['PdfTileSoftMaskFragment']!.getUniformSlot('mask_tex');
 
-  static Future<_GpuPipelines>? _instance;
+  // Native multi-window builds can expose a distinct Impeller context per
+  // Flutter view. Pipelines are context-owned; reusing the first window's
+  // pipeline objects in another context produces undefined output rather than
+  // a reliable submission error.
+  // Expando gives this cache weak, identity-based context keys. A regular
+  // static map would keep a closed Flutter window and all of its native
+  // pipelines alive for the rest of the process.
+  static final Expando<Future<_GpuPipelines>> _instances =
+      Expando<Future<_GpuPipelines>>('pdf-gpu-pipelines');
 
-  static Future<_GpuPipelines> instance(gpu.GpuContext context) =>
-      _instance ??= _loadLibrary().then(
-        (library) => _GpuPipelines._(context, library),
-      );
+  static Future<_GpuPipelines> instance(gpu.GpuContext context) {
+    final existing = _instances[context];
+    if (existing != null) return existing;
+    return _instances[context] = _loadLibrary().then(
+      (library) => _GpuPipelines._(context, library),
+    );
+  }
 
   static Future<gpu.ShaderLibrary> _loadLibrary() async {
     for (final asset in const [

@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.6.0
+
+- Carry nonstroking and stroking alpha on `PdfTextRun` through interpretation,
+  translation, and render-command serialization so text annotation opacity is
+  preserved by every renderer.
+
 ## 3.5.1
 
 - Decode JBIG2 and JPEG 2000 data through image mask and soft-mask paths so

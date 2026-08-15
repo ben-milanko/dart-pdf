@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.6.0
+
+- Read Bluebeam FreeText paragraph styling from `/DS` and rich-text `/RC` when
+  standard PDF entries are absent, preserving alignment, leading, character
+  spacing, horizontal scale, and underline when editing or regenerating an
+  appearance.
+- Let FreeText annotations participate in opacity restyling, write opacity on
+  creation, and rebuild their appearances without losing the selected alpha.
+
 ## 3.5.1
 
 - Lockstep patch release for the scanned-page rendering fixes in `pdf_cos`,

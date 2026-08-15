@@ -53,7 +53,8 @@
 
   "dl_eyebrow": "Télécharger",
   "dl_h2": "Obtenez DartPDF sur votre plateforme.",
-  "dl_intro": "Téléchargez-le sur l'App Store et Google Play, installez l'app de bureau ou utilisez-le directement dans votre navigateur.",
+  "dl_intro": "Nous affichons les meilleurs téléchargements pour cet appareil. Toutes les autres plateformes restent accessibles en un clic.",
+  "dl_otherPlatforms": "Autres plateformes",
   "dl_get": "Télécharger",
   "dl_open": "Ouvrir",
   "dlMac_meta": "Fichier .dmg direct · signé et notarisé",
@@ -65,7 +66,7 @@
 
   "dev_eyebrow": "Développeurs",
   "dev_h2": "Un moteur PDF en pur Dart que vous pouvez aussi utiliser.",
-  "dev_p": "Le moteur utilise Dart plutôt que PDFium ou des liaisons natives, il fonctionne donc partout où Dart et Flutter tournent. Les\n          packages sont sous licence Apache-2.0 et publiés sur pub.dev. Consultez la <a href=\"/sdk\"\n            style=\"color:#6fd0ff;font-weight:700;\">présentation du SDK PDF Flutter</a> pour les benchmarks et une comparaison avec\n          les SDK commerciaux.",
+  "dev_p": "Le moteur utilise Dart plutôt que PDFium ou des liaisons natives, il fonctionne donc partout où Dart et Flutter tournent. Les\n          packages sont sous licence Apache-2.0 et publiés sur pub.dev. Consultez la <a href=\"/flutter-pdf-editor\"\n            style=\"color:#6fd0ff;font-weight:700;\">présentation du SDK PDF Flutter</a> pour les benchmarks et une comparaison avec\n          les SDK commerciaux.",
   "dev_ctaGithub": "Voir sur GitHub",
   "dev_ctaPub": "Packages sur pub.dev",
   "dev_bTitle": "Packages open source",

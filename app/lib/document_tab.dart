@@ -1,6 +1,55 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/foundation.dart';
 
+/// A detached snapshot used to move a live document into another native
+/// window.
+///
+/// The current revision and its saved baseline travel together, preserving
+/// the dirty/unsaved state and save destination. The receiving window creates
+/// fresh editor and viewer controllers, so undo history and viewport state do
+/// not cross the window boundary.
+@immutable
+class DocumentHandoff {
+  const DocumentHandoff({
+    required this.bytes,
+    required this.title,
+    required this.savedLength,
+    this.originPath,
+    this.originBookmark,
+    this.originToken,
+    this.cachePath,
+  });
+
+  /// Snapshots an editable tab without sharing its mutable controller with a
+  /// second Flutter view. The source remains alive until the destination has
+  /// accepted this handoff, so a failed native drop cannot lose edits.
+  factory DocumentHandoff.fromTab(DocumentTab tab) {
+    final session = tab.session;
+    if (session == null) {
+      throw StateError('Only editable document tabs can move between windows');
+    }
+    return DocumentHandoff(
+      bytes: Uint8List.fromList(session.bytes),
+      title: tab.title,
+      savedLength: tab.savedLength,
+      originPath: tab.originPath,
+      originBookmark: tab.originBookmark,
+      originToken: tab.originToken,
+      cachePath: tab.cachePath,
+    );
+  }
+
+  final Uint8List bytes;
+  final String title;
+  final int savedLength;
+  final String? originPath;
+  final String? originBookmark;
+  final String? originToken;
+  final String? cachePath;
+
+  bool get isDirty => bytes.length != savedLength;
+}
+
 /// One open document. Holds its own edit session and viewer controller so
 /// switching tabs preserves edits, undo history, and scroll position.
 ///

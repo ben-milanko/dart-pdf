@@ -4,28 +4,28 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title data-i18n="sdk_metaTitle">Flutter PDF SDK: pure-Dart PDF viewer, editor & renderer | DartPDF</title>
+  <title data-i18n="sdk_metaTitle">Flutter PDF editor: open-source Dart package | DartPDF</title>
   <meta name="description" data-i18n-attr="content:sdk_metaDesc"
-    content="Open-source Flutter PDF SDK written entirely in Dart. Viewer, annotations, forms, digital signatures, redaction, text editing, and OCR on iOS, Android, macOS, Windows, Linux, and web. No PDFium, no platform views." />
-  <link rel="canonical" href="https://dart-pdf.com/sdk" />
+    content="Add a complete PDF editor to Flutter with dart_pdf_editor. View, annotate, fill forms, sign, redact, edit text, and save on every Flutter platform." />
+  <link rel="canonical" href="https://dart-pdf.com/flutter-pdf-editor" />
 
   <!-- Open Graph -->
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="DartPDF" />
-  <meta property="og:url" content="https://dart-pdf.com/sdk" />
-  <meta property="og:title" data-i18n-attr="content:sdk_metaTitle" content="Flutter PDF SDK: pure-Dart PDF viewer, editor & renderer" />
+  <meta property="og:url" content="https://dart-pdf.com/flutter-pdf-editor" />
+  <meta property="og:title" data-i18n-attr="content:sdk_metaTitle" content="Flutter PDF editor: open-source Dart package" />
   <meta property="og:description" data-i18n-attr="content:sdk_metaDesc"
-    content="An open-source alternative to commercial PDF SDKs: rendering written entirely in Dart, one engine on all six Flutter platforms. Apache-2.0." />
+    content="Add a complete PDF editor to Flutter with dart_pdf_editor. View, annotate, fill forms, sign, redact, edit text, and save on every Flutter platform." />
   <meta property="og:image" content="https://dart-pdf.com/assets/og-image.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
-  <meta property="og:image:alt" content="DartPDF Flutter PDF SDK" />
+  <meta property="og:image:alt" content="dart_pdf_editor, an open-source Flutter PDF editor" />
 
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" data-i18n-attr="content:sdk_metaTitle" content="Flutter PDF SDK: pure-Dart PDF viewer, editor & renderer" />
+  <meta name="twitter:title" data-i18n-attr="content:sdk_metaTitle" content="Flutter PDF editor: open-source Dart package" />
   <meta name="twitter:description" data-i18n-attr="content:sdk_metaDesc"
-    content="Open-source Flutter PDF SDK written entirely in Dart. One engine on iOS, Android, macOS, Windows, Linux, and web." />
+    content="Add a complete PDF editor to Flutter with dart_pdf_editor. One Dart engine on iOS, Android, desktop, and web." />
   <meta name="twitter:image" content="https://dart-pdf.com/assets/og-image.png" />
 
   <link rel="icon" href="/favicon.ico" sizes="any" />
@@ -277,6 +277,26 @@
 
     pre.code .s {
       color: #a5d6a7;
+    }
+
+    .editor-shot {
+      margin: 34px 0 0;
+      max-width: 1040px;
+    }
+
+    .editor-shot img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-md);
+    }
+
+    .editor-shot figcaption {
+      margin-top: 10px;
+      color: var(--grey);
+      font-size: 13px;
     }
 
     .features {
@@ -574,13 +594,22 @@
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
-    "@type": "SoftwareSourceCode",
-    "name": "dart_pdf_editor",
-    "description": "Open-source Flutter PDF SDK written entirely in Dart: viewer, annotations, forms, digital signatures, redaction, text editing, and OCR on iOS, Android, macOS, Windows, Linux, and web.",
-    "url": "https://dart-pdf.com/sdk",
+    "@type": ["SoftwareApplication", "SoftwareSourceCode"],
+    "name": "dart_pdf_editor: Flutter PDF editor",
+    "description": "An open-source Flutter PDF editor and viewer written entirely in Dart, with annotations, forms, digital signatures, redaction, text editing, page management, and OCR.",
+    "url": "https://dart-pdf.com/flutter-pdf-editor",
+    "mainEntityOfPage": "https://dart-pdf.com/flutter-pdf-editor",
     "codeRepository": "https://github.com/ben-milanko/dart-pdf",
+    "downloadUrl": "https://pub.dev/packages/dart_pdf_editor",
     "programmingLanguage": "Dart",
     "runtimePlatform": "Flutter",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Android, iOS, Linux, macOS, Web, Windows",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
     "license": "https://www.apache.org/licenses/LICENSE-2.0",
     "author": {
       "@type": "Person",
@@ -633,14 +662,14 @@
   <!-- ============ HERO ============ -->
   <section class="hero">
     <div class="wrap">
-      <p class="eyebrow">Flutter PDF SDK</p>
-      <h1 style="margin-top:16px;" data-i18n-html="sdk_hero_h1">A PDF viewer and editor for Flutter, <span class="hl">written entirely in
+      <p class="eyebrow">Open-source Flutter PDF editor</p>
+      <h1 style="margin-top:16px;" data-i18n-html="sdk_hero_h1">A complete Flutter PDF editor, <span class="hl">written entirely in
           Dart.</span></h1>
       <p class="sub" data-i18n-html="sdk_hero_sub">
-        <code style="font-family:ui-monospace,'SF Mono',Menlo,monospace;">dart_pdf_editor</code> renders PDFs with no
-        PDFium and no platform views. The parser, content-stream interpreter, font engine, image decoders, and color
-        management are one engine that runs the same on iOS, Android, macOS, Windows, Linux, and Flutter web.
-        Apache-2.0, on pub.dev.
+        Add <code style="font-family:ui-monospace,'SF Mono',Menlo,monospace;">dart_pdf_editor</code> to edit existing
+        PDFs inside a Flutter app. The drop-in editor views, annotates, fills forms, signs, redacts, edits text, manages
+        pages, and saves changes back to PDF. It uses one Dart engine on iOS, Android, macOS, Windows, Linux, and web,
+        with no PDFium or platform views. Apache-2.0, on pub.dev.
       </p>
       <div class="hero-cta">
         <a class="btn btn-primary" href="https://pub.dev/packages/dart_pdf_editor" target="_blank"
@@ -661,6 +690,11 @@ PdfEditorView(
 
 <span class="c">// Or a view-only reader.</span>
 PdfReader(bytes: pdfBytes)</pre>
+      <figure class="editor-shot">
+        <img src="/assets/editor-screenshot.png" width="2208" height="1552" loading="eager"
+          alt="Flutter PDF editor showing page thumbnails, annotation tools, a PDF page, and editing controls." />
+        <figcaption>The same editor UI runs on all six Flutter platforms and saves edits into the PDF.</figcaption>
+      </figure>
     </div>
   </section>
 

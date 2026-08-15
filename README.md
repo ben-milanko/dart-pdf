@@ -1,4 +1,6 @@
-![dart-pdf, pure-Dart PDF renderer & editor for Flutter](doc/banner.png)
+![dart-pdf, an open-source Flutter PDF editor and pure-Dart renderer](doc/banner.png)
+
+# dart-pdf: Flutter PDF editor and renderer
 
 [![CI](https://github.com/ben-milanko/dart-pdf/actions/workflows/ci.yml/badge.svg)](https://github.com/ben-milanko/dart-pdf/actions/workflows/ci.yml)
 [![dart_pdf_editor on pub.dev](https://img.shields.io/pub/v/dart_pdf_editor.svg)](https://pub.dev/packages/dart_pdf_editor)
@@ -14,8 +16,8 @@
 
 [![DartPDF, the official PDF editor app, built on this SDK. Get the app at dart-pdf.com](doc/app-banner.svg)](https://dart-pdf.com)
 
-A PDF renderer and editor written entirely in Dart, for use in Flutter
-apps. No PDFium, no platform channels.
+An open-source Flutter PDF editor, viewer, and renderer written entirely in
+Dart. No PDFium, no platform channels.
 
 The goal is a PSPDFKit-class SDK built natively for Flutter: a fast
 viewer, a full annotation suite with appearance-stream generation,
@@ -38,6 +40,9 @@ signatures.
 Live demo: <https://dart-pdf-demo.web.app> (the example app built for
 the web; it opens onto a six-page feature showcase, and the open button
 loads your own PDF).
+
+Developer overview: [Flutter PDF editor](https://dart-pdf.com/flutter-pdf-editor)
+with installation, architecture, supported editing features, and benchmarks.
 
 Visual render results, browsable directly in GitHub: the checked-in
 [PDF.js corpus comparison gallery](test_corpora/pdfjs/_renders/README.md)
@@ -81,14 +86,15 @@ offline harnesses and file-by-file diffs live in [`benchmark/`](benchmark).
 ## Architecture
 
 Strictly layered packages; `dart:ui` is only allowed in `dart_pdf_editor`, so
-the core runs on servers and in plain Dart tests. Each package is
-published on pub.dev under its directory name.
+the core runs on servers and in plain Dart tests. Published packages use their
+directory name on pub.dev.
 
 | Package | pub.dev | Role |
 |---|---|---|
 | [`pdf_cos`](packages/pdf_cos) | [![pub package](https://img.shields.io/pub/v/pdf_cos.svg)](https://pub.dev/packages/pdf_cos) | The PDF file format itself: tokenizer, parser, filters (incl. CCITT/JBIG2/JPX), encryption, cross-reference machinery, serializer, crypto primitives. |
 | [`pdf_document`](packages/pdf_document) | [![pub package](https://img.shields.io/pub/v/pdf_document.svg)](https://pub.dev/packages/pdf_document) | Document semantics: page tree, annotations, AcroForm, digital signatures, and the incremental-save `PdfEditor`. |
 | [`pdf_graphics`](packages/pdf_graphics) | [![pub package](https://img.shields.io/pub/v/pdf_graphics.svg)](https://pub.dev/packages/pdf_graphics) | Content-stream interpreter, device interface, font engine, ICC color, text extraction. |
+| [`dart_pdf_cli`](packages/dart_pdf_cli) | — | Pure-Dart `dartpdf` command line and stdio MCP server for bounded document inspection, text extraction, form listing, and annotation listing. |
 | [`dart_pdf_editor`](packages/dart_pdf_editor) | [![pub package](https://img.shields.io/pub/v/dart_pdf_editor.svg)](https://pub.dev/packages/dart_pdf_editor) | Flutter viewer and editing UI: canvas device, `PdfViewer`, tools, panels, forms. |
 | [`dart_pdf_editor_flutter_gpu`](packages/dart_pdf_editor_flutter_gpu) | [![pub package](https://img.shields.io/pub/v/dart_pdf_editor_flutter_gpu.svg)](https://pub.dev/packages/dart_pdf_editor_flutter_gpu) | Experimental opt-in Impeller/`flutter_gpu` tile renderer for supported native targets, with exact Canvas fallback for unsupported pages. |
 | [`dart_pdf_editor_assets`](packages/dart_pdf_editor_assets) | [![pub package](https://img.shields.io/pub/v/dart_pdf_editor_assets.svg)](https://pub.dev/packages/dart_pdf_editor_assets) | Optional bundled editor fonts + web render worker (~1.8 MB package download); depend on it and call `registerBundledEditorAssets()` for the full editor, omit for a size-minimal viewer. |
@@ -97,6 +103,19 @@ published on pub.dev under its directory name.
 | [`pdf_test_fixtures`](packages/pdf_test_fixtures) | [![pub package](https://img.shields.io/pub/v/pdf_test_fixtures.svg)](https://pub.dev/packages/pdf_test_fixtures) | Programmatic, structurally-correct PDF builders for tests. |
 
 ## Quick start
+
+For shell, CI, and local agent workflows, run the pure-Dart CLI directly from
+the workspace:
+
+```sh
+dart run packages/dart_pdf_cli/bin/dartpdf.dart inspect document.pdf --json
+dart run packages/dart_pdf_cli/bin/dartpdf.dart text document.pdf --pages 1-5 --json
+```
+
+The same handlers are exposed as bounded, read-only MCP tools through
+`dartpdf mcp`. See the [`dart_pdf_cli` guide](packages/dart_pdf_cli) for
+installation (including the copy bundled in desktop app builds), filesystem
+roots, password handling, and host registration.
 
 For a Flutter app, add the editor package:
 

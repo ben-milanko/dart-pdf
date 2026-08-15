@@ -404,13 +404,35 @@ String? containingFolderPath(String path) {
   return trimmed.substring(0, index);
 }
 
-/// Opens [path]'s containing folder in Finder / File Explorer / the Linux file
-/// manager. Returns false when there is no usable origin path or the platform
-/// refuses to launch it.
-Future<bool> openContainingFolder(String? path) async {
+/// Reveals [path] in Finder, or opens its containing folder in File Explorer /
+/// the Linux file manager. Returns false when there is no usable origin path
+/// or the platform refuses to launch it.
+///
+/// Finder needs the selected file rather than its parent directory: a
+/// sandboxed macOS app can hold a security-scoped grant for a OneDrive file
+/// without having access to the file's containing folder. [bookmark]
+/// reactivates that grant while Finder handles the reveal request.
+Future<bool> openContainingFolder(String? path, {String? bookmark}) async {
   if (!supportsOpenContainingFolder || path == null) return false;
   final folder = containingFolderPath(path);
   if (folder == null) return false;
+  if (_isMacOSDesktop) {
+    try {
+      return await _macosFileAccessChannel.invokeMethod<bool>(
+            'revealFile',
+            {
+              'path': path,
+              if (bookmark != null && bookmark.isNotEmpty)
+                'bookmark': bookmark,
+            },
+          ) ??
+          false;
+    } on MissingPluginException {
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
   return launchUrl(Uri.file(folder), mode: LaunchMode.externalApplication);
 }
 

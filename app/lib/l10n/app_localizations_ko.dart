@@ -413,6 +413,15 @@ class AppLocalizationsKo extends AppLocalizations {
   String get editorMenuNewDocument => '새 문서…';
 
   @override
+  String get editorMenuNewWindow => '새 창';
+
+  @override
+  String get editorMoveToNewWindow => '새 창으로 이동';
+
+  @override
+  String get editorUnableToOpenNewWindow => '새 창을 열 수 없습니다';
+
+  @override
   String get editorMenuOcr => 'OCR…';
 
   @override

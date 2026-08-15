@@ -2634,6 +2634,13 @@ class PdfInterpreter {
           fill: embedded ? true : doFill,
           strokeColor: !embedded && strokeText ? _state.strokeColor : null,
           strokeWidth: _state.stroke.width * k, // see strokePath: 0 stays 0
+          // Embedded stroke-only text is historically approximated by
+          // filling the real outline in the stroke colour; carry the matching
+          // stroking alpha with that approximation too.
+          fillAlpha: embedded && (mode == 1 || mode == 5)
+              ? _state.strokeAlpha
+              : _state.fillAlpha,
+          strokeAlpha: _state.strokeAlpha,
           gradient: (embedded ? fillText : doFill)
               ? _gradientOfPattern(pattern)
               : null,

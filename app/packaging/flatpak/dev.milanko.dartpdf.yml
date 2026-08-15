@@ -46,15 +46,19 @@ modules:
   - name: dartpdf
     buildsystem: simple
     build-commands:
-      # Unpack the Flutter bundle under /app/dartpdf and expose the runner as
-      # `dartpdf`. The binary's RPATH is $ORIGIN/lib and it locates its data/
-      # dir relative to the resolved executable path, so a symlink in /app/bin
-      # works without moving the bundle apart. Copy only the bundle entries so
-      # the staged desktop-asset sources below are not swept in.
+      # Unpack the Flutter bundle under /app/dartpdf and expose the GUI runner
+      # and the pure-Dart CLI/MCP sidecar as separate commands. Both binaries
+      # locate adjacent runtime data through their resolved executable paths.
+      # Copy only bundle entries so staged desktop assets are not swept in.
       - install -d /app/dartpdf
       - cp -r dart_pdf_editor_app data lib /app/dartpdf/
+      # The checked-in source still pins the last stable archive, which
+      # predates the sidecar. Release publishing substitutes the new archive;
+      # keep local builds of the pinned release reproducible in the meantime.
+      - test ! -f dartpdf-cli || cp dartpdf-cli /app/dartpdf/
       - install -d /app/bin
       - ln -s /app/dartpdf/dart_pdf_editor_app /app/bin/dartpdf
+      - test ! -f dartpdf-cli || ln -s /app/dartpdf/dartpdf-cli /app/bin/dartpdf-cli
       # Desktop integration, from the staged copies (see README "Desktop assets").
       - install -Dm644 dev.milanko.dartpdf.desktop
         /app/share/applications/dev.milanko.dartpdf.desktop

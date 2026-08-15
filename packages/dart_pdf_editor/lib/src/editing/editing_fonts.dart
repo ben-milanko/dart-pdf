@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show FontLoader, rootBundle;
 import 'package:pdf_document/pdf_document.dart';
 
+import '../dialog.dart';
 import 'editing_controller.dart';
 import 'text_prompt.dart';
 import '../l10n/pdf_l10n.dart';
@@ -714,7 +715,7 @@ Future<void> showPdfFontMenu({
     ));
   }
 
-  final choice = await showDialog<_FontChoice>(
+  final choice = await showPdfDialog<_FontChoice>(
     context: context,
     builder: (_) => _PdfFontPickerDialog(entries: entries, recent: recent),
   );

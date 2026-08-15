@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
@@ -103,6 +104,168 @@ abstract interface class PdfTileRasterScheduling {
   /// to keep command submission and texture allocation within a frame budget
   /// while the base/coarser image remains visible underneath.
   int? get maxNewTilesPerPaint;
+}
+
+/// Bounded, always-on page/tile routing diagnostics for support exports.
+///
+/// Aggregate backend counters can say that a GPU submission completed, but
+/// they cannot identify which document/page produced a corrupt texture—or
+/// whether that page had already fallen back to Canvas. This registry records
+/// the latest route and raster for up to [maxEntries] page namespaces without
+/// retaining documents, scenes, or viewer objects.
+class PdfTileRasterDiagnostics {
+  PdfTileRasterDiagnostics._();
+
+  static final PdfTileRasterDiagnostics instance = PdfTileRasterDiagnostics._();
+
+  static const int maxEntries = 128;
+
+  final LinkedHashMap<(int, int), _PdfTileRasterDiagnosticEntry> _entries =
+      LinkedHashMap<(int, int), _PdfTileRasterDiagnosticEntry>();
+
+  void reportSession({
+    required Object cacheNamespace,
+    required Object document,
+    required Object scene,
+    required int pageIndex,
+    required String requestedBackend,
+    required String effectiveBackend,
+    required int commandCount,
+    required int pageColor,
+    required bool annotations,
+    required int? rotation,
+    String? fallbackReason,
+  }) {
+    final key = (identityHashCode(cacheNamespace), pageIndex);
+    _entries.remove(key);
+    _entries[key] = _PdfTileRasterDiagnosticEntry(
+      namespaceIdentity: key.$1,
+      documentIdentity: identityHashCode(document),
+      sceneIdentity: identityHashCode(scene),
+      pageIndex: pageIndex,
+      requestedBackend: requestedBackend,
+      effectiveBackend: effectiveBackend,
+      fallbackReason: fallbackReason,
+      commandCount: commandCount,
+      pageColor: pageColor,
+      annotations: annotations,
+      rotation: rotation,
+      updatedAt: DateTime.now(),
+    );
+    while (_entries.length > maxEntries) {
+      _entries.remove(_entries.keys.first);
+    }
+  }
+
+  void reportFallback({
+    required Object cacheNamespace,
+    required int pageIndex,
+    required Object error,
+  }) {
+    final entry =
+        _entries.remove((identityHashCode(cacheNamespace), pageIndex));
+    if (entry == null) return;
+    entry
+      ..effectiveBackend = 'canvas'
+      ..fallbackReason = error.toString()
+      ..updatedAt = DateTime.now();
+    _entries[(entry.namespaceIdentity, pageIndex)] = entry;
+  }
+
+  void reportTile({
+    required Object cacheNamespace,
+    required int pageIndex,
+    required Rect region,
+    required double pixelRatio,
+    required int width,
+    required int height,
+    Object? error,
+  }) {
+    final entry =
+        _entries.remove((identityHashCode(cacheNamespace), pageIndex));
+    if (entry == null) return;
+    if (error == null) {
+      entry.tileRasters++;
+    } else {
+      entry.tileFailures++;
+    }
+    entry
+      ..lastTileError = error?.toString()
+      ..lastTile = <String, Object?>{
+        'left': region.left,
+        'top': region.top,
+        'width': region.width,
+        'height': region.height,
+        'pixelRatio': pixelRatio,
+        'imageWidth': width,
+        'imageHeight': height,
+      }
+      ..updatedAt = DateTime.now();
+    _entries[(entry.namespaceIdentity, pageIndex)] = entry;
+  }
+
+  /// A JSON-safe, least-recently-updated-first snapshot.
+  List<Map<String, Object?>> snapshot() => <Map<String, Object?>>[
+        for (final entry in _entries.values) entry.toJson(),
+      ];
+
+  /// Clears support history without changing any renderer or cache state.
+  void clear() => _entries.clear();
+}
+
+class _PdfTileRasterDiagnosticEntry {
+  _PdfTileRasterDiagnosticEntry({
+    required this.namespaceIdentity,
+    required this.documentIdentity,
+    required this.sceneIdentity,
+    required this.pageIndex,
+    required this.requestedBackend,
+    required this.effectiveBackend,
+    required this.fallbackReason,
+    required this.commandCount,
+    required this.pageColor,
+    required this.annotations,
+    required this.rotation,
+    required this.updatedAt,
+  });
+
+  final int namespaceIdentity;
+  final int documentIdentity;
+  final int sceneIdentity;
+  final int pageIndex;
+  final String requestedBackend;
+  String effectiveBackend;
+  String? fallbackReason;
+  final int commandCount;
+  final int pageColor;
+  final bool annotations;
+  final int? rotation;
+  DateTime updatedAt;
+  int tileRasters = 0;
+  int tileFailures = 0;
+  String? lastTileError;
+  Map<String, Object?>? lastTile;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+        'updatedAt': updatedAt.toIso8601String(),
+        'namespaceIdentity': namespaceIdentity,
+        'documentIdentity': documentIdentity,
+        'sceneIdentity': sceneIdentity,
+        'pageIndex': pageIndex,
+        'pageNumber': pageIndex + 1,
+        'requestedBackend': requestedBackend,
+        'effectiveBackend': effectiveBackend,
+        'fallbackReason': fallbackReason,
+        'commands': commandCount,
+        'pageColor':
+            '#${pageColor.toRadixString(16).padLeft(8, '0').toUpperCase()}',
+        'annotations': annotations,
+        'rotation': rotation,
+        'tileRasters': tileRasters,
+        'tileFailures': tileFailures,
+        'lastTileError': lastTileError,
+        'lastTile': lastTile,
+      };
 }
 
 /// The universal retained-scene renderer used today and as a fallback for

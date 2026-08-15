@@ -415,6 +415,15 @@ class AppLocalizationsJa extends AppLocalizations {
   String get editorMenuNewDocument => '新規ドキュメント…';
 
   @override
+  String get editorMenuNewWindow => '新しいウィンドウ';
+
+  @override
+  String get editorMoveToNewWindow => '新しいウィンドウに移動';
+
+  @override
+  String get editorUnableToOpenNewWindow => '新しいウィンドウを開けませんでした';
+
+  @override
   String get editorMenuOcr => 'OCR…';
 
   @override

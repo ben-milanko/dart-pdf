@@ -53,7 +53,8 @@
 
   "dl_eyebrow": "تنزيل",
   "dl_h2": "احصل على DartPDF على منصّتك.",
-  "dl_intro": "احصل عليه من App Store وGoogle Play، أو ثبّت تطبيق سطح المكتب، أو استخدمه مباشرةً في متصفحك.",
+  "dl_intro": "سنعرض أفضل خيارات التنزيل لهذا الجهاز. وتبقى جميع المنصات الأخرى على بُعد نقرة واحدة.",
+  "dl_otherPlatforms": "منصات أخرى",
   "dl_get": "تنزيل",
   "dl_open": "فتح",
   "dlMac_meta": "ملف .dmg مباشر · موقّع وموثّق",
@@ -65,7 +66,7 @@
 
   "dev_eyebrow": "المطوّرون",
   "dev_h2": "محرّك PDF بلغة Dart خالصة يمكنك استخدامه أنت أيضًا.",
-  "dev_p": "يستخدم المحرّك Dart بدلًا من PDFium أو الروابط الأصلية، لذا يعمل أينما يعمل Dart وFlutter.\n          الحزم مرخّصة بموجب Apache-2.0 ومنشورة على pub.dev. اقرأ <a href=\"/sdk\"\n            style=\"color:#6fd0ff;font-weight:700;\">نظرة عامة على Flutter PDF SDK</a> للاطّلاع على القياسات ومقارنة مع\n          حزم SDK التجارية.",
+  "dev_p": "يستخدم المحرّك Dart بدلًا من PDFium أو الروابط الأصلية، لذا يعمل أينما يعمل Dart وFlutter.\n          الحزم مرخّصة بموجب Apache-2.0 ومنشورة على pub.dev. اقرأ <a href=\"/flutter-pdf-editor\"\n            style=\"color:#6fd0ff;font-weight:700;\">نظرة عامة على Flutter PDF SDK</a> للاطّلاع على القياسات ومقارنة مع\n          حزم SDK التجارية.",
   "dev_ctaGithub": "اعرضه على GitHub",
   "dev_ctaPub": "الحزم على pub.dev",
   "dev_bTitle": "حزم مفتوحة المصدر",

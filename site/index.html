@@ -573,6 +573,99 @@
       background: var(--paper);
     }
 
+    .recommended-downloads {
+      margin-top: 40px;
+      padding: 22px;
+      border: 1px solid rgba(1, 105, 180, .2);
+      border-radius: calc(var(--radius) + 2px);
+      background: linear-gradient(135deg, rgba(22, 186, 253, .08), rgba(1, 105, 180, .03));
+    }
+
+    .platform-recommendation {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--blue-2);
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .platform-recommendation svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .recommended-downloads .store-row {
+      margin-top: 16px;
+    }
+
+    .recommended-downloads .desktop-grid {
+      grid-template-columns: repeat(auto-fit, minmax(220px, 280px));
+    }
+
+    .download-options[hidden],
+    .recommended-downloads[hidden] {
+      display: none;
+    }
+
+    .other-downloads {
+      margin-top: 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--bg);
+      overflow: hidden;
+    }
+
+    .other-downloads summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 16px 18px;
+      color: var(--ink-soft);
+      font-weight: 750;
+      cursor: pointer;
+      list-style: none;
+      user-select: none;
+    }
+
+    .other-downloads summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .other-downloads summary:focus {
+      outline: none;
+    }
+
+    .other-downloads:focus-within {
+      border-color: var(--blue-2);
+      box-shadow: 0 0 0 1px var(--blue-2);
+    }
+
+    .other-downloads summary svg {
+      width: 18px;
+      height: 18px;
+      flex: none;
+      transition: transform .18s ease;
+    }
+
+    .other-downloads[open] summary svg {
+      transform: rotate(180deg);
+    }
+
+    .other-downloads-content {
+      padding: 0 18px 20px;
+      border-top: 1px solid var(--line-soft);
+    }
+
+    .other-downloads .store-row {
+      margin-top: 20px;
+    }
+
+    .other-downloads .free-note {
+      margin-top: 18px;
+    }
+
     .store-row {
       display: flex;
       flex-wrap: wrap;
@@ -1059,6 +1152,19 @@
         grid-template-columns: repeat(2, 1fr);
       }
 
+      .recommended-downloads {
+        padding: 18px;
+      }
+
+      .recommended-downloads .desktop-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .recommended-downloads .store-badge {
+        width: 100%;
+        min-width: 0;
+      }
+
       .hero {
         padding: 44px 0 24px;
       }
@@ -1429,12 +1535,34 @@
       <div class="sec-head reveal">
         <p class="eyebrow" data-i18n="dl_eyebrow">Download</p>
         <h2 data-i18n="dl_h2">Get DartPDF on your platform.</h2>
-        <p data-i18n="dl_intro">Get it on the App Store and Google Play, install the desktop app, or use it right in your browser.</p>
+        <p data-i18n="dl_intro">We'll show the best downloads for this device. Every other platform is still one tap away.</p>
       </div>
 
-      <div class="store-row reveal">
+      <div class="recommended-downloads reveal" id="recommendedDownloads" hidden>
+        <div class="platform-recommendation" aria-live="polite">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m5 12 4 4L19 6" />
+          </svg>
+          <span id="detectedPlatformName">Web</span>
+        </div>
+        <div class="store-row download-options" id="recommendedStoreDownloads" hidden></div>
+        <div class="desktop-grid download-options" id="recommendedDesktopDownloads" hidden></div>
+        <div class="download-notes download-options" id="recommendedDownloadNotes" hidden></div>
+      </div>
+
+      <details class="other-downloads reveal" id="otherDownloads">
+        <summary>
+          <span data-i18n="dl_otherPlatforms">Other platforms</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </summary>
+        <div class="other-downloads-content">
+      <div class="store-row" id="otherStoreDownloads">
         <a class="store-badge" href="https://apps.apple.com/app/dartpdf/id6780083686"
-          aria-label="Download DartPDF on the App Store">
+          aria-label="Download DartPDF on the App Store" data-platform="ios" data-download-kind="store">
           <svg viewBox="0 0 24 24" fill="currentColor">
             <path
               d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701" />
@@ -1442,7 +1570,7 @@
           <span><span class="s1">Download on the</span><span class="s2">App Store</span></span>
         </a>
         <a class="store-badge" href="https://apps.apple.com/app/dartpdf/id6780083686"
-          aria-label="Download DartPDF on the Mac App Store">
+          aria-label="Download DartPDF on the Mac App Store" data-platform="macos" data-download-kind="store">
           <svg viewBox="0 0 24 24" fill="currentColor">
             <path
               d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701" />
@@ -1450,15 +1578,23 @@
           <span><span class="s1">Download on the</span><span class="s2">Mac App Store</span></span>
         </a>
         <a class="store-badge" href="https://play.google.com/store/apps/details?id=dev.milanko.dartpdf"
-          aria-label="Get DartPDF on Google Play">
+          aria-label="Get DartPDF on Google Play" data-platform="android" data-download-kind="store">
           <svg viewBox="0 0 24 24" fill="currentColor">
             <path
               d="M22.018 13.298l-3.919 2.218-3.515-3.493 3.543-3.521 3.891 2.202a1.49 1.49 0 0 1 0 2.594zM1.337.924a1.486 1.486 0 0 0-.112.568v21.017c0 .217.045.419.124.6l11.155-11.087L1.337.924zm12.207 10.065l3.258-3.238L3.45.195a1.466 1.466 0 0 0-.946-.179l11.04 10.973zm0 2.067l-11 10.933c.298.036.612-.016.906-.183l13.324-7.54-3.23-3.21z" />
           </svg>
           <span><span class="s1">Get it on</span><span class="s2">Google Play</span></span>
         </a>
+        <a class="store-badge" href="https://apps.microsoft.com/detail/9n071vsv6rgk"
+          aria-label="Get DartPDF from Microsoft Store" data-platform="windows" data-download-kind="store">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path
+              d="M1 3.5 10.4 2.2v9.2H1V3.5Zm10.5-1.4L23 0.5v10.9H11.5V2.1ZM1 12.6h9.4v9.2L1 20.5v-7.9Zm10.5 0H23v10.9l-11.5-1.6v-9.3Z" />
+          </svg>
+          <span><span class="s1">Get it from</span><span class="s2">Microsoft Store</span></span>
+        </a>
         <a class="store-badge" href="https://snapcraft.io/dartpdf"
-          aria-label="Get DartPDF from the Snap Store">
+          aria-label="Get DartPDF from the Snap Store" data-platform="linux" data-download-kind="store">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" />
@@ -1468,9 +1604,9 @@
         </a>
       </div>
 
-      <div class="desktop-grid reveal">
+      <div class="desktop-grid" id="otherDesktopDownloads">
         <a class="dl-card" href="https://github.com/ben-milanko/dart-pdf/releases/latest/download/dartpdf-macos.dmg"
-          aria-label="Download DartPDF for macOS (.dmg)">
+          aria-label="Download DartPDF for macOS (.dmg)" data-platform="macos" data-download-kind="desktop">
           <div class="top">
             <svg class="os" viewBox="0 0 24 24" fill="currentColor">
               <path
@@ -1485,7 +1621,7 @@
         </a>
         <a class="dl-card"
           href="https://github.com/ben-milanko/dart-pdf/releases/latest/download/dartpdf-windows-installer.exe"
-          aria-label="Download DartPDF for Windows (installer)">
+          aria-label="Download DartPDF for Windows (installer)" data-platform="windows" data-download-kind="desktop">
           <div class="top">
             <svg class="os" viewBox="0 0 24 24" fill="currentColor">
               <path
@@ -1500,7 +1636,7 @@
         </a>
         <a class="dl-card"
           href="https://dartpdf-flatpak.web.app/dartpdf.flatpakref"
-          aria-label="Install DartPDF for Linux (Flatpak)">
+          aria-label="Install DartPDF for Linux (Flatpak)" data-platform="linux" data-download-kind="desktop">
           <div class="top">
             <svg class="os" viewBox="0 0 24 24" fill="currentColor">
               <path
@@ -1514,7 +1650,7 @@
           </div>
         </a>
         <a class="dl-card" href="https://app.dart-pdf.com" target="_blank" rel="noopener"
-          aria-label="Open DartPDF in your browser">
+          aria-label="Open DartPDF in your browser" data-platform="web" data-download-kind="desktop">
           <div class="top">
             <svg class="os" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
               stroke-linecap="round" stroke-linejoin="round">
@@ -1530,7 +1666,7 @@
         </a>
       </div>
 
-      <p class="free-note">
+      <p class="free-note" data-platform="windows" data-download-kind="note">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
           <path
             d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801" />
@@ -1539,6 +1675,8 @@
           href="https://github.com/ben-milanko/dart-pdf/releases/latest/download/dartpdf-windows-portable.exe">Windows
           portable build</a> that runs from anywhere.</span>
       </p>
+        </div>
+      </details>
 
       <p class="free-note">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0169b4" stroke-width="2"
@@ -1560,8 +1698,8 @@
         <p class="eyebrow" style="color:#6fd0ff;" data-i18n="dev_eyebrow">Developers</p>
         <h2 style="margin-top:14px;" data-i18n="dev_h2">A pure-Dart PDF engine you can use too.</h2>
         <p data-i18n-html="dev_p">The engine uses Dart instead of PDFium or native bindings, so it runs anywhere Dart and Flutter do. The
-          packages are Apache-2.0 licensed and published on pub.dev. Read the <a href="/sdk"
-            style="color:#6fd0ff;font-weight:700;">Flutter PDF SDK overview</a> for benchmarks and a comparison with
+          packages are Apache-2.0 licensed and published on pub.dev. Read the <a href="/flutter-pdf-editor"
+            style="color:#6fd0ff;font-weight:700;">Flutter PDF editor overview</a> for benchmarks and a comparison with
           commercial SDKs.</p>
         <div class="dev-cta">
           <a class="btn btn-primary" href="https://github.com/ben-milanko/dart-pdf" target="_blank" rel="noopener">
@@ -1636,7 +1774,7 @@
             <h4 data-i18n="foot_col_opensource">Open source</h4>
             <a href="https://github.com/ben-milanko/dart-pdf" target="_blank" rel="noopener">GitHub</a>
             <a href="https://pub.dev/packages/dart_pdf_editor" target="_blank" rel="noopener">pub.dev</a>
-            <a href="/sdk" data-i18n="foot_sdk">Flutter PDF SDK</a>
+            <a href="/flutter-pdf-editor" data-i18n="foot_sdk">Flutter PDF editor</a>
             <a href="#developers" data-i18n="foot_engine">Engine</a>
           </div>
           <div class="foot-col">
@@ -1673,6 +1811,54 @@
       mobileMenu.classList.remove('open');
       menuBtn.setAttribute('aria-expanded', 'false');
     }));
+
+    // Prefer downloads for the visitor's current device. All other links stay
+    // available inside the native disclosure, including when JavaScript fails.
+    function detectDownloadPlatform(nav) {
+      nav = nav || navigator;
+      const userAgent = nav.userAgent || '';
+      const platform = (nav.userAgentData && nav.userAgentData.platform) || nav.platform || '';
+      const combined = `${platform} ${userAgent}`;
+      const touchPoints = nav.maxTouchPoints || 0;
+
+      if (/android/i.test(combined)) return 'android';
+      if (/iphone|ipad|ipod/i.test(userAgent) || (/mac/i.test(platform) && touchPoints > 1)) return 'ios';
+      if (/windows|win32|win64/i.test(combined)) return 'windows';
+      if (/mac/i.test(combined)) return 'macos';
+      if (/cros|chrome os/i.test(combined)) return 'web';
+      if (/linux|x11/i.test(combined)) return 'linux';
+      return 'web';
+    }
+
+    function arrangePlatformDownloads(platform) {
+      const names = {
+        android: 'Android',
+        ios: 'iOS & iPadOS',
+        linux: 'Linux',
+        macos: 'macOS',
+        web: 'Web',
+        windows: 'Windows'
+      };
+      const targets = {
+        store: document.getElementById('recommendedStoreDownloads'),
+        desktop: document.getElementById('recommendedDesktopDownloads'),
+        note: document.getElementById('recommendedDownloadNotes')
+      };
+
+      document.querySelectorAll(`[data-platform~="${platform}"]`).forEach(option => {
+        const target = targets[option.dataset.downloadKind];
+        if (target) target.appendChild(option);
+      });
+
+      Object.values(targets).forEach(target => {
+        target.hidden = target.children.length === 0;
+      });
+      document.getElementById('detectedPlatformName').textContent = names[platform] || names.web;
+      document.getElementById('download').dataset.detectedPlatform = platform;
+      document.getElementById('recommendedDownloads').hidden = false;
+    }
+
+    arrangePlatformDownloads(detectDownloadPlatform());
 
     // Reveal on scroll
     const io = new IntersectionObserver((entries) => {

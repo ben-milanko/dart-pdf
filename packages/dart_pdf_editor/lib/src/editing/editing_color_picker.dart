@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 
 /// The value-entry formats [PdfColorPicker] can show: hex (the default),
@@ -585,7 +586,7 @@ Future<Color?> showPdfColorPicker(
   List<Color> documentColors = const [],
 }) {
   var current = initial;
-  return showDialog<Color>(
+  return showPdfDialog<Color>(
     context: context,
     builder: (context) => AlertDialog(
       title: Text(pdfL10n(context).colorColorTitle),
