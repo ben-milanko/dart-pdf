@@ -434,6 +434,27 @@ void main() {
     expect(style.underline, isFalse);
   });
 
+  test('Bluebeam CSS units and underline map to free text layout', () {
+    final doc = PdfDocument.open(buildBluebeamFreeTextPdf());
+    final dict = doc.page(0).annotations.single.dict;
+    dict
+      ..entries.remove('RC')
+      ..['DS'] = CosString.fromText('text-align:center; line-height:150%; '
+          'letter-spacing:2pt; font-stretch:80%; '
+          'text-decoration:underline');
+
+    final percent = PdfAnnotation.fromDict(doc, dict).freeTextStyle!;
+    expect(percent.alignment, PdfTextAlign.center);
+    expect(percent.lineSpacing, 1.5);
+    expect(percent.charSpacing, 2);
+    expect(percent.horizontalScale, 80);
+    expect(percent.underline, isTrue);
+
+    dict['DS'] = CosString.fromText('line-height:1.25em');
+    final em = PdfAnnotation.fromDict(doc, dict).freeTextStyle!;
+    expect(em.lineSpacing, 1.25);
+  });
+
   test('free text opacity is baked into and preserved by its appearance', () {
     final doc = roundTrip((e) => e.addFreeText(
           0,
