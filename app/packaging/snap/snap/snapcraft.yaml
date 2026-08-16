@@ -30,6 +30,14 @@ apps:
       - removable-media
       - password-manager-service
       - cups
+    slots:
+      - dartpdf-dbus
+
+slots:
+  dartpdf-dbus:
+    interface: dbus
+    bus: session
+    name: dev.milanko.dartpdf
 # Ask snapd to install the CUPS proxy on systems that do not already provide a
 # compatible print service. The app only needs the non-administrative `cups`
 # interface above; it never requests `cups-control`.

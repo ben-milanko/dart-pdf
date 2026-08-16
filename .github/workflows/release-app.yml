@@ -169,7 +169,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - run: sudo apt-get update && sudo apt-get install -y ninja-build libgtk-3-dev libsecret-1-dev libjsoncpp-dev
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build libgtk-3-dev libsecret-1-dev libjsoncpp-dev xvfb x11-utils
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -218,6 +218,19 @@ jobs:
           echo "$APPIMAGETOOL_SHA256  appimagetool-x86_64.AppImage" | sha256sum -c -
           chmod +x appimagetool-x86_64.AppImage
           ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run "$APPDIR" dartpdf-linux-x86_64.AppImage
+
+      - name: Smoke-test Linux GUI bundle
+        run: |
+          tool/smoke_test_linux_gui.sh \
+            --cmd "app/build/linux/x64/release/bundle/dart_pdf_editor_app" \
+            --timeout 15
+
+      - name: Smoke-test Linux AppImage GUI
+        working-directory: app
+        run: |
+          ../tool/smoke_test_linux_gui.sh \
+            --cmd "./dartpdf-linux-x86_64.AppImage --appimage-extract-and-run" \
+            --timeout 15
       - uses: actions/upload-artifact@v7
         with:
           name: linux
@@ -246,6 +259,21 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "flutter build windows failed ($LASTEXITCODE)" }
           & build/windows/x64/runner/Release/dartpdf.exe --version
           if ($LASTEXITCODE -ne 0) { throw "dartpdf.exe smoke check failed ($LASTEXITCODE)" }
+      - name: Smoke-test Windows GUI launch
+        working-directory: app
+        shell: pwsh
+        # Launch the GUI executable and require it to survive the window: a
+        # startup crash (plugin registration, missing DLL) exits immediately.
+        run: |
+          $exe = "build/windows/x64/runner/Release/dart_pdf_editor_app.exe"
+          $p = Start-Process $exe -PassThru
+          Start-Sleep -Seconds 12
+          $p.Refresh()
+          if ($p.HasExited) {
+            throw "dart_pdf_editor_app.exe exited during smoke launch (code $($p.ExitCode))"
+          }
+          Stop-Process -Id $p.Id -Force
+          echo "App still running after 12s - startup OK."
       - name: Bundle MSVC runtime (makes the folder portable on clean PCs)
         working-directory: app
         shell: pwsh
@@ -459,6 +487,27 @@ jobs:
         env:
           CODESIGN_ENTITLEMENTS: macos/Runner/AdHoc.entitlements
         run: bash macos/resign_embedded_code.sh build/macos/Build/Products/Release/DartPDF.app
+      - name: Smoke-test macOS app launch
+        working-directory: app
+        # Launch the signed .app directly and require it to survive the window:
+        # a startup crash (plugin registration, missing dylib) exits the process
+        # immediately. The runner's GUI session lets the app create its window.
+        run: |
+          set -euo pipefail
+          bin="build/macos/Build/Products/Release/DartPDF.app/Contents/MacOS/DartPDF"
+          "$bin" >"$RUNNER_TEMP/dartpdf-macos-smoke.log" 2>&1 &
+          pid=$!
+          sleep 12
+          if kill -0 "$pid" 2>/dev/null; then
+            echo "App still running after 12s - startup OK."
+            kill "$pid" 2>/dev/null || true
+          else
+            status=0
+            wait "$pid" || status=$?
+            cat "$RUNNER_TEMP/dartpdf-macos-smoke.log" || true
+            echo "macOS app exited during smoke launch (status $status)" >&2
+            exit 1
+          fi
       - name: Package DMG (unsigned)
         working-directory: app
         run: |

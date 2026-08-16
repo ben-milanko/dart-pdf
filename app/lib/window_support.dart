@@ -33,7 +33,11 @@ bool get _desktopPlatform => switch (defaultTargetPlatform) {
 /// feature after that point is too late even though Flutter currently exposes
 /// the feature gate as mutable internal state.
 void enableDartPdfWindowing() {
-  if (!kIsWeb && _desktopPlatform) isWindowingEnabled = true;
+  if (!kIsWeb &&
+      _desktopPlatform &&
+      defaultTargetPlatform != TargetPlatform.linux) {
+    isWindowingEnabled = true;
+  }
 }
 
 /// Whether this process can expose DartPDF's experimental multi-window UI.
