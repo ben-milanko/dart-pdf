@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'sanitize_macho.dart';
+
 const _usage = '''
 Usage: dart tool/build_desktop_cli.dart \\
   --output <path> \\
@@ -58,6 +60,10 @@ Future<void> _build(_Options options) async {
     targetOs: options.targetOs,
     targetArch: options.targetArch,
   );
+
+  if (options.targetOs == 'macos') {
+    sanitizeMachoFile(output);
+  }
 
   stdout.writeln(
     'Built ${output.path} (${options.targetOs}/${options.targetArch})',

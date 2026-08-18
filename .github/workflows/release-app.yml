@@ -480,6 +480,7 @@ jobs:
             build/dartpdf-cli-slices/dartpdf-x64 \
             -output build/macos/Build/Products/Release/DartPDF.app/Contents/MacOS/dartpdf-cli
           chmod 755 build/macos/Build/Products/Release/DartPDF.app/Contents/MacOS/dartpdf-cli
+          dart ../tool/sanitize_macho.dart build/macos/Build/Products/Release/DartPDF.app/Contents/MacOS/dartpdf-cli
           /usr/bin/lipo -info build/macos/Build/Products/Release/DartPDF.app/Contents/MacOS/dartpdf-cli
           build/macos/Build/Products/Release/DartPDF.app/Contents/MacOS/dartpdf-cli --version
       - name: Ad-hoc sign macOS app with distributable entitlements
