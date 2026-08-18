@@ -196,45 +196,29 @@ void main() {
     }
   }, timeout: const Timeout(Duration(minutes: 1)));
 
-  test('build_desktop_cli produces sanitized Mach-O on macOS without private symbols', () async {
-    if (!Platform.isMacOS) return;
+  test('macOS archive omits the standalone CLI sidecar', () async {
+    if (Platform.isWindows) return;
 
-    final targetArch = switch (Platform.version.toLowerCase()) {
-      final v when v.contains('arm64') || v.contains('aarch64') => 'arm64',
-      _ => 'x64',
-    };
-    final outputBinary = File('${temporary.path}/dartpdf-sanitized-test');
+    final app = Directory('${temporary.path}/DartPDF.app');
+    final sidecar = File('${app.path}/Contents/MacOS/dartpdf-cli');
+    await sidecar.create(recursive: true);
+    await sidecar.writeAsString('stale build output');
 
-    final buildResult = await Process.run(
-      Platform.resolvedExecutable,
-      [
-        '../../tool/build_desktop_cli.dart',
-        '--output',
-        outputBinary.path,
-        '--target-os',
-        'macos',
-        '--target-arch',
-        targetArch,
-      ],
+    final result = await Process.run(
+      'bash',
+      ['../../app/macos/build_dartpdf_cli.sh'],
       workingDirectory: Directory.current.path,
+      environment: {
+        ...Platform.environment,
+        'ACTION': 'install',
+        'FLUTTER_ROOT': temporary.path,
+        'TARGET_BUILD_DIR': temporary.path,
+        'WRAPPER_NAME': 'DartPDF.app',
+      },
     );
-    expect(buildResult.exitCode, 0, reason: buildResult.stderr as String);
-    expect(await outputBinary.exists(), isTrue);
 
-    // Verify private symbol __dyld_find_unwind_sections is absent from undefined symbols
-    final nmResult = await Process.run('nm', ['-u', outputBinary.path]);
-    expect(nmResult.exitCode, 0);
-    expect(nmResult.stdout as String, isNot(contains('__dyld_find_unwind_sections')));
-
-    // Verify the sanitized executable runs properly
-    final execResult = await Process.run(
-      outputBinary.path,
-      ['inspect', pdf.path, '--json'],
-    );
-    expect(execResult.exitCode, 0, reason: execResult.stderr as String);
-    final json = jsonDecode(execResult.stdout as String) as Map<String, dynamic>;
-    expect(json['operation'], 'inspect');
-    expect(json['pageCount'], 1);
-  }, timeout: const Timeout(Duration(minutes: 2)));
+    expect(result.exitCode, 0, reason: result.stderr as String);
+    expect(result.stdout, contains('Skipping dartpdf-cli'));
+    expect(await sidecar.exists(), isFalse);
+  });
 }
-

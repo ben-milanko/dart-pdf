@@ -106,7 +106,10 @@ Every macOS, Windows, and Linux native build compiles the VM-only
 executable. It uses the same architecture as the Flutter runner; a universal
 macOS release compiles its arm64 and x64 slices on native GitHub runners and
 merges them with `lipo` before codesigning. (A local macOS build contains the
-host-native sidecar.) The native project files place it in:
+host-native sidecar.) Mac App Store archives omit the optional sidecar because
+the standalone Dart runtime imports a private dyld unwind SPI that App Store
+validation rejects; the GUI and non-Store macOS distributions are unaffected.
+The native project files otherwise place it in:
 
 - macOS: `DartPDF.app/Contents/MacOS/dartpdf-cli` (the suffix avoids a
   case-insensitive collision with the `DartPDF` GUI executable; it is signed as
