@@ -102,6 +102,38 @@ on the *next frame* - so a re-search issued straight after the edit is thrown
 away moments later and the panel goes blank. `_ReplaceBar._refresh` awaits
 `WidgetsBinding.instance.endOfFrame` first.
 
+## Replace is a disclosure, not a fixture
+
+First cut put the replacement field and its two buttons permanently under the
+options bar. That is a lot of vertical space to spend on a panel whose job is
+listing hits, so it is now collapsed by default behind a `find_replace` toggle
+that sits in the options row itself (right-aligned, so it reads as a
+disclosure rather than a fifth match option). The state persists via
+`PdfEditingPreferences.searchReplaceExpanded`.
+
+The typed replacement has to outlive a collapse, so the `TextEditingController`
+lives on `_PdfSearchResultsPanelState` rather than in `_ReplaceBar` - the bar
+is removed from the tree when collapsed and would otherwise take the text with
+it.
+
+While fixing that, the panel's horizontal padding was wrong and worth writing
+down, because the cause is not obvious. The panel's content edge is **16**
+(title, count header, result tiles). The options bar uses **8** and looks
+right anyway, because its toggles are `IconButton`s with `padding: zero` in a
+30pt box, so the glyph sits ~8pt inside - 8 + 8 lands on 16. Copying that 8
+for the replacement field, which has a real border, put it 8pt left of
+everything else. Content with its own inset takes 8; content without takes 16.
+
+Both bars also hard-coded their horizontal padding, ignoring
+`geometry.contentStartInset`/`contentEndInset` - the resize-grip clearance
+that the dividers already honoured - so the field ran under the grip on the
+docked edge. Measured after the fix: title 16, field 16..256, buttons
+16..256, count 16, on a 280pt panel with an 8pt grip.
+
+Button height stays 40 (`VisualDensity.compact` reaches the Material
+touch-target floor and no further); shrinking it would cost touch
+accessibility on tablets for a few pixels.
+
 ## Layering note
 
 `SimpleFont` needs the Adobe glyph-name tables, which lived in

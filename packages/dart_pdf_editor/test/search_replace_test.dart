@@ -10,6 +10,11 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+const replaceToggle = ValueKey('pdf-search-replace-toggle');
+const replaceField = ValueKey('pdf-search-replace-field');
+const replaceOne = ValueKey('pdf-search-replace-one');
+const replaceAll = ValueKey('pdf-search-replace-all');
+
 /// Every text run on page 0 of [editing]'s current revision.
 List<String> runsOf(PdfEditingController editing) => [
       for (final e in PdfPageElements.of(editing.document, 0).elements)
@@ -22,12 +27,17 @@ void main() {
   Future<void> pumpPanel(
     WidgetTester tester,
     PdfViewerController controller,
-    PdfEditingController editing,
-  ) async {
+    PdfEditingController editing, {
+    PdfEditingPreferences? preferences,
+    bool expandReplace = true,
+  }) async {
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
         body: Row(children: [
-          PdfSearchResultsPanel(controller: controller, editing: editing),
+          PdfSearchResultsPanel(
+              controller: controller,
+              editing: editing,
+              preferences: preferences),
           Expanded(
             child: PdfViewer(
               initialFit: PdfViewerFit.width,
@@ -39,6 +49,11 @@ void main() {
       ),
     ));
     await tester.pump();
+    // the replace controls are collapsed by default; most cases want them open
+    if (expandReplace) {
+      await tester.tap(find.byKey(replaceToggle));
+      await tester.pump();
+    }
   }
 
   group('search panel replace', () {
@@ -61,8 +76,88 @@ void main() {
         ),
       ));
       await tester.pump();
-      expect(find.byKey(const ValueKey('pdf-search-replace-field')), findsNothing);
-      expect(find.byKey(const ValueKey('pdf-search-replace-all')), findsNothing);
+      expect(find.byKey(replaceToggle), findsNothing);
+      expect(find.byKey(replaceField), findsNothing);
+      expect(find.byKey(replaceAll), findsNothing);
+    });
+
+    testWidgets('the replace controls are collapsed by default',
+        (tester) async {
+      final controller = PdfViewerController();
+      final editing = PdfEditingController(buildTextLinesPdf(['alpha beta']));
+      addTearDown(controller.dispose);
+      addTearDown(editing.dispose);
+      await pumpPanel(tester, controller, editing, expandReplace: false);
+
+      // the disclosure is there, its contents are not
+      expect(find.byKey(replaceToggle), findsOneWidget);
+      expect(find.byKey(replaceField), findsNothing);
+      expect(find.byKey(replaceOne), findsNothing);
+      expect(find.byKey(replaceAll), findsNothing);
+
+      await tester.tap(find.byKey(replaceToggle));
+      await tester.pump();
+      expect(find.byKey(replaceField), findsOneWidget);
+      expect(find.byKey(replaceAll), findsOneWidget);
+
+      // and it collapses again
+      await tester.tap(find.byKey(replaceToggle));
+      await tester.pump();
+      expect(find.byKey(replaceField), findsNothing);
+    });
+
+    testWidgets('collapsing keeps what was typed', (tester) async {
+      final controller = PdfViewerController();
+      final editing = PdfEditingController(buildTextLinesPdf(['alpha beta']));
+      addTearDown(controller.dispose);
+      addTearDown(editing.dispose);
+      await pumpPanel(tester, controller, editing);
+
+      await tester.enterText(find.byKey(replaceField), 'gamma');
+      await tester.pump();
+      await tester.tap(find.byKey(replaceToggle)); // collapse
+      await tester.pump();
+      await tester.tap(find.byKey(replaceToggle)); // and back
+      await tester.pump();
+
+      expect(
+        tester.widget<TextField>(find.byKey(replaceField)).controller!.text,
+        'gamma',
+      );
+    });
+
+    testWidgets('the expansion persists to preferences', (tester) async {
+      final controller = PdfViewerController();
+      final editing = PdfEditingController(buildTextLinesPdf(['alpha beta']));
+      final prefs = PdfEditingPreferences();
+      addTearDown(controller.dispose);
+      addTearDown(editing.dispose);
+      addTearDown(prefs.dispose);
+      await prefs.ready;
+      await pumpPanel(tester, controller, editing,
+          preferences: prefs, expandReplace: false);
+
+      expect(prefs.searchReplaceExpanded, isFalse);
+      await tester.tap(find.byKey(replaceToggle));
+      await tester.pump();
+      expect(prefs.searchReplaceExpanded, isTrue);
+      expect(find.byKey(replaceField), findsOneWidget);
+    });
+
+    testWidgets('a stored expansion opens the section on first build',
+        (tester) async {
+      final controller = PdfViewerController();
+      final editing = PdfEditingController(buildTextLinesPdf(['alpha beta']));
+      final prefs = PdfEditingPreferences();
+      addTearDown(controller.dispose);
+      addTearDown(editing.dispose);
+      addTearDown(prefs.dispose);
+      await prefs.ready;
+      prefs.searchReplaceExpanded = true;
+
+      await pumpPanel(tester, controller, editing,
+          preferences: prefs, expandReplace: false);
+      expect(find.byKey(replaceField), findsOneWidget);
     });
 
     testWidgets('the buttons stay disabled until a query has hits',
@@ -73,12 +168,12 @@ void main() {
       addTearDown(editing.dispose);
       await pumpPanel(tester, controller, editing);
 
-      expect(find.byKey(const ValueKey('pdf-search-replace-field')),
+      expect(find.byKey(replaceField),
           findsOneWidget);
       expect(
         tester
             .widget<FilledButton>(
-                find.byKey(const ValueKey('pdf-search-replace-all')))
+                find.byKey(replaceAll))
             .onPressed,
         isNull,
       );
@@ -88,7 +183,7 @@ void main() {
       expect(
         tester
             .widget<FilledButton>(
-                find.byKey(const ValueKey('pdf-search-replace-all')))
+                find.byKey(replaceAll))
             .onPressed,
         isNotNull,
       );
@@ -108,9 +203,9 @@ void main() {
       expect(find.text('2 matches'), findsOneWidget);
 
       await tester.enterText(
-          find.byKey(const ValueKey('pdf-search-replace-field')), 'issued');
+          find.byKey(replaceField), 'issued');
       await tester.pump();
-      await tester.tap(find.byKey(const ValueKey('pdf-search-replace-all')));
+      await tester.tap(find.byKey(replaceAll));
       await tester.pumpAndSettle(const Duration(milliseconds: 200));
 
       expect(runsOf(editing), ['issued one', 'issued two', 'final three']);
@@ -136,9 +231,9 @@ void main() {
       await tester.pumpAndSettle(const Duration(milliseconds: 100));
 
       await tester.enterText(
-          find.byKey(const ValueKey('pdf-search-replace-field')), 'issued');
+          find.byKey(replaceField), 'issued');
       await tester.pump();
-      await tester.tap(find.byKey(const ValueKey('pdf-search-replace-one')));
+      await tester.tap(find.byKey(replaceOne));
       await tester.pumpAndSettle(const Duration(milliseconds: 200));
 
       expect(runsOf(editing), ['draft one', 'issued two', 'final three']);
