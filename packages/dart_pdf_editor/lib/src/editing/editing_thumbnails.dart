@@ -8,12 +8,14 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:pdf_document/pdf_document.dart';
 
 import '../debug_overlays.dart';
 import '../l10n/pdf_l10n.dart';
 import '../page_range_dialog.dart';
 import '../pdf_page_view.dart';
 import '../pdf_viewer.dart';
+import '../preview_cache.dart';
 import '../tile_store.dart';
 import '../perf_log.dart';
 import '../raster_cache.dart';
@@ -524,6 +526,7 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
       deferUiWork: _viewerRenderBusy,
       reason: 'warm',
       disk: controller.pageRenderStamp(index) == 0 ? cache.disk : null,
+      previews: widget.viewerController.pagePreviewCache,
     );
     if (image == null) return;
     PdfThumbnailSidebar.debugRasterizations++;
@@ -1557,6 +1560,7 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
       deferUiWork: _viewerRenderBusy,
       reason: 'warm',
       disk: controller.pageRenderStamp(index) == 0 ? cache.disk : null,
+      previews: widget.viewerController.pagePreviewCache,
     );
     if (image == null) return;
     PdfThumbnailSidebar.debugRasterizations++;
@@ -2859,6 +2863,7 @@ class _PageThumbnailState extends State<_PageThumbnail> {
     final annotations = widget.showAnnotations;
     final cache = widget.cache;
     final worker = widget.renderWorker;
+    final previews = widget.viewerController.pagePreviewCache;
     cache.request(this, pageIndex, () async {
       // superseded (newer revision, resize) or already landed - skip
       if (!mounted || _pendingKey != key) return;
@@ -2896,6 +2901,7 @@ class _PageThumbnailState extends State<_PageThumbnail> {
           // only persist/read disk for pages untouched this session - the
           // disk key is content-derived and render stamps reset per session
           disk: controller.pageRenderStamp(pageIndex) == 0 ? cache.disk : null,
+          previews: previews,
         );
         if (image == null) {
           if (deferred && mounted && _pendingKey == key) {
@@ -3013,6 +3019,12 @@ int _thumbnailFocusFromScroll(ScrollController scroll, int pageCount) {
 /// worker preempted for a higher-priority tile - returns null instead of
 /// falling back to a heavy UI-thread interpret, so warming never blocks a
 /// frame.
+///
+/// [previews] is the viewer's preview cache. When it still holds the page's
+/// recorded scene from the last time the page was on screen, the tile is
+/// replayed straight out of it - no content-stream walk and no image decode,
+/// which is what the local fallback below otherwise pays in full to fill a
+/// 128px tile (55 ms per tile in the #699 field trace).
 Future<ui.Image?> rasterizeThumbnail({
   required PdfEditingController controller,
   required int pageIndex,
@@ -3025,6 +3037,7 @@ Future<ui.Image?> rasterizeThumbnail({
   bool Function()? deferUiWork,
   String reason = 'tile',
   PdfRasterCache? disk,
+  PdfPagePreviewCache? previews,
 }) async {
   final page = controller.pageAt(pageIndex);
   final size = PdfPageRenderer.pageSize(page);
@@ -3056,6 +3069,41 @@ Future<ui.Image?> rasterizeThumbnail({
     });
   final sw = Stopwatch()..start();
   try {
+    // Cheapest live path first: the page's own retained scene. It is already
+    // interpreted and its images are already decoded, so a tile costs a
+    // command replay plus its (tiny) raster - no worker round trip, and none
+    // of the local walk below. The lookup must name the exact display plan the
+    // tile wants; a scene recorded under a view rotation, a different paper
+    // colour, or with annotations the tile does not show simply misses and
+    // every path below is unchanged.
+    final retained = _retainedSceneForTile(previews, pageIndex, page,
+        pageColor: pageColor, annotations: annotations);
+    if (retained != null) {
+      try {
+        final sceneImageRatio = retained.imagePixelRatio;
+        // A scene whose images were decoded below the tile's own ratio would
+        // draw them softer than a fresh render; leave those to the paths
+        // below. A tile ratio is a fraction of any display ratio, so this
+        // holds in practice - it is a guard, not a common case.
+        if ((sceneImageRatio == null || sceneImageRatio >= ratio) &&
+            !(deferUiWork?.call() ?? false)) {
+          final image = await retained.scene.rasterize(pixelRatio: ratio);
+          final retainedMs = sw.elapsedMicroseconds / 1000.0;
+          trace.instant('retained replay+raster', arguments: {
+            'ms': retainedMs,
+            'commands': retained.scene.commands.length,
+          });
+          PdfPerfLog.log('thumbnail page=$pageIndex $reason px=$pixelWidth '
+              'retained replay+raster=${_traceMs(retainedMs)} '
+              'commands=${retained.scene.commands.length}');
+          disk?.storeThumbnail(pageIndex, pixelWidth, image,
+              pageColor: pageColor.toARGB32(), annotations: annotations);
+          return image;
+        }
+      } finally {
+        retained.dispose();
+      }
+    }
     // the heavy interpret runs on the isolate, only the small replay + raster
     // stays here. Image pages and the web fallback return null and rasterize
     // locally.
@@ -3158,6 +3206,55 @@ Future<ui.Image?> rasterizeThumbnail({
   } finally {
     trace.finish();
   }
+}
+
+/// Leases the retained scene a tile of [page] can replay, or null.
+///
+/// The scene has to have been recorded under a display that draws the same
+/// pixels the tile wants, which is not the same as an identical
+/// [PdfPageRenderPlan] - two of the plan's inputs have spellings that coincide:
+///
+///  * **Rotation.** A plan carrying the page's own /Rotate and a plan carrying
+///    null both render the page unrotated relative to itself, and different
+///    producers write different ones (the viewer always resolves an explicit
+///    angle, a bare [PdfPageView] may not).
+///  * **Annotations.** The viewer bakes annotations into the page picture only
+///    when it is not drawing them in a live overlay layer - and an editing
+///    session, which is when this strip exists, always draws them in the
+///    overlay. So its scenes are recorded annotation-free while the strip asks
+///    for annotations, and on a page that carries none those are the same
+///    pixels. Only such a page tries the other spelling.
+///
+/// Everything else - a view rotation, another paper colour, or annotations on
+/// a page that actually has some - misses, as it should: the scene would not
+/// draw what the tile is asking for, and every path below it is unchanged.
+PdfRetainedSceneHandle? _retainedSceneForTile(
+  PdfPagePreviewCache? previews,
+  int pageIndex,
+  PdfPage page, {
+  required Color pageColor,
+  required bool annotations,
+}) {
+  if (previews == null) return null;
+  final annotationSpellings = <bool>[
+    annotations,
+    if (page.annotations.isEmpty) !annotations,
+  ];
+  for (final withAnnotations in annotationSpellings) {
+    for (final rotation in <int?>[page.rotation, null]) {
+      final handle = previews.retainedSceneFor(
+        pageIndex,
+        page,
+        plan: PdfPageRenderPlan(
+          pageColor: pageColor,
+          annotations: withAnnotations,
+          rotation: rotation,
+        ),
+      );
+      if (handle != null) return handle;
+    }
+  }
+  return null;
 }
 
 String _traceMs(double v) => '${v.toStringAsFixed(1)}ms';

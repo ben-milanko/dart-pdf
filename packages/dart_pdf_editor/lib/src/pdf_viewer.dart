@@ -2899,6 +2899,12 @@ class _PdfViewerState extends State<PdfViewer>
         } else {
           _previewAttempts.add(page);
         }
+        // Every ladder rung this page still owes rides along on the one
+        // interpret this pass is about to pay for. The rungs differ only in
+        // raster size, so warming them one at a time walked the same content
+        // stream three times per page (#699).
+        final alsoFill = _ladderRungsFor(index, targetLongestSide,
+            vectorOnly: vectorOnly);
         var deferredPreview = false;
         await _previews.renderPreview(index, page,
             pageColor: widget.pageColor,
@@ -2907,6 +2913,7 @@ class _PdfViewerState extends State<PdfViewer>
             rotation: _effectiveRotation(index),
             decodeImages: !vectorOnly,
             targetLongestSide: targetLongestSide,
+            alsoFillLongestSides: alsoFill,
             commandLimit: vectorOnly ? _jumpPreviewOperationLimit : null,
             deferUiWork: () {
           // A full preview may start during genuine idle time and have its
@@ -2969,6 +2976,34 @@ class _PdfViewerState extends State<PdfViewer>
         }
       }
     }
+  }
+
+  /// The intermediate ladder rungs page [index] still needs beyond
+  /// [targetLongestSide], for pages inside the LoD window.
+  ///
+  /// These cost only their own raster when they ride along with another
+  /// rung's interpret ([PdfPagePreviewCache.renderPreview]), so a page warmed
+  /// to base while it sits in the window arrives with its whole ladder rather
+  /// than being re-interpreted once per rung on later passes. Empty during
+  /// vector-first motion: intermediates are image-complete only.
+  List<double> _ladderRungsFor(int index, double? targetLongestSide,
+      {required bool vectorOnly}) {
+    final policy = widget.pagePreviewLodPolicy;
+    if (vectorOnly || !policy.enabled || policy.intermediateWindow == 0) {
+      return const [];
+    }
+    final pages = _pages;
+    if (pages.isEmpty) return const [];
+    final current = _controller.currentPage.clamp(0, pages.length - 1);
+    if ((index - current).abs() > policy.intermediateWindow) return const [];
+    final page = pages[index];
+    return [
+      for (final side in _previews.intermediateLongestSides)
+        if (side != targetLongestSide &&
+            !_previews.isFresh(index, page,
+                requireImages: true, targetLongestSide: side))
+          side,
+    ];
   }
 
   /// Starts the idle preview loop only after page-layout callbacks from the

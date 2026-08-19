@@ -6,6 +6,7 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/editing/thumbnail_cache.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -469,6 +470,271 @@ void main() {
         await tester.pump(const Duration(milliseconds: 10));
       }
       expect(PdfThumbnailSidebar.debugRasterizations, 4);
+    });
+  });
+
+  group('retained scene reuse', () {
+    testWidgets('a tile replays the viewer scene instead of re-interpreting',
+        (tester) async {
+      // #699: with no worker a 128px tile fell through to a full page
+      // interpret - for a page the viewer had walked seconds earlier and
+      // still holds a retained scene for.
+      final controller = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(controller.dispose);
+      final previews = PdfPagePreviewCache();
+      addTearDown(previews.dispose);
+      final page = controller.pageAt(0);
+      final plan = PdfPageRenderPlan(
+        pageColor: const Color(0xFFFFFFFF),
+        annotations: true,
+        rotation: page.rotation,
+      );
+
+      ui.Image? rendered;
+      late final int tileOps;
+      await tester.runAsync(() async {
+        final scene = await PdfRetainedScene.record(page, plan: plan);
+        previews
+            .retainScene(0, page, scene,
+                plan: plan,
+                fromWorker: false,
+                estimatedBytes: 1 << 20)
+            .dispose(); // the cache keeps its own reference
+        PdfPerf.enabled = true;
+        addTearDown(() => PdfPerf.enabled = false);
+        PdfPerf.reset();
+        rendered = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          pixelWidth: 128,
+          worker: null,
+          previews: previews,
+        );
+        tileOps = PdfPerf.snapshot().count(PdfPerfCount.contentOps);
+      });
+
+      expect(rendered, isNotNull);
+      expect(rendered!.width, 128);
+      expect(tileOps, 0,
+          reason: 'the tile replays retained commands - no content walk');
+      rendered!.dispose();
+    });
+
+    testWidgets('an editing session\'s annotation-free scene serves a tile',
+        (tester) async {
+      // The viewer bakes annotations into the page picture only when it is
+      // not drawing them in an overlay layer - and an editing session, which
+      // is when the strip exists, always uses the overlay. On a page that
+      // carries no annotations those are the same pixels.
+      final controller = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(controller.dispose);
+      final previews = PdfPagePreviewCache();
+      addTearDown(previews.dispose);
+      final page = controller.pageAt(0);
+      expect(page.annotations, isEmpty);
+      final plan = PdfPageRenderPlan(
+        pageColor: const Color(0xFFFFFFFF),
+        annotations: false,
+        rotation: page.rotation,
+      );
+
+      late final int tileOps;
+      ui.Image? rendered;
+      await tester.runAsync(() async {
+        final scene = await PdfRetainedScene.record(page, plan: plan);
+        previews
+            .retainScene(0, page, scene,
+                plan: plan, fromWorker: false, estimatedBytes: 1 << 20)
+            .dispose();
+        PdfPerf.enabled = true;
+        addTearDown(() => PdfPerf.enabled = false);
+        PdfPerf.reset();
+        rendered = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          pixelWidth: 128,
+          worker: null,
+          previews: previews,
+        );
+        tileOps = PdfPerf.snapshot().count(PdfPerfCount.contentOps);
+      });
+
+      expect(rendered, isNotNull);
+      expect(tileOps, 0);
+      rendered!.dispose();
+    });
+
+    testWidgets('an annotated page will not take an annotation-free scene',
+        (tester) async {
+      final controller = PdfEditingController(buildAnnotatedPdf());
+      addTearDown(controller.dispose);
+      final previews = PdfPagePreviewCache();
+      addTearDown(previews.dispose);
+      final page = controller.pageAt(0);
+      expect(page.annotations, isNotEmpty);
+      final plan = PdfPageRenderPlan(
+        pageColor: const Color(0xFFFFFFFF),
+        annotations: false,
+        rotation: page.rotation,
+      );
+
+      late final int tileOps;
+      ui.Image? rendered;
+      await tester.runAsync(() async {
+        final scene = await PdfRetainedScene.record(page, plan: plan);
+        previews
+            .retainScene(0, page, scene,
+                plan: plan, fromWorker: false, estimatedBytes: 1 << 20)
+            .dispose();
+        PdfPerf.enabled = true;
+        addTearDown(() => PdfPerf.enabled = false);
+        PdfPerf.reset();
+        rendered = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          pixelWidth: 128,
+          worker: null,
+          previews: previews,
+        );
+        tileOps = PdfPerf.snapshot().count(PdfPerfCount.contentOps);
+      });
+
+      expect(rendered, isNotNull);
+      expect(tileOps, greaterThan(0),
+          reason: 'the tile must draw the annotations the scene omits');
+      rendered!.dispose();
+    });
+
+    testWidgets('a scene recorded for another display is not reused',
+        (tester) async {
+      final controller = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(controller.dispose);
+      final previews = PdfPagePreviewCache();
+      addTearDown(previews.dispose);
+      final page = controller.pageAt(0);
+      // A grey-paper scene cannot stand in for a white-paper tile.
+      final plan = PdfPageRenderPlan(
+        pageColor: const Color(0xFF808080),
+        annotations: true,
+        rotation: page.rotation,
+      );
+
+      late final int tileOps;
+      ui.Image? rendered;
+      await tester.runAsync(() async {
+        final scene = await PdfRetainedScene.record(page, plan: plan);
+        previews
+            .retainScene(0, page, scene,
+                plan: plan,
+                fromWorker: false,
+                estimatedBytes: 1 << 20)
+            .dispose();
+        PdfPerf.enabled = true;
+        addTearDown(() => PdfPerf.enabled = false);
+        PdfPerf.reset();
+        rendered = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          pixelWidth: 128,
+          worker: null,
+          previews: previews,
+        );
+        tileOps = PdfPerf.snapshot().count(PdfPerfCount.contentOps);
+      });
+
+      expect(rendered, isNotNull);
+      expect(tileOps, greaterThan(0),
+          reason: 'the mismatched scene is declined and the tile renders '
+              'the page itself');
+      rendered!.dispose();
+    });
+
+    testWidgets('the warm pass reuses a retained scene without a worker',
+        (tester) async {
+      final controller = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(controller.dispose);
+      final previews = PdfPagePreviewCache();
+      addTearDown(previews.dispose);
+      final page = controller.pageAt(0);
+      final plan = PdfPageRenderPlan(
+        pageColor: const Color(0xFFFFFFFF),
+        annotations: true,
+        rotation: page.rotation,
+      );
+
+      ui.Image? rendered;
+      await tester.runAsync(() async {
+        final scene = await PdfRetainedScene.record(page, plan: plan);
+        previews
+            .retainScene(0, page, scene,
+                plan: plan,
+                fromWorker: false,
+                estimatedBytes: 1 << 20)
+            .dispose();
+        rendered = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          pixelWidth: 128,
+          worker: null,
+          skipIfWorkerDeclines: true,
+          reason: 'warm',
+          previews: previews,
+        );
+      });
+
+      expect(rendered, isNotNull,
+          reason: 'skipping the local interpret does not mean skipping a '
+              'scene that is already recorded');
+      rendered!.dispose();
+    });
+
+    testWidgets('a retained scene is not replayed during motion',
+        (tester) async {
+      final controller = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(controller.dispose);
+      final previews = PdfPagePreviewCache();
+      addTearDown(previews.dispose);
+      final page = controller.pageAt(0);
+      final plan = PdfPageRenderPlan(
+        pageColor: const Color(0xFFFFFFFF),
+        annotations: true,
+        rotation: page.rotation,
+      );
+
+      ui.Image? rendered;
+      await tester.runAsync(() async {
+        final scene = await PdfRetainedScene.record(page, plan: plan);
+        previews
+            .retainScene(0, page, scene,
+                plan: plan,
+                fromWorker: false,
+                estimatedBytes: 1 << 20)
+            .dispose();
+        rendered = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          pixelWidth: 128,
+          worker: null,
+          deferUiWork: () => true,
+          previews: previews,
+        );
+      });
+
+      expect(rendered, isNull,
+          reason: 'a replay is cheap but still platform-thread work; the '
+              'tile waits for the scroll to settle');
     });
   });
 

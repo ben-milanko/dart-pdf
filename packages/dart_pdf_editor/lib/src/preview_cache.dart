@@ -1228,6 +1228,14 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// synchronous UI-thread work, so callers pace and gate these (the viewer
   /// pauses while the user scrolls). A page that fails to render simply gets
   /// no preview.
+  ///
+  /// [alsoFillLongestSides] names further ladder rungs to fill from the *same*
+  /// interpretation. The ladder's rungs differ only in raster size, so walking
+  /// the content stream once per rung was pure waste: the field trace behind
+  /// #699 shows one page warmed to base/400px/800px costing three interprets
+  /// and 227 ms of platform thread. The page is recorded once, at the sharpest
+  /// requested rung's image resolution, and every rung is rasterized from that
+  /// one picture.
   Future<void> renderPreview(int index, PdfPage page,
       {Color pageColor = const Color(0xFFFFFFFF),
       bool annotations = true,
@@ -1235,6 +1243,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
       int? rotation,
       bool decodeImages = true,
       double? targetLongestSide,
+      List<double> alsoFillLongestSides = const [],
       int priority = 1,
       int? commandLimit,
       bool Function()? deferUiWork}) async {
@@ -1242,13 +1251,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
     if (_disposed ||
         !_acceptsPage(index, page) ||
         (intermediate &&
-            !_intermediateLongestSides.contains(targetLongestSide)) ||
-        isFresh(
-          index,
-          page,
-          requireImages: decodeImages,
-          targetLongestSide: targetLongestSide,
-        )) {
+            !_intermediateLongestSides.contains(targetLongestSide))) {
       return;
     }
     // Command-limited/vector-first pixels are the instant fallback. Promoting
@@ -1261,96 +1264,118 @@ class PdfPagePreviewCache extends ChangeNotifier {
       // is exactly what fast-scroll prefetch is trying to avoid.
       return;
     }
+    // The rungs this build owes, the caller's own target first. A rung that is
+    // already fresh, not configured, or (for intermediates) not image-complete
+    // never joins.
+    final targets = <double?>[];
+    void consider(double? side) {
+      if (targets.contains(side)) return;
+      if (side != null &&
+          (!decodeImages || !_intermediateLongestSides.contains(side))) {
+        return;
+      }
+      if (isFresh(index, page,
+          requireImages: decodeImages, targetLongestSide: side)) {
+        return;
+      }
+      targets.add(side);
+    }
+
+    consider(targetLongestSide);
+    for (final side in alsoFillLongestSides) {
+      consider(side);
+    }
+    if (targets.isEmpty) return;
     try {
       final sw = Stopwatch()..start();
       final size = PdfPageRenderer.pageSize(page, rotation: rotation);
-      final ratio = _ratioFor(size, targetLongestSide: targetLongestSide);
+      // One build serves every rung, so it has to be recorded at the sharpest
+      // one's resolution: images decoded for a 200px preview cannot be
+      // sharpened into an 800px one afterwards.
+      var buildRatio = 0.0;
+      for (final side in targets) {
+        buildRatio =
+            math.max(buildRatio, _ratioFor(size, targetLongestSide: side));
+      }
       // priority 1: prefetch yields to any on-screen page the worker owes.
-      // The preview is rasterized at [ratio] (longest side ~200px), so cap the
-      // worker's images to that - a heavy raster underlay need not ship at full
+      // Every rung is rasterized at or below [buildRatio], so cap the worker's
+      // images to that - a heavy raster underlay need not ship at full
       // resolution just to be downscaled into a thumbnail.
       final commands = worker != null && worker.isActive
           ? await worker.record(index,
               annotations: annotations,
               priority: priority,
-              imagePixelRatio: decodeImages ? ratio : null,
+              imagePixelRatio: decodeImages ? buildRatio : null,
               decodeImages: decodeImages,
               commandLimit: commandLimit)
           : null;
       if (!decodeImages && commands == null) {
-        // Worker-declined vector warms must stay cheap. Falling back to
-        // renderImage here would synchronously interpret/decode images on the
-        // UI thread during the fast-scroll path.
+        // Worker-declined vector warms must stay cheap. Recording locally here
+        // would synchronously interpret/decode images on the UI thread during
+        // the fast-scroll path.
         return;
       }
       if (deferUiWork?.call() ?? false) return;
-      if (_disposed ||
-          !_acceptsPage(index, page) ||
-          isFresh(
-            index,
-            page,
-            requireImages: decodeImages,
-            targetLongestSide: targetLongestSide,
-          )) {
-        return;
-      }
-      final ui.Image image;
+      if (_disposed || !_acceptsPage(index, page)) return;
       var includesImages = decodeImages;
+      final plan = PdfPageRenderPlan(
+          pageColor: pageColor, annotations: annotations, rotation: rotation);
+      final ui.Picture picture;
       if (commands != null) {
         includesImages = commandLimit == null &&
             (decodeImages || !PdfPageRenderer.hasImageDraws(commands));
-        final picture = await PdfPageRenderer.pictureFromCommands(
-            page, commands,
-            pageColor: pageColor,
-            rotation: rotation,
-            includeImages: decodeImages,
-            maxImagePixelRatio: ratio);
-        if (!_acceptsPage(index, page) || (deferUiWork?.call() ?? false)) {
-          picture.dispose();
-          return;
-        }
-        try {
-          image = await PdfPageRenderer.rasterize(picture, size, ratio);
-        } finally {
-          picture.dispose();
-        }
+        picture = await PdfPageRenderer.pictureFromCommandsWithPlan(
+            page, commands, plan,
+            includeImages: decodeImages, maxImagePixelRatio: buildRatio);
       } else {
-        if (deferUiWork?.call() ?? false) return;
-        image = await PdfPageRenderer.renderImage(page,
-            pixelRatio: ratio,
-            pageColor: pageColor,
-            annotations: annotations,
-            recorded: true,
-            rotation: rotation);
+        picture = await PdfPageRenderer.renderPictureRecordedWithPlan(page, plan,
+            maxImagePixelRatio: buildRatio);
       }
-      if (deferUiWork?.call() ?? false) {
-        image.dispose();
-        return;
-      }
-      sw.stop();
-      PdfPerfLog.log('prerender page=$index '
-          'lod=${targetLongestSide == null ? 'base' : '${targetLongestSide.toStringAsFixed(0)}px'} '
-          '${commands != null ? 'worker ' : ''}'
-          '${includesImages ? 'full' : 'vector'} '
-          'warm=${(sw.elapsedMicroseconds / 1000).toStringAsFixed(1)}ms');
-      if (_disposed ||
-          !_acceptsPage(index, page) ||
-          isFresh(
+      try {
+        var shared = false;
+        for (final side in targets) {
+          if (deferUiWork?.call() ?? false) return;
+          if (_disposed ||
+              !_acceptsPage(index, page) ||
+              isFresh(index, page,
+                  requireImages: decodeImages, targetLongestSide: side)) {
+            continue;
+          }
+          final image = await PdfPageRenderer.rasterize(
+              picture, size, _ratioFor(size, targetLongestSide: side));
+          if (deferUiWork?.call() ?? false) {
+            image.dispose();
+            return;
+          }
+          if (_disposed ||
+              !_acceptsPage(index, page) ||
+              isFresh(index, page,
+                  requireImages: decodeImages, targetLongestSide: side)) {
+            image.dispose();
+            continue;
+          }
+          // `shared` marks a rung that cost only its own raster because the
+          // rung before it already paid for the interpret - the line a #699
+          // trace comparison reads.
+          PdfPerfLog.log('prerender page=$index '
+              'lod=${side == null ? 'base' : '${side.toStringAsFixed(0)}px'} '
+              '${commands != null ? 'worker ' : ''}'
+              '${shared ? 'shared ' : ''}'
+              '${includesImages ? 'full' : 'vector'} '
+              'warm=${(sw.elapsedMicroseconds / 1000).toStringAsFixed(1)}ms');
+          sw.reset();
+          shared = true;
+          _store(
             index,
             page,
-            requireImages: decodeImages,
-            targetLongestSide: targetLongestSide,
-          )) {
-        image.dispose();
-        return;
+            image,
+            includesImages: includesImages,
+            targetLongestSide: side,
+          );
+        }
+      } finally {
+        picture.dispose();
       }
-      _store(
-        index,
-        page,
-        image,
-        includesImages: includesImages,
-        targetLongestSide: targetLongestSide,
-      );
     } catch (_) {
       // no preview is strictly better than a crash mid-scroll
     }

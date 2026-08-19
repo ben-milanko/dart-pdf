@@ -10,6 +10,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
@@ -338,6 +339,88 @@ void main() {
         inInclusiveRange(790, 800),
         reason: 'preview ratios do not upscale a sub-800pt page past 1x');
     frame.image.dispose();
+  });
+
+  testWidgets('one interpret fills every rung of the preview ladder',
+      (tester) async {
+    // #699: the ladder's rungs differ only in raster size, so warming them
+    // one call at a time walked the same content stream once per rung.
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    const levels = [400.0, 800.0];
+    PdfPagePreviewCache build() => PdfPagePreviewCache(
+          lodPolicy: const PdfPagePreviewLodPolicy(
+            intermediateLongestSides: levels,
+            maxBytes: 8 * 1024 * 1024,
+            maxEntryBytes: 4 * 1024 * 1024,
+          ),
+        );
+
+    final perRung = build();
+    addTearDown(perRung.dispose);
+    final shared = build();
+    addTearDown(shared.dispose);
+
+    late final int perRungOps;
+    late final int sharedOps;
+    await tester.runAsync(() async {
+      PdfPerf.enabled = true;
+      addTearDown(() => PdfPerf.enabled = false);
+      PdfPerf.reset();
+      await perRung.renderPreview(0, page);
+      await perRung.renderPreview(0, page, targetLongestSide: levels[0]);
+      await perRung.renderPreview(0, page, targetLongestSide: levels[1]);
+      perRungOps = PdfPerf.snapshot().count(PdfPerfCount.contentOps);
+      PdfPerf.reset();
+      await shared.renderPreview(0, page, alsoFillLongestSides: levels);
+      sharedOps = PdfPerf.snapshot().count(PdfPerfCount.contentOps);
+    });
+
+    expect(sharedOps, greaterThan(0));
+    expect(perRungOps, sharedOps * 3,
+        reason: 'a rung per call tokenizes the page three times over; the '
+            'ladder build tokenizes it once and rasterizes each rung from '
+            'that one record');
+    for (final cache in [perRung, shared]) {
+      expect(cache.isFresh(0, page, requireImages: true), isTrue);
+      expect(cache.hasIntermediate(0, targetLongestSide: levels[0]), isTrue);
+      expect(cache.hasIntermediate(0, targetLongestSide: levels[1]), isTrue);
+    }
+    final sharpest = shared.previewFor(0)!;
+    expect(sharpest.targetLongestSide, levels[1]);
+    expect(math.max(sharpest.image.width, sharpest.image.height),
+        inInclusiveRange(790, 800),
+        reason: 'the sharpest rung is rasterized at its own ratio, not '
+            'upscaled from the base preview');
+    sharpest.image.dispose();
+  });
+
+  testWidgets('a ladder build skips rungs that are already fresh',
+      (tester) async {
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    const levels = [400.0, 800.0];
+    final cache = PdfPagePreviewCache(
+      lodPolicy: const PdfPagePreviewLodPolicy(
+        intermediateLongestSides: levels,
+        maxBytes: 8 * 1024 * 1024,
+        maxEntryBytes: 4 * 1024 * 1024,
+      ),
+    );
+    addTearDown(cache.dispose);
+
+    late final int ops;
+    await tester.runAsync(() async {
+      await cache.renderPreview(0, page, alsoFillLongestSides: levels);
+      PdfPerf.enabled = true;
+      addTearDown(() => PdfPerf.enabled = false);
+      PdfPerf.reset();
+      await cache.renderPreview(0, page, alsoFillLongestSides: levels);
+      ops = PdfPerf.snapshot().count(PdfPerfCount.contentOps);
+    });
+
+    expect(ops, 0,
+        reason: 'nothing is missing, so the page is not recorded at all');
   });
 
   testWidgets('a late intermediate promotion cannot cross page revisions',
@@ -1421,8 +1504,14 @@ void main() {
     await tester.pump();
     final cache = controller.debugPreviewCache!;
 
+    // A page inside the LoD window fills its whole ladder from one interpret
+    // (#699), so the sharp rungs can land before the wider base sweep gets
+    // to page 4 - wait for both to settle rather than for whichever the
+    // warm order happens to reach first.
     for (var i = 0;
-        i < 150 && !cache.hasIntermediate(2, targetLongestSide: 800);
+        i < 150 &&
+            !(cache.hasIntermediate(2, targetLongestSide: 800) &&
+                cache.has(4));
         i++) {
       await settle(tester);
     }

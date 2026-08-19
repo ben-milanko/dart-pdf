@@ -1,0 +1,196 @@
+// Puts a number on #699: what the two background surfaces - the thumbnail
+// strip and the preview LoD ladder - cost when they re-interpret a page the
+// viewer has already interpreted, against what they cost when they reuse that
+// work.
+//
+// Both halves are measured the way the surfaces actually pay them, on the
+// platform thread:
+//
+//   ladder   base/400px/800px previews of one page, warmed rung by rung (a
+//            content-stream walk each) against the whole ladder rasterized
+//            from a single record
+//   tile     a 128px thumbnail from a local interpret+raster against the same
+//            tile replayed out of the page's retained scene
+//
+// The synthetic profiles and the committed letterhead report run by default,
+// so the numbers exist on any machine. Point this at another document with:
+//
+//   cd packages/dart_pdf_editor
+//   PDF_SURFACE_BENCHMARK_PDF=/path/to/report.pdf fvm flutter test \
+//     test/benchmark_background_surfaces_test.dart
+//
+//   PDF_SURFACE_BENCHMARK_PAGES=6   # pages sampled from the front of the file
+//
+// This is the VM half. The web half is the real-Chrome harness: run
+// `tool/perf.sh web wheel-letterhead` (and the `read-*` scenarios) for the
+// dart2js/CanvasKit picture of the same journey.
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
+
+void main() {
+  const pageColor = Color(0xFFFFFFFF);
+  const levels = [400.0, 800.0];
+  const lodPolicy = PdfPagePreviewLodPolicy(
+    intermediateLongestSides: levels,
+    maxBytes: 256 * 1024 * 1024,
+    maxEntryBytes: 64 * 1024 * 1024,
+  );
+
+  PdfPagePreviewCache newCache() => PdfPagePreviewCache(lodPolicy: lodPolicy);
+
+  /// Warms the whole ladder of [index] one rung per call - what the viewer
+  /// did before #699: one content-stream walk per rung.
+  Future<int> perRungMicros(int index, PdfPage page) async {
+    final cache = newCache();
+    final clock = Stopwatch()..start();
+    await cache.renderPreview(index, page, pageColor: pageColor);
+    for (final side in levels) {
+      await cache.renderPreview(index, page,
+          pageColor: pageColor, targetLongestSide: side);
+    }
+    clock.stop();
+    expect(cache.hasIntermediate(index, targetLongestSide: levels.last), isTrue);
+    cache.dispose();
+    return clock.elapsedMicroseconds;
+  }
+
+  /// Warms the same ladder from one record.
+  Future<int> ladderMicros(int index, PdfPage page) async {
+    final cache = newCache();
+    final clock = Stopwatch()..start();
+    await cache.renderPreview(index, page,
+        pageColor: pageColor, alsoFillLongestSides: levels);
+    clock.stop();
+    expect(cache.hasIntermediate(index, targetLongestSide: levels.last), isTrue);
+    cache.dispose();
+    return clock.elapsedMicroseconds;
+  }
+
+  /// A tile rendered the way a worker-less session rendered it: interpret the
+  /// whole page to fill 128 px.
+  Future<int> localTileMicros(PdfEditingController controller, int index) async {
+    final clock = Stopwatch()..start();
+    final image = await rasterizeThumbnail(
+      controller: controller,
+      pageIndex: index,
+      pageColor: pageColor,
+      annotations: true,
+      pixelWidth: 128,
+      worker: null,
+    );
+    clock.stop();
+    expect(image, isNotNull);
+    image!.dispose();
+    return clock.elapsedMicroseconds;
+  }
+
+  /// The same tile replayed from the scene the viewer already holds. The
+  /// record is deliberately outside the clock: the viewer paid for it when the
+  /// page was on screen.
+  Future<int> retainedTileMicros(
+      PdfEditingController controller, int index, PdfPage page) async {
+    final cache = newCache();
+    final plan = PdfPageRenderPlan(
+      pageColor: pageColor,
+      annotations: true,
+      rotation: page.rotation,
+    );
+    final scene = await PdfRetainedScene.record(page, plan: plan);
+    cache
+        .retainScene(index, page, scene,
+            plan: plan, fromWorker: false, estimatedBytes: 1 << 20)
+        .dispose();
+    final clock = Stopwatch()..start();
+    final image = await rasterizeThumbnail(
+      controller: controller,
+      pageIndex: index,
+      pageColor: pageColor,
+      annotations: true,
+      pixelWidth: 128,
+      worker: null,
+      previews: cache,
+    );
+    clock.stop();
+    expect(image, isNotNull);
+    image!.dispose();
+    cache.dispose();
+    return clock.elapsedMicroseconds;
+  }
+
+  Future<void> report(String label, Uint8List bytes, {required int pages}) async {
+    final document = PdfDocument.open(bytes);
+    final controller = PdfEditingController(bytes);
+    addTearDown(controller.dispose);
+    final sampled = pages < document.pageCount ? pages : document.pageCount;
+    var perRung = 0;
+    var ladder = 0;
+    var localTile = 0;
+    var retainedTile = 0;
+    for (var i = 0; i < sampled; i++) {
+      final page = document.page(i);
+      perRung += await perRungMicros(i, page);
+      ladder += await ladderMicros(i, page);
+      localTile += await localTileMicros(controller, i);
+      retainedTile += await retainedTileMicros(controller, i, page);
+    }
+    double ms(int micros) => micros / sampled / 1000;
+    // ignore: avoid_print
+    print('background-surfaces $label: pages=$sampled '
+        'ladderPerRung=${ms(perRung).toStringAsFixed(1)}ms/page '
+        'ladderOneRecord=${ms(ladder).toStringAsFixed(1)}ms/page '
+        '(-${(100 * (perRung - ladder) / perRung).toStringAsFixed(0)}%) '
+        'tileLocal=${ms(localTile).toStringAsFixed(1)}ms/tile '
+        'tileRetained=${ms(retainedTile).toStringAsFixed(1)}ms/tile '
+        '(-${(100 * (localTile - retainedTile) / localTile).toStringAsFixed(0)}%)');
+
+    // The point of both changes. If either stops holding, the surfaces are
+    // paying for work they already have and this benchmark should fail rather
+    // than print a number nobody reads.
+    expect(ladder, lessThan(perRung),
+        reason: 'one record for the whole ladder must beat one per rung');
+    expect(retainedTile, lessThan(localTile),
+        reason: 'replaying a retained scene must beat interpreting the page');
+  }
+
+  testWidgets('ordinary text pages', (tester) async {
+    await tester.runAsync(
+        () => report('ordinary', buildMultiPagePdf(4), pages: 4));
+  });
+
+  testWidgets('dense vector linework (CAD profile)', (tester) async {
+    await tester.runAsync(() => report(
+        'cad-vector', buildSyntheticCadStrip(ops: 20000, streams: 4),
+        pages: 1));
+  });
+
+  testWidgets('letterhead report (the #699 document class)', (tester) async {
+    final file = File('../../test_corpora/dartpdf/letterhead-report-40p.pdf');
+    if (!file.existsSync()) {
+      markTestSkipped('missing ${file.path}');
+      return;
+    }
+    await tester.runAsync(
+        () => report('letterhead-report', file.readAsBytesSync(), pages: 6));
+  });
+
+  testWidgets('real document sweep', (tester) async {
+    final path = Platform.environment['PDF_SURFACE_BENCHMARK_PDF'];
+    if (path == null) {
+      markTestSkipped('set PDF_SURFACE_BENCHMARK_PDF');
+      return;
+    }
+    final pages = int.tryParse(
+            Platform.environment['PDF_SURFACE_BENCHMARK_PAGES'] ?? '') ??
+        6;
+    await tester.runAsync(() => report(
+        path.split(Platform.pathSeparator).last,
+        File(path).readAsBytesSync(),
+        pages: pages));
+  });
+}
