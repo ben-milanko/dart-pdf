@@ -6927,35 +6927,22 @@ class PdfEditingController extends ChangeNotifier {
   /// Rewrites the selected text element's characters to [text] and
   /// returns how many text runs changed.
   ///
-  /// Built on [PdfEditor.replaceText], so its limits apply: identical runs
-  /// elsewhere on the page change too, and matches do not cross a line
-  /// break. Replacements are re-measured so the rest of the line keeps its
-  /// position. Composite (/Type0) text is handled; [fallbackFonts] (the
-  /// bundled DejaVu trio, see `loadFallbackFonts`) draw any character the
-  /// document's own font can't, so typing outside its subset still works.
+  /// Built on [PdfEditor.replaceElementText], so the rewrite lands on the
+  /// occurrence the user selected and nowhere else - a page whose header and
+  /// footer both read "Date:" keeps the one that was not selected. Matches do
+  /// not cross a line break, and replacements are re-measured so the rest of
+  /// the line keeps its position. Composite (/Type0) text is handled;
+  /// [fallbackFonts] (the bundled DejaVu trio, see `loadFallbackFonts`) draw
+  /// any character the document's own font can't, so typing outside its
+  /// subset still works.
   int replaceSelectedElementText(
     String text, {
     List<PdfEmbeddedFont> fallbackFonts = const [],
-  }) {
-    final selected = _selectedElement;
-    final element = selectedElement;
-    if (selected == null || element == null || !canEditSelectedElementText) {
-      return 0;
-    }
-    var count = 0;
-    apply(
-      (e) => count = e.replaceText(
-        selected.$1,
-        element.text!,
-        text,
-        fallbackFonts: fallbackFonts,
-      ),
-    );
-    return count;
-  }
+  }) =>
+      _replaceSelectedElementText(text, null, fallbackFonts);
 
   /// Like [replaceSelectedElementText] but restyles the replacement with
-  /// [style] (fill colour, size, bold, italic) via [PdfEditor.replaceText].
+  /// [style] (fill colour, size, bold, italic).
   ///
   /// Styling lands on simple-font runs; a composite (/Type0) element is still
   /// re-typed but keeps its original colour, size, and face. Returns how many
@@ -6964,16 +6951,31 @@ class PdfEditingController extends ChangeNotifier {
     String text,
     PdfTextStyle style, {
     List<PdfEmbeddedFont> fallbackFonts = const [],
-  }) {
+  }) =>
+      _replaceSelectedElementText(text, style, fallbackFonts);
+
+  int _replaceSelectedElementText(
+    String text,
+    PdfTextStyle? style,
+    List<PdfEmbeddedFont> fallbackFonts,
+  ) {
     final selected = _selectedElement;
     final element = selectedElement;
     if (selected == null || element == null || !canEditSelectedElementText) {
       return 0;
     }
+    final elements = elementsOn(selected.$1);
+    // [selectedElement] resolves through this same snapshot, so the element
+    // is current; guard anyway rather than throw if that ever changes.
+    if (element.id >= elements.elements.length ||
+        !identical(elements.elements[element.id], element)) {
+      return 0;
+    }
     var count = 0;
     apply(
-      (e) => count = e.replaceText(
-        selected.$1,
+      (e) => count = e.replaceElementText(
+        elements,
+        element,
         element.text!,
         text,
         fallbackFonts: fallbackFonts,

@@ -3,10 +3,10 @@ import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
 
-import 'content_writer.dart';
 import 'document.dart';
 import 'matrix_geometry.dart';
 import 'rect.dart';
+import 'simple_font.dart';
 import 'type0_font.dart';
 
 /// What a content element draws.
@@ -54,8 +54,11 @@ class PdfContentElement {
   final int start;
   final int end;
 
-  /// The shown characters, Latin-1-decoded, for [PdfElementKind.text].
-  /// Multi-byte and symbolic encodings come out garbled but unique.
+  /// The text this run shows, for [PdfElementKind.text], decoded through the
+  /// font's own encoding: `/ToUnicode` and `/Encoding` `/Differences` for a
+  /// simple font ([SimpleFont]), `/ToUnicode` for a composite one
+  /// ([Type0Font]). A subsetted font that renumbered its codes therefore
+  /// reads as the text on the page, not as its raw bytes.
   final String? text;
 
   /// The active /Font resource name for [PdfElementKind.text], or the
@@ -64,9 +67,10 @@ class PdfContentElement {
   final String? resourceName;
 
   /// Approximate user-space bounding box: exact anchor points for paths
-  /// and placed images, estimated extents for text (Helvetica metrics
-  /// stand in for the real font). Null when no geometry is tracked
-  /// (shading fills, degenerate transforms).
+  /// and placed images, estimated extents for text (advances come from the
+  /// font's own `/Widths` or `/W`, the vertical extent is still a guess).
+  /// Null when no geometry is tracked (shading fills, degenerate
+  /// transforms).
   final PdfRect? bounds;
 
   /// Pixel width for image-like elements when declared by the content stream
@@ -133,6 +137,18 @@ class PdfPageElements {
         imageHeight: imageHeight,
       ));
     }
+
+    // simple fonts draw one byte per glyph, but the byte is not the
+    // character: /Differences and subset renumbering remap it freely, so
+    // resolve each named font once to a code -> text table.
+    final simpleFonts = <String?, SimpleFont>{};
+    SimpleFont simpleFor(String? name) => simpleFonts.putIfAbsent(name, () {
+          final fonts = cos.resolve(resources['Font']);
+          final f = name == null || fonts is! CosDictionary
+              ? null
+              : cos.resolve(fonts[name]);
+          return SimpleFont.decode(cos, f is CosDictionary ? f : null);
+        });
 
     // composite (/Type0) fonts draw 2-byte codes: resolve each named font
     // once to a decoder that turns codes into real text (via /ToUnicode) and
@@ -269,19 +285,23 @@ class PdfPageElements {
           if (op.operator == "'") text.newline(0, -text.leading);
           if (op.operator == '"') text.newline(0, -text.leading);
           final decoder = type0For(text.fontName);
+          final simple = decoder == null ? simpleFor(text.fontName) : null;
           final shown = StringBuffer();
-          var advanceEm = 0.0; // thousandths of an em, for /Type0 measurement
+          var advanceEm = 0.0; // thousandths of an em, for measurement
           void show(CosObject o) {
             if (o is! CosString) return;
-            if (decoder == null) {
-              shown.write(latin1.decode(o.bytes));
-              return;
-            }
             final b = o.bytes;
-            for (var k = 0; k + 1 < b.length; k += 2) {
-              final code = (b[k] << 8) | b[k + 1];
-              shown.write(decoder.codeToText[code] ?? '');
-              advanceEm += decoder.widthOf(code);
+            if (simple != null) {
+              for (final code in b) {
+                shown.write(simple.textFor(code));
+                advanceEm += simple.widthOf(code);
+              }
+            } else if (decoder != null) {
+              for (var k = 0; k + 1 < b.length; k += 2) {
+                final code = (b[k] << 8) | b[k + 1];
+                shown.write(decoder.codeToText[code] ?? '');
+                advanceEm += decoder.widthOf(code);
+              }
             }
           }
 
@@ -291,8 +311,7 @@ class PdfPageElements {
               for (final item in array.items) {
                 if (item is CosString) {
                   show(item);
-                } else if (decoder != null &&
-                    (item is CosInteger || item is CosReal)) {
+                } else if (item is CosInteger || item is CosReal) {
                   advanceEm -= number(item); // kern, in thousandths of an em
                 }
               }
@@ -303,9 +322,9 @@ class PdfPageElements {
             show(operands[0]);
           }
           final string = shown.toString();
-          final width = decoder != null
-              ? advanceEm / 1000 * text.size
-              : measureHelvetica(string, text.size);
+          // both paths accumulate the run's advance from the font's own
+          // metrics now, so the estimate no longer assumes Helvetica.
+          final width = advanceEm / 1000 * text.size;
           final m = text.matrix.concat(ctm);
           addElement(PdfElementKind.text, i, i + 1,
               shown: string,

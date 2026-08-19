@@ -162,9 +162,18 @@ extension PdfContentEditing on PdfEditor {
   /// round-tripped (CFF descendant, stream /CIDToGIDMap, non-Identity-H
   /// encoding, missing program/ToUnicode, or a character the font lacks).
   ///
-  /// Remaining limitations: for simple fonts both strings must be Latin-1;
-  /// and matches do not cross a line break (`Td`/`T*`/`'`/`"`) - this
-  /// corrects and re-flows within a line, it does not re-flow paragraphs.
+  /// Simple (byte-coded) fonts are read and written through their own
+  /// encoding too ([SimpleFont]): `/ToUnicode` and `/Encoding`
+  /// `/Differences` decide what a code reads as, so [find] and [replace] are
+  /// the text on the page rather than the raw bytes drawing it, and a subset
+  /// that renumbered its codes round-trips correctly. A simple-font run is
+  /// left untouched when the font declares no code for one of [replace]'s
+  /// characters - a subsetted face physically lacks the glyph, and writing
+  /// the character's ASCII byte anyway would draw a different one.
+  ///
+  /// Remaining limitation: matches do not cross a line break
+  /// (`Td`/`T*`/`'`/`"`) - this corrects and re-flows within a line, it does
+  /// not re-flow paragraphs.
   /// [fallbackFonts] (composite editing only) supply glyph outlines for
   /// characters the document's own /Type0 font can't draw - a subsetted
   /// embedded font physically lacks the glyphs it dropped, and this library
@@ -238,10 +247,6 @@ extension PdfContentEditing on PdfEditor {
     PdfPageElements? snapshot,
   }) {
     if (find.isEmpty) throw ArgumentError.value(find, 'find', 'is empty');
-    // the simple-font path is byte-encoded; non-Latin-1 strings can only be
-    // matched/drawn by the composite path, so leave these null there.
-    final findBytes = _tryLatin1(find);
-    final replaceBytes = _tryLatin1(replace);
 
     final page = document.page(index);
     // Reuse the caller's snapshot only while this session has not already
@@ -263,6 +268,14 @@ extension PdfContentEditing on PdfEditor {
       final font = cos.resolve(fonts[name]);
       return font is CosDictionary ? font : null;
     }
+
+    // A simple font's byte codes are only the characters by convention:
+    // /Encoding /Differences and subset renumbering remap them freely, so
+    // both the match and the replacement go through the font's own tables
+    // ([SimpleFont]). Cached per font resource name like the composite ones.
+    final simpleCache = <String?, SimpleFont>{};
+    SimpleFont simpleFor(String? name, CosDictionary? f) =>
+        simpleCache.putIfAbsent(name, () => SimpleFont.decode(cos, f));
 
     // composite (/Type0) fonts are rewritten by a separate path that decodes
     // 2-byte glyph codes - built lazily and cached per font resource name.
@@ -332,27 +345,22 @@ extension PdfContentEditing on PdfEditor {
           run.add(ops[i]);
           i++;
         }
-        // find must be Latin-1 to locate it in a simple-font run; replace may
-        // be non-Latin-1 only when it will be drawn in an embedded font.
-        final simpleRewrite = findBytes == null
-            ? (run, 0)
-            : (styled
-                ? _rewriteStyledTextRun(
-                    page,
-                    run,
-                    font,
-                    fontName,
-                    fontSize,
-                    find,
-                    replaceBytes,
-                    replace,
-                    style,
-                    restoreColorOps,
-                    styledEmbed,
-                  )
-                : (replaceBytes != null
-                    ? _rewriteTextRun(run, font, find, replace)
-                    : (run, 0)));
+        final simpleRewrite = styled
+            ? _rewriteStyledTextRun(
+                page,
+                run,
+                font,
+                fontName,
+                fontSize,
+                find,
+                replace,
+                style,
+                restoreColorOps,
+                styledEmbed,
+                simpleFor(fontName, font),
+              )
+            : _rewriteTextRun(
+                run, font, find, replace, simpleFor(fontName, font));
         final (ops_, n) = _isType0(cos, font) && fontName != null
             ? (type0For(
                   fontName,
@@ -369,16 +377,22 @@ extension PdfContentEditing on PdfEditor {
       if ((op.operator == "'" || op.operator == '"') &&
           (operationRange == null ||
               (i >= operationRange.$1 && i < operationRange.$2)) &&
-          !_isType0(cos, font) &&
-          findBytes != null &&
-          replaceBytes != null) {
+          !_isType0(cos, font)) {
         final si = op.operator == '"' ? 2 : 0;
         if (op.operands.length > si && op.operands[si] is CosString) {
-          final s = op.operands[si] as CosString;
-          final replaced = _replaceBytes(s.bytes, findBytes, replaceBytes);
-          if (replaced != null) {
-            op.operands[si] = CosString(replaced, isHex: s.isHex);
-            count += _findAll(s.bytes, findBytes).length;
+          final simple = simpleFor(fontName, font);
+          // both ends run through the font's own encoding: the codes that
+          // draw `find` on this page, and the codes that will draw `replace`.
+          // A font that can draw neither leaves the operator alone.
+          final findBytes = simple.encode(find);
+          final replaceBytes = simple.encode(replace);
+          if (findBytes != null && replaceBytes != null) {
+            final s = op.operands[si] as CosString;
+            final replaced = _replaceBytes(s.bytes, findBytes, replaceBytes);
+            if (replaced != null) {
+              op.operands[si] = CosString(replaced, isHex: s.isHex);
+              count += _findAll(s.bytes, findBytes).length;
+            }
           }
         }
       }
@@ -451,15 +465,15 @@ extension PdfContentEditing on PdfEditor {
     String? fontName,
     double fontSize,
     String find,
-    List<int>? replaceBytes,
     String replace,
     PdfTextStyle style,
     List<ContentOperation> restoreColorOps,
     _StyledEmbed? embed,
+    SimpleFont simple,
   ) {
     if (_isType0(document.cos, font)) return (run, 0);
 
-    final origWidthOf = _widthsFor(font);
+    final origWidthOf = simple.widthOf;
 
     // The styled face is resolved lazily, on the first match, by [resolve]:
     // the given embedded font (as Identity-H glyph ids) when it can render the
@@ -471,9 +485,14 @@ extension PdfContentEditing on PdfEditor {
     final runes = replace.runes.toList();
     final useEmbed =
         embed != null && runes.every((r) => embed.font.glyphForRune(r) != 0);
+    // The bytes to write depend on which face ends up drawing them: a
+    // substituted base-14 face is WinAnsi, so the replacement is Latin-1
+    // there, while the run's own face needs its own codes ([simple]).
+    final variant = _styledVariant(font, style);
+    final replaceBytes =
+        variant != null ? _tryLatin1(replace) : simple.encode(replace);
     if (!useEmbed && replaceBytes == null) {
-      // a non-Latin-1 replacement can only be drawn by an embedded font that
-      // carries its glyphs; without one there is nothing safe to emit.
+      // a replacement the chosen face cannot draw has nothing safe to emit.
       return (run, 0);
     }
 
@@ -490,7 +509,6 @@ extension PdfContentEditing on PdfEditor {
         }
         return _StyledFace(name, replShow, w);
       }
-      final variant = _styledVariant(font, style);
       final String? name;
       final double Function(int) styledWidthOf;
       if (variant != null) {
@@ -511,6 +529,7 @@ extension PdfContentEditing on PdfEditor {
     }
 
     final codec = _StyledRunCodec(
+      simple: simple,
       origWidthOf: origWidthOf,
       resolveFace: resolve,
       styledSize: style.fontSize ?? fontSize,
@@ -641,49 +660,27 @@ extension PdfContentEditing on PdfEditor {
   }
 
   /// Rewrites one run of show operators, replacing [find] with [replace]
-  /// across its strings (both Latin-1). Returns the operations to emit in the
-  /// run's place (the originals untouched when nothing matched) and the number
-  /// of replacements.
+  /// across its strings. Both are matched and written as *text*: [simple]
+  /// turns the run's bytes into what they read as, and turns [replace] back
+  /// into the codes this font draws it with. Returns the operations to emit
+  /// in the run's place (the originals untouched when nothing matched) and
+  /// the number of replacements.
   (List<ContentOperation>, int) _rewriteTextRun(
     List<ContentOperation> run,
     CosDictionary? font,
     String find,
     String replace,
+    SimpleFont simple,
   ) {
     if (_isType0(document.cos, font)) return (run, 0);
-    return TextRunRewriter(_SimpleRunCodec(_widthsFor(font)))
+    // Decided before the rewrite, like the composite path's glyph check: a
+    // font with no code for one of the replacement's characters cannot draw
+    // it, and emitting the Latin-1 byte regardless would silently draw a
+    // different glyph. Leaving the run untouched is the honest outcome.
+    final replaceBytes = simple.encode(replace);
+    if (replaceBytes == null) return (run, 0);
+    return TextRunRewriter(_SimpleRunCodec(simple, replaceBytes))
         .rewrite(run, find, replace);
-  }
-
-  /// An advance-width lookup (thousandths of an em) for [font]: its own
-  /// /Widths when present, else base-14 metrics keyed off /BaseFont,
-  /// falling back to Helvetica.
-  double Function(int code) _widthsFor(CosDictionary? font) {
-    final cos = document.cos;
-    if (font != null) {
-      final widths = cos.resolve(font['Widths']);
-      if (widths is CosArray) {
-        final firstChar = _num(cos.resolve(font['FirstChar'])).round();
-        var missing = 0.0;
-        final descriptor = cos.resolve(font['FontDescriptor']);
-        if (descriptor is CosDictionary) {
-          missing = _num(cos.resolve(descriptor['MissingWidth']));
-        }
-        final table = [for (final w in widths.items) _num(cos.resolve(w))];
-        return (code) {
-          final i = code - firstChar;
-          return i >= 0 && i < table.length ? table[i] : missing;
-        };
-      }
-      final base = cos.resolve(font['BaseFont']);
-      if (base is CosName) {
-        final standard = PdfStandardFont.tryFromName(base.value);
-        if (standard != null) {
-          return (code) => standard.widthOf(code).toDouble();
-        }
-      }
-    }
-    return (code) => PdfStandardFont.helvetica.widthOf(code).toDouble();
   }
 
   static CosObject _numberObject(double value) {
@@ -820,25 +817,31 @@ extension PdfContentEditing on PdfEditor {
 /// each shown byte is a glyph, replacements are drawn as Latin-1 bytes in the
 /// run's own font, and cells serialize back into plain (non-hex) show strings.
 class _SimpleRunCodec extends RunCodec {
-  _SimpleRunCodec(this._widthOf);
-  final double Function(int code) _widthOf;
+  _SimpleRunCodec(this._simple, this._replaceBytes);
+
+  /// The run's font, which owns both directions of the code <-> text map.
+  final SimpleFont _simple;
+
+  /// [replace] already encoded in this font's codes - resolved up front so an
+  /// undrawable replacement never reaches the rewriter.
+  final Uint8List _replaceBytes;
 
   @override
   List<RunCell> flatten(List<ContentOperation> run) => simpleRunCells(run);
 
   @override
-  String glyphText(int glyph) => String.fromCharCode(glyph);
+  String glyphText(int glyph) => _simple.textFor(glyph);
 
   @override
-  double glyphWidth(int glyph) => _widthOf(glyph);
+  double glyphWidth(int glyph) => _simple.widthOf(glyph);
 
   @override
   void emitReplacement(
       List<Emit> out, String replace, double oldWidth, bool hasTrailing) {
     var newWidth = 0.0;
-    for (final unit in replace.codeUnits) {
-      out.add(CellEmit((glyph: unit, kern: null)));
-      newWidth += _widthOf(unit);
+    for (final code in _replaceBytes) {
+      out.add(CellEmit((glyph: code, kern: null)));
+      newWidth += _simple.widthOf(code);
     }
     if (hasTrailing && (newWidth - oldWidth).abs() >= 0.001) {
       out.add(CellEmit((glyph: null, kern: newWidth - oldWidth)));
@@ -861,6 +864,7 @@ class _SimpleRunCodec extends RunCodec {
 /// restored, original-size context) holds the rest of the line in place.
 class _StyledRunCodec extends RunCodec {
   _StyledRunCodec({
+    required this.simple,
     required double Function(int code) origWidthOf,
     required _StyledFace Function() resolveFace,
     required this.styledSize,
@@ -870,6 +874,9 @@ class _StyledRunCodec extends RunCodec {
     required this.restoreColorOps,
   })  : _origWidthOf = origWidthOf,
         _resolveFace = resolveFace;
+
+  /// The run's own font, for reading its codes back as text when matching.
+  final SimpleFont simple;
 
   final double Function(int) _origWidthOf;
   final _StyledFace Function() _resolveFace;
@@ -890,7 +897,7 @@ class _StyledRunCodec extends RunCodec {
   List<RunCell> flatten(List<ContentOperation> run) => simpleRunCells(run);
 
   @override
-  String glyphText(int glyph) => String.fromCharCode(glyph);
+  String glyphText(int glyph) => simple.textFor(glyph);
 
   @override
   double glyphWidth(int glyph) => _origWidthOf(glyph);
