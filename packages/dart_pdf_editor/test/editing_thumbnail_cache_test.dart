@@ -657,6 +657,98 @@ void main() {
       rendered!.dispose();
     });
 
+    testWidgets('a plan spelling rotation as null still serves a tile',
+        (tester) async {
+      // Null means "the page's own /Rotate", so it is the same render as a
+      // plan carrying that angle. The viewer always resolves an explicit
+      // angle; a bare PdfPageView may not.
+      final controller = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(controller.dispose);
+      final previews = PdfPagePreviewCache();
+      addTearDown(previews.dispose);
+      final page = controller.pageAt(0);
+      const plan = PdfPageRenderPlan(
+        pageColor: Color(0xFFFFFFFF),
+        annotations: true,
+      );
+
+      late final int tileOps;
+      ui.Image? rendered;
+      await tester.runAsync(() async {
+        final scene = await PdfRetainedScene.record(page, plan: plan);
+        previews
+            .retainScene(0, page, scene,
+                plan: plan, fromWorker: false, estimatedBytes: 1 << 20)
+            .dispose();
+        PdfPerf.enabled = true;
+        addTearDown(() => PdfPerf.enabled = false);
+        PdfPerf.reset();
+        rendered = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          pixelWidth: 128,
+          worker: null,
+          previews: previews,
+        );
+        tileOps = PdfPerf.snapshot().count(PdfPerfCount.contentOps);
+      });
+
+      expect(rendered, isNotNull);
+      expect(tileOps, 0);
+      rendered!.dispose();
+    });
+
+    testWidgets('a scene decoded below the tile ratio is declined',
+        (tester) async {
+      // Replaying it would draw the page's images softer than a fresh render
+      // would. A tile ratio is a fraction of any display ratio, so this is a
+      // guard rather than a case the viewer produces.
+      final controller = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(controller.dispose);
+      final previews = PdfPagePreviewCache();
+      addTearDown(previews.dispose);
+      final page = controller.pageAt(0);
+      final plan = PdfPageRenderPlan(
+        pageColor: const Color(0xFFFFFFFF),
+        annotations: true,
+        rotation: page.rotation,
+      );
+
+      late final int tileOps;
+      ui.Image? rendered;
+      await tester.runAsync(() async {
+        final scene = await PdfRetainedScene.record(page, plan: plan);
+        previews
+            .retainScene(0, page, scene,
+                plan: plan,
+                fromWorker: false,
+                imagePixelRatio: 0.001,
+                estimatedBytes: 1 << 20)
+            .dispose();
+        PdfPerf.enabled = true;
+        addTearDown(() => PdfPerf.enabled = false);
+        PdfPerf.reset();
+        rendered = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          pixelWidth: 128,
+          worker: null,
+          previews: previews,
+        );
+        tileOps = PdfPerf.snapshot().count(PdfPerfCount.contentOps);
+      });
+
+      expect(rendered, isNotNull);
+      expect(tileOps, greaterThan(0),
+          reason: 'the tile renders the page rather than replaying a scene '
+              'whose images are softer than it needs');
+      rendered!.dispose();
+    });
+
     testWidgets('the warm pass reuses a retained scene without a worker',
         (tester) async {
       final controller = PdfEditingController(buildMultiPagePdf(1));
