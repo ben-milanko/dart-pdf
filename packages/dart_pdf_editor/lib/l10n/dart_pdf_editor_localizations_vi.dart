@@ -893,26 +893,26 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get searchRegex => 'Biểu thức chính quy';
 
   @override
-  String get searchReplace => 'Replace';
+  String get searchReplace => 'Thay thế';
 
   @override
-  String get searchReplaceAll => 'Replace all';
+  String get searchReplaceAll => 'Thay thế tất cả';
 
   @override
-  String get searchReplaceHint => 'Replace with';
+  String get searchReplaceHint => 'Thay bằng';
 
   @override
   String get searchReplaceNotTargetable =>
-      'That match can’t be replaced on its own — use Replace all, or edit it with the content tool';
+      'Không thể thay thế riêng kết quả khớp này — hãy dùng Thay thế tất cả, hoặc chỉnh sửa bằng công cụ nội dung';
 
   @override
   String searchReplaced(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count matches replaced',
-      one: '1 match replaced',
-      zero: 'Nothing replaced',
+      other: 'Đã thay thế $count kết quả khớp',
+      one: 'Đã thay thế 1 kết quả khớp',
+      zero: 'Không thay thế gì',
     );
     return '$_temp0';
   }

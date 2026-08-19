@@ -891,26 +891,26 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get searchRegex => 'Düzenli ifade';
 
   @override
-  String get searchReplace => 'Replace';
+  String get searchReplace => 'Değiştir';
 
   @override
-  String get searchReplaceAll => 'Replace all';
+  String get searchReplaceAll => 'Tümünü değiştir';
 
   @override
-  String get searchReplaceHint => 'Replace with';
+  String get searchReplaceHint => 'Şununla değiştir';
 
   @override
   String get searchReplaceNotTargetable =>
-      'That match can’t be replaced on its own — use Replace all, or edit it with the content tool';
+      'Bu eşleşme tek başına değiştirilemez — “Tümünü değiştir” seçeneğini kullanın veya içerik aracıyla düzenleyin';
 
   @override
   String searchReplaced(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count matches replaced',
-      one: '1 match replaced',
-      zero: 'Nothing replaced',
+      other: '$count eşleşme değiştirildi',
+      one: '1 eşleşme değiştirildi',
+      zero: 'Hiçbir şey değiştirilmedi',
     );
     return '$_temp0';
   }

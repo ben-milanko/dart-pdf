@@ -888,26 +888,26 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get searchRegex => '정규 표현식';
 
   @override
-  String get searchReplace => 'Replace';
+  String get searchReplace => '바꾸기';
 
   @override
-  String get searchReplaceAll => 'Replace all';
+  String get searchReplaceAll => '모두 바꾸기';
 
   @override
-  String get searchReplaceHint => 'Replace with';
+  String get searchReplaceHint => '바꿀 내용';
 
   @override
   String get searchReplaceNotTargetable =>
-      'That match can’t be replaced on its own — use Replace all, or edit it with the content tool';
+      '이 일치 항목은 단독으로 바꿀 수 없습니다. ‘모두 바꾸기’를 사용하거나 콘텐츠 도구로 편집하세요';
 
   @override
   String searchReplaced(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count matches replaced',
-      one: '1 match replaced',
-      zero: 'Nothing replaced',
+      other: '일치 $count개 바꿈',
+      one: '일치 1개 바꿈',
+      zero: '바꾼 항목 없음',
     );
     return '$_temp0';
   }

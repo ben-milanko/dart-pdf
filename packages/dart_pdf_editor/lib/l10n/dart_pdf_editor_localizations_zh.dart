@@ -887,26 +887,25 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get searchRegex => '正则表达式';
 
   @override
-  String get searchReplace => 'Replace';
+  String get searchReplace => '替换';
 
   @override
-  String get searchReplaceAll => 'Replace all';
+  String get searchReplaceAll => '全部替换';
 
   @override
-  String get searchReplaceHint => 'Replace with';
+  String get searchReplaceHint => '替换为';
 
   @override
-  String get searchReplaceNotTargetable =>
-      'That match can’t be replaced on its own — use Replace all, or edit it with the content tool';
+  String get searchReplaceNotTargetable => '无法单独替换该匹配项 — 请使用“全部替换”，或用内容工具编辑';
 
   @override
   String searchReplaced(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count matches replaced',
-      one: '1 match replaced',
-      zero: 'Nothing replaced',
+      other: '已替换 $count 个匹配项',
+      one: '已替换 1 个匹配项',
+      zero: '未替换任何内容',
     );
     return '$_temp0';
   }
@@ -2906,6 +2905,30 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get searchRegex => '正規表示式';
+
+  @override
+  String get searchReplace => '取代';
+
+  @override
+  String get searchReplaceAll => '全部取代';
+
+  @override
+  String get searchReplaceHint => '取代為';
+
+  @override
+  String get searchReplaceNotTargetable => '無法單獨取代此相符項目 — 請使用「全部取代」，或以內容工具編輯';
+
+  @override
+  String searchReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '已取代 $count 個相符項目',
+      one: '已取代 1 個相符項目',
+      zero: '未取代任何項目',
+    );
+    return '$_temp0';
+  }
 
   @override
   String get searchResultsTitle => '搜尋結果';

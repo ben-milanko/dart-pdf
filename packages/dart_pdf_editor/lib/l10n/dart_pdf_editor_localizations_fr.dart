@@ -895,26 +895,26 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get searchRegex => 'Expression régulière';
 
   @override
-  String get searchReplace => 'Replace';
+  String get searchReplace => 'Remplacer';
 
   @override
-  String get searchReplaceAll => 'Replace all';
+  String get searchReplaceAll => 'Tout remplacer';
 
   @override
-  String get searchReplaceHint => 'Replace with';
+  String get searchReplaceHint => 'Remplacer par';
 
   @override
   String get searchReplaceNotTargetable =>
-      'That match can’t be replaced on its own — use Replace all, or edit it with the content tool';
+      'Cette correspondance ne peut pas être remplacée seule : utilisez « Tout remplacer » ou modifiez-la avec l’outil de contenu';
 
   @override
   String searchReplaced(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,
       locale: localeName,
-      other: '$count matches replaced',
-      one: '1 match replaced',
-      zero: 'Nothing replaced',
+      other: '$count correspondances remplacées',
+      one: '1 correspondance remplacée',
+      zero: 'Rien n’a été remplacé',
     );
     return '$_temp0';
   }
