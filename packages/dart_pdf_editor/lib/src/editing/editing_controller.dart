@@ -7016,6 +7016,64 @@ class PdfEditingController extends ChangeNotifier {
     return count;
   }
 
+  /// Replaces one search hit - the occurrence of [find] covered by [rects] on
+  /// [pageIndex] - with [replace], leaving identical text elsewhere alone.
+  ///
+  /// Backs the search panel's single "Replace". Returns the number of runs
+  /// rewritten, which is 0 when the hit cannot be pinned to exactly one
+  /// content element (text split across runs, a hit inside a Form XObject,
+  /// overlapping text layers) or when the run's font cannot draw [replace] -
+  /// the same conservative gate [textElementForSelection] applies to the
+  /// selection menu, so a replace either lands on the hit the user is looking
+  /// at or does nothing at all.
+  int replaceMatchText(
+    int pageIndex,
+    List<PdfRect> rects,
+    String find,
+    String replace, {
+    List<PdfEmbeddedFont> fallbackFonts = const [],
+  }) {
+    final element = textElementForSelection(pageIndex, rects, find);
+    if (element == null) return 0;
+    return replaceTextInElement(
+      pageIndex,
+      element,
+      find,
+      replace,
+      const PdfTextStyle(),
+      fallbackFonts: fallbackFonts,
+    );
+  }
+
+  /// Replaces every occurrence of [find] with [replace] across [pages], as
+  /// one undoable edit.
+  ///
+  /// Backs the search panel's "Replace all". Unlike [replaceMatchText] this
+  /// is deliberately page-wide: the user asked for every hit. Returns the
+  /// number of runs rewritten across all of [pages].
+  int replaceTextOnPages(
+    Iterable<int> pages,
+    String find,
+    String replace, {
+    List<PdfEmbeddedFont> fallbackFonts = const [],
+  }) {
+    if (find.isEmpty) return 0;
+    final targets = pages.toSet().toList()..sort();
+    if (targets.isEmpty) return 0;
+    var count = 0;
+    apply((editor) {
+      for (final page in targets) {
+        count += editor.replaceText(
+          page,
+          find,
+          replace,
+          fallbackFonts: fallbackFonts,
+        );
+      }
+    });
+    return count;
+  }
+
   /// Replaces the selected page-content image with [imageBytes] (PNG or JPEG).
   ///
   /// The original image draw is removed from the content stream and the new

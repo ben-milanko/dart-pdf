@@ -1730,6 +1730,36 @@ abstract class DartPdfEditorLocalizations {
   /// **'Regular expression'**
   String get searchRegex;
 
+  /// Label on the search panel button that replaces the current match.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace'**
+  String get searchReplace;
+
+  /// Label on the search panel button that replaces every match in the document.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace all'**
+  String get searchReplaceAll;
+
+  /// Placeholder in the search panel's replacement text field.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace with'**
+  String get searchReplaceHint;
+
+  /// Shown when a single search match cannot be pinned to one editable text run, so Replace did nothing.
+  ///
+  /// In en, this message translates to:
+  /// **'That match can’t be replaced on its own — use Replace all, or edit it with the content tool'**
+  String get searchReplaceNotTargetable;
+
+  /// Confirmation after replacing search matches.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{Nothing replaced} =1{1 match replaced} other{{count} matches replaced}}'**
+  String searchReplaced(int count);
+
   /// Title of the docked search results panel.
   ///
   /// In en, this message translates to:

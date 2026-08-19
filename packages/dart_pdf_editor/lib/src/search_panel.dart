@@ -2,11 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'editing/editing_controller.dart';
+import 'editing/editing_fonts.dart';
 import 'editing/editing_panel.dart';
 import 'editing/editing_preferences.dart';
 import 'l10n/pdf_l10n.dart';
 import 'pdf_viewer.dart';
 import 'theme.dart';
+import 'toast.dart';
 
 /// A compact document-search field: a slim text box with the match
 /// count, previous/next, and clear riding alongside - small enough for
@@ -205,10 +208,15 @@ typedef _Entry = ({int? header, int? result});
 /// highlighted and taps go through [PdfViewerController.goToMatch].
 /// The inner edge is draggable ([resizable]); with [preferences] the
 /// chosen width persists ([PdfEditingPreferences.searchPanelWidth]).
+///
+/// Pass [editing] to turn the panel into find *and replace*: a replacement
+/// field appears under the options bar with "Replace" (the current match
+/// alone) and "Replace all" (every hit, one undo step).
 class PdfSearchResultsPanel extends StatefulWidget {
   const PdfSearchResultsPanel({
     super.key,
     required this.controller,
+    this.editing,
     this.preferences,
     this.width = 280,
     this.dock = PdfPanelDock.left,
@@ -221,6 +229,11 @@ class PdfSearchResultsPanel extends StatefulWidget {
   });
 
   final PdfViewerController controller;
+
+  /// The edit session that backs the replace controls. Null (the default)
+  /// leaves the panel a pure find panel - which is what a read-only viewer
+  /// wants.
+  final PdfEditingController? editing;
 
   /// Persists the user-dragged width when provided.
   final PdfEditingPreferences? preferences;
@@ -465,11 +478,198 @@ class _PdfSearchResultsPanelState extends State<PdfSearchResultsPanel> {
                   endIndent: geometry.contentEndInset,
                 ),
               ],
+              if (widget.editing != null) ...[
+                _ReplaceBar(
+                  controller: controller,
+                  editing: widget.editing!,
+                ),
+                Divider(
+                  height: 1,
+                  indent: geometry.contentStartInset,
+                  endIndent: geometry.contentEndInset,
+                ),
+              ],
               Expanded(child: _body(context, geometry: geometry)),
             ]),
           ),
         );
       },
+    );
+  }
+}
+
+/// The find-and-replace row under the search panel's options bar: a
+/// replacement field plus "Replace" (the current match alone) and "Replace
+/// all" (every hit).
+///
+/// "Replace" goes through [PdfEditingController.replaceMatchText], which
+/// pins the hit to exactly one content run or declines - so it can never
+/// silently rewrite the other place on the page that happens to read the
+/// same. "Replace all" is the page-wide form, because that is what the user
+/// asked for, and lands as a single undo step.
+class _ReplaceBar extends StatefulWidget {
+  const _ReplaceBar({required this.controller, required this.editing});
+
+  final PdfViewerController controller;
+  final PdfEditingController editing;
+
+  @override
+  State<_ReplaceBar> createState() => _ReplaceBarState();
+}
+
+class _ReplaceBarState extends State<_ReplaceBar> {
+  final TextEditingController _field = TextEditingController();
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _field.dispose();
+    super.dispose();
+  }
+
+  void _toast(String message) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) return;
+    messenger
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        margin: pdfFloatingToastMargin(context),
+        duration: const Duration(seconds: 4),
+        action: widget.editing.canUndo
+            ? SnackBarAction(
+                label: pdfL10n(context).undo, onPressed: widget.editing.undo)
+            : null,
+      ));
+  }
+
+  /// Re-runs the live query against the rewritten document: the hits the
+  /// panel is listing were measured against the previous revision, and their
+  /// offsets no longer mean anything once a run has been re-typed.
+  ///
+  /// Ordering matters. The viewer swaps in the new revision during the next
+  /// frame and clears the search as it does, so a re-search issued straight
+  /// after the edit is discarded a moment later and the panel goes blank.
+  /// Waiting for that frame lets the fresh results survive.
+  Future<void> _refresh(String query) async {
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    await widget.controller
+        .search(query, options: widget.controller.searchOptions);
+  }
+
+  Future<void> _replaceOne() async {
+    final controller = widget.controller;
+    final results = controller.searchResults;
+    final index = controller.currentMatch;
+    if (index < 0 || index >= results.length) return;
+    final result = results[index];
+    final query = controller.query;
+    final l10n = pdfL10n(context);
+
+    setState(() => _busy = true);
+    try {
+      final fallbacks = await loadFallbackFonts();
+      final count = widget.editing.replaceMatchText(
+        result.pageIndex,
+        result.match.rects,
+        result.matchText,
+        _field.text,
+        fallbackFonts: fallbacks,
+      );
+      if (!mounted) return;
+      _toast(count == 0 ? l10n.searchReplaceNotTargetable : l10n.searchReplaced(count));
+      if (count > 0) await _refresh(query);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _replaceAll() async {
+    final controller = widget.controller;
+    final query = controller.query;
+    final pages = {for (final r in controller.searchResults) r.pageIndex};
+    if (pages.isEmpty) return;
+    final l10n = pdfL10n(context);
+
+    setState(() => _busy = true);
+    try {
+      final fallbacks = await loadFallbackFonts();
+      final count = widget.editing.replaceTextOnPages(
+        pages,
+        query,
+        _field.text,
+        fallbackFonts: fallbacks,
+      );
+      if (!mounted) return;
+      _toast(l10n.searchReplaced(count));
+      if (count > 0) await _refresh(query);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = widget.controller;
+    final l10n = pdfL10n(context);
+    // an annotation hit lives in a /Contents string, not the page's content
+    // stream, so the content editor has nothing to rewrite for it
+    final results = controller.searchResults;
+    final current = controller.currentMatch >= 0 &&
+            controller.currentMatch < results.length
+        ? results[controller.currentMatch]
+        : null;
+    final ready = !_busy &&
+        !controller.isSearching &&
+        controller.query.isNotEmpty &&
+        results.isNotEmpty;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            key: const ValueKey('pdf-search-replace-field'),
+            controller: _field,
+            enabled: !_busy,
+            decoration: InputDecoration(
+              hintText: l10n.searchReplaceHint,
+              prefixIcon: const Icon(Icons.find_replace, size: 18),
+              isDense: true,
+              border: const OutlineInputBorder(),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            ),
+            style: Theme.of(context).textTheme.bodySmall,
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: 6),
+          Row(children: [
+            Expanded(
+              child: OutlinedButton(
+                key: const ValueKey('pdf-search-replace-one'),
+                onPressed: ready && current != null && !current.isAnnotation
+                    ? _replaceOne
+                    : null,
+                child: Text(l10n.searchReplace,
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: FilledButton.tonal(
+                key: const ValueKey('pdf-search-replace-all'),
+                onPressed: ready ? _replaceAll : null,
+                child: Text(l10n.searchReplaceAll,
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
+            ),
+          ]),
+        ],
+      ),
     );
   }
 }
