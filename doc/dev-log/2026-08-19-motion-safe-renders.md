@@ -299,3 +299,18 @@ is for, which makes "why was there no worker?" the important question, not
 "how do we schedule around it". The interpret line now says
 `recorded(no-worker)` vs `recorded(declined)` so the next field trace answers
 it in one word instead of a round trip.
+
+### The silent cliff
+
+Chasing "why was there no worker?" turned up something worth more than the
+answer: `_IsolateRenderWorker._spawn` caught a failed spawn with `catch (_)`
+and set `_spawnFailed`, after which every `record()` resolves to null and
+every page interprets on the UI thread - permanently, for that document, with
+**nothing in any log**. A trace of that session is indistinguishable from one
+where the worker merely declined a page. It is the single most consequential
+thing that can quietly go wrong with rendering, and it was invisible.
+
+It now logs to `PdfPerfLog` and, in debug, prints a plain-language warning
+naming the cause. Paired with the `recorded(no-worker)` / `recorded(declined)`
+split on the interpret line, a field trace now answers "did this session have
+a worker, and if not why" without a round trip.

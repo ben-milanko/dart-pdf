@@ -3,6 +3,7 @@ import 'dart:developer' as developer;
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:pdf_cos/pdf_cos.dart' show CosDocument;
 import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -127,11 +128,24 @@ class _IsolateRenderWorker extends PdfRenderWorker {
   Future<void> _spawn(Uint8List bytes) async {
     try {
       await _spawnInner(bytes);
-    } catch (_) {
+    } catch (error, stack) {
       // isolates unsupported / spawn threw: behave like the null worker -
       // every queued and future record() resolves to null (local render).
       _spawnFailed = true;
       _failPending();
+      // ...but say so. This is the single most consequential thing that can
+      // silently go wrong with rendering: every page's content-stream walk
+      // moves onto the UI thread, scrolling stops being able to keep up, and
+      // nothing in a trace names the cause - `path=recorded` looks the same
+      // as a worker declining one page. Once per worker, so this cannot spam.
+      PdfPerfLog.log('render-worker spawn FAILED - every page will interpret '
+          'on the UI thread: $error');
+      assert(() {
+        debugPrint('dart_pdf: the render worker isolate could not start, so '
+            'page rendering falls back to the UI thread and scrolling will '
+            'be slower. Cause: $error\n$stack');
+        return true;
+      }());
     }
   }
 
