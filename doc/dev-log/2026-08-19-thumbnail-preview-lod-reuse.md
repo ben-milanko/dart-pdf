@@ -98,20 +98,30 @@ work, so a tile waits for the scroll to settle.
 names) and fails if either reuse stops paying:
 
 ```
-background-surfaces ordinary: pages=4 ladderPerRung=17.3ms/page
-  ladderOneRecord=2.8ms/page (-84%) tileLocal=2.2ms/tile tileRetained=1.2ms/tile (-44%)
-background-surfaces cad-vector: pages=1 ladderPerRung=886.9ms/page
-  ladderOneRecord=317.1ms/page (-64%) tileLocal=173.1ms/tile tileRetained=159.4ms/tile (-8%)
-background-surfaces letterhead-report: pages=6 ladderPerRung=37.1ms/page
-  ladderOneRecord=17.5ms/page (-53%) tileLocal=9.7ms/tile tileRetained=7.6ms/tile (-22%)
+background-surfaces ordinary: pages=4 ladderPerRung=19.1ms/page
+  ladderOneRecord=2.5ms/page (-87%) tileLocal=2.2ms/tile tileRetained=0.8ms/tile (-62%)
+background-surfaces cad-vector: pages=1 ladderPerRung=920.1ms/page
+  ladderOneRecord=313.6ms/page (-66%) tileLocal=179.0ms/tile tileRetained=92.5ms/tile (-48%)
+background-surfaces letterhead-report: pages=6 ladderPerRung=35.1ms/page
+  ladderOneRecord=16.6ms/page (-53%) tileLocal=7.4ms/tile tileRetained=5.5ms/tile (-25%)
 ```
 
 Read the tile column knowing what the VM leaves out: there the 128px readback
-dominates a tile, so removing the interpret is worth 22% on the letterhead
-report; on the web, where the trace measured a whole tile at 55 ms, the
-interpret is the bulk of it. The CAD row is the honest floor - a
-20k-command transcript costs about the same to replay whoever recorded it, so
-reuse buys 8% there.
+is most of a small page's tile, which is why the letterhead report gains 25%
+where the command-heavy CAD sheet gains 48%. On the web, where the trace
+measured a whole tile at 55 ms, the interpret is the bulk of it.
+
+The gates differ per half, deliberately. The ladder is gated on wall time - it
+saves an interpret per rung, which is large on every profile here. The tile is
+gated on the interpret itself (`contentOps == 0`): its ms column is real but
+close enough on a fast host that gating there would buy a flake rather than a
+signal.
+
+Writing that benchmark also demonstrated the freshness rule it measures: the
+first version recorded the scene from a second `PdfDocument` opened over the
+same bytes, which looks identical and misses every time, because the cache
+tests page *identity*. Both tile columns were quietly measuring the local
+interpret until the scene was recorded from `controller.pageAt(i)`.
 
 The web half is the real-Chrome harness. `scroll-text` is the scenario that
 actually warms previews - `wheel` and `read` keep moving, and the prerender

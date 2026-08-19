@@ -30,6 +30,7 @@ import 'dart:typed_data';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
@@ -92,9 +93,16 @@ void main() {
 
   /// The same tile replayed from the scene the viewer already holds. The
   /// record is deliberately outside the clock: the viewer paid for it when the
-  /// page was on screen.
-  Future<int> retainedTileMicros(
-      PdfEditingController controller, int index, PdfPage page) async {
+  /// page was on screen. Returns the tile's wall time and the content-stream
+  /// operations it tokenized - which is what the reuse actually removes, and
+  /// unlike the wall time is the same number on every machine.
+  Future<({int micros, int ops})> retainedTileMicros(
+      PdfEditingController controller, int index) async {
+    // The scene has to be recorded from the page object the tile will ask
+    // about - the cache's freshness test is page identity, and the controller
+    // caches its own PdfPage per index. Recording from a second PdfDocument
+    // over the same bytes looks identical and misses every time.
+    final page = controller.pageAt(index);
     final cache = newCache();
     final plan = PdfPageRenderPlan(
       pageColor: pageColor,
@@ -106,6 +114,8 @@ void main() {
         .retainScene(index, page, scene,
             plan: plan, fromWorker: false, estimatedBytes: 1 << 20)
         .dispose();
+    PdfPerf.enabled = true;
+    PdfPerf.reset();
     final clock = Stopwatch()..start();
     final image = await rasterizeThumbnail(
       controller: controller,
@@ -117,10 +127,12 @@ void main() {
       previews: cache,
     );
     clock.stop();
+    final ops = PdfPerf.snapshot().count(PdfPerfCount.contentOps);
+    PdfPerf.enabled = false;
     expect(image, isNotNull);
     image!.dispose();
     cache.dispose();
-    return clock.elapsedMicroseconds;
+    return (micros: clock.elapsedMicroseconds, ops: ops);
   }
 
   Future<void> report(String label, Uint8List bytes, {required int pages}) async {
@@ -132,12 +144,15 @@ void main() {
     var ladder = 0;
     var localTile = 0;
     var retainedTile = 0;
+    var retainedTileOps = 0;
     for (var i = 0; i < sampled; i++) {
       final page = document.page(i);
       perRung += await perRungMicros(i, page);
       ladder += await ladderMicros(i, page);
       localTile += await localTileMicros(controller, i);
-      retainedTile += await retainedTileMicros(controller, i, page);
+      final retained = await retainedTileMicros(controller, i);
+      retainedTile += retained.micros;
+      retainedTileOps += retained.ops;
     }
     double ms(int micros) => micros / sampled / 1000;
     // ignore: avoid_print
@@ -152,10 +167,17 @@ void main() {
     // The point of both changes. If either stops holding, the surfaces are
     // paying for work they already have and this benchmark should fail rather
     // than print a number nobody reads.
+    //
+    // The ladder is gated on wall time because the saving is an interpret per
+    // rung - large on every profile here. The tile is gated on the interpret
+    // itself instead: on the VM a small page's 128px readback can be most of
+    // the tile, so the ms column is real but too close to call on a fast host,
+    // and gating it there would buy a flake rather than a signal. What must
+    // always hold is that the tile did not walk the page.
     expect(ladder, lessThan(perRung),
         reason: 'one record for the whole ladder must beat one per rung');
-    expect(retainedTile, lessThan(localTile),
-        reason: 'replaying a retained scene must beat interpreting the page');
+    expect(retainedTileOps, 0,
+        reason: 'a tile served from a retained scene tokenizes nothing');
   }
 
   testWidgets('ordinary text pages', (tester) async {
