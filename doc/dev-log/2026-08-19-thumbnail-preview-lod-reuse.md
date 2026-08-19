@@ -113,11 +113,41 @@ interpret is the bulk of it. The CAD row is the honest floor - a
 20k-command transcript costs about the same to replay whoever recorded it, so
 reuse buys 8% there.
 
-The web half is the real-Chrome harness (`tool/perf.sh web wheel-letterhead`,
-and `wheel-letterhead-noworker` for the worker-less session the trace was
-captured in), which is where the CanvasKit raster time these surfaces spend
-actually shows up. It was not run for this change: this container has neither a
-system Chrome nor the `puppeteer-core` install `app/tool/perf` needs.
+The web half is the real-Chrome harness. `scroll-text` is the scenario that
+actually warms previews - `wheel` and `read` keep moving, and the prerender
+loop needs a full second of idle on web, so neither ever starts it.
+`tool/perf.sh webdiff e4dafb9 scroll-text --iterations 3`:
+
+```
+metric                  baseline    current     Δ         verdict
+agentMemoryBytes        112953482   111146987   -1.6%     ·
+buildMax                43.89       45.55       +3.8%     ·
+buildP50                2.54        2.73        +7.5%     ·
+buildP95                6.88        6.50        -5.5%     ·
+jankCount               174         167         -4.0%     ·
+openBytesMs             234         243         +3.8%     ·
+openDocMs               238         247         +3.7%     ·
+openPageCountMs         491         526         +7.1%     ·
+✓ no metric regressed past 1.1×
+```
+
+The scenario has no metric for what a preview rung costs, so read the warm
+counts instead: full ladder rungs completed inside the same ~31 s window went
+9/9/9 (baseline) to 11/14/13 (current) - the same interpret budget producing
+about 40% more rungs - while janked frames fell 4% and agent memory 1.6%. Note
+this scenario is worker-backed, so the record was already off the platform
+thread; what one rung still costs there is its own CanvasKit readback, which no
+amount of reuse can remove. The worker-less session the issue traced is the
+larger win, and the thumbnail half has no web coverage at all: the perf harness
+has no thumbnail strip.
+
+The `open*` triple drifting ~4% is the harness, not this change:
+`openBytesMs` is fetching the file's bytes, which no code here touches, and it
+moved with the other two.
+
+Fixing the driver was part of getting these numbers: `prerender warms` had been
+reporting 0/0 on every scenario since the ladder added its `lod=` token to the
+line the regex matched.
 
 `page_preview_test.dart` and `editing_thumbnail_cache_test.dart` pin the
 mechanism rather than the timing, by counting tokenized content operations
