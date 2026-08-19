@@ -99,18 +99,22 @@ class SimpleFont {
       }
     }
 
+    var hasBaseEncoding = false;
     if (encoding is CosName) {
       if (encoding.value == 'WinAnsiEncoding') {
         fill(winAnsiGlyphName);
+        hasBaseEncoding = true;
       } else if (encoding.value == 'StandardEncoding' ||
           encoding.value == 'MacRomanEncoding') {
         fill(standardGlyphName);
+        hasBaseEncoding = true;
       }
     } else if (encoding is CosDictionary) {
       final base = cos.resolve(encoding['BaseEncoding']);
       fill(base is CosName && base.value == 'WinAnsiEncoding'
           ? winAnsiGlyphName
           : standardGlyphName);
+      hasBaseEncoding = base is CosName;
     }
     names.addAll(differences);
 
@@ -120,6 +124,17 @@ class SimpleFont {
     // position of a character it never kept, so encoding a replacement there
     // would draw notdef (or nothing) rather than the character asked for.
     final declared = names.keys.toSet();
+    if (hasBaseEncoding) {
+      // Every base encoding defines all of printable ASCII (Annex D), but
+      // [standardGlyphName] deliberately reports only its high bytes so the
+      // ASCII range falls through to the identity - which is the same answer.
+      // Without this the identity would be readable but not *writable*, and a
+      // font tagged /MacRomanEncoding would silently refuse every ordinary
+      // replacement.
+      for (var code = 0x20; code <= 0x7E; code++) {
+        declared.add(code);
+      }
+    }
 
     for (var code = 0; code <= 255; code++) {
       final text = _textForCode(code, names, differences, baseFont);
