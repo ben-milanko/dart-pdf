@@ -166,6 +166,45 @@ void main() {
     });
   });
 
+  group("the ' and \" show operators", () {
+    // These carry a line break, so replaceText rewrites their string in
+    // place rather than through the run rewriter - a separate code path that
+    // must encode through the font just the same.
+    test("' rewrites its string in the font's own codes", () {
+      final doc = PdfDocument.open(buildRemappedFontPdf(
+        'BT /F1 12 Tf 14 TL 72 700 Td ($dateCodes) \' ET\n',
+      ));
+      expect(PdfPageElements.of(doc, 0).elements.single.text, '05/08/2026');
+
+      final editor = PdfEditor(doc);
+      expect(editor.replaceText(0, '05/08/2026', '26/05/2026'), 1);
+      final saved = PdfDocument.open(editor.save());
+      expect(pageText(saved), contains(r'(?@>-=>?-?@)'));
+      expect(PdfPageElements.of(saved, 0).elements.single.text, '26/05/2026');
+    });
+
+    test('" rewrites its string and keeps its spacing operands', () {
+      final doc = PdfDocument.open(buildRemappedFontPdf(
+        'BT /F1 12 Tf 14 TL 72 700 Td 1 2 ($dateCodes) " ET\n',
+      ));
+      final editor = PdfEditor(doc);
+      expect(editor.replaceText(0, '05/08/2026', '26/05/2026'), 1);
+      final text = pageText(PdfDocument.open(editor.save()));
+      expect(text, contains(r'1 2 (?@>-=>?-?@) "'));
+    });
+
+    test("a character the subset dropped leaves ' alone", () {
+      final doc = PdfDocument.open(buildRemappedFontPdf(
+        'BT /F1 12 Tf 14 TL 72 700 Td ($dateCodes) \' ET\n',
+      ));
+      final editor = PdfEditor(doc);
+      // '9' is not a glyph this subset kept
+      expect(editor.replaceText(0, '05/08/2026', '05/09/2026'), 0);
+      expect(pageText(PdfDocument.open(editor.save())),
+          contains('($dateCodes)'));
+    });
+  });
+
   group('targeted element edits', () {
     /// The same date drawn twice, as a header and a footer would be.
     String twice() => 'BT /F1 12 Tf 72 700 Td ($dateCodes) Tj ET\n'
