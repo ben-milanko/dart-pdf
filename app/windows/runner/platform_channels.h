@@ -10,6 +10,7 @@
 #include <memory>
 #include <string>
 
+#include "file_dialogs.h"
 #include "native_print.h"
 
 // Engine-scoped DartPDF services shared by the normal single-view runner and
@@ -41,6 +42,8 @@ class DartPdfPlatformChannels {
       image_clipboard_channel_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       native_print_channel_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      file_dialog_channel_;
   NativePrinter native_printer_;
 };
 

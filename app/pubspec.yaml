@@ -39,6 +39,10 @@ dependencies:
 
   # Cross-platform file I/O and OS integration.
   file_selector: ^1.0.3
+  # Depended on directly, not just through file_selector: DartPDF swaps in its
+  # own Windows dialog implementation (lib/windows_file_dialogs.dart) because
+  # the plugin needs a Flutter view the multi-window runner never creates.
+  file_selector_platform_interface: ^2.7.0
   share_plus: ^13.3.0
   url_launcher: ^6.3.0
   # Printing has no third-party PDF engine. Where the OS can print a PDF
@@ -99,7 +103,6 @@ dev_dependencies:
   # Text extraction, used by the on-device OCR integration test to assert
   # the recognized layer is selectable (pdf_ocr_ondevice is a runtime dep).
   pdf_graphics: ^3.6.0
-  file_selector_platform_interface: ^2.7.0
   # Points the crash-recovery store at a temp directory so its append/truncate
   # behaviour can be tested against a real filesystem (see
   # test/unsaved_changes_store_io_test.dart).

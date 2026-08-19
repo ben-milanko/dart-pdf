@@ -14,6 +14,7 @@ import 'l10n/app_localizations.dart';
 import 'app.dart' deferred as app;
 import 'app_info.dart' deferred as app_info;
 import 'window_support.dart';
+import 'windows_file_dialogs.dart';
 
 /// The git commit this build was compiled from, or `unknown` for a build that
 /// did not pass one. Supplied by the build scripts as
@@ -31,6 +32,11 @@ Future<void> main(List<String> args) async {
 
   // PackageInfo (loaded below) needs the binding; ensure it before awaiting.
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Windows only, and after the Dart plugin registrant has run so this wins:
+  // the stock file_selector plugin dereferences a Flutter view the runner
+  // never creates, so opening or saving a document would crash the process.
+  WindowsFileDialogs.installIfNeeded();
 
   // Diagnostics: turn on the in-app performance trace (interpret times,
   // render-hold/scheduler transitions, prerender warms, and frame JANK,
