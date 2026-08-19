@@ -139,6 +139,18 @@
       "params": { "wheelPages": 8, "wheelStepPx": 120, "wheelIntervalMs": 16, "worker": 0 },
       "note": "The same continuous scroll with the render worker OFF, which is what a session that never attached one (or whose byte source is still completing) actually looks like. Every interpret is on the UI thread, so this is the arm the motion-safe lane's local half exists for."
     },
+    "wheel-letterhead": {
+      "kind": "wheel",
+      "pdf": "test_corpora/dartpdf/letterhead-report-40p.pdf",
+      "params": { "wheelPages": 8, "wheelStepPx": 120, "wheelIntervalMs": 16 },
+      "note": "The corporate-report shape: the same continuous scroll over text pages that each declare one small letterhead image. Ordinary documents look like this, and a render policy that reads 'has an image' as 'expensive' switches itself off across the whole file - which is what a field trace of a 113-page report showed."
+    },
+    "wheel-letterhead-noworker": {
+      "kind": "wheel",
+      "pdf": "test_corpora/dartpdf/letterhead-report-40p.pdf",
+      "params": { "wheelPages": 8, "wheelStepPx": 120, "wheelIntervalMs": 16, "worker": 0 },
+      "note": "The letterhead report with the render worker OFF - every interpret on the UI thread, which is what the field trace behind this scenario actually was."
+    },
     "wheel-plan": {
       "kind": "wheel",
       "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",

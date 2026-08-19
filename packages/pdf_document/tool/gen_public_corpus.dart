@@ -12,6 +12,9 @@
 // Document classes (the CAD sheet comes from pdf_cos/tool/gen_cad_pdf.dart,
 // orchestrated by tool/gen_corpus.sh):
 //   text-report-40p.pdf    office-style text: paragraphs, bold headings
+//   letterhead-report-40p.pdf  the same text under a small shared letterhead
+//                          image XObject on every page - the corporate-report
+//                          class
 //   image-scan-4p.pdf      scan-like full-page RGB images (gradient+noise)
 //   cmyk-jpeg-1p.pdf       print-image color edge (#370): Adobe YCCK and
 //                          plain CMYK DCTDecode twins of the same swatches
@@ -73,6 +76,118 @@ CosReference _addContent(CosDocumentBuilder builder, String content) {
     }),
     deflated,
   ));
+}
+
+/// The corporate-report class: the office text document above with a small
+/// letterhead mark - one shared image XObject - drawn at the top of every
+/// page, plus a rule under it.
+///
+/// Trivial to render and completely ordinary, which is the point. Every page
+/// declaring an /XObject is what real reports look like, and rendering
+/// policies that ask "does this page have an image?" rather than "how big is
+/// it?" switch themselves off across the whole file. A field trace of a
+/// 113-page document of exactly this shape - a 42x10 mark per page - is what
+/// put this class in the corpus.
+Uint8List buildLetterheadReport(int pageCount, {int seed = 20260819}) {
+  const pageW = 612.0, pageH = 792.0;
+  // The mark: small enough that decoding it inside a scrolling frame is
+  // nothing, which is exactly the judgement under test.
+  const markW = 96, markH = 24;
+  final rng = _Lcg(seed);
+  final builder = CosDocumentBuilder();
+
+  // 1 = catalog, 2 = pages tree, 3/4 = fonts, 5 = the shared mark, then
+  // content+page per page.
+  const treeRef = CosReference(2, 0);
+  const regularRef = CosReference(3, 0);
+  const boldRef = CosReference(4, 0);
+  const markRef = CosReference(5, 0);
+  final pageRefs = [
+    for (var i = 0; i < pageCount; i++) CosReference(6 + i * 2 + 1, 0),
+  ];
+
+  builder.add(CosDictionary(
+      {'Type': const CosName('Catalog'), 'Pages': treeRef})); // 1
+  builder.add(CosDictionary({
+    'Type': const CosName('Pages'),
+    'Kids': CosArray(pageRefs),
+    'Count': CosInteger(pageCount),
+  })); // 2
+  for (final base in ['Helvetica', 'Helvetica-Bold']) {
+    builder.add(CosDictionary({
+      'Type': const CosName('Font'),
+      'Subtype': const CosName('Type1'),
+      'BaseFont': CosName(base),
+    })); // 3, 4
+  }
+
+  // A deterministic two-tone wordmark: a filled block and a lighter slab.
+  final rgb = Uint8List(markW * markH * 3);
+  for (var y = 0, at = 0; y < markH; y++) {
+    for (var x = 0; x < markW; x++) {
+      final solid = x < markH && y > 3 && y < markH - 4;
+      final slab = x >= markH + 6 && y > markH ~/ 3 && y < markH - 6;
+      final v = solid ? 24 : (slab ? 96 : 246);
+      rgb[at++] = v;
+      rgb[at++] = solid ? 64 : v;
+      rgb[at++] = solid ? 132 : v;
+    }
+  }
+  final deflatedMark = Uint8List.fromList(ZLibCodec(level: 6).encode(rgb));
+  builder.add(CosStream(
+    CosDictionary({
+      'Type': const CosName('XObject'),
+      'Subtype': const CosName('Image'),
+      'Width': const CosInteger(markW),
+      'Height': const CosInteger(markH),
+      'ColorSpace': const CosName('DeviceRGB'),
+      'BitsPerComponent': const CosInteger(8),
+      'Filter': const CosName('FlateDecode'),
+      'Length': CosInteger(deflatedMark.length),
+    }),
+    deflatedMark,
+  )); // 5
+
+  var section = 0;
+  for (var p = 0; p < pageCount; p++) {
+    final sb = StringBuffer()
+      // the mark, at its natural aspect, then the rule beneath it
+      ..writeln('q 96 0 0 24 72 ${pageH - 60} cm /Im0 Do Q')
+      ..writeln('0.6 w 72 ${pageH - 70} m ${pageW - 72} ${pageH - 70} l S')
+      ..write('BT /F1 11 Tf 72 ${pageH - 96} Td 14 TL\n');
+    var lines = 0;
+    while (lines < 40) {
+      if (lines == 0 || rng.intBelow(12) == 0) {
+        section++;
+        sb.writeln('/F2 13 Tf ($section. ${_sentence(rng)}) Tj T* /F1 11 Tf');
+        lines += 1;
+      }
+      final para = 3 + rng.intBelow(4);
+      for (var l = 0; l < para && lines < 40; l++, lines++) {
+        sb.writeln('(${_sentence(rng)} ${_sentence(rng)}) Tj T*');
+      }
+      sb.writeln('T*');
+      lines++;
+    }
+    sb.writeln('ET');
+    final contentRef = _addContent(builder, sb.toString());
+    builder.add(CosDictionary({
+      'Type': const CosName('Page'),
+      'Parent': treeRef,
+      'MediaBox': CosArray([
+        const CosInteger(0),
+        const CosInteger(0),
+        const CosReal(pageW),
+        const CosReal(pageH),
+      ]),
+      'Resources': CosDictionary({
+        'Font': CosDictionary({'F1': regularRef, 'F2': boldRef}),
+        'XObject': CosDictionary({'Im0': markRef}),
+      }),
+      'Contents': contentRef,
+    }));
+  }
+  return builder.build(root: const CosReference(1, 0));
 }
 
 /// Office-style text document: paragraphs with bold section headings.
@@ -846,6 +961,7 @@ void main(List<String> argv) {
 
   final textReport = buildTextReport(40);
   write('text-report-40p.pdf', textReport);
+  write('letterhead-report-40p.pdf', buildLetterheadReport(40));
   write('image-scan-4p.pdf', buildImageScan(4));
   write('cmyk-jpeg-1p.pdf', buildCmykJpeg());
   write('annotated-10p.pdf', buildAnnotated());

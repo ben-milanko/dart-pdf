@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:pdf_cos/pdf_cos.dart'
-    show ContentStreamParser, CosDictionary, CosName, CosStream;
+    show ContentStreamParser, CosDictionary, CosInteger, CosName, CosStream;
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart'
     show
@@ -484,10 +484,11 @@ class PdfPageView extends StatefulWidget {
   /// answered honestly:
   ///
   /// 1. **At request time** - a live worker (so no local walk) and no
-  ///    page-level /XObject (so no unmeasured image decode/upload behind a
-  ///    three-operator content stream).
+  ///    page-level XObject whose declared pixels exceed
+  ///    [motionSafeMaxImagePixels] (so no unmeasured image decode/upload
+  ///    behind a three-operator content stream).
   /// 2. **When the record lands** - at most [motionSafeMaxCommands] commands
-  ///    and no image draws.
+  ///    and no more image pixels than [motionSafeMaxImagePixels].
   ///
   /// A page that fails either test keeps the classic behaviour: held until the
   /// scroll settles, then one per frame. Set false to restore the old
@@ -526,6 +527,24 @@ class PdfPageView extends StatefulWidget {
   /// already scrolling. A text page is tens of commands; the CAD sheets and
   /// hatched sections this protects are 70k-300k.
   static int motionSafeMaxCommands = 4000;
+
+  /// Embedded-image pixels a page may carry and still render through a scroll.
+  ///
+  /// The lane originally refused any page that declared a single /XObject, on
+  /// the reasoning that a three-operator content stream can hide a hundred
+  /// megapixels. True - but it also hides the 42x10 logo that every page of a
+  /// corporate report carries, and a field trace of exactly such a document
+  /// (113 pages, a letterhead mark on each) showed the lane switched off for
+  /// the entire file: every scheduler grant read `cost=held`.
+  ///
+  /// Declared size is knowable without decoding anything - /Width and /Height
+  /// are dictionary entries - so ask instead of assume. One megapixel is about
+  /// 4 MB of RGBA: a decode/upload that fits a frame, and far below the
+  /// large-format scans and CAD underlays the ceiling exists to keep out. The
+  /// same budget is applied to the returned record's actual image draws, which
+  /// also covers inline images and the contents of Form XObjects that nothing
+  /// at page level advertises.
+  static int motionSafeMaxImagePixels = 1 << 20;
 
   /// Prioritizes a bounded page's complete display list after its image-free
   /// worker transcript has warmed, instead of spending UI/GPU time flattening
@@ -1530,7 +1549,18 @@ class _PdfPageViewState extends State<PdfPageView>
     );
     if (handle == null) return;
     final retainedImageRatio = handle.imagePixelRatio;
-    final requiredImageRatio = _imageRatioTarget();
+    // What this scene has to clear is *display* sharpness - at least one
+    // decoded sample per physical pixel at the current zoom - not the 2x
+    // decode headroom a fresh render aims for ([focusedImageDecodeHeadroom]).
+    //
+    // Asking for the headroom here threw away a whole page for a difference
+    // no one can see: a field trace of a scroll-back showed
+    // `reject reason=image-lod have=1.79 need=2.00`, and the cost of that 10%
+    // was blank paper plus a 40 ms re-interpret on a page whose display list
+    // was sitting in the cache. Adopt it, paint immediately; a zoom past what
+    // its images can carry re-renders through the ordinary sharpness path
+    // ([_pictureImagesAreSharpAtZoom]).
+    final requiredImageRatio = _effectiveRatio();
     if (retainedImageRatio != null &&
         retainedImageRatio < requiredImageRatio * 0.99) {
       handle.dispose();
@@ -2416,25 +2446,66 @@ class _PdfPageViewState extends State<PdfPageView>
   /// every hold only to be abandoned at the same gate.
   bool _recordKnownHeld = false;
 
+  /// Cached answer of [_xObjectsWithinMotionBudget] for [_xObjectBudgetPage].
+  ///
+  /// The walk resolves one dictionary per XObject through the xref, which is
+  /// cheap but not free, and the verdict is asked on every render request of
+  /// a page whose resources cannot change under it (an edit builds a new
+  /// [PdfPage]).
+  bool? _xObjectBudgetVerdict;
+  PdfPage? _xObjectBudgetPage;
+
+  /// Whether the page's declared XObjects are small enough to decode and
+  /// upload inside a scrolling frame ([PdfPageView.motionSafeMaxImagePixels]).
+  ///
+  /// Conservative about what it cannot read: a Form XObject (whose content
+  /// stream can draw anything, at any size), an image with no declared
+  /// dimensions, or a resource dictionary that will not resolve all answer
+  /// false, exactly as the old any-XObject rule did.
+  bool _xObjectsWithinMotionBudget() {
+    if (identical(_xObjectBudgetPage, widget.page) &&
+        _xObjectBudgetVerdict != null) {
+      return _xObjectBudgetVerdict!;
+    }
+    _xObjectBudgetPage = widget.page;
+    return _xObjectBudgetVerdict = _measureXObjectBudget();
+  }
+
+  bool _measureXObjectBudget() {
+    final cos = widget.page.document.cos;
+    final xObjects = cos.resolve(widget.page.resources['XObject']);
+    if (xObjects is! CosDictionary || xObjects.entries.isEmpty) return true;
+    var pixels = 0;
+    for (final value in xObjects.entries.values) {
+      final xObject = cos.resolve(value);
+      if (xObject is! CosStream) return false;
+      final dict = xObject.dictionary;
+      final subtype = cos.resolve(dict['Subtype']);
+      if (subtype is! CosName || subtype.value != 'Image') return false;
+      final width = cos.resolve(dict['Width']);
+      final height = cos.resolve(dict['Height']);
+      if (width is! CosInteger || height is! CosInteger) return false;
+      pixels += width.value * height.value;
+      if (pixels > PdfPageView.motionSafeMaxImagePixels) return false;
+    }
+    return true;
+  }
+
   /// The request-time half of the motion-safe verdict (see
-  /// [PdfPageView.motionSafeRenders]): the page declares no image/form XObject
-  /// whose decode could dwarf its content stream, no earlier walk has proved
-  /// it too expensive, and either the walk runs in a worker (free to this
-  /// thread) or the page is small enough to walk here
-  /// ([motionSafeLocalMaxRawContentBytes]).
+  /// [PdfPageView.motionSafeRenders]): the page's declared XObjects fit
+  /// [PdfPageView.motionSafeMaxImagePixels] (nothing whose decode could dwarf
+  /// its content stream), no earlier walk has proved it too expensive, and
+  /// either the walk runs in a worker (free to this thread) or the page is
+  /// small enough to walk here ([motionSafeLocalMaxRawContentBytes]).
   PdfRenderMotionClass _pageAllowsMotionRender() {
     if (!PdfPageView.motionSafeRenders || _recordKnownHeld) {
       return PdfRenderMotionClass.held;
     }
-    // Any page-level XObject can hide megabytes of image behind a
-    // three-operator content stream, and that cost is unknowable before the
-    // record lands.
-    final xObjects = widget.page.document.cos.resolve(
-      widget.page.resources['XObject'],
-    );
-    if (xObjects is CosDictionary && xObjects.entries.isNotEmpty) {
-      return PdfRenderMotionClass.held;
-    }
+    // A page-level XObject can hide megabytes of image behind a
+    // three-operator content stream - but the dictionary says how many pixels
+    // it declares, so measure rather than assume (see
+    // [PdfPageView.motionSafeMaxImagePixels]).
+    if (!_xObjectsWithinMotionBudget()) return PdfRenderMotionClass.held;
     // A live worker means the walk costs this thread nothing: free.
     if (widget.renderWorker?.isActive ?? false) {
       return PdfRenderMotionClass.free;
@@ -2448,13 +2519,20 @@ class _PdfPageViewState extends State<PdfPageView>
         : PdfRenderMotionClass.held;
   }
 
-  /// The record-time half: a buffer small enough, and free of image draws,
-  /// that replaying it inside a scrolling frame is not the hitch the hold
-  /// exists to prevent.
-  bool _recordAllowsMotionReplay(List<PdfRenderCommand> commands) =>
-      PdfPageView.motionSafeRenders &&
-      commands.length <= PdfPageView.motionSafeMaxCommands &&
-      !PdfPageRenderer.hasImageDraws(commands);
+  /// The record-time half: a buffer small enough, and carrying few enough
+  /// image pixels, that replaying it inside a scrolling frame is not the
+  /// hitch the hold exists to prevent.
+  ///
+  /// [PdfPageRenderer.imageDrawPixels] answers -1 when an image will not say
+  /// how big it is, which fails the comparison - unknown is not small.
+  bool _recordAllowsMotionReplay(List<PdfRenderCommand> commands) {
+    if (!PdfPageView.motionSafeRenders ||
+        commands.length > PdfPageView.motionSafeMaxCommands) {
+      return false;
+    }
+    final pixels = PdfPageRenderer.imageDrawPixels(commands);
+    return pixels >= 0 && pixels <= PdfPageView.motionSafeMaxImagePixels;
+  }
 
   /// Waits for this worker result's UI replay turn.
   ///

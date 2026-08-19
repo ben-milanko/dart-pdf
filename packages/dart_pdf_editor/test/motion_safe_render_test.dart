@@ -178,14 +178,18 @@ void main() {
     await settle(tester);
   });
 
-  testWidgets('an image-bearing page waits for the scroll to settle',
+  testWidgets('a page carrying a big image waits for the scroll to settle',
       (tester) async {
-    // The fixture draws an inline image, so nothing at page level advertises
-    // it. Whichever gate catches it - the record's own image draws, or the
-    // fall-through to a local walk when the worker declines the buffer - the
-    // page must not paint mid-scroll.
-    final scheduler =
-        await pumpPage(tester, buildEmbeddedFontImagePdf(), holding: true);
+    // A megapixel-class underlay is the decode/upload the hold exists to
+    // prevent. Whichever gate catches it - the page's own /XObject
+    // dictionary, or the image draws in the returned record - it must not
+    // land mid-scroll.
+    final bytes = buildSyntheticRasterUnderlaySheet(
+      underlays: const [PdfUnderlaySpec(width: 1200, height: 1200)],
+      layers: 1,
+      ops: 20,
+    );
+    final scheduler = await pumpPage(tester, bytes, holding: true);
     for (var i = 0; i < 6; i++) {
       await settle(tester);
     }
@@ -194,7 +198,55 @@ void main() {
             'exists to prevent');
 
     scheduler.holding = false;
-    for (var i = 0; i < 10 && !painted(tester); i++) {
+    for (var i = 0; i < 20 && !painted(tester); i++) {
+      await settle(tester);
+    }
+    expect(painted(tester), isTrue);
+  });
+
+  testWidgets('a page carrying a small image renders through a scroll hold',
+      (tester) async {
+    // The letterhead case, and the reason the lane's old rule was wrong: a
+    // page that declared ONE image - a 42x10 mark in the field trace that
+    // prompted this - was refused the lane outright. On a document with that
+    // mark on every page the lane never applied at all; every scheduler grant
+    // in the trace read `cost=held`.
+    final bytes = buildSyntheticRasterUnderlaySheet(
+      underlays: const [PdfUnderlaySpec(width: 48, height: 48)],
+      layers: 1,
+      ops: 20,
+    );
+    final scheduler = await pumpPage(tester, bytes, holding: true);
+    for (var i = 0; i < 20 && !painted(tester); i++) {
+      await settle(tester);
+    }
+    expect(painted(tester), isTrue,
+        reason: 'one small image is not a reason to make the reader wait out '
+            'the scroll');
+    expect(scheduler.holding, isTrue, reason: 'still scrolling');
+  });
+
+  testWidgets('the image budget is what decides, not the presence of an image',
+      (tester) async {
+    // The same page as above, with the budget moved under it: what governs is
+    // how many pixels the page declares, not whether it declares any.
+    final previous = PdfPageView.motionSafeMaxImagePixels;
+    PdfPageView.motionSafeMaxImagePixels = 0;
+    addTearDown(() => PdfPageView.motionSafeMaxImagePixels = previous);
+    final bytes = buildSyntheticRasterUnderlaySheet(
+      underlays: const [PdfUnderlaySpec(width: 48, height: 48)],
+      layers: 1,
+      ops: 20,
+    );
+    final scheduler = await pumpPage(tester, bytes, holding: true);
+    for (var i = 0; i < 8; i++) {
+      await settle(tester);
+    }
+    expect(painted(tester), isFalse,
+        reason: 'the same page, one pixel over budget, keeps the strict hold');
+
+    scheduler.holding = false;
+    for (var i = 0; i < 20 && !painted(tester); i++) {
       await settle(tester);
     }
     expect(painted(tester), isTrue);
