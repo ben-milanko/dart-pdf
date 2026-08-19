@@ -236,3 +236,66 @@ number.
   page that mounts on screen has always queued itself. Check that a new test
   fails without the change before believing it; the queuing fix's real
   evidence is the `wheel-text` A/B.
+
+## Round three: the field trace
+
+A trace from the desktop app on a 50-page document said the work above had
+barely moved it, and named two things the browser harness could not have.
+
+**The thumbnail strip owned the wait.** At every settle:
+
+```
+57.757  renderHold off (pending=0 …)
+57.758  thumbnail grant page=28 … local interpret+raster=111.8ms (no worker)
+        … four more tiles …                    ≈ 400 ms of platform thread
+58.171  scheduler grant page=30 focus=30       <- the page the reader landed on
+58.183  interpret page=30 FIRST interpret=12.0ms
+58.189  page-ready page=30
+```
+
+400-530 ms of thumbnails, three times over, ahead of a page whose own walk is
+12 ms. The thumbnail queue *does* stand down while the viewer is busy - but
+`busy` was false at that instant, because no page had queued a render yet
+(the very bug the previous round fixed), and once the drain starts it runs
+tiles back to back on the strength of that one reading. The frame that would
+have queued the page could not run. `PdfThumbnailCache._drain` now yields a
+whole frame between tiles and re-reads the gate after it.
+
+**There was no render worker at all.** `path=recorded`, `(no worker)`: every
+interpret on the UI thread, which also made the whole motion-safe lane inert,
+since it required an off-thread walk. So the lane grew a third class.
+
+## Motion classes
+
+The boolean was wrong in a way worth recording: a request made mid-fling is
+granted after the reader's hand has stopped, and the answer differs between
+those two moments. So `PdfRenderMotionClass` is declared by the caller and
+*evaluated at grant time*:
+
+- `free` - worker-backed and small: runs whenever, motion or not.
+- `quiet` - no worker, small page: runs in the scroll-quiet window but never
+  inside a live gesture. A 12 ms UI-thread walk should not sit out a 500 ms
+  window whose purpose is insurance against the scroll resuming.
+- `held` - everything else, exactly as before.
+
+"Live gesture" needed its own signal: `_motionRenderHoldActive` includes that
+500 ms window, so using it here would have gated the lane on the very thing it
+exists to bypass. `PdfPageRenderScheduler.activeGesture` is driven by a 120 ms
+quiet timer restarted on every scroll event - two frames, so a wheel stream's
+gaps never read as "stopped".
+
+A local walk that overruns `motionSafeLocalBudgetMs` marks its page held for
+good (`_recordKnownHeld`): encoded size is a weak proxy for walk cost, so the
+pre-walk gate is pessimistic and the measurement is what actually decides.
+
+## Where this leaves the no-worker path
+
+`wheel-text-noworker` (the same scroll with `?worker=0`) goes 612 -> ~410 ms
+to settle, and that residue is *work*, not waiting: three UI-thread walks at
+25-110 ms each, one per frame. Sharp-while-scrolling stays at 15%, and it
+should - at 12,000 px/s a reader passes ten pages a second and no amount of
+scheduling walks ten pages a second on the UI thread. That is what the worker
+is for, which makes "why was there no worker?" the important question, not
+"how do we schedule around it". The interpret line now says
+`recorded(no-worker)` vs `recorded(declined)` so the next field trace answers
+it in one word instead of a round trip.

@@ -220,6 +220,47 @@ void main() {
     expect(painted(tester), isTrue);
   });
 
+  testWidgets('with no worker a small page renders in the scroll-quiet window',
+      (tester) async {
+    // The user-facing case behind this: a session with no render worker at
+    // all (a host that never attached one, or a byte source still
+    // completing). The walk is on the UI thread, so it must not run inside a
+    // live gesture - but making a 12 ms walk sit out the whole 500 ms
+    // scroll-quiet window is the half-second a reader feels after they stop.
+    final bytes = buildClassicPdf();
+    final document = PdfDocument.open(bytes);
+    final scheduler = PdfPageRenderScheduler()
+      ..holding = true
+      ..activeGesture = true;
+    addTearDown(scheduler.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Center(
+        child: SizedBox(
+          width: 400,
+          child: PdfPageView(
+            page: document.page(0),
+            renderScheduler: scheduler,
+          ),
+        ),
+      ),
+    ));
+    for (var i = 0; i < 6; i++) {
+      await settle(tester);
+    }
+    expect(painted(tester), isFalse,
+        reason: 'a UI-thread walk must not run inside a live gesture');
+
+    // The reader stops moving. The hold stays up - it is insurance against
+    // the scroll resuming - but the gesture is over.
+    scheduler.activeGesture = false;
+    for (var i = 0; i < 10 && !painted(tester); i++) {
+      await settle(tester);
+    }
+    expect(painted(tester), isTrue,
+        reason: 'the quiet window is not a gesture');
+    expect(scheduler.holding, isTrue);
+  });
+
   testWidgets('motionSafeRenders: false restores the strict hold',
       (tester) async {
     final previous = PdfPageView.motionSafeRenders;

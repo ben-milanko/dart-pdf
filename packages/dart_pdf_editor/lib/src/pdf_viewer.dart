@@ -1707,6 +1707,20 @@ class _PdfViewerState extends State<PdfViewer>
   final _rasterWarmAttempts = Set<PdfPage>.identity();
   bool _warmingRasters = false;
 
+  /// Lowers [PdfPageRenderScheduler.activeGesture] once the reader has stopped
+  /// moving for [_gestureQuietDelay] - far shorter than the 500 ms scroll-quiet
+  /// window, because it answers a different question. The quiet window asks
+  /// "might a scroll resume?" and protects expensive work from starting inside
+  /// one; this asks "is a gesture happening right now?", which is all a 12 ms
+  /// UI-thread walk needs to know. Restarted by every scroll event.
+  Timer? _gestureQuietTimer;
+
+  /// How long after the last scroll event the viewer stops calling it a
+  /// gesture. Two frames: long enough that a wheel stream's inter-event gaps
+  /// never read as "stopped", short enough that a reader who has actually
+  /// stopped is not made to wait.
+  static const _gestureQuietDelay = Duration(milliseconds: 120);
+
   /// Fires once the viewer has been quiet for
   /// [PdfPageRasterWarmPolicy.idleDelay]. Any scroll, zoom, edit, or queued
   /// page render restarts it, so warming only ever runs in real idle time.
@@ -1910,6 +1924,9 @@ class _PdfViewerState extends State<PdfViewer>
 
   void _settleRenderHold() {
     _renderScheduler.holding = _motionRenderHoldActive || !widget.active;
+    // A live gesture is what a UI-thread walk must not run inside; the quiet
+    // window that follows one is not (see [PdfPageRenderScheduler.activeGesture]).
+    _renderScheduler.activeGesture = _directMotionRenderHoldActive;
     _renderScheduler.parked = !widget.active;
   }
 
@@ -3332,6 +3349,17 @@ class _PdfViewerState extends State<PdfViewer>
         'hold=${hold ? 'ON' : 'off'}');
     // a paused viewer (overlaid by another view) holds unconditionally
     _renderScheduler.holding = hold || !widget.active;
+    // A gesture is in flight while events keep arriving (or a finger/fling
+    // genuinely owns the viewport). Deliberately NOT `activeMotion`, which
+    // includes the 500 ms quiet window: that window is the thing a cheap
+    // local walk should be allowed through.
+    // An event just arrived, so a gesture is happening by definition.
+    _renderScheduler.activeGesture = true;
+    _gestureQuietTimer?.cancel();
+    _gestureQuietTimer = Timer(_gestureQuietDelay, () {
+      if (!mounted) return;
+      _renderScheduler.activeGesture = _directMotionRenderHoldActive;
+    });
     _renderScheduler.parked = !widget.active;
   }
 
@@ -3954,6 +3982,7 @@ class _PdfViewerState extends State<PdfViewer>
     _settleTimer?.cancel();
     _scrollSettleTimer?.cancel();
     _motionHoldReleaseTimer?.cancel();
+    _gestureQuietTimer?.cancel();
     _previewIdleTimer?.cancel();
     _rasterWarmTimer?.cancel();
     // when the host recreates the viewer element (e.g. a panel appearing

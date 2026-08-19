@@ -88,7 +88,8 @@ void main() {
     addTearDown(scheduler.dispose);
     final ran = <String>[];
     scheduler.request('held', 0, () => ran.add('held'));
-    scheduler.request('safe', 1, () => ran.add('safe'), motionSafe: true);
+    scheduler.request('safe', 1, () => ran.add('safe'),
+        motion: PdfRenderMotionClass.free);
 
     for (var i = 0; i < 3; i++) {
       await tester.pump();
@@ -115,7 +116,7 @@ void main() {
     var frame = 0;
     for (var page = 0; page < 3; page++) {
       scheduler.request('p$page', page, () => frames.add(frame),
-          motionSafe: true);
+          motion: PdfRenderMotionClass.free);
     }
     for (var i = 0; i < 4 && frames.length < 3; i++) {
       frame++;
@@ -136,7 +137,8 @@ void main() {
     addTearDown(scheduler.dispose);
     final ran = <int>[];
     for (final page in [3, 9, 10, 11, 17]) {
-      scheduler.request('p$page', page, () => ran.add(page), motionSafe: true);
+      scheduler.request('p$page', page, () => ran.add(page),
+          motion: PdfRenderMotionClass.free);
     }
     for (var i = 0; i < 6; i++) {
       await tester.pump();
@@ -161,7 +163,7 @@ void main() {
     var frame = 0;
     for (var page = 0; page < 3; page++) {
       scheduler.request('p$page', page, () => frames.add(frame),
-          motionSafe: true);
+          motion: PdfRenderMotionClass.free);
     }
     frame++;
     await tester.pump();
@@ -179,8 +181,9 @@ void main() {
     scheduler.request('focus', 0, () {
       ran.add(0);
       return focusRender.future;
-    }, motionSafe: true);
-    scheduler.request('next', 1, () => ran.add(1), motionSafe: true);
+    }, motion: PdfRenderMotionClass.free);
+    scheduler.request('next', 1, () => ran.add(1),
+        motion: PdfRenderMotionClass.free);
 
     for (var i = 0; i < 3; i++) {
       await tester.pump();
@@ -221,7 +224,8 @@ void main() {
     expect(scheduler.isQueued('a'), isFalse);
 
     final running = Completer<void>();
-    scheduler.request('a', 0, () => running.future, motionSafe: true);
+    scheduler.request('a', 0, () => running.future,
+        motion: PdfRenderMotionClass.free);
     expect(scheduler.isQueued('a'), isTrue, reason: 'queued');
 
     await tester.pump();
@@ -244,7 +248,7 @@ void main() {
     var safeReleased = false;
     var heldReleased = false;
     unawaited(scheduler
-        .paceUiWork('safe', 0, motionSafe: true)
+        .paceUiWork('safe', 0, motion: PdfRenderMotionClass.free)
         .then((granted) => safeReleased = granted));
     unawaited(scheduler
         .paceUiWork('held', 1)

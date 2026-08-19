@@ -19,10 +19,10 @@ import 'perf_log.dart';
 ///
 /// Pages register a [request] here instead of interpreting on their own.
 /// The scheduler grants requests one per frame, the one nearest the
-/// viewport ([focus]) first, and - unless the request is [motionSafe], see
-/// below - not while a fast scroll is in flight ([holding]), so no frame runs
-/// more than one page's walk and the low-res previews cover everything still
-/// waiting its turn.
+/// viewport ([focus]) first, and - unless the request's [PdfRenderMotionClass]
+/// says otherwise, see below - not while a fast scroll is in flight
+/// ([holding]), so no frame runs more than one page's walk and the low-res
+/// previews cover everything still waiting its turn.
 ///
 /// A render grant is only the *start* of a render: on the worker path the
 /// callback returns at its first await and the recording finishes
@@ -47,8 +47,8 @@ import 'perf_log.dart';
 /// - What does run here is the replay of the returned command buffer, and by
 ///   then its size is *known* - no guessing needed.
 ///
-/// So a request may declare itself [motionSafe], and the caller re-declares it
-/// at [paceUiWork] once the record's real size is in hand
+/// So a request declares a [PdfRenderMotionClass], and the caller re-declares
+/// it at [paceUiWork] once the record's real size is in hand
 /// (`PdfPageView.motionSafeMaxCommands`). Motion-safe work is granted **during**
 /// a hold - one per frame, and only near the scroll's destination
 /// ([motionSafeHoldRadius], so a fling does not record every page it passes) -
@@ -60,6 +60,28 @@ import 'perf_log.dart';
 /// and waiting out the scroll before the render even starts (~600 ms to
 /// readable) and rendering through the scroll (the record lands about when the
 /// animation does).
+/// What a render pass may do while the viewer is in motion.
+///
+/// The verdict cannot be baked into a queued request: a request made mid-fling
+/// is granted after the reader's hand has stopped, and the answer differs
+/// between those two moments. So the caller declares a *class* and the
+/// scheduler decides at grant time.
+enum PdfRenderMotionClass {
+  /// Runs only once the viewer settles - the classic behaviour, and what
+  /// anything whose cost is unknown or large gets.
+  held,
+
+  /// Runs during the scroll-quiet window but not inside a live gesture: a
+  /// small page whose walk is on the UI thread, where waiting out the full
+  /// quiet window is the delay a reader complains about, but stuttering a
+  /// gesture in progress would be worse.
+  quiet,
+
+  /// Runs whenever, motion or not: the walk is in a worker and the replay is
+  /// small, so a scrolling frame pays nothing for it.
+  free,
+}
+
 class PdfPageRenderScheduler {
   PdfPageRenderScheduler();
 
@@ -121,6 +143,17 @@ class PdfPageRenderScheduler {
   final _activeMotionSafe = <Object, bool>{};
 
   bool _holding = false;
+  bool _activeGesture = false;
+
+  /// Whether work of [motion] may run right now. The whole point of the class
+  /// being evaluated here, and not when the request was made.
+  bool motionPermits(PdfRenderMotionClass motion) => _motionPermits(motion);
+
+  bool _motionPermits(PdfRenderMotionClass motion) => switch (motion) {
+        PdfRenderMotionClass.free => true,
+        PdfRenderMotionClass.quiet => !_activeGesture,
+        PdfRenderMotionClass.held => !_holding,
+      };
   int _focus = 0;
   int? _renderFrameCallbackId;
   bool _disposed = false;
@@ -159,6 +192,28 @@ class PdfPageRenderScheduler {
     if (_parked == value || _disposed) return;
     _parked = value;
     _activity.ping();
+  }
+
+  /// Whether the hold covers a *live* gesture - a finger down, a fling still
+  /// animating, a wheel stream mid-flow - as opposed to the quiet window the
+  /// viewer keeps up for a while after motion stops.
+  ///
+  /// The distinction is what a page with no render worker needs. Its walk runs
+  /// on this thread, so it must not run inside a live gesture; but the quiet
+  /// window is not a gesture, it is insurance against one resuming, and making
+  /// a 12 ms walk wait it out is the half-second a reader feels after they
+  /// stop scrolling. Worker-backed pages ignore this - their walk costs this
+  /// thread nothing either way.
+  bool get activeGesture => _activeGesture;
+  set activeGesture(bool value) {
+    if (_activeGesture == value || _disposed) return;
+    _activeGesture = value;
+    // Leaving a gesture for the quiet window opens the local lane, so the
+    // queue may have work it can grant now.
+    if (!_activeGesture) {
+      _scheduleDrain();
+      _scheduleUiDrain();
+    }
   }
 
   /// True while a fast scroll is in flight: the viewer raises it from its
@@ -224,18 +279,17 @@ class PdfPageRenderScheduler {
   /// then the page has its picture, so the deferred pass re-rasters
   /// instead of recording the page from scratch a second time.
   ///
-  /// [motionSafe] marks a render that may run during a scroll (see the
-  /// motion-safe lane above). It is a property of the *pass*, so a re-request
-  /// may correct it - the refresh below carries it across.
+  /// [motion] says when this render may run relative to the viewer's motion
+  /// (see [PdfRenderMotionClass]). It is a property of the *pass*, so a
+  /// re-request may correct it - the refresh below carries it across.
   void request(
     Object token,
     int priority,
     FutureOr<void> Function() render, {
-    bool motionSafe = false,
+    PdfRenderMotionClass motion = PdfRenderMotionClass.held,
   }) {
     if (_disposed) return;
-    final queued =
-        _RenderRequest(token, priority, render, motionSafe: motionSafe);
+    final queued = _RenderRequest(token, priority, render, motion: motion);
     if (_inFlight.containsKey(token)) {
       PdfPerfLog.log('scheduler defer page=$priority '
           '(render in flight)${_inFlight[token] == null ? '' : ' [repeat]'}');
@@ -247,7 +301,7 @@ class PdfPageRenderScheduler {
         r
           ..priority = priority
           ..render = render
-          ..motionSafe = motionSafe;
+          ..motion = motion;
         _scheduleDrain();
         return;
       }
@@ -269,7 +323,7 @@ class PdfPageRenderScheduler {
     Object token,
     int priority, {
     bool replacePending = false,
-    bool motionSafe = false,
+    PdfRenderMotionClass motion = PdfRenderMotionClass.held,
   }) {
     if (_disposed) return Future<bool>.value(false);
     // Progressive worker replies are cumulative snapshots. If five prefixes
@@ -287,7 +341,7 @@ class PdfPageRenderScheduler {
         if (!pending.ready.isCompleted) pending.ready.complete(false);
       }
     }
-    final request = _UiWorkRequest(token, priority, motionSafe: motionSafe);
+    final request = _UiWorkRequest(token, priority, motion: motion);
     _uiPending.add(request);
     _scheduleUiDrain();
     return request.ready.future;
@@ -316,7 +370,7 @@ class PdfPageRenderScheduler {
     // queued this is the old early return.
     if (_holding &&
         !_pending.any((r) =>
-            r.motionSafe &&
+            _motionPermits(r.motion) &&
             (r.priority - _focus).abs() <= math.max(0, motionSafeHoldRadius))) {
       return;
     }
@@ -345,7 +399,7 @@ class PdfPageRenderScheduler {
       if (_disposed || _pending.isEmpty) return;
       final pick = _pickNearestFocus(
         _pending,
-        motionSafeOnly: _holding,
+        motionGated: _holding,
         maxDistance: _holding ? math.max(0, motionSafeHoldRadius) : null,
       );
       if (pick == null) return;
@@ -354,7 +408,7 @@ class PdfPageRenderScheduler {
       // Held-class pages keep the historical one-per-frame guarantee: their
       // walk or replay is the frame. Only the motion-safe lane may start
       // another.
-      if (!next.motionSafe) return;
+      if (next.motion == PdfRenderMotionClass.held) return;
     }
   }
 
@@ -370,17 +424,18 @@ class PdfPageRenderScheduler {
   }
 
   /// Index of the queued request nearest [focus], or null when none qualifies.
-  /// With [motionSafeOnly] set (a hold in flight) only motion-safe requests
-  /// qualify, and [maxDistance] bounds how far from the focus they may be.
+  /// With [motionGated] set (a hold in flight) only requests whose
+  /// [PdfRenderMotionClass] the current motion permits qualify, and
+  /// [maxDistance] bounds how far from the focus they may be.
   int? _pickNearestFocus(
     List<_RenderRequest> queue, {
-    bool motionSafeOnly = false,
+    bool motionGated = false,
     int? maxDistance,
   }) {
     int? pick;
     var best = 0;
     for (var i = 0; i < queue.length; i++) {
-      if (motionSafeOnly && !queue[i].motionSafe) continue;
+      if (motionGated && !_motionPermits(queue[i].motion)) continue;
       final distance = (queue[i].priority - _focus).abs();
       if (maxDistance != null && distance > maxDistance) continue;
       if (pick == null || distance < best) {
@@ -393,11 +448,13 @@ class PdfPageRenderScheduler {
 
   void _grant(_RenderRequest next) {
     PdfPerfLog.log('scheduler grant page=${next.priority} '
-        'focus=$_focus cost=${next.motionSafe ? 'motion-safe' : 'held'} '
-        'hold=${_holding ? 'ON' : 'off'} remaining=${_pending.length}');
+        'focus=$_focus cost=${next.motion.name} '
+        'hold=${_holding ? 'ON' : 'off'}'
+        '${_activeGesture ? ' gesture=ON' : ''} '
+        'remaining=${_pending.length}');
     _inFlight[next.token] = null;
     _activePriorities[next.token] = next.priority;
-    _activeMotionSafe[next.token] = next.motionSafe;
+    _activeMotionSafe[next.token] = next.motion != PdfRenderMotionClass.held;
     // A granted async render has left the pending queue but still owns the
     // platform thread for its replay/raster phase. Background thumbnail work
     // must keep treating the viewer as busy through that window.
@@ -426,7 +483,7 @@ class PdfPageRenderScheduler {
     if (_uiFrameCallbackId != null || _disposed || _uiPending.isEmpty) return;
     // As in [_scheduleDrain]: a small record replays through the hold rather
     // than waiting the scroll out. Its size is what made it motion-safe.
-    if (_holding && !_uiPending.any((r) => r.motionSafe)) return;
+    if (_holding && !_uiPending.any((r) => _motionPermits(r.motion))) return;
     // `endOfFrame` can already be complete when a continuation reaches it in
     // the post-frame turn. A while-loop awaiting it therefore occasionally
     // released several worker results only 1-2ms apart inside the same display
@@ -444,7 +501,7 @@ class PdfPageRenderScheduler {
     int? pick;
     var best = 0;
     for (var i = 0; i < _uiPending.length; i++) {
-      if (_holding && !_uiPending[i].motionSafe) continue;
+      if (_holding && !_motionPermits(_uiPending[i].motion)) continue;
       final distance = (_uiPending[i].priority - _focus).abs();
       if (pick == null || distance < best) {
         best = distance;
@@ -454,7 +511,7 @@ class PdfPageRenderScheduler {
     if (pick == null) return;
     final next = _uiPending.removeAt(pick);
     PdfPerfLog.log('scheduler ui grant page=${next.priority} '
-        'focus=$_focus cost=${next.motionSafe ? 'motion-safe' : 'held'} '
+        'focus=$_focus cost=${next.motion.name} '
         'remaining=${_uiPending.length}');
     if (!next.ready.isCompleted) next.ready.complete(true);
     // Schedule the following result for the following engine frame before the
@@ -529,18 +586,19 @@ class _Activity extends ChangeNotifier {
 
 class _RenderRequest {
   _RenderRequest(this.token, this.priority, this.render,
-      {this.motionSafe = false});
+      {this.motion = PdfRenderMotionClass.held});
   final Object token;
   int priority;
   FutureOr<void> Function() render;
-  bool motionSafe;
+  PdfRenderMotionClass motion;
 }
 
 class _UiWorkRequest {
-  _UiWorkRequest(this.token, this.priority, {this.motionSafe = false});
+  _UiWorkRequest(this.token, this.priority,
+      {this.motion = PdfRenderMotionClass.held});
 
   final Object token;
   final int priority;
-  final bool motionSafe;
+  final PdfRenderMotionClass motion;
   final Completer<bool> ready = Completer<bool>();
 }

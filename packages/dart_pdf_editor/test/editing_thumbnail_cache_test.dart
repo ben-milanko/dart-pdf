@@ -24,7 +24,9 @@ void main() {
       expect(pdfShouldWarmThumbnails(138, web: false), isTrue);
     });
 
-    test('serves the pending task nearest the focus first', () async {
+    testWidgets(
+        'serves the pending task nearest the focus first, one per '
+        'frame', (tester) async {
       final cache = PdfThumbnailCache();
       addTearDown(cache.dispose);
       final order = <int>[];
@@ -32,7 +34,20 @@ void main() {
       for (final page in [0, 5, 2]) {
         cache.request(Object(), page, () async => order.add(page));
       }
-      await settle();
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pump();
+      // A tile's interpret+raster is tens of milliseconds of platform thread,
+      // so the queue yields a frame between them - that frame is what lets the
+      // viewer queue the page a reader just scrolled onto, and the gate then
+      // sees it and stands the whole queue down.
+      expect(order.length, lessThan(3),
+          reason: 'the queue no longer drains in one turn');
+      expect(order.first, 5, reason: 'nearest the focus goes first');
+
+      for (var i = 0; i < 6 && order.length < 3; i++) {
+        await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+        await tester.pump();
+      }
       // distance from focus 5: page 5 (0) < page 2 (3) < page 0 (5)
       expect(order, [5, 2, 0]);
     });

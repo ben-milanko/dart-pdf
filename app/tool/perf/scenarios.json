@@ -133,6 +133,12 @@
       "params": { "wheelPages": 8, "wheelStepPx": 120, "wheelIntervalMs": 16 },
       "note": "A continuous trackpad-speed wheel scroll through a 40p text report, sampled every frame: wheelSharpWhileScrollingPct is how much of what was on screen was actually readable while the document moved, and wheelSettleMs is the wait after the reader stops. The 'scroll two pages, wait half a second' report."
     },
+    "wheel-text-noworker": {
+      "kind": "wheel",
+      "pdf": "test_corpora/dartpdf/text-report-40p.pdf",
+      "params": { "wheelPages": 8, "wheelStepPx": 120, "wheelIntervalMs": 16, "worker": 0 },
+      "note": "The same continuous scroll with the render worker OFF, which is what a session that never attached one (or whose byte source is still completing) actually looks like. Every interpret is on the UI thread, so this is the arm the motion-safe lane's local half exists for."
+    },
     "wheel-plan": {
       "kind": "wheel",
       "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",
