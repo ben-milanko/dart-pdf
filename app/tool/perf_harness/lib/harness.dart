@@ -24,6 +24,12 @@
 //   edit    - apply a batch of annotations (highlight/rectangle/ink) through
 //             the real PdfEditingController; incremental-save + appearance-gen
 //             cost, revision count, and session-buffer growth.
+//   read    - the everyday reading journey: arrive on each page in turn and
+//             wait for its SHARP raster, then read back through the pages
+//             already visited. Reports the arrival latency itself (p50/p95),
+//             split forward (first visit - scheduling) vs back (revisit -
+//             retention), which is what "the page takes a moment to appear"
+//             actually means.
 //   hover   - mouse-move over the page with an editing tool armed: synthetic
 //             PointerHoverEvents at frame cadence, measuring the build-phase
 //             cost each one provokes (the cursor-overlay work of #403).
@@ -173,6 +179,16 @@ final int _warmBudgetMb = _qInt('warmBudgetMb', 1024);
 final int _warmWindow = _qInt('warmWindow', 3);
 final int _warmIdleMs = _qInt('warmIdleMs', 6000);
 final int _warmTarget = _qInt('warmTarget', -1);
+
+/// `?readDwell=`: how long the `read` scenario pauses on a page once it is
+/// sharp, imitating a reader. Kept short by default - the measurement is the
+/// arrival latency, not the dwell - but non-zero so idle-time work (preview
+/// prerender, speculative warm) gets the same chance it gets in the app.
+final int _readDwellMs = _qInt('readDwell', 250);
+
+/// `?readSharpTimeoutMs=`: how long the `read` scenario waits for a page's
+/// sharp raster before recording a timeout and moving on.
+final int _readSharpTimeoutMs = _qInt('readSharpTimeoutMs', 5000);
 
 /// `?rasterCacheMb=`: exact full-page raster budget for the competitive
 /// viewer. Defaults to the package's 32 MiB policy; zero disables retention.
@@ -665,6 +681,8 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
           await _driveHover(coldOpen);
         case 'warm':
           await _driveWarm(coldOpen);
+        case 'read':
+          await _driveRead(coldOpen);
         case 'scroll':
         default:
           await _driveScroll(coldOpen);
@@ -869,6 +887,120 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
       }
     }
     _metric('pagesVisited', last);
+  }
+
+  // ----- read: per-page arrival latency, forward then back ------------------
+  //
+  // The `scroll` scenario answers "did the frames stay smooth"; this one
+  // answers "how long did I stare at a soft preview before the page was
+  // readable" - the complaint a reader actually has on a long text document,
+  // where every page is cheap and the wait is scheduling, not interpret cost.
+  //
+  // Two sweeps, deliberately reported apart:
+  //   forward - each page's FIRST visit. Its latency is queueing: the render
+  //             hold, the one-grant-per-frame pacing, the worker round trip.
+  //   back    - pages visited moments ago. Their latency is retention: a page
+  //             whose scene/raster is still cached is sharp on arrival, one
+  //             whose cache dropped it pays the whole first-visit cost again.
+  Future<void> _driveRead(Stopwatch coldOpen) async {
+    final count = await _awaitPageCount(coldOpen);
+    if (count <= 0) throw StateError('pageCount never became positive');
+    final last = _maxPages > 0 ? _maxPages.clamp(1, count) : count;
+    _record('[perf] HARNESS READ pages=$last dwell=${_readDwellMs}ms');
+    // Page 0 renders on its own; wait it out so the first measured arrival is
+    // a navigation, not the cold open.
+    await _awaitPageSharp(0);
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+
+    final forward = <double>[];
+    final forwardSettle = <double>[];
+    var forwardInstant = 0;
+    var timeouts = 0;
+    for (var i = 1; i < last; i++) {
+      final visit = await _visitPageForRead(i);
+      forward.add(visit.totalMs);
+      forwardSettle.add(visit.settleMs);
+      if (visit.instant) forwardInstant++;
+      if (visit.timedOut) timeouts++;
+      await Future<void>.delayed(Duration(milliseconds: _readDwellMs));
+    }
+
+    final back = <double>[];
+    final backSettle = <double>[];
+    var backInstant = 0;
+    for (var i = last - 2; i >= 0; i--) {
+      final visit = await _visitPageForRead(i);
+      back.add(visit.totalMs);
+      backSettle.add(visit.settleMs);
+      if (visit.instant) backInstant++;
+      if (visit.timedOut) timeouts++;
+      await Future<void>.delayed(Duration(milliseconds: _readDwellMs));
+    }
+
+    _metric('readPages', last);
+    _metric('readTimeouts', timeouts);
+    _publishReadLatency('readFirst', forward, forwardInstant);
+    _publishReadLatency('readBack', back, backInstant);
+    final all = <double>[...forward, ...back];
+    _publishReadLatency('readAll', all, forwardInstant + backInstant);
+    // The same journey minus the navigation animation every arrival pays:
+    // what the reader waits for AFTER the page has stopped moving. This is
+    // the number a render that runs during the scroll drives to zero.
+    _publishReadLatency('readFirstSettle', forwardSettle, forwardInstant);
+    _publishReadLatency('readBackSettle', backSettle, backInstant);
+    _publishReadLatency('readAllSettle', [...forwardSettle, ...backSettle], 0);
+  }
+
+  /// Navigates to [index] and waits for its sharp raster.
+  ///
+  /// Reports the wall time from asking for the page to it being readable, the
+  /// part of that spent waiting AFTER the navigation animation finished,
+  /// whether it was ALREADY sharp when the navigation landed (a cache hit -
+  /// the state this measurement exists to chase), and whether the wait timed
+  /// out.
+  Future<_ReadVisit> _visitPageForRead(int index) async {
+    final clock = Stopwatch()..start();
+    await _viewer.jumpToPage(index);
+    final arrived = clock.elapsedMicroseconds / 1000.0;
+    final instant = _viewer.isPageRasterReady(index);
+    final timedOut = !await _awaitPageSharp(index);
+    clock.stop();
+    final total = clock.elapsedMicroseconds / 1000.0;
+    final visit = _ReadVisit(
+      totalMs: total,
+      settleMs: total - arrived,
+      instant: instant,
+      timedOut: timedOut,
+    );
+    _record('[perf] HARNESS READ page=$index ms=${total.toStringAsFixed(1)} '
+        'settle=${visit.settleMs.toStringAsFixed(1)} instant=$instant '
+        'timeout=$timedOut');
+    return visit;
+  }
+
+  /// Polls until [index] has its full-resolution raster. False on timeout.
+  Future<bool> _awaitPageSharp(int index) async {
+    final deadline =
+        DateTime.now().add(Duration(milliseconds: _readSharpTimeoutMs));
+    while (!_viewer.isPageRasterReady(index)) {
+      if (DateTime.now().isAfter(deadline)) return false;
+      await Future<void>.delayed(const Duration(milliseconds: 8));
+    }
+    return true;
+  }
+
+  void _publishReadLatency(String prefix, List<double> samples, int instant) {
+    if (samples.isEmpty) return;
+    final sorted = List<double>.of(samples)..sort();
+    double at(double q) =>
+        sorted[((sorted.length - 1) * q).round().clamp(0, sorted.length - 1)];
+    _metric('${prefix}P50Ms', at(0.5));
+    _metric('${prefix}P95Ms', at(0.95));
+    _metric('${prefix}MaxMs', sorted.last);
+    _metric('${prefix}MeanMs', sorted.reduce((a, b) => a + b) / sorted.length);
+    // The headline for "greedier retention": the share of arrivals that were
+    // already sharp, needing no render at all.
+    _metric('${prefix}InstantPct', instant * 100.0 / samples.length);
   }
 
   // ----- warm: idle full-raster warm, then arrive on a far page (#614) ------
@@ -1162,4 +1294,26 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
       home: Scaffold(body: body),
     );
   }
+}
+
+/// One page arrival in the `read` scenario.
+class _ReadVisit {
+  const _ReadVisit({
+    required this.totalMs,
+    required this.settleMs,
+    required this.instant,
+    required this.timedOut,
+  });
+
+  /// Wall time from asking for the page to it being readable.
+  final double totalMs;
+
+  /// The part of [totalMs] spent after the navigation animation landed.
+  final double settleMs;
+
+  /// The page was already sharp when the navigation landed.
+  final bool instant;
+
+  /// The wait gave up before the page became sharp.
+  final bool timedOut;
 }

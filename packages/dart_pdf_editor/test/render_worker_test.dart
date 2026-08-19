@@ -656,6 +656,14 @@ void main() {
 
   testWidgets('PdfPageView defers worker replay when render hold resumes',
       (tester) async {
+    // A record big enough to matter is still held: the motion-safe lane
+    // (PdfPageView.motionSafeRenders) only lets a SMALL image-free buffer
+    // replay through a scroll, and pinning the ceiling at zero puts this
+    // fixture on the classic side of that line. The lane's own behaviour is
+    // covered in motion_safe_render_test.dart.
+    final previousCeiling = PdfPageView.motionSafeMaxCommands;
+    PdfPageView.motionSafeMaxCommands = 0;
+    addTearDown(() => PdfPageView.motionSafeMaxCommands = previousCeiling);
     final bytes = buildClassicPdf();
     final document = PdfDocument.open(bytes);
     final page = document.page(0);
@@ -705,16 +713,14 @@ void main() {
             'replay/rasterize on the UI side');
 
     scheduler.holding = false;
-    for (var i = 0; i < 20 && worker.calls.length < 2; i++) {
-      await tester.pump(const Duration(milliseconds: 16));
-    }
-    expect(worker.calls.length, 2,
-        reason: 'the render is queued again and drains after the hold drops');
-    worker.completeAll();
     for (var i = 0; i < 40 && rasters == 0; i++) {
+      worker.completeAll();
       await tester.pump(const Duration(milliseconds: 16));
     }
-    expect(rasters, 1);
+    expect(rasters, 1, reason: 'the deferred replay lands once motion stops');
+    expect(worker.calls, hasLength(1),
+        reason: 'the record fetched before the hold is replayed when the '
+            'scroll settles, not recorded a second time');
   });
 
   test('PdfCachingRenderWorker times out wedged records and retries', () async {

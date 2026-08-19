@@ -173,27 +173,39 @@ class PdfPageRenderSession {
     return true;
   }
 
+  /// Whether a scroll is currently holding renders back.
+  ///
+  /// [motionSafe] passes calls straight through: a pass the caller has judged
+  /// safe to run during motion is never paused by one.
   bool paused({
     required PdfPageRenderScheduler? scheduler,
     required ValueListenable<bool>? hold,
+    bool motionSafe = false,
   }) =>
-      scheduler?.holding ?? (hold?.value ?? false);
+      !motionSafe && (scheduler?.holding ?? (hold?.value ?? false));
 
   /// Routes a render through the shared scheduler, or through the standalone
   /// widget's hold fallback when no scheduler adapter is supplied.
+  ///
+  /// [motionSafe] forwards the caller's verdict on whether this pass may run
+  /// while a scroll is in flight - see [PdfPageRenderScheduler]'s motion-safe
+  /// lane. The bare hold fallback (no scheduler) honours it too, so a viewer
+  /// built on the plain [ValueListenable] hold gets the same behaviour.
   Future<void> request({
     required Object owner,
     required bool hasPicture,
     required PdfPageRenderScheduler? scheduler,
     required ValueListenable<bool>? hold,
     required Future<void> Function() render,
+    bool motionSafe = false,
   }) async {
     if (_disposed) return;
     if (scheduler != null) {
-      scheduler.request(owner, _intent.pageIndex, render);
+      scheduler.request(owner, _intent.pageIndex, render,
+          motionSafe: motionSafe);
       return;
     }
-    if (!hasPicture && (hold?.value ?? false)) {
+    if (!hasPicture && !motionSafe && (hold?.value ?? false)) {
       _holdPending = true;
       return;
     }

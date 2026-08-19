@@ -136,6 +136,108 @@ void main() {
         reason: 'an already-sharp complete preview needs no interpretation');
   });
 
+  test('priceRetainedScene floors a scene at the raster it stands in for', () {
+    // The engine's own picture estimate under-reports a text page by an order
+    // of magnitude, which made the byte budget meaningless and mislead the
+    // process-wide cache registry. The floor is the page's own raster.
+    const letterPageRaster = 1224 * 1584 * 4; // ~7.8 MB
+    expect(
+      PdfPagePreviewCache.priceRetainedScene(
+        commandCount: 38,
+        pictureBytes: 490000,
+        decodedImageBytes: 0,
+        rasterBytes: letterPageRaster,
+      ),
+      letterPageRaster,
+    );
+    // A page whose own parts genuinely cost more than its raster keeps its
+    // real price - decoded images are counted honestly and always add.
+    expect(
+      PdfPagePreviewCache.priceRetainedScene(
+        commandCount: 200000,
+        pictureBytes: 40 << 20,
+        decodedImageBytes: 8 << 20,
+        rasterBytes: letterPageRaster,
+      ),
+      200000 * 260 + (40 << 20) + (8 << 20),
+    );
+  });
+
+  testWidgets('the retained-scene LRU holds a run of ordinary pages',
+      (tester) async {
+    // On the direct picture-presentation path a revisited page repaints from
+    // its retained scene with no record, no replay and no worker round trip.
+    // The entry cap used to be 4 for the whole document, so reading a long
+    // text document threw away pages it had shown seconds earlier. Now the
+    // byte budget decides, and it holds a run of them.
+    const pages = 12;
+    const pageRaster = 1224 * 1584 * 4; // ~7.8 MB, a letter page at fit width
+    final document = PdfDocument.open(buildMultiPagePdf(pages));
+    final cache = PdfPagePreviewCache(maxRetainedSceneBytes: 64 << 20);
+    addTearDown(cache.dispose);
+    for (var i = 0; i < pages; i++) {
+      final page = document.page(i);
+      late PdfRetainedScene scene;
+      await tester.runAsync(() async {
+        scene = await PdfRetainedScene.record(page);
+      });
+      cache
+          .retainScene(
+            i,
+            page,
+            scene,
+            plan: const PdfPageRenderPlan(),
+            fromWorker: true,
+            estimatedBytes: PdfPagePreviewCache.priceRetainedScene(
+              commandCount: scene.commands.length,
+              pictureBytes: 490000,
+              decodedImageBytes: 0,
+              rasterBytes: pageRaster,
+            ),
+          )
+          .dispose();
+    }
+    expect(cache.debugRetainedSceneCount, (64 << 20) ~/ pageRaster);
+    // ...and they are the pages just read, not the ones read first.
+    final recent = cache.retainedSceneFor(pages - 1, document.page(pages - 1),
+        plan: const PdfPageRenderPlan());
+    expect(recent, isNotNull);
+    recent!.dispose();
+    expect(
+      cache.retainedSceneFor(0, document.page(0),
+          plan: const PdfPageRenderPlan()),
+      isNull,
+    );
+  });
+
+  testWidgets('the retained-scene byte budget still governs heavy pages',
+      (tester) async {
+    // A document of dense sheets must still stop at the byte budget, exactly
+    // as it did when the entry cap was the binding limit.
+    final document = PdfDocument.open(buildMultiPagePdf(8));
+    final cache = PdfPagePreviewCache(maxRetainedSceneBytes: 16 << 20);
+    addTearDown(cache.dispose);
+    for (var i = 0; i < 8; i++) {
+      final page = document.page(i);
+      late PdfRetainedScene scene;
+      await tester.runAsync(() async {
+        scene = await PdfRetainedScene.record(page);
+      });
+      cache
+          .retainScene(
+            i,
+            page,
+            scene,
+            plan: const PdfPageRenderPlan(),
+            fromWorker: true,
+            estimatedBytes: 8 << 20, // a dense sheet's scene
+          )
+          .dispose();
+    }
+    expect(cache.debugRetainedSceneCount, 2);
+    expect(cache.debugRetainedSceneBytes, 16 << 20);
+  });
+
   testWidgets('retained scene leases survive LRU eviction until released',
       (tester) async {
     final document = PdfDocument.open(buildMultiPagePdf(2));

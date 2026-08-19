@@ -473,6 +473,37 @@ class PdfPageView extends StatefulWidget {
   /// [directPicturePresentation].
   static int directPicturePresentationMaxCommands = 5000;
 
+  /// Lets ordinary pages render **through** a scroll instead of waiting for it
+  /// to settle (the render scheduler's motion-safe lane).
+  ///
+  /// The hold exists because a dense sheet's interpret walk is a dropped
+  /// frame. With a render worker attached that walk is not on this thread at
+  /// all, so *starting* a page costs the scroll nothing; only the replay of
+  /// the returned buffer does, and by then its size is known. A page therefore
+  /// enters the lane on two conditions, checked at the two moments they can be
+  /// answered honestly:
+  ///
+  /// 1. **At request time** - a live worker (so no local walk) and no
+  ///    page-level /XObject (so no unmeasured image decode/upload behind a
+  ///    three-operator content stream).
+  /// 2. **When the record lands** - at most [motionSafeMaxCommands] commands
+  ///    and no image draws.
+  ///
+  /// A page that fails either test keeps the classic behaviour: held until the
+  /// scroll settles, then one per frame. Set false to restore the old
+  /// strictly-paced scrolling everywhere.
+  static bool motionSafeRenders = true;
+
+  /// Command ceiling for replaying a completed record while a scroll is still
+  /// in flight ([motionSafeRenders]).
+  ///
+  /// Well under [directPicturePresentationMaxCommands]: that ceiling asks
+  /// whether a display list is cheap enough to re-issue every compositor
+  /// frame, this one asks whether building it once fits inside a frame that is
+  /// already scrolling. A text page is tens of commands; the CAD sheets and
+  /// hatched sections this protects are 70k-300k.
+  static int motionSafeMaxCommands = 4000;
+
   /// Prioritizes a bounded page's complete display list after its image-free
   /// worker transcript has warmed, instead of spending UI/GPU time flattening
   /// that intermediate vector preview.
@@ -1126,6 +1157,9 @@ class _PdfPageViewState extends State<PdfPageView>
         oldWidget.destructiveStamp != widget.destructiveStamp) {
       _webSurfaceDeclined = false;
       _webSurfaceDimensions = null;
+      // What a record cost belongs to the page that produced it. A recycled
+      // slot, an edit, or a new revision is a different page's answer.
+      _recordKnownHeld = false;
     }
     if (!identical(oldWidget.renderHold, widget.renderHold)) {
       oldWidget.renderHold?.removeListener(_onRenderHoldChanged);
@@ -1408,13 +1442,19 @@ class _PdfPageViewState extends State<PdfPageView>
         !vectorOnly &&
         _renderedAtFullImageRatio() &&
         widget.previewCache != null) {
-      // Command count is the best portable retained-heap proxy available.
-      // The complete engine picture and decoded images are additional retained
-      // allocations, so count all three rather than under-pricing complex
-      // pages into the LRU.
-      final commandBytes = scene.commands.length * 260;
-      final estimatedBytes =
-          commandBytes + pictureBytes + scene.decodedImageBytes;
+      // Priced through the cache's own function, which floors the entry at
+      // the raster this scene stands in for: the engine's picture estimate
+      // alone under-reports a text page by an order of magnitude (see
+      // PdfPagePreviewCache.priceRetainedScene).
+      final displaySize = _renderPlan.pageSize(widget.page) * _effectiveRatio();
+      final estimatedBytes = PdfPagePreviewCache.priceRetainedScene(
+        commandCount: scene.commands.length,
+        pictureBytes: pictureBytes,
+        decodedImageBytes: scene.decodedImageBytes,
+        rasterBytes: (displaySize.width * displaySize.height * 4)
+            .round()
+            .clamp(0, 1 << 30),
+      );
       _sceneHandle = widget.previewCache!.retainScene(
         widget.previewIndex,
         widget.page,
@@ -2302,15 +2342,75 @@ class _PdfPageViewState extends State<PdfPageView>
       scheduler: widget.renderScheduler,
       hold: widget.renderHold,
       render: _renderNow,
+      motionSafe: _pageAllowsMotionRender(),
     );
   }
 
   bool get _renderPaused => _renderSession.paused(
         scheduler: widget.renderScheduler,
         hold: widget.renderHold,
+        motionSafe: _motionSafePass,
       );
 
-  Future<bool> _paceWorkerUiWork({bool replacePending = true}) async {
+  /// Whether the pass currently running may continue through a scroll hold.
+  ///
+  /// Set when a pass starts (from [_pageAllowsMotionRender], which is all that
+  /// can be known before the page has been walked) and narrowed the moment the
+  /// record arrives and its real size is in hand ([_recordAllowsMotionReplay]).
+  /// A pass that turns out to be expensive simply reverts to the classic
+  /// behaviour: it stops at the next [_renderPaused] check and re-renders when
+  /// the scroll settles, exactly as every pass did before the lane existed.
+  bool _motionSafePass = false;
+
+  /// Whether the viewer is scrolling right now - the state the motion-safe
+  /// lane renders through.
+  bool get _viewerInMotion =>
+      widget.renderScheduler?.holding ?? (widget.renderHold?.value ?? false);
+
+  /// This page's record has already come back too big (or image-bearing) to
+  /// replay during a scroll. The request-time verdict is a guess; this is the
+  /// answer, and it stops the page from speculatively recording again on
+  /// every hold only to be abandoned at the same gate.
+  bool _recordKnownHeld = false;
+
+  /// The request-time half of the motion-safe verdict (see
+  /// [PdfPageView.motionSafeRenders]): the walk will run in the worker, the
+  /// page declares no image/form XObject whose decode could dwarf its content
+  /// stream, and no earlier record has proved it too big.
+  bool _pageAllowsMotionRender() {
+    if (!PdfPageView.motionSafeRenders || _recordKnownHeld) return false;
+    final worker = widget.renderWorker;
+    if (worker == null || !worker.isActive) return false;
+    final xObjects = widget.page.document.cos.resolve(
+      widget.page.resources['XObject'],
+    );
+    return xObjects is! CosDictionary || xObjects.entries.isEmpty;
+  }
+
+  /// The record-time half: a buffer small enough, and free of image draws,
+  /// that replaying it inside a scrolling frame is not the hitch the hold
+  /// exists to prevent.
+  bool _recordAllowsMotionReplay(List<PdfRenderCommand> commands) =>
+      PdfPageView.motionSafeRenders &&
+      commands.length <= PdfPageView.motionSafeMaxCommands &&
+      !PdfPageRenderer.hasImageDraws(commands);
+
+  /// Waits for this worker result's UI replay turn.
+  ///
+  /// [commands] is the buffer about to be replayed: its size decides whether
+  /// this replay may happen during a scroll or waits for the settle. Every
+  /// replay path passes one - a bounded early prefix and a progressive partial
+  /// included, since what matters is the buffer actually being built, not
+  /// which pass produced it. A caller with nothing to weigh keeps the classic
+  /// gate.
+  Future<bool> _paceWorkerUiWork({
+    bool replacePending = true,
+    List<PdfRenderCommand>? commands,
+  }) async {
+    if (commands != null && !_recordAllowsMotionReplay(commands)) {
+      _motionSafePass = false;
+      _recordKnownHeld = true;
+    }
     final scheduler = widget.renderScheduler;
     if (scheduler == null) return true;
     // renderPriority includes large visibility boosts (for example -1000),
@@ -2322,6 +2422,7 @@ class _PdfPageViewState extends State<PdfPageView>
       this,
       widget.previewIndex,
       replacePending: replacePending,
+      motionSafe: _motionSafePass,
     );
   }
 
@@ -2371,6 +2472,7 @@ class _PdfPageViewState extends State<PdfPageView>
     // Stopwatch allocation stays off the ordinary path.
     final waitClock = pendingWorkerRecord?.waitClock ??
         (PdfPerfLog.enabled ? (Stopwatch()..start()) : null);
+    if (forceLocal) _motionSafePass = false;
     if (!forceLocal &&
         (pendingWorkerRecord != null || (worker != null && worker.isActive))) {
       // priority 0: the on-screen page preempts background prefetch.
@@ -2419,7 +2521,10 @@ class _PdfPageViewState extends State<PdfPageView>
         }
 
         if (deferOffscreenReplay()) return null;
-        if (!await _paceWorkerUiWork() || _abandoned(pageIndex)) return null;
+        if (!await _paceWorkerUiWork(commands: commands) ||
+            _abandoned(pageIndex)) {
+          return null;
+        }
         if (deferOffscreenReplay()) return null;
         _lastInterpretPath = 'worker';
         _lastInterpretResultBytes = _logImageStats(pageIndex, commands);
@@ -2437,6 +2542,12 @@ class _PdfPageViewState extends State<PdfPageView>
       }
     }
     if (_abandoned(pageIndex)) return (_emptyPicture(), null, false);
+    // Falling through to a LOCAL interpret revokes the motion-safe verdict on
+    // the spot: the whole premise of the lane is that the walk runs in the
+    // worker. The worker declined (or there is none), so this walk is on the
+    // UI thread and belongs behind the hold like every other one - the check
+    // below now sees the corrected verdict and defers to the settle.
+    _motionSafePass = false;
     if (_renderPaused) return null;
     // The worker may be active yet decline this page (it returns null), in
     // which case the interpret runs here - the log must say so, not 'worker'.
@@ -2680,7 +2791,7 @@ class _PdfPageViewState extends State<PdfPageView>
         _image != null) {
       return;
     }
-    if (!await _paceWorkerUiWork() ||
+    if (!await _paceWorkerUiWork(commands: commands) ||
         _superseded(generation, pageIndex) ||
         _renderPaused ||
         _image != null) {
@@ -2753,7 +2864,7 @@ class _PdfPageViewState extends State<PdfPageView>
         seq <= _progressiveAppliedSeq) {
       return;
     }
-    if (!await _paceWorkerUiWork()) return;
+    if (!await _paceWorkerUiWork(commands: commands)) return;
     if (_superseded(generation, pageIndex) ||
         _renderPaused ||
         _image != null ||
@@ -2930,7 +3041,7 @@ class _PdfPageViewState extends State<PdfPageView>
     // requesting the final UI turn so it cannot wait behind or race another
     // obsolete prefix from its own page.
     _finalizeProgressivePartials(generation);
-    if (!await _paceWorkerUiWork() ||
+    if (!await _paceWorkerUiWork(commands: commands) ||
         _superseded(generation, pageIndex) ||
         _renderPaused) {
       return null;
@@ -3215,6 +3326,9 @@ class _PdfPageViewState extends State<PdfPageView>
     final generation = _renderSession.beginFull();
     final pageIndex = widget.previewIndex;
     final firstInterpret = _picture == null;
+    // Re-decided per pass: the worker may have been swapped or stopped, and a
+    // pass that learns better narrows this when its record lands.
+    _motionSafePass = _pageAllowsMotionRender();
     if (firstInterpret) {
       _lastInterpretResultBytes = null;
       _lastInterpretWaitMs = null;
@@ -3506,6 +3620,32 @@ class _PdfPageViewState extends State<PdfPageView>
           identical(_directPicture, picture)) {
         widget.onRasterReady?.call();
       }
+      return;
+    }
+    // A page rendered *during* a scroll routinely finishes before it has
+    // arrived on screen - that head start is the point of the motion-safe
+    // lane. Its scene and picture are retained by now, and the moment it does
+    // arrive it presents that display list directly, so flattening it into a
+    // full-page raster here would buy nothing: a GPU readback and a
+    // multi-megabyte retained image per page, thrown away by the direct
+    // presentation a few frames later. Hand it to the existing deferred-
+    // visibility hook instead, which re-renders it when it is genuinely
+    // foreground. Off-screen work that is NOT part of a scroll keeps
+    // rasterizing - that is the ordinary prefetch path, and its pixels are
+    // what make an unhurried scroll-in instant.
+    if (_motionSafePass &&
+        _viewerInMotion &&
+        !widget.onScreen &&
+        PdfPageView.directPicturePresentation &&
+        retainedScene != null &&
+        !_sceneIsTileOnly(retainedScene) &&
+        retainedScene.commands.length <=
+            PdfPageView.directPicturePresentationMaxCommands) {
+      PdfPerfLog.log(
+        'render defer-raster page=$pageIndex reason=off-screen-motion',
+      );
+      _deferredOffscreenRasterRefresh = true;
+      _scheduleDeferredVisibilityCheck();
       return;
     }
     if (_directPicture != null) {
@@ -3944,7 +4084,12 @@ class _PdfPageViewState extends State<PdfPageView>
     if (_picture == null) {
       final scheduler = widget.renderScheduler;
       if (scheduler != null) {
-        scheduler.request(this, widget.previewIndex, _renderNow);
+        scheduler.request(
+          this,
+          widget.previewIndex,
+          _renderNow,
+          motionSafe: _pageAllowsMotionRender(),
+        );
         return false;
       }
       if (widget.renderHold?.value ?? false) return false;

@@ -128,6 +128,33 @@ int pdfDefaultLiveRasterBudgetBytes({
   };
 }
 
+/// The default byte budget for retained page scenes
+/// (`PdfPagePreviewCache`'s retained-scene LRU) on this platform.
+///
+/// A retained scene is a page the viewer can put back on screen with no
+/// record, no replay and no worker round trip - the cheapest possible
+/// scroll-back - and it is priced at the raster it stands in for
+/// (`PdfPagePreviewCache.priceRetainedScene`), so these numbers convert
+/// directly into pages: an ordinary letter page at fit width is ~8 MB, so web
+/// keeps about eight of them and desktop about sixteen.
+///
+/// Sized off the same reasoning as the other budgets here: a browser tab is
+/// the tightest target and shares its heap with the engine's own retained
+/// pictures, while a desktop machine has tens of GB and a reader who scrolls
+/// back a chapter. Mobile sits between, closer to web because jetsam bites
+/// first there. Hosts that know better (the app's Auto memory mode) can move
+/// it, and the process-wide `PdfCacheRegistry` still trims every registered
+/// cache under a coordinated ceiling.
+int pdfDefaultRetainedSceneBytes({PdfPerformancePlatform? platform}) {
+  const mb = 1024 * 1024;
+  return switch (platform ?? detectedPdfPerformancePlatform) {
+    PdfPerformancePlatform.desktop => 128 * mb,
+    PdfPerformancePlatform.mobile => 64 * mb,
+    PdfPerformancePlatform.web => 64 * mb,
+    PdfPerformancePlatform.other => 64 * mb,
+  };
+}
+
 /// The current auto-policy posture. Exposed in diagnostics and tests.
 enum PdfPerformanceTier { conservative, balanced, throughput }
 

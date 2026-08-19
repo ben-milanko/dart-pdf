@@ -2677,9 +2677,13 @@ class _PdfViewerState extends State<PdfViewer>
               scene.dispose();
               return;
             }
-            final estimatedBytes = commands.length * 260 +
-                picture.approximateBytesUsed +
-                scene.decodedImageBytes;
+            final estimatedBytes = PdfPagePreviewCache.priceRetainedScene(
+              commandCount: commands.length,
+              pictureBytes: picture.approximateBytesUsed,
+              decodedImageBytes: scene.decodedImageBytes,
+              // The warm already knows the exact raster this scene replaces.
+              rasterBytes: target.signature.bytes,
+            );
             final handle = _previews.retainScene(
               index,
               page,
