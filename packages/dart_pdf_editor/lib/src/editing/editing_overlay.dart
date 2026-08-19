@@ -1076,21 +1076,30 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// screen space. The editor lives inside the viewer transform, so the stock
   /// `-2 / devicePixelRatio` local offset otherwise grows with deep zoom and
   /// leaves the caret visibly detached from both ends of centred text.
-  Widget _zoomAwareCursor(BuildContext context, Widget child) {
-    final media = MediaQuery.of(context);
-    final platform = Theme.of(context).platform;
-    if (platform != TargetPlatform.iOS && platform != TargetPlatform.macOS) {
-      return child;
-    }
-    final scale = _chromeScale;
-    if (!scale.isFinite || scale <= 0) return child;
-    return MediaQuery(
-      data: media.copyWith(
-        devicePixelRatio: media.devicePixelRatio / scale,
-      ),
-      child: child,
-    );
-  }
+  Widget _zoomAwareCursor(BuildContext context, Widget child) =>
+      pdfZoomAwareCaret(context, chromeScale: _chromeScale, child: child);
+
+  /// The appearance's own text inset, in overlay pixels - free text lays its
+  /// glyphs out 3 points inside the box.
+  double get _textEditPad => 3 * _geometry.scale;
+
+  /// The caret gutter Flutter reserves out of the width the text aligns in
+  /// (see [pdfCaretGutter]). [_textEditRightPad] and
+  /// [_textEditGutterOverflow] hand it back, so centred and right-aligned
+  /// glyphs land on the appearance's text area at any zoom (#692).
+  double get _textEditCaretGutter => pdfCaretGutter(_chromeScale);
+
+  /// Right content padding: the appearance inset less the caret gutter, so
+  /// the field is exactly one gutter wider than the text area it aligns in.
+  double get _textEditRightPad =>
+      math.max(0.0, _textEditPad - _textEditCaretGutter);
+
+  /// What of the gutter the content padding could not absorb (a box on a
+  /// large sheet has an inset under a pixel). The chrome gutter gives it up
+  /// instead: the border paints on the box edge either way, so the widened
+  /// content box moves nothing visible.
+  double get _textEditGutterOverflow =>
+      math.min(2.0, math.max(0.0, _textEditCaretGutter - _textEditPad));
 
   /// Null while the eyedropper is armed without a tool, or while a
   /// default-mode (mouse click) selection exists without one.
@@ -5599,7 +5608,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         // decoration border adds itself to the padding, and
                         // any net inset shifts the text when the editor
                         // opens - content must sit exactly on the box
-                        padding: const EdgeInsets.all(2),
+                        padding: EdgeInsets.fromLTRB(
+                            2, 2, 2 - _textEditGutterOverflow, 2),
                         // the box's own fill when it has one; otherwise wash
                         // the paper color over what's underneath: faint for a
                         // fresh box, fully opaque when editing existing text
@@ -5713,14 +5723,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                   // from the top padding to avoid a small
                                   // edit-time layout jump.
                                   contentPadding: EdgeInsets.fromLTRB(
-                                    3 * _geometry.scale,
+                                    _textEditPad,
                                     math.max(
                                       0,
-                                      3 * _geometry.scale -
+                                      _textEditPad -
                                           0.1 * _textEditSize * _geometry.scale,
                                     ),
-                                    3 * _geometry.scale,
-                                    3 * _geometry.scale,
+                                    // the caret gutter, handed back so
+                                    // centred and right-aligned glyphs land
+                                    // on the appearance's text area
+                                    _textEditRightPad,
+                                    _textEditPad,
                                   ),
                                 ),
                               )),
