@@ -3,7 +3,18 @@
 The report: on a long text document, scrolling through it and watching the
 pages arrive feels slow next to PDFium, which shows content essentially as
 fast as you can scroll. "Be greedier with the render and with what details
-are saved."
+are saved." Follow-up, after the first round: *"I can scroll as fast as I
+want in PDFium and the content is there instantly; on DartPDF I scroll two
+pages then wait ~0.5 s."*
+
+That follow-up is the important one, and it exposed a measurement mistake
+worth recording before anything else: the first round was measured with the
+`read` scenario, which navigates page to page with `jumpToPage`. A reader
+does not navigate, they **drag the document past the viewport**, and the two
+journeys turned out to be gated by completely different things. The
+`jumpToPage` numbers improved a lot while the actual complaint barely moved.
+The `wheel` scenario below is the workload the report describes; when in
+doubt, measure the gesture the user made, not the API that resembles it.
 
 ## What the trace actually said
 
@@ -106,48 +117,92 @@ backstop (32) and the budget becomes platform-aware like its neighbours in
 `performance_policy.dart` (`pdfDefaultRetainedSceneBytes`: desktop 128 MB,
 mobile/web 64 MB ≈ eight ordinary pages).
 
+## What actually gated a continuous scroll
+
+`wheel-text` (pointer scroll signals at frame cadence, sampling every frame
+which pages are visible and which of those are sharp) reproduced the report
+exactly on the pre-change tree:
+
+```
+wheelSettleMs               716    <- the wait after the reader stops
+wheelSharpWhileScrollingPct  15    <- what was readable while it moved
+wheelSoftP50Ms             1322    <- how long a page sits on screen, soft
+wheelPagesNeverSharp        3/5
+```
+
+The trace named the gate, and it was not the scheduler at all:
+
+```
+5457  scheduler grant page=5 cost=motion-safe hold=ON   <- the lane works
+5681  page-ready page=5
+5977  renderHold off                                    <- 500ms quiet window
+6020  scheduler grant page=4 focus=4 hold=off           <- the page you LANDED on
+6093  page-ready page=4
+```
+
+Page 4 - the one filling the viewport - was never queued until the scroll
+settled. Nothing in a page's render intent changes as it scrolls into view
+(`onScreen` is deliberately not part of it), and the image-ratio promotion
+that would otherwise fire cannot: `_renderedAtDisplayImageRatio()` answers
+"yes" for a page that has never rendered at all. So the only thing that
+queued a mounted cache-window neighbour was the settle generation bump at the
+*end* of the scroll, a 500 ms quiet window away.
+
+**The motion-safe lane cannot grant what was never queued.** `PdfPageView`
+now asks on every rebuild while it is on screen with nothing of its own to
+paint, guarded by `PdfPageRenderScheduler.isQueued` so the ask cannot pile a
+second pass behind a render already running. Deliberately a level check, not
+an edge one: the on-screen span can flip before the page is geometrically
+visible, so "the frame it entered" is not a reliable moment to hang this on.
+
+The same round removed an off-screen raster deferral added earlier in this
+session for the jump case - it was firing for pages scrolling *into* view and
+costing them a whole extra round trip (`defer-raster reason=off-screen-motion`
+in the trace).
+
 ## Result
 
-`tool/perf.sh webdiff e574c87 read-text`, three interleaved runs, same
-harness both sides (40-page text report, 24 pages out and back):
+`tool/perf.sh webdiff e574c87 wheel-text`, three interleaved runs, same
+harness both sides - the reader's own journey:
 
 | metric | baseline | now |
 |---|---|---|
-| readFirstSettleP50Ms (wait after the page stops moving) | 207 | **0.05** |
-| readBackSettleP50Ms | 196 | **0.03** |
-| readFirstP50Ms (whole arrival, incl. the 250 ms animation) | 614 | 477 |
-| readBackP50Ms | 482 | 334 |
-| readBackInstantPct (already sharp on arrival) | 4.3 | **100** |
-| readFirstInstantPct | 0.0 | **69.6** |
-| buildP50 / buildP95 | 2.22 / 6.04 ms | 2.83 / 5.67 ms |
-| tab memory | 79.9 MB | 113.5 MB |
+| wheelSettleMs (wait after you stop scrolling) | 716 | **0.23** |
+| wheelSharpWhileScrollingPct | 15.0 | **96.0** |
+| wheelSharpPct | 10.6 | **96.0** |
+| wheelSoftP50Ms (page on screen but soft) | 1322 | **0.0** |
+| wheelSoftP95Ms | 1322 | 358 |
+| wheelPagesNeverSharp | 3 | **0** |
+| buildP50 / buildP95 | 1.93 / 5.58 ms | 1.99 / 4.60 ms |
 
-The settle numbers are the honest statement: the wait after the page stops
-moving is gone, and what is left in the totals is the navigation animation
-itself. `read-plan` - the 16-sheet CAD arm, the pages the pacing exists for -
-moves the same way: readFirstP50 586 → 385 ms, readBackP50 609 → 375 ms, 91%
-of revisits sharp on arrival, for +5.6% tab memory.
+`wheel-plan`, the dense-vector arm the pacing exists for, moves the same way:
+settle 864 → 0.23 ms, sharp-while-scrolling 8% → 67%, pages never sharp 5 →
+1, and tab memory *down* 32%. Its buildP95 rises 8.8 → 11.6 ms.
 
-What it costs, stated plainly:
+Page-to-page navigation (`read-text`) keeps the first round's win:
+readFirstSettleP50 212 → 0.04 ms, readBackSettleP50 220 → 0.03 ms, 100% of
+revisits already sharp on arrival.
 
-- **~34 MB on a text document** (`scroll-text` and `read-text` both +42%),
-  which is the retained-scene budget actually being spent. It is bounded by
-  `pdfDefaultRetainedSceneBytes`, priced honestly for the first time, and
-  registered with `PdfCacheRegistry`, so a host under pressure reclaims it.
-- **A busier median frame**: buildP50 +12% to +27% across the arms, from
-  2.2-3.2 ms to 2.8-3.7 ms against a 16 ms budget. p95 is flat or better and
-  `scroll-plan`'s jank count fell 22%, because the work moved off the
-  post-scroll cliff and into frames that had room.
-- `scroll-plan` renders **16 sheets where it used to render 9** over the same
-  sweep. That is not overhead, it is the point.
+### What it costs
 
-The one place greed had to be walked back is the fling. An unbounded lane
-recorded *every* sheet a fast scroll flew past: on `scroll-plan` that was
-+34% tab memory and +21% median build for latency nobody waited on, since the
-reader was navigating somewhere else. `motionSafeHoldRadius` (1) grants only
-around the destination while a scroll is in flight - and a jump sets `focus`
-to its target before the animation starts, so that is the destination and not
-wherever the scroll is passing. With it, `scroll-plan` memory lands at +7.5%.
+Attributed by turning each half off and re-measuring:
+
+- **The scrolling fix is free.** With the retained-scene tier disabled
+  entirely, `wheel-text` still reports settle 0.2 ms and 88% sharp while
+  scrolling, at 68 MB - *below* the 75 MB baseline.
+- **The retention is what costs memory**: ~+97 MB on a 40-page text document
+  at a 64 MB budget, and it buys the last 8 points of sharp-while-scrolling
+  plus free scroll-back (readBack 4% → 100% instant).
+- Frame cost is small and mixed: median build +3% on the wheel journey with
+  p95 *better*; on the CAD arms p95 is 1-3 ms worse, and jank counts fall
+  9-12% because the work moved off the post-scroll cliff.
+
+Halving the web budget to 32 MB was measured too: tab memory +25 MB instead
+of +97 MB, scroll-back still free, but forward arrivals lose their warm
+(readFirstSettleP50 back to ~180 ms) because the tier can no longer hold the
+speculative warm window. That is the reasoning recorded in
+`pdfDefaultRetainedSceneBytes`: the floor is the warm window, not a round
+number.
 
 ## Gotchas for next time
 
@@ -171,3 +226,13 @@ wherever the scroll is passing. With it, `scroll-plan` memory lands at +7.5%.
   `scroll` on the baseline side and the A/B compares two different
   workloads. Fixed here; watch for it if an A/B's baseline column shows
   metrics your scenario does not emit.
+- Every non-`warm` harness scenario was running with the warm scenarios'
+  **1 GB** page-raster budget, so every page ever rendered kept a ~8 MB
+  raster. That flattered revisit latency and inflated `agentMemoryBytes` past
+  anything an app would show. Non-warm scenarios now use the package default
+  (32 MB), which is what a real viewer has.
+- Two widget tests written for this looked like they passed on the old code
+  as well - in a widget-test layout the page mounts already on screen, and a
+  page that mounts on screen has always queued itself. Check that a new test
+  fails without the change before believing it; the queuing fix's real
+  evidence is the `wheel-text` A/B.

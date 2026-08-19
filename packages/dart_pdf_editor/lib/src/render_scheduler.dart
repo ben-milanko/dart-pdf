@@ -200,6 +200,17 @@ class PdfPageRenderScheduler {
   /// can't both walk a page in the same frame.
   bool get hasPending => _pending.isNotEmpty;
 
+  /// Whether [token] already has a render queued or running here.
+  ///
+  /// A page that is visible with nothing to paint re-asks on every rebuild
+  /// (that is how a page scrolled into view gets queued at all - see
+  /// `PdfPageView`). Without this the ask would also land while its own render
+  /// was in flight, and the scheduler would faithfully queue a second pass
+  /// behind the first for a page that is simply not finished yet.
+  bool isQueued(Object token) =>
+      _inFlight.containsKey(token) ||
+      _pending.any((r) => identical(r.token, token));
+
   /// Registers (or refreshes) [token]'s request to run its first
   /// interpret. [render] is invoked on the UI thread when the request's
   /// turn comes; [priority] is the page index, ranked against [focus].

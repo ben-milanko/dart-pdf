@@ -1298,6 +1298,29 @@ class _PdfPageViewState extends State<PdfPageView>
     }
     final onScreen = _isOnScreen();
     final foreground = onScreen && widget.qualityVisible;
+    // A page that is on screen with nothing of its own to paint has to ask for
+    // its render, every rebuild until it gets one.
+    //
+    // Nothing in the render intent changes as a page scrolls into view -
+    // onScreen is deliberately not part of it - and the image-ratio promotion
+    // cannot fire either, because [_renderedAtDisplayImageRatio] answers "yes"
+    // for a page that has never rendered at all. So the only thing that used
+    // to queue a cache-window neighbour crossing into the viewport was the
+    // settle generation bump at the END of the scroll, a 500 ms quiet window
+    // away. That was the reader's "scroll two pages, then wait half a second":
+    // not a slow render, a render never asked for. The motion-safe lane cannot
+    // grant what was never queued.
+    //
+    // Deliberately a level check, not an edge one: the on-screen span can flip
+    // before the page is geometrically visible, so "the frame it entered" is
+    // not a reliable moment to hang this on. Asking repeatedly is safe - the
+    // scheduler de-duplicates by token, [isQueued] keeps the ask off a render
+    // already in flight, and _render() itself declines an off-screen page.
+    final visibleWithNothingToPaint = foreground &&
+        _picture == null &&
+        _image == null &&
+        _directPicture == null &&
+        !(widget.renderScheduler?.isQueued(this) ?? false);
     // Every page that intersects the viewport must settle sharp. Near a page
     // boundary two pages can be equally important even though the viewer has
     // only one integer currentPage/focusDistance == 0. The on-screen span
@@ -1311,6 +1334,7 @@ class _PdfPageViewState extends State<PdfPageView>
     }
     if (transition.scheduleRender ||
         promoteForFocus ||
+        visibleWithNothingToPaint ||
         (tileShareChanged && foreground && widget.scale > 1.05)) {
       // scale change re-rasters the page; a settle that only moved the
       // viewport refreshes the detail patch. Both route through _render so
@@ -2361,11 +2385,6 @@ class _PdfPageViewState extends State<PdfPageView>
   /// behaviour: it stops at the next [_renderPaused] check and re-renders when
   /// the scroll settles, exactly as every pass did before the lane existed.
   bool _motionSafePass = false;
-
-  /// Whether the viewer is scrolling right now - the state the motion-safe
-  /// lane renders through.
-  bool get _viewerInMotion =>
-      widget.renderScheduler?.holding ?? (widget.renderHold?.value ?? false);
 
   /// This page's record has already come back too big (or image-bearing) to
   /// replay during a scroll. The request-time verdict is a guess; this is the
@@ -3620,32 +3639,6 @@ class _PdfPageViewState extends State<PdfPageView>
           identical(_directPicture, picture)) {
         widget.onRasterReady?.call();
       }
-      return;
-    }
-    // A page rendered *during* a scroll routinely finishes before it has
-    // arrived on screen - that head start is the point of the motion-safe
-    // lane. Its scene and picture are retained by now, and the moment it does
-    // arrive it presents that display list directly, so flattening it into a
-    // full-page raster here would buy nothing: a GPU readback and a
-    // multi-megabyte retained image per page, thrown away by the direct
-    // presentation a few frames later. Hand it to the existing deferred-
-    // visibility hook instead, which re-renders it when it is genuinely
-    // foreground. Off-screen work that is NOT part of a scroll keeps
-    // rasterizing - that is the ordinary prefetch path, and its pixels are
-    // what make an unhurried scroll-in instant.
-    if (_motionSafePass &&
-        _viewerInMotion &&
-        !widget.onScreen &&
-        PdfPageView.directPicturePresentation &&
-        retainedScene != null &&
-        !_sceneIsTileOnly(retainedScene) &&
-        retainedScene.commands.length <=
-            PdfPageView.directPicturePresentationMaxCommands) {
-      PdfPerfLog.log(
-        'render defer-raster page=$pageIndex reason=off-screen-motion',
-      );
-      _deferredOffscreenRasterRefresh = true;
-      _scheduleDeferredVisibilityCheck();
       return;
     }
     if (_directPicture != null) {

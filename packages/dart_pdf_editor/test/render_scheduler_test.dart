@@ -212,6 +212,31 @@ void main() {
     expect(ran, [0, 1]);
   });
 
+  testWidgets('isQueued reports work already pending or in flight',
+      (tester) async {
+    // A visible page with nothing to paint re-asks on every rebuild; this is
+    // what keeps that ask off a render already running for it.
+    final scheduler = PdfPageRenderScheduler()..holding = true;
+    addTearDown(scheduler.dispose);
+    expect(scheduler.isQueued('a'), isFalse);
+
+    final running = Completer<void>();
+    scheduler.request('a', 0, () => running.future, motionSafe: true);
+    expect(scheduler.isQueued('a'), isTrue, reason: 'queued');
+
+    await tester.pump();
+    expect(scheduler.isQueued('a'), isTrue, reason: 'granted, still running');
+
+    running.complete();
+    await tester.pump();
+    await tester.pump();
+    expect(scheduler.isQueued('a'), isFalse);
+
+    scheduler.request('b', 1, () {});
+    scheduler.cancel('b');
+    expect(scheduler.isQueued('b'), isFalse);
+  });
+
   testWidgets('paceUiWork releases a motion-safe replay through a hold',
       (tester) async {
     final scheduler = PdfPageRenderScheduler()..holding = true;

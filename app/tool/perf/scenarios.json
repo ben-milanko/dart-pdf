@@ -1,5 +1,5 @@
 {
-  "_readme": "Declarative registry for the reusable web perf harness. Each scenario names a workload kind (scroll|read|open|search|edit|hover|warm), a repo-relative PDF (portable, from the CC0 test_corpora/dartpdf corpus so any checkout - and any git worktree in an A/B diff - can run it), and kind-specific params passed to the harness via URL query. The driver (driver.mjs) serves `pdf` at /perf.pdf, sets the query from `params`, and merges whatever window.__perfMetrics() returns into the run envelope - so adding a scenario needs NO driver change. Pick one with `node driver.mjs --scenario <name>` or `tool/perf.sh web <name>`; A/B two revisions with `tool/perf.sh webdiff <ref> <name>`.",
+  "_readme": "Declarative registry for the reusable web perf harness. Each scenario names a workload kind (scroll|read|wheel|open|search|edit|hover|warm), a repo-relative PDF (portable, from the CC0 test_corpora/dartpdf corpus so any checkout - and any git worktree in an A/B diff - can run it), and kind-specific params passed to the harness via URL query. The driver (driver.mjs) serves `pdf` at /perf.pdf, sets the query from `params`, and merges whatever window.__perfMetrics() returns into the run envelope - so adding a scenario needs NO driver change. Pick one with `node driver.mjs --scenario <name>` or `tool/perf.sh web <name>`; A/B two revisions with `tool/perf.sh webdiff <ref> <name>`.",
   "default": "scroll-plan",
   "scenarios": {
     "scroll-plan": {
@@ -126,6 +126,18 @@
       "pdf": "test_corpora/dartpdf/scan-book-12p.pdf",
       "params": { "warm": "off", "warmIdleMs": 9000, "warmTarget": 6 },
       "note": "Control arm for warm-scan-document."
+    },
+    "wheel-text": {
+      "kind": "wheel",
+      "pdf": "test_corpora/dartpdf/text-report-40p.pdf",
+      "params": { "wheelPages": 8, "wheelStepPx": 120, "wheelIntervalMs": 16 },
+      "note": "A continuous trackpad-speed wheel scroll through a 40p text report, sampled every frame: wheelSharpWhileScrollingPct is how much of what was on screen was actually readable while the document moved, and wheelSettleMs is the wait after the reader stops. The 'scroll two pages, wait half a second' report."
+    },
+    "wheel-plan": {
+      "kind": "wheel",
+      "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",
+      "params": { "wheelPages": 6, "wheelStepPx": 120, "wheelIntervalMs": 16 },
+      "note": "The same continuous scroll over dense vector sheets - the arm where rendering through the scroll must not be attempted at any cost."
     },
     "read-text": {
       "kind": "read",

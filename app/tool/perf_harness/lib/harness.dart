@@ -33,6 +33,13 @@
 //   hover   - mouse-move over the page with an editing tool armed: synthetic
 //             PointerHoverEvents at frame cadence, measuring the build-phase
 //             cost each one provokes (the cursor-overlay work of #403).
+//   wheel   - a continuous wheel scroll, the way a reader actually moves
+//             through a document: pointer scroll signals at frame cadence,
+//             sampling every frame which pages are VISIBLE and which of those
+//             are SHARP. Reports the share of visible-page frames that were
+//             sharp, how long a page stays soft after coming into view, and
+//             the wait after the stream stops - the "scroll two pages, wait
+//             half a second" complaint, measured.
 //   external - load the real viewer, then expose a deliberately tiny control
 //             surface for the Puppeteer PDFium-parity runner. The browser
 //             driver performs identical page-jump and zoom journeys against
@@ -180,6 +187,14 @@ final int _warmWindow = _qInt('warmWindow', 3);
 final int _warmIdleMs = _qInt('warmIdleMs', 6000);
 final int _warmTarget = _qInt('warmTarget', -1);
 
+/// `?wheelPages=` / `?wheelStepPx=` / `?wheelIntervalMs=`: the `wheel`
+/// scenario's stream - how many pages' worth of travel, how far each signal
+/// scrolls, and how often they are dispatched. The defaults are a brisk
+/// two-handed trackpad scroll: 120 px every frame.
+final int _wheelPages = _qInt('wheelPages', 8);
+final int _wheelStepPx = _qInt('wheelStepPx', 120);
+final int _wheelIntervalMs = _qInt('wheelIntervalMs', 16);
+
 /// `?readDwell=`: how long the `read` scenario pauses on a page once it is
 /// sharp, imitating a reader. Kept short by default - the measurement is the
 /// arrival latency, not the dwell - but non-zero so idle-time work (preview
@@ -190,10 +205,10 @@ final int _readDwellMs = _qInt('readDwell', 250);
 /// sharp raster before recording a timeout and moving on.
 final int _readSharpTimeoutMs = _qInt('readSharpTimeoutMs', 5000);
 
-/// `?rasterCacheMb=`: exact full-page raster budget for the competitive
-/// viewer. Defaults to the package's 32 MiB policy; zero disables retention.
-/// This is an A/B diagnostic for presentation/cache pressure, not a hidden
-/// scenario default.
+/// `?rasterCacheMb=`: exact full-page raster budget. Defaults to the package's
+/// 32 MiB policy - what a real viewer has - and zero disables retention. The
+/// `warm` scenarios override it with `?warmBudgetMb=`, since filling that
+/// cache is what they measure.
 final int _rasterCacheMb = _qInt('rasterCacheMb', 32);
 
 /// The warm policy the harness mounts its viewer with.
@@ -683,6 +698,8 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
           await _driveWarm(coldOpen);
         case 'read':
           await _driveRead(coldOpen);
+        case 'wheel':
+          await _driveWheel(coldOpen);
         case 'scroll':
         default:
           await _driveScroll(coldOpen);
@@ -887,6 +904,103 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
       }
     }
     _metric('pagesVisited', last);
+  }
+
+  // ----- wheel: a continuous scroll, sampled every frame --------------------
+  //
+  // `read` measures arrivals; a reader scrolling does not arrive anywhere, it
+  // drags the document past the viewport and expects to be able to read it as
+  // it goes. That is the workload PDFium wins on, so it needs its own numbers:
+  // not "how long did the page take" but "what fraction of the time was what I
+  // was looking at actually readable".
+  Future<void> _driveWheel(Stopwatch coldOpen) async {
+    final count = await _awaitPageCount(coldOpen);
+    if (count <= 0) throw StateError('pageCount never became positive');
+    await _awaitPageSharp(0);
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+
+    final pages = _wheelPages.clamp(1, count - 1);
+    final view = WidgetsBinding.instance.platformDispatcher.implicitView!;
+    final size = view.physicalSize / view.devicePixelRatio;
+    final center = Offset(size.width / 2, size.height / 2);
+    const device = 78;
+    GestureBinding.instance.handlePointerEvent(PointerAddedEvent(
+        position: center, kind: PointerDeviceKind.mouse, device: device));
+    _record('[perf] HARNESS WHEEL pages=$pages step=${_wheelStepPx}px '
+        'every=${_wheelIntervalMs}ms');
+
+    // A page is "visible" when the viewer reports any part of it on screen,
+    // and "sharp" when its full-resolution raster has landed. Sampling both
+    // every frame is the whole measurement.
+    var visibleFrames = 0;
+    var sharpFrames = 0;
+    final becameVisibleAt = <int, int>{};
+    final softMs = <double>[];
+    final seenSharp = <int>{};
+    final clock = Stopwatch()..start();
+
+    void sample() {
+      for (var i = 0; i < count; i++) {
+        if (_viewer.visiblePageRegion(i) == null) continue;
+        visibleFrames++;
+        final sharp = _viewer.isPageRasterReady(i);
+        if (sharp) sharpFrames++;
+        final since = becameVisibleAt[i];
+        if (since == null) {
+          becameVisibleAt[i] = clock.elapsedMicroseconds;
+          // A page already sharp when it comes into view waited zero - the
+          // state this whole exercise is chasing.
+          if (sharp && seenSharp.add(i)) softMs.add(0);
+        } else if (sharp && seenSharp.add(i)) {
+          softMs.add((clock.elapsedMicroseconds - since) / 1000.0);
+        }
+      }
+    }
+
+    final steps = (pages * size.height / _wheelStepPx).round().clamp(1, 4000);
+    for (var i = 0; i < steps; i++) {
+      GestureBinding.instance.handlePointerEvent(PointerScrollEvent(
+        position: center,
+        scrollDelta: Offset(0, _wheelStepPx.toDouble()),
+        kind: PointerDeviceKind.mouse,
+        device: device,
+        timeStamp: Duration(microseconds: clock.elapsedMicroseconds),
+      ));
+      await Future<void>.delayed(Duration(milliseconds: _wheelIntervalMs));
+      sample();
+    }
+    final scrollingVisible = visibleFrames;
+    final scrollingSharp = sharpFrames;
+
+    // The wait after the stream stops: what the reader sits through before the
+    // page they landed on is readable.
+    final settle = Stopwatch()..start();
+    for (var i = 0; i < 400; i++) {
+      sample();
+      final visible = [
+        for (var p = 0; p < count; p++)
+          if (_viewer.visiblePageRegion(p) != null) p,
+      ];
+      if (visible.isNotEmpty && visible.every(_viewer.isPageRasterReady)) break;
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    settle.stop();
+
+    _metric('wheelSteps', steps);
+    _metric('wheelSettleMs', settle.elapsedMicroseconds / 1000.0);
+    if (scrollingVisible > 0) {
+      // The headline: while the document was moving, how much of what was on
+      // screen was actually readable.
+      _metric('wheelSharpWhileScrollingPct',
+          scrollingSharp * 100.0 / scrollingVisible);
+    }
+    if (visibleFrames > 0) {
+      _metric('wheelSharpPct', sharpFrames * 100.0 / visibleFrames);
+    }
+    _metric('wheelPagesSeen', becameVisibleAt.length);
+    _metric('wheelPagesNeverSharp', becameVisibleAt.length - seenSharp.length);
+    _publishReadLatency('wheelSoft', softMs, 0);
+    await Future<void>.delayed(const Duration(milliseconds: 600));
   }
 
   // ----- read: per-page arrival latency, forward then back ------------------
@@ -1271,8 +1385,18 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
               previewIdleDelay: _previewIdleMs < 0
                   ? null
                   : Duration(milliseconds: _previewIdleMs),
-              pageRasterCachePolicy: _scenario == 'external'
-                  ? (_rasterCacheMb <= 0
+              // The `warm` scenarios exist to fill this cache, so they get the
+              // budget they ask for. Everything else measures the budget a
+              // real viewer has: the 1 GB warm budget used to apply to every
+              // scenario, which quietly turned every page ever rendered into a
+              // retained ~8 MB raster - flattering revisit latency and
+              // inflating `agentMemoryBytes` past anything an app would show.
+              pageRasterCachePolicy: _scenario == 'warm'
+                  ? PdfPageRasterCachePolicy(
+                      maxBytes: _warmBudgetMb * 1024 * 1024,
+                      maxEntryBytes: 256 * 1024 * 1024,
+                    )
+                  : (_rasterCacheMb <= 0
                       ? const PdfPageRasterCachePolicy.disabled()
                       : PdfPageRasterCachePolicy(
                           maxBytes: _rasterCacheMb * 1024 * 1024,
@@ -1280,11 +1404,7 @@ class _PerfHarnessAppState extends State<_PerfHarnessApp> {
                             16 * 1024 * 1024,
                             _rasterCacheMb * 1024 * 1024,
                           ),
-                        ))
-                  : PdfPageRasterCachePolicy(
-                      maxBytes: _warmBudgetMb * 1024 * 1024,
-                      maxEntryBytes: 256 * 1024 * 1024,
-                    ),
+                        )),
               pageRasterWarmPolicy: _warmPolicy,
             );
     }

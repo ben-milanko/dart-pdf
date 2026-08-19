@@ -112,6 +112,72 @@ void main() {
     expect(scheduler.holding, isTrue, reason: 'still scrolling');
   });
 
+  testWidgets('a page scrolled into view renders during the scroll',
+      (tester) async {
+    // The end-to-end property: what the reader scrolls onto is sharp before
+    // the scroll-quiet window expires. (This layout does not discriminate the
+    // *queuing* half of that - here the page mounts already on screen, and a
+    // page that mounts on screen has always queued itself. The queuing fix is
+    // for a cache-window neighbour that mounted off screen and then crossed
+    // in, which is what a real viewport does; its evidence is the wheel-text
+    // measurement in the dev-log, settle 505ms -> 0.3ms.)
+    final bytes = buildMultiPagePdf(8);
+    final document = PdfDocument.open(bytes);
+    final worker = _SyncWorker(bytes);
+    addTearDown(worker.dispose);
+    final controller = PdfViewerController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          document: document,
+          controller: controller,
+          renderWorker: worker,
+          initialFit: PdfViewerFit.page,
+        ),
+      ),
+    ));
+    await tester.pump();
+    for (var i = 0; i < 40 && !controller.isPageRasterReady(0); i++) {
+      await settle(tester);
+    }
+    // drain the startup settle timer so the hold below is the drag's own
+    await tester.pump(const Duration(milliseconds: 550));
+    expect(controller.debugRenderHold, isFalse);
+
+    // First scroll: page 1 arrives and page 2 is built as an off-screen
+    // cache-window neighbour - mounted, with nothing of its own painted. That
+    // is the state the fix is about, and it is why the second scroll is the
+    // one that matters: a page that MOUNTS on screen has always queued itself.
+    await tester.drag(find.byType(PdfViewer), const Offset(0, -610));
+    for (var i = 0; i < 12 && !controller.isPageRasterReady(1); i++) {
+      await settle(tester);
+    }
+    await tester.pump(const Duration(milliseconds: 600));
+    await settle(tester);
+    expect(controller.debugRenderHold, isFalse);
+    expect(controller.isPageRasterReady(2), isFalse,
+        reason: 'the neighbour below the fold has not rendered yet');
+
+    // Second scroll: page 2 crosses into the viewport.
+    await tester.drag(find.byType(PdfViewer), const Offset(0, -610));
+    await tester.pump();
+    expect(controller.debugRenderHold, isTrue, reason: 'still scrolling');
+
+    // Well inside the 500 ms scroll-quiet window.
+    for (var i = 0; i < 12 && !controller.isPageRasterReady(2); i++) {
+      await settle(tester);
+    }
+    expect(controller.isPageRasterReady(2), isTrue,
+        reason: 'the page scrolled onto renders during the scroll');
+    expect(controller.debugRenderHold, isTrue,
+        reason: 'and it did so without waiting for the scroll to settle');
+
+    // drain the scroll-quiet window so no timer outlives the test
+    await tester.pump(const Duration(milliseconds: 600));
+    await settle(tester);
+  });
+
   testWidgets('an image-bearing page waits for the scroll to settle',
       (tester) async {
     // The fixture draws an inline image, so nothing at page level advertises
