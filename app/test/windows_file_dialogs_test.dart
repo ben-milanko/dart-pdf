@@ -36,6 +36,8 @@ class _FallbackSelector extends FileSelectorPlatform {
   bool openedFile = false;
   bool openedFiles = false;
   bool savedLocation = false;
+  bool pickedDirectory = false;
+  bool pickedDirectories = false;
 
   @override
   Future<XFile?> openFile({
@@ -64,6 +66,20 @@ class _FallbackSelector extends FileSelectorPlatform {
   }) async {
     savedLocation = true;
     return const FileSaveLocation(r'C:\fallback.pdf');
+  }
+
+  @override
+  Future<String?> getDirectoryPathWithOptions(FileDialogOptions options) async {
+    pickedDirectory = true;
+    return r'C:\fallback';
+  }
+
+  @override
+  Future<List<String>> getDirectoryPathsWithOptions(
+    FileDialogOptions options,
+  ) async {
+    pickedDirectories = true;
+    return [r'C:\fallback'];
   }
 }
 
@@ -183,9 +199,19 @@ void main() {
     expect((await dialogs.openFile())?.path, r'C:\fallback.pdf');
     expect((await dialogs.openFiles()).single.path, r'C:\fallback.pdf');
     expect((await dialogs.getSaveLocation())?.path, r'C:\fallback.pdf');
+    expect(
+      await dialogs.getDirectoryPathWithOptions(const FileDialogOptions()),
+      r'C:\fallback',
+    );
+    expect(
+      await dialogs.getDirectoryPathsWithOptions(const FileDialogOptions()),
+      [r'C:\fallback'],
+    );
     expect(fallback.openedFile, isTrue);
     expect(fallback.openedFiles, isTrue);
     expect(fallback.savedLocation, isTrue);
+    expect(fallback.pickedDirectory, isTrue);
+    expect(fallback.pickedDirectories, isTrue);
   });
 
   test('a channel-less runner with no fallback cancels instead of throwing',
@@ -197,8 +223,14 @@ void main() {
     expect(await dialogs.openFile(), isNull);
     expect(await dialogs.openFiles(), isEmpty);
     expect(await dialogs.getSaveLocation(), isNull);
-    expect(await dialogs.getDirectoryPathWithOptions(const FileDialogOptions()),
-        isNull);
+    expect(
+      await dialogs.getDirectoryPathWithOptions(const FileDialogOptions()),
+      isNull,
+    );
+    expect(
+      await dialogs.getDirectoryPathsWithOptions(const FileDialogOptions()),
+      isEmpty,
+    );
   });
 
   test('a type group Windows cannot express is rejected up front', () async {
