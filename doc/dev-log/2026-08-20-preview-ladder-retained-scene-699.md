@@ -59,18 +59,19 @@ the caller asks for null or for the page's own /Rotate. A *view* rotation is a
 different render and now tries nothing but itself, where a literal copy of the
 tile helper would have handed it the unrotated scene.
 
-## Why the exact page-raster cache is inert - it is not the gate the issue named
+## Why the exact page-raster cache is inert - one cause found, one still open
 
 The issue's second finding was 163 `page-raster miss ... reason=empty
 retained=0 entries=0` lines with zero stores and zero hits against an idle
 256 MB budget, and it reached for `putFullImage`'s `_renderedAtFullImageRatio`
 gate refusing a prefetch neighbour that never re-rendered.
 
-That is not it. `_baseRasterIsCurrent` mirrors that comparison deliberately, so
-a neighbour whose images are soft does re-render when it comes into focus. The
-actual cause is one level up: **those pages never produce a base raster at
-all**. `PdfPageView.directPicturePresentation` (on by default, and the route
-any page under 5 000 commands takes - the trace's page 74 has 739) presents the
+On the document that trace came from, that is not the cause.
+`_baseRasterIsCurrent` mirrors that comparison deliberately, so a neighbour
+whose images are soft does re-render when it comes into focus. The cause there
+is one level up: **those pages never produce a base raster at all**.
+`PdfPageView.directPicturePresentation` (on by default, and the route any page
+under 5 000 commands takes - the trace's page 74 has 739) presents the
 completed display list instead of flattening it through `Picture.toImage`, and
 returns before the branch that calls `putFullImage`. No readback, so no raster,
 so nothing can ever reach the tier and every lookup necessarily misses.
@@ -86,6 +87,21 @@ route, and within a session the retained scene is the tier doing the
 process-wide `PdfCacheRegistry` ceiling is enforced against live occupancy, and
 the app's Auto memory mode only reserves a page-cache floor while a warm policy
 is active.
+
+**It does not explain every session, and the original hypothesis is not dead.**
+A later field trace of a different document shows pages that *do* take the
+raster route - `raster kind=base-full page=121 n=2 full ratio=1.1 img=895x633`
+- with the tier still reading `retained=0 entries=0` fourteen seconds and two
+`page-raster mode=auto` reconfigurations later, both reporting
+`trimmedEntries=0` (so nothing was admitted and then evicted; nothing was ever
+admitted). On that session `_renderedAtFullImageRatio` is back in play as a
+candidate: it wants `_pictureImageRatio >= _effectiveRatio() *
+focusedImageDecodeHeadroom`, i.e. roughly 2.2 where that raster was produced at
+1.1, and the same trace shows the codebase carrying sub-1 image ratios on this
+document (`scene-cache reject page=121 reason=image-lod have=0.63 need=1.00`).
+That is a consistent story, not a proven one - it needs a test that drives a
+page down the raster route and asserts a store - so this section claims only
+what the first trace proves, and leaves the second open.
 
 **But it is directly connected to the first half of this issue.** `putFullImage`
 is also what fills the preview ladder for free
