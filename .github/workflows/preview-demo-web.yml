@@ -76,6 +76,7 @@ jobs:
           --device chrome
           --target patrol_test/demo_e2e_test.dart
           --web-headless
+          --web-locale en-US
           --web-workers 1
           --web-video retain-on-failure
           --verbose
