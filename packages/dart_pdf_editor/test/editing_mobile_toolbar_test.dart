@@ -14,7 +14,7 @@ void main() {
   final swatch = find.byKey(const ValueKey('pdf-mobile-swatch-0'));
 
   Future<PdfEditingController> pumpToolbar(WidgetTester tester,
-      {Uint8List? bytes}) async {
+      {Uint8List? bytes, double width = 380}) async {
     SharedPreferences.setMockInitialValues({});
     final editing =
         PdfEditingController(bytes ?? buildAppearanceAnnotationsPdf());
@@ -27,7 +27,7 @@ void main() {
         body: Align(
           alignment: Alignment.bottomCenter,
           child: SizedBox(
-            width: 380,
+            width: width,
             child: PdfEditingToolbar(
                 controller: editing, viewerController: viewer),
           ),
@@ -83,6 +83,18 @@ void main() {
     await tester.tap(swatch);
     await tester.pump();
     expect(editing.color, PdfEditingToolbar.defaultPalette.first);
+  });
+
+  testWidgets('active tool status yields when phone actions consume the dock',
+      (tester) async {
+    final editing = await pumpToolbar(tester, width: 320);
+
+    editing.tool = PdfEditTool.note;
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('pdf-tools-handle')), findsOneWidget);
+    expect(tester.takeException(), isNull,
+        reason: 'the status icon and label must not overflow a narrow dock');
   });
 
   testWidgets('a selection surfaces quick actions, not creation swatches',

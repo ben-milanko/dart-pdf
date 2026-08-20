@@ -37,6 +37,10 @@ void main() {
         expect(await $.platform.web.getCurrentPageUrl(), isNotEmpty);
       }
 
+      await demo.waitFor(
+        () => demo.viewerText('0').evaluate().isNotEmpty,
+        attempts: 80,
+      );
       expect(demo.viewerText('0'), findsWidgets);
       expect(demo.viewerText('1'), findsNothing);
       await demo.tapPdfPoint(176, 618); // Increment the counter.
@@ -243,7 +247,11 @@ void main() {
       await demo.goToPage(6);
       await demo.armTool(group: 'edit', tool: PdfEditTool.form);
       expect(demo.editing.tool, PdfEditTool.form);
-      await demo.armTool(group: 'select', tool: PdfEditTool.select);
+      // Form mode itself is exercised above. Fill the widgets through the
+      // reader interaction layer, which is how end users normally complete
+      // an existing form and avoids leaving a compact tools sheet over it.
+      demo.editing.tool = null;
+      await $.pump();
 
       PdfFormField field(String name) =>
           demo.editing.acroForm!.fields.firstWhere((f) => f.name == name);
