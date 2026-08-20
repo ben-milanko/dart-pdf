@@ -86,3 +86,74 @@ Same clip is why an annotation dragged mostly off the page keeps only its
 on-page resize handles. The on-page part is still grabbable, and the
 annotation sidebar selects by slot regardless, so nothing becomes
 unreachable.
+
+## Follow-up: the off-page half was paint-only
+
+Shipping the above was half the job. The geometry was free, and the editor
+*painted* the part of an annotation that hung off the paper (the overlay's
+painters are `CustomPaint` children that fit their box exactly, so the
+page `Stack` never sets `_hasVisualOverflow` and never clips them) - but
+pointer routing did not follow. `RenderBox.hitTest` refuses any position
+outside `size`, so a press on the visible off-page half of a selected
+markup reached nothing at all. It could only be moved or resized by
+whatever was still on the paper.
+
+### The reach
+
+`PdfEditingReach` (`editing_reach.dart`) is a `RenderProxyBox` that accepts
+those positions and forwards them into the page subtree at the nearest
+point *inside* it.
+
+Clamping is sound because **hit testing only decides routing**. Every
+pointer event carries its true global position, and
+`PointerEvent.localPosition` is derived from that through the target's own
+transform - never from the position the hit test ran at. So the overlay
+reads the real off-page point (negative, or past the page's width) and all
+of its existing drag math works untouched. The move test asserts the
+annotation travels the *whole* drag delta, which is exactly what would
+break if the clamp leaked into the coordinates.
+
+### Where it has to sit
+
+Not inside the page. The first attempt wrapped `_PdfViewerPage`'s own
+`Stack` and did nothing, because the gate is higher: the item is
+`Padding → Center → FractionallySizedBox → page`, and
+`RenderFractionallySizedOverflowBox` sizes itself to **its child** - so it
+is the outermost box that refuses a margin position. Everything above it
+(`Center`, `Padding`, the sliver) spans the viewport and forwards hit tests
+through `RenderShiftedBox.hitTestChildren`, which does not gate on the
+child's size. So the reach goes immediately outside the
+`FractionallySizedBox`, and needs no reach distance of its own - its
+ancestors bound it to this page's slot, margin and inter-page spacing
+included.
+
+Debugging this is easy if you stop guessing: dump
+`tester.binding.hitTestInView(result, point, view)`'s path and read which
+render object the walk stops at.
+
+### Why it is not simply "the margin belongs to the page"
+
+Because the canvas is already spoken for. `_touchPanEnabledAt` deliberately
+hands canvas and inter-page gaps to the viewer's own touch pan while a tool
+or selection is live - "a phone at `PdfViewerFit.page` leaves canvas down
+both sides of a portrait page for a thumb to land on". Claiming every
+margin press for the page would have quietly broken thumb-scrolling on
+phones to buy off-page drawing nobody asked for.
+
+So the reach takes a **predicate**, not a flag: `grabs(position)`, which the
+viewer answers from `PdfEditingController.selectionGrabAt` - the selection's
+own chrome rects (a markup's first quad, a callout's text box, else /Rect)
+inflated by `_selectionGrabMargin` (24 view px, converted to points through
+the page's scale) for the resize handles and rotate knob. A selection
+hanging off the paper is the one thing out there worth grabbing; everything
+else in the margin falls through exactly as before.
+
+`_touchPanEnabledAt` draws the same line via `_selectionGrabsCanvasPoint`,
+so the viewer yields precisely the positions the reach claims and the two
+recognizers never meet in the arena.
+
+### Consequence
+
+Drawing a *new* annotation still has to start on the page - the canvas is
+scrolling's. A stroke, shape or drag started on the page continues past the
+edge as far as you like, which is what the geometry change above unlocked.

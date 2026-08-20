@@ -4287,6 +4287,39 @@ class PdfEditingController extends ChangeNotifier {
       selectedAnnotation == null ? null : _selected.last;
 
   /// Every selected (pageIndex, /Annots slot), in selection order.
+  /// Whether ([x], [y]) in [pageIndex]'s page space lands on the current
+  /// annotation selection - its body, or the ring of chrome around it
+  /// (resize handles, the rotate knob), whose width the caller passes as
+  /// [margin] in page points.
+  ///
+  /// The viewer asks this about points *outside* the page. A selection that
+  /// hangs off the paper has to stay grabbable out there, but the rest of
+  /// the canvas beside a page belongs to scrolling - a thumb landing in the
+  /// margin of a phone-sized page still has to scroll it. This is the line
+  /// between the two.
+  ///
+  /// The rects match the chrome the overlay draws: a text markup's first
+  /// quad, a callout's text box, otherwise /Rect.
+  bool selectionGrabAt(int pageIndex, double x, double y,
+      {double margin = 0}) {
+    for (final slot in _selected) {
+      if (slot.$1 != pageIndex) continue;
+      final annotation = _annotationAt(slot);
+      if (annotation == null) continue;
+      final quads = annotation.behavior.markupQuads;
+      final rect = quads != null && quads.isNotEmpty
+          ? quads.first
+          : (annotation.calloutBox ?? annotation.rect);
+      if (x >= rect.left - margin &&
+          x <= rect.right + margin &&
+          y >= rect.bottom - margin &&
+          y <= rect.top + margin) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   List<(int page, int index)> get selectedAnnotationSlots =>
       List.unmodifiable(_selected);
 
