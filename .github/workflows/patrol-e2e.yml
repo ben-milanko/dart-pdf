@@ -28,9 +28,8 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
+      - name: Precache Flutter web artifacts
+        run: flutter precache --web
       - name: Install dependencies and Patrol CLI
         run: |
           flutter pub get
@@ -43,7 +42,9 @@ jobs:
           --device chrome
           --target patrol_test/demo_e2e_test.dart
           --web-headless
+          --web-workers 1
           --web-video retain-on-failure
+          --verbose
       - name: Upload Patrol web results
         if: always()
         uses: actions/upload-artifact@v4
@@ -72,7 +73,9 @@ jobs:
           echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
       - name: Install Android compile SDK
         run: |
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            --channel=3 \
+            "platforms;android-37"
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
