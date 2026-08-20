@@ -6,8 +6,10 @@ import 'package:pdf_document/pdf_document.dart' show pdfInkStrokeWidth;
 
 /// Rasterizes a hand-drawn [PdfInkSignature] to a transparent PNG so it can
 /// ride in a visible signature box as the appearance graphic
-/// ([PdfSignatureAppearance.graphic]). The ink color and pressure-varied
-/// width mirror the signature pad's own preview.
+/// ([PdfSignatureAppearance.graphic]). The ink color, pen width, and
+/// pressure-varied width mirror the signature pad's own preview - the pen
+/// is scaled to the raster ([PdfInkSignature.strokeWidthFor]), so a
+/// thicker pen reads as thicker here too.
 ///
 /// [height] is the raster height in pixels; the width follows the drawing's
 /// aspect ratio. Returns null when nothing was drawn or the image can't be
@@ -24,7 +26,7 @@ Future<Uint8List?> rasterizeInkSignature(
   final recorder = ui.PictureRecorder();
   final canvas = ui.Canvas(recorder);
   final color = ui.Color(0xFF000000 | signature.color);
-  const baseWidth = 3.0;
+  final baseWidth = signature.strokeWidthFor(w);
 
   for (var i = 0; i < signature.strokes.length; i++) {
     final stroke = signature.strokes[i];
