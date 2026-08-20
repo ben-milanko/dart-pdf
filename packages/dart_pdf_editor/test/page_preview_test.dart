@@ -459,6 +459,38 @@ void main() {
     sharpest.image.dispose();
   });
 
+  testWidgets('a ladder deferred mid-flight releases the scene it leased',
+      (tester) async {
+    // Taking a lease and then bailing out has to give it back: a leaked lease
+    // pins the scene past the cache's own reference, so the memory the LRU
+    // thinks it freed is still held. The motion gate makes this the common
+    // exit, not a rare one.
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    final cache = PdfPagePreviewCache();
+    const plan = PdfPageRenderPlan(
+      pageColor: Color(0xFFFFFFFF),
+      annotations: true,
+      rotation: null,
+    );
+
+    late final PdfRetainedScene scene;
+    await tester.runAsync(() async {
+      scene = await PdfRetainedScene.record(page, plan: plan);
+      cache
+          .retainScene(0, page, scene,
+              plan: plan, fromWorker: false, estimatedBytes: 1 << 20)
+          .dispose(); // the cache keeps its own reference
+      await cache.renderPreview(0, page, deferUiWork: () => true);
+    });
+
+    expect(cache.isFresh(0, page, requireImages: true), isFalse,
+        reason: 'the pass declined before storing anything');
+    cache.dispose(); // drops the cache's own reference
+    expect(() => scene.replay(pixelRatio: 1), throwsAssertionError,
+        reason: 'with the lease returned, disposing the cache frees the scene');
+  });
+
   testWidgets('a soft-image retained scene is declined by the ladder',
       (tester) async {
     // The guard the reuse rests on: a scene whose images were decoded below
