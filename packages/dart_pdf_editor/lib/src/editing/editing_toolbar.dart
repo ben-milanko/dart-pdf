@@ -1297,11 +1297,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         if (widget.leading.isNotEmpty) const _DockDivider(),
         if (widget.showUndoRedo) ...[
           IconButton(
+            key: const ValueKey('pdf-undo'),
             icon: const Icon(Icons.undo),
             tooltip: pdfL10n(context).tbUndoShortcut,
             onPressed: controller.canUndo ? controller.undo : null,
           ),
           IconButton(
+            key: const ValueKey('pdf-redo'),
             icon: const Icon(Icons.redo),
             tooltip: pdfL10n(context).tbRedoShortcut,
             onPressed: controller.canRedo ? controller.redo : null,
@@ -1361,6 +1363,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       } else if (labelled) {
         final tool = entry.tool!;
         toolButtons.add(_LabeledToolButton(
+          key: ValueKey('pdf-tool-${tool.name}'),
           icon: entry.icon,
           label: _toolName(context, tool),
           tooltip: _entryTip(context, entry),
@@ -1379,6 +1382,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           ));
         } else {
           toolButtons.add(IconButton(
+            key: ValueKey('pdf-tool-${tool.name}'),
             icon: Icon(entry.icon),
             tooltip: _entryTip(context, entry),
             isSelected: controller.tool == tool,
@@ -2200,12 +2204,14 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         child: Row(children: [
           if (widget.showUndoRedo) ...[
             IconButton(
+              key: const ValueKey('pdf-undo'),
               icon: const Icon(Icons.undo),
               tooltip: pdfL10n(context).tbUndoShortcut,
               visualDensity: VisualDensity.compact,
               onPressed: controller.canUndo ? controller.undo : null,
             ),
             IconButton(
+              key: const ValueKey('pdf-redo'),
               icon: const Icon(Icons.redo),
               tooltip: pdfL10n(context).tbRedoShortcut,
               visualDensity: VisualDensity.compact,
@@ -2492,6 +2498,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             )
           else
             _SheetToolTile(
+              key: entry.tool == null
+                  ? ValueKey('pdf-markup-${entry.markup!.name}')
+                  : ValueKey('pdf-tool-${entry.tool!.name}'),
               icon: entry.icon,
               label: entry.markup != null
                   ? _markupName(context, entry.markup!)

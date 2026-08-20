@@ -23,9 +23,12 @@ on the web, and the share sheet on iOS and Android.
 
 ## Patrol E2E tests
 
-The `patrol_test/` suite launches the real example app, renders the bundled
-demo PDF, follows PDF links, and checks the Flutter/native bridge. Patrol is
-pinned in `pubspec.yaml`; install the matching CLI before running it:
+The `patrol_test/` suite launches the real example app and covers its core
+reader/editor journeys: PDF links and live overlays, page navigation and
+search, reader/editor mode switching, shape and ink creation, undo/redo and
+delete, note creation and editing, and text/checkbox/radio/choice form fills.
+It also checks Patrol's Flutter/native bridge. Patrol is pinned in
+`pubspec.yaml`; install the matching CLI before running it:
 
 ```sh
 dart pub global activate patrol_cli 4.7.0

@@ -648,6 +648,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
           ),
         ),
         PopupMenuItem(
+          key: const ValueKey('dartpdf-read-only-toggle'),
           value: () => setState(() => _readOnly = !_readOnly),
           enabled: tab?.session != null,
           child: _appMenuTile(
