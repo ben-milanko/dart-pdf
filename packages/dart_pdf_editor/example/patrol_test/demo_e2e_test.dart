@@ -243,11 +243,12 @@ void main() {
       await demo.goToPage(6);
       await demo.armTool(group: 'edit', tool: PdfEditTool.form);
       expect(demo.editing.tool, PdfEditTool.form);
+      await demo.armTool(group: 'select', tool: PdfEditTool.select);
 
       PdfFormField field(String name) =>
           demo.editing.acroForm!.fields.firstWhere((f) => f.name == name);
 
-      await demo.doubleTapPdfPoint(200, 324);
+      await demo.tapPdfPoint(200, 324);
       final editor = find.byKey(const ValueKey('pdf-form-text-editor'));
       expect(editor, findsOneWidget);
       await $.tester.enterText(editor, 'Grace Hopper');
@@ -256,15 +257,15 @@ void main() {
       expect(field('name').value, 'Grace Hopper');
 
       expect(field('newsletter').isChecked, isTrue);
-      await demo.doubleTapPdfPoint(169, 285);
+      await demo.tapPdfPoint(169, 285);
       expect(field('newsletter').isChecked, isFalse);
 
       expect(field('color').value, 'Blue');
-      await demo.doubleTapPdfPoint(169, 249);
+      await demo.tapPdfPoint(169, 249);
       expect(field('color').value, 'Red');
 
       expect(field('favorite').value, 'Green');
-      await demo.doubleTapPdfPoint(220, 214);
+      await demo.tapPdfPoint(220, 214);
       await $.pump(const Duration(milliseconds: 250));
       expect($('Blue'), findsOneWidget);
       await $.tester.tap(find.text('Blue'));
@@ -354,14 +355,6 @@ class _DemoHarness {
 
   Future<void> tapPdfPoint(double x, double y) async {
     await tester.tapAt(pdfPoint(x, y));
-    await $.pump(const Duration(milliseconds: 400));
-  }
-
-  Future<void> doubleTapPdfPoint(double x, double y) async {
-    final point = pdfPoint(x, y);
-    await tester.tapAt(point);
-    await $.pump(const Duration(milliseconds: 60));
-    await tester.tapAt(point);
     await $.pump(const Duration(milliseconds: 400));
   }
 
