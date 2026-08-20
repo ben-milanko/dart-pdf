@@ -14,6 +14,7 @@ import 'editing_annotation_clipboard.dart';
 import 'editing_measure.dart';
 import 'editing_page_clipboard.dart';
 import 'editing_preferences.dart';
+import 'editing_signature.dart';
 import 'editing_snapshot_clipboard.dart';
 import 'editing_tool_behavior.dart';
 import 'line_style.dart';
@@ -3039,16 +3040,18 @@ class PdfEditingController extends ChangeNotifier {
   /// The layout [placeSignature] would commit for a tap at ([x], [y]):
   /// the page-space strokes, pressures, ink color, and stroke width -
   /// what the signature tool's live preview paints under the pointer.
-  /// The ink follows the currently selected [color] (not the colour the
-  /// signature was drawn in), so recolouring the toolbar recolours the
-  /// signature. Null when no signature is saved.
+  /// The ink and the pen both follow the tool's current [color] and
+  /// [PdfEditingPreferences.strokeWidth] (not the colour and pen the
+  /// signature was drawn in - drawing one only seeds them), so retuning
+  /// the toolbar retunes the signature without a redraw. Null when no
+  /// signature is saved.
   ({
     List<List<(double, double)>> strokes,
     List<List<double>?> pressures,
     int color,
     double strokeWidth,
   })? signaturePlacement(int pageIndex, double x, double y,
-      {double width = 160}) {
+      {double width = PdfInkSignature.referenceWidth}) {
     final signature = preferences.signature;
     if (signature == null) return null;
     final box = _page(pageIndex).cropBox;
@@ -3073,7 +3076,12 @@ class PdfEditingController extends ChangeNotifier {
       pressures: signature.pressures,
       // follow the selected toolbar colour, like every other tool
       color: _colorValue,
-      strokeWidth: w / 60, // pen-like: ~2.7pt at the default width
+      // and the tool's pen width, quoted at the default size and scaled
+      // with the size actually placed, so a signature squeezed onto a
+      // small page keeps its proportions
+      strokeWidth: math.max(
+          0.1,
+          preferences.strokeWidth * w / PdfInkSignature.referenceWidth),
     );
   }
 
@@ -3081,9 +3089,10 @@ class PdfEditingController extends ChangeNotifier {
   /// page space, [width] points wide (capped at 90% of the page so a
   /// signature is never wider than the paper it sits on; the centre is
   /// taken as given, so one dropped at the edge hangs off it). Keeps the
-  /// signature's own ink color and pen pressures. Returns false when none
-  /// is saved.
-  bool placeSignature(int pageIndex, double x, double y, {double width = 160}) {
+  /// signature's pen pressures; the ink colour and pen width come from the
+  /// tool - see [signaturePlacement]. Returns false when none is saved.
+  bool placeSignature(int pageIndex, double x, double y,
+      {double width = PdfInkSignature.referenceWidth}) {
     final placement = signaturePlacement(pageIndex, x, y, width: width);
     if (placement == null) return false;
     return apply(

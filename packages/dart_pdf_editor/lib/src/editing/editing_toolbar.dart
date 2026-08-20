@@ -621,20 +621,34 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       controller.tool = PdfEditTool.select;
       return;
     }
-    if (controller.preferences.signature == null && !await _drawSignature(context)) {
-      return;
-    }
+    final drawn = controller.preferences.signature == null;
+    if (drawn && !await _drawSignature(context)) return;
     _toggleTool(PdfEditTool.signature);
+    // Arming the tool restores the signature style scope over whatever
+    // _drawSignature just seeded, so seed it again now the scope is live.
+    if (drawn) _seedSignatureStyle(controller.preferences.signature!);
   }
 
   Future<bool> _drawSignature(BuildContext context) async {
-    final signature = await showPdfSignatureDialog(context);
+    final signature = await showPdfSignatureDialog(
+      context,
+      initialColor: controller.color,
+      initialStrokeWidth: controller.preferences.strokeWidth,
+      pickColor: (context, initial) =>
+          pickEditingColor(context, controller, initial: initial),
+    );
     if (signature == null) return false;
     controller.preferences.signature = signature;
-    // the signature follows the selected colour, so seed it with the ink
-    // the user just drew in - they can recolour it from the toolbar after
-    controller.color = Color(0xFF000000 | signature.color);
+    _seedSignatureStyle(signature);
     return true;
+  }
+
+  /// Points the tool's colour and pen width at what [signature] was drawn
+  /// with - the placed ink follows the toolbar, not the record, so this is
+  /// what makes the stamp match the pad. Both stay editable afterwards.
+  void _seedSignatureStyle(PdfInkSignature signature) {
+    controller.color = Color(0xFF000000 | signature.color);
+    controller.preferences.strokeWidth = signature.strokeWidth;
   }
 
   void _armStampToolForMenu() {
