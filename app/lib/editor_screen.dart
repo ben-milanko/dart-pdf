@@ -268,6 +268,17 @@ class _EditorScreenState extends State<EditorScreen>
   /// opening. Only the tab active when restore finishes materializes.
   bool _restoringSession = false;
 
+  /// How many tabs at the head of [_tabs] were put there by startup restore
+  /// (recovered unsaved work, then the last session's documents).
+  ///
+  /// Restore races the OS file-open that launched the app: on macOS the file
+  /// arrives on the warm `openFile` stream whenever the runner finishes
+  /// building its payload, which can land before, during, or after the store
+  /// read. Restored tabs therefore slot in at this index rather than at the
+  /// end, so the document the user actually double-clicked stays last in the
+  /// strip - and keeps focus (see [_addTab]).
+  int _restoredTabs = 0;
+
   /// The update checker, owned here unless the host injected one.
   late final UpdateService _updates = widget.updateService ??
       UpdateService(
@@ -700,7 +711,7 @@ class _EditorScreenState extends State<EditorScreen>
       // open path, so continued editing appends to it instead of mirroring the
       // whole document again under a fresh id.
       _autosave.track(tab, recovered: record);
-      _addTab(tab);
+      _addTab(tab, restored: true);
     }
     // Anything nothing adopted (bytes gone, a record we couldn't read) would
     // otherwise be offered back on every launch forever.
@@ -728,12 +739,15 @@ class _EditorScreenState extends State<EditorScreen>
     // the user can switch to another restored document while a remote one is
     // hydrating. A missing file is dropped when its lazy open fails.
     if (progressiveOpenSupported(originPath)) {
-      _addTab(DocumentTab.deferredPath(
-        title: doc.title,
-        originPath: originPath!,
-        originBookmark: doc.bookmark,
-        cachePath: doc.cachePath,
-      ));
+      _addTab(
+        DocumentTab.deferredPath(
+          title: doc.title,
+          originPath: originPath!,
+          originBookmark: doc.bookmark,
+          cachePath: doc.cachePath,
+        ),
+        restored: true,
+      );
       _recents.add(
           title: doc.title,
           path: originPath,
@@ -749,6 +763,7 @@ class _EditorScreenState extends State<EditorScreen>
       originPath: originPath,
       originBookmark: doc.bookmark,
       cachePath: doc.cachePath,
+      restored: true,
     );
     try {
       final bytes = await readPdfAtPath(readPath, bookmark: doc.bookmark);
@@ -1009,12 +1024,30 @@ class _EditorScreenState extends State<EditorScreen>
     return 0;
   }
 
-  void _addTab(DocumentTab tab) {
+  /// Adds [tab] to the strip and makes it active.
+  ///
+  /// A tab added by startup restore ([restored]) is the exception on both
+  /// counts: it joins the restored block at the head of the strip instead of
+  /// the end, and it takes focus only while nothing else is open. A document
+  /// the user asked for - the file the OS launched us with - keeps its place
+  /// at the end and stays the one on screen, whichever order the two
+  /// asynchronous sources happen to resolve in.
+  void _addTab(DocumentTab tab, {bool restored = false}) {
     setState(() {
       // A new tab shrinks the others to fit; drop any close-streak width hold.
       _heldTabWidth = null;
-      _tabs.add(tab);
-      _activeIndex = _tabs.length - 1;
+      if (!restored) {
+        _tabs.add(tab);
+        _activeIndex = _tabs.length - 1;
+        return;
+      }
+      final at = _restoredTabs.clamp(0, _tabs.length);
+      // Anything at or past the restored block was opened explicitly this
+      // launch; if one of those is active it stays active, just shifted along.
+      final userTabActive = _tabs.isNotEmpty && _activeIndex >= at;
+      _tabs.insert(at, tab);
+      _restoredTabs = at + 1;
+      _activeIndex = userTabActive ? _activeIndex + 1 : at;
     });
     unawaited(_persistSession());
   }
@@ -1030,14 +1063,15 @@ class _EditorScreenState extends State<EditorScreen>
       {String? originPath,
       String? originBookmark,
       String? originToken,
-      String? cachePath}) {
+      String? cachePath,
+      bool restored = false}) {
     final tab = DocumentTab.loading(
         title: title,
         originPath: originPath,
         originBookmark: originBookmark,
         originToken: originToken,
         cachePath: cachePath);
-    _addTab(tab);
+    _addTab(tab, restored: restored);
     return tab;
   }
 
@@ -1047,10 +1081,11 @@ class _EditorScreenState extends State<EditorScreen>
       replacement.dispose();
       return false;
     }
-    setState(() {
-      _tabs[index] = replacement;
-      _activeIndex = index;
-    });
+    // Swap in place, leaving the selection alone: the placeholder is normally
+    // the active tab already, and when it isn't - a session restore finishing
+    // behind the file the OS launched us with - stealing focus here would undo
+    // the ordering _addTab just got right.
+    setState(() => _tabs[index] = replacement);
     loading.dispose();
     unawaited(_persistSession());
     return true;
@@ -1718,17 +1753,37 @@ class _EditorScreenState extends State<EditorScreen>
 
   /// Opens a file the OS handed us (association, share, launch arg).
   ///
+  /// The document lands at the end of the strip and becomes the active tab -
+  /// it is the one the user just asked for. Startup restore keeps out of its
+  /// way (see [_addTab]), so this holds however the two race.
+  ///
   /// If a tab already holds this exact path, focus it instead of opening a
   /// duplicate. The same launch file can arrive twice - once via the
   /// command-line launch args and once via the native `getInitialFile`
   /// channel (Windows delivers both) - and re-opening an already-open
   /// document from the OS should surface the existing tab, not stack copies.
+  /// When that existing tab is one startup restore put back, it moves to the
+  /// end: the user opened this file, so it belongs exactly where it would
+  /// have landed had the OS beaten restore to it.
   Future<void> _openIncoming(IncomingFile file) async {
     final path = file.path;
     if (path != null && path.isNotEmpty) {
       final existing = _tabs.indexWhere((t) => t.originPath == path);
       if (existing != -1) {
-        setState(() => _activeIndex = existing);
+        final tab = _tabs[existing];
+        // Only a restored tab the user has never opened moves: it is still a
+        // placeholder, so re-slotting it is invisible. A document already on
+        // its feet keeps its place - the user put it there.
+        final move = existing < _restoredTabs &&
+            (tab.isDeferredPath || tab.isDeferred || tab.isLoading);
+        setState(() {
+          if (move) {
+            _restoredTabs--;
+            _tabs.add(_tabs.removeAt(existing));
+          }
+          _activeIndex = move ? _tabs.length - 1 : existing;
+        });
+        if (move) unawaited(_persistSession());
         return;
       }
     }
@@ -2091,7 +2146,12 @@ class _EditorScreenState extends State<EditorScreen>
     }
     setState(() {
       for (final tab in targets) {
-        _tabs.remove(tab);
+        final index = _tabs.indexOf(tab);
+        if (index == -1) continue;
+        // Keep the restored-block count honest: a session document whose file
+        // has vanished drops its placeholder mid-restore.
+        if (index < _restoredTabs) _restoredTabs--;
+        _tabs.removeAt(index);
       }
       // Keep the previously active document active when it survived.
       final keep = active == null ? -1 : _tabs.indexOf(active);
