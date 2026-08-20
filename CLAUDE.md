@@ -93,7 +93,24 @@ so `{{date}}` stays live - as private metadata (`DartPdfStampTemplate` →
 `maxStampTemplateMetadataBytes`), which is how the editor's right-click
 "Save to stamps" (`customStampOf` / `saveSelectedAsCustomStamp`) puts a
 placed stamp back into the collection; see
-doc/dev-log/2026-08-06-save-stamp-from-page.md. AcroForm support is in: `PdfAcroForm`/`PdfFormField`
+doc/dev-log/2026-08-06-save-stamp-from-page.md. Annotation geometry is
+**not confined to the crop box**: a point the user picked is authoritative,
+so placements, drags, resizes and paste-at-a-point commit off the page edge
+and the renderer's page clip trims them. The only tethered placement is the
+point-less paste cascade (`PdfEditingController._tetherShift` /
+`pageTether`, which keeps 24pt on the paper so repeats can't march copies
+out of sight); auto-sizing still caps a stamp/image/signature at 90% of the
+page, which is a size rule, not a boundary one. The off-page half is
+grabbable too: `PdfEditingReach` (`editing_reach.dart`, wrapped immediately
+outside the item's `FractionallySizedBox` - the outermost box that would
+refuse a margin position) routes those presses into the page at its nearest
+inside point, which is sound because hit testing only picks the target while
+`PointerEvent.localPosition` still comes from the true position. It claims
+only presses on the selection (`selectionGrabAt` + `_selectionGrabMargin`),
+never the whole margin - the canvas stays the touch-scroll gesture's, and
+`_touchPanEnabledAt` draws the same line. Starting a *new* annotation still
+has to happen on the page. See
+doc/dev-log/2026-08-20-annotations-past-the-page-edge.md. AcroForm support is in: `PdfAcroForm`/`PdfFormField`
 model (`form.dart`) plus filling with regenerated appearances
 (`form_editor.dart` - text/checkbox/radio/choice, auto-size, quadding).
 Page manipulation is in (`page_editor.dart`): reorder/move/remove flatten

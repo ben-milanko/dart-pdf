@@ -23,6 +23,7 @@ import 'editing/editing_interaction.dart';
 import 'editing/editing_link.dart';
 import 'editing/editing_menu.dart';
 import 'editing/editing_overlay.dart';
+import 'editing/editing_reach.dart';
 import 'editing/text_prompt.dart';
 import 'editing/text_style_prompt.dart';
 import 'editing/tool_shortcuts.dart';
@@ -58,6 +59,12 @@ const double _defaultMaxZoom = 24;
 
 /// Page-space distance an arrow-key press slides the selected annotation(s),
 /// and the coarser step Shift+arrow uses. Points, matching the drag move.
+/// How far past a selected annotation's edge a press still grabs it, in
+/// view pixels - the ring its resize handles and rotate knob occupy. Used
+/// only where the selection hangs off the page ([PdfEditingReach]); on the
+/// page the overlay does its own handle hit-testing.
+const double _selectionGrabMargin = 24;
+
 const double _annotationNudgeStep = 1;
 const double _annotationNudgeStepCoarse = 10;
 
@@ -2903,8 +2910,8 @@ class _PdfViewerState extends State<PdfViewer>
         // interpret this pass is about to pay for. The rungs differ only in
         // raster size, so warming them one at a time walked the same content
         // stream three times per page (#699).
-        final alsoFill = _ladderRungsFor(index, targetLongestSide,
-            vectorOnly: vectorOnly);
+        final alsoFill =
+            _ladderRungsFor(index, targetLongestSide, vectorOnly: vectorOnly);
         var deferredPreview = false;
         await _previews.renderPreview(index, page,
             pageColor: widget.pageColor,
@@ -4162,6 +4169,78 @@ class _PdfViewerState extends State<PdfViewer>
   double _crossFactor(int index) =>
       (_maxCrossPoint <= 0 ? 1.0 : _crossPointOf(index) / _maxCrossPoint) *
       _layoutZoom;
+
+  /// Wraps page [index] in the reach that lets a selected annotation be
+  /// grabbed where it hangs off the page - see [PdfEditingReach] for why
+  /// hit testing stops at the page edge without it, and why routing through
+  /// the nearest inside point is sound.
+  ///
+  /// Nothing else out there is claimed. The canvas beside and between pages
+  /// stays the scroll gesture's (see [_touchPanEnabledAt], which draws the
+  /// same line), so this costs no scrolling anywhere.
+  ///
+  /// `child:` keeps the page out of the rebuild: a controller notification
+  /// re-runs only the wrapper, and the wrapper only hands a fresh closure to
+  /// a render object - no layout, no paint. Rebuilding the page here would
+  /// drop its raster on every edit.
+  Widget _editingReach(int index, {required Widget child}) {
+    final editing = widget.editing;
+    if (editing == null) return child;
+    return ListenableBuilder(
+      listenable: editing,
+      builder: (context, child) => PdfEditingReach(
+        grabs: (position) => _selectionGrabsPageView(index, position),
+        child: child!,
+      ),
+      child: child,
+    );
+  }
+
+  /// Whether [local] (list space) lands on a selected annotation where it
+  /// hangs *off* its page - the only thing out in the canvas the editing
+  /// overlay owns. Mirrors [PdfEditingReach]'s own test, so exactly one of
+  /// the two claims a touch that starts there and they never fight in the
+  /// gesture arena.
+  bool _selectionGrabsCanvasPoint(Offset local) {
+    final editing = widget.editing;
+    if (editing == null || !editing.hasAnnotationSelection) return false;
+    if (_viewWidth <= 0 || !_scroll.hasClients || _pages.isEmpty) return false;
+    final contentMain = _scroll.offset + _mainOf(local);
+    final point = _axisOffset(contentMain, _crossOf(local));
+    var mainStart = 0.0;
+    for (var i = 0; i < _pages.length; i++) {
+      final pageMain = _pageMain(i);
+      if (contentMain <= mainStart + pageMain || i == _pages.length - 1) {
+        return _selectionGrabsPageView(
+            i, point - Offset(_pageContentX(i), _pageContentY(i)));
+      }
+      mainStart += pageMain + widget.pageSpacing;
+    }
+    return false;
+  }
+
+  /// Whether [position], in page [index]'s own view space (and outside it),
+  /// lands on that page's selected annotation - its body or the chrome ring
+  /// around it. The grab margin is [_selectionGrabMargin] view pixels, taken
+  /// into page points through the page's own scale so it stays a constant
+  /// size on screen at any zoom.
+  bool _selectionGrabsPageView(int index, Offset position) {
+    final editing = widget.editing;
+    if (editing == null || !editing.hasAnnotationSelection) return false;
+    if (index < 0 || index >= _pages.length) return false;
+    final width = _pageWidth(index), height = _pageHeight(index);
+    if (width <= 0 || height <= 0) return false;
+    final geometry = PdfPageGeometry(
+      cropBox: _pages[index].cropBox,
+      rotation: _effectiveRotation(index),
+      viewSize: Size(width, height),
+    );
+    final scale = geometry.scale;
+    if (scale <= 0) return false;
+    final (x, y) = geometry.toPagePoint(position);
+    return editing.selectionGrabAt(index, x, y,
+        margin: _selectionGrabMargin / scale);
+  }
 
   /// A page's slot extent in the scroll list, mirroring [itemExtentBuilder]:
   /// the leading [PdfViewer.pageSpacing] belongs to every page but the first.
@@ -6797,8 +6876,12 @@ class _PdfViewerState extends State<PdfViewer>
       // an absent fling is indistinguishable from a broken one.
       PdfPerfLog.log('touch-pan gate DISABLED (overlay owns page) '
           'tool=${editing.tool?.name ?? 'selection/eyedropper'}');
+      return false;
     }
-    return !overPage;
+    // One exception out in the canvas: a selection hanging off its page is
+    // reachable there ([PdfEditingReach]), and both recognizers claiming the
+    // same touch would put them in the arena against each other. Yield it.
+    return !_selectionGrabsCanvasPoint(localPosition);
   }
 
   /// Settles a finished zoom gesture into the layout/transform regime
@@ -7250,77 +7333,89 @@ class _PdfViewerState extends State<PdfViewer>
             // page (times the layout zoom), centred on the cross axis - so
             // pages keep their true sizes instead of stretching to the viewport
             child: Center(
-              child: FractionallySizedBox(
-                widthFactor: _horizontal ? null : _crossFactor(index),
-                heightFactor: _horizontal ? _crossFactor(index) : null,
-                child: _PdfViewerPage(
-                  page: _pages[index],
-                  tileCacheNamespace: _tileCacheNamespace,
-                  effectiveRotation: _effectiveRotation(index),
-                  index: index,
-                  pageColor: widget.pageColor,
-                  showAnnotations: widget.showAnnotations,
-                  pageImagesShowAnnotations: _pageImagesShowAnnotations,
-                  trustContentStamp: _annotationLayerController != null ||
-                      widget.editing != null ||
-                      (widget.interactiveForms &&
-                          widget.formController != null),
-                  formFields:
-                      widget.highlightFormFields && widget.showAnnotations
-                          ? _formFieldRects(index)
-                          : const [],
-                  interactiveForms:
-                      widget.interactiveForms && widget.showAnnotations,
-                  scale: _renderScale,
-                  settleGeneration: _settleGeneration,
-                  pageEpoch: _pageEpoch,
-                  contentStamp: _contentStamp(index),
-                  destructiveStamp: _destructiveStamp(index),
-                  renderPriority: _renderPriority(index),
-                  focusDistance:
-                      (index - (_jumpFocusPage ?? _controller.currentPage))
-                          .abs(),
-                  forceForeground: _jumpFocusPage == index,
-                  onScreenSpan: _onScreenSpan,
-                  matches: _controller._matchesOn(index),
-                  currentMatch: _controller._currentMatch >= 0
-                      ? _controller._matches[_controller._currentMatch]
-                      : null,
-                  selection: _selectionQuadsOn(index),
-                  textSelection: _textSelectionOn(index),
-                  overlayBuilder: widget.pageOverlayBuilder,
-                  editing: editing,
-                  formController: editing ?? widget.formController,
-                  editingTextPrompt:
-                      widget.editingTextPrompt ?? showPdfTextPrompt,
-                  formImagePicker: widget.formImagePicker,
-                  imagePicker: widget.imagePicker,
-                  onSnapshot: widget.onSnapshot,
-                  onPlaceSignature: widget.onPlaceSignature,
-                  onAnnotationTap: widget.onAnnotationTap,
-                  contextMenuEnabled: widget.contextMenuEnabled,
-                  interactionHost: PdfEditingInteractionHost(
-                    panViewport: _touchGrabPanBy,
-                    endViewportPan: _flingViewport,
-                    edgeAutoScroll: _edgeAutoScrollDelta,
-                    showAnnotationMenu: _showSelectionMenu,
-                    showFormFieldMenu: _showFormFieldMenu,
-                    requestContextMenu: _requestContextMenu,
-                    resolvePagePoint: _resolvePagePointGlobal,
-                    moveDragPreview: _onMoveDragPreview,
-                    textEditClosed: _reclaimFocusAfterTextEdit,
+              // An annotation is not confined to the crop box, and the
+              // editor paints the part that hangs off the paper - so a
+              // press out in the margin has to reach the page's editing
+              // layer. This is the outermost box that would otherwise
+              // refuse it: FractionallySizedBox sizes itself to the page,
+              // so the slack Center leaves around it is nobody's. Above it
+              // the item's own boxes span the viewport and forward hit
+              // tests without a size gate of their own, which is what
+              // bounds the reach to this page. See [PdfEditingReach].
+              child: _editingReach(
+                index,
+                child: FractionallySizedBox(
+                  widthFactor: _horizontal ? null : _crossFactor(index),
+                  heightFactor: _horizontal ? _crossFactor(index) : null,
+                  child: _PdfViewerPage(
+                    page: _pages[index],
+                    tileCacheNamespace: _tileCacheNamespace,
+                    effectiveRotation: _effectiveRotation(index),
+                    index: index,
+                    pageColor: widget.pageColor,
+                    showAnnotations: widget.showAnnotations,
+                    pageImagesShowAnnotations: _pageImagesShowAnnotations,
+                    trustContentStamp: _annotationLayerController != null ||
+                        widget.editing != null ||
+                        (widget.interactiveForms &&
+                            widget.formController != null),
+                    formFields:
+                        widget.highlightFormFields && widget.showAnnotations
+                            ? _formFieldRects(index)
+                            : const [],
+                    interactiveForms:
+                        widget.interactiveForms && widget.showAnnotations,
+                    scale: _renderScale,
+                    settleGeneration: _settleGeneration,
+                    pageEpoch: _pageEpoch,
+                    contentStamp: _contentStamp(index),
+                    destructiveStamp: _destructiveStamp(index),
+                    renderPriority: _renderPriority(index),
+                    focusDistance:
+                        (index - (_jumpFocusPage ?? _controller.currentPage))
+                            .abs(),
+                    forceForeground: _jumpFocusPage == index,
+                    onScreenSpan: _onScreenSpan,
+                    matches: _controller._matchesOn(index),
+                    currentMatch: _controller._currentMatch >= 0
+                        ? _controller._matches[_controller._currentMatch]
+                        : null,
+                    selection: _selectionQuadsOn(index),
+                    textSelection: _textSelectionOn(index),
+                    overlayBuilder: widget.pageOverlayBuilder,
+                    editing: editing,
+                    formController: editing ?? widget.formController,
+                    editingTextPrompt:
+                        widget.editingTextPrompt ?? showPdfTextPrompt,
+                    formImagePicker: widget.formImagePicker,
+                    imagePicker: widget.imagePicker,
+                    onSnapshot: widget.onSnapshot,
+                    onPlaceSignature: widget.onPlaceSignature,
+                    onAnnotationTap: widget.onAnnotationTap,
+                    contextMenuEnabled: widget.contextMenuEnabled,
+                    interactionHost: PdfEditingInteractionHost(
+                      panViewport: _touchGrabPanBy,
+                      endViewportPan: _flingViewport,
+                      edgeAutoScroll: _edgeAutoScrollDelta,
+                      showAnnotationMenu: _showSelectionMenu,
+                      showFormFieldMenu: _showFormFieldMenu,
+                      requestContextMenu: _requestContextMenu,
+                      resolvePagePoint: _resolvePagePointGlobal,
+                      moveDragPreview: _onMoveDragPreview,
+                      textEditClosed: _reclaimFocusAfterTextEdit,
+                    ),
+                    interactionSession: widget.interactionSession,
+                    crossPageGhost: _crossPageGhostFor(index),
+                    transformScale: _transformScale,
+                    transformChanges: _transform,
+                    renderScheduler: _renderScheduler,
+                    previewCache: widget.pagePreviews ? _previews : null,
+                    renderWorker: _effectiveRenderWorker,
+                    performance: widget.performance,
+                    tileRasterBackend: widget.tileRasterBackend,
+                    predictStrokes: widget.predictStrokes,
+                    onRasterStateChanged: _setPageRasterReady,
                   ),
-                  interactionSession: widget.interactionSession,
-                  crossPageGhost: _crossPageGhostFor(index),
-                  transformScale: _transformScale,
-                  transformChanges: _transform,
-                  renderScheduler: _renderScheduler,
-                  previewCache: widget.pagePreviews ? _previews : null,
-                  renderWorker: _effectiveRenderWorker,
-                  performance: widget.performance,
-                  tileRasterBackend: widget.tileRasterBackend,
-                  predictStrokes: widget.predictStrokes,
-                  onRasterStateChanged: _setPageRasterReady,
                 ),
               ),
             ),

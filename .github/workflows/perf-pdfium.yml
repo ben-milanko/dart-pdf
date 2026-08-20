@@ -54,7 +54,7 @@ jobs:
 
       - name: Upload raw parity envelopes
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: pdfium-parity-${{ github.run_id }}
           path: app/tool/perf/results-competitive-*.ndjson

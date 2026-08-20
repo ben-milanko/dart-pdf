@@ -1197,7 +1197,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           builder: (context, _) => LayoutBuilder(
             builder: (context, constraints) =>
                 constraints.maxWidth < PdfEditingToolbar.mobileBreakpoint
-                    ? _buildMobile(context)
+                    ? _buildMobile(context, width: constraints.maxWidth)
                     : _buildDesktop(context),
           ),
         ),
@@ -1297,11 +1297,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         if (widget.leading.isNotEmpty) const _DockDivider(),
         if (widget.showUndoRedo) ...[
           IconButton(
+            key: const ValueKey('pdf-undo'),
             icon: const Icon(Icons.undo),
             tooltip: pdfL10n(context).tbUndoShortcut,
             onPressed: controller.canUndo ? controller.undo : null,
           ),
           IconButton(
+            key: const ValueKey('pdf-redo'),
             icon: const Icon(Icons.redo),
             tooltip: pdfL10n(context).tbRedoShortcut,
             onPressed: controller.canRedo ? controller.redo : null,
@@ -1361,6 +1363,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       } else if (labelled) {
         final tool = entry.tool!;
         toolButtons.add(_LabeledToolButton(
+          key: ValueKey('pdf-tool-${tool.name}'),
           icon: entry.icon,
           label: _toolName(context, tool),
           tooltip: _entryTip(context, entry),
@@ -1379,6 +1382,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           ));
         } else {
           toolButtons.add(IconButton(
+            key: ValueKey('pdf-tool-${tool.name}'),
             icon: Icon(entry.icon),
             tooltip: _entryTip(context, entry),
             isSelected: controller.tool == tool,
@@ -2075,9 +2079,14 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
 
   /// The tune popup trigger (and nothing else), or empty when
   /// [PdfEditingToolbar.showStyle] is off or [fields] carries nothing
-  /// relevant. A font context renders the trigger as the design's font
-  /// chip rather than the gear icon.
-  List<Widget> _tuneTrailing(BuildContext context, _StyleFields fields) {
+  /// relevant. A font context renders the trigger as the design's font chip
+  /// rather than the gear icon, unless [compactTrigger] requests the mobile
+  /// icon-only treatment.
+  List<Widget> _tuneTrailing(
+    BuildContext context,
+    _StyleFields fields, {
+    bool compactTrigger = false,
+  }) {
     if (!widget.showStyle || fields.isEmpty) return const [];
     return [
       if (fields.font) const _MiniDivider(),
@@ -2086,7 +2095,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         palette: widget.palette,
         showColor: widget.showColor,
         fields: fields,
-        fontChipTrigger: fields.font,
+        fontChipTrigger: fields.font && !compactTrigger,
         fontPicker: widget.fontPicker,
       ),
     ];
@@ -2184,7 +2193,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
 
   // ---- mobile: collapsed dock + bottom sheet ------------------------------
 
-  Widget _buildMobile(BuildContext context) {
+  Widget _buildMobile(BuildContext context, {required double width}) {
     final scheme = Theme.of(context).colorScheme;
     final tool = controller.tool;
     final compactToolLabel = controller.selectedElement != null;
@@ -2200,12 +2209,14 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         child: Row(children: [
           if (widget.showUndoRedo) ...[
             IconButton(
+              key: const ValueKey('pdf-undo'),
               icon: const Icon(Icons.undo),
               tooltip: pdfL10n(context).tbUndoShortcut,
               visualDensity: VisualDensity.compact,
               onPressed: controller.canUndo ? controller.undo : null,
             ),
             IconButton(
+              key: const ValueKey('pdf-redo'),
               icon: const Icon(Icons.redo),
               tooltip: pdfL10n(context).tbRedoShortcut,
               visualDensity: VisualDensity.compact,
@@ -2213,30 +2224,40 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             ),
           ],
           Expanded(
-            child: Row(children: [
-              const SizedBox(width: 4),
-              Icon(_activeToolIcon(tool), size: 22, color: scheme.primary),
-              if (!compactToolLabel) ...[
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _activeToolLabel(context, tool),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    softWrap: false,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
+            child: LayoutBuilder(builder: (context, constraints) {
+              // On narrow phones the undo/redo buttons, tool actions, and
+              // Tools handle can leave less than one icon's width here. Keep
+              // the dock usable by progressively dropping this decorative
+              // status label instead of overflowing the Row.
+              if (constraints.maxWidth < 22) return const SizedBox.shrink();
+              final leadingGap = constraints.maxWidth >= 26;
+              final showLabel = !compactToolLabel && constraints.maxWidth >= 56;
+              return Row(children: [
+                if (leadingGap) const SizedBox(width: 4),
+                Icon(_activeToolIcon(tool), size: 22, color: scheme.primary),
+                if (showLabel) ...[
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _activeToolLabel(context, tool),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      softWrap: false,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ]),
+                ],
+              ]);
+            }),
           ),
           ..._mobileTrailing(context),
           const SizedBox(width: 6),
           _GroupChip.toolsHandle(
             key: const ValueKey('pdf-tools-handle'),
+            compact: width < 360,
             onTap: () => _openToolSheet(context),
           ),
         ]),
@@ -2274,7 +2295,11 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           ),
         // the tune popup restyles the selection (stroke/opacity/font/colour) -
         // reachable from the dock, mirroring the desktop selection strip
-        ..._tuneTrailing(context, _selectionStyleFields()),
+        ..._tuneTrailing(
+          context,
+          _selectionStyleFields(),
+          compactTrigger: true,
+        ),
       ];
     }
     if (controller.selectedElement != null) {
@@ -2356,7 +2381,11 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   List<Widget> _mobileTuneTrailing(BuildContext context) {
     final group = _groupForTool(controller.tool);
     if (group == null) return const [];
-    return _tuneTrailing(context, _groupStyleFields(group));
+    return _tuneTrailing(
+      context,
+      _groupStyleFields(group),
+      compactTrigger: true,
+    );
   }
 
   /// The first [count] palette swatches, sized for the mobile dock.
@@ -2492,6 +2521,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             )
           else
             _SheetToolTile(
+              key: entry.tool == null
+                  ? ValueKey('pdf-markup-${entry.markup!.name}')
+                  : ValueKey('pdf-tool-${entry.tool!.name}'),
               icon: entry.icon,
               label: entry.markup != null
                   ? _markupName(context, entry.markup!)
@@ -2701,26 +2733,31 @@ class _GroupChip extends StatelessWidget {
     required this.group,
     required this.active,
     required this.onTap,
-  }) : _toolsHandle = false;
+  })  : _toolsHandle = false,
+        _compact = false;
 
   const _GroupChip.toolsHandle({
     super.key,
     required this.onTap,
+    bool compact = false,
   })  : group = null,
         active = true,
-        _toolsHandle = true;
+        _toolsHandle = true,
+        _compact = compact;
 
   final _ToolGroup? group;
   final bool active;
   final VoidCallback onTap;
   final bool _toolsHandle;
+  final bool _compact;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final on = active;
     final fg = on ? scheme.primary : scheme.onSurfaceVariant;
-    final label = _toolsHandle ? pdfL10n(context).tbTools : group!.label(context);
+    final label =
+        _toolsHandle ? pdfL10n(context).tbTools : group!.label(context);
     final icon = _toolsHandle ? Icons.keyboard_arrow_up : group!.icon;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 3),
@@ -2737,9 +2774,11 @@ class _GroupChip extends StatelessWidget {
           child: SizedBox(
             height: 40,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 14, 0),
+              padding: _compact
+                  ? const EdgeInsets.symmetric(horizontal: 10)
+                  : const EdgeInsets.fromLTRB(12, 0, 14, 0),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
-                if (_toolsHandle) ...[
+                if (_toolsHandle && !_compact) ...[
                   Text(label,
                       style: TextStyle(
                           fontWeight: FontWeight.w600,
@@ -2747,7 +2786,7 @@ class _GroupChip extends StatelessWidget {
                           color: fg)),
                   const SizedBox(width: 6),
                   Icon(icon, size: 18, color: fg),
-                ] else ...[
+                ] else if (!_toolsHandle) ...[
                   Icon(icon, size: 19, color: fg),
                   const SizedBox(width: 8),
                   Text(label,
@@ -2755,7 +2794,8 @@ class _GroupChip extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                           fontSize: 14,
                           color: fg)),
-                ],
+                ] else
+                  Icon(icon, size: 18, color: fg, semanticLabel: label),
               ]),
             ),
           ),

@@ -86,6 +86,24 @@ void main() {
       expect(editing.selectedAnnotation, isNotNull);
     });
 
+    test('autosizeSelectedTextBox grows off the page edge, not inward', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..fontFamily = PdfStandardFont.courier
+        ..preferences.fontSize = 18
+        // a box the user parked against the right edge of the 612x792 page
+        ..addFreeText(0, const PdfRect(560, 600, 600, 720), 'Wide line\nshort');
+      expect(editing.selectAnnotation(0, 0), isTrue);
+
+      editing.autosizeSelectedTextBox();
+
+      // the anchor is where they left it: the box widens past the edge
+      // instead of sliding back onto the page
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.rect.left, 560);
+      expect(annotation.rect.top, 720);
+      expect(annotation.rect.right, greaterThan(612));
+    });
+
     test('textAlign preference flows into new free text', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..preferences.textAlign = PdfTextAlign.center

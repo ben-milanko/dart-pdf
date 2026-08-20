@@ -16,6 +16,8 @@ concurrency:
 
 env:
   FIREBASE_TOOLS_VERSION: 15.22.4
+  PATROL_CLI_VERSION: 4.7.0
+  PATROL_ANALYTICS_ENABLED: "false"
 
 jobs:
   build:
@@ -59,6 +61,35 @@ jobs:
           name: demo-web-preview
           path: ${{ runner.temp }}/demo-preview
           if-no-files-found: error
+
+      # Continue into the browser E2E journey on the same runner so Patrol
+      # reuses this job's checkout, Flutter toolchain, and resolved workspace.
+      - name: Install Patrol CLI
+        run: |
+          dart pub global activate patrol_cli "$PATROL_CLI_VERSION"
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+
+      - name: Run Patrol on web
+        working-directory: packages/dart_pdf_editor/example
+        run: >-
+          patrol test
+          --device chrome
+          --target patrol_test/demo_e2e_test.dart
+          --web-headless
+          --web-locale en-US
+          --web-workers 1
+          --web-video retain-on-failure
+          --verbose
+
+      - name: Upload Patrol web results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: patrol-web-results
+          path: |
+            packages/dart_pdf_editor/example/test-results
+            packages/dart_pdf_editor/example/playwright-report
+          if-no-files-found: ignore
 
   deploy:
     # Fork and Dependabot PRs do not receive repository secrets. Other same-repo

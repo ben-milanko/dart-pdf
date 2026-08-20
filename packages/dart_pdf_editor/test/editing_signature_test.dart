@@ -122,17 +122,30 @@ void main() {
       expect(ink.rect.width, lessThan(120));
     });
 
-    test('clamps so the whole signature stays on the page', () {
+    test('a signature dropped at the corner hangs off the page', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..preferences.signature = signature();
       final box = editing.document.page(0).cropBox;
-      expect(editing.placeSignature(0, box.right, box.bottom), isTrue);
+      expect(editing.placeSignature(0, box.right, box.bottom, width: 100),
+          isTrue);
 
+      // the tap is the centre, edge or not: roughly half the signature
+      // runs off each of the two sides it was dropped against
       final ink = editing.document.page(0).annotations.single;
-      // padded /Rect may poke out by the stroke margin, but the strokes
-      // themselves stay inside the crop box
-      expect(ink.rect.right, lessThan(box.right + 5));
-      expect(ink.rect.bottom, greaterThan(box.bottom - 5));
+      expect(ink.rect.right, greaterThan(box.right));
+      expect(ink.rect.bottom, lessThan(box.bottom));
+      expect(ink.rect.left, lessThan(box.right));
+      expect(ink.rect.top, greaterThan(box.bottom));
+    });
+
+    test('a signature is never sized wider than the page', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..preferences.signature = signature();
+      final box = editing.document.page(0).cropBox;
+      // running off the edge is a placement, not a size
+      expect(editing.placeSignature(0, 300, 400, width: 5000), isTrue);
+      final ink = editing.document.page(0).annotations.single;
+      expect(ink.rect.width, lessThan(box.width));
     });
 
     test('the placed signature follows the selected colour, not the drawn one',

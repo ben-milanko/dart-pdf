@@ -30,7 +30,17 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   flutter_test:
     sdk: flutter
+  patrol: 4.9.0
   shared_preferences: ^2.3.0
+
+patrol:
+  app_name: pdf_viewer_example
+  android:
+    package_name: dev.milanko.pdf_viewer_example
+  ios:
+    bundle_id: dev.milanko.pdfViewerExample
+  macos:
+    bundle_id: dev.milanko.pdfViewerExample
 
 flutter:
   uses-material-design: true

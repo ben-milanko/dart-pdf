@@ -2031,19 +2031,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   _StampAfterimage _countPreviewAt(Offset position) {
     final (x, y) = _geometry.toPagePoint(position);
-    final box = _controller.pageAt(widget.pageIndex).cropBox;
-    final s = PdfEditingController.checkMarkSize
-        .clamp(4.0, math.min(box.width, box.height) * 0.9)
-        .toDouble();
-    final cx = x.clamp(box.left + s / 2, box.right - s / 2).toDouble();
-    final cy = y.clamp(box.bottom + s / 2, box.top - s / 2).toDouble();
+    // the commit's own placement, so the preview under the pointer is
+    // exactly the mark the tap drops - including one that hangs off the
+    // page edge, which the page clip trims in both
     return (
-      rect: _geometry.toViewRect(PdfRect(
-        cx - s / 2,
-        cy - s / 2,
-        cx + s / 2,
-        cy + s / 2,
-      )),
+      rect: _geometry.toViewRect(
+          _controller.checkMarkPlacement(widget.pageIndex, x, y)),
       text: null,
       template: null,
       check: true,
@@ -2681,6 +2674,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// top-left at [tap]: ~200pt wide and one line of the current font tall
   /// (in page points, mapped through the zoom). Nudged back onto the page
   /// when the tap is near the right or bottom edge so the whole box fits.
+  ///
+  /// This nudge is the one placement that still yields to the page, and it
+  /// is about the *editor*, not the annotation: this rect opens the inline
+  /// text field, which the page clips like everything else in this overlay,
+  /// so a default-sized box hung off the corner would have the user typing
+  /// into pixels they cannot see. Only the size is the editor's guess - a
+  /// box the user drags out themselves keeps the bounds they drew, off the
+  /// page edge included.
   Rect _defaultPlacementRect(Offset tap) {
     final scale = _geometry.scale;
     final w = 200.0 * scale;

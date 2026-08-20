@@ -2679,6 +2679,15 @@ class PdfEditingController extends ChangeNotifier {
         : (width: rect.width, height: rect.height);
   }
 
+  /// A page-space rect of the given *visual* size - the size the reader
+  /// sees, so a sideways page swaps the axes - centered on ([x], [y]).
+  ///
+  /// The centre is taken as given. A placement near (or past) the page edge
+  /// keeps the point the user picked and lets the annotation hang off the
+  /// paper; the renderer clips it against the page the way any conforming
+  /// viewer does, so what is committed is what the preview showed. Only
+  /// placements with no user-chosen point - the paste cascade - stay
+  /// tethered to the page ([_tetherShift]).
   PdfRect _pageRectForVisualSize(
     int pageIndex,
     double x,
@@ -2686,17 +2695,14 @@ class PdfEditingController extends ChangeNotifier {
     required double width,
     required double height,
   }) {
-    final box = _page(pageIndex).cropBox;
     final sideways = _pageIsSideways(pageIndex);
     final pageW = sideways ? height : width;
     final pageH = sideways ? width : height;
-    final cx = x.clamp(box.left + pageW / 2, box.right - pageW / 2);
-    final cy = y.clamp(box.bottom + pageH / 2, box.top - pageH / 2);
     return PdfRect(
-      cx - pageW / 2,
-      cy - pageH / 2,
-      cx + pageW / 2,
-      cy + pageH / 2,
+      x - pageW / 2,
+      y - pageH / 2,
+      x + pageW / 2,
+      y + pageH / 2,
     );
   }
 
@@ -2877,7 +2883,9 @@ class PdfEditingController extends ChangeNotifier {
 
   /// Places [imageBytes] (PNG or JPEG) centered on ([x], [y]) in page
   /// space, [maxSize] points on its longest side, preserving the image's
-  /// aspect ratio and clamped so the whole image stays on the page.
+  /// aspect ratio and capped at 90% of the page so it is never larger than
+  /// the paper. The centre is the point given, so an image dropped at the
+  /// edge hangs off the page rather than jumping inward.
   /// Returns false when the bytes aren't a decodable PNG or JPEG.
   bool placeImage(
     int pageIndex,
@@ -3054,9 +3062,9 @@ class PdfEditingController extends ChangeNotifier {
       h = box.height * 0.9;
       w = h * aspect;
     }
-    final cx = x.clamp(box.left + w / 2, box.right - w / 2);
-    final cy = y.clamp(box.bottom + h / 2, box.top - h / 2);
-    final left = cx - w / 2, top = cy + h / 2;
+    // the tap is authoritative: a signature dropped at the edge hangs off
+    // the page rather than jumping back onto it
+    final left = x - w / 2, top = y + h / 2;
     return (
       strokes: [
         for (final stroke in signature.strokes)
@@ -3078,10 +3086,11 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// Stamps [preferences.signature] as an Ink annotation centered on ([x], [y]) in
-  /// page space, [width] points wide (clamped, with the center, so the
-  /// whole signature stays on the page). Keeps the signature's pen
-  /// pressures; the ink colour and pen width come from the tool - see
-  /// [signaturePlacement]. Returns false when none is saved.
+  /// page space, [width] points wide (capped at 90% of the page so a
+  /// signature is never wider than the paper it sits on; the centre is
+  /// taken as given, so one dropped at the edge hangs off it). Keeps the
+  /// signature's pen pressures; the ink colour and pen width come from the
+  /// tool - see [signaturePlacement]. Returns false when none is saved.
   bool placeSignature(int pageIndex, double x, double y,
       {double width = PdfInkSignature.referenceWidth}) {
     final placement = signaturePlacement(pageIndex, x, y, width: width);
@@ -3299,7 +3308,8 @@ class PdfEditingController extends ChangeNotifier {
   /// stamps default to 40 points tall and auto-size from their caption;
   /// template stamps default to the template's own width/height. Passing
   /// [height] keeps the old explicit-height behavior for either kind. The
-  /// result is clamped with the center so the whole stamp stays on the page.
+  /// stamp is never sized past 90% of the page, but the centre is the point
+  /// given, so one dropped at the edge hangs off the page.
   /// Returns false when no stamp is active.
   bool placeStamp(int pageIndex, double x, double y, {double? height}) {
     final stamp = _activeStamp;
@@ -3421,7 +3431,9 @@ class PdfEditingController extends ChangeNotifier {
     );
   }
 
-  /// The page-space rect [placeTextStamp] would use.
+  /// The page-space rect [placeTextStamp] would use. The box is centered on
+  /// the tap - off the page edge when that is where the tap was - but never
+  /// sized past 90% of the page.
   PdfRect textStampPlacement(
     int pageIndex,
     double x,
@@ -3433,10 +3445,13 @@ class PdfEditingController extends ChangeNotifier {
     // mirror addStamp's appearance math (6pt padding, text 72% of the
     // height) so the caption fills the box without shrinking
     final fontSize = (h - 12) * 0.72;
-    final w = (measureHelvetica(text, fontSize, bold: true) + 24).clamp(
-      h,
-      _visualPageWidth(pageIndex) * 0.9,
-    );
+    // a stamp is at least as wide as it is tall, but the page cap wins:
+    // on a page shorter than it is wide, a tall stamp would otherwise ask
+    // for a floor above the ceiling
+    final maxW = _visualPageWidth(pageIndex) * 0.9;
+    final w = (measureHelvetica(text, fontSize, bold: true) + 24)
+        .clamp(math.min(h, maxW), maxW)
+        .toDouble();
     return _pageRectForVisualSize(pageIndex, x, y, width: w, height: h);
   }
 
@@ -3447,9 +3462,27 @@ class PdfEditingController extends ChangeNotifier {
   /// count tool drops a mark this big centered on the pointer.
   static const double checkMarkSize = 18.0;
 
+  /// The page-space rect [placeCheckMark] would use for a tap at ([x], [y]).
+  ///
+  /// [size] is capped at 90% of the page's shorter side - a mark is never
+  /// bigger than the paper - but the centre is the tap, so a mark dropped
+  /// at the edge hangs off the page instead of jumping inward. The count
+  /// tool's hover preview draws this same rect, so preview and commit
+  /// cannot drift apart.
+  PdfRect checkMarkPlacement(
+    int pageIndex,
+    double x,
+    double y, {
+    double size = checkMarkSize,
+  }) {
+    final box = _page(pageIndex).cropBox;
+    final s = size.clamp(4.0, math.min(box.width, box.height) * 0.9);
+    return PdfRect(x - s / 2, y - s / 2, x + s / 2, y + s / 2);
+  }
+
   /// Drops a check-mark centered on ([x], [y]) in page space, [size] points
-  /// per side (clamped, with the centre, so the whole mark stays on the
-  /// page). The mark follows the selected toolbar [color] and [preferences.opacity] and
+  /// per side (see [checkMarkPlacement] for the sizing). The mark follows
+  /// the selected toolbar [color] and [preferences.opacity] and
   /// is a real /Stamp annotation, so it can be moved, resized, and deleted
   /// like any other. This is the count tool's tap-to-place - repeated taps
   /// build the tally exposed by [checkMarkCount], Bluebeam-style.
@@ -3459,14 +3492,10 @@ class PdfEditingController extends ChangeNotifier {
     double y, {
     double size = checkMarkSize,
   }) {
-    final box = _page(pageIndex).cropBox;
-    final s = size.clamp(4.0, math.min(box.width, box.height) * 0.9);
-    final cx = x.clamp(box.left + s / 2, box.right - s / 2);
-    final cy = y.clamp(box.bottom + s / 2, box.top - s / 2);
     return apply(
       (e) => e.addCheckMark(
         pageIndex,
-        PdfRect(cx - s / 2, cy - s / 2, cx + s / 2, cy + s / 2),
+        checkMarkPlacement(pageIndex, x, y, size: size),
         color: _colorValue,
         opacity: preferences.opacity,
         pageRotation: _page(pageIndex).rotation,
@@ -4267,6 +4296,39 @@ class PdfEditingController extends ChangeNotifier {
       selectedAnnotation == null ? null : _selected.last;
 
   /// Every selected (pageIndex, /Annots slot), in selection order.
+  /// Whether ([x], [y]) in [pageIndex]'s page space lands on the current
+  /// annotation selection - its body, or the ring of chrome around it
+  /// (resize handles, the rotate knob), whose width the caller passes as
+  /// [margin] in page points.
+  ///
+  /// The viewer asks this about points *outside* the page. A selection that
+  /// hangs off the paper has to stay grabbable out there, but the rest of
+  /// the canvas beside a page belongs to scrolling - a thumb landing in the
+  /// margin of a phone-sized page still has to scroll it. This is the line
+  /// between the two.
+  ///
+  /// The rects match the chrome the overlay draws: a text markup's first
+  /// quad, a callout's text box, otherwise /Rect.
+  bool selectionGrabAt(int pageIndex, double x, double y,
+      {double margin = 0}) {
+    for (final slot in _selected) {
+      if (slot.$1 != pageIndex) continue;
+      final annotation = _annotationAt(slot);
+      if (annotation == null) continue;
+      final quads = annotation.behavior.markupQuads;
+      final rect = quads != null && quads.isNotEmpty
+          ? quads.first
+          : (annotation.calloutBox ?? annotation.rect);
+      if (x >= rect.left - margin &&
+          x <= rect.right + margin &&
+          y >= rect.bottom - margin &&
+          y <= rect.top + margin) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   List<(int page, int index)> get selectedAnnotationSlots =>
       List.unmodifiable(_selected);
 
@@ -5000,9 +5062,11 @@ class PdfEditingController extends ChangeNotifier {
   /// pastes where the right-click landed). Without it the group keeps
   /// its position, shifted 12pt down-right per repeat paste - and per
   /// the first paste too when it would sit exactly on the source (the
-  /// page it was copied from, in the document it was copied from). The
-  /// group always clamps into the page's crop box. Returns whether
-  /// anything was pasted.
+  /// page it was copied from, in the document it was copied from). A
+  /// paste at a point lands there even when the group then hangs off the
+  /// page; the cascade, which has no point the user aimed at, stays
+  /// tethered to the page ([_tetherShift]). Returns whether anything was
+  /// pasted.
   bool pasteAnnotations(int pageIndex, {(double, double)? at}) {
     final clipboard = annotationClipboard.snapshots;
     if (clipboard.isEmpty) return false;
@@ -5027,9 +5091,15 @@ class PdfEditingController extends ChangeNotifier {
       dx = cascade;
       dy = -cascade;
     }
-    final box = _page(pageIndex).cropBox;
-    dx += _clampShift(left + dx, right + dx, box.left, box.right);
-    dy += _clampShift(bottom + dy, top + dy, box.bottom, box.top);
+    if (at == null) {
+      // Only the cascade needs a rail. A paste *at* a point keeps that
+      // point - edge or not - but a repeat paste has no point the user
+      // aimed at, so without this it would walk the copies clean off the
+      // paper and out of sight.
+      final box = _page(pageIndex).cropBox;
+      dx += _tetherShift(left + dx, right + dx, box.left, box.right);
+      dy += _tetherShift(bottom + dy, top + dy, box.bottom, box.top);
+    }
     final count = clipboard.length;
     final pasted = apply(
       (e) {
@@ -5150,9 +5220,10 @@ class PdfEditingController extends ChangeNotifier {
   /// graphics as vectors.
   ///
   /// With [at] the region centers on that page point (a right-click /
-  /// ⌘V at the cursor). Without it the paste keeps the captured position,
-  /// cascading 12pt down-right per repeat. The region always clamps into
-  /// the page's crop box. Returns whether anything was pasted.
+  /// ⌘V at the cursor), even when it then hangs off the page. Without it
+  /// the paste keeps the captured position, cascading 12pt down-right per
+  /// repeat and staying tethered to the page ([_tetherShift]). Returns
+  /// whether anything was pasted.
   bool pasteSnapshot(int pageIndex, {(double, double)? at}) {
     final snapshot = snapshotClipboard.snapshot;
     if (snapshot == null) return false;
@@ -5177,9 +5248,12 @@ class PdfEditingController extends ChangeNotifier {
       left = snapshot.region.left + cascade;
       bottom = snapshot.region.bottom - cascade;
     }
-    final box = _page(pageIndex).cropBox;
-    left += _clampShift(left, left + w, box.left, box.right);
-    bottom += _clampShift(bottom, bottom + h, box.bottom, box.top);
+    if (at == null) {
+      // as in [pasteAnnotations]: only the point-less cascade is tethered
+      final box = _page(pageIndex).cropBox;
+      left += _tetherShift(left, left + w, box.left, box.right);
+      bottom += _tetherShift(bottom, bottom + h, box.bottom, box.top);
+    }
     final target = PdfRect(left, bottom, left + w, bottom + h);
     int? captured;
     final pasted = apply(
@@ -5206,11 +5280,24 @@ class PdfEditingController extends ChangeNotifier {
     return true;
   }
 
-  /// How far to move the interval [lo, hi] so it fits inside
-  /// [min, max]; an oversized interval pins to the low edge.
-  static double _clampShift(double lo, double hi, double min, double max) {
-    if (hi - lo >= max - min || lo < min) return min - lo;
-    if (hi > max) return max - hi;
+  /// How much of an annotation a tether keeps over the page, in points.
+  ///
+  /// Annotation geometry is free to run past the page edge - that is what
+  /// the renderer's page clip is for. The tether exists only where no
+  /// user-chosen point justifies the position (the paste cascade): it
+  /// keeps a strip this wide on the paper so repeats can never march the
+  /// copies out of sight.
+  static const double pageTether = 24.0;
+
+  /// How far to move the interval [lo, hi] so at least [pageTether] of it
+  /// stays inside [min, max] - the whole interval when it is shorter than
+  /// the tether, and the whole of [min, max] when the page is shorter
+  /// still. Already-tethered intervals do not move, so an interval that
+  /// hangs off the edge keeps hanging off it.
+  static double _tetherShift(double lo, double hi, double min, double max) {
+    final keep = math.min(pageTether, math.min(hi - lo, max - min));
+    if (hi < min + keep) return min + keep - hi;
+    if (lo > max - keep) return max - keep - lo;
     return 0;
   }
 
@@ -6365,23 +6452,19 @@ class PdfEditingController extends ChangeNotifier {
     });
     final width = math.max(24.0, maxLineWidth + 2 * pad);
     final height = math.max(18.0, lines.length * size * 1.2 + 2 * pad);
-    final page = _page(_selected.last.$1);
-    final bounds = page.cropBox;
     // a callout autosizes its text box, not the /Rect that also spans the
-    // leader + arrow: anchor at the box's top-left so the arrow stays put
+    // leader + arrow: anchor at the box's top-left so the arrow stays put.
+    // The anchor is where the user left the box, so a box sitting at (or
+    // over) the page edge grows from there rather than sliding inward.
     final anchor = annotation.calloutBox ?? annotation.rect;
-    final left = anchor.left
-        .clamp(bounds.left, math.max(bounds.left, bounds.right - width))
-        .toDouble();
-    final top = anchor.top
-        .clamp(math.min(bounds.top, bounds.bottom + height), bounds.top)
-        .toDouble();
-    return PdfRect(left, top - height, left + width, top);
+    return PdfRect(
+        anchor.left, anchor.top - height, anchor.left + width, anchor.top);
   }
 
   /// Shrinks or grows the selected free-text annotation to the natural
   /// bounds of its contents. Explicit newlines are preserved and the box is
-  /// anchored at its current top-left corner, clamped to the page crop box.
+  /// anchored at its current top-left corner - it grows off the page edge
+  /// rather than sliding inward to fit.
   void autosizeSelectedTextBox() {
     final annotation = selectedAnnotation;
     if (annotation == null || !canRestyleSelectedText) return;
