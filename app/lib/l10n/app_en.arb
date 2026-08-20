@@ -1014,6 +1014,76 @@
   "@printDlgTitle": {
     "description": "Title of the modal dialog shown while a print job renders pages."
   },
+  "printPreviewAll": "All",
+  "@printPreviewAll": {
+    "description": "Range option in the print preview: print every page."
+  },
+  "printPreviewCurrent": "Current",
+  "@printPreviewCurrent": {
+    "description": "Range option in the print preview: print only the page the viewer is on."
+  },
+  "printPreviewFrom": "From",
+  "@printPreviewFrom": {
+    "description": "Label of the first page of the print range."
+  },
+  "printPreviewNextPage": "Next page",
+  "@printPreviewNextPage": {
+    "description": "Tooltip on the print preview's next-page button."
+  },
+  "printPreviewPageOf": "Page {page} of {total}",
+  "@printPreviewPageOf": {
+    "description": "Which page of the document the print preview is showing.",
+    "placeholders": {
+      "page": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "printPreviewPreviousPage": "Previous page",
+  "@printPreviewPreviousPage": {
+    "description": "Tooltip on the print preview's previous-page button."
+  },
+  "printPreviewPrint": "Print",
+  "@printPreviewPrint": {
+    "description": "Button in the print preview that starts the print job."
+  },
+  "printPreviewRange": "Range",
+  "@printPreviewRange": {
+    "description": "Range option in the print preview: print the typed page span."
+  },
+  "printPreviewRangeError": "Enter a page range between 1 and {total}.",
+  "@printPreviewRangeError": {
+    "description": "Error shown when the typed print range is not a range of pages.",
+    "placeholders": {
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "printPreviewSelection": "Pages to print: {count}",
+  "@printPreviewSelection": {
+    "description": "How many pages the chosen print range covers.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "printPreviewTitle": "Print preview",
+  "@printPreviewTitle": {
+    "description": "Title of the dialog previewing what a print job will look like."
+  },
+  "printPreviewTo": "To",
+  "@printPreviewTo": {
+    "description": "Label of the last page of the print range."
+  },
+  "printPreviewUnavailable": "Preview unavailable",
+  "@printPreviewUnavailable": {
+    "description": "Shown in place of the preview when a page could not be rendered."
+  },
   "redo": "Redo",
   "@redo": {
     "description": "Generic button/tooltip to redo the last undone change."

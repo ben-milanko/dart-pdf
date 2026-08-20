@@ -774,6 +774,51 @@ class AppLocalizationsAr extends AppLocalizations {
   String get printDlgTitle => 'جارٍ الطباعة';
 
   @override
+  String get printPreviewAll => 'الكل';
+
+  @override
+  String get printPreviewCurrent => 'الحالية';
+
+  @override
+  String get printPreviewFrom => 'من';
+
+  @override
+  String get printPreviewNextPage => 'الصفحة التالية';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return 'الصفحة $page من $total';
+  }
+
+  @override
+  String get printPreviewPreviousPage => 'الصفحة السابقة';
+
+  @override
+  String get printPreviewPrint => 'طباعة';
+
+  @override
+  String get printPreviewRange => 'نطاق';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return 'أدخل نطاق صفحات بين 1 و$total.';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return 'الصفحات المطلوب طباعتها: $count';
+  }
+
+  @override
+  String get printPreviewTitle => 'معاينة الطباعة';
+
+  @override
+  String get printPreviewTo => 'إلى';
+
+  @override
+  String get printPreviewUnavailable => 'المعاينة غير متاحة';
+
+  @override
   String get redo => 'إعادة';
 
   @override

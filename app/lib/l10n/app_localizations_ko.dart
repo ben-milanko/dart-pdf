@@ -736,6 +736,51 @@ class AppLocalizationsKo extends AppLocalizations {
   String get printDlgTitle => '인쇄 중';
 
   @override
+  String get printPreviewAll => '전체';
+
+  @override
+  String get printPreviewCurrent => '현재';
+
+  @override
+  String get printPreviewFrom => '시작';
+
+  @override
+  String get printPreviewNextPage => '다음 페이지';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return '$total페이지 중 $page페이지';
+  }
+
+  @override
+  String get printPreviewPreviousPage => '이전 페이지';
+
+  @override
+  String get printPreviewPrint => '인쇄';
+
+  @override
+  String get printPreviewRange => '범위';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return '1에서 $total 사이의 페이지 범위를 입력하세요.';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return '인쇄할 페이지: $count';
+  }
+
+  @override
+  String get printPreviewTitle => '인쇄 미리 보기';
+
+  @override
+  String get printPreviewTo => '끝';
+
+  @override
+  String get printPreviewUnavailable => '미리 보기를 사용할 수 없음';
+
+  @override
   String get redo => '다시 실행';
 
   @override

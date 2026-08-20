@@ -748,6 +748,51 @@ class AppLocalizationsEn extends AppLocalizations {
   String get printDlgTitle => 'Printing';
 
   @override
+  String get printPreviewAll => 'All';
+
+  @override
+  String get printPreviewCurrent => 'Current';
+
+  @override
+  String get printPreviewFrom => 'From';
+
+  @override
+  String get printPreviewNextPage => 'Next page';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return 'Page $page of $total';
+  }
+
+  @override
+  String get printPreviewPreviousPage => 'Previous page';
+
+  @override
+  String get printPreviewPrint => 'Print';
+
+  @override
+  String get printPreviewRange => 'Range';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return 'Enter a page range between 1 and $total.';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return 'Pages to print: $count';
+  }
+
+  @override
+  String get printPreviewTitle => 'Print preview';
+
+  @override
+  String get printPreviewTo => 'To';
+
+  @override
+  String get printPreviewUnavailable => 'Preview unavailable';
+
+  @override
   String get redo => 'Redo';
 
   @override

@@ -763,6 +763,51 @@ class AppLocalizationsRu extends AppLocalizations {
   String get printDlgTitle => 'Печать';
 
   @override
+  String get printPreviewAll => 'Все';
+
+  @override
+  String get printPreviewCurrent => 'Текущая';
+
+  @override
+  String get printPreviewFrom => 'С';
+
+  @override
+  String get printPreviewNextPage => 'Следующая страница';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return 'Страница $page из $total';
+  }
+
+  @override
+  String get printPreviewPreviousPage => 'Предыдущая страница';
+
+  @override
+  String get printPreviewPrint => 'Печать';
+
+  @override
+  String get printPreviewRange => 'Диапазон';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return 'Укажите диапазон страниц от 1 до $total.';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return 'Страниц для печати: $count';
+  }
+
+  @override
+  String get printPreviewTitle => 'Предварительный просмотр';
+
+  @override
+  String get printPreviewTo => 'По';
+
+  @override
+  String get printPreviewUnavailable => 'Просмотр недоступен';
+
+  @override
   String get redo => 'Повторить';
 
   @override

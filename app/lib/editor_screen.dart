@@ -32,6 +32,7 @@ import 'new_document.dart';
 import 'ocr.dart';
 import 'ocr_status_label.dart';
 import 'pdf_cache.dart';
+import 'print_preview_dialog.dart';
 import 'print_progress_dialog.dart';
 import 'printing.dart';
 import 'recent_thumbnails.dart';
@@ -2436,14 +2437,40 @@ class _EditorScreenState extends State<EditorScreen>
     if (mounted) _toast(appL10n(context).editorSignatureRemoved);
   }
 
-  /// Hands the active document to the OS print dialog (the `printing` plugin -
-  /// native dialog on desktop/mobile, browser print on the web). The current
-  /// revision is printed, so unsaved edits are included. A failed or
-  /// unavailable backend surfaces as a toast rather than throwing.
+  /// Hands the active document to the OS print system (the app's own
+  /// `native_print` channel - the OS dialog on desktop/mobile, browser print on
+  /// the web). The current revision is printed, so unsaved edits are included.
+  /// A failed or unavailable backend surfaces as a toast rather than throwing.
+  ///
+  /// Where the platform's print flow has no preview of its own (Windows and
+  /// Linux - see [platformProvidesPrintPreview]), DartPDF previews the job
+  /// first and prints the page range chosen there. A narrowed range prints an
+  /// extract of the document rather than the whole file, which is also how the
+  /// range reaches the platforms whose print path takes a whole PDF.
   Future<void> _print(DocumentTab tab) async {
-    final bytes = tab.session?.bytes;
-    if (bytes == null) return;
+    final session = tab.session;
+    if (session == null) return;
+    var bytes = session.bytes;
     try {
+      if (!platformProvidesPrintPreview()) {
+        final pages = await showPrintPreviewDialog(
+          context,
+          document: session.document,
+          title: tab.title,
+          currentPage: tab.viewer?.currentPage ?? 0,
+        );
+        if (pages == null || !mounted || !_tabs.contains(tab)) return;
+        // The preview is modal, but the session stays the source of truth for
+        // what prints - re-read it rather than trusting the pre-dialog bytes.
+        final document = session.document;
+        final selection =
+            pages.where((page) => page >= 0 && page < document.pageCount)
+                .toList();
+        if (selection.isEmpty) return;
+        bytes = selection.length == document.pageCount
+            ? session.bytes
+            : document.extractPages(selection);
+      }
       final injected = widget.printDocument;
       if (injected != null) {
         await injected(bytes: bytes, title: tab.title);

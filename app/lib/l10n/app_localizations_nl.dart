@@ -758,6 +758,51 @@ class AppLocalizationsNl extends AppLocalizations {
   String get printDlgTitle => 'Afdrukken';
 
   @override
+  String get printPreviewAll => 'Alle';
+
+  @override
+  String get printPreviewCurrent => 'Huidige';
+
+  @override
+  String get printPreviewFrom => 'Van';
+
+  @override
+  String get printPreviewNextPage => 'Volgende pagina';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return 'Pagina $page van $total';
+  }
+
+  @override
+  String get printPreviewPreviousPage => 'Vorige pagina';
+
+  @override
+  String get printPreviewPrint => 'Afdrukken';
+
+  @override
+  String get printPreviewRange => 'Bereik';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return 'Voer een paginabereik tussen 1 en $total in.';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return 'Af te drukken pagina\'s: $count';
+  }
+
+  @override
+  String get printPreviewTitle => 'Afdrukvoorbeeld';
+
+  @override
+  String get printPreviewTo => 'Tot';
+
+  @override
+  String get printPreviewUnavailable => 'Voorbeeld niet beschikbaar';
+
+  @override
   String get redo => 'Opnieuw';
 
   @override

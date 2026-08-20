@@ -754,6 +754,51 @@ class AppLocalizationsId extends AppLocalizations {
   String get printDlgTitle => 'Mencetak';
 
   @override
+  String get printPreviewAll => 'Semua';
+
+  @override
+  String get printPreviewCurrent => 'Saat ini';
+
+  @override
+  String get printPreviewFrom => 'Dari';
+
+  @override
+  String get printPreviewNextPage => 'Halaman berikutnya';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return 'Halaman $page dari $total';
+  }
+
+  @override
+  String get printPreviewPreviousPage => 'Halaman sebelumnya';
+
+  @override
+  String get printPreviewPrint => 'Cetak';
+
+  @override
+  String get printPreviewRange => 'Rentang';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return 'Masukkan rentang halaman antara 1 dan $total.';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return 'Halaman yang akan dicetak: $count';
+  }
+
+  @override
+  String get printPreviewTitle => 'Pratinjau cetak';
+
+  @override
+  String get printPreviewTo => 'Sampai';
+
+  @override
+  String get printPreviewUnavailable => 'Pratinjau tidak tersedia';
+
+  @override
   String get redo => 'Ulangi';
 
   @override

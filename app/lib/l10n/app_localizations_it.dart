@@ -758,6 +758,51 @@ class AppLocalizationsIt extends AppLocalizations {
   String get printDlgTitle => 'Stampa';
 
   @override
+  String get printPreviewAll => 'Tutte';
+
+  @override
+  String get printPreviewCurrent => 'Corrente';
+
+  @override
+  String get printPreviewFrom => 'Da';
+
+  @override
+  String get printPreviewNextPage => 'Pagina successiva';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return 'Pagina $page di $total';
+  }
+
+  @override
+  String get printPreviewPreviousPage => 'Pagina precedente';
+
+  @override
+  String get printPreviewPrint => 'Stampa';
+
+  @override
+  String get printPreviewRange => 'Intervallo';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return 'Inserisci un intervallo di pagine tra 1 e $total.';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return 'Pagine da stampare: $count';
+  }
+
+  @override
+  String get printPreviewTitle => 'Anteprima di stampa';
+
+  @override
+  String get printPreviewTo => 'A';
+
+  @override
+  String get printPreviewUnavailable => 'Anteprima non disponibile';
+
+  @override
   String get redo => 'Ripeti';
 
   @override
