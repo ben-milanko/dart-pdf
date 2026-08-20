@@ -17,6 +17,9 @@ const _testPreferences = <String, Object>{
   '${_preferencePrefix}showSearchResultsPanel': false,
   '${_preferencePrefix}showReflowView': false,
   '${_preferencePrefix}showThumbnailView': false,
+  // Native Patrol runs tests in a randomized order. Do not let one journey's
+  // saved page/zoom become the next journey's starting point.
+  '${_preferencePrefix}documentViewports': '[]',
 };
 
 void main() {
@@ -256,7 +259,7 @@ void main() {
       PdfFormField field(String name) =>
           demo.editing.acroForm!.fields.firstWhere((f) => f.name == name);
 
-      await demo.tapPdfPoint(200, 324);
+      await demo.tapFormField('name');
       final editor = find.byKey(const ValueKey('pdf-form-text-editor'));
       expect(editor, findsOneWidget);
       await $.tester.enterText(editor, 'Grace Hopper');
@@ -265,15 +268,15 @@ void main() {
       expect(field('name').value, 'Grace Hopper');
 
       expect(field('newsletter').isChecked, isTrue);
-      await demo.tapPdfPoint(169, 285);
+      await demo.tapFormField('newsletter');
       expect(field('newsletter').isChecked, isFalse);
 
       expect(field('color').value, 'Blue');
-      await demo.tapPdfPoint(169, 249);
+      await demo.tapFormField('color');
       expect(field('color').value, 'Red');
 
       expect(field('favorite').value, 'Green');
-      await demo.tapPdfPoint(220, 214);
+      await demo.tapFormField('favorite');
       await $.pump(const Duration(milliseconds: 250));
       expect($('Blue'), findsOneWidget);
       await $.tester.tap(find.text('Blue'));
@@ -363,6 +366,17 @@ class _DemoHarness {
 
   Future<void> tapPdfPoint(double x, double y) async {
     await tester.tapAt(pdfPoint(x, y));
+    await $.pump(const Duration(milliseconds: 400));
+  }
+
+  Future<void> tapFormField(String name, {int widgetIndex = 0}) async {
+    final target = find.byKey(
+      ValueKey(
+        'pdf-form-field-${viewer.currentPage}-$name-$widgetIndex',
+      ),
+    );
+    await waitForFinder(target);
+    await tester.tap(target);
     await $.pump(const Duration(milliseconds: 400));
   }
 

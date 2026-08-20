@@ -390,6 +390,9 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
       child: MouseRegion(
         cursor: _cursorFor(field),
         child: GestureDetector(
+          key: ValueKey(
+            'pdf-form-field-${widget.pageIndex}-${field.name}-$widgetIndex',
+          ),
           behavior: HitTestBehavior.opaque,
           onTapUp: (details) {
             final pageViewPosition = rect.topLeft + details.localPosition;
