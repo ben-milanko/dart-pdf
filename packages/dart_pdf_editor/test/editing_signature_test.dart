@@ -306,6 +306,48 @@ void main() {
       expect(result!.strokeWidth, PdfInkSignature.maxStrokeWidth);
     });
 
+    testWidgets('the custom swatch falls back to the stock colour picker',
+        (tester) async {
+      PdfInkSignature? result;
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Center(
+            child: FilledButton(
+              // no pickColor injected: the pad opens the stock picker
+              onPressed: () async {
+                result = await showPdfSignatureDialog(context);
+              },
+              child: const Text('sign'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('sign'));
+      await tester.pumpAndSettle();
+      await tester.timedDrag(find.byKey(const ValueKey('pdf-signature-pad')),
+          const Offset(120, 30), const Duration(milliseconds: 200));
+      await tester.pump();
+
+      // dismissing the picker leaves the ink as it was
+      await tester.tap(find.byKey(const ValueKey('pdf-signature-custom-ink')));
+      await tester.pumpAndSettle();
+      expect(find.byType(PdfColorPicker), findsOneWidget);
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel').last);
+      await tester.pumpAndSettle();
+      expect(find.byType(PdfColorPicker), findsNothing);
+
+      // committing one takes it
+      await tester.tap(find.byKey(const ValueKey('pdf-signature-custom-ink')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'OK'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Done'));
+      await tester.pumpAndSettle();
+      // the pad's default ink, round-tripped through the picker unchanged
+      expect(result!.color, 0x000000);
+    });
+
     testWidgets('drawing seeds the tool colour and pen width',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1));
@@ -355,6 +397,15 @@ void main() {
 
       // the pad opens on the tool's current pen, not a fixed one
       expect(find.text('5.0 pt'), findsOneWidget);
+
+      // the custom swatch routes through the editor's own picker (recents and
+      // document colours wired), not a bare one
+      await tester.tap(find.byKey(const ValueKey('pdf-signature-custom-ink')));
+      await tester.pumpAndSettle();
+      expect(find.byType(PdfColorPicker), findsOneWidget);
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel').last);
+      await tester.pumpAndSettle();
+
       await tester.tap(find.byKey(const ValueKey('pdf-signature-ink-b71c1c')));
       await tester.pump();
       await tester.drag(
