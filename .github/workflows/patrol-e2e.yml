@@ -51,7 +51,7 @@ jobs:
           --verbose
       - name: Upload Patrol web results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: patrol-web-results
           path: |
@@ -103,7 +103,7 @@ jobs:
             --target patrol_test/demo_e2e_test.dart
       - name: Upload Patrol Android report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: patrol-android-report
           path: ${{ env.EXAMPLE_DIR }}/build/app/reports/androidTests
@@ -142,7 +142,7 @@ jobs:
           --target patrol_test/demo_e2e_test.dart
       - name: Upload Patrol iOS result bundle
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: patrol-ios-results
           path: ${{ env.EXAMPLE_DIR }}/build/*.xcresult
@@ -172,7 +172,7 @@ jobs:
           --target patrol_test/demo_e2e_test.dart
       - name: Upload Patrol macOS result bundle
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: patrol-macos-results
           path: ${{ env.EXAMPLE_DIR }}/build/*.xcresult
