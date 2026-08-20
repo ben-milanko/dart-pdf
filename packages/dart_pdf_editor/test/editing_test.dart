@@ -613,6 +613,30 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('a shape dragged past the page edge keeps its off-page bounds',
+        (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      editing.tool = PdfEditTool.rectangle;
+      await tester.pump();
+
+      // start on the page and drag out past its left edge: the annotation
+      // keeps the bounds that were drawn - the renderer's page clip is what
+      // trims it, not the authoring
+      await drag(tester, view(60, 700), view(-40, 640));
+
+      final annotation = editing.document.page(0).annotations.single;
+      expect(annotation.subtype, 'Square');
+      expect(annotation.rect.left, lessThan(0));
+      expect(annotation.rect.right, closeTo(60, 2));
+
+      // and it survives the save: nothing downstream normalizes /Rect back
+      // onto the page
+      final reopened = PdfDocument.open(editing.bytes);
+      expect(reopened.page(0).annotations.single.rect.left,
+          closeTo(annotation.rect.left, 1e-6));
+      await settle(tester);
+    });
+
     testWidgets('dragging with the cloud polygon tool adds a cloudy Polygon',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);

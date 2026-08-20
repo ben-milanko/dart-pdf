@@ -93,7 +93,15 @@ so `{{date}}` stays live - as private metadata (`DartPdfStampTemplate` →
 `maxStampTemplateMetadataBytes`), which is how the editor's right-click
 "Save to stamps" (`customStampOf` / `saveSelectedAsCustomStamp`) puts a
 placed stamp back into the collection; see
-doc/dev-log/2026-08-06-save-stamp-from-page.md. AcroForm support is in: `PdfAcroForm`/`PdfFormField`
+doc/dev-log/2026-08-06-save-stamp-from-page.md. Annotation geometry is
+**not confined to the crop box**: a point the user picked is authoritative,
+so placements, drags, resizes and paste-at-a-point commit off the page edge
+and the renderer's page clip trims them. The only tethered placement is the
+point-less paste cascade (`PdfEditingController._tetherShift` /
+`pageTether`, which keeps 24pt on the paper so repeats can't march copies
+out of sight); auto-sizing still caps a stamp/image/signature at 90% of the
+page, which is a size rule, not a boundary one. See
+doc/dev-log/2026-08-20-annotations-past-the-page-edge.md. AcroForm support is in: `PdfAcroForm`/`PdfFormField`
 model (`form.dart`) plus filling with regenerated appearances
 (`form_editor.dart` - text/checkbox/radio/choice, auto-size, quadding).
 Page manipulation is in (`page_editor.dart`): reorder/move/remove flatten

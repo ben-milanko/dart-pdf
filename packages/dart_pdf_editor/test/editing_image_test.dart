@@ -35,18 +35,19 @@ void main() {
       expect(appearance(editing.document, stamp), contains('/Img0 Do'));
     });
 
-    test('placeImage clamps the box to keep it on the page', () {
+    test('placeImage keeps the tap point when the box runs off the page', () {
       SharedPreferences.setMockInitialValues({});
       final editing = PdfEditingController(buildMultiPagePdf(1));
       addTearDown(editing.dispose);
 
-      // a tap near the corner: the box stays inside the 612x792 crop box
+      // a tap near the corner of the 612x792 crop box: the box centers on
+      // the tap and hangs off the page rather than sliding inward
       expect(editing.placeImage(0, 10, 10, _png), isTrue);
       final rect = editing.document.page(0).annotations.single.rect;
-      expect(rect.left, greaterThanOrEqualTo(0));
-      expect(rect.bottom, greaterThanOrEqualTo(0));
-      expect(rect.right, lessThanOrEqualTo(612));
-      expect(rect.top, lessThanOrEqualTo(792));
+      expect((rect.left + rect.right) / 2, closeTo(10, 1e-9));
+      expect((rect.bottom + rect.top) / 2, closeTo(10, 1e-9));
+      expect(rect.left, lessThan(0));
+      expect(rect.bottom, lessThan(0));
     });
 
     test('addImageInRect fits the image within the dragged box', () {

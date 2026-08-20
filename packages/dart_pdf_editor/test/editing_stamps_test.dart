@@ -577,15 +577,31 @@ void main() {
       expect(editing.document.page(0).annotations.single.contents, 'Signed');
     });
 
-    test('clamps so the whole stamp stays on the page', () {
+    test('a stamp dropped at the corner hangs off the page', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..activeStamp = approved;
       final box = editing.document.page(0).cropBox;
       expect(editing.placeStamp(0, box.right, box.top), isTrue);
 
+      // the tap is the centre, edge or not: the placement keeps where the
+      // user aimed and the page clip trims what runs off it
       final stamp = editing.document.page(0).annotations.single;
-      expect(stamp.rect.right, lessThanOrEqualTo(box.right + 0.01));
-      expect(stamp.rect.top, lessThanOrEqualTo(box.top + 0.01));
+      expect((stamp.rect.left + stamp.rect.right) / 2, closeTo(box.right, 1e-6));
+      expect((stamp.rect.bottom + stamp.rect.top) / 2, closeTo(box.top, 1e-6));
+      expect(stamp.rect.right, greaterThan(box.right));
+      expect(stamp.rect.top, greaterThan(box.top));
+    });
+
+    test('a stamp is never sized larger than the page', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..activeStamp = approved;
+      final box = editing.document.page(0).cropBox;
+      // running off the edge is a placement, not a size: the auto-sizing
+      // caps still hold
+      expect(editing.placeStamp(0, box.right, box.top, height: 5000), isTrue);
+      final stamp = editing.document.page(0).annotations.single;
+      expect(stamp.rect.width, lessThanOrEqualTo(box.width * 0.9 + 1e-6));
+      expect(stamp.rect.height, lessThanOrEqualTo(box.height * 0.9 + 1e-6));
     });
 
     test('changing colour keeps and recolours the active saved stamp', () {
