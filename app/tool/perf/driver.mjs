@@ -193,12 +193,13 @@ function parse(lines, frames) {
     }
     const warm = line.match(/worker warm=([\d.]+)ms/);
     if (warm) r.workerWarmMax = Math.max(r.workerWarmMax, Number(warm[1]));
-    // `prerender page=N lod=<rung> [worker ][shared ]<vector|full> warm=…`.
+    // `prerender page=N lod=<rung> [retained ][worker ][shared ]<vector|full>
+    // warm=…`.
     // The lod token arrived with the preview ladder and `shared` with #699's
     // one-record-per-ladder build; both are optional so an older bundle's
     // lines still count.
     const pre = line.match(
-      /prerender page=\d+ (?:lod=\S+ )?(?:worker )?(?:shared )?(vector|full) /);
+      /prerender page=\d+ (?:lod=\S+ )?(?:retained )?(?:worker )?(?:shared )?(vector|full) /);
     if (pre) r.prerender[pre[1]]++;
     // The #527 bounded early prefix is real ink on the target page too, so it
     // counts as first content for the baseline (progressive off) - otherwise the

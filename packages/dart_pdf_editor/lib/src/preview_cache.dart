@@ -681,6 +681,59 @@ class PdfPagePreviewCache extends ChangeNotifier {
     return entry.acquire();
   }
 
+  /// [retainedSceneFor] for a *display* rather than an exact
+  /// [PdfPageRenderPlan]: tries every spelling of the plan that produces the
+  /// same pixels for this page.
+  ///
+  /// Two of the plan's inputs have spellings that coincide, and a producer
+  /// writes whichever one it happens to hold:
+  ///
+  ///  * **Rotation.** A plan carrying the page's own /Rotate and a plan
+  ///    carrying null are the same render - the viewer always resolves an
+  ///    explicit angle, a bare [PdfPageView] may not.
+  ///  * **Annotations.** The viewer bakes annotations into the page picture
+  ///    only when it is *not* drawing them in a live overlay layer, so an
+  ///    editing session's scenes are annotation-free while a background
+  ///    surface asks for annotations. On a page that carries none those are
+  ///    the same pixels, so only such a page tries the other spelling; an
+  ///    annotated page still renders itself.
+  ///
+  /// Anything else - a view rotation, another paper colour, annotations on a
+  /// page that has some - misses, as it should. Callers own the returned
+  /// handle and must dispose it.
+  PdfRetainedSceneHandle? retainedSceneForDisplay(
+    int index,
+    PdfPage page, {
+    required Color pageColor,
+    required bool annotations,
+    required int? rotation,
+  }) {
+    for (final withAnnotations in <bool>[
+      annotations,
+      if (page.annotations.isEmpty) !annotations,
+    ]) {
+      // Only null and the page's own /Rotate are interchangeable. A view
+      // rotation is a different render, so it tries nothing but itself.
+      final spellsPageRotation = rotation == null || rotation == page.rotation;
+      for (final withRotation in <int?>{
+        rotation,
+        if (spellsPageRotation) ...<int?>[page.rotation, null],
+      }) {
+        final handle = retainedSceneFor(
+          index,
+          page,
+          plan: PdfPageRenderPlan(
+            pageColor: pageColor,
+            annotations: withAnnotations,
+            rotation: withRotation,
+          ),
+        );
+        if (handle != null) return handle;
+      }
+    }
+    return null;
+  }
+
   /// Prices a retained scene against the LRU's byte budget.
   ///
   /// The obvious inputs - the command transcript, the engine's own
@@ -1297,11 +1350,26 @@ class PdfPagePreviewCache extends ChangeNotifier {
         buildRatio =
             math.max(buildRatio, _ratioFor(size, targetLongestSide: side));
       }
+      // The page the viewer is still holding is the cheapest source of all.
+      // A retained scene carries exactly the commands a worker record would
+      // ship back, without the transfer or the main-thread reconstruction, and
+      // without any content-stream walk at all - so it is tried ahead of both.
+      // #700 gave thumbnails this; the ladder was the half left interpreting,
+      // which is what the #699 trace measured as `prerender ... full warm=`.
+      final retained = _retainedSceneForPreview(
+        index,
+        page,
+        pageColor: pageColor,
+        annotations: annotations,
+        rotation: rotation,
+        buildRatio: buildRatio,
+        decodeImages: decodeImages,
+      );
       // priority 1: prefetch yields to any on-screen page the worker owes.
       // Every rung is rasterized at or below [buildRatio], so cap the worker's
       // images to that - a heavy raster underlay need not ship at full
       // resolution just to be downscaled into a thumbnail.
-      final commands = worker != null && worker.isActive
+      final commands = retained == null && worker != null && worker.isActive
           ? await worker.record(index,
               annotations: annotations,
               priority: priority,
@@ -1315,13 +1383,33 @@ class PdfPagePreviewCache extends ChangeNotifier {
         // the fast-scroll path.
         return;
       }
-      if (deferUiWork?.call() ?? false) return;
-      if (_disposed || !_acceptsPage(index, page)) return;
+      if ((deferUiWork?.call() ?? false) ||
+          _disposed ||
+          !_acceptsPage(index, page)) {
+        retained?.dispose();
+        return;
+      }
       var includesImages = decodeImages;
       final plan = PdfPageRenderPlan(
           pageColor: pageColor, annotations: annotations, rotation: rotation);
       final ui.Picture picture;
-      if (commands != null) {
+      // A picture the cache entry owns must outlive this call; only one we
+      // build here is ours to dispose.
+      var ownsPicture = true;
+      if (retained != null) {
+        // A retained scene is a complete page record - it is only offered for
+        // full warms, and every rung it fills carries that page's images.
+        includesImages = true;
+        final retainedPicture = retained.picture;
+        if (retainedPicture != null) {
+          picture = retainedPicture;
+          ownsPicture = false;
+        } else {
+          // One flat replay in page-point space serves every rung, mirroring
+          // the single record the other two branches build.
+          picture = retained.scene.replay(pixelRatio: 1);
+        }
+      } else if (commands != null) {
         includesImages = commandLimit == null &&
             (decodeImages || !PdfPageRenderer.hasImageDraws(commands));
         picture = await PdfPageRenderer.pictureFromCommandsWithPlan(
@@ -1359,6 +1447,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
           // trace comparison reads.
           PdfPerfLog.log('prerender page=$index '
               'lod=${side == null ? 'base' : '${side.toStringAsFixed(0)}px'} '
+              '${retained != null ? 'retained ' : ''}'
               '${commands != null ? 'worker ' : ''}'
               '${shared ? 'shared ' : ''}'
               '${includesImages ? 'full' : 'vector'} '
@@ -1374,11 +1463,49 @@ class PdfPagePreviewCache extends ChangeNotifier {
           );
         }
       } finally {
-        picture.dispose();
+        if (ownsPicture) picture.dispose();
+        retained?.dispose();
       }
     } catch (_) {
       // no preview is strictly better than a crash mid-scroll
     }
+  }
+
+  /// The retained scene [renderPreview] may build this page's rungs from, or
+  /// null when none is usable.
+  ///
+  /// A scene whose images were decoded below [buildRatio] would draw them
+  /// softer than a fresh record, so those decline and the ordinary paths run.
+  /// Preview rungs sit at or below 1x while a display scene is decoded at the
+  /// page's own display ratio, so this is a guard rather than a common case.
+  PdfRetainedSceneHandle? _retainedSceneForPreview(
+    int index,
+    PdfPage page, {
+    required Color pageColor,
+    required bool annotations,
+    required int? rotation,
+    required double buildRatio,
+    required bool decodeImages,
+  }) {
+    // Vector-first warms exist to put *some* pixels up during a fast scroll
+    // without any main-thread render; a replay is cheap but is not nothing, so
+    // that path keeps its worker-only contract and this serves the full warms
+    // the #699 trace measured.
+    if (!decodeImages) return null;
+    final handle = retainedSceneForDisplay(
+      index,
+      page,
+      pageColor: pageColor,
+      annotations: annotations,
+      rotation: rotation,
+    );
+    if (handle == null) return null;
+    final sceneImageRatio = handle.imagePixelRatio;
+    if (sceneImageRatio != null && sceneImageRatio < buildRatio) {
+      handle.dispose();
+      return null;
+    }
+    return handle;
   }
 
   /// Bakes the exact, display-sized raster of an off-screen page into the

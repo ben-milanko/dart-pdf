@@ -3234,28 +3234,17 @@ PdfRetainedSceneHandle? _retainedSceneForTile(
   PdfPage page, {
   required Color pageColor,
   required bool annotations,
-}) {
-  if (previews == null) return null;
-  final annotationSpellings = <bool>[
-    annotations,
-    if (page.annotations.isEmpty) !annotations,
-  ];
-  for (final withAnnotations in annotationSpellings) {
-    for (final rotation in <int?>[page.rotation, null]) {
-      final handle = previews.retainedSceneFor(
-        pageIndex,
-        page,
-        plan: PdfPageRenderPlan(
-          pageColor: pageColor,
-          annotations: withAnnotations,
-          rotation: rotation,
-        ),
-      );
-      if (handle != null) return handle;
-    }
-  }
-  return null;
-}
+}) =>
+    // A tile always asks for the page's own rotation, so
+    // [PdfPagePreviewCache.retainedSceneForDisplay] - which the preview ladder
+    // shares - covers both of its spellings.
+    previews?.retainedSceneForDisplay(
+      pageIndex,
+      page,
+      pageColor: pageColor,
+      annotations: annotations,
+      rotation: null,
+    );
 
 String _traceMs(double v) => '${v.toStringAsFixed(1)}ms';
 

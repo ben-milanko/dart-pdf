@@ -141,6 +141,70 @@ void main() {
     expect(find.byType(RawImage), findsNothing);
   });
 
+  testWidgets('a page presented directly never seeds the exact raster tier',
+      (tester) async {
+    // #699 read 163 `page-raster miss ... reason=empty` lines with zero stores
+    // against an idle budget and reached for putFullImage's
+    // _renderedAtFullImageRatio gate. The gate is not it: a page that presents
+    // its completed display list produces no base raster at all, so nothing
+    // ever reaches the cache and every lookup necessarily misses. That is by
+    // design - the whole point of the route is to skip the readback - and it
+    // is why the free ladder fill putFullImage performs
+    // (_putIntermediateLadderFromImage) does not happen either, which is what
+    // left the preview ladder interpreting pages the viewer already held.
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    PdfPageView.directPicturePresentation = true;
+    final cache = PdfPagePreviewCache()
+      ..configureFullRasterCache(const PdfPageRasterCachePolicy());
+    addTearDown(cache.dispose);
+    final page = PdfDocument.open(buildClassicPdf()).page(0);
+
+    await tester.pumpWidget(Center(
+      child: SizedBox(
+        width: 612,
+        child: PdfPageView(
+          page: page,
+          previewIndex: 0,
+          previewCache: cache,
+          onScreen: true,
+        ),
+      ),
+    ));
+    for (var i = 0; i < 200; i++) {
+      await tester.pump();
+      if (find
+          .byKey(const ValueKey('pdf-page-direct-picture'))
+          .evaluate()
+          .isNotEmpty) {
+        break;
+      }
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+
+    expect(
+      find.byKey(const ValueKey('pdf-page-direct-picture')),
+      findsOneWidget,
+    );
+    expect(find.byType(RawImage), findsNothing);
+    final restored = cache.fullImageFor(
+      0,
+      page,
+      width: 612,
+      height: 792,
+      pageColor: const Color(0xFFFFFFFF),
+      annotations: true,
+      rotation: null,
+    );
+    addTearDown(() => restored?.dispose());
+    expect(restored, isNull,
+        reason: 'no readback happened, so there is no raster to retain');
+    expect(cache.lodStats.intermediateEntries, 0,
+        reason: 'and no raster means no free preview-ladder fill either');
+  });
+
   testWidgets('a direct picture refines display-capped images at the live zoom',
       (tester) async {
     tester.view.devicePixelRatio = 1.0;

@@ -151,6 +151,17 @@
       "params": { "wheelPages": 8, "wheelStepPx": 120, "wheelIntervalMs": 16, "worker": 0 },
       "note": "The letterhead report with the render worker OFF - every interpret on the UI thread, which is what the field trace behind this scenario actually was."
     },
+    "scroll-letterhead-noworker": {
+     "kind": "scroll",
+     "pdf": "test_corpora/dartpdf/letterhead-report-40p.pdf",
+     "params": {
+      "passes": 1,
+      "fast": 1,
+      "maxPages": 16,
+      "worker": 0
+     },
+     "note": "The #699 field trace's own condition: the corporate-report shape scrolled with the render worker OFF (worker=0), so every page interpret AND every background preview-ladder warm lands on the platform thread. A scroll rather than a wheel because the idle prerender needs a full second of quiet on web, which a continuous wheel never gives it - so this is the scenario where what the ladder costs is visible at all."
+    },
     "wheel-plan": {
       "kind": "wheel",
       "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",
