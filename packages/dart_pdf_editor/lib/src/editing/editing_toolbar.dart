@@ -44,14 +44,15 @@ typedef PdfEditingToolbarWidgetBuilder = Widget Function(
 
 /// A ready-made toolbar for [PdfEditingController].
 ///
-/// The bar is organised as a **dock** of tool *groups* - Select, Markup,
-/// Draw, Shapes, Insert, Measure and Edit - flanked by the global
-/// undo/redo, flatten and save actions. Tapping a group raises a
-/// **contextual strip** above the dock: the group's tools on the left and
-/// the active tool's live settings (colour, stroke, opacity, font,
-/// scale…) on the right, so each tool shows only the settings it
-/// supports. Selecting an annotation or a page element raises its own
-/// strip with the actions and restyle controls that apply to it.
+/// The bar is organised as a **dock** with a compact Hand / Select navigation
+/// cluster followed by the editing tool *groups* - Markup, Draw, Shapes,
+/// Insert, Measure and Edit - and the global undo/redo, flatten and save
+/// actions. Tapping an editing group raises a **contextual strip** above the
+/// dock: the group's tools on the left and the active tool's live settings
+/// (colour, stroke, opacity, font, scale…) on the right, so each tool shows
+/// only the settings it supports. Selecting an annotation or a page element
+/// raises its own strip with the actions and restyle controls that apply to
+/// it.
 ///
 /// On narrow (phone) widths the dock collapses to an active-tool switcher, a
 /// quick-colour row and a *Tools* handle. The switcher recalls recently used
@@ -632,6 +633,20 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     // null/no-tool state - tapping the active tool off should leave you
     // able to select and move things, not in limbo
     controller.tool = controller.tool == value ? PdfEditTool.select : value;
+    viewerController.clearSelection();
+  }
+
+  void _activateHandMode() {
+    if (controller.isHandMode) return;
+    setState(() => _openGroupId = null);
+    controller.activateHandMode();
+    viewerController.clearSelection();
+  }
+
+  void _activateSelectMode() {
+    if (controller.tool == PdfEditTool.select) return;
+    setState(() => _openGroupId = 'select');
+    controller.tool = PdfEditTool.select;
     viewerController.clearSelection();
   }
 
@@ -1383,6 +1398,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
 
   Widget _dock(BuildContext context) {
     final groups = _visibleGroups;
+    final showNavigationModes = groups.any((group) => group.id == 'select');
+    final editingGroups =
+        groups.where((group) => group.id != 'select').toList(growable: false);
     final row = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -1404,7 +1422,21 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
           ),
           const _DockDivider(),
         ],
-        for (final group in groups)
+        if (showNavigationModes) ...[
+          _NavigationModeGroup(
+            handLabel: pdfL10n(context).tbNameHand,
+            selectLabel: _entryTip(context, _groups.first.tools.single),
+            handActive: controller.isHandMode,
+            selectActive: controller.tool == PdfEditTool.select,
+            onHand: _activateHandMode,
+            onSelect: _activateSelectMode,
+          ),
+          if (editingGroups.isNotEmpty ||
+              widget.onSave != null ||
+              widget.trailing.isNotEmpty)
+            const _DockDivider(),
+        ],
+        for (final group in editingGroups)
           _GroupChip(
             key: ValueKey('pdf-group-${group.id}'),
             group: group,
@@ -2864,6 +2896,84 @@ class _DockDivider extends StatelessWidget {
         margin: const EdgeInsets.symmetric(horizontal: 4),
         color: Theme.of(context).colorScheme.outlineVariant,
       );
+}
+
+/// The two mutually exclusive navigation modes, kept in one compact control
+/// so they read differently from the editing-tool group chips beside them.
+class _NavigationModeGroup extends StatelessWidget {
+  const _NavigationModeGroup({
+    required this.handLabel,
+    required this.selectLabel,
+    required this.handActive,
+    required this.selectActive,
+    required this.onHand,
+    required this.onSelect,
+  });
+
+  final String handLabel;
+  final String selectLabel;
+  final bool handActive;
+  final bool selectActive;
+  final VoidCallback onHand;
+  final VoidCallback onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      key: const ValueKey('pdf-navigation-modes'),
+      color: Colors.transparent,
+      shape: StadiumBorder(side: BorderSide(color: scheme.outline)),
+      clipBehavior: Clip.antiAlias,
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        _button(
+          key: const ValueKey('pdf-mode-hand'),
+          icon: Icons.pan_tool_alt,
+          label: handLabel,
+          active: handActive,
+          onPressed: onHand,
+          scheme: scheme,
+        ),
+        Container(width: 1, height: 24, color: scheme.outlineVariant),
+        _button(
+          // Preserve the established key for host and package widget tests.
+          key: const ValueKey('pdf-group-select'),
+          icon: Icons.near_me,
+          label: selectLabel,
+          active: selectActive,
+          onPressed: onSelect,
+          scheme: scheme,
+        ),
+      ]),
+    );
+  }
+
+  Widget _button({
+    required Key key,
+    required IconData icon,
+    required String label,
+    required bool active,
+    required VoidCallback onPressed,
+    required ColorScheme scheme,
+  }) {
+    return IconButton(
+      key: key,
+      icon: Icon(icon, size: 19),
+      tooltip: label,
+      isSelected: active,
+      style: IconButton.styleFrom(
+        foregroundColor: active ? scheme.primary : scheme.onSurfaceVariant,
+        backgroundColor: active
+            ? scheme.primary.withValues(alpha: 0.15)
+            : Colors.transparent,
+        fixedSize: const Size.square(40),
+        padding: EdgeInsets.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        shape: const RoundedRectangleBorder(),
+      ),
+      onPressed: onPressed,
+    );
+  }
 }
 
 /// The full-height divider between a strip's tools and settings segments.

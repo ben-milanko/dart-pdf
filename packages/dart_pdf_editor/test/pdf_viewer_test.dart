@@ -343,6 +343,56 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
   });
 
+  testWidgets('explicit Hand mode pans over text instead of selecting it',
+      (tester) async {
+    final bytes = buildMultiPagePdf(5);
+    final editing = PdfEditingController(bytes)..activateHandMode();
+    final controller = PdfViewerController();
+    addTearDown(editing.dispose);
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          initialFit: PdfViewerFit.width,
+          document: editing.document,
+          controller: controller,
+          editing: editing,
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    const scale = 800 / 612;
+    Offset view(double x, double y) => Offset(x * scale, (792 - y) * scale);
+    MouseRegion region() => tester.widget<MouseRegion>(find
+        .descendant(
+            of: find.byType(PdfViewer), matching: find.byType(MouseRegion))
+        .first);
+
+    final hover =
+        await tester.createGesture(kind: PointerDeviceKind.mouse, pointer: 7);
+    await hover.addPointer(location: view(100, 720));
+    await tester.pump();
+    await hover.moveTo(view(101, 720));
+    await tester.pump();
+    expect(region().cursor, SystemMouseCursors.grab);
+    await hover.removePointer();
+    await tester.pump();
+
+    final gesture = await tester.startGesture(view(158, 720),
+        kind: PointerDeviceKind.mouse, pointer: 8);
+    await gesture.moveBy(const Offset(-20, 0));
+    await tester.pump();
+    await gesture.moveTo(view(50, 720));
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+
+    expect(controller.hasSelection, isFalse);
+    expect(controller.selectedText, isEmpty);
+    await tester.pump(const Duration(milliseconds: 400));
+  });
+
   testWidgets('selection geometry is exposed in PDF page coordinates',
       (tester) async {
     final controller = await pumpViewer(tester);

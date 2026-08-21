@@ -1426,6 +1426,7 @@ class PdfEditingController extends ChangeNotifier {
 
   PdfEditTool? _tool;
   PdfMarkupKind? _markupTool;
+  bool _handMode = false;
   bool _colorLocked = false;
 
   static const Set<String> _colorLockedFields = {'color'};
@@ -1439,7 +1440,7 @@ class PdfEditingController extends ChangeNotifier {
   set tool(PdfEditTool? value) {
     // Assigning null while a markup tool is armed is an intentional clear
     // (Escape and the mobile tool switcher's Clear both use this path).
-    if (value == _tool && _markupTool == null) return;
+    if (value == _tool && _markupTool == null && !_handMode) return;
     preferences.snapshotActiveStyleScope(lockedFields: _lockedStyleFields);
     // leaving an ink-like tool commits the drawing, like lifting the pen.
     //
@@ -1461,6 +1462,7 @@ class PdfEditingController extends ChangeNotifier {
     if (value != PdfEditTool.eraser) _eraserToggledOn = false;
     _tool = value;
     _markupTool = null;
+    _handMode = false;
     if (value != PdfEditTool.select) _selected.clear();
     if (value != PdfEditTool.content) _selectedElement = null;
     _cropModeArmed = false;
@@ -1476,6 +1478,22 @@ class PdfEditingController extends ChangeNotifier {
     );
     notifyListeners();
     if (deferInkCommit) Timer.run(finishInk);
+  }
+
+  /// Whether the viewer is in explicit Hand mode.
+  ///
+  /// Hand mode differs from the ordinary tool-free reader state: mouse
+  /// drags always pan and touch long-presses do not select text. Links and
+  /// form controls remain interactive. Assigning [tool] (including null),
+  /// arming a markup, or pressing Escape leaves Hand mode.
+  bool get isHandMode => _handMode;
+
+  /// Disarms editing and markup tools and enters explicit Hand mode.
+  void activateHandMode() {
+    if (_handMode && _tool == null && _markupTool == null) return;
+    tool = null;
+    _handMode = true;
+    notifyListeners();
   }
 
   /// The armed text-markup tool, or null when text selections should remain
@@ -1504,7 +1522,7 @@ class PdfEditingController extends ChangeNotifier {
 
     // Text markup needs reader-mode selection gestures. Going through the
     // normal setter also commits a pending ink stroke before switching.
-    if (_tool != null) tool = null;
+    if (_tool != null || _handMode) tool = null;
     preferences.snapshotActiveStyleScope(lockedFields: _lockedStyleFields);
     _markupTool = value;
     _selected.clear();

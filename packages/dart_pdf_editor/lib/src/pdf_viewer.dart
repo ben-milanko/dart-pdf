@@ -5219,6 +5219,7 @@ class _PdfViewerState extends State<PdfViewer>
     if (editing != null &&
         editing.tool == null &&
         editing.markupTool == null &&
+        !editing.isHandMode &&
         !editing.isPickingColor &&
         _lastPointerKind == PointerDeviceKind.mouse) {
       final point = _pagePointAt(details.localPosition);
@@ -5246,6 +5247,10 @@ class _PdfViewerState extends State<PdfViewer>
     final (page, x, y) = point;
     final takeover = !widget.contextMenuEnabled;
     final editing = widget.editing;
+    // Hand is a navigation-only mode. A secondary click must not quietly
+    // turn into the text/annotation selection gesture that ordinary reader
+    // mode offers.
+    if (editing?.isHandMode == true) return;
     if (editing != null && !editing.isPickingColor) {
       // Existing form widgets become the selection in normal/select/form
       // modes. Their actions live in the contextual toolbar/properties
@@ -5755,7 +5760,9 @@ class _PdfViewerState extends State<PdfViewer>
   /// click would select.
   bool _selectableAnnotationAt(Offset local, {(int, double, double)? at}) {
     final editing = widget.editing;
-    if (editing == null || editing.tool != null) return false;
+    if (editing == null || editing.tool != null || editing.isHandMode) {
+      return false;
+    }
     final point = at ?? _pagePointAt(local);
     return point != null &&
         editing.selectableAnnotationAt(point.$1, point.$2, point.$3) != null;
@@ -5766,7 +5773,13 @@ class _PdfViewerState extends State<PdfViewer>
     if (_grabPanning) return; // grabbing keeps its cursor mid-drag
     final editing = widget.editing;
     final MouseCursor cursor;
-    if (editing != null &&
+    if (editing?.isHandMode == true) {
+      final action = _annotationAt(event.localPosition);
+      final notified = widget.onAnnotationTap != null &&
+          _annotationHitAt(event.localPosition, actionsOnly: false) != null;
+      cursor =
+          action != null || notified ? SystemMouseCursors.click : grabCursor;
+    } else if (editing != null &&
         editing.tool == null &&
         !editing.isPickingColor &&
         !editing.hasAnnotationSelection &&
@@ -5916,6 +5929,7 @@ class _PdfViewerState extends State<PdfViewer>
   void _onSelectAll() {
     final page = _controller.currentPage;
     final editing = widget.editing;
+    if (editing?.isHandMode == true) return;
     if (editing != null &&
         (editing.tool == PdfEditTool.select ||
             editing.hasAnnotationSelection)) {
@@ -6048,7 +6062,11 @@ class _PdfViewerState extends State<PdfViewer>
   /// by the disambiguation timeout and claim the second of two rapid
   /// clicks, starving buttons in page overlays.
   void _onPointerUp(PointerUpEvent event) {
-    if (event.kind != PointerDeviceKind.mouse || !_wordDrag) return;
+    if (event.kind != PointerDeviceKind.mouse ||
+        !_wordDrag ||
+        widget.editing?.isHandMode == true) {
+      return;
+    }
     final downLocal = _lastMouseDownLocal;
     if (downLocal == null ||
         (event.localPosition - downLocal).distance >= kTouchSlop) {
@@ -6125,6 +6143,16 @@ class _PdfViewerState extends State<PdfViewer>
     // document out from under its own stroke
     if (_kindDrawsInk(details.kind)) return;
     _focusNode.requestFocus();
+    if (widget.editing?.isHandMode == true) {
+      // Explicit Hand mode is navigation-only. Unlike the tool-free reader
+      // state, a drag that begins over page text must grab the document
+      // instead of creating a text selection.
+      _grabPanning = true;
+      _beginMotionRenderHold();
+      setState(() => _hoverCursor = grabbingCursor);
+      _controller._setSelection('');
+      return;
+    }
     // Shift+drag in default editing mode (no tool armed, nothing
     // selected) rubber-bands a marquee selection - the gesture the
     // select tool offers, without arming it. Shift forces the marquee
@@ -7729,6 +7757,7 @@ class _PdfViewerState extends State<PdfViewer>
                                     ..gestureSettings = gestureSettings
                                     ..isEnabled = (() =>
                                         widget.editing?.tool == null &&
+                                        widget.editing?.isHandMode != true &&
                                         widget.editing?.isPickingColor != true)
                                     ..onLongPressStart = _onLongPressStart
                                     ..onLongPressMoveUpdate = _onLongPressMove
