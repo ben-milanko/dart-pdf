@@ -386,9 +386,24 @@ class _DemoHarness {
   }
 
   Future<void> tapFormField(String name, {int widgetIndex = 0}) async {
+    final field = editing.acroForm?.fieldNamed(name);
+    final rect = field?.widgetRect(widgetIndex);
+    final page = field?.widgetPageIndex(widgetIndex) ?? -1;
+    expect(field, isNotNull, reason: '$name should be an AcroForm field');
+    expect(rect, isNotNull, reason: '$name widget $widgetIndex needs a rect');
+    expect(page, greaterThanOrEqualTo(0),
+        reason: '$name widget $widgetIndex should be on a page');
+
+    // The compact editing dock floats over the bottom of the page. Lower
+    // fields (notably the radio buttons on the showcase page) can otherwise
+    // be present in the tree while their tap target is covered by the dock on
+    // a short Android viewport. Frame the widget before tapping it, just as a
+    // user would scroll the field into view.
+    await viewer.showRect(page, rect!);
+    await $.pump(const Duration(milliseconds: 350));
     final target = find.byKey(
       ValueKey(
-        'pdf-form-field-${viewer.currentPage}-$name-$widgetIndex',
+        'pdf-form-field-$page-$name-$widgetIndex',
       ),
     );
     await waitForFinder(target);
