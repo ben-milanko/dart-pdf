@@ -35,6 +35,7 @@ import 'page_object_cache.dart';
 import 'perf_log.dart';
 import 'performance_policy.dart';
 import 'platform_cursors.dart';
+import 'popup_position.dart';
 import 'pdf_page_view.dart';
 import 'preview_cache.dart';
 import 'raster_cache.dart';
@@ -5375,12 +5376,9 @@ class _PdfViewerState extends State<PdfViewer>
         editing != null && widget.textSelectionEditing && hasSelection;
     final canMarkup =
         editing != null && widget.textSelectionMarkup && hasSelection;
-    final overlay =
-        Overlay.of(context).context.findRenderObject()! as RenderBox;
     final picked = await showMenu<_TextMenuAction>(
       context: context,
-      position: RelativeRect.fromRect(
-          globalPosition & Size.zero, Offset.zero & overlay.size),
+      position: pdfPopupPosition(context, globalPosition),
       items: [
         if (canEdit)
           PopupMenuItem<_TextMenuAction>(

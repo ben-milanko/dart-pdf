@@ -4,6 +4,8 @@
 
 - Anchor thumbnail context menus to the correct position when the editor is
   hosted inside an offset nested navigator.
+- Anchor viewer text, annotation, and form popups in that same nested-navigator
+  configuration instead of shifting them by the overlay origin.
 - Render ordinary pages *through* a scroll instead of waiting it out.
   `PdfPageRenderScheduler` gains a motion lane: a request declares a
   `PdfRenderMotionClass`, evaluated at grant time rather than baked in, so a

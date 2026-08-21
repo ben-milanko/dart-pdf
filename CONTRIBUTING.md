@@ -62,6 +62,10 @@ fvm flutter pub get    # at the repo root, resolves every workspace package
 Mirror what CI runs (`.github/workflows/ci.yml`):
 
 ```bash
+# Format only the files you changed. This wrapper pins the workspace language
+# version even before pub get has generated a package config.
+fvm dart tool/format.dart path/to/changed_file.dart [...]
+
 # Static analysis (whole workspace, from the repo root)
 fvm dart analyze --fatal-infos
 
@@ -73,6 +77,12 @@ cd packages/pdf_graphics && fvm dart test
 # Flutter package
 cd packages/dart_pdf_editor && fvm flutter test
 ```
+
+Use `tool/format.dart` rather than calling `dart format` directly. In a fresh
+worktree, the generated package config does not exist yet; the bare SDK command
+then assumes its latest language version and can rewrite the Dart 3.5 codebase
+into a different formatting style. The wrapper reads the workspace SDK lower
+bound from the root `pubspec.yaml` and passes it explicitly.
 
 `dart analyze` must be clean with `--fatal-infos`; CI fails on any info,
 warning, or error.

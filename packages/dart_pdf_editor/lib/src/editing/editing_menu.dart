@@ -5,6 +5,7 @@ import 'package:pdf_document/pdf_document.dart';
 
 import '../l10n/pdf_l10n.dart';
 import '../page_range_dialog.dart';
+import '../popup_position.dart';
 import 'editing_color_picker.dart';
 import 'editing_controller.dart';
 import 'editing_form_style.dart';
@@ -285,11 +286,9 @@ Future<void> showPdfAnnotationMenu({
   final custom =
       customActions?.call(context, request) ?? const <PdfAnnotationMenuItem>[];
 
-  final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
   final picked = await showMenu<PdfAnnotationMenuItem>(
     context: context,
-    position:
-        RelativeRect.fromRect(position & Size.zero, Offset.zero & overlay.size),
+    position: pdfPopupPosition(context, position),
     items: _menuRowsWithDividers(
         [unlock, clipboard, arrange, nodes, recolor, destructive, custom]),
   );
@@ -366,12 +365,9 @@ Future<void> showPdfFormFieldMenu({
           icon: Icons.list_alt_outlined,
           enabled: enabled && field.options.isNotEmpty,
           onSelected: (_) async {
-            final overlay =
-                Overlay.of(context).context.findRenderObject()! as RenderBox;
             final picked = await showMenu<String>(
               context: context,
-              position: RelativeRect.fromRect(
-                  position & Size.zero, Offset.zero & overlay.size),
+              position: pdfPopupPosition(context, position),
               items: [
                 for (final (export, display) in field.options)
                   PopupMenuItem(
@@ -484,11 +480,9 @@ Future<void> showPdfFormFieldMenu({
     ),
   ];
 
-  final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
   final picked = await showMenu<PdfAnnotationMenuItem>(
     context: context,
-    position:
-        RelativeRect.fromRect(position & Size.zero, Offset.zero & overlay.size),
+    position: pdfPopupPosition(context, position),
     items: _menuRowsWithDividers([edit, structure, destructive]),
   );
   // the request param is unused by these closures; reuse the row type

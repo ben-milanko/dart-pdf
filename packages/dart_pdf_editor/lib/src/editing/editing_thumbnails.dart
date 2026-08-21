@@ -15,6 +15,7 @@ import '../l10n/pdf_l10n.dart';
 import '../page_range_dialog.dart';
 import '../pdf_page_view.dart';
 import '../pdf_viewer.dart';
+import '../popup_position.dart';
 import '../preview_cache.dart';
 import '../tile_store.dart';
 import '../perf_log.dart';
@@ -2702,14 +2703,9 @@ Future<void> _showPageTileMenu({
   ];
   if (items.isEmpty) return;
 
-  final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
-  final overlayPosition = overlay.globalToLocal(position);
   final picked = await showMenu<_PageTileAction>(
     context: context,
-    position: RelativeRect.fromRect(
-      overlayPosition & Size.zero,
-      Offset.zero & overlay.size,
-    ),
+    position: pdfPopupPosition(context, position),
     items: items,
   );
   switch (picked) {

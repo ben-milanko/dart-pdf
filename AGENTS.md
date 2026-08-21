@@ -7,6 +7,8 @@ Monorepo using **pub workspaces** (root `pubspec.yaml` lists members under
 ## Commands
 
 - `fvm flutter pub get` (at repo root - resolves every workspace package)
+- `fvm dart tool/format.dart <files...>` (format changed files; do not invoke
+  `dart format` directly because a fresh worktree has no package config yet)
 - `fvm dart analyze` (at root)
 - `cd packages/<pkg> && fvm dart test` (pure-Dart packages)
 - `cd packages/dart_pdf_editor && fvm flutter test`

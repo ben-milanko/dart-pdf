@@ -14,6 +14,7 @@ import '../debug_overlays.dart';
 import '../l10n/pdf_l10n.dart';
 import '../page_geometry.dart';
 import '../platform_cursors.dart';
+import '../popup_position.dart';
 import '../renderer.dart';
 import '../theme.dart';
 import 'editing_color_pick.dart';
@@ -4173,12 +4174,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final options = field.options;
     if (options.isEmpty) return;
     final name = field.name;
-    final overlay =
-        Overlay.of(context).context.findRenderObject()! as RenderBox;
     final picked = await showMenu<String>(
       context: context,
-      position: RelativeRect.fromRect(
-          globalPosition & Size.zero, Offset.zero & overlay.size),
+      position: pdfPopupPosition(context, globalPosition),
       items: [
         for (final (export, display) in options)
           PopupMenuItem(

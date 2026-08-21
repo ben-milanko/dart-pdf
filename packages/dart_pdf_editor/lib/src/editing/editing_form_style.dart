@@ -8,6 +8,7 @@ import 'editing_fonts.dart';
 import 'editing_value_field.dart';
 import 'text_prompt.dart';
 import '../l10n/pdf_l10n.dart';
+import '../popup_position.dart';
 
 /// A field-type menu for the single selected form widget.
 ///
@@ -275,11 +276,9 @@ Future<void> showPdfFormTextStylePopup({
   PdfFontPicker? fontPicker,
 }) async {
   if (!controller.canStyleSelectedFormField) return;
-  final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
   await showMenu<void>(
     context: context,
-    position:
-        RelativeRect.fromRect(position & Size.zero, Offset.zero & overlay.size),
+    position: pdfPopupPosition(context, position),
     items: [
       PopupMenuItem<void>(
         key: const ValueKey('pdf-form-style-popup'),
