@@ -140,6 +140,7 @@
   "sdk_nav_features": "Tính năng",
   "sdk_nav_performance": "Hiệu năng",
   "sdk_nav_compare": "So sánh",
+  "sdk_nav_guide": "Hướng dẫn",
   "sdk_nav_packages": "Gói",
   "sdk_nav_getpub": "Nhận trên pub.dev",
   "sdk_hero_h1": "Trình xem và chỉnh sửa PDF cho Flutter, <span class=\"hl\">được viết hoàn toàn bằng\n          Dart.</span>",

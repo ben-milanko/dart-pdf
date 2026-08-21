@@ -140,6 +140,7 @@
   "sdk_nav_features": "Özellikler",
   "sdk_nav_performance": "Performans",
   "sdk_nav_compare": "Karşılaştır",
+  "sdk_nav_guide": "Rehber",
   "sdk_nav_packages": "Paketler",
   "sdk_nav_getpub": "pub.dev'den edinin",
   "sdk_hero_h1": "Flutter için bir PDF görüntüleyici ve düzenleyici, <span class=\"hl\">tamamen\n          Dart ile yazılmış.</span>",

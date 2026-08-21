@@ -81,6 +81,9 @@ The [Flutter PDF editor overview](https://dart-pdf.com/flutter-pdf-editor)
 covers the architecture, supported editing features, package layout, and
 measured performance.
 
+For a complete first integration, follow
+[How to add PDF editing to a Flutter app](https://dart-pdf.com/guides/add-pdf-editing-to-flutter).
+
 Built on the pure-Dart
 [dart-pdf suite](https://github.com/ben-milanko/dart-pdf): `pdf_cos`
 (file syntax) ← `pdf_document` (document semantics + editing) ←

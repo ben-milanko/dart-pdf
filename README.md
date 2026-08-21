@@ -42,6 +42,8 @@ the web; it opens onto a six-page feature showcase, and the open button
 loads your own PDF).
 
 Developer overview: [Flutter PDF editor](https://dart-pdf.com/flutter-pdf-editor)
+
+Step-by-step integration: [How to add PDF editing to a Flutter app](https://dart-pdf.com/guides/add-pdf-editing-to-flutter)
 with installation, architecture, supported editing features, and benchmarks.
 
 Visual render results, browsable directly in GitHub: the checked-in

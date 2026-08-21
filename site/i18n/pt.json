@@ -129,6 +129,7 @@
   "sdk_nav_features": "Recursos",
   "sdk_nav_performance": "Desempenho",
   "sdk_nav_compare": "Comparar",
+  "sdk_nav_guide": "Guia",
   "sdk_nav_packages": "Pacotes",
   "sdk_nav_getpub": "Baixe no pub.dev",
   "sdk_hero_h1": "Um visualizador e editor de PDF para Flutter, <span class=\"hl\">escrito inteiramente em\n          Dart.</span>",

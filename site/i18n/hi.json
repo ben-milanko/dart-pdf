@@ -140,6 +140,7 @@
   "sdk_nav_features": "विशेषताएँ",
   "sdk_nav_performance": "प्रदर्शन",
   "sdk_nav_compare": "तुलना",
+  "sdk_nav_guide": "गाइड",
   "sdk_nav_packages": "पैकेज",
   "sdk_nav_getpub": "pub.dev पर पाएँ",
   "sdk_hero_h1": "Flutter के लिए एक PDF व्यूअर और एडिटर, <span class=\"hl\">पूरी तरह\n          Dart में लिखा गया।</span>",

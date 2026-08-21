@@ -140,6 +140,7 @@
   "sdk_nav_features": "Features",
   "sdk_nav_performance": "Performance",
   "sdk_nav_compare": "Compare",
+  "sdk_nav_guide": "Guide",
   "sdk_nav_packages": "Packages",
   "sdk_nav_getpub": "Get it on pub.dev",
   "sdk_hero_h1": "A complete Flutter PDF editor, <span class=\"hl\">written entirely in\n          Dart.</span>",
