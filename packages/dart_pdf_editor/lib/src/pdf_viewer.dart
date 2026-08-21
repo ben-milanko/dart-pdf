@@ -1026,6 +1026,21 @@ typedef PdfScrollIndicatorBuilder = Widget Function(BuildContext context,
 /// search with highlights. Pages re-rasterize at the settled zoom; past the
 /// full-page raster caps a detail patch keeps the visible region sharp.
 class PdfViewer extends StatefulWidget {
+  /// Test hook for delaying annotation appearance rendering across lifecycle
+  /// transitions. Null uses [PdfPageRenderer.renderAnnotationPicture].
+  @visibleForTesting
+  static Future<ui.Picture?> Function(
+    PdfPage page,
+    PdfAnnotation annotation,
+    int rotation,
+  )? debugAnnotationAppearanceRendererOverride;
+
+  /// Test observer called immediately before an annotation appearance picture
+  /// is disposed. Production ownership and disposal remain unchanged.
+  @visibleForTesting
+  static void Function(ui.Picture picture)?
+      debugAnnotationAppearanceDisposeObserver;
+
   /// Raw content size above which a page is treated as "heavy" and its text is
   /// NOT extracted synchronously just to pick a hover cursor. A normal page is
   /// a few KB; a dense CAD sheet is megabytes and its extraction (a full
@@ -7825,16 +7840,19 @@ class _AnnotationAppearanceLayerState
   }
 
   void _disposeCache() {
-    for (final picture in _cache.values) {
-      picture.dispose();
-    }
+    // Snapshot identity ownership before clearing. Cache and retirement are
+    // normally disjoint, but overlapping render generations must still never
+    // dispose the same native handle twice.
+    final owned = Set<ui.Picture>.identity()
+      ..addAll(_cache.values)
+      ..addAll(_retired);
     _cache.clear();
     _cacheRotation = null;
     _cacheSize = null;
-    for (final picture in _retired) {
-      if (!picture.debugDisposed) picture.dispose();
-    }
     _retired.clear();
+    for (final picture in owned) {
+      _disposePicture(picture);
+    }
   }
 
   void _notifyReady(int generation) {
@@ -7897,7 +7915,7 @@ class _AnnotationAppearanceLayerState
     ]).then((rendered) {
       if (!mounted || generation != _generation) {
         for (final (_, picture) in rendered) {
-          picture?.dispose();
+          if (picture != null) _disposePicture(picture);
         }
         return;
       }
@@ -7906,7 +7924,7 @@ class _AnnotationAppearanceLayerState
         // A concurrent render may have filled this slot; keep one owner.
         final existing = _cache[source];
         if (existing != null) {
-          picture.dispose();
+          _disposePicture(picture);
           continue;
         }
         _cache[source] = picture;
@@ -7948,7 +7966,7 @@ class _AnnotationAppearanceLayerState
     if (_retired.isEmpty) return;
     final live = Set<ui.Picture>.identity()..addAll(_pictures);
     for (final picture in _retired) {
-      if (!live.contains(picture)) picture.dispose();
+      if (!live.contains(picture)) _disposePicture(picture);
     }
     _retired.clear();
   }
@@ -7956,11 +7974,18 @@ class _AnnotationAppearanceLayerState
   Future<ui.Picture?> _renderAnnotation(
       PdfPage page, PdfAnnotation annotation, int rotation) async {
     try {
+      final override = PdfViewer.debugAnnotationAppearanceRendererOverride;
+      if (override != null) return await override(page, annotation, rotation);
       return await PdfPageRenderer.renderAnnotationPicture(page, annotation,
           rotation: rotation);
     } catch (_) {
       return null;
     }
+  }
+
+  void _disposePicture(ui.Picture picture) {
+    PdfViewer.debugAnnotationAppearanceDisposeObserver?.call(picture);
+    picture.dispose();
   }
 
   @override
