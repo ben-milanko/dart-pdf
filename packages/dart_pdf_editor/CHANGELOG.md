@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.7.1
+
+- Fix a release-mode crash when an annotated viewer unmounts while a
+  replacement appearance is still rendering. Cached, retired, and late
+  pictures now have explicit at-most-once disposal ownership without reading
+  Flutter's assert-only `Picture.debugDisposed` state.
+
 ## 3.7.0
 
 - Render ordinary pages *through* a scroll instead of waiting it out.
