@@ -1,5 +1,27 @@
 # Changelog
 
+## 3.7.0
+
+- Add `SimpleFont`, the simple-font counterpart to `Type0Font`: one place that
+  resolves a character code to text the way the renderer does (`/ToUnicode`,
+  `/Encoding` `/Differences`, the built-in Symbol and ZapfDingbats encodings,
+  then the base encoding), plus the reverse table for re-encoding replacements
+  and the `/Widths` lookup.
+- Fix content editing against fonts that remap their codes. `PdfPageElements`
+  decoded a simple font's show string as Latin-1, so a subsetted font reported
+  text such as `-=>-/>?-?@` for a page reading `05/08/2026`, and replacements
+  were written back as raw code units. Element text, both run codecs, the `'`
+  and `"` operators, and paragraph reflow now all go through the font's own
+  encoding.
+- Restrict a replacement to codes the font actually declares - a glyph name
+  from the base encoding or `/Differences`, or a `/ToUnicode` entry - so a
+  subset that dropped a character declines the edit instead of drawing notdef.
+  Decoding keeps its lenient Latin-1 fallback. A named base encoding declares
+  printable ASCII (0x20-0x7E) per Annex D.
+- Move the Adobe glyph-name tables down from `pdf_graphics` to
+  `src/fonts/encodings.dart` and export them, so the content editor and the
+  font engine share one copy.
+
 ## 3.6.0
 
 - Read Bluebeam FreeText paragraph styling from `/DS` and rich-text `/RC` when

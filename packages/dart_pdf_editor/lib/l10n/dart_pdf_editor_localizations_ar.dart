@@ -907,6 +907,34 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get searchRegex => 'تعبير نمطي';
 
   @override
+  String get searchReplace => 'استبدال';
+
+  @override
+  String get searchReplaceAll => 'استبدال الكل';
+
+  @override
+  String get searchReplaceHint => 'استبدال بـ';
+
+  @override
+  String get searchReplaceNotTargetable =>
+      'يتعذّر استبدال هذا التطابق وحده — استخدم «استبدال الكل» أو حرّره بأداة المحتوى';
+
+  @override
+  String searchReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'تم استبدال $count تطابق',
+      many: 'تم استبدال $count تطابقًا',
+      few: 'تم استبدال $count تطابقات',
+      two: 'تم استبدال تطابقين',
+      one: 'تم استبدال تطابق واحد',
+      zero: 'لم يتم استبدال أي شيء',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'نتائج البحث';
 
   @override

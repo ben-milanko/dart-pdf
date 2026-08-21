@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.7.0
+
+- Add `buildTextLinesPdf`, a one-page fixture drawing each line as its own text
+  run, for content-editing tests that need several runs whose text is the same
+  or deliberately different.
+
 ## 3.6.0
 
 - Add a Bluebeam-style FreeText fixture covering `/DS` and rich-text `/RC`

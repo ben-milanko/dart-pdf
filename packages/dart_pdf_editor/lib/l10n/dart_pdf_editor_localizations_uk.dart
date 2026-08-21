@@ -904,6 +904,33 @@ class DartPdfEditorLocalizationsUk extends DartPdfEditorLocalizations {
   String get searchRegex => 'Регулярний вираз';
 
   @override
+  String get searchReplace => 'Замінити';
+
+  @override
+  String get searchReplaceAll => 'Замінити все';
+
+  @override
+  String get searchReplaceHint => 'Замінити на';
+
+  @override
+  String get searchReplaceNotTargetable =>
+      'Цей збіг не можна замінити окремо — скористайтеся «Замінити все» або відредагуйте його інструментом вмісту';
+
+  @override
+  String searchReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Замінено $count збігу',
+      many: 'Замінено $count збігів',
+      few: 'Замінено $count збіги',
+      one: 'Замінено 1 збіг',
+      zero: 'Нічого не замінено',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Результати пошуку';
 
   @override

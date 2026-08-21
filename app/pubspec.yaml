@@ -5,7 +5,7 @@ resolution: workspace
 
 # version is the single source of truth for every platform build; CI passes
 # --build-name / --build-number derived from it (see app/RELEASING.md).
-version: 3.6.0+29
+version: 3.7.0+31
 
 environment:
   sdk: ^3.5.0
@@ -23,22 +23,26 @@ dependencies:
   cupertino_icons: ^1.0.8
 
   # The PDF engine and editing UI live in the workspace packages.
-  dart_pdf_editor: ^3.6.0
+  dart_pdf_editor: ^3.7.1
   # Optional Impeller-backed renderer for the existing deep-zoom tile store.
   # Its web export is an inert capability stub and Canvas remains the fallback.
-  dart_pdf_editor_flutter_gpu: ^0.1.4
+  dart_pdf_editor_flutter_gpu: ^0.1.5
   # The optional editor fonts + web render worker; registered at startup so the
   # app keeps the full-featured editor. A viewer-only app would omit this.
-  dart_pdf_editor_assets: ^3.6.0
-  pdf_document: ^3.6.0
-  pdf_cos: ^3.6.0
+  dart_pdf_editor_assets: ^3.7.0
+  pdf_document: ^3.7.0
+  pdf_cos: ^3.7.0
 
   # On-device, downloadable OCR - adds a selectable text layer over scans
   # without leaving the device (native platforms only).
-  pdf_ocr_ondevice: ^3.6.0
+  pdf_ocr_ondevice: ^3.7.0
 
   # Cross-platform file I/O and OS integration.
   file_selector: ^1.0.3
+  # Depended on directly, not just through file_selector: DartPDF swaps in its
+  # own Windows dialog implementation (lib/windows_file_dialogs.dart) because
+  # the plugin needs a Flutter view the multi-window runner never creates.
+  file_selector_platform_interface: ^2.7.0
   share_plus: ^13.3.0
   url_launcher: ^6.3.0
   # Printing has no third-party PDF engine. Where the OS can print a PDF
@@ -94,12 +98,11 @@ dev_dependencies:
     path: ../packages/dart_pdf_editor/example
 
   # Programmatically-built PDFs for widget tests.
-  pdf_test_fixtures: ^3.6.0
+  pdf_test_fixtures: ^3.7.0
 
   # Text extraction, used by the on-device OCR integration test to assert
   # the recognized layer is selectable (pdf_ocr_ondevice is a runtime dep).
-  pdf_graphics: ^3.6.0
-  file_selector_platform_interface: ^2.7.0
+  pdf_graphics: ^3.7.0
   # Points the crash-recovery store at a temp directory so its append/truncate
   # behaviour can be tested against a real filesystem (see
   # test/unsaved_changes_store_io_test.dart).

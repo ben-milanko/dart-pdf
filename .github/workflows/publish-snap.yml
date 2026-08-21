@@ -76,7 +76,7 @@ jobs:
         run: |
           sudo snap install snapcraft --classic
           sudo apt-get update
-          sudo apt-get install -y dbus-x11 xvfb
+          sudo apt-get install -y dbus-x11 xvfb x11-utils
 
       - name: Build and lint snap
         run: |
@@ -92,24 +92,14 @@ jobs:
           sudo snap install --dangerous "$snap_file"
           snap info "$SNAP_NAME"
           sudo snap run "$SNAP_NAME.cli" --version
-          set +e
           # GitHub hosts the runner inside a non-interactive system service,
           # so its user has no PAM-created session cgroup for snap-confine.
           # Root still runs through the snap's strict AppArmor/seccomp/mount
           # sandbox and avoids that runner-only cgroup limitation.
           sudo install -d -m 700 /run/user/0 /root/snap/dartpdf/common
           sudo env XDG_RUNTIME_DIR=/run/user/0 \
-            timeout 12s dbus-run-session -- \
-            xvfb-run -a -f /root/snap/dartpdf/common/.Xauthority \
-            snap run "$SNAP_NAME" \
-            >"$RUNNER_TEMP/dartpdf-snap-smoke.log" 2>&1
-          task_status=$?
-          set -e
-          if [[ "$task_status" -ne 124 ]]; then
-            cat "$RUNNER_TEMP/dartpdf-snap-smoke.log"
-            echo "Snap exited before the smoke-test window (status $task_status)" >&2
-            exit 1
-          fi
+            dbus-run-session -- \
+            tool/smoke_test_linux_gui.sh --cmd "snap run $SNAP_NAME" --timeout 15
 
       - uses: actions/upload-artifact@v7
         with:
@@ -118,14 +108,30 @@ jobs:
           retention-days: 30
 
       - name: Publish stable channel
+        id: upload
         if: env.SNAPCRAFT_STORE_CREDENTIALS != ''
         run: |
+          set -euo pipefail
           snap_file="$(find "$RUNNER_TEMP/snap-output" -name 'dartpdf_*.snap' -print -quit)"
           snapcraft whoami
-          snapcraft upload --release=stable "$snap_file"
+          # A new interface attribute (e.g. the dartpdf-dbus slot) queues the
+          # revision for human Store review: snapcraft exits non-zero with
+          # "will need manual review". The upload itself succeeded and the
+          # revision releases automatically once approved, so warn instead of
+          # failing the workflow.
+          echo "needs_review=false" >> "$GITHUB_OUTPUT"
+          upload_log="$RUNNER_TEMP/snapcraft-upload.log"
+          if ! snapcraft upload --release=stable "$snap_file" 2>&1 | tee "$upload_log"; then
+            if grep -q "will need manual review" "$upload_log"; then
+              echo "::warning::Snap uploaded but queued for manual Store review; it releases to stable after approval."
+              echo "needs_review=true" >> "$GITHUB_OUTPUT"
+            else
+              exit 1
+            fi
+          fi
 
       - name: Verify clean install from Snap Store
-        if: env.SNAPCRAFT_STORE_CREDENTIALS != ''
+        if: env.SNAPCRAFT_STORE_CREDENTIALS != '' && steps.upload.outputs.needs_review != 'true'
         env:
           EXPECTED_VERSION: ${{ steps.release.outputs.version }}
         run: |
@@ -138,14 +144,5 @@ jobs:
           set +e
           sudo install -d -m 700 /run/user/0 /root/snap/dartpdf/common
           sudo env XDG_RUNTIME_DIR=/run/user/0 \
-            timeout 12s dbus-run-session -- \
-            xvfb-run -a -f /root/snap/dartpdf/common/.Xauthority \
-            snap run "$SNAP_NAME" \
-            >"$RUNNER_TEMP/dartpdf-snap-store-smoke.log" 2>&1
-          task_status=$?
-          set -e
-          if [[ "$task_status" -ne 124 ]]; then
-            cat "$RUNNER_TEMP/dartpdf-snap-store-smoke.log"
-            echo "Store snap exited before the smoke-test window (status $task_status)" >&2
-            exit 1
-          fi
+            dbus-run-session -- \
+            tool/smoke_test_linux_gui.sh --cmd "snap run $SNAP_NAME" --timeout 15

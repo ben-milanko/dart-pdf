@@ -1,5 +1,5 @@
 {
-  "_readme": "Declarative registry for the reusable web perf harness. Each scenario names a workload kind (scroll|open|search|edit|hover|warm), a repo-relative PDF (portable, from the CC0 test_corpora/dartpdf corpus so any checkout - and any git worktree in an A/B diff - can run it), and kind-specific params passed to the harness via URL query. The driver (driver.mjs) serves `pdf` at /perf.pdf, sets the query from `params`, and merges whatever window.__perfMetrics() returns into the run envelope - so adding a scenario needs NO driver change. Pick one with `node driver.mjs --scenario <name>` or `tool/perf.sh web <name>`; A/B two revisions with `tool/perf.sh webdiff <ref> <name>`.",
+  "_readme": "Declarative registry for the reusable web perf harness. Each scenario names a workload kind (scroll|read|wheel|open|search|edit|hover|warm), a repo-relative PDF (portable, from the CC0 test_corpora/dartpdf corpus so any checkout - and any git worktree in an A/B diff - can run it), and kind-specific params passed to the harness via URL query. The driver (driver.mjs) serves `pdf` at /perf.pdf, sets the query from `params`, and merges whatever window.__perfMetrics() returns into the run envelope - so adding a scenario needs NO driver change. Pick one with `node driver.mjs --scenario <name>` or `tool/perf.sh web <name>`; A/B two revisions with `tool/perf.sh webdiff <ref> <name>`.",
   "default": "scroll-plan",
   "scenarios": {
     "scroll-plan": {
@@ -13,6 +13,12 @@
       "pdf": "test_corpora/dartpdf/scan-book-12p.pdf",
       "params": { "passes": 1, "fast": 1 },
       "note": "12p A3 scanned grayscale (~3.7 MB decoded/page). Stresses off-thread image decode + the image cache."
+    },
+    "scroll-text": {
+      "kind": "scroll",
+      "pdf": "test_corpora/dartpdf/text-report-40p.pdf",
+      "params": { "passes": 1, "fast": 1, "maxPages": 16 },
+      "note": "40p office-text report, the everyday reading workload: cheap glyph-only pages scrolled and flung past. Light per page, so what shows up here is scheduling and retention, not interpret throughput."
     },
     "zoom-scan": {
    "kind": "scroll",
@@ -120,6 +126,54 @@
       "pdf": "test_corpora/dartpdf/scan-book-12p.pdf",
       "params": { "warm": "off", "warmIdleMs": 9000, "warmTarget": 6 },
       "note": "Control arm for warm-scan-document."
+    },
+    "wheel-text": {
+      "kind": "wheel",
+      "pdf": "test_corpora/dartpdf/text-report-40p.pdf",
+      "params": { "wheelPages": 8, "wheelStepPx": 120, "wheelIntervalMs": 16 },
+      "note": "A continuous trackpad-speed wheel scroll through a 40p text report, sampled every frame: wheelSharpWhileScrollingPct is how much of what was on screen was actually readable while the document moved, and wheelSettleMs is the wait after the reader stops. The 'scroll two pages, wait half a second' report."
+    },
+    "wheel-text-noworker": {
+      "kind": "wheel",
+      "pdf": "test_corpora/dartpdf/text-report-40p.pdf",
+      "params": { "wheelPages": 8, "wheelStepPx": 120, "wheelIntervalMs": 16, "worker": 0 },
+      "note": "The same continuous scroll with the render worker OFF, which is what a session that never attached one (or whose byte source is still completing) actually looks like. Every interpret is on the UI thread, so this is the arm the motion-safe lane's local half exists for."
+    },
+    "wheel-letterhead": {
+      "kind": "wheel",
+      "pdf": "test_corpora/dartpdf/letterhead-report-40p.pdf",
+      "params": { "wheelPages": 8, "wheelStepPx": 120, "wheelIntervalMs": 16 },
+      "note": "The corporate-report shape: the same continuous scroll over text pages that each declare one small letterhead image. Ordinary documents look like this, and a render policy that reads 'has an image' as 'expensive' switches itself off across the whole file - which is what a field trace of a 113-page report showed."
+    },
+    "wheel-letterhead-noworker": {
+      "kind": "wheel",
+      "pdf": "test_corpora/dartpdf/letterhead-report-40p.pdf",
+      "params": { "wheelPages": 8, "wheelStepPx": 120, "wheelIntervalMs": 16, "worker": 0 },
+      "note": "The letterhead report with the render worker OFF - every interpret on the UI thread, which is what the field trace behind this scenario actually was."
+    },
+    "wheel-plan": {
+      "kind": "wheel",
+      "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",
+      "params": { "wheelPages": 6, "wheelStepPx": 120, "wheelIntervalMs": 16 },
+      "note": "The same continuous scroll over dense vector sheets - the arm where rendering through the scroll must not be attempted at any cost."
+    },
+    "read-text": {
+      "kind": "read",
+      "pdf": "test_corpora/dartpdf/text-report-40p.pdf",
+      "params": { "maxPages": 24, "readDwell": 250 },
+      "note": "Read a 40p office-text report page by page, then read back. Every page is cheap, so readFirstSettleP50Ms is pure scheduling latency and readBackInstantPct is how much of the document the caches actually kept - the 'PDFium shows it instantly, we take a moment' shape."
+    },
+    "read-booklet": {
+      "kind": "read",
+      "pdf": "test_corpora/dartpdf/styled-booklet-24p.pdf",
+      "params": { "maxPages": 20, "readDwell": 250 },
+      "note": "Mixed text/graphics booklet read end to end and back. Guards the reading journey on a document whose pages are not uniformly cheap."
+    },
+    "read-plan": {
+      "kind": "read",
+      "pdf": "test_corpora/dartpdf/plan-set-16p.pdf",
+      "params": { "maxPages": 12, "readDwell": 250 },
+      "note": "Heavy vector plan set on the same reading journey: the arm that must not regress when scheduling gets greedier - these pages are the ones the one-per-frame pacing exists for."
     },
     "scroll-hatch": {
       "kind": "scroll",

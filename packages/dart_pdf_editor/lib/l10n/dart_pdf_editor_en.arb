@@ -1166,6 +1166,31 @@
   "@searchRegex": {
     "description": "Tooltip on the search option toggle that treats the query as a regular expression."
   },
+  "searchReplace": "Replace",
+  "@searchReplace": {
+    "description": "Label on the search panel button that replaces the current match."
+  },
+  "searchReplaceAll": "Replace all",
+  "@searchReplaceAll": {
+    "description": "Label on the search panel button that replaces every match in the document."
+  },
+  "searchReplaceHint": "Replace with",
+  "@searchReplaceHint": {
+    "description": "Placeholder in the search panel's replacement text field."
+  },
+  "searchReplaceNotTargetable": "That match can\u2019t be replaced on its own \u2014 use Replace all, or edit it with the content tool",
+  "@searchReplaceNotTargetable": {
+    "description": "Shown when a single search match cannot be pinned to one editable text run, so Replace did nothing."
+  },
+  "searchReplaced": "{count, plural, =0{Nothing replaced} =1{1 match replaced} other{{count} matches replaced}}",
+  "@searchReplaced": {
+    "description": "Confirmation after replacing search matches.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "searchResultsTitle": "Search results",
   "@searchResultsTitle": {
     "description": "Title of the docked search results panel."

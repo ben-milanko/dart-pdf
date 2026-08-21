@@ -38,25 +38,6 @@ sign_code() {
   /usr/bin/codesign --force --sign "$identity" "$path"
 }
 
-sign_cli() {
-  local path="$1"
-  local cli_entitlements="$script_dir/Runner/CLI.entitlements"
-
-  # Mac App Store validation requires every nested executable to opt into the
-  # app sandbox. Apple requires a command-line helper to carry exactly these
-  # two sandbox entitlements so it inherits the containing app's sandbox.
-  # Archive builds use ACTION=install; ordinary ad-hoc/Developer ID builds keep
-  # the CLI unsandboxed so it remains usable directly from a shell.
-  if [[ "${ACTION:-}" == "install" && -f "$cli_entitlements" ]]; then
-    echo "codesign (sandbox helper): $path"
-    /usr/bin/codesign --force --options runtime \
-      --entitlements "$cli_entitlements" --sign "$identity" "$path"
-    return
-  fi
-
-  sign_code "$path"
-}
-
 if [[ -d "$frameworks_dir" ]]; then
   while IFS= read -r -d '' file; do
     if /usr/bin/file -b "$file" | grep -q 'Mach-O'; then
@@ -77,7 +58,7 @@ if [[ -d "$macos_dir" ]]; then
       sign_code "$file"
     elif [[ "$(basename "$file")" == dartpdf-cli ]] &&
         /usr/bin/file -b "$file" | grep -q 'Mach-O'; then
-      sign_cli "$file"
+      sign_code "$file"
     fi
   done < <(find "$macos_dir" -maxdepth 1 -type f -print0)
 fi

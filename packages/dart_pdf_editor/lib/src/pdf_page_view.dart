@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:pdf_cos/pdf_cos.dart'
-    show ContentStreamParser, CosDictionary, CosName, CosStream;
+    show ContentStreamParser, CosDictionary, CosInteger, CosName, CosStream;
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart'
     show
@@ -472,6 +472,79 @@ class PdfPageView extends StatefulWidget {
   /// Maximum retained-scene command count eligible for
   /// [directPicturePresentation].
   static int directPicturePresentationMaxCommands = 5000;
+
+  /// Lets ordinary pages render **through** a scroll instead of waiting for it
+  /// to settle (the render scheduler's motion-safe lane).
+  ///
+  /// The hold exists because a dense sheet's interpret walk is a dropped
+  /// frame. With a render worker attached that walk is not on this thread at
+  /// all, so *starting* a page costs the scroll nothing; only the replay of
+  /// the returned buffer does, and by then its size is known. A page therefore
+  /// enters the lane on two conditions, checked at the two moments they can be
+  /// answered honestly:
+  ///
+  /// 1. **At request time** - a live worker (so no local walk) and no
+  ///    page-level XObject whose declared pixels exceed
+  ///    [motionSafeMaxImagePixels] (so no unmeasured image decode/upload
+  ///    behind a three-operator content stream).
+  /// 2. **When the record lands** - at most [motionSafeMaxCommands] commands
+  ///    and no more image pixels than [motionSafeMaxImagePixels].
+  ///
+  /// A page that fails either test keeps the classic behaviour: held until the
+  /// scroll settles, then one per frame. Set false to restore the old
+  /// strictly-paced scrolling everywhere.
+  static bool motionSafeRenders = true;
+
+  /// Content-stream ceiling for entering the motion-safe lane with **no render
+  /// worker attached**, where the walk itself runs on the UI thread.
+  ///
+  /// The lane's usual premise is that the walk is off-thread and so costs a
+  /// scrolling frame nothing. Plenty of real sessions have no worker (a host
+  /// that never attached one, or a byte source still completing), and there
+  /// the old behaviour was the full 500 ms scroll-quiet wait for a page whose
+  /// walk measures 10-20 ms. This admits only pages small enough that being
+  /// wrong costs a frame rather than a stutter - and being wrong is recorded:
+  /// a local walk that overruns [motionSafeLocalBudgetMs] marks that page
+  /// held for good.
+  ///
+  /// Deliberately far below [boundedFinalSinglePassMaxRawContentBytes]:
+  /// encoded size is a *weak* proxy for walk cost (a 3 KB hatched sheet
+  /// expands to 300k commands), so the pre-walk gate has to be pessimistic and
+  /// let the measurement below do the real work.
+  static int motionSafeLocalMaxRawContentBytes = 24 * 1024;
+
+  /// UI-thread budget for a local motion-safe interpret. A page whose walk
+  /// overruns it is never granted the lane again (see [_recordKnownHeld]) -
+  /// the measured cost, unlike its encoded size, is the truth.
+  static double motionSafeLocalBudgetMs = 40;
+
+  /// Command ceiling for replaying a completed record while a scroll is still
+  /// in flight ([motionSafeRenders]).
+  ///
+  /// Well under [directPicturePresentationMaxCommands]: that ceiling asks
+  /// whether a display list is cheap enough to re-issue every compositor
+  /// frame, this one asks whether building it once fits inside a frame that is
+  /// already scrolling. A text page is tens of commands; the CAD sheets and
+  /// hatched sections this protects are 70k-300k.
+  static int motionSafeMaxCommands = 4000;
+
+  /// Embedded-image pixels a page may carry and still render through a scroll.
+  ///
+  /// The lane originally refused any page that declared a single /XObject, on
+  /// the reasoning that a three-operator content stream can hide a hundred
+  /// megapixels. True - but it also hides the 42x10 logo that every page of a
+  /// corporate report carries, and a field trace of exactly such a document
+  /// (113 pages, a letterhead mark on each) showed the lane switched off for
+  /// the entire file: every scheduler grant read `cost=held`.
+  ///
+  /// Declared size is knowable without decoding anything - /Width and /Height
+  /// are dictionary entries - so ask instead of assume. One megapixel is about
+  /// 4 MB of RGBA: a decode/upload that fits a frame, and far below the
+  /// large-format scans and CAD underlays the ceiling exists to keep out. The
+  /// same budget is applied to the returned record's actual image draws, which
+  /// also covers inline images and the contents of Form XObjects that nothing
+  /// at page level advertises.
+  static int motionSafeMaxImagePixels = 1 << 20;
 
   /// Prioritizes a bounded page's complete display list after its image-free
   /// worker transcript has warmed, instead of spending UI/GPU time flattening
@@ -1126,6 +1199,9 @@ class _PdfPageViewState extends State<PdfPageView>
         oldWidget.destructiveStamp != widget.destructiveStamp) {
       _webSurfaceDeclined = false;
       _webSurfaceDimensions = null;
+      // What a record cost belongs to the page that produced it. A recycled
+      // slot, an edit, or a new revision is a different page's answer.
+      _recordKnownHeld = false;
     }
     if (!identical(oldWidget.renderHold, widget.renderHold)) {
       oldWidget.renderHold?.removeListener(_onRenderHoldChanged);
@@ -1264,6 +1340,29 @@ class _PdfPageViewState extends State<PdfPageView>
     }
     final onScreen = _isOnScreen();
     final foreground = onScreen && widget.qualityVisible;
+    // A page that is on screen with nothing of its own to paint has to ask for
+    // its render, every rebuild until it gets one.
+    //
+    // Nothing in the render intent changes as a page scrolls into view -
+    // onScreen is deliberately not part of it - and the image-ratio promotion
+    // cannot fire either, because [_renderedAtDisplayImageRatio] answers "yes"
+    // for a page that has never rendered at all. So the only thing that used
+    // to queue a cache-window neighbour crossing into the viewport was the
+    // settle generation bump at the END of the scroll, a 500 ms quiet window
+    // away. That was the reader's "scroll two pages, then wait half a second":
+    // not a slow render, a render never asked for. The motion-safe lane cannot
+    // grant what was never queued.
+    //
+    // Deliberately a level check, not an edge one: the on-screen span can flip
+    // before the page is geometrically visible, so "the frame it entered" is
+    // not a reliable moment to hang this on. Asking repeatedly is safe - the
+    // scheduler de-duplicates by token, [isQueued] keeps the ask off a render
+    // already in flight, and _render() itself declines an off-screen page.
+    final visibleWithNothingToPaint = foreground &&
+        _picture == null &&
+        _image == null &&
+        _directPicture == null &&
+        !(widget.renderScheduler?.isQueued(this) ?? false);
     // Every page that intersects the viewport must settle sharp. Near a page
     // boundary two pages can be equally important even though the viewer has
     // only one integer currentPage/focusDistance == 0. The on-screen span
@@ -1277,6 +1376,7 @@ class _PdfPageViewState extends State<PdfPageView>
     }
     if (transition.scheduleRender ||
         promoteForFocus ||
+        visibleWithNothingToPaint ||
         (tileShareChanged && foreground && widget.scale > 1.05)) {
       // scale change re-rasters the page; a settle that only moved the
       // viewport refreshes the detail patch. Both route through _render so
@@ -1408,13 +1508,19 @@ class _PdfPageViewState extends State<PdfPageView>
         !vectorOnly &&
         _renderedAtFullImageRatio() &&
         widget.previewCache != null) {
-      // Command count is the best portable retained-heap proxy available.
-      // The complete engine picture and decoded images are additional retained
-      // allocations, so count all three rather than under-pricing complex
-      // pages into the LRU.
-      final commandBytes = scene.commands.length * 260;
-      final estimatedBytes =
-          commandBytes + pictureBytes + scene.decodedImageBytes;
+      // Priced through the cache's own function, which floors the entry at
+      // the raster this scene stands in for: the engine's picture estimate
+      // alone under-reports a text page by an order of magnitude (see
+      // PdfPagePreviewCache.priceRetainedScene).
+      final displaySize = _renderPlan.pageSize(widget.page) * _effectiveRatio();
+      final estimatedBytes = PdfPagePreviewCache.priceRetainedScene(
+        commandCount: scene.commands.length,
+        pictureBytes: pictureBytes,
+        decodedImageBytes: scene.decodedImageBytes,
+        rasterBytes: (displaySize.width * displaySize.height * 4)
+            .round()
+            .clamp(0, 1 << 30),
+      );
       _sceneHandle = widget.previewCache!.retainScene(
         widget.previewIndex,
         widget.page,
@@ -1443,7 +1549,18 @@ class _PdfPageViewState extends State<PdfPageView>
     );
     if (handle == null) return;
     final retainedImageRatio = handle.imagePixelRatio;
-    final requiredImageRatio = _imageRatioTarget();
+    // What this scene has to clear is *display* sharpness - at least one
+    // decoded sample per physical pixel at the current zoom - not the 2x
+    // decode headroom a fresh render aims for ([focusedImageDecodeHeadroom]).
+    //
+    // Asking for the headroom here threw away a whole page for a difference
+    // no one can see: a field trace of a scroll-back showed
+    // `reject reason=image-lod have=1.79 need=2.00`, and the cost of that 10%
+    // was blank paper plus a 40 ms re-interpret on a page whose display list
+    // was sitting in the cache. Adopt it, paint immediately; a zoom past what
+    // its images can carry re-renders through the ordinary sharpness path
+    // ([_pictureImagesAreSharpAtZoom]).
+    final requiredImageRatio = _effectiveRatio();
     if (retainedImageRatio != null &&
         retainedImageRatio < requiredImageRatio * 0.99) {
       handle.dispose();
@@ -2302,15 +2419,137 @@ class _PdfPageViewState extends State<PdfPageView>
       scheduler: widget.renderScheduler,
       hold: widget.renderHold,
       render: _renderNow,
+      motion: _pageAllowsMotionRender(),
     );
   }
 
   bool get _renderPaused => _renderSession.paused(
         scheduler: widget.renderScheduler,
         hold: widget.renderHold,
+        motion: _motionSafePass,
       );
 
-  Future<bool> _paceWorkerUiWork({bool replacePending = true}) async {
+  /// Whether the pass currently running may continue through a scroll hold.
+  ///
+  /// Set when a pass starts (from [_pageAllowsMotionRender], which is all that
+  /// can be known before the page has been walked) and narrowed the moment the
+  /// record arrives and its real size is in hand ([_recordAllowsMotionReplay]).
+  /// The scheduler decides what each class may do *now*.
+  /// A pass that turns out to be expensive simply reverts to the classic
+  /// behaviour: it stops at the next [_renderPaused] check and re-renders when
+  /// the scroll settles, exactly as every pass did before the lane existed.
+  PdfRenderMotionClass _motionSafePass = PdfRenderMotionClass.held;
+
+  /// This page's record has already come back too big (or image-bearing) to
+  /// replay during a scroll. The request-time verdict is a guess; this is the
+  /// answer, and it stops the page from speculatively recording again on
+  /// every hold only to be abandoned at the same gate.
+  bool _recordKnownHeld = false;
+
+  /// Cached answer of [_xObjectsWithinMotionBudget] for [_xObjectBudgetPage].
+  ///
+  /// The walk resolves one dictionary per XObject through the xref, which is
+  /// cheap but not free, and the verdict is asked on every render request of
+  /// a page whose resources cannot change under it (an edit builds a new
+  /// [PdfPage]).
+  bool? _xObjectBudgetVerdict;
+  PdfPage? _xObjectBudgetPage;
+
+  /// Whether the page's declared XObjects are small enough to decode and
+  /// upload inside a scrolling frame ([PdfPageView.motionSafeMaxImagePixels]).
+  ///
+  /// Conservative about what it cannot read: a Form XObject (whose content
+  /// stream can draw anything, at any size), an image with no declared
+  /// dimensions, or a resource dictionary that will not resolve all answer
+  /// false, exactly as the old any-XObject rule did.
+  bool _xObjectsWithinMotionBudget() {
+    if (identical(_xObjectBudgetPage, widget.page) &&
+        _xObjectBudgetVerdict != null) {
+      return _xObjectBudgetVerdict!;
+    }
+    _xObjectBudgetPage = widget.page;
+    return _xObjectBudgetVerdict = _measureXObjectBudget();
+  }
+
+  bool _measureXObjectBudget() {
+    final cos = widget.page.document.cos;
+    final xObjects = cos.resolve(widget.page.resources['XObject']);
+    if (xObjects is! CosDictionary || xObjects.entries.isEmpty) return true;
+    var pixels = 0;
+    for (final value in xObjects.entries.values) {
+      final xObject = cos.resolve(value);
+      if (xObject is! CosStream) return false;
+      final dict = xObject.dictionary;
+      final subtype = cos.resolve(dict['Subtype']);
+      if (subtype is! CosName || subtype.value != 'Image') return false;
+      final width = cos.resolve(dict['Width']);
+      final height = cos.resolve(dict['Height']);
+      if (width is! CosInteger || height is! CosInteger) return false;
+      pixels += width.value * height.value;
+      if (pixels > PdfPageView.motionSafeMaxImagePixels) return false;
+    }
+    return true;
+  }
+
+  /// The request-time half of the motion-safe verdict (see
+  /// [PdfPageView.motionSafeRenders]): the page's declared XObjects fit
+  /// [PdfPageView.motionSafeMaxImagePixels] (nothing whose decode could dwarf
+  /// its content stream), no earlier walk has proved it too expensive, and
+  /// either the walk runs in a worker (free to this thread) or the page is
+  /// small enough to walk here ([motionSafeLocalMaxRawContentBytes]).
+  PdfRenderMotionClass _pageAllowsMotionRender() {
+    if (!PdfPageView.motionSafeRenders || _recordKnownHeld) {
+      return PdfRenderMotionClass.held;
+    }
+    // A page-level XObject can hide megabytes of image behind a
+    // three-operator content stream - but the dictionary says how many pixels
+    // it declares, so measure rather than assume (see
+    // [PdfPageView.motionSafeMaxImagePixels]).
+    if (!_xObjectsWithinMotionBudget()) return PdfRenderMotionClass.held;
+    // A live worker means the walk costs this thread nothing: free.
+    if (widget.renderWorker?.isActive ?? false) {
+      return PdfRenderMotionClass.free;
+    }
+    // No worker, so the walk runs here. Small pages may still take the quiet
+    // window - motion has stopped by then and the hold is only insurance
+    // against it resuming - but never a live gesture.
+    return widget.page.rawContentLength <=
+            PdfPageView.motionSafeLocalMaxRawContentBytes
+        ? PdfRenderMotionClass.quiet
+        : PdfRenderMotionClass.held;
+  }
+
+  /// The record-time half: a buffer small enough, and carrying few enough
+  /// image pixels, that replaying it inside a scrolling frame is not the
+  /// hitch the hold exists to prevent.
+  ///
+  /// [PdfPageRenderer.imageDrawPixels] answers -1 when an image will not say
+  /// how big it is, which fails the comparison - unknown is not small.
+  bool _recordAllowsMotionReplay(List<PdfRenderCommand> commands) {
+    if (!PdfPageView.motionSafeRenders ||
+        commands.length > PdfPageView.motionSafeMaxCommands) {
+      return false;
+    }
+    final pixels = PdfPageRenderer.imageDrawPixels(commands);
+    return pixels >= 0 && pixels <= PdfPageView.motionSafeMaxImagePixels;
+  }
+
+  /// Waits for this worker result's UI replay turn.
+  ///
+  /// [commands] is the buffer about to be replayed: its size decides whether
+  /// this replay may happen during a scroll or waits for the settle. Every
+  /// replay path passes one - a bounded early prefix and a progressive partial
+  /// included, since what matters is the buffer actually being built, not
+  /// which pass produced it. A caller with nothing to weigh keeps the classic
+  /// gate.
+  Future<bool> _paceWorkerUiWork({
+    bool replacePending = true,
+    List<PdfRenderCommand>? commands,
+  }) async {
+    if (commands != null && !_recordAllowsMotionReplay(commands)) {
+      _motionSafePass = PdfRenderMotionClass.held;
+      _recordKnownHeld = true;
+    }
     final scheduler = widget.renderScheduler;
     if (scheduler == null) return true;
     // renderPriority includes large visibility boosts (for example -1000),
@@ -2322,6 +2561,7 @@ class _PdfPageViewState extends State<PdfPageView>
       this,
       widget.previewIndex,
       replacePending: replacePending,
+      motion: _motionSafePass,
     );
   }
 
@@ -2371,6 +2611,7 @@ class _PdfPageViewState extends State<PdfPageView>
     // Stopwatch allocation stays off the ordinary path.
     final waitClock = pendingWorkerRecord?.waitClock ??
         (PdfPerfLog.enabled ? (Stopwatch()..start()) : null);
+    if (forceLocal) _motionSafePass = PdfRenderMotionClass.held;
     if (!forceLocal &&
         (pendingWorkerRecord != null || (worker != null && worker.isActive))) {
       // priority 0: the on-screen page preempts background prefetch.
@@ -2419,7 +2660,10 @@ class _PdfPageViewState extends State<PdfPageView>
         }
 
         if (deferOffscreenReplay()) return null;
-        if (!await _paceWorkerUiWork() || _abandoned(pageIndex)) return null;
+        if (!await _paceWorkerUiWork(commands: commands) ||
+            _abandoned(pageIndex)) {
+          return null;
+        }
         if (deferOffscreenReplay()) return null;
         _lastInterpretPath = 'worker';
         _lastInterpretResultBytes = _logImageStats(pageIndex, commands);
@@ -2437,10 +2681,32 @@ class _PdfPageViewState extends State<PdfPageView>
       }
     }
     if (_abandoned(pageIndex)) return (_emptyPicture(), null, false);
+    // This walk runs on the UI thread. A page small enough to have been
+    // admitted for exactly that ([motionSafeLocalMaxRawContentBytes]) keeps
+    // its verdict and walks here during the scroll; anything else loses it
+    // now and defers to the settle at the check below, as every pass did
+    // before the lane existed.
+    // This walk runs on the UI thread whatever the request thought, so the
+    // pass can be no freer than the local class allows.
+    final local = _pageAllowsMotionRender();
+    if (local == PdfRenderMotionClass.held ||
+        _motionSafePass == PdfRenderMotionClass.held) {
+      _motionSafePass = PdfRenderMotionClass.held;
+    } else {
+      _motionSafePass = PdfRenderMotionClass.quiet;
+    }
     if (_renderPaused) return null;
     // The worker may be active yet decline this page (it returns null), in
     // which case the interpret runs here - the log must say so, not 'worker'.
-    _lastInterpretPath = 'recorded';
+    //
+    // Say WHICH, too. A field trace showing `path=recorded` on desktop is the
+    // difference between "this session never had a worker" (every page walks
+    // on the UI thread - a configuration bug worth chasing) and "the worker
+    // declined this page" (expected, per-page), and reading the same word for
+    // both cost a round trip to find out.
+    _lastInterpretPath = (widget.renderWorker?.isActive ?? false)
+        ? 'recorded(declined)'
+        : 'recorded(no-worker)';
     // The staged first-content pass is worker-only: once the worker has
     // declined a visible page, recording it locally twice would add two UI
     // isolate stalls. Pay for the final image quality in that single pass.
@@ -2450,8 +2716,30 @@ class _PdfPageViewState extends State<PdfPageView>
     _pictureImageRatio = localImageRatio;
     // The local path has no worker wait: record + decode + picture build are
     // one UI-thread phase, reported entirely as build.
-    final buildClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
+    //
+    // The clock runs unconditionally on a motion-safe local pass, perf log or
+    // not: what this walk actually costs is the only honest answer to whether
+    // the page belonged in the lane, and encoded size is a poor guess (see
+    // [motionSafeLocalMaxRawContentBytes]). One Stopwatch per first interpret
+    // of a page, not per frame.
+    final localClock = _motionSafePass != PdfRenderMotionClass.held
+        ? (Stopwatch()..start())
+        : null;
+    final buildClock = PdfPerfLog.enabled
+        ? (localClock ?? (Stopwatch()..start()))
+        : localClock;
     void stampLocalPhases() {
+      if (localClock != null &&
+          localClock.elapsedMicroseconds / 1000.0 >
+              PdfPageView.motionSafeLocalBudgetMs) {
+        // Wrong call, and it cost a frame. Never again for this page.
+        _recordKnownHeld = true;
+        _motionSafePass = PdfRenderMotionClass.held;
+        PdfPerfLog.log('render-cost page=$pageIndex local walk '
+            '${(localClock.elapsedMicroseconds / 1000.0).toStringAsFixed(1)}ms '
+            'over ${PdfPageView.motionSafeLocalBudgetMs}ms - held from now on');
+      }
+      if (!PdfPerfLog.enabled) return;
       _lastInterpretWaitMs = buildClock == null ? null : 0;
       _lastInterpretBuildMs =
           buildClock == null ? null : buildClock.elapsedMicroseconds / 1000.0;
@@ -2680,7 +2968,7 @@ class _PdfPageViewState extends State<PdfPageView>
         _image != null) {
       return;
     }
-    if (!await _paceWorkerUiWork() ||
+    if (!await _paceWorkerUiWork(commands: commands) ||
         _superseded(generation, pageIndex) ||
         _renderPaused ||
         _image != null) {
@@ -2753,7 +3041,7 @@ class _PdfPageViewState extends State<PdfPageView>
         seq <= _progressiveAppliedSeq) {
       return;
     }
-    if (!await _paceWorkerUiWork()) return;
+    if (!await _paceWorkerUiWork(commands: commands)) return;
     if (_superseded(generation, pageIndex) ||
         _renderPaused ||
         _image != null ||
@@ -2930,7 +3218,7 @@ class _PdfPageViewState extends State<PdfPageView>
     // requesting the final UI turn so it cannot wait behind or race another
     // obsolete prefix from its own page.
     _finalizeProgressivePartials(generation);
-    if (!await _paceWorkerUiWork() ||
+    if (!await _paceWorkerUiWork(commands: commands) ||
         _superseded(generation, pageIndex) ||
         _renderPaused) {
       return null;
@@ -3215,6 +3503,9 @@ class _PdfPageViewState extends State<PdfPageView>
     final generation = _renderSession.beginFull();
     final pageIndex = widget.previewIndex;
     final firstInterpret = _picture == null;
+    // Re-decided per pass: the worker may have been swapped or stopped, and a
+    // pass that learns better narrows this when its record lands.
+    _motionSafePass = _pageAllowsMotionRender();
     if (firstInterpret) {
       _lastInterpretResultBytes = null;
       _lastInterpretWaitMs = null;
@@ -3944,7 +4235,12 @@ class _PdfPageViewState extends State<PdfPageView>
     if (_picture == null) {
       final scheduler = widget.renderScheduler;
       if (scheduler != null) {
-        scheduler.request(this, widget.previewIndex, _renderNow);
+        scheduler.request(
+          this,
+          widget.previewIndex,
+          _renderNow,
+          motion: _pageAllowsMotionRender(),
+        );
         return false;
       }
       if (widget.renderHold?.value ?? false) return false;

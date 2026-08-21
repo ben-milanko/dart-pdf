@@ -1,6 +1,6 @@
 # Maintainer: Ben Milanko <ben.milanko@protonmail.com>
 pkgname=dartpdf-bin
-pkgver=3.5.0
+pkgver=3.6.1
 pkgrel=1
 pkgdesc="Edit, annotate, sign, and fill in PDFs - a private, local PDF editor (prebuilt binary)"
 arch=('x86_64')
@@ -25,7 +25,7 @@ options=('!strip')  # bundled .so files are already stripped; don't touch the AO
 source=("dartpdf-${pkgver}.tar.gz::https://github.com/ben-milanko/dart-pdf/releases/download/app-v${pkgver}/dartpdf-linux-x64.tar.gz"
         "LICENSE::https://raw.githubusercontent.com/ben-milanko/dart-pdf/app-v${pkgver}/LICENSE")
 
-sha256sums=('b74199d7340dff552f7fd64065faa9c197e5cd4e55e5f4613c9066102caf2602'
+sha256sums=('2bfdc929cceb962ab9d819567f2523dd32db45ed5911e73c9f3ccf8ea0707e4f'
             'cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30')
 
 package() {

@@ -9,6 +9,7 @@
 #include <variant>
 #include <vector>
 
+#include "file_dialogs.h"
 #include "image_clipboard.h"
 #include "utils.h"
 
@@ -22,6 +23,8 @@ constexpr char kNativePrintChannelName[] =
 constexpr char kMemoryChannelName[] = "dev.milanko.dartpdf/memory";
 constexpr char kWindowGeometryChannelName[] =
     "dev.milanko.dartpdf/window_geometry";
+constexpr char kFileDialogChannelName[] =
+    "dev.milanko.dartpdf/file_dialogs";
 
 const flutter::EncodableValue* Lookup(const flutter::EncodableMap& map,
                                       const char* key) {
@@ -44,6 +47,78 @@ std::optional<int64_t> Integer(const flutter::EncodableValue& value) {
   if (const auto* number = std::get_if<int64_t>(&value)) return *number;
   if (const auto* number = std::get_if<int32_t>(&value)) return *number;
   return std::nullopt;
+}
+
+std::wstring OptionalString(const flutter::EncodableMap* args, const char* key) {
+  if (args == nullptr) return std::wstring();
+  const auto* value = Lookup(*args, key);
+  if (value == nullptr) return std::wstring();
+  const auto* text = std::get_if<std::string>(value);
+  return text == nullptr ? std::wstring() : Utf16FromUtf8(*text);
+}
+
+// Decodes the `acceptedTypeGroups` argument: a list of
+// `{label: String, extensions: [String]}` maps. Unusable entries are skipped
+// rather than failing the call - a dialog with one filter missing is far
+// better than no dialog.
+std::vector<dart_pdf::FileTypeFilter> DecodeFilters(
+    const flutter::EncodableMap* args) {
+  std::vector<dart_pdf::FileTypeFilter> filters;
+  if (args == nullptr) return filters;
+  const auto* groups_value = Lookup(*args, "acceptedTypeGroups");
+  const auto* groups =
+      groups_value == nullptr
+          ? nullptr
+          : std::get_if<flutter::EncodableList>(groups_value);
+  if (groups == nullptr) return filters;
+  for (const auto& group_value : *groups) {
+    const auto* group = std::get_if<flutter::EncodableMap>(&group_value);
+    if (group == nullptr) continue;
+    dart_pdf::FileTypeFilter filter;
+    if (const auto* label = Lookup(*group, "label")) {
+      if (const auto* text = std::get_if<std::string>(label)) {
+        filter.label = Utf16FromUtf8(*text);
+      }
+    }
+    if (const auto* extensions = Lookup(*group, "extensions")) {
+      if (const auto* list = std::get_if<flutter::EncodableList>(extensions)) {
+        for (const auto& extension : *list) {
+          const auto* text = std::get_if<std::string>(&extension);
+          if (text != nullptr && !text->empty()) {
+            filter.extensions.push_back(Utf16FromUtf8(*text));
+          }
+        }
+      }
+    }
+    if (filter.label.empty()) continue;
+    filters.push_back(std::move(filter));
+  }
+  return filters;
+}
+
+dart_pdf::FileDialogRequest DecodeDialogRequest(
+    const flutter::EncodableMap* args) {
+  dart_pdf::FileDialogRequest request;
+  request.filters = DecodeFilters(args);
+  request.initial_directory = OptionalString(args, "initialDirectory");
+  request.suggested_name = OptionalString(args, "suggestedName");
+  request.confirm_button_text = OptionalString(args, "confirmButtonText");
+  return request;
+}
+
+// The reply shape shared by all three dialog methods: the chosen paths (empty
+// when the user cancelled) plus the one-based index of the active type filter.
+flutter::EncodableValue DialogPayload(const dart_pdf::FileDialogResult& result) {
+  flutter::EncodableList paths;
+  paths.reserve(result.paths.size());
+  for (const std::wstring& path : result.paths) {
+    paths.push_back(flutter::EncodableValue(Utf8FromUtf16(path.c_str())));
+  }
+  return flutter::EncodableValue(flutter::EncodableMap{
+      {flutter::EncodableValue("paths"), flutter::EncodableValue(paths)},
+      {flutter::EncodableValue("filterIndex"),
+       flutter::EncodableValue(static_cast<int64_t>(result.filter_index))},
+  });
 }
 
 flutter::EncodableValue FilePayload(const std::wstring& path) {
@@ -272,6 +347,51 @@ void DartPdfPlatformChannels::Register(flutter::BinaryMessenger* messenger) {
         } else {
           result->NotImplemented();
         }
+      });
+
+  // Native common-item dialogs. `file_selector_windows` derives the dialog
+  // owner from the registrar's implicit FlutterView, which the engine-owned
+  // multi-window bootstrap deliberately does not create - the plugin then
+  // dereferences a null view and takes the process down the first time the
+  // user opens or saves a file. The runner already knows the active window,
+  // so DartPDF drives the dialogs itself (see lib/windows_file_dialogs.dart).
+  file_dialog_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          messenger, kFileDialogChannelName,
+          &flutter::StandardMethodCodec::GetInstance());
+  file_dialog_channel_->SetMethodCallHandler(
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
+             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+                 result) {
+        const std::string& method = call.method_name();
+        const bool save = method == "getSaveLocation";
+        const bool folders = method == "getDirectoryPath" ||
+                             method == "getDirectoryPaths";
+        const bool multiple =
+            method == "openFiles" || method == "getDirectoryPaths";
+        if (!save && !folders && method != "openFile" &&
+            method != "openFiles") {
+          result->NotImplemented();
+          return;
+        }
+
+        const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
+        dart_pdf::FileDialogRequest request = DecodeDialogRequest(args);
+        request.allow_multiple = multiple;
+        request.select_folders = folders;
+
+        const HWND owner = owner_window_ ? owner_window_() : nullptr;
+        const dart_pdf::FileDialogResult dialog =
+            save ? dart_pdf::ShowSaveFileDialog(owner, request)
+                 : dart_pdf::ShowOpenFileDialog(owner, request);
+        if (!dialog.shown) {
+          result->Error(
+              "file_dialog_failed", "Could not show the file dialog",
+              flutter::EncodableValue(std::in_place_type<int32_t>,
+                                      static_cast<int32_t>(dialog.error)));
+          return;
+        }
+        result->Success(DialogPayload(dialog));
       });
 }
 

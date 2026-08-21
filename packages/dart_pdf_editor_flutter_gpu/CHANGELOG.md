@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5
+
+- Align the experimental Flutter GPU backend with the 3.7.0 package suite.
+
 ## 0.1.4
 
 - Isolate pipelines, geometry buffers, and image textures by Flutter GPU

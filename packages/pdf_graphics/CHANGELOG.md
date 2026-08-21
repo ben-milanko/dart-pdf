@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.7.0
+
+- Move the Adobe glyph-name tables to `pdf_document`, where the content editor
+  needs the same code -> glyph name -> Unicode chain. `src/fonts/encodings.dart`
+  is now a re-export, so the font engine's imports and the public API are
+  unchanged.
+
 ## 3.6.0
 
 - Carry nonstroking and stroking alpha on `PdfTextRun` through interpretation,

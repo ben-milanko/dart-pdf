@@ -52,9 +52,9 @@ modules:
       # Copy only bundle entries so staged desktop assets are not swept in.
       - install -d /app/dartpdf
       - cp -r dart_pdf_editor_app data lib /app/dartpdf/
-      # The checked-in source still pins the last stable archive, which
-      # predates the sidecar. Release publishing substitutes the new archive;
-      # keep local builds of the pinned release reproducible in the meantime.
+      # The checked-in source pins the stable archive. Release publishing
+      # substitutes its digest-verified download; keeping the sidecar copy
+      # conditional also leaves older pinned archives reproducible.
       - test ! -f dartpdf-cli || cp dartpdf-cli /app/dartpdf/
       - install -d /app/bin
       - ln -s /app/dartpdf/dart_pdf_editor_app /app/bin/dartpdf
@@ -71,8 +71,8 @@ modules:
     sources:
       # 1) The prebuilt Linux bundle (binary + data/ + lib/).
       - type: archive
-        url: https://github.com/ben-milanko/dart-pdf/releases/download/app-v3.5.0/dartpdf-linux-x64.tar.gz
-        sha256: b74199d7340dff552f7fd64065faa9c197e5cd4e55e5f4613c9066102caf2602
+        url: https://github.com/ben-milanko/dart-pdf/releases/download/app-v3.6.1/dartpdf-linux-x64.tar.gz
+        sha256: 2bfdc929cceb962ab9d819567f2523dd32db45ed5911e73c9f3ccf8ea0707e4f
         # Kept for standard Flatpak external-data tooling and downstream
         # packagers; the official repository publisher verifies GitHub's asset
         # digest independently before building.

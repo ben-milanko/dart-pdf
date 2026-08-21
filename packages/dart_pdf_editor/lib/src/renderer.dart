@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
+import 'package:pdf_cos/pdf_cos.dart' show CosInteger;
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
@@ -400,6 +401,43 @@ class PdfPageRenderer {
     final requests = <PdfImageRequest>[];
     collectImageRequests(commands, requests);
     return requests.isNotEmpty;
+  }
+
+  /// Total pixels the image draws in [commands] will decode and upload -
+  /// the honest cost of replaying this buffer, as opposed to merely whether
+  /// it contains an image at all ([hasImageDraws]).
+  ///
+  /// Prefers the pixels the worker already decoded; falls back to the source
+  /// image's declared /Width x /Height for a draw that will decode locally.
+  /// Returns -1 when any image declines to say how big it is, so a caller
+  /// weighing a budget cannot mistake "unknown" for "small".
+  static int imageDrawPixels(List<PdfRenderCommand> commands) {
+    final requests = <PdfImageRequest>[];
+    collectImageRequests(commands, requests);
+    var pixels = 0;
+    for (final request in requests) {
+      final decoded = request.decoded;
+      if (decoded != null) {
+        pixels += decoded.width * decoded.height;
+        continue;
+      }
+      final width =
+          request.decodedWidth ?? _declaredExtent(request, 'Width', 'W');
+      final height =
+          request.decodedHeight ?? _declaredExtent(request, 'Height', 'H');
+      if (width == null || height == null) return -1;
+      pixels += width * height;
+    }
+    return pixels;
+  }
+
+  /// An image's declared extent, by its full key or the abbreviation an
+  /// inline image (BI ... ID) uses for the same entry.
+  static int? _declaredExtent(
+      PdfImageRequest request, String key, String abbreviation) {
+    final dict = request.stream.dictionary;
+    final value = dict[key] ?? dict[abbreviation];
+    return value is CosInteger ? value.value : null;
   }
 
   /// Decodes the image payloads in a retained command buffer into the shared

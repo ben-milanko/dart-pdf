@@ -1026,6 +1026,21 @@ typedef PdfScrollIndicatorBuilder = Widget Function(BuildContext context,
 /// search with highlights. Pages re-rasterize at the settled zoom; past the
 /// full-page raster caps a detail patch keeps the visible region sharp.
 class PdfViewer extends StatefulWidget {
+  /// Test hook for delaying annotation appearance rendering across lifecycle
+  /// transitions. Null uses [PdfPageRenderer.renderAnnotationPicture].
+  @visibleForTesting
+  static Future<ui.Picture?> Function(
+    PdfPage page,
+    PdfAnnotation annotation,
+    int rotation,
+  )? debugAnnotationAppearanceRendererOverride;
+
+  /// Test observer called immediately before an annotation appearance picture
+  /// is disposed. Production ownership and disposal remain unchanged.
+  @visibleForTesting
+  static void Function(ui.Picture picture)?
+      debugAnnotationAppearanceDisposeObserver;
+
   /// Raw content size above which a page is treated as "heavy" and its text is
   /// NOT extracted synchronously just to pick a hover cursor. A normal page is
   /// a few KB; a dense CAD sheet is megabytes and its extraction (a full
@@ -1707,6 +1722,20 @@ class _PdfViewerState extends State<PdfViewer>
   final _rasterWarmAttempts = Set<PdfPage>.identity();
   bool _warmingRasters = false;
 
+  /// Lowers [PdfPageRenderScheduler.activeGesture] once the reader has stopped
+  /// moving for [_gestureQuietDelay] - far shorter than the 500 ms scroll-quiet
+  /// window, because it answers a different question. The quiet window asks
+  /// "might a scroll resume?" and protects expensive work from starting inside
+  /// one; this asks "is a gesture happening right now?", which is all a 12 ms
+  /// UI-thread walk needs to know. Restarted by every scroll event.
+  Timer? _gestureQuietTimer;
+
+  /// How long after the last scroll event the viewer stops calling it a
+  /// gesture. Two frames: long enough that a wheel stream's inter-event gaps
+  /// never read as "stopped", short enough that a reader who has actually
+  /// stopped is not made to wait.
+  static const _gestureQuietDelay = Duration(milliseconds: 120);
+
   /// Fires once the viewer has been quiet for
   /// [PdfPageRasterWarmPolicy.idleDelay]. Any scroll, zoom, edit, or queued
   /// page render restarts it, so warming only ever runs in real idle time.
@@ -1910,6 +1939,9 @@ class _PdfViewerState extends State<PdfViewer>
 
   void _settleRenderHold() {
     _renderScheduler.holding = _motionRenderHoldActive || !widget.active;
+    // A live gesture is what a UI-thread walk must not run inside; the quiet
+    // window that follows one is not (see [PdfPageRenderScheduler.activeGesture]).
+    _renderScheduler.activeGesture = _directMotionRenderHoldActive;
     _renderScheduler.parked = !widget.active;
   }
 
@@ -2677,9 +2709,13 @@ class _PdfViewerState extends State<PdfViewer>
               scene.dispose();
               return;
             }
-            final estimatedBytes = commands.length * 260 +
-                picture.approximateBytesUsed +
-                scene.decodedImageBytes;
+            final estimatedBytes = PdfPagePreviewCache.priceRetainedScene(
+              commandCount: commands.length,
+              pictureBytes: picture.approximateBytesUsed,
+              decodedImageBytes: scene.decodedImageBytes,
+              // The warm already knows the exact raster this scene replaces.
+              rasterBytes: target.signature.bytes,
+            );
             final handle = _previews.retainScene(
               index,
               page,
@@ -3328,6 +3364,17 @@ class _PdfViewerState extends State<PdfViewer>
         'hold=${hold ? 'ON' : 'off'}');
     // a paused viewer (overlaid by another view) holds unconditionally
     _renderScheduler.holding = hold || !widget.active;
+    // A gesture is in flight while events keep arriving (or a finger/fling
+    // genuinely owns the viewport). Deliberately NOT `activeMotion`, which
+    // includes the 500 ms quiet window: that window is the thing a cheap
+    // local walk should be allowed through.
+    // An event just arrived, so a gesture is happening by definition.
+    _renderScheduler.activeGesture = true;
+    _gestureQuietTimer?.cancel();
+    _gestureQuietTimer = Timer(_gestureQuietDelay, () {
+      if (!mounted) return;
+      _renderScheduler.activeGesture = _directMotionRenderHoldActive;
+    });
     _renderScheduler.parked = !widget.active;
   }
 
@@ -3950,6 +3997,7 @@ class _PdfViewerState extends State<PdfViewer>
     _settleTimer?.cancel();
     _scrollSettleTimer?.cancel();
     _motionHoldReleaseTimer?.cancel();
+    _gestureQuietTimer?.cancel();
     _previewIdleTimer?.cancel();
     _rasterWarmTimer?.cancel();
     // when the host recreates the viewer element (e.g. a panel appearing
@@ -7792,16 +7840,19 @@ class _AnnotationAppearanceLayerState
   }
 
   void _disposeCache() {
-    for (final picture in _cache.values) {
-      picture.dispose();
-    }
+    // Snapshot identity ownership before clearing. Cache and retirement are
+    // normally disjoint, but overlapping render generations must still never
+    // dispose the same native handle twice.
+    final owned = Set<ui.Picture>.identity()
+      ..addAll(_cache.values)
+      ..addAll(_retired);
     _cache.clear();
     _cacheRotation = null;
     _cacheSize = null;
-    for (final picture in _retired) {
-      if (!picture.debugDisposed) picture.dispose();
-    }
     _retired.clear();
+    for (final picture in owned) {
+      _disposePicture(picture);
+    }
   }
 
   void _notifyReady(int generation) {
@@ -7864,7 +7915,7 @@ class _AnnotationAppearanceLayerState
     ]).then((rendered) {
       if (!mounted || generation != _generation) {
         for (final (_, picture) in rendered) {
-          picture?.dispose();
+          if (picture != null) _disposePicture(picture);
         }
         return;
       }
@@ -7873,7 +7924,7 @@ class _AnnotationAppearanceLayerState
         // A concurrent render may have filled this slot; keep one owner.
         final existing = _cache[source];
         if (existing != null) {
-          picture.dispose();
+          _disposePicture(picture);
           continue;
         }
         _cache[source] = picture;
@@ -7915,7 +7966,7 @@ class _AnnotationAppearanceLayerState
     if (_retired.isEmpty) return;
     final live = Set<ui.Picture>.identity()..addAll(_pictures);
     for (final picture in _retired) {
-      if (!live.contains(picture)) picture.dispose();
+      if (!live.contains(picture)) _disposePicture(picture);
     }
     _retired.clear();
   }
@@ -7923,11 +7974,18 @@ class _AnnotationAppearanceLayerState
   Future<ui.Picture?> _renderAnnotation(
       PdfPage page, PdfAnnotation annotation, int rotation) async {
     try {
+      final override = PdfViewer.debugAnnotationAppearanceRendererOverride;
+      if (override != null) return await override(page, annotation, rotation);
       return await PdfPageRenderer.renderAnnotationPicture(page, annotation,
           rotation: rotation);
     } catch (_) {
       return null;
     }
+  }
+
+  void _disposePicture(ui.Picture picture) {
+    PdfViewer.debugAnnotationAppearanceDisposeObserver?.call(picture);
+    picture.dispose();
   }
 
   @override

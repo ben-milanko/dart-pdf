@@ -195,4 +195,30 @@ void main() {
       await stderrDone;
     }
   }, timeout: const Timeout(Duration(minutes: 1)));
+
+  test('macOS archive omits the standalone CLI sidecar', () async {
+    if (Platform.isWindows) return;
+
+    final app = Directory('${temporary.path}/DartPDF.app');
+    final sidecar = File('${app.path}/Contents/MacOS/dartpdf-cli');
+    await sidecar.create(recursive: true);
+    await sidecar.writeAsString('stale build output');
+
+    final result = await Process.run(
+      'bash',
+      ['../../app/macos/build_dartpdf_cli.sh'],
+      workingDirectory: Directory.current.path,
+      environment: {
+        ...Platform.environment,
+        'ACTION': 'install',
+        'FLUTTER_ROOT': temporary.path,
+        'TARGET_BUILD_DIR': temporary.path,
+        'WRAPPER_NAME': 'DartPDF.app',
+      },
+    );
+
+    expect(result.exitCode, 0, reason: result.stderr as String);
+    expect(result.stdout, contains('Skipping dartpdf-cli'));
+    expect(await sidecar.exists(), isFalse);
+  });
 }

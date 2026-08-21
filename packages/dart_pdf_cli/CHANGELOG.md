@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Align the command-line and MCP sidecar with the 3.7.0 package suite.
+
 ## 0.1.0
 
 - Add the VM-only `dartpdf` executable with JSON `inspect`, bounded `text`,

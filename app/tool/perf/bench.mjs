@@ -143,6 +143,16 @@ function main() {
     recursive: true,
     filter: (src) => !/[/\\]node_modules([/\\]|$)|results.*\.ndjson$/.test(src),
   });
+  // The Dart half of the harness has to come across too. Without it a
+  // scenario KIND added today (`read`, say) does not exist in the ref's
+  // bundle, its `_drive()` falls through to the default `scroll` case, and
+  // the table silently compares two different workloads - the baseline column
+  // simply has no rows for the new metrics. Build artefacts stay behind.
+  cpSync(join(APP_DIR, 'tool', 'perf_harness'),
+      join(wt, 'app', 'tool', 'perf_harness'), {
+    recursive: true,
+    filter: (src) => !/[/\\](build|\.dart_tool)([/\\]|$)/.test(src),
+  });
   build(wt);
   const refWeb = join(wt, 'app', 'build', 'web');
 

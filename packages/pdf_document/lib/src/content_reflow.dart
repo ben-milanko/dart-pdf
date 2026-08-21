@@ -149,7 +149,7 @@ extension PdfParagraphReflow on PdfEditor {
       final type0 = Type0Font.forEditing(document.cos, font);
       return type0 == null ? null : _Type0ReflowFont(type0, _updater, size);
     }
-    return _SimpleReflowFont(_widthsFor(font), size);
+    return _SimpleReflowFont(SimpleFont.decode(document.cos, font), size);
   }
 
   /// The paragraph lines flattened from [ops], decoding each show with
@@ -577,28 +577,34 @@ abstract class _ReflowFont {
 }
 
 class _SimpleReflowFont extends _ReflowFont {
-  _SimpleReflowFont(this._widthOf, this._size);
+  _SimpleReflowFont(this._font, this._size);
 
-  final double Function(int code) _widthOf;
+  /// The run's font, which owns both directions of the code <-> text map:
+  /// a simple font's bytes are its own codes, not the characters, so a
+  /// reflowed line is measured and written through it rather than by
+  /// treating each code unit as a byte.
+  final SimpleFont _font;
   final double _size;
 
   @override
   double measure(String text) {
+    final codes = _font.encode(text);
+    // an unencodable line is refused by [showOp]; measuring it as zero here
+    // would let the wrapper build lines it cannot then emit.
+    if (codes == null) return double.infinity;
     var total = 0.0;
-    for (final unit in text.codeUnits) {
-      total += _widthOf(unit);
+    for (final code in codes) {
+      total += _font.widthOf(code);
     }
     return total / 1000 * _size;
   }
 
   @override
   ContentOperation? showOp(String text) {
-    for (final unit in text.codeUnits) {
-      if (unit > 0xFF) return null; // not representable in a simple font
-    }
-    return ContentOperation('Tj', [
-      CosString(Uint8List.fromList(text.codeUnits)),
-    ]);
+    // null when the font has no code for one of the characters - a subset
+    // that dropped the glyph - which bails the whole reflow.
+    final codes = _font.encode(text);
+    return codes == null ? null : ContentOperation('Tj', [CosString(codes)]);
   }
 
   @override

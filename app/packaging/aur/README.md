@@ -17,9 +17,9 @@ As of `app-v3.4.0`, the official release tarball carries the runner, `data/`,
 installs that immutable payload directly and fetches only the Apache license
 from the matching release tag.
 
-The checked-in `3.5.0` pin predates the CLI sidecar. Its install is conditional
-so this recipe remains reproducible until the first sidecar-enabled app release
-is published and the normal version/checksum bump is made.
+The checked-in `3.6.0` pin is the first stable release with the CLI/MCP
+sidecar. Its install remains conditional so the recipe can also validate older
+release archives without a separate packaging branch.
 
 ## Per-release update
 

@@ -90,6 +90,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   bool _searchWholeWord = false;
   bool _searchRegex = false;
   bool _searchAnnotations = true;
+  bool _searchReplaceExpanded = false;
   double? _thumbnailSidebarWidth;
   double? _bookmarkSidebarWidth;
   double? _annotationSidebarWidth;
@@ -272,6 +273,9 @@ class PdfEditingPreferences extends ChangeNotifier {
       _searchRegex = store.getBool('${_prefix}searchRegex') ?? _searchRegex;
       _searchAnnotations =
           store.getBool('${_prefix}searchAnnotations') ?? _searchAnnotations;
+      _searchReplaceExpanded =
+          store.getBool('${_prefix}searchReplaceExpanded') ??
+              _searchReplaceExpanded;
       _propertiesPanelWidth =
           store.getDouble('${_prefix}propertiesPanelWidth') ??
               _propertiesPanelWidth;
@@ -1324,6 +1328,20 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _searchMatchCase) return;
     _searchMatchCase = value;
     _write((s) => s.setBool('${_prefix}searchMatchCase', value));
+    notifyListeners();
+  }
+
+  /// Whether the search panel's replace controls are expanded. They are
+  /// collapsed by default - find is the common case and the replacement field
+  /// plus its two buttons are a lot of vertical space to spend on a panel
+  /// whose job is listing hits. Persisted, so a user who works in replace
+  /// keeps it open across sessions.
+  bool get searchReplaceExpanded => _searchReplaceExpanded;
+
+  set searchReplaceExpanded(bool value) {
+    if (value == _searchReplaceExpanded) return;
+    _searchReplaceExpanded = value;
+    _write((s) => s.setBool('${_prefix}searchReplaceExpanded', value));
     notifyListeners();
   }
 

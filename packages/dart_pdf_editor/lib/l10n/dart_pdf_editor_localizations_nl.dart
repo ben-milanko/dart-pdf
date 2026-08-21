@@ -893,6 +893,31 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get searchRegex => 'Reguliere expressie';
 
   @override
+  String get searchReplace => 'Vervangen';
+
+  @override
+  String get searchReplaceAll => 'Alles vervangen';
+
+  @override
+  String get searchReplaceHint => 'Vervangen door';
+
+  @override
+  String get searchReplaceNotTargetable =>
+      'Die overeenkomst kan niet afzonderlijk worden vervangen — gebruik Alles vervangen of bewerk hem met het inhoudsgereedschap';
+
+  @override
+  String searchReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count overeenkomsten vervangen',
+      one: '1 overeenkomst vervangen',
+      zero: 'Niets vervangen',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Zoekresultaten';
 
   @override

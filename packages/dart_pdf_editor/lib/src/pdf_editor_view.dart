@@ -940,6 +940,10 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 key: ValueKey(
                     'pdf-shell-search-panel-${bottomSheet ? 'sheet' : 'docked'}'),
                 controller: _viewer,
+                // find *and* replace wherever the editing toolbar (and with
+                // it the content tool) is available; a read-only shell keeps
+                // the panel a pure find panel
+                editing: features.toolbar ? session : null,
                 preferences: prefs,
                 dock: prefs.searchPanelDock,
                 bottomSheet: bottomSheet,

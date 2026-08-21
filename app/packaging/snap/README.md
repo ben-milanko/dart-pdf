@@ -37,17 +37,17 @@ On Ubuntu 24.04 or newer:
 sudo snap install snapcraft --classic
 app/packaging/snap/build-release-snap.sh \
   --archive /path/to/dartpdf-linux-x64.tar.gz \
-  --version 3.5.0 \
+  --version 3.6.0 \
   --output /tmp/dartpdf-snap
 sudo snap install --dangerous /tmp/dartpdf-snap/dartpdf_*.snap
 snap run dartpdf
 ```
 
 The checked-in recipe pins the current stable GitHub release and SHA-256 for
-reproducible local builds. That pinned release predates the sidecar, so the
-release builder verifies that a newly supplied archive contains `dartpdf-cli`
-and adds the `dartpdf.cli` app entry only to that generated recipe. CI replaces
-the pinned URL with the already-downloaded, digest-verified release archive.
+reproducible local builds. The release builder verifies that a supplied archive
+contains `dartpdf-cli` and adds the `dartpdf.cli` app entry only to the
+generated recipe. CI replaces the pinned URL with the already-downloaded,
+digest-verified release archive.
 
 ## Publishing
 

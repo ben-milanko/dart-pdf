@@ -199,11 +199,35 @@ class PdfThumbnailCache {
 
   Future<void> _drain() async {
     try {
+      var granted = 0;
       while (!_disposed && _pending.isNotEmpty) {
         // The tile stays on its viewer-provided soft preview while the main
         // page is scrolling/replaying/rasterizing. The activity listener
         // restarts this queue as soon as the viewer is genuinely idle.
         if (_viewerBusy) return;
+        // Yield a whole frame between tiles, not just a microtask.
+        //
+        // A tile's interpret+raster is 25-110 ms of platform thread with no
+        // worker, and this loop used to run them back to back on the strength
+        // of one `_viewerBusy` reading taken before the first one. The moment
+        // that reading is taken is exactly when a scroll settles - and the
+        // viewer queues the page the reader landed on from a *rebuild*, which
+        // needs a frame it cannot get while this loop is running. Measured on
+        // a 50-page document: 400-530 ms of thumbnails ahead of a page whose
+        // own interpret was 12 ms.
+        //
+        // Letting a frame run between tiles lets the viewer ask for what the
+        // reader is actually looking at, and the re-check below then sees it.
+        if (granted > 0) {
+          await SchedulerBinding.instance.endOfFrame;
+          // Anything can happen across that suspension: the viewer can go
+          // busy, the cache can be disposed, and every queued task can be
+          // cancelled (a strip scrolled away, a page deleted). Re-read all
+          // three - the `while` condition above was tested a frame ago.
+          if (_disposed || _viewerBusy) return;
+          if (_pending.isEmpty) break;
+        }
+        granted++;
         var pick = 0;
         var best = _rank(_pending.first);
         for (var i = 1; i < _pending.length; i++) {

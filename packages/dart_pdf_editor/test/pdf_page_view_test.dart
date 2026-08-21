@@ -889,6 +889,124 @@ void main() {
             'its final-quality resampling headroom');
   });
 
+  testWidgets('a page coming back adopts a retained display-sharp scene',
+      (tester) async {
+    // The scroll-back case. A page recorded while it scrolled past retains
+    // its scene at the resolution that pass asked for; coming back, the page
+    // wants [PdfPageView.focusedImageDecodeHeadroom] on top of its physical
+    // footprint. Refusing the scene over that headroom threw away a display
+    // list already sharp at the current zoom - the reader got blank paper and
+    // paid a re-interpret for a difference they cannot see. A field trace of
+    // the journey read `scene-cache reject reason=image-lod have=1.79
+    // need=2.00`.
+    //
+    // The distinction from the reduced-image test above is the point: 1.25
+    // against a 2x physical footprint is genuinely soft and stays rejected;
+    // 2.0 against that same footprint is sharp, and must paint.
+    //
+    // The lane is off and the scheduler holds throughout, so nothing this
+    // page paints can have come from a render: adopting the scene is the
+    // only way content reaches the screen here.
+    final previousLane = PdfPageView.motionSafeRenders;
+    PdfPageView.motionSafeRenders = false;
+    addTearDown(() => PdfPageView.motionSafeRenders = previousLane);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final bytes = buildEmbeddedFontImagePdf();
+    final document = PdfDocument.open(bytes);
+    final page = document.page(0);
+    final cache = PdfPagePreviewCache();
+    final worker = _RatioRecordingWorker(_LocalCommandWorker(bytes));
+    final performance = PdfPerformanceController()
+      // Past the document's very first cold page, whose one-off two-pass
+      // transaction asks for a lower ratio ([_imageRatioTarget]). This page
+      // is a scroll-back, so it asks for full quality: its 2x physical
+      // footprint with 2x decode headroom on top.
+      ..observe(const PdfPerformanceSample(
+          fullRenderDuration: Duration(milliseconds: 8)));
+    final scheduler = PdfPageRenderScheduler()..holding = true;
+    addTearDown(cache.dispose);
+    addTearDown(worker.dispose);
+    addTearDown(performance.dispose);
+    addTearDown(scheduler.dispose);
+
+    // Mount the page as an off-screen cache-window neighbour first, so its
+    // layout width - and therefore the image ratio it will ask for - is
+    // established before the scene is looked up. That ordering IS the
+    // scroll-back case: the field reject happened on a page coming back into
+    // view, not on a cold mount.
+    var onScreen = false;
+    late StateSetter rebuild;
+    await tester.pumpWidget(Center(
+      child: SizedBox(
+        width: 1224, // a 612pt page at 1.0 DPR: an effective ratio of 2.0
+        child: StatefulBuilder(builder: (context, setState) {
+          rebuild = setState;
+          return PdfPageView(
+            page: page,
+            renderWorker: worker,
+            performance: performance,
+            previewCache: cache,
+            renderScheduler: scheduler,
+            focusDistance: onScreen ? 0 : 3,
+            onScreen: onScreen,
+            qualityVisible: onScreen,
+          );
+        }),
+      ),
+    ));
+    await tester.pump();
+
+    late PdfRetainedScene scene;
+    late ui.Picture picture;
+    await tester.runAsync(() async {
+      scene = await PdfRetainedScene.record(page, maxImagePixelRatio: 2);
+      picture = scene.replay(pixelRatio: 1);
+    });
+    cache
+        .retainScene(
+          0,
+          page,
+          scene,
+          plan: const PdfPageRenderPlan(),
+          fromWorker: false,
+          imagePixelRatio: 2,
+          estimatedBytes: 1,
+          picture: picture,
+        )
+        .dispose();
+
+    // The page scrolls back into view. The hold is still up, so this rebuild
+    // can only consult the cache - nothing renders yet.
+    rebuild(() => onScreen = true);
+    await tester.pump();
+    expect(worker.imageRatios, isEmpty,
+        reason: 'nothing may have rendered before the scene lookup');
+
+    // The scroll settles and the page is free to present.
+    scheduler.holding = false;
+    bool painted() =>
+        tester
+            .widgetList<RawImage>(find.byType(RawImage))
+            .any((w) => (w.image?.width ?? 0) > 200) ||
+        tester.widgetList<CustomPaint>(find.byType(CustomPaint)).any((w) =>
+            w.painter.runtimeType.toString() == '_RetainedPagePicturePainter');
+    var recordedBeforePaint = <double>[];
+    for (var i = 0; i < 200 && !painted(); i++) {
+      recordedBeforePaint = List.of(worker.imageRatios);
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+
+    expect(painted(), isTrue);
+    expect(recordedBeforePaint, isEmpty,
+        reason: 'the retained display list is sharp at this zoom, so first '
+            'content came from it - not from a fresh record, which is the '
+            'blank page and the round trip the reader was seeing');
+  });
+
   testWidgets('a structural epoch bump drops the slot\'s stale raster',
       (tester) async {
     // The lazy page list has no per-page key, so after an insert/remove/

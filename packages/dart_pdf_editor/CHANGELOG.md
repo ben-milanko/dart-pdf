@@ -1,5 +1,53 @@
 # Changelog
 
+## 3.7.1
+
+- Fix a release-mode crash when an annotated viewer unmounts while a
+  replacement appearance is still rendering. Cached, retired, and late
+  pictures now have explicit at-most-once disposal ownership without reading
+  Flutter's assert-only `Picture.debugDisposed` state.
+
+## 3.7.0
+
+- Render ordinary pages *through* a scroll instead of waiting it out.
+  `PdfPageRenderScheduler` gains a motion lane: a request declares a
+  `PdfRenderMotionClass`, evaluated at grant time rather than baked in, so a
+  worker-backed page renders during any motion, a small page without a worker
+  renders in the scroll-quiet window, and anything heavier keeps the old hold.
+  A page on screen with nothing to paint now asks for its render on every
+  rebuild (guarded by `isQueued`), which is what was missing for a page the
+  reader scrolled onto.
+- Weigh an image by its declared size rather than its existence:
+  `PdfPageView.motionSafeMaxImagePixels` and `PdfPageRenderer.imageDrawPixels`
+  admit the letterhead mark that every page of a corporate report carries,
+  which the first cut of the gate refused outright.
+- Price retained scenes honestly. `PdfPagePreviewCache.priceRetainedScene`
+  floors an entry at the raster it stands in for - the engine's own picture
+  estimate under-reports a text page by ~18x - and the budget becomes
+  platform-aware (`pdfDefaultRetainedSceneBytes`), so the entry cap goes back
+  to being a backstop. A cached scene is now adopted when it is sharp at the
+  current zoom, not only when it carries a fresh render's decode headroom.
+- Add find **and replace** to the search panel. `PdfSearchResultsPanel(editing:)`
+  reveals a replacement field behind a disclosure in the options row, with
+  Replace and Replace all (one undo step); a null `editing` leaves it a pure
+  find panel. Backed by `replaceMatchText` and `replaceTextOnPages` on the
+  editing controller, and persisted through
+  `PdfEditingPreferences.searchReplaceExpanded`.
+- Fix the element strip's "Replace text" rewriting every matching run on the
+  page: both element-strip entry points now use the targeted
+  `replaceElementText`, as the selection menu already did.
+- Report the text of a remapped or subsetted simple font correctly in the
+  content tool, through `pdf_document`'s new `SimpleFont`.
+- Yield a frame between thumbnail tiles and re-read the busy gate, so the strip
+  can no longer run 400-500 ms of tile work ahead of the page the reader landed
+  on.
+- Say when the render worker fails to start. A failed isolate spawn was
+  swallowed, leaving every page to interpret on the UI thread for the rest of
+  the document with nothing in any log; it now reaches `PdfPerfLog` and prints
+  a debug warning, and the interpret line distinguishes `recorded(no-worker)`
+  from `recorded(declined)`.
+- Translate the new search and replace strings into all 19 non-English locales.
+
 ## 3.6.0
 
 - Add `showPdfDialog`, a view-local Material dialog helper for hosts using

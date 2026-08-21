@@ -6927,35 +6927,22 @@ class PdfEditingController extends ChangeNotifier {
   /// Rewrites the selected text element's characters to [text] and
   /// returns how many text runs changed.
   ///
-  /// Built on [PdfEditor.replaceText], so its limits apply: identical runs
-  /// elsewhere on the page change too, and matches do not cross a line
-  /// break. Replacements are re-measured so the rest of the line keeps its
-  /// position. Composite (/Type0) text is handled; [fallbackFonts] (the
-  /// bundled DejaVu trio, see `loadFallbackFonts`) draw any character the
-  /// document's own font can't, so typing outside its subset still works.
+  /// Built on [PdfEditor.replaceElementText], so the rewrite lands on the
+  /// occurrence the user selected and nowhere else - a page whose header and
+  /// footer both read "Date:" keeps the one that was not selected. Matches do
+  /// not cross a line break, and replacements are re-measured so the rest of
+  /// the line keeps its position. Composite (/Type0) text is handled;
+  /// [fallbackFonts] (the bundled DejaVu trio, see `loadFallbackFonts`) draw
+  /// any character the document's own font can't, so typing outside its
+  /// subset still works.
   int replaceSelectedElementText(
     String text, {
     List<PdfEmbeddedFont> fallbackFonts = const [],
-  }) {
-    final selected = _selectedElement;
-    final element = selectedElement;
-    if (selected == null || element == null || !canEditSelectedElementText) {
-      return 0;
-    }
-    var count = 0;
-    apply(
-      (e) => count = e.replaceText(
-        selected.$1,
-        element.text!,
-        text,
-        fallbackFonts: fallbackFonts,
-      ),
-    );
-    return count;
-  }
+  }) =>
+      _replaceSelectedElementText(text, null, fallbackFonts);
 
   /// Like [replaceSelectedElementText] but restyles the replacement with
-  /// [style] (fill colour, size, bold, italic) via [PdfEditor.replaceText].
+  /// [style] (fill colour, size, bold, italic).
   ///
   /// Styling lands on simple-font runs; a composite (/Type0) element is still
   /// re-typed but keeps its original colour, size, and face. Returns how many
@@ -6964,16 +6951,31 @@ class PdfEditingController extends ChangeNotifier {
     String text,
     PdfTextStyle style, {
     List<PdfEmbeddedFont> fallbackFonts = const [],
-  }) {
+  }) =>
+      _replaceSelectedElementText(text, style, fallbackFonts);
+
+  int _replaceSelectedElementText(
+    String text,
+    PdfTextStyle? style,
+    List<PdfEmbeddedFont> fallbackFonts,
+  ) {
     final selected = _selectedElement;
     final element = selectedElement;
     if (selected == null || element == null || !canEditSelectedElementText) {
       return 0;
     }
+    final elements = elementsOn(selected.$1);
+    // [selectedElement] resolves through this same snapshot, so the element
+    // is current; guard anyway rather than throw if that ever changes.
+    if (element.id >= elements.elements.length ||
+        !identical(elements.elements[element.id], element)) {
+      return 0;
+    }
     var count = 0;
     apply(
-      (e) => count = e.replaceText(
-        selected.$1,
+      (e) => count = e.replaceElementText(
+        elements,
+        element,
         element.text!,
         text,
         fallbackFonts: fallbackFonts,
@@ -7011,6 +7013,64 @@ class PdfEditingController extends ChangeNotifier {
         style: style,
       ),
     );
+    return count;
+  }
+
+  /// Replaces one search hit - the occurrence of [find] covered by [rects] on
+  /// [pageIndex] - with [replace], leaving identical text elsewhere alone.
+  ///
+  /// Backs the search panel's single "Replace". Returns the number of runs
+  /// rewritten, which is 0 when the hit cannot be pinned to exactly one
+  /// content element (text split across runs, a hit inside a Form XObject,
+  /// overlapping text layers) or when the run's font cannot draw [replace] -
+  /// the same conservative gate [textElementForSelection] applies to the
+  /// selection menu, so a replace either lands on the hit the user is looking
+  /// at or does nothing at all.
+  int replaceMatchText(
+    int pageIndex,
+    List<PdfRect> rects,
+    String find,
+    String replace, {
+    List<PdfEmbeddedFont> fallbackFonts = const [],
+  }) {
+    final element = textElementForSelection(pageIndex, rects, find);
+    if (element == null) return 0;
+    return replaceTextInElement(
+      pageIndex,
+      element,
+      find,
+      replace,
+      const PdfTextStyle(),
+      fallbackFonts: fallbackFonts,
+    );
+  }
+
+  /// Replaces every occurrence of [find] with [replace] across [pages], as
+  /// one undoable edit.
+  ///
+  /// Backs the search panel's "Replace all". Unlike [replaceMatchText] this
+  /// is deliberately page-wide: the user asked for every hit. Returns the
+  /// number of runs rewritten across all of [pages].
+  int replaceTextOnPages(
+    Iterable<int> pages,
+    String find,
+    String replace, {
+    List<PdfEmbeddedFont> fallbackFonts = const [],
+  }) {
+    if (find.isEmpty) return 0;
+    final targets = pages.toSet().toList()..sort();
+    if (targets.isEmpty) return 0;
+    var count = 0;
+    apply((editor) {
+      for (final page in targets) {
+        count += editor.replaceText(
+          page,
+          find,
+          replace,
+          fallbackFonts: fallbackFonts,
+        );
+      }
+    });
     return count;
   }
 

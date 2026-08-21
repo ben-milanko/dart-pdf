@@ -95,6 +95,24 @@
     <!-- Generated from app/fastlane/metadata/android/en-US/changelogs/ and
          app/release-notes/. Newest first; keep the top entry in sync with the
          version the Flatpak/AUR packages pin. -->
+    <release version="3.6.1" date="2026-08-16">
+      <description>
+        <ul>
+          <li>Fix the Linux app exiting at launch by disabling the experimental multi-window bootstrap on Linux only.</li>
+          <li>Fix the Snap package failing to start under strict confinement.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.6.0" date="2026-08-15">
+      <description>
+        <ul>
+          <li>Annotation panels are easier to navigate, keep selections visible after edits, and preserve text-box opacity.</li>
+          <li>Bluebeam text boxes retain their alignment, spacing, and caret position.</li>
+          <li>Multiple document windows now support dragging tabs between them.</li>
+          <li>Substituted text has more natural spacing, with fixes for stale pages and cloud-folder reveal actions.</li>
+        </ul>
+      </description>
+    </release>
     <release version="3.5.1" date="2026-08-14">
       <description>
         <ul>

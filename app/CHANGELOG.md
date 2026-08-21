@@ -1,5 +1,31 @@
 # Changelog
 
+## 3.7.0
+
+- Pages now render as you scroll past them instead of arriving half a second
+  after you stop. Scrolling back to a page you have already read shows it
+  immediately.
+- Add find and replace to the search panel: replace the current match or every
+  match at once, in a single undo step.
+- Fix the content tool showing scrambled characters - and editing the wrong
+  text - on documents whose fonts renumber their character codes, which is
+  common in forms and any file with subsetted fonts.
+- Fix "Replace text" in the element strip changing every matching line on the
+  page rather than the one selected.
+- Fix the app closing when you chose Open or Save on Windows.
+- Fix the Mac App Store build being rejected over the bundled command-line
+  helper; the helper still ships with every other download.
+
+## 3.6.1
+
+- Fix the Linux app exiting at launch: the experimental multi-window bootstrap
+  is disabled on Linux only (upstream: flutter/flutter#191166), restoring the
+  classic single-window startup. Windows and macOS keep multi-window support.
+- Fix the Snap package failing to start under strict confinement by allowing
+  the app to own its `dev.milanko.dartpdf` D-Bus name.
+- Add blocking launch smoke tests for every desktop platform to CI and the
+  release pipeline.
+
 ## 3.6.0
 
 - Open documents in multiple native desktop windows and drag tabs between

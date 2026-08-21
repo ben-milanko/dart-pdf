@@ -275,6 +275,38 @@ the real gate there, not the total: `pageBytes ~/ 8` admits nothing over 8 MB
 under a 64 MB budget, and a letter page at DPR 2 is ~10 MB. See
 doc/dev-log/2026-07-29-idle-full-raster-warm-614.md and
 doc/dev-log/2026-07-31-warm-auto-memory-floor-614.md.
+Ordinary pages render **through** a scroll rather than waiting it out. Two
+halves: a page on screen with nothing of its own to paint asks for its render
+on every rebuild (guarded by `PdfPageRenderScheduler.isQueued`) - nothing in
+the render intent changes as a page scrolls in, so before this only the
+end-of-scroll settle bump queued it, which was the whole "scroll two pages,
+wait half a second"; and a request may declare itself `motionSafe` to
+`PdfPageRenderScheduler` and re-declare it at `paceUiWork` once the record's
+size is known
+(`PdfPageView.motionSafeRenders`/`motionSafeMaxCommands`/
+`motionSafeMaxImagePixels`; the verdict is a live worker + page-level
+XObjects declaring <=1 MP up front, then <=4000 commands and <=1 MP of
+actual image draws when the buffer lands, revoked the moment a pass falls
+through to a local walk). Ask an image how big it is (/Width x /Height,
+`PdfPageRenderer.imageDrawPixels`) rather than treating "has an image" as
+"expensive": the first cut of this gate refused any page with an /XObject
+and so switched itself off across every ordinary report with a letterhead
+mark (`test_corpora/dartpdf/letterhead-report-40p.pdf`, scenario
+`wheel-letterhead`, is that class). A cached retained scene is likewise
+adopted when it is sharp at the *current* zoom, not only when it carries the
+2x `focusedImageDecodeHeadroom` a fresh render aims for - the headroom
+arrives as a soft-to-sharp refinement behind the painted page.
+While a scroll is in flight grants stay near the destination (`motionSafeHoldRadius`) so a fling does not record every page
+it passes. Retention pairs with it: the retained-scene LRU is governed by an
+honest byte price (`PdfPagePreviewCache.priceRetainedScene` floors an entry
+at the raster it stands in for - the engine's picture estimate under-reports
+a text page ~18x) against `pdfDefaultRetainedSceneBytes`. Measure this area with the web
+harness's `wheel` scenarios (`tool/perf.sh web wheel-text`) - a continuous
+scroll sampled every frame, which is the journey a reader actually makes -
+and the `read` ones (`read-text`) for page-to-page navigation. The two are
+gated by different things; `read` alone hid the scrolling problem entirely.
+See doc/dev-log/2026-08-19-motion-safe-renders.md and
+doc/dev-log/2026-08-19-motion-lane-image-budget.md.
 Crash recovery for unsaved edits is in (app): while a document is dirty its
 bytes are mirrored outside the process, so a crash/OOM kill/closed browser
 tab loses nothing. `AutosaveController` (`app/lib/autosave.dart`) tracks a

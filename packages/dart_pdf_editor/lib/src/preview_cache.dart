@@ -9,6 +9,7 @@ import 'package:pdf_document/pdf_document.dart';
 
 import 'budgeted_cache.dart';
 import 'perf_log.dart';
+import 'performance_policy.dart';
 import 'raster_cache.dart';
 import 'raster_warm.dart';
 import 'render_worker.dart';
@@ -277,11 +278,11 @@ class PdfPagePreviewCache extends ChangeNotifier {
     PdfPagePreviewLodPolicy lodPolicy = const PdfPagePreviewLodPolicy(),
     int maxFullRasterPixels = 8 << 20,
     int maxFullRasterEntryPixels = 4 << 20,
-    int maxRetainedSceneBytes = 64 << 20,
-    int maxRetainedSceneEntries = 4,
+    int? maxRetainedSceneBytes,
+    int maxRetainedSceneEntries = 32,
   })  : assert(maxFullRasterPixels >= 0),
         assert(maxFullRasterEntryPixels >= 0),
-        assert(maxRetainedSceneBytes >= 0),
+        assert(maxRetainedSceneBytes == null || maxRetainedSceneBytes >= 0),
         assert(maxRetainedSceneEntries > 0),
         _intermediateLongestSides = _normalizedIntermediateSides(
           longestSide,
@@ -291,7 +292,8 @@ class PdfPagePreviewCache extends ChangeNotifier {
         _maxIntermediateEntryBytes = lodPolicy.maxEntryBytes,
         _maxFullRasterBytes = maxFullRasterPixels * 4,
         _maxFullRasterEntryBytes = maxFullRasterEntryPixels * 4,
-        _maxRetainedSceneBytes = maxRetainedSceneBytes,
+        _maxRetainedSceneBytes =
+            maxRetainedSceneBytes ?? pdfDefaultRetainedSceneBytes(),
         _maxRetainedSceneEntries = maxRetainedSceneEntries;
 
   /// Pixel size of a preview's longest side. Stretched to page size on
@@ -357,6 +359,15 @@ class PdfPagePreviewCache extends ChangeNotifier {
   int _maxFullRasterBytes;
   int _maxFullRasterEntryBytes;
   final int _maxRetainedSceneBytes;
+
+  /// Entry ceiling for the retained-scene LRU, alongside its byte budget.
+  ///
+  /// [_maxRetainedSceneBytes] is the governor; this is only a backstop against
+  /// a pathological number of tiny entries, so it is far above what any real
+  /// document reaches. It used to be 4 - the whole document's allowance - and
+  /// that, not the budget, was what made a reader on a long text document
+  /// re-render pages shown seconds earlier: a scene restored from here paints
+  /// with no record, no replay and no worker round trip.
   final int _maxRetainedSceneEntries;
 
   // Three shared budgeted LRUs: base previews bounded by entry count,
@@ -670,11 +681,38 @@ class PdfPagePreviewCache extends ChangeNotifier {
     return entry.acquire();
   }
 
+  /// Prices a retained scene against the LRU's byte budget.
+  ///
+  /// The obvious inputs - the command transcript, the engine's own
+  /// `Picture.approximateBytesUsed`, and the decoded images - add up to a
+  /// number that is badly wrong for exactly the pages this cache is most
+  /// useful for. A 38-command text page prices at ~0.5 MB that way and
+  /// measures at ~9 MB of browser heap: what a retained picture actually
+  /// holds is the engine's shaped text and path objects, which
+  /// `approximateBytesUsed` does not count. Under-pricing did not just make
+  /// the budget generous, it made it meaningless - and it lied to the
+  /// process-wide [PdfCacheRegistry] the host's memory governor drives.
+  ///
+  /// So a scene is priced at no less than the raster it stands in for
+  /// ([rasterBytes], the page's own WxHx4 at display resolution). That is the
+  /// memory the alternative - keeping the page's pixels - would cost, it
+  /// tracks page size and zoom on its own, and measured against the browser's
+  /// agent memory it lands within ~20% of the truth on ordinary pages.
+  static int priceRetainedScene({
+    required int commandCount,
+    required int pictureBytes,
+    required int decodedImageBytes,
+    required int rasterBytes,
+  }) =>
+      math.max(commandCount * 260 + pictureBytes, rasterBytes) +
+      decodedImageBytes;
+
   /// Retains [scene] in the session LRU and returns a lease for the caller.
   ///
-  /// [estimatedBytes] includes the command scene's estimated heap plus the
-  /// engine picture size observed while building it. Oversize entries remain
-  /// usable by the caller through the returned lease but are not cached.
+  /// [estimatedBytes] is what the entry costs against the byte budget - see
+  /// [priceRetainedScene], which every caller should use to compute it.
+  /// Oversize entries remain usable by the caller through the returned lease
+  /// but are not cached.
   PdfRetainedSceneHandle retainScene(
     int index,
     PdfPage page,

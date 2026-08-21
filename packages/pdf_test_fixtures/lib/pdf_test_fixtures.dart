@@ -174,6 +174,47 @@ Uint8List buildMultiPagePdf(int pageCount) {
   return ascii(buffer.toString());
 }
 
+/// Builds a one-page PDF drawing each of [lines] as its own text run in
+/// base-14 /F1, top-down from y=720 at 24pt intervals.
+///
+/// Handy for content-editing tests that need several runs whose text is the
+/// same or deliberately different - "does replacing this line leave the
+/// identical one alone".
+Uint8List buildTextLinesPdf(List<String> lines, {double size = 12}) {
+  final content = StringBuffer();
+  var y = 720.0;
+  for (final line in lines) {
+    content.write('BT /F1 $size Tf 36 $y Td ($line) Tj ET\n');
+    y -= 24;
+  }
+  final body = content.toString();
+  final objects = <String>[
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R '
+        '/Resources << /Font << /F1 5 0 R >> >> >>',
+    '<< /Length ${body.length} >>\nstream\n$body\nendstream',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  final buffer = StringBuffer('%PDF-1.4\n');
+  final offsets = <int>[];
+  for (var i = 0; i < objects.length; i++) {
+    offsets.add(buffer.length);
+    buffer.write('${i + 1} 0 obj\n${objects[i]}\nendobj\n');
+  }
+  final xrefOffset = buffer.length;
+  buffer
+    ..write('xref\n0 ${objects.length + 1}\n')
+    ..write('0000000000 65535 f \n');
+  for (final offset in offsets) {
+    buffer.write('${offset.toString().padLeft(10, '0')} 00000 n \n');
+  }
+  buffer
+    ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
+    ..write('startxref\n$xrefOffset\n%%EOF\n');
+  return ascii(buffer.toString());
+}
+
 /// Builds a [pageCount]-page PDF whose page heights cycle 792, 396,
 /// 1008 pt (all 612 wide); page N shows the text "Page N" near its top.
 /// Mixed sizes defeat any uniform-extent estimate, exercising viewers

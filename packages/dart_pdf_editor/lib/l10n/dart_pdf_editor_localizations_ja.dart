@@ -888,6 +888,31 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get searchRegex => '正規表現';
 
   @override
+  String get searchReplace => '置換';
+
+  @override
+  String get searchReplaceAll => 'すべて置換';
+
+  @override
+  String get searchReplaceHint => '置換後の文字列';
+
+  @override
+  String get searchReplaceNotTargetable =>
+      'この一致は単独では置換できません。「すべて置換」を使うか、コンテンツツールで編集してください';
+
+  @override
+  String searchReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count 件を置換しました',
+      one: '1 件を置換しました',
+      zero: '置換されませんでした',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => '検索結果';
 
   @override

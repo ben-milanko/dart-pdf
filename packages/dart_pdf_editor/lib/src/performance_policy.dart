@@ -128,6 +128,58 @@ int pdfDefaultLiveRasterBudgetBytes({
   };
 }
 
+/// The default byte budget for retained page scenes
+/// (`PdfPagePreviewCache`'s retained-scene LRU) on this platform.
+///
+/// A retained scene is a page the viewer can put back on screen with no
+/// record, no replay and no worker round trip - the cheapest possible
+/// scroll-back - and it is priced at the raster it stands in for
+/// (`PdfPagePreviewCache.priceRetainedScene`), so these numbers convert
+/// directly into pages: an ordinary letter page at fit width is ~8 MB, so web
+/// keeps about four of them and desktop about sixteen.
+///
+/// ## What it buys, and what it costs
+///
+/// Measured on a 40-page text report (`tool/perf.sh web read-text` /
+/// `wheel-text`), the tier is worth exactly what it retains: with it off,
+/// revisiting a page costs a full record + replay again (readBackSettleP50
+/// ~220 ms, 4% of arrivals already sharp); with it on, every revisit inside
+/// the budget is free (0.03 ms, 100%). It is NOT what makes scrolling forward
+/// smooth - that is the render scheduler's motion-safe lane, which costs no
+/// memory at all.
+///
+/// The cost is real and close to the budget: this tier measured as ~97 MB of
+/// extra browser-agent memory at 64 MB on that document, because what sits
+/// around it (preview LoDs, live page state) grows with it.
+///
+/// ## Why not simply smaller
+///
+/// A budget under the *warm window* is worse than a small one - it is wasted
+/// work. The speculative warm records and builds scenes several pages either
+/// side of the reader; if the tier cannot hold that window, those scenes are
+/// evicted before anybody arrives on them and the warm pays for nothing.
+/// Measured at 32 MB on web (about four letter pages against a warm window of
+/// seven), tab memory fell to +25 MB but forward arrivals lost their warm
+/// entirely: readFirstSettleP50 went from ~0 ms back to ~180 ms, while
+/// scroll-back stayed free. So the floor here is "the warm window", not a
+/// round number.
+///
+/// Desktop keeps a chapter's worth - the machine has tens of GB. Web and
+/// mobile keep the warm window and no more. A host that wants the smaller
+/// footprint should lower the warm radius with it rather than this alone; the
+/// app's Auto memory mode can move both, and the process-wide
+/// `PdfCacheRegistry` trims every registered cache under a coordinated
+/// ceiling.
+int pdfDefaultRetainedSceneBytes({PdfPerformancePlatform? platform}) {
+  const mb = 1024 * 1024;
+  return switch (platform ?? detectedPdfPerformancePlatform) {
+    PdfPerformancePlatform.desktop => 128 * mb,
+    PdfPerformancePlatform.mobile => 64 * mb,
+    PdfPerformancePlatform.web => 64 * mb,
+    PdfPerformancePlatform.other => 64 * mb,
+  };
+}
+
 /// The current auto-policy posture. Exposed in diagnostics and tests.
 enum PdfPerformanceTier { conservative, balanced, throughput }
 

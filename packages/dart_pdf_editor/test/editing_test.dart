@@ -447,6 +447,25 @@ void main() {
       expect(editing.elementsOn(0).elements.single.text, 'Page 1');
     });
 
+    test('replaceSelectedElementText leaves identical runs elsewhere alone',
+        () {
+      // the same words drawn twice, as a header and a footer would be
+      final editing = PdfEditingController(buildTextLinesPdf(const [
+        'Date: 05/08/2026',
+        'Revision: B',
+        'Date: 05/08/2026',
+      ]));
+      editing.selectElementAt(0, 60, 674); // the second "Date:" line
+      final selected = editing.selectedElement;
+      expect(selected?.text, 'Date: 05/08/2026');
+
+      expect(editing.replaceSelectedElementText('Date: 26/05/2026'), 1);
+      expect(
+        [for (final e in editing.elementsOn(0).elements) e.text],
+        const ['Date: 05/08/2026', 'Revision: B', 'Date: 26/05/2026'],
+      );
+    });
+
     test('arming a non-content tool clears the element selection', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..tool = PdfEditTool.content;

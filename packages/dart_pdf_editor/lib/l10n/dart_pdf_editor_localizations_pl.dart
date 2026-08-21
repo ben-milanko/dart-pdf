@@ -905,6 +905,33 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get searchRegex => 'Wyrażenie regularne';
 
   @override
+  String get searchReplace => 'Zamień';
+
+  @override
+  String get searchReplaceAll => 'Zamień wszystko';
+
+  @override
+  String get searchReplaceHint => 'Zamień na';
+
+  @override
+  String get searchReplaceNotTargetable =>
+      'Tego dopasowania nie można zamienić osobno — użyj opcji „Zamień wszystko” lub edytuj je narzędziem zawartości';
+
+  @override
+  String searchReplaced(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Zamieniono $count dopasowania',
+      many: 'Zamieniono $count dopasowań',
+      few: 'Zamieniono $count dopasowania',
+      one: 'Zamieniono 1 dopasowanie',
+      zero: 'Nic nie zamieniono',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get searchResultsTitle => 'Wyniki wyszukiwania';
 
   @override

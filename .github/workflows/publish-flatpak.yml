@@ -82,7 +82,7 @@ jobs:
       - name: Install Flatpak build tools and runtime
         run: |
           sudo apt-get update
-          sudo apt-get install -y flatpak flatpak-builder gnupg dbus-x11 xvfb
+          sudo apt-get install -y flatpak flatpak-builder gnupg dbus-x11 xvfb x11-utils
           flatpak remote-add --user --if-not-exists flathub \
             https://dl.flathub.org/repo/flathub.flatpakrepo
           flatpak install --user --noninteractive -y flathub \
@@ -128,17 +128,8 @@ jobs:
             dartpdf-local "$FLATPAK_ID//stable"
           flatpak info --user "$FLATPAK_ID"
           flatpak run --user --command=dartpdf-cli "$FLATPAK_ID" --version
-          set +e
-          timeout 12s dbus-run-session -- xvfb-run -a \
-            flatpak run --user "$FLATPAK_ID" \
-            >"$RUNNER_TEMP/dartpdf-flatpak-smoke.log" 2>&1
-          status=$?
-          set -e
-          if [[ "$status" -ne 124 ]]; then
-            cat "$RUNNER_TEMP/dartpdf-flatpak-smoke.log"
-            echo "Flatpak exited before the smoke-test window (status $status)" >&2
-            exit 1
-          fi
+          dbus-run-session -- \
+            tool/smoke_test_linux_gui.sh --cmd "flatpak run --user $FLATPAK_ID" --timeout 15
 
       - uses: actions/upload-artifact@v7
         with:
