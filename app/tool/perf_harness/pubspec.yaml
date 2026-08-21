@@ -10,7 +10,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  dart_pdf_editor: ^3.7.0
+  dart_pdf_editor: ^3.7.1
   pdf_document: ^3.7.0
 
 flutter:

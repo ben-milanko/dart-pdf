@@ -23,7 +23,7 @@ dependencies:
     sdk: flutter
   # The registration API and the PdfBundledFont / global-config symbols it
   # populates live in the editor package; this package supplies the bytes.
-  dart_pdf_editor: ^3.7.0
+  dart_pdf_editor: ^3.7.1
 
 flutter:
   # The optional editor assets. These are declared here, not in

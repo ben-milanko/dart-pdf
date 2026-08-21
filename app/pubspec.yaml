@@ -23,7 +23,7 @@ dependencies:
   cupertino_icons: ^1.0.8
 
   # The PDF engine and editing UI live in the workspace packages.
-  dart_pdf_editor: ^3.7.0
+  dart_pdf_editor: ^3.7.1
   # Optional Impeller-backed renderer for the existing deep-zoom tile store.
   # Its web export is an inert capability stub and Canvas remains the fallback.
   dart_pdf_editor_flutter_gpu: ^0.1.5

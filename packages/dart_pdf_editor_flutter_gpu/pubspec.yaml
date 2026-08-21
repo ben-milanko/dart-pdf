@@ -21,7 +21,7 @@ dependencies:
   flutter_gpu:
     sdk: flutter
   vector_math: ^2.1.4
-  dart_pdf_editor: ^3.7.0
+  dart_pdf_editor: ^3.7.1
   pdf_cos: ^3.7.0
   pdf_document: ^3.7.0
   pdf_graphics: ^3.7.0
