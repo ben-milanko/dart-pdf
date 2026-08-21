@@ -2703,10 +2703,13 @@ Future<void> _showPageTileMenu({
   if (items.isEmpty) return;
 
   final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
+  final overlayPosition = overlay.globalToLocal(position);
   final picked = await showMenu<_PageTileAction>(
     context: context,
-    position:
-        RelativeRect.fromRect(position & Size.zero, Offset.zero & overlay.size),
+    position: RelativeRect.fromRect(
+      overlayPosition & Size.zero,
+      Offset.zero & overlay.size,
+    ),
     items: items,
   );
   switch (picked) {

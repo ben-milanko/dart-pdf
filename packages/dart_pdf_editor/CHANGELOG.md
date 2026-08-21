@@ -2,6 +2,8 @@
 
 ## 3.7.0
 
+- Anchor thumbnail context menus to the correct position when the editor is
+  hosted inside an offset nested navigator.
 - Render ordinary pages *through* a scroll instead of waiting it out.
   `PdfPageRenderScheduler` gains a motion lane: a request declares a
   `PdfRenderMotionClass`, evaluated at grant time rather than baked in, so a
