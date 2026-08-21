@@ -5304,11 +5304,14 @@ class PdfEditingController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // restyle
 
-  /// Whether [restyleSelected] can recolor everything selected in place
-  /// (see [pdfCanRestyleAnnotation] for the per-subtype conditions).
+  /// Whether [restyleSelected] can restyle at least one selected annotation
+  /// in place (see [pdfCanRestyleAnnotation] for the per-subtype conditions).
+  ///
+  /// A mixed selection is intentionally permissive: each property applies to
+  /// the compatible annotations and leaves the rest untouched.
   bool get canRestyleSelected =>
       _selected.isNotEmpty &&
-      _selected.every((slot) {
+      _selected.any((slot) {
         final annotation = _annotationAt(slot);
         return annotation?.behavior.canRestyle == true;
       });
@@ -5344,12 +5347,13 @@ class PdfEditingController extends ChangeNotifier {
     return rgb == null ? color : Color(0xFF000000 | rgb);
   }
 
-  /// Whether [restyleSelected]'s `fill` parameter applies to every selected
-  /// annotation (shapes and FreeText boxes).
+  /// Whether [restyleSelected]'s `fill` parameter applies to at least one
+  /// selected annotation (shapes and FreeText boxes).
   bool get canFillSelected =>
       canRestyleSelected &&
-      _selected.every((slot) {
-        return _annotationAt(slot)?.behavior.supportsFill == true;
+      _selected.any((slot) {
+        final behavior = _annotationAt(slot)?.behavior;
+        return behavior?.canRestyle == true && behavior?.supportsFill == true;
       });
 
   /// The primary selected annotation's interior/background fill, or null
@@ -5359,12 +5363,14 @@ class PdfEditingController extends ChangeNotifier {
     return rgb == null ? null : Color(0xFF000000 | rgb);
   }
 
-  /// Whether every selected annotation takes a border line style - shapes
-  /// and the line family - so [restyleSelected]'s `lineStyle` applies.
+  /// Whether at least one selected annotation takes a border line style -
+  /// shapes and the line family - so [restyleSelected]'s `lineStyle` applies.
   bool get canSetLineStyleSelected =>
       canRestyleSelected &&
-      _selected.every((slot) {
-        return _annotationAt(slot)?.behavior.supportsLineStyle == true;
+      _selected.any((slot) {
+        final behavior = _annotationAt(slot)?.behavior;
+        return behavior?.canRestyle == true &&
+            behavior?.supportsLineStyle == true;
       });
 
   /// The primary selected annotation's border line style (for the line-type
@@ -5510,13 +5516,13 @@ class PdfEditingController extends ChangeNotifier {
     return true;
   }
 
-  /// Restyles every selected annotation in place - one revision, one
-  /// undo, and the selection survives (annotations keep their /Annots
-  /// slots). Parameters follow [PdfEditor.restyleAnnotation]: [color]
-  /// is the stroke/tint (free text's *text* color), [fill] the shape
-  /// interior or text-box background (`(null,)` clears it), and
-  /// parameters a subtype doesn't have are ignored for it. Returns
-  /// whether anything changed.
+  /// Restyles every compatible selected annotation in place - one revision,
+  /// one undo, and the selection survives (annotations keep their /Annots
+  /// slots). Parameters follow [PdfEditor.restyleAnnotation]: [color] is the
+  /// stroke/tint (free text's *text* color), [fill] the shape interior or
+  /// text-box background (`(null,)` clears it). In a mixed selection each
+  /// property applies only to subtypes that support it. Returns whether
+  /// anything changed.
   bool restyleSelected({
     Color? color,
     (Color?,)? fill,
@@ -5536,9 +5542,22 @@ class PdfEditingController extends ChangeNotifier {
       return false;
     }
     if (!canRestyleSelected) return false;
+    bool applies(PdfAnnotation annotation) {
+      final behavior = annotation.behavior;
+      if (!behavior.canRestyle) return false;
+      return (color != null && behavior.supportsColor) ||
+          (fill != null && behavior.supportsFill) ||
+          (strokeWidth != null && behavior.supportsStrokeWidth) ||
+          (opacity != null && behavior.supportsOpacity) ||
+          (lineStyle != null && behavior.supportsLineStyle) ||
+          (scale != null && behavior.supportsLineStyle) ||
+          (cornerRadius != null && annotation.subtype == 'Square');
+    }
+
     final targets = <(int, PdfAnnotation)>[
       for (final slot in _selected)
-        if (_annotationAt(slot) case final annotation?) (slot.$1, annotation),
+        if (_annotationAt(slot) case final annotation?)
+          if (applies(annotation)) (slot.$1, annotation),
     ];
     if (targets.isEmpty) return false;
     return apply(
@@ -5573,12 +5592,16 @@ class PdfEditingController extends ChangeNotifier {
     );
   }
 
-  /// Whether [restyleSelected]'s `cornerRadius` applies - every selected
-  /// annotation is a restylable /Square rectangle (the only subtype that
-  /// rounds its corners). Gates the selection corner-radius control.
+  /// Whether [restyleSelected]'s `cornerRadius` applies to at least one
+  /// selected restylable /Square rectangle (the only subtype that rounds its
+  /// corners). Other selected annotations are left untouched.
   bool get canRoundSelectedCorners =>
       canRestyleSelected &&
-      _selected.every((slot) => _annotationAt(slot)?.subtype == 'Square');
+      _selected.any((slot) {
+        final annotation = _annotationAt(slot);
+        return annotation?.subtype == 'Square' &&
+            annotation?.behavior.canRestyle == true;
+      });
 
   /// The primary selected rectangle's current corner radius (page points),
   /// or null when the selection isn't a roundable /Square - for the corner
@@ -6174,11 +6197,12 @@ class PdfEditingController extends ChangeNotifier {
     return dx * dx + dy * dy;
   }
 
-  /// Whether every selected annotation is a /Line or /PolyLine whose endings
-  /// can be set together ([setSelectedLineEndings]).
+  /// Whether at least one selected annotation is a /Line or /PolyLine whose
+  /// endings can be set ([setSelectedLineEndings]). Other selected subtypes
+  /// are ignored.
   bool get canSetLineEndings {
     return _selected.isNotEmpty &&
-        _selected.every((slot) {
+        _selected.any((slot) {
           final annotation = _annotationAt(slot);
           return annotation != null &&
               annotation.behavior.supportsLineEndings &&
@@ -6186,11 +6210,24 @@ class PdfEditingController extends ChangeNotifier {
         });
   }
 
-  /// The primary selected /Line or /PolyLine's start/end line endings, or
-  /// null when the selection cannot edit line endings. Multi-selection UIs
-  /// may compare each annotation when they need a mixed-value indicator.
+  PdfAnnotation? get _selectedLineEndingAnnotation {
+    for (final slot in _selected.reversed) {
+      final annotation = _annotationAt(slot);
+      if (annotation != null &&
+          annotation.behavior.supportsLineEndings &&
+          annotation.normalAppearance != null) {
+        return annotation;
+      }
+    }
+    return null;
+  }
+
+  /// The most recently selected compatible /Line or /PolyLine's start/end
+  /// endings, or null when the selection cannot edit line endings.
+  /// Multi-selection UIs may compare each compatible annotation when they
+  /// need a mixed-value indicator.
   (PdfLineEnding, PdfLineEnding)? get selectedLineEndings {
-    final annotation = selectedAnnotation;
+    final annotation = _selectedLineEndingAnnotation;
     if (annotation == null || !canSetLineEndings) return null;
     return pdfLineEndings(annotation);
   }
@@ -6203,7 +6240,10 @@ class PdfEditingController extends ChangeNotifier {
     if (!canSetLineEndings) return;
     final targets = <(int, PdfAnnotation)>[
       for (final slot in _selected)
-        if (_annotationAt(slot) case final annotation?) (slot.$1, annotation),
+        if (_annotationAt(slot) case final annotation?)
+          if (annotation.behavior.supportsLineEndings &&
+              annotation.normalAppearance != null)
+            (slot.$1, annotation),
     ];
     apply((e) {
       for (final (page, annotation) in targets) {
@@ -6330,17 +6370,35 @@ class PdfEditingController extends ChangeNotifier {
     return (font: embedded ?? standard.font, size: standard.size);
   }
 
-  /// Whether the selection is a single free-text annotation whose font
-  /// and size [restyleSelectedText] can change.
-  bool get canRestyleSelectedText =>
-      _selected.length == 1 && selectedAnnotation?.subtype == 'FreeText';
+  PdfAnnotation? get _selectedFreeTextAnnotation {
+    for (final slot in _selected.reversed) {
+      final annotation = _annotationAt(slot);
+      if (annotation?.subtype == 'FreeText') return annotation;
+    }
+    return null;
+  }
+
+  List<({int page, int slot, PdfAnnotation annotation})>
+      get _selectedFreeTextAnnotations => [
+            for (final slot in _selected)
+              if (_annotationAt(slot) case final annotation?)
+                if (annotation.subtype == 'FreeText')
+                  (page: slot.$1, slot: slot.$2, annotation: annotation),
+          ];
+
+  /// Whether at least one selected free-text annotation can have its font,
+  /// size, alignment, or box text style changed.
+  ///
+  /// Mixed selections are supported: text properties apply to every selected
+  /// free-text box and leave lines, shapes, and other annotations untouched.
+  bool get canRestyleSelectedText => _selectedFreeTextAnnotation != null;
 
   /// The selected free-text annotation's font and size (parsed from its
-  /// /DA), or null when the selection isn't free text.
+  /// /DA), or null when the selection contains no free text. With a mixed
+  /// selection this is the most recently selected free-text box.
   ({PdfStandardFont font, double size})? get selectedTextStyle {
-    final annotation = selectedAnnotation;
-    if (annotation?.subtype != 'FreeText') return null;
-    return _freeTextStyleOf(annotation!);
+    final annotation = _selectedFreeTextAnnotation;
+    return annotation == null ? null : _freeTextStyleOf(annotation);
   }
 
   /// The selected free-text annotation's per-run rich styling, parsed
@@ -6352,6 +6410,10 @@ class PdfEditingController extends ChangeNotifier {
   List<PdfFreeTextRun>? get selectedRichRuns {
     final annotation = selectedAnnotation;
     if (annotation == null || annotation.subtype != 'FreeText') return null;
+    return _richRunsOf(annotation);
+  }
+
+  List<PdfFreeTextRun>? _richRunsOf(PdfAnnotation annotation) {
     final rc = annotation.richContent;
     if (rc == null) return null;
     final style = _freeTextStyleOf(annotation);
@@ -6364,10 +6426,11 @@ class PdfEditingController extends ChangeNotifier {
   }
 
   /// The selected free-text annotation's horizontal alignment (its /Q
-  /// quadding), or null when the selection isn't a single free-text box.
+  /// quadding), or null when the selection contains no free-text box.
   PdfTextAlign? get selectedTextAlign {
-    if (!canRestyleSelectedText) return null;
-    return selectedAnnotation?.freeTextStyle?.alignment ?? PdfTextAlign.left;
+    final annotation = _selectedFreeTextAnnotation;
+    if (annotation == null) return null;
+    return annotation.freeTextStyle?.alignment ?? PdfTextAlign.left;
   }
 
   /// The actual font of the selected free-text box - its embedded font
@@ -6376,16 +6439,17 @@ class PdfEditingController extends ChangeNotifier {
   /// this reports the real face, so the font picker shows a bundled/custom
   /// font's own name instead of collapsing to "Sans".
   PdfTextFont? get selectedTextFont {
-    final annotation = selectedAnnotation;
-    if (annotation == null || annotation.subtype != 'FreeText') return null;
+    final annotation = _selectedFreeTextAnnotation;
+    if (annotation == null) return null;
     return _freeTextFontOf(annotation).font;
   }
 
   /// The selected free-text box's full parsed style (spacing, underline,
-  /// alignment, colours), or null when the selection isn't a free-text box.
+  /// alignment, colours), or null when the selection contains no free-text
+  /// box. With a mixed selection this is the most recently selected box.
   PdfFreeTextStyle? get selectedFreeTextStyle {
-    final annotation = selectedAnnotation;
-    if (annotation == null || annotation.subtype != 'FreeText') return null;
+    final annotation = _selectedFreeTextAnnotation;
+    if (annotation == null) return null;
     return annotation.freeTextStyle;
   }
 
@@ -6393,7 +6457,8 @@ class PdfEditingController extends ChangeNotifier {
   /// horizontal glyph width, whole-box underline) on the selected box,
   /// regenerating its appearance and preserving any per-run styling. Each
   /// value also becomes the creation default. Omitted values are left as-is.
-  /// A no-op when the selection isn't a single free-text box.
+  /// In a mixed selection this updates every selected free-text box and leaves
+  /// the other annotations untouched.
   void setSelectedTextBoxStyle({
     double? lineSpacing,
     double? charSpacing,
@@ -6408,34 +6473,12 @@ class PdfEditingController extends ChangeNotifier {
     // swap the document under it - the change rides the creation defaults
     // and lands when the edit commits instead
     if (isEditingText) return;
-    final annotation = selectedAnnotation;
-    if (annotation == null || !canRestyleSelectedText) return;
-    final richRuns = selectedRichRuns;
-    if (richRuns != null && richRuns.isNotEmpty) {
-      final runs = underline == null
-          ? richRuns
-          : [
-              for (final r in richRuns)
-                PdfFreeTextRun(r.text,
-                    font: r.font,
-                    fontSize: r.fontSize,
-                    color: r.color,
-                    underline: underline)
-            ];
-      _rewriteSelectedRich(annotation, runs,
-          lineSpacing: lineSpacing,
-          charSpacing: charSpacing,
-          fontWidth: fontWidth);
-    } else {
-      _rewriteSelected(
-        annotation,
-        annotation.contents ?? '',
-        lineSpacing: lineSpacing,
-        charSpacing: charSpacing,
-        fontWidth: fontWidth,
-        underline: underline,
-      );
-    }
+    _restyleSelectedFreeText(
+      lineSpacing: lineSpacing,
+      charSpacing: charSpacing,
+      fontWidth: fontWidth,
+      underline: underline,
+    );
   }
 
   PdfRect _autosizeTextRect(
@@ -6467,7 +6510,11 @@ class PdfEditingController extends ChangeNotifier {
   /// rather than sliding inward to fit.
   void autosizeSelectedTextBox() {
     final annotation = selectedAnnotation;
-    if (annotation == null || !canRestyleSelectedText) return;
+    if (_selected.length != 1 ||
+        annotation == null ||
+        annotation.subtype != 'FreeText') {
+      return;
+    }
     final style = _freeTextStyleOf(annotation);
     final rect = _autosizeTextRect(
       annotation,
@@ -6478,9 +6525,10 @@ class PdfEditingController extends ChangeNotifier {
     resizeSelected(rect);
   }
 
-  /// Rewrites the selected free-text annotation with a new [font] and/or
-  /// [size], keeping its text, place, color, and author. The selection
-  /// survives (the annotation keeps its /Annots slot).
+  /// Rewrites every selected free-text annotation with a new [font] and/or
+  /// [size], keeping each box's text, place, color, and author. Other selected
+  /// annotation subtypes are left untouched. The whole change is one undo
+  /// step and the selection survives.
   ///
   /// [fill] and [border] change the box's background and border color:
   /// the single-field record distinguishes "set to this RGB" - including
@@ -6496,17 +6544,9 @@ class PdfEditingController extends ChangeNotifier {
     (int?,)? border,
     double? borderWidth,
   }) {
-    final annotation = selectedAnnotation;
-    if (annotation == null || !canRestyleSelectedText) return;
-    // Default to the box's own (possibly embedded) font, so changing only
-    // the size never silently converts an embedded font to Helvetica; an
-    // explicit [font] (the family picker) still wins.
-    final style = _freeTextFontOf(annotation);
-    _rewriteSelected(
-      annotation,
-      annotation.contents ?? '',
-      font: font ?? style.font,
-      size: size ?? style.size,
+    _restyleSelectedFreeText(
+      font: font,
+      size: size,
       align: align,
       fill: fill,
       border: border,
@@ -6514,29 +6554,197 @@ class PdfEditingController extends ChangeNotifier {
     );
   }
 
+  bool _restyleSelectedFreeText({
+    PdfTextFont? font,
+    double? size,
+    PdfTextAlign? align,
+    (int?,)? fill,
+    (int?,)? border,
+    double? borderWidth,
+    double? lineSpacing,
+    double? charSpacing,
+    double? fontWidth,
+    bool? underline,
+  }) {
+    if (font == null &&
+        size == null &&
+        align == null &&
+        fill == null &&
+        border == null &&
+        borderWidth == null &&
+        lineSpacing == null &&
+        charSpacing == null &&
+        fontWidth == null &&
+        underline == null) {
+      return false;
+    }
+    final targets = _selectedFreeTextAnnotations;
+    if (targets.isEmpty) return false;
+
+    // Capture every source before the editor mutates /Annots. Text rewrites
+    // remove and re-add their annotation so a newly chosen embedded font can
+    // install its own resources; remap the complete mixed selection to the
+    // survivor slots and appended replacement slots up front.
+    final specs = [
+      for (final target in targets)
+        (
+          page: target.page,
+          slot: target.slot,
+          annotation: target.annotation,
+          rect: _appearanceRotationOf(target.annotation) == 0
+              ? target.annotation.rect
+              : _localFrameOf(target.annotation),
+          rotation: _appearanceRotationOf(target.annotation),
+          pageRotation: _page(target.page).rotation,
+          textFont: _freeTextFontOf(target.annotation),
+          parsed: target.annotation.freeTextStyle,
+          richRuns: _richRunsOf(target.annotation),
+        ),
+    ];
+    final removedByPage = <int, List<int>>{};
+    final pageCounts = <int, int>{};
+    for (final spec in specs) {
+      (removedByPage[spec.page] ??= []).add(spec.slot);
+      pageCounts.putIfAbsent(
+          spec.page, () => _page(spec.page).annotations.length);
+    }
+    for (final slots in removedByPage.values) {
+      slots.sort();
+    }
+    final replacementSlots = <(int, int), (int, int)>{};
+    final pageOrdinals = <int, int>{};
+    for (final spec in specs) {
+      final ordinal = pageOrdinals[spec.page] ?? 0;
+      pageOrdinals[spec.page] = ordinal + 1;
+      final survivorCount =
+          pageCounts[spec.page]! - removedByPage[spec.page]!.length;
+      replacementSlots[(spec.page, spec.slot)] =
+          (spec.page, survivorCount + ordinal);
+    }
+    final oldSelection = List<(int, int)>.of(_selected);
+    final nextSelection = <(int, int)>[];
+    for (final slot in oldSelection) {
+      final replacement = replacementSlots[slot];
+      if (replacement != null) {
+        nextSelection.add(replacement);
+        continue;
+      }
+      final removed = removedByPage[slot.$1];
+      if (removed == null) {
+        nextSelection.add(slot);
+        continue;
+      }
+      final shift = removed.where((index) => index < slot.$2).length;
+      nextSelection.add((slot.$1, slot.$2 - shift));
+    }
+    _selected
+      ..clear()
+      ..addAll(nextSelection);
+
+    final changed = apply((e) {
+      for (final spec in specs) {
+        e.removeAnnotation(spec.page, spec.annotation);
+      }
+      for (final spec in specs) {
+        final annotation = spec.annotation;
+        final parsed = spec.parsed;
+        final effectiveFill = fill != null ? fill.$1 : parsed?.fillColor;
+        final effectiveBorder =
+            border != null ? border.$1 : parsed?.borderColor;
+        final effectiveBorderWidth = borderWidth ??
+            ((parsed?.borderWidth ?? 0) > 0 ? parsed!.borderWidth : 1);
+        final effectiveAlign = align ?? parsed?.alignment ?? PdfTextAlign.left;
+        final effectiveLineSpacing = lineSpacing ??
+            parsed?.lineSpacing ??
+            kPdfFreeTextDefaultLineSpacing;
+        final effectiveCharSpacing = charSpacing ?? parsed?.charSpacing ?? 0;
+        final effectiveFontWidth = fontWidth ??
+            parsed?.horizontalScale ??
+            kPdfFreeTextDefaultHorizontalScale;
+        final runs = spec.richRuns;
+        if (runs != null && runs.isNotEmpty) {
+          e.addFreeTextRich(
+            spec.page,
+            spec.rect,
+            [
+              for (final run in runs)
+                PdfFreeTextRun(
+                  run.text,
+                  font: font ?? run.font,
+                  fontSize: size ?? run.fontSize,
+                  color: run.color,
+                  underline: underline ?? run.underline,
+                ),
+            ],
+            align: effectiveAlign,
+            fillColor: effectiveFill,
+            borderColor: effectiveBorder,
+            borderWidth: effectiveBorderWidth,
+            opacity: annotation.appearanceOpacity,
+            lineSpacing: effectiveLineSpacing,
+            charSpacing: effectiveCharSpacing,
+            horizontalScale: effectiveFontWidth,
+            pageRotation: spec.pageRotation,
+            author: annotation.author,
+            name: annotation.name,
+          );
+        } else {
+          e.addFreeText(
+            spec.page,
+            spec.rect,
+            annotation.contents ?? '',
+            fontSize: size ?? spec.textFont.size,
+            font: font ?? spec.textFont.font,
+            align: effectiveAlign,
+            color: parsed?.color ?? annotation.color ?? 0x000000,
+            fillColor: effectiveFill,
+            borderColor: effectiveBorder,
+            borderWidth: effectiveBorderWidth,
+            opacity: annotation.appearanceOpacity,
+            lineSpacing: effectiveLineSpacing,
+            charSpacing: effectiveCharSpacing,
+            horizontalScale: effectiveFontWidth,
+            underline: underline ?? parsed?.underline ?? false,
+            pageRotation: spec.pageRotation,
+            author: annotation.author,
+            name: annotation.name,
+          );
+        }
+        if (spec.rotation != 0) {
+          final annotations = _document.page(spec.page).annotations;
+          if (annotations.isNotEmpty) {
+            e.rotateAnnotation(
+              spec.page,
+              annotations.last,
+              spec.rotation * 180 / math.pi,
+            );
+          }
+        }
+      }
+    });
+    if (!changed) {
+      _selected
+        ..clear()
+        ..addAll(oldSelection);
+    }
+    return changed;
+  }
+
   /// Sets the horizontal alignment of the selected free-text box (its /Q
   /// quadding), regenerating its appearance, and makes it the default for
-  /// new boxes. A no-op when the selection isn't a single free-text box.
+  /// new boxes. In a mixed selection every free-text box is updated.
   void setSelectedTextAlign(PdfTextAlign align) {
     preferences.textAlign = align; // the new default either way
     if (canRestyleSelectedText) restyleSelectedText(align: align);
   }
 
-  /// Rewrites the selected free-text annotation in [font] - a base-14
-  /// face or an embedded TrueType/OpenType font - keeping its text, size,
-  /// place, color, and author. Unlike [restyleSelectedText] (which only
-  /// takes the standard families) this can switch a box to any embedded
-  /// font.
+  /// Rewrites every selected free-text annotation in [font] - a base-14 face
+  /// or an embedded TrueType/OpenType font - keeping its text, size, place,
+  /// color, and author. Other selected subtypes are ignored. Unlike
+  /// [restyleSelectedText] (which only takes the standard families) this can
+  /// switch boxes to any embedded font.
   void restyleSelectedFont(PdfTextFont font) {
-    final annotation = selectedAnnotation;
-    if (annotation == null || !canRestyleSelectedText) return;
-    final style = _freeTextFontOf(annotation);
-    _rewriteSelected(
-      annotation,
-      annotation.contents ?? '',
-      font: font,
-      size: style.size,
-    );
+    _restyleSelectedFreeText(font: font);
   }
 
   /// Applies font, size, and/or text color to a substring of the selected
@@ -6551,7 +6759,11 @@ class PdfEditingController extends ChangeNotifier {
     int? color,
   }) {
     final annotation = selectedAnnotation;
-    if (annotation == null || !canRestyleSelectedText) return false;
+    if (_selected.length != 1 ||
+        annotation == null ||
+        annotation.subtype != 'FreeText') {
+      return false;
+    }
     final text = annotation.contents ?? '';
     final from = math.max(0, math.min(start, end)).clamp(0, text.length);
     final to = math.min(text.length, math.max(start, end));

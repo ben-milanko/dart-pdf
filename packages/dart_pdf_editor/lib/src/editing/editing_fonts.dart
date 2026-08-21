@@ -134,8 +134,8 @@ Future<List<PdfEmbeddedFont>> loadFallbackFonts() async {
 
 /// Applies [font] to [controller]: it becomes the font new free text is
 /// written in (an embedded font sets [PdfEditingController.activeFont]; a
-/// standard family sets [PdfEditingController.fontFamily]) and, when a
-/// single free-text box is selected, restyles it in place too.
+/// standard family sets [PdfEditingController.fontFamily]) and restyles every
+/// selected free-text box too. Other selected annotation subtypes are ignored.
 void pdfApplyFont(PdfEditingController controller, PdfTextFont font) {
   if (font is PdfStandardFont) {
     controller.fontFamily = font;
