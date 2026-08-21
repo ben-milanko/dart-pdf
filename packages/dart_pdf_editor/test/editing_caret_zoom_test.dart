@@ -146,6 +146,8 @@ void main() {
         Ink caretAtStart,
         Ink caretAtEnd,
         Rect textArea,
+        double caretHeight,
+        double lineHeight,
         double dpr,
       })> measure(
     WidgetTester tester, {
@@ -194,10 +196,15 @@ void main() {
             render.localToGlobal(render.size.bottomRight(Offset.zero)))
         .intersect(wash);
 
+    var caretHeight = 0.0;
     Future<(Ink, Ink)> at(int offset) async {
       field.controller!.selection = TextSelection.collapsed(offset: offset);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 16));
+      final caret = render.getLocalRectForCaret(TextPosition(offset: offset));
+      final top = render.localToGlobal(caret.topLeft);
+      final bottom = render.localToGlobal(caret.bottomLeft);
+      caretHeight = (bottom.dy - top.dy).abs();
       return paintedInk(tester, region, wash);
     }
 
@@ -211,6 +218,8 @@ void main() {
       caretAtStart: caretAtStart,
       caretAtEnd: caretAtEnd,
       textArea: textArea,
+      caretHeight: caretHeight,
+      lineHeight: fontSize * 1.2 * perPoint,
       dpr: tester.view.devicePixelRatio,
     );
   }
@@ -237,6 +246,9 @@ void main() {
               reason: 'caret at offset 0 left the first glyph behind');
           expect(shot.caretAtEnd.$2, closeTo(shot.glyphs.$2 + 2 * shot.dpr, 4),
               reason: 'caret at text.length landed inside the last glyph');
+          expect(shot.caretHeight, closeTo(shot.lineHeight + 2, 1.5),
+              reason: 'the Apple caret overhang must stay two screen pixels, '
+                  'not grow with page zoom');
 
           // ...and the line itself is laid out on the appearance's text area,
           // not on what is left of the field after Flutter reserves its caret

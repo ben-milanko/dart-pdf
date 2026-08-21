@@ -2882,52 +2882,52 @@ abstract class DartPdfEditorLocalizations {
   /// **'Manage stamps…'**
   String get tbManageStamps;
 
-  /// Text-markup action name: highlight the text selection.
+  /// Text-markup tool name: highlight text.
   ///
   /// In en, this message translates to:
   /// **'Highlight'**
   String get tbMarkupHighlight;
 
-  /// Tooltip: highlight the current text selection.
+  /// Tooltip for the text highlight tool.
   ///
   /// In en, this message translates to:
-  /// **'Highlight selection'**
+  /// **'Highlight text'**
   String get tbMarkupHighlightTip;
 
-  /// Text-markup action name: squiggly-underline the text selection.
+  /// Text-markup tool name: squiggly-underline text.
   ///
   /// In en, this message translates to:
   /// **'Squiggly-underline'**
   String get tbMarkupSquiggly;
 
-  /// Tooltip: squiggly-underline the current text selection.
+  /// Tooltip for the squiggly-underline tool.
   ///
   /// In en, this message translates to:
-  /// **'Squiggly-underline selection'**
+  /// **'Squiggly-underline text'**
   String get tbMarkupSquigglyTip;
 
-  /// Text-markup action name: strike out the text selection.
+  /// Text-markup tool name: strike out text.
   ///
   /// In en, this message translates to:
   /// **'Strike out'**
   String get tbMarkupStrikeOut;
 
-  /// Tooltip: strike out the current text selection.
+  /// Tooltip for the strike-out tool.
   ///
   /// In en, this message translates to:
-  /// **'Strike out selection'**
+  /// **'Strike out text'**
   String get tbMarkupStrikeOutTip;
 
-  /// Text-markup action name: underline the text selection.
+  /// Text-markup tool name: underline text.
   ///
   /// In en, this message translates to:
   /// **'Underline'**
   String get tbMarkupUnderline;
 
-  /// Tooltip: underline the current text selection.
+  /// Tooltip for the underline tool.
   ///
   /// In en, this message translates to:
-  /// **'Underline selection'**
+  /// **'Underline text'**
   String get tbMarkupUnderlineTip;
 
   /// Tooltip for the button opening the full color picker.
@@ -2983,6 +2983,12 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Erase ink strokes'**
   String get tbNameEraser;
+
+  /// Name of the default page-navigation mode, which pans the document by dragging.
+  ///
+  /// In en, this message translates to:
+  /// **'Hand'**
+  String get tbNameHand;
 
   /// Tool name: freehand highlighter.
   ///
@@ -3224,10 +3230,10 @@ abstract class DartPdfEditorLocalizations {
   /// **'Scale'**
   String get tbScale;
 
-  /// Hint shown when the markup tools are open but no text is selected.
+  /// Hint explaining the arm-first text-markup workflow.
   ///
   /// In en, this message translates to:
-  /// **'Select text to use markup'**
+  /// **'Choose a markup, then select text'**
   String get tbSelectTextForMarkup;
 
   /// Strip label for one or more selected annotations.

@@ -467,6 +467,11 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
                   : TextAlignVertical.center,
               cursorColor: const Color(0xFF000000),
               cursorWidth: 2 * chromeScale,
+              cursorHeight: pdfZoomAwareCursorHeight(
+                context,
+                lineHeight: _editSize * scale * 1.2,
+                chromeScale: chromeScale,
+              ),
               style: TextStyle(
                 color: const Color(0xFF000000),
                 fontSize: _editSize * scale,

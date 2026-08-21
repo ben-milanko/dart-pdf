@@ -1561,6 +1561,8 @@ void main() {
 
       final field = tester.widget<TextField>(find.byKey(editorKey));
       expect(field.cursorWidth, closeTo(1, 0.01));
+      expect(field.cursorHeight,
+          closeTo(field.style!.fontSize! * field.style!.height!, 0.01));
       final scaled = field.selectionControls!;
       expect(scaled.getHandleSize(20).width, closeTo(18, 0.01));
       expect(field.contextMenuBuilder, isNotNull);

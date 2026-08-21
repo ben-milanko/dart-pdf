@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 /// Places a text field's selection toolbar - the long-press copy/paste
@@ -69,6 +71,27 @@ Widget pdfZoomAwareCaret(BuildContext context,
     data: media.copyWith(devicePixelRatio: media.devicePixelRatio / chromeScale),
     child: child,
   );
+}
+
+/// The [TextField.cursorHeight] that keeps Flutter's Apple-platform caret
+/// overhang constant in screen space inside the viewer's zoom transform.
+///
+/// [RenderEditable] adds two local pixels to every iOS/macOS caret. Left
+/// alone, the outer page transform magnifies that extra height along with the
+/// text, so at deep zoom the caret visibly towers over its line. Subtract the
+/// zoomed portion here; Flutter adds the two local pixels back, leaving the
+/// requested [lineHeight] plus two *screen* pixels after composition.
+double pdfZoomAwareCursorHeight(
+  BuildContext context, {
+  required double lineHeight,
+  required double chromeScale,
+}) {
+  final platform = Theme.of(context).platform;
+  if (platform != TargetPlatform.iOS && platform != TargetPlatform.macOS) {
+    return lineHeight;
+  }
+  if (!chromeScale.isFinite || chromeScale <= 0) return lineHeight;
+  return math.max(0, lineHeight - 2 * (1 - chromeScale));
 }
 
 /// The gutter [RenderEditable] reserves at the end of every editable line

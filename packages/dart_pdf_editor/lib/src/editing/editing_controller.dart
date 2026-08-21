@@ -231,7 +231,8 @@ enum PdfEditTool {
   link,
 }
 
-/// Text-markup kinds for [PdfEditingController.addMarkup].
+/// Text-markup tools for [PdfEditingController.markupTool] and
+/// [PdfEditingController.addMarkup].
 enum PdfMarkupKind { highlight, underline, strikeOut, squiggly }
 
 /// Where a hyperlink created by the link tool points: either an external
@@ -1424,15 +1425,21 @@ class PdfEditingController extends ChangeNotifier {
   // tool state
 
   PdfEditTool? _tool;
+  PdfMarkupKind? _markupTool;
   bool _colorLocked = false;
 
   static const Set<String> _colorLockedFields = {'color'};
 
   /// The armed tool, or null when the viewer behaves as a plain reader.
+  ///
+  /// Text-markup tools are exposed separately through [markupTool]. They
+  /// leave this value null so normal text-selection gestures remain active.
   PdfEditTool? get tool => _tool;
 
   set tool(PdfEditTool? value) {
-    if (value == _tool) return;
+    // Assigning null while a markup tool is armed is an intentional clear
+    // (Escape and the mobile tool switcher's Clear both use this path).
+    if (value == _tool && _markupTool == null) return;
     preferences.snapshotActiveStyleScope(lockedFields: _lockedStyleFields);
     // leaving an ink-like tool commits the drawing, like lifting the pen.
     //
@@ -1453,6 +1460,7 @@ class PdfEditingController extends ChangeNotifier {
     // is only valid while the eraser stays the toggled-on partner
     if (value != PdfEditTool.eraser) _eraserToggledOn = false;
     _tool = value;
+    _markupTool = null;
     if (value != PdfEditTool.select) _selected.clear();
     if (value != PdfEditTool.content) _selectedElement = null;
     _cropModeArmed = false;
@@ -1470,6 +1478,43 @@ class PdfEditingController extends ChangeNotifier {
     if (deferInkCommit) Timer.run(finishInk);
   }
 
+  /// The armed text-markup tool, or null when text selections should remain
+  /// ordinary selections.
+  ///
+  /// Markup is kept separate from [tool] because it uses the viewer's native
+  /// text-selection gestures. Once armed, completing a mouse drag, mouse
+  /// double-click, or touch long-press selection creates the corresponding
+  /// markup and leaves the tool armed for the next selection.
+  PdfMarkupKind? get markupTool => _markupTool;
+
+  set markupTool(PdfMarkupKind? value) {
+    if (value == _markupTool) return;
+    if (value == null) {
+      preferences.snapshotActiveStyleScope(lockedFields: _lockedStyleFields);
+      _markupTool = null;
+      preferences.beginStyleScope(
+        _styleScopeKey(_tool),
+        _styleScopeFields(_tool),
+        defaults: _styleScopeDefaults(_tool),
+        lockedFields: _lockedStyleFields,
+      );
+      notifyListeners();
+      return;
+    }
+
+    // Text markup needs reader-mode selection gestures. Going through the
+    // normal setter also commits a pending ink stroke before switching.
+    if (_tool != null) tool = null;
+    preferences.snapshotActiveStyleScope(lockedFields: _lockedStyleFields);
+    _markupTool = value;
+    _selected.clear();
+    _selectedElement = null;
+    _cropModeArmed = false;
+    _cropDraft = null;
+    useMarkupStyleScope();
+    notifyListeners();
+  }
+
   Set<String> get _lockedStyleFields =>
       _colorLocked ? _colorLockedFields : const {};
 
@@ -1485,13 +1530,17 @@ class PdfEditingController extends ChangeNotifier {
     if (value == _colorLocked) return;
     preferences.snapshotActiveStyleScope(lockedFields: _lockedStyleFields);
     _colorLocked = value;
-    preferences.beginStyleScope(
-      _styleScopeKey(_tool),
-      _styleScopeFields(_tool),
-      defaults: _styleScopeDefaults(_tool),
-      lockedFields: _lockedStyleFields,
-      forceRestore: true,
-    );
+    if (_markupTool != null) {
+      useMarkupStyleScope(forceRestore: true);
+    } else {
+      preferences.beginStyleScope(
+        _styleScopeKey(_tool),
+        _styleScopeFields(_tool),
+        defaults: _styleScopeDefaults(_tool),
+        lockedFields: _lockedStyleFields,
+        forceRestore: true,
+      );
+    }
     notifyListeners();
   }
 
@@ -1545,23 +1594,25 @@ class PdfEditingController extends ChangeNotifier {
       PdfEditToolBehavior.maybeOf(tool)?.styleScopeDefaults ?? const {};
 
   /// Activates the text-markup style scope (highlight / underline / strike
-  /// out / squiggly) - they act on the text selection rather than arming a
-  /// tool, so the toolbar calls this when its Markup strip opens, giving
-  /// markup its own remembered colour and opacity (the classic yellow
-  /// highlighter that stays yellow). See [preferences].
-  void useMarkupStyleScope() => preferences.beginStyleScope(
-      'markup',
-      const {
-        'color',
-        'opacity',
-      },
-      lockedFields: _lockedStyleFields);
+  /// out / squiggly), giving markup its own remembered colour and opacity
+  /// (the classic yellow highlighter that stays yellow). See [preferences].
+  void useMarkupStyleScope({bool forceRestore = false}) =>
+      preferences.beginStyleScope(
+        'markup',
+        const {
+          'color',
+          'opacity',
+        },
+        lockedFields: _lockedStyleFields,
+        forceRestore: forceRestore,
+      );
 
   /// Whether the armed [tool] creates annotations that carry a colour the
   /// toolbar can offer - i.e. the tool's style scope remembers `color`.
   /// False for tools that ignore colour (select, eraser, content, form,
   /// redact, signature), so the colour swatches aren't shown beside them.
-  bool get toolUsesColor => _styleScopeFields(tool).contains('color');
+  bool get toolUsesColor =>
+      markupTool != null || _styleScopeFields(tool).contains('color');
 
   /// The color new annotations are created with. Persisted in [preferences].
   ///

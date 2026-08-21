@@ -24,6 +24,10 @@ viewer, a full annotation suite with appearance-stream generation,
 AcroForm filling, page manipulation, and editing that preserves digital
 signatures.
 
+Feature parity is only the foundation. The [UX vision](doc/ux-vision.md)
+defines the product north star, the journeys that matter, how their quality is
+measured, and the definition of done for user-facing work.
+
 > Status: the roadmap below is complete. COS parsing with xref recovery,
 > signature-preserving incremental updates with encrypt-on-write, a
 > content-stream interpreter with TrueType/CFF/Type3 font rendering,

@@ -981,7 +981,7 @@ void main() {
       expect(find.byKey(const ValueKey('pdf-shape-fill-none')), findsOneWidget);
     });
 
-    testWidgets('compact markup tools explain that text must be selected',
+    testWidgets('compact markup tools explain the arm-first workflow',
         (tester) async {
       tester.view.physicalSize = const Size(560, 800);
       tester.view.devicePixelRatio = 1;
@@ -995,18 +995,28 @@ void main() {
           kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
 
-      expect(find.text('Select text to use markup'), findsOneWidget);
+      expect(find.text('Choose a markup, then select text'), findsOneWidget);
     });
 
-    testWidgets('desktop markup tools explain that text must be selected',
+    testWidgets('desktop markup tools explain the arm-first workflow',
         (tester) async {
-      await pump(tester, PdfEditorView(bytes: buildClassicPdf()));
+      final editing = PdfEditingController(buildClassicPdf());
+      addTearDown(editing.dispose);
+      await pump(tester, PdfEditorView(controller: editing));
 
       await tester.tap(find.byKey(const ValueKey('pdf-group-markup')),
           kind: PointerDeviceKind.mouse);
       await tester.pump();
 
-      expect(find.text('Select text to use markup'), findsOneWidget);
+      expect(find.text('Choose a markup, then select text'), findsOneWidget);
+      final highlight = find.byKey(const ValueKey('pdf-markup-highlight'));
+      expect(tester.widget<IconButton>(highlight).onPressed, isNotNull);
+
+      await tester.tap(highlight, kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      expect(editing.markupTool, PdfMarkupKind.highlight);
+      expect(find.text('Choose a markup, then select text'), findsNothing,
+          reason: 'the selected button now communicates the armed state');
     });
 
     testWidgets('toolbar buttons drive the owned session', (tester) async {

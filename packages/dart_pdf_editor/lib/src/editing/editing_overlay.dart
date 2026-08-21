@@ -5675,6 +5675,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                     : null,
                                 cursorColor: _textEditColor,
                                 cursorWidth: 2 * _chromeScale,
+                                cursorHeight: pdfZoomAwareCursorHeight(
+                                  context,
+                                  lineHeight:
+                                      _textEditText.maxStyleSize *
+                                          _geometry.scale *
+                                          _textEditLineSpacing,
+                                  chromeScale: _chromeScale,
+                                ),
                                 selectionControls: _ScaledTextSelectionControls(
                                     _chromeScale,
                                     _inlineTextHandleColor(context)),

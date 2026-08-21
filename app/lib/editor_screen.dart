@@ -3686,34 +3686,41 @@ class _EditorScreenState extends State<EditorScreen>
                       mainAxisSize: MainAxisSize.max,
                       children: [
                         if (tabsWidth > 0)
-                          MouseRegion(
-                            onEnter: (_) => _tabStripHovered = true,
-                            onExit: (_) {
-                              _tabStripHovered = false;
-                              _releaseTabWidthHold();
-                            },
-                            // Grow back smoothly once the hold releases; both the strip
-                            // and each tab animate to the same width with a linear curve,
-                            // so they stay pixel-consistent throughout.
-                            child: AnimatedContainer(
-                              duration: _tabResizeDuration,
-                              curve: Curves.linear,
-                              width: tabsWidth,
-                              child: ReorderableListView.builder(
-                                key: const ValueKey('tab-strip'),
-                                scrollController: _tabScrollController,
-                                scrollDirection: Axis.horizontal,
-                                // The whole tab is the drag handle (see _buildTab); the
-                                // stock trailing handles don't fit a horizontal tab strip.
-                                buildDefaultDragHandles: false,
-                                padding: EdgeInsets.only(
-                                  left: rtl ? 4 + gapPadding : 4,
-                                  right: rtl ? 4 : 4 + gapPadding,
+                          // A window or AppBar-action resize can make the new
+                          // title constraint narrower than the container's
+                          // previous animated width. Clamp outside the animation
+                          // so even its first frame fits the current Row.
+                          ConstrainedBox(
+                            constraints: BoxConstraints(maxWidth: maxTabsWidth),
+                            child: MouseRegion(
+                              onEnter: (_) => _tabStripHovered = true,
+                              onExit: (_) {
+                                _tabStripHovered = false;
+                                _releaseTabWidthHold();
+                              },
+                              // Grow back smoothly once the hold releases; both the strip
+                              // and each tab animate to the same width with a linear curve,
+                              // so they stay pixel-consistent throughout.
+                              child: AnimatedContainer(
+                                duration: _tabResizeDuration,
+                                curve: Curves.linear,
+                                width: tabsWidth,
+                                child: ReorderableListView.builder(
+                                  key: const ValueKey('tab-strip'),
+                                  scrollController: _tabScrollController,
+                                  scrollDirection: Axis.horizontal,
+                                  // The whole tab is the drag handle (see _buildTab); the
+                                  // stock trailing handles don't fit a horizontal tab strip.
+                                  buildDefaultDragHandles: false,
+                                  padding: EdgeInsets.only(
+                                    left: rtl ? 4 + gapPadding : 4,
+                                    right: rtl ? 4 : 4 + gapPadding,
+                                  ),
+                                  itemCount: _tabs.length,
+                                  onReorderItem: _reorderTabs,
+                                  itemBuilder: (context, i) =>
+                                      _buildTab(i, tabWidth),
                                 ),
-                                itemCount: _tabs.length,
-                                onReorderItem: _reorderTabs,
-                                itemBuilder: (context, i) =>
-                                    _buildTab(i, tabWidth),
                               ),
                             ),
                           ),

@@ -117,6 +117,8 @@ void main() {
       expect(editor, findsOneWidget);
       final field = tester.widget<TextField>(editor);
       expect(field.cursorWidth, closeTo(1, 0.01));
+      expect(field.cursorHeight,
+          closeTo(field.style!.fontSize! * field.style!.height!, 0.01));
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();

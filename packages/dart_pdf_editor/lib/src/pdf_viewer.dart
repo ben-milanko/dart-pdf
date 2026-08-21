@@ -5218,6 +5218,7 @@ class _PdfViewerState extends State<PdfViewer>
     final editing = widget.editing;
     if (editing != null &&
         editing.tool == null &&
+        editing.markupTool == null &&
         !editing.isPickingColor &&
         _lastPointerKind == PointerDeviceKind.mouse) {
       final point = _pagePointAt(details.localPosition);
@@ -5974,6 +5975,10 @@ class _PdfViewerState extends State<PdfViewer>
         editing.clearElementSelection();
         return;
       }
+      if (editing.markupTool != null) {
+        editing.markupTool = null;
+        return;
+      }
       if (editing.tool != null) {
         editing.tool = null;
         return;
@@ -6056,6 +6061,7 @@ class _PdfViewerState extends State<PdfViewer>
     // would immediately clear the selection made here
     _suppressTap = true;
     _selectWordAt(event.localPosition);
+    _applyArmedMarkup();
   }
 
   /// Whether a default/select-mode mouse click at [local] is over a
@@ -6175,6 +6181,7 @@ class _PdfViewerState extends State<PdfViewer>
     final editing = widget.editing;
     if (editing == null ||
         editing.tool != null ||
+        editing.markupTool != null ||
         editing.isPickingColor ||
         editing.hasAnnotationSelection) {
       return false;
@@ -6234,12 +6241,19 @@ class _PdfViewerState extends State<PdfViewer>
     _controller._setSelection(_selectedText());
   }
 
-  void _onSelectionEnd(DragEndDetails details) {
+  void _onSelectionEnd(DragEndDetails details, {bool cancelled = false}) {
     if (_marqueeStart != null) {
       _commitMarquee();
       return;
     }
-    if (!_grabPanning) return;
+    if (!_grabPanning) {
+      if (cancelled && widget.editing?.markupTool != null) {
+        _clearSelection();
+      } else if (!cancelled) {
+        _applyArmedMarkup();
+      }
+      return;
+    }
     _grabPanning = false;
     _scheduleMotionRenderHoldRelease();
     setState(() => _hoverCursor = grabCursor);
@@ -6387,9 +6401,31 @@ class _PdfViewerState extends State<PdfViewer>
     _extendWordSelection(details.localPosition);
   }
 
-  void _onLongPressEnd() {
+  void _onLongPressEnd({bool cancelled = false}) {
     if (!_touchSelecting) return;
     setState(() => _touchSelecting = false);
+    if (cancelled && widget.editing?.markupTool != null) {
+      _clearSelection();
+    } else if (!cancelled) {
+      _applyArmedMarkup();
+    }
+  }
+
+  /// Applies an armed text-markup tool to the current selection. The tool
+  /// remains armed so several passages can be marked without returning to
+  /// the toolbar between selections.
+  bool _applyArmedMarkup() {
+    final editing = widget.editing;
+    final kind = editing?.markupTool;
+    if (editing == null || kind == null || _selRange == null) return false;
+    final quadsByPage = {
+      for (final page in _controller.selectionPages)
+        page: _selectionRectsOn(page),
+    };
+    if (quadsByPage.values.every((quads) => quads.isEmpty)) return false;
+    editing.addMarkup(kind, quadsByPage);
+    _clearSelection();
+    return true;
   }
 
   /// A handle drag begins: the dragged end becomes the moving focus and
@@ -7677,8 +7713,9 @@ class _PdfViewerState extends State<PdfViewer>
                                     ..onStart = _onSelectionStart
                                     ..onUpdate = _onSelectionUpdate
                                     ..onEnd = _onSelectionEnd
-                                    ..onCancel =
-                                        () => _onSelectionEnd(DragEndDetails()),
+                                    ..onCancel = () => _onSelectionEnd(
+                                        DragEndDetails(),
+                                        cancelled: true),
                                 ),
                                 // touch text selection starts with a long
                                 // press instead; stands aside while an
@@ -7697,7 +7734,8 @@ class _PdfViewerState extends State<PdfViewer>
                                     ..onLongPressMoveUpdate = _onLongPressMove
                                     ..onLongPressEnd =
                                         ((_) => _onLongPressEnd())
-                                    ..onLongPressCancel = _onLongPressEnd,
+                                    ..onLongPressCancel =
+                                        () => _onLongPressEnd(cancelled: true),
                                 ),
                               },
                               child: ColoredBox(

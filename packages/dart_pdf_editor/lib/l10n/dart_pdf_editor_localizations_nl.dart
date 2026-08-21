@@ -1606,6 +1606,9 @@ class DartPdfEditorLocalizationsNl extends DartPdfEditorLocalizations {
   String get tbNameEraser => 'Inktstreken wissen';
 
   @override
+  String get tbNameHand => 'Hand';
+
+  @override
   String get tbNameHighlight => 'Markeren';
 
   @override

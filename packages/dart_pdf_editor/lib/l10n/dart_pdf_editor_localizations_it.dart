@@ -1606,6 +1606,9 @@ class DartPdfEditorLocalizationsIt extends DartPdfEditorLocalizations {
   String get tbNameEraser => 'Cancella tratti a inchiostro';
 
   @override
+  String get tbNameHand => 'Hand';
+
+  @override
   String get tbNameHighlight => 'Evidenzia';
 
   @override

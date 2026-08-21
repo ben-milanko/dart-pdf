@@ -1099,6 +1099,21 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('escape clears an armed text-markup tool', (tester) async {
+      final (editing, _) = await pumpEditor(tester);
+      await tester.tapAt(view(400, 400));
+      await tester.pump();
+      editing.markupTool = PdfMarkupKind.squiggly;
+      await tester.pump();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+
+      expect(editing.markupTool, isNull);
+      expect(editing.tool, isNull);
+      await settle(tester);
+    });
+
     testWidgets('escape commits fresh ink instead of discarding it',
         (tester) async {
       final (editing, _) = await pumpEditor(tester);

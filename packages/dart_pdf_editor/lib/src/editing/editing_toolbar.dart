@@ -53,9 +53,10 @@ typedef PdfEditingToolbarWidgetBuilder = Widget Function(
 /// supports. Selecting an annotation or a page element raises its own
 /// strip with the actions and restyle controls that apply to it.
 ///
-/// On narrow (phone) widths the dock collapses to the active tool plus a
-/// quick-colour row and a *Tools* handle; the handle opens a bottom sheet
-/// with group tabs, a tool grid and the active tool's settings.
+/// On narrow (phone) widths the dock collapses to an active-tool switcher, a
+/// quick-colour row and a *Tools* handle. The switcher recalls recently used
+/// tools and clears back to Hand mode; the handle opens a bottom sheet with
+/// group tabs, a tool grid and the active tool's settings.
 ///
 /// Place it in a Scaffold's `bottomNavigationBar` or as the bottom child
 /// of a Column - it sizes to its content. Apps wanting different chrome
@@ -219,9 +220,8 @@ class PdfEditingToolbar extends StatefulWidget {
   State<PdfEditingToolbar> createState() => _PdfEditingToolbarState();
 }
 
-/// One entry in a tool group - either an armable [PdfEditTool] or a
-/// text-markup action ([PdfMarkupKind], which acts on the live text
-/// selection rather than arming a tool).
+/// One entry in a tool group - either an armable [PdfEditTool] or an armable
+/// text-markup tool ([PdfMarkupKind]).
 class _GroupTool {
   const _GroupTool.tool(this.tool, this.icon) : markup = null;
   const _GroupTool.markup(this.markup, this.icon) : tool = null;
@@ -230,6 +230,8 @@ class _GroupTool {
   final PdfMarkupKind? markup;
   final IconData icon;
 }
+
+typedef _ToolChoice = ({PdfEditTool? tool, PdfMarkupKind? markup});
 
 /// A dock group: a labelled chip that raises a contextual strip of
 /// [tools]. [defaultTool] is armed when the group opens, when arming it
@@ -272,6 +274,10 @@ enum _SelectedFormOverflowAction {
 }
 
 class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
+  static const _mobileRecentToolLimit = 4;
+  static const _mobileToolSwitcherMaxWidth = 180.0;
+  static const Object _clearToolMenuChoice = Object();
+
   PdfEditingController get controller => widget.controller;
   PdfViewerController get viewerController => widget.viewerController;
 
@@ -287,6 +293,69 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
 
   bool _replacingElementImage = false;
   bool _exportingElementImage = false;
+
+  /// Most-recently-used armable tools for the mobile quick switcher. This is
+  /// deliberately session state: a host may expose a different tool set in
+  /// each editor, and opening the full sheet remains the discovery path.
+  final List<_ToolChoice> _recentTools = [];
+  _ToolChoice? _lastObservedTool;
+
+  _ToolChoice get _activeToolChoice => controller.markupTool != null
+      ? (tool: null, markup: controller.markupTool)
+      : (tool: controller.tool, markup: null);
+
+  @override
+  void initState() {
+    super.initState();
+    _resetRecentTools();
+    controller.addListener(_trackRecentTool);
+  }
+
+  @override
+  void didUpdateWidget(PdfEditingToolbar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller == widget.controller) return;
+    oldWidget.controller.removeListener(_trackRecentTool);
+    _resetRecentTools();
+    controller.addListener(_trackRecentTool);
+  }
+
+  @override
+  void dispose() {
+    controller.removeListener(_trackRecentTool);
+    super.dispose();
+  }
+
+  void _resetRecentTools() {
+    _recentTools.clear();
+    _lastObservedTool = _activeToolChoice;
+    final choice = _activeToolChoice;
+    if (choice.tool != null || choice.markup != null) {
+      _recordRecentTool(choice);
+    }
+  }
+
+  void _trackRecentTool() {
+    final choice = _activeToolChoice;
+    if (choice == _lastObservedTool) return;
+    _lastObservedTool = choice;
+    // Null is Hand/reader mode rather than Select. Temporary null transitions
+    // while changing tools must not displace genuine history.
+    if (choice.tool != null || choice.markup != null) {
+      _recordRecentTool(choice);
+    }
+  }
+
+  void _recordRecentTool(_ToolChoice choice) {
+    if (!_toolChoiceIsVisible(choice)) return;
+    _recentTools
+      ..remove(choice)
+      ..insert(0, choice);
+    final keep = _mobileRecentToolLimit + 1; // current + previous tools
+    if (_recentTools.length > keep) {
+      _recentTools.removeRange(keep, _recentTools.length);
+    }
+  }
 
   bool get _showColorProcessingAction =>
       widget.showColorProcessing &&
@@ -431,7 +500,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     };
   }
 
-  /// The bare, localized name of a text-markup action (for mobile tiles).
+  /// The bare, localized name of a text-markup tool (for mobile tiles).
   String _markupName(BuildContext context, PdfMarkupKind markup) {
     final l = pdfL10n(context);
     return switch (markup) {
@@ -442,7 +511,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     };
   }
 
-  /// The full tooltip for a text-markup action.
+  /// The full tooltip for a text-markup tool.
   String _markupTip(BuildContext context, PdfMarkupKind markup) {
     final l = pdfL10n(context);
     return switch (markup) {
@@ -466,6 +535,30 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     }
     if (entry.markup != null) return widget.showMarkup;
     return true;
+  }
+
+  bool _toolIsVisible(PdfEditTool tool) {
+    for (final group in _visibleGroups) {
+      for (final entry in group.tools) {
+        if (entry.tool == tool && _entryVisible(entry)) return true;
+      }
+    }
+    return false;
+  }
+
+  bool _toolChoiceIsVisible(_ToolChoice choice) {
+    final markup = choice.markup;
+    if (markup != null) return widget.showMarkup && _groupVisible(_groups[1]);
+    final tool = choice.tool;
+    return tool != null && _toolIsVisible(tool);
+  }
+
+  List<_ToolChoice> get _previousVisibleTools {
+    final current = _activeToolChoice;
+    return _recentTools
+        .where((choice) => choice != current && _toolChoiceIsVisible(choice))
+        .take(_mobileRecentToolLimit)
+        .toList(growable: false);
   }
 
   /// Whether [group] has any visible entry (the whole group gated by
@@ -495,7 +588,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// The group whose strip is currently shown: an armed tool's group
   /// always wins, otherwise the explicitly opened group.
   _ToolGroup? get _openGroup {
-    final armed = _groupForTool(controller.tool);
+    final armed = controller.markupTool != null
+        ? _groups.firstWhere((group) => group.id == 'markup')
+        : _groupForTool(controller.tool);
     final id = armed?.id ?? _openGroupId;
     for (final group in _visibleGroups) {
       if (group.id == id) return group;
@@ -514,12 +609,11 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     controller.addMarkup(kind, quadsByPage);
   }
 
-  void _applyMarkup(PdfMarkupKind kind, {bool restoreTool = false}) {
-    final previousTool = controller.tool;
-    if (restoreTool) controller.tool = null;
-    controller.useMarkupStyleScope();
+  void _chooseMarkup(PdfMarkupKind kind) {
+    controller.markupTool = kind;
+    if (!viewerController.hasSelection) return;
     _markup(kind);
-    if (restoreTool && previousTool != null) controller.tool = previousTool;
+    viewerController.clearSelection();
   }
 
   /// Sets the creation colour - and recolours the selected annotations in
@@ -1353,12 +1447,11 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       if (!_entryVisible(entry)) continue;
       if (entry.markup != null) {
         toolButtons.add(IconButton(
+          key: ValueKey('pdf-markup-${entry.markup!.name}'),
           icon: Icon(entry.icon),
           tooltip: _markupTip(context, entry.markup!),
-          onPressed: hasTextSelection
-              ? () =>
-                  _applyMarkup(entry.markup!, restoreTool: group.id != 'markup')
-              : null,
+          isSelected: controller.markupTool == entry.markup,
+          onPressed: () => _chooseMarkup(entry.markup!),
         ));
       } else if (labelled) {
         final tool = entry.tool!;
@@ -1415,7 +1508,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               _StripLabel(
                 group.label(context),
-                hint: group.id == 'markup' && !hasTextSelection
+                hint: group.id == 'markup' &&
+                        !hasTextSelection &&
+                        controller.markupTool == null
                     ? pdfL10n(context).tbSelectTextForMarkup
                     : null,
               ),
@@ -1519,8 +1614,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
               ? pdfL10n(context).tbFingerDraws
               : pdfL10n(context).tbFingerScrolls,
           isSelected: controller.preferences.fingerDrawsInk,
-          onPressed: () =>
-              controller.preferences.fingerDrawsInk = !controller.preferences.fingerDrawsInk,
+          onPressed: () => controller.preferences.fingerDrawsInk =
+              !controller.preferences.fingerDrawsInk,
         ),
       if (controller.hasPendingInk && !controller.inkAutoCommits) ...[
         IconButton(
@@ -1780,8 +1875,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       _alignButton(PdfAlignment.bottom, Icons.align_vertical_bottom,
           pdfL10n(context).tbAlignBottom),
       const _MiniDivider(),
-      _alignButton(PdfAlignment.distributeHorizontal,
-          Icons.horizontal_distribute, pdfL10n(context).tbDistributeHorizontally,
+      _alignButton(
+          PdfAlignment.distributeHorizontal,
+          Icons.horizontal_distribute,
+          pdfL10n(context).tbDistributeHorizontally,
           enabled: canDistribute),
       _alignButton(PdfAlignment.distributeVertical, Icons.vertical_distribute,
           pdfL10n(context).tbDistributeVertically,
@@ -1911,16 +2008,15 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             child: InkWell(
               customBorder: const CircleBorder(),
               onTap: () async {
-                final picked =
-                    await pickEditingColor(context, controller, initial: current);
+                final picked = await pickEditingColor(context, controller,
+                    initial: current);
                 if (picked != null) _applyColor(picked);
               },
               child: SizedBox(
                 width: 40,
                 height: 40,
                 child: Center(
-                  child:
-                      Icon(Icons.palette_outlined, color: current, size: 20),
+                  child: Icon(Icons.palette_outlined, color: current, size: 20),
                 ),
               ),
             ),
@@ -2195,7 +2291,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
 
   Widget _buildMobile(BuildContext context, {required double width}) {
     final scheme = Theme.of(context).colorScheme;
-    final tool = controller.tool;
+    final activeChoice = _activeToolChoice;
     final compactToolLabel = controller.selectedElement != null;
     return Container(
       decoration: BoxDecoration(
@@ -2224,34 +2320,80 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
             ),
           ],
           Expanded(
-            child: LayoutBuilder(builder: (context, constraints) {
-              // On narrow phones the undo/redo buttons, tool actions, and
-              // Tools handle can leave less than one icon's width here. Keep
-              // the dock usable by progressively dropping this decorative
-              // status label instead of overflowing the Row.
-              if (constraints.maxWidth < 22) return const SizedBox.shrink();
-              final leadingGap = constraints.maxWidth >= 26;
-              final showLabel = !compactToolLabel && constraints.maxWidth >= 56;
-              return Row(children: [
-                if (leadingGap) const SizedBox(width: 4),
-                Icon(_activeToolIcon(tool), size: 22, color: scheme.primary),
-                if (showLabel) ...[
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _activeToolLabel(context, tool),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      softWrap: false,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: ConstrainedBox(
+                constraints:
+                    const BoxConstraints(maxWidth: _mobileToolSwitcherMaxWidth),
+                child: LayoutBuilder(builder: (context, constraints) {
+                  // On narrow phones the undo/redo buttons, tool actions, and
+                  // Tools handle can leave less than one icon's width here.
+                  // Keep the switcher usable by progressively dropping its
+                  // label and chevron instead of overflowing.
+                  if (constraints.maxWidth < 22) {
+                    return const SizedBox.shrink();
+                  }
+                  final mainWidth = constraints.maxWidth;
+                  final horizontalPadding = mainWidth >= 36
+                      ? 7.0
+                      : ((mainWidth - 22) / 2).clamp(0.0, 7.0).toDouble();
+                  final showLabel = !compactToolLabel && mainWidth >= 100;
+                  final showChevron = mainWidth >= 54;
+                  final recent = _previousVisibleTools;
+                  final activeLabel = _activeToolLabel(context, activeChoice);
+                  final switchLabel = recent.isEmpty
+                      ? '$activeLabel, ${pdfL10n(context).tbTools}'
+                      : '$activeLabel, ${pdfL10n(context).propRecentlyUsed}';
+                  return Material(
+                    key: const ValueKey('pdf-mobile-current-tool-surface'),
+                    color: scheme.primary.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(10),
+                    clipBehavior: Clip.antiAlias,
+                    child: Semantics(
+                      button: true,
+                      label: switchLabel,
+                      child: InkWell(
+                        key: const ValueKey('pdf-mobile-current-tool'),
+                        onTap: () => _openRecentTools(context),
+                        child: SizedBox(
+                          width: double.infinity,
+                          height: 40,
+                          child: ExcludeSemantics(
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(
+                                  horizontal: horizontalPadding),
+                              child: Row(children: [
+                                Icon(_activeToolIcon(activeChoice),
+                                    size: 22, color: scheme.primary),
+                                if (showLabel) ...[
+                                  const SizedBox(width: 7),
+                                  Expanded(
+                                    child: Text(
+                                      activeLabel,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      softWrap: false,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ),
+                                ] else
+                                  const Spacer(),
+                                if (showChevron)
+                                  Icon(Icons.expand_less,
+                                      size: 17, color: scheme.primary),
+                              ]),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ]);
-            }),
+                  );
+                }),
+              ),
+            ),
           ),
           ..._mobileTrailing(context),
           const SizedBox(width: 6),
@@ -2280,8 +2422,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       return [
         IconButton(
           icon: const Icon(Icons.delete_outline),
-          tooltip: pdfL10n(context).tbDeleteAnnotations(
-              controller.selectedAnnotationSlots.length),
+          tooltip: pdfL10n(context)
+              .tbDeleteAnnotations(controller.selectedAnnotationSlots.length),
           visualDensity: VisualDensity.compact,
           onPressed: controller.deleteSelected,
         ),
@@ -2369,7 +2511,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       // The tune popup carries the full palette, so a couple of quick swatches
       // beside it are enough - and dropping the third keeps the whole cluster
       // (swatches + tune) inside the narrow dock without overflowing.
-      return [..._mobileSwatches(context, count: tune.isEmpty ? 3 : 2), ...tune];
+      return [
+        ..._mobileSwatches(context, count: tune.isEmpty ? 3 : 2),
+        ...tune
+      ];
     }
     return tune;
   }
@@ -2379,7 +2524,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// desktop strip's [_tuneTrailing] so the same stroke/opacity/font sliders
   /// are one tap away on a phone.
   List<Widget> _mobileTuneTrailing(BuildContext context) {
-    final group = _groupForTool(controller.tool);
+    final group = controller.markupTool != null
+        ? _groups.firstWhere((group) => group.id == 'markup')
+        : _groupForTool(controller.tool);
     if (group == null) return const [];
     return _tuneTrailing(
       context,
@@ -2418,24 +2565,120 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     ];
   }
 
-  IconData _activeToolIcon(PdfEditTool? tool) {
-    if (tool == null) return Icons.near_me;
+  IconData _activeToolIcon(_ToolChoice choice) {
+    if (choice.tool == null && choice.markup == null) {
+      return Icons.pan_tool_alt;
+    }
     for (final group in _groups) {
       for (final entry in group.tools) {
-        if (entry.tool == tool) return entry.icon;
+        if (entry.tool == choice.tool && entry.markup == choice.markup) {
+          return entry.icon;
+        }
       }
     }
     return Icons.near_me;
   }
 
-  String _activeToolLabel(BuildContext context, PdfEditTool? tool) =>
-      tool == null
-          ? pdfL10n(context).tbNameSelect
-          : _toolName(context, tool);
+  String _activeToolLabel(BuildContext context, _ToolChoice choice) {
+    final markup = choice.markup;
+    if (markup != null) return _markupName(context, markup);
+    final tool = choice.tool;
+    return tool == null
+        ? pdfL10n(context).tbNameHand
+        : _toolName(context, tool);
+  }
+
+  void _clearMobileTool() {
+    if (controller.tool == null && controller.markupTool == null) return;
+    setState(() => _openGroupId = null);
+    controller.tool = null;
+    viewerController.clearSelection();
+  }
+
+  /// Opens the compact MRU menu anchored above the active-tool control. With
+  /// no history in Hand mode, the same tap opens the full tool sheet so the
+  /// control never leads to an empty menu.
+  Future<void> _openRecentTools(BuildContext targetContext) async {
+    final recent = _previousVisibleTools;
+    if (recent.isEmpty &&
+        controller.tool == null &&
+        controller.markupTool == null) {
+      await _openToolSheet(context);
+      return;
+    }
+
+    final overlay = Overlay.of(targetContext).context.findRenderObject();
+    final target = targetContext.findRenderObject();
+    if (overlay is! RenderBox || target is! RenderBox || !target.attached) {
+      await _openToolSheet(context);
+      return;
+    }
+    final targetRect = Rect.fromPoints(
+      overlay.globalToLocal(target.localToGlobal(Offset.zero)),
+      overlay.globalToLocal(
+        target.localToGlobal(target.size.bottomRight(Offset.zero)),
+      ),
+    );
+    final items = <PopupMenuEntry<Object>>[
+      if (controller.tool != null || controller.markupTool != null)
+        PopupMenuItem<Object>(
+          key: const ValueKey('pdf-recent-tool-clear'),
+          value: _clearToolMenuChoice,
+          child: Row(children: [
+            const Icon(Icons.close, size: 20),
+            const SizedBox(width: 12),
+            Text(pdfL10n(targetContext).clear),
+          ]),
+        ),
+      if ((controller.tool != null || controller.markupTool != null) &&
+          recent.isNotEmpty)
+        const PopupMenuDivider(),
+      if (recent.isNotEmpty)
+        PopupMenuItem<Object>(
+          enabled: false,
+          height: 32,
+          child: Text(
+            pdfL10n(targetContext).propRecentlyUsed,
+            style: const TextStyle(fontSize: 12),
+          ),
+        ),
+      for (final choice in recent)
+        PopupMenuItem<Object>(
+          key: ValueKey(choice.markup != null
+              ? 'pdf-recent-markup-${choice.markup!.name}'
+              : 'pdf-recent-tool-${choice.tool!.name}'),
+          value: choice,
+          child: Row(children: [
+            Icon(_activeToolIcon(choice), size: 20),
+            const SizedBox(width: 12),
+            Text(_activeToolLabel(targetContext, choice)),
+          ]),
+        ),
+    ];
+    final picked = await showMenu<Object>(
+      context: targetContext,
+      position: RelativeRect.fromRect(
+        targetRect,
+        Offset.zero & overlay.size,
+      ),
+      items: items,
+    );
+    if (!mounted || picked == null) return;
+    if (identical(picked, _clearToolMenuChoice)) {
+      _clearMobileTool();
+      return;
+    }
+    final choice = picked as _ToolChoice;
+    if (choice.markup != null) {
+      _chooseMarkup(choice.markup!);
+    } else {
+      await _armGroupTool(context, choice.tool!);
+    }
+  }
 
   /// Opens the mobile tools sheet: group tabs, a tool grid, and the active
-  /// tool's settings. The tab state lives in the sheet so switching groups
-  /// doesn't arm anything until a tool is tapped.
+  /// tool's settings. Multi-tool tabs only navigate; Select's one-option tab
+  /// arms it directly and closes the sheet.
   Future<void> _openToolSheet(BuildContext context) async {
     final groups = _visibleGroups;
     var tabId = _openGroup?.id ?? groups.first.id;
@@ -2468,6 +2711,11 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                               group: g,
                               active: g.id == tabId,
                               onTap: () {
+                                if (g.id == 'select') {
+                                  Navigator.of(sheetContext).pop();
+                                  _toggleTool(PdfEditTool.select);
+                                  return;
+                                }
                                 setSheetState(() => tabId = g.id);
                                 // markup arms no tool - scope it so its
                                 // settings row edits markup's own style
@@ -2482,10 +2730,11 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
                     const SizedBox(height: 14),
                     _SheetSectionLabel(
                       group.label(context),
-                      hint:
-                          group.id == 'markup' && !viewerController.hasSelection
-                              ? pdfL10n(context).tbSelectTextForMarkup
-                              : null,
+                      hint: group.id == 'markup' &&
+                              !viewerController.hasSelection &&
+                              controller.markupTool == null
+                          ? pdfL10n(context).tbSelectTextForMarkup
+                          : null,
                     ),
                     const SizedBox(height: 10),
                     _sheetToolGrid(sheetContext, group),
@@ -2501,7 +2750,6 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   }
 
   Widget _sheetToolGrid(BuildContext context, _ToolGroup group) {
-    final hasTextSelection = viewerController.hasSelection;
     final entries = group.tools.where(_entryVisible).toList();
     return GridView.count(
       crossAxisCount: 4,
@@ -2528,12 +2776,13 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
               label: entry.markup != null
                   ? _markupName(context, entry.markup!)
                   : _entryLabel(context, entry),
-              active: entry.tool != null && controller.tool == entry.tool,
-              enabled: entry.markup == null || hasTextSelection,
+              active: entry.markup != null
+                  ? controller.markupTool == entry.markup
+                  : controller.tool == entry.tool,
+              enabled: true,
               onTap: () async {
                 if (entry.markup != null) {
-                  _applyMarkup(entry.markup!,
-                      restoreTool: group.id != 'markup');
+                  _chooseMarkup(entry.markup!);
                   if (context.mounted) Navigator.of(context).pop();
                 } else {
                   await _armGroupTool(context, entry.tool!);
@@ -3433,7 +3682,8 @@ class _StyleMenuState extends State<_StyleMenu> {
           border: (_rgb(color),),
           // setting a border gives it the current stroke width; clearing
           // one leaves the width field alone
-          borderWidth: color == null ? null : controller.preferences.strokeWidth);
+          borderWidth:
+              color == null ? null : controller.preferences.strokeWidth);
     }
   }
 
@@ -3549,7 +3799,10 @@ class _StyleMenuState extends State<_StyleMenu> {
             final lineEndingTarget = controller.canSetLineEndings;
             final lineEndings = lineEndingTarget
                 ? controller.selectedLineEndings!
-                : (controller.preferences.lineStartEnding, controller.preferences.lineEndEnding);
+                : (
+                    controller.preferences.lineStartEnding,
+                    controller.preferences.lineEndEnding
+                  );
             final restyling = controller.canRestyleSelectedText;
             final boxStyle =
                 restyling ? controller.selectedAnnotation?.freeTextStyle : null;
@@ -3601,8 +3854,8 @@ class _StyleMenuState extends State<_StyleMenu> {
                       fieldMax: kPdfTypedSizeMax,
                       display: (v) => '${v.round()} pt',
                       parse: _parsePoints,
-                      onChanged: (v) =>
-                          controller.preferences.eraserRadius = v.roundToDouble(),
+                      onChanged: (v) => controller.preferences.eraserRadius =
+                          v.roundToDouble(),
                     ),
                   if (fields.stroke)
                     _slider(
@@ -3616,7 +3869,9 @@ class _StyleMenuState extends State<_StyleMenu> {
                       parse: _parsePoints,
                       onChanged: (v) {
                         setState(() => _draggingStroke = v);
-                        if (!restylingAnnotation) controller.preferences.strokeWidth = v;
+                        if (!restylingAnnotation) {
+                          controller.preferences.strokeWidth = v;
+                        }
                       },
                       onChangeEnd: (v) {
                         controller.preferences.strokeWidth = v;
@@ -3644,7 +3899,8 @@ class _StyleMenuState extends State<_StyleMenu> {
                       onChanged: (v) {
                         setState(() => _draggingCornerRadius = v);
                         if (!restylingAnnotation) {
-                          controller.preferences.cornerRadius = v.roundToDouble();
+                          controller.preferences.cornerRadius =
+                              v.roundToDouble();
                         }
                       },
                       onChangeEnd: (v) {
@@ -3670,7 +3926,9 @@ class _StyleMenuState extends State<_StyleMenu> {
                       parse: _parsePercent,
                       onChanged: (v) {
                         setState(() => _draggingOpacity = v);
-                        if (!restylingAnnotation) controller.preferences.opacity = v;
+                        if (!restylingAnnotation) {
+                          controller.preferences.opacity = v;
+                        }
                       },
                       onChangeEnd: (v) {
                         controller.preferences.opacity = v;
@@ -3699,7 +3957,8 @@ class _StyleMenuState extends State<_StyleMenu> {
                                 DropdownMenuItem(
                                   value: style,
                                   key: ValueKey('pdf-line-type-${style.name}'),
-                                  child: Text(pdfLineStyleLabel(context, style)),
+                                  child:
+                                      Text(pdfLineStyleLabel(context, style)),
                                 ),
                             ],
                             onChanged: (value) {
@@ -3728,7 +3987,9 @@ class _StyleMenuState extends State<_StyleMenu> {
                       display: (v) => '${v.toStringAsFixed(1)}×',
                       onChanged: (v) {
                         setState(() => _draggingScale = v);
-                        if (!restylingAnnotation) controller.preferences.lineScale = v;
+                        if (!restylingAnnotation) {
+                          controller.preferences.lineScale = v;
+                        }
                       },
                       onChangeEnd: (v) {
                         controller.preferences.lineScale = v;

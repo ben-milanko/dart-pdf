@@ -113,6 +113,15 @@ committing new baselines.
 - Add or update tests for any behaviour change. New parser edge cases
   should come with an inline fixture and a regression test.
 
+### User-facing changes
+
+The [UX vision](doc/ux-vision.md) is the product-quality bar for viewer,
+editor, shell, and app work. Describe the user journey being improved, check
+the relevant input modes and accessibility states, and validate the committed
+and reopened PDF rather than stopping at the live preview. Performance work
+should measure the complete journey and report tail latency, not just an
+isolated subsystem average.
+
 ## Pull requests
 
 1. Branch off `main`.
