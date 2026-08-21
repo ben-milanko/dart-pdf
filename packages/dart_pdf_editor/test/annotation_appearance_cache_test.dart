@@ -17,6 +17,8 @@
 // one appearance stream and deleting drops one, so both evict. The first only
 // adds annotations, so nothing is ever evicted and it passes either way - it
 // is here to cover the plain repeat-commit path, not the lifetime bug.
+import 'dart:async';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -29,6 +31,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  test('annotation picture disposal is release-safe', () {
+    final source = File('lib/src/pdf_viewer.dart').readAsStringSync();
+
+    expect(
+      source.contains('.debugDisposed'),
+      isFalse,
+      reason: 'Picture.debugDisposed throws when asserts are disabled',
+    );
+  });
 
   Future<PdfEditingController> pumpViewer(WidgetTester tester) async {
     final editing = PdfEditingController(buildMultiPagePdf(1));
@@ -90,6 +102,53 @@ void main() {
     editing.undo();
     await tester.pumpAndSettle();
     expect(editing.document.page(0).annotations, hasLength(2));
+  });
+
+  testWidgets(
+      'unmount while a replacement renders disposes every appearance once',
+      (tester) async {
+    final editing = await pumpViewer(tester);
+    editing.addRectangle(0, const PdfRect(100, 600, 250, 640));
+    editing.addRectangle(0, const PdfRect(300, 600, 450, 640));
+    await tester.pumpAndSettle();
+
+    final pending = Completer<ui.Picture?>();
+    final disposals = Map<ui.Picture, int>.identity();
+    var delayedRenders = 0;
+    PdfViewer.debugAnnotationAppearanceRendererOverride = (_, __, ___) {
+      delayedRenders++;
+      return pending.future;
+    };
+    PdfViewer.debugAnnotationAppearanceDisposeObserver = (picture) {
+      disposals.update(picture, (count) => count + 1, ifAbsent: () => 1);
+    };
+    addTearDown(() {
+      PdfViewer.debugAnnotationAppearanceRendererOverride = null;
+      PdfViewer.debugAnnotationAppearanceDisposeObserver = null;
+    });
+
+    expect(editing.selectAnnotation(0, 0), isTrue);
+    expect(editing.restyleSelected(color: const Color(0xFF00FF00)), isTrue);
+    await tester.pump();
+    expect(delayedRenders, 1);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(find.byType(PdfViewer), findsNothing);
+    expect(disposals, hasLength(2));
+    expect(disposals.values, everyElement(1));
+
+    final recorder = ui.PictureRecorder();
+    Canvas(recorder).drawRect(
+      const Rect.fromLTWH(0, 0, 1, 1),
+      Paint()..color = const Color(0xFF000000),
+    );
+    pending.complete(recorder.endRecording());
+    await tester.pump();
+    await tester.pump();
+
+    expect(disposals, hasLength(3));
+    expect(disposals.values, everyElement(1));
+    expect(tester.takeException(), isNull);
   });
 
   // Regression (#418 follow-up): the appearance cache is keyed on the
