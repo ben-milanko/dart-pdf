@@ -1627,7 +1627,7 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
   String get tbNameEraser => 'Wymaż linie odręczne';
 
   @override
-  String get tbNameHand => 'Hand';
+  String get tbNameHand => 'Rączka';
 
   @override
   String get tbNameHighlight => 'Zakreślacz';

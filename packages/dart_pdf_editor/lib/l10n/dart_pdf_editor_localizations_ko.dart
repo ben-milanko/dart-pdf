@@ -1591,7 +1591,7 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get tbNameEraser => '잉크 획 지우기';
 
   @override
-  String get tbNameHand => 'Hand';
+  String get tbNameHand => '손 도구';
 
   @override
   String get tbNameHighlight => '형광펜';

@@ -265,14 +265,26 @@ void main() {
       await $.tester.enterText(editor, 'Grace Hopper');
       await $.tester.testTextInput.receiveAction(TextInputAction.done);
       await $.pump(const Duration(milliseconds: 400));
+      await demo.waitFor(
+        () => field('name').value == 'Grace Hopper',
+        reason: 'the text-field revision should finish before validation',
+      );
       expect(field('name').value, 'Grace Hopper');
 
       expect(field('newsletter').isChecked, isTrue);
       await demo.tapFormField('newsletter');
+      await demo.waitFor(
+        () => !field('newsletter').isChecked,
+        reason: 'the checkbox revision should finish before validation',
+      );
       expect(field('newsletter').isChecked, isFalse);
 
       expect(field('color').value, 'Blue');
       await demo.tapFormField('color');
+      await demo.waitFor(
+        () => field('color').value == 'Red',
+        reason: 'the radio revision should finish before validation',
+      );
       expect(field('color').value, 'Red');
 
       expect(field('favorite').value, 'Green');
@@ -281,6 +293,10 @@ void main() {
       expect($('Blue'), findsOneWidget);
       await $.tester.tap(find.text('Blue'));
       await $.pump(const Duration(milliseconds: 400));
+      await demo.waitFor(
+        () => field('favorite').value == 'Blue',
+        reason: 'the choice revision should finish before validation',
+      );
       expect(field('favorite').value, 'Blue');
     } finally {
       await demo.close();
@@ -413,6 +429,12 @@ class _DemoHarness {
       await tester.ensureVisible(groupTab);
       await tester.tap(groupTab);
       await $.pump(const Duration(milliseconds: 250));
+      // Select is the mobile sheet's only single-option group, so tapping its
+      // group tab now arms it directly and closes the sheet. Multi-tool groups
+      // still expose their tiles below.
+      if (editing.tool == tool) return;
+      expect(toolButton, findsOneWidget,
+          reason: '$tool should be available in the $group tool group');
       await tester.ensureVisible(toolButton);
       await tester.tap(toolButton);
       await $.pump();

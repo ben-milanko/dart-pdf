@@ -1605,7 +1605,7 @@ class DartPdfEditorLocalizationsEs extends DartPdfEditorLocalizations {
   String get tbNameEraser => 'Borrar trazos';
 
   @override
-  String get tbNameHand => 'Hand';
+  String get tbNameHand => 'Mano';
 
   @override
   String get tbNameHighlight => 'Resaltar';

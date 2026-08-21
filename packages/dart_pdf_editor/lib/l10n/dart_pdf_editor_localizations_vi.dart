@@ -1602,7 +1602,7 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get tbNameEraser => 'Tẩy nét mực';
 
   @override
-  String get tbNameHand => 'Hand';
+  String get tbNameHand => 'Bàn tay';
 
   @override
   String get tbNameHighlight => 'Tô sáng';

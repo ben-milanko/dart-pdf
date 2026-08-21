@@ -1597,7 +1597,7 @@ class DartPdfEditorLocalizationsTh extends DartPdfEditorLocalizations {
   String get tbNameEraser => 'ลบเส้นหมึก';
 
   @override
-  String get tbNameHand => 'Hand';
+  String get tbNameHand => 'มือ';
 
   @override
   String get tbNameHighlight => 'ไฮไลต์';

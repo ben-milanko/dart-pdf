@@ -1587,7 +1587,7 @@ class DartPdfEditorLocalizationsZh extends DartPdfEditorLocalizations {
   String get tbNameEraser => '擦除手绘笔迹';
 
   @override
-  String get tbNameHand => 'Hand';
+  String get tbNameHand => '抓手工具';
 
   @override
   String get tbNameHighlight => '高亮';
@@ -3608,6 +3608,9 @@ class DartPdfEditorLocalizationsZhHant extends DartPdfEditorLocalizationsZh {
 
   @override
   String get tbNameEraser => '擦除手繪筆畫';
+
+  @override
+  String get tbNameHand => '手形工具';
 
   @override
   String get tbNameHighlight => '醒目提示';

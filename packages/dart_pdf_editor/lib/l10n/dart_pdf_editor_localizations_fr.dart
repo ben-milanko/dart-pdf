@@ -1610,7 +1610,7 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
   String get tbNameEraser => 'Effacer les traits d\'encre';
 
   @override
-  String get tbNameHand => 'Hand';
+  String get tbNameHand => 'Main';
 
   @override
   String get tbNameHighlight => 'Surlignage';
