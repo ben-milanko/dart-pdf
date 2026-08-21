@@ -318,12 +318,16 @@ class PdfPageRenderScheduler {
   /// isolate. Several workers finishing together used to put all of those
   /// builds in one frame. This grants one completion per frame, nearest
   /// [focus] first, and waits through a fast-scroll [holding] interval.
+  /// [focusDistance] lets a caller with newer viewport state supply that
+  /// ordering directly; otherwise distance is derived from [priority] and the
+  /// scheduler's current [focus].
   /// Returns false when [token] was cancelled or the scheduler was disposed.
   Future<bool> paceUiWork(
     Object token,
     int priority, {
     bool replacePending = false,
     PdfRenderMotionClass motion = PdfRenderMotionClass.held,
+    int? focusDistance,
   }) {
     if (_disposed) return Future<bool>.value(false);
     // Progressive worker replies are cumulative snapshots. If five prefixes
@@ -341,7 +345,12 @@ class PdfPageRenderScheduler {
         if (!pending.ready.isCompleted) pending.ready.complete(false);
       }
     }
-    final request = _UiWorkRequest(token, priority, motion: motion);
+    final request = _UiWorkRequest(
+      token,
+      priority,
+      motion: motion,
+      focusDistance: focusDistance,
+    );
     _uiPending.add(request);
     _scheduleUiDrain();
     return request.ready.future;
@@ -502,7 +511,8 @@ class PdfPageRenderScheduler {
     var best = 0;
     for (var i = 0; i < _uiPending.length; i++) {
       if (_holding && !_motionPermits(_uiPending[i].motion)) continue;
-      final distance = (_uiPending[i].priority - _focus).abs();
+      final distance = _uiPending[i].focusDistance ??
+          (_uiPending[i].priority - _focus).abs();
       if (pick == null || distance < best) {
         best = distance;
         pick = i;
@@ -595,10 +605,11 @@ class _RenderRequest {
 
 class _UiWorkRequest {
   _UiWorkRequest(this.token, this.priority,
-      {this.motion = PdfRenderMotionClass.held});
+      {this.motion = PdfRenderMotionClass.held, this.focusDistance});
 
   final Object token;
   final int priority;
   final PdfRenderMotionClass motion;
+  final int? focusDistance;
   final Completer<bool> ready = Completer<bool>();
 }

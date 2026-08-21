@@ -40,6 +40,9 @@ void main() {
         PdfPerformancePolicy.initialWorkerCount(env(bytes: 600 << 20), auto), 1,
         reason: 'each worker holds its own document/decode working set');
     expect(
+        PdfPerformancePolicy.initialWorkerCount(env(bytes: 219314443), auto), 2,
+        reason: 'large sources cap the base count before conservative tuning');
+    expect(
         PdfPerformancePolicy.initialWorkerCount(
             env(cores: 32), const PdfPerformanceMode.auto(maxWorkers: 2)),
         2);
@@ -150,6 +153,15 @@ void main() {
     expect(controller.tuning.previewWindow, 2);
     expect(controller.tuning.vectorFirstPreviews, isTrue);
     expect(controller.beginWorkerGeneration(), 1);
+  });
+
+  test('large byte buffers start one worker before first paint', () {
+    final controller =
+        PdfPerformanceController(environment: env(pages: 83, bytes: 219314443));
+    addTearDown(controller.dispose);
+    expect(controller.tuning.tier, PdfPerformanceTier.conservative);
+    expect(controller.beginWorkerGeneration(), 1,
+        reason: 'a second worker would materialize another 219 MiB source');
   });
 
   group('pdfDefaultTileStoreDetail (issue #314/#360 rollout)', () {

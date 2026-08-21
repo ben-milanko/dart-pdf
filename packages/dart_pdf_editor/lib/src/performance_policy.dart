@@ -370,7 +370,14 @@ class PdfPerformancePolicy {
       PdfPerformancePlatform.other => 2,
     };
     var count = math.min(platformBase, math.min(available, mode.maxWorkers));
-    if (env.documentBytes >= (256 << 20)) {
+    // Every native worker materializes its own full document image.  Once the
+    // source itself is this large, a second worker adds hundreds of MiB before
+    // first paint and lets two cold records land on the UI thread together.
+    // That startup burst is markedly worse than the extra record throughput
+    // on large local PDFs, so cap their auto pool at two here. This matches the
+    // byte threshold that selects the conservative tier above; the controller
+    // then starts that tier with one worker before first paint.
+    if (env.documentBytes >= (192 << 20)) {
       count = math.min(
           count, env.platform == PdfPerformancePlatform.mobile ? 1 : 2);
     }

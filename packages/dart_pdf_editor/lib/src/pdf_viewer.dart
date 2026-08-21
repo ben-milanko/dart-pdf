@@ -7871,14 +7871,25 @@ class _MoveDragPreviewPainter extends CustomPainter {
 class _AnnotationAppearanceLayer extends StatefulWidget {
   const _AnnotationAppearanceLayer({
     required this.page,
+    required this.pageIndex,
+    required this.focusDistance,
     required this.rotation,
     required this.pageEpoch,
+    required this.active,
+    required this.renderScheduler,
     required this.onReady,
   });
 
   final PdfPage page;
+  final int pageIndex;
+  final int focusDistance;
   final int rotation;
   final int pageEpoch;
+
+  /// Cold layers farther than one page from the reading position stay idle.
+  /// Their cache remains mounted and resumes when navigation approaches.
+  final bool active;
+  final PdfPageRenderScheduler renderScheduler;
   final VoidCallback onReady;
 
   @override
@@ -7889,6 +7900,7 @@ class _AnnotationAppearanceLayer extends StatefulWidget {
 class _AnnotationAppearanceLayerState
     extends State<_AnnotationAppearanceLayer> {
   var _generation = 0;
+  final Object _scheduleToken = Object();
   List<ui.Picture> _pictures = const [];
   Size? _picturePageSize;
 
@@ -7933,15 +7945,21 @@ class _AnnotationAppearanceLayerState
   @override
   void initState() {
     super.initState();
-    _render();
+    if (widget.active) _render();
   }
 
   @override
   void didUpdateWidget(_AnnotationAppearanceLayer oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.page, widget.page) ||
+    final schedulerChanged =
+        !identical(oldWidget.renderScheduler, widget.renderScheduler);
+    if (schedulerChanged) {
+      oldWidget.renderScheduler.cancel(_scheduleToken);
+    }
+    final pageChanged = !identical(oldWidget.page, widget.page) ||
         oldWidget.rotation != widget.rotation ||
-        oldWidget.pageEpoch != widget.pageEpoch) {
+        oldWidget.pageEpoch != widget.pageEpoch;
+    if (pageChanged) {
       final oldSize = PdfPageRenderer.pageSize(oldWidget.page,
           rotation: oldWidget.rotation);
       final newSize =
@@ -7950,12 +7968,25 @@ class _AnnotationAppearanceLayerState
           oldWidget.rotation == widget.rotation &&
           oldSize == newSize;
       _render(keepCurrent: keepCurrent);
+    } else if (schedulerChanged) {
+      _render(keepCurrent: true);
+    } else if (!oldWidget.active && widget.active) {
+      _render(keepCurrent: true);
+    } else if (oldWidget.active && !widget.active) {
+      _generation++;
+      widget.renderScheduler.cancel(_scheduleToken);
+    } else if (oldWidget.focusDistance != widget.focusDistance &&
+        widget.active) {
+      // Refresh a pending request so the newly-current page moves to the head
+      // of the shared annotation queue.
+      _render(keepCurrent: true);
     }
   }
 
   @override
   void dispose() {
     _generation++;
+    widget.renderScheduler.cancel(_scheduleToken);
     _disposePictures();
     _disposeCache();
     super.dispose();
@@ -7994,7 +8025,26 @@ class _AnnotationAppearanceLayerState
 
   void _render({bool keepCurrent = false}) {
     final generation = ++_generation;
+    widget.renderScheduler.cancel(_scheduleToken);
     if (!keepCurrent) _disposePictures();
+    if (!widget.active) return;
+    unawaited(_renderScheduled(generation));
+  }
+
+  /// Resolving a page's annotation array can itself be substantial work.
+  /// Keep the whole cold-layer preparation out of initState's build frame,
+  /// not only the later appearance-stream interpretation.
+  Future<void> _renderScheduled(int generation) async {
+    final permitted = await widget.renderScheduler.paceUiWork(
+      _scheduleToken,
+      widget.pageIndex,
+      motion: PdfRenderMotionClass.quiet,
+      focusDistance: widget.focusDistance,
+    );
+    if (!permitted || !mounted || generation != _generation || !widget.active) {
+      return;
+    }
+
     final page = widget.page;
     final pageSize =
         PdfPageRenderer.pageSize(widget.page, rotation: widget.rotation);
@@ -8038,35 +8088,85 @@ class _AnnotationAppearanceLayerState
       _publish(generation, annotations, pageSize);
       return;
     }
-    unawaited(Future.wait([
-      for (final annotation in missing)
-        _renderAnnotation(page, annotation, widget.rotation)
-            .then((picture) => (_appearanceKey(annotation), picture)),
-    ]).then((rendered) {
-      if (!mounted || generation != _generation) {
-        for (final (_, picture) in rendered) {
+    await _renderMissing(
+      generation,
+      page,
+      annotations,
+      missing,
+      pageSize,
+      widget.rotation,
+    );
+  }
+
+  /// Renders cold appearances incrementally instead of starting every
+  /// interpreter walk from the layer's build stack.
+  ///
+  /// [PdfPageRenderer.renderAnnotationPicture] performs a synchronous scan
+  /// before its first await. A `Future.wait` comprehension therefore ran that
+  /// scan for *every* annotation during the opening frame; 740 annotations in
+  /// one real-world engineering pack produced a half-second build. The
+  /// viewer's shared render scheduler starts one appearance per engine frame
+  /// across *all* mounted pages, giving input and painting a turn between
+  /// scans while [_publish] exposes each completed appearance progressively.
+  Future<void> _renderMissing(
+    int generation,
+    PdfPage page,
+    List<PdfAnnotation> annotations,
+    List<PdfAnnotation> missing,
+    Size pageSize,
+    int rotation,
+  ) async {
+    for (var i = 0; i < missing.length; i++) {
+      // The preparation pass already owns the first frame's grant. Every
+      // subsequent annotation queues behind the shared next-frame gate.
+      if (i > 0) {
+        final permitted = await widget.renderScheduler.paceUiWork(
+          _scheduleToken,
+          widget.pageIndex,
+          motion: PdfRenderMotionClass.quiet,
+          focusDistance: widget.focusDistance,
+        );
+        if (!permitted ||
+            !mounted ||
+            generation != _generation ||
+            !widget.active) {
+          return;
+        }
+      }
+
+      final annotation = missing[i];
+      final source = _appearanceKey(annotation);
+      if (!_cache.containsKey(source)) {
+        final picture = await _renderAnnotation(page, annotation, rotation);
+        if (!mounted || generation != _generation || !widget.active) {
           if (picture != null) _disposePicture(picture);
+          return;
         }
-        return;
-      }
-      for (final (source, picture) in rendered) {
-        if (picture == null) continue;
-        // A concurrent render may have filled this slot; keep one owner.
-        final existing = _cache[source];
-        if (existing != null) {
-          _disposePicture(picture);
-          continue;
+        if (picture != null) {
+          // A newer overlapping generation may have filled this slot while
+          // the decoder was awaiting. Keep one owner of the native picture.
+          final existing = _cache[source];
+          if (existing != null) {
+            _disposePicture(picture);
+          } else {
+            _cache[source] = picture;
+          }
         }
-        _cache[source] = picture;
       }
-      _publish(generation, annotations, pageSize);
-    }));
+
+      final last = i == missing.length - 1;
+      _publish(generation, annotations, pageSize, ready: last);
+    }
   }
 
   /// Rebuilds the ordered picture list from [_cache] and repaints, then frees
   /// anything retired by the render that produced it.
   void _publish(
-      int generation, List<PdfAnnotation> annotations, Size pageSize) {
+    int generation,
+    List<PdfAnnotation> annotations,
+    Size pageSize, {
+    bool ready = true,
+  }) {
     if (!mounted || generation != _generation) return;
     final next = [
       for (final annotation in annotations)
@@ -8077,7 +8177,7 @@ class _AnnotationAppearanceLayerState
       _picturePageSize = pageSize;
     });
     _flushRetired();
-    _notifyReady(generation);
+    if (ready) _notifyReady(generation);
   }
 
   /// Pictures dropped from [_cache] but possibly still referenced by the
@@ -8500,8 +8600,12 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
         Positioned.fill(
           child: _AnnotationAppearanceLayer(
             page: widget.page,
+            pageIndex: widget.index,
+            focusDistance: widget.focusDistance,
             rotation: widget.effectiveRotation,
             pageEpoch: widget.pageEpoch,
+            active: widget.focusDistance <= 1 || widget.forceForeground,
+            renderScheduler: widget.renderScheduler,
             onReady: _onAnnotationLayerReady,
           ),
         ),
