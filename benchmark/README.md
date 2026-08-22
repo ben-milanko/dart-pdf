@@ -15,29 +15,29 @@ bundles a prebuilt PDFium binary. You do not need a system PDFium build or
 
 ## Latest results
 
-Real-world corpus (49 files / **255 pages** that all three tools rendered
-without error), scale 2.0 (144 DPI), best-of-3 render passes, on the
-development Mac. PDFium 5.9.0 / libpdfium 150.0.7869.0. Captured 2026-07-26
-from the 3.1.1 release commit.
+Real-world corpus (52 files / **268 pages** that all three tools rendered
+without error), scale 2.0 (144 DPI), up to 10 pages per file, best-of-3 render
+passes, on the 10-core M1 Pro development Mac. PDFium 5.9.0 / libpdfium
+150.0.7869.0. Captured 2026-08-23 from commit `1b887e9f`.
 
 | engine | throughput | ms/page | vs PDFium |
 |---|---|---|---|
-| **PDFium** (rasterize; open excluded) | 43.2 pages/s | 23.1 | 1.00× |
-| **dart-pdf interpret** (pure Dart, no raster) | 104.5 pages/s | 9.6 | **2.42× faster** |
-| **dart-pdf render** (full Flutter raster + readback) | 22.1 pages/s | 45.2 | **1.95× slower** |
+| **PDFium** (rasterize; open excluded) | 31.3 pages/s | 31.9 | 1.00× |
+| **dart-pdf interpret** (pure Dart, no raster) | 82.4 pages/s | 12.1 | **2.63× faster** |
+| **dart-pdf render** (full Flutter raster + readback) | 16.2 pages/s | 61.6 | **1.93× slower** |
 
 Takeaways:
 
-- **The pure-Dart page interpreter processes this corpus 2.42× faster than
+- **The pure-Dart page interpreter processes this corpus 2.63× faster than
   PDFium rasterizes it.** The interpreter number excludes rasterization; it
   isolates the portable Dart parsing, font, geometry, and content-stream work.
-- **The apples-to-apples full Flutter render is 1.95× slower than PDFium.**
+- **The apples-to-apples full Flutter render is 1.93× slower than PDFium.**
   Beyond interpretation, this path includes image decoding, Flutter
   painting/rasterization, and `toImage`/`toByteData` readback.
-- Against the previous 2026-07-08 table, aggregate interpreter time fell from
-  13.3 to 9.6 ms/page and full-render time from 52.0 to 45.2 ms/page. Results
-  vary by document: a few formerly pathological files account for much of the
-  aggregate full-render gain, while the median file was about 9% slower.
+- Since the 2026-07-26 checkpoint, the common set grew from 49 files / 255
+  pages to 52 files / 268 pages. Absolute milliseconds are therefore not a
+  direct regression comparison; the relative ratios moved from 2.42× to
+  2.63× for interpretation and from 1.95× to 1.93× for full rendering.
 
 Absolute milliseconds and ratios are machine-specific. Re-run on the target
 hardware with `benchmark/run.sh corpus 2 10` (see Quick start).
@@ -99,7 +99,8 @@ Chrome by [`app/tool/perf/`](../app/tool/perf/README.md), which records frame
 build percentiles and `PdfPerfLog` jank events while it drives real scroll
 scenarios.
 
-Latest result: the `scroll-plan` workload, a 16-sheet vector plan set with
+Historical 3.1.0→3.1.1 release result: the `scroll-plan` workload, a
+16-sheet vector plan set with
 about 70,000 operations per page, run as a release web build in headless
 Chrome. These are medians from five interleaved runs of each version, captured
 2026-07-26:
