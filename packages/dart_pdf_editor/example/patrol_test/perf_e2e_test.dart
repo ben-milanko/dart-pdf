@@ -5,6 +5,7 @@
 import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:patrol/patrol.dart';
@@ -13,6 +14,12 @@ const _buildCommit = String.fromEnvironment('PDF_BUILD_COMMIT');
 const _mb = 1024 * 1024;
 
 void main() {
+  // Patrol owns the entrypoint, so the example app's main() does not register
+  // its optional assets for us. Keep this benchmark on the production web
+  // path: the bundled worker must open the document and return a real trace.
+  registerBundledEditorAssets();
+  pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
+
   if (_buildCommit.isNotEmpty) {
     PdfPerfLog.buildTag = 'commit=$_buildCommit';
   }
@@ -86,6 +93,22 @@ void main() {
         $,
         () => viewer.pageCount == 6 && viewer.isPageRasterReady(0),
         reason: 'the capped first-page raster should finish',
+      );
+      await _waitFor(
+        $,
+        () => viewer.debugRenderWorkerActive,
+        reason: 'the production web render worker should stay active',
+      );
+      await _waitFor(
+        $,
+        () => viewer.debugLastRenderTrace != null,
+        reason: 'an off-thread page render should complete with phase timings',
+      );
+      final workerTrace = viewer.debugLastRenderTrace!;
+      expect(workerTrace.pageIndex, inInclusiveRange(0, 5));
+      PdfPerfLog.log(
+        'scenario name=web-worker phase=validated '
+        'page=${workerTrace.pageIndex} total=${workerTrace.endToEndUs}us',
       );
       await _waitFor(
         $,

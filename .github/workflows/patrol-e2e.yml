@@ -38,6 +38,9 @@ jobs:
           flutter pub get
           dart pub global activate patrol_cli "$PATROL_CLI_VERSION"
           echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+      - name: Build the render worker
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        run: dart run dart_pdf_editor:build_web_worker
       - name: Run Patrol on web
         id: patrol-web
         working-directory: ${{ env.EXAMPLE_DIR }}

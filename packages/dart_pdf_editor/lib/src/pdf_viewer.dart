@@ -42,6 +42,7 @@ import 'preview_cache.dart';
 import 'raster_cache.dart';
 import 'raster_warm.dart';
 import 'render_scheduler.dart';
+import 'render_trace.dart';
 import 'render_worker.dart';
 import 'render_worker_host.dart';
 import 'renderer.dart';
@@ -498,6 +499,20 @@ class PdfViewerController extends ChangeNotifier {
   /// [PdfViewer.pagePreviews]); null when no viewer is attached.
   @visibleForTesting
   PdfPagePreviewCache? get debugPreviewCache => _state?._previews;
+
+  /// Test hook: whether the attached viewer currently has a live render-worker
+  /// backend instead of the main-thread fallback.
+  @visibleForTesting
+  bool get debugRenderWorkerActive =>
+      _state?._effectiveRenderWorker?.isActive ?? false;
+
+  /// Test hook: the most recent completed off-thread render trace.
+  ///
+  /// A non-null value proves more than worker construction: the worker opened
+  /// the document, completed a request, and returned its phase timings.
+  @visibleForTesting
+  PdfRenderTrace? get debugLastRenderTrace =>
+      _state?._effectiveRenderWorker?.lastRenderTrace;
 
   /// Test hook: the namespace isolating this viewer's process-wide LoD tiles.
   @visibleForTesting

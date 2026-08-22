@@ -56,9 +56,18 @@ covered by Flutter unit/widget tests and the existing build/smoke jobs.
 
 ## Web worker
 
-On web, `dart_pdf_editor` uses its bundled render worker asset automatically.
-No example-app setup is needed. The worker falls back to main-thread rendering
-if the browser cannot load it.
+The repository example self-hosts its render worker at
+`web/pdf_render_worker.dart.js`. Generate it before a local web run:
+
+```sh
+fvm dart run dart_pdf_editor:build_web_worker
+```
+
+`tool/build_web.sh` does this automatically before a production build, as do
+the preview, deploy, and Patrol workflows. The Patrol performance target fails
+unless a real off-thread request completes, so CI cannot silently benchmark the
+main-thread fallback. Published apps may instead use the prebuilt worker from
+`dart_pdf_editor_assets` via `registerBundledEditorAssets()`.
 
 ## OCR
 

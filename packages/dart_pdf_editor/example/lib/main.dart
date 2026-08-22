@@ -124,6 +124,11 @@ void main() {
   // fallbacks, off-main-thread web rendering). A viewer-only app would omit the
   // dart_pdf_editor_assets dependency and this call.
   registerBundledEditorAssets();
+  // Repository checkouts intentionally keep only a placeholder in the asset
+  // package; the example's web build compiles the real worker into web/.
+  // Point this app at that self-hosted bundle. Published package consumers can
+  // keep the package-asset URL installed by registerBundledEditorAssets().
+  if (kIsWeb) pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
   // Diagnostics: turn on the in-app performance trace (interpret times,
   // render-hold/scheduler transitions, prerender warms, and frame JANK,
   // streamed to the browser console) without a rebuild by opening the demo

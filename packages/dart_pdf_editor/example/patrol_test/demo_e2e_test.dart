@@ -1,4 +1,5 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:patrol/patrol.dart';
@@ -25,7 +26,15 @@ const _testPreferences = <String, Object>{
 
 void main() {
   // Patrol owns this test entry point, so the example app's main() does not
-  // run. Stamp the shared perf logger here as well as in lib/main.dart so CI
+  // run. Mirror its optional-asset registration so the browser journey
+  // exercises the production render worker instead of silently falling back
+  // to main-thread interpretation.
+  registerBundledEditorAssets();
+  // CI builds the example's self-hosted worker before Patrol. Native backends
+  // ignore this web-only URL and continue to use isolates.
+  pdfRenderWorkerScriptUrl = 'pdf_render_worker.dart.js';
+
+  // Stamp the shared perf logger here as well as in lib/main.dart so CI
   // artifacts can always be attributed to the exact revision under test.
   if (_buildCommit.isNotEmpty) {
     PdfPerfLog.buildTag = 'commit=$_buildCommit';

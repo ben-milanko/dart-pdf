@@ -101,6 +101,7 @@ class PatrolPerfTrace {
     required this.reconcileFallbackReasons,
     required this.thumbnailPaths,
     required this.pageRasterOutcomes,
+    required this.webWorkerOutcomes,
     required this.rasterElapsedMs,
     required this.scenarioPhases,
   });
@@ -121,6 +122,7 @@ class PatrolPerfTrace {
     final fallbackReasons = <String, int>{};
     final thumbnailPaths = <String, int>{};
     final pageRasterOutcomes = <String, int>{};
+    final webWorkerOutcomes = <String, int>{};
     final rasterElapsed = <double>[];
     final scenarioPhases = <String, int>{};
 
@@ -172,6 +174,9 @@ class PatrolPerfTrace {
         }
       } else if (event == 'page-raster') {
         _increment(pageRasterOutcomes, _secondWord(message));
+      } else if (event == 'webworker') {
+        final outcome = _webWorkerOutcome(message);
+        if (outcome != null) _increment(webWorkerOutcomes, outcome);
       } else if (event == 'raster') {
         _addMilliseconds(rasterElapsed, fields['ms']);
       } else if (event == 'scenario') {
@@ -196,6 +201,7 @@ class PatrolPerfTrace {
       reconcileFallbackReasons: fallbackReasons,
       thumbnailPaths: thumbnailPaths,
       pageRasterOutcomes: pageRasterOutcomes,
+      webWorkerOutcomes: webWorkerOutcomes,
       rasterElapsedMs: rasterElapsed,
       scenarioPhases: scenarioPhases,
     );
@@ -215,11 +221,12 @@ class PatrolPerfTrace {
   final Map<String, int> reconcileFallbackReasons;
   final Map<String, int> thumbnailPaths;
   final Map<String, int> pageRasterOutcomes;
+  final Map<String, int> webWorkerOutcomes;
   final List<double> rasterElapsedMs;
   final Map<String, int> scenarioPhases;
 
   Map<String, Object?> toJson() => {
-        'schema': 2,
+        'schema': 3,
         'build': buildTag,
         'events': lines.length,
         'journeys': journeys,
@@ -245,6 +252,10 @@ class PatrolPerfTrace {
         'pageRasters': {
           'events': eventCounts['page-raster'] ?? 0,
           'outcomes': _sortedMap(pageRasterOutcomes),
+        },
+        'webWorker': {
+          'events': eventCounts['webworker'] ?? 0,
+          'outcomes': _sortedMap(webWorkerOutcomes),
         },
         'rasters': {
           'count': eventCounts['raster'] ?? 0,
@@ -284,6 +295,7 @@ class PatrolPerfTrace {
           '| Reconcile fallbacks | ${_mapText(reconcileFallbackReasons)} |')
       ..writeln('| Thumbnail paths | ${_mapText(thumbnailPaths)} |')
       ..writeln('| Page-raster outcomes | ${_mapText(pageRasterOutcomes)} |')
+      ..writeln('| Web-worker outcomes | ${_mapText(webWorkerOutcomes)} |')
       ..writeln('| Scenarios | ${_mapText(scenarioPhases)} |')
       ..writeln('| Raster p50 / p95 / max | '
           '${_distributionText(rasterElapsedMs)} |')
@@ -366,6 +378,18 @@ class PatrolPerfComparison {
       const ['pageRasters', 'outcomes', 'reject'],
       absentIsZero: true,
     );
+    countRow(
+      'Web-worker ready',
+      const ['webWorker', 'outcomes', 'ready'],
+    );
+    countRow(
+      'Web-worker null starts',
+      const ['webWorker', 'outcomes', 'start-null'],
+    );
+    countRow(
+      'Web-worker fatal fallbacks',
+      const ['webWorker', 'outcomes', 'fallback'],
+    );
     timingRow('Raster p95', const ['rasters', 'elapsedMs', 'p95']);
 
     buffer
@@ -382,6 +406,8 @@ class PatrolPerfComparison {
           'Thumbnail paths', const ['thumbnails', 'paths'], baseline, current))
       ..writeln(_mapComparisonRow('Page-raster outcomes',
           const ['pageRasters', 'outcomes'], baseline, current))
+      ..writeln(_mapComparisonRow('Web-worker outcomes',
+          const ['webWorker', 'outcomes'], baseline, current))
       ..writeln()
       ..writeln(
           'Baseline build: ${_code('${baseline['build'] ?? 'unstamped'}')}.')
@@ -406,6 +432,25 @@ String _secondWord(String message) {
   if (words.length < 2) return 'unknown';
   final separator = words[1].indexOf('=');
   return separator < 0 ? words[1] : words[1].substring(0, separator);
+}
+
+String? _webWorkerOutcome(String message) {
+  if (message.startsWith('webworker startRenderWorker')) {
+    return message.contains('url=null') ? 'start-null' : 'start-configured';
+  }
+  if (message.startsWith('webworker ready ')) return 'ready';
+  if (message.startsWith('webworker result ')) {
+    if (message.contains('→ worker')) return 'result-worker';
+    // Some individual pages deliberately decline when their image mix cannot
+    // travel through the worker. Keep that ordinary per-record local path
+    // distinct from a dead worker falling back for the whole session.
+    if (message.contains('→ local')) return 'result-local';
+  }
+  if (message.contains('falling back to local') ||
+      message.contains('watchdog fired')) {
+    return 'fallback';
+  }
+  return null;
 }
 
 void _increment(Map<String, int> values, String key) {
