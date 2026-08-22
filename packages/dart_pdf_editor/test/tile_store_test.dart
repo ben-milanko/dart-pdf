@@ -156,6 +156,64 @@ void main() {
   });
 
   group('PdfTileStore.viewFor', () {
+    testWidgets('presentation-only views never refill misses or a ring',
+        (tester) async {
+      await tester.runAsync(() async {
+        final store = PdfTileStore(
+          tilePixels: 16,
+          prefetchRing: 1,
+          batchRasters: false,
+          registerForMemoryPressure: false,
+        );
+        final raster = _Rasterizer();
+        addTearDown(store.dispose);
+
+        // Seed only the centre tile, without its ring.
+        store.viewFor(
+          id: _id(0),
+          pageSize: const Size(48, 48),
+          desiredRatio: 1,
+          visiblePageRect: const Rect.fromLTWH(16, 16, 16, 16),
+          rasterize: raster.call,
+          prefetchRingOverride: 0,
+        );
+        await raster.flush();
+        expect(store.debugTilesScheduled, 1);
+
+        // An exact presentation-only view paints the retained tile but does
+        // not use its completeness as permission to start the normal ring.
+        final exact = store.viewFor(
+          id: _id(0),
+          pageSize: const Size(48, 48),
+          desiredRatio: 1,
+          visiblePageRect: const Rect.fromLTWH(16, 16, 16, 16),
+          rasterize: raster.call,
+          scheduleMissing: false,
+        );
+        expect(exact.complete, isTrue);
+        expect(exact.placements, hasLength(1));
+        expect(store.debugTilesScheduled, 1,
+            reason: 'an edge page must not start pan-ahead');
+
+        // Moving the edge view across one uncached cell likewise presents the
+        // surviving tile without trying to reclaim the missing one from the
+        // focused page's shared cache budget.
+        final partial = store.viewFor(
+          id: _id(0),
+          pageSize: const Size(48, 48),
+          desiredRatio: 1,
+          visiblePageRect: const Rect.fromLTWH(16, 16, 32, 16),
+          rasterize: raster.call,
+          scheduleMissing: false,
+        );
+        expect(partial.complete, isFalse);
+        expect(partial.placements, hasLength(1));
+        expect(store.debugTilesScheduled, 1,
+            reason: 'presentation-only visible misses stay unscheduled');
+        expect(store.inFlightCount, 0);
+      });
+    });
+
     test('raster coverage follows whole cells and includes the prefetch ring',
         () {
       final store = PdfTileStore(
@@ -1137,6 +1195,61 @@ void main() {
         expect(store.debugTilesDiscarded, 0);
         expect(store.tileCount, 9);
         store.dispose();
+      });
+    });
+
+    testWidgets('a rounded non-integral rung converges under the byte budget',
+        (tester) async {
+      await tester.runAsync(() async {
+        final raster = _Rasterizer(sizeFromRegion: true);
+        final store = PdfTileStore(
+          tilePixels: 1024,
+          prefetchRing: 1,
+          maxBytes: 8 << 20,
+          batchRasters: false,
+          registerForMemoryPressure: false,
+        );
+        addTearDown(store.dispose);
+
+        // Rung 3 is sqrt(8). Floating-point round-up makes a nominal 1024px
+        // tile 1025px on at least one axis, so only one visible/ring tile fits
+        // in the 8 MiB cache even though the nominal count budget says two.
+        // The ring must reserve real raster bytes or every completion evicts
+        // the other tile and the repaint tick regenerates it forever.
+        final ratio = store.ladder.ratioFor(3);
+        final span = store.tilePixels / ratio;
+        final pageSize = Size(span * 10, span);
+        final window = Rect.fromLTWH(span * 7.1, 0, span * 0.8, span);
+
+        PdfTileView view() => store.viewFor(
+              id: _id(0),
+              pageSize: pageSize,
+              desiredRatio: ratio,
+              visiblePageRect: window,
+              rasterize: raster.call,
+            );
+
+        view();
+        expect(
+          (raster.calls.single.region.width * ratio).ceil(),
+          1025,
+          reason: 'the fixture must exercise rounded tile weight',
+        );
+        await raster.flush();
+        expect(store.tileCount, 1);
+        expect(store.retainedBytes, 1025 * 1024 * 4);
+        final scheduledAfterVisible = store.debugTilesScheduled;
+
+        for (var i = 0; i < 4; i++) {
+          final exact = view();
+          expect(exact.complete, isTrue);
+          await raster.flush();
+        }
+
+        expect(store.debugTilesScheduled, scheduledAfterVisible,
+            reason: 'an over-budget ring must not enter an eviction loop');
+        expect(store.debugTilesDiscarded, 0);
+        expect(store.tileCount, 1);
       });
     });
   });

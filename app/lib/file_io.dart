@@ -76,6 +76,7 @@ class MobilePickedPdf {
     required this.token,
     required this.name,
     this.length,
+    this.provider,
     required this.seekable,
   });
 
@@ -84,6 +85,12 @@ class MobilePickedPdf {
   final String token;
   final String name;
   final int? length;
+
+  /// A non-secret provider identifier supplied by the runner. Android reports
+  /// the content URI authority; iOS reports the iCloud container display name
+  /// when available and otherwise a generic File Provider label. Unlike
+  /// [token], this is safe to include in exported diagnostics.
+  final String? provider;
 
   /// Whether native ranged reads over [token] are random-access. False for a
   /// non-seekable pipe (many cloud providers), where the caller streams whole
@@ -116,10 +123,12 @@ Future<List<MobilePickedPdf>> pickPdfMobileReferences() async {
   for (final entry in picked) {
     final token = entry['token'] as String?;
     if (token == null || token.isEmpty) continue;
+    final rawLength = (entry['length'] as num?)?.toInt();
     out.add(MobilePickedPdf(
       token: token,
       name: (entry['name'] as String?) ?? 'document.pdf',
-      length: (entry['length'] as num?)?.toInt(),
+      length: rawLength != null && rawLength >= 0 ? rawLength : null,
+      provider: entry['provider'] as String?,
       seekable: entry['seekable'] == true,
     ));
   }

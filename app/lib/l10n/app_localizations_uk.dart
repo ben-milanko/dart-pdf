@@ -509,6 +509,9 @@ class AppLocalizationsUk extends AppLocalizations {
   String get editorOpenRecent => 'Відкрити нещодавні';
 
   @override
+  String get editorViewAllRecentFiles => 'Переглянути всі нещодавні файли…';
+
+  @override
   String get editorOpenTabs => 'Відкриті вкладки';
 
   @override
@@ -763,6 +766,51 @@ class AppLocalizationsUk extends AppLocalizations {
   String get printDlgTitle => 'Друк';
 
   @override
+  String get printPreviewAll => 'Усі';
+
+  @override
+  String get printPreviewCurrent => 'Поточна';
+
+  @override
+  String get printPreviewFrom => 'Від';
+
+  @override
+  String get printPreviewNextPage => 'Наступна сторінка';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return 'Сторінка $page з $total';
+  }
+
+  @override
+  String get printPreviewPreviousPage => 'Попередня сторінка';
+
+  @override
+  String get printPreviewPrint => 'Друк';
+
+  @override
+  String get printPreviewRange => 'Діапазон';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return 'Введіть діапазон сторінок від 1 до $total.';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return 'Сторінок для друку: $count';
+  }
+
+  @override
+  String get printPreviewTitle => 'Попередній перегляд друку';
+
+  @override
+  String get printPreviewTo => 'До';
+
+  @override
+  String get printPreviewUnavailable => 'Перегляд недоступний';
+
+  @override
   String get redo => 'Повторити';
 
   @override
@@ -897,6 +945,13 @@ class AppLocalizationsUk extends AppLocalizations {
 
   @override
   String get welcomeRecent => 'Нещодавні';
+
+  @override
+  String get welcomeSearchRecentFiles => 'Пошук у нещодавніх файлах';
+
+  @override
+  String get welcomeNoMatchingRecentFiles =>
+      'Немає нещодавніх файлів, що відповідають пошуку';
 
   @override
   String get welcomeRemoveFromRecent => 'Вилучити з нещодавніх';

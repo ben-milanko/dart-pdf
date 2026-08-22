@@ -47,3 +47,23 @@ String printJobName(String title) {
   }
   return name.isEmpty ? 'Document' : name;
 }
+
+/// Whether the platform's own print flow already shows the user what the job
+/// will look like.
+///
+/// iOS, macOS and Android hand the whole PDF to the OS print system, which
+/// previews it; on the web the browser's print dialog does the same. Windows
+/// and Linux have no such surface. The Win32 common print dialog is
+/// settings-only, and since Windows 11 22H2 the modern dialog that replaced it
+/// answers a preview request with "This app doesn't support print preview" -
+/// the legacy print API (`PrintDlgEx`, which the runner drives) gives Windows
+/// no document content to render there, so no application calling it can fill
+/// that pane. DartPDF previews the job itself where this is false; see
+/// `showPrintPreviewDialog`.
+///
+/// [platform] is a test seam; it defaults to the running platform.
+bool platformProvidesPrintPreview({TargetPlatform? platform}) {
+  if (kIsWeb) return true;
+  final target = platform ?? defaultTargetPlatform;
+  return target != TargetPlatform.windows && target != TargetPlatform.linux;
+}

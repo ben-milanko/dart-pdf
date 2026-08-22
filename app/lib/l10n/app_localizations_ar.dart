@@ -523,6 +523,9 @@ class AppLocalizationsAr extends AppLocalizations {
   String get editorOpenRecent => 'فتح ملف حديث';
 
   @override
+  String get editorViewAllRecentFiles => 'عرض كل الملفات الأخيرة…';
+
+  @override
   String get editorOpenTabs => 'علامات التبويب المفتوحة';
 
   @override
@@ -774,6 +777,51 @@ class AppLocalizationsAr extends AppLocalizations {
   String get printDlgTitle => 'جارٍ الطباعة';
 
   @override
+  String get printPreviewAll => 'الكل';
+
+  @override
+  String get printPreviewCurrent => 'الحالية';
+
+  @override
+  String get printPreviewFrom => 'من';
+
+  @override
+  String get printPreviewNextPage => 'الصفحة التالية';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return 'الصفحة $page من $total';
+  }
+
+  @override
+  String get printPreviewPreviousPage => 'الصفحة السابقة';
+
+  @override
+  String get printPreviewPrint => 'طباعة';
+
+  @override
+  String get printPreviewRange => 'نطاق';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return 'أدخل نطاق صفحات بين 1 و$total.';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return 'الصفحات المطلوب طباعتها: $count';
+  }
+
+  @override
+  String get printPreviewTitle => 'معاينة الطباعة';
+
+  @override
+  String get printPreviewTo => 'إلى';
+
+  @override
+  String get printPreviewUnavailable => 'المعاينة غير متاحة';
+
+  @override
   String get redo => 'إعادة';
 
   @override
@@ -906,6 +954,12 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get welcomeRecent => 'الأخيرة';
+
+  @override
+  String get welcomeSearchRecentFiles => 'البحث في الملفات الأخيرة';
+
+  @override
+  String get welcomeNoMatchingRecentFiles => 'لا توجد ملفات حديثة تطابق بحثك';
 
   @override
   String get welcomeRemoveFromRecent => 'إزالة من الأخيرة';

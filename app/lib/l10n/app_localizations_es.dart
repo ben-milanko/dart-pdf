@@ -510,6 +510,9 @@ class AppLocalizationsEs extends AppLocalizations {
   String get editorOpenRecent => 'Abrir reciente';
 
   @override
+  String get editorViewAllRecentFiles => 'Ver todos los archivos recientes…';
+
+  @override
   String get editorOpenTabs => 'Pestañas abiertas';
 
   @override
@@ -758,6 +761,51 @@ class AppLocalizationsEs extends AppLocalizations {
   String get printDlgTitle => 'Imprimiendo';
 
   @override
+  String get printPreviewAll => 'Todas';
+
+  @override
+  String get printPreviewCurrent => 'Actual';
+
+  @override
+  String get printPreviewFrom => 'Desde';
+
+  @override
+  String get printPreviewNextPage => 'Página siguiente';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return 'Página $page de $total';
+  }
+
+  @override
+  String get printPreviewPreviousPage => 'Página anterior';
+
+  @override
+  String get printPreviewPrint => 'Imprimir';
+
+  @override
+  String get printPreviewRange => 'Intervalo';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return 'Introduce un intervalo de páginas entre 1 y $total.';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return 'Páginas para imprimir: $count';
+  }
+
+  @override
+  String get printPreviewTitle => 'Vista previa de impresión';
+
+  @override
+  String get printPreviewTo => 'Hasta';
+
+  @override
+  String get printPreviewUnavailable => 'Vista previa no disponible';
+
+  @override
   String get redo => 'Rehacer';
 
   @override
@@ -890,6 +938,13 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get welcomeRecent => 'Recientes';
+
+  @override
+  String get welcomeSearchRecentFiles => 'Buscar en archivos recientes';
+
+  @override
+  String get welcomeNoMatchingRecentFiles =>
+      'Ningún archivo reciente coincide con la búsqueda';
 
   @override
   String get welcomeRemoveFromRecent => 'Quitar de recientes';

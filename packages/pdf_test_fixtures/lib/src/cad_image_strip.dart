@@ -341,16 +341,23 @@ CosStream _tileStream(
   }
 }
 
-/// Deterministic 64-bit LCG (VM-only; see `cad_strip.dart`).
+/// Deterministic Park-Miller generator that is exact on the VM and JavaScript.
+///
+/// The image-heavy fixture is also used by the real-browser Patrol journey, so
+/// keep every multiplication below JavaScript's 53-bit exact-integer ceiling.
+/// The vector-only CAD generator deliberately retains its profiled VM-only
+/// 64-bit sequence; these two fixtures do not promise the same linework.
 class _Lcg {
-  _Lcg(this._state);
+  _Lcg(int seed) : _state = seed % _modulus {
+    if (_state <= 0) _state += _modulus - 1;
+  }
+
+  static const _modulus = 2147483647;
   int _state;
 
-  int _next() =>
-      _state = (_state * 6364136223846793005 + 1442695040888963407) &
-          0x7FFFFFFFFFFFFFFF;
+  int _next() => _state = (_state * 48271) % _modulus;
 
-  double unit() => (_next() >> 11) * (1.0 / (1 << 52));
+  double unit() => (_next() - 1) / (_modulus - 1);
 
   double range(double lo, double hi) => lo + unit() * (hi - lo);
 

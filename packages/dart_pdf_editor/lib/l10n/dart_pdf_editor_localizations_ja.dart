@@ -1590,6 +1590,9 @@ class DartPdfEditorLocalizationsJa extends DartPdfEditorLocalizations {
   String get tbNameEraser => '手書きストロークを消去';
 
   @override
+  String get tbNameHand => '手のひらツール';
+
+  @override
   String get tbNameHighlight => 'ハイライト';
 
   @override

@@ -106,6 +106,30 @@ fvm dart analyze app
 cd app && fvm flutter test
 ```
 
+### Mobile cloud-provider performance capture
+
+The Android and iOS reference pickers emit structured `open-trace:` entries to
+the app's Developer tools log without recording the picked URI, path, or access
+token. To validate a real provider, run a debug/profile build on a physical
+device, open one large PDF from that provider, then open **Settings → Developer
+tools** and export the snapshot. Attach the JSON to the performance issue or
+PR together with the provider/device name.
+
+The useful entries are:
+
+- `mobile-pick`: provider identifier, declared bytes, seekability, and the
+  selected `progressive` or `whole` path.
+- `first-paint`: bytes fetched before the progressive preview, file-size
+  percentage, elapsed milliseconds, and page count.
+- `whole-read`: bytes and elapsed milliseconds when a non-seekable provider or
+  batch must be streamed completely.
+
+A progressive provider pass has `seekable=true`, `mode=progressive`, a
+`first-paint` entry, and `fetchedPercent` materially below 100. A provider may
+legitimately report `seekable=false`; in that case the expected result is a
+successful `whole-read`, not a failed ranged open. `progressive-fallback` is a
+failed progressive attempt and should be investigated.
+
 ## Build
 
 `flutter build <apk|appbundle|ios|macos|windows|linux|web> --release`. The three

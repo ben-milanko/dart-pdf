@@ -8,6 +8,7 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
 import '../pdf_viewer.dart';
+import '../search_field_style.dart';
 import 'annotation_presentation.dart';
 import 'editing_controller.dart';
 import 'editing_panel.dart';
@@ -321,7 +322,7 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
                 tooltip: pdfL10n(context).sidebarClearSearch,
                 onPressed: () => setState(_search.clear),
               ),
-        border: const OutlineInputBorder(),
+        border: pdfSearchInputBorder,
       ),
     );
     return Padding(
@@ -527,16 +528,15 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
     // (text, accent colour) detail lines; a null colour is a muted line.
     final details = <(String, Color?)>[];
 
-    final signer = validation.signerCertificate?.subjectCommonName ??
-        signature.signerName;
+    final signer =
+        validation.signerCertificate?.subjectCommonName ?? signature.signerName;
     if (signer != null && signer.isNotEmpty) {
       details.add((l10n.sidebarSignatureSignedBy(signer), null));
     }
 
     final signedAt = validation.signedAt ?? signature.signingTime;
     if (signedAt != null) {
-      details.add(
-          (l10n.sidebarSignatureSignedAt(_formatTime(signedAt)), null));
+      details.add((l10n.sidebarSignatureSignedAt(_formatTime(signedAt)), null));
     }
 
     if (intact) {
@@ -652,8 +652,9 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
         PopupMenuItem(
           key: const ValueKey('pdf-resolve-button'),
           value: _ThreadAction.resolve,
-          child: Text(
-              resolved ? pdfL10n(context).sidebarReopen : pdfL10n(context).sidebarResolve),
+          child: Text(resolved
+              ? pdfL10n(context).sidebarReopen
+              : pdfL10n(context).sidebarResolve),
         ),
       ],
     );
@@ -987,15 +988,14 @@ class _PdfAnnotationSidebarState extends State<PdfAnnotationSidebar> {
                   }
                   // a markup annotation hosts a comment thread
                   if (annotation.behavior.selectable) {
-                    tiles.addAll(_threadSection(context, section.page,
-                        annotation, row.thread));
+                    tiles.addAll(_threadSection(
+                        context, section.page, annotation, row.thread));
                   }
                 }
               }
               slivers.add(
                 SliverPadding(
-                  padding:
-                      EdgeInsets.only(right: geometry.scrollbarClearance),
+                  padding: EdgeInsets.only(right: geometry.scrollbarClearance),
                   sliver: SliverMainAxisGroup(slivers: [
                     SliverPersistentHeader(
                       pinned: true,

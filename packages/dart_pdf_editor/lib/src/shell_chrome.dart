@@ -12,6 +12,7 @@ import 'editing/editing_preferences.dart';
 import 'editing/tool_shortcuts.dart';
 import 'l10n/pdf_l10n.dart';
 import 'pdf_viewer.dart';
+import 'search_field_style.dart';
 
 /// Shared header chrome for the drop-in shells (PdfReader and
 /// PdfEditorView). Package-private: not exported from the library.
@@ -1359,7 +1360,7 @@ Future<Map<PdfEditTool, PdfToolShortcut>?> showPdfShellShortcutsSheet(
                     isDense: true,
                     prefixIcon: const Icon(Icons.search),
                     hintText: pdfL10n(context).shellShortcutsSearchHint,
-                    border: const OutlineInputBorder(),
+                    border: pdfSearchInputBorder,
                   ),
                   onChanged: (value) =>
                       setSheetState(() => searchQuery = value),

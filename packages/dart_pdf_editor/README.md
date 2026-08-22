@@ -81,6 +81,9 @@ The [Flutter PDF editor overview](https://dart-pdf.com/flutter-pdf-editor)
 covers the architecture, supported editing features, package layout, and
 measured performance.
 
+For a complete first integration, follow
+[How to add PDF editing to a Flutter app](https://dart-pdf.com/guides/add-pdf-editing-to-flutter).
+
 Built on the pure-Dart
 [dart-pdf suite](https://github.com/ben-milanko/dart-pdf): `pdf_cos`
 (file syntax) ← `pdf_document` (document semantics + editing) ←
@@ -137,21 +140,22 @@ also supply its own catalogue - set `pdfBundledFonts` to your own
 ## Performance
 
 **The default viewer has not reached PDFium interaction parity yet.** The most
-recent real-document checkpoint (11 August 2026) used five interleaved
-DartPDF/PDFium runs in Chrome 151 on an M1 Pro, a 1400×1000 viewport, and the
-default JS/CanvasKit web build. The input was a locally supplied 62-page,
-24.1 MB illustrated PDF; the journey opened it, jumped to pages 3 and 47,
-zoomed to 1.72×, and drove matched wheel gestures. Lower ratios are better.
+recent real-document checkpoint (23 August 2026, commit `1b887e9f`) used five
+interleaved DartPDF/PDFium runs in Chrome 151 on an M1 Pro, a 1400×1000
+viewport, and the default JS/CanvasKit web build. The input was a locally
+supplied 62-page, 24.1 MB illustrated PDF; the journey opened it, jumped to
+pages 3 and 47, zoomed to 1.72×, and drove matched wheel gestures. Lower
+ratios are better.
 
 | user-visible metric | DartPDF p50 / p95 | PDFium p50 / p95 | ratio p50 / p95 |
 |---|---:|---:|---:|
-| open to stable visual | 1680 / 1932 ms | 1531 / 1716 ms | **1.10× / 1.13×** |
-| page first visual change | 17 / 63 ms | 12 / 21 ms | 1.45× / 2.95× |
-| page stable visual | 303 / 419 ms | 129 / 142 ms | **2.34× / 2.95×** |
-| zoom stable visual | 30 / 47 ms | 9 / 16 ms | **3.17× / 2.89×** |
-| wheel journey | 320 / 397 ms | 1097 / 1237 ms | 0.29× / 0.32× |
-| wheel rAF interval p95 | 25 ms | 10 ms | **2.50×** |
-| peak browser RSS p50 | 1478 MiB | 1287 MiB | 1.15× |
+| open to stable visual | 918 / 974 ms | 1493 / 1520 ms | **0.61× / 0.64×** |
+| page first visual change | 18 / 24 ms | 11 / 16 ms | 1.72× / 1.54× |
+| page stable visual | 297 / 381 ms | 130 / 134 ms | **2.29× / 2.84×** |
+| zoom stable visual | 22 / 31 ms | 11 / 13 ms | **1.97× / 2.35×** |
+| wheel journey | 315 / 433 ms | 912 / 1123 ms | 0.34× / 0.39× |
+| wheel rAF interval p95 | 42 ms | 10 ms | **4.09×** |
+| peak browser RSS p50 | 1827 MiB | 1850 MiB | 0.99× |
 
 The wheel journey completes sooner, but its worse rAF tail means it is not yet
 as smooth; total duration alone would be a misleading win. Open and memory are
@@ -161,10 +165,10 @@ native-desktop or mobile parity claim. See the
 [full methodology and historical checkpoints](https://github.com/ben-milanko/dart-pdf/blob/main/doc/benchmarks/pdfium-parity.md).
 
 The offline corpus benchmark remains useful as a subsystem diagnostic, not as
-evidence of viewer latency: over 49 files / 255 pages at scale 2, pure-Dart
-interpretation takes 9.6 ms/page, PDFium rasterization takes 23.1 ms/page, and
-the complete Flutter raster plus readback takes 45.2 ms/page. Reproducible
-offline harnesses and file-by-file diffs live in
+evidence of viewer latency: over the 52-file / 268-page common subset at scale
+2, pure-Dart interpretation takes 12.1 ms/page, PDFium rasterization takes
+31.9 ms/page, and the complete Flutter raster plus readback takes 61.6 ms/page.
+Reproducible offline harnesses and file-by-file diffs live in
 [`benchmark/`](https://github.com/ben-milanko/dart-pdf/tree/main/benchmark).
 
 The drop-in shells use adaptive performance tuning by default. Auto selects a

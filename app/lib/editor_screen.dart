@@ -32,6 +32,7 @@ import 'new_document.dart';
 import 'ocr.dart';
 import 'ocr_status_label.dart';
 import 'pdf_cache.dart';
+import 'print_preview_dialog.dart';
 import 'print_progress_dialog.dart';
 import 'printing.dart';
 import 'recent_thumbnails.dart';
@@ -75,6 +76,14 @@ const int _maxRecentMenuItems = 8;
 const Duration _tabHoverPreviewDelay = Duration(milliseconds: 400);
 const double _tabHoverPreviewWidth = 240;
 const double _tabHoverPreviewHeight = 300;
+
+String _openTraceLabel(String? value) => (value == null || value.isEmpty)
+    ? '-'
+    : value.replaceAll(RegExp(r'[\r\n"]+'), ' ').trim();
+
+String _openTracePercent(int fetched, int? total) => total == null || total <= 0
+    ? 'unknown'
+    : (fetched * 100 / total).toStringAsFixed(1);
 
 /// The editor's main screen: a strip of open-document tabs over the drop-in
 /// [PdfEditorView] / [PdfReader] shells, which carry all the PDF chrome
@@ -267,6 +276,17 @@ class _EditorScreenState extends State<EditorScreen>
   /// restored path-only tab that is briefly active mid-restore does not start
   /// opening. Only the tab active when restore finishes materializes.
   bool _restoringSession = false;
+
+  /// How many tabs at the head of [_tabs] were put there by startup restore
+  /// (recovered unsaved work, then the last session's documents).
+  ///
+  /// Restore races the OS file-open that launched the app: on macOS the file
+  /// arrives on the warm `openFile` stream whenever the runner finishes
+  /// building its payload, which can land before, during, or after the store
+  /// read. Restored tabs therefore slot in at this index rather than at the
+  /// end, so the document the user actually double-clicked stays last in the
+  /// strip - and keeps focus (see [_addTab]).
+  int _restoredTabs = 0;
 
   /// The update checker, owned here unless the host injected one.
   late final UpdateService _updates = widget.updateService ??
@@ -700,7 +720,7 @@ class _EditorScreenState extends State<EditorScreen>
       // open path, so continued editing appends to it instead of mirroring the
       // whole document again under a fresh id.
       _autosave.track(tab, recovered: record);
-      _addTab(tab);
+      _addTab(tab, restored: true);
     }
     // Anything nothing adopted (bytes gone, a record we couldn't read) would
     // otherwise be offered back on every launch forever.
@@ -728,12 +748,15 @@ class _EditorScreenState extends State<EditorScreen>
     // the user can switch to another restored document while a remote one is
     // hydrating. A missing file is dropped when its lazy open fails.
     if (progressiveOpenSupported(originPath)) {
-      _addTab(DocumentTab.deferredPath(
-        title: doc.title,
-        originPath: originPath!,
-        originBookmark: doc.bookmark,
-        cachePath: doc.cachePath,
-      ));
+      _addTab(
+        DocumentTab.deferredPath(
+          title: doc.title,
+          originPath: originPath!,
+          originBookmark: doc.bookmark,
+          cachePath: doc.cachePath,
+        ),
+        restored: true,
+      );
       _recents.add(
           title: doc.title,
           path: originPath,
@@ -749,6 +772,7 @@ class _EditorScreenState extends State<EditorScreen>
       originPath: originPath,
       originBookmark: doc.bookmark,
       cachePath: doc.cachePath,
+      restored: true,
     );
     try {
       final bytes = await readPdfAtPath(readPath, bookmark: doc.bookmark);
@@ -1009,12 +1033,30 @@ class _EditorScreenState extends State<EditorScreen>
     return 0;
   }
 
-  void _addTab(DocumentTab tab) {
+  /// Adds [tab] to the strip and makes it active.
+  ///
+  /// A tab added by startup restore ([restored]) is the exception on both
+  /// counts: it joins the restored block at the head of the strip instead of
+  /// the end, and it takes focus only while nothing else is open. A document
+  /// the user asked for - the file the OS launched us with - keeps its place
+  /// at the end and stays the one on screen, whichever order the two
+  /// asynchronous sources happen to resolve in.
+  void _addTab(DocumentTab tab, {bool restored = false}) {
     setState(() {
       // A new tab shrinks the others to fit; drop any close-streak width hold.
       _heldTabWidth = null;
-      _tabs.add(tab);
-      _activeIndex = _tabs.length - 1;
+      if (!restored) {
+        _tabs.add(tab);
+        _activeIndex = _tabs.length - 1;
+        return;
+      }
+      final at = _restoredTabs.clamp(0, _tabs.length);
+      // Anything at or past the restored block was opened explicitly this
+      // launch; if one of those is active it stays active, just shifted along.
+      final userTabActive = _tabs.isNotEmpty && _activeIndex >= at;
+      _tabs.insert(at, tab);
+      _restoredTabs = at + 1;
+      _activeIndex = userTabActive ? _activeIndex + 1 : at;
     });
     unawaited(_persistSession());
   }
@@ -1030,14 +1072,15 @@ class _EditorScreenState extends State<EditorScreen>
       {String? originPath,
       String? originBookmark,
       String? originToken,
-      String? cachePath}) {
+      String? cachePath,
+      bool restored = false}) {
     final tab = DocumentTab.loading(
         title: title,
         originPath: originPath,
         originBookmark: originBookmark,
         originToken: originToken,
         cachePath: cachePath);
-    _addTab(tab);
+    _addTab(tab, restored: restored);
     return tab;
   }
 
@@ -1047,10 +1090,11 @@ class _EditorScreenState extends State<EditorScreen>
       replacement.dispose();
       return false;
     }
-    setState(() {
-      _tabs[index] = replacement;
-      _activeIndex = index;
-    });
+    // Swap in place, leaving the selection alone: the placeholder is normally
+    // the active tab already, and when it isn't - a session restore finishing
+    // behind the file the OS launched us with - stealing focus here would undo
+    // the ordering _addTab just got right.
+    setState(() => _tabs[index] = replacement);
     loading.dispose();
     unawaited(_persistSession());
     return true;
@@ -1272,6 +1316,8 @@ class _EditorScreenState extends State<EditorScreen>
     String? bookmark,
     String? token,
     String? cachePath,
+    int? declaredBytes,
+    String? provider,
     void Function(Object error)? onOpenFailed,
     DocumentTab? into,
   }) async {
@@ -1287,8 +1333,19 @@ class _EditorScreenState extends State<EditorScreen>
         );
     final cancel = PdfCancelToken();
     final progress = ValueNotifier<double>(0);
+    final openClock = Stopwatch()..start();
+    var fetchedBytes = 0;
+    var totalBytes = declaredBytes;
     final source = _progressiveSource(
-        path: path, bookmark: bookmark, token: token, cancel: cancel);
+      path: path,
+      bookmark: bookmark,
+      token: token,
+      cancel: cancel,
+      onProgress: (received, total) {
+        fetchedBytes = received;
+        if (total != null && total >= 0) totalBytes = total;
+      },
+    );
 
     PdfDocument doc;
     try {
@@ -1307,6 +1364,17 @@ class _EditorScreenState extends State<EditorScreen>
       // The progressive first paint could not be assembled (IO error, or a
       // shape the ranged loader gives up on). Fall back to the plain read the
       // rest of the app uses, reusing the same loading placeholder.
+      AppDevTools.instance.addLog(
+        'open-trace: progressive-fallback '
+        'platform=${defaultTargetPlatform.name} '
+        'origin=${token == null ? "desktop" : "mobile"} '
+        'provider="${_openTraceLabel(provider)}" '
+        'name="${_openTraceLabel(title)}" '
+        'fetchedBytes=$fetchedBytes '
+        'totalBytes=${totalBytes ?? "unknown"} '
+        'elapsedMs=${openClock.elapsedMilliseconds} '
+        'errorType=${error.runtimeType}',
+      );
       progress.dispose();
       await source.close();
       if (!mounted) return;
@@ -1357,6 +1425,19 @@ class _EditorScreenState extends State<EditorScreen>
     AppDevTools.instance.addLog(
         'progressive open: "$title" first paint — ${doc.pageCount} pages; '
         'reading full file…');
+    AppDevTools.instance.addLog(
+      'open-trace: first-paint '
+      'platform=${defaultTargetPlatform.name} '
+      'origin=${token == null ? "desktop" : "mobile"} '
+      'provider="${_openTraceLabel(provider)}" '
+      'name="${_openTraceLabel(title)}" '
+      'mode=progressive seekable=true '
+      'fetchedBytes=$fetchedBytes '
+      'totalBytes=${totalBytes ?? "unknown"} '
+      'fetchedPercent=${_openTracePercent(fetchedBytes, totalBytes)} '
+      'elapsedMs=${openClock.elapsedMilliseconds} '
+      'pages=${doc.pageCount}',
+    );
 
     // Stream the rest in behind the first paint, then swap to a full session.
     unawaited(_finishProgressive(preview, source));
@@ -1583,18 +1664,67 @@ class _EditorScreenState extends State<EditorScreen>
     final defer = picks.length > 1;
     for (final pick in picks) {
       if (!mounted) return;
-      if (!defer && pick.seekable) {
-        await _openProgressive(title: pick.name, token: pick.token);
+      final progressive = !defer && pick.seekable;
+      final reason = progressive
+          ? 'single-seekable'
+          : defer
+              ? 'batch'
+              : 'non-seekable';
+      AppDevTools.instance.addLog(
+        'open-trace: mobile-pick '
+        'platform=${defaultTargetPlatform.name} '
+        'provider="${_openTraceLabel(pick.provider)}" '
+        'name="${_openTraceLabel(pick.name)}" '
+        'declaredBytes=${pick.length ?? "unknown"} '
+        'seekable=${pick.seekable} '
+        'mode=${progressive ? "progressive" : "whole"} '
+        'reason=$reason',
+      );
+      if (progressive) {
+        await _openProgressive(
+          title: pick.name,
+          token: pick.token,
+          declaredBytes: pick.length,
+          provider: pick.provider,
+        );
       } else {
         // Non-seekable, or a batch we won't fan out into concurrent streams:
         // drain the reference whole (still one read of the original, no OS
         // copy) and open it like any other loaded document.
         await _openLoadedBytes(
-          _readOriginFully(token: pick.token),
+          _readMobileOriginFullyWithTrace(pick, reason: reason),
           title: pick.name,
           defer: defer,
         );
       }
+    }
+  }
+
+  Future<Uint8List> _readMobileOriginFullyWithTrace(
+    MobilePickedPdf pick, {
+    required String reason,
+  }) async {
+    final clock = Stopwatch()..start();
+    try {
+      final bytes = await _readOriginFully(token: pick.token);
+      AppDevTools.instance.addLog(
+        'open-trace: whole-read '
+        'platform=${defaultTargetPlatform.name} origin=mobile '
+        'provider="${_openTraceLabel(pick.provider)}" '
+        'name="${_openTraceLabel(pick.name)}" '
+        'mode=whole reason=$reason '
+        'bytes=${bytes.length} elapsedMs=${clock.elapsedMilliseconds}',
+      );
+      return bytes;
+    } catch (_) {
+      AppDevTools.instance.addLog(
+        'open-trace: whole-read-failed '
+        'platform=${defaultTargetPlatform.name} origin=mobile '
+        'provider="${_openTraceLabel(pick.provider)}" '
+        'name="${_openTraceLabel(pick.name)}" '
+        'mode=whole reason=$reason elapsedMs=${clock.elapsedMilliseconds}',
+      );
+      rethrow;
     }
   }
 
@@ -1718,17 +1848,37 @@ class _EditorScreenState extends State<EditorScreen>
 
   /// Opens a file the OS handed us (association, share, launch arg).
   ///
+  /// The document lands at the end of the strip and becomes the active tab -
+  /// it is the one the user just asked for. Startup restore keeps out of its
+  /// way (see [_addTab]), so this holds however the two race.
+  ///
   /// If a tab already holds this exact path, focus it instead of opening a
   /// duplicate. The same launch file can arrive twice - once via the
   /// command-line launch args and once via the native `getInitialFile`
   /// channel (Windows delivers both) - and re-opening an already-open
   /// document from the OS should surface the existing tab, not stack copies.
+  /// When that existing tab is one startup restore put back, it moves to the
+  /// end: the user opened this file, so it belongs exactly where it would
+  /// have landed had the OS beaten restore to it.
   Future<void> _openIncoming(IncomingFile file) async {
     final path = file.path;
     if (path != null && path.isNotEmpty) {
       final existing = _tabs.indexWhere((t) => t.originPath == path);
       if (existing != -1) {
-        setState(() => _activeIndex = existing);
+        final tab = _tabs[existing];
+        // Only a restored tab the user has never opened moves: it is still a
+        // placeholder, so re-slotting it is invisible. A document already on
+        // its feet keeps its place - the user put it there.
+        final move = existing < _restoredTabs &&
+            (tab.isDeferredPath || tab.isDeferred || tab.isLoading);
+        setState(() {
+          if (move) {
+            _restoredTabs--;
+            _tabs.add(_tabs.removeAt(existing));
+          }
+          _activeIndex = move ? _tabs.length - 1 : existing;
+        });
+        if (move) unawaited(_persistSession());
         return;
       }
     }
@@ -1982,19 +2132,38 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   List<RecentFile> _recentMenuEntries() {
-    final openIds = {
-      for (final tab in _tabs)
-        if (tab.originPath != null && tab.originPath!.isNotEmpty)
-          tab.originPath!
-        else if (tab.cachePath != null && tab.cachePath!.isNotEmpty)
-          tab.cachePath!
-        else
-          tab.title,
-    };
+    return _availableRecentEntries().take(_maxRecentMenuItems).toList();
+  }
+
+  Set<String> _openRecentIds() => {
+        for (final tab in _tabs)
+          if (tab.originPath != null && tab.originPath!.isNotEmpty)
+            tab.originPath!
+          else if (tab.cachePath != null && tab.cachePath!.isNotEmpty)
+            tab.cachePath!
+          else
+            tab.title,
+      };
+
+  List<RecentFile> _availableRecentEntries() {
+    final openIds = _openRecentIds();
     return [
       for (final entry in _recents.items)
         if (!openIds.contains(entry.id)) entry,
-    ].take(_maxRecentMenuItems).toList();
+    ];
+  }
+
+  void _showRecentFiles() {
+    unawaited(Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => RecentFilesScreen(
+          recents: _recents,
+          thumbnails: _recentThumbnails,
+          excludedIds: _openRecentIds(),
+          onOpenRecent: (entry) => unawaited(_openRecent(entry)),
+        ),
+      ),
+    ));
   }
 
   void _openMostRecent() {
@@ -2091,7 +2260,12 @@ class _EditorScreenState extends State<EditorScreen>
     }
     setState(() {
       for (final tab in targets) {
-        _tabs.remove(tab);
+        final index = _tabs.indexOf(tab);
+        if (index == -1) continue;
+        // Keep the restored-block count honest: a session document whose file
+        // has vanished drops its placeholder mid-restore.
+        if (index < _restoredTabs) _restoredTabs--;
+        _tabs.removeAt(index);
       }
       // Keep the previously active document active when it survived.
       final keep = active == null ? -1 : _tabs.indexOf(active);
@@ -2436,14 +2610,40 @@ class _EditorScreenState extends State<EditorScreen>
     if (mounted) _toast(appL10n(context).editorSignatureRemoved);
   }
 
-  /// Hands the active document to the OS print dialog (the `printing` plugin -
-  /// native dialog on desktop/mobile, browser print on the web). The current
-  /// revision is printed, so unsaved edits are included. A failed or
-  /// unavailable backend surfaces as a toast rather than throwing.
+  /// Hands the active document to the OS print system (the app's own
+  /// `native_print` channel - the OS dialog on desktop/mobile, browser print on
+  /// the web). The current revision is printed, so unsaved edits are included.
+  /// A failed or unavailable backend surfaces as a toast rather than throwing.
+  ///
+  /// Where the platform's print flow has no preview of its own (Windows and
+  /// Linux - see [platformProvidesPrintPreview]), DartPDF previews the job
+  /// first and prints the page range chosen there. A narrowed range prints an
+  /// extract of the document rather than the whole file, which is also how the
+  /// range reaches the platforms whose print path takes a whole PDF.
   Future<void> _print(DocumentTab tab) async {
-    final bytes = tab.session?.bytes;
-    if (bytes == null) return;
+    final session = tab.session;
+    if (session == null) return;
+    var bytes = session.bytes;
     try {
+      if (!platformProvidesPrintPreview()) {
+        final pages = await showPrintPreviewDialog(
+          context,
+          document: session.document,
+          title: tab.title,
+          currentPage: tab.viewer?.currentPage ?? 0,
+        );
+        if (pages == null || !mounted || !_tabs.contains(tab)) return;
+        // The preview is modal, but the session stays the source of truth for
+        // what prints - re-read it rather than trusting the pre-dialog bytes.
+        final document = session.document;
+        final selection = pages
+            .where((page) => page >= 0 && page < document.pageCount)
+            .toList();
+        if (selection.isEmpty) return;
+        bytes = selection.length == document.pageCount
+            ? session.bytes
+            : document.extractPages(selection);
+      }
       final injected = widget.printDocument;
       if (injected != null) {
         await injected(bytes: bytes, title: tab.title);
@@ -2733,6 +2933,24 @@ class _EditorScreenState extends State<EditorScreen>
             }
           },
           itemBuilder: (_) => [
+            PopupMenuItem<VoidCallback>(
+              key: const ValueKey('view-all-recent-files'),
+              height: _appMenuItemHeight(),
+              enabled: _availableRecentEntries().isNotEmpty,
+              value: () {
+                // The submenu's onSelected callback closes the parent popup.
+                // Push the browser on the next frame so that pop cannot close
+                // the newly opened route as well.
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) _showRecentFiles();
+                });
+              },
+              child: _appMenuTile(
+                icon: Icons.grid_view_outlined,
+                title: appL10n(context).editorViewAllRecentFiles,
+              ),
+            ),
+            if (recents.isNotEmpty) const PopupMenuDivider(),
             if (recents.isEmpty)
               PopupMenuItem<VoidCallback>(
                 height: _appMenuItemHeight(),
@@ -3599,34 +3817,41 @@ class _EditorScreenState extends State<EditorScreen>
                       mainAxisSize: MainAxisSize.max,
                       children: [
                         if (tabsWidth > 0)
-                          MouseRegion(
-                            onEnter: (_) => _tabStripHovered = true,
-                            onExit: (_) {
-                              _tabStripHovered = false;
-                              _releaseTabWidthHold();
-                            },
-                            // Grow back smoothly once the hold releases; both the strip
-                            // and each tab animate to the same width with a linear curve,
-                            // so they stay pixel-consistent throughout.
-                            child: AnimatedContainer(
-                              duration: _tabResizeDuration,
-                              curve: Curves.linear,
-                              width: tabsWidth,
-                              child: ReorderableListView.builder(
-                                key: const ValueKey('tab-strip'),
-                                scrollController: _tabScrollController,
-                                scrollDirection: Axis.horizontal,
-                                // The whole tab is the drag handle (see _buildTab); the
-                                // stock trailing handles don't fit a horizontal tab strip.
-                                buildDefaultDragHandles: false,
-                                padding: EdgeInsets.only(
-                                  left: rtl ? 4 + gapPadding : 4,
-                                  right: rtl ? 4 : 4 + gapPadding,
+                          // A window or AppBar-action resize can make the new
+                          // title constraint narrower than the container's
+                          // previous animated width. Clamp outside the animation
+                          // so even its first frame fits the current Row.
+                          ConstrainedBox(
+                            constraints: BoxConstraints(maxWidth: maxTabsWidth),
+                            child: MouseRegion(
+                              onEnter: (_) => _tabStripHovered = true,
+                              onExit: (_) {
+                                _tabStripHovered = false;
+                                _releaseTabWidthHold();
+                              },
+                              // Grow back smoothly once the hold releases; both the strip
+                              // and each tab animate to the same width with a linear curve,
+                              // so they stay pixel-consistent throughout.
+                              child: AnimatedContainer(
+                                duration: _tabResizeDuration,
+                                curve: Curves.linear,
+                                width: tabsWidth,
+                                child: ReorderableListView.builder(
+                                  key: const ValueKey('tab-strip'),
+                                  scrollController: _tabScrollController,
+                                  scrollDirection: Axis.horizontal,
+                                  // The whole tab is the drag handle (see _buildTab); the
+                                  // stock trailing handles don't fit a horizontal tab strip.
+                                  buildDefaultDragHandles: false,
+                                  padding: EdgeInsets.only(
+                                    left: rtl ? 4 + gapPadding : 4,
+                                    right: rtl ? 4 : 4 + gapPadding,
+                                  ),
+                                  itemCount: _tabs.length,
+                                  onReorderItem: _reorderTabs,
+                                  itemBuilder: (context, i) =>
+                                      _buildTab(i, tabWidth),
                                 ),
-                                itemCount: _tabs.length,
-                                onReorderItem: _reorderTabs,
-                                itemBuilder: (context, i) =>
-                                    _buildTab(i, tabWidth),
                               ),
                             ),
                           ),

@@ -1,10 +1,9 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>PDF.js corpus render comparisons</title>
+<title>PDF corpus renders</title>
 <style>
 body{font:14px system-ui,sans-serif;margin:24px;background:#f6f7f8;color:#202124}
-h1{font-size:20px;margin:0 0 6px}
-p{margin:0 0 16px;color:#5f6368}
+h1{font-size:20px;margin:0 0 16px}
 .results{display:flex;flex-direction:column;gap:16px}
 .result{margin:0;padding:12px;background:white;border:1px solid #dadce0;border-radius:6px}
 .meta{margin:0 0 10px;overflow-wrap:anywhere;color:#3c4043}
@@ -14,8 +13,7 @@ img{display:block;max-width:100%;height:auto;background:white;border:1px solid #
 .missing{border:1px dashed #dadce0;color:#80868b;padding:32px 8px;text-align:center;background:#fafafa}
 @media (max-width: 900px){.shots{grid-template-columns:1fr}}
 </style>
-<h1>PDF.js corpus render comparisons</h1>
-<p>Checked-in visual results: PDF.js baseline, Dart render, and diff.</p>
+<h1>PDF corpus renders</h1>
 <div class="results">
 <figure class="result">
 <figcaption class="meta">90ms_rksj_h_sample.pdf page 1<br>612x792<br>0.180% differing pixels</figcaption>
@@ -503,14 +501,6 @@ img{display:block;max-width:100%;height:auto;background:white;border:1px solid #
 <div><div class="shot-label">PDF.js baseline</div><a href="calrgb.pdf.p4.baseline.png"><img src="calrgb.pdf.p4.baseline.png" loading="lazy"></a></div>
 <div><div class="shot-label">Dart render</div><a href="calrgb.pdf.p4.dart.png"><img src="calrgb.pdf.p4.dart.png" loading="lazy"></a></div>
 <div><div class="shot-label">Diff</div><a href="calrgb.pdf.p4.diff.png"><img src="calrgb.pdf.p4.diff.png" loading="lazy"></a></div>
-</div>
-</figure>
-<figure class="result">
-<figcaption class="meta">calrgb.pdf page 6<br>850x1100</figcaption>
-<div class="shots">
-<div><div class="shot-label">PDF.js baseline</div><div class="missing">missing</div></div>
-<div><div class="shot-label">Dart render</div><a href="calrgb.pdf.p5.dart.png"><img src="calrgb.pdf.p5.dart.png" loading="lazy"></a></div>
-<div><div class="shot-label">Diff</div><div class="missing">missing</div></div>
 </div>
 </figure>
 <figure class="result">
@@ -1090,14 +1080,6 @@ img{display:block;max-width:100%;height:auto;background:white;border:1px solid #
 </div>
 </figure>
 <figure class="result">
-<figcaption class="meta">labelled_pages.pdf page 6<br>612x792</figcaption>
-<div class="shots">
-<div><div class="shot-label">PDF.js baseline</div><div class="missing">missing</div></div>
-<div><div class="shot-label">Dart render</div><a href="labelled_pages.pdf.p5.dart.png"><img src="labelled_pages.pdf.p5.dart.png" loading="lazy"></a></div>
-<div><div class="shot-label">Diff</div><div class="missing">missing</div></div>
-</div>
-</figure>
-<figure class="result">
 <figcaption class="meta">mesh_shading_empty.pdf page 1<br>500x250<br>0.795% differing pixels</figcaption>
 <div class="shots">
 <div><div class="shot-label">PDF.js baseline</div><a href="mesh_shading_empty.pdf.p0.baseline.png"><img src="mesh_shading_empty.pdf.p0.baseline.png" loading="lazy"></a></div>
@@ -1511,14 +1493,6 @@ img{display:block;max-width:100%;height:auto;background:white;border:1px solid #
 <div><div class="shot-label">PDF.js baseline</div><a href="standard_fonts.pdf.p4.baseline.png"><img src="standard_fonts.pdf.p4.baseline.png" loading="lazy"></a></div>
 <div><div class="shot-label">Dart render</div><a href="standard_fonts.pdf.p4.dart.png"><img src="standard_fonts.pdf.p4.dart.png" loading="lazy"></a></div>
 <div><div class="shot-label">Diff</div><a href="standard_fonts.pdf.p4.diff.png"><img src="standard_fonts.pdf.p4.diff.png" loading="lazy"></a></div>
-</div>
-</figure>
-<figure class="result">
-<figcaption class="meta">standard_fonts.pdf page 6<br>596x842</figcaption>
-<div class="shots">
-<div><div class="shot-label">PDF.js baseline</div><div class="missing">missing</div></div>
-<div><div class="shot-label">Dart render</div><a href="standard_fonts.pdf.p5.dart.png"><img src="standard_fonts.pdf.p5.dart.png" loading="lazy"></a></div>
-<div><div class="shot-label">Diff</div><div class="missing">missing</div></div>
 </div>
 </figure>
 <figure class="result">

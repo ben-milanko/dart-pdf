@@ -1606,6 +1606,9 @@ class DartPdfEditorLocalizationsDe extends DartPdfEditorLocalizations {
   String get tbNameEraser => 'Freihandstriche löschen';
 
   @override
+  String get tbNameHand => 'Hand-Werkzeug';
+
+  @override
   String get tbNameHighlight => 'Hervorheben';
 
   @override

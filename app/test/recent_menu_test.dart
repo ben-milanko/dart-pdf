@@ -143,7 +143,33 @@ void main() {
 
     expect(find.text('alpha.pdf'), findsWidgets);
     expect(find.text('beta.pdf'), findsWidgets);
+    expect(
+      find.byKey(const ValueKey('view-all-recent-files')),
+      findsOneWidget,
+    );
     expect(find.text('Clear recent files'), findsWidgets);
+  });
+
+  testWidgets('Open Recent opens the full searchable recent-files browser',
+      (tester) async {
+    seedRecents();
+    await pumpApp(tester);
+
+    await openRecentsSubmenu(tester);
+    await tester.tap(find.byKey(const ValueKey('view-all-recent-files')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Recent files'), findsOneWidget);
+    final search = find.byKey(const ValueKey('recent-files-search'));
+    expect(search, findsOneWidget);
+
+    await tester.enterText(search, 'BETA');
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('recent-tile-/docs/beta.pdf')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('recent-tile-/docs/alpha.pdf')),
+        findsNothing);
   });
 
   testWidgets('Open Recent stays visible when there are no recent files',
@@ -154,6 +180,7 @@ void main() {
 
     expect(find.text('Open Recent'), findsOneWidget);
     expect(find.text('No recent files'), findsOneWidget);
+    expect(find.byKey(const ValueKey('view-all-recent-files')), findsOneWidget);
     expect(find.text('Clear recent files'), findsNothing);
   });
 }

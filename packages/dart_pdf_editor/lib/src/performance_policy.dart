@@ -34,12 +34,35 @@ PdfPerformancePlatform get detectedPdfPerformancePlatform => kIsWeb
 /// - **Web**: on-device release traces show the pyramid settling *under* budget
 ///   (no longer pinned/evicting), panning at deep zoom reusing cached tiles
 ///   with no green-grid flicker (2026-07-19 dev-log).
-/// - **Mobile**: on for parity, but the least-exercised path - and the 96 MB
-///   pyramid budget is a meaningful slice of a jetsam-limited process. A
-///   memory-pressure regression here surfaces as tile eviction, not a crash;
-///   [PdfTileStore.maxBytes] is live-adjustable if a lower mobile budget proves
-///   necessary.
+/// - **Mobile**: on for parity with a smaller 64 MB default tile ceiling (issue
+///   #374); the budget-vs-demand guard falls back to a detail patch when the
+///   visible set is too dense to fit. [PdfTileStore.maxBytes] remains
+///   live-adjustable for hosts with their own memory policy.
 bool pdfDefaultTileStoreDetail() => true;
+
+/// The default byte budget for the process-wide deep-zoom tile pyramid
+/// ([PdfTileStore]) on this platform.
+///
+/// The budget is a ceiling, not a reservation. At the default 512-pixel tile
+/// size each full RGBA tile costs 1 MB, so these values translate directly to
+/// retained tile capacity. The store's budget-vs-demand guard reserves 25% for
+/// fallback/headroom and uses the single detail-patch path rather than
+/// thrashing when one visible tile set would overrun the remainder.
+///
+/// Desktop and web keep the established 96 MB ceiling. Mobile uses 64 MB:
+/// enough for 48 visible full tiles under that guard, while returning 32 MB of
+/// GPU-resident headroom to a jetsam-limited process (issue #374). Hosts can
+/// still pass an explicit [PdfTileStore.maxBytes] value or adjust it live.
+int pdfDefaultTileBudgetBytes({PdfPerformancePlatform? platform}) {
+  const mb = 1024 * 1024;
+  return switch (platform ?? detectedPdfPerformancePlatform) {
+    PdfPerformancePlatform.mobile => 64 * mb,
+    PdfPerformancePlatform.desktop ||
+    PdfPerformancePlatform.web ||
+    PdfPerformancePlatform.other =>
+      96 * mb,
+  };
+}
 
 /// The default byte budget for the process-wide decoded-image cache
 /// ([PdfImageCache]) on this platform.
@@ -370,7 +393,14 @@ class PdfPerformancePolicy {
       PdfPerformancePlatform.other => 2,
     };
     var count = math.min(platformBase, math.min(available, mode.maxWorkers));
-    if (env.documentBytes >= (256 << 20)) {
+    // Every native worker materializes its own full document image.  Once the
+    // source itself is this large, a second worker adds hundreds of MiB before
+    // first paint and lets two cold records land on the UI thread together.
+    // That startup burst is markedly worse than the extra record throughput
+    // on large local PDFs, so cap their auto pool at two here. This matches the
+    // byte threshold that selects the conservative tier above; the controller
+    // then starts that tier with one worker before first paint.
+    if (env.documentBytes >= (192 << 20)) {
       count = math.min(
           count, env.platform == PdfPerformancePlatform.mobile ? 1 : 2);
     }

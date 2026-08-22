@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.8.0
+
+- Add the public monotonic `CosDocument.revision`, incremented after every
+  successful incremental update so higher layers can invalidate derived
+  caches without comparing object identity.
+
 ## 3.7.0
 
 - Lockstep minor release to align the dart-pdf package suite at 3.7.0. No

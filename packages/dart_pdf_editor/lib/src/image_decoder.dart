@@ -813,6 +813,33 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream,
   if (colorFamily == 'DeviceRGB' &&
       acceleratedRgbRanges == null &&
       acceleratedRgbColorKey == null) {
+    final smask = cos.resolve(dict['SMask']);
+    final mask = cos.resolve(dict['Mask']);
+    // Keep an ordinary RGB JPEG compressed until the browser codec hands its
+    // ImageBitmap directly to Flutter. Running libjpeg-turbo in this isolate
+    // first expands the whole image to RGBA synchronously, then uploads it;
+    // createImageBitmap performs the codec work asynchronously and the bitmap
+    // stays GPU-resident. Masks still use the accelerator path below because
+    // they may need CPU samples or a coordinated base/mask decode.
+    if (smask is! CosStream && mask is! CosStream && mask is! CosArray) {
+      final browserClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
+      final browser = scaled
+          ? await decodeJpegWithBrowser(
+              jpeg,
+              targetWidth: targetWidth,
+              targetHeight: targetHeight,
+            )
+          : await decodeJpegWithBrowser(jpeg);
+      if (browser != null) {
+        if (browserClock != null) {
+          PdfPerfLog.log('jpeg rgba-browser '
+              '${browser.width}x${browser.height} '
+              'ms=${(browserClock.elapsedMicroseconds / 1000).toStringAsFixed(1)}');
+        }
+        return browser;
+      }
+    }
+
     final rgbClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
     final accelerated = await _acceleratedDctRgbImage(
       jpeg,
@@ -820,8 +847,6 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream,
       targetHeight: targetHeight,
     );
     if (accelerated != null) {
-      final smask = cos.resolve(dict['SMask']);
-      final mask = cos.resolve(dict['Mask']);
       if (deferSimpleDctSoftMask && smask is CosStream) {
         final gpuMask = await _decodeSimpleSoftMaskImage(
           cos,
@@ -852,12 +877,13 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream,
       accelerated.dispose();
     }
   }
-  // On web, decode through the browser's native codec first: it is far faster
-  // than the engine's WASM codec under CanvasKit (a ~640 ms main-thread cost on
-  // the reported doc) and lands a GPU image with no readback. The worker
-  // already does this off-thread; this recovers the win on the main thread when
-  // the worker declined - e.g. its scope lacked OffscreenCanvas. Returns null
-  // off web and on any failure, falling through to the engine codec. #458.
+  // On web, decode residual DCT cases through the browser's native codec first:
+  // it is far faster than the engine's WASM codec under CanvasKit (a ~640 ms
+  // main-thread cost on the reported doc) and lands a GPU image with no
+  // readback. Semantically plain RGB JPEGs already returned through the
+  // earlier fast path; this branch preserves the same preference for masks and
+  // sample transforms that need the generic processing below. Returns null off
+  // web and on any failure, falling through to the engine codec. #458.
   //
   // The platform codec downscales during decode when a target is given -
   // decisive on the web, where the alternative is decoding 100+ MP and reading

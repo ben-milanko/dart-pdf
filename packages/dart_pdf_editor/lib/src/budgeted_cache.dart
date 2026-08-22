@@ -273,6 +273,30 @@ class PdfBudgetedCache<K, V> {
     }
   }
 
+  /// Re-keys retained entries without disposing their values or changing LRU
+  /// order.
+  ///
+  /// Used when an identity-preserving structural edit moves page-indexed
+  /// cache entries to new slots. [keyFor] should normally be one-to-one. If
+  /// two old keys map to one new key, the later (more recently used) entry
+  /// wins and the displaced value is disposed.
+  void remapKeys(K Function(K key) keyFor) {
+    if (_disposed || _entries.isEmpty) return;
+    final remapped = <K, _Entry<V>>{};
+    for (final entry in _entries.entries) {
+      final key = keyFor(entry.key);
+      final displaced = remapped.remove(key);
+      if (displaced != null) {
+        _weight -= displaced.weight;
+        _disposer?.call(displaced.value);
+      }
+      remapped[key] = entry.value;
+    }
+    _entries
+      ..clear()
+      ..addAll(remapped);
+  }
+
   /// Empties the cache, disposing every retained value. Counters survive - a
   /// clear is a cache operation, not a fresh measurement. Any clones already
   /// handed out are unaffected.

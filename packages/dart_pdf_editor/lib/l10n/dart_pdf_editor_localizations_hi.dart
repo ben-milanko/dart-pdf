@@ -1601,6 +1601,9 @@ class DartPdfEditorLocalizationsHi extends DartPdfEditorLocalizations {
   String get tbNameEraser => 'इंक स्ट्रोक मिटाएँ';
 
   @override
+  String get tbNameHand => 'हाथ';
+
+  @override
   String get tbNameHighlight => 'हाइलाइट';
 
   @override

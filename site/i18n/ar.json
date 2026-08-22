@@ -140,6 +140,7 @@
   "sdk_nav_features": "الميزات",
   "sdk_nav_performance": "الأداء",
   "sdk_nav_compare": "المقارنة",
+  "sdk_nav_guide": "الدليل",
   "sdk_nav_packages": "الحزم",
   "sdk_nav_getpub": "احصل عليه على pub.dev",
   "sdk_hero_h1": "عارض ومحرّر PDF لـ Flutter، <span class=\"hl\">مكتوب بالكامل\n          بلغة Dart.</span>",

@@ -1,5 +1,5 @@
 // Line-type (dash) styles, polygon fill, cross-page annotation moves, the
-// select-tool toggle-off, and the stroke/opacity drag readout.
+// Hand / Select navigation modes, and the stroke/opacity drag readout.
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -257,8 +257,8 @@ void main() {
     });
   });
 
-  group('select tool toggle-off', () {
-    testWidgets('tapping the armed Select chip disarms to reader mode',
+  group('desktop navigation modes', () {
+    testWidgets('Hand and Select are explicit compact sibling buttons',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1));
       final viewer = PdfViewerController();
@@ -272,16 +272,34 @@ void main() {
         ),
       ));
 
+      final modes = find.byKey(const ValueKey('pdf-navigation-modes'));
+      final hand = find.byKey(const ValueKey('pdf-mode-hand'));
+      final select = find.byKey(const ValueKey('pdf-group-select'));
+      expect(modes, findsOneWidget);
+      expect(tester.getSize(modes), const Size(81, 40));
+      // Tool-free reader mode is intentionally distinct from explicit Hand:
+      // it still permits text selection and therefore highlights neither.
+      expect(tester.widget<IconButton>(hand).isSelected, isFalse);
+      expect(tester.widget<IconButton>(select).isSelected, isFalse);
+
       editing.tool = PdfEditTool.select;
       await tester.pump();
-      await tester.tap(find.byKey(const ValueKey('pdf-group-select')));
+      expect(tester.widget<IconButton>(hand).isSelected, isFalse);
+      expect(tester.widget<IconButton>(select).isSelected, isTrue);
+
+      await tester.tap(hand);
       await tester.pump();
       expect(editing.tool, isNull);
+      expect(editing.isHandMode, isTrue);
+      expect(tester.widget<IconButton>(hand).isSelected, isTrue);
+      expect(tester.widget<IconButton>(select).isSelected, isFalse);
 
-      // tapping it again re-arms Select
-      await tester.tap(find.byKey(const ValueKey('pdf-group-select')));
+      await tester.tap(select);
       await tester.pump();
       expect(editing.tool, PdfEditTool.select);
+      expect(editing.isHandMode, isFalse);
+      expect(tester.widget<IconButton>(hand).isSelected, isFalse);
+      expect(tester.widget<IconButton>(select).isSelected, isTrue);
     });
   });
 

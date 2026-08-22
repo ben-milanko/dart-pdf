@@ -140,6 +140,7 @@
   "sdk_nav_features": "機能",
   "sdk_nav_performance": "パフォーマンス",
   "sdk_nav_compare": "比較",
+  "sdk_nav_guide": "ガイド",
   "sdk_nav_packages": "パッケージ",
   "sdk_nav_getpub": "pub.devで入手",
   "sdk_hero_h1": "Flutter向けのPDFビューアー兼エディター、<span class=\"hl\">完全にDartで書かれています。</span>",

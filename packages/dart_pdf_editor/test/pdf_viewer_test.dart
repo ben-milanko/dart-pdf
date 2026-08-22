@@ -5,6 +5,7 @@ import 'package:flutter/gestures.dart' show kSecondaryButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_graphics/pdf_graphics.dart' show PdfTextExtractor;
@@ -340,6 +341,56 @@ void main() {
     await tester.pump();
     expect(controller.hasSelection, isFalse);
     // drain the double-tap recognizer's timeout timer
+    await tester.pump(const Duration(milliseconds: 400));
+  });
+
+  testWidgets('explicit Hand mode pans over text instead of selecting it',
+      (tester) async {
+    final bytes = buildMultiPagePdf(5);
+    final editing = PdfEditingController(bytes)..activateHandMode();
+    final controller = PdfViewerController();
+    addTearDown(editing.dispose);
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          initialFit: PdfViewerFit.width,
+          document: editing.document,
+          controller: controller,
+          editing: editing,
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    const scale = 800 / 612;
+    Offset view(double x, double y) => Offset(x * scale, (792 - y) * scale);
+    MouseRegion region() => tester.widget<MouseRegion>(find
+        .descendant(
+            of: find.byType(PdfViewer), matching: find.byType(MouseRegion))
+        .first);
+
+    final hover =
+        await tester.createGesture(kind: PointerDeviceKind.mouse, pointer: 7);
+    await hover.addPointer(location: view(100, 720));
+    await tester.pump();
+    await hover.moveTo(view(101, 720));
+    await tester.pump();
+    expect(region().cursor, SystemMouseCursors.grab);
+    await hover.removePointer();
+    await tester.pump();
+
+    final gesture = await tester.startGesture(view(158, 720),
+        kind: PointerDeviceKind.mouse, pointer: 8);
+    await gesture.moveBy(const Offset(-20, 0));
+    await tester.pump();
+    await gesture.moveTo(view(50, 720));
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+
+    expect(controller.hasSelection, isFalse);
+    expect(controller.selectedText, isEmpty);
     await tester.pump(const Duration(milliseconds: 400));
   });
 
@@ -1436,6 +1487,185 @@ void main() {
   });
 
   group('editing controller drives the document', () {
+    testWidgets('reconciles only dirty pages across annotation revisions',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(12));
+      addTearDown(editing.dispose);
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            initialFit: PdfViewerFit.width,
+            editing: editing,
+            controller: controller,
+            pagePreviews: false,
+            autoRenderWorker: false,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      final cleanPage = controller.debugPageIdentity(0);
+      final dirtyPage = controller.debugPageIdentity(7);
+      final presentationEpoch = controller.pagePresentationEpoch;
+      expect(controller.debugIncrementalPageReconciliations, 0);
+
+      final logs = <String>[];
+      addTearDown(() {
+        PdfPerfLog.enabled = false;
+        PdfPerfLog.sink = null;
+      });
+      PdfPerfLog.sink = logs.add;
+      PdfPerfLog.enabled = true;
+      PdfPerf.reset();
+      editing.addRectangle(7, const PdfRect(100, 100, 200, 200));
+      final revisionPerf = PdfPerf.snapshot();
+      PdfPerfLog.enabled = false;
+      await tester.pump();
+
+      expect(controller.debugIncrementalPageReconciliations, 1);
+      final diagnostics = controller.debugPageReconciliationDiagnostics!;
+      expect(diagnostics.mode, PdfPageReconciliationMode.incremental);
+      expect(diagnostics.pageCount, 12);
+      expect(diagnostics.dirtyPages, 1);
+      expect(diagnostics.retainedPages, 11);
+      expect(diagnostics.geometryPages, 0);
+      expect(diagnostics.walkedPageTree, isFalse);
+      expect(diagnostics.fallbackReason, isNull);
+      expect(
+        logs,
+        contains(predicate<String>((line) =>
+            line.contains('page-reconcile mode=incremental') &&
+            line.contains('pages=12 dirty=1 retained=11') &&
+            line.contains('walk=0'))),
+      );
+      expect(
+        revisionPerf.phaseCalls[PdfPerfPhase.pageTreeWalk.index],
+        0,
+        reason: 'a dirty-page reconcile must not walk the whole page tree',
+      );
+      expect(controller.debugLastIncrementallyReconciledPages, {7});
+      expect(controller.debugPageIdentity(0), same(cleanPage),
+          reason: 'a clean keyed page must bail out');
+      expect(controller.debugPageIdentity(7), isNot(same(dirtyPage)),
+          reason: 'the dirty page gets a new async-completion fence');
+      expect(controller.pagePresentationEpoch, presentationEpoch,
+          reason: 'a non-structural edit keeps the page-slot lineage');
+
+      final firstDirtyRevision = controller.debugPageIdentity(7);
+      editing.addRectangle(7, const PdfRect(220, 220, 280, 280));
+      await tester.pump();
+
+      expect(controller.debugIncrementalPageReconciliations, 2);
+      expect(controller.debugLastIncrementallyReconciledPages, {7});
+      expect(controller.debugPageIdentity(0), same(cleanPage));
+      expect(controller.debugPageIdentity(7), isNot(same(firstDirtyRevision)));
+      expect(editing.document.page(7).annotations, hasLength(2),
+          reason: 'the second edit resolved the latest page dictionary');
+    });
+
+    testWidgets('reconciles a dirty page geometry change incrementally',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(4));
+      addTearDown(editing.dispose);
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            editing: editing,
+            controller: controller,
+            pagePreviews: false,
+            autoRenderWorker: false,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      final epoch = controller.pagePresentationEpoch;
+      final cleanPage = controller.debugPageIdentity(0);
+      final dirtyPage = controller.debugPageIdentity(1);
+      editing.rotatePages([1], 90);
+      await tester.pump();
+
+      expect(controller.debugIncrementalPageReconciliations, 1);
+      expect(controller.debugLastIncrementallyReconciledPages, {1});
+      expect(controller.debugPageIdentity(0), same(cleanPage));
+      expect(controller.debugPageIdentity(1), isNot(same(dirtyPage)));
+      expect(controller.pagePresentationEpoch, epoch,
+          reason: 'rotation changes geometry, not the page-slot lineage');
+      expect(editing.document.page(1).rotation, 90);
+    });
+
+    testWidgets('moves keyed page state across a pure reorder', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(4));
+      addTearDown(editing.dispose);
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            initialFit: PdfViewerFit.width,
+            editing: editing,
+            controller: controller,
+            pagePreviews: false,
+            autoRenderWorker: false,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      final movedPage = controller.debugPageIdentity(0);
+      final movedState = tester.state(find.byWidgetPredicate(
+        (widget) => widget is PdfPageView && identical(widget.page, movedPage),
+      ));
+      final epoch = controller.pagePresentationEpoch;
+      final namespace = controller.debugTileCacheNamespace;
+
+      editing.movePage(0, 1);
+      await tester.pump();
+
+      expect(controller.debugKeyedPageReconciliations, 1);
+      final reorderedPage = controller.debugPageIdentity(1);
+      expect(reorderedPage, isNot(same(movedPage)),
+          reason: 'the page wrapper belongs to the current revision');
+      expect(controller.pagePresentationEpoch, epoch);
+      expect(controller.debugTileCacheNamespace, same(namespace));
+      expect(
+        tester.state(find.byWidgetPredicate(
+          (widget) =>
+              widget is PdfPageView && identical(widget.page, reorderedPage),
+        )),
+        same(movedState),
+        reason: 'the rendered State follows its stable page key',
+      );
+      final diagnostics = controller.debugPageReconciliationDiagnostics!;
+      expect(diagnostics.mode, PdfPageReconciliationMode.keyedStructure);
+      expect(diagnostics.dirtyPages, 0);
+      expect(diagnostics.retainedPages, 4);
+      expect(diagnostics.walkedPageTree, isTrue);
+
+      editing.undo();
+      await tester.pump();
+      expect(controller.debugKeyedPageReconciliations, 2);
+      final restoredPage = controller.debugPageIdentity(0);
+      expect(
+        tester.state(find.byWidgetPredicate(
+          (widget) =>
+              widget is PdfPageView && identical(widget.page, restoredPage),
+        )),
+        same(movedState),
+        reason: 'undo moves the same keyed State back to its original slot',
+      );
+    });
+
     testWidgets(
         'follows revisions with no host ListenableBuilder and no document',
         (tester) async {
@@ -1498,6 +1728,10 @@ void main() {
       expect(tester.state(find.byType(PdfPageView).first),
           isNot(same(oldPageState)),
           reason: 'a shifted page slot must not inherit native render state');
+      expect(
+        controller.debugPageReconciliationDiagnostics!.fallbackReason,
+        'page-structure-changed',
+      );
     });
 
     testWidgets('a stale standalone document never desyncs the viewer',

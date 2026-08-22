@@ -437,6 +437,9 @@ void runPdfRenderWorker() {
                         (pageWidth > 0 && pageHeight > 0
                             ? (width / pageWidth + height / pageHeight) / 2
                             : null);
+                    final imageCacheBefore = timings == null
+                        ? null
+                        : _snapshotImageCache(imageCache);
                     final grayFrames = await _browserGrayFlateFrames(
                       doc.cos,
                       commands,
@@ -477,11 +480,12 @@ void runPdfRenderWorker() {
                       decodeClock.stop();
                       timings!.decodeUs += decodeClock.elapsedMicroseconds;
                       timings.imageDecodeSummary = grayFrames == null
-                          ? '${tally!.format()} '
-                              'cache=${imageCache.hits}h/'
-                              '${imageCache.misses}m/${imageCache.length}e/'
-                              '${imageCache.bytes}B '
-                              'flateSamples=${flateSampleCache.bytes}B'
+                          ? _formatImageDecodeSummary(
+                              tally!,
+                              imageCache,
+                              imageCacheBefore!,
+                              flateSampleBytes: flateSampleCache.bytes,
+                            )
                           : 'videoGray=${grayFrames.frames.length}';
                     }
                   }
@@ -596,6 +600,7 @@ void runPdfRenderWorker() {
               final detail = await _recordStripDetailAsync(
                 doc,
                 imageCache,
+                flateSampleCache,
                 transcriptCache,
                 page,
                 annotations,
@@ -1050,9 +1055,13 @@ Future<Uint8List?> _recordPageAsync(
     );
     if (vector != null) onPartial(vector);
   }
+  _BrowserDecodeTally? imageDecodeTally;
+  _ImageCacheSnapshot? imageCacheBefore;
   if (decodeImages) {
     final decodeClock = timings == null ? null : (Stopwatch()..start());
     final tally = timings == null ? null : _BrowserDecodeTally();
+    imageDecodeTally = tally;
+    imageCacheBefore = timings == null ? null : _snapshotImageCache(imageCache);
     final pageRasterPixels = pdfPageRasterPixels(page.cropBox, imagePixelRatio);
     final imageBudgetScale = imagePixelRatio == null
         ? 1.0
@@ -1077,16 +1086,6 @@ Future<Uint8List?> _recordPageAsync(
     if (decodeClock != null) {
       decodeClock.stop();
       timings!.decodeUs += decodeClock.elapsedMicroseconds;
-    }
-    // Report the cache's own state, not just the decode tally: "no reuse" has
-    // two very different causes - nothing was ever stored (entries stays 0), or
-    // entries exist but the key never matches - and the tally alone cannot tell
-    // them apart. #451 burned several device traces on exactly that ambiguity.
-    if (tally != null) {
-      timings!.imageDecodeSummary = '${tally.format()} '
-          'cache=${imageCache.hits}h/${imageCache.misses}m'
-          '/${imageCache.length}e/${imageCache.bytes}B '
-          'flateSamples=${flateSampleCache.bytes}B';
     }
   }
   // Decode the page's images in the worker too: the buffer carries
@@ -1114,6 +1113,20 @@ Future<Uint8List?> _recordPageAsync(
   if (serializeClock != null) {
     serializeClock.stop();
     timings!.serializeUs += serializeClock.elapsedMicroseconds;
+  }
+  // Read the cache after serialization. The pure-Dart decoder runs inside
+  // serializeCommands, so the old pre-serialize snapshot hid precisely the
+  // region/native lookups this diagnostic is meant to distinguish. Report a
+  // per-request delta beside the lifetime total: zero lookups on a detail job
+  // means the format used its direct region decoder, not that a populated key
+  // failed to match.
+  if (imageDecodeTally != null) {
+    timings!.imageDecodeSummary = _formatImageDecodeSummary(
+      imageDecodeTally,
+      imageCache,
+      imageCacheBefore!,
+      flateSampleBytes: flateSampleCache.bytes,
+    );
   }
   return result;
 }
@@ -1170,6 +1183,7 @@ Future<Uint8List?> _binStripsAsync(
 Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
   PdfDocument document,
   PdfImageDecodeCache imageCache,
+  _BrowserFlateSampleCache flateSampleCache,
   PdfWorkerTranscriptCache cache,
   int pageIndex,
   bool annotations,
@@ -1190,13 +1204,21 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
     timings: timings,
   );
   if (transcript == null) return null;
-  var sourceCommands = transcript.sourceCommands;
+  // The transcript index carries the same conservative paint bounds used by
+  // retained-scene region replay. Select before decoding or serializing so a
+  // narrow CAD viewport does not repeatedly ship and strip-bin the other
+  // tens/hundreds of thousands of offscreen operations.
+  var sourceCommands = transcript.commandsForDetail(imageDecodeRegion);
+  final detailCommandCount = sourceCommands.length;
+  final transcriptCommandCount = transcript.sourceCommands.length;
   if (token.cancelled) throw const PdfCancelledException();
 
   // DCT images use the browser codec on web. Other image formats continue
   // through serializeCommands' pure-Dart, region-aware decoder.
   final decodeClock = timings == null ? null : (Stopwatch()..start());
   final tally = timings == null ? null : _BrowserDecodeTally();
+  final imageCacheBefore =
+      timings == null ? null : _snapshotImageCache(imageCache);
   sourceCommands = await _withBrowserDecodedImages(
     document.cos,
     imageCache,
@@ -1204,15 +1226,11 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
     token,
     tally,
     imageDecodeRegion: imageDecodeRegion,
+    flateSampleCache: flateSampleCache,
   );
   if (decodeClock != null) {
     decodeClock.stop();
     timings!.decodeUs += decodeClock.elapsedMicroseconds;
-  }
-  if (tally != null) {
-    timings!.imageDecodeSummary = '${tally.format()} '
-        'cache=${imageCache.hits}h/${imageCache.misses}m'
-        '/${imageCache.length}e/${imageCache.bytes}B';
   }
   if (token.cancelled) throw const PdfCancelledException();
   final serializeClock = timings == null ? null : (Stopwatch()..start());
@@ -1229,6 +1247,14 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
   if (serializeClock != null) {
     serializeClock.stop();
     timings!.serializeUs += serializeClock.elapsedMicroseconds;
+  }
+  if (tally != null) {
+    timings!.imageDecodeSummary = '${_formatImageDecodeSummary(
+      tally,
+      imageCache,
+      imageCacheBefore!,
+      flateSampleBytes: flateSampleCache.bytes,
+    )} regionCommands=$detailCommandCount/$transcriptCommandCount';
   }
   if (commandBuffer == null) return null;
   if (token.cancelled) throw const PdfCancelledException();
@@ -1325,8 +1351,7 @@ Future<Uint8List?> _buildRegionIndexAsync(
   );
   if (transcript == null) return null;
   if (token.cancelled) throw const PdfCancelledException();
-  final index = PdfRegionReplayIndex.build(
-    transcript.wireCommands,
+  final index = transcript.regionIndex(
     maxCommands: maxCommands,
     buildGrid: buildGrid,
   );
@@ -1346,6 +1371,11 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
 }) async {
   var changed = false;
   final out = <PdfRenderCommand>[];
+  final regionSampleStreams = imageDecodeRegion != null &&
+          maxImagePixelRatio == null &&
+          flateSampleCache != null
+      ? HashSet<CosStream>.identity()
+      : null;
   for (final command in commands) {
     if (token.cancelled) throw PdfCancelledException();
     switch (command) {
@@ -1369,8 +1399,46 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
           out.add(command);
           continue;
         }
-        PdfDecodedPixels? decoded;
         final filters = pdfImageFilters(cos, request.stream.dictionary);
+        if (regionSampleStreams != null) {
+          // A detail record deliberately leaves Flate/CCITT pixels to
+          // serializeCommands' region-aware decoder. On web, however, that
+          // used to make the serializer reinflate each intersecting Flate
+          // plane with package:archive even when the browser-native full-page
+          // pass had already retained those samples. Re-seed the COS decoded
+          // stream LRU from the worker's bounded sample cache (or populate it
+          // natively on the first region) so the unchanged region decoder can
+          // crop/scale the same bytes without another inflate.
+          //
+          // Include a direct mask stream: Indexed CAD tiles sometimes carry a
+          // separate packed stencil that the region decoder consumes while
+          // decoding the base image.
+          final streams = <CosStream>[request.stream];
+          for (final key in const ['Mask', 'SMask']) {
+            try {
+              final object = cos.resolve(request.stream.dictionary[key]);
+              if (object is CosStream) streams.add(object);
+            } catch (_) {
+              // A broken optional mask remains the image decoder's problem;
+              // sample warming must never make a previously lenient detail
+              // record fail as a whole.
+            }
+          }
+          for (final stream in streams) {
+            if (!regionSampleStreams.add(stream)) continue;
+            final reused = await _seedBrowserFlateRegionSamples(
+              cos,
+              stream,
+              flateSampleCache!,
+            );
+            if (reused == true) {
+              tally?.regionFlateReuse++;
+            } else if (reused == false) {
+              tally?.regionFlate++;
+            }
+          }
+        }
+        PdfDecodedPixels? decoded;
         final hasDctBase =
             filters.contains('DCTDecode') || filters.contains('DCT');
         // A standalone JPEG is cheaper on the consumer: createImageBitmap can
@@ -1986,6 +2054,80 @@ class _BrowserFlateSampleCache {
   }
 }
 
+/// Makes one browser-inflated image plane available to synchronous PDF image
+/// decoding. Returns true for a sample-cache hit, false for a native inflate,
+/// and null when the stream is not a single Flate stream or native inflate is
+/// unavailable/declines.
+Future<bool?> _seedBrowserFlateRegionSamples(
+  CosDocument cos,
+  CosStream stream,
+  _BrowserFlateSampleCache sampleCache,
+) async {
+  final filter = _singleFlateFilter(cos, stream.dictionary);
+  if (filter == null || !globalContext.has('DecompressionStream')) return null;
+  var isStencil = false;
+  try {
+    isStencil =
+        cos.resolve(stream.dictionary['ImageMask']) == const CosBoolean(true);
+  } catch (_) {
+    // The decoder remains responsible for malformed optional image metadata.
+  }
+  final stencilBytes =
+      isStencil ? _declaredStencilSampleBytes(cos, stream.dictionary) : null;
+  if (stencilBytes != null &&
+      stencilBytes <= CosDocument.decodedStreamCacheItemCapBytes) {
+    // Small planes already enter the ordinary COS cache on first use. In
+    // particular, a 2048x1754 ImageMask is only ~439 KiB; warming and seeding
+    // it buys almost no inflate time and needlessly changes its established
+    // path. Colour planes remain eligible below the cap: an 8-bit Indexed CAD
+    // tile is only 768 KiB but still paid 79 ms to inflate on its first detail
+    // request in the hosted trace.
+    return null;
+  }
+  try {
+    final retained = sampleCache[stream];
+    final samples = retained ??
+        await _inflateBrowserFlateSamples(
+          cos,
+          stream,
+          filter,
+          sampleCache,
+        );
+    // This is the exact decrypt + Flate + predictor result decodeStreamData
+    // would produce. The COS cache stores the same Uint8List reference, not a
+    // second sample-plane copy. allowOversize is safe here because its total
+    // LRU remains bounded; the worker sample cache has its own 32 MiB bound.
+    cos.seedDecodedStreamData(stream, samples, allowOversize: true);
+    return retained != null;
+  } catch (_) {
+    // The existing portable, lenient filter path remains the fallback.
+    return null;
+  }
+}
+
+int? _declaredStencilSampleBytes(
+  CosDocument cos,
+  CosDictionary dictionary,
+) {
+  try {
+    final width = cos.resolve(dictionary['Width']);
+    final height = cos.resolve(dictionary['Height']);
+    final bits = cos.resolve(dictionary['BitsPerComponent']);
+    if (width is! CosInteger ||
+        height is! CosInteger ||
+        bits is! CosInteger ||
+        width.value <= 0 ||
+        height.value <= 0 ||
+        bits.value <= 0) {
+      return null;
+    }
+    final rowBytes = (width.value * bits.value + 7) >> 3;
+    return rowBytes * height.value;
+  } catch (_) {
+    return null;
+  }
+}
+
 /// Warms the COS decoded-stream cache with the browser's native inflater.
 ///
 /// Dart2JS's portable zlib decoder is a material part of first-stable-paint on
@@ -2449,6 +2591,39 @@ Future<void> _loadWorkerAdventorFonts(
   }
 }
 
+/// Lifetime cache counters captured at one worker-request boundary.
+typedef _ImageCacheSnapshot = ({
+  int hits,
+  int misses,
+  int entries,
+  int bytes,
+});
+
+_ImageCacheSnapshot _snapshotImageCache(PdfImageDecodeCache cache) => (
+      hits: cache.hits,
+      misses: cache.misses,
+      entries: cache.length,
+      bytes: cache.bytes,
+    );
+
+String _formatImageDecodeSummary(
+  _BrowserDecodeTally tally,
+  PdfImageDecodeCache cache,
+  _ImageCacheSnapshot before, {
+  int? flateSampleBytes,
+}) {
+  final deltaHits = cache.hits - before.hits;
+  final deltaMisses = cache.misses - before.misses;
+  final deltaEntries = cache.length - before.entries;
+  final deltaBytes = cache.bytes - before.bytes;
+  return '${tally.format()} '
+      'cache=${cache.hits}h/${cache.misses}m/'
+      '${cache.length}e/${cache.bytes}B '
+      'cacheDelta=${deltaHits}h/${deltaMisses}m/'
+      '${deltaEntries}e/${deltaBytes}B'
+      '${flateSampleBytes == null ? '' : ' flateSamples=${flateSampleBytes}B'}';
+}
+
 /// Per-job tally of how the browser image codec fared, folded into
 /// [PdfWorkerPhaseTimings.imageDecodeSummary] for the phase log (#458). Only
 /// allocated when the job collects timings, so production pays nothing.
@@ -2461,6 +2636,8 @@ Future<void> _loadWorkerAdventorFonts(
 class _BrowserDecodeTally {
   int codec = 0;
   int flate = 0;
+  int regionFlate = 0;
+  int regionFlateReuse = 0;
   int regionSkipped = 0;
 
   /// Images served from a previous record's decode instead of re-running the
@@ -2480,18 +2657,28 @@ class _BrowserDecodeTally {
     final declined = _declined.values.fold(0, (a, b) => a + b);
     if (codec == 0 &&
         flate == 0 &&
+        regionFlate == 0 &&
+        regionFlateReuse == 0 &&
         declined == 0 &&
         reusedCount == 0 &&
         regionSkipped == 0) {
       return 'none';
     }
     final nativeFlate = flate == 0 ? '' : ' flate=$flate';
+    final nativeRegionFlate =
+        regionFlate == 0 ? '' : ' regionFlate=$regionFlate';
+    final regionFlateHit =
+        regionFlateReuse == 0 ? '' : ' regionFlateReuse=$regionFlateReuse';
     final reuse = reusedCount == 0 ? '' : ' reused=$reusedCount';
     final region = regionSkipped == 0 ? '' : ' regionSkip=$regionSkipped';
-    if (declined == 0) return 'codec=$codec$nativeFlate$reuse$region';
+    if (declined == 0) {
+      return 'codec=$codec$nativeFlate$nativeRegionFlate'
+          '$regionFlateHit$reuse$region';
+    }
     final reasons =
         _declined.entries.map((e) => '${e.key}:${e.value}').join(',');
-    return 'codec=$codec$nativeFlate$reuse$region '
+    return 'codec=$codec$nativeFlate$nativeRegionFlate'
+        '$regionFlateHit$reuse$region '
         'declined=$declined($reasons)';
   }
 }

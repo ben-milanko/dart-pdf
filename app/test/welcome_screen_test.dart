@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:dart_pdf_editor/dart_pdf_editor.dart' show pdfSearchInputBorder;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -175,6 +176,50 @@ void main() {
     await tester.pump();
     expect(find.byType(ListTile), findsOneWidget);
     expect(find.byKey(const ValueKey('recent-tile-/a.pdf')), findsNothing);
+  });
+
+  testWidgets('recent search filters both the home grid and list',
+      (tester) async {
+    final store = RecentsStore();
+    await store.add(title: 'alpha.pdf', path: '/docs/alpha.pdf');
+    await store.add(title: 'Beta Drawing.pdf', path: '/docs/beta.pdf');
+
+    await pump(
+        tester,
+        size: wide,
+        WelcomeScreen(
+          recents: store,
+          onOpen: () {},
+          onOpenRecent: (_) {},
+        ));
+    await tester.pump();
+
+    final search = find.byKey(const ValueKey('recent-files-search'));
+    expect(search, findsOneWidget);
+    expect(tester.widget<TextField>(search).decoration?.border,
+        pdfSearchInputBorder);
+    await tester.enterText(search, 'BETA');
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('recent-tile-/docs/beta.pdf')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('recent-tile-/docs/alpha.pdf')),
+        findsNothing);
+
+    await tester.tap(find.byIcon(Icons.view_list_outlined));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('recent-/docs/beta.pdf')), findsOneWidget);
+    expect(find.byKey(const ValueKey('recent-/docs/alpha.pdf')), findsNothing);
+
+    await tester.enterText(search, 'missing');
+    await tester.pump();
+    expect(find.text('No recent files match your search'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('recent-files-search-clear')));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('recent-/docs/beta.pdf')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('recent-/docs/alpha.pdf')), findsOneWidget);
   });
 
   testWidgets('tapping a grid tile opens the entry', (tester) async {

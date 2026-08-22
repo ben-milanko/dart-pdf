@@ -2016,35 +2016,35 @@
   },
   "tbMarkupHighlight": "Highlight",
   "@tbMarkupHighlight": {
-    "description": "Text-markup action name: highlight the text selection."
+    "description": "Text-markup tool name: highlight text."
   },
-  "tbMarkupHighlightTip": "Highlight selection",
+  "tbMarkupHighlightTip": "Highlight text",
   "@tbMarkupHighlightTip": {
-    "description": "Tooltip: highlight the current text selection."
+    "description": "Tooltip for the text highlight tool."
   },
   "tbMarkupSquiggly": "Squiggly-underline",
   "@tbMarkupSquiggly": {
-    "description": "Text-markup action name: squiggly-underline the text selection."
+    "description": "Text-markup tool name: squiggly-underline text."
   },
-  "tbMarkupSquigglyTip": "Squiggly-underline selection",
+  "tbMarkupSquigglyTip": "Squiggly-underline text",
   "@tbMarkupSquigglyTip": {
-    "description": "Tooltip: squiggly-underline the current text selection."
+    "description": "Tooltip for the squiggly-underline tool."
   },
   "tbMarkupStrikeOut": "Strike out",
   "@tbMarkupStrikeOut": {
-    "description": "Text-markup action name: strike out the text selection."
+    "description": "Text-markup tool name: strike out text."
   },
-  "tbMarkupStrikeOutTip": "Strike out selection",
+  "tbMarkupStrikeOutTip": "Strike out text",
   "@tbMarkupStrikeOutTip": {
-    "description": "Tooltip: strike out the current text selection."
+    "description": "Tooltip for the strike-out tool."
   },
   "tbMarkupUnderline": "Underline",
   "@tbMarkupUnderline": {
-    "description": "Text-markup action name: underline the text selection."
+    "description": "Text-markup tool name: underline text."
   },
-  "tbMarkupUnderlineTip": "Underline selection",
+  "tbMarkupUnderlineTip": "Underline text",
   "@tbMarkupUnderlineTip": {
-    "description": "Tooltip: underline the current text selection."
+    "description": "Tooltip for the underline tool."
   },
   "tbMoreColors": "More colors…",
   "@tbMoreColors": {
@@ -2081,6 +2081,10 @@
   "tbNameEraser": "Erase ink strokes",
   "@tbNameEraser": {
     "description": "Tool name: erases ink strokes."
+  },
+  "tbNameHand": "Hand",
+  "@tbNameHand": {
+    "description": "Name of the default page-navigation mode, which pans the document by dragging."
   },
   "tbNameHighlight": "Highlight",
   "@tbNameHighlight": {
@@ -2242,9 +2246,9 @@
   "@tbScale": {
     "description": "Leading label of the measurement-scale chip."
   },
-  "tbSelectTextForMarkup": "Select text to use markup",
+  "tbSelectTextForMarkup": "Choose a markup, then select text",
   "@tbSelectTextForMarkup": {
-    "description": "Hint shown when the markup tools are open but no text is selected."
+    "description": "Hint explaining the arm-first text-markup workflow."
   },
   "tbSelectionCount": "{count, plural, =1{Selection} other{{count} selected}}",
   "@tbSelectionCount": {

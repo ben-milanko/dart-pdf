@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.8.0
+
+- Regenerate the bundled web render worker for `dart_pdf_editor` 3.8.0.
+
 ## 3.7.0
 
 - Regenerate the bundled web render worker for `dart_pdf_editor` 3.7.0.

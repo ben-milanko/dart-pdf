@@ -306,6 +306,27 @@ void main() {
     expect(order, [5, 6, 8, 0]);
   });
 
+  testWidgets('worker UI work may supply an authoritative focus distance',
+      (tester) async {
+    final scheduler = PdfPageRenderScheduler()..focus = 100;
+    addTearDown(scheduler.dispose);
+    final order = <int>[];
+    scheduler
+        .paceUiWork('stale-index', 100, focusDistance: 2)
+        .then((ready) {
+      if (ready) order.add(100);
+    });
+    scheduler.paceUiWork('visible', 5, focusDistance: 0).then((ready) {
+      if (ready) order.add(5);
+    });
+
+    await tester.pump();
+    expect(order, [5],
+        reason: 'a caller with fresher viewport state must win the next frame');
+    await tester.pump();
+    expect(order, [5, 100]);
+  });
+
   testWidgets('worker UI grants use distinct engine frames', (tester) async {
     final scheduler = PdfPageRenderScheduler();
     addTearDown(scheduler.dispose);

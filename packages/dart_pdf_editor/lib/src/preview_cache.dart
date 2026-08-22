@@ -646,15 +646,76 @@ class PdfPagePreviewCache extends ChangeNotifier {
     required int width,
     required int height,
   }) {
-    final entry = _entries.take(index); // a successful lookup is an LRU use
-    if (entry == null ||
-        !identical(entry.page, page) ||
-        !entry.includesImages ||
-        entry.image.width < width ||
-        entry.image.height < height) {
-      return null;
+    return _completeImageFor(index, page, width: width, height: height);
+  }
+
+  /// Returns complete cached pixels suitable for a thumbnail.
+  ///
+  /// An exact-or-larger base/intermediate preview wins. When none exists,
+  /// [minimumScale] permits a slightly softer complete preview instead. Web
+  /// thumbnail surfaces use 0.75: a 200 px viewer preview is materially better
+  /// than replaying a dense 39k-command scene for a 256 px sidebar tile and
+  /// blocking the platform thread for hundreds of milliseconds. The image is
+  /// still page-identity checked and must include all images.
+  ui.Image? thumbnailImageFor(
+    int index,
+    PdfPage page, {
+    required int width,
+    required int height,
+    double minimumScale = 1,
+  }) {
+    final exact = _completeImageFor(
+      index,
+      page,
+      width: width,
+      height: height,
+    );
+    if (exact != null || minimumScale >= 1) return exact;
+    return _completeImageFor(
+      index,
+      page,
+      width: math.max(1, (width * minimumScale).ceil()),
+      height: math.max(1, (height * minimumScale).ceil()),
+    );
+  }
+
+  ui.Image? _completeImageFor(
+    int index,
+    PdfPage page, {
+    required int width,
+    required int height,
+  }) {
+    _IntermediatePreviewKey? bestIntermediate;
+    var bestIsBase = false;
+    int? bestPixels;
+
+    void consider(_PreviewEntry? entry, {_IntermediatePreviewKey? key}) {
+      if (entry == null ||
+          !identical(entry.page, page) ||
+          !entry.includesImages ||
+          entry.image.width < width ||
+          entry.image.height < height ||
+          (bestPixels != null && entry.pixels >= bestPixels!)) {
+        return;
+      }
+      bestPixels = entry.pixels;
+      bestIntermediate = key;
+      bestIsBase = key == null;
     }
-    return entry.image.clone();
+
+    consider(_entries.peek(index));
+    for (final key in _intermediateEntries.keys) {
+      if (key.pageIndex == index) {
+        consider(_intermediateEntries.peek(key), key: key);
+      }
+    }
+
+    final entry = bestIsBase
+        ? _entries.take(index)
+        : bestIntermediate == null
+            ? null
+            : _intermediateEntries.take(bestIntermediate!);
+    return entry?.image.clone();
   }
 
   /// Returns a lease on a complete retained scene for this page and display
@@ -679,6 +740,59 @@ class PdfPagePreviewCache extends ChangeNotifier {
       return null;
     }
     return entry.acquire();
+  }
+
+  /// [retainedSceneFor] for a *display* rather than an exact
+  /// [PdfPageRenderPlan]: tries every spelling of the plan that produces the
+  /// same pixels for this page.
+  ///
+  /// Two of the plan's inputs have spellings that coincide, and a producer
+  /// writes whichever one it happens to hold:
+  ///
+  ///  * **Rotation.** A plan carrying the page's own /Rotate and a plan
+  ///    carrying null are the same render - the viewer always resolves an
+  ///    explicit angle, a bare [PdfPageView] may not.
+  ///  * **Annotations.** The viewer bakes annotations into the page picture
+  ///    only when it is *not* drawing them in a live overlay layer, so an
+  ///    editing session's scenes are annotation-free while a background
+  ///    surface asks for annotations. On a page that carries none those are
+  ///    the same pixels, so only such a page tries the other spelling; an
+  ///    annotated page still renders itself.
+  ///
+  /// Anything else - a view rotation, another paper colour, annotations on a
+  /// page that has some - misses, as it should. Callers own the returned
+  /// handle and must dispose it.
+  PdfRetainedSceneHandle? retainedSceneForDisplay(
+    int index,
+    PdfPage page, {
+    required Color pageColor,
+    required bool annotations,
+    required int? rotation,
+  }) {
+    for (final withAnnotations in <bool>[
+      annotations,
+      if (page.annotations.isEmpty) !annotations,
+    ]) {
+      // Only null and the page's own /Rotate are interchangeable. A view
+      // rotation is a different render, so it tries nothing but itself.
+      final spellsPageRotation = rotation == null || rotation == page.rotation;
+      for (final withRotation in <int?>{
+        rotation,
+        if (spellsPageRotation) ...<int?>[page.rotation, null],
+      }) {
+        final handle = retainedSceneFor(
+          index,
+          page,
+          plan: PdfPageRenderPlan(
+            pageColor: pageColor,
+            annotations: withAnnotations,
+            rotation: withRotation,
+          ),
+        );
+        if (handle != null) return handle;
+      }
+    }
+    return null;
   }
 
   /// Prices a retained scene against the LRU's byte budget.
@@ -1228,6 +1342,14 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// synchronous UI-thread work, so callers pace and gate these (the viewer
   /// pauses while the user scrolls). A page that fails to render simply gets
   /// no preview.
+  ///
+  /// [alsoFillLongestSides] names further ladder rungs to fill from the *same*
+  /// interpretation. The ladder's rungs differ only in raster size, so walking
+  /// the content stream once per rung was pure waste: the field trace behind
+  /// #699 shows one page warmed to base/400px/800px costing three interprets
+  /// and 227 ms of platform thread. The page is recorded once, at the sharpest
+  /// requested rung's image resolution, and every rung is rasterized from that
+  /// one picture.
   Future<void> renderPreview(int index, PdfPage page,
       {Color pageColor = const Color(0xFFFFFFFF),
       bool annotations = true,
@@ -1235,6 +1357,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
       int? rotation,
       bool decodeImages = true,
       double? targetLongestSide,
+      List<double> alsoFillLongestSides = const [],
       int priority = 1,
       int? commandLimit,
       bool Function()? deferUiWork}) async {
@@ -1242,13 +1365,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
     if (_disposed ||
         !_acceptsPage(index, page) ||
         (intermediate &&
-            !_intermediateLongestSides.contains(targetLongestSide)) ||
-        isFresh(
-          index,
-          page,
-          requireImages: decodeImages,
-          targetLongestSide: targetLongestSide,
-        )) {
+            !_intermediateLongestSides.contains(targetLongestSide))) {
       return;
     }
     // Command-limited/vector-first pixels are the instant fallback. Promoting
@@ -1261,99 +1378,196 @@ class PdfPagePreviewCache extends ChangeNotifier {
       // is exactly what fast-scroll prefetch is trying to avoid.
       return;
     }
+    // The rungs this build owes, the caller's own target first. A rung that is
+    // already fresh, not configured, or (for intermediates) not image-complete
+    // never joins.
+    final targets = <double?>[];
+    void consider(double? side) {
+      if (targets.contains(side)) return;
+      if (side != null &&
+          (!decodeImages || !_intermediateLongestSides.contains(side))) {
+        return;
+      }
+      if (isFresh(index, page,
+          requireImages: decodeImages, targetLongestSide: side)) {
+        return;
+      }
+      targets.add(side);
+    }
+
+    consider(targetLongestSide);
+    for (final side in alsoFillLongestSides) {
+      consider(side);
+    }
+    if (targets.isEmpty) return;
     try {
       final sw = Stopwatch()..start();
       final size = PdfPageRenderer.pageSize(page, rotation: rotation);
-      final ratio = _ratioFor(size, targetLongestSide: targetLongestSide);
+      // One build serves every rung, so it has to be recorded at the sharpest
+      // one's resolution: images decoded for a 200px preview cannot be
+      // sharpened into an 800px one afterwards.
+      var buildRatio = 0.0;
+      for (final side in targets) {
+        buildRatio =
+            math.max(buildRatio, _ratioFor(size, targetLongestSide: side));
+      }
+      // The page the viewer is still holding is the cheapest source of all.
+      // A retained scene carries exactly the commands a worker record would
+      // ship back, without the transfer or the main-thread reconstruction, and
+      // without any content-stream walk at all - so it is tried ahead of both.
+      // #700 gave thumbnails this; the ladder was the half left interpreting,
+      // which is what the #699 trace measured as `prerender ... full warm=`.
+      final retained = _retainedSceneForPreview(
+        index,
+        page,
+        pageColor: pageColor,
+        annotations: annotations,
+        rotation: rotation,
+        buildRatio: buildRatio,
+        decodeImages: decodeImages,
+      );
       // priority 1: prefetch yields to any on-screen page the worker owes.
-      // The preview is rasterized at [ratio] (longest side ~200px), so cap the
-      // worker's images to that - a heavy raster underlay need not ship at full
+      // Every rung is rasterized at or below [buildRatio], so cap the worker's
+      // images to that - a heavy raster underlay need not ship at full
       // resolution just to be downscaled into a thumbnail.
-      final commands = worker != null && worker.isActive
+      final commands = retained == null && worker != null && worker.isActive
           ? await worker.record(index,
               annotations: annotations,
               priority: priority,
-              imagePixelRatio: decodeImages ? ratio : null,
+              imagePixelRatio: decodeImages ? buildRatio : null,
               decodeImages: decodeImages,
               commandLimit: commandLimit)
           : null;
       if (!decodeImages && commands == null) {
-        // Worker-declined vector warms must stay cheap. Falling back to
-        // renderImage here would synchronously interpret/decode images on the
-        // UI thread during the fast-scroll path.
+        // Worker-declined vector warms must stay cheap. Recording locally here
+        // would synchronously interpret/decode images on the UI thread during
+        // the fast-scroll path.
         return;
       }
-      if (deferUiWork?.call() ?? false) return;
-      if (_disposed ||
-          !_acceptsPage(index, page) ||
-          isFresh(
-            index,
-            page,
-            requireImages: decodeImages,
-            targetLongestSide: targetLongestSide,
-          )) {
+      if ((deferUiWork?.call() ?? false) ||
+          _disposed ||
+          !_acceptsPage(index, page)) {
+        retained?.dispose();
         return;
       }
-      final ui.Image image;
       var includesImages = decodeImages;
-      if (commands != null) {
+      final plan = PdfPageRenderPlan(
+          pageColor: pageColor, annotations: annotations, rotation: rotation);
+      final ui.Picture picture;
+      // A picture the cache entry owns must outlive this call; only one we
+      // build here is ours to dispose.
+      var ownsPicture = true;
+      if (retained != null) {
+        // A retained scene is a complete page record - it is only offered for
+        // full warms, and every rung it fills carries that page's images.
+        includesImages = true;
+        final retainedPicture = retained.picture;
+        if (retainedPicture != null) {
+          picture = retainedPicture;
+          ownsPicture = false;
+        } else {
+          // One flat replay in page-point space serves every rung, mirroring
+          // the single record the other two branches build.
+          picture = retained.scene.replay(pixelRatio: 1);
+        }
+      } else if (commands != null) {
         includesImages = commandLimit == null &&
             (decodeImages || !PdfPageRenderer.hasImageDraws(commands));
-        final picture = await PdfPageRenderer.pictureFromCommands(
-            page, commands,
-            pageColor: pageColor,
-            rotation: rotation,
-            includeImages: decodeImages,
-            maxImagePixelRatio: ratio);
-        if (!_acceptsPage(index, page) || (deferUiWork?.call() ?? false)) {
-          picture.dispose();
-          return;
-        }
-        try {
-          image = await PdfPageRenderer.rasterize(picture, size, ratio);
-        } finally {
-          picture.dispose();
-        }
+        picture = await PdfPageRenderer.pictureFromCommandsWithPlan(
+            page, commands, plan,
+            includeImages: decodeImages, maxImagePixelRatio: buildRatio);
       } else {
-        if (deferUiWork?.call() ?? false) return;
-        image = await PdfPageRenderer.renderImage(page,
-            pixelRatio: ratio,
-            pageColor: pageColor,
-            annotations: annotations,
-            recorded: true,
-            rotation: rotation);
+        picture = await PdfPageRenderer.renderPictureRecordedWithPlan(
+            page, plan,
+            maxImagePixelRatio: buildRatio);
       }
-      if (deferUiWork?.call() ?? false) {
-        image.dispose();
-        return;
-      }
-      sw.stop();
-      PdfPerfLog.log('prerender page=$index '
-          'lod=${targetLongestSide == null ? 'base' : '${targetLongestSide.toStringAsFixed(0)}px'} '
-          '${commands != null ? 'worker ' : ''}'
-          '${includesImages ? 'full' : 'vector'} '
-          'warm=${(sw.elapsedMicroseconds / 1000).toStringAsFixed(1)}ms');
-      if (_disposed ||
-          !_acceptsPage(index, page) ||
-          isFresh(
+      try {
+        var shared = false;
+        for (final side in targets) {
+          if (deferUiWork?.call() ?? false) return;
+          if (_disposed ||
+              !_acceptsPage(index, page) ||
+              isFresh(index, page,
+                  requireImages: decodeImages, targetLongestSide: side)) {
+            continue;
+          }
+          final image = await PdfPageRenderer.rasterize(
+              picture, size, _ratioFor(size, targetLongestSide: side));
+          if (deferUiWork?.call() ?? false) {
+            image.dispose();
+            return;
+          }
+          if (_disposed ||
+              !_acceptsPage(index, page) ||
+              isFresh(index, page,
+                  requireImages: decodeImages, targetLongestSide: side)) {
+            image.dispose();
+            continue;
+          }
+          // `shared` marks a rung that cost only its own raster because the
+          // rung before it already paid for the interpret - the line a #699
+          // trace comparison reads.
+          PdfPerfLog.log('prerender page=$index '
+              'lod=${side == null ? 'base' : '${side.toStringAsFixed(0)}px'} '
+              '${retained != null ? 'retained ' : ''}'
+              '${commands != null ? 'worker ' : ''}'
+              '${shared ? 'shared ' : ''}'
+              '${includesImages ? 'full' : 'vector'} '
+              'warm=${(sw.elapsedMicroseconds / 1000).toStringAsFixed(1)}ms');
+          sw.reset();
+          shared = true;
+          _store(
             index,
             page,
-            requireImages: decodeImages,
-            targetLongestSide: targetLongestSide,
-          )) {
-        image.dispose();
-        return;
+            image,
+            includesImages: includesImages,
+            targetLongestSide: side,
+          );
+        }
+      } finally {
+        if (ownsPicture) picture.dispose();
+        retained?.dispose();
       }
-      _store(
-        index,
-        page,
-        image,
-        includesImages: includesImages,
-        targetLongestSide: targetLongestSide,
-      );
     } catch (_) {
       // no preview is strictly better than a crash mid-scroll
     }
+  }
+
+  /// The retained scene [renderPreview] may build this page's rungs from, or
+  /// null when none is usable.
+  ///
+  /// A scene whose images were decoded below [buildRatio] would draw them
+  /// softer than a fresh record, so those decline and the ordinary paths run.
+  /// Preview rungs sit at or below 1x while a display scene is decoded at the
+  /// page's own display ratio, so this is a guard rather than a common case.
+  PdfRetainedSceneHandle? _retainedSceneForPreview(
+    int index,
+    PdfPage page, {
+    required Color pageColor,
+    required bool annotations,
+    required int? rotation,
+    required double buildRatio,
+    required bool decodeImages,
+  }) {
+    // Vector-first warms exist to put *some* pixels up during a fast scroll
+    // without any main-thread render; a replay is cheap but is not nothing, so
+    // that path keeps its worker-only contract and this serves the full warms
+    // the #699 trace measured.
+    if (!decodeImages) return null;
+    final handle = retainedSceneForDisplay(
+      index,
+      page,
+      pageColor: pageColor,
+      annotations: annotations,
+      rotation: rotation,
+    );
+    if (handle == null) return null;
+    final sceneImageRatio = handle.imagePixelRatio;
+    if (sceneImageRatio != null && sceneImageRatio < buildRatio) {
+      handle.dispose();
+      return null;
+    }
+    return handle;
   }
 
   /// Bakes the exact, display-sized raster of an off-screen page into the
@@ -1717,11 +1931,20 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// scroll paints blank (then re-renders) instead of flashing now-deleted
   /// content. The rest rebind in place as before.
   void rebind(List<PdfPage> pages, {bool Function(int index)? changed}) {
-    // A retained scene keeps the PdfPage it was recorded from as well as its
-    // command objects. Even an unchanged page in an incremental revision has
-    // a new document graph, so do not rebind these by index the way immutable
-    // raster pixels can be rebound.
-    _retainedScenes.clear();
+    // A retained scene keeps the exact PdfPage it was recorded from as well as
+    // its command objects. The incremental viewer reconciler preserves that
+    // identity for clean pages, so their scenes remain valid; a traditional
+    // full revision swap replaces every page object and naturally evicts all
+    // of them through this same identity check.
+    for (final key in _retainedScenes.keys.toList()) {
+      final index = key.pageIndex;
+      final entry = _retainedScenes.peek(key)!;
+      if (index >= pages.length ||
+          (changed?.call(index) ?? false) ||
+          !identical(entry.page, pages[index])) {
+        _retainedScenes.evict(key);
+      }
+    }
     bindPages(pages);
     var dropped = false;
     for (final index in _entries.keys.toList()) {
@@ -1758,6 +1981,60 @@ class PdfPagePreviewCache extends ChangeNotifier {
       }
     }
     if (dropped && !_disposed) notifyListeners();
+  }
+
+  /// Re-keys every in-memory raster/scene tier after a pure page reorder.
+  ///
+  /// [newIndexForOld] must be a complete permutation. Page objects and pixels
+  /// stay the same; only their page slots change. Asynchronous work admitted
+  /// under an old slot is rejected by [bindPages] after this returns.
+  void reorder(List<PdfPage> pages, List<int> newIndexForOld) {
+    if (newIndexForOld.length != pages.length ||
+        newIndexForOld.toSet().length != pages.length ||
+        newIndexForOld.any((index) => index < 0 || index >= pages.length)) {
+      throw ArgumentError.value(
+        newIndexForOld,
+        'newIndexForOld',
+        'must be a permutation matching pages',
+      );
+    }
+
+    int moved(int oldIndex) => newIndexForOld[oldIndex];
+
+    _retainedScenes.remapKeys(
+      (key) => _RetainedSceneKey(moved(key.pageIndex), key.plan),
+    );
+    _entries.remapKeys(moved);
+    _intermediateEntries.remapKeys(
+      (key) => _IntermediatePreviewKey(
+        moved(key.pageIndex),
+        key.longestSide,
+      ),
+    );
+    _fullEntries.remapKeys(
+      (key) => PdfPageRasterSignature(
+        pageIndex: moved(key.pageIndex),
+        width: key.width,
+        height: key.height,
+        pageColor: key.pageColor,
+        annotations: key.annotations,
+        rotation: key.rotation,
+      ),
+    );
+    bindPages(pages);
+    for (final index in _entries.keys) {
+      _entries.peek(index)!.page = pages[index];
+    }
+    for (final key in _intermediateEntries.keys) {
+      _intermediateEntries.peek(key)!.page = pages[key.pageIndex];
+    }
+    for (final key in _fullEntries.keys) {
+      _fullEntries.peek(key)!.page = pages[key.pageIndex];
+    }
+    for (final key in _retainedScenes.keys) {
+      _retainedScenes.peek(key)!.page = pages[key.pageIndex];
+    }
+    if (!_disposed) notifyListeners();
   }
 
   /// Drops every preview (different document, page color change...).
@@ -1878,7 +2155,7 @@ class _RetainedSceneEntry {
     required this.estimatedBytes,
   });
 
-  final PdfPage page;
+  PdfPage page;
   final PdfRetainedScene scene;
   final ui.Picture? picture;
   final bool fromWorker;

@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.8.0
+
+- Cull retained CAD shapes outside the active raster strip before painting,
+  with `ShapeStripCache.viewportCulls` diagnostics for measuring the saved
+  work.
+- Reduce retained-scene and image-strip overhead while scrolling and deep
+  zooming image-heavy engineering drawings.
+
 ## 3.7.0
 
 - Move the Adobe glyph-name tables to `pdf_document`, where the content editor

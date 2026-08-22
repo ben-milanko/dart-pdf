@@ -505,6 +505,9 @@ class AppLocalizationsHi extends AppLocalizations {
   String get editorOpenRecent => 'हाल ही में खोले गए';
 
   @override
+  String get editorViewAllRecentFiles => 'सभी हाल की फ़ाइलें देखें…';
+
+  @override
   String get editorOpenTabs => 'खुले टैब';
 
   @override
@@ -751,6 +754,51 @@ class AppLocalizationsHi extends AppLocalizations {
   String get printDlgTitle => 'प्रिंट किया जा रहा है';
 
   @override
+  String get printPreviewAll => 'सभी';
+
+  @override
+  String get printPreviewCurrent => 'वर्तमान';
+
+  @override
+  String get printPreviewFrom => 'से';
+
+  @override
+  String get printPreviewNextPage => 'अगला पृष्ठ';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return '$total में से पृष्ठ $page';
+  }
+
+  @override
+  String get printPreviewPreviousPage => 'पिछला पृष्ठ';
+
+  @override
+  String get printPreviewPrint => 'प्रिंट करें';
+
+  @override
+  String get printPreviewRange => 'श्रेणी';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return '1 और $total के बीच पृष्ठ श्रेणी दर्ज करें।';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return 'प्रिंट किए जाने वाले पृष्ठ: $count';
+  }
+
+  @override
+  String get printPreviewTitle => 'प्रिंट पूर्वावलोकन';
+
+  @override
+  String get printPreviewTo => 'तक';
+
+  @override
+  String get printPreviewUnavailable => 'पूर्वावलोकन उपलब्ध नहीं';
+
+  @override
   String get redo => 'फिर से करें';
 
   @override
@@ -881,6 +929,13 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get welcomeRecent => 'हाल ही में';
+
+  @override
+  String get welcomeSearchRecentFiles => 'हाल की फ़ाइलें खोजें';
+
+  @override
+  String get welcomeNoMatchingRecentFiles =>
+      'आपकी खोज से मेल खाने वाली कोई हाल की फ़ाइल नहीं है';
 
   @override
   String get welcomeRemoveFromRecent => 'हाल से हटाएँ';

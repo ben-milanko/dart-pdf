@@ -31,6 +31,34 @@ void main() {
       expect(decoded.aspect, signature.aspect);
     });
 
+    test('carries the pen width, quoted at the reference size', () {
+      final signature = PdfInkSignature.fromPad(
+        [
+          [const Offset(0, 0), const Offset(100, 50)]
+        ],
+        [null],
+        const Color(0xFF000000),
+        strokeWidth: 4,
+      )!;
+      expect(signature.strokeWidth, 4);
+      // the pen scales with whatever size the signature is drawn at
+      expect(signature.strokeWidthFor(PdfInkSignature.referenceWidth), 4);
+      expect(signature.strokeWidthFor(PdfInkSignature.referenceWidth / 2), 2);
+      expect(PdfInkSignature.decode(signature.encode())!.strokeWidth, 4);
+    });
+
+    test('a signature saved before the pad had a pen keeps the old one', () {
+      const legacy = '{"color":0,"aspect":2.0,'
+          '"strokes":[[0.0,0.0,1.0,1.0]],"pressures":[null]}';
+      expect(PdfInkSignature.decode(legacy)!.strokeWidth,
+          PdfInkSignature.defaultStrokeWidth);
+      // and a nonsensical width is no better than none
+      const zero = '{"color":0,"aspect":2.0,"strokeWidth":0,'
+          '"strokes":[[0.0,0.0,1.0,1.0]],"pressures":[null]}';
+      expect(PdfInkSignature.decode(zero)!.strokeWidth,
+          PdfInkSignature.defaultStrokeWidth);
+    });
+
     test('an empty pad yields no signature; junk decodes to null', () {
       expect(PdfInkSignature.fromPad([], [], const Color(0xFF000000)), isNull);
       expect(PdfInkSignature.decode('not json'), isNull);
@@ -94,17 +122,30 @@ void main() {
       expect(ink.rect.width, lessThan(120));
     });
 
-    test('clamps so the whole signature stays on the page', () {
+    test('a signature dropped at the corner hangs off the page', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..preferences.signature = signature();
       final box = editing.document.page(0).cropBox;
-      expect(editing.placeSignature(0, box.right, box.bottom), isTrue);
+      expect(editing.placeSignature(0, box.right, box.bottom, width: 100),
+          isTrue);
 
+      // the tap is the centre, edge or not: roughly half the signature
+      // runs off each of the two sides it was dropped against
       final ink = editing.document.page(0).annotations.single;
-      // padded /Rect may poke out by the stroke margin, but the strokes
-      // themselves stay inside the crop box
-      expect(ink.rect.right, lessThan(box.right + 5));
-      expect(ink.rect.bottom, greaterThan(box.bottom - 5));
+      expect(ink.rect.right, greaterThan(box.right));
+      expect(ink.rect.bottom, lessThan(box.bottom));
+      expect(ink.rect.left, lessThan(box.right));
+      expect(ink.rect.top, greaterThan(box.bottom));
+    });
+
+    test('a signature is never sized wider than the page', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..preferences.signature = signature();
+      final box = editing.document.page(0).cropBox;
+      // running off the edge is a placement, not a size
+      expect(editing.placeSignature(0, 300, 400, width: 5000), isTrue);
+      final ink = editing.document.page(0).annotations.single;
+      expect(ink.rect.width, lessThan(box.width));
     });
 
     test('the placed signature follows the selected colour, not the drawn one',
@@ -114,6 +155,23 @@ void main() {
         ..color = const Color(0xFF00AA00);
       expect(editing.placeSignature(0, 300, 400, width: 100), isTrue);
       expect(editing.document.page(0).annotations.single.color, 0x00AA00);
+    });
+
+    test('the placed pen follows the tool width, scaled with the size', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..preferences.signature = signature()
+        ..preferences.strokeWidth = 4;
+      expect(editing.placeSignature(0, 300, 400), isTrue);
+      expect(editing.document.page(0).annotations.single.borderWidth,
+          closeTo(4, 1e-9));
+
+      // half the default size, so half the pen - the proportions hold
+      expect(
+          editing.placeSignature(0, 300, 200,
+              width: PdfInkSignature.referenceWidth / 2),
+          isTrue);
+      expect(editing.document.page(0).annotations.last.borderWidth,
+          closeTo(2, 1e-9));
     });
 
     test('without a saved signature nothing happens', () {
@@ -210,6 +268,182 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(PdfSignatureDialog), findsNothing);
       expect(editing.tool, PdfEditTool.signature);
+    });
+
+    testWidgets('the pad takes any ink colour and a pen thickness',
+        (tester) async {
+      PdfInkSignature? result;
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Center(
+            child: FilledButton(
+              onPressed: () async {
+                result = await showPdfSignatureDialog(
+                  context,
+                  initialStrokeWidth: 2,
+                  // stands in for the editor's full colour picker
+                  pickColor: (context, initial) async =>
+                      const Color(0xFF00AA88),
+                );
+              },
+              child: const Text('sign'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('sign'));
+      await tester.pumpAndSettle();
+      expect(find.text('2.0 pt'), findsOneWidget);
+
+      await tester.timedDrag(find.byKey(const ValueKey('pdf-signature-pad')),
+          const Offset(120, 30), const Duration(milliseconds: 200));
+      await tester.pump();
+
+      // any colour at all, not just the three pen presets
+      await tester.tap(find.byKey(const ValueKey('pdf-signature-custom-ink')));
+      await tester.pumpAndSettle();
+
+      // and a pen as thick as the slider goes
+      await tester.drag(
+          find.byKey(const ValueKey('pdf-signature-stroke-width')),
+          const Offset(400, 0));
+      await tester.pump();
+      expect(
+          find.text(
+              '${PdfInkSignature.maxStrokeWidth.toStringAsFixed(1)} pt'),
+          findsOneWidget);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Done'));
+      await tester.pumpAndSettle();
+      expect(result!.color, 0x00AA88);
+      expect(result!.strokeWidth, PdfInkSignature.maxStrokeWidth);
+    });
+
+    testWidgets('the custom swatch falls back to the stock colour picker',
+        (tester) async {
+      PdfInkSignature? result;
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Center(
+            child: FilledButton(
+              // no pickColor injected: the pad opens the stock picker
+              onPressed: () async {
+                result = await showPdfSignatureDialog(context);
+              },
+              child: const Text('sign'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('sign'));
+      await tester.pumpAndSettle();
+      await tester.timedDrag(find.byKey(const ValueKey('pdf-signature-pad')),
+          const Offset(120, 30), const Duration(milliseconds: 200));
+      await tester.pump();
+
+      // dismissing the picker leaves the ink as it was
+      await tester.tap(find.byKey(const ValueKey('pdf-signature-custom-ink')));
+      await tester.pumpAndSettle();
+      expect(find.byType(PdfColorPicker), findsOneWidget);
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel').last);
+      await tester.pumpAndSettle();
+      expect(find.byType(PdfColorPicker), findsNothing);
+
+      // committing one takes it
+      await tester.tap(find.byKey(const ValueKey('pdf-signature-custom-ink')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'OK'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Done'));
+      await tester.pumpAndSettle();
+      // the pad's default ink, round-tripped through the picker unchanged
+      expect(result!.color, 0x000000);
+    });
+
+    testWidgets('drawing seeds the tool colour and pen width',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      editing.preferences.strokeWidth = 5;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: editing,
+            builder: (context, _) => PdfViewer(
+              initialFit: PdfViewerFit.width,
+              document: editing.document,
+              controller: viewer,
+              editing: editing,
+            ),
+          ),
+          bottomNavigationBar: PdfEditingToolbar(
+            controller: editing,
+            viewerController: viewer,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      final dockScrollable = find
+          .descendant(
+              of: find.byType(PdfEditingToolbar),
+              matching: find.byType(Scrollable))
+          .last;
+      final stripScrollable = find
+          .descendant(
+              of: find.byType(PdfEditingToolbar),
+              matching: find.byType(Scrollable))
+          .first;
+      final insertChip = find.byKey(const ValueKey('pdf-group-insert'));
+      await tester.scrollUntilVisible(insertChip, 80,
+          scrollable: dockScrollable);
+      await tester.tap(insertChip);
+      await tester.pump();
+      const signatureTip = 'Signature - tap a page to place it (H)';
+      await tester.scrollUntilVisible(find.byTooltip(signatureTip), 100,
+          scrollable: stripScrollable);
+      await tester.tap(find.byTooltip(signatureTip));
+      await tester.pumpAndSettle();
+
+      // the pad opens on the tool's current pen, not a fixed one
+      expect(find.text('5.0 pt'), findsOneWidget);
+
+      // the custom swatch routes through the editor's own picker (recents and
+      // document colours wired), not a bare one
+      await tester.tap(find.byKey(const ValueKey('pdf-signature-custom-ink')));
+      await tester.pumpAndSettle();
+      expect(find.byType(PdfColorPicker), findsOneWidget);
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('pdf-signature-ink-b71c1c')));
+      await tester.pump();
+      await tester.drag(
+          find.byKey(const ValueKey('pdf-signature-stroke-width')),
+          const Offset(-400, 0));
+      await tester.pump();
+
+      await tester.timedDrag(find.byKey(const ValueKey('pdf-signature-pad')),
+          const Offset(120, 30), const Duration(milliseconds: 200));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Done'));
+      await tester.pumpAndSettle();
+
+      // arming the tool must not restore the signature scope over the ink
+      // and pen the pad just came back with
+      expect(editing.tool, PdfEditTool.signature);
+      expect(editing.color.toARGB32() & 0xFFFFFF, 0xB71C1C);
+      expect(editing.preferences.strokeWidth, PdfInkSignature.minStrokeWidth);
+
+      // and the stamped ink carries them
+      await tester.tapAt(tester.getCenter(find.byType(PdfViewer)));
+      await tester.pumpAndSettle(const Duration(milliseconds: 350));
+      final ink = editing.document.page(0).annotations.single;
+      expect(ink.color, 0xB71C1C);
+      expect(ink.borderWidth, closeTo(PdfInkSignature.minStrokeWidth, 1e-9));
     });
 
     testWidgets('Clear wipes the pad and disables Done', (tester) async {

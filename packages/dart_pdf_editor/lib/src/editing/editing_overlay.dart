@@ -14,6 +14,7 @@ import '../debug_overlays.dart';
 import '../l10n/pdf_l10n.dart';
 import '../page_geometry.dart';
 import '../platform_cursors.dart';
+import '../popup_position.dart';
 import '../renderer.dart';
 import '../theme.dart';
 import 'editing_color_pick.dart';
@@ -509,6 +510,7 @@ class EditingPageOverlay extends StatefulWidget {
     this.onMoveDragPreview,
     this.onTextEditClosed,
     this.contextMenuEnabled = true,
+    this.showSelectionChip = true,
   });
 
   final PdfEditingController controller;
@@ -574,6 +576,14 @@ class EditingPageOverlay extends StatefulWidget {
   /// see that property for the semantics. Has no effect without an editing
   /// controller (the menu path is reader-mode only). Defaults to true.
   final bool contextMenuEnabled;
+
+  /// Whether a touch/stylus annotation selection shows the floating action
+  /// chip beside it (delete, edit-in-place, the context menu). Hosts that
+  /// render their own UI over the selection - a custom markup toolbar or a
+  /// note editor on annotation tap - can turn the chip off to stop it
+  /// overlapping that UI. Selection, handles, and move/resize interactions
+  /// are unaffected. Defaults to true.
+  final bool showSelectionChip;
 
   /// Whether the page raster on screen already shows the controller's
   /// current revision. While false (an edit just committed and the
@@ -1076,21 +1086,30 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// screen space. The editor lives inside the viewer transform, so the stock
   /// `-2 / devicePixelRatio` local offset otherwise grows with deep zoom and
   /// leaves the caret visibly detached from both ends of centred text.
-  Widget _zoomAwareCursor(BuildContext context, Widget child) {
-    final media = MediaQuery.of(context);
-    final platform = Theme.of(context).platform;
-    if (platform != TargetPlatform.iOS && platform != TargetPlatform.macOS) {
-      return child;
-    }
-    final scale = _chromeScale;
-    if (!scale.isFinite || scale <= 0) return child;
-    return MediaQuery(
-      data: media.copyWith(
-        devicePixelRatio: media.devicePixelRatio / scale,
-      ),
-      child: child,
-    );
-  }
+  Widget _zoomAwareCursor(BuildContext context, Widget child) =>
+      pdfZoomAwareCaret(context, chromeScale: _chromeScale, child: child);
+
+  /// The appearance's own text inset, in overlay pixels - free text lays its
+  /// glyphs out 3 points inside the box.
+  double get _textEditPad => 3 * _geometry.scale;
+
+  /// The caret gutter Flutter reserves out of the width the text aligns in
+  /// (see [pdfCaretGutter]). [_textEditRightPad] and
+  /// [_textEditGutterOverflow] hand it back, so centred and right-aligned
+  /// glyphs land on the appearance's text area at any zoom (#692).
+  double get _textEditCaretGutter => pdfCaretGutter(_chromeScale);
+
+  /// Right content padding: the appearance inset less the caret gutter, so
+  /// the field is exactly one gutter wider than the text area it aligns in.
+  double get _textEditRightPad =>
+      math.max(0.0, _textEditPad - _textEditCaretGutter);
+
+  /// What of the gutter the content padding could not absorb (a box on a
+  /// large sheet has an inset under a pixel). The chrome gutter gives it up
+  /// instead: the border paints on the box edge either way, so the widened
+  /// content box moves nothing visible.
+  double get _textEditGutterOverflow =>
+      math.min(2.0, math.max(0.0, _textEditCaretGutter - _textEditPad));
 
   /// Null while the eyedropper is armed without a tool, or while a
   /// default-mode (mouse click) selection exists without one.
@@ -2022,19 +2041,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
 
   _StampAfterimage _countPreviewAt(Offset position) {
     final (x, y) = _geometry.toPagePoint(position);
-    final box = _controller.pageAt(widget.pageIndex).cropBox;
-    final s = PdfEditingController.checkMarkSize
-        .clamp(4.0, math.min(box.width, box.height) * 0.9)
-        .toDouble();
-    final cx = x.clamp(box.left + s / 2, box.right - s / 2).toDouble();
-    final cy = y.clamp(box.bottom + s / 2, box.top - s / 2).toDouble();
+    // the commit's own placement, so the preview under the pointer is
+    // exactly the mark the tap drops - including one that hangs off the
+    // page edge, which the page clip trims in both
     return (
-      rect: _geometry.toViewRect(PdfRect(
-        cx - s / 2,
-        cy - s / 2,
-        cx + s / 2,
-        cy + s / 2,
-      )),
+      rect: _geometry.toViewRect(
+          _controller.checkMarkPlacement(widget.pageIndex, x, y)),
       text: null,
       template: null,
       check: true,
@@ -2672,6 +2684,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
   /// top-left at [tap]: ~200pt wide and one line of the current font tall
   /// (in page points, mapped through the zoom). Nudged back onto the page
   /// when the tap is near the right or bottom edge so the whole box fits.
+  ///
+  /// This nudge is the one placement that still yields to the page, and it
+  /// is about the *editor*, not the annotation: this rect opens the inline
+  /// text field, which the page clips like everything else in this overlay,
+  /// so a default-sized box hung off the corner would have the user typing
+  /// into pixels they cannot see. Only the size is the editor's guess - a
+  /// box the user drags out themselves keeps the bounds they drew, off the
+  /// page edge included.
   Rect _defaultPlacementRect(Offset tap) {
     final scale = _geometry.scale;
     final w = 200.0 * scale;
@@ -4163,12 +4183,9 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final options = field.options;
     if (options.isEmpty) return;
     final name = field.name;
-    final overlay =
-        Overlay.of(context).context.findRenderObject()! as RenderBox;
     final picked = await showMenu<String>(
       context: context,
-      position: RelativeRect.fromRect(
-          globalPosition & Size.zero, Offset.zero & overlay.size),
+      position: pdfPopupPosition(context, globalPosition),
       items: [
         for (final (export, display) in options)
           PopupMenuItem(
@@ -5599,7 +5616,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                         // decoration border adds itself to the padding, and
                         // any net inset shifts the text when the editor
                         // opens - content must sit exactly on the box
-                        padding: const EdgeInsets.all(2),
+                        padding: EdgeInsets.fromLTRB(
+                            2, 2, 2 - _textEditGutterOverflow, 2),
                         // the box's own fill when it has one; otherwise wash
                         // the paper color over what's underneath: faint for a
                         // fresh box, fully opaque when editing existing text
@@ -5664,6 +5682,14 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                     : null,
                                 cursorColor: _textEditColor,
                                 cursorWidth: 2 * _chromeScale,
+                                cursorHeight: pdfZoomAwareCursorHeight(
+                                  context,
+                                  lineHeight:
+                                      _textEditText.maxStyleSize *
+                                          _geometry.scale *
+                                          _textEditLineSpacing,
+                                  chromeScale: _chromeScale,
+                                ),
                                 selectionControls: _ScaledTextSelectionControls(
                                     _chromeScale,
                                     _inlineTextHandleColor(context)),
@@ -5713,14 +5739,17 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                   // from the top padding to avoid a small
                                   // edit-time layout jump.
                                   contentPadding: EdgeInsets.fromLTRB(
-                                    3 * _geometry.scale,
+                                    _textEditPad,
                                     math.max(
                                       0,
-                                      3 * _geometry.scale -
+                                      _textEditPad -
                                           0.1 * _textEditSize * _geometry.scale,
                                     ),
-                                    3 * _geometry.scale,
-                                    3 * _geometry.scale,
+                                    // the caret gutter, handed back so
+                                    // centred and right-aligned glyphs land
+                                    // on the appearance's text area
+                                    _textEditRightPad,
+                                    _textEditPad,
                                   ),
                                 ),
                               )),
@@ -5735,7 +5764,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   _textEditFieldName == null &&
                   _controller.hasTouchInput)
                 _buildInlineTextStyleChip(_textEditRect!),
-              if (showChip) _buildSelectionChip(chrome?.$1 ?? selected),
+              if (showChip && widget.showSelectionChip)
+                _buildSelectionChip(chrome?.$1 ?? selected),
               if (_measureReadout() case (final text, final anchor))
                 _buildReadoutChip(text, anchor),
               if (_styleReadout() case (final text, final anchor))

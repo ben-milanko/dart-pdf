@@ -71,8 +71,8 @@ modules:
     sources:
       # 1) The prebuilt Linux bundle (binary + data/ + lib/).
       - type: archive
-        url: https://github.com/ben-milanko/dart-pdf/releases/download/app-v3.6.1/dartpdf-linux-x64.tar.gz
-        sha256: 2bfdc929cceb962ab9d819567f2523dd32db45ed5911e73c9f3ccf8ea0707e4f
+        url: https://github.com/ben-milanko/dart-pdf/releases/download/app-v3.7.0/dartpdf-linux-x64.tar.gz
+        sha256: 6ad9c224da7580d95ed761a5dd12aedc2c96ddea62d5cf5f774cc1f00af90cfa
         # Kept for standard Flatpak external-data tooling and downstream
         # packagers; the official repository publisher verifies GitHub's asset
         # digest independently before building.

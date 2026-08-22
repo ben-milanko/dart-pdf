@@ -113,6 +113,46 @@ void main() {
         everyElement(isNull),
       );
     });
+
+    test('mixed selections bulk-restyle only their free-text boxes', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addFreeText(0, const PdfRect(80, 620, 240, 680), 'First')
+        ..addFreeText(0, const PdfRect(280, 620, 440, 680), 'Second')
+        ..addLine(0, (80, 560), (440, 560));
+      addTearDown(editing.dispose);
+      editing.selectAllAnnotationsOn(0);
+      final originalSizes = editing.document
+          .page(0)
+          .annotations
+          .where((a) => a.subtype == 'FreeText')
+          .map((a) => a.freeTextStyle?.fontSize)
+          .toList();
+
+      expect(editing.canRestyleSelectedText, isTrue);
+      editing.restyleSelectedText(
+        font: PdfStandardFont.timesBold,
+        size: 24,
+      );
+
+      final after = editing.document.page(0).annotations;
+      final text = after.where((a) => a.subtype == 'FreeText').toList();
+      expect(text, hasLength(2));
+      expect(
+        text.map((a) => a.freeTextStyle?.fontName),
+        everyElement(PdfStandardFont.timesBold.resourceName),
+      );
+      expect(text.map((a) => a.freeTextStyle?.fontSize), everyElement(24));
+      expect(after.where((a) => a.subtype == 'Line'), hasLength(1));
+      expect(editing.selectedAnnotationSlots, hasLength(3));
+
+      // Both text boxes were one transaction; a single undo restores them.
+      editing.undo();
+      final restored = editing.document
+          .page(0)
+          .annotations
+          .where((a) => a.subtype == 'FreeText');
+      expect(restored.map((a) => a.freeTextStyle?.fontSize), originalSizes);
+    });
   });
 
   group('properties panel', () {
@@ -310,7 +350,8 @@ void main() {
       await tester.pump();
 
       expect(find.byKey(const ValueKey('pdf-prop-stroke')), findsOneWidget);
-      expect(find.byKey(const ValueKey('pdf-prop-corner-radius')), findsNothing);
+      expect(
+          find.byKey(const ValueKey('pdf-prop-corner-radius')), findsNothing);
     });
 
     testWidgets('a placed image gets a working opacity slider, no colour',
@@ -323,8 +364,7 @@ void main() {
               0,
               300,
               400,
-              base64.decode(
-                  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0k'
+              base64.decode('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0k'
                   'AAAAGUlEQVR4nGP4z8DwHwgbWBgZ/jNyicr7AgA3BAUOTnqjAAAAAABJRU5ErkJggg==')),
           isTrue);
       await pumpPanel(tester, editing);
@@ -342,8 +382,8 @@ void main() {
       expect(stamp.appearanceOpacity, lessThan(1));
       expect(stamp.appearanceOpacity, greaterThan(0));
       // the picture survived the restyle
-      final content = latin1
-          .decode(editing.document.cos.decodeStreamData(stamp.normalAppearance!));
+      final content = latin1.decode(
+          editing.document.cos.decodeStreamData(stamp.normalAppearance!));
       expect(content, contains('/Img0 Do'));
     });
 
@@ -410,8 +450,7 @@ void main() {
       await tester.enterText(opacity, '150');
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pump();
-      expect(
-          editing.selectedAnnotation!.appearanceOpacity, closeTo(1, 0.001));
+      expect(editing.selectedAnnotation!.appearanceOpacity, closeTo(1, 0.001));
     });
 
     testWidgets('the fill clear button removes a shape fill', (tester) async {
@@ -580,6 +619,40 @@ void main() {
           closeTo(annotations[1].appearanceOpacity, 1e-6));
     });
 
+    testWidgets(
+        'mixed text boxes and a line keep all compatible property controls',
+        (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addFreeText(0, const PdfRect(80, 620, 240, 680), 'First')
+        ..addFreeText(0, const PdfRect(280, 620, 440, 680), 'Second')
+        ..addLine(0, (80, 560), (440, 560));
+      addTearDown(editing.dispose);
+      editing.selectAllAnnotationsOn(0);
+      await pumpPanel(tester, editing);
+
+      // Text applies to the two boxes; stroke/line endings apply to the line.
+      expect(find.byKey(const ValueKey('pdf-prop-font')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-prop-font-size')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-prop-stroke')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-prop-line-end-ending')),
+          findsOneWidget);
+
+      await tester.enterText(
+          find.byKey(const ValueKey('pdf-prop-font-size-input')), '26');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+
+      final annotations = editing.document.page(0).annotations;
+      expect(
+        annotations
+            .where((a) => a.subtype == 'FreeText')
+            .map((a) => a.freeTextStyle?.fontSize),
+        everyElement(26),
+      );
+      expect(annotations.where((a) => a.subtype == 'Line'), hasLength(1));
+      expect(editing.selectedAnnotationSlots, hasLength(3));
+    });
+
     testWidgets('mixed bulk properties show Varies and accept one value',
         (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(1))
@@ -691,7 +764,8 @@ void main() {
       await tester.pump();
 
       // groups start expanded, so the position rows are visible
-      final header = find.byKey(const ValueKey('pdf-prop-section-position-size'));
+      final header =
+          find.byKey(const ValueKey('pdf-prop-section-position-size'));
       expect(header, findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-prop-x')), findsOneWidget);
 

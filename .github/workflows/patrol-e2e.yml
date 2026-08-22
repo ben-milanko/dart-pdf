@@ -1,0 +1,425 @@
+name: Patrol E2E
+
+on:
+  push:
+    branches: [main, deploy]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: patrol-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: 3.47.0
+  PATROL_CLI_VERSION: 4.7.0
+  PATROL_ANALYTICS_ENABLED: "false"
+  EXAMPLE_DIR: packages/dart_pdf_editor/example
+  PDF_PATROL_BUILD_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  web:
+    name: Web (Chromium)
+    # Pull requests reuse the already-initialized Preview Demo Web build job.
+    # Keep this standalone lane for main/deploy pushes and manual runs.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Precache Flutter web artifacts
+        run: flutter precache --web
+      - name: Install dependencies and Patrol CLI
+        run: |
+          flutter pub get
+          dart pub global activate patrol_cli "$PATROL_CLI_VERSION"
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+      - name: Build the render worker
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        run: dart run dart_pdf_editor:build_web_worker
+      - name: Run Patrol on web
+        id: patrol-web
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        shell: bash
+        run: |
+          set -o pipefail
+          patrol test \
+            --device chrome \
+            --target patrol_test/demo_e2e_test.dart \
+            --dart-define PDF_PERF_LOG=true \
+            --dart-define PDF_BUILD_COMMIT=${{ github.sha }} \
+            --show-flutter-logs \
+            --web-headless \
+            --web-locale en-US \
+            --web-workers 1 \
+            --web-video retain-on-failure \
+            --verbose \
+            2>&1 | tee "$RUNNER_TEMP/patrol-web.log"
+      - name: Run Patrol performance scenario
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        shell: bash
+        run: |
+          set -o pipefail
+          patrol test \
+            --device chrome \
+            --target patrol_test/perf_e2e_test.dart \
+            --dart-define PDF_PERF_LOG=true \
+            --dart-define PDF_BUILD_COMMIT=${{ github.sha }} \
+            --show-flutter-logs \
+            --web-headless \
+            --web-locale en-US \
+            --web-workers 1 \
+            --web-viewport '{"width":2600,"height":2600}' \
+            --web-video retain-on-failure \
+            --verbose \
+            2>&1 | tee -a "$RUNNER_TEMP/patrol-web.log"
+      - name: Collect Patrol performance trace
+        if: always()
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        run: >-
+          dart ../../../tool/patrol_perf_summary.dart
+          "$RUNNER_TEMP/patrol-web.log"
+          --output test-results/perf
+          --markdown "$GITHUB_STEP_SUMMARY"
+      - name: Upload Patrol web results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: patrol-web-results
+          path: |
+            ${{ env.EXAMPLE_DIR }}/test-results
+            ${{ env.EXAMPLE_DIR }}/playwright-report
+          if-no-files-found: ignore
+
+  android:
+    name: Android (API 35)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Install dependencies and Patrol CLI
+        run: |
+          flutter pub get
+          dart pub global activate patrol_cli "$PATROL_CLI_VERSION"
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+      - name: Install Android compile SDK
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            --channel=3 \
+            "platforms;android-37.0"
+          ln -sfn \
+            "$ANDROID_HOME/platforms/android-37.0" \
+            "$ANDROID_HOME/platforms/android-37"
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run Patrol on Android
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          working-directory: ${{ env.EXAMPLE_DIR }}
+          script: bash ../../../tool/run_android_patrol_ci.sh
+      - name: Download latest main Patrol Android baseline
+        id: patrol-baseline
+        if: always() && github.event_name == 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for baseline_run in $(gh run list \
+            --workflow patrol-e2e.yml \
+            --branch main \
+            --event push \
+            --limit 10 \
+            --json databaseId \
+            --jq '.[].databaseId'); do
+            destination="$RUNNER_TEMP/patrol-android-baseline/$baseline_run"
+            if gh run download "$baseline_run" \
+              --name patrol-android-report \
+              --dir "$destination"; then
+              json="$destination/test-results/perf/android/patrol-perf.json"
+              if [[ -f "$json" ]]; then
+                echo "json=$json" >> "$GITHUB_OUTPUT"
+                echo "Using Patrol Android baseline from run $baseline_run"
+                exit 0
+              fi
+            fi
+          done
+          echo "::notice::No usable main Patrol Android artifact is available yet"
+      - name: Collect Patrol Android performance trace
+        if: always()
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          touch "$RUNNER_TEMP/patrol-android.log"
+          arguments=(
+            "$RUNNER_TEMP/patrol-android.log"
+            --output test-results/perf/android
+            --markdown "$GITHUB_STEP_SUMMARY"
+            --label Android
+          )
+          baseline="${{ steps.patrol-baseline.outputs.json }}"
+          if [[ -f "$baseline" ]]; then
+            arguments+=(--baseline "$baseline")
+          fi
+          dart ../../../tool/patrol_perf_summary.dart "${arguments[@]}"
+      - name: Upload Patrol Android report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: patrol-android-report
+          path: |
+            ${{ env.EXAMPLE_DIR }}/build/app/reports/androidTests
+            ${{ env.EXAMPLE_DIR }}/test-results/perf/android
+          if-no-files-found: ignore
+
+  ios:
+    name: iOS Simulator
+    runs-on: macos-15
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Install dependencies and Patrol CLI
+        run: |
+          flutter pub get
+          dart pub global activate patrol_cli "$PATROL_CLI_VERSION"
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+      - name: Boot an iOS simulator
+        id: simulator
+        run: |
+          device_id="$(xcrun simctl list devices available -j \
+            | jq -r '[.devices[][] | select(.name | startswith("iPhone"))][0].udid')"
+          test -n "$device_id"
+          xcrun simctl boot "$device_id" || true
+          xcrun simctl bootstatus "$device_id" -b
+          echo "device_id=$device_id" >> "$GITHUB_OUTPUT"
+      - name: Run Patrol on iOS
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        shell: bash
+        run: |
+          set -o pipefail
+          patrol test \
+            --device "${{ steps.simulator.outputs.device_id }}" \
+            --target patrol_test/demo_e2e_test.dart \
+            --dart-define PDF_PERF_LOG=true \
+            --dart-define PDF_BUILD_COMMIT=${{ env.PDF_PATROL_BUILD_COMMIT }} \
+            --show-flutter-logs \
+            --verbose \
+            2>&1 | tee "$RUNNER_TEMP/patrol-ios.log"
+          patrol test \
+            --device "${{ steps.simulator.outputs.device_id }}" \
+            --target patrol_test/native_perf_e2e_test.dart \
+            --dart-define PDF_PERF_LOG=true \
+            --dart-define PDF_BUILD_COMMIT=${{ env.PDF_PATROL_BUILD_COMMIT }} \
+            --show-flutter-logs \
+            --verbose \
+            2>&1 | tee -a "$RUNNER_TEMP/patrol-ios.log"
+      - name: Download latest main Patrol iOS baseline
+        id: patrol-baseline
+        if: always() && github.event_name == 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for baseline_run in $(gh run list \
+            --workflow patrol-e2e.yml \
+            --branch main \
+            --event push \
+            --limit 10 \
+            --json databaseId \
+            --jq '.[].databaseId'); do
+            destination="$RUNNER_TEMP/patrol-ios-baseline/$baseline_run"
+            if gh run download "$baseline_run" \
+              --name patrol-ios-results \
+              --dir "$destination"; then
+              json="$destination/test-results/perf/ios/patrol-perf.json"
+              if [[ -f "$json" ]]; then
+                echo "json=$json" >> "$GITHUB_OUTPUT"
+                echo "Using Patrol iOS baseline from run $baseline_run"
+                exit 0
+              fi
+            fi
+          done
+          echo "::notice::No usable main Patrol iOS artifact is available yet"
+      - name: Collect Patrol iOS performance trace
+        if: always()
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          touch "$RUNNER_TEMP/patrol-ios.log"
+          arguments=(
+            "$RUNNER_TEMP/patrol-ios.log"
+            --output test-results/perf/ios
+            --markdown "$GITHUB_STEP_SUMMARY"
+            --label "iOS Simulator"
+          )
+          baseline="${{ steps.patrol-baseline.outputs.json }}"
+          if [[ -f "$baseline" ]]; then
+            arguments+=(--baseline "$baseline")
+          fi
+          dart ../../../tool/patrol_perf_summary.dart "${arguments[@]}"
+      - name: Upload Patrol iOS result bundle
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: patrol-ios-results
+          path: |
+            ${{ env.EXAMPLE_DIR }}/build/*.xcresult
+            ${{ env.EXAMPLE_DIR }}/test-results/perf/ios
+          if-no-files-found: ignore
+
+  macos:
+    name: macOS
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Install dependencies and Patrol CLI
+        run: |
+          flutter pub get
+          dart pub global activate patrol_cli "$PATROL_CLI_VERSION"
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+      - name: Run Patrol on macOS
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        run: >-
+          patrol test
+          --device macos
+          --target patrol_test/demo_e2e_test.dart
+      - name: Upload Patrol macOS result bundle
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: patrol-macos-results
+          path: ${{ env.EXAMPLE_DIR }}/build/*.xcresult
+          if-no-files-found: ignore
+
+  native-performance-report:
+    name: Native Patrol performance report
+    if: >-
+      always() &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
+    needs: [android, ios]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Download Android Patrol results
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: patrol-android-report
+          path: patrol-android
+      - name: Download iOS Patrol results
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: patrol-ios-results
+          path: patrol-ios
+      - name: Comment native Patrol performance report
+        if: always()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        env:
+          PATROL_MARKER: dart-pdf-patrol-native-performance
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = `<!-- ${process.env.PATROL_MARKER} -->`;
+            const summaries = [
+              'patrol-android/test-results/perf/android/patrol-perf.md',
+              'patrol-ios/test-results/perf/ios/patrol-perf.md',
+            ].filter((path) => fs.existsSync(path));
+            const headlines = [
+              'patrol-android/test-results/perf/android/patrol-perf-headline.md',
+              'patrol-ios/test-results/perf/ios/patrol-perf-headline.md',
+            ].filter((path) => fs.existsSync(path));
+            const report = summaries.length > 0
+              ? summaries.map((path) => fs.readFileSync(path, 'utf8').trim()).join('\n\n')
+              : [
+                  '## Native Patrol performance',
+                  '',
+                  'No native performance summary artifact was produced. Open the workflow run for the failing step and raw logs.',
+                ].join('\n');
+            const headline = headlines.length > 0
+              ? headlines.map((path) => fs.readFileSync(path, 'utf8').trim()).join('\n\n')
+              : 'No headline native performance summary was produced.';
+            const sha = context.payload.pull_request.head.sha.slice(0, 7);
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              marker,
+              '## Native Patrol performance',
+              '',
+              `Automated for commit \`${sha}\` · [workflow run and downloadable native traces](${runUrl})`,
+              '',
+              headline,
+              '',
+              '<details>',
+              '<summary>View Android and iOS performance details</summary>',
+              '',
+              report,
+              '',
+              '</details>',
+            ].join('\n');
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find((comment) =>
+              comment.user?.type === 'Bot' && comment.body?.includes(marker)
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

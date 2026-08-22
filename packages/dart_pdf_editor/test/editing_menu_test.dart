@@ -600,6 +600,57 @@ void main() {
       expect(copy.enabled, isTrue);
     });
 
+    testWidgets('the text menu is anchored in an offset navigator overlay',
+        (tester) async {
+      tester.view.physicalSize = const Size(1000, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            const SizedBox(width: 220),
+            Expanded(
+              child: Navigator(
+                onGenerateRoute: (_) => MaterialPageRoute<void>(
+                  builder: (_) => Scaffold(
+                    body: PdfViewer(
+                      initialFit: PdfViewerFit.width,
+                      document: PdfDocument.open(buildMultiPagePdf(1)),
+                      controller: controller,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ]),
+        ),
+      ));
+      await tester.pump();
+
+      const navigatorLeft = 220.0;
+      const nestedScale = (1000 - navigatorLeft) / 612;
+      final clickPosition = Offset(
+        navigatorLeft + 100 * nestedScale,
+        (792 - 720) * nestedScale,
+      );
+      await rightClick(tester, clickPosition);
+
+      final menuPosition = tester.getTopLeft(
+        find.byKey(const ValueKey('pdf-text-menu-copy')),
+      );
+      expect(
+        (menuPosition.dx - clickPosition.dx).abs(),
+        lessThan(100),
+        reason: 'The nested overlay origin must not be added twice.',
+      );
+
+      await tester.tapAt(const Offset(900, 1200));
+      await tester.pumpAndSettle();
+    });
+
     testWidgets('Copy puts the selection on the system clipboard',
         (tester) async {
       await pumpReader(tester);

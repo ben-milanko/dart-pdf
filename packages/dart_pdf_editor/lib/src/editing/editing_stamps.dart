@@ -821,7 +821,8 @@ class _PdfStampEditorDialogState extends State<PdfStampEditorDialog> {
       strokes: signature.strokes,
       pressures: signature.pressures,
       color: signature.color,
-      strokeWidth: math.max(0.8, width / 75),
+      // the pen the pad drew with, scaled to the size it lands in the stamp
+      strokeWidth: math.max(0.8, signature.strokeWidthFor(width)),
     );
     setState(() {
       _color = signature.color;

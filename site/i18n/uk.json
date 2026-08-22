@@ -140,6 +140,7 @@
   "sdk_nav_features": "Можливості",
   "sdk_nav_performance": "Продуктивність",
   "sdk_nav_compare": "Порівняння",
+  "sdk_nav_guide": "Посібник",
   "sdk_nav_packages": "Пакети",
   "sdk_nav_getpub": "Отримати на pub.dev",
   "sdk_hero_h1": "Переглядач і редактор PDF для Flutter, <span class=\"hl\">написаний повністю на\n          Dart.</span>",

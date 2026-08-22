@@ -7,13 +7,15 @@ import 'package:pdf_document/pdf_document.dart'
 
 import '../dialog.dart';
 import '../l10n/pdf_l10n.dart';
+import 'editing_color_picker.dart';
 import 'stroke_prediction.dart';
 
 /// A hand-drawn signature, stored device-side and stamped onto pages as
 /// an Ink annotation ([PdfEditingController.placeSignature]).
 ///
 /// Strokes are normalized to the drawing's bounding box (0–1, y down,
-/// like the pad it was drawn on); [aspect] preserves its proportions.
+/// like the pad it was drawn on); [aspect] preserves its proportions and
+/// [strokeWidth] the pen it was drawn with.
 /// Serializes to JSON so [PdfEditingPreferences] can persist it.
 class PdfInkSignature {
   PdfInkSignature({
@@ -21,15 +23,38 @@ class PdfInkSignature {
     required this.pressures,
     required this.color,
     required this.aspect,
+    this.strokeWidth = defaultStrokeWidth,
   }) : assert(strokes.length == pressures.length);
+
+  /// The point width a signature is laid out at by default - see
+  /// [PdfEditingController.placeSignature]'s `width`.
+  ///
+  /// [strokeWidth] is quoted at this size; every consumer scales the pen
+  /// with the size it actually draws the signature at ([strokeWidthFor]),
+  /// so a signature stamped small keeps its proportions.
+  static const referenceWidth = 160.0;
+
+  /// The pen a signature carries when it doesn't name one - what
+  /// [PdfEditingController.placeSignature] used to hard-code (`width / 60`)
+  /// before the pad had a thickness control, so signatures drawn by an
+  /// older build still stamp exactly as they did.
+  static const defaultStrokeWidth = referenceWidth / 60;
+
+  /// The pen width slider's range in the pad, in points - the same range
+  /// the toolbar's stroke-width slider offers.
+  static const minStrokeWidth = 0.5;
+  static const maxStrokeWidth = 12.0;
 
   /// Normalizes pad-space [strokes] (logical pixels, y down) to the
   /// drawing's bounding box. Returns null when nothing was drawn.
+  /// [strokeWidth] is the pen the pad drew with, in points at
+  /// [referenceWidth].
   static PdfInkSignature? fromPad(
     List<List<Offset>> strokes,
     List<List<double>?> pressures,
-    Color color,
-  ) {
+    Color color, {
+    double strokeWidth = defaultStrokeWidth,
+  }) {
     final points = strokes.expand((s) => s);
     if (points.isEmpty) return null;
     var minX = double.infinity, minY = double.infinity;
@@ -54,6 +79,7 @@ class PdfInkSignature {
       pressures: [for (final p in pressures) p?.toList()],
       color: color.toARGB32() & 0xFFFFFF,
       aspect: width / height,
+      strokeWidth: strokeWidth,
     );
   }
 
@@ -70,9 +96,20 @@ class PdfInkSignature {
   /// Bounding-box width / height.
   final double aspect;
 
+  /// Pen width in points, quoted at [referenceWidth]. Scale it with
+  /// [strokeWidthFor] to draw the signature at any other size.
+  final double strokeWidth;
+
+  /// The pen width to draw this signature with when it is laid out
+  /// [width] wide - points for a page, pixels for a raster; only the
+  /// ratio to [referenceWidth] matters.
+  double strokeWidthFor(double width) =>
+      strokeWidth * width / referenceWidth;
+
   String encode() => jsonEncode({
         'color': color,
         'aspect': aspect,
+        'strokeWidth': strokeWidth,
         'strokes': [
           for (final stroke in strokes)
             [
@@ -98,11 +135,17 @@ class PdfInkSignature {
           p == null ? null : [for (final v in p as List) (v as num).toDouble()]
       ];
       if (strokes.length != pressures.length) return null;
+      // written since the pad grew a thickness control; anything older (or
+      // nonsensical) falls back to the pen those signatures were stamped with
+      final width = (map['strokeWidth'] as num?)?.toDouble();
       return PdfInkSignature(
         strokes: strokes,
         pressures: pressures,
         color: map['color'] as int,
         aspect: (map['aspect'] as num).toDouble(),
+        strokeWidth: width != null && width.isFinite && width > 0
+            ? width
+            : defaultStrokeWidth,
       );
     } catch (_) {
       return null;
@@ -110,28 +153,74 @@ class PdfInkSignature {
   }
 }
 
+/// Opens a full colour picker over the signature pad, seeded with the
+/// pad's current ink; resolves to the chosen colour or null when
+/// dismissed. The stock chrome wires this to `pickEditingColor` so the
+/// pad's picker offers the same recents and document colours as every
+/// other colour in the editor.
+typedef PdfSignatureColorPicker = Future<Color?> Function(
+    BuildContext context, Color initial);
+
 /// Shows the signature pad dialog; resolves to the drawn signature, or
 /// null on cancel. [predictStrokes] forward-extrapolates the in-progress
 /// stroke to mask input latency, exactly like the ink tool (see
 /// [PdfViewer.predictStrokes]); display only, never committed.
-Future<PdfInkSignature?> showPdfSignatureDialog(BuildContext context,
-        {bool predictStrokes = true}) =>
+///
+/// [initialColor] and [initialStrokeWidth] seed the pad's ink and pen so
+/// it reopens on the style the last signature was drawn with, and
+/// [pickColor] supplies the "any colour" picker behind the pad's custom
+/// swatch (defaulting to a plain [showPdfColorPicker]).
+Future<PdfInkSignature?> showPdfSignatureDialog(
+  BuildContext context, {
+  bool predictStrokes = true,
+  Color? initialColor,
+  double initialStrokeWidth = PdfInkSignature.defaultStrokeWidth,
+  PdfSignatureColorPicker? pickColor,
+}) =>
     showPdfDialog<PdfInkSignature>(
       context: context,
-      builder: (context) => PdfSignatureDialog(predictStrokes: predictStrokes),
+      builder: (context) => PdfSignatureDialog(
+        predictStrokes: predictStrokes,
+        initialColor: initialColor,
+        initialStrokeWidth: initialStrokeWidth,
+        pickColor: pickColor,
+      ),
     );
 
 /// A dialog with a drawing pad for capturing a signature: draw with
 /// mouse, finger, or stylus (pressure is recorded and rendered as
-/// variable width, like the ink tool), pick an ink color, clear, done.
+/// variable width, like the ink tool), pick an ink color - one of the
+/// three pen presets or any colour at all, through the picker behind the
+/// custom swatch - set the pen thickness, clear, done.
+///
+/// The pad draws at the scale the signature is stamped at
+/// ([PdfInkSignature.referenceWidth]), so the pen thickness on the pad is
+/// the pen thickness on the page.
 class PdfSignatureDialog extends StatefulWidget {
-  const PdfSignatureDialog({super.key, this.predictStrokes = true});
+  const PdfSignatureDialog({
+    super.key,
+    this.predictStrokes = true,
+    this.initialColor,
+    this.initialStrokeWidth = PdfInkSignature.defaultStrokeWidth,
+    this.pickColor,
+  });
 
   /// Forward-extrapolates a short speculative lead beyond the pen tip on
   /// the in-progress stroke, the same predictive ink the ink tool uses
   /// ([PdfViewer.predictStrokes]). Display only - the lead is redrawn each
   /// frame and never enters the captured signature.
   final bool predictStrokes;
+
+  /// The ink the pad opens on; null starts on the first pen preset.
+  final Color? initialColor;
+
+  /// The pen width the pad opens on, in points at
+  /// [PdfInkSignature.referenceWidth] (clamped to the slider's range).
+  final double initialStrokeWidth;
+
+  /// Opens the "any colour" picker for the pad's custom swatch. Null
+  /// falls back to [showPdfColorPicker] with no recents wired.
+  final PdfSignatureColorPicker? pickColor;
 
   @override
   State<PdfSignatureDialog> createState() => _PdfSignatureDialogState();
@@ -144,14 +233,38 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
     Color(0xFFB71C1C)
   ];
 
+  static const _padWidth = 360.0;
+  static const _padHeight = 180.0;
+
+  /// Pad pixels per point: the pad is as wide as a signature stamped at
+  /// [PdfInkSignature.referenceWidth], so a pen drawn here is the pen that
+  /// lands on the page.
+  static const _padScale = _padWidth / PdfInkSignature.referenceWidth;
+
   final List<List<Offset>> _strokes = [];
   final List<List<double>?> _pressures = [];
   List<Offset>? _active;
   List<double>? _activePressures;
   double? _pointerPressure;
-  Color _ink = _inks.first;
+  late Color _ink = widget.initialColor ?? _inks.first;
+  late double _strokeWidth = widget.initialStrokeWidth
+      .clamp(PdfInkSignature.minStrokeWidth, PdfInkSignature.maxStrokeWidth);
 
   bool get _isEmpty => _strokes.isEmpty && _active == null;
+
+  static String _hexOf(Color color) =>
+      (color.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0');
+
+  /// Opens the full picker so the signature can be drawn in any colour at
+  /// all, not just the three pen presets.
+  Future<void> _pickInk() async {
+    final pick = widget.pickColor ??
+        (BuildContext context, Color initial) =>
+            showPdfColorPicker(context, initial: initial);
+    final picked = await pick(context, _ink);
+    if (picked == null || !mounted) return;
+    setState(() => _ink = Color(0xFF000000 | (picked.toARGB32() & 0xFFFFFF)));
+  }
 
   /// 0–1 within the device's range; null when the device has none
   /// (mouse, finger) - same convention as the ink overlay.
@@ -220,8 +333,8 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 360,
-            height: 180,
+            width: _padWidth,
+            height: _padHeight,
             decoration: BoxDecoration(
               // the pad is always paper-white, like the page the
               // signature will land on - only its border follows the theme
@@ -241,7 +354,7 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
                   onPanEnd: _panEnd,
                   child: CustomPaint(
                     key: const ValueKey('pdf-signature-pad'),
-                    size: const Size(360, 180),
+                    size: const Size(_padWidth, _padHeight),
                     painter: _SignaturePadPainter(
                       strokes: [
                         ..._strokes,
@@ -252,6 +365,7 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
                         if (activeDisplay != null) activeDisplay.pressures
                       ],
                       color: _ink,
+                      strokeWidth: _strokeWidth * _padScale,
                     ),
                   ),
                 ),
@@ -263,25 +377,22 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
             for (final ink in _inks)
               Padding(
                 padding: const EdgeInsetsDirectional.only(end: 8),
-                child: InkWell(
+                child: _InkSwatch(
+                  key: ValueKey('pdf-signature-ink-${_hexOf(ink)}'),
+                  color: ink,
+                  selected: _ink == ink,
                   onTap: () => setState(() => _ink = ink),
-                  customBorder: const CircleBorder(),
-                  child: Container(
-                    width: 24,
-                    height: 24,
-                    decoration: BoxDecoration(
-                      color: ink,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: _ink == ink
-                            ? Theme.of(context).colorScheme.primary
-                            : Theme.of(context).colorScheme.outline,
-                        width: _ink == ink ? 3 : 1,
-                      ),
-                    ),
-                  ),
                 ),
               ),
+            // any colour at all, through the full picker
+            _InkSwatch(
+              key: const ValueKey('pdf-signature-custom-ink'),
+              color: _ink,
+              selected: !_inks.contains(_ink),
+              tooltip: pdfL10n(context).colorPickColor,
+              icon: Icons.colorize,
+              onTap: _pickInk,
+            ),
             const Spacer(),
             TextButton(
               onPressed: _isEmpty
@@ -295,6 +406,26 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
               child: Text(pdfL10n(context).clear),
             ),
           ]),
+          Row(children: [
+            Text(pdfL10n(context).tbStrokeWidthLabel),
+            Expanded(
+              child: Slider(
+                key: const ValueKey('pdf-signature-stroke-width'),
+                value: _strokeWidth,
+                min: PdfInkSignature.minStrokeWidth,
+                max: PdfInkSignature.maxStrokeWidth,
+                onChanged: (value) => setState(() => _strokeWidth = value),
+              ),
+            ),
+            SizedBox(
+              width: 44,
+              child: Text(
+                '${_strokeWidth.toStringAsFixed(1)} pt',
+                textAlign: TextAlign.end,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ]),
         ],
       ),
       actions: [
@@ -305,12 +436,66 @@ class _PdfSignatureDialogState extends State<PdfSignatureDialog> {
         FilledButton(
           onPressed: _isEmpty
               ? null
-              : () => Navigator.of(context)
-                  .pop(PdfInkSignature.fromPad(_strokes, _pressures, _ink)),
+              : () => Navigator.of(context).pop(PdfInkSignature.fromPad(
+                  _strokes, _pressures, _ink,
+                  strokeWidth: _strokeWidth)),
           child: Text(pdfL10n(context).done),
         ),
       ],
     );
+  }
+}
+
+/// One round ink well in the pad's colour row - a preset pen, or (with an
+/// [icon]) the custom swatch that opens the full picker.
+class _InkSwatch extends StatelessWidget {
+  const _InkSwatch({
+    super.key,
+    required this.color,
+    required this.selected,
+    required this.onTap,
+    this.icon,
+    this.tooltip,
+  });
+
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+  final IconData? icon;
+  final String? tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final swatch = InkWell(
+      onTap: onTap,
+      customBorder: const CircleBorder(),
+      child: Container(
+        width: 24,
+        height: 24,
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: selected ? scheme.primary : scheme.outline,
+            width: selected ? 3 : 1,
+          ),
+        ),
+        child: icon == null
+            ? null
+            : Icon(
+                icon,
+                size: 13,
+                // the icon rides on the ink itself, so pick the side of
+                // the swatch it can actually be read against
+                color: ThemeData.estimateBrightnessForColor(color) ==
+                        Brightness.dark
+                    ? Colors.white
+                    : Colors.black87,
+              ),
+      ),
+    );
+    return tooltip == null ? swatch : Tooltip(message: tooltip!, child: swatch);
   }
 }
 
@@ -319,13 +504,16 @@ class _SignaturePadPainter extends CustomPainter {
     required this.strokes,
     required this.pressures,
     required this.color,
+    required this.strokeWidth,
   });
 
   final List<List<Offset>> strokes;
   final List<List<double>?> pressures;
   final Color color;
 
-  static const _baseWidth = 3.0;
+  /// The pen width in pad pixels - the chosen point width scaled to the
+  /// pad, so what is drawn here is what lands on the page.
+  final double strokeWidth;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -338,7 +526,7 @@ class _SignaturePadPainter extends CustomPainter {
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
-      ..strokeWidth = _baseWidth
+      ..strokeWidth = strokeWidth
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
     for (var i = 0; i < strokes.length; i++) {
@@ -364,13 +552,13 @@ class _SignaturePadPainter extends CustomPainter {
         if (stroke.length == 1) {
           canvas.drawCircle(
               stroke.single,
-              pdfInkStrokeWidth(_baseWidth, pressure.first) / 2,
+              pdfInkStrokeWidth(strokeWidth, pressure.first) / 2,
               Paint()..color = color);
           continue;
         }
         for (var j = 0; j + 1 < stroke.length; j++) {
           final avg = (pressure[j] + pressure[j + 1]) / 2;
-          segment.strokeWidth = pdfInkStrokeWidth(_baseWidth, avg);
+          segment.strokeWidth = pdfInkStrokeWidth(strokeWidth, avg);
           final ((c1x, c1y), (c2x, c2y)) = controls[j];
           canvas.drawPath(
               Path()
@@ -385,5 +573,7 @@ class _SignaturePadPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_SignaturePadPainter old) =>
-      old.strokes != strokes || old.color != color;
+      old.strokes != strokes ||
+      old.color != color ||
+      old.strokeWidth != strokeWidth;
 }

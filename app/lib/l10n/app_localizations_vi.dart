@@ -503,6 +503,9 @@ class AppLocalizationsVi extends AppLocalizations {
   String get editorOpenRecent => 'Mở gần đây';
 
   @override
+  String get editorViewAllRecentFiles => 'Xem tất cả tệp gần đây…';
+
+  @override
   String get editorOpenTabs => 'Các thẻ đang mở';
 
   @override
@@ -750,6 +753,51 @@ class AppLocalizationsVi extends AppLocalizations {
   String get printDlgTitle => 'Đang in';
 
   @override
+  String get printPreviewAll => 'Tất cả';
+
+  @override
+  String get printPreviewCurrent => 'Hiện tại';
+
+  @override
+  String get printPreviewFrom => 'Từ';
+
+  @override
+  String get printPreviewNextPage => 'Trang tiếp theo';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return 'Trang $page trên $total';
+  }
+
+  @override
+  String get printPreviewPreviousPage => 'Trang trước';
+
+  @override
+  String get printPreviewPrint => 'In';
+
+  @override
+  String get printPreviewRange => 'Phạm vi';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return 'Nhập phạm vi trang từ 1 đến $total.';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return 'Số trang sẽ in: $count';
+  }
+
+  @override
+  String get printPreviewTitle => 'Xem trước khi in';
+
+  @override
+  String get printPreviewTo => 'Đến';
+
+  @override
+  String get printPreviewUnavailable => 'Không có bản xem trước';
+
+  @override
   String get redo => 'Làm lại';
 
   @override
@@ -880,6 +928,13 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String get welcomeRecent => 'Gần đây';
+
+  @override
+  String get welcomeSearchRecentFiles => 'Tìm kiếm tệp gần đây';
+
+  @override
+  String get welcomeNoMatchingRecentFiles =>
+      'Không có tệp gần đây nào khớp với tìm kiếm';
 
   @override
   String get welcomeRemoveFromRecent => 'Gỡ khỏi danh sách gần đây';

@@ -165,6 +165,23 @@ void main() {
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
       expectViewport(editing, viewer, page: 3, label: 'Page 4');
     });
+
+    test('render stamps follow stable pages through reorder and undo', () {
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(20, 20, 80, 80));
+      final changedStamp = editing.pageRenderStamp(0);
+      final cleanStamp = editing.pageRenderStamp(1);
+      expect(changedStamp, greaterThan(cleanStamp));
+
+      editing.movePage(0, 1);
+      expect(editing.pageRenderStamp(1), changedStamp);
+      expect(editing.pageRenderStamp(0), cleanStamp);
+
+      editing.undo();
+      expect(editing.pageRenderStamp(0), changedStamp);
+      expect(editing.pageRenderStamp(1), cleanStamp);
+    });
   });
 
   group('duplicatePages', () {
@@ -1260,6 +1277,64 @@ void main() {
       expect(labelsOf(PdfDocument.open(exported!)), ['Page 3']);
       // the document itself is untouched by an export
       expect(editing.document.pageCount, 4);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('the menu is anchored in an offset navigator overlay',
+        (tester) async {
+      tester.view.physicalSize = const Size(1000, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final editing = PdfEditingController(buildMultiPagePdf(2));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            const SizedBox(width: 220),
+            Expanded(
+              child: Navigator(
+                onGenerateRoute: (_) => MaterialPageRoute<void>(
+                  builder: (_) => Scaffold(
+                    body: Row(children: [
+                      PdfThumbnailSidebar(
+                        controller: editing,
+                        viewerController: viewer,
+                        allowPageEditing: false,
+                        onExportPages: (_) {},
+                      ),
+                      const Expanded(child: SizedBox()),
+                    ]),
+                  ),
+                ),
+              ),
+            ),
+          ]),
+        ),
+      ));
+      await tester.pump();
+
+      final clickPosition = tester.getCenter(find.text('Page 1'));
+      await tester.tapAt(
+        clickPosition,
+        buttons: kSecondaryMouseButton,
+        kind: PointerDeviceKind.mouse,
+      );
+      await tester.pumpAndSettle();
+
+      final menuPosition = tester.getTopLeft(
+        find.byKey(const ValueKey('pdf-thumbnail-menu-export')),
+      );
+      expect(
+        (menuPosition.dx - clickPosition.dx).abs(),
+        lessThan(100),
+        reason: 'The nested overlay origin must not be added twice.',
+      );
+
+      await tester.tapAt(const Offset(900, 1200));
+      await tester.pumpAndSettle();
       await tester.pump(const Duration(seconds: 2));
     });
 

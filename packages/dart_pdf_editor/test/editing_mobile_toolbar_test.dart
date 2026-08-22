@@ -14,7 +14,7 @@ void main() {
   final swatch = find.byKey(const ValueKey('pdf-mobile-swatch-0'));
 
   Future<PdfEditingController> pumpToolbar(WidgetTester tester,
-      {Uint8List? bytes}) async {
+      {Uint8List? bytes, double width = 380}) async {
     SharedPreferences.setMockInitialValues({});
     final editing =
         PdfEditingController(bytes ?? buildAppearanceAnnotationsPdf());
@@ -27,7 +27,7 @@ void main() {
         body: Align(
           alignment: Alignment.bottomCenter,
           child: SizedBox(
-            width: 380,
+            width: width,
             child: PdfEditingToolbar(
                 controller: editing, viewerController: viewer),
           ),
@@ -61,6 +61,8 @@ void main() {
     }
     c.tool = null;
     expect(c.toolUsesColor, isFalse, reason: 'select ignores colour');
+    c.markupTool = PdfMarkupKind.highlight;
+    expect(c.toolUsesColor, isTrue, reason: 'text markup paints in colour');
   });
 
   testWidgets('swatches hide for a colourless tool, show for a painter',
@@ -83,6 +85,173 @@ void main() {
     await tester.tap(swatch);
     await tester.pump();
     expect(editing.color, PdfEditingToolbar.defaultPalette.first);
+  });
+
+  testWidgets('active tool status yields when phone actions consume the dock',
+      (tester) async {
+    final editing = await pumpToolbar(tester, width: 320);
+
+    editing.tool = PdfEditTool.note;
+    await tester.pump();
+
+    expect(
+        find.byKey(const ValueKey('pdf-mobile-current-tool')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pdf-tools-handle')), findsOneWidget);
+    expect(tester.takeException(), isNull,
+        reason: 'the tool switcher must not overflow a narrow dock');
+  });
+
+  testWidgets('current tool popup recalls previous tools in MRU order',
+      (tester) async {
+    final editing = await pumpToolbar(tester, width: 500);
+
+    editing.tool = PdfEditTool.select;
+    await tester.pump();
+    editing.tool = PdfEditTool.ink;
+    await tester.pump();
+    editing.tool = PdfEditTool.rectangle;
+    await tester.pump();
+
+    final switcher = find.byKey(const ValueKey('pdf-mobile-current-tool'));
+    final semantics = tester.getSemantics(switcher);
+    expect(semantics.label, contains('Rectangle'));
+    expect(semantics.label, contains('Recently used'));
+
+    await tester.tap(switcher);
+    await tester.pumpAndSettle();
+
+    final ink = find.byKey(const ValueKey('pdf-recent-tool-ink'));
+    final select = find.byKey(const ValueKey('pdf-recent-tool-select'));
+    expect(ink, findsOneWidget);
+    expect(select, findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('pdf-recent-tool-rectangle')), findsNothing,
+        reason: 'the active tool is not repeated in its previous-tool list');
+    expect(tester.getTopLeft(ink).dy, lessThan(tester.getTopLeft(select).dy),
+        reason: 'the most recently used previous tool comes first');
+
+    await tester.tap(ink);
+    await tester.pumpAndSettle();
+    expect(editing.tool, PdfEditTool.ink);
+  });
+
+  testWidgets('armed markup is the current tool and participates in history',
+      (tester) async {
+    final editing = await pumpToolbar(tester, width: 500);
+    editing.markupTool = PdfMarkupKind.highlight;
+    await tester.pump();
+
+    final switcher = find.byKey(const ValueKey('pdf-mobile-current-tool'));
+    expect(tester.getSemantics(switcher).label, contains('Highlight'));
+    expect(editing.tool, isNull,
+        reason: 'markup keeps native text-selection gestures enabled');
+
+    editing.tool = PdfEditTool.note;
+    await tester.pump();
+    await tester.tap(switcher);
+    await tester.pumpAndSettle();
+    final markup = find.byKey(const ValueKey('pdf-recent-markup-highlight'));
+    expect(markup, findsOneWidget);
+
+    await tester.tap(markup);
+    await tester.pumpAndSettle();
+    expect(editing.markupTool, PdfMarkupKind.highlight);
+    expect(tester.getSemantics(switcher).label, contains('Highlight'));
+  });
+
+  testWidgets('tool switcher fills its surface and clears only from popup',
+      (tester) async {
+    final editing = await pumpToolbar(tester, width: 590);
+    final switcher = find.byKey(const ValueKey('pdf-mobile-current-tool'));
+    expect(tester.getSemantics(switcher).label, contains('Hand'));
+    expect(
+        find.descendant(
+            of: switcher, matching: find.byIcon(Icons.pan_tool_alt)),
+        findsOneWidget,
+        reason: 'the Hand navigation mode is visibly distinct from Select');
+
+    editing.tool = PdfEditTool.note;
+    await tester.pump();
+
+    final surface =
+        find.byKey(const ValueKey('pdf-mobile-current-tool-surface'));
+    expect(find.byKey(const ValueKey('pdf-mobile-clear-tool')), findsNothing);
+    expect(tester.getRect(switcher), tester.getRect(surface),
+        reason: 'the popup target fills the entire shaded tool surface');
+    expect(tester.getSize(surface).width, 180,
+        reason: 'the shaded popup button does not consume the whole dock');
+
+    await tester.tap(switcher);
+    await tester.pumpAndSettle();
+    final clear = find.byKey(const ValueKey('pdf-recent-tool-clear'));
+    expect(clear, findsOneWidget);
+    await tester.tap(clear);
+    await tester.pumpAndSettle();
+
+    expect(editing.tool, isNull);
+    expect(tester.getSemantics(switcher).label, contains('Hand'));
+    expect(
+        find.descendant(
+            of: switcher, matching: find.byIcon(Icons.pan_tool_alt)),
+        findsOneWidget);
+    expect(clear, findsNothing,
+        reason: 'clearing closes the popup and returns to Hand mode');
+
+    // Clearing does not erase history: the prior tool remains one tap away.
+    await tester.tap(find.byKey(const ValueKey('pdf-mobile-current-tool')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('pdf-recent-tool-note')), findsOneWidget);
+  });
+
+  testWidgets('clear remains available in the popup on a narrow phone',
+      (tester) async {
+    final editing = await pumpToolbar(tester, width: 320);
+    editing.tool = PdfEditTool.note;
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('pdf-mobile-current-tool')));
+    await tester.pumpAndSettle();
+    final clear = find.byKey(const ValueKey('pdf-recent-tool-clear'));
+    expect(clear, findsOneWidget);
+
+    await tester.tap(clear);
+    await tester.pumpAndSettle();
+    expect(editing.tool, isNull);
+  });
+
+  testWidgets('Select group directly arms Select and closes the tool sheet',
+      (tester) async {
+    final editing = await pumpToolbar(tester);
+
+    Future<void> chooseSelect() async {
+      await tester.tap(find.byKey(const ValueKey('pdf-tools-handle')));
+      await tester.pumpAndSettle();
+      final selectGroup = find.byKey(const ValueKey('pdf-group-tab-select'));
+      expect(selectGroup, findsOneWidget);
+
+      await tester.tap(selectGroup);
+      await tester.pumpAndSettle();
+      expect(editing.tool, PdfEditTool.select);
+      final switcher = find.byKey(const ValueKey('pdf-mobile-current-tool'));
+      expect(tester.getSemantics(switcher).label, contains('Select'));
+      expect(
+          find.descendant(of: switcher, matching: find.byIcon(Icons.near_me)),
+          findsOneWidget,
+          reason: 'Select keeps its arrow instead of looking like Hand');
+      expect(
+          find.descendant(
+              of: switcher, matching: find.byIcon(Icons.pan_tool_alt)),
+          findsNothing);
+      expect(selectGroup, findsNothing,
+          reason: 'choosing the one-option group closes the sheet');
+    }
+
+    expect(editing.tool, isNull);
+    await chooseSelect();
+
+    editing.tool = PdfEditTool.ink;
+    await tester.pump();
+    await chooseSelect();
   });
 
   testWidgets('a selection surfaces quick actions, not creation swatches',

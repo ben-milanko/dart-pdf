@@ -140,6 +140,7 @@
   "sdk_nav_features": "Fitur",
   "sdk_nav_performance": "Performa",
   "sdk_nav_compare": "Bandingkan",
+  "sdk_nav_guide": "Panduan",
   "sdk_nav_packages": "Paket",
   "sdk_nav_getpub": "Dapatkan di pub.dev",
   "sdk_hero_h1": "Penampil dan editor PDF untuk Flutter, <span class=\"hl\">ditulis sepenuhnya dalam\n          Dart.</span>",

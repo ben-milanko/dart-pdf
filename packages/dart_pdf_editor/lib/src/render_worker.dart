@@ -767,10 +767,10 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
     }
 
     var best = -1;
-    var bestLoad = 1 << 62;
+    int? bestLoad;
     for (final i in eligible) {
       final load = _loads[i];
-      if (load < bestLoad) {
+      if (bestLoad == null || load < bestLoad) {
         best = i;
         bestLoad = load;
       }
@@ -847,16 +847,14 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
       // has strictly lower load. Equal load keeps the sticky worker: a
       // transcript miss is never worth paying to break a tie.
       var alternative = -1;
-      var alternativeLoad = 1 << 62;
       for (var i = 0; i < _workers.length; i++) {
         if (i == existing || !_workers[i].isActive) continue;
         final load = _loads[i];
-        if (load < alternativeLoad) {
+        if (alternative < 0 || load < _loads[alternative]) {
           alternative = i;
-          alternativeLoad = load;
         }
       }
-      if (alternative >= 0 && alternativeLoad < _loads[existing]) {
+      if (alternative >= 0 && _loads[alternative] < _loads[existing]) {
         _pageWorkers[pageIndex] = alternative;
         return alternative;
       }
@@ -907,13 +905,13 @@ class PdfPooledRenderWorker extends PdfRenderWorker {
             !_workers[worker].supportsPageSurfaces)) {
       worker = -1;
     }
-    var bestLoad = 1 << 62;
+    int? bestLoad;
     if (worker < 0) {
       for (var i = 0; i < _workers.length; i++) {
         final candidate = _workers[i];
         if (!candidate.isActive || !candidate.supportsPageSurfaces) continue;
         final load = _loads[i] + _surfaceLoads[i];
-        if (load < bestLoad) {
+        if (bestLoad == null || load < bestLoad) {
           worker = i;
           bestLoad = load;
         }

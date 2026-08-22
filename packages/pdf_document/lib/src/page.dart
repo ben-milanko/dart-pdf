@@ -43,6 +43,28 @@ class PdfPage {
   final CosArray? _inheritedCropBox;
   final int? _inheritedRotate;
 
+  /// Re-wraps this page for a newer incremental revision of the same COS
+  /// document, preserving the inherited attributes resolved from its
+  /// unchanged page-tree path.
+  ///
+  /// [dict] must be the current dictionary resolved for this page's stable
+  /// indirect reference. This is intentionally narrower than constructing an
+  /// arbitrary page: a structural page-tree edit must perform a fresh walk so
+  /// inherited values are resolved from the new ancestry.
+  PdfPage forIncrementalRevision(PdfDocument document, CosDictionary dict) {
+    if (!identical(this.document.cos, document.cos)) {
+      throw ArgumentError('incremental page revision must share the COS graph');
+    }
+    return PdfPage(
+      document: document,
+      dict: dict,
+      inheritedResources: _inheritedResources,
+      inheritedMediaBox: _inheritedMediaBox,
+      inheritedCropBox: _inheritedCropBox,
+      inheritedRotate: _inheritedRotate,
+    );
+  }
+
   /// This page's own entry for [key], or the value inherited from its
   /// ancestors when the page does not carry one.
   T? _own<T extends CosObject>(String key, T? inherited) {

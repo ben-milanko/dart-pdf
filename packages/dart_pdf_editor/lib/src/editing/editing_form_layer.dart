@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -389,6 +390,9 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
       child: MouseRegion(
         cursor: _cursorFor(field),
         child: GestureDetector(
+          key: ValueKey(
+            'pdf-form-field-${widget.pageIndex}-${field.name}-$widgetIndex',
+          ),
           behavior: HitTestBehavior.opaque,
           onTapUp: (details) {
             final pageViewPosition = rect.topLeft + details.localPosition;
@@ -427,50 +431,67 @@ class _FormInteractionLayerState extends State<FormInteractionLayer> {
           bindings: {
             const SingleActivator(LogicalKeyboardKey.escape): _cancelText,
           },
-          child: TextField(
-            key: const ValueKey('pdf-form-text-editor'),
-            controller: _text,
-            focusNode: _focus,
-            autofocus: true,
-            // single-line fields commit on Enter, not a newline
-            maxLines: _editMultiline ? null : 1,
-            expands: _editMultiline,
-            onSubmitted: (_) => _commitText(),
-            // tapping off the field commits it - the viewer suppresses its
-            // own focus steal while editing, so the field keeps focus
-            // until this fires
-            onTapOutside: (_) => _commitText(),
-            // the zoom transform would otherwise scale AND displace the
-            // long-press selection menu off-screen
-            contextMenuBuilder: (context, editableTextState) =>
-                pdfPlacedTextSelectionMenu(
-                  editableTextState,
-                  AdaptiveTextSelectionToolbar.editableText(
-                      editableTextState: editableTextState),
+          // the same zoom-space caret treatment the free-text editor gets:
+          // Apple's device-pixel nudge cancelled, and the caret gutter
+          // handed back below so right-aligned (RTL) values stay put
+          child: pdfZoomAwareCaret(
+            context,
+            chromeScale: chromeScale,
+            child: TextField(
+              key: const ValueKey('pdf-form-text-editor'),
+              controller: _text,
+              focusNode: _focus,
+              autofocus: true,
+              // single-line fields commit on Enter, not a newline
+              maxLines: _editMultiline ? null : 1,
+              expands: _editMultiline,
+              onSubmitted: (_) => _commitText(),
+              // tapping off the field commits it - the viewer suppresses its
+              // own focus steal while editing, so the field keeps focus
+              // until this fires
+              onTapOutside: (_) => _commitText(),
+              // the zoom transform would otherwise scale AND displace the
+              // long-press selection menu off-screen
+              contextMenuBuilder: (context, editableTextState) =>
+                  pdfPlacedTextSelectionMenu(
+                    editableTextState,
+                    AdaptiveTextSelectionToolbar.editableText(
+                        editableTextState: editableTextState),
+                  ),
+              textDirection: _flutterTextDirection(_text.text),
+              textAlign: _flutterTextDirection(_text.text) == TextDirection.rtl
+                  ? TextAlign.right
+                  : TextAlign.left,
+              textAlignVertical: _editMultiline
+                  ? TextAlignVertical.top
+                  : TextAlignVertical.center,
+              cursorColor: const Color(0xFF000000),
+              cursorWidth: 2 * chromeScale,
+              cursorHeight: pdfZoomAwareCursorHeight(
+                context,
+                lineHeight: _editSize * scale * 1.2,
+                chromeScale: chromeScale,
+              ),
+              style: TextStyle(
+                color: const Color(0xFF000000),
+                fontSize: _editSize * scale,
+                height: 1.2,
+                fontFamily: _uiFamily(_editFont),
+                fontWeight:
+                    _editFont.isBold ? FontWeight.bold : FontWeight.normal,
+                fontStyle:
+                    _editFont.isItalic ? FontStyle.italic : FontStyle.normal,
+              ),
+              decoration: InputDecoration(
+                isCollapsed: true,
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.fromLTRB(
+                  2 * scale,
+                  2 * scale,
+                  math.max(0.0, 2 * scale - pdfCaretGutter(chromeScale)),
+                  2 * scale,
                 ),
-            textDirection: _flutterTextDirection(_text.text),
-            textAlign: _flutterTextDirection(_text.text) == TextDirection.rtl
-                ? TextAlign.right
-                : TextAlign.left,
-            textAlignVertical: _editMultiline
-                ? TextAlignVertical.top
-                : TextAlignVertical.center,
-            cursorColor: const Color(0xFF000000),
-            cursorWidth: 2 * chromeScale,
-            style: TextStyle(
-              color: const Color(0xFF000000),
-              fontSize: _editSize * scale,
-              height: 1.2,
-              fontFamily: _uiFamily(_editFont),
-              fontWeight:
-                  _editFont.isBold ? FontWeight.bold : FontWeight.normal,
-              fontStyle:
-                  _editFont.isItalic ? FontStyle.italic : FontStyle.normal,
-            ),
-            decoration: InputDecoration(
-              isCollapsed: true,
-              border: InputBorder.none,
-              contentPadding: EdgeInsets.all(2 * scale),
+              ),
             ),
           ),
         ),

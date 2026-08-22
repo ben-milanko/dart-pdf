@@ -15,8 +15,14 @@ jobs:
           flutter-version: 3.47.0
           channel: stable
           cache: true
+      # Run before pub get on purpose: the formatter wrapper must preserve the
+      # workspace's Dart 3.5 style even when package_config.json does not exist.
+      - name: Check fresh-worktree formatter contract
+        run: dart tool/format.dart --output=none --set-exit-if-changed tool/format.dart
       - run: flutter pub get
       - run: dart analyze --fatal-infos
+      - name: Test Patrol performance summarizer
+        run: dart tool/patrol_perf_summary_test.dart
       # Enforce the lockstep versioning invariant: every workspace package
       # must depend on its siblings at the current release version (`^x.y.z`).
       # A stale lower bound makes pub.dev's downgrade analysis fail (0/20 on

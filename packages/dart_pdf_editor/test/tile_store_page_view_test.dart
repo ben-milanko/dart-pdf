@@ -655,8 +655,14 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    final store =
-        PdfTileStore(tilePixels: 512, registerForMemoryPressure: false);
+    // This case inspects the admitted tile layer's shared-page presentation
+    // policy. Pin the roomy tier so platform defaults do not turn it into the
+    // shared-budget fallback covered separately below.
+    final store = PdfTileStore(
+      tilePixels: 512,
+      maxBytes: 96 << 20,
+      registerForMemoryPressure: false,
+    );
     final oldRegionLimit = PdfRetainedScene.spatialRegionReplayMaxCommands;
     PdfRetainedScene.spatialRegionReplayMaxCommands = 0;
     PdfPageView.tileStoreDetail = true;
@@ -697,6 +703,66 @@ void main() {
         reason: 'shared pages cannot spend one another\'s budget on pan rings');
     expect(painter.allowCoarserFallback, isFalse,
         reason: 'combined coarse sets would consume the reserved headroom');
+  });
+
+  testWidgets('an edge-sliver page keeps tiles presentation-only',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final store =
+        PdfTileStore(tilePixels: 512, registerForMemoryPressure: false);
+    final oldRegionLimit = PdfRetainedScene.spatialRegionReplayMaxCommands;
+    PdfRetainedScene.spatialRegionReplayMaxCommands = 0;
+    PdfPageView.tileStoreDetail = true;
+    PdfPageView.debugTileStoreOverride = store;
+    addTearDown(() {
+      PdfRetainedScene.spatialRegionReplayMaxCommands = oldRegionLimit;
+      PdfPageView.tileStoreDetail = false;
+      PdfPageView.debugTileStoreOverride = null;
+      store.dispose();
+    });
+
+    final doc = PdfDocument.open(buildClassicPdf());
+    Widget page({required bool qualityVisible}) => Center(
+          child: OverflowBox(
+            maxWidth: double.infinity,
+            maxHeight: double.infinity,
+            child: SizedBox(
+              width: 6120,
+              child: PdfPageView(
+                page: doc.page(0),
+                onScreen: true,
+                qualityVisible: qualityVisible,
+                qualityPageCount: 1,
+              ),
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(page(qualityVisible: true));
+    final layer = find.byKey(const ValueKey('pdf-page-tile-layer'));
+    for (var i = 0; i < 300 && layer.evaluate().isEmpty; i++) {
+      await tester.pump();
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
+    }
+    expect(layer, findsOneWidget);
+    expect(
+        (tester.widget<CustomPaint>(layer).painter as dynamic).scheduleMissing,
+        isTrue);
+
+    // This is the page-boundary state from the field trace: the page still
+    // overlaps the viewport, but less than 15% of it is visible and the other
+    // page is the sole foreground-quality claimant.
+    await tester.pumpWidget(page(qualityVisible: false));
+    expect(layer, findsOneWidget,
+        reason: 'retained edge tiles may still contribute pixels');
+    expect(
+      (tester.widget<CustomPaint>(layer).painter as dynamic).scheduleMissing,
+      isFalse,
+      reason: 'the edge page must not refill against the focused page',
+    );
   });
 
   testWidgets('heavy index warm does not launch an obsolete detail record',

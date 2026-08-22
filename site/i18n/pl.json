@@ -140,6 +140,7 @@
   "sdk_nav_features": "Funkcje",
   "sdk_nav_performance": "Wydajność",
   "sdk_nav_compare": "Porównanie",
+  "sdk_nav_guide": "Przewodnik",
   "sdk_nav_packages": "Pakiety",
   "sdk_nav_getpub": "Pobierz na pub.dev",
   "sdk_hero_h1": "Przeglądarka i edytor PDF dla Flutter, <span class=\"hl\">napisane w całości w\n          Dart.</span>",

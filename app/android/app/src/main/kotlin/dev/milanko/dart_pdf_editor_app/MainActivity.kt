@@ -267,6 +267,9 @@ class MainActivity : FlutterActivity() {
                 "token" to uri.toString(),
                 "name" to (displayName(uri) ?: "document.pdf"),
                 "length" to fileLength(uri),
+                // The authority identifies the DocumentsProvider without
+                // exposing the picked URI/path or its persisted access token.
+                "provider" to (uri.authority ?: "android-documents-provider"),
                 "seekable" to probeSeekable(uri),
             )
         } catch (e: Exception) {

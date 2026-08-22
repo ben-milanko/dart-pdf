@@ -122,7 +122,13 @@ void main() {
       await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
       await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
       await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
-      await tester.pump();
+      await tester.pumpAndSettle();
+
+      // Linux has no print preview of its own, so the shortcut opens ours -
+      // the job starts from there (see print_preview_test.dart).
+      expect(printCalls, 0);
+      await tester.tap(find.byKey(const ValueKey('print-preview-print')));
+      await tester.pumpAndSettle();
 
       expect(printCalls, 1);
     } finally {

@@ -140,6 +140,7 @@
   "sdk_nav_features": "功能",
   "sdk_nav_performance": "效能",
   "sdk_nav_compare": "比較",
+  "sdk_nav_guide": "指南",
   "sdk_nav_packages": "套件",
   "sdk_nav_getpub": "在 pub.dev 上取得",
   "sdk_hero_h1": "適用於 Flutter 的 PDF 檢視器與編輯器，<span class=\"hl\">完全以\n          Dart 撰寫。</span>",

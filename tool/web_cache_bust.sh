@@ -140,6 +140,26 @@ if [[ -f "$MAIN_JS" ]] && grep -qE '"main\.dart\.js_[0-9]+\.part\.js"' "$MAIN_JS
   exit 1
 fi
 
+# dart2wasm is outside everything above. Its string literals are not stored as
+# plain UTF-8/UTF-16 in the module - a `dart compile wasm` of a program holding
+# this very URL contains no byte sequence matching it in either encoding - so a
+# wasm build's worker reference can be neither rewritten by the substitutions
+# above nor detected by the assertion below. It would ship with the bare,
+# stable URL that Firebase serves `max-age=31536000`, and every returning
+# browser would keep whatever it cached first for a year: an old worker, or the
+# committed placeholder, which throws on load and degrades the whole session to
+# main-thread rendering (issue #699). That failure is silent by construction,
+# which is exactly what this script exists to prevent - so refuse it here
+# rather than deploy it.
+if [[ -f "$BUILD_DIR/main.dart.wasm" && "${WORKER_URL_REVALIDATED:-0}" != "1" ]]; then
+  echo "ERROR: this is a dart2wasm build (main.dart.wasm), whose render-worker" \
+    "URL cannot be cache-busted by string substitution and cannot be" \
+    "verified. Either build without --wasm, or serve" \
+    "pdf_render_worker.dart.js with revalidation (Cache-Control: no-cache)" \
+    "in the hosting config and re-run with WORKER_URL_REVALIDATED=1." >&2
+  exit 1
+fi
+
 # The render worker is a separate ~1 MB bundle that the app fetches by URL. An
 # un-busted reference is invisible - the app keeps working, on whatever worker
 # build the browser cached first - so assert rather than trust. Checks every

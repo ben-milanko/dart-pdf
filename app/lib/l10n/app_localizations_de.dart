@@ -511,6 +511,10 @@ class AppLocalizationsDe extends AppLocalizations {
   String get editorOpenRecent => 'Zuletzt geöffnet';
 
   @override
+  String get editorViewAllRecentFiles =>
+      'Alle zuletzt verwendeten Dateien anzeigen…';
+
+  @override
   String get editorOpenTabs => 'Offene Tabs';
 
   @override
@@ -761,6 +765,51 @@ class AppLocalizationsDe extends AppLocalizations {
   String get printDlgTitle => 'Wird gedruckt';
 
   @override
+  String get printPreviewAll => 'Alle';
+
+  @override
+  String get printPreviewCurrent => 'Aktuell';
+
+  @override
+  String get printPreviewFrom => 'Von';
+
+  @override
+  String get printPreviewNextPage => 'Nächste Seite';
+
+  @override
+  String printPreviewPageOf(int page, int total) {
+    return 'Seite $page von $total';
+  }
+
+  @override
+  String get printPreviewPreviousPage => 'Vorherige Seite';
+
+  @override
+  String get printPreviewPrint => 'Drucken';
+
+  @override
+  String get printPreviewRange => 'Bereich';
+
+  @override
+  String printPreviewRangeError(int total) {
+    return 'Geben Sie einen Seitenbereich zwischen 1 und $total ein.';
+  }
+
+  @override
+  String printPreviewSelection(int count) {
+    return 'Zu druckende Seiten: $count';
+  }
+
+  @override
+  String get printPreviewTitle => 'Druckvorschau';
+
+  @override
+  String get printPreviewTo => 'Bis';
+
+  @override
+  String get printPreviewUnavailable => 'Vorschau nicht verfügbar';
+
+  @override
   String get redo => 'Wiederholen';
 
   @override
@@ -892,6 +941,14 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get welcomeRecent => 'Zuletzt verwendet';
+
+  @override
+  String get welcomeSearchRecentFiles =>
+      'Zuletzt verwendete Dateien durchsuchen';
+
+  @override
+  String get welcomeNoMatchingRecentFiles =>
+      'Keine zuletzt verwendeten Dateien entsprechen der Suche';
 
   @override
   String get welcomeRemoveFromRecent => 'Aus zuletzt verwendet entfernen';

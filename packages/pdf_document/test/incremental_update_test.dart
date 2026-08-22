@@ -74,6 +74,26 @@ void main() {
     expect(incremental.info['Title'], 'After');
   });
 
+  test('older wrappers lazily invalidate page-tree caches on a shared update',
+      () {
+    final original = buildMultiPagePdf(4);
+    final older = PdfDocument.open(original);
+    final oldThird = older.page(2);
+    expect(older.pageIndexOf(oldThird.dict), 2,
+        reason: 'warms the older wrapper leaf/index caches');
+
+    final editor = PdfEditor(older)
+      ..addSquare(2, const PdfRect(20, 20, 80, 80));
+    final newer = older.withIncrementalUpdate(editor.save());
+    final currentThird = newer.page(2);
+
+    expect(identical(older.cos, newer.cos), isTrue);
+    expect(currentThird.dict, isNot(same(oldThird.dict)),
+        reason: 'the redefined page dictionary was re-read');
+    expect(older.pageIndexOf(currentThird.dict), 2,
+        reason: 'the older wrapper noticed the shared COS revision');
+  });
+
   test('rejects a non-append buffer', () {
     final original = buildMultiPagePdf(2);
     final shorter = Uint8List.sublistView(original, 0, original.length - 1);

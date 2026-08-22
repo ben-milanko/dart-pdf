@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the SDK demo for the web with a freshly regenerated bundled render
+# Builds the SDK demo for the web with a freshly regenerated self-hosted render
 # worker and content-hashed stable resource URLs.
 set -euo pipefail
 
@@ -11,9 +11,8 @@ cd "$EXAMPLE_DIR"
 DART="${DART:-fvm dart}"
 FLUTTER="${FLUTTER:-fvm flutter}"
 
-echo "==> Regenerating the bundled render worker asset"
-$DART run dart_pdf_editor:build_web_worker \
-  --out ../../dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js
+echo "==> Regenerating the self-hosted render worker"
+$DART run dart_pdf_editor:build_web_worker
 
 echo "==> flutter build web $*"
 $FLUTTER build web "$@"

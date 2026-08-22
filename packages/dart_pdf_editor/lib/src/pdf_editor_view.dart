@@ -234,6 +234,7 @@ class PdfEditorView extends StatefulWidget {
     this.pageOverlayBuilder,
     this.annotationMenuBuilder,
     this.contextMenuEnabled = true,
+    this.showSelectionChip = true,
     this.onContextMenuRequested,
     this.formImagePicker,
     this.imagePicker,
@@ -324,6 +325,7 @@ class PdfEditorView extends StatefulWidget {
     this.pageOverlayBuilder,
     this.annotationMenuBuilder,
     this.contextMenuEnabled = true,
+    this.showSelectionChip = true,
     this.onContextMenuRequested,
     this.formImagePicker,
     this.imagePicker,
@@ -503,6 +505,9 @@ class PdfEditorView extends StatefulWidget {
 
   /// See [PdfViewer.contextMenuEnabled].
   final bool contextMenuEnabled;
+
+  /// See [PdfViewer.showSelectionChip].
+  final bool showSelectionChip;
 
   /// See [PdfViewer.onContextMenuRequested].
   final PdfContextMenuHost? onContextMenuRequested;
@@ -768,6 +773,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         pageOverlayBuilder: widget.pageOverlayBuilder,
         annotationMenuBuilder: widget.annotationMenuBuilder,
         contextMenuEnabled: widget.contextMenuEnabled,
+        showSelectionChip: widget.showSelectionChip,
         onContextMenuRequested: widget.onContextMenuRequested,
         formImagePicker: widget.formImagePicker,
         imagePicker: widget.imagePicker,
@@ -1418,6 +1424,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         pageOverlayBuilder: widget.pageOverlayBuilder,
                         annotationMenuBuilder: widget.annotationMenuBuilder,
                         contextMenuEnabled: widget.contextMenuEnabled,
+                        showSelectionChip: widget.showSelectionChip,
                         onContextMenuRequested: widget.onContextMenuRequested,
                         formImagePicker: widget.formImagePicker,
                         imagePicker: widget.imagePicker,

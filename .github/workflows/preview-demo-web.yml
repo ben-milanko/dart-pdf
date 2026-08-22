@@ -9,6 +9,7 @@ on:
       - packages/pdf_document/**
       - packages/pdf_graphics/**
       - packages/dart_pdf_editor/**
+      - tool/patrol_perf_summary.dart
 
 concurrency:
   group: demo-web-preview-${{ github.event.pull_request.number }}
@@ -16,11 +17,14 @@ concurrency:
 
 env:
   FIREBASE_TOOLS_VERSION: 15.22.4
+  PATROL_CLI_VERSION: 4.7.0
+  PATROL_ANALYTICS_ENABLED: "false"
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
 
     steps:
@@ -59,6 +63,197 @@ jobs:
           name: demo-web-preview
           path: ${{ runner.temp }}/demo-preview
           if-no-files-found: error
+
+      # Continue into the browser E2E journey on the same runner so Patrol
+      # reuses this job's checkout, Flutter toolchain, and resolved workspace.
+      - name: Install Patrol CLI
+        run: |
+          dart pub global activate patrol_cli "$PATROL_CLI_VERSION"
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+
+      - name: Run Patrol on web
+        id: patrol-web
+        working-directory: packages/dart_pdf_editor/example
+        shell: bash
+        run: |
+          set -o pipefail
+          patrol test \
+            --device chrome \
+            --target patrol_test/demo_e2e_test.dart \
+            --dart-define PDF_PERF_LOG=true \
+            --dart-define PDF_BUILD_COMMIT=${{ github.event.pull_request.head.sha }} \
+            --show-flutter-logs \
+            --web-headless \
+            --web-locale en-US \
+            --web-workers 1 \
+            --web-video retain-on-failure \
+            --verbose \
+            2>&1 | tee "$RUNNER_TEMP/patrol-web.log"
+
+      - name: Run Patrol performance scenario
+        id: patrol-perf
+        working-directory: packages/dart_pdf_editor/example
+        shell: bash
+        run: |
+          set -o pipefail
+          patrol test \
+            --device chrome \
+            --target patrol_test/perf_e2e_test.dart \
+            --dart-define PDF_PERF_LOG=true \
+            --dart-define PDF_BUILD_COMMIT=${{ github.event.pull_request.head.sha }} \
+            --show-flutter-logs \
+            --web-headless \
+            --web-locale en-US \
+            --web-workers 1 \
+            --web-viewport '{"width":2600,"height":2600}' \
+            --web-video retain-on-failure \
+            --verbose \
+            2>&1 | tee -a "$RUNNER_TEMP/patrol-web.log"
+
+      - name: Download latest main Patrol web baseline
+        id: patrol-baseline
+        if: always()
+        working-directory: packages/dart_pdf_editor/example
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -t baseline_runs < <(gh run list \
+            --workflow patrol-e2e.yml \
+            --branch main \
+            --event push \
+            --limit 10 \
+            --json databaseId \
+            --jq '.[].databaseId')
+          for baseline_run in "${baseline_runs[@]}"; do
+            destination="$RUNNER_TEMP/patrol-baseline/$baseline_run"
+            if gh run download "$baseline_run" \
+              --name patrol-web-results \
+              --dir "$destination"; then
+              json="$destination/test-results/perf/patrol-perf.json"
+              if [[ -f "$json" ]]; then
+                echo "json=$json" >> "$GITHUB_OUTPUT"
+                echo "Using Patrol web baseline from run $baseline_run"
+                exit 0
+              fi
+            fi
+          done
+          echo "::notice::No usable main Patrol web artifact is available yet"
+
+      - name: Collect Patrol performance trace
+        if: always()
+        working-directory: packages/dart_pdf_editor/example
+        shell: bash
+        run: |
+          set -euo pipefail
+          arguments=(
+            "$RUNNER_TEMP/patrol-web.log"
+            --output test-results/perf
+            --markdown "$GITHUB_STEP_SUMMARY"
+          )
+          baseline="${{ steps.patrol-baseline.outputs.json }}"
+          if [[ -f "$baseline" ]]; then
+            arguments+=(--baseline "$baseline")
+          fi
+          dart ../../../tool/patrol_perf_summary.dart "${arguments[@]}"
+
+      - name: Upload Patrol web results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: patrol-web-results
+          path: |
+            packages/dart_pdf_editor/example/test-results
+            packages/dart_pdf_editor/example/playwright-report
+          if-no-files-found: ignore
+
+  report:
+    name: Patrol performance report
+    if: >-
+      always() &&
+      needs.build.result != 'cancelled' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Download Patrol web results
+        id: patrol-results
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: patrol-web-results
+          path: patrol-results
+
+      - name: Comment Patrol performance report
+        if: always()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        env:
+          PATROL_MARKER: dart-pdf-patrol-performance
+          PATROL_HEADLINE: patrol-results/test-results/perf/patrol-perf-headline.md
+          PATROL_SUMMARY: patrol-results/test-results/perf/patrol-perf.md
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = `<!-- ${process.env.PATROL_MARKER} -->`;
+            const headlinePath = process.env.PATROL_HEADLINE;
+            const summaryPath = process.env.PATROL_SUMMARY;
+            const sha = context.payload.pull_request.head.sha.slice(0, 7);
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const summary = fs.existsSync(summaryPath)
+              ? fs.readFileSync(summaryPath, 'utf8').trim()
+              : [
+                  '## Patrol web performance',
+                  '',
+                  'No performance summary artifact was produced. Open the workflow run for the failing step and raw logs.',
+                ].join('\n');
+            const headline = fs.existsSync(headlinePath)
+              ? fs.readFileSync(headlinePath, 'utf8').trim()
+              : 'No headline performance summary was produced.';
+            const body = [
+              marker,
+              '## Patrol web performance',
+              '',
+              `Automated for commit \`${sha}\` · [workflow run and downloadable trace artifact](${runUrl})`,
+              '',
+              headline,
+              '',
+              '<details>',
+              '<summary>View browser performance details</summary>',
+              '',
+              summary,
+              '',
+              '</details>',
+            ].join('\n');
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find((comment) =>
+              comment.user?.type === 'Bot' && comment.body?.includes(marker)
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
 
   deploy:
     # Fork and Dependabot PRs do not receive repository secrets. Other same-repo

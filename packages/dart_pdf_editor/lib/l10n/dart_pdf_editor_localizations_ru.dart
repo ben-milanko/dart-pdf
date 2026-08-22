@@ -1628,6 +1628,9 @@ class DartPdfEditorLocalizationsRu extends DartPdfEditorLocalizations {
   String get tbNameEraser => 'Стереть рукописные штрихи';
 
   @override
+  String get tbNameHand => 'Рука';
+
+  @override
   String get tbNameHighlight => 'Выделение';
 
   @override

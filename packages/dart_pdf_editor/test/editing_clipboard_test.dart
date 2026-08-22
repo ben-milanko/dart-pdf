@@ -3,6 +3,7 @@
 // toolbar wiring).
 
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart'
     show PointerDeviceKind, kSecondaryMouseButton;
@@ -79,7 +80,7 @@ void main() {
       expect(editing.selectedAnnotationSlots, [(1, 0)]);
     });
 
-    test('paste centers on a point and clamps into the crop box', () {
+    test('paste centers on a point, off the page edge included', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..addRectangle(0, const PdfRect(100, 650, 250, 750));
       addTearDown(editing.dispose);
@@ -90,10 +91,38 @@ void main() {
       expect(editing.document.page(0).annotations[1].rect,
           const PdfRect(225, 350, 375, 450));
 
-      // a corner point clamps the 150×100 group inside the page
+      // a corner point is the point: the 150×100 group centers there and
+      // hangs off the page rather than jumping back inside it
       editing.pasteAnnotations(0, at: (5, 5));
       expect(editing.document.page(0).annotations[2].rect,
-          const PdfRect(0, 0, 150, 100));
+          const PdfRect(-70, -45, 80, 55));
+    });
+
+    test('the point-less paste cascade stays tethered to the page', () {
+      // Without a point to paste at there is nothing the user aimed at, so
+      // the cascade keeps a strip of the copy on the paper instead of
+      // marching it off the edge over repeats.
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(500, 40, 600, 100));
+      addTearDown(editing.dispose);
+      editing.selectAnnotation(0, 0);
+      editing.copySelectedAnnotations();
+
+      final box = editing.document.page(0).cropBox;
+      for (var i = 0; i < 40; i++) {
+        editing.pasteAnnotations(0);
+      }
+      const tether = PdfEditingController.pageTether;
+      expect(editing.document.page(0).annotations, hasLength(41));
+      for (final annotation in editing.document.page(0).annotations) {
+        final rect = annotation.rect;
+        final overlapX =
+            math.min(rect.right, box.right) - math.max(rect.left, box.left);
+        final overlapY =
+            math.min(rect.top, box.top) - math.max(rect.bottom, box.bottom);
+        expect(overlapX, greaterThanOrEqualTo(tether - 1e-6));
+        expect(overlapY, greaterThanOrEqualTo(tether - 1e-6));
+      }
     });
 
     test('cut removes in one undo step and the clipboard survives undo', () {

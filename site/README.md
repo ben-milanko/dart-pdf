@@ -12,6 +12,8 @@ up against the real product facts.
   web font from Google Fonts.
 - `sdk.html` serves the canonical `/flutter-pdf-editor` developer landing page.
   Firebase permanently redirects the old `/sdk` URL to it.
+- `guides/add-pdf-editing-to-flutter.html` is the answer-first integration
+  tutorial served at `/guides/add-pdf-editing-to-flutter`.
 - `privacy.html` is the privacy policy, mirroring `app/PRIVACY.md`. This is the
   URL to use for the App Store / Play Store "privacy policy" listing field.
 - `404.html` is the not-found page. Firebase Hosting serves it automatically
@@ -23,10 +25,11 @@ up against the real product facts.
 
 ## Localization (i18n)
 
-The site is translated into the same 19 non-English locales the DartPDF app
-ships (ar, de, es, fr, hi, id, it, ja, ko, nl, pl, pt, ru, th, tr, uk, vi, zh,
-zh-Hant), with English as the source. It uses a lightweight client-side system —
-no build step, no framework:
+The marketing, support, and SDK overview pages are translated into the same 19
+non-English locales the DartPDF app ships (ar, de, es, fr, hi, id, it, ja, ko,
+nl, pl, pt, ru, th, tr, uk, vi, zh, zh-Hant), with English as the source. The
+developer integration guide is English-only. The localized pages use a
+lightweight client-side system — no build step, no framework:
 
 - `i18n/en.json` is the **source of truth**: a flat map of key → English
   string covering every page. It is also the runtime fallback.

@@ -201,8 +201,11 @@ priority queue and protocol, and the app is wired up:
   `dart run dart_pdf_editor:build_web_worker` still builds a self-hosted worker
   for apps that want to override `pdfRenderWorkerScriptUrl`. The live web
   deploys (the demo at `dart-pdf-demo.web.app` and the app at
-  `dartpdf-app.web.app`) ship the `--wasm` renderer with COOP/COEP headers. See
-  `deploy-demo-web.yml` and the firebase configs.
+  `dartpdf-app.web.app`) build the default JS/CanvasKit renderer - **not**
+  `--wasm`, which benchmarks slower for page rasterization - and serve it with
+  COOP/COEP headers, so a worker pool can still share the document bytes
+  through `SharedArrayBuffer`. See `deploy-demo-web.yml`, `deploy-app-web.yml`
+  and the firebase configs.
 - `dart compile js` of the worker entry **succeeds** (~857 KB bundle), so the
   `dart:js_interop` / `package:web` usage is valid on the web toolchain.
 - **Verified live** under `flutter run -d chrome` against the 41 MB / 133-page
@@ -285,3 +288,26 @@ in-worker bootstrap (its `.mjs` loader instantiating the module) and buys little
 because the worker is already off the main thread. A skwasm host that sets
 COOP/COEP for its own raster threads now also lets the render worker share the
 opened document bytes across the worker pool.
+
+### One thing a Wasm host does need: worker cache-busting
+
+The *runtime* needs no special handling; the *deploy* does.
+`tool/web_cache_bust.sh` gives the worker URL a `?v=<content hash>` by
+rewriting the string literal inside the compiled output, which is why hosting
+can serve `assets/**.js` with a year of `max-age`. dart2wasm does not store
+string literals as plain UTF-8 or UTF-16 in the module - a `dart compile wasm`
+of a program holding this very URL contains no byte sequence matching it in
+either encoding - so under `--wasm` that reference can be neither rewritten
+nor even detected.
+
+Left alone, a Wasm deploy therefore ships the bare, stable worker URL under a
+year-long immutable cache: every returning browser keeps whatever it fetched
+first, which may be an old worker or the committed placeholder that throws on
+load - and a session with no worker runs every page interpret, image decode and
+thumbnail on the main thread (issue #699). Nothing surfaces it but the
+`webworker …` lines in a `?perf=1` trace.
+
+So `tool/web_cache_bust.sh` **refuses** a build directory containing
+`main.dart.wasm`. Either build without `--wasm`, or serve
+`pdf_render_worker.dart.js` with revalidation (`Cache-Control: no-cache`) in
+the hosting config and re-run with `WORKER_URL_REVALIDATED=1`.

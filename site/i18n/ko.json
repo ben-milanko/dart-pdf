@@ -140,6 +140,7 @@
   "sdk_nav_features": "기능",
   "sdk_nav_performance": "성능",
   "sdk_nav_compare": "비교",
+  "sdk_nav_guide": "가이드",
   "sdk_nav_packages": "패키지",
   "sdk_nav_getpub": "pub.dev에서 받기",
   "sdk_hero_h1": "Flutter를 위한 PDF 뷰어 및 편집기, <span class=\"hl\">전적으로\n          Dart로 작성.</span>",

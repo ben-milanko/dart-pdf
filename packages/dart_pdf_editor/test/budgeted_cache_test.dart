@@ -53,6 +53,28 @@ void main() {
       expect(cache.length, 1);
       expect(cache.keys, [1]);
     });
+
+    test('remapKeys preserves values, weight, and LRU order', () {
+      final dropped = <int>[];
+      final cache = PdfBudgetedCache<int, _Res>(
+        weigher: (resource) => resource.weight,
+        maxWeight: 100,
+        maxEntries: 3,
+        disposer: (resource) => dropped.add(resource.id),
+      );
+      cache.put(0, _Res(0, weight: 10));
+      cache.put(1, _Res(1, weight: 20));
+      cache.put(2, _Res(2, weight: 30));
+
+      cache.remapKeys((key) => [2, 0, 1][key]);
+
+      expect(cache.keys, [2, 0, 1]);
+      expect(cache.peek(2)!.id, 0);
+      expect(cache.peek(0)!.id, 1);
+      expect(cache.peek(1)!.id, 2);
+      expect(cache.weight, 60);
+      expect(dropped, isEmpty);
+    });
   });
 
   group('weight budget', () {

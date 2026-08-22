@@ -72,6 +72,46 @@ void main() {
     expect(editing.document.page(0).annotations, hasLength(6));
   });
 
+  testWidgets('cold annotation appearances are paced across frames',
+      (tester) async {
+    final editing = PdfEditingController(buildMultiPagePdf(1));
+    addTearDown(editing.dispose);
+    for (var i = 0; i < 6; i++) {
+      editing.addRectangle(
+        0,
+        PdfRect(50.0 + i * 20, 600, 65.0 + i * 20, 620),
+      );
+    }
+
+    var renders = 0;
+    PdfViewer.debugAnnotationAppearanceRendererOverride = (_, __, ___) async {
+      renders++;
+      final recorder = ui.PictureRecorder();
+      Canvas(recorder).drawRect(
+        const Rect.fromLTWH(0, 0, 1, 1),
+        Paint()..color = const Color(0xFF000000),
+      );
+      return recorder.endRecording();
+    };
+    addTearDown(
+        () => PdfViewer.debugAnnotationAppearanceRendererOverride = null);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PdfViewer(
+          initialFit: PdfViewerFit.width,
+          document: editing.document,
+          editing: editing,
+        ),
+      ),
+    ));
+
+    expect(renders, lessThan(6),
+        reason: 'the opening frame must not synchronously start every scan');
+    await tester.pumpAndSettle();
+    expect(renders, 6);
+  });
+
   testWidgets('restyling one annotation keeps the other on screen',
       (tester) async {
     final editing = await pumpViewer(tester);
@@ -130,6 +170,7 @@ void main() {
     expect(editing.selectAnnotation(0, 0), isTrue);
     expect(editing.restyleSelected(color: const Color(0xFF00FF00)), isTrue);
     await tester.pump();
+    await tester.pump();
     expect(delayedRenders, 1);
 
     await tester.pumpWidget(const SizedBox.shrink());
@@ -158,56 +199,56 @@ void main() {
   // layer was rebuilt (a tab switch). The /Rect must be part of the key.
   testWidgets('moving an annotation repaints it at the new /Rect',
       (tester) async {
-    await tester.runAsync(() async {
-      tester.view.devicePixelRatio = 1.0;
-      tester.view.physicalSize = const Size(300, 460);
-      addTearDown(tester.view.reset);
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = const Size(300, 460);
+    addTearDown(tester.view.reset);
 
-      final editing = PdfEditingController(buildMultiPagePdf(1));
-      addTearDown(editing.dispose);
-      editing.preferences
-        ..shapeFillColor = const Color(0xFFFF0000)
-        ..opacity = 1.0;
-      editing.color = const Color(0xFFFF0000);
+    final editing = PdfEditingController(buildMultiPagePdf(1));
+    addTearDown(editing.dispose);
+    editing.preferences
+      ..shapeFillColor = const Color(0xFFFF0000)
+      ..opacity = 1.0;
+    editing.color = const Color(0xFFFF0000);
 
-      final boundaryKey = GlobalKey();
-      await tester.pumpWidget(RepaintBoundary(
-        key: boundaryKey,
-        child: MaterialApp(
-          home: Scaffold(
-            body: ListenableBuilder(
-              listenable: editing,
-              builder: (context, _) => PdfViewer(
-                initialFit: PdfViewerFit.width,
-                document: editing.document,
-                editing: editing,
-              ),
+    final boundaryKey = GlobalKey();
+    await tester.pumpWidget(RepaintBoundary(
+      key: boundaryKey,
+      child: MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: editing,
+            builder: (context, _) => PdfViewer(
+              initialFit: PdfViewerFit.width,
+              document: editing.document,
+              editing: editing,
             ),
           ),
         ),
-      ));
-      await tester.pumpAndSettle();
+      ),
+    ));
+    await tester.pumpAndSettle();
 
-      // A solid-red box near the top of the page, then the same box slid far
-      // down (same appearance stream, new /Rect).
-      const oldRect = PdfRect(120, 620, 260, 700);
-      const newRect = PdfRect(120, 120, 260, 200);
-      editing.addRectangle(0, oldRect);
-      await tester.pumpAndSettle();
+    // A solid-red box near the top of the page, then the same box slid far
+    // down (same appearance stream, new /Rect).
+    const oldRect = PdfRect(120, 620, 260, 700);
+    const newRect = PdfRect(120, 120, 260, 200);
+    editing.addRectangle(0, oldRect);
+    await tester.pumpAndSettle();
 
-      final pageRect = tester.getRect(find.byType(PdfPageView).first);
-      final geometry = PdfPageGeometry(
-        cropBox: editing.document.page(0).cropBox,
-        rotation: 0,
-        viewSize: pageRect.size,
-      );
-      Offset centerOf(PdfRect r) =>
-          pageRect.topLeft + geometry.toViewRect(r).center;
-      final oldCenter = centerOf(oldRect);
-      final newCenter = centerOf(newRect);
+    final pageRect = tester.getRect(find.byType(PdfPageView).first);
+    final geometry = PdfPageGeometry(
+      cropBox: editing.document.page(0).cropBox,
+      rotation: 0,
+      viewSize: pageRect.size,
+    );
+    Offset centerOf(PdfRect r) =>
+        pageRect.topLeft + geometry.toViewRect(r).center;
+    final oldCenter = centerOf(oldRect);
+    final newCenter = centerOf(newRect);
 
-      // Count red pixels in an 11×11 window around a boundary-local point.
-      Future<int> reds(Offset at) async {
+    // Count red pixels in an 11×11 window around a boundary-local point.
+    Future<int> reds(Offset at) async {
+      return (await tester.runAsync(() async {
         final boundary =
             tester.renderObject<RenderRepaintBoundary>(find.byKey(boundaryKey));
         final image = await boundary.toImage();
@@ -230,29 +271,29 @@ void main() {
           }
         }
         return count;
-      }
+      }))!;
+    }
 
-      // The box paints where it was added and nowhere it wasn't.
-      expect(await reds(oldCenter), greaterThan(20),
-          reason: 'the added box should paint at its /Rect');
-      expect(await reds(newCenter), 0,
-          reason: 'nothing painted at the destination yet');
+    // The box paints where it was added and nowhere it wasn't.
+    expect(await reds(oldCenter), greaterThan(20),
+        reason: 'the added box should paint at its /Rect');
+    expect(await reds(newCenter), 0,
+        reason: 'nothing painted at the destination yet');
 
-      // Slide it down by 500pt and let the appearance layer re-render.
-      editing
-        ..tool = PdfEditTool.select
-        ..selectAnnotation(0, 0);
-      editing.moveSelected(0, newRect.bottom - oldRect.bottom);
-      await tester.pumpAndSettle();
-      expect(editing.document.page(0).annotations.single.rect, newRect);
+    // Slide it down by 500pt and let the appearance layer re-render.
+    editing
+      ..tool = PdfEditTool.select
+      ..selectAnnotation(0, 0);
+    editing.moveSelected(0, newRect.bottom - oldRect.bottom);
+    await tester.pumpAndSettle();
+    expect(editing.document.page(0).annotations.single.rect, newRect);
 
-      // The picture must follow the box: red at the new spot, gone from the
-      // old one. Before the fix the stale cached picture stayed put and the
-      // old spot was still red.
-      expect(await reds(newCenter), greaterThan(20),
-          reason: 'the moved box must repaint at its new /Rect');
-      expect(await reds(oldCenter), 0,
-          reason: 'the stale picture must not linger at the old /Rect');
-    });
+    // The picture must follow the box: red at the new spot, gone from the
+    // old one. Before the fix the stale cached picture stayed put and the
+    // old spot was still red.
+    expect(await reds(newCenter), greaterThan(20),
+        reason: 'the moved box must repaint at its new /Rect');
+    expect(await reds(oldCenter), 0,
+        reason: 'the stale picture must not linger at the old /Rect');
   });
 }

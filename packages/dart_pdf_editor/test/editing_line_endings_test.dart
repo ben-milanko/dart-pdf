@@ -67,7 +67,7 @@ void main() {
           (PdfLineEnding.none, PdfLineEnding.none));
     });
 
-    test('canSetLineEndings is false for shapes and multi-selection', () {
+    test('mixed selections expose endings for their compatible lines', () {
       final editing = PdfEditingController(buildMultiPagePdf(1))
         ..addRectangle(0, const PdfRect(100, 100, 200, 200))
         ..addLine(0, (100, 240), (220, 300))
@@ -78,8 +78,13 @@ void main() {
       expect(editing.canSetLineEndings, isFalse);
       expect(editing.selectedLineEndings, isNull);
 
-      editing.selectAllAnnotationsOn(0); // both
-      expect(editing.canSetLineEndings, isFalse);
+      editing.selectAllAnnotationsOn(0); // square + line
+      expect(editing.canSetLineEndings, isTrue);
+      editing.setSelectedLineEndings(end: PdfLineEnding.circle);
+      final annotations = editing.document.page(0).annotations;
+      expect(annotations[0].subtype, 'Square');
+      expect(pdfLineEndings(annotations[1]),
+          (PdfLineEnding.none, PdfLineEnding.circle));
     });
   });
 
