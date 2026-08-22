@@ -241,6 +241,24 @@ class AppLocalizationsKo extends AppLocalizations {
   String get exOpenRecent => '최근 항목 열기';
 
   @override
+  String get exRecentFiles => '최근 파일';
+
+  @override
+  String get exViewAllRecentFiles => '모든 최근 파일 보기…';
+
+  @override
+  String get exSearchRecentFiles => '최근 파일 검색';
+
+  @override
+  String get exNoMatchingRecentFiles => '검색과 일치하는 최근 파일이 없습니다';
+
+  @override
+  String get exGridView => '그리드 보기';
+
+  @override
+  String get exListView => '목록 보기';
+
+  @override
   String get exOpenUrlDescription =>
       'PdfHttpByteSource를 통해 HTTP Range 요청으로 PDF를 스트리밍하여 파서가 필요로 하는 부분만 가져오고, 서버가 range를 지원하지 않으면 전체 다운로드로 대체합니다.';
 

@@ -242,6 +242,24 @@ class AppLocalizationsTr extends AppLocalizations {
   String get exOpenRecent => 'Son Kullanılanları Aç';
 
   @override
+  String get exRecentFiles => 'Son dosyalar';
+
+  @override
+  String get exViewAllRecentFiles => 'Tüm son dosyaları görüntüle…';
+
+  @override
+  String get exSearchRecentFiles => 'Son dosyalarda ara';
+
+  @override
+  String get exNoMatchingRecentFiles => 'Aramanızla eşleşen son dosya yok';
+
+  @override
+  String get exGridView => 'Izgara görünümü';
+
+  @override
+  String get exListView => 'Liste görünümü';
+
+  @override
   String get exOpenUrlDescription =>
       'PDF\'yi PdfHttpByteSource aracılığıyla HTTP Range istekleriyle akıtır, yalnızca ayrıştırıcının ihtiyaç duyduğunu getirir ve sunucunun Range desteği olmadığında tam indirmeye geri döner.';
 

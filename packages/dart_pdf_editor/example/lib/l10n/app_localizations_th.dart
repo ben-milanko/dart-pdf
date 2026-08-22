@@ -241,6 +241,24 @@ class AppLocalizationsTh extends AppLocalizations {
   String get exOpenRecent => 'เปิดล่าสุด';
 
   @override
+  String get exRecentFiles => 'ไฟล์ล่าสุด';
+
+  @override
+  String get exViewAllRecentFiles => 'ดูไฟล์ล่าสุดทั้งหมด…';
+
+  @override
+  String get exSearchRecentFiles => 'ค้นหาไฟล์ล่าสุด';
+
+  @override
+  String get exNoMatchingRecentFiles => 'ไม่มีไฟล์ล่าสุดที่ตรงกับการค้นหา';
+
+  @override
+  String get exGridView => 'มุมมองตาราง';
+
+  @override
+  String get exListView => 'มุมมองรายการ';
+
+  @override
   String get exOpenUrlDescription =>
       'สตรีม PDF ผ่านคำขอ HTTP Range ด้วย PdfHttpByteSource ดึงเฉพาะสิ่งที่ตัวแยกวิเคราะห์ต้องการ และกลับไปดาวน์โหลดทั้งหมดเมื่อเซิร์ฟเวอร์ไม่รองรับ range';
 

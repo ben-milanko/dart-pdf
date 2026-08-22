@@ -241,6 +241,24 @@ class AppLocalizationsJa extends AppLocalizations {
   String get exOpenRecent => '最近使用したファイルを開く';
 
   @override
+  String get exRecentFiles => '最近使用したファイル';
+
+  @override
+  String get exViewAllRecentFiles => '最近使用したファイルをすべて表示…';
+
+  @override
+  String get exSearchRecentFiles => '最近使用したファイルを検索';
+
+  @override
+  String get exNoMatchingRecentFiles => '検索に一致する最近使用したファイルはありません';
+
+  @override
+  String get exGridView => 'グリッド表示';
+
+  @override
+  String get exListView => 'リスト表示';
+
+  @override
   String get exOpenUrlDescription =>
       'PdfHttpByteSource を介して HTTP Range リクエストで PDF をストリーミングし、パーサーが必要とする部分のみを取得します。サーバーが範囲リクエストに対応していない場合は、全体のダウンロードにフォールバックします。';
 

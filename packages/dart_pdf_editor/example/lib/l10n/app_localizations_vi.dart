@@ -244,6 +244,25 @@ class AppLocalizationsVi extends AppLocalizations {
   String get exOpenRecent => 'Mở gần đây';
 
   @override
+  String get exRecentFiles => 'Tệp gần đây';
+
+  @override
+  String get exViewAllRecentFiles => 'Xem tất cả tệp gần đây…';
+
+  @override
+  String get exSearchRecentFiles => 'Tìm kiếm tệp gần đây';
+
+  @override
+  String get exNoMatchingRecentFiles =>
+      'Không có tệp gần đây nào khớp với tìm kiếm';
+
+  @override
+  String get exGridView => 'Chế độ xem lưới';
+
+  @override
+  String get exListView => 'Chế độ xem danh sách';
+
+  @override
   String get exOpenUrlDescription =>
       'Truyền phát PDF qua các yêu cầu HTTP Range thông qua PdfHttpByteSource, chỉ tải những gì trình phân tích cần và chuyển sang tải xuống toàn bộ khi máy chủ không hỗ trợ range.';
 

@@ -23,6 +23,7 @@ import 'feedback.dart';
 import 'persistent_cache.dart';
 import 'platform_fonts.dart';
 import 'recent_files.dart';
+import 'recent_files_view.dart';
 import 'scroll_indicator_demo.dart';
 
 /// The project's source repository, opened from the AppBar links menu.
@@ -722,11 +723,11 @@ class _ViewerScreenState extends State<ViewerScreen> {
         ),
       ];
 
-  /// The "Open Recent" entry of the app menu: a single row
-  /// that expands into a submenu listing remembered files (newest first)
-  /// plus a clear action. Files already open in a tab are left out - there's
-  /// no point offering a shortcut to reopen them. The row stays visible
-  /// even when empty, so users can discover where recents will appear.
+  /// The "Open Recent" entry of the app menu: a single row that expands into
+  /// a submenu with a full-browser action, quick-open files (newest first),
+  /// and a clear action. Files already open in a tab are left out - there's
+  /// no point offering a shortcut to reopen them. The row stays visible even
+  /// when empty, so users can discover where recents will appear.
   List<PopupMenuEntry<VoidCallback>> _recentMenuItems(
       BuildContext menuContext) {
     final recents = _recentMenuEntries();
@@ -774,6 +775,21 @@ class _ViewerScreenState extends State<ViewerScreen> {
                 ),
               )
             else ...[
+              PopupMenuItem<VoidCallback>(
+                key: const ValueKey('view-all-recent-files'),
+                // Let both popup routes finish dismissing before pushing the
+                // full browser; otherwise the parent menu's pop can remove
+                // the newly-pushed route instead of itself.
+                value: () => WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) _showRecentFiles();
+                }),
+                child: ListTile(
+                  leading: const Icon(Icons.apps),
+                  title: Text(appL10n(context).exViewAllRecentFiles),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              const PopupMenuDivider(),
               for (final entry in recents)
                 PopupMenuItem<VoidCallback>(
                   value: () => unawaited(_openRecent(entry)),
@@ -810,11 +826,28 @@ class _ViewerScreenState extends State<ViewerScreen> {
   }
 
   List<RecentFile> _recentMenuEntries() {
+    return _availableRecentEntries().take(_maxRecentMenuItems).toList();
+  }
+
+  List<RecentFile> _availableRecentEntries() {
     final openTitles = {for (final tab in _tabs) tab.title};
     return [
       for (final entry in _recents.entries)
         if (!openTitles.contains(entry.title)) entry,
-    ].take(_maxRecentMenuItems).toList();
+    ];
+  }
+
+  void _showRecentFiles() {
+    final openTitles = {for (final tab in _tabs) tab.title};
+    unawaited(Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => RecentFilesView(
+          store: _recents,
+          excludedTitles: openTitles,
+          onOpen: (entry) => unawaited(_openRecent(entry)),
+        ),
+      ),
+    ));
   }
 
   void _openMostRecent() {

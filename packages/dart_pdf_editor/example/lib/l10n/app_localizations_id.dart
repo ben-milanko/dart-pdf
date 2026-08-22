@@ -243,6 +243,25 @@ class AppLocalizationsId extends AppLocalizations {
   String get exOpenRecent => 'Buka Terkini';
 
   @override
+  String get exRecentFiles => 'Berkas terkini';
+
+  @override
+  String get exViewAllRecentFiles => 'Lihat semua berkas terkini…';
+
+  @override
+  String get exSearchRecentFiles => 'Cari berkas terkini';
+
+  @override
+  String get exNoMatchingRecentFiles =>
+      'Tidak ada berkas terkini yang cocok dengan pencarian Anda';
+
+  @override
+  String get exGridView => 'Tampilan kisi';
+
+  @override
+  String get exListView => 'Tampilan daftar';
+
+  @override
   String get exOpenUrlDescription =>
       'Mengalirkan PDF melalui permintaan HTTP Range via PdfHttpByteSource, hanya mengambil apa yang diperlukan parser dan beralih ke unduhan penuh saat server tidak mendukung range.';
 

@@ -245,6 +245,25 @@ class AppLocalizationsNl extends AppLocalizations {
   String get exOpenRecent => 'Recent openen';
 
   @override
+  String get exRecentFiles => 'Recente bestanden';
+
+  @override
+  String get exViewAllRecentFiles => 'Alle recente bestanden bekijken…';
+
+  @override
+  String get exSearchRecentFiles => 'Recente bestanden doorzoeken';
+
+  @override
+  String get exNoMatchingRecentFiles =>
+      'Geen recente bestanden komen overeen met je zoekopdracht';
+
+  @override
+  String get exGridView => 'Rasterweergave';
+
+  @override
+  String get exListView => 'Lijstweergave';
+
+  @override
   String get exOpenUrlDescription =>
       'Streamt de PDF via HTTP Range-verzoeken met PdfHttpByteSource, waarbij alleen wordt opgehaald wat de parser nodig heeft en teruggevallen wordt op een volledige download wanneer de server geen range-ondersteuning heeft.';
 

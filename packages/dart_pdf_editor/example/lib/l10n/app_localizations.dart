@@ -511,6 +511,42 @@ abstract class AppLocalizations {
   /// **'Open Recent'**
   String get exOpenRecent;
 
+  /// Title of the full recent-files browser.
+  ///
+  /// In en, this message translates to:
+  /// **'Recent files'**
+  String get exRecentFiles;
+
+  /// Open Recent submenu action that opens the full recent-files browser.
+  ///
+  /// In en, this message translates to:
+  /// **'View all recent files…'**
+  String get exViewAllRecentFiles;
+
+  /// Hint for the recent-files filename search field.
+  ///
+  /// In en, this message translates to:
+  /// **'Search recent files'**
+  String get exSearchRecentFiles;
+
+  /// Empty state when recent-file search has no matches.
+  ///
+  /// In en, this message translates to:
+  /// **'No recent files match your search'**
+  String get exNoMatchingRecentFiles;
+
+  /// Tooltip that switches the recent-files browser to a grid.
+  ///
+  /// In en, this message translates to:
+  /// **'Grid view'**
+  String get exGridView;
+
+  /// Tooltip that switches the recent-files browser to a list.
+  ///
+  /// In en, this message translates to:
+  /// **'List view'**
+  String get exListView;
+
   /// Explanatory text in the open-from-URL dialog about how remote loading works.
   ///
   /// In en, this message translates to:

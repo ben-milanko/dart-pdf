@@ -357,6 +357,30 @@
   "@exOpenRecent": {
     "description": "App menu row that expands into the list of recently opened files."
   },
+  "exRecentFiles": "Recent files",
+  "@exRecentFiles": {
+    "description": "Title of the full recent-files browser."
+  },
+  "exViewAllRecentFiles": "View all recent files…",
+  "@exViewAllRecentFiles": {
+    "description": "Open Recent submenu action that opens the full recent-files browser."
+  },
+  "exSearchRecentFiles": "Search recent files",
+  "@exSearchRecentFiles": {
+    "description": "Hint for the recent-files filename search field."
+  },
+  "exNoMatchingRecentFiles": "No recent files match your search",
+  "@exNoMatchingRecentFiles": {
+    "description": "Empty state when recent-file search has no matches."
+  },
+  "exGridView": "Grid view",
+  "@exGridView": {
+    "description": "Tooltip that switches the recent-files browser to a grid."
+  },
+  "exListView": "List view",
+  "@exListView": {
+    "description": "Tooltip that switches the recent-files browser to a list."
+  },
   "exOpenUrlDescription": "Streams the PDF over HTTP Range requests via PdfHttpByteSource, fetching only what the parser needs and falling back to a full download when the server has no range support.",
   "@exOpenUrlDescription": {
     "description": "Explanatory text in the open-from-URL dialog about how remote loading works."

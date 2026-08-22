@@ -250,6 +250,25 @@ class AppLocalizationsRu extends AppLocalizations {
   String get exOpenRecent => 'Открыть недавние';
 
   @override
+  String get exRecentFiles => 'Недавние файлы';
+
+  @override
+  String get exViewAllRecentFiles => 'Показать все недавние файлы…';
+
+  @override
+  String get exSearchRecentFiles => 'Поиск по недавним файлам';
+
+  @override
+  String get exNoMatchingRecentFiles =>
+      'Нет недавних файлов, соответствующих поиску';
+
+  @override
+  String get exGridView => 'Вид сеткой';
+
+  @override
+  String get exListView => 'Вид списком';
+
+  @override
   String get exOpenUrlDescription =>
       'Передаёт PDF через HTTP-запросы Range с помощью PdfHttpByteSource, загружая только то, что нужно парсеру, и переходя к полной загрузке, когда сервер не поддерживает диапазоны.';
 

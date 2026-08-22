@@ -243,6 +243,25 @@ class AppLocalizationsHi extends AppLocalizations {
   String get exOpenRecent => 'हाल ही में खोले गए';
 
   @override
+  String get exRecentFiles => 'हाल की फ़ाइलें';
+
+  @override
+  String get exViewAllRecentFiles => 'सभी हाल की फ़ाइलें देखें…';
+
+  @override
+  String get exSearchRecentFiles => 'हाल की फ़ाइलें खोजें';
+
+  @override
+  String get exNoMatchingRecentFiles =>
+      'आपकी खोज से मेल खाने वाली कोई हाल की फ़ाइल नहीं है';
+
+  @override
+  String get exGridView => 'ग्रिड दृश्य';
+
+  @override
+  String get exListView => 'सूची दृश्य';
+
+  @override
   String get exOpenUrlDescription =>
       'PdfHttpByteSource के माध्यम से HTTP Range अनुरोधों पर PDF स्ट्रीम करता है, केवल वही लाता है जो पार्सर को चाहिए, और सर्वर पर रेंज समर्थन न होने पर पूर्ण डाउनलोड पर वापस लौट आता है।';
 
