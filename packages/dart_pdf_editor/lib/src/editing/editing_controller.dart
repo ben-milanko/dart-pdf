@@ -321,6 +321,7 @@ class PdfWorkerRevisionDelta {
     required this.baseLength,
     required this.newLength,
     required this.changedPages,
+    this.impact,
   });
 
   /// Byte length of the prefix shared with the previous revision. Revisions are
@@ -335,6 +336,13 @@ class PdfWorkerRevisionDelta {
   /// Pages whose rendering the transition changed, or null when every page may
   /// have (the worker then clears its per-page caches).
   final Set<int>? changedPages;
+
+  /// The semantic invalidation reported by the editor transaction that
+  /// produced this revision. Null only for legacy/external delta producers.
+  ///
+  /// The render worker needs [changedPages] alone; the viewer consumes the
+  /// richer lanes to reconcile page geometry and derived caches incrementally.
+  final PdfEditImpact? impact;
 }
 
 /// An editing session over a PDF document: applies edits through
@@ -611,6 +619,7 @@ class PdfEditingController extends ChangeNotifier {
             baseLength: _revisions[_cursor],
             newLength: _revisions[_cursor],
             changedPages: impact.visualPages,
+            impact: impact,
           );
     _reopen();
     _emitAnnotationChanges(impact.annotationPages);
@@ -631,6 +640,7 @@ class PdfEditingController extends ChangeNotifier {
             baseLength: beforeLength,
             newLength: _revisions[_cursor],
             changedPages: impact.visualPages,
+            impact: impact,
           );
     // redo re-extends to a revision already in the buffer: an append
     _reopen(grew: true);
@@ -823,6 +833,7 @@ class PdfEditingController extends ChangeNotifier {
             baseLength: beforeLength,
             newLength: newLength,
             changedPages: impact.visualPages,
+            impact: impact,
           );
     if (_committingRemoteRevision) _undoFloor = _cursor;
     final selected = List.of(_selected);
@@ -1312,7 +1323,9 @@ class PdfEditingController extends ChangeNotifier {
     _annotationBaseline =
         pages == null ? after : baseline.withPagesReplaced(pages, after);
 
-    if (_applyingRemote) return; // baseline advanced; don't echo the remote edit
+    if (_applyingRemote) {
+      return; // baseline advanced; don't echo the remote edit
+    }
     final changes = pdfDiffAnnotationStates(before, after);
     if (changes.isNotEmpty) feed.add(changes);
   }

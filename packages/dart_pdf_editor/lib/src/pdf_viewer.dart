@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -440,6 +441,29 @@ class PdfViewerController extends ChangeNotifier {
   /// Test hook: the namespace isolating this viewer's process-wide LoD tiles.
   @visibleForTesting
   Object? get debugTileCacheNamespace => _state?._tileCacheNamespace;
+
+  /// Number of revision swaps reconciled from their dirty-page impact without
+  /// walking/reloading the complete page list.
+  @visibleForTesting
+  int get debugIncrementalPageReconciliations =>
+      _state?._incrementalPageReconciliations ?? 0;
+
+  /// Pages inspected by the most recent successful incremental reconcile.
+  /// Null when the latest document transition used the full fallback.
+  @visibleForTesting
+  Set<int>? get debugLastIncrementallyReconciledPages =>
+      _state?._lastIncrementallyReconciledPages;
+
+  /// Opaque identity of the attached viewer's page presentation object.
+  /// Clean pages retain this across an incremental revision; dirty pages do
+  /// not, which also fences their stale asynchronous render completions.
+  @visibleForTesting
+  Object? debugPageIdentity(int index) {
+    final pages = _state?._pages;
+    return pages == null || index < 0 || index >= pages.length
+        ? null
+        : pages[index];
+  }
 
   /// Opaque identity matching this viewer to [PdfTileRasterDiagnostics].
   ///
@@ -1765,6 +1789,8 @@ class _PdfViewerState extends State<PdfViewer>
   late List<PdfPage> _pages;
   late List<(int, int)?> _pageRefs;
   late List<double> _aspects; // height / width, after /Rotate
+  int _incrementalPageReconciliations = 0;
+  Set<int>? _lastIncrementallyReconciledPages;
 
   /// The controller that owns the document revisions for a given viewer
   /// configuration, if any: the editing controller, or - when interactive
@@ -1832,7 +1858,16 @@ class _PdfViewerState extends State<PdfViewer>
       host.sync(
         document: controller.document,
         bytes: controller.bytes,
-        pageCount: controller.document.pageCount,
+        // A reported revision is non-structural, so the already-loaded count
+        // is authoritative. Asking the fresh PdfDocument wrapper for
+        // pageCount here would walk the complete page tree before the viewer's
+        // dirty-page reconciler gets a chance to bail out.
+        pageCount: delta?.impact != null &&
+                !delta!.impact!.pageStructureChanged &&
+                _loadedDocument != null &&
+                identical(_loadedDocument!.cos, controller.document.cos)
+            ? _pages.length
+            : controller.document.pageCount,
         revision: delta == null
             ? null
             : (
@@ -3588,6 +3623,11 @@ class _PdfViewerState extends State<PdfViewer>
   /// revision with no host rebuild).
   void _swapDocument({bool preserveRevisionViewport = false}) {
     final document = _document;
+    if (preserveRevisionViewport &&
+        _tryReconcileIncrementalRevision(document)) {
+      return;
+    }
+    _lastIncrementallyReconciledPages = null;
     final sameGeometry = _sameGeometryAs(document);
     if (!preserveRevisionViewport) {
       // The old namespace cannot be reached after an unrelated document swap.
@@ -3715,6 +3755,146 @@ class _PdfViewerState extends State<PdfViewer>
     setState(() {});
   }
 
+  /// Applies a non-structural append-only revision by touching only the pages
+  /// named by its [PdfEditImpact]. False selects [_swapDocument]'s existing
+  /// correctness-first full reconciliation.
+  ///
+  /// The fast path is deliberately narrow:
+  ///
+  ///  * the old and new wrappers must share one incrementally advanced COS
+  ///    graph;
+  ///  * every invalidation lane must be known (null means "all/unknown");
+  ///  * every dirty page must retain a resolvable indirect-object identity;
+  ///
+  /// Ordinary annotation edits, form fills, content stamps, metadata changes,
+  /// and page rotations satisfy those rules. A dirty page receives a fresh
+  /// [PdfPage] wrapper while clean pages retain identity, mirroring keyed child
+  /// reconciliation: clean render/cache state bails out and stale async work
+  /// for dirty pages can no longer pass identity guards.
+  bool _tryReconcileIncrementalRevision(PdfDocument document) {
+    final loaded = _loadedDocument;
+    final delta = _revisionController?.lastRevisionDelta;
+    final impact = delta?.impact;
+    if (loaded == null ||
+        impact == null ||
+        impact.pageStructureChanged ||
+        !identical(loaded.cos, document.cos)) {
+      return false;
+    }
+    final visualPages = impact.visualPages;
+    final contentPages = impact.contentPages;
+    final annotationPages = impact.annotationPages;
+    if (visualPages == null ||
+        contentPages == null ||
+        annotationPages == null) {
+      return false;
+    }
+
+    final dirtyPages = <int>{
+      ...visualPages,
+      ...contentPages,
+      ...annotationPages,
+    };
+    if (dirtyPages.any((page) => page < 0 || page >= _pages.length)) {
+      return false;
+    }
+
+    final replacements = <int, PdfPage>{};
+    final geometry = <int, (double aspect, double pointWidth)>{};
+    var geometryChanged = false;
+    for (final index in dirtyPages) {
+      final key = _pageRefs[index];
+      if (key == null) return false;
+      final resolved = document.cos.resolve(CosReference(key.$1, key.$2));
+      if (resolved is! CosDictionary) return false;
+      final page = _pages[index].forIncrementalRevision(document, resolved);
+      // Geometry is calculated only for pages the transaction dirtied. Most
+      // revisions land here: annotation/content pixels changed while the page
+      // box did not. Rotations/crop changes update their one cached record;
+      // the following pages' offsets derive from that record at layout time.
+      final nextGeometry = (_pageAspect(page), _pagePointWidth(page));
+      geometryChanged |= (nextGeometry.$1 - _aspects[index]).abs() > 1e-6 ||
+          (nextGeometry.$2 - _pointWidths[index]).abs() > 1e-6;
+      replacements[index] = page;
+      geometry[index] = nextGeometry;
+    }
+
+    final preservedViewport = geometryChanged && _pages.isNotEmpty
+        ? _pendingViewport ??
+            _captureViewport() ??
+            PdfViewport(
+              page: _controller.currentPage.clamp(0, _pages.length - 1),
+              zoom: _currentZoom,
+            )
+        : null;
+
+    _controller.clearSearch();
+    _clearSelection();
+    _pageLabels = null;
+    _outline = null;
+
+    // Invalidate only the derived lane whose inputs changed. Text extraction
+    // follows base content; annotation/action/form caches follow /Annots.
+    _textCache.removeAll(contentPages);
+    _annotCache.removeAll(annotationPages);
+    _visibleAnnotCache.removeAll(annotationPages);
+    _fieldRectCache.removeAll(annotationPages);
+
+    for (final entry in replacements.entries) {
+      final oldPage = _pages[entry.key];
+      _previewAttempts.remove(oldPage);
+      _previewVectorAttempts.remove(oldPage);
+      for (final attempted in _intermediatePreviewAttempts.values) {
+        attempted.remove(oldPage);
+      }
+      _rasterWarmAttempts.remove(oldPage);
+      _commandWarmAttempts.remove(oldPage);
+      _pages[entry.key] = entry.value;
+      final nextGeometry = geometry[entry.key]!;
+      _aspects[entry.key] = nextGeometry.$1;
+      _pointWidths[entry.key] = nextGeometry.$2;
+    }
+    if (geometryChanged) {
+      // No page is reparsed here: these reductions use the cached per-page
+      // numbers. If the dirty page became (or ceased to be) the fit reference,
+      // every item's layout scale changes naturally on the next build.
+      _maxPointWidth = _pointWidths.isEmpty ? 0 : _pointWidths.reduce(math.max);
+      _maxPointHeight = _pages.isEmpty
+          ? 0
+          : [
+              for (var i = 0; i < _pages.length; i++)
+                _aspects[i] * _pointWidths[i],
+            ].reduce(math.max);
+      _pendingViewport = preservedViewport;
+    }
+
+    _loadedDocument = document;
+    _rasteredPages.removeAll(contentPages);
+    if (dirtyPages.isEmpty) {
+      _previews.bindPages(_pages);
+    } else {
+      _previews.rebind(
+        _pages,
+        changed: contentPages.contains,
+      );
+    }
+    for (final page in contentPages) {
+      _contentStamps[page] = _contentStamp(page);
+    }
+
+    // Fence background loops started against a dirty page. Clean-page cache
+    // entries and attempt state remain warm; their page identities survived.
+    _commandWarmAnchor = null;
+    _commandWarmGeneration++;
+    _bindRasterCache(prime: false);
+    _incrementalPageReconciliations++;
+    _lastIncrementallyReconciledPages = Set<int>.unmodifiable(dirtyPages);
+    _schedulePreviewPrerender();
+    _scheduleRasterWarm();
+    setState(() {});
+    return true;
+  }
+
   /// The stable identity of a page across incremental revisions. Structural
   /// edits rewrite the page tree but retain every surviving leaf's indirect
   /// object number; newly inserted pages receive new numbers. These keys are
@@ -3758,6 +3938,28 @@ class _PdfViewerState extends State<PdfViewer>
       if ((aspect - _aspects[i]).abs() > 1e-6) return false;
     }
     return true;
+  }
+
+  int _effectiveRotationFor(PdfPage page) =>
+      ((page.rotation + _controller._viewRotation) % 360 + 360) % 360;
+
+  double _pageAspect(PdfPage page) {
+    final box = page.cropBox;
+    final sideways = switch (_effectiveRotationFor(page)) {
+      90 || 270 => true,
+      _ => false,
+    };
+    return sideways
+        ? box.width / math.max(1e-6, box.height)
+        : box.height / math.max(1e-6, box.width);
+  }
+
+  double _pagePointWidth(PdfPage page) {
+    final box = page.cropBox;
+    return switch (_effectiveRotationFor(page)) {
+      90 || 270 => math.max(1e-6, box.height),
+      _ => math.max(1e-6, box.width),
+    };
   }
 
   /// The effective display rotation of page [index], combining the page's
@@ -3927,19 +4129,8 @@ class _PdfViewerState extends State<PdfViewer>
   }
 
   void _recomputeAspects() {
-    _aspects = [
-      for (var i = 0; i < _pages.length; i++)
-        _isEffectivelySideways(i)
-            ? _pages[i].cropBox.width / math.max(1e-6, _pages[i].cropBox.height)
-            : _pages[i].cropBox.height /
-                math.max(1e-6, _pages[i].cropBox.width),
-    ];
-    _pointWidths = [
-      for (var i = 0; i < _pages.length; i++)
-        _isEffectivelySideways(i)
-            ? math.max(1e-6, _pages[i].cropBox.height)
-            : math.max(1e-6, _pages[i].cropBox.width),
-    ];
+    _aspects = [for (final page in _pages) _pageAspect(page)];
+    _pointWidths = [for (final page in _pages) _pagePointWidth(page)];
     _maxPointWidth = _pointWidths.isEmpty ? 0 : _pointWidths.reduce(math.max);
     _maxPointHeight = _pages.isEmpty
         ? 0
@@ -4011,11 +4202,6 @@ class _PdfViewerState extends State<PdfViewer>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_previews.loadFromDisk(pages));
     });
-  }
-
-  bool _isEffectivelySideways(int index) {
-    final r = _effectiveRotation(index);
-    return r == 90 || r == 270;
   }
 
   @override
@@ -8737,7 +8923,13 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                   builder: (context, _) {
                     final rasterCurrent = _rastered &&
                         _annotationLayerCurrent &&
-                        identical(widget.page.document, editing.document);
+                        // Clean page wrappers deliberately survive an
+                        // incremental revision. Their PdfDocument wrapper may
+                        // therefore be older, but it shares the one live COS
+                        // graph and its page-tree caches self-invalidate from
+                        // the COS revision generation.
+                        identical(
+                            widget.page.document.cos, editing.document.cos);
                     return editing.tool == null &&
                             !editing.isPickingColor &&
                             !editing.hasAnnotationSelection &&

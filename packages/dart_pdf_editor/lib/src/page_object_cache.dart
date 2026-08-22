@@ -76,6 +76,14 @@ class PdfPageObjectCache<V> {
   /// Drops every entry - a document or revision swap invalidates them all.
   void clear() => _entries.clear();
 
+  /// Drops the cached values for [pages], preserving every clean page's LRU
+  /// value and relative recency.
+  void removeAll(Iterable<int> pages) {
+    for (final page in pages) {
+      _entries.remove(page);
+    }
+  }
+
   /// The number of retained entries. Bounded by the configured cap.
   @visibleForTesting
   int get length => _entries.length;

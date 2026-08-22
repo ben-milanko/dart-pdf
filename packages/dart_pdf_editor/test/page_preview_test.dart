@@ -305,6 +305,55 @@ void main() {
     secondLease.dispose();
   });
 
+  testWidgets('rebind preserves retained scenes for identity-stable pages',
+      (tester) async {
+    final document = PdfDocument.open(buildMultiPagePdf(2));
+    final cleanPage = document.page(0);
+    final oldDirtyPage = document.page(1);
+    final newDirtyPage = oldDirtyPage.forIncrementalRevision(
+      document,
+      oldDirtyPage.dict,
+    );
+    final cache = PdfPagePreviewCache();
+    addTearDown(cache.dispose);
+
+    for (final (index, page) in [cleanPage, oldDirtyPage].indexed) {
+      late PdfRetainedScene scene;
+      await tester.runAsync(() async {
+        scene = await PdfRetainedScene.record(page);
+      });
+      cache
+          .retainScene(
+            index,
+            page,
+            scene,
+            plan: const PdfPageRenderPlan(),
+            fromWorker: false,
+            estimatedBytes: 1,
+          )
+          .dispose();
+    }
+
+    cache.rebind([cleanPage, newDirtyPage], changed: (index) => index == 1);
+
+    expect(cache.debugRetainedSceneCount, 1);
+    final clean = cache.retainedSceneFor(
+      0,
+      cleanPage,
+      plan: const PdfPageRenderPlan(),
+    );
+    expect(clean, isNotNull);
+    clean!.dispose();
+    expect(
+      cache.retainedSceneFor(
+        1,
+        newDirtyPage,
+        plan: const PdfPageRenderPlan(),
+      ),
+      isNull,
+    );
+  });
+
   testWidgets('cache promotes through a geometric preview ladder',
       (tester) async {
     final document = PdfDocument.open(buildClassicPdf());

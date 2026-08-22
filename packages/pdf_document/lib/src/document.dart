@@ -7,7 +7,8 @@ import 'page.dart';
 
 /// A PDF document with page-level semantics on top of the COS layer.
 class PdfDocument {
-  PdfDocument._(this.cos, [this._sourcePageCountHint]);
+  PdfDocument._(this.cos, [this._sourcePageCountHint])
+      : _pageCacheRevision = cos.revision;
 
   /// The underlying COS-level document, for anything not surfaced here yet.
   final CosDocument cos;
@@ -67,7 +68,10 @@ class PdfDocument {
   /// reference to a stream), and an index below pageCount must never
   /// make [page] throw. The walk caches in [_leafCache]; /Count is still
   /// used as the subtree-skipping hint inside [page].
-  int get pageCount => _sourcePageCountHint ?? _leaves.length;
+  int get pageCount {
+    _refreshPageCacheRevision();
+    return _sourcePageCountHint ?? _leaves.length;
+  }
 
   /// Document information dictionary (/Title, /Author, ...) as text.
   Map<String, String> get info {
@@ -85,6 +89,7 @@ class PdfDocument {
   /// Returns page [index] (zero-based), with inheritable attributes
   /// (Resources, MediaBox, CropBox, Rotate) resolved along the tree path.
   PdfPage page(int index) {
+    _refreshPageCacheRevision();
     if (index < 0) {
       throw RangeError.range(index, 0, null, 'index');
     }
@@ -126,6 +131,23 @@ class PdfDocument {
 
   List<CosDictionary>? _leafCache;
   Map<CosDictionary, int>? _leafIndexCache;
+  int _pageCacheRevision;
+
+  /// Invalidates a wrapper's page-tree caches when another wrapper sharing
+  /// the same [CosDocument] has advanced it to a new incremental revision.
+  ///
+  /// Viewer page objects deliberately survive clean-page revisions. Some of
+  /// them therefore retain an older [PdfDocument] wrapper over the same live
+  /// COS graph; making this check lazy keeps their destination/page-index
+  /// lookups correct without walking the whole page tree on every edit.
+  void _refreshPageCacheRevision() {
+    final revision = cos.revision;
+    if (_pageCacheRevision == revision) return;
+    _leafCache = null;
+    _leafIndexCache = null;
+    _pageCache.clear();
+    _pageCacheRevision = revision;
+  }
 
   /// Identity map from page dictionary to index, built alongside [_leaves].
   ///
@@ -153,6 +175,7 @@ class PdfDocument {
     _leafCache = null;
     _leafIndexCache = null;
     _pageCache.clear();
+    _pageCacheRevision = cos.revision;
   }
 
   /// Feeds an append-only incremental revision into this open document in
@@ -180,8 +203,8 @@ class PdfDocument {
   /// caller depends on the identity, applying the update in place
   /// ([applyIncrementalUpdate]) is a valid drop-in that saves this allocation.
   ///
-  /// The previous wrapper must be discarded: it shares the now-updated
-  /// [CosDocument], so its cached page tree no longer matches.
+  /// Older wrappers share the now-updated [CosDocument]. Their page-tree
+  /// caches notice the COS revision and invalidate lazily if they are retained.
   PdfDocument withIncrementalUpdate(Uint8List newBytes) {
     cos.applyIncrementalUpdate(newBytes);
     return PdfDocument._(cos);
@@ -190,7 +213,10 @@ class PdfDocument {
   /// Zero-based index of a page dictionary, or -1 if it isn't a leaf of
   /// this document's page tree. Resolved objects are cached by reference,
   /// so identity comparison is sound. Used to resolve link destinations.
-  int pageIndexOf(CosDictionary pageDict) => _leafIndex[pageDict] ?? -1;
+  int pageIndexOf(CosDictionary pageDict) {
+    _refreshPageCacheRevision();
+    return _leafIndex[pageDict] ?? -1;
+  }
 
   void _collectLeaves(
       CosDictionary node, List<CosDictionary> out, Set<CosDictionary> visited) {

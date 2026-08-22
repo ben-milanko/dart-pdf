@@ -33,6 +33,15 @@ class CosDocument {
   /// `startxref` keyword. An incremental update points /Prev here.
   int startXref;
 
+  /// Monotonic generation of this parsed object graph.
+  ///
+  /// It advances when [applyIncrementalUpdate] folds another append-only
+  /// revision into this instance. Higher layers that retain derived state over
+  /// the shared COS document can use it to invalidate that state lazily,
+  /// without making every incremental revision allocate a brand-new graph.
+  int get revision => _revision;
+  int _revision = 0;
+
   // Loaded-object cache keyed by the packed (objectNumber, generation) int
   // (see [_cacheKey]) so [getObject] - the hottest path in the package -
   // resolves a warm object without allocating a CosReference per call (#522).
@@ -198,6 +207,7 @@ class CosDocument {
     });
     _objectStreams.removeWhere((number, _) => changed.contains(number));
     _scannedHeaders = null;
+    _revision++;
     return changed;
   }
 

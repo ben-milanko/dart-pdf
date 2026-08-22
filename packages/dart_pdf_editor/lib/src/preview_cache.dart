@@ -1869,11 +1869,20 @@ class PdfPagePreviewCache extends ChangeNotifier {
   /// scroll paints blank (then re-renders) instead of flashing now-deleted
   /// content. The rest rebind in place as before.
   void rebind(List<PdfPage> pages, {bool Function(int index)? changed}) {
-    // A retained scene keeps the PdfPage it was recorded from as well as its
-    // command objects. Even an unchanged page in an incremental revision has
-    // a new document graph, so do not rebind these by index the way immutable
-    // raster pixels can be rebound.
-    _retainedScenes.clear();
+    // A retained scene keeps the exact PdfPage it was recorded from as well as
+    // its command objects. The incremental viewer reconciler preserves that
+    // identity for clean pages, so their scenes remain valid; a traditional
+    // full revision swap replaces every page object and naturally evicts all
+    // of them through this same identity check.
+    for (final key in _retainedScenes.keys.toList()) {
+      final index = key.pageIndex;
+      final entry = _retainedScenes.peek(key)!;
+      if (index >= pages.length ||
+          (changed?.call(index) ?? false) ||
+          !identical(entry.page, pages[index])) {
+        _retainedScenes.evict(key);
+      }
+    }
     bindPages(pages);
     var dropped = false;
     for (final index in _entries.keys.toList()) {

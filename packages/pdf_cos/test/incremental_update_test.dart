@@ -24,6 +24,7 @@ void main() {
         .save();
 
     final doc = CosDocument.open(original);
+    final revision = doc.revision;
     // Warm the cache for the object about to change, so the eviction path runs.
     doc.getObject(5, 0);
     doc.catalog;
@@ -31,6 +32,7 @@ void main() {
     final changed = doc.applyIncrementalUpdate(updated);
 
     expect(changed, contains(5));
+    expect(doc.revision, revision + 1);
     expect(doc.bytes.length, updated.length);
     expect(doc.startXref, greaterThan(0));
     // The redefined object resolves to the appended value (its cache entry was
@@ -80,10 +82,13 @@ void main() {
   test('rejects a buffer that is not an append', () {
     final original = buildClassicPdf();
     final doc = CosDocument.open(original);
+    final revision = doc.revision;
     final shorter = Uint8List.sublistView(original, 0, original.length - 1);
     expect(
       () => doc.applyIncrementalUpdate(shorter),
       throwsA(isA<CosParseException>()),
     );
+    expect(doc.revision, revision,
+        reason: 'a rejected transition did not advance the graph');
   });
 }

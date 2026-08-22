@@ -5,6 +5,7 @@ import 'package:flutter/gestures.dart' show kSecondaryButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:pdf_graphics/pdf_graphics.dart' show PdfTextExtractor;
@@ -1486,6 +1487,101 @@ void main() {
   });
 
   group('editing controller drives the document', () {
+    testWidgets('reconciles only dirty pages across annotation revisions',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(12));
+      addTearDown(editing.dispose);
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            initialFit: PdfViewerFit.width,
+            editing: editing,
+            controller: controller,
+            pagePreviews: false,
+            autoRenderWorker: false,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      final cleanPage = controller.debugPageIdentity(0);
+      final dirtyPage = controller.debugPageIdentity(7);
+      final presentationEpoch = controller.pagePresentationEpoch;
+      expect(controller.debugIncrementalPageReconciliations, 0);
+
+      addTearDown(() => PdfPerf.enabled = false);
+      PdfPerf.enabled = true;
+      PdfPerf.reset();
+      editing.addRectangle(7, const PdfRect(100, 100, 200, 200));
+      final revisionPerf = PdfPerf.snapshot();
+      PdfPerf.enabled = false;
+      await tester.pump();
+
+      expect(controller.debugIncrementalPageReconciliations, 1);
+      expect(
+        revisionPerf.phaseCalls[PdfPerfPhase.pageTreeWalk.index],
+        0,
+        reason: 'a dirty-page reconcile must not walk the whole page tree',
+      );
+      expect(controller.debugLastIncrementallyReconciledPages, {7});
+      expect(controller.debugPageIdentity(0), same(cleanPage),
+          reason: 'a clean keyed page must bail out');
+      expect(controller.debugPageIdentity(7), isNot(same(dirtyPage)),
+          reason: 'the dirty page gets a new async-completion fence');
+      expect(controller.pagePresentationEpoch, presentationEpoch,
+          reason: 'a non-structural edit keeps the page-slot lineage');
+
+      final firstDirtyRevision = controller.debugPageIdentity(7);
+      editing.addRectangle(7, const PdfRect(220, 220, 280, 280));
+      await tester.pump();
+
+      expect(controller.debugIncrementalPageReconciliations, 2);
+      expect(controller.debugLastIncrementallyReconciledPages, {7});
+      expect(controller.debugPageIdentity(0), same(cleanPage));
+      expect(controller.debugPageIdentity(7), isNot(same(firstDirtyRevision)));
+      expect(editing.document.page(7).annotations, hasLength(2),
+          reason: 'the second edit resolved the latest page dictionary');
+    });
+
+    testWidgets('reconciles a dirty page geometry change incrementally',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(4));
+      addTearDown(editing.dispose);
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            editing: editing,
+            controller: controller,
+            pagePreviews: false,
+            autoRenderWorker: false,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      final epoch = controller.pagePresentationEpoch;
+      final cleanPage = controller.debugPageIdentity(0);
+      final dirtyPage = controller.debugPageIdentity(1);
+      editing.rotatePages([1], 90);
+      await tester.pump();
+
+      expect(controller.debugIncrementalPageReconciliations, 1);
+      expect(controller.debugLastIncrementallyReconciledPages, {1});
+      expect(controller.debugPageIdentity(0), same(cleanPage));
+      expect(controller.debugPageIdentity(1), isNot(same(dirtyPage)));
+      expect(controller.pagePresentationEpoch, epoch,
+          reason: 'rotation changes geometry, not the page-slot lineage');
+      expect(editing.document.page(1).rotation, 90);
+    });
+
     testWidgets(
         'follows revisions with no host ListenableBuilder and no document',
         (tester) async {
