@@ -94,6 +94,22 @@ void main() {
     expect(pages[1]!.onScreen, isFalse);
   });
 
+  testWidgets('a narrow edge sliver is presentation-only', (tester) async {
+    await pumpViewer(tester);
+    // Viewport [1000, 1600]. Page 0 contributes only its final 35px, below
+    // the 15% foreground threshold; page 1 occupies the rest. Both page views
+    // stay mounted and page 0 may present retained pixels, but only page 1 may
+    // schedule foreground tile work.
+    await scrollTo(tester, 1000);
+
+    final pages = mountedPages(tester);
+    expect(pages[0]!.onScreen, isTrue);
+    expect(pages[0]!.qualityVisible, isFalse);
+    expect(pages[0]!.qualityPageCount, 1);
+    expect(pages[1]!.qualityVisible, isTrue);
+    expect(pages[1]!.qualityPageCount, 1);
+  });
+
   testWidgets('onScreen tracks the viewer\'s own visibility measurement',
       (tester) async {
     final controller = await pumpViewer(tester, pages: 6);

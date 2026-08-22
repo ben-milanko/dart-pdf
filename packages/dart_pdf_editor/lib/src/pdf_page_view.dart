@@ -5038,6 +5038,12 @@ class _PdfPageViewState extends State<PdfPageView>
                 (_awaitingExactDetailPaint && !_tilePanAheadActive)
             ? 0
             : null,
+        // A narrow page sliver can keep presenting tiles it already owns, but
+        // it must not refill misses or a pan ring. Once the foreground count
+        // drops back to one, treating every mounted edge page as that sole
+        // claimant lets adjacent pyramids consume the shared LRU in turn and
+        // creates an endless raster/eviction/repaint loop.
+        scheduleMissing: widget.onScreen && widget.qualityVisible,
         // A retained picture keeps vector/text edges transform-sharp. An
         // upscaled coarser raster tile would cover that better base with a
         // visibly blurry square while the exact tile is pending. Coarse tiles

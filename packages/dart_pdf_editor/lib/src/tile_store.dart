@@ -616,6 +616,13 @@ class PdfTileStore extends ChangeNotifier {
   /// before spending work on pan headroom, then restore the configured ring on
   /// subsequent pan settles.
   ///
+  /// [scheduleMissing] can make a view presentation-only: retained exact or
+  /// fallback tiles still paint, but neither visible misses nor the prefetch
+  /// ring start new work. The viewer uses this for a narrow page sliver at a
+  /// page boundary. Letting that non-foreground page refill its old pyramid
+  /// makes it compete with the focused page in the shared LRU; both pages then
+  /// evict and immediately re-raster one another's tiles.
+  ///
   /// [allowCoarserFallback] controls presentation only: exact misses are still
   /// scheduled, but a false value leaves their area transparent instead of
   /// upscaling a lower-rung tile. This is useful above a retained vector base,
@@ -639,6 +646,7 @@ class PdfTileStore extends ChangeNotifier {
     int? maxNewTiles,
     int? maxInFlightTiles,
     int? prefetchRingOverride,
+    bool scheduleMissing = true,
     bool allowCoarserFallback = true,
   }) {
     assert(maxNewTiles == null || maxNewTiles > 0);
@@ -726,11 +734,13 @@ class PdfTileStore extends ChangeNotifier {
         ));
       } else {
         complete = false;
-        schedule(
-          key,
-          notifyOnLand: true,
-          inFlightLimit: maxInFlightTiles,
-        );
+        if (scheduleMissing) {
+          schedule(
+            key,
+            notifyOnLand: true,
+            inFlightLimit: maxInFlightTiles,
+          );
+        }
         final fallback = allowCoarserFallback
             ? _coarserFallback(id, rung, tx, ty, span, pageSize)
             : null;
@@ -750,7 +760,7 @@ class PdfTileStore extends ChangeNotifier {
     // A view whose visible set already fills the budget gets no ring; the page
     // view falls back to the single patch before a view gets that dense.
     final requestPrefetchRing = prefetchRingOverride ?? prefetchRing;
-    if (requestPrefetchRing > 0 && complete) {
+    if (scheduleMissing && requestPrefetchRing > 0 && complete) {
       final visibleCount = (tx1 - tx0 + 1) * (ty1 - ty0 + 1);
       var ringHeadroom = budgetTileCapacity - visibleCount;
       if (ringHeadroom > 0) {

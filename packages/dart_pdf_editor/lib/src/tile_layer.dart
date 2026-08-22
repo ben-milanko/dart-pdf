@@ -36,6 +36,7 @@ class PdfTileLayer extends StatelessWidget {
     this.maxNewTilesPerPaint,
     this.maxInFlightTiles,
     this.prefetchRingOverride,
+    this.scheduleMissing = true,
     this.allowCoarserFallback = true,
     this.fallbackOcclusionFraction,
     this.onExactViewReady,
@@ -89,6 +90,11 @@ class PdfTileLayer extends StatelessWidget {
   /// only the visible tiles; null uses the store's normal pan-ahead ring.
   final int? prefetchRingOverride;
 
+  /// Whether this layer may schedule missing visible tiles and pan-ahead.
+  /// False keeps retained tiles present without letting an edge-sliver page
+  /// compete with the focused page for the shared tile budget.
+  final bool scheduleMissing;
+
   /// Whether a missing exact tile may be covered by an upscaled lower rung.
   /// Disable this when the layer sits over a retained vector picture: the
   /// picture is sharper than that fallback and should remain visible until
@@ -129,6 +135,7 @@ class PdfTileLayer extends StatelessWidget {
           maxNewTilesPerPaint: maxNewTilesPerPaint,
           maxInFlightTiles: maxInFlightTiles,
           prefetchRingOverride: prefetchRingOverride,
+          scheduleMissing: scheduleMissing,
           allowCoarserFallback: allowCoarserFallback,
           fallbackOcclusionFraction: fallbackOcclusionFraction,
           onExactViewReady: onExactViewReady,
@@ -151,6 +158,7 @@ class _TilePagePainter extends CustomPainter {
     required this.maxNewTilesPerPaint,
     required this.maxInFlightTiles,
     required this.prefetchRingOverride,
+    required this.scheduleMissing,
     required this.allowCoarserFallback,
     required this.fallbackOcclusionFraction,
     required this.onExactViewReady,
@@ -171,6 +179,7 @@ class _TilePagePainter extends CustomPainter {
   final int? maxNewTilesPerPaint;
   final int? maxInFlightTiles;
   final int? prefetchRingOverride;
+  final bool scheduleMissing;
   final bool allowCoarserFallback;
   final Rect? fallbackOcclusionFraction;
   final ValueChanged<PdfTileView>? onExactViewReady;
@@ -200,6 +209,7 @@ class _TilePagePainter extends CustomPainter {
       maxNewTiles: maxNewTilesPerPaint,
       maxInFlightTiles: maxInFlightTiles,
       prefetchRingOverride: prefetchRingOverride,
+      scheduleMissing: scheduleMissing,
       allowCoarserFallback: allowCoarserFallback,
     );
     if (view.complete && !view.isEmpty) {
@@ -277,6 +287,7 @@ class _TilePagePainter extends CustomPainter {
       old.maxNewTilesPerPaint != maxNewTilesPerPaint ||
       old.maxInFlightTiles != maxInFlightTiles ||
       old.prefetchRingOverride != prefetchRingOverride ||
+      old.scheduleMissing != scheduleMissing ||
       old.allowCoarserFallback != allowCoarserFallback ||
       old.fallbackOcclusionFraction != fallbackOcclusionFraction ||
       old.filterQuality != filterQuality;
