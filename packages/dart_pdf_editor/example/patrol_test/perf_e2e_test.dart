@@ -3,6 +3,7 @@
 // ignore_for_file: invalid_use_of_visible_for_testing_member
 
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
@@ -438,6 +439,114 @@ void main() {
       viewer.dispose();
       editing.dispose();
       preferences.dispose();
+    }
+  });
+
+  patrolTest('converges a rounded tile rung under byte pressure', ($) async {
+    expect($.isWeb, isTrue);
+
+    // This is the browser counterpart to tile_store_test's exact 1025px seam.
+    // A small budget reaches the production byte-pressure state with one real
+    // browser raster instead of allocating the default store's full 96 MiB.
+    // Before #733, the nominal two-tile capacity admitted the neighbouring
+    // ring tile, which evicted the 1025px visible tile; repainting then swapped
+    // the two forever. The byte-aware policy must leave the ring unscheduled.
+    final store = PdfTileStore(
+      tilePixels: 1024,
+      prefetchRing: 1,
+      maxBytes: 8 * _mb,
+      registerForMemoryPressure: false,
+    );
+    const plan = PdfPageRenderPlan();
+    final identity = PdfTilePageIdentity(
+      cacheNamespace: Object(),
+      pageIndex: 0,
+      pageEpoch: 0,
+      contentStamp: 0,
+      destructiveStamp: 0,
+      plan: plan,
+    );
+    final ratio = store.ladder.ratioFor(3);
+    final span = store.tilePixels / ratio;
+    final pageSize = Size(span * 10, span);
+    final window = Rect.fromLTWH(span * 7.1, 0, span * 0.8, span);
+    final rasterSizes = <(int, int)>[];
+
+    Future<ui.Image> rasterize(Rect region, double pixelRatio) async {
+      final width = (region.width * pixelRatio).ceil().clamp(1, 1 << 14);
+      final height = (region.height * pixelRatio).ceil().clamp(1, 1 << 14);
+      rasterSizes.add((width, height));
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      canvas
+        ..drawRect(
+          Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+          Paint()..color = const Color(0xFF17324D),
+        )
+        ..drawLine(
+          Offset.zero,
+          Offset(width.toDouble(), height.toDouble()),
+          Paint()
+            ..color = const Color(0xFFFFB300)
+            ..strokeWidth = 3,
+        );
+      final picture = recorder.endRecording();
+      try {
+        return await picture.toImage(width, height);
+      } finally {
+        picture.dispose();
+      }
+    }
+
+    PdfTileView view() => store.viewFor(
+          id: identity,
+          pageSize: pageSize,
+          desiredRatio: ratio,
+          visiblePageRect: window,
+          rasterize: rasterize,
+        );
+
+    PdfPerfLog.log(
+      'scenario name=rounded-rung-pressure phase=start '
+      'rung=3 tilePixels=${store.tilePixels} budgetBytes=${store.maxBytes}',
+    );
+    try {
+      expect(view().complete, isFalse);
+      await _waitFor(
+        $,
+        () => store.inFlightCount == 0 && store.tileCount == 1,
+        reason: 'the rounded visible tile should land in the browser cache',
+      );
+      expect(rasterSizes, isNotEmpty);
+      expect(rasterSizes.first.$1, 1025,
+          reason: 'the journey must exercise the non-integral rounded rung');
+      expect(rasterSizes.first.$2, 1024);
+      expect(store.retainedBytes, 1025 * 1024 * 4);
+      final scheduledAfterVisible = store.debugTilesScheduled;
+
+      // Model the completion-driven repaint loop. A healthy store remains
+      // exact and schedules nothing; the old count-based policy alternated the
+      // visible and ring tiles on every pass.
+      for (var i = 0; i < 4; i++) {
+        expect(view().complete, isTrue);
+        await $.pump(const Duration(milliseconds: 100));
+        expect(store.inFlightCount, 0);
+      }
+      expect(store.debugTilesScheduled, scheduledAfterVisible,
+          reason: 'a static rounded-rung view must converge');
+      expect(store.debugTilesDiscarded, 0);
+      expect(store.tileCount, 1);
+
+      PdfPerfLog.log(
+        'scenario name=rounded-rung-pressure phase=validated '
+        'scheduled=${store.debugTilesScheduled} '
+        'landed=${store.debugTilesLanded} '
+        'discarded=${store.debugTilesDiscarded} '
+        'tileBytes=${store.retainedBytes} tileCount=${store.tileCount} '
+        'raster=${rasterSizes.first.$1}x${rasterSizes.first.$2}',
+      );
+    } finally {
+      store.dispose();
     }
   });
 }
