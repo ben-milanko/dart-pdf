@@ -248,25 +248,6 @@ class AppLocalizationsPl extends AppLocalizations {
   String get exOpenRecent => 'Otwórz ostatnie';
 
   @override
-  String get exRecentFiles => 'Ostatnie pliki';
-
-  @override
-  String get exViewAllRecentFiles => 'Wyświetl wszystkie ostatnie pliki…';
-
-  @override
-  String get exSearchRecentFiles => 'Przeszukaj ostatnie pliki';
-
-  @override
-  String get exNoMatchingRecentFiles =>
-      'Brak ostatnich plików pasujących do wyszukiwania';
-
-  @override
-  String get exGridView => 'Widok siatki';
-
-  @override
-  String get exListView => 'Widok listy';
-
-  @override
   String get exOpenUrlDescription =>
       'Przesyła strumieniowo PDF za pomocą żądań HTTP Range przez PdfHttpByteSource, pobierając tylko to, czego potrzebuje parser, i przechodząc do pełnego pobierania, gdy serwer nie obsługuje żądań zakresu.';
 

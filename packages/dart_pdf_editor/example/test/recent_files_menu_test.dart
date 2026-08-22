@@ -49,7 +49,6 @@ void main() {
 
     await tester.tap(find.text('Open Recent'));
     await tester.pumpAndSettle();
-    expect(find.text('View all recent files…'), findsOneWidget);
     expect(find.text('alpha.pdf'), findsOneWidget);
     expect(find.text('beta.pdf'), findsOneWidget);
     expect(find.text('Clear recent files'), findsOneWidget);
@@ -140,67 +139,5 @@ void main() {
     await openAppMenu(tester);
     expect(find.text('Open Recent'), findsOneWidget);
     expect(find.text('Clear recent files'), findsNothing);
-  });
-
-  testWidgets('full recent browser exposes all files and searches them',
-      (tester) async {
-    SharedPreferences.setMockInitialValues({});
-    final backend = PdfMemoryCacheStore();
-    final seed = RecentFilesStore(backend);
-    for (var i = 0; i < 10; i++) {
-      await seed.record('Report-$i.pdf', doc(i + 1));
-    }
-
-    await tester.pumpWidget(ViewerApp(cacheStore: backend));
-    await tester.pumpAndSettle();
-
-    await openRecentsSubmenu(tester);
-    // The oldest files remain out of the eight-row quick-open section.
-    expect(find.text('Report-0.pdf'), findsNothing);
-
-    await tester.tap(find.text('View all recent files…'));
-    await tester.pumpAndSettle();
-    expect(find.text('Recent files'), findsOneWidget);
-    expect(find.byKey(const ValueKey('recent-files-grid')), findsOneWidget);
-
-    await tester.enterText(
-      find.byKey(const ValueKey('recent-files-search')),
-      'rEpOrT-0',
-    );
-    await tester.pump();
-    expect(find.text('Report-0.pdf'), findsOneWidget);
-    expect(find.text('Report-9.pdf'), findsNothing);
-
-    await tester.tap(find.byKey(const ValueKey('recent-files-list-view')));
-    await tester.pump();
-    expect(find.byKey(const ValueKey('recent-files-list')), findsOneWidget);
-    expect(find.text('Report-0.pdf'), findsOneWidget);
-  });
-
-  testWidgets('recent search shows a no-match state and can be cleared',
-      (tester) async {
-    SharedPreferences.setMockInitialValues({});
-    final backend = PdfMemoryCacheStore();
-    final seed = RecentFilesStore(backend);
-    await seed.record('alpha.pdf', doc(1));
-
-    await tester.pumpWidget(ViewerApp(cacheStore: backend));
-    await tester.pumpAndSettle();
-    await openRecentsSubmenu(tester);
-    await tester.tap(find.text('View all recent files…'));
-    await tester.pumpAndSettle();
-
-    await tester.enterText(
-      find.byKey(const ValueKey('recent-files-search')),
-      'missing',
-    );
-    await tester.pump();
-    expect(find.text('No recent files match your search'), findsOneWidget);
-
-    await tester.tap(
-      find.byKey(const ValueKey('recent-files-search-clear')),
-    );
-    await tester.pump();
-    expect(find.text('alpha.pdf'), findsOneWidget);
   });
 }

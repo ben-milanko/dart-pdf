@@ -241,24 +241,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get exOpenRecent => '打开最近';
 
   @override
-  String get exRecentFiles => '最近文件';
-
-  @override
-  String get exViewAllRecentFiles => '查看所有最近文件…';
-
-  @override
-  String get exSearchRecentFiles => '搜索最近文件';
-
-  @override
-  String get exNoMatchingRecentFiles => '没有与搜索匹配的最近文件';
-
-  @override
-  String get exGridView => '网格视图';
-
-  @override
-  String get exListView => '列表视图';
-
-  @override
   String get exOpenUrlDescription =>
       '通过 PdfHttpByteSource 使用 HTTP Range 请求流式加载 PDF，仅获取解析器所需的内容；当服务器不支持范围请求时，回退到完整下载。';
 
@@ -691,24 +673,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get exOpenRecent => '開啟最近使用';
-
-  @override
-  String get exRecentFiles => '最近使用的檔案';
-
-  @override
-  String get exViewAllRecentFiles => '查看所有最近使用的檔案…';
-
-  @override
-  String get exSearchRecentFiles => '搜尋最近使用的檔案';
-
-  @override
-  String get exNoMatchingRecentFiles => '沒有符合搜尋條件的最近使用檔案';
-
-  @override
-  String get exGridView => '網格檢視';
-
-  @override
-  String get exListView => '清單檢視';
 
   @override
   String get exOpenUrlDescription =>

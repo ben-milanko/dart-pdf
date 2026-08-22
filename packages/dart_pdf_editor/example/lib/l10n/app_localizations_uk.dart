@@ -248,25 +248,6 @@ class AppLocalizationsUk extends AppLocalizations {
   String get exOpenRecent => 'Відкрити нещодавні';
 
   @override
-  String get exRecentFiles => 'Нещодавні файли';
-
-  @override
-  String get exViewAllRecentFiles => 'Переглянути всі нещодавні файли…';
-
-  @override
-  String get exSearchRecentFiles => 'Пошук у нещодавніх файлах';
-
-  @override
-  String get exNoMatchingRecentFiles =>
-      'Немає нещодавніх файлів, що відповідають пошуку';
-
-  @override
-  String get exGridView => 'Вигляд сіткою';
-
-  @override
-  String get exListView => 'Вигляд списком';
-
-  @override
   String get exOpenUrlDescription =>
       'Передає PDF через HTTP-запити Range за допомогою PdfHttpByteSource, завантажуючи лише те, що потрібно парсеру, і переходить до повного завантаження, якщо сервер не підтримує запити діапазону.';
 

@@ -244,24 +244,6 @@ class AppLocalizationsAr extends AppLocalizations {
   String get exOpenRecent => 'فتح ملف حديث';
 
   @override
-  String get exRecentFiles => 'الملفات الأخيرة';
-
-  @override
-  String get exViewAllRecentFiles => 'عرض كل الملفات الأخيرة…';
-
-  @override
-  String get exSearchRecentFiles => 'البحث في الملفات الأخيرة';
-
-  @override
-  String get exNoMatchingRecentFiles => 'لا توجد ملفات حديثة تطابق بحثك';
-
-  @override
-  String get exGridView => 'عرض شبكي';
-
-  @override
-  String get exListView => 'عرض قائمة';
-
-  @override
   String get exOpenUrlDescription =>
       'يبثّ ملف PDF عبر طلبات HTTP Range من خلال PdfHttpByteSource، فيجلب فقط ما يحتاجه المحلّل ويعود إلى تنزيل كامل عندما لا يدعم الخادم النطاقات.';
 
