@@ -450,10 +450,12 @@ class PatrolPerfComparison {
     countRow(
       'Web-worker null starts',
       const ['webWorker', 'outcomes', 'start-null'],
+      absentIsZero: true,
     );
     countRow(
       'Web-worker fatal fallbacks',
       const ['webWorker', 'outcomes', 'fallback'],
+      absentIsZero: true,
     );
     timingRow('Raster p95', const ['rasters', 'elapsedMs', 'p95']);
     for (final scenario in measuredScenarios) {

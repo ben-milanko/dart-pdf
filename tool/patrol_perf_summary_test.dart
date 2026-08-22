@@ -91,6 +91,11 @@ void main() {
     '| Scenario heavy-document elapsed p95 | 100.0 ms | 80.0 ms | -20.0% |',
     'scenario comparison',
   );
+  _expectContains(
+    comparison,
+    '| Web-worker fatal fallbacks | n/a | 0 | n/a |',
+    'missing current fallback is zero',
+  );
 
   final resetTrace = summary.PatrolPerfTrace.parse(const [
     '[perf 0] scenario name=orphan phase=start',
