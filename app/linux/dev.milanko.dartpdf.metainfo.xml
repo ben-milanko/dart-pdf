@@ -95,6 +95,16 @@
     <!-- Generated from app/fastlane/metadata/android/en-US/changelogs/ and
          app/release-notes/. Newest first; keep the top entry in sync with the
          version the Flatpak/AUR packages pin. -->
+    <release version="3.8.0" date="2026-08-23">
+      <description>
+        <ul>
+          <li>Browse recent PDFs with searchable page previews.</li>
+          <li>Place and edit annotations beyond the page edge, restyle mixed selections, and choose any signature colour and pen thickness.</li>
+          <li>Preview print jobs before sending them.</li>
+          <li>Enjoy smoother scrolling and deep zoom on large drawings, plus fixes for text caret alignment, popup placement, and rendering crashes.</li>
+        </ul>
+      </description>
+    </release>
     <release version="3.7.0" date="2026-08-19">
       <description>
         <ul>

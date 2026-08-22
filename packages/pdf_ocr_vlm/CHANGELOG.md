@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.8.0
+
+- Lockstep minor release to align with `dart_pdf_editor` 3.8.0. No public VLM
+  OCR API changes since 3.7.0.
+
 ## 3.7.0
 
 - Lockstep minor release to align with `dart_pdf_editor` 3.7.0. No public VLM

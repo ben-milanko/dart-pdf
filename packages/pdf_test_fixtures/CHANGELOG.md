@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.8.0
+
+- Add the public `buildCadImageStripPdf` fixture for benchmarking and testing
+  image-heavy CAD pages.
+- Make deterministic fixture generation browser-safe by avoiding integer
+  arithmetic that JavaScript runtimes cannot represent exactly.
+
 ## 3.7.0
 
 - Add `buildTextLinesPdf`, a one-page fixture drawing each line as its own text

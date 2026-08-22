@@ -1,5 +1,28 @@
 # Changelog
 
+## 3.8.0
+
+- Let annotations extend beyond the page edge while remaining selectable,
+  movable, resizable, and editable.
+- Add configurable signature ink colour and thickness, and allow the shared
+  properties UI to restyle compatible mixed annotation selections.
+- Add print-preview support, a searchable recent-files browser surface, and
+  `PdfViewerFeatures.showSelectionChip` for host control of the touch selection
+  chip.
+- Keep page and annotation caches stable across incremental saves, page
+  reordering, undo, and redo through revision-aware invalidation.
+- Improve rendering throughput and scroll stability on large image-heavy and
+  CAD documents with viewport culling, lighter retained scenes, better worker
+  scheduling, and more efficient deep-zoom tiles.
+- Fix popup placement in nested overlays, free-text caret alignment at deep
+  zoom, browser JPEG decoding, and a release-mode annotation-picture disposal
+  crash.
+
+## 3.7.1
+
+- Fix a release-mode crash when an annotated viewer unmounts while a cached
+  annotation picture is still being disposed.
+
 ## 3.7.0
 
 - Anchor thumbnail context menus to the correct position when the editor is

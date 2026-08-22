@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.8.0
+
+- Browse recent PDFs with searchable page previews.
+- Place and edit annotations beyond the page edge, style compatible mixed
+  selections together, and choose any signature colour and pen thickness.
+- Preview print jobs before sending them.
+- Scroll and deep-zoom large, image-heavy drawings more smoothly with faster
+  rendering and steadier page caches.
+- Fix text-caret alignment, popup placement, browser JPEG decoding, and several
+  annotation and rendering crashes.
+
 ## 3.7.0
 
 - Pages now render as you scroll past them instead of arriving half a second

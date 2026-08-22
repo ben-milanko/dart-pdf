@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.6
+
+- Align the experimental Flutter GPU backend with the 3.8.0 package suite. No
+  public GPU API changes since 0.1.5.
+
 ## 0.1.5
 
 - Align the experimental Flutter GPU backend with the 3.7.0 package suite.

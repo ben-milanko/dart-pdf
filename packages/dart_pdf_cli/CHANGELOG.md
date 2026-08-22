@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2
+
+- Align the command-line and MCP sidecar with the 3.8.0 package suite. No
+  command or protocol changes since 0.1.1.
+
 ## 0.1.1
 
 - Align the command-line and MCP sidecar with the 3.7.0 package suite.

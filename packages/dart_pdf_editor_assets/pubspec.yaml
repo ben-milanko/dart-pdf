@@ -4,7 +4,7 @@ description: >-
   prebuilt web render worker. Depend on it (and call
   registerBundledEditorAssets) for the full-featured editor; omit it for a
   size-minimal viewer that ships neither.
-version: 3.7.0
+version: 3.8.0
 repository: https://github.com/ben-milanko/dart-pdf/tree/main/packages/dart_pdf_editor_assets
 issue_tracker: https://github.com/ben-milanko/dart-pdf/issues
 topics:
@@ -23,7 +23,7 @@ dependencies:
     sdk: flutter
   # The registration API and the PdfBundledFont / global-config symbols it
   # populates live in the editor package; this package supplies the bytes.
-  dart_pdf_editor: ^3.7.0
+  dart_pdf_editor: ^3.8.0
 
 flutter:
   # The optional editor assets. These are declared here, not in
