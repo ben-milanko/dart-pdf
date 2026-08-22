@@ -213,9 +213,16 @@ jobs:
                 ].join('\n');
             const body = [
               marker,
-              summary,
+              '## Patrol web performance',
               '',
               `Automated for commit \`${sha}\` · [workflow run and downloadable trace artifact](${runUrl})`,
+              '',
+              '<details>',
+              '<summary>View browser performance details</summary>',
+              '',
+              summary,
+              '',
+              '</details>',
             ].join('\n');
             const comments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,
