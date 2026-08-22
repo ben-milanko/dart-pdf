@@ -14,7 +14,6 @@ import '../debug_overlays.dart';
 import '../l10n/pdf_l10n.dart';
 import '../page_geometry.dart';
 import '../platform_cursors.dart';
-import '../popup_position.dart';
 import '../renderer.dart';
 import '../theme.dart';
 import 'editing_color_pick.dart';
@@ -510,6 +509,7 @@ class EditingPageOverlay extends StatefulWidget {
     this.onMoveDragPreview,
     this.onTextEditClosed,
     this.contextMenuEnabled = true,
+    this.showSelectionChip = true,
   });
 
   final PdfEditingController controller;
@@ -575,6 +575,15 @@ class EditingPageOverlay extends StatefulWidget {
   /// see that property for the semantics. Has no effect without an editing
   /// controller (the menu path is reader-mode only). Defaults to true.
   final bool contextMenuEnabled;
+
+  /// Whether a touch/stylus selection shows the floating action chip beside
+  /// it (delete, edit-in-place, the context menu) - the affordances mice get
+  /// from hover and right-click. Hosts that provide their own selection
+  /// affordances (a custom context menu via [contextMenuEnabled] false, or a
+  /// note editor on annotation tap) can turn the chip off to avoid doubled
+  /// UI. The selection outline, handles, and move/resize interactions are
+  /// unaffected. Defaults to true.
+  final bool showSelectionChip;
 
   /// Whether the page raster on screen already shows the controller's
   /// current revision. While false (an edit just committed and the
@@ -4174,9 +4183,12 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
     final options = field.options;
     if (options.isEmpty) return;
     final name = field.name;
+    final overlay =
+        Overlay.of(context).context.findRenderObject()! as RenderBox;
     final picked = await showMenu<String>(
       context: context,
-      position: pdfPopupPosition(context, globalPosition),
+      position: RelativeRect.fromRect(
+          globalPosition & Size.zero, Offset.zero & overlay.size),
       items: [
         for (final (export, display) in options)
           PopupMenuItem(
@@ -5673,14 +5685,6 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                                     : null,
                                 cursorColor: _textEditColor,
                                 cursorWidth: 2 * _chromeScale,
-                                cursorHeight: pdfZoomAwareCursorHeight(
-                                  context,
-                                  lineHeight:
-                                      _textEditText.maxStyleSize *
-                                          _geometry.scale *
-                                          _textEditLineSpacing,
-                                  chromeScale: _chromeScale,
-                                ),
                                 selectionControls: _ScaledTextSelectionControls(
                                     _chromeScale,
                                     _inlineTextHandleColor(context)),
@@ -5755,7 +5759,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   _textEditFieldName == null &&
                   _controller.hasTouchInput)
                 _buildInlineTextStyleChip(_textEditRect!),
-              if (showChip) _buildSelectionChip(chrome?.$1 ?? selected),
+              if (showChip && widget.showSelectionChip)
+                _buildSelectionChip(chrome?.$1 ?? selected),
               if (_measureReadout() case (final text, final anchor))
                 _buildReadoutChip(text, anchor),
               if (_styleReadout() case (final text, final anchor))
