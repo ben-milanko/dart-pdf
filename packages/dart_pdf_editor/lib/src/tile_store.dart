@@ -665,6 +665,16 @@ class PdfTileStore extends ChangeNotifier {
     final tx1 = grid.tx1;
     final ty1 = grid.ty1;
 
+    Rect tileRegion(int tx, int ty) => _clampToPage(
+          Rect.fromLTWH(tx * span, ty * span, span, span),
+          pageSize,
+        );
+
+    int tileBytes(int tx, int ty) {
+      final size = _rasterSize(tileRegion(tx, ty), ratio);
+      return size.width * size.height * 4;
+    }
+
     // Center-out ordering: the tile under the viewport center sharpens first.
     // (_tileGrid guaranteed a non-empty intersection, so recomputing the
     // clipped visible rect for its center is safe.)
@@ -754,25 +764,33 @@ class PdfTileStore extends ChangeNotifier {
     // coalesced both into one large slab and made first sharp paint wait for
     // off-screen work. A visible completion notifies the layer; its next paint
     // schedules this ring as a separate background batch. Capped to the
-    // budget headroom left after the visible set, so a large view never
+    // byte-budget headroom left after the visible set, so a large view never
     // schedules more tiles than the LRU can hold - which would evict this
     // view's own tiles and re-raster them on every repaint (issues #314/#360).
+    // Use the actual rounded raster dimensions rather than nominal tile count:
+    // a sqrt(2)-ladder cell can become 513px after `ceil(region * ratio)`, so
+    // 96 nominal 512px tiles do not quite fit in the 96 MiB default cache.
+    // Reserve cached and in-flight ring members too. Otherwise every repaint
+    // would see their reservation as free and extend the working set again.
     // A view whose visible set already fills the budget gets no ring; the page
     // view falls back to the single patch before a view gets that dense.
     final requestPrefetchRing = prefetchRingOverride ?? prefetchRing;
     if (scheduleMissing && requestPrefetchRing > 0 && complete) {
-      final visibleCount = (tx1 - tx0 + 1) * (ty1 - ty0 + 1);
-      var ringHeadroom = budgetTileCapacity - visibleCount;
-      if (ringHeadroom > 0) {
+      var ringHeadroomBytes = maxBytes;
+      for (final (tx, ty) in coords) {
+        ringHeadroomBytes -= tileBytes(tx, ty);
+      }
+      if (ringHeadroomBytes > 0) {
         final rx0 = math.max(0, tx0 - requestPrefetchRing);
         final ry0 = math.max(0, ty0 - requestPrefetchRing);
         final rx1 = math.min(nx - 1, tx1 + requestPrefetchRing);
         final ry1 = math.min(ny - 1, ty1 + requestPrefetchRing);
-        ring:
         for (var ty = ry0; ty <= ry1; ty++) {
           for (var tx = rx0; tx <= rx1; tx++) {
             if (tx >= tx0 && tx <= tx1 && ty >= ty0 && ty <= ty1) continue;
-            if (ringHeadroom-- <= 0) break ring;
+            final bytes = tileBytes(tx, ty);
+            if (bytes > ringHeadroomBytes) continue;
+            ringHeadroomBytes -= bytes;
             schedule(
               PdfTileKey(id, rung, tx, ty),
               // The bounded ring is advanced by completion ticks. This also
@@ -1045,8 +1063,9 @@ class PdfTileStore extends ChangeNotifier {
   /// without a scene replay or a pixel readback.
   ui.Image _sliceTile(
       ui.Image slab, Rect batchRegion, Rect tileRegion, double ratio) {
-    final w = (tileRegion.width * ratio).ceil().clamp(1, 1 << 14);
-    final h = (tileRegion.height * ratio).ceil().clamp(1, 1 << 14);
+    final size = _rasterSize(tileRegion, ratio);
+    final w = size.width;
+    final h = size.height;
     final src = Rect.fromLTWH(
       (tileRegion.left - batchRegion.left) * ratio,
       (tileRegion.top - batchRegion.top) * ratio,
@@ -1083,8 +1102,9 @@ class PdfTileStore extends ChangeNotifier {
     bool notifyOnLand,
   ) {
     if (persistence == null || !_persistentInFlight.add(key)) return;
-    final width = (region.width * ratio).ceil().clamp(1, 1 << 14);
-    final height = (region.height * ratio).ceil().clamp(1, 1 << 14);
+    final size = _rasterSize(region, ratio);
+    final width = size.width;
+    final height = size.height;
     debugPersistentLoads++;
     persistence
         .loadTile(key,
@@ -1213,6 +1233,11 @@ class PdfTileStore extends ChangeNotifier {
       notifyListeners();
     });
   }
+
+  ({int width, int height}) _rasterSize(Rect region, double ratio) => (
+        width: (region.width * ratio).ceil().clamp(1, 1 << 14),
+        height: (region.height * ratio).ceil().clamp(1, 1 << 14),
+      );
 
   Rect _clampToPage(Rect r, Size pageSize) =>
       r.intersect(Offset.zero & pageSize);
