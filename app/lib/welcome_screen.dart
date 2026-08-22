@@ -1,3 +1,4 @@
+import 'package:dart_pdf_editor/dart_pdf_editor.dart' show pdfSearchInputBorder;
 import 'package:flutter/material.dart';
 
 import 'app_info.dart';
@@ -308,7 +309,7 @@ class _RecentSearchField extends StatelessWidget {
                   onPressed: controller.clear,
                   icon: const Icon(Icons.close),
                 ),
-          border: const OutlineInputBorder(),
+          border: pdfSearchInputBorder,
           isDense: true,
         ),
       );

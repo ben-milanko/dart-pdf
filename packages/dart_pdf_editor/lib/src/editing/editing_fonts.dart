@@ -5,6 +5,7 @@ import 'package:flutter/services.dart' show FontLoader, rootBundle;
 import 'package:pdf_document/pdf_document.dart';
 
 import '../dialog.dart';
+import '../search_field_style.dart';
 import 'editing_controller.dart';
 import 'text_prompt.dart';
 import '../l10n/pdf_l10n.dart';
@@ -17,7 +18,8 @@ import '../l10n/pdf_l10n.dart';
 /// from a source Flutter's asset bundle can't reach) - either way the outlines
 /// embed into the document so the text renders everywhere.
 class PdfBundledFont {
-  const PdfBundledFont(this.label, this.assetKey, {this.package, this.loadBytes});
+  const PdfBundledFont(this.label, this.assetKey,
+      {this.package, this.loadBytes});
 
   /// The name shown in the font menu.
   final String label;
@@ -476,7 +478,7 @@ class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
                   isDense: true,
                   prefixIcon: const Icon(Icons.search),
                   hintText: pdfL10n(context).propSearchFonts,
-                  border: const OutlineInputBorder(),
+                  border: pdfSearchInputBorder,
                 ),
               ),
               const SizedBox(height: 8),
@@ -494,7 +496,9 @@ class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
                         itemCount: rows.length,
                         itemBuilder: (context, index) {
                           final row = rows[index];
-                          if (row is String) return _sectionHeader(context, row);
+                          if (row is String) {
+                            return _sectionHeader(context, row);
+                          }
                           final entry = row as _FontEntry;
                           // Bundled rows preview in the family the dialog
                           // registered on open (once ready); everything else
@@ -523,9 +527,8 @@ class _PdfFontPickerDialogState extends State<_PdfFontPickerDialog> {
                                     child: Icon(
                                       Icons.warning_amber_rounded,
                                       size: 18,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .outline,
+                                      color:
+                                          Theme.of(context).colorScheme.outline,
                                     ),
                                   )
                                 : null,
@@ -695,7 +698,9 @@ Future<void> showPdfFontMenu({
   // no current match (e.g. a document font from a since-closed file) drop out.
   final byRecentKey = <String, _FontEntry>{};
   for (final entry in entries) {
-    if (entry.recentKey case final key?) byRecentKey.putIfAbsent(key, () => entry);
+    if (entry.recentKey case final key?) {
+      byRecentKey.putIfAbsent(key, () => entry);
+    }
   }
   final recent = <_FontEntry>[];
   for (final key in controller.preferences.recentFonts) {

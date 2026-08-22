@@ -448,6 +448,17 @@ void main() {
   group('PdfSearchField', () {
     const fieldKey = ValueKey('pdf-search-field');
 
+    testWidgets('uses the shared stadium search border', (tester) async {
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: PdfSearchField(controller: controller)),
+      ));
+
+      final field = tester.widget<TextField>(find.byKey(fieldKey));
+      expect(field.decoration?.border, pdfSearchInputBorder);
+    });
+
     testWidgets('typing searches after the debounce', (tester) async {
       final controller = PdfViewerController();
       addTearDown(controller.dispose);
@@ -549,8 +560,8 @@ void main() {
       expect(
           find.byKey(const ValueKey('pdf-search-whole-word')), findsOneWidget);
       expect(find.byKey(const ValueKey('pdf-search-regex')), findsOneWidget);
-      expect(find.byKey(const ValueKey('pdf-search-annotations')),
-          findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-search-annotations')), findsOneWidget);
 
       // tapping match case re-runs the live search
       await tester.tap(find.byKey(const ValueKey('pdf-search-match-case')));

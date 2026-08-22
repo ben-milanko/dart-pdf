@@ -8,6 +8,7 @@ import 'editing/editing_panel.dart';
 import 'editing/editing_preferences.dart';
 import 'l10n/pdf_l10n.dart';
 import 'pdf_viewer.dart';
+import 'search_field_style.dart';
 import 'theme.dart';
 import 'toast.dart';
 
@@ -126,8 +127,7 @@ class _PdfSearchFieldState extends State<PdfSearchField> {
                 isDense: true,
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                border:
-                    OutlineInputBorder(borderRadius: BorderRadius.circular(20)),
+                border: pdfSearchInputBorder,
                 suffixIcon: controller.isSearching
                     ? const Padding(
                         padding: EdgeInsets.all(8),
@@ -621,7 +621,9 @@ class _ReplaceBarState extends State<_ReplaceBar> {
         fallbackFonts: fallbacks,
       );
       if (!mounted) return;
-      _toast(count == 0 ? l10n.searchReplaceNotTargetable : l10n.searchReplaced(count));
+      _toast(count == 0
+          ? l10n.searchReplaceNotTargetable
+          : l10n.searchReplaced(count));
       if (count > 0) await _refresh(query);
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -657,10 +659,10 @@ class _ReplaceBarState extends State<_ReplaceBar> {
     final controller = widget.controller;
     final l10n = pdfL10n(context);
     final results = controller.searchResults;
-    final current = controller.currentMatch >= 0 &&
-            controller.currentMatch < results.length
-        ? results[controller.currentMatch]
-        : null;
+    final current =
+        controller.currentMatch >= 0 && controller.currentMatch < results.length
+            ? results[controller.currentMatch]
+            : null;
     final ready = !_busy &&
         !controller.isSearching &&
         controller.query.isNotEmpty &&
