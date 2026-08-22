@@ -1166,6 +1166,23 @@ class _PdfPageViewState extends State<PdfPageView>
     final settleChanged = oldWidget.settleGeneration != widget.settleGeneration;
     final tileShareChanged =
         oldWidget.qualityPageCount != widget.qualityPageCount;
+    final leftQualityForeground = oldWidget.onScreen &&
+        oldWidget.qualityVisible &&
+        (!widget.onScreen || !widget.qualityVisible);
+    if (leftQualityForeground) {
+      // The page can remain geometrically on screen as a narrow edge sliver
+      // after another page becomes the sole foreground-quality claimant. A
+      // render queued while this page was meaningful may otherwise be granted
+      // after that hand-off and launch a full visible-region detail record.
+      // Keep already-painted base/detail pixels as the sliver's fallback, but
+      // withdraw work that has not started and reject any detail result which
+      // was already in flight. Re-entry consumes the deferred refresh below.
+      _renderSession.invalidateDetail();
+      _deferredOffscreenRasterRefresh = true;
+      _awaitingExactDetailPaint = false;
+      _cancelTilePanAhead();
+      widget.renderScheduler?.cancel(this);
+    }
     final enteredDeepForeground = widget.onScreen &&
         widget.qualityVisible &&
         _detailRequiredAt(widget.scale) &&
@@ -3976,6 +3993,10 @@ class _PdfPageViewState extends State<PdfPageView>
       _dropDetail();
       return true;
     }
+    // A narrow edge sliver may keep presenting an already-painted exact patch,
+    // just as the tile layer keeps retained tiles, but it must not schedule a
+    // fresh region record/raster until it becomes foreground-quality again.
+    if (!widget.qualityVisible) return true;
 
     // A retained/direct picture keeps vector and text commands live under the
     // viewer transform. When its decoded images already have at least one
@@ -4132,6 +4153,7 @@ class _PdfPageViewState extends State<PdfPageView>
             region,
             ratio,
             widget.previewIndex,
+            generation,
             priority: progressivePriority,
           )
         : Future<ui.Picture?>.value();
@@ -4145,9 +4167,7 @@ class _PdfPageViewState extends State<PdfPageView>
     // worker pass was started to replace it.
     if (retainedCoversRegion) {
       final cachedPicture = await _picture;
-      if (!mounted ||
-          !_renderSession.acceptsDetail(generation) ||
-          _renderPaused) {
+      if (!_acceptsForegroundDetail(generation)) {
         return false;
       }
       final retainedImage = await PdfRasterProbe.measure(
@@ -4159,9 +4179,7 @@ class _PdfPageViewState extends State<PdfPageView>
             ? heldScene.rasterizeRegion(region, pixelRatio: ratio)
             : PdfPageRenderer.rasterizeRegion(cachedPicture, region, ratio),
       );
-      if (!mounted ||
-          !_renderSession.acceptsDetail(generation) ||
-          _renderPaused) {
+      if (!_acceptsForegroundDetail(generation)) {
         retainedImage.dispose();
         return false;
       }
@@ -4188,9 +4206,7 @@ class _PdfPageViewState extends State<PdfPageView>
       'elapsed=${detailClock.elapsedMilliseconds}ms '
       'stripImage=${workerStripImage != null} picture=${workerPicture != null}',
     );
-    if (!mounted ||
-        !_renderSession.acceptsDetail(generation) ||
-        _renderPaused) {
+    if (!_acceptsForegroundDetail(generation)) {
       workerStripImage?.dispose();
       workerPicture?.dispose();
       return false;
@@ -4217,9 +4233,7 @@ class _PdfPageViewState extends State<PdfPageView>
             PdfPageRenderer.rasterizeRegion(workerPicture, region, ratio),
       );
       workerPicture.dispose();
-      if (!mounted ||
-          !_renderSession.acceptsDetail(generation) ||
-          _renderPaused) {
+      if (!_acceptsForegroundDetail(generation)) {
         image.dispose();
         return false;
       }
@@ -4266,9 +4280,7 @@ class _PdfPageViewState extends State<PdfPageView>
       widget.page,
       _renderPlan,
     ));
-    if (!mounted ||
-        !_renderSession.acceptsDetail(generation) ||
-        _renderPaused) {
+    if (!_acceptsForegroundDetail(generation)) {
       return false;
     }
     // Same replay-over-nested-raster swap as the full-page path: the deep-
@@ -4289,9 +4301,7 @@ class _PdfPageViewState extends State<PdfPageView>
         pixelRatio: ratio,
         region: region,
       );
-      if (!mounted ||
-          !_renderSession.acceptsDetail(generation) ||
-          _renderPaused) {
+      if (!_acceptsForegroundDetail(generation)) {
         return false;
       }
       rasterize = () => scene.rasterizeRegionStrips(
@@ -4317,9 +4327,7 @@ class _PdfPageViewState extends State<PdfPageView>
       region: (width: region.width, height: region.height),
       rasterize: rasterize,
     );
-    if (!mounted ||
-        !_renderSession.acceptsDetail(generation) ||
-        _renderPaused) {
+    if (!_acceptsForegroundDetail(generation)) {
       image.dispose();
       return false;
     }
@@ -4337,7 +4345,7 @@ class _PdfPageViewState extends State<PdfPageView>
     required String source,
   }) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_renderSession.acceptsDetail(generation)) return;
+      if (!_acceptsForegroundDetail(generation)) return;
       if (PdfPerfLog.enabled) {
         PdfPerfLog.log(
           'detail paint page=${widget.previewIndex} pass=visible '
@@ -4350,6 +4358,13 @@ class _PdfPageViewState extends State<PdfPageView>
       _activateTilePanAhead();
     });
   }
+
+  bool _acceptsForegroundDetail(int generation) =>
+      mounted &&
+      widget.onScreen &&
+      widget.qualityVisible &&
+      !_renderPaused &&
+      _renderSession.acceptsDetail(generation);
 
   /// Conservative image-overlap test for the transparent-image progressive
   /// scene. Its local replay is only a visually complete CAD/vector patch
@@ -5545,7 +5560,8 @@ class _PdfPageViewState extends State<PdfPageView>
   Future<ui.Picture?> _detailPictureFromWorker(
     Rect rasterRegion,
     double ratio,
-    int pageIndex, {
+    int pageIndex,
+    int generation, {
     int? priority,
   }) async {
     final worker = widget.renderWorker;
@@ -5558,15 +5574,23 @@ class _PdfPageViewState extends State<PdfPageView>
       imagePixelRatio: ratio,
       imageDecodeRegion: decodeRegion,
     );
-    if (_abandoned(pageIndex) || commands == null) return null;
-    if (_renderPaused) return null;
+    if (_abandoned(pageIndex) ||
+        !_acceptsForegroundDetail(generation) ||
+        commands == null) {
+      return null;
+    }
     _logImageStats(pageIndex, commands);
-    return PdfPageRenderer.pictureFromCommandsWithPlan(
+    final picture = await PdfPageRenderer.pictureFromCommandsWithPlan(
       widget.page,
       commands,
       _renderPlan,
       maxImagePixelRatio: ratio,
     );
+    if (!_acceptsForegroundDetail(generation)) {
+      picture.dispose();
+      return null;
+    }
+    return picture;
   }
 
   Future<ui.Image?> _detailStripImageFromWorker(
@@ -5615,8 +5639,7 @@ class _PdfPageViewState extends State<PdfPageView>
       );
     }
     if (_abandoned(pageIndex) ||
-        !_renderSession.acceptsDetail(generation) ||
-        _renderPaused ||
+        !_acceptsForegroundDetail(generation) ||
         detail == null) {
       return null;
     }
@@ -5627,9 +5650,7 @@ class _PdfPageViewState extends State<PdfPageView>
       plan: _renderPlan,
       maxImagePixelRatio: ratio,
     );
-    if (_abandoned(pageIndex) ||
-        !_renderSession.acceptsDetail(generation) ||
-        _renderPaused) {
+    if (_abandoned(pageIndex) || !_acceptsForegroundDetail(generation)) {
       scene.dispose();
       return null;
     }

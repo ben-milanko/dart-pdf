@@ -494,6 +494,159 @@ void main() {
     expect(ready, 1);
   });
 
+  testWidgets('an edge sliver withdraws queued deep-detail work',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final bytes = buildClassicPdf();
+    final document = PdfDocument.open(bytes);
+    final worker = _RatioRecordingWorker(_LocalCommandWorker(bytes));
+    final scheduler = PdfPageRenderScheduler();
+    final oldMotionSafe = PdfPageView.motionSafeRenders;
+    final oldRetained = PdfPageView.retainedZoomReplay;
+    PdfPageView.motionSafeRenders = false;
+    PdfPageView.retainedZoomReplay = false;
+    addTearDown(() {
+      PdfPageView.motionSafeRenders = oldMotionSafe;
+      PdfPageView.retainedZoomReplay = oldRetained;
+      scheduler.dispose();
+      worker.dispose();
+    });
+
+    Widget at(double scale, bool qualityVisible, int settleGeneration) =>
+        Center(
+          child: SizedBox(
+            width: 612,
+            child: PdfPageView(
+              page: document.page(0),
+              baseRasterScale: 1,
+              scale: scale,
+              settleGeneration: settleGeneration,
+              qualityVisible: qualityVisible,
+              renderScheduler: scheduler,
+              renderWorker: worker,
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(at(1, true, 0));
+    for (var i = 0; i < 100 && find.byType(RawImage).evaluate().isEmpty; i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+    expect(find.byType(RawImage), findsOneWidget);
+    expect(worker.detailRecords, 0);
+
+    scheduler.holding = true;
+    await tester.pumpWidget(at(4, true, 1));
+    await tester.pump();
+    expect(scheduler.hasPending, isTrue);
+
+    // This is the field-trace ordering: a zoom/detail refresh was queued while
+    // the page was meaningful, then the page became a sub-15% edge sliver
+    // before the shared scheduler granted it.
+    await tester.pumpWidget(at(4, false, 1));
+    await tester.pump();
+    scheduler.holding = false;
+    for (var i = 0; i < 20; i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+
+    expect(worker.detailRecords, 0,
+        reason: 'an edge page must not enter the worker detail queue');
+    expect(find.byType(RawImage), findsOneWidget,
+        reason: 'the existing fit-size base remains the sliver fallback');
+  });
+
+  testWidgets('an in-flight detail result is discarded after edge hand-off',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final bytes = buildClassicPdf();
+    final document = PdfDocument.open(bytes);
+    final worker = _BlockingDetailWorker(_LocalCommandWorker(bytes));
+    final oldRetained = PdfPageView.retainedZoomReplay;
+    PdfPageView.retainedZoomReplay = false;
+    addTearDown(() {
+      PdfPageView.retainedZoomReplay = oldRetained;
+      worker.releaseFirst();
+      worker.dispose();
+    });
+
+    Widget at(double scale, bool qualityVisible, int settleGeneration) =>
+        Center(
+          child: SizedBox(
+            width: 612,
+            child: PdfPageView(
+              page: document.page(0),
+              baseRasterScale: 1,
+              scale: scale,
+              settleGeneration: settleGeneration,
+              qualityVisible: qualityVisible,
+              renderWorker: worker,
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(at(1, true, 0));
+    for (var i = 0; i < 100 && find.byType(RawImage).evaluate().isEmpty; i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+    expect(find.byType(RawImage), findsOneWidget);
+
+    await tester.pumpWidget(at(4, true, 1));
+    for (var i = 0; i < 100 && worker.detailRecords == 0; i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+    expect(worker.detailRecords, 1);
+    expect(find.byKey(const ValueKey('pdf-page-detail-image')), findsNothing);
+
+    await tester.pumpWidget(at(4, false, 1));
+    worker.releaseFirst();
+    for (var i = 0; i < 40; i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+    expect(find.byKey(const ValueKey('pdf-page-detail-image')), findsNothing,
+        reason: 'a late result must not replay or rasterize over the edge');
+
+    // Becoming meaningful again consumes the deferred refresh and sharpens
+    // without requiring an unrelated scale or settle change.
+    await tester.pumpWidget(at(4, true, 1));
+    for (var i = 0;
+        i < 100 &&
+            find
+                .byKey(const ValueKey('pdf-page-detail-image'))
+                .evaluate()
+                .isEmpty;
+        i++) {
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+    }
+    expect(worker.detailRecords, 2);
+    expect(find.byKey(const ValueKey('pdf-page-detail-image')), findsOneWidget);
+
+    await tester.pumpWidget(at(4, false, 1));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('pdf-page-detail-image')), findsOneWidget,
+        reason: 'the edge can keep presenting already-completed sharp pixels');
+  });
+
   testWidgets('both visible pages sharpen when the viewport spans a boundary',
       (tester) async {
     tester.view.physicalSize = const Size(800, 600);
@@ -1627,6 +1780,7 @@ class _RatioRecordingWorker extends PdfRenderWorker {
 
   final PdfRenderWorker _inner;
   final List<double> imageRatios = [];
+  int detailRecords = 0;
 
   @override
   bool get isActive => _inner.isActive;
@@ -1642,8 +1796,58 @@ class _RatioRecordingWorker extends PdfRenderWorker {
     PdfRect? imageDecodeRegion,
     PdfPartialRecordSink? onPartial,
   }) {
+    if (imageDecodeRegion != null) detailRecords++;
     if (decodeImages && imagePixelRatio != null) {
       imageRatios.add(imagePixelRatio);
+    }
+    return _inner.record(
+      pageIndex,
+      annotations: annotations,
+      priority: priority,
+      imagePixelRatio: imagePixelRatio,
+      decodeImages: decodeImages,
+      commandLimit: commandLimit,
+      imageDecodeRegion: imageDecodeRegion,
+      onPartial: onPartial,
+    );
+  }
+
+  @override
+  void cancel(int pageIndex, {int priority = 0}) =>
+      _inner.cancel(pageIndex, priority: priority);
+
+  @override
+  void dispose() => _inner.dispose();
+}
+
+class _BlockingDetailWorker extends PdfRenderWorker {
+  _BlockingDetailWorker(this._inner);
+
+  final PdfRenderWorker _inner;
+  final Completer<void> _firstRelease = Completer<void>();
+  int detailRecords = 0;
+
+  void releaseFirst() {
+    if (!_firstRelease.isCompleted) _firstRelease.complete();
+  }
+
+  @override
+  bool get isActive => _inner.isActive;
+
+  @override
+  Future<List<PdfRenderCommand>?> record(
+    int pageIndex, {
+    bool annotations = true,
+    int priority = 0,
+    double? imagePixelRatio,
+    bool decodeImages = true,
+    int? commandLimit,
+    PdfRect? imageDecodeRegion,
+    PdfPartialRecordSink? onPartial,
+  }) async {
+    if (imageDecodeRegion != null) {
+      detailRecords++;
+      if (detailRecords == 1) await _firstRelease.future;
     }
     return _inner.record(
       pageIndex,
