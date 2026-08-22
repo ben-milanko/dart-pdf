@@ -9,6 +9,12 @@ void main() {
     '[perf 30] webworker startRenderWorker generation=1 '
         'url=pdf_render_worker.dart.js',
     '[perf 35] webworker ready generation=1',
+    '[perf 36] webworker phase worker=0 kind=record page=0 '
+        'outcome=presented queue=1.0ms worker=8.0ms parse=0.5ms '
+        'interpret=1.0ms stream=2.0ms decode=4.0ms serialize=0.5ms '
+        'bin=0.0ms transfer=2.0ms deserialize=1.0ms total=12.0ms '
+        'transcript=miss imageDecode=codec=2 '
+        'cache=2h/3m/4e/8388608B',
     '[perf 40] raster page=0 ms=12.5',
     '[perf 45] webworker result kind=record page=0 commands=1 → worker',
     '[perf 47] webworker result kind=record page=1 declined (null) → local',
@@ -17,7 +23,25 @@ void main() {
     '[perf 90] scenario name=heavy-document phase=validated',
   ]);
   final json = trace.toJson();
-  _expectEqual(json['schema'], 4, 'schema');
+  _expectEqual(json['schema'], 5, 'schema');
+
+  final workerPhases = _map(_map(json, 'webWorker'), 'phases');
+  _expectEqual(workerPhases['count'], 1, 'worker phase count');
+  _expectEqual(
+    _map(workerPhases, 'totalMs')['p95'],
+    12.0,
+    'worker total phase',
+  );
+  _expectEqual(
+    _map(workerPhases, 'decodeMs')['p95'],
+    4.0,
+    'worker decode phase',
+  );
+  _expectEqual(
+    _map(workerPhases, 'imageCacheBytes')['max'],
+    8388608,
+    'worker image cache peak',
+  );
 
   final scenarios = _map(json, 'scenarioMetrics');
   final heavy = _map(scenarios, 'heavy-document');
@@ -48,6 +72,11 @@ void main() {
     },
     'heavy worker outcomes',
   );
+  _expectEqual(
+    _map(_map(heavy, 'workerPhases'), 'totalMs')['p95'],
+    12.0,
+    'heavy worker total phase',
+  );
 
   final worker = _map(scenarios, 'web-worker');
   _expectEqual(worker['runs'], 1, 'worker runs');
@@ -66,6 +95,8 @@ void main() {
     '| `heavy-document` | 1 | 80.0 ms / 80.0 ms / 80.0 ms |',
     'heavy scenario row',
   );
+  _expectContains(markdown, '| Worker image-cache peak | 8.0 MiB |',
+      'worker cache summary');
 
   final comparison = summary.PatrolPerfComparison(
     baseline: {
@@ -95,6 +126,11 @@ void main() {
     comparison,
     '| Web-worker fatal fallbacks | n/a | 0 | n/a |',
     'missing current fallback is zero',
+  );
+  _expectContains(
+    comparison,
+    '| Scenario heavy-document worker total p95 | n/a | 12.0 ms | n/a |',
+    'scenario worker comparison',
   );
 
   final resetTrace = summary.PatrolPerfTrace.parse(const [

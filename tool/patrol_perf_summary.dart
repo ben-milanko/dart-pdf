@@ -4,6 +4,7 @@ import 'dart:io';
 final _ansiEscape = RegExp(r'\x1B\[[0-?]*[ -/]*[@-~]');
 final _perfLine = RegExp(r'\[perf\s+(\d+)\]\s+(.+)$');
 final _field = RegExp(r'([A-Za-z][A-Za-z0-9_-]*)=([^\s]+)');
+final _workerImageCache = RegExp(r'^(\d+)h/(\d+)m/(\d+)e/(\d+)B$');
 
 void main(List<String> arguments) {
   if (arguments.isEmpty || arguments.contains('--help')) {
@@ -102,6 +103,7 @@ class PatrolPerfTrace {
     required this.thumbnailPaths,
     required this.pageRasterOutcomes,
     required this.webWorkerOutcomes,
+    required this.workerPhases,
     required this.rasterElapsedMs,
     required this.scenarioPhases,
     required Map<String, _ScenarioMetrics> scenarioMetrics,
@@ -124,6 +126,7 @@ class PatrolPerfTrace {
     final thumbnailPaths = <String, int>{};
     final pageRasterOutcomes = <String, int>{};
     final webWorkerOutcomes = <String, int>{};
+    final workerPhases = _WorkerPhaseMetrics();
     final rasterElapsed = <double>[];
     final scenarioPhases = <String, int>{};
     final scenarioMetrics = <String, _ScenarioMetrics>{};
@@ -198,6 +201,9 @@ class PatrolPerfTrace {
       } else if (event == 'webworker') {
         final outcome = _webWorkerOutcome(message);
         if (outcome != null) _increment(webWorkerOutcomes, outcome);
+        if (message.startsWith('webworker phase ')) {
+          workerPhases.record(fields);
+        }
       } else if (event == 'raster') {
         _addMilliseconds(rasterElapsed, fields['ms']);
       }
@@ -233,6 +239,7 @@ class PatrolPerfTrace {
       thumbnailPaths: thumbnailPaths,
       pageRasterOutcomes: pageRasterOutcomes,
       webWorkerOutcomes: webWorkerOutcomes,
+      workerPhases: workerPhases,
       rasterElapsedMs: rasterElapsed,
       scenarioPhases: scenarioPhases,
       scenarioMetrics: scenarioMetrics,
@@ -254,12 +261,13 @@ class PatrolPerfTrace {
   final Map<String, int> thumbnailPaths;
   final Map<String, int> pageRasterOutcomes;
   final Map<String, int> webWorkerOutcomes;
+  final _WorkerPhaseMetrics workerPhases;
   final List<double> rasterElapsedMs;
   final Map<String, int> scenarioPhases;
   final Map<String, _ScenarioMetrics> _scenarioMetrics;
 
   Map<String, Object?> toJson() => {
-        'schema': 4,
+        'schema': 5,
         'build': buildTag,
         'events': lines.length,
         'journeys': journeys,
@@ -289,6 +297,7 @@ class PatrolPerfTrace {
         'webWorker': {
           'events': eventCounts['webworker'] ?? 0,
           'outcomes': _sortedMap(webWorkerOutcomes),
+          'phases': workerPhases.toJson(),
         },
         'rasters': {
           'count': eventCounts['raster'] ?? 0,
@@ -333,6 +342,13 @@ class PatrolPerfTrace {
       ..writeln('| Thumbnail paths | ${_mapText(thumbnailPaths)} |')
       ..writeln('| Page-raster outcomes | ${_mapText(pageRasterOutcomes)} |')
       ..writeln('| Web-worker outcomes | ${_mapText(webWorkerOutcomes)} |')
+      ..writeln('| Worker phase requests | ${workerPhases.totalMs.length} |')
+      ..writeln('| Worker total p50 / p95 / max | '
+          '${_distributionText(workerPhases.totalMs)} |')
+      ..writeln('| Worker decode p50 / p95 / max | '
+          '${_distributionText(workerPhases.decodeMs)} |')
+      ..writeln('| Worker image-cache peak | '
+          '${_formatBytes(workerPhases.peakImageCacheBytes)} |')
       ..writeln('| Scenarios | ${_mapText(scenarioPhases)} |')
       ..writeln('| Raster p50 / p95 / max | '
           '${_distributionText(rasterElapsedMs)} |')
@@ -343,9 +359,13 @@ class PatrolPerfTrace {
         ..writeln()
         ..writeln(
           '| Scenario | Runs | Elapsed p50 / p95 / max | Jank p95 | '
-          'Reconcile p95 | Raster p95 | Worker outcomes |',
+          'Reconcile p95 | Raster p95 | Worker total p95 | '
+          'Decode p95 | Image cache peak | Worker outcomes |',
         )
-        ..writeln('| --- | ---: | ---: | ---: | ---: | ---: | --- |');
+        ..writeln(
+          '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | '
+          '---: | --- |',
+        );
       for (final name in _scenarioMetrics.keys.toList()..sort()) {
         final metrics = _scenarioMetrics[name]!;
         buffer.writeln(
@@ -354,6 +374,9 @@ class PatrolPerfTrace {
           '${_p95Text(metrics.jankTotalMs)} | '
           '${_p95Text(metrics.reconcileElapsedMs)} | '
           '${_p95Text(metrics.rasterElapsedMs)} | '
+          '${_p95Text(metrics.workerPhases.totalMs)} | '
+          '${_p95Text(metrics.workerPhases.decodeMs)} | '
+          '${_formatBytes(metrics.workerPhases.peakImageCacheBytes)} | '
           '${_mapText(metrics.webWorkerOutcomes)} |',
         );
       }
@@ -457,6 +480,15 @@ class PatrolPerfComparison {
       const ['webWorker', 'outcomes', 'fallback'],
       absentIsZero: true,
     );
+    countRow('Worker phase requests', const ['webWorker', 'phases', 'count']);
+    timingRow(
+      'Worker phase total p95',
+      const ['webWorker', 'phases', 'totalMs', 'p95'],
+    );
+    timingRow(
+      'Worker decode p95',
+      const ['webWorker', 'phases', 'decodeMs', 'p95'],
+    );
     timingRow('Raster p95', const ['rasters', 'elapsedMs', 'p95']);
     for (final scenario in measuredScenarios) {
       countRow(
@@ -485,6 +517,14 @@ class PatrolPerfComparison {
         'Scenario $scenario raster p95',
         ['scenarioMetrics', scenario, 'rasters', 'elapsedMs', 'p95'],
       );
+      timingRow(
+        'Scenario $scenario worker total p95',
+        ['scenarioMetrics', scenario, 'workerPhases', 'totalMs', 'p95'],
+      );
+      timingRow(
+        'Scenario $scenario decode p95',
+        ['scenarioMetrics', scenario, 'workerPhases', 'decodeMs', 'p95'],
+      );
     }
 
     buffer
@@ -503,6 +543,12 @@ class PatrolPerfComparison {
           const ['pageRasters', 'outcomes'], baseline, current))
       ..writeln(_mapComparisonRow('Web-worker outcomes',
           const ['webWorker', 'outcomes'], baseline, current))
+      ..writeln(_mapComparisonRow('Worker request kinds',
+          const ['webWorker', 'phases', 'kinds'], baseline, current))
+      ..writeln(_mapComparisonRow('Worker phase outcomes',
+          const ['webWorker', 'phases', 'outcomes'], baseline, current))
+      ..writeln(_mapComparisonRow('Worker transcript paths',
+          const ['webWorker', 'phases', 'transcripts'], baseline, current))
       ..writeAll(
         measuredScenarios.map(
           (scenario) => _mapComparisonRow(
@@ -535,6 +581,7 @@ class _ScenarioMetrics {
   final reconcileElapsedMs = <double>[];
   final rasterElapsedMs = <double>[];
   final webWorkerOutcomes = <String, int>{};
+  final workerPhases = _WorkerPhaseMetrics();
 
   void record(
     String event,
@@ -550,6 +597,9 @@ class _ScenarioMetrics {
     } else if (event == 'webworker') {
       final outcome = _webWorkerOutcome(message);
       if (outcome != null) _increment(webWorkerOutcomes, outcome);
+      if (message.startsWith('webworker phase ')) {
+        workerPhases.record(fields);
+      }
     }
   }
 
@@ -568,7 +618,57 @@ class _ScenarioMetrics {
           'count': rasterElapsedMs.length,
           'elapsedMs': _distribution(rasterElapsedMs),
         },
+        'workerPhases': workerPhases.toJson(),
         'webWorkerOutcomes': _sortedMap(webWorkerOutcomes),
+      };
+}
+
+class _WorkerPhaseMetrics {
+  final queueMs = <double>[];
+  final workerMs = <double>[];
+  final decodeMs = <double>[];
+  final transferMs = <double>[];
+  final deserializeMs = <double>[];
+  final totalMs = <double>[];
+  final kinds = <String, int>{};
+  final outcomes = <String, int>{};
+  final transcripts = <String, int>{};
+  final imageCacheBytes = <int>[];
+
+  int get peakImageCacheBytes => imageCacheBytes.isEmpty
+      ? 0
+      : imageCacheBytes.reduce((a, b) => a > b ? a : b);
+
+  void record(Map<String, String> fields) {
+    _addMilliseconds(queueMs, fields['queue']);
+    _addMilliseconds(workerMs, fields['worker']);
+    _addMilliseconds(decodeMs, fields['decode']);
+    _addMilliseconds(transferMs, fields['transfer']);
+    _addMilliseconds(deserializeMs, fields['deserialize']);
+    _addMilliseconds(totalMs, fields['total']);
+    _increment(kinds, fields['kind'] ?? 'unknown');
+    _increment(outcomes, fields['outcome'] ?? 'unknown');
+    _increment(transcripts, fields['transcript'] ?? 'unknown');
+    final cache = fields['cache'];
+    final match = cache == null ? null : _workerImageCache.firstMatch(cache);
+    if (match != null) imageCacheBytes.add(int.parse(match.group(4)!));
+  }
+
+  Map<String, Object?> toJson() => {
+        'count': totalMs.length,
+        'queueMs': _distribution(queueMs),
+        'workerMs': _distribution(workerMs),
+        'decodeMs': _distribution(decodeMs),
+        'transferMs': _distribution(transferMs),
+        'deserializeMs': _distribution(deserializeMs),
+        'totalMs': _distribution(totalMs),
+        'kinds': _sortedMap(kinds),
+        'outcomes': _sortedMap(outcomes),
+        'transcripts': _sortedMap(transcripts),
+        'imageCacheBytes': {
+          'samples': imageCacheBytes.length,
+          'max': peakImageCacheBytes,
+        },
       };
 }
 
@@ -758,5 +858,14 @@ String _percentDelta(num? before, num? after) {
 }
 
 String _formatMs(double value) => '${value.toStringAsFixed(1)} ms';
+
+String _formatBytes(int value) {
+  if (value <= 0) return 'n/a';
+  if (value >= 1024 * 1024) {
+    return '${(value / (1024 * 1024)).toStringAsFixed(1)} MiB';
+  }
+  if (value >= 1024) return '${(value / 1024).toStringAsFixed(1)} KiB';
+  return '$value B';
+}
 
 String _code(String value) => '`$value`';

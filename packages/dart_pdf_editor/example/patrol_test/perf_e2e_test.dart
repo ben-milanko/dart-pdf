@@ -9,6 +9,7 @@ import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:patrol/patrol.dart';
+import 'package:pdf_test_fixtures/cad_image_strip.dart';
 
 const _buildCommit = String.fromEnvironment('PDF_BUILD_COMMIT');
 const _mb = 1024 * 1024;
@@ -271,6 +272,174 @@ void main() {
       preferences.dispose();
     }
   });
+
+  patrolTest('deep-zooms an image-heavy CAD sheet through worker-backed tiles',
+      ($) async {
+    expect($.isWeb, isTrue);
+
+    // Build before opening the scenario window: this journey measures the
+    // viewer/worker pipeline, not fixture compression. Eighteen 1024x768 image
+    // XObjects represent ~54 MiB if all are decoded to RGBA, while the wide
+    // page and 30k vector operations force the dense-page region/tile route.
+    final bytes = _buildCadPerfDocument();
+    final preferences = PdfEditingPreferences();
+    await preferences.ready;
+    preferences
+      ..showThumbnailSidebar = false
+      ..showBookmarkSidebar = false
+      ..showAnnotationSidebar = false
+      ..showPropertiesPanel = false
+      ..showSearchResultsPanel = false
+      ..showThumbnailView = false
+      ..showReflowView = false;
+    final editing = PdfEditingController(bytes, preferences: preferences);
+    final viewer = PdfViewerController();
+    final tileStore = PdfTileStore.instance;
+    final tilesLandedBefore = tileStore.debugTilesLanded;
+    final imageAdoptionsBefore = PdfPageView.debugTileImageDetailAdoptions;
+
+    PdfPerfLog.log(
+      'scenario name=cad-image-deep-zoom phase=start pages=1 '
+      'images=18 decodedRgbaBytes=${18 * 1024 * 768 * 4} ops=30000',
+    );
+    try {
+      await $.pumpWidget(MaterialApp(
+        home: PdfEditorView(
+          controller: editing,
+          viewerController: viewer,
+          initialFit: PdfViewerFit.width,
+          features: const PdfEditorFeatures(
+            headerBar: false,
+            search: false,
+            searchResultsPanel: false,
+            pageNumber: false,
+            author: false,
+            viewOptions: false,
+            reflowView: false,
+            pageColorEditable: false,
+            bookmarks: false,
+            annotationSidebar: false,
+            propertiesPanel: false,
+            toolbar: false,
+          ),
+        ),
+      ));
+
+      await _waitFor(
+        $,
+        () => viewer.pageCount == 1 && viewer.debugRenderWorkerActive,
+        reason: 'the CAD document should open on the production worker',
+        attempts: 240,
+      );
+      await _waitFor(
+        $,
+        () => viewer.isPageRasterReady(0),
+        reason: 'the CAD fit-width backing raster should finish',
+        attempts: 300,
+      );
+
+      PdfRenderTrace? fitTrace;
+      await _waitFor(
+        $,
+        () {
+          final trace = viewer.debugLastRenderTrace;
+          if (trace == null ||
+              trace.pageIndex != 0 ||
+              trace.decodeUs <= 0 ||
+              trace.imageDecodeSummary == null) {
+            return false;
+          }
+          fitTrace = trace.copy();
+          return true;
+        },
+        reason: 'the worker should report a real browser image decode',
+        attempts: 240,
+      );
+
+      // At 400%, only a window of this 10:1 sheet is visible. The dense scene
+      // must warm its spatial index off-thread, re-decode intersecting images
+      // for that window, and populate reusable fixed-size tiles.
+      // The initial worker decode carries 2x image headroom by design, so 2x
+      // would correctly remain on the whole-page raster without exercising
+      // the incremental detail path this journey is intended to validate.
+      viewer.setZoom(4);
+      final deepZoom = viewer.captureViewport();
+      expect(deepZoom, isNotNull);
+      // setZoom focuses the viewport centre. This ultra-wide page is only
+      // ~258px tall at fit width, so the centre is empty canvas and the page
+      // would otherwise zoom out of view. Re-anchor the completed zoom onto
+      // the sheet; PdfViewport stores the fit-relative multiplier rather than
+      // the controller's public px/pt zoom.
+      viewer.restoreViewport(PdfViewport(
+        page: 0,
+        left: 0.02,
+        zoom: deepZoom!.zoom,
+      ));
+      await $.pump(const Duration(milliseconds: 300));
+      expect(viewer.zoom, closeTo(4, 0.05));
+      PdfPerfLog.log(
+        'scenario name=cad-image-deep-zoom phase=zoom '
+        'display=${viewer.zoom.toStringAsFixed(2)} '
+        'viewport=${deepZoom.zoom.toStringAsFixed(2)}',
+      );
+      await _waitFor(
+        $,
+        () =>
+            PdfPageView.debugTileImageDetailAdoptions > imageAdoptionsBefore &&
+            tileStore.debugTilesLanded > tilesLandedBefore &&
+            find
+                .byKey(const ValueKey('pdf-page-tile-layer'))
+                .evaluate()
+                .isNotEmpty,
+        reason: 'deep zoom should adopt image detail and land CAD tiles',
+        attempts: 360,
+      );
+
+      // Visit three distant windows. Returning to the first one leaves the
+      // cache free to prove reuse in later traces while this journey records
+      // the one-time decode/bin cost and the incremental edge-tile fills.
+      for (final left in const [0.02, 0.48, 0.90, 0.02]) {
+        viewer.restoreViewport(PdfViewport(
+          page: 0,
+          left: left,
+          zoom: deepZoom.zoom,
+        ));
+        await $.pump(const Duration(milliseconds: 400));
+        await $.pump(const Duration(milliseconds: 100));
+      }
+      await _waitFor(
+        $,
+        () => tileStore.inFlightCount == 0,
+        reason: 'CAD tile work should settle after the pan sequence',
+        attempts: 360,
+      );
+
+      final tilesLanded = tileStore.debugTilesLanded - tilesLandedBefore;
+      final imageAdoptions =
+          PdfPageView.debugTileImageDetailAdoptions - imageAdoptionsBefore;
+      final trace = viewer.debugLastRenderTrace ?? fitTrace!;
+      expect(tilesLanded, greaterThan(0));
+      expect(imageAdoptions, greaterThan(0));
+      expect(tileStore.retainedBytes, greaterThan(0));
+      expect(trace.endToEndUs, greaterThan(0));
+
+      PdfPerfLog.log(
+        'scenario name=cad-image-deep-zoom phase=validated '
+        'tilesLanded=$tilesLanded tileCount=${tileStore.tileCount} '
+        'tileBytes=${tileStore.retainedBytes} '
+        'imageAdoptions=$imageAdoptions '
+        'fitTotal=${fitTrace!.endToEndUs}us '
+        'fitWorker=${fitTrace!.workerUs}us fitDecode=${fitTrace!.decodeUs}us '
+        'lastTotal=${trace.endToEndUs}us lastDecode=${trace.decodeUs}us',
+      );
+    } finally {
+      await $.pumpWidget(const SizedBox());
+      await $.pump(const Duration(milliseconds: 50));
+      viewer.dispose();
+      editing.dispose();
+      preferences.dispose();
+    }
+  });
 }
 
 Future<void> _waitFor(
@@ -350,4 +519,24 @@ Uint8List _buildPerfDocument() {
     ..write('trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\n')
     ..write('startxref\n$xrefOffset\n%%EOF\n');
   return Uint8List.fromList(output.toString().codeUnits);
+}
+
+Uint8List _buildCadPerfDocument() {
+  final tiles = <PdfTileSpec>[
+    for (var i = 0; i < 18; i++)
+      PdfTileSpec(
+        codec: i == 17
+            ? PdfTileCodec.indexed
+            : i % 3 == 2
+                ? PdfTileCodec.flateRgb
+                : PdfTileCodec.imageMask,
+        width: 1024,
+        height: 768,
+      ),
+  ];
+  return buildSyntheticCadImageStrip(
+    tiles: tiles,
+    ops: 30000,
+    streams: 4,
+  );
 }

@@ -31,6 +31,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   patrol: 4.9.0
+  pdf_test_fixtures: ^3.7.0
   shared_preferences: ^2.3.0
 
 patrol:
