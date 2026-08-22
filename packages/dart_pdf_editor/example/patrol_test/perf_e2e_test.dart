@@ -9,6 +9,7 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:patrol/patrol.dart';
 import 'package:pdf_test_fixtures/cad_image_strip.dart';
 
@@ -549,6 +550,136 @@ void main() {
       store.dispose();
     }
   });
+
+  patrolTest('measures ordinary browser JPEG consumer decode', ($) async {
+    expect($.isWeb, isTrue);
+
+    // Build outside the scenario window: the benchmark is the production
+    // worker -> consumer JPEG decode -> Flutter image path, not the fixture's
+    // pure-Dart JPEG encoder. Two distinct XObjects model #454's page-0 shape
+    // and make the consumer cost large enough to distinguish codec paths.
+    final bytes = _buildJpegPerfDocument();
+    final preferences = PdfEditingPreferences();
+    await preferences.ready;
+    preferences
+      ..showThumbnailSidebar = false
+      ..showBookmarkSidebar = false
+      ..showAnnotationSidebar = false
+      ..showPropertiesPanel = false
+      ..showSearchResultsPanel = false
+      ..showThumbnailView = false
+      ..showReflowView = false;
+    final editing = PdfEditingController(bytes, preferences: preferences);
+    final viewer = PdfViewerController();
+    final lines = <String>[];
+    final previousSink = PdfPerfLog.sink;
+    PdfPerfLog.sink = (line) {
+      lines.add(line);
+      previousSink?.call(line);
+    };
+
+    PdfPerfLog.log(
+      'scenario name=jpeg-consumer-decode phase=start pages=1 '
+      'images=2 sourceMpx=${(2 * 1280 * 1656 / 1e6).toStringAsFixed(1)}',
+    );
+    try {
+      await $.pumpWidget(MaterialApp(
+        home: Center(
+          child: SizedBox(
+            width: 1080,
+            height: 1400,
+            child: PdfEditorView(
+              controller: editing,
+              viewerController: viewer,
+              initialFit: PdfViewerFit.width,
+              features: const PdfEditorFeatures(
+                headerBar: false,
+                search: false,
+                searchResultsPanel: false,
+                pageNumber: false,
+                author: false,
+                viewOptions: false,
+                reflowView: false,
+                pageColorEditable: false,
+                bookmarks: false,
+                annotationSidebar: false,
+                propertiesPanel: false,
+                toolbar: false,
+              ),
+            ),
+          ),
+        ),
+      ));
+
+      await _waitFor(
+        $,
+        () => viewer.pageCount == 1 && viewer.debugRenderWorkerActive,
+        reason: 'the JPEG page should open on the production worker',
+        attempts: 240,
+      );
+      await _waitFor(
+        $,
+        () => viewer.isPageRasterReady(0),
+        reason: 'the JPEG page should reach the browser compositor',
+        attempts: 300,
+      );
+      await _waitFor(
+        $,
+        () => lines.any((line) =>
+            line.contains('interpret page=0 path=worker FIRST') &&
+            line.contains(' decode=') &&
+            line.contains(' replay=')),
+        reason: 'the JPEG build should report its decode/replay split',
+      );
+
+      final workerTrace = viewer.debugLastRenderTrace;
+      expect(workerTrace, isNotNull);
+      final workerSummary = workerTrace!.imageDecodeSummary ?? '';
+      expect(workerSummary, contains('consumerDct:2'),
+          reason: 'ordinary RGB JPEGs should stay compressed across the '
+              'worker boundary for zero-copy browser upload');
+      final batchLine = lines.lastWhere(
+        (line) => line.contains('image batch requests=2 unique=2'),
+      );
+      expect(batchLine, contains('pending=2'),
+          reason: 'both cold JPEGs should enter the concurrent codec batch');
+      expect(
+        lines.where((line) => line.contains('jpeg rgba-browser')).length,
+        2,
+        reason: 'both JPEGs should stay compressed until createImageBitmap '
+            'hands them to Flutter',
+      );
+      expect(
+          lines.any((line) => line.contains('jpeg rgba-accelerated')), isFalse,
+          reason: 'plain browser JPEGs should not expand through synchronous '
+              'libjpeg-turbo on the consumer isolate');
+
+      final interpretLine = lines.lastWhere(
+        (line) => line.contains('interpret page=0 path=worker FIRST'),
+      );
+      final decodeMs = _perfMs(interpretLine, 'decode');
+      final replayMs = _perfMs(interpretLine, 'replay');
+      final batchMs = _perfMs(batchLine, 'work');
+      final jankFrames = lines.where((line) => line.contains('] JANK ')).length;
+      expect(decodeMs, greaterThan(0));
+      expect(replayMs, greaterThanOrEqualTo(0));
+      expect(batchMs, greaterThan(0));
+
+      PdfPerfLog.log(
+        'scenario name=jpeg-consumer-decode phase=validated '
+        'consumerDct=2 decode=${decodeMs.toStringAsFixed(1)}ms '
+        'batch=${batchMs.toStringAsFixed(1)}ms '
+        'replay=${replayMs.toStringAsFixed(1)}ms jankFrames=$jankFrames',
+      );
+    } finally {
+      PdfPerfLog.sink = previousSink;
+      await $.pumpWidget(const SizedBox());
+      await $.pump(const Duration(milliseconds: 50));
+      viewer.dispose();
+      editing.dispose();
+      preferences.dispose();
+    }
+  }, tags: 'jpeg-consumer');
 }
 
 Future<void> _waitFor(
@@ -561,6 +692,14 @@ Future<void> _waitFor(
     await $.pump(const Duration(milliseconds: 100));
   }
   expect(predicate(), isTrue, reason: reason);
+}
+
+double _perfMs(String line, String field) {
+  final match = RegExp('(?:^| )$field=([0-9.]+)ms(?: |\$)').firstMatch(line);
+  if (match == null) {
+    throw StateError('missing $field timing in: $line');
+  }
+  return double.parse(match.group(1)!);
 }
 
 /// A deterministic, browser-safe six-page drawing.
@@ -647,5 +786,31 @@ Uint8List _buildCadPerfDocument() {
     tiles: tiles,
     ops: 30000,
     streams: 4,
+  );
+}
+
+Uint8List _buildJpegPerfDocument() {
+  final source = img.Image(width: 1280, height: 1656, numChannels: 3);
+  img.fill(source, color: img.ColorRgb8(38, 112, 168));
+  final jpeg = Uint8List.fromList(img.encodeJpg(source, quality: 82));
+  return buildSyntheticCadImageStrip(
+    tiles: [
+      PdfTileSpec(
+        codec: PdfTileCodec.jpeg,
+        width: source.width,
+        height: source.height,
+        payload: jpeg,
+      ),
+      PdfTileSpec(
+        codec: PdfTileCodec.jpeg,
+        width: source.width,
+        height: source.height,
+        payload: jpeg,
+      ),
+    ],
+    ops: 0,
+    streams: 1,
+    pageW: 612,
+    pageH: 792,
   );
 }
