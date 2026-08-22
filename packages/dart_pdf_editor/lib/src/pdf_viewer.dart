@@ -1252,6 +1252,7 @@ class PdfViewer extends StatefulWidget {
     this.textSelectionMarkup = true,
     this.annotationMenuBuilder,
     this.contextMenuEnabled = true,
+    this.showSelectionChip = true,
     this.onContextMenuRequested,
     this.formImagePicker,
     this.fontPicker,
@@ -1527,6 +1528,16 @@ class PdfViewer extends StatefulWidget {
   /// in its own chrome. The long-press annotation menu requires [editing];
   /// the desktop text menu does not.
   final bool contextMenuEnabled;
+
+  /// Whether a touch/stylus annotation selection shows the floating action
+  /// chip beside it (delete, edit-in-place, the context menu) - the
+  /// affordances mice get from hover and right-click. Hosts that render
+  /// their own selection UI (a custom markup toolbar over the selection,
+  /// an editor opened on [onAnnotationTap]) can turn the chip off to stop
+  /// it overlapping that UI. Selection, handles, move/resize, and all
+  /// pointer interactions are unaffected; mice never see the chip either
+  /// way. Needs [editing]. Defaults to true.
+  final bool showSelectionChip;
 
   /// Fires when the user requests a context menu (desktop right-click on
   /// text, right-click / long-press on an annotation, touch long-press on
@@ -7966,6 +7977,7 @@ class _PdfViewerState extends State<PdfViewer>
                     onPlaceSignature: widget.onPlaceSignature,
                     onAnnotationTap: widget.onAnnotationTap,
                     contextMenuEnabled: widget.contextMenuEnabled,
+                    showSelectionChip: widget.showSelectionChip,
                     interactionHost: PdfEditingInteractionHost(
                       panViewport: _touchGrabPanBy,
                       endViewportPan: _flingViewport,
@@ -8865,6 +8877,7 @@ class _PdfViewerPage extends StatefulWidget {
     required this.tileRasterBackend,
     required this.predictStrokes,
     required this.contextMenuEnabled,
+    required this.showSelectionChip,
     required this.onRasterStateChanged,
   });
 
@@ -8983,6 +8996,9 @@ class _PdfViewerPage extends StatefulWidget {
   /// so its long-press recognizer and the floating selection chip both
   /// honor the host's intent.
   final bool contextMenuEnabled;
+
+  /// See [PdfViewer.showSelectionChip] - forwarded to the editing overlay.
+  final bool showSelectionChip;
   final void Function(int index, bool ready) onRasterStateChanged;
 
   @override
@@ -9267,6 +9283,8 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                                 zoom: zoom,
                                 predictStrokes: widget.predictStrokes,
                                 contextMenuEnabled: widget.contextMenuEnabled,
+                                showSelectionChip:
+                                    widget.showSelectionChip,
                               ),
                             ),
                           );
