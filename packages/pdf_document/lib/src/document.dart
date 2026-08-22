@@ -97,6 +97,13 @@ class PdfDocument {
     if (sourceLimit != null && index >= sourceLimit) {
       throw RangeError.range(index, 0, sourceLimit - 1, 'index');
     }
+    final allPages = _allPagesCache;
+    if (allPages != null) {
+      if (index >= allPages.length) {
+        throw RangeError.range(index, 0, allPages.length - 1, 'index');
+      }
+      return allPages[index];
+    }
     final cached = _pageCache[index];
     if (cached != null) return cached;
     // The fast walk trusts /Count on intermediate nodes to skip whole
@@ -129,8 +136,46 @@ class PdfDocument {
   /// /Annots and rebuilt every PdfAnnotation.
   final Map<int, PdfPage> _pageCache = {};
 
+  /// Every reachable page in document order, resolved in one page-tree walk.
+  ///
+  /// Prefer this when a caller needs the whole document. Repeated [page]
+  /// lookups are optimized for sparse random access using subtree /Count, but
+  /// on a flat tree enumerating `page(0)..page(n)` revisits an ever-longer kid
+  /// prefix and becomes quadratic. This traversal also resolves inherited
+  /// page attributes once and seeds [page]'s cache.
+  List<PdfPage> get pages {
+    _refreshPageCacheRevision();
+    final cached = _allPagesCache;
+    if (cached != null) return cached;
+    final t0 = PdfPerf.begin();
+    final out = <PdfPage>[];
+    final leaves = <CosDictionary>[];
+    _collectPages(
+      _pagesRoot,
+      const _Inherited(),
+      <CosDictionary>{},
+      out,
+      leaves,
+      limit: _sourcePageCountHint,
+    );
+    final result = List<PdfPage>.unmodifiable(out);
+    _allPagesCache = result;
+    _leafCache = leaves;
+    _leafIndexCache = {
+      for (var i = 0; i < leaves.length; i++) leaves[i]: i,
+    };
+    _pageCache
+      ..clear()
+      ..addEntries([
+        for (var i = 0; i < result.length; i++) MapEntry(i, result[i]),
+      ]);
+    PdfPerf.end(PdfPerfPhase.pageTreeWalk, t0);
+    return result;
+  }
+
   List<CosDictionary>? _leafCache;
   Map<CosDictionary, int>? _leafIndexCache;
+  List<PdfPage>? _allPagesCache;
   int _pageCacheRevision;
 
   /// Invalidates a wrapper's page-tree caches when another wrapper sharing
@@ -145,6 +190,7 @@ class PdfDocument {
     if (_pageCacheRevision == revision) return;
     _leafCache = null;
     _leafIndexCache = null;
+    _allPagesCache = null;
     _pageCache.clear();
     _pageCacheRevision = revision;
   }
@@ -174,6 +220,7 @@ class PdfDocument {
   void invalidatePageCache() {
     _leafCache = null;
     _leafIndexCache = null;
+    _allPagesCache = null;
     _pageCache.clear();
     _pageCacheRevision = cos.revision;
   }
@@ -231,6 +278,51 @@ class PdfDocument {
       final child = cos.resolve(kid);
       if (child is CosDictionary) _collectLeaves(child, out, visited);
     }
+  }
+
+  bool _collectPages(
+    CosDictionary node,
+    _Inherited inherited,
+    Set<CosDictionary> visited,
+    List<PdfPage> out,
+    List<CosDictionary> leaves, {
+    int? limit,
+  }) {
+    if (limit != null && out.length >= limit) return true;
+    if (!visited.add(node)) return false;
+    if (_isLeaf(node)) {
+      leaves.add(node);
+      final existing = _pageCache[out.length];
+      out.add(existing != null && identical(existing.dict, node)
+          ? existing
+          : PdfPage(
+              document: this,
+              dict: node,
+              inheritedResources: inherited.resources,
+              inheritedMediaBox: inherited.mediaBox,
+              inheritedCropBox: inherited.cropBox,
+              inheritedRotate: inherited.rotate,
+            ));
+      return limit != null && out.length >= limit;
+    }
+    final merged = inherited.mergedWith(node, cos);
+    final kids = cos.resolve(node['Kids']);
+    if (kids is! CosArray) return false;
+    for (final kid in kids.items) {
+      final child = cos.resolve(kid);
+      if (child is CosDictionary &&
+          _collectPages(
+            child,
+            merged,
+            visited,
+            out,
+            leaves,
+            limit: limit,
+          )) {
+        return true;
+      }
+    }
+    return false;
   }
 
   bool _isLeaf(CosDictionary node) =>

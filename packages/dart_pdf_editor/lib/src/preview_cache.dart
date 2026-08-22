@@ -1982,6 +1982,60 @@ class PdfPagePreviewCache extends ChangeNotifier {
     if (dropped && !_disposed) notifyListeners();
   }
 
+  /// Re-keys every in-memory raster/scene tier after a pure page reorder.
+  ///
+  /// [newIndexForOld] must be a complete permutation. Page objects and pixels
+  /// stay the same; only their page slots change. Asynchronous work admitted
+  /// under an old slot is rejected by [bindPages] after this returns.
+  void reorder(List<PdfPage> pages, List<int> newIndexForOld) {
+    if (newIndexForOld.length != pages.length ||
+        newIndexForOld.toSet().length != pages.length ||
+        newIndexForOld.any((index) => index < 0 || index >= pages.length)) {
+      throw ArgumentError.value(
+        newIndexForOld,
+        'newIndexForOld',
+        'must be a permutation matching pages',
+      );
+    }
+
+    int moved(int oldIndex) => newIndexForOld[oldIndex];
+
+    _retainedScenes.remapKeys(
+      (key) => _RetainedSceneKey(moved(key.pageIndex), key.plan),
+    );
+    _entries.remapKeys(moved);
+    _intermediateEntries.remapKeys(
+      (key) => _IntermediatePreviewKey(
+        moved(key.pageIndex),
+        key.longestSide,
+      ),
+    );
+    _fullEntries.remapKeys(
+      (key) => PdfPageRasterSignature(
+        pageIndex: moved(key.pageIndex),
+        width: key.width,
+        height: key.height,
+        pageColor: key.pageColor,
+        annotations: key.annotations,
+        rotation: key.rotation,
+      ),
+    );
+    bindPages(pages);
+    for (final index in _entries.keys) {
+      _entries.peek(index)!.page = pages[index];
+    }
+    for (final key in _intermediateEntries.keys) {
+      _intermediateEntries.peek(key)!.page = pages[key.pageIndex];
+    }
+    for (final key in _fullEntries.keys) {
+      _fullEntries.peek(key)!.page = pages[key.pageIndex];
+    }
+    for (final key in _retainedScenes.keys) {
+      _retainedScenes.peek(key)!.page = pages[key.pageIndex];
+    }
+    if (!_disposed) notifyListeners();
+  }
+
   /// Drops every preview (different document, page color change...).
   void clear() {
     _entries.clear(); // disposes every retained image
@@ -2100,7 +2154,7 @@ class _RetainedSceneEntry {
     required this.estimatedBytes,
   });
 
-  final PdfPage page;
+  PdfPage page;
   final PdfRetainedScene scene;
   final ui.Picture? picture;
   final bool fromWorker;

@@ -165,6 +165,23 @@ void main() {
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
       expectViewport(editing, viewer, page: 3, label: 'Page 4');
     });
+
+    test('render stamps follow stable pages through reorder and undo', () {
+      final editing = PdfEditingController(buildMultiPagePdf(3));
+      addTearDown(editing.dispose);
+      editing.addRectangle(0, const PdfRect(20, 20, 80, 80));
+      final changedStamp = editing.pageRenderStamp(0);
+      final cleanStamp = editing.pageRenderStamp(1);
+      expect(changedStamp, greaterThan(cleanStamp));
+
+      editing.movePage(0, 1);
+      expect(editing.pageRenderStamp(1), changedStamp);
+      expect(editing.pageRenderStamp(0), cleanStamp);
+
+      editing.undo();
+      expect(editing.pageRenderStamp(0), changedStamp);
+      expect(editing.pageRenderStamp(1), cleanStamp);
+    });
   });
 
   group('duplicatePages', () {

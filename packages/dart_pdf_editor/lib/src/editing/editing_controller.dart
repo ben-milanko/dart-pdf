@@ -494,17 +494,26 @@ class PdfEditingController extends ChangeNotifier {
   /// Render stamps: how many times each page's rendering has changed.
   /// [_renderStampEpoch] counts the all-pages bumps (structural edits,
   /// unknown-page edits) so they don't iterate a large document.
-  final Map<int, int> _renderStamps = {};
+  final Map<Object, int> _renderStamps = {};
   int _renderStampEpoch = 0;
-  final Map<int, int> _contentRenderStamps = {};
+  final Map<Object, int> _contentRenderStamps = {};
   int _contentRenderStampEpoch = 0;
+
+  Object _pageStampKey(int pageIndex) {
+    final page = _page(pageIndex);
+    final ref = _document.cos.referenceTo(page.dict);
+    return ref == null
+        ? ('page-slot', pageIndex)
+        : (ref.objectNumber, ref.generation);
+  }
 
   void _bumpRenderStamps(Set<int>? pages) {
     if (pages == null) {
       _renderStampEpoch++;
     } else {
       for (final page in pages) {
-        _renderStamps[page] = (_renderStamps[page] ?? 0) + 1;
+        final key = _pageStampKey(page);
+        _renderStamps[key] = (_renderStamps[key] ?? 0) + 1;
       }
     }
   }
@@ -514,7 +523,8 @@ class PdfEditingController extends ChangeNotifier {
       _contentRenderStampEpoch++;
     } else {
       for (final page in pages) {
-        _contentRenderStamps[page] = (_contentRenderStamps[page] ?? 0) + 1;
+        final key = _pageStampKey(page);
+        _contentRenderStamps[key] = (_contentRenderStamps[key] ?? 0) + 1;
       }
     }
   }
@@ -524,13 +534,14 @@ class PdfEditingController extends ChangeNotifier {
   /// other pages only. Thumbnails key their raster caches on it instead
   /// of re-rendering every page on every revision.
   int pageRenderStamp(int pageIndex) =>
-      _renderStampEpoch + (_renderStamps[pageIndex] ?? 0);
+      _renderStampEpoch + (_renderStamps[_pageStampKey(pageIndex)] ?? 0);
 
   /// A value that changes only when [pageIndex]'s base page content image
   /// changed. Annotation-only edits leave it stable: the viewer paints those
   /// appearances in an overlay while thumbnails still use [pageRenderStamp].
   int pageContentRenderStamp(int pageIndex) =>
-      _contentRenderStampEpoch + (_contentRenderStamps[pageIndex] ?? 0);
+      _contentRenderStampEpoch +
+      (_contentRenderStamps[_pageStampKey(pageIndex)] ?? 0);
 
   /// Destructive-render epoch: bumped only by edits that *remove* existing
   /// page content (a redaction burn), as opposed to the additive ones (ink,
@@ -571,6 +582,7 @@ class PdfEditingController extends ChangeNotifier {
   int get revisionId => _revisionId;
 
   PdfWorkerRevisionDelta? _lastRevisionDelta;
+  PdfEditImpact? _lastRevisionImpact;
 
   /// The byte-level shape of the most recent revision transition (edit, undo,
   /// redo) for the render worker's incremental update path, or null when the
@@ -579,6 +591,13 @@ class PdfEditingController extends ChangeNotifier {
   /// meaningful the moment [document]'s identity changes; the shell reads it
   /// then and ignores it otherwise.
   PdfWorkerRevisionDelta? get lastRevisionDelta => _lastRevisionDelta;
+
+  /// The semantic impact of the most recent revision transition.
+  ///
+  /// Unlike [lastRevisionDelta], this remains available for structural edits
+  /// which require a render-worker restart but can still be reconciled by the
+  /// viewer using stable page identities.
+  PdfEditImpact? get lastRevisionImpact => _lastRevisionImpact;
 
   /// The current revision's bytes - what "save to disk" should write.
   Uint8List get bytes => Uint8List.sublistView(_bytes, 0, _revisions[_cursor]);
@@ -612,6 +631,7 @@ class PdfEditingController extends ChangeNotifier {
     _bumpRenderStamps(impact.visualPages);
     _bumpContentRenderStamps(impact.contentPages);
     _cursor--;
+    _lastRevisionImpact = impact;
     // The worker keeps the shared prefix and re-reads it - no bytes to append.
     _lastRevisionDelta = impact.pageStructureChanged
         ? null
@@ -630,6 +650,7 @@ class PdfEditingController extends ChangeNotifier {
     final beforeLength = _revisions[_cursor];
     _cursor++;
     final impact = _revisionImpacts[_cursor];
+    _lastRevisionImpact = impact;
     _bumpRenderStamps(impact.visualPages);
     _bumpContentRenderStamps(impact.contentPages);
     // Re-extend to the redone revision - its bytes already sit in the buffer as
@@ -823,6 +844,7 @@ class PdfEditingController extends ChangeNotifier {
     _bumpContentRenderStamps(impact.contentPages);
     if (impact.destructive) _destructiveStampEpoch++;
     _cursor++;
+    _lastRevisionImpact = impact;
     // The incremental save appended to the previous revision, so its bytes are
     // that revision's prefix plus the new tail: the worker keeps the first
     // [beforeLength] bytes and appends the rest. A structural edit can shift
@@ -2420,6 +2442,7 @@ class PdfEditingController extends ChangeNotifier {
     // A burn recompacts the whole file: the new buffer is not a prefix-append
     // of the prior one, so the worker cannot update in place and must restart.
     _lastRevisionDelta = null;
+    _lastRevisionImpact = impact;
     _selected.clear();
     _bumpRenderStamps(impact.visualPages);
     _bumpContentRenderStamps(impact.contentPages);

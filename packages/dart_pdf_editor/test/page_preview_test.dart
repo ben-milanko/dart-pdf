@@ -75,6 +75,33 @@ void main() {
     clone.dispose();
   });
 
+  testWidgets('pure reorder moves previews to their page identities',
+      (tester) async {
+    final document = PdfDocument.open(buildMultiPagePdf(2));
+    final page0 = document.page(0);
+    final page1 = document.page(1);
+    final cache = PdfPagePreviewCache();
+    addTearDown(cache.dispose);
+    await tester.runAsync(() async {
+      await cache.renderPreview(0, page0);
+      await cache.renderPreview(1, page1, targetLongestSide: 400);
+    });
+
+    cache.reorder([page1, page0], [1, 0]);
+
+    expect(cache.isFresh(1, page0, requireImages: true), isTrue);
+    expect(
+      cache.isFresh(
+        0,
+        page1,
+        requireImages: true,
+        targetLongestSide: 400,
+      ),
+      isTrue,
+    );
+    expect(cache.isFresh(0, page0, requireImages: true), isFalse);
+  });
+
   testWidgets('a complete preview can satisfy a smaller physical raster',
       (tester) async {
     final document = PdfDocument.open(buildClassicPdf());

@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart'
-    show ValueListenable, kIsWeb, visibleForTesting;
+    show ValueListenable, immutable, kIsWeb, visibleForTesting;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
@@ -58,6 +58,67 @@ export 'annotation_tap.dart'
     show PdfAnnotationTapDetails, PdfAnnotationTapHandler;
 
 const double _defaultMaxZoom = 24;
+
+/// How the viewer reconciled its page presentation across a document change.
+enum PdfPageReconciliationMode {
+  /// Only pages named by the edit impact were re-wrapped.
+  incremental,
+
+  /// Stable page identities were used to reconcile a structural change.
+  keyedStructure,
+
+  /// The complete page list and its presentation state were rebuilt.
+  fullReload,
+}
+
+/// Support snapshot for the most recent page-list reconciliation.
+///
+/// This is deliberately descriptive rather than a performance promise. It is
+/// useful in exported [PdfPerfLog] traces and tests which need to distinguish
+/// a dirty-page bailout from a correctness-first full reload.
+@immutable
+class PdfPageReconciliationDiagnostics {
+  const PdfPageReconciliationDiagnostics({
+    required this.mode,
+    required this.elapsed,
+    required this.pageCount,
+    required this.dirtyPages,
+    required this.retainedPages,
+    required this.geometryPages,
+    required this.walkedPageTree,
+    this.fallbackReason,
+  });
+
+  final PdfPageReconciliationMode mode;
+  final Duration elapsed;
+  final int pageCount;
+
+  /// Pages whose wrappers/presentation inputs were replaced. Null means the
+  /// transition did not have a trustworthy dirty-page boundary.
+  final int? dirtyPages;
+  final int retainedPages;
+  final int geometryPages;
+  final bool walkedPageTree;
+
+  /// Why an incremental candidate selected [PdfPageReconciliationMode.fullReload].
+  final String? fallbackReason;
+}
+
+class _PdfViewerPageKey extends LocalKey {
+  const _PdfViewerPageKey(this.namespace, this.pageIdentity);
+
+  final Object namespace;
+  final Object pageIdentity;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _PdfViewerPageKey &&
+      identical(namespace, other.namespace) &&
+      pageIdentity == other.pageIdentity;
+
+  @override
+  int get hashCode => Object.hash(identityHashCode(namespace), pageIdentity);
+}
 
 /// Page-space distance an arrow-key press slides the selected annotation(s),
 /// and the coarser step Shift+arrow uses. Points, matching the drag move.
@@ -448,11 +509,21 @@ class PdfViewerController extends ChangeNotifier {
   int get debugIncrementalPageReconciliations =>
       _state?._incrementalPageReconciliations ?? 0;
 
+  /// Number of pure page reorders reconciled by stable page identity.
+  @visibleForTesting
+  int get debugKeyedPageReconciliations =>
+      _state?._keyedPageReconciliations ?? 0;
+
   /// Pages inspected by the most recent successful incremental reconcile.
   /// Null when the latest document transition used the full fallback.
   @visibleForTesting
   Set<int>? get debugLastIncrementallyReconciledPages =>
       _state?._lastIncrementallyReconciledPages;
+
+  /// Support snapshot for the most recent page-list reconciliation.
+  @visibleForTesting
+  PdfPageReconciliationDiagnostics? get debugPageReconciliationDiagnostics =>
+      _state?._lastPageReconciliation;
 
   /// Opaque identity of the attached viewer's page presentation object.
   /// Clean pages retain this across an incremental revision; dirty pages do
@@ -1790,7 +1861,10 @@ class _PdfViewerState extends State<PdfViewer>
   late List<(int, int)?> _pageRefs;
   late List<double> _aspects; // height / width, after /Rotate
   int _incrementalPageReconciliations = 0;
+  int _keyedPageReconciliations = 0;
   Set<int>? _lastIncrementallyReconciledPages;
+  PdfPageReconciliationDiagnostics? _lastPageReconciliation;
+  String? _incrementalFallbackReason;
 
   /// The controller that owns the document revisions for a given viewer
   /// configuration, if any: the editing controller, or - when interactive
@@ -3622,10 +3696,14 @@ class _PdfViewerState extends State<PdfViewer>
   /// document/controller) and from [_onRevisionControllerChanged] (a new
   /// revision with no host rebuild).
   void _swapDocument({bool preserveRevisionViewport = false}) {
+    final reconcileClock = Stopwatch()..start();
     final document = _document;
     if (preserveRevisionViewport &&
         _tryReconcileIncrementalRevision(document)) {
       return;
+    }
+    if (!preserveRevisionViewport) {
+      _incrementalFallbackReason = 'unrelated-document-swap';
     }
     _lastIncrementallyReconciledPages = null;
     final sameGeometry = _sameGeometryAs(document);
@@ -3752,7 +3830,32 @@ class _PdfViewerState extends State<PdfViewer>
       // geometry) keeps the zoom the user chose
       _appliedInitialFit = false;
     }
+    _recordPageReconciliation(PdfPageReconciliationDiagnostics(
+      mode: PdfPageReconciliationMode.fullReload,
+      elapsed: reconcileClock.elapsed,
+      pageCount: _pages.length,
+      dirtyPages: null,
+      retainedPages: 0,
+      geometryPages: _pages.length,
+      walkedPageTree: true,
+      fallbackReason: _incrementalFallbackReason ?? 'full-reload-required',
+    ));
     setState(() {});
+  }
+
+  void _recordPageReconciliation(PdfPageReconciliationDiagnostics diagnostics) {
+    _lastPageReconciliation = diagnostics;
+    final dirty = diagnostics.dirtyPages?.toString() ?? 'unknown';
+    final reason = diagnostics.fallbackReason == null
+        ? ''
+        : ' reason=${diagnostics.fallbackReason}';
+    PdfPerfLog.log('page-reconcile mode=${diagnostics.mode.name} '
+        'pages=${diagnostics.pageCount} dirty=$dirty '
+        'retained=${diagnostics.retainedPages} '
+        'geometry=${diagnostics.geometryPages} '
+        'walk=${diagnostics.walkedPageTree ? 1 : 0} '
+        'elapsed=${(diagnostics.elapsed.inMicroseconds / 1000).toStringAsFixed(2)}ms'
+        '$reason');
   }
 
   /// Applies a non-structural append-only revision by touching only the pages
@@ -3772,22 +3875,41 @@ class _PdfViewerState extends State<PdfViewer>
   /// reconciliation: clean render/cache state bails out and stale async work
   /// for dirty pages can no longer pass identity guards.
   bool _tryReconcileIncrementalRevision(PdfDocument document) {
-    final loaded = _loadedDocument;
-    final delta = _revisionController?.lastRevisionDelta;
-    final impact = delta?.impact;
-    if (loaded == null ||
-        impact == null ||
-        impact.pageStructureChanged ||
-        !identical(loaded.cos, document.cos)) {
+    final reconcileClock = Stopwatch()..start();
+    bool fallback(String reason) {
+      _incrementalFallbackReason = reason;
       return false;
     }
+
+    final loaded = _loadedDocument;
+    final delta = _revisionController?.lastRevisionDelta;
+    final impact = _revisionController?.lastRevisionImpact ?? delta?.impact;
+    if (loaded == null) return fallback('no-loaded-document');
+    if (impact == null) return fallback('no-revision-impact');
+    if (impact.pageStructureChanged) {
+      if (!impact.pageOrderOnly) return fallback('page-structure-changed');
+      if (impact.visualPages == null ||
+          impact.contentPages == null ||
+          impact.annotationPages == null ||
+          impact.visualPages!.isNotEmpty ||
+          impact.contentPages!.isNotEmpty ||
+          impact.annotationPages!.isNotEmpty) {
+        return fallback('page-order-mixed-impact');
+      }
+      return _tryReconcileKeyedPageOrder(
+        document,
+        reconcileClock,
+        fallback,
+      );
+    }
+    if (!identical(loaded.cos, document.cos)) return fallback('different-cos');
     final visualPages = impact.visualPages;
     final contentPages = impact.contentPages;
     final annotationPages = impact.annotationPages;
     if (visualPages == null ||
         contentPages == null ||
         annotationPages == null) {
-      return false;
+      return fallback('unknown-impact-pages');
     }
 
     final dirtyPages = <int>{
@@ -3796,25 +3918,28 @@ class _PdfViewerState extends State<PdfViewer>
       ...annotationPages,
     };
     if (dirtyPages.any((page) => page < 0 || page >= _pages.length)) {
-      return false;
+      return fallback('invalid-dirty-page');
     }
 
     final replacements = <int, PdfPage>{};
     final geometry = <int, (double aspect, double pointWidth)>{};
     var geometryChanged = false;
+    var geometryPages = 0;
     for (final index in dirtyPages) {
       final key = _pageRefs[index];
-      if (key == null) return false;
+      if (key == null) return fallback('missing-stable-page-reference');
       final resolved = document.cos.resolve(CosReference(key.$1, key.$2));
-      if (resolved is! CosDictionary) return false;
+      if (resolved is! CosDictionary) return fallback('unresolved-page');
       final page = _pages[index].forIncrementalRevision(document, resolved);
       // Geometry is calculated only for pages the transaction dirtied. Most
       // revisions land here: annotation/content pixels changed while the page
       // box did not. Rotations/crop changes update their one cached record;
       // the following pages' offsets derive from that record at layout time.
       final nextGeometry = (_pageAspect(page), _pagePointWidth(page));
-      geometryChanged |= (nextGeometry.$1 - _aspects[index]).abs() > 1e-6 ||
+      final changed = (nextGeometry.$1 - _aspects[index]).abs() > 1e-6 ||
           (nextGeometry.$2 - _pointWidths[index]).abs() > 1e-6;
+      if (changed) geometryPages++;
+      geometryChanged |= changed;
       replacements[index] = page;
       geometry[index] = nextGeometry;
     }
@@ -3889,6 +4014,160 @@ class _PdfViewerState extends State<PdfViewer>
     _bindRasterCache(prime: false);
     _incrementalPageReconciliations++;
     _lastIncrementallyReconciledPages = Set<int>.unmodifiable(dirtyPages);
+    _incrementalFallbackReason = null;
+    _recordPageReconciliation(PdfPageReconciliationDiagnostics(
+      mode: PdfPageReconciliationMode.incremental,
+      elapsed: reconcileClock.elapsed,
+      pageCount: _pages.length,
+      dirtyPages: dirtyPages.length,
+      retainedPages: _pages.length - dirtyPages.length,
+      geometryPages: geometryPages,
+      walkedPageTree: false,
+    ));
+    _schedulePreviewPrerender();
+    _scheduleRasterWarm();
+    setState(() {});
+    return true;
+  }
+
+  bool _tryReconcileKeyedPageOrder(
+    PdfDocument document,
+    Stopwatch reconcileClock,
+    bool Function(String reason) fallback,
+  ) {
+    final currentPages = document.pages;
+    final count = currentPages.length;
+    if (count != _pages.length) return fallback('page-order-count-changed');
+
+    final oldIndexByRef = <(int, int), int>{};
+    for (var i = 0; i < _pageRefs.length; i++) {
+      final ref = _pageRefs[i];
+      if (ref == null) return fallback('missing-stable-page-reference');
+      if (oldIndexByRef.containsKey(ref)) {
+        return fallback('duplicate-stable-page-reference');
+      }
+      oldIndexByRef[ref] = i;
+    }
+
+    // This is the one unavoidable structural cost: walk the new page tree to
+    // verify its leaf identities and order. The render/presentation objects
+    // themselves are reconciled below instead of being rebuilt by slot.
+    final newPages = <PdfPage>[];
+    final newRefs = <(int, int)>[];
+    final oldIndexForNew = <int>[];
+    for (var i = 0; i < count; i++) {
+      final page = currentPages[i];
+      final ref = _pageReferenceKey(page);
+      if (ref == null) return fallback('missing-new-page-reference');
+      final oldIndex = oldIndexByRef[ref];
+      if (oldIndex == null) return fallback('page-order-identity-changed');
+      final nextAspect = _pageAspect(page);
+      final nextPointWidth = _pagePointWidth(page);
+      if ((nextAspect - _aspects[oldIndex]).abs() > 1e-6 ||
+          (nextPointWidth - _pointWidths[oldIndex]).abs() > 1e-6) {
+        return fallback('page-order-geometry-changed');
+      }
+      newPages.add(page);
+      newRefs.add(ref);
+      oldIndexForNew.add(oldIndex);
+    }
+    if (oldIndexForNew.toSet().length != count) {
+      return fallback('page-order-not-a-permutation');
+    }
+
+    final newIndexForOld = List<int>.filled(count, 0);
+    for (var newIndex = 0; newIndex < count; newIndex++) {
+      newIndexForOld[oldIndexForNew[newIndex]] = newIndex;
+    }
+
+    final oldCurrentPage = _controller.currentPage.clamp(0, count - 1);
+    final oldCurrentRef = _pageRefs[oldCurrentPage];
+    final oldViewport = _pendingViewport ??
+        _captureViewport() ??
+        PdfViewport(page: oldCurrentPage, zoom: _currentZoom);
+    final oldViewportRef = _pageRefs[oldViewport.page.clamp(0, count - 1)];
+
+    _controller.clearSearch();
+    _clearSelection();
+    _pageLabels = null;
+    _outline = null;
+
+    int moved(int oldIndex) => newIndexForOld[oldIndex];
+
+    // These values carry their original page index and/or document wrapper.
+    // They are cheap relative to page rendering and must be rebuilt against
+    // the new order (especially undo, which opens a fresh COS graph).
+    _textCache.clear();
+    _annotCache.clear();
+    _visibleAnnotCache.clear();
+    _fieldRectCache.clear();
+    final oldRastered = _rasteredPages.toList();
+    _rasteredPages
+      ..clear()
+      ..addAll(oldRastered.map(moved));
+    final oldContentStamps = Map<int, int>.of(_contentStamps);
+    _contentStamps
+      ..clear()
+      ..addEntries(oldContentStamps.entries.map(
+        (entry) => MapEntry(moved(entry.key), entry.value),
+      ));
+
+    _pages = newPages;
+    _pageRefs = List<(int, int)?>.of(newRefs, growable: false);
+    _aspects = [for (final oldIndex in oldIndexForNew) _aspects[oldIndex]];
+    _pointWidths = [
+      for (final oldIndex in oldIndexForNew) _pointWidths[oldIndex]
+    ];
+    _loadedDocument = document;
+    _controller._setPageCount(count);
+
+    _previews.reorder(_pages, newIndexForOld);
+    // Tiles are keyed by page slot. Clear them while preserving the page
+    // subtree/base raster itself; old asynchronous tile completions are fenced
+    // by the namespace epoch and cannot land in the reordered slots.
+    (PdfPageView.debugTileStoreOverride ?? PdfTileStore.instance)
+        .invalidateNamespace(_tileCacheNamespace);
+
+    final viewportPage = newRefs.indexOf(oldViewportRef!);
+    final remappedViewport = PdfViewport(
+      page: viewportPage < 0 ? oldViewport.page : viewportPage,
+      top: oldViewport.top,
+      left: oldViewport.left,
+      zoom: oldViewport.zoom,
+    );
+    if (_scroll.hasClients && _viewWidth > 0 && _viewHeight > 0) {
+      // The exact total extent is unchanged by a permutation, so the current
+      // ScrollPosition can adopt the remapped offset before the sliver's next
+      // layout. This keeps the viewed keyed child inside the build window while
+      // Flutter moves it; deferring until post-frame would let a long move be
+      // garbage-collected between its old and new slots.
+      _pendingViewport = null;
+      _placeViewport(remappedViewport, remappedViewport.page);
+    } else {
+      _pendingViewport = remappedViewport;
+    }
+    final currentPage = newRefs.indexOf(oldCurrentRef!);
+    _controller._setCurrentPage(
+      currentPage < 0 ? oldCurrentPage : currentPage,
+    );
+
+    _snapshotContentStamps();
+    _commandWarmAttempts.clear();
+    _commandWarmAnchor = null;
+    _commandWarmGeneration++;
+    _bindRasterCache(prime: false);
+    _keyedPageReconciliations++;
+    _lastIncrementallyReconciledPages = const <int>{};
+    _incrementalFallbackReason = null;
+    _recordPageReconciliation(PdfPageReconciliationDiagnostics(
+      mode: PdfPageReconciliationMode.keyedStructure,
+      elapsed: reconcileClock.elapsed,
+      pageCount: count,
+      dirtyPages: 0,
+      retainedPages: count,
+      geometryPages: 0,
+      walkedPageTree: true,
+    ));
     _schedulePreviewPrerender();
     _scheduleRasterWarm();
     setState(() {});
@@ -3926,10 +4205,11 @@ class _PdfViewerState extends State<PdfViewer>
   /// Whether [document] lays out exactly like the one on screen: same
   /// page count, same aspect ratio per page.
   bool _sameGeometryAs(PdfDocument document) {
-    if (document.pageCount != _pages.length) return false;
+    final pages = document.pages;
+    if (pages.length != _pages.length) return false;
     final vr = _controller._viewRotation;
     for (var i = 0; i < _pages.length; i++) {
-      final page = document.page(i);
+      final page = pages[i];
       final r = ((page.rotation + vr) % 360 + 360) % 360;
       final sideways = r == 90 || r == 270;
       final aspect = sideways
@@ -3970,8 +4250,8 @@ class _PdfViewerState extends State<PdfViewer>
   void _loadPages() {
     final document = _document;
     _loadedDocument = document;
-    final count = document.pageCount;
-    _pages = [for (var i = 0; i < count; i++) document.page(i)];
+    _pages = List<PdfPage>.of(document.pages, growable: true);
+    final count = _pages.length;
     _pageRefs = [for (final page in _pages) _pageReferenceKey(page)];
     _rasteredPages.clear();
     _commandWarmAttempts.clear();
@@ -7551,6 +7831,12 @@ class _PdfViewerState extends State<PdfViewer>
       // zoom transform - thin, low-contrast, and scaled or translated out
       // of view when zoomed. The viewer paints its own bar outside the
       // transform instead (_PdfScrollbar below).
+      final pageIndexByIdentity = <Object, int>{
+        for (var i = 0; i < _pages.length; i++)
+          _pageRefs[i] ?? ('page-slot', _pageEpoch, i): i,
+      };
+      Object pageIdentity(int index) =>
+          _pageRefs[index] ?? ('page-slot', _pageEpoch, index);
       final list = ExactExtentListView.builder(
         controller: _scroll,
         scrollDirection: widget.pageLayout.scrollAxis,
@@ -7574,20 +7860,29 @@ class _PdfViewerState extends State<PdfViewer>
             ? null
             : _pageMain(index) + (index == 0 ? 0 : widget.pageSpacing),
         itemCount: _pages.length,
+        findChildIndexCallback: (key) {
+          if (key is! _PdfViewerPageKey ||
+              !identical(key.namespace, _tileCacheNamespace)) {
+            return null;
+          }
+          return pageIndexByIdentity[key.pageIdentity];
+        },
         padding: _horizontal
             ? EdgeInsets.only(
                 right: widget.pageSpacing + widget.trailingPadding)
             : EdgeInsets.only(
                 bottom: widget.pageSpacing + widget.trailingPadding),
         itemBuilder: (context, index) => KeyedSubtree(
-          // Insert/remove/reorder used to update a slot's existing page State
-          // in place. Its generation guards rejected stale Futures, but native
-          // compositor resources already submitted by the old State could
-          // outlive that Dart Future and paint into a later frame. A structure
-          // epoch therefore owns the complete presentation subtree: changing
-          // it disposes the old raster/scene/tile/annotation layers and mounts
-          // a clean State for the page now occupying this slot.
-          key: ValueKey((_tileCacheNamespace, _pageEpoch, index)),
+          // Stable indirect page identity is the reconciliation key. A pure
+          // reorder can therefore move the already-rastered State with its
+          // page. Insert/remove/import full fallbacks replace the namespace,
+          // so no State can cross a structural boundary that was not verified
+          // as an identity-preserving permutation. Direct/broken page objects
+          // fall back to the slot epoch.
+          key: _PdfViewerPageKey(
+            _tileCacheNamespace,
+            pageIdentity(index),
+          ),
           child: Padding(
             padding: _horizontal
                 ? EdgeInsets.only(left: index == 0 ? 0 : widget.pageSpacing)

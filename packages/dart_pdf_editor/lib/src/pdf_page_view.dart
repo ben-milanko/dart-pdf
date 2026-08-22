@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/rendering.dart' show SliverMultiBoxAdaptorParentData;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:pdf_cos/pdf_cos.dart'
@@ -1423,6 +1424,21 @@ class _PdfPageViewState extends State<PdfPageView>
       // Before layout, trust the viewer's explicit visible-span answer. A
       // standalone PdfPageView defaults to onScreen=true.
       return widget.onScreen;
+    }
+    // A keyed child which moves inside a SliverMultiBoxAdaptor is updated
+    // before the sliver lays it out at its new index. During that narrow
+    // reconciliation window its layoutOffset is null and localToGlobal walks
+    // into RenderSliverMultiBoxAdaptor.childMainAxisPosition's null check.
+    // The viewer already computed [onScreen] for the new slot, so use that
+    // answer until the next layout makes coordinate conversion valid again.
+    RenderObject? ancestor = box;
+    while (ancestor != null) {
+      final parentData = ancestor.parentData;
+      if (parentData is SliverMultiBoxAdaptorParentData &&
+          parentData.layoutOffset == null) {
+        return widget.onScreen;
+      }
+      ancestor = ancestor.parent;
     }
     final pageRect = Rect.fromPoints(
       box.localToGlobal(Offset.zero),

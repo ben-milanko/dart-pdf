@@ -1513,15 +1513,35 @@ void main() {
       final presentationEpoch = controller.pagePresentationEpoch;
       expect(controller.debugIncrementalPageReconciliations, 0);
 
-      addTearDown(() => PdfPerf.enabled = false);
-      PdfPerf.enabled = true;
+      final logs = <String>[];
+      addTearDown(() {
+        PdfPerfLog.enabled = false;
+        PdfPerfLog.sink = null;
+      });
+      PdfPerfLog.sink = logs.add;
+      PdfPerfLog.enabled = true;
       PdfPerf.reset();
       editing.addRectangle(7, const PdfRect(100, 100, 200, 200));
       final revisionPerf = PdfPerf.snapshot();
-      PdfPerf.enabled = false;
+      PdfPerfLog.enabled = false;
       await tester.pump();
 
       expect(controller.debugIncrementalPageReconciliations, 1);
+      final diagnostics = controller.debugPageReconciliationDiagnostics!;
+      expect(diagnostics.mode, PdfPageReconciliationMode.incremental);
+      expect(diagnostics.pageCount, 12);
+      expect(diagnostics.dirtyPages, 1);
+      expect(diagnostics.retainedPages, 11);
+      expect(diagnostics.geometryPages, 0);
+      expect(diagnostics.walkedPageTree, isFalse);
+      expect(diagnostics.fallbackReason, isNull);
+      expect(
+        logs,
+        contains(predicate<String>((line) =>
+            line.contains('page-reconcile mode=incremental') &&
+            line.contains('pages=12 dirty=1 retained=11') &&
+            line.contains('walk=0'))),
+      );
       expect(
         revisionPerf.phaseCalls[PdfPerfPhase.pageTreeWalk.index],
         0,
@@ -1580,6 +1600,70 @@ void main() {
       expect(controller.pagePresentationEpoch, epoch,
           reason: 'rotation changes geometry, not the page-slot lineage');
       expect(editing.document.page(1).rotation, 90);
+    });
+
+    testWidgets('moves keyed page state across a pure reorder', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final editing = PdfEditingController(buildMultiPagePdf(4));
+      addTearDown(editing.dispose);
+      final controller = PdfViewerController();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PdfViewer(
+            initialFit: PdfViewerFit.width,
+            editing: editing,
+            controller: controller,
+            pagePreviews: false,
+            autoRenderWorker: false,
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      final movedPage = controller.debugPageIdentity(0);
+      final movedState = tester.state(find.byWidgetPredicate(
+        (widget) => widget is PdfPageView && identical(widget.page, movedPage),
+      ));
+      final epoch = controller.pagePresentationEpoch;
+      final namespace = controller.debugTileCacheNamespace;
+
+      editing.movePage(0, 1);
+      await tester.pump();
+
+      expect(controller.debugKeyedPageReconciliations, 1);
+      final reorderedPage = controller.debugPageIdentity(1);
+      expect(reorderedPage, isNot(same(movedPage)),
+          reason: 'the page wrapper belongs to the current revision');
+      expect(controller.pagePresentationEpoch, epoch);
+      expect(controller.debugTileCacheNamespace, same(namespace));
+      expect(
+        tester.state(find.byWidgetPredicate(
+          (widget) =>
+              widget is PdfPageView && identical(widget.page, reorderedPage),
+        )),
+        same(movedState),
+        reason: 'the rendered State follows its stable page key',
+      );
+      final diagnostics = controller.debugPageReconciliationDiagnostics!;
+      expect(diagnostics.mode, PdfPageReconciliationMode.keyedStructure);
+      expect(diagnostics.dirtyPages, 0);
+      expect(diagnostics.retainedPages, 4);
+      expect(diagnostics.walkedPageTree, isTrue);
+
+      editing.undo();
+      await tester.pump();
+      expect(controller.debugKeyedPageReconciliations, 2);
+      final restoredPage = controller.debugPageIdentity(0);
+      expect(
+        tester.state(find.byWidgetPredicate(
+          (widget) =>
+              widget is PdfPageView && identical(widget.page, restoredPage),
+        )),
+        same(movedState),
+        reason: 'undo moves the same keyed State back to its original slot',
+      );
     });
 
     testWidgets(
@@ -1644,6 +1728,10 @@ void main() {
       expect(tester.state(find.byType(PdfPageView).first),
           isNot(same(oldPageState)),
           reason: 'a shifted page slot must not inherit native render state');
+      expect(
+        controller.debugPageReconciliationDiagnostics!.fallbackReason,
+        'page-structure-changed',
+      );
     });
 
     testWidgets('a stale standalone document never desyncs the viewer',
