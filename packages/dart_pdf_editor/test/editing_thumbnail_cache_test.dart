@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -474,6 +475,45 @@ void main() {
   });
 
   group('retained scene reuse', () {
+    testWidgets('web-size tile accepts the complete 200px viewer preview',
+        (tester) async {
+      // 2026-08-22 field trace: replaying the viewer's 39k-command retained
+      // scene for a 256px tile blocked CanvasKit for 223ms. The complete 200px
+      // preview was already on screen and is close enough for the sidebar.
+      final controller = PdfEditingController(buildMultiPagePdf(1));
+      addTearDown(controller.dispose);
+      controller.rotatePages([0], 90); // the field page was landscape
+      final previews = PdfPagePreviewCache();
+      addTearDown(previews.dispose);
+      final page = controller.pageAt(0);
+      await tester.runAsync(() => previews.renderPreview(0, page));
+
+      ui.Image? rendered;
+      late final int tileOps;
+      await tester.runAsync(() async {
+        PdfPerf.enabled = true;
+        addTearDown(() => PdfPerf.enabled = false);
+        PdfPerf.reset();
+        rendered = await rasterizeThumbnail(
+          controller: controller,
+          pageIndex: 0,
+          pageColor: const Color(0xFFFFFFFF),
+          annotations: true,
+          pixelWidth: 256,
+          worker: null,
+          previews: previews,
+          allowSoftPreview: true,
+        );
+        tileOps = PdfPerf.snapshot().count(PdfPerfCount.contentOps);
+      });
+
+      expect(rendered, isNotNull);
+      expect(math.max(rendered!.width, rendered!.height), 200);
+      expect(tileOps, 0,
+          reason: 'the tile claims complete cached pixels without replaying');
+      rendered!.dispose();
+    });
+
     testWidgets('a tile replays the viewer scene instead of re-interpreting',
         (tester) async {
       // #699: with no worker a 128px tile fell through to a full page

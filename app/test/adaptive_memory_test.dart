@@ -177,6 +177,57 @@ void main() {
     expect(decision.pageRasterPolicy.maxBytes, lessThanOrEqualTo(256 * mb));
   });
 
+  test('web page admission keeps a normal high-DPI fit raster cacheable', () {
+    // Field trace 2026-08-22: the total budget still had 110 MB available,
+    // but `pageBytes ~/ 8` priced each entry at 14.47 MB and rejected every
+    // 16.52 MB fit raster. A non-empty cache budget that admits zero pages is
+    // not useful headroom.
+    final decision = computeAdaptiveMemoryDecision(
+      snapshot: const AppMemorySnapshot(
+        physicalBytes: 4 * gb,
+        processRssBytes: 120 * mb,
+      ),
+      platform: PdfPerformancePlatform.web,
+      reclaimableRegistryBytes: 0,
+      liveRasterBytes: 0,
+    );
+
+    expect(decision.pageRasterPolicy.maxBytes, greaterThan(64 * mb));
+    expect(decision.pageRasterPolicy.maxEntryBytes,
+        greaterThanOrEqualTo(16 * mb));
+    expect(decision.pageRasterPolicy.maxEntryBytes,
+        greaterThanOrEqualTo(16515776));
+  });
+
+  test('web transient heap spike needs confirmation before disabling pages',
+      () {
+    final controller = AdaptiveMemoryBudgetController(
+      platform: PdfPerformancePlatform.web,
+    );
+    const roomy = AppMemorySnapshot(
+      physicalBytes: 4 * gb,
+      processRssBytes: 120 * mb,
+    );
+    const transferSpike = AppMemorySnapshot(
+      physicalBytes: 4 * gb,
+      processRssBytes: 300 * mb,
+    );
+
+    controller.applySnapshot(roomy);
+    final before = tools.pageRasterCachePolicy.value;
+    expect(before.maxBytes, greaterThan(0));
+
+    controller.applySnapshot(transferSpike);
+    expect(tools.pageRasterCachePolicy.value, before,
+        reason: 'one pre-GC worker-transfer sample is not sustained pressure');
+    expect(PdfCacheRegistry.instance.maxTotalWeight, 64 * mb,
+        reason: 'the process-wide safety ceiling still shrinks immediately');
+
+    controller.applySnapshot(transferSpike);
+    expect(tools.pageRasterCachePolicy.value.maxBytes, 0,
+        reason: 'a second tight sample confirms the lower admission policy');
+  });
+
   // Gives the process-wide registry real occupancy, so a pressure event is
   // judged against caches that are actually holding something. Without this the
   // registry is empty and the controller (rightly) declines to punish it.

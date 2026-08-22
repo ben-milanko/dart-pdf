@@ -39,10 +39,18 @@ int pdfWarmPageRasterFloorBytes(PdfPerformancePlatform platform) =>
 
 /// Per-page admission floor while a warm policy is active.
 ///
-/// The derived limit is `pageBytes ~/ 8` with an 8 MB floor off-desktop, so a
-/// page budget under 64 MB admits nothing bigger than 8 MB - and a letter page
-/// at DPR 2 is ~10 MB. Raising the *total* without raising this buys nothing.
+/// The derived limit is `pageBytes ~/ 8`, with a 16 MB floor on desktop/web
+/// and 8 MB elsewhere. A web fit raster can easily reach 15-16 MB on a normal
+/// high-DPI display; pricing it below the floor makes an otherwise healthy
+/// 100+ MB page budget retain zero pages.
 const pdfWarmPageRasterEntryFloorBytes = 24 * _mb;
+
+int _pageRasterEntryFloor(PdfPerformancePlatform platform) =>
+    switch (platform) {
+      PdfPerformancePlatform.desktop || PdfPerformancePlatform.web =>
+        16 * _mb,
+      PdfPerformancePlatform.mobile || PdfPerformancePlatform.other => 8 * _mb,
+    };
 
 typedef AppMemoryProbe = Future<AppMemorySnapshot?> Function();
 
@@ -189,8 +197,7 @@ AdaptiveMemoryDecision computeAdaptiveMemoryDecision({
   };
   final pageBytes =
       math.min(platformPageCap, (allocatableRegistry * .88).round());
-  final minimumEntry =
-      platform == PdfPerformancePlatform.desktop ? 16 * _mb : 8 * _mb;
+  final minimumEntry = _pageRasterEntryFloor(platform);
   var entryBytes = pageBytes == 0
       ? 0
       : math.min(
@@ -277,6 +284,16 @@ class AdaptiveMemoryBudgetController with WidgetsBindingObserver {
   int? _pressureRegistryCap;
   bool _lowMemoryActive = false;
   int? _lastRssBytes;
+
+  // Chrome's `usedJSHeapSize` is sampled before its next GC and includes
+  // short-lived worker transfer/deserialization buffers. A single large-page
+  // open can therefore make the speculative page budget read 110 MB -> 0 and
+  // hold it there under the growth damper, even though the registered caches
+  // themselves occupy only a few MB. The process-wide registry ceiling and
+  // live-raster budget still shrink immediately; only this admission policy
+  // waits for one confirming sample on web, where no OS available-memory
+  // signal exists.
+  PdfPageRasterCachePolicy? _pendingWebPageShrink;
 
   /// Share of process RSS the registered caches must hold before a pressure
   /// event is allowed to shrink their ceiling for [pressureCooldown].
@@ -391,6 +408,23 @@ class AdaptiveMemoryBudgetController with WidgetsBindingObserver {
 
     var pagePolicy = decision.pageRasterPolicy;
     final current = tools.pageRasterCachePolicy.value;
+    if (_hasSample &&
+        platform == PdfPerformancePlatform.web &&
+        snapshot.availableBytes == null &&
+        pagePolicy.maxBytes < current.maxBytes) {
+      final pending = _pendingWebPageShrink;
+      final confirmed = pending != null &&
+          pagePolicy.maxBytes <= pending.maxBytes &&
+          pagePolicy.maxEntryBytes <= pending.maxEntryBytes;
+      if (!confirmed) {
+        _pendingWebPageShrink = pagePolicy;
+        pagePolicy = current;
+      } else {
+        _pendingWebPageShrink = null;
+      }
+    } else {
+      _pendingWebPageShrink = null;
+    }
     if (_hasSample && pagePolicy.maxBytes > current.maxBytes) {
       final inCooldown = _lastPressure != null &&
           now.difference(_lastPressure!) < pressureCooldown;
@@ -520,6 +554,6 @@ class AdaptiveMemoryBudgetController with WidgetsBindingObserver {
 
 int _entryLimitFor(int bytes, PdfPerformancePlatform platform) {
   if (bytes <= 0) return 0;
-  final floor = platform == PdfPerformancePlatform.desktop ? 16 * _mb : 8 * _mb;
+  final floor = _pageRasterEntryFloor(platform);
   return math.min(bytes, math.min(256 * _mb, math.max(floor, bytes ~/ 8)));
 }

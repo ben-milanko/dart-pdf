@@ -3037,6 +3037,7 @@ Future<ui.Image?> rasterizeThumbnail({
   String reason = 'tile',
   PdfRasterCache? disk,
   PdfPagePreviewCache? previews,
+  bool? allowSoftPreview,
 }) async {
   final page = controller.pageAt(pageIndex);
   final size = PdfPageRenderer.pageSize(page);
@@ -3068,6 +3069,30 @@ Future<ui.Image?> rasterizeThumbnail({
     });
   final sw = Stopwatch()..start();
   try {
+    // Reuse pixels the viewer already produced before replaying its retained
+    // command scene. Intermediate previews can be sharper than the requested
+    // tile; on web, the base 200 px preview is also accepted for a nearby
+    // 256 px request. That small softness avoids the trace's 223 ms CanvasKit
+    // replay of 39k commands (and the resulting 248 ms raster frame).
+    final preview = previews?.thumbnailImageFor(
+      pageIndex,
+      page,
+      width: pixelWidth,
+      height: math.max(1, (size.height * ratio).ceil()),
+      minimumScale: (allowSoftPreview ?? kIsWeb) ? 0.75 : 1,
+    );
+    if (preview != null) {
+      final previewMs = sw.elapsedMicroseconds / 1000.0;
+      trace.instant('preview hit', arguments: {
+        'ms': previewMs,
+        'width': preview.width,
+        'height': preview.height,
+      });
+      PdfPerfLog.log('thumbnail page=$pageIndex $reason px=$pixelWidth '
+          'preview-hit ${preview.width}x${preview.height} '
+          'lookup=${_traceMs(previewMs)}');
+      return preview;
+    }
     // Cheapest live path first: the page's own retained scene. It is already
     // interpreted and its images are already decoded, so a tile costs a
     // command replay plus its (tiny) raster - no worker round trip, and none

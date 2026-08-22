@@ -104,6 +104,31 @@ void main() {
     preview.dispose();
   });
 
+  testWidgets('a complete intermediate preview satisfies a thumbnail',
+      (tester) async {
+    final document = PdfDocument.open(buildClassicPdf());
+    final page = document.page(0);
+    final cache = PdfPagePreviewCache();
+    addTearDown(cache.dispose);
+    await tester.runAsync(() => cache.renderPreview(
+          0,
+          page,
+          targetLongestSide: 400,
+        ));
+
+    final sufficient = cache.completeImageFor(
+      0,
+      page,
+      width: 256,
+      height: 330,
+    );
+    expect(sufficient, isNotNull,
+        reason: 'the sharpest preview tier is not limited to the 200px base');
+    final image = sufficient!;
+    expect(math.max(image.width, image.height), 400);
+    image.dispose();
+  });
+
   testWidgets('a sufficient preview bypasses first-render hold',
       (tester) async {
     final document = PdfDocument.open(buildClassicPdf());
