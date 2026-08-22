@@ -304,9 +304,16 @@ jobs:
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const body = [
               marker,
-              report,
+              '## Native Patrol performance',
               '',
               `Automated for commit \`${sha}\` · [workflow run and downloadable native traces](${runUrl})`,
+              '',
+              '<details>',
+              '<summary>View Android and iOS performance details</summary>',
+              '',
+              report,
+              '',
+              '</details>',
             ].join('\n');
             const comments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,
