@@ -134,25 +134,7 @@ jobs:
           profile: pixel_6
           disable-animations: true
           working-directory: ${{ env.EXAMPLE_DIR }}
-          script: |
-            bash -o errexit -o pipefail -c '
-              patrol test \
-                --device emulator-5554 \
-                --target patrol_test/demo_e2e_test.dart \
-                --dart-define PDF_PERF_LOG=true \
-                --dart-define PDF_BUILD_COMMIT=${{ env.PDF_PATROL_BUILD_COMMIT }} \
-                --show-flutter-logs \
-                --verbose \
-                2>&1 | tee "$RUNNER_TEMP/patrol-android.log"
-              patrol test \
-                --device emulator-5554 \
-                --target patrol_test/native_perf_e2e_test.dart \
-                --dart-define PDF_PERF_LOG=true \
-                --dart-define PDF_BUILD_COMMIT=${{ env.PDF_PATROL_BUILD_COMMIT }} \
-                --show-flutter-logs \
-                --verbose \
-                2>&1 | tee -a "$RUNNER_TEMP/patrol-android.log"
-            '
+          script: bash ../../../tool/run_android_patrol_ci.sh
       - name: Collect Patrol Android performance trace
         if: always()
         working-directory: ${{ env.EXAMPLE_DIR }}
