@@ -177,4 +177,43 @@ void main() {
       }
     });
   });
+
+  group('pdfDefaultTileBudgetBytes (issue #374)', () {
+    const mb = 1024 * 1024;
+
+    test('mobile uses 64 MB, returning 32 MB to the process', () {
+      expect(
+        pdfDefaultTileBudgetBytes(platform: PdfPerformancePlatform.mobile),
+        64 * mb,
+      );
+    });
+
+    test('established 96 MB ceiling stays on non-mobile platforms', () {
+      for (final platform in [
+        PdfPerformancePlatform.desktop,
+        PdfPerformancePlatform.web,
+        PdfPerformancePlatform.other,
+      ]) {
+        expect(pdfDefaultTileBudgetBytes(platform: platform), 96 * mb,
+            reason: '$platform');
+      }
+    });
+
+    test('a default-constructed store adopts the platform policy', () {
+      final store = PdfTileStore(registerForMemoryPressure: false);
+      addTearDown(store.dispose);
+
+      expect(store.maxBytes, pdfDefaultTileBudgetBytes());
+    });
+
+    test('an explicit store budget still wins', () {
+      final store = PdfTileStore(
+        maxBytes: 12 * mb,
+        registerForMemoryPressure: false,
+      );
+      addTearDown(store.dispose);
+
+      expect(store.maxBytes, 12 * mb);
+    });
+  });
 }

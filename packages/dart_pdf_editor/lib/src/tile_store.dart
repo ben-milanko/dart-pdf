@@ -32,6 +32,7 @@ import 'package:flutter/painting.dart';
 
 import 'budgeted_cache.dart';
 import 'perf_log.dart';
+import 'performance_policy.dart';
 import 'renderer.dart';
 
 /// Rasterizes one tile: [region] is the tile's bounds in page points (the
@@ -291,7 +292,7 @@ class PdfTileStore extends ChangeNotifier {
   PdfTileStore({
     this.tilePixels = 512,
     this.ladder = const PdfTileZoomLadder(),
-    int maxBytes = _defaultMaxBytes,
+    int? maxBytes,
     this.prefetchRing = 1,
     this.maxPrefetchInFlightTiles = 4,
     this.maxFallbackDepth = 4,
@@ -303,15 +304,14 @@ class PdfTileStore extends ChangeNotifier {
             'a batch slab must fit the engine texture limit'),
         _cache = PdfBudgetedCache<PdfTileKey, PdfTile>(
           weigher: (tile) => tile.bytes,
-          maxWeight: math.max(maxBytes, _minBytes),
+          maxWeight: math.max(
+            maxBytes ?? pdfDefaultTileBudgetBytes(),
+            _minBytes,
+          ),
           disposer: (tile) => tile.image.dispose(),
           clearsUnderMemoryPressure: registerForMemoryPressure,
           debugLabel: 'tiles',
         );
-
-  /// ~96 MB: enough for a deep-zoom viewport plus a prefetch ring across a
-  /// couple of buckets, well under the decoded-image budget it sits beside.
-  static const _defaultMaxBytes = 96 << 20;
 
   /// A floor so a viewport's worth of tiles is never evicted out from under the
   /// view that just asked for them (see [viewFor]'s MRU-protection contract).
