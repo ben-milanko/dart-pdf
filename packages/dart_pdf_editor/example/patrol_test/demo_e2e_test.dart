@@ -7,6 +7,7 @@ import 'package:pdf_viewer_example/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _preferencePrefix = 'dart_pdf_editor.editing.';
+const _buildCommit = String.fromEnvironment('PDF_BUILD_COMMIT');
 const _testPreferences = <String, Object>{
   '${_preferencePrefix}locale': 'en',
   '${_preferencePrefix}showAnnotations': true,
@@ -23,6 +24,13 @@ const _testPreferences = <String, Object>{
 };
 
 void main() {
+  // Patrol owns this test entry point, so the example app's main() does not
+  // run. Stamp the shared perf logger here as well as in lib/main.dart so CI
+  // artifacts can always be attributed to the exact revision under test.
+  if (_buildCommit.isNotEmpty) {
+    PdfPerfLog.buildTag = 'commit=$_buildCommit';
+  }
+
   patrolTest('launches the demo and exercises PDF actions and overlays',
       ($) async {
     final demo = await _DemoHarness.open($);

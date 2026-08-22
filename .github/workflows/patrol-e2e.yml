@@ -39,16 +39,31 @@ jobs:
           dart pub global activate patrol_cli "$PATROL_CLI_VERSION"
           echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
       - name: Run Patrol on web
+        id: patrol-web
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        shell: bash
+        run: |
+          set -o pipefail
+          patrol test \
+            --device chrome \
+            --target patrol_test/demo_e2e_test.dart \
+            --dart-define PDF_PERF_LOG=true \
+            --dart-define PDF_BUILD_COMMIT=${{ github.sha }} \
+            --show-flutter-logs \
+            --web-headless \
+            --web-locale en-US \
+            --web-workers 1 \
+            --web-video retain-on-failure \
+            --verbose \
+            2>&1 | tee "$RUNNER_TEMP/patrol-web.log"
+      - name: Collect Patrol performance trace
+        if: always()
         working-directory: ${{ env.EXAMPLE_DIR }}
         run: >-
-          patrol test
-          --device chrome
-          --target patrol_test/demo_e2e_test.dart
-          --web-headless
-          --web-locale en-US
-          --web-workers 1
-          --web-video retain-on-failure
-          --verbose
+          dart ../../../tool/patrol_perf_summary.dart
+          "$RUNNER_TEMP/patrol-web.log"
+          --output test-results/perf
+          --markdown "$GITHUB_STEP_SUMMARY"
       - name: Upload Patrol web results
         if: always()
         uses: actions/upload-artifact@v7

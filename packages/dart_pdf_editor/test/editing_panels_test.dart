@@ -64,7 +64,8 @@ void main() {
       expect(editing.pageRenderStamp(2), after[2]);
     });
 
-    test('structural edits bump all; editor-attributed edits stay narrow', () {
+    test('pure reorder preserves stamps; editor-attributed edits stay narrow',
+        () {
       final editing = PdfEditingController(buildMultiPagePdf(3));
       addTearDown(editing.dispose);
       final before = [for (var i = 0; i < 3; i++) editing.pageRenderStamp(i)];
@@ -72,7 +73,8 @@ void main() {
       editing.movePage(0, 2);
       final moved = [for (var i = 0; i < 3; i++) editing.pageRenderStamp(i)];
       for (var i = 0; i < 3; i++) {
-        expect(moved[i], isNot(before[i]));
+        expect(moved[i], before[i],
+            reason: 'a pure permutation does not invalidate page pixels');
       }
 
       // A host edit through public apply gets its impact from PdfEditor;

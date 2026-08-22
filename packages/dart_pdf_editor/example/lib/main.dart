@@ -31,6 +31,9 @@ final _githubUrl = Uri.parse('https://github.com/ben-milanko/dart-pdf');
 /// The published Flutter package the example is built on.
 final _pubDevUrl = Uri.parse('https://pub.dev/packages/dart_pdf_editor');
 
+/// CI stamps Patrol performance traces with the exact revision under test.
+const _buildCommit = String.fromEnvironment('PDF_BUILD_COMMIT');
+
 /// A CORS-enabled, Range-capable sample used to prefill the "Open from a URL"
 /// field - the classic pdf.js test document, served by raw.githubusercontent
 /// with `Access-Control-Allow-Origin: *`.
@@ -113,6 +116,9 @@ String pdfSavePathWithExtension(String path) {
 }
 
 void main() {
+  if (_buildCommit.isNotEmpty) {
+    PdfPerfLog.buildTag = 'commit=$_buildCommit';
+  }
   // Register the optional bundled editor fonts + web render worker so the
   // example keeps the full-featured editor (font menu catalogue, composite-text
   // fallbacks, off-main-thread web rendering). A viewer-only app would omit the

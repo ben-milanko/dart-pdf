@@ -43,6 +43,12 @@ patrol test --device macos
 patrol test --device chrome --web-headless
 ```
 
+The CI web journey enables `PdfPerfLog` and uploads `patrol-perf.log`,
+`patrol-perf.json`, and `patrol-perf.md` inside the `patrol-web-results`
+artifact. Pull requests also show the Markdown summary in the Actions run.
+These wall-clock measurements are review evidence rather than a pass/fail gate;
+compare the JSON with a recent `main` run from the same hosted-runner lane.
+
 When using this repository's FVM SDK, prefix the commands with
 `PATROL_FLUTTER_COMMAND="fvm flutter"`. Patrol supports Android, iOS, macOS,
 and web. Its runner does not support Windows or Linux; those platforms remain
