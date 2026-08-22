@@ -495,6 +495,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get editorOpenRecent => '打开最近';
 
   @override
+  String get editorViewAllRecentFiles => '查看所有最近文件…';
+
+  @override
   String get editorOpenTabs => '打开的标签页';
 
   @override
@@ -907,6 +910,12 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get welcomeRecent => '最近';
+
+  @override
+  String get welcomeSearchRecentFiles => '搜索最近文件';
+
+  @override
+  String get welcomeNoMatchingRecentFiles => '没有与搜索匹配的最近文件';
 
   @override
   String get welcomeRemoveFromRecent => '从最近中移除';
@@ -1511,6 +1520,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get editorOpenRecent => '開啟最近使用';
 
   @override
+  String get editorViewAllRecentFiles => '查看所有最近使用的檔案…';
+
+  @override
   String get editorOpenTabs => '開啟的分頁';
 
   @override
@@ -1923,6 +1935,12 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get welcomeRecent => '最近使用';
+
+  @override
+  String get welcomeSearchRecentFiles => '搜尋最近使用的檔案';
+
+  @override
+  String get welcomeNoMatchingRecentFiles => '沒有符合搜尋條件的最近使用檔案';
 
   @override
   String get welcomeRemoveFromRecent => '從最近使用中移除';

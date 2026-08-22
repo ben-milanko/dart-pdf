@@ -2038,19 +2038,38 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   List<RecentFile> _recentMenuEntries() {
-    final openIds = {
-      for (final tab in _tabs)
-        if (tab.originPath != null && tab.originPath!.isNotEmpty)
-          tab.originPath!
-        else if (tab.cachePath != null && tab.cachePath!.isNotEmpty)
-          tab.cachePath!
-        else
-          tab.title,
-    };
+    return _availableRecentEntries().take(_maxRecentMenuItems).toList();
+  }
+
+  Set<String> _openRecentIds() => {
+        for (final tab in _tabs)
+          if (tab.originPath != null && tab.originPath!.isNotEmpty)
+            tab.originPath!
+          else if (tab.cachePath != null && tab.cachePath!.isNotEmpty)
+            tab.cachePath!
+          else
+            tab.title,
+      };
+
+  List<RecentFile> _availableRecentEntries() {
+    final openIds = _openRecentIds();
     return [
       for (final entry in _recents.items)
         if (!openIds.contains(entry.id)) entry,
-    ].take(_maxRecentMenuItems).toList();
+    ];
+  }
+
+  void _showRecentFiles() {
+    unawaited(Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => RecentFilesScreen(
+          recents: _recents,
+          thumbnails: _recentThumbnails,
+          excludedIds: _openRecentIds(),
+          onOpenRecent: (entry) => unawaited(_openRecent(entry)),
+        ),
+      ),
+    ));
   }
 
   void _openMostRecent() {
@@ -2523,9 +2542,9 @@ class _EditorScreenState extends State<EditorScreen>
         // The preview is modal, but the session stays the source of truth for
         // what prints - re-read it rather than trusting the pre-dialog bytes.
         final document = session.document;
-        final selection =
-            pages.where((page) => page >= 0 && page < document.pageCount)
-                .toList();
+        final selection = pages
+            .where((page) => page >= 0 && page < document.pageCount)
+            .toList();
         if (selection.isEmpty) return;
         bytes = selection.length == document.pageCount
             ? session.bytes
@@ -2820,6 +2839,24 @@ class _EditorScreenState extends State<EditorScreen>
             }
           },
           itemBuilder: (_) => [
+            PopupMenuItem<VoidCallback>(
+              key: const ValueKey('view-all-recent-files'),
+              height: _appMenuItemHeight(),
+              enabled: _availableRecentEntries().isNotEmpty,
+              value: () {
+                // The submenu's onSelected callback closes the parent popup.
+                // Push the browser on the next frame so that pop cannot close
+                // the newly opened route as well.
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) _showRecentFiles();
+                });
+              },
+              child: _appMenuTile(
+                icon: Icons.grid_view_outlined,
+                title: appL10n(context).editorViewAllRecentFiles,
+              ),
+            ),
+            if (recents.isNotEmpty) const PopupMenuDivider(),
             if (recents.isEmpty)
               PopupMenuItem<VoidCallback>(
                 height: _appMenuItemHeight(),

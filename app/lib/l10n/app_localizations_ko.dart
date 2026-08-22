@@ -496,6 +496,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get editorOpenRecent => '최근 항목 열기';
 
   @override
+  String get editorViewAllRecentFiles => '모든 최근 파일 보기…';
+
+  @override
   String get editorOpenTabs => '열린 탭';
 
   @override
@@ -908,6 +911,12 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get welcomeRecent => '최근';
+
+  @override
+  String get welcomeSearchRecentFiles => '최근 파일 검색';
+
+  @override
+  String get welcomeNoMatchingRecentFiles => '검색과 일치하는 최근 파일이 없습니다';
 
   @override
   String get welcomeRemoveFromRecent => '최근 항목에서 제거';

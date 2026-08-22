@@ -683,6 +683,10 @@
   "@editorOpenRecent": {
     "description": "App menu submenu / tooltip for reopening recently opened files."
   },
+  "editorViewAllRecentFiles": "View all recent files…",
+  "@editorViewAllRecentFiles": {
+    "description": "Open Recent submenu action that opens the full recent-files browser."
+  },
   "editorOpenTabs": "Open tabs",
   "@editorOpenTabs": {
     "description": "Tooltip on the mobile app-bar button that shows the open tabs sheet."
@@ -1262,6 +1266,14 @@
   "welcomeRecent": "Recent",
   "@welcomeRecent": {
     "description": "Header for the recent-documents list on the welcome screen."
+  },
+  "welcomeSearchRecentFiles": "Search recent files",
+  "@welcomeSearchRecentFiles": {
+    "description": "Hint for the recent-files filename search field."
+  },
+  "welcomeNoMatchingRecentFiles": "No recent files match your search",
+  "@welcomeNoMatchingRecentFiles": {
+    "description": "Empty state when recent-file search has no matches."
   },
   "welcomeRemoveFromRecent": "Remove from recent",
   "@welcomeRemoveFromRecent": {

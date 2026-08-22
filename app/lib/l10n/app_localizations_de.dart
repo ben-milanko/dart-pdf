@@ -511,6 +511,10 @@ class AppLocalizationsDe extends AppLocalizations {
   String get editorOpenRecent => 'Zuletzt geöffnet';
 
   @override
+  String get editorViewAllRecentFiles =>
+      'Alle zuletzt verwendeten Dateien anzeigen…';
+
+  @override
   String get editorOpenTabs => 'Offene Tabs';
 
   @override
@@ -937,6 +941,14 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get welcomeRecent => 'Zuletzt verwendet';
+
+  @override
+  String get welcomeSearchRecentFiles =>
+      'Zuletzt verwendete Dateien durchsuchen';
+
+  @override
+  String get welcomeNoMatchingRecentFiles =>
+      'Keine zuletzt verwendeten Dateien entsprechen der Suche';
 
   @override
   String get welcomeRemoveFromRecent => 'Aus zuletzt verwendet entfernen';

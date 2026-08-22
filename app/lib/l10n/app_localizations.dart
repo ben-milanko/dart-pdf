@@ -901,6 +901,12 @@ abstract class AppLocalizations {
   /// **'Open Recent'**
   String get editorOpenRecent;
 
+  /// Open Recent submenu action that opens the full recent-files browser.
+  ///
+  /// In en, this message translates to:
+  /// **'View all recent files…'**
+  String get editorViewAllRecentFiles;
+
   /// Tooltip on the mobile app-bar button that shows the open tabs sheet.
   ///
   /// In en, this message translates to:
@@ -1560,6 +1566,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Recent'**
   String get welcomeRecent;
+
+  /// Hint for the recent-files filename search field.
+  ///
+  /// In en, this message translates to:
+  /// **'Search recent files'**
+  String get welcomeSearchRecentFiles;
+
+  /// Empty state when recent-file search has no matches.
+  ///
+  /// In en, this message translates to:
+  /// **'No recent files match your search'**
+  String get welcomeNoMatchingRecentFiles;
 
   /// Tooltip on the button that removes an entry from the recent-files list.
   ///

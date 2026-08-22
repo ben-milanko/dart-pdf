@@ -498,6 +498,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get editorOpenRecent => '最近使用したファイルを開く';
 
   @override
+  String get editorViewAllRecentFiles => '最近使用したファイルをすべて表示…';
+
+  @override
   String get editorOpenTabs => '開いているタブ';
 
   @override
@@ -910,6 +913,12 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get welcomeRecent => '最近使用';
+
+  @override
+  String get welcomeSearchRecentFiles => '最近使用したファイルを検索';
+
+  @override
+  String get welcomeNoMatchingRecentFiles => '検索に一致する最近使用したファイルはありません';
 
   @override
   String get welcomeRemoveFromRecent => '最近使用したファイルから削除';

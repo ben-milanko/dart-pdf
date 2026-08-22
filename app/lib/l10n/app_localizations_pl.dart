@@ -523,6 +523,9 @@ class AppLocalizationsPl extends AppLocalizations {
   String get editorOpenRecent => 'Otwórz ostatnie';
 
   @override
+  String get editorViewAllRecentFiles => 'Wyświetl wszystkie ostatnie pliki…';
+
+  @override
   String get editorOpenTabs => 'Otwarte karty';
 
   @override
@@ -956,6 +959,13 @@ class AppLocalizationsPl extends AppLocalizations {
 
   @override
   String get welcomeRecent => 'Ostatnie';
+
+  @override
+  String get welcomeSearchRecentFiles => 'Przeszukaj ostatnie pliki';
+
+  @override
+  String get welcomeNoMatchingRecentFiles =>
+      'Brak ostatnich plików pasujących do wyszukiwania';
 
   @override
   String get welcomeRemoveFromRecent => 'Usuń z ostatnich';

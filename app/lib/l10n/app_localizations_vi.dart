@@ -503,6 +503,9 @@ class AppLocalizationsVi extends AppLocalizations {
   String get editorOpenRecent => 'Mở gần đây';
 
   @override
+  String get editorViewAllRecentFiles => 'Xem tất cả tệp gần đây…';
+
+  @override
   String get editorOpenTabs => 'Các thẻ đang mở';
 
   @override
@@ -925,6 +928,13 @@ class AppLocalizationsVi extends AppLocalizations {
 
   @override
   String get welcomeRecent => 'Gần đây';
+
+  @override
+  String get welcomeSearchRecentFiles => 'Tìm kiếm tệp gần đây';
+
+  @override
+  String get welcomeNoMatchingRecentFiles =>
+      'Không có tệp gần đây nào khớp với tìm kiếm';
 
   @override
   String get welcomeRemoveFromRecent => 'Gỡ khỏi danh sách gần đây';

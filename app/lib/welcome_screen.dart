@@ -28,11 +28,25 @@ class WelcomeScreen extends StatefulWidget {
     required this.onOpen,
     required this.onOpenRecent,
     this.thumbnails,
+    this.excludedIds = const {},
+    this.showHero = true,
+    this.autofocusSearch = false,
   });
 
   final RecentsStore recents;
   final VoidCallback onOpen;
   final void Function(RecentFile entry) onOpenRecent;
+
+  /// Recent entries already open in document tabs are omitted when this set
+  /// is provided by the full recent-files browser.
+  final Set<String> excludedIds;
+
+  /// Whether to show the DartPDF logo and primary open button above recents.
+  /// The dedicated recent-files route hides this welcome-only chrome.
+  final bool showHero;
+
+  /// Focuses the recent search when opening the dedicated browser route.
+  final bool autofocusSearch;
 
   /// Renders the first-page thumbnail shown beside each recent entry. When
   /// null (or an entry has no readable source), the list shows a generic
@@ -43,11 +57,88 @@ class WelcomeScreen extends StatefulWidget {
   State<WelcomeScreen> createState() => _WelcomeScreenState();
 }
 
+/// Full list/grid recent-files browser opened from the Open Recent submenu.
+///
+/// It shares the same search and layouts as [WelcomeScreen], so both entry
+/// points behave consistently.
+class RecentFilesScreen extends StatelessWidget {
+  const RecentFilesScreen({
+    super.key,
+    required this.recents,
+    required this.onOpenRecent,
+    this.thumbnails,
+    this.excludedIds = const {},
+  });
+
+  final RecentsStore recents;
+  final void Function(RecentFile entry) onOpenRecent;
+  final RecentThumbnailCache? thumbnails;
+  final Set<String> excludedIds;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = appL10n(context);
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(l10n.settingsRecentFiles),
+        actions: [
+          ListenableBuilder(
+            listenable: recents,
+            builder: (context, _) => IconButton(
+              key: const ValueKey('recent-files-clear'),
+              tooltip: l10n.editorClearRecentFiles,
+              onPressed: recents.isEmpty ? null : recents.clear,
+              icon: const Icon(Icons.clear_all),
+            ),
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      body: WelcomeScreen(
+        recents: recents,
+        onOpen: () {},
+        onOpenRecent: (entry) {
+          Navigator.of(context).pop();
+          onOpenRecent(entry);
+        },
+        thumbnails: thumbnails,
+        excludedIds: excludedIds,
+        showHero: false,
+        autofocusSearch: true,
+      ),
+    );
+  }
+}
+
 class _WelcomeScreenState extends State<WelcomeScreen> {
   // Null until the user explicitly picks a layout with the toggle; while null
   // the layout follows the available width (grid when wide, list when narrow),
   // so resizing the window flips the default but an explicit choice sticks.
   RecentsView? _view;
+  final _search = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _search.addListener(_searchChanged);
+  }
+
+  @override
+  void dispose() {
+    _search
+      ..removeListener(_searchChanged)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _searchChanged() => setState(() {});
+
+  bool _matchesSearch(RecentFile entry) {
+    final query = _search.text.trim().toLowerCase();
+    if (query.isEmpty) return true;
+    return entry.title.toLowerCase().contains(query) ||
+        (entry.path?.toLowerCase().contains(query) ?? false);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -69,56 +160,65 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
               child: ListenableBuilder(
                 listenable: widget.recents,
                 builder: (context, _) {
-                  final items = widget.recents.items;
+                  final allItems = [
+                    for (final item in widget.recents.items)
+                      if (!widget.excludedIds.contains(item.id)) item,
+                  ];
+                  final items = [
+                    for (final item in allItems)
+                      if (_matchesSearch(item)) item,
+                  ];
                   return Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Icon(Icons.picture_as_pdf_outlined,
-                          size: 64, color: theme.colorScheme.primary),
-                      const SizedBox(height: 12),
-                      Text(AppInfo.name,
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.headlineSmall),
-                      const SizedBox(height: 24),
-                      Align(
-                        alignment: Alignment.center,
-                        child: FilledButton.icon(
-                          onPressed: widget.onOpen,
-                          icon: const Icon(Icons.folder_open),
-                          label: Text(appL10n(context).welcomeOpenPdf),
+                      if (widget.showHero) ...[
+                        Icon(Icons.picture_as_pdf_outlined,
+                            size: 64, color: theme.colorScheme.primary),
+                        const SizedBox(height: 12),
+                        Text(AppInfo.name,
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.headlineSmall),
+                        const SizedBox(height: 24),
+                        Align(
+                          alignment: Alignment.center,
+                          child: FilledButton.icon(
+                            onPressed: widget.onOpen,
+                            icon: const Icon(Icons.folder_open),
+                            label: Text(appL10n(context).welcomeOpenPdf),
+                          ),
                         ),
-                      ),
-                      if (items.isNotEmpty) ...[
-                        const SizedBox(height: 28),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(appL10n(context).welcomeRecent,
-                                  style: theme.textTheme.titleSmall),
-                            ),
-                            _ViewToggle(
-                              view: view,
-                              onChanged: (v) => setState(() => _view = v),
-                            ),
-                          ],
+                      ],
+                      if (allItems.isNotEmpty) ...[
+                        SizedBox(height: widget.showHero ? 28 : 8),
+                        _RecentsHeader(
+                          view: view,
+                          search: _search,
+                          autofocusSearch: widget.autofocusSearch,
+                          onViewChanged: (v) => setState(() => _view = v),
                         ),
                         const SizedBox(height: 8),
                         Flexible(
-                          child: view == RecentsView.grid
-                              ? _RecentsGrid(
-                                  items: items,
-                                  recents: widget.recents,
-                                  onOpenRecent: widget.onOpenRecent,
-                                  thumbnails: widget.thumbnails,
-                                )
-                              : _RecentsList(
-                                  items: items,
-                                  recents: widget.recents,
-                                  onOpenRecent: widget.onOpenRecent,
-                                  thumbnails: widget.thumbnails,
-                                ),
+                          child: items.isEmpty
+                              ? const _NoMatchingRecents()
+                              : view == RecentsView.grid
+                                  ? _RecentsGrid(
+                                      items: items,
+                                      recents: widget.recents,
+                                      onOpenRecent: widget.onOpenRecent,
+                                      thumbnails: widget.thumbnails,
+                                    )
+                                  : _RecentsList(
+                                      items: items,
+                                      recents: widget.recents,
+                                      onOpenRecent: widget.onOpenRecent,
+                                      thumbnails: widget.thumbnails,
+                                    ),
                         ),
+                      ] else if (!widget.showHero) ...[
+                        const SizedBox(height: 96),
+                        Center(
+                            child: Text(appL10n(context).editorNoRecentFiles)),
                       ],
                     ],
                   );
@@ -130,6 +230,108 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       },
     );
   }
+}
+
+class _RecentsHeader extends StatelessWidget {
+  const _RecentsHeader({
+    required this.view,
+    required this.search,
+    required this.autofocusSearch,
+    required this.onViewChanged,
+  });
+
+  final RecentsView view;
+  final TextEditingController search;
+  final bool autofocusSearch;
+  final ValueChanged<RecentsView> onViewChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final title = Text(
+      appL10n(context).welcomeRecent,
+      style: theme.textTheme.titleSmall,
+    );
+    final toggle = _ViewToggle(view: view, onChanged: onViewChanged);
+    final searchField = _RecentSearchField(
+      controller: search,
+      autofocus: autofocusSearch,
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= 560) {
+          return Row(
+            children: [
+              Expanded(child: title),
+              SizedBox(width: 280, child: searchField),
+              const SizedBox(width: 12),
+              toggle,
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(children: [Expanded(child: title), toggle]),
+            const SizedBox(height: 8),
+            searchField,
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _RecentSearchField extends StatelessWidget {
+  const _RecentSearchField({
+    required this.controller,
+    required this.autofocus,
+  });
+
+  final TextEditingController controller;
+  final bool autofocus;
+
+  @override
+  Widget build(BuildContext context) => TextField(
+        key: const ValueKey('recent-files-search'),
+        controller: controller,
+        autofocus: autofocus,
+        textInputAction: TextInputAction.search,
+        decoration: InputDecoration(
+          hintText: appL10n(context).welcomeSearchRecentFiles,
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: controller.text.isEmpty
+              ? null
+              : IconButton(
+                  key: const ValueKey('recent-files-search-clear'),
+                  tooltip: appL10n(context).clear,
+                  onPressed: controller.clear,
+                  icon: const Icon(Icons.close),
+                ),
+          border: const OutlineInputBorder(),
+          isDense: true,
+        ),
+      );
+}
+
+class _NoMatchingRecents extends StatelessWidget {
+  const _NoMatchingRecents();
+
+  @override
+  Widget build(BuildContext context) => Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.search_off,
+              size: 48,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: 12),
+            Text(appL10n(context).welcomeNoMatchingRecentFiles),
+          ],
+        ),
+      );
 }
 
 /// The list/grid layout switch shown beside the "Recent" header.
@@ -184,6 +386,7 @@ class _RecentsList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView.builder(
+      key: const ValueKey('recent-files-list'),
       shrinkWrap: true,
       itemCount: items.length,
       itemBuilder: (context, i) {
@@ -197,8 +400,8 @@ class _RecentsList extends StatelessWidget {
             width: 48,
             height: 62,
           ),
-          title: Text(entry.title,
-              maxLines: 1, overflow: TextOverflow.ellipsis),
+          title:
+              Text(entry.title, maxLines: 1, overflow: TextOverflow.ellipsis),
           subtitle: entry.path != null
               ? Text(entry.path!, maxLines: 1, overflow: TextOverflow.ellipsis)
               : entry.isReopenable
@@ -236,6 +439,7 @@ class _RecentsGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
+      key: const ValueKey('recent-files-grid'),
       child: Padding(
         padding: const EdgeInsets.only(top: 4, bottom: 8),
         child: Wrap(

@@ -506,6 +506,9 @@ class AppLocalizationsTr extends AppLocalizations {
   String get editorOpenRecent => 'Son Kullanılanları Aç';
 
   @override
+  String get editorViewAllRecentFiles => 'Tüm son dosyaları görüntüle…';
+
+  @override
   String get editorOpenTabs => 'Açık sekmeler';
 
   @override
@@ -924,6 +927,12 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get welcomeRecent => 'Son kullanılanlar';
+
+  @override
+  String get welcomeSearchRecentFiles => 'Son dosyalarda ara';
+
+  @override
+  String get welcomeNoMatchingRecentFiles => 'Aramanızla eşleşen son dosya yok';
 
   @override
   String get welcomeRemoveFromRecent => 'Son kullanılanlardan kaldır';

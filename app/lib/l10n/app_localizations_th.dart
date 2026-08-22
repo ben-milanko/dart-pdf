@@ -503,6 +503,9 @@ class AppLocalizationsTh extends AppLocalizations {
   String get editorOpenRecent => 'เปิดล่าสุด';
 
   @override
+  String get editorViewAllRecentFiles => 'ดูไฟล์ล่าสุดทั้งหมด…';
+
+  @override
   String get editorOpenTabs => 'แท็บที่เปิด';
 
   @override
@@ -921,6 +924,12 @@ class AppLocalizationsTh extends AppLocalizations {
 
   @override
   String get welcomeRecent => 'ล่าสุด';
+
+  @override
+  String get welcomeSearchRecentFiles => 'ค้นหาไฟล์ล่าสุด';
+
+  @override
+  String get welcomeNoMatchingRecentFiles => 'ไม่มีไฟล์ล่าสุดที่ตรงกับการค้นหา';
 
   @override
   String get welcomeRemoveFromRecent => 'นำออกจากรายการล่าสุด';

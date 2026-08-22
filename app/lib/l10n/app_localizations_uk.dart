@@ -509,6 +509,9 @@ class AppLocalizationsUk extends AppLocalizations {
   String get editorOpenRecent => 'Відкрити нещодавні';
 
   @override
+  String get editorViewAllRecentFiles => 'Переглянути всі нещодавні файли…';
+
+  @override
   String get editorOpenTabs => 'Відкриті вкладки';
 
   @override
@@ -942,6 +945,13 @@ class AppLocalizationsUk extends AppLocalizations {
 
   @override
   String get welcomeRecent => 'Нещодавні';
+
+  @override
+  String get welcomeSearchRecentFiles => 'Пошук у нещодавніх файлах';
+
+  @override
+  String get welcomeNoMatchingRecentFiles =>
+      'Немає нещодавніх файлів, що відповідають пошуку';
 
   @override
   String get welcomeRemoveFromRecent => 'Вилучити з нещодавніх';

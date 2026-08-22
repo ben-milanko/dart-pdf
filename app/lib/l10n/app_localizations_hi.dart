@@ -505,6 +505,9 @@ class AppLocalizationsHi extends AppLocalizations {
   String get editorOpenRecent => 'हाल ही में खोले गए';
 
   @override
+  String get editorViewAllRecentFiles => 'सभी हाल की फ़ाइलें देखें…';
+
+  @override
   String get editorOpenTabs => 'खुले टैब';
 
   @override
@@ -926,6 +929,13 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get welcomeRecent => 'हाल ही में';
+
+  @override
+  String get welcomeSearchRecentFiles => 'हाल की फ़ाइलें खोजें';
+
+  @override
+  String get welcomeNoMatchingRecentFiles =>
+      'आपकी खोज से मेल खाने वाली कोई हाल की फ़ाइल नहीं है';
 
   @override
   String get welcomeRemoveFromRecent => 'हाल से हटाएँ';

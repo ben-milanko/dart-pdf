@@ -510,6 +510,9 @@ class AppLocalizationsRu extends AppLocalizations {
   String get editorOpenRecent => 'Открыть недавние';
 
   @override
+  String get editorViewAllRecentFiles => 'Показать все недавние файлы…';
+
+  @override
   String get editorOpenTabs => 'Открытые вкладки';
 
   @override
@@ -940,6 +943,13 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get welcomeRecent => 'Недавние';
+
+  @override
+  String get welcomeSearchRecentFiles => 'Поиск по недавним файлам';
+
+  @override
+  String get welcomeNoMatchingRecentFiles =>
+      'Нет недавних файлов, соответствующих поиску';
 
   @override
   String get welcomeRemoveFromRecent => 'Удалить из недавних';

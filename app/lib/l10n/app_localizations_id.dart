@@ -509,6 +509,9 @@ class AppLocalizationsId extends AppLocalizations {
   String get editorOpenRecent => 'Buka Terkini';
 
   @override
+  String get editorViewAllRecentFiles => 'Lihat semua berkas terkini…';
+
+  @override
   String get editorOpenTabs => 'Buka tab';
 
   @override
@@ -928,6 +931,13 @@ class AppLocalizationsId extends AppLocalizations {
 
   @override
   String get welcomeRecent => 'Terkini';
+
+  @override
+  String get welcomeSearchRecentFiles => 'Cari berkas terkini';
+
+  @override
+  String get welcomeNoMatchingRecentFiles =>
+      'Tidak ada berkas terkini yang cocok dengan pencarian Anda';
 
   @override
   String get welcomeRemoveFromRecent => 'Hapus dari terkini';

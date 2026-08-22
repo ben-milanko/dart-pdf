@@ -523,6 +523,9 @@ class AppLocalizationsAr extends AppLocalizations {
   String get editorOpenRecent => 'فتح ملف حديث';
 
   @override
+  String get editorViewAllRecentFiles => 'عرض كل الملفات الأخيرة…';
+
+  @override
   String get editorOpenTabs => 'علامات التبويب المفتوحة';
 
   @override
@@ -951,6 +954,12 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get welcomeRecent => 'الأخيرة';
+
+  @override
+  String get welcomeSearchRecentFiles => 'البحث في الملفات الأخيرة';
+
+  @override
+  String get welcomeNoMatchingRecentFiles => 'لا توجد ملفات حديثة تطابق بحثك';
 
   @override
   String get welcomeRemoveFromRecent => 'إزالة من الأخيرة';
