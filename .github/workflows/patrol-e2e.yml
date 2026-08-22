@@ -15,6 +15,7 @@ env:
   PATROL_CLI_VERSION: 4.7.0
   PATROL_ANALYTICS_ENABLED: "false"
   EXAMPLE_DIR: packages/dart_pdf_editor/example
+  PDF_PATROL_BUILD_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
 
 jobs:
   web:
@@ -133,16 +134,43 @@ jobs:
           profile: pixel_6
           disable-animations: true
           working-directory: ${{ env.EXAMPLE_DIR }}
-          script: >-
-            patrol test
-            --device emulator-5554
-            --target patrol_test/demo_e2e_test.dart
+          script: |
+            set -o pipefail
+            patrol test \
+              --device emulator-5554 \
+              --target patrol_test/demo_e2e_test.dart \
+              --dart-define PDF_PERF_LOG=true \
+              --dart-define PDF_BUILD_COMMIT=${{ env.PDF_PATROL_BUILD_COMMIT }} \
+              --show-flutter-logs \
+              --verbose \
+              2>&1 | tee "$RUNNER_TEMP/patrol-android.log"
+            patrol test \
+              --device emulator-5554 \
+              --target patrol_test/native_perf_e2e_test.dart \
+              --dart-define PDF_PERF_LOG=true \
+              --dart-define PDF_BUILD_COMMIT=${{ env.PDF_PATROL_BUILD_COMMIT }} \
+              --show-flutter-logs \
+              --verbose \
+              2>&1 | tee -a "$RUNNER_TEMP/patrol-android.log"
+      - name: Collect Patrol Android performance trace
+        if: always()
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        shell: bash
+        run: |
+          touch "$RUNNER_TEMP/patrol-android.log"
+          dart ../../../tool/patrol_perf_summary.dart \
+            "$RUNNER_TEMP/patrol-android.log" \
+            --output test-results/perf/android \
+            --markdown "$GITHUB_STEP_SUMMARY" \
+            --label Android
       - name: Upload Patrol Android report
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: patrol-android-report
-          path: ${{ env.EXAMPLE_DIR }}/build/app/reports/androidTests
+          path: |
+            ${{ env.EXAMPLE_DIR }}/build/app/reports/androidTests
+            ${{ env.EXAMPLE_DIR }}/test-results/perf/android
           if-no-files-found: ignore
 
   ios:
@@ -172,16 +200,44 @@ jobs:
           echo "device_id=$device_id" >> "$GITHUB_OUTPUT"
       - name: Run Patrol on iOS
         working-directory: ${{ env.EXAMPLE_DIR }}
-        run: >-
-          patrol test
-          --device "${{ steps.simulator.outputs.device_id }}"
-          --target patrol_test/demo_e2e_test.dart
+        shell: bash
+        run: |
+          set -o pipefail
+          patrol test \
+            --device "${{ steps.simulator.outputs.device_id }}" \
+            --target patrol_test/demo_e2e_test.dart \
+            --dart-define PDF_PERF_LOG=true \
+            --dart-define PDF_BUILD_COMMIT=${{ env.PDF_PATROL_BUILD_COMMIT }} \
+            --show-flutter-logs \
+            --verbose \
+            2>&1 | tee "$RUNNER_TEMP/patrol-ios.log"
+          patrol test \
+            --device "${{ steps.simulator.outputs.device_id }}" \
+            --target patrol_test/native_perf_e2e_test.dart \
+            --dart-define PDF_PERF_LOG=true \
+            --dart-define PDF_BUILD_COMMIT=${{ env.PDF_PATROL_BUILD_COMMIT }} \
+            --show-flutter-logs \
+            --verbose \
+            2>&1 | tee -a "$RUNNER_TEMP/patrol-ios.log"
+      - name: Collect Patrol iOS performance trace
+        if: always()
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        shell: bash
+        run: |
+          touch "$RUNNER_TEMP/patrol-ios.log"
+          dart ../../../tool/patrol_perf_summary.dart \
+            "$RUNNER_TEMP/patrol-ios.log" \
+            --output test-results/perf/ios \
+            --markdown "$GITHUB_STEP_SUMMARY" \
+            --label "iOS Simulator"
       - name: Upload Patrol iOS result bundle
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: patrol-ios-results
-          path: ${{ env.EXAMPLE_DIR }}/build/*.xcresult
+          path: |
+            ${{ env.EXAMPLE_DIR }}/build/*.xcresult
+            ${{ env.EXAMPLE_DIR }}/test-results/perf/ios
           if-no-files-found: ignore
 
   macos:
@@ -213,3 +269,82 @@ jobs:
           name: patrol-macos-results
           path: ${{ env.EXAMPLE_DIR }}/build/*.xcresult
           if-no-files-found: ignore
+
+  native-performance-report:
+    name: Native Patrol performance report
+    if: >-
+      always() &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
+    needs: [android, ios]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Download Android Patrol results
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: patrol-android-report
+          path: patrol-android
+      - name: Download iOS Patrol results
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: patrol-ios-results
+          path: patrol-ios
+      - name: Comment native Patrol performance report
+        if: always()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        env:
+          PATROL_MARKER: dart-pdf-patrol-native-performance
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = `<!-- ${process.env.PATROL_MARKER} -->`;
+            const summaries = [
+              'patrol-android/test-results/perf/android/patrol-perf.md',
+              'patrol-ios/test-results/perf/ios/patrol-perf.md',
+            ].filter((path) => fs.existsSync(path));
+            const report = summaries.length > 0
+              ? summaries.map((path) => fs.readFileSync(path, 'utf8').trim()).join('\n\n')
+              : [
+                  '## Native Patrol performance',
+                  '',
+                  'No native performance summary artifact was produced. Open the workflow run for the failing step and raw logs.',
+                ].join('\n');
+            const sha = context.payload.pull_request.head.sha.slice(0, 7);
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              marker,
+              report,
+              '',
+              `Automated for commit \`${sha}\` · [workflow run and downloadable native traces](${runUrl})`,
+            ].join('\n');
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find((comment) =>
+              comment.user?.type === 'Bot' && comment.body?.includes(marker)
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

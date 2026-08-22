@@ -26,7 +26,10 @@ void main() {
         'selected=40/100 replay=2.0ms raster=5.0ms img=725x725',
     '[perf 39] tile slice page=0 rung=3 class=prefetch tiles=4 '
         'elapsed=3.0ms retained=8388608 entries=8',
-    '[perf 40] raster page=0 ms=12.5',
+    '[perf 40] tile stats platform=android budget=67108864 '
+        'retained=8388608 entries=8 scheduled=12 landed=10 discarded=2 '
+        'staticRescheduled=0',
+    '[perf 41] raster page=0 ms=12.5',
     '[perf 45] webworker result kind=record page=0 commands=1 → worker',
     '[perf 47] webworker result kind=record page=1 declined (null) → local',
     '[perf 55] scenario name=web-worker phase=validated',
@@ -34,7 +37,7 @@ void main() {
     '[perf 90] scenario name=heavy-document phase=validated',
   ]);
   final json = trace.toJson();
-  _expectEqual(json['schema'], 7, 'schema');
+  _expectEqual(json['schema'], 8, 'schema');
 
   final workerPhases = _map(_map(json, 'webWorker'), 'phases');
   _expectEqual(workerPhases['count'], 2, 'worker phase count');
@@ -86,6 +89,21 @@ void main() {
     _map(tiles, 'retainedBytes')['max'],
     8388608,
     'tile retained bytes',
+  );
+  final tilePolicy = _map(tiles, 'policy');
+  _expectEqual(tilePolicy['samples'], 1, 'tile policy samples');
+  _expectEqual(
+    _map(tilePolicy, 'budgetBytes')['max'],
+    67108864,
+    'tile policy budget',
+  );
+  _expectEqual(tilePolicy['scheduled'], 12, 'tile policy scheduled');
+  _expectEqual(tilePolicy['landed'], 10, 'tile policy landed');
+  _expectEqual(tilePolicy['discarded'], 2, 'tile policy discarded');
+  _expectEqual(
+    tilePolicy['staticRescheduled'],
+    0,
+    'tile policy static reschedules',
   );
 
   final scenarios = _map(json, 'scenarioMetrics');
@@ -166,6 +184,21 @@ void main() {
     markdown,
     '| Tile retained peak | 8.0 MiB / 8 entries |',
     'tile retained summary',
+  );
+  _expectContains(
+    markdown,
+    '| Tile budget peak | 64.0 MiB |',
+    'tile budget summary',
+  );
+  _expectContains(
+    markdown,
+    '| Tile discard rate | 16.7% |',
+    'tile discard summary',
+  );
+  _expectContains(
+    trace.toMarkdown(label: 'Android'),
+    '## Patrol Android performance',
+    'platform heading',
   );
 
   final comparison = summary.PatrolPerfComparison(

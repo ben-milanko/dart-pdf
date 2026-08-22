@@ -11,7 +11,8 @@ void main(List<String> arguments) {
   if (arguments.isEmpty || arguments.contains('--help')) {
     stdout.writeln(
       'Usage: dart tool/patrol_perf_summary.dart <patrol-log> '
-      '--output <directory> [--markdown <file>] [--baseline <json>]',
+      '--output <directory> [--markdown <file>] [--baseline <json>] '
+      '[--label <platform>]',
     );
     exit(arguments.contains('--help') ? 0 : 64);
   }
@@ -20,6 +21,7 @@ void main(List<String> arguments) {
   String? output;
   String? markdownOutput;
   String? baselineInput;
+  var label = 'web';
   for (var i = 1; i < arguments.length; i++) {
     switch (arguments[i]) {
       case '--output':
@@ -28,6 +30,8 @@ void main(List<String> arguments) {
         markdownOutput = _nextArgument(arguments, ++i, '--markdown');
       case '--baseline':
         baselineInput = _nextArgument(arguments, ++i, '--baseline');
+      case '--label':
+        label = _nextArgument(arguments, ++i, '--label');
       default:
         stderr.writeln('Unknown argument: ${arguments[i]}');
         exit(64);
@@ -52,7 +56,7 @@ void main(List<String> arguments) {
   File('${directory.path}/patrol-perf.json').writeAsStringSync(
     '${const JsonEncoder.withIndent('  ').convert(trace.toJson())}\n',
   );
-  var markdown = trace.toMarkdown();
+  var markdown = trace.toMarkdown(label: label);
   if (baselineInput != null) {
     final baselineFile = File(baselineInput);
     if (!baselineFile.existsSync()) {
@@ -274,7 +278,7 @@ class PatrolPerfTrace {
   final Map<String, _ScenarioMetrics> _scenarioMetrics;
 
   Map<String, Object?> toJson() => {
-        'schema': 7,
+        'schema': 8,
         'build': buildTag,
         'events': lines.length,
         'journeys': journeys,
@@ -318,15 +322,16 @@ class PatrolPerfTrace {
         },
       };
 
-  String toMarkdown() {
+  String toMarkdown({String label = 'web'}) {
+    final journeyKind = label.toLowerCase() == 'web' ? 'browser' : 'device';
     final buffer = StringBuffer()
-      ..writeln('## Patrol web performance')
+      ..writeln('## Patrol $label performance')
       ..writeln()
       ..writeln(
         lines.isEmpty
             ? 'No `PdfPerfLog` events were captured. The Patrol result '
                 'artifact still contains the empty trace for diagnosis.'
-            : 'Observational trace from the real Patrol browser journey. '
+            : 'Observational trace from the real Patrol $journeyKind journey. '
                 'Use it for PR comparisons; wall-clock values are not a CI gate.',
       )
       ..writeln()
@@ -375,8 +380,18 @@ class PatrolPerfTrace {
       ..writeln('| Tile slice classes | ${tiles.sliceClassText} |')
       ..writeln('| Tile rung/class batches | '
           '${_mapText(tiles.sliceBatchesByRungClass)} |')
-      ..writeln('| Tile retained peak | ${tiles.retainedPeakText} |')
-      ..writeln();
+      ..writeln('| Tile retained peak | ${tiles.retainedPeakText} |');
+    if (tiles.policySamples > 0) {
+      buffer
+        ..writeln('| Tile policy snapshots | ${tiles.policySamples} |')
+        ..writeln(
+            '| Tile budget peak | ${_formatBytes(tiles.peakBudgetBytes)} |')
+        ..writeln('| Tile scheduled / landed / discarded | '
+            '${tiles.scheduled} / ${tiles.landed} / ${tiles.discarded} |')
+        ..writeln('| Tile discard rate | ${tiles.discardRateText} |')
+        ..writeln('| Static-view reschedules | ${tiles.staticRescheduled} |');
+    }
+    buffer.writeln();
     if (_scenarioMetrics.isNotEmpty) {
       buffer
         ..writeln('### Scenario breakdown')
@@ -795,6 +810,12 @@ class _TileMetrics {
   final sliceBatchesByRungClass = <String, int>{};
   final retainedBytes = <int>[];
   final retainedEntries = <int>[];
+  final budgetBytes = <int>[];
+  var policySamples = 0;
+  var scheduled = 0;
+  var landed = 0;
+  var discarded = 0;
+  var staticRescheduled = 0;
 
   int get prefetchBatches => sliceBatchesByClass['prefetch'] ?? 0;
 
@@ -804,6 +825,13 @@ class _TileMetrics {
   int get peakRetainedEntries => retainedEntries.isEmpty
       ? 0
       : retainedEntries.reduce((a, b) => a > b ? a : b);
+
+  int get peakBudgetBytes =>
+      budgetBytes.isEmpty ? 0 : budgetBytes.reduce((a, b) => a > b ? a : b);
+
+  String get discardRateText => scheduled == 0
+      ? 'n/a'
+      : '${(discarded * 100 / scheduled).toStringAsFixed(1)}%';
 
   String get sliceClassText {
     if (sliceBatchesByClass.isEmpty) return 'none';
@@ -827,6 +855,20 @@ class _TileMetrics {
       replayRequests++;
       _addMilliseconds(replayMs, fields['replay']);
       _addMilliseconds(rasterMs, fields['raster']);
+      return;
+    }
+    if (message.startsWith('tile stats ')) {
+      policySamples++;
+      final budget = int.tryParse(fields['budget'] ?? '');
+      if (budget != null) budgetBytes.add(budget);
+      scheduled += int.tryParse(fields['scheduled'] ?? '') ?? 0;
+      landed += int.tryParse(fields['landed'] ?? '') ?? 0;
+      discarded += int.tryParse(fields['discarded'] ?? '') ?? 0;
+      staticRescheduled += int.tryParse(fields['staticRescheduled'] ?? '') ?? 0;
+      final retained = int.tryParse(fields['retained'] ?? '');
+      if (retained != null) retainedBytes.add(retained);
+      final entries = int.tryParse(fields['entries'] ?? '');
+      if (entries != null) retainedEntries.add(entries);
       return;
     }
     if (!message.startsWith('tile slice ')) return;
@@ -866,6 +908,17 @@ class _TileMetrics {
         'retainedEntries': {
           'samples': retainedEntries.length,
           'max': peakRetainedEntries,
+        },
+        'policy': {
+          'samples': policySamples,
+          'budgetBytes': {
+            'samples': budgetBytes.length,
+            'max': peakBudgetBytes,
+          },
+          'scheduled': scheduled,
+          'landed': landed,
+          'discarded': discarded,
+          'staticRescheduled': staticRescheduled,
         },
       };
 }
