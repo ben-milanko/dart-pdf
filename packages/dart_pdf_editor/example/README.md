@@ -47,7 +47,10 @@ The CI web journey enables `PdfPerfLog` and uploads `patrol-perf.log`,
 `patrol-perf.json`, and `patrol-perf.md` inside the `patrol-web-results`
 artifact. Pull requests also show the Markdown summary in the Actions run.
 These wall-clock measurements are review evidence rather than a pass/fail gate;
-compare the JSON with a recent `main` run from the same hosted-runner lane.
+compare the JSON with a recent `main` run from the same hosted-runner lane. The
+summary keeps global aggregates for continuity and a scenario breakdown for
+elapsed time, jank, reconciliation, raster work, and worker outcomes, so a slow
+heavy-document journey is not hidden inside the other browser journeys.
 
 When using this repository's FVM SDK, prefix the commands with
 `PATROL_FLUTTER_COMMAND="fvm flutter"`. Patrol supports Android, iOS, macOS,

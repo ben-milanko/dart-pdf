@@ -53,6 +53,9 @@ void main() {
     PdfPerfLog.log(
       'scenario name=heavy-document phase=start pages=${editing.document.pageCount}',
     );
+    PdfPerfLog.log(
+      'scenario name=web-worker phase=start backend=production',
+    );
     try {
       await $.pumpWidget(MaterialApp(
         home: PdfEditorView(

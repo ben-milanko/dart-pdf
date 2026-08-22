@@ -104,7 +104,8 @@ class PatrolPerfTrace {
     required this.webWorkerOutcomes,
     required this.rasterElapsedMs,
     required this.scenarioPhases,
-  });
+    required Map<String, _ScenarioMetrics> scenarioMetrics,
+  }) : _scenarioMetrics = scenarioMetrics;
 
   factory PatrolPerfTrace.parse(Iterable<String> sourceLines) {
     final lines = <String>[];
@@ -125,6 +126,8 @@ class PatrolPerfTrace {
     final webWorkerOutcomes = <String, int>{};
     final rasterElapsed = <double>[];
     final scenarioPhases = <String, int>{};
+    final scenarioMetrics = <String, _ScenarioMetrics>{};
+    final activeScenarios = <String, _ActiveScenario>{};
 
     for (final sourceLine in sourceLines) {
       final clean = sourceLine.replaceAll(_ansiEscape, '');
@@ -152,10 +155,28 @@ class PatrolPerfTrace {
           timestamp < previousTimestamp;
       if (startsSegment) {
         journeys++;
+        // A Patrol app restart resets the stopwatch. Never pair an unfinished
+        // scenario in the old process with a completion marker in the next.
+        activeScenarios.clear();
       } else {
         durationMs += timestamp - previousTimestamp;
       }
       previousTimestamp = timestamp;
+
+      String? scenarioName;
+      String? scenarioPhase;
+      if (event == 'scenario') {
+        scenarioName = fields['name'] ?? 'unknown';
+        scenarioPhase = fields['phase'] ?? 'event';
+        _increment(scenarioPhases, '$scenarioName:$scenarioPhase');
+        if (scenarioPhase == 'start') {
+          final metrics = scenarioMetrics.putIfAbsent(
+            scenarioName,
+            _ScenarioMetrics.new,
+          );
+          activeScenarios[scenarioName] = _ActiveScenario(timestamp, metrics);
+        }
+      }
 
       if (event == 'build') {
         buildTag = message.substring('build'.length).trim();
@@ -179,10 +200,20 @@ class PatrolPerfTrace {
         if (outcome != null) _increment(webWorkerOutcomes, outcome);
       } else if (event == 'raster') {
         _addMilliseconds(rasterElapsed, fields['ms']);
-      } else if (event == 'scenario') {
-        final name = fields['name'] ?? 'unknown';
-        final phase = fields['phase'] ?? 'event';
-        _increment(scenarioPhases, '$name:$phase');
+      }
+
+      for (final scenario in activeScenarios.values) {
+        scenario.metrics.record(event, message, fields);
+      }
+      if (scenarioName != null &&
+          scenarioPhase != null &&
+          _completesScenario(scenarioPhase)) {
+        final scenario = activeScenarios.remove(scenarioName);
+        if (scenario != null) {
+          scenario.metrics.elapsedMs.add(
+            (timestamp - scenario.startedAtMs).toDouble(),
+          );
+        }
       }
     }
 
@@ -204,6 +235,7 @@ class PatrolPerfTrace {
       webWorkerOutcomes: webWorkerOutcomes,
       rasterElapsedMs: rasterElapsed,
       scenarioPhases: scenarioPhases,
+      scenarioMetrics: scenarioMetrics,
     );
   }
 
@@ -224,9 +256,10 @@ class PatrolPerfTrace {
   final Map<String, int> webWorkerOutcomes;
   final List<double> rasterElapsedMs;
   final Map<String, int> scenarioPhases;
+  final Map<String, _ScenarioMetrics> _scenarioMetrics;
 
   Map<String, Object?> toJson() => {
-        'schema': 3,
+        'schema': 4,
         'build': buildTag,
         'events': lines.length,
         'journeys': journeys,
@@ -262,6 +295,10 @@ class PatrolPerfTrace {
           'elapsedMs': _distribution(rasterElapsedMs),
         },
         'scenarios': _sortedMap(scenarioPhases),
+        'scenarioMetrics': {
+          for (final name in _scenarioMetrics.keys.toList()..sort())
+            name: _scenarioMetrics[name]!.toJson(),
+        },
       };
 
   String toMarkdown() {
@@ -299,7 +336,30 @@ class PatrolPerfTrace {
       ..writeln('| Scenarios | ${_mapText(scenarioPhases)} |')
       ..writeln('| Raster p50 / p95 / max | '
           '${_distributionText(rasterElapsedMs)} |')
-      ..writeln()
+      ..writeln();
+    if (_scenarioMetrics.isNotEmpty) {
+      buffer
+        ..writeln('### Scenario breakdown')
+        ..writeln()
+        ..writeln(
+          '| Scenario | Runs | Elapsed p50 / p95 / max | Jank p95 | '
+          'Reconcile p95 | Raster p95 | Worker outcomes |',
+        )
+        ..writeln('| --- | ---: | ---: | ---: | ---: | ---: | --- |');
+      for (final name in _scenarioMetrics.keys.toList()..sort()) {
+        final metrics = _scenarioMetrics[name]!;
+        buffer.writeln(
+          '| ${_code(name)} | ${metrics.elapsedMs.length} | '
+          '${_distributionText(metrics.elapsedMs)} | '
+          '${_p95Text(metrics.jankTotalMs)} | '
+          '${_p95Text(metrics.reconcileElapsedMs)} | '
+          '${_p95Text(metrics.rasterElapsedMs)} | '
+          '${_mapText(metrics.webWorkerOutcomes)} |',
+        );
+      }
+      buffer.writeln();
+    }
+    buffer
       ..writeln(
         'Artifacts: `patrol-perf.log` (normalized raw trace), '
         '`patrol-perf.json` (machine comparison), and this Markdown summary.',
@@ -325,6 +385,11 @@ class PatrolPerfComparison {
     final baselineScenarios = _jsonCountMap(baseline, const ['scenarios']);
     final currentScenarios = _jsonCountMap(current, const ['scenarios']);
     final sameCoverage = _sameCountMap(baselineScenarios, currentScenarios);
+    final measuredScenarios = <String>{
+      ..._jsonMapKeys(baseline, const ['scenarioMetrics']),
+      ..._jsonMapKeys(current, const ['scenarioMetrics']),
+    }.toList()
+      ..sort();
     final buffer = StringBuffer()
       ..writeln('## Patrol comparison with `main`')
       ..writeln()
@@ -391,6 +456,34 @@ class PatrolPerfComparison {
       const ['webWorker', 'outcomes', 'fallback'],
     );
     timingRow('Raster p95', const ['rasters', 'elapsedMs', 'p95']);
+    for (final scenario in measuredScenarios) {
+      countRow(
+        'Scenario $scenario runs',
+        ['scenarioMetrics', scenario, 'runs'],
+      );
+      timingRow(
+        'Scenario $scenario elapsed p95',
+        ['scenarioMetrics', scenario, 'elapsedMs', 'p95'],
+      );
+      timingRow(
+        'Scenario $scenario jank p95',
+        ['scenarioMetrics', scenario, 'jank', 'totalMs', 'p95'],
+      );
+      timingRow(
+        'Scenario $scenario reconcile p95',
+        [
+          'scenarioMetrics',
+          scenario,
+          'reconciliation',
+          'elapsedMs',
+          'p95',
+        ],
+      );
+      timingRow(
+        'Scenario $scenario raster p95',
+        ['scenarioMetrics', scenario, 'rasters', 'elapsedMs', 'p95'],
+      );
+    }
 
     buffer
       ..writeln()
@@ -408,6 +501,17 @@ class PatrolPerfComparison {
           const ['pageRasters', 'outcomes'], baseline, current))
       ..writeln(_mapComparisonRow('Web-worker outcomes',
           const ['webWorker', 'outcomes'], baseline, current))
+      ..writeAll(
+        measuredScenarios.map(
+          (scenario) => _mapComparisonRow(
+            'Scenario $scenario worker outcomes',
+            ['scenarioMetrics', scenario, 'webWorkerOutcomes'],
+            baseline,
+            current,
+          ),
+        ),
+        '\n',
+      )
       ..writeln()
       ..writeln(
           'Baseline build: ${_code('${baseline['build'] ?? 'unstamped'}')}.')
@@ -415,6 +519,62 @@ class PatrolPerfComparison {
     return buffer.toString();
   }
 }
+
+class _ActiveScenario {
+  const _ActiveScenario(this.startedAtMs, this.metrics);
+
+  final int startedAtMs;
+  final _ScenarioMetrics metrics;
+}
+
+class _ScenarioMetrics {
+  final elapsedMs = <double>[];
+  final jankTotalMs = <double>[];
+  final reconcileElapsedMs = <double>[];
+  final rasterElapsedMs = <double>[];
+  final webWorkerOutcomes = <String, int>{};
+
+  void record(
+    String event,
+    String message,
+    Map<String, String> fields,
+  ) {
+    if (event == 'JANK') {
+      _addMilliseconds(jankTotalMs, fields['total']);
+    } else if (event == 'page-reconcile') {
+      _addMilliseconds(reconcileElapsedMs, fields['elapsed']);
+    } else if (event == 'raster') {
+      _addMilliseconds(rasterElapsedMs, fields['ms']);
+    } else if (event == 'webworker') {
+      final outcome = _webWorkerOutcome(message);
+      if (outcome != null) _increment(webWorkerOutcomes, outcome);
+    }
+  }
+
+  Map<String, Object?> toJson() => {
+        'runs': elapsedMs.length,
+        'elapsedMs': _distribution(elapsedMs),
+        'jank': {
+          'count': jankTotalMs.length,
+          'totalMs': _distribution(jankTotalMs),
+        },
+        'reconciliation': {
+          'count': reconcileElapsedMs.length,
+          'elapsedMs': _distribution(reconcileElapsedMs),
+        },
+        'rasters': {
+          'count': rasterElapsedMs.length,
+          'elapsedMs': _distribution(rasterElapsedMs),
+        },
+        'webWorkerOutcomes': _sortedMap(webWorkerOutcomes),
+      };
+}
+
+bool _completesScenario(String phase) =>
+    phase == 'validated' ||
+    phase == 'complete' ||
+    phase == 'completed' ||
+    phase == 'end';
 
 String _thumbnailPath(String message) {
   if (message.contains('disk-hit')) return 'disk-hit';
@@ -493,6 +653,11 @@ String _distributionText(List<double> values) {
       '${_formatMs(distribution['max']!)}';
 }
 
+String _p95Text(List<double> values) {
+  final distribution = _distribution(values);
+  return distribution == null ? 'n/a' : _formatMs(distribution['p95']!);
+}
+
 String _mapText(Map<String, int> values) {
   if (values.isEmpty) return 'none';
   final entries = values.entries.toList()
@@ -540,6 +705,17 @@ Map<String, int> _jsonCountMap(Object? root, List<String> path) {
     for (final entry in value.entries)
       if (entry.value is num) '${entry.key}': (entry.value as num).round(),
   };
+}
+
+Set<String> _jsonMapKeys(Object? root, List<String> path) {
+  Object? value = root;
+  for (final part in path) {
+    if (value is! Map || !value.containsKey(part)) return const {};
+    value = value[part];
+  }
+  return value is Map
+      ? value.keys.map((key) => key.toString()).toSet()
+      : const {};
 }
 
 bool _sameCountMap(Map<String, int> a, Map<String, int> b) =>

@@ -21,6 +21,8 @@ jobs:
         run: dart tool/format.dart --output=none --set-exit-if-changed tool/format.dart
       - run: flutter pub get
       - run: dart analyze --fatal-infos
+      - name: Test Patrol performance summarizer
+        run: dart tool/patrol_perf_summary_test.dart
       # Enforce the lockstep versioning invariant: every workspace package
       # must depend on its siblings at the current release version (`^x.y.z`).
       # A stale lower bound makes pub.dev's downgrade analysis fail (0/20 on
