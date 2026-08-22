@@ -5,6 +5,7 @@ final _ansiEscape = RegExp(r'\x1B\[[0-?]*[ -/]*[@-~]');
 final _perfLine = RegExp(r'\[perf\s+(\d+)\]\s+(.+)$');
 final _field = RegExp(r'([A-Za-z][A-Za-z0-9_-]*)=([^\s]+)');
 final _workerImageCache = RegExp(r'^(\d+)h/(\d+)m/(\d+)e/(\d+)B$');
+final _workerImageCacheDelta = RegExp(r'^(\d+)h/(\d+)m/(-?\d+)e/(-?\d+)B$');
 
 void main(List<String> arguments) {
   if (arguments.isEmpty || arguments.contains('--help')) {
@@ -267,7 +268,7 @@ class PatrolPerfTrace {
   final Map<String, _ScenarioMetrics> _scenarioMetrics;
 
   Map<String, Object?> toJson() => {
-        'schema': 5,
+        'schema': 6,
         'build': buildTag,
         'events': lines.length,
         'journeys': journeys,
@@ -349,6 +350,13 @@ class PatrolPerfTrace {
           '${_distributionText(workerPhases.decodeMs)} |')
       ..writeln('| Worker image-cache peak | '
           '${_formatBytes(workerPhases.peakImageCacheBytes)} |')
+      ..writeln('| Worker image-cache lookups | '
+          '${workerPhases.cacheLookupText} |')
+      ..writeln('| Worker image-cache request paths | '
+          '${workerPhases.cacheRequestPathText} |')
+      ..writeln('| Worker image-cache net growth | '
+          '${workerPhases.netImageCacheEntries} entries / '
+          '${_formatSignedBytes(workerPhases.netImageCacheBytes)} |')
       ..writeln('| Scenarios | ${_mapText(scenarioPhases)} |')
       ..writeln('| Raster p50 / p95 / max | '
           '${_distributionText(rasterElapsedMs)} |')
@@ -360,11 +368,11 @@ class PatrolPerfTrace {
         ..writeln(
           '| Scenario | Runs | Elapsed p50 / p95 / max | Jank p95 | '
           'Reconcile p95 | Raster p95 | Worker total p95 | '
-          'Decode p95 | Image cache peak | Worker outcomes |',
+          'Decode p95 | Cache lookups | Image cache peak | Worker outcomes |',
         )
         ..writeln(
           '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | '
-          '---: | --- |',
+          '---: | ---: | --- |',
         );
       for (final name in _scenarioMetrics.keys.toList()..sort()) {
         final metrics = _scenarioMetrics[name]!;
@@ -376,6 +384,7 @@ class PatrolPerfTrace {
           '${_p95Text(metrics.rasterElapsedMs)} | '
           '${_p95Text(metrics.workerPhases.totalMs)} | '
           '${_p95Text(metrics.workerPhases.decodeMs)} | '
+          '${metrics.workerPhases.cacheLookupText} | '
           '${_formatBytes(metrics.workerPhases.peakImageCacheBytes)} | '
           '${_mapText(metrics.webWorkerOutcomes)} |',
         );
@@ -634,10 +643,30 @@ class _WorkerPhaseMetrics {
   final outcomes = <String, int>{};
   final transcripts = <String, int>{};
   final imageCacheBytes = <int>[];
+  var imageCacheDeltaSamples = 0;
+  var imageCacheHits = 0;
+  var imageCacheMisses = 0;
+  var imageCacheRequestsWithHits = 0;
+  var imageCacheMissOnlyRequests = 0;
+  var imageCacheNoLookupRequests = 0;
+  var netImageCacheEntries = 0;
+  var netImageCacheBytes = 0;
 
   int get peakImageCacheBytes => imageCacheBytes.isEmpty
       ? 0
       : imageCacheBytes.reduce((a, b) => a > b ? a : b);
+
+  String get cacheLookupText {
+    final lookups = imageCacheHits + imageCacheMisses;
+    final rate = lookups == 0
+        ? 'n/a'
+        : '${(imageCacheHits * 100 / lookups).toStringAsFixed(1)}% hit';
+    return '$imageCacheHits hit / $imageCacheMisses miss ($rate)';
+  }
+
+  String get cacheRequestPathText => '$imageCacheRequestsWithHits reuse / '
+      '$imageCacheMissOnlyRequests miss-only / '
+      '$imageCacheNoLookupRequests no-lookup';
 
   void record(Map<String, String> fields) {
     _addMilliseconds(queueMs, fields['queue']);
@@ -652,6 +681,25 @@ class _WorkerPhaseMetrics {
     final cache = fields['cache'];
     final match = cache == null ? null : _workerImageCache.firstMatch(cache);
     if (match != null) imageCacheBytes.add(int.parse(match.group(4)!));
+    final delta = fields['cacheDelta'];
+    final deltaMatch =
+        delta == null ? null : _workerImageCacheDelta.firstMatch(delta);
+    if (deltaMatch != null) {
+      imageCacheDeltaSamples++;
+      final hits = int.parse(deltaMatch.group(1)!);
+      final misses = int.parse(deltaMatch.group(2)!);
+      imageCacheHits += hits;
+      imageCacheMisses += misses;
+      netImageCacheEntries += int.parse(deltaMatch.group(3)!);
+      netImageCacheBytes += int.parse(deltaMatch.group(4)!);
+      if (hits > 0) {
+        imageCacheRequestsWithHits++;
+      } else if (misses > 0) {
+        imageCacheMissOnlyRequests++;
+      } else {
+        imageCacheNoLookupRequests++;
+      }
+    }
   }
 
   Map<String, Object?> toJson() => {
@@ -668,6 +716,16 @@ class _WorkerPhaseMetrics {
         'imageCacheBytes': {
           'samples': imageCacheBytes.length,
           'max': peakImageCacheBytes,
+        },
+        'imageCacheActivity': {
+          'samples': imageCacheDeltaSamples,
+          'hits': imageCacheHits,
+          'misses': imageCacheMisses,
+          'requestsWithHits': imageCacheRequestsWithHits,
+          'missOnlyRequests': imageCacheMissOnlyRequests,
+          'noLookupRequests': imageCacheNoLookupRequests,
+          'netEntries': netImageCacheEntries,
+          'netBytes': netImageCacheBytes,
         },
       };
 }
@@ -866,6 +924,19 @@ String _formatBytes(int value) {
   }
   if (value >= 1024) return '${(value / 1024).toStringAsFixed(1)} KiB';
   return '$value B';
+}
+
+String _formatSignedBytes(int value) {
+  if (value == 0) return '0 B';
+  final sign = value > 0 ? '+' : '-';
+  final magnitude = value.abs();
+  if (magnitude >= 1024 * 1024) {
+    return '$sign${(magnitude / (1024 * 1024)).toStringAsFixed(1)} MiB';
+  }
+  if (magnitude >= 1024) {
+    return '$sign${(magnitude / 1024).toStringAsFixed(1)} KiB';
+  }
+  return '$sign$magnitude B';
 }
 
 String _code(String value) => '`$value`';

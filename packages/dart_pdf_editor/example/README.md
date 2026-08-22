@@ -50,10 +50,11 @@ These wall-clock measurements are review evidence rather than a pass/fail gate;
 compare the JSON with a recent `main` run from the same hosted-runner lane. The
 summary keeps global aggregates for continuity and a scenario breakdown for
 elapsed time, jank, reconciliation, raster work, worker phases, decoded-image
-cache pressure, and worker outcomes, so a slow heavy-document journey is not
-hidden inside the other browser journeys. The performance target includes an
-image-heavy, ultra-wide CAD scenario that deep-zooms and pans through distant
-regions, verifying worker-backed image detail and reusable tile delivery.
+cache pressure and per-request hit/miss deltas, and worker outcomes, so a slow
+heavy-document journey is not hidden inside the other browser journeys. The
+performance target includes an image-heavy, ultra-wide CAD scenario that
+deep-zooms and pans through distant regions, verifying worker-backed image
+detail and reusable tile delivery.
 
 When using this repository's FVM SDK, prefix the commands with
 `PATROL_FLUTTER_COMMAND="fvm flutter"`. Patrol supports Android, iOS, macOS,

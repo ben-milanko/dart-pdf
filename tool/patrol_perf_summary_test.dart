@@ -14,7 +14,14 @@ void main() {
         'interpret=1.0ms stream=2.0ms decode=4.0ms serialize=0.5ms '
         'bin=0.0ms transfer=2.0ms deserialize=1.0ms total=12.0ms '
         'transcript=miss imageDecode=codec=2 '
-        'cache=2h/3m/4e/8388608B',
+        'cache=2h/3m/4e/8388608B '
+        'cacheDelta=2h/3m/4e/8388608B',
+    '[perf 37] webworker phase worker=0 kind=detail page=0 '
+        'outcome=presented queue=0.5ms worker=7.0ms parse=0.0ms '
+        'interpret=0.0ms stream=0.0ms decode=0.0ms serialize=2.0ms '
+        'bin=1.0ms transfer=1.0ms deserialize=0.5ms total=9.0ms '
+        'transcript=hit imageDecode=none '
+        'cache=2h/3m/4e/8388608B cacheDelta=0h/0m/0e/0B',
     '[perf 40] raster page=0 ms=12.5',
     '[perf 45] webworker result kind=record page=0 commands=1 → worker',
     '[perf 47] webworker result kind=record page=1 declined (null) → local',
@@ -23,10 +30,10 @@ void main() {
     '[perf 90] scenario name=heavy-document phase=validated',
   ]);
   final json = trace.toJson();
-  _expectEqual(json['schema'], 5, 'schema');
+  _expectEqual(json['schema'], 6, 'schema');
 
   final workerPhases = _map(_map(json, 'webWorker'), 'phases');
-  _expectEqual(workerPhases['count'], 1, 'worker phase count');
+  _expectEqual(workerPhases['count'], 2, 'worker phase count');
   _expectEqual(
     _map(workerPhases, 'totalMs')['p95'],
     12.0,
@@ -41,6 +48,20 @@ void main() {
     _map(workerPhases, 'imageCacheBytes')['max'],
     8388608,
     'worker image cache peak',
+  );
+  _expectEqual(
+    _map(workerPhases, 'imageCacheActivity'),
+    const {
+      'samples': 2,
+      'hits': 2,
+      'misses': 3,
+      'requestsWithHits': 1,
+      'missOnlyRequests': 0,
+      'noLookupRequests': 1,
+      'netEntries': 4,
+      'netBytes': 8388608,
+    },
+    'worker image cache activity',
   );
 
   final scenarios = _map(json, 'scenarioMetrics');
@@ -97,6 +118,21 @@ void main() {
   );
   _expectContains(markdown, '| Worker image-cache peak | 8.0 MiB |',
       'worker cache summary');
+  _expectContains(
+    markdown,
+    '| Worker image-cache lookups | 2 hit / 3 miss (40.0% hit) |',
+    'worker cache lookups',
+  );
+  _expectContains(
+    markdown,
+    '| Worker image-cache request paths | 1 reuse / 0 miss-only / 1 no-lookup |',
+    'worker cache request paths',
+  );
+  _expectContains(
+    markdown,
+    '| Worker image-cache net growth | 4 entries / +8.0 MiB |',
+    'worker cache growth',
+  );
 
   final comparison = summary.PatrolPerfComparison(
     baseline: {

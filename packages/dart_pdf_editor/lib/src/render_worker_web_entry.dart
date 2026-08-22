@@ -437,6 +437,9 @@ void runPdfRenderWorker() {
                         (pageWidth > 0 && pageHeight > 0
                             ? (width / pageWidth + height / pageHeight) / 2
                             : null);
+                    final imageCacheBefore = timings == null
+                        ? null
+                        : _snapshotImageCache(imageCache);
                     final grayFrames = await _browserGrayFlateFrames(
                       doc.cos,
                       commands,
@@ -477,11 +480,12 @@ void runPdfRenderWorker() {
                       decodeClock.stop();
                       timings!.decodeUs += decodeClock.elapsedMicroseconds;
                       timings.imageDecodeSummary = grayFrames == null
-                          ? '${tally!.format()} '
-                              'cache=${imageCache.hits}h/'
-                              '${imageCache.misses}m/${imageCache.length}e/'
-                              '${imageCache.bytes}B '
-                              'flateSamples=${flateSampleCache.bytes}B'
+                          ? _formatImageDecodeSummary(
+                              tally!,
+                              imageCache,
+                              imageCacheBefore!,
+                              flateSampleBytes: flateSampleCache.bytes,
+                            )
                           : 'videoGray=${grayFrames.frames.length}';
                     }
                   }
@@ -1050,9 +1054,13 @@ Future<Uint8List?> _recordPageAsync(
     );
     if (vector != null) onPartial(vector);
   }
+  _BrowserDecodeTally? imageDecodeTally;
+  _ImageCacheSnapshot? imageCacheBefore;
   if (decodeImages) {
     final decodeClock = timings == null ? null : (Stopwatch()..start());
     final tally = timings == null ? null : _BrowserDecodeTally();
+    imageDecodeTally = tally;
+    imageCacheBefore = timings == null ? null : _snapshotImageCache(imageCache);
     final pageRasterPixels = pdfPageRasterPixels(page.cropBox, imagePixelRatio);
     final imageBudgetScale = imagePixelRatio == null
         ? 1.0
@@ -1077,16 +1085,6 @@ Future<Uint8List?> _recordPageAsync(
     if (decodeClock != null) {
       decodeClock.stop();
       timings!.decodeUs += decodeClock.elapsedMicroseconds;
-    }
-    // Report the cache's own state, not just the decode tally: "no reuse" has
-    // two very different causes - nothing was ever stored (entries stays 0), or
-    // entries exist but the key never matches - and the tally alone cannot tell
-    // them apart. #451 burned several device traces on exactly that ambiguity.
-    if (tally != null) {
-      timings!.imageDecodeSummary = '${tally.format()} '
-          'cache=${imageCache.hits}h/${imageCache.misses}m'
-          '/${imageCache.length}e/${imageCache.bytes}B '
-          'flateSamples=${flateSampleCache.bytes}B';
     }
   }
   // Decode the page's images in the worker too: the buffer carries
@@ -1114,6 +1112,20 @@ Future<Uint8List?> _recordPageAsync(
   if (serializeClock != null) {
     serializeClock.stop();
     timings!.serializeUs += serializeClock.elapsedMicroseconds;
+  }
+  // Read the cache after serialization. The pure-Dart decoder runs inside
+  // serializeCommands, so the old pre-serialize snapshot hid precisely the
+  // region/native lookups this diagnostic is meant to distinguish. Report a
+  // per-request delta beside the lifetime total: zero lookups on a detail job
+  // means the format used its direct region decoder, not that a populated key
+  // failed to match.
+  if (imageDecodeTally != null) {
+    timings!.imageDecodeSummary = _formatImageDecodeSummary(
+      imageDecodeTally,
+      imageCache,
+      imageCacheBefore!,
+      flateSampleBytes: flateSampleCache.bytes,
+    );
   }
   return result;
 }
@@ -1197,6 +1209,8 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
   // through serializeCommands' pure-Dart, region-aware decoder.
   final decodeClock = timings == null ? null : (Stopwatch()..start());
   final tally = timings == null ? null : _BrowserDecodeTally();
+  final imageCacheBefore =
+      timings == null ? null : _snapshotImageCache(imageCache);
   sourceCommands = await _withBrowserDecodedImages(
     document.cos,
     imageCache,
@@ -1208,11 +1222,6 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
   if (decodeClock != null) {
     decodeClock.stop();
     timings!.decodeUs += decodeClock.elapsedMicroseconds;
-  }
-  if (tally != null) {
-    timings!.imageDecodeSummary = '${tally.format()} '
-        'cache=${imageCache.hits}h/${imageCache.misses}m'
-        '/${imageCache.length}e/${imageCache.bytes}B';
   }
   if (token.cancelled) throw const PdfCancelledException();
   final serializeClock = timings == null ? null : (Stopwatch()..start());
@@ -1229,6 +1238,13 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
   if (serializeClock != null) {
     serializeClock.stop();
     timings!.serializeUs += serializeClock.elapsedMicroseconds;
+  }
+  if (tally != null) {
+    timings!.imageDecodeSummary = _formatImageDecodeSummary(
+      tally,
+      imageCache,
+      imageCacheBefore!,
+    );
   }
   if (commandBuffer == null) return null;
   if (token.cancelled) throw const PdfCancelledException();
@@ -2447,6 +2463,39 @@ Future<void> _loadWorkerAdventorFonts(
       // Optional enhancement only: a custom worker may not ship these files.
     }
   }
+}
+
+/// Lifetime cache counters captured at one worker-request boundary.
+typedef _ImageCacheSnapshot = ({
+  int hits,
+  int misses,
+  int entries,
+  int bytes,
+});
+
+_ImageCacheSnapshot _snapshotImageCache(PdfImageDecodeCache cache) => (
+      hits: cache.hits,
+      misses: cache.misses,
+      entries: cache.length,
+      bytes: cache.bytes,
+    );
+
+String _formatImageDecodeSummary(
+  _BrowserDecodeTally tally,
+  PdfImageDecodeCache cache,
+  _ImageCacheSnapshot before, {
+  int? flateSampleBytes,
+}) {
+  final deltaHits = cache.hits - before.hits;
+  final deltaMisses = cache.misses - before.misses;
+  final deltaEntries = cache.length - before.entries;
+  final deltaBytes = cache.bytes - before.bytes;
+  return '${tally.format()} '
+      'cache=${cache.hits}h/${cache.misses}m/'
+      '${cache.length}e/${cache.bytes}B '
+      'cacheDelta=${deltaHits}h/${deltaMisses}m/'
+      '${deltaEntries}e/${deltaBytes}B'
+      '${flateSampleBytes == null ? '' : ' flateSamples=${flateSampleBytes}B'}';
 }
 
 /// Per-job tally of how the browser image codec fared, folded into
