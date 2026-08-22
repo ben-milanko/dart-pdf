@@ -8,6 +8,17 @@ import 'package:pdf_graphics/pdf_graphics.dart';
 /// shipped together, so a mismatch is a programming error (asserted on read).
 const int _regionIndexFormatVersion = 1;
 
+/// Region-index policy for worker detail transcripts.
+///
+/// A detail response is transient, but the worker's page transcript is reused
+/// across every deep-zoom pan. Keeping one index beside that transcript lets a
+/// viewport select its paint units before image decoding, command
+/// serialization, and strip binning. The limits mirror [PdfRetainedScene]'s
+/// ordinary linear/grid escalation without importing the Flutter-facing scene
+/// into worker code.
+const int pdfDetailRegionLinearMaxCommands = 250000;
+const int pdfDetailRegionGridMaxCommands = 4000000;
+
 /// Bounded, painter-order-preserving index for retained region replay.
 ///
 /// Each entry is one independent paint operation plus a persistent snapshot
@@ -77,6 +88,16 @@ class PdfRegionReplayIndex {
           clipNodes++;
         case PdfSetBlendModeCommand(:final mode):
           blendMode = mode;
+        case PdfSetOverprintCommand():
+          // Unlike blend mode, the region index does not yet snapshot the
+          // three overprint fields on each unit. Selective replay would lose
+          // that persistent device state, so keep these pages on the exact
+          // full-transcript fallback.
+          return PdfRegionReplayIndex._(
+            supported: false,
+            units: const [],
+            clipNodeCount: clipNodes,
+          );
         case PdfBeginGroupCommand() ||
               PdfEndGroupCommand() ||
               PdfBeginSoftMaskedCommand() ||
@@ -229,6 +250,42 @@ class PdfRegionReplayIndex {
       for (final unit in units)
         if (_intersects(unit.bounds, region)) unit,
     ];
+  }
+
+  /// Materializes a self-contained transcript for the paint units intersecting
+  /// [region].
+  ///
+  /// Each selected paint is wrapped in its captured save/blend/clip state, the
+  /// same sequence [replay] issues directly to a device. This lets a render
+  /// worker serialize and strip-bin only the visible slice while the consumer
+  /// replays the returned command list normally. [commands] may be a
+  /// document-backed twin of the list this index was built from (the worker's
+  /// source/wire transcript pair), but its top-level command ordering must
+  /// match.
+  ///
+  /// Unsupported indices, mismatched command lists, and selections whose
+  /// state wrappers would be no smaller than the original return [commands]
+  /// unchanged. The last guard keeps broad/full-page details from turning one
+  /// command per paint into four or more commands for no benefit.
+  List<PdfRenderCommand> commandsForRegion(
+    PdfRect region,
+    List<PdfRenderCommand> commands,
+  ) {
+    if (!supported) return commands;
+    final selected = select(region);
+    if (selected.isNotEmpty && selected.last.commandIndex >= commands.length) {
+      return commands;
+    }
+    final out = <PdfRenderCommand>[];
+    for (final unit in selected) {
+      out.add(const PdfSaveCommand());
+      out.add(PdfSetBlendModeCommand(unit.blendMode));
+      unit.clips?.appendCommands(out);
+      out.add(commands[unit.commandIndex]);
+      out.add(const PdfRestoreCommand());
+      if (out.length >= commands.length) return commands;
+    }
+    return List<PdfRenderCommand>.unmodifiable(out);
   }
 }
 
@@ -456,6 +513,11 @@ class PdfRegionClipState {
   void replay(PdfDevice device) {
     parent?.replay(device);
     device.clipPath(command.path, command.rule);
+  }
+
+  void appendCommands(List<PdfRenderCommand> commands) {
+    parent?.appendCommands(commands);
+    commands.add(command);
   }
 }
 

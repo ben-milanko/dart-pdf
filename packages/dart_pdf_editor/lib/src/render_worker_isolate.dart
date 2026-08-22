@@ -1354,8 +1354,8 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
   PdfRect imageDecodeRegion,
   PdfCancellationToken token,
 ) async {
-  final sourceCommands =
-      await cache.sourceCommandsFor(document, pageIndex, annotations, token);
+  final sourceCommands = await cache.detailCommandsFor(
+      document, pageIndex, annotations, imageDecodeRegion, token);
   if (sourceCommands == null) return null;
   if (token.cancelled) throw const PdfCancelledException();
 
@@ -1404,12 +1404,10 @@ Future<Uint8List?> _buildRegionIndexAsync(
     int maxCommands,
     bool buildGrid,
     PdfCancellationToken token) async {
-  final commands =
-      await cache.commandsFor(document, pageIndex, annotations, token);
-  if (commands == null) return null;
+  final index = await cache.regionIndexFor(
+      document, pageIndex, annotations, maxCommands, buildGrid, token);
+  if (index == null) return null;
   if (token.cancelled) throw const PdfCancelledException();
-  final index = PdfRegionReplayIndex.build(commands,
-      maxCommands: maxCommands, buildGrid: buildGrid);
   return serializeRegionReplayIndex(index);
 }
 
@@ -1453,15 +1451,29 @@ class _BinCommandCache {
           int pageIndex, bool annotations, PdfCancellationToken token) async =>
       (await _entryFor(document, pageIndex, annotations, token))?.wireCommands;
 
-  /// Original document-backed commands for a fresh serialization that must
-  /// resolve/decode image COS streams. The wire-round-tripped commands used by
-  /// [commandsFor] deliberately detach that object graph; feeding those back
-  /// to [serializeCommands] works for vector geometry but can no longer safely
-  /// resolve every image dependency.
-  Future<List<PdfRenderCommand>?> sourceCommandsFor(PdfDocument document,
-          int pageIndex, bool annotations, PdfCancellationToken token) async =>
-      (await _entryFor(document, pageIndex, annotations, token))
-          ?.sourceCommands;
+  Future<List<PdfRenderCommand>?> detailCommandsFor(
+      PdfDocument document,
+      int pageIndex,
+      bool annotations,
+      PdfRect region,
+      PdfCancellationToken token) async {
+    final entry = await _entryFor(document, pageIndex, annotations, token);
+    return entry?.commandsForDetail(region);
+  }
+
+  Future<PdfRegionReplayIndex?> regionIndexFor(
+      PdfDocument document,
+      int pageIndex,
+      bool annotations,
+      int maxCommands,
+      bool buildGrid,
+      PdfCancellationToken token) async {
+    final entry = await _entryFor(document, pageIndex, annotations, token);
+    return entry?.regionIndex(
+      maxCommands: maxCommands,
+      buildGrid: buildGrid,
+    );
+  }
 
   Future<_BinCommandEntry?> _entryFor(PdfDocument document, int pageIndex,
       bool annotations, PdfCancellationToken token) async {
@@ -1514,4 +1526,34 @@ class _BinCommandEntry {
   final List<PdfRenderCommand> sourceCommands;
   final List<PdfRenderCommand> wireCommands;
   final int retainedCommandWeight;
+
+  PdfRegionReplayIndex? _regionIndex;
+  (int, bool)? _regionIndexKey;
+
+  PdfRegionReplayIndex regionIndex({
+    required int maxCommands,
+    required bool buildGrid,
+  }) {
+    final key = (maxCommands, buildGrid);
+    if (_regionIndexKey != key) {
+      _regionIndex = PdfRegionReplayIndex.build(
+        wireCommands,
+        maxCommands: maxCommands,
+        buildGrid: buildGrid,
+      );
+      _regionIndexKey = key;
+    }
+    return _regionIndex!;
+  }
+
+  List<PdfRenderCommand> commandsForDetail(PdfRect region) {
+    final buildGrid = wireCommands.length > pdfDetailRegionLinearMaxCommands;
+    final index = regionIndex(
+      maxCommands: buildGrid
+          ? pdfDetailRegionGridMaxCommands
+          : pdfDetailRegionLinearMaxCommands,
+      buildGrid: buildGrid,
+    );
+    return index.commandsForRegion(region, sourceCommands);
+  }
 }

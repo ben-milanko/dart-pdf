@@ -1204,7 +1204,13 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
     timings: timings,
   );
   if (transcript == null) return null;
-  var sourceCommands = transcript.sourceCommands;
+  // The transcript index carries the same conservative paint bounds used by
+  // retained-scene region replay. Select before decoding or serializing so a
+  // narrow CAD viewport does not repeatedly ship and strip-bin the other
+  // tens/hundreds of thousands of offscreen operations.
+  var sourceCommands = transcript.commandsForDetail(imageDecodeRegion);
+  final detailCommandCount = sourceCommands.length;
+  final transcriptCommandCount = transcript.sourceCommands.length;
   if (token.cancelled) throw const PdfCancelledException();
 
   // DCT images use the browser codec on web. Other image formats continue
@@ -1243,12 +1249,12 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
     timings!.serializeUs += serializeClock.elapsedMicroseconds;
   }
   if (tally != null) {
-    timings!.imageDecodeSummary = _formatImageDecodeSummary(
+    timings!.imageDecodeSummary = '${_formatImageDecodeSummary(
       tally,
       imageCache,
       imageCacheBefore!,
       flateSampleBytes: flateSampleCache.bytes,
-    );
+    )} regionCommands=$detailCommandCount/$transcriptCommandCount';
   }
   if (commandBuffer == null) return null;
   if (token.cancelled) throw const PdfCancelledException();
@@ -1345,8 +1351,7 @@ Future<Uint8List?> _buildRegionIndexAsync(
   );
   if (transcript == null) return null;
   if (token.cancelled) throw const PdfCancelledException();
-  final index = PdfRegionReplayIndex.build(
-    transcript.wireCommands,
+  final index = transcript.regionIndex(
     maxCommands: maxCommands,
     buildGrid: buildGrid,
   );

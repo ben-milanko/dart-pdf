@@ -17,7 +17,7 @@
 //  - the abstract default (which the unsupported-platform stub inherits)
 //    declines with null.
 import 'dart:typed_data';
-import 'dart:ui' show Rect;
+import 'dart:ui' show Image, ImageByteFormat, Rect;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor/src/region_replay_index.dart';
@@ -33,6 +33,11 @@ import 'render_seam_test.dart' show buildStripsPdf;
 import 'strip_zoom_router_test.dart' show buildVectorPdf;
 
 List<double> _coeffs(PdfMatrix m) => [m.a, m.b, m.c, m.d, m.e, m.f];
+
+Future<Uint8List> _rgba(Image image) async =>
+    (await image.toByteData(format: ImageByteFormat.rawRgba))!
+        .buffer
+        .asUint8List();
 
 /// A one-page PDF dense enough (thousands of interpreter ops) that a bin
 /// job reliably spans several of the worker's cooperative yield points, so
@@ -152,6 +157,70 @@ void main() {
       expect(encodeStripPlan(detail.plan), encodeStripPlan(local.finish()),
           reason: 'the returned plan must describe the returned commands, '
               'not a separate base recording');
+    });
+  });
+
+  testWidgets('isolate detail culls a wide CAD transcript byte-identically',
+      (tester) async {
+    await tester.runAsync(() async {
+      final bytes = buildSyntheticCadStrip(ops: 6000, streams: 2);
+      final doc = PdfDocument.open(bytes);
+      final page = doc.page(0);
+      final worker = PdfRenderWorker.startUncached(bytes);
+      addTearDown(worker.dispose);
+
+      final commands = await worker.record(0, decodeImages: false);
+      expect(commands, isNotNull);
+      final fullScene = await PdfRetainedScene.fromCommands(page, commands!);
+      addTearDown(fullScene.dispose);
+
+      const region = Rect.fromLTWH(120, 300, 300, 180);
+      const ratio = 1.5;
+      final geometry = fullScene.stripRegionGeometry(
+        region,
+        pixelRatio: ratio,
+      );
+      final m = geometry.pageToDevice;
+      final size = fullScene.pageSize;
+      final detail = await worker.recordStripDetail(
+        0,
+        annotations: true,
+        pageToDevice: _coeffs(m),
+        deviceWidth: geometry.width,
+        deviceHeight: geometry.height,
+        pixelRatio: ratio,
+        imageDecodeRegion: PdfRect(
+          region.left,
+          size.height - region.bottom,
+          region.right,
+          size.height - region.top,
+        ),
+      );
+      expect(detail, isNotNull);
+      expect(detail!.commands.length, lessThan(commands.length ~/ 2),
+          reason: 'the worker should not transfer the offscreen CAD strokes');
+
+      final detailScene = await PdfRetainedScene.fromCommands(
+        page,
+        detail.commands,
+      );
+      addTearDown(detailScene.dispose);
+      final expected = await fullScene.rasterizeRegionStrips(
+        region,
+        pixelRatio: ratio,
+      );
+      final actual = await detailScene.rasterizeRegionStrips(
+        region,
+        pixelRatio: ratio,
+        stripPlan: detail.plan,
+      );
+      try {
+        expect(await _rgba(actual), await _rgba(expected),
+            reason: 'selective worker detail must preserve region pixels');
+      } finally {
+        actual.dispose();
+        expected.dispose();
+      }
     });
   });
 

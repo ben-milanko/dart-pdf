@@ -4,6 +4,7 @@ import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
 import 'budgeted_cache.dart';
+import 'region_replay_index.dart';
 import 'render_trace.dart';
 
 // The worker fills its half of the unified [PdfRenderTrace]; re-exported so
@@ -21,6 +22,38 @@ class PdfWorkerTranscript {
 
   final List<PdfRenderCommand> sourceCommands;
   final List<PdfRenderCommand> wireCommands;
+
+  PdfRegionReplayIndex? _regionIndex;
+  (int, bool)? _regionIndexKey;
+
+  /// Reuses one region index across deep-zoom pans of this transcript.
+  PdfRegionReplayIndex regionIndex({
+    required int maxCommands,
+    required bool buildGrid,
+  }) {
+    final key = (maxCommands, buildGrid);
+    if (_regionIndexKey != key) {
+      _regionIndex = PdfRegionReplayIndex.build(
+        wireCommands,
+        maxCommands: maxCommands,
+        buildGrid: buildGrid,
+      );
+      _regionIndexKey = key;
+    }
+    return _regionIndex!;
+  }
+
+  /// Selects a compact, document-backed transcript for one detail region.
+  List<PdfRenderCommand> commandsForDetail(PdfRect region) {
+    final buildGrid = wireCommands.length > pdfDetailRegionLinearMaxCommands;
+    final index = regionIndex(
+      maxCommands: buildGrid
+          ? pdfDetailRegionGridMaxCommands
+          : pdfDetailRegionLinearMaxCommands,
+      buildGrid: buildGrid,
+    );
+    return index.commandsForRegion(region, sourceCommands);
+  }
 
   /// Command slots retained by this transcript, including commands nested
   /// inside soft-mask groups and both lists when they are distinct.

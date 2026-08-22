@@ -165,6 +165,59 @@ void main() {
     expect(cache.evictions, 2);
   });
 
+  test('detail transcripts select the visible CAD command slice', () async {
+    final document =
+        PdfDocument.open(buildSyntheticCadStrip(ops: 6000, streams: 2));
+    final cache = PdfWorkerTranscriptCache();
+    final transcript = await cache.transcriptFor(
+      document,
+      0,
+      true,
+      PdfCancellationToken(),
+    );
+    expect(transcript, isNotNull);
+
+    final full = transcript!.sourceCommands;
+    final detail = transcript.commandsForDetail(
+      const PdfRect(0, 0, 420, 841.89),
+    );
+    expect(detail, isNotEmpty);
+    expect(detail.length, lessThan(full.length ~/ 2),
+        reason: 'a 5%-wide viewport must not serialize and bin the other '
+            '${full.length} CAD commands');
+    expect(detail.whereType<PdfStrokePathCommand>(), isNotEmpty);
+
+    final again = transcript.commandsForDetail(
+      const PdfRect(8000, 0, 8503.939, 841.89),
+    );
+    expect(again, isNotEmpty,
+        reason: 'the cached index must serve a distant pan too');
+    expect(again.length, lessThan(full.length ~/ 2));
+  });
+
+  test('detail transcript keeps the full fallback for overprint state', () {
+    final commands = <PdfRenderCommand>[
+      const PdfSetOverprintCommand(fill: true, stroke: false, mode: 1),
+      const PdfFillPathCommand(
+        PdfPath([
+          PdfMoveTo(10, 10),
+          PdfLineTo(20, 10),
+          PdfLineTo(20, 20),
+          PdfClosePath(),
+        ]),
+        PdfColor.black,
+        PdfFillRule.nonzero,
+        1,
+      ),
+    ];
+    final transcript = PdfWorkerTranscript(commands, commands);
+    expect(
+      transcript.commandsForDetail(const PdfRect(0, 0, 30, 30)),
+      same(commands),
+      reason: 'state the region index cannot snapshot must never be culled',
+    );
+  });
+
   test('image-bearing transcripts keep the document-backed source graph',
       () async {
     final bytes = PdfImageDocument.fromImageBytes([buildTestJpeg()]);
