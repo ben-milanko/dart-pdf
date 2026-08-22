@@ -53,9 +53,11 @@ void main(List<String> arguments) {
   File('${directory.path}/patrol-perf.log').writeAsStringSync(
     trace.lines.isEmpty ? '' : '${trace.lines.join('\n')}\n',
   );
+  final current = trace.toJson();
   File('${directory.path}/patrol-perf.json').writeAsStringSync(
-    '${const JsonEncoder.withIndent('  ').convert(trace.toJson())}\n',
+    '${const JsonEncoder.withIndent('  ').convert(current)}\n',
   );
+  var headline = trace.toHeadlineMarkdown(label: label);
   var markdown = trace.toMarkdown(label: label);
   if (baselineInput != null) {
     final baselineFile = File(baselineInput);
@@ -68,11 +70,14 @@ void main(List<String> arguments) {
       stderr.writeln('Patrol baseline is not a JSON object: $baselineInput');
       exit(65);
     }
-    markdown += PatrolPerfComparison(
+    final comparison = PatrolPerfComparison(
       baseline: decoded,
-      current: trace.toJson(),
-    ).toMarkdown();
+      current: current,
+    );
+    headline = comparison.toHeadlineMarkdown();
+    markdown += comparison.toMarkdown();
   }
+  File('${directory.path}/patrol-perf-headline.md').writeAsStringSync(headline);
   File('${directory.path}/patrol-perf.md').writeAsStringSync(markdown);
   if (markdownOutput != null) {
     File(markdownOutput).writeAsStringSync(markdown, mode: FileMode.append);
@@ -322,6 +327,47 @@ class PatrolPerfTrace {
         },
       };
 
+  String toHeadlineMarkdown({String label = 'web'}) {
+    final buffer = StringBuffer()
+      ..writeln('### Headline')
+      ..writeln()
+      ..writeln(
+        lines.isEmpty
+            ? 'No `PdfPerfLog` events were captured.'
+            : 'Current Patrol $label trace. Lower timing is better.',
+      );
+    if (lines.isEmpty) return '${buffer.toString()}\n';
+    buffer
+      ..writeln()
+      ..writeln('| Signal | Result |')
+      ..writeln('| --- | ---: |');
+    for (final name in _scenarioMetrics.keys.toList()..sort()) {
+      buffer.writeln('| Scenario ${_code(name)} elapsed p95 | '
+          '${_p95Text(_scenarioMetrics[name]!.elapsedMs)} |');
+    }
+    buffer
+      ..writeln('| Jank frames | ${jankTotalMs.length} |')
+      ..writeln('| Jank total p95 | ${_p95Text(jankTotalMs)} |')
+      ..writeln('| Reconcile p95 | ${_p95Text(reconcileElapsedMs)} |')
+      ..writeln('| Raster p95 | ${_p95Text(rasterElapsedMs)} |');
+    if (workerPhases.totalMs.isNotEmpty) {
+      buffer.writeln('| Worker phase total p95 | '
+          '${_p95Text(workerPhases.totalMs)} |');
+    }
+    if (tiles.replayMs.isNotEmpty) {
+      buffer.writeln('| Tile replay p95 | ${_p95Text(tiles.replayMs)} |');
+    }
+    buffer
+      ..writeln('| Reconcile fallbacks | '
+          '${_sum(reconcileFallbackReasons.values)} |')
+      ..writeln('| Page-raster rejects | '
+          '${pageRasterOutcomes['reject'] ?? 0} |')
+      ..writeln('| Web-worker fatal fallbacks | '
+          '${webWorkerOutcomes['fallback'] ?? 0} |');
+    buffer.writeln();
+    return buffer.toString();
+  }
+
   String toMarkdown({String label = 'web'}) {
     final journeyKind = label.toLowerCase() == 'web' ? 'browser' : 'device';
     final buffer = StringBuffer()
@@ -429,7 +475,9 @@ class PatrolPerfTrace {
     buffer
       ..writeln(
         'Artifacts: `patrol-perf.log` (normalized raw trace), '
-        '`patrol-perf.json` (machine comparison), and this Markdown summary.',
+        '`patrol-perf.json` (machine comparison), '
+        '`patrol-perf-headline.md` (visible PR headline), and this full '
+        'Markdown summary.',
       )
       ..writeln();
     return buffer.toString();
@@ -447,6 +495,88 @@ class PatrolPerfComparison {
 
   final Map<String, dynamic> baseline;
   final Map<String, Object?> current;
+
+  String toHeadlineMarkdown() {
+    final baselineScenarios = _jsonCountMap(baseline, const ['scenarios']);
+    final currentScenarios = _jsonCountMap(current, const ['scenarios']);
+    final sameCoverage = _sameCountMap(baselineScenarios, currentScenarios);
+    final measuredScenarios = <String>{
+      ..._jsonMapKeys(baseline, const ['scenarioMetrics']),
+      ..._jsonMapKeys(current, const ['scenarioMetrics']),
+    }.toList()
+      ..sort();
+    final buffer = StringBuffer()
+      ..writeln('### Headline comparison with `main`')
+      ..writeln()
+      ..writeln(
+        'Lower timing is better. Structural counts should stay stable unless '
+        'the PR intentionally changes the exercised path.',
+      );
+    if (!sameCoverage) {
+      buffer
+        ..writeln()
+        ..writeln(
+          '⚠️ Scenario coverage differs from `main`; timing deltas are not '
+          'like-for-like.',
+        );
+    }
+    buffer
+      ..writeln()
+      ..writeln('| Signal | Main | PR | Change |')
+      ..writeln('| --- | ---: | ---: | ---: |');
+
+    void countRow(
+      String label,
+      List<String> path, {
+      bool absentIsZero = false,
+    }) {
+      final before = _jsonNumber(baseline, path, absentIsZero: absentIsZero);
+      final after = _jsonNumber(current, path, absentIsZero: absentIsZero);
+      buffer.writeln('| $label | ${_numberText(before)} | '
+          '${_numberText(after)} | ${_countDelta(before, after)} |');
+    }
+
+    void timingRow(String label, List<String> path) {
+      final before = _jsonNumber(baseline, path);
+      final after = _jsonNumber(current, path);
+      if (before == null && after == null) return;
+      buffer.writeln('| $label | ${_timingText(before)} | '
+          '${_timingText(after)} | ${_percentDelta(before, after)} |');
+    }
+
+    for (final scenario in measuredScenarios) {
+      timingRow(
+        'Scenario ${_code(scenario)} elapsed p95',
+        ['scenarioMetrics', scenario, 'elapsedMs', 'p95'],
+      );
+    }
+    timingRow('Jank total p95', const ['jank', 'totalMs', 'p95']);
+    timingRow('Reconcile p95', const ['reconciliation', 'elapsedMs', 'p95']);
+    timingRow('Raster p95', const ['rasters', 'elapsedMs', 'p95']);
+    timingRow(
+      'Worker phase total p95',
+      const ['webWorker', 'phases', 'totalMs', 'p95'],
+    );
+    timingRow('Tile replay p95', const ['tiles', 'replayMs', 'p95']);
+    countRow('Jank frames', const ['jank', 'count']);
+    countRow(
+      'Reconcile fallbacks',
+      const ['reconciliation', 'fallbackReasons', '*'],
+      absentIsZero: true,
+    );
+    countRow(
+      'Page-raster rejects',
+      const ['pageRasters', 'outcomes', 'reject'],
+      absentIsZero: true,
+    );
+    countRow(
+      'Web-worker fatal fallbacks',
+      const ['webWorker', 'outcomes', 'fallback'],
+      absentIsZero: true,
+    );
+    buffer.writeln();
+    return buffer.toString();
+  }
 
   String toMarkdown() {
     final baselineScenarios = _jsonCountMap(baseline, const ['scenarios']);

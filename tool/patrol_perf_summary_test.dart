@@ -200,6 +200,18 @@ void main() {
     '## Patrol Android performance',
     'platform heading',
   );
+  final headline = trace.toHeadlineMarkdown(label: 'Android');
+  _expectContains(headline, '### Headline', 'headline heading');
+  _expectContains(
+    headline,
+    '| Jank total p95 | 3.0 ms |',
+    'headline jank',
+  );
+  _expectContains(
+    headline,
+    '| Scenario `heavy-document` elapsed p95 | 80.0 ms |',
+    'headline scenario',
+  );
 
   final comparison = summary.PatrolPerfComparison(
     baseline: {
@@ -247,6 +259,45 @@ void main() {
     '| Tile prefetch batches | 2 | 1 | -1 |',
     'tile prefetch comparison',
   );
+  final comparisonHeadline = summary.PatrolPerfComparison(
+    baseline: {
+      'scenarios': json['scenarios'],
+      'jank': {
+        'count': 2,
+        'totalMs': {'p95': 4.0},
+      },
+      'scenarioMetrics': {
+        'heavy-document': {
+          'elapsedMs': {'p95': 100.0},
+        },
+      },
+    },
+    current: json,
+  ).toHeadlineMarkdown();
+  _expectContains(
+    comparisonHeadline,
+    '### Headline comparison with `main`',
+    'comparison headline heading',
+  );
+  _expectContains(
+    comparisonHeadline,
+    '| Jank total p95 | 4.0 ms | 3.0 ms | -25.0% |',
+    'comparison headline jank',
+  );
+  _expectContains(
+    comparisonHeadline,
+    '| Scenario `heavy-document` elapsed p95 | 100.0 ms | 80.0 ms | -20.0% |',
+    'comparison headline scenario',
+  );
+  final sparseHeadline = summary.PatrolPerfComparison(
+    baseline: const {'scenarios': <String, Object?>{}},
+    current: const {'scenarios': <String, Object?>{}},
+  ).toHeadlineMarkdown();
+  _expectNotContains(
+    sparseHeadline,
+    'Worker phase total p95',
+    'missing headline metrics',
+  );
 
   final resetTrace = summary.PatrolPerfTrace.parse(const [
     '[perf 0] scenario name=orphan phase=start',
@@ -283,5 +334,12 @@ void _expectEqual(Object? actual, Object? expected, String label) {
 void _expectContains(String actual, String expected, String label) {
   if (!actual.contains(expected)) {
     throw StateError('$label: missing "$expected" in:\n$actual');
+  }
+}
+
+void _expectNotContains(String actual, String unexpected, String label) {
+  if (actual.contains(unexpected)) {
+    throw StateError(
+        '$label: unexpectedly contained "$unexpected" in:\n$actual');
   }
 }

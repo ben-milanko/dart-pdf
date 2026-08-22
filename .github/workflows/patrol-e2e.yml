@@ -100,6 +100,9 @@ jobs:
     name: Android (API 35)
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
@@ -135,17 +138,52 @@ jobs:
           disable-animations: true
           working-directory: ${{ env.EXAMPLE_DIR }}
           script: bash ../../../tool/run_android_patrol_ci.sh
+      - name: Download latest main Patrol Android baseline
+        id: patrol-baseline
+        if: always() && github.event_name == 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for baseline_run in $(gh run list \
+            --workflow patrol-e2e.yml \
+            --branch main \
+            --event push \
+            --limit 10 \
+            --json databaseId \
+            --jq '.[].databaseId'); do
+            destination="$RUNNER_TEMP/patrol-android-baseline/$baseline_run"
+            if gh run download "$baseline_run" \
+              --name patrol-android-report \
+              --dir "$destination"; then
+              json="$destination/test-results/perf/android/patrol-perf.json"
+              if [[ -f "$json" ]]; then
+                echo "json=$json" >> "$GITHUB_OUTPUT"
+                echo "Using Patrol Android baseline from run $baseline_run"
+                exit 0
+              fi
+            fi
+          done
+          echo "::notice::No usable main Patrol Android artifact is available yet"
       - name: Collect Patrol Android performance trace
         if: always()
         working-directory: ${{ env.EXAMPLE_DIR }}
         shell: bash
         run: |
+          set -euo pipefail
           touch "$RUNNER_TEMP/patrol-android.log"
-          dart ../../../tool/patrol_perf_summary.dart \
-            "$RUNNER_TEMP/patrol-android.log" \
-            --output test-results/perf/android \
-            --markdown "$GITHUB_STEP_SUMMARY" \
+          arguments=(
+            "$RUNNER_TEMP/patrol-android.log"
+            --output test-results/perf/android
+            --markdown "$GITHUB_STEP_SUMMARY"
             --label Android
+          )
+          baseline="${{ steps.patrol-baseline.outputs.json }}"
+          if [[ -f "$baseline" ]]; then
+            arguments+=(--baseline "$baseline")
+          fi
+          dart ../../../tool/patrol_perf_summary.dart "${arguments[@]}"
       - name: Upload Patrol Android report
         if: always()
         uses: actions/upload-artifact@v7
@@ -160,6 +198,9 @@ jobs:
     name: iOS Simulator
     runs-on: macos-15
     timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
@@ -202,17 +243,52 @@ jobs:
             --show-flutter-logs \
             --verbose \
             2>&1 | tee -a "$RUNNER_TEMP/patrol-ios.log"
+      - name: Download latest main Patrol iOS baseline
+        id: patrol-baseline
+        if: always() && github.event_name == 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for baseline_run in $(gh run list \
+            --workflow patrol-e2e.yml \
+            --branch main \
+            --event push \
+            --limit 10 \
+            --json databaseId \
+            --jq '.[].databaseId'); do
+            destination="$RUNNER_TEMP/patrol-ios-baseline/$baseline_run"
+            if gh run download "$baseline_run" \
+              --name patrol-ios-results \
+              --dir "$destination"; then
+              json="$destination/test-results/perf/ios/patrol-perf.json"
+              if [[ -f "$json" ]]; then
+                echo "json=$json" >> "$GITHUB_OUTPUT"
+                echo "Using Patrol iOS baseline from run $baseline_run"
+                exit 0
+              fi
+            fi
+          done
+          echo "::notice::No usable main Patrol iOS artifact is available yet"
       - name: Collect Patrol iOS performance trace
         if: always()
         working-directory: ${{ env.EXAMPLE_DIR }}
         shell: bash
         run: |
+          set -euo pipefail
           touch "$RUNNER_TEMP/patrol-ios.log"
-          dart ../../../tool/patrol_perf_summary.dart \
-            "$RUNNER_TEMP/patrol-ios.log" \
-            --output test-results/perf/ios \
-            --markdown "$GITHUB_STEP_SUMMARY" \
+          arguments=(
+            "$RUNNER_TEMP/patrol-ios.log"
+            --output test-results/perf/ios
+            --markdown "$GITHUB_STEP_SUMMARY"
             --label "iOS Simulator"
+          )
+          baseline="${{ steps.patrol-baseline.outputs.json }}"
+          if [[ -f "$baseline" ]]; then
+            arguments+=(--baseline "$baseline")
+          fi
+          dart ../../../tool/patrol_perf_summary.dart "${arguments[@]}"
       - name: Upload Patrol iOS result bundle
         if: always()
         uses: actions/upload-artifact@v7
@@ -293,6 +369,10 @@ jobs:
               'patrol-android/test-results/perf/android/patrol-perf.md',
               'patrol-ios/test-results/perf/ios/patrol-perf.md',
             ].filter((path) => fs.existsSync(path));
+            const headlines = [
+              'patrol-android/test-results/perf/android/patrol-perf-headline.md',
+              'patrol-ios/test-results/perf/ios/patrol-perf-headline.md',
+            ].filter((path) => fs.existsSync(path));
             const report = summaries.length > 0
               ? summaries.map((path) => fs.readFileSync(path, 'utf8').trim()).join('\n\n')
               : [
@@ -300,6 +380,9 @@ jobs:
                   '',
                   'No native performance summary artifact was produced. Open the workflow run for the failing step and raw logs.',
                 ].join('\n');
+            const headline = headlines.length > 0
+              ? headlines.map((path) => fs.readFileSync(path, 'utf8').trim()).join('\n\n')
+              : 'No headline native performance summary was produced.';
             const sha = context.payload.pull_request.head.sha.slice(0, 7);
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const body = [
@@ -307,6 +390,8 @@ jobs:
               '## Native Patrol performance',
               '',
               `Automated for commit \`${sha}\` · [workflow run and downloadable native traces](${runUrl})`,
+              '',
+              headline,
               '',
               '<details>',
               '<summary>View Android and iOS performance details</summary>',

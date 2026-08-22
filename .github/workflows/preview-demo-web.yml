@@ -196,11 +196,13 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         env:
           PATROL_MARKER: dart-pdf-patrol-performance
+          PATROL_HEADLINE: patrol-results/test-results/perf/patrol-perf-headline.md
           PATROL_SUMMARY: patrol-results/test-results/perf/patrol-perf.md
         with:
           script: |
             const fs = require('fs');
             const marker = `<!-- ${process.env.PATROL_MARKER} -->`;
+            const headlinePath = process.env.PATROL_HEADLINE;
             const summaryPath = process.env.PATROL_SUMMARY;
             const sha = context.payload.pull_request.head.sha.slice(0, 7);
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
@@ -211,11 +213,16 @@ jobs:
                   '',
                   'No performance summary artifact was produced. Open the workflow run for the failing step and raw logs.',
                 ].join('\n');
+            const headline = fs.existsSync(headlinePath)
+              ? fs.readFileSync(headlinePath, 'utf8').trim()
+              : 'No headline performance summary was produced.';
             const body = [
               marker,
               '## Patrol web performance',
               '',
               `Automated for commit \`${sha}\` · [workflow run and downloadable trace artifact](${runUrl})`,
+              '',
+              headline,
               '',
               '<details>',
               '<summary>View browser performance details</summary>',
