@@ -77,6 +77,14 @@ const Duration _tabHoverPreviewDelay = Duration(milliseconds: 400);
 const double _tabHoverPreviewWidth = 240;
 const double _tabHoverPreviewHeight = 300;
 
+String _openTraceLabel(String? value) => (value == null || value.isEmpty)
+    ? '-'
+    : value.replaceAll(RegExp(r'[\r\n"]+'), ' ').trim();
+
+String _openTracePercent(int fetched, int? total) => total == null || total <= 0
+    ? 'unknown'
+    : (fetched * 100 / total).toStringAsFixed(1);
+
 /// The editor's main screen: a strip of open-document tabs over the drop-in
 /// [PdfEditorView] / [PdfReader] shells, which carry all the PDF chrome
 /// (search, page number, panels, toolbar). The screen supplies the edit
@@ -1308,6 +1316,8 @@ class _EditorScreenState extends State<EditorScreen>
     String? bookmark,
     String? token,
     String? cachePath,
+    int? declaredBytes,
+    String? provider,
     void Function(Object error)? onOpenFailed,
     DocumentTab? into,
   }) async {
@@ -1323,8 +1333,19 @@ class _EditorScreenState extends State<EditorScreen>
         );
     final cancel = PdfCancelToken();
     final progress = ValueNotifier<double>(0);
+    final openClock = Stopwatch()..start();
+    var fetchedBytes = 0;
+    var totalBytes = declaredBytes;
     final source = _progressiveSource(
-        path: path, bookmark: bookmark, token: token, cancel: cancel);
+      path: path,
+      bookmark: bookmark,
+      token: token,
+      cancel: cancel,
+      onProgress: (received, total) {
+        fetchedBytes = received;
+        if (total != null && total >= 0) totalBytes = total;
+      },
+    );
 
     PdfDocument doc;
     try {
@@ -1343,6 +1364,17 @@ class _EditorScreenState extends State<EditorScreen>
       // The progressive first paint could not be assembled (IO error, or a
       // shape the ranged loader gives up on). Fall back to the plain read the
       // rest of the app uses, reusing the same loading placeholder.
+      AppDevTools.instance.addLog(
+        'open-trace: progressive-fallback '
+        'platform=${defaultTargetPlatform.name} '
+        'origin=${token == null ? "desktop" : "mobile"} '
+        'provider="${_openTraceLabel(provider)}" '
+        'name="${_openTraceLabel(title)}" '
+        'fetchedBytes=$fetchedBytes '
+        'totalBytes=${totalBytes ?? "unknown"} '
+        'elapsedMs=${openClock.elapsedMilliseconds} '
+        'errorType=${error.runtimeType}',
+      );
       progress.dispose();
       await source.close();
       if (!mounted) return;
@@ -1393,6 +1425,19 @@ class _EditorScreenState extends State<EditorScreen>
     AppDevTools.instance.addLog(
         'progressive open: "$title" first paint — ${doc.pageCount} pages; '
         'reading full file…');
+    AppDevTools.instance.addLog(
+      'open-trace: first-paint '
+      'platform=${defaultTargetPlatform.name} '
+      'origin=${token == null ? "desktop" : "mobile"} '
+      'provider="${_openTraceLabel(provider)}" '
+      'name="${_openTraceLabel(title)}" '
+      'mode=progressive seekable=true '
+      'fetchedBytes=$fetchedBytes '
+      'totalBytes=${totalBytes ?? "unknown"} '
+      'fetchedPercent=${_openTracePercent(fetchedBytes, totalBytes)} '
+      'elapsedMs=${openClock.elapsedMilliseconds} '
+      'pages=${doc.pageCount}',
+    );
 
     // Stream the rest in behind the first paint, then swap to a full session.
     unawaited(_finishProgressive(preview, source));
@@ -1619,18 +1664,67 @@ class _EditorScreenState extends State<EditorScreen>
     final defer = picks.length > 1;
     for (final pick in picks) {
       if (!mounted) return;
-      if (!defer && pick.seekable) {
-        await _openProgressive(title: pick.name, token: pick.token);
+      final progressive = !defer && pick.seekable;
+      final reason = progressive
+          ? 'single-seekable'
+          : defer
+              ? 'batch'
+              : 'non-seekable';
+      AppDevTools.instance.addLog(
+        'open-trace: mobile-pick '
+        'platform=${defaultTargetPlatform.name} '
+        'provider="${_openTraceLabel(pick.provider)}" '
+        'name="${_openTraceLabel(pick.name)}" '
+        'declaredBytes=${pick.length ?? "unknown"} '
+        'seekable=${pick.seekable} '
+        'mode=${progressive ? "progressive" : "whole"} '
+        'reason=$reason',
+      );
+      if (progressive) {
+        await _openProgressive(
+          title: pick.name,
+          token: pick.token,
+          declaredBytes: pick.length,
+          provider: pick.provider,
+        );
       } else {
         // Non-seekable, or a batch we won't fan out into concurrent streams:
         // drain the reference whole (still one read of the original, no OS
         // copy) and open it like any other loaded document.
         await _openLoadedBytes(
-          _readOriginFully(token: pick.token),
+          _readMobileOriginFullyWithTrace(pick, reason: reason),
           title: pick.name,
           defer: defer,
         );
       }
+    }
+  }
+
+  Future<Uint8List> _readMobileOriginFullyWithTrace(
+    MobilePickedPdf pick, {
+    required String reason,
+  }) async {
+    final clock = Stopwatch()..start();
+    try {
+      final bytes = await _readOriginFully(token: pick.token);
+      AppDevTools.instance.addLog(
+        'open-trace: whole-read '
+        'platform=${defaultTargetPlatform.name} origin=mobile '
+        'provider="${_openTraceLabel(pick.provider)}" '
+        'name="${_openTraceLabel(pick.name)}" '
+        'mode=whole reason=$reason '
+        'bytes=${bytes.length} elapsedMs=${clock.elapsedMilliseconds}',
+      );
+      return bytes;
+    } catch (_) {
+      AppDevTools.instance.addLog(
+        'open-trace: whole-read-failed '
+        'platform=${defaultTargetPlatform.name} origin=mobile '
+        'provider="${_openTraceLabel(pick.provider)}" '
+        'name="${_openTraceLabel(pick.name)}" '
+        'mode=whole reason=$reason elapsedMs=${clock.elapsedMilliseconds}',
+      );
+      rethrow;
     }
   }
 

@@ -142,9 +142,16 @@ void main() {
       messenger.setMockMethodCallHandler(mobileFileChannel, (call) async {
         expect(call.method, 'pickDocuments');
         return <Map<Object?, Object?>>[
-          {'token': 't1', 'name': 'a.pdf', 'length': 1234, 'seekable': true},
+          {
+            'token': 't1',
+            'name': 'a.pdf',
+            'length': 1234,
+            'provider': 'com.example.files',
+            'seekable': true,
+          },
           // Seekability defaults to false when the runner omits it.
-          {'token': 't2', 'name': 'b.pdf'},
+          // A native -1 length is normalized to unknown.
+          {'token': 't2', 'name': 'b.pdf', 'length': -1},
           // An entry without a token is dropped.
           {'name': 'no-token.pdf'},
         ];
@@ -154,10 +161,12 @@ void main() {
       expect(picks[0].token, 't1');
       expect(picks[0].name, 'a.pdf');
       expect(picks[0].length, 1234);
+      expect(picks[0].provider, 'com.example.files');
       expect(picks[0].seekable, isTrue);
       expect(picks[1].token, 't2');
       expect(picks[1].seekable, isFalse);
       expect(picks[1].length, isNull);
+      expect(picks[1].provider, isNull);
     });
 
     test('a cancelled pick (null result) yields an empty list', () async {
