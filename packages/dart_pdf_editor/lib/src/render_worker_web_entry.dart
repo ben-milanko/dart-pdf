@@ -2060,6 +2060,25 @@ Future<bool?> _seedBrowserFlateRegionSamples(
 ) async {
   final filter = _singleFlateFilter(cos, stream.dictionary);
   if (filter == null || !globalContext.has('DecompressionStream')) return null;
+  var isStencil = false;
+  try {
+    isStencil =
+        cos.resolve(stream.dictionary['ImageMask']) == const CosBoolean(true);
+  } catch (_) {
+    // The decoder remains responsible for malformed optional image metadata.
+  }
+  final stencilBytes =
+      isStencil ? _declaredStencilSampleBytes(cos, stream.dictionary) : null;
+  if (stencilBytes != null &&
+      stencilBytes <= CosDocument.decodedStreamCacheItemCapBytes) {
+    // Small planes already enter the ordinary COS cache on first use. In
+    // particular, a 2048x1754 ImageMask is only ~439 KiB; warming and seeding
+    // it buys almost no inflate time and needlessly changes its established
+    // path. Colour planes remain eligible below the cap: an 8-bit Indexed CAD
+    // tile is only 768 KiB but still paid 79 ms to inflate on its first detail
+    // request in the hosted trace.
+    return null;
+  }
   try {
     final retained = sampleCache[stream];
     final samples = retained ??
@@ -2077,6 +2096,29 @@ Future<bool?> _seedBrowserFlateRegionSamples(
     return retained != null;
   } catch (_) {
     // The existing portable, lenient filter path remains the fallback.
+    return null;
+  }
+}
+
+int? _declaredStencilSampleBytes(
+  CosDocument cos,
+  CosDictionary dictionary,
+) {
+  try {
+    final width = cos.resolve(dictionary['Width']);
+    final height = cos.resolve(dictionary['Height']);
+    final bits = cos.resolve(dictionary['BitsPerComponent']);
+    if (width is! CosInteger ||
+        height is! CosInteger ||
+        bits is! CosInteger ||
+        width.value <= 0 ||
+        height.value <= 0 ||
+        bits.value <= 0) {
+      return null;
+    }
+    final rowBytes = (width.value * bits.value + 7) >> 3;
+    return rowBytes * height.value;
+  } catch (_) {
     return null;
   }
 }
