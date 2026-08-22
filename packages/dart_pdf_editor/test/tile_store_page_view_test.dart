@@ -655,8 +655,14 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    final store =
-        PdfTileStore(tilePixels: 512, registerForMemoryPressure: false);
+    // This case inspects the admitted tile layer's shared-page presentation
+    // policy. Pin the roomy tier so platform defaults do not turn it into the
+    // shared-budget fallback covered separately below.
+    final store = PdfTileStore(
+      tilePixels: 512,
+      maxBytes: 96 << 20,
+      registerForMemoryPressure: false,
+    );
     final oldRegionLimit = PdfRetainedScene.spatialRegionReplayMaxCommands;
     PdfRetainedScene.spatialRegionReplayMaxCommands = 0;
     PdfPageView.tileStoreDetail = true;
