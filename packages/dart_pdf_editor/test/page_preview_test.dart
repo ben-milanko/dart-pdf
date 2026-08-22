@@ -154,6 +154,17 @@ void main() {
     final image = sufficient!;
     expect(math.max(image.width, image.height), 400);
     image.dispose();
+
+    final thumbnail = cache.thumbnailImageFor(
+      0,
+      page,
+      width: 192,
+      height: 249,
+      minimumScale: 0.75,
+    );
+    expect(thumbnail, isNotNull,
+        reason: 'the sidebar should reuse the complete 400px tier');
+    thumbnail!.dispose();
   });
 
   testWidgets('a sufficient preview bypasses first-render hold',
@@ -551,8 +562,10 @@ void main() {
       3,
       reason: 'every rung still reports its own cost',
     );
-    expect(logs.every((line) => !line.contains('prerender page=0') ||
-        line.contains('retained ')), isTrue);
+    expect(
+        logs.every((line) =>
+            !line.contains('prerender page=0') || line.contains('retained ')),
+        isTrue);
     final sharpest = cache.previewFor(0)!;
     expect(sharpest.targetLongestSide, levels[1]);
     expect(math.max(sharpest.image.width, sharpest.image.height),
@@ -1750,8 +1763,7 @@ void main() {
     // warm order happens to reach first.
     for (var i = 0;
         i < 150 &&
-            !(cache.hasIntermediate(2, targetLongestSide: 800) &&
-                cache.has(4));
+            !(cache.hasIntermediate(2, targetLongestSide: 800) && cache.has(4));
         i++) {
       await settle(tester);
     }

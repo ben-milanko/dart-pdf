@@ -9,6 +9,7 @@ on:
       - packages/pdf_document/**
       - packages/pdf_graphics/**
       - packages/dart_pdf_editor/**
+      - tool/patrol_perf_summary.dart
 
 concurrency:
   group: demo-web-preview-${{ github.event.pull_request.number }}
@@ -23,6 +24,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
 
     steps:
@@ -88,14 +90,73 @@ jobs:
             --verbose \
             2>&1 | tee "$RUNNER_TEMP/patrol-web.log"
 
+      - name: Run Patrol performance scenario
+        id: patrol-perf
+        working-directory: packages/dart_pdf_editor/example
+        shell: bash
+        run: |
+          set -o pipefail
+          patrol test \
+            --device chrome \
+            --target patrol_test/perf_e2e_test.dart \
+            --dart-define PDF_PERF_LOG=true \
+            --dart-define PDF_BUILD_COMMIT=${{ github.event.pull_request.head.sha }} \
+            --show-flutter-logs \
+            --web-headless \
+            --web-locale en-US \
+            --web-workers 1 \
+            --web-viewport '{"width":2600,"height":2600}' \
+            --web-video retain-on-failure \
+            --verbose \
+            2>&1 | tee -a "$RUNNER_TEMP/patrol-web.log"
+
+      - name: Download latest main Patrol web baseline
+        id: patrol-baseline
+        if: always()
+        working-directory: packages/dart_pdf_editor/example
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -t baseline_runs < <(gh run list \
+            --workflow patrol-e2e.yml \
+            --branch main \
+            --event push \
+            --limit 10 \
+            --json databaseId \
+            --jq '.[].databaseId')
+          for baseline_run in "${baseline_runs[@]}"; do
+            destination="$RUNNER_TEMP/patrol-baseline/$baseline_run"
+            if gh run download "$baseline_run" \
+              --name patrol-web-results \
+              --dir "$destination"; then
+              json="$destination/test-results/perf/patrol-perf.json"
+              if [[ -f "$json" ]]; then
+                echo "json=$json" >> "$GITHUB_OUTPUT"
+                echo "Using Patrol web baseline from run $baseline_run"
+                exit 0
+              fi
+            fi
+          done
+          echo "::notice::No usable main Patrol web artifact is available yet"
+
       - name: Collect Patrol performance trace
         if: always()
         working-directory: packages/dart_pdf_editor/example
-        run: >-
-          dart ../../../tool/patrol_perf_summary.dart
-          "$RUNNER_TEMP/patrol-web.log"
-          --output test-results/perf
-          --markdown "$GITHUB_STEP_SUMMARY"
+        shell: bash
+        run: |
+          set -euo pipefail
+          arguments=(
+            "$RUNNER_TEMP/patrol-web.log"
+            --output test-results/perf
+            --markdown "$GITHUB_STEP_SUMMARY"
+          )
+          baseline="${{ steps.patrol-baseline.outputs.json }}"
+          if [[ -f "$baseline" ]]; then
+            arguments+=(--baseline "$baseline")
+          fi
+          dart ../../../tool/patrol_perf_summary.dart "${arguments[@]}"
 
       - name: Upload Patrol web results
         if: always()

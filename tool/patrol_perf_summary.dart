@@ -9,7 +9,7 @@ void main(List<String> arguments) {
   if (arguments.isEmpty || arguments.contains('--help')) {
     stdout.writeln(
       'Usage: dart tool/patrol_perf_summary.dart <patrol-log> '
-      '--output <directory> [--markdown <file>]',
+      '--output <directory> [--markdown <file>] [--baseline <json>]',
     );
     exit(arguments.contains('--help') ? 0 : 64);
   }
@@ -17,12 +17,15 @@ void main(List<String> arguments) {
   final input = arguments.first;
   String? output;
   String? markdownOutput;
+  String? baselineInput;
   for (var i = 1; i < arguments.length; i++) {
     switch (arguments[i]) {
       case '--output':
         output = _nextArgument(arguments, ++i, '--output');
       case '--markdown':
         markdownOutput = _nextArgument(arguments, ++i, '--markdown');
+      case '--baseline':
+        baselineInput = _nextArgument(arguments, ++i, '--baseline');
       default:
         stderr.writeln('Unknown argument: ${arguments[i]}');
         exit(64);
@@ -47,7 +50,23 @@ void main(List<String> arguments) {
   File('${directory.path}/patrol-perf.json').writeAsStringSync(
     '${const JsonEncoder.withIndent('  ').convert(trace.toJson())}\n',
   );
-  final markdown = trace.toMarkdown();
+  var markdown = trace.toMarkdown();
+  if (baselineInput != null) {
+    final baselineFile = File(baselineInput);
+    if (!baselineFile.existsSync()) {
+      stderr.writeln('Patrol baseline does not exist: $baselineInput');
+      exit(66);
+    }
+    final decoded = jsonDecode(baselineFile.readAsStringSync());
+    if (decoded is! Map<String, dynamic>) {
+      stderr.writeln('Patrol baseline is not a JSON object: $baselineInput');
+      exit(65);
+    }
+    markdown += PatrolPerfComparison(
+      baseline: decoded,
+      current: trace.toJson(),
+    ).toMarkdown();
+  }
   File('${directory.path}/patrol-perf.md').writeAsStringSync(markdown);
   if (markdownOutput != null) {
     File(markdownOutput).writeAsStringSync(markdown, mode: FileMode.append);
@@ -70,6 +89,8 @@ class PatrolPerfTrace {
   PatrolPerfTrace._({
     required this.lines,
     required this.timestampsMs,
+    required this.durationMs,
+    required this.journeys,
     required this.buildTag,
     required this.eventCounts,
     required this.jankBuildMs,
@@ -81,11 +102,15 @@ class PatrolPerfTrace {
     required this.thumbnailPaths,
     required this.pageRasterOutcomes,
     required this.rasterElapsedMs,
+    required this.scenarioPhases,
   });
 
   factory PatrolPerfTrace.parse(Iterable<String> sourceLines) {
     final lines = <String>[];
     final timestamps = <int>[];
+    var durationMs = 0;
+    var journeys = 0;
+    int? previousTimestamp;
     String? buildTag;
     final eventCounts = <String, int>{};
     final jankBuild = <double>[];
@@ -97,6 +122,7 @@ class PatrolPerfTrace {
     final thumbnailPaths = <String, int>{};
     final pageRasterOutcomes = <String, int>{};
     final rasterElapsed = <double>[];
+    final scenarioPhases = <String, int>{};
 
     for (final sourceLine in sourceLines) {
       final clean = sourceLine.replaceAll(_ansiEscape, '');
@@ -114,6 +140,20 @@ class PatrolPerfTrace {
         for (final field in _field.allMatches(message))
           field.group(1)!: field.group(2)!,
       };
+
+      // Separate Patrol targets (and app restarts within one target) reset the
+      // perf stopwatch. A `build` stamp is an explicit segment boundary; a
+      // decreasing timestamp is the fallback for unstamped traces. Summing
+      // monotonic segments avoids a negative or invented cross-process span.
+      final startsSegment = event == 'build' ||
+          previousTimestamp == null ||
+          timestamp < previousTimestamp;
+      if (startsSegment) {
+        journeys++;
+      } else {
+        durationMs += timestamp - previousTimestamp;
+      }
+      previousTimestamp = timestamp;
 
       if (event == 'build') {
         buildTag = message.substring('build'.length).trim();
@@ -134,12 +174,18 @@ class PatrolPerfTrace {
         _increment(pageRasterOutcomes, _secondWord(message));
       } else if (event == 'raster') {
         _addMilliseconds(rasterElapsed, fields['ms']);
+      } else if (event == 'scenario') {
+        final name = fields['name'] ?? 'unknown';
+        final phase = fields['phase'] ?? 'event';
+        _increment(scenarioPhases, '$name:$phase');
       }
     }
 
     return PatrolPerfTrace._(
       lines: lines,
       timestampsMs: timestamps,
+      durationMs: durationMs,
+      journeys: journeys,
       buildTag: buildTag,
       eventCounts: eventCounts,
       jankBuildMs: jankBuild,
@@ -151,11 +197,14 @@ class PatrolPerfTrace {
       thumbnailPaths: thumbnailPaths,
       pageRasterOutcomes: pageRasterOutcomes,
       rasterElapsedMs: rasterElapsed,
+      scenarioPhases: scenarioPhases,
     );
   }
 
   final List<String> lines;
   final List<int> timestampsMs;
+  final int durationMs;
+  final int journeys;
   final String? buildTag;
   final Map<String, int> eventCounts;
   final List<double> jankBuildMs;
@@ -167,14 +216,13 @@ class PatrolPerfTrace {
   final Map<String, int> thumbnailPaths;
   final Map<String, int> pageRasterOutcomes;
   final List<double> rasterElapsedMs;
-
-  int get durationMs =>
-      timestampsMs.length < 2 ? 0 : timestampsMs.last - timestampsMs.first;
+  final Map<String, int> scenarioPhases;
 
   Map<String, Object?> toJson() => {
-        'schema': 1,
+        'schema': 2,
         'build': buildTag,
         'events': lines.length,
+        'journeys': journeys,
         'durationMs': durationMs,
         'eventCounts': _sortedMap(eventCounts),
         'jank': {
@@ -202,6 +250,7 @@ class PatrolPerfTrace {
           'count': eventCounts['raster'] ?? 0,
           'elapsedMs': _distribution(rasterElapsedMs),
         },
+        'scenarios': _sortedMap(scenarioPhases),
       };
 
   String toMarkdown() {
@@ -219,6 +268,7 @@ class PatrolPerfTrace {
       ..writeln('| Signal | Result |')
       ..writeln('| --- | ---: |')
       ..writeln('| Build | ${_code(buildTag ?? 'unstamped')} |')
+      ..writeln('| Journey segments | $journeys |')
       ..writeln('| Perf events | ${lines.length} |')
       ..writeln('| Trace span | ${_formatMs(durationMs.toDouble())} |')
       ..writeln('| Jank frames | ${jankTotalMs.length} |')
@@ -234,6 +284,7 @@ class PatrolPerfTrace {
           '| Reconcile fallbacks | ${_mapText(reconcileFallbackReasons)} |')
       ..writeln('| Thumbnail paths | ${_mapText(thumbnailPaths)} |')
       ..writeln('| Page-raster outcomes | ${_mapText(pageRasterOutcomes)} |')
+      ..writeln('| Scenarios | ${_mapText(scenarioPhases)} |')
       ..writeln('| Raster p50 / p95 / max | '
           '${_distributionText(rasterElapsedMs)} |')
       ..writeln()
@@ -241,6 +292,99 @@ class PatrolPerfTrace {
         'Artifacts: `patrol-perf.log` (normalized raw trace), '
         '`patrol-perf.json` (machine comparison), and this Markdown summary.',
       )
+      ..writeln();
+    return buffer.toString();
+  }
+}
+
+/// Advisory comparison with the most recent successful `main` web artifact.
+///
+/// Browser timings are intentionally never a pass/fail gate: shared runners,
+/// CanvasKit startup, and headless Chrome all add noise. Structural paths and
+/// outcomes sit beside the timings so a reviewer can distinguish a genuinely
+/// different render/reconcile route from ordinary wall-clock variance.
+class PatrolPerfComparison {
+  const PatrolPerfComparison({required this.baseline, required this.current});
+
+  final Map<String, dynamic> baseline;
+  final Map<String, Object?> current;
+
+  String toMarkdown() {
+    final baselineScenarios = _jsonCountMap(baseline, const ['scenarios']);
+    final currentScenarios = _jsonCountMap(current, const ['scenarios']);
+    final sameCoverage = _sameCountMap(baselineScenarios, currentScenarios);
+    final buffer = StringBuffer()
+      ..writeln('## Patrol comparison with `main`')
+      ..writeln()
+      ..writeln(
+        'Advisory only: timing changes do not fail CI. The baseline is the '
+        'newest usable web artifact from `Patrol E2E` on `main`.',
+      )
+      ..write(
+        sameCoverage
+            ? ''
+            : '\nCoverage differs between the artifacts; timing deltas are '
+                'not like-for-like until `main` contains the same scenarios.\n',
+      )
+      ..writeln()
+      ..writeln('| Signal | Main | PR | Change |')
+      ..writeln('| --- | ---: | ---: | ---: |');
+
+    void countRow(
+      String label,
+      List<String> path, {
+      bool absentIsZero = false,
+    }) {
+      final before = _jsonNumber(baseline, path, absentIsZero: absentIsZero);
+      final after = _jsonNumber(current, path, absentIsZero: absentIsZero);
+      buffer.writeln('| $label | ${_numberText(before)} | '
+          '${_numberText(after)} | ${_countDelta(before, after)} |');
+    }
+
+    void timingRow(String label, List<String> path) {
+      final before = _jsonNumber(baseline, path);
+      final after = _jsonNumber(current, path);
+      buffer.writeln('| $label | ${_timingText(before)} | '
+          '${_timingText(after)} | ${_percentDelta(before, after)} |');
+    }
+
+    countRow('Journey segments', const ['journeys']);
+    countRow('Perf events', const ['events']);
+    countRow('Jank frames', const ['jank', 'count']);
+    timingRow('Jank total p95', const ['jank', 'totalMs', 'p95']);
+    timingRow('Reconcile p95', const ['reconciliation', 'elapsedMs', 'p95']);
+    countRow(
+        'Reconcile fallbacks', const ['reconciliation', 'fallbackReasons', '*'],
+        absentIsZero: true);
+    countRow(
+      'Thumbnail preview hits',
+      const ['thumbnails', 'paths', 'preview-hit'],
+      absentIsZero: true,
+    );
+    countRow(
+      'Page-raster rejects',
+      const ['pageRasters', 'outcomes', 'reject'],
+      absentIsZero: true,
+    );
+    timingRow('Raster p95', const ['rasters', 'elapsedMs', 'p95']);
+
+    buffer
+      ..writeln()
+      ..writeln('| Structural signal | Main | PR |')
+      ..writeln('| --- | --- | --- |')
+      ..writeln(_mapComparisonRow(
+          'Scenarios', const ['scenarios'], baseline, current))
+      ..writeln(_mapComparisonRow('Reconcile modes',
+          const ['reconciliation', 'modes'], baseline, current))
+      ..writeln(_mapComparisonRow('Fallback reasons',
+          const ['reconciliation', 'fallbackReasons'], baseline, current))
+      ..writeln(_mapComparisonRow(
+          'Thumbnail paths', const ['thumbnails', 'paths'], baseline, current))
+      ..writeln(_mapComparisonRow('Page-raster outcomes',
+          const ['pageRasters', 'outcomes'], baseline, current))
+      ..writeln()
+      ..writeln(
+          'Baseline build: ${_code('${baseline['build'] ?? 'unstamped'}')}.')
       ..writeln();
     return buffer.toString();
   }
@@ -311,6 +455,83 @@ String _mapText(Map<String, int> values) {
   return entries
       .map((entry) => '${_code(entry.key)} ${entry.value}')
       .join(', ');
+}
+
+num? _jsonNumber(
+  Object? root,
+  List<String> path, {
+  bool absentIsZero = false,
+}) {
+  Object? value = root;
+  for (var i = 0; i < path.length; i++) {
+    final part = path[i];
+    if (part == '*') {
+      if (value is! Map) return null;
+      var total = 0.0;
+      for (final item in value.values) {
+        if (item is num) {
+          total += item;
+        }
+      }
+      return total;
+    }
+    if (value is! Map) return null;
+    if (!value.containsKey(part)) {
+      return absentIsZero && i == path.length - 1 ? 0 : null;
+    }
+    value = value[part];
+  }
+  return value is num ? value : null;
+}
+
+Map<String, int> _jsonCountMap(Object? root, List<String> path) {
+  Object? value = root;
+  for (final part in path) {
+    if (value is! Map || !value.containsKey(part)) return const {};
+    value = value[part];
+  }
+  if (value is! Map) return const {};
+  return {
+    for (final entry in value.entries)
+      if (entry.value is num) '${entry.key}': (entry.value as num).round(),
+  };
+}
+
+bool _sameCountMap(Map<String, int> a, Map<String, int> b) =>
+    a.length == b.length &&
+    a.entries.every((entry) => b[entry.key] == entry.value);
+
+String _mapComparisonRow(
+  String label,
+  List<String> path,
+  Object? baseline,
+  Object? current,
+) =>
+    '| $label | ${_mapText(_jsonCountMap(baseline, path))} | '
+    '${_mapText(_jsonCountMap(current, path))} |';
+
+String _numberText(num? value) {
+  if (value == null) return 'n/a';
+  return value == value.roundToDouble()
+      ? value.round().toString()
+      : value.toStringAsFixed(1);
+}
+
+String _timingText(num? value) =>
+    value == null ? 'n/a' : _formatMs(value.toDouble());
+
+String _countDelta(num? before, num? after) {
+  if (before == null || after == null) return 'n/a';
+  final delta = after - before;
+  if (delta == 0) return '—';
+  return '${delta > 0 ? '+' : ''}${_numberText(delta)}';
+}
+
+String _percentDelta(num? before, num? after) {
+  if (before == null || after == null || before == 0) return 'n/a';
+  final percent = (after / before - 1) * 100;
+  if (percent.abs() < 0.05) return '—';
+  return '${percent > 0 ? '+' : ''}${percent.toStringAsFixed(1)}%';
 }
 
 String _formatMs(double value) => '${value.toStringAsFixed(1)} ms';

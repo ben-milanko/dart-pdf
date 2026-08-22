@@ -23,7 +23,7 @@ jobs:
     # Keep this standalone lane for main/deploy pushes and manual runs.
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
@@ -56,6 +56,24 @@ jobs:
             --web-video retain-on-failure \
             --verbose \
             2>&1 | tee "$RUNNER_TEMP/patrol-web.log"
+      - name: Run Patrol performance scenario
+        working-directory: ${{ env.EXAMPLE_DIR }}
+        shell: bash
+        run: |
+          set -o pipefail
+          patrol test \
+            --device chrome \
+            --target patrol_test/perf_e2e_test.dart \
+            --dart-define PDF_PERF_LOG=true \
+            --dart-define PDF_BUILD_COMMIT=${{ github.sha }} \
+            --show-flutter-logs \
+            --web-headless \
+            --web-locale en-US \
+            --web-workers 1 \
+            --web-viewport '{"width":2600,"height":2600}' \
+            --web-video retain-on-failure \
+            --verbose \
+            2>&1 | tee -a "$RUNNER_TEMP/patrol-web.log"
       - name: Collect Patrol performance trace
         if: always()
         working-directory: ${{ env.EXAMPLE_DIR }}

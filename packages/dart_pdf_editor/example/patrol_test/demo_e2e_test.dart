@@ -280,16 +280,16 @@ void main() {
       expect(field('name').value, 'Grace Hopper');
 
       expect(field('newsletter').isChecked, isTrue);
-      await demo.tapFormField('newsletter');
-      await demo.waitFor(
+      await demo.tapFormFieldUntil(
+        'newsletter',
         () => !field('newsletter').isChecked,
         reason: 'the checkbox revision should finish before validation',
       );
       expect(field('newsletter').isChecked, isFalse);
 
       expect(field('color').value, 'Blue');
-      await demo.tapFormField('color');
-      await demo.waitFor(
+      await demo.tapFormFieldUntil(
+        'color',
         () => field('color').value == 'Red',
         reason: 'the radio revision should finish before validation',
       );
@@ -417,6 +417,29 @@ class _DemoHarness {
     await waitForFinder(target);
     await tester.tap(target);
     await $.pump(const Duration(milliseconds: 400));
+  }
+
+  /// Taps a button-like form widget, retrying one physical tap when a slow
+  /// Android emulator loses the first gesture during a page/raster handoff.
+  ///
+  /// This does not fall back to the controller API: both attempts still go
+  /// through the live overlay, so the journey continues to validate the real
+  /// reader interaction path. Text and choice fields use [tapFormField]
+  /// directly because a successful first tap opens stateful chrome.
+  Future<void> tapFormFieldUntil(
+    String name,
+    bool Function() changed, {
+    required String reason,
+    int widgetIndex = 0,
+  }) async {
+    for (var attempt = 0; attempt < 2; attempt++) {
+      await tapFormField(name, widgetIndex: widgetIndex);
+      for (var i = 0; i < 20 && !changed(); i++) {
+        await $.pump(const Duration(milliseconds: 100));
+      }
+      if (changed()) return;
+    }
+    expect(changed(), isTrue, reason: reason);
   }
 
   Future<void> goToPage(int pageNumber) async {

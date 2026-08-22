@@ -687,7 +687,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
   }) {
     _IntermediatePreviewKey? bestIntermediate;
     var bestIsBase = false;
-    var bestPixels = 1 << 62;
+    int? bestPixels;
 
     void consider(_PreviewEntry? entry, {_IntermediatePreviewKey? key}) {
       if (entry == null ||
@@ -695,7 +695,7 @@ class PdfPagePreviewCache extends ChangeNotifier {
           !entry.includesImages ||
           entry.image.width < width ||
           entry.image.height < height ||
-          entry.pixels >= bestPixels) {
+          (bestPixels != null && entry.pixels >= bestPixels!)) {
         return;
       }
       bestPixels = entry.pixels;
@@ -1477,7 +1477,8 @@ class PdfPagePreviewCache extends ChangeNotifier {
             page, commands, plan,
             includeImages: decodeImages, maxImagePixelRatio: buildRatio);
       } else {
-        picture = await PdfPageRenderer.renderPictureRecordedWithPlan(page, plan,
+        picture = await PdfPageRenderer.renderPictureRecordedWithPlan(
+            page, plan,
             maxImagePixelRatio: buildRatio);
       }
       try {
