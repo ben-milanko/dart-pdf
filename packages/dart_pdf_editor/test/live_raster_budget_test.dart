@@ -157,9 +157,8 @@ void main() {
     });
 
     test('every off-screen page goes before any visible one', () {
-      // Ordering across the two passes, not just the single nearest/farthest
-      // pair: the visible neighbour is farther from focus than both prefetches
-      // and must still outlive them.
+      // The visible neighbour is farther from focus than both prefetches and
+      // must still outlive them: visibility wins over page distance.
       budget.maxBytes = 100;
       final focus = _FakeHolder('focus', bytes: 40, distance: 0);
       final visible =
@@ -178,14 +177,15 @@ void main() {
       expect(budget.totalBytes, 100);
     });
 
-    test('reaches visible pages only once the off-screen ones are gone', () {
-      // The safety valve: zoomed out far enough that the visible pages alone
-      // blow the budget, the reclaim must still make progress rather than
-      // grow without bound.
+    test('keeps the visible working set when it alone exceeds the budget', () {
+      // Field trace: two large CAD pages shared the viewport at deep zoom.
+      // Rebalancing evicted the non-focused visible page a few milliseconds
+      // after every detail raster landed; its next build allocated the same
+      // pixels again, so the safety valve caused a permanent render/evict loop
+      // without producing lasting headroom.
       budget.maxBytes = 100;
       final focus = _FakeHolder('focus', bytes: 60, distance: 0);
-      final near =
-          _FakeHolder('near', bytes: 60, distance: 1, onScreen: true);
+      final near = _FakeHolder('near', bytes: 60, distance: 1, onScreen: true);
       final far = _FakeHolder('far', bytes: 60, distance: 2, onScreen: true);
       final prefetch =
           _FakeHolder('prefetch', bytes: 60, distance: 5, onScreen: false);
@@ -193,14 +193,14 @@ void main() {
       add(near);
       add(far);
       add(prefetch); // total 240 > 100
-      budget.rebalance();
-      // 240 -> prefetch (180) -> then visible, farthest first: far (120),
-      // near (60) -> fits. The focused page is never touched.
+      expect(budget.rebalance(), 60);
+      // The prefetch is genuine reclaimable memory. The remaining 180 bytes
+      // are the visible working set and may exceed the 100-byte target.
       expect(prefetch.evicted, isTrue);
-      expect(far.evicted, isTrue);
-      expect(near.evicted, isTrue);
+      expect(far.evicted, isFalse);
+      expect(near.evicted, isFalse);
       expect(focus.evicted, isFalse);
-      expect(budget.totalBytes, 60);
+      expect(budget.totalBytes, 180);
     });
 
     test('evictReclaimable sheds every non-focused page (pressure path)', () {
