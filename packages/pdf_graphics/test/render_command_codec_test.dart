@@ -13,6 +13,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_cos/perf.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
@@ -841,6 +842,61 @@ void main() {
       expect(decoded.width, 1);
       expect(decoded.height, 1);
       expect(decoded.rgba, [40, 100, 7, 255]);
+    });
+
+    test('imageDecodeRegion reuses browser-seeded Flate samples byte-for-byte',
+        () {
+      // Web detail records obtain the post-Flate/post-predictor sample plane
+      // from DecompressionStream, seed it into the COS decoded-stream LRU, and
+      // leave the established region crop/scale path unchanged. Use a plane
+      // above the ordinary 1 MiB per-item cache cap so this only avoids the
+      // inflate when the explicit browser seed is honoured.
+      const width = 1024;
+      const height = 512;
+      final samples = Uint8List(width * height * 3);
+      for (var i = 0; i < samples.length; i++) {
+        samples[i] = (i * 31 + (i >> 9)) & 0xff;
+      }
+      final stream = CosStream(
+        CosDictionary({
+          'Width': const CosInteger(width),
+          'Height': const CosInteger(height),
+          'BitsPerComponent': const CosInteger(8),
+          'ColorSpace': const CosName('DeviceRGB'),
+          'Filter': const CosName('FlateDecode'),
+        }),
+        Uint8List.fromList(zlib.encode(samples)),
+      );
+      final command = PdfDrawImageCommand(PdfImageRequest(
+        stream: stream,
+        transform: const PdfMatrix(1024, 0, 0, 512, 0, 0),
+      ));
+      final cos = CosDocument.open(buildClassicPdf());
+      Uint8List? record() => serializeCommands(
+            [command],
+            cos: cos,
+            decodeImages: true,
+            maxImagePixelRatio: 4,
+            imageDecodeRegion: const PdfRect(120, 140, 360, 300),
+          );
+
+      final portable = record();
+      expect(portable, isNotNull);
+      cos.seedDecodedStreamData(stream, samples, allowOversize: true);
+
+      final wasEnabled = PdfPerf.enabled;
+      try {
+        PdfPerf.enabled = true;
+        PdfPerf.reset();
+        final seeded = record();
+        expect(seeded, portable,
+            reason: 'native inflation may change only where samples came from');
+        expect(PdfPerf.snapshot().phaseCallCount(PdfPerfPhase.flate), 0,
+            reason: 'serialization must consume the seeded sample plane');
+      } finally {
+        PdfPerf.reset();
+        PdfPerf.enabled = wasEnabled;
+      }
     });
 
     test('imageDecodeRegion reuses a retained native DCT decode', () {

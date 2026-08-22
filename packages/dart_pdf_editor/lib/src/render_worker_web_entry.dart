@@ -600,6 +600,7 @@ void runPdfRenderWorker() {
               final detail = await _recordStripDetailAsync(
                 doc,
                 imageCache,
+                flateSampleCache,
                 transcriptCache,
                 page,
                 annotations,
@@ -1182,6 +1183,7 @@ Future<Uint8List?> _binStripsAsync(
 Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
   PdfDocument document,
   PdfImageDecodeCache imageCache,
+  _BrowserFlateSampleCache flateSampleCache,
   PdfWorkerTranscriptCache cache,
   int pageIndex,
   bool annotations,
@@ -1218,6 +1220,7 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
     token,
     tally,
     imageDecodeRegion: imageDecodeRegion,
+    flateSampleCache: flateSampleCache,
   );
   if (decodeClock != null) {
     decodeClock.stop();
@@ -1244,6 +1247,7 @@ Future<(Uint8List, Uint8List)?> _recordStripDetailAsync(
       tally,
       imageCache,
       imageCacheBefore!,
+      flateSampleBytes: flateSampleCache.bytes,
     );
   }
   if (commandBuffer == null) return null;
@@ -1362,6 +1366,11 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
 }) async {
   var changed = false;
   final out = <PdfRenderCommand>[];
+  final regionSampleStreams = imageDecodeRegion != null &&
+          maxImagePixelRatio == null &&
+          flateSampleCache != null
+      ? HashSet<CosStream>.identity()
+      : null;
   for (final command in commands) {
     if (token.cancelled) throw PdfCancelledException();
     switch (command) {
@@ -1385,8 +1394,46 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
           out.add(command);
           continue;
         }
-        PdfDecodedPixels? decoded;
         final filters = pdfImageFilters(cos, request.stream.dictionary);
+        if (regionSampleStreams != null) {
+          // A detail record deliberately leaves Flate/CCITT pixels to
+          // serializeCommands' region-aware decoder. On web, however, that
+          // used to make the serializer reinflate each intersecting Flate
+          // plane with package:archive even when the browser-native full-page
+          // pass had already retained those samples. Re-seed the COS decoded
+          // stream LRU from the worker's bounded sample cache (or populate it
+          // natively on the first region) so the unchanged region decoder can
+          // crop/scale the same bytes without another inflate.
+          //
+          // Include a direct mask stream: Indexed CAD tiles sometimes carry a
+          // separate packed stencil that the region decoder consumes while
+          // decoding the base image.
+          final streams = <CosStream>[request.stream];
+          for (final key in const ['Mask', 'SMask']) {
+            try {
+              final object = cos.resolve(request.stream.dictionary[key]);
+              if (object is CosStream) streams.add(object);
+            } catch (_) {
+              // A broken optional mask remains the image decoder's problem;
+              // sample warming must never make a previously lenient detail
+              // record fail as a whole.
+            }
+          }
+          for (final stream in streams) {
+            if (!regionSampleStreams.add(stream)) continue;
+            final reused = await _seedBrowserFlateRegionSamples(
+              cos,
+              stream,
+              flateSampleCache!,
+            );
+            if (reused == true) {
+              tally?.regionFlateReuse++;
+            } else if (reused == false) {
+              tally?.regionFlate++;
+            }
+          }
+        }
+        PdfDecodedPixels? decoded;
         final hasDctBase =
             filters.contains('DCTDecode') || filters.contains('DCT');
         // A standalone JPEG is cheaper on the consumer: createImageBitmap can
@@ -2002,6 +2049,38 @@ class _BrowserFlateSampleCache {
   }
 }
 
+/// Makes one browser-inflated image plane available to synchronous PDF image
+/// decoding. Returns true for a sample-cache hit, false for a native inflate,
+/// and null when the stream is not a single Flate stream or native inflate is
+/// unavailable/declines.
+Future<bool?> _seedBrowserFlateRegionSamples(
+  CosDocument cos,
+  CosStream stream,
+  _BrowserFlateSampleCache sampleCache,
+) async {
+  final filter = _singleFlateFilter(cos, stream.dictionary);
+  if (filter == null || !globalContext.has('DecompressionStream')) return null;
+  try {
+    final retained = sampleCache[stream];
+    final samples = retained ??
+        await _inflateBrowserFlateSamples(
+          cos,
+          stream,
+          filter,
+          sampleCache,
+        );
+    // This is the exact decrypt + Flate + predictor result decodeStreamData
+    // would produce. The COS cache stores the same Uint8List reference, not a
+    // second sample-plane copy. allowOversize is safe here because its total
+    // LRU remains bounded; the worker sample cache has its own 32 MiB bound.
+    cos.seedDecodedStreamData(stream, samples, allowOversize: true);
+    return retained != null;
+  } catch (_) {
+    // The existing portable, lenient filter path remains the fallback.
+    return null;
+  }
+}
+
 /// Warms the COS decoded-stream cache with the browser's native inflater.
 ///
 /// Dart2JS's portable zlib decoder is a material part of first-stable-paint on
@@ -2510,6 +2589,8 @@ String _formatImageDecodeSummary(
 class _BrowserDecodeTally {
   int codec = 0;
   int flate = 0;
+  int regionFlate = 0;
+  int regionFlateReuse = 0;
   int regionSkipped = 0;
 
   /// Images served from a previous record's decode instead of re-running the
@@ -2529,18 +2610,28 @@ class _BrowserDecodeTally {
     final declined = _declined.values.fold(0, (a, b) => a + b);
     if (codec == 0 &&
         flate == 0 &&
+        regionFlate == 0 &&
+        regionFlateReuse == 0 &&
         declined == 0 &&
         reusedCount == 0 &&
         regionSkipped == 0) {
       return 'none';
     }
     final nativeFlate = flate == 0 ? '' : ' flate=$flate';
+    final nativeRegionFlate =
+        regionFlate == 0 ? '' : ' regionFlate=$regionFlate';
+    final regionFlateHit =
+        regionFlateReuse == 0 ? '' : ' regionFlateReuse=$regionFlateReuse';
     final reuse = reusedCount == 0 ? '' : ' reused=$reusedCount';
     final region = regionSkipped == 0 ? '' : ' regionSkip=$regionSkipped';
-    if (declined == 0) return 'codec=$codec$nativeFlate$reuse$region';
+    if (declined == 0) {
+      return 'codec=$codec$nativeFlate$nativeRegionFlate'
+          '$regionFlateHit$reuse$region';
+    }
     final reasons =
         _declined.entries.map((e) => '${e.key}:${e.value}').join(',');
-    return 'codec=$codec$nativeFlate$reuse$region '
+    return 'codec=$codec$nativeFlate$nativeRegionFlate'
+        '$regionFlateHit$reuse$region '
         'declined=$declined($reasons)';
   }
 }
