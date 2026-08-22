@@ -22,6 +22,10 @@ void main() {
         'bin=1.0ms transfer=1.0ms deserialize=0.5ms total=9.0ms '
         'transcript=hit imageDecode=none '
         'cache=2h/3m/4e/8388608B cacheDelta=0h/0m/0e/0B',
+    '[perf 38] tile replay page=0 region=256x256pt ratio=2.83 '
+        'selected=40/100 replay=2.0ms raster=5.0ms img=725x725',
+    '[perf 39] tile slice page=0 rung=3 class=prefetch tiles=4 '
+        'elapsed=3.0ms retained=8388608 entries=8',
     '[perf 40] raster page=0 ms=12.5',
     '[perf 45] webworker result kind=record page=0 commands=1 → worker',
     '[perf 47] webworker result kind=record page=1 declined (null) → local',
@@ -30,7 +34,7 @@ void main() {
     '[perf 90] scenario name=heavy-document phase=validated',
   ]);
   final json = trace.toJson();
-  _expectEqual(json['schema'], 6, 'schema');
+  _expectEqual(json['schema'], 7, 'schema');
 
   final workerPhases = _map(_map(json, 'webWorker'), 'phases');
   _expectEqual(workerPhases['count'], 2, 'worker phase count');
@@ -62,6 +66,26 @@ void main() {
       'netBytes': 8388608,
     },
     'worker image cache activity',
+  );
+
+  final tiles = _map(json, 'tiles');
+  _expectEqual(tiles['replayRequests'], 1, 'tile replay requests');
+  _expectEqual(tiles['sliceBatches'], 1, 'tile slice batches');
+  _expectEqual(tiles['slicedTiles'], 4, 'sliced tiles');
+  _expectEqual(
+    _map(tiles, 'sliceBatchesByClass'),
+    const {'prefetch': 1},
+    'tile slice classes',
+  );
+  _expectEqual(
+    _map(tiles, 'sliceBatchesByRungClass'),
+    const {'rung-3/prefetch': 1},
+    'tile rung classes',
+  );
+  _expectEqual(
+    _map(tiles, 'retainedBytes')['max'],
+    8388608,
+    'tile retained bytes',
   );
 
   final scenarios = _map(json, 'scenarioMetrics');
@@ -133,11 +157,28 @@ void main() {
     '| Worker image-cache net growth | 4 entries / +8.0 MiB |',
     'worker cache growth',
   );
+  _expectContains(
+    markdown,
+    '| Tile slice classes | `prefetch` 1 batch / 4 tiles |',
+    'tile class summary',
+  );
+  _expectContains(
+    markdown,
+    '| Tile retained peak | 8.0 MiB / 8 entries |',
+    'tile retained summary',
+  );
 
   final comparison = summary.PatrolPerfComparison(
     baseline: {
       'build': 'commit=main',
       'scenarios': json['scenarios'],
+      'tiles': {
+        'replayRequests': 2,
+        'sliceBatchesByClass': {'prefetch': 2},
+        'slicedTilesByClass': {'prefetch': 8},
+        'replayMs': {'p95': 4.0},
+        'rasterMs': {'p95': 10.0},
+      },
       'scenarioMetrics': {
         'heavy-document': {
           'runs': 1,
@@ -167,6 +208,11 @@ void main() {
     comparison,
     '| Scenario heavy-document worker total p95 | n/a | 12.0 ms | n/a |',
     'scenario worker comparison',
+  );
+  _expectContains(
+    comparison,
+    '| Tile prefetch batches | 2 | 1 | -1 |',
+    'tile prefetch comparison',
   );
 
   final resetTrace = summary.PatrolPerfTrace.parse(const [

@@ -106,6 +106,7 @@ class PatrolPerfTrace {
     required this.webWorkerOutcomes,
     required this.workerPhases,
     required this.rasterElapsedMs,
+    required this.tiles,
     required this.scenarioPhases,
     required Map<String, _ScenarioMetrics> scenarioMetrics,
   }) : _scenarioMetrics = scenarioMetrics;
@@ -129,6 +130,7 @@ class PatrolPerfTrace {
     final webWorkerOutcomes = <String, int>{};
     final workerPhases = _WorkerPhaseMetrics();
     final rasterElapsed = <double>[];
+    final tiles = _TileMetrics();
     final scenarioPhases = <String, int>{};
     final scenarioMetrics = <String, _ScenarioMetrics>{};
     final activeScenarios = <String, _ActiveScenario>{};
@@ -207,6 +209,8 @@ class PatrolPerfTrace {
         }
       } else if (event == 'raster') {
         _addMilliseconds(rasterElapsed, fields['ms']);
+      } else if (event == 'tile') {
+        tiles.record(message, fields);
       }
 
       for (final scenario in activeScenarios.values) {
@@ -242,6 +246,7 @@ class PatrolPerfTrace {
       webWorkerOutcomes: webWorkerOutcomes,
       workerPhases: workerPhases,
       rasterElapsedMs: rasterElapsed,
+      tiles: tiles,
       scenarioPhases: scenarioPhases,
       scenarioMetrics: scenarioMetrics,
     );
@@ -264,11 +269,12 @@ class PatrolPerfTrace {
   final Map<String, int> webWorkerOutcomes;
   final _WorkerPhaseMetrics workerPhases;
   final List<double> rasterElapsedMs;
+  final _TileMetrics tiles;
   final Map<String, int> scenarioPhases;
   final Map<String, _ScenarioMetrics> _scenarioMetrics;
 
   Map<String, Object?> toJson() => {
-        'schema': 6,
+        'schema': 7,
         'build': buildTag,
         'events': lines.length,
         'journeys': journeys,
@@ -304,6 +310,7 @@ class PatrolPerfTrace {
           'count': eventCounts['raster'] ?? 0,
           'elapsedMs': _distribution(rasterElapsedMs),
         },
+        'tiles': tiles.toJson(),
         'scenarios': _sortedMap(scenarioPhases),
         'scenarioMetrics': {
           for (final name in _scenarioMetrics.keys.toList()..sort())
@@ -360,6 +367,15 @@ class PatrolPerfTrace {
       ..writeln('| Scenarios | ${_mapText(scenarioPhases)} |')
       ..writeln('| Raster p50 / p95 / max | '
           '${_distributionText(rasterElapsedMs)} |')
+      ..writeln('| Tile replay requests | ${tiles.replayRequests} |')
+      ..writeln('| Tile replay p50 / p95 / max | '
+          '${_distributionText(tiles.replayMs)} |')
+      ..writeln('| Tile replay raster p50 / p95 / max | '
+          '${_distributionText(tiles.rasterMs)} |')
+      ..writeln('| Tile slice classes | ${tiles.sliceClassText} |')
+      ..writeln('| Tile rung/class batches | '
+          '${_mapText(tiles.sliceBatchesByRungClass)} |')
+      ..writeln('| Tile retained peak | ${tiles.retainedPeakText} |')
       ..writeln();
     if (_scenarioMetrics.isNotEmpty) {
       buffer
@@ -368,11 +384,12 @@ class PatrolPerfTrace {
         ..writeln(
           '| Scenario | Runs | Elapsed p50 / p95 / max | Jank p95 | '
           'Reconcile p95 | Raster p95 | Worker total p95 | '
-          'Decode p95 | Cache lookups | Image cache peak | Worker outcomes |',
+          'Decode p95 | Tile replay / prefetch batches | Tile retained peak | '
+          'Cache lookups | Image cache peak | Worker outcomes |',
         )
         ..writeln(
           '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | '
-          '---: | ---: | --- |',
+          '---: | ---: | ---: | ---: | --- |',
         );
       for (final name in _scenarioMetrics.keys.toList()..sort()) {
         final metrics = _scenarioMetrics[name]!;
@@ -384,6 +401,9 @@ class PatrolPerfTrace {
           '${_p95Text(metrics.rasterElapsedMs)} | '
           '${_p95Text(metrics.workerPhases.totalMs)} | '
           '${_p95Text(metrics.workerPhases.decodeMs)} | '
+          '${metrics.tiles.replayRequests} / '
+          '${metrics.tiles.prefetchBatches} | '
+          '${metrics.tiles.retainedPeakText} | '
           '${metrics.workerPhases.cacheLookupText} | '
           '${_formatBytes(metrics.workerPhases.peakImageCacheBytes)} | '
           '${_mapText(metrics.webWorkerOutcomes)} |',
@@ -499,6 +519,17 @@ class PatrolPerfComparison {
       const ['webWorker', 'phases', 'decodeMs', 'p95'],
     );
     timingRow('Raster p95', const ['rasters', 'elapsedMs', 'p95']);
+    countRow('Tile replay requests', const ['tiles', 'replayRequests']);
+    countRow(
+      'Tile prefetch batches',
+      const ['tiles', 'sliceBatchesByClass', 'prefetch'],
+    );
+    countRow(
+      'Tile prefetch tiles',
+      const ['tiles', 'slicedTilesByClass', 'prefetch'],
+    );
+    timingRow('Tile replay p95', const ['tiles', 'replayMs', 'p95']);
+    timingRow('Tile replay raster p95', const ['tiles', 'rasterMs', 'p95']);
     for (final scenario in measuredScenarios) {
       countRow(
         'Scenario $scenario runs',
@@ -534,6 +565,20 @@ class PatrolPerfComparison {
         'Scenario $scenario decode p95',
         ['scenarioMetrics', scenario, 'workerPhases', 'decodeMs', 'p95'],
       );
+      countRow(
+        'Scenario $scenario tile replay requests',
+        ['scenarioMetrics', scenario, 'tiles', 'replayRequests'],
+      );
+      countRow(
+        'Scenario $scenario tile prefetch batches',
+        [
+          'scenarioMetrics',
+          scenario,
+          'tiles',
+          'sliceBatchesByClass',
+          'prefetch',
+        ],
+      );
     }
 
     buffer
@@ -558,6 +603,10 @@ class PatrolPerfComparison {
           const ['webWorker', 'phases', 'outcomes'], baseline, current))
       ..writeln(_mapComparisonRow('Worker transcript paths',
           const ['webWorker', 'phases', 'transcripts'], baseline, current))
+      ..writeln(_mapComparisonRow('Tile slice classes',
+          const ['tiles', 'sliceBatchesByClass'], baseline, current))
+      ..writeln(_mapComparisonRow('Tile rung/class batches',
+          const ['tiles', 'sliceBatchesByRungClass'], baseline, current))
       ..writeAll(
         measuredScenarios.map(
           (scenario) => _mapComparisonRow(
@@ -591,6 +640,7 @@ class _ScenarioMetrics {
   final rasterElapsedMs = <double>[];
   final webWorkerOutcomes = <String, int>{};
   final workerPhases = _WorkerPhaseMetrics();
+  final tiles = _TileMetrics();
 
   void record(
     String event,
@@ -609,6 +659,8 @@ class _ScenarioMetrics {
       if (message.startsWith('webworker phase ')) {
         workerPhases.record(fields);
       }
+    } else if (event == 'tile') {
+      tiles.record(message, fields);
     }
   }
 
@@ -628,6 +680,7 @@ class _ScenarioMetrics {
           'elapsedMs': _distribution(rasterElapsedMs),
         },
         'workerPhases': workerPhases.toJson(),
+        'tiles': tiles.toJson(),
         'webWorkerOutcomes': _sortedMap(webWorkerOutcomes),
       };
 }
@@ -726,6 +779,93 @@ class _WorkerPhaseMetrics {
           'noLookupRequests': imageCacheNoLookupRequests,
           'netEntries': netImageCacheEntries,
           'netBytes': netImageCacheBytes,
+        },
+      };
+}
+
+class _TileMetrics {
+  var replayRequests = 0;
+  var sliceBatches = 0;
+  var slicedTiles = 0;
+  final replayMs = <double>[];
+  final rasterMs = <double>[];
+  final sliceElapsedMs = <double>[];
+  final sliceBatchesByClass = <String, int>{};
+  final slicedTilesByClass = <String, int>{};
+  final sliceBatchesByRungClass = <String, int>{};
+  final retainedBytes = <int>[];
+  final retainedEntries = <int>[];
+
+  int get prefetchBatches => sliceBatchesByClass['prefetch'] ?? 0;
+
+  int get peakRetainedBytes =>
+      retainedBytes.isEmpty ? 0 : retainedBytes.reduce((a, b) => a > b ? a : b);
+
+  int get peakRetainedEntries => retainedEntries.isEmpty
+      ? 0
+      : retainedEntries.reduce((a, b) => a > b ? a : b);
+
+  String get sliceClassText {
+    if (sliceBatchesByClass.isEmpty) return 'none';
+    final classes = sliceBatchesByClass.keys.toList()..sort();
+    return classes.map((name) {
+      final batches = sliceBatchesByClass[name]!;
+      final tiles = slicedTilesByClass[name] ?? 0;
+      return '${_code(name)} $batches '
+          '${batches == 1 ? 'batch' : 'batches'} / $tiles '
+          '${tiles == 1 ? 'tile' : 'tiles'}';
+    }).join(', ');
+  }
+
+  String get retainedPeakText {
+    if (retainedBytes.isEmpty && retainedEntries.isEmpty) return 'n/a';
+    return '${_formatBytes(peakRetainedBytes)} / $peakRetainedEntries entries';
+  }
+
+  void record(String message, Map<String, String> fields) {
+    if (message.startsWith('tile replay ')) {
+      replayRequests++;
+      _addMilliseconds(replayMs, fields['replay']);
+      _addMilliseconds(rasterMs, fields['raster']);
+      return;
+    }
+    if (!message.startsWith('tile slice ')) return;
+
+    sliceBatches++;
+    final tileCount = int.tryParse(fields['tiles'] ?? '') ?? 0;
+    slicedTiles += tileCount;
+    final tileClass = fields['class'] ?? 'unknown';
+    sliceBatchesByClass[tileClass] = (sliceBatchesByClass[tileClass] ?? 0) + 1;
+    slicedTilesByClass[tileClass] =
+        (slicedTilesByClass[tileClass] ?? 0) + tileCount;
+    final rung = fields['rung'] ?? 'unknown';
+    final rungClass = 'rung-$rung/$tileClass';
+    sliceBatchesByRungClass[rungClass] =
+        (sliceBatchesByRungClass[rungClass] ?? 0) + 1;
+    _addMilliseconds(sliceElapsedMs, fields['elapsed']);
+    final retained = int.tryParse(fields['retained'] ?? '');
+    if (retained != null) retainedBytes.add(retained);
+    final entries = int.tryParse(fields['entries'] ?? '');
+    if (entries != null) retainedEntries.add(entries);
+  }
+
+  Map<String, Object?> toJson() => {
+        'replayRequests': replayRequests,
+        'replayMs': _distribution(replayMs),
+        'rasterMs': _distribution(rasterMs),
+        'sliceBatches': sliceBatches,
+        'slicedTiles': slicedTiles,
+        'sliceElapsedMs': _distribution(sliceElapsedMs),
+        'sliceBatchesByClass': _sortedMap(sliceBatchesByClass),
+        'slicedTilesByClass': _sortedMap(slicedTilesByClass),
+        'sliceBatchesByRungClass': _sortedMap(sliceBatchesByRungClass),
+        'retainedBytes': {
+          'samples': retainedBytes.length,
+          'max': peakRetainedBytes,
+        },
+        'retainedEntries': {
+          'samples': retainedEntries.length,
+          'max': peakRetainedEntries,
         },
       };
 }
