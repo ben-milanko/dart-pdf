@@ -74,8 +74,8 @@ void main(List<String> arguments) {
       baseline: decoded,
       current: current,
     );
-    headline = comparison.toHeadlineMarkdown();
-    markdown += comparison.toMarkdown();
+    headline = comparison.toHeadlineMarkdown(label: label);
+    markdown += comparison.toMarkdown(label: label);
   }
   File('${directory.path}/patrol-perf-headline.md').writeAsStringSync(headline);
   File('${directory.path}/patrol-perf.md').writeAsStringSync(markdown);
@@ -328,8 +328,10 @@ class PatrolPerfTrace {
       };
 
   String toHeadlineMarkdown({String label = 'web'}) {
+    final heading =
+        label.toLowerCase() == 'web' ? '### Headline' : '### $label headline';
     final buffer = StringBuffer()
-      ..writeln('### Headline')
+      ..writeln(heading)
       ..writeln()
       ..writeln(
         lines.isEmpty
@@ -496,7 +498,7 @@ class PatrolPerfComparison {
   final Map<String, dynamic> baseline;
   final Map<String, Object?> current;
 
-  String toHeadlineMarkdown() {
+  String toHeadlineMarkdown({String? label}) {
     final baselineScenarios = _jsonCountMap(baseline, const ['scenarios']);
     final currentScenarios = _jsonCountMap(current, const ['scenarios']);
     final sameCoverage = _sameCountMap(baselineScenarios, currentScenarios);
@@ -505,8 +507,11 @@ class PatrolPerfComparison {
       ..._jsonMapKeys(current, const ['scenarioMetrics']),
     }.toList()
       ..sort();
+    final heading = label == null || label.toLowerCase() == 'web'
+        ? '### Headline comparison with `main`'
+        : '### $label comparison with `main`';
     final buffer = StringBuffer()
-      ..writeln('### Headline comparison with `main`')
+      ..writeln(heading)
       ..writeln()
       ..writeln(
         'Lower timing is better. Structural counts should stay stable unless '
@@ -578,7 +583,7 @@ class PatrolPerfComparison {
     return buffer.toString();
   }
 
-  String toMarkdown() {
+  String toMarkdown({String? label}) {
     final baselineScenarios = _jsonCountMap(baseline, const ['scenarios']);
     final currentScenarios = _jsonCountMap(current, const ['scenarios']);
     final sameCoverage = _sameCountMap(baselineScenarios, currentScenarios);
@@ -587,12 +592,15 @@ class PatrolPerfComparison {
       ..._jsonMapKeys(current, const ['scenarioMetrics']),
     }.toList()
       ..sort();
+    final platform =
+        label == null || label.toLowerCase() == 'web' ? '' : ' $label';
+    final artifactKind = label == null ? 'web' : label;
     final buffer = StringBuffer()
-      ..writeln('## Patrol comparison with `main`')
+      ..writeln('## Patrol$platform comparison with `main`')
       ..writeln()
       ..writeln(
         'Advisory only: timing changes do not fail CI. The baseline is the '
-        'newest usable web artifact from `Patrol E2E` on `main`.',
+        'newest usable $artifactKind artifact from `Patrol E2E` on `main`.',
       )
       ..write(
         sameCoverage

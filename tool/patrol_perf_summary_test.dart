@@ -201,7 +201,7 @@ void main() {
     'platform heading',
   );
   final headline = trace.toHeadlineMarkdown(label: 'Android');
-  _expectContains(headline, '### Headline', 'headline heading');
+  _expectContains(headline, '### Android headline', 'headline heading');
   _expectContains(
     headline,
     '| Jank total p95 | 3.0 ms |',
@@ -278,6 +278,20 @@ void main() {
     comparisonHeadline,
     '### Headline comparison with `main`',
     'comparison headline heading',
+  );
+  final androidComparison = summary.PatrolPerfComparison(
+    baseline: {'scenarios': json['scenarios']},
+    current: json,
+  );
+  _expectContains(
+    androidComparison.toHeadlineMarkdown(label: 'Android'),
+    '### Android comparison with `main`',
+    'platform comparison headline',
+  );
+  _expectContains(
+    androidComparison.toMarkdown(label: 'Android'),
+    'newest usable Android artifact',
+    'platform baseline description',
   );
   _expectContains(
     comparisonHeadline,
