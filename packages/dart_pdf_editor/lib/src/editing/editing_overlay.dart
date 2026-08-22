@@ -509,6 +509,7 @@ class EditingPageOverlay extends StatefulWidget {
     this.onMoveDragPreview,
     this.onTextEditClosed,
     this.contextMenuEnabled = true,
+    this.showSelectionChip = true,
   });
 
   final PdfEditingController controller;
@@ -574,6 +575,15 @@ class EditingPageOverlay extends StatefulWidget {
   /// see that property for the semantics. Has no effect without an editing
   /// controller (the menu path is reader-mode only). Defaults to true.
   final bool contextMenuEnabled;
+
+  /// Whether a touch/stylus selection shows the floating action chip beside
+  /// it (delete, edit-in-place, the context menu) - the affordances mice get
+  /// from hover and right-click. Hosts that provide their own selection
+  /// affordances (a custom context menu via [contextMenuEnabled] false, or a
+  /// note editor on annotation tap) can turn the chip off to avoid doubled
+  /// UI. The selection outline, handles, and move/resize interactions are
+  /// unaffected. Defaults to true.
+  final bool showSelectionChip;
 
   /// Whether the page raster on screen already shows the controller's
   /// current revision. While false (an edit just committed and the
@@ -5749,7 +5759,8 @@ class _EditingPageOverlayState extends State<EditingPageOverlay>
                   _textEditFieldName == null &&
                   _controller.hasTouchInput)
                 _buildInlineTextStyleChip(_textEditRect!),
-              if (showChip) _buildSelectionChip(chrome?.$1 ?? selected),
+              if (showChip && widget.showSelectionChip)
+                _buildSelectionChip(chrome?.$1 ?? selected),
               if (_measureReadout() case (final text, final anchor))
                 _buildReadoutChip(text, anchor),
               if (_styleReadout() case (final text, final anchor))
