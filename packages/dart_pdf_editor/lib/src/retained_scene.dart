@@ -41,6 +41,16 @@ class PdfSceneBuildTiming {
   double decodeMs = 0;
 }
 
+/// Phase attribution for one strip-region raster. Allocated only while the
+/// opt-in performance log is enabled, so ordinary rendering pays no cost.
+class PdfStripRasterTiming {
+  double pictureMs = 0;
+  double routeMs = 0;
+  double atlasDecodeMs = 0;
+  double tapeReplayMs = 0;
+  double toImageMs = 0;
+}
+
 /// A page retained as a replayable scene: the recorded interpreter command
 /// buffer plus its decoded images, both produced exactly once in [record].
 ///
@@ -803,16 +813,19 @@ class PdfRetainedScene {
       {required double pixelRatio,
       StripPlan? stripPlan,
       bool slugGlyphs = false,
+      PdfStripRasterTiming? timing,
       void Function(({int quads, int fallbackOutlineRuns}))?
           onSlugStats}) async {
     assert(!_disposed, 'replay after dispose');
     final geometry = stripRegionGeometry(region, pixelRatio: pixelRatio);
     try {
       return await _stripPicture(
-          geometry, region, pixelRatio, stripPlan, slugGlyphs, onSlugStats);
+          geometry, region, pixelRatio, stripPlan, slugGlyphs, onSlugStats,
+          timing: timing);
     } on StripPlanMismatchError {
       return _stripPicture(
-          geometry, region, pixelRatio, null, slugGlyphs, onSlugStats);
+          geometry, region, pixelRatio, null, slugGlyphs, onSlugStats,
+          timing: timing);
     }
   }
 
@@ -825,8 +838,9 @@ class PdfRetainedScene {
       double pixelRatio,
       StripPlan? stripPlan,
       bool slugGlyphs,
-      void Function(({int quads, int fallbackOutlineRuns}))?
-          onSlugStats) async {
+      void Function(({int quads, int fallbackOutlineRuns}))? onSlugStats,
+      {PdfStripRasterTiming? timing}) async {
+    final pictureClock = timing == null ? null : (Stopwatch()..start());
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder)..scale(pixelRatio);
     if (region != null) canvas.translate(-region.left, -region.top);
@@ -845,13 +859,22 @@ class PdfRetainedScene {
     try {
       final sw = Stopwatch()..start();
       replayCommands(commands, device);
-      StripPdfDevice.totalRouteMicros += sw.elapsedMicroseconds;
+      final routeMicros = sw.elapsedMicroseconds;
+      StripPdfDevice.totalRouteMicros += routeMicros;
       await device.finish(); // must precede endRecording
+      if (timing != null) {
+        timing.routeMs = routeMicros / 1000;
+        timing.atlasDecodeMs = device.atlasDecodeMicros / 1000;
+        timing.tapeReplayMs = device.tapeReplayMicros / 1000;
+      }
       onSlugStats?.call((
         quads: device.slugQuadCount,
         fallbackOutlineRuns: device.slugFallbackOutlineRuns,
       ));
       picture = recorder.endRecording();
+      if (pictureClock != null) {
+        timing!.pictureMs = pictureClock.elapsedMicroseconds / 1000;
+      }
     } catch (_) {
       recorder.endRecording().dispose();
       device.dispose();
@@ -881,14 +904,21 @@ class PdfRetainedScene {
   /// Convenience: [replayRegionStrips] + `toImage`, the strip-router
   /// counterpart of [rasterizeRegion].
   Future<ui.Image> rasterizeRegionStrips(Rect region,
-      {required double pixelRatio, StripPlan? stripPlan}) async {
+      {required double pixelRatio,
+      StripPlan? stripPlan,
+      PdfStripRasterTiming? timing}) async {
     final picture = await replayRegionStrips(region,
-        pixelRatio: pixelRatio, stripPlan: stripPlan);
+        pixelRatio: pixelRatio, stripPlan: stripPlan, timing: timing);
     try {
-      return await picture.toImage(
+      final rasterClock = timing == null ? null : (Stopwatch()..start());
+      final image = await picture.toImage(
         (region.width * pixelRatio).ceil().clamp(1, 1 << 14),
         (region.height * pixelRatio).ceil().clamp(1, 1 << 14),
       );
+      if (rasterClock != null) {
+        timing!.toImageMs = rasterClock.elapsedMicroseconds / 1000;
+      }
+      return image;
     } finally {
       picture.dispose();
     }

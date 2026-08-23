@@ -695,6 +695,16 @@ class PdfPageView extends StatefulWidget {
   /// Null (production) asks the engine.
   static bool? debugStripZoomReplayBackendOverride;
 
+  /// Test hook for the web-only quick-patch budget used while a dense tile
+  /// route prepares its exact rung. Null uses [kIsWeb].
+  static bool? debugQuickDetailBackendOverride;
+
+  /// A transient dense-page patch exists to replace a heavily magnified base
+  /// while exact tiles prepare. Bounding it to 2 MP keeps its uncancellable
+  /// `Picture.toImage` readback short; the tile foreground still promotes at
+  /// the full requested density once the complete rung is resident.
+  static int denseQuickDetailMaxPixels = 1 << 21;
+
   /// Settles that consumed a speculatively-binned worker strip plan (the
   /// [transformScale]-driven pre-request matched the settle's geometry
   /// exactly and resolved to a plan). Test telemetry, following the
@@ -4140,6 +4150,9 @@ class _PdfPageViewState extends State<PdfPageView>
       'pass=visible '
       'strip=$stripDetail vectorOnly=$_sceneIsVectorOnly '
       'retainedCovers=$retainedCoversRegion '
+      'ratio=${ratio.toStringAsFixed(2)} '
+      'img=${(region.width * ratio).ceil()}x'
+      '${(region.height * ratio).ceil()} '
       // scene/tiles: why this page does or does not get reusable tiles instead
       // of a fresh full-viewport raster on every pan step.
       'scene=${heldScene != null} tiles=$_tilePathStatus',
@@ -4485,6 +4498,20 @@ class _PdfPageViewState extends State<PdfPageView>
       ratio,
       _maxDimension / math.max(region.width, region.height),
     );
+    final quickDetailBackend =
+        PdfPageView.debugQuickDetailBackendOverride ?? kIsWeb;
+    final scene = _scene;
+    if (_awaitingExactDetailPaint &&
+        quickDetailBackend &&
+        _tilePathStatus == 'active' &&
+        scene != null &&
+        _stripReplayScene(scene)) {
+      ratio = math.min(
+        ratio,
+        math.sqrt(PdfPageView.denseQuickDetailMaxPixels /
+            (region.width * region.height)),
+      );
+    }
     return _DetailGeometry(fraction, visibleFraction, region, ratio);
   }
 
@@ -5653,22 +5680,38 @@ class _PdfPageViewState extends State<PdfPageView>
       return null;
     }
     _logImageStats(pageIndex, detail.commands);
+    final sceneClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
     final scene = await PdfRetainedScene.fromCommands(
       widget.page,
       detail.commands,
       plan: _renderPlan,
       maxImagePixelRatio: ratio,
     );
+    final sceneMs = sceneClock?.elapsedMicroseconds.toDouble() ?? 0;
     if (_abandoned(pageIndex) || !_acceptsForegroundDetail(generation)) {
       scene.dispose();
       return null;
     }
     try {
-      return await scene.rasterizeRegionStrips(
+      final timing = PdfPerfLog.enabled ? PdfStripRasterTiming() : null;
+      final image = await scene.rasterizeRegionStrips(
         rasterRegion,
         pixelRatio: ratio,
         stripPlan: detail.plan,
+        timing: timing,
       );
+      if (timing != null) {
+        PdfPerfLog.log(
+          'detail strip phases page=$pageIndex '
+          'scene=${(sceneMs / 1000).toStringAsFixed(1)}ms '
+          'picture=${timing.pictureMs.toStringAsFixed(1)}ms '
+          'route=${timing.routeMs.toStringAsFixed(1)}ms '
+          'atlas=${timing.atlasDecodeMs.toStringAsFixed(1)}ms '
+          'tape=${timing.tapeReplayMs.toStringAsFixed(1)}ms '
+          'toImage=${timing.toImageMs.toStringAsFixed(1)}ms',
+        );
+      }
+      return image;
     } finally {
       scene.dispose();
     }
