@@ -77,6 +77,18 @@ void main() {
         return;
       }
       final document = PdfDocument.open(File(path).readAsBytesSync());
+      final configuredPages =
+          Platform.environment['PDF_GPU_BENCHMARK_PAGES']?.trim();
+      final requestedPages = _pages();
+      final pages = [
+        for (final page in requestedPages)
+          if (page >= 0 && page < document.pageCount) page,
+      ];
+      if (pages.isEmpty &&
+          (configuredPages == null || configuredPages.isEmpty) &&
+          document.pageCount > 0) {
+        pages.add(0);
+      }
       final msaa = Platform.environment['PDF_GPU_BENCHMARK_MSAA'] != '0';
       final approximateOverprint =
           Platform.environment['PDF_GPU_BENCHMARK_OVERPRINT'] != '0';
@@ -96,8 +108,7 @@ void main() {
       var peakRss = rssStart;
       final rows = <String>[];
 
-      for (final pageIndex in _pages()) {
-        if (pageIndex < 0 || pageIndex >= document.pageCount) continue;
+      for (final pageIndex in pages) {
         PdfImageCache.instance.clear();
         final timing = PdfSceneBuildTiming();
         final record = Stopwatch()..start();
@@ -116,6 +127,14 @@ void main() {
             continue;
           }
           try {
+            if (Platform.environment['PDF_GPU_BENCHMARK_SCENE_WARMUP'] == '1' &&
+                session is PdfTileRasterWarmUp) {
+              final warmUp = Stopwatch()..start();
+              await (session as PdfTileRasterWarmUp).warmUp();
+              // ignore: avoid_print
+              print('REAL_GPU_BENCHMARK sceneWarmUpUs='
+                  '${warmUp.elapsedMicroseconds}');
+            }
             final size = scene.pageSize;
             final center = Offset(size.width / 2, size.height / 2);
             final lod1 = 1.0;
@@ -169,7 +188,7 @@ void main() {
       }
 
       // ignore: avoid_print
-      print('REAL_GPU_BENCHMARK pages=${_pages()} msaa=$msaa '
+      print('REAL_GPU_BENCHMARK pages=$pages msaa=$msaa '
           'approximateOverprint=$approximateOverprint');
       for (final row in rows) {
         // ignore: avoid_print

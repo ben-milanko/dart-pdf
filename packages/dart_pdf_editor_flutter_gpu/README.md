@@ -77,14 +77,22 @@ after their scene is disposed and every submitted command buffer completes.
 This keeps command-heavy CAD navigation bounded without relying on delayed
 native finalizers; a scene that cannot lease enough geometry also falls back.
 
-The viewer asks the backend to warm its context after the first page frame.
-The backend submits one transparent pixel through each tile pipeline, moving
-Impeller/driver compilation out of the first deep-zoom interaction without
-delaying initial document paint. This work is coalesced per native view and
+After useful page pixels land and foreground work stays quiet for 750 ms, the
+viewer asks the backend to warm its context. The backend submits one transparent
+pixel through each tile pipeline, moving Impeller/driver compilation out of the
+first deep-zoom interaction without delaying initial document paint or
+competing with an immediate scroll. This work is coalesced per native view and
 MSAA mode, even when several readers share the same process.
 
+The same idle gate then prepares the live page's retained tile session: scene
+geometry and decoded-image uploads are compiled once and every scene pipeline
+is submitted at one-pixel page scale. The real first tile reuses those retained
+resources. Starting new foreground work cancels and restarts both delays; page
+disposal releases the prepared resources through the ordinary scene lifecycle.
+
 `backend.stats` reports accepted/rejected/active sessions, the latest actual
-tile route, runtime fallback reasons, scene compile and tile-submit time,
+tile route, runtime fallback reasons, context and scene warm-up outcomes,
+scene compile and tile-submit time,
 spatially selected command counts, upload/readback paths, cache hits and
 evictions, budget fallbacks, retained bytes, and live resource leases.
 Clip diagnostics separately report paths compiled and tile-mask rebuilds.
@@ -149,6 +157,8 @@ the center 512 px GPU and Canvas tiles for visual comparison, or
 `PDF_GPU_BENCHMARK_MSAA=0` to isolate multisample antialiasing differences.
 Set `PDF_GPU_BENCHMARK_WARMUP=1` to measure the viewer's pipeline warm-up before
 the first real tile.
+Set `PDF_GPU_BENCHMARK_SCENE_WARMUP=1` to additionally compile and submit the
+retained scene before measuring that tile.
 Set `PDF_GPU_BENCHMARK_OVERPRINT=0` to exercise the production-default exact
 fallback policy; the benchmark otherwise enables its documented source-over
 approximation so more of a corpus can be measured on the GPU.

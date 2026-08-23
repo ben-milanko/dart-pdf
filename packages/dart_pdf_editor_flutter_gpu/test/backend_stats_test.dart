@@ -15,6 +15,12 @@ void main() {
       ..warmUpSubmissions = 1
       ..warmUpCompletions = 2
       ..warmUpMicros = 12000
+      ..sceneWarmUpRequests = 3
+      ..sceneWarmUpCompletions = 2
+      ..sceneWarmUpFailures = 1
+      ..sceneWarmUpCancellations = 1
+      ..sceneWarmUpMicros = 18000
+      ..lastSceneWarmUpError = 'test scene warm-up failure'
       ..activeSessions = 3
       ..peakActiveSessions = 4
       ..activeTextureLeases = 5
@@ -43,6 +49,11 @@ void main() {
     expect(stats.toJson(), containsPair('contextSwitches', 3));
     expect(stats.toJson(), containsPair('warmUpSubmissions', 1));
     expect(stats.toJson(), containsPair('warmUpMicros', 12000));
+    expect(stats.toJson(), containsPair('sceneWarmUpRequests', 3));
+    expect(stats.toJson(), containsPair('sceneWarmUpCompletions', 2));
+    expect(stats.toJson(), containsPair('sceneWarmUpFailures', 1));
+    expect(stats.toJson(), containsPair('sceneWarmUpCancellations', 1));
+    expect(stats.toJson(), containsPair('sceneWarmUpMicros', 18000));
 
     stats.reset();
     expect(stats.sessionsCreated, 0);
@@ -54,6 +65,12 @@ void main() {
     expect(stats.warmUpSubmissions, 0);
     expect(stats.warmUpCompletions, 0);
     expect(stats.warmUpMicros, 0);
+    expect(stats.sceneWarmUpRequests, 0);
+    expect(stats.sceneWarmUpCompletions, 0);
+    expect(stats.sceneWarmUpFailures, 0);
+    expect(stats.sceneWarmUpCancellations, 0);
+    expect(stats.sceneWarmUpMicros, 0);
+    expect(stats.lastSceneWarmUpError, isNull);
     expect(stats.lastRejection, isNull);
     expect(stats.lastTileRoute, isNull);
     expect(stats.activeSessions, 3);

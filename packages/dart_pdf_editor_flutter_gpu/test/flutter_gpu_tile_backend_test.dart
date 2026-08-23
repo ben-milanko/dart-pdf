@@ -99,6 +99,40 @@ void main() {
     });
   }, timeout: const Timeout(Duration(minutes: 2)));
 
+  testWidgets('scene warm-up prepares retained resources before the first tile',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final scene = await PdfRetainedScene.record(
+          PdfDocument.open(buildEmbeddedFontImagePdf()).page(0));
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isA<PdfTileRasterWarmUp>(),
+          reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      await (session as PdfTileRasterWarmUp).warmUp();
+      expect(backend.stats.sceneWarmUpRequests, 1);
+      expect(backend.stats.sceneWarmUpCompletions, 1);
+      expect(backend.stats.sceneWarmUpFailures, 0);
+      expect(backend.stats.scenesCompiled, 1);
+      expect(backend.stats.tilesRendered, 0);
+
+      final image = await session.rasterizeRegion(
+        const Rect.fromLTWH(40, 50, 330, 190),
+        pixelRatio: 2,
+      );
+      addTearDown(image.dispose);
+      expect(backend.stats.scenesCompiled, 1,
+          reason: 'the first real tile reuses the prepared scene');
+      expect(backend.stats.tilesRendered, 1);
+    });
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
   testWidgets('compiles once and replays retained buffers across tiles',
       (tester) async {
     await tester.runAsync(() async {

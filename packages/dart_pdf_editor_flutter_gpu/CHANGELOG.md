@@ -2,9 +2,11 @@
 
 ## Next
 
-- Warm every tile shader with a one-pixel post-first-frame submission, shared
-  per Impeller context and MSAA mode, so first-use driver compilation does not
-  land on the first deep-zoom tile.
+- Warm every tile shader with a one-pixel idle submission, shared per Impeller
+  context and MSAA mode, then compile and submit each live page's retained
+  scene at one-pixel scale. Both passes wait for useful pixels plus a 750 ms
+  quiet window, so first-use driver, geometry, and upload work does not land on
+  the first deep-zoom tile or contend with immediate navigation.
 - Accelerate exact vector tiling cells, axial gradients (including embedded
   outline text), and nested-circle radial gradients while retaining explicit
   Canvas fallback for unsafe variants.

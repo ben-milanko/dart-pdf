@@ -2,9 +2,10 @@
 
 ## Next
 
-- Let optional tile backends prepare view-scoped resources after the viewer's
-  first frame, keeping first paint unchanged while avoiding cold setup during
-  the first deep-zoom interaction.
+- Let optional tile backends prepare view-scoped resources and live-page scene
+  sessions after first useful pixels and a 750 ms quiet window. Foreground
+  rendering cancels and restarts the delay, keeping first paint and immediate
+  navigation uncontended while avoiding cold setup during deep zoom.
 
 ## 3.8.0
 

@@ -11,6 +11,12 @@ class FlutterGpuTileBackendStats {
   int warmUpFailures = 0;
   int warmUpMicros = 0;
   String? lastWarmUpError;
+  int sceneWarmUpRequests = 0;
+  int sceneWarmUpCompletions = 0;
+  int sceneWarmUpFailures = 0;
+  int sceneWarmUpCancellations = 0;
+  int sceneWarmUpMicros = 0;
+  String? lastSceneWarmUpError;
   int sessionsCreated = 0;
   int sessionsRejected = 0;
   int sessionsDisposed = 0;
@@ -62,6 +68,12 @@ class FlutterGpuTileBackendStats {
         'warmUpFailures': warmUpFailures,
         'warmUpMicros': warmUpMicros,
         'lastWarmUpError': lastWarmUpError,
+        'sceneWarmUpRequests': sceneWarmUpRequests,
+        'sceneWarmUpCompletions': sceneWarmUpCompletions,
+        'sceneWarmUpFailures': sceneWarmUpFailures,
+        'sceneWarmUpCancellations': sceneWarmUpCancellations,
+        'sceneWarmUpMicros': sceneWarmUpMicros,
+        'lastSceneWarmUpError': lastSceneWarmUpError,
         'sessionsCreated': sessionsCreated,
         'sessionsRejected': sessionsRejected,
         'sessionsDisposed': sessionsDisposed,
@@ -118,6 +130,12 @@ class FlutterGpuTileBackendStats {
     warmUpFailures = 0;
     warmUpMicros = 0;
     lastWarmUpError = null;
+    sceneWarmUpRequests = 0;
+    sceneWarmUpCompletions = 0;
+    sceneWarmUpFailures = 0;
+    sceneWarmUpCancellations = 0;
+    sceneWarmUpMicros = 0;
+    lastSceneWarmUpError = null;
     peakActiveSessions = activeSessions;
     overprintApproximationSessions = 0;
     scenesCompiled = 0;
@@ -155,6 +173,11 @@ class FlutterGpuTileBackendStats {
       'warmUpRequests=$warmUpRequests warmUpSubmissions=$warmUpSubmissions '
       'warmUpCompletions=$warmUpCompletions warmUpFailures=$warmUpFailures '
       'warmUpUs=$warmUpMicros '
+      'sceneWarmUpRequests=$sceneWarmUpRequests '
+      'sceneWarmUpCompletions=$sceneWarmUpCompletions '
+      'sceneWarmUpFailures=$sceneWarmUpFailures '
+      'sceneWarmUpCancellations=$sceneWarmUpCancellations '
+      'sceneWarmUpUs=$sceneWarmUpMicros '
       'lastContext=$lastContextIdentity '
       'activeSessions=$activeSessions peakActiveSessions=$peakActiveSessions '
       'overprintApprox=$overprintApproximationSessions '

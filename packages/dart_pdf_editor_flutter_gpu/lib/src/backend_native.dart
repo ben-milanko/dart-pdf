@@ -90,6 +90,12 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   /// reports that runtime reason through [stats].
   bool get isPlatformSupported => true;
 
+  @override
+  bool get supportsWarmUp => true;
+
+  @override
+  bool get supportsSessionWarmUp => true;
+
   /// Drops reusable texture ownership. Active compiled scenes retain the
   /// resources they are currently drawing.
   void clearImageCache() => _imageCache.clear(stats);
@@ -905,7 +911,10 @@ bool _commandNeedsDarken(
 }
 
 class _FlutterGpuTileSession
-    implements PdfTileRasterSession, PdfTileRasterScheduling {
+    implements
+        PdfTileRasterSession,
+        PdfTileRasterScheduling,
+        PdfTileRasterWarmUp {
   _FlutterGpuTileSession({
     required this.scene,
     required this.commands,
@@ -943,6 +952,7 @@ class _FlutterGpuTileSession
 
   Future<_CompiledScene>? _compiled;
   _CompiledScene? _ready;
+  Future<void>? _prewarm;
   bool _disposed = false;
   bool _failureReported = false;
 
@@ -963,6 +973,56 @@ class _FlutterGpuTileSession
       }).whenComplete(scene.releaseDecodedImagePixels);
 
   @override
+  Future<void> warmUp() => _prewarm ??= _warmUpScene();
+
+  Future<void> _warmUpScene() async {
+    if (_disposed) return;
+    final clock = Stopwatch()..start();
+    stats.sceneWarmUpRequests++;
+    ui.Image? image;
+    try {
+      final compiled = await _compile();
+      final gpuPipelines = await pipelines;
+      await gpuPipelines.warmUp(
+        context,
+        useMsaa: msaa && context.doesSupportOffscreenMSAA,
+      );
+      if (_disposed) throw StateError('flutter_gpu tile session disposed');
+      final size = scene.pageSize;
+      final ratio = 1 / math.max(1.0, math.max(size.width, size.height));
+      image = compiled.render(
+        units,
+        region: Offset.zero & size,
+        pixelRatio: ratio,
+        pipelines: gpuPipelines,
+        useMsaa: msaa,
+      );
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      if (bytes == null) throw StateError('GPU scene warm-up readback failed');
+      stats.sceneWarmUpCompletions++;
+      PdfPerfLog.log(
+        'tile gpu scene warm commands=${units.length} '
+        'elapsed=${clock.elapsedMilliseconds}ms',
+      );
+    } catch (error) {
+      // A page leaving the cache while this optional idle pass is in flight is
+      // ordinary cancellation, not a backend failure or a reason to report a
+      // Canvas fallback for a scene that no longer has an owner.
+      if (_disposed) {
+        stats.sceneWarmUpCancellations++;
+        return;
+      }
+      stats
+        ..sceneWarmUpFailures += 1
+        ..lastSceneWarmUpError = error.toString();
+      rethrow;
+    } finally {
+      image?.dispose();
+      stats.sceneWarmUpMicros += clock.elapsedMicroseconds;
+    }
+  }
+
+  @override
   Future<ui.Image> rasterizeRegion(
     Rect region, {
     required double pixelRatio,
@@ -970,6 +1030,8 @@ class _FlutterGpuTileSession
   }) async {
     if (_disposed) throw StateError('flutter_gpu tile session disposed');
     try {
+      final prewarm = _prewarm;
+      if (prewarm != null) await prewarm;
       final compiled = await _compile();
       final gpuPipelines = await pipelines;
       if (_disposed) throw StateError('flutter_gpu tile session disposed');
