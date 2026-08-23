@@ -16,6 +16,10 @@ Future<Uint8List> _pixels(ui.Image image) async {
 void main() {
   testWidgets('CI renders an accepted tile through flutter_gpu',
       (tester) async {
+    if (!const bool.fromEnvironment('PDF_GPU_CI_SMOKE')) {
+      markTestSkipped('set PDF_GPU_CI_SMOKE=true in the designated GPU lane');
+      return;
+    }
     await tester.runAsync(() async {
       try {
         gpu.gpuContext.defaultColorFormat;

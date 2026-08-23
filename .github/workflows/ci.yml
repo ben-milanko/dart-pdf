@@ -181,6 +181,7 @@ jobs:
         working-directory: packages/dart_pdf_editor_flutter_gpu
         run: >-
           flutter test --enable-impeller --enable-flutter-gpu
+          --dart-define PDF_GPU_CI_SMOKE=true
           test/gpu_ci_smoke_test.dart --reporter expanded
 
   # The real bundled web render worker
