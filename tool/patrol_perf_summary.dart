@@ -339,13 +339,23 @@ class PatrolPerfTrace {
             : 'Current Patrol $label trace. Lower timing is better.',
       );
     if (lines.isEmpty) return '${buffer.toString()}\n';
+    if (_scenarioMetrics.isNotEmpty) {
+      buffer
+        ..writeln()
+        ..writeln(
+          'Scenario elapsed uses p50 across repeated runs; phase and tail '
+          'signals remain p95.',
+        );
+    }
     buffer
       ..writeln()
       ..writeln('| Signal | Result |')
       ..writeln('| --- | ---: |');
     for (final name in _scenarioMetrics.keys.toList()..sort()) {
-      buffer.writeln('| Scenario ${_code(name)} elapsed p95 | '
-          '${_p95Text(_scenarioMetrics[name]!.elapsedMs)} |');
+      final elapsed = _scenarioMetrics[name]!.elapsedMs;
+      buffer.writeln('| Scenario ${_code(name)} elapsed p50 '
+          '(${elapsed.length} ${elapsed.length == 1 ? 'run' : 'runs'}) | '
+          '${_p50Text(elapsed)} |');
     }
     buffer
       ..writeln('| Jank frames | ${jankTotalMs.length} |')
@@ -517,6 +527,45 @@ class PatrolPerfComparison {
         'Lower timing is better. Structural counts should stay stable unless '
         'the PR intentionally changes the exercised path.',
       );
+    if (measuredScenarios.isNotEmpty) {
+      final samples = measuredScenarios.map((scenario) {
+        final before = _jsonNumber(
+          baseline,
+          ['scenarioMetrics', scenario, 'runs'],
+        );
+        final after = _jsonNumber(
+          current,
+          ['scenarioMetrics', scenario, 'runs'],
+        );
+        return '${_code(scenario)} ${_numberText(before)} / '
+            '${_numberText(after)}';
+      }).join(', ');
+      final sparseSamples = measuredScenarios.any((scenario) {
+        final before = _jsonNumber(
+          baseline,
+          ['scenarioMetrics', scenario, 'runs'],
+        );
+        final after = _jsonNumber(
+          current,
+          ['scenarioMetrics', scenario, 'runs'],
+        );
+        return before == null || after == null || before < 3 || after < 3;
+      });
+      buffer
+        ..writeln()
+        ..writeln(
+          'Scenario elapsed uses p50 across repeated runs; phase and tail '
+          'signals remain p95. Samples (main / PR): $samples.',
+        );
+      if (sparseSamples) {
+        buffer
+          ..writeln()
+          ..writeln(
+            '⚠️ At least one scenario has fewer than three samples; treat '
+            'its timing delta as provisional.',
+          );
+      }
+    }
     if (!sameCoverage) {
       buffer
         ..writeln()
@@ -551,8 +600,8 @@ class PatrolPerfComparison {
 
     for (final scenario in measuredScenarios) {
       timingRow(
-        'Scenario ${_code(scenario)} elapsed p95',
-        ['scenarioMetrics', scenario, 'elapsedMs', 'p95'],
+        'Scenario ${_code(scenario)} elapsed p50',
+        ['scenarioMetrics', scenario, 'elapsedMs', 'p50'],
       );
     }
     timingRow('Jank total p95', const ['jank', 'totalMs', 'p95']);
@@ -687,6 +736,10 @@ class PatrolPerfComparison {
       countRow(
         'Scenario $scenario runs',
         ['scenarioMetrics', scenario, 'runs'],
+      );
+      timingRow(
+        'Scenario $scenario elapsed p50',
+        ['scenarioMetrics', scenario, 'elapsedMs', 'p50'],
       );
       timingRow(
         'Scenario $scenario elapsed p95',
@@ -1147,6 +1200,11 @@ String _distributionText(List<double> values) {
 String _p95Text(List<double> values) {
   final distribution = _distribution(values);
   return distribution == null ? 'n/a' : _formatMs(distribution['p95']!);
+}
+
+String _p50Text(List<double> values) {
+  final distribution = _distribution(values);
+  return distribution == null ? 'n/a' : _formatMs(distribution['p50']!);
 }
 
 String _mapText(Map<String, int> values) {

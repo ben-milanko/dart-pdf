@@ -19,6 +19,7 @@ env:
   FIREBASE_TOOLS_VERSION: 15.22.4
   PATROL_CLI_VERSION: 4.7.0
   PATROL_ANALYTICS_ENABLED: "false"
+  PATROL_PERF_REPETITIONS: 3
 
 jobs:
   build:
@@ -95,20 +96,24 @@ jobs:
         working-directory: packages/dart_pdf_editor/example
         shell: bash
         run: |
-          set -o pipefail
-          patrol test \
-            --device chrome \
-            --target patrol_test/perf_e2e_test.dart \
-            --dart-define PDF_PERF_LOG=true \
-            --dart-define PDF_BUILD_COMMIT=${{ github.event.pull_request.head.sha }} \
-            --show-flutter-logs \
-            --web-headless \
-            --web-locale en-US \
-            --web-workers 1 \
-            --web-viewport '{"width":2600,"height":2600}' \
-            --web-video retain-on-failure \
-            --verbose \
-            2>&1 | tee -a "$RUNNER_TEMP/patrol-web.log"
+          set -euo pipefail
+          for ((iteration = 1; iteration <= PATROL_PERF_REPETITIONS; iteration++)); do
+            echo "::group::Patrol performance repetition $iteration/$PATROL_PERF_REPETITIONS"
+            patrol test \
+              --device chrome \
+              --target patrol_test/perf_e2e_test.dart \
+              --dart-define PDF_PERF_LOG=true \
+              --dart-define PDF_BUILD_COMMIT=${{ github.event.pull_request.head.sha }} \
+              --show-flutter-logs \
+              --web-headless \
+              --web-locale en-US \
+              --web-workers 1 \
+              --web-viewport '{"width":2600,"height":2600}' \
+              --web-video retain-on-failure \
+              --verbose \
+              2>&1 | tee -a "$RUNNER_TEMP/patrol-web.log"
+            echo "::endgroup::"
+          done
 
       - name: Download latest main Patrol web baseline
         id: patrol-baseline

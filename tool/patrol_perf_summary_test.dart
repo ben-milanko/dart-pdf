@@ -209,7 +209,7 @@ void main() {
   );
   _expectContains(
     headline,
-    '| Scenario `heavy-document` elapsed p95 | 80.0 ms |',
+    '| Scenario `heavy-document` elapsed p50 (1 run) | 80.0 ms |',
     'headline scenario',
   );
 
@@ -227,7 +227,7 @@ void main() {
       'scenarioMetrics': {
         'heavy-document': {
           'runs': 1,
-          'elapsedMs': {'p95': 100.0},
+          'elapsedMs': {'p50': 100.0, 'p95': 100.0},
           'jank': {
             'totalMs': {'p95': 4.0},
           },
@@ -241,8 +241,13 @@ void main() {
   ).toMarkdown();
   _expectContains(
     comparison,
+    '| Scenario heavy-document elapsed p50 | 100.0 ms | 80.0 ms | -20.0% |',
+    'scenario median comparison',
+  );
+  _expectContains(
+    comparison,
     '| Scenario heavy-document elapsed p95 | 100.0 ms | 80.0 ms | -20.0% |',
-    'scenario comparison',
+    'scenario tail comparison',
   );
   _expectContains(
     comparison,
@@ -268,7 +273,8 @@ void main() {
       },
       'scenarioMetrics': {
         'heavy-document': {
-          'elapsedMs': {'p95': 100.0},
+          'runs': 1,
+          'elapsedMs': {'p50': 100.0, 'p95': 100.0},
         },
       },
     },
@@ -300,8 +306,13 @@ void main() {
   );
   _expectContains(
     comparisonHeadline,
-    '| Scenario `heavy-document` elapsed p95 | 100.0 ms | 80.0 ms | -20.0% |',
+    '| Scenario `heavy-document` elapsed p50 | 100.0 ms | 80.0 ms | -20.0% |',
     'comparison headline scenario',
+  );
+  _expectContains(
+    comparisonHeadline,
+    'fewer than three samples',
+    'sparse comparison warning',
   );
   final sparseHeadline = summary.PatrolPerfComparison(
     baseline: const {'scenarios': <String, Object?>{}},
@@ -322,6 +333,46 @@ void main() {
   final orphan = _map(_map(resetTrace, 'scenarioMetrics'), 'orphan');
   _expectEqual(orphan['runs'], 0, 'cross-process scenario is incomplete');
   _expectEqual(orphan['elapsedMs'], null, 'cross-process elapsed is absent');
+
+  final repeatedTrace = summary.PatrolPerfTrace.parse(const [
+    '[perf 0] build commit=repeated',
+    '[perf 10] scenario name=repeatable phase=start',
+    '[perf 110] scenario name=repeatable phase=validated',
+    '[perf 0] build commit=repeated',
+    '[perf 10] scenario name=repeatable phase=start',
+    '[perf 310] scenario name=repeatable phase=validated',
+    '[perf 0] build commit=repeated',
+    '[perf 10] scenario name=repeatable phase=start',
+    '[perf 210] scenario name=repeatable phase=validated',
+  ]);
+  final repeatedJson = repeatedTrace.toJson();
+  final repeatedScenario =
+      _map(_map(repeatedJson, 'scenarioMetrics'), 'repeatable');
+  _expectEqual(repeatedScenario['runs'], 3, 'repeated scenario runs');
+  _expectEqual(
+    _map(repeatedScenario, 'elapsedMs'),
+    const {'p50': 200.0, 'p95': 300.0, 'max': 300.0},
+    'repeated scenario distribution',
+  );
+  _expectContains(
+    repeatedTrace.toHeadlineMarkdown(),
+    '| Scenario `repeatable` elapsed p50 (3 runs) | 200.0 ms |',
+    'repeated headline median',
+  );
+  final repeatedComparison = summary.PatrolPerfComparison(
+    baseline: repeatedJson,
+    current: repeatedJson,
+  ).toHeadlineMarkdown();
+  _expectContains(
+    repeatedComparison,
+    'Samples (main / PR): `repeatable` 3 / 3.',
+    'repeated comparison sample counts',
+  );
+  _expectNotContains(
+    repeatedComparison,
+    'fewer than three samples',
+    'repeated comparison is not sparse',
+  );
 
   print('Patrol performance summarizer tests passed');
 }

@@ -47,8 +47,11 @@ The CI web journey enables `PdfPerfLog` and uploads `patrol-perf.log`,
 `patrol-perf.json`, and `patrol-perf.md` inside the `patrol-web-results`
 artifact. Pull requests also show the Markdown summary in the Actions run.
 These wall-clock measurements are review evidence rather than a pass/fail gate;
-compare the JSON with a recent `main` run from the same hosted-runner lane. The
-summary keeps global aggregates for continuity and a scenario breakdown for
+compare the JSON with a recent `main` run from the same hosted-runner lane. CI
+runs each dedicated performance target three times. Scenario headlines compare
+the median (`p50`) across those repetitions, while the detailed report retains
+`p95` tail timings and warns when either artifact has fewer than three samples.
+The summary keeps global aggregates for continuity and a scenario breakdown for
 elapsed time, jank, reconciliation, raster work, worker phases, decoded-image
 cache pressure and per-request hit/miss deltas, and worker outcomes, so a slow
 heavy-document journey is not hidden inside the other browser journeys. The
