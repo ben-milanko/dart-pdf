@@ -24,7 +24,8 @@ import 'backend_stats.dart';
 /// submit a render pass. No PDF interpretation, path tessellation, image
 /// decode, texture upload, or CPU pixel readback occurs per tile.
 ///
-/// The exact subset includes a common isolated single-image soft-mask group:
+/// The exact subset includes a common isolated single-image soft-mask group
+/// and decoded images whose `/SMask` stayed as a companion GPU surface:
 /// content and mask stay as separate scene-lifetime textures and are combined
 /// by the tile shader. Ordinary PDF clip paths are retained as exact stencil
 /// masks (with rectangular clips additionally using the hardware scissor).
@@ -262,16 +263,6 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
         case PdfDrawImageCommand(:final request):
           final image = scene.imageFor(request);
           if (image == null) return 'missing image pixels';
-          // A platform-codec base keeps its /SMask as a companion GPU surface
-          // that only CanvasPdfDevice knows how to compose (dstIn over the
-          // base). This backend uploads one texture per image, so drawing it
-          // here would paint the base opaque - the JPEG's masked-out area is
-          // usually solid black, so a cut-out sticker renders as a black
-          // rectangle (#675). Hand the scene to Canvas until the mask is
-          // uploaded as its own texture.
-          if (pdfGpuSoftMaskOf(image) != null) {
-            return 'deferred image soft mask';
-          }
         case PdfDrawTextCommand(:final run):
           if (run.invisible) continue;
           final gradientReason = run.gradient == null
@@ -1520,8 +1511,6 @@ Future<_GpuDraw> _compileSoftMaskImage(
   );
   textureLeases.add(maskResource);
   final vertices = _imageVertices(spec.content.transform);
-  final inverse = spec.mask.transform.inverted();
-  if (inverse == null) throw StateError('singular soft-mask image transform');
   final contentAlpha = (spec.content.alpha * spec.groupAlpha).clamp(0.0, 1.0);
   final contentTint = spec.content.isStencil
       ? _premul(spec.content.stencilColor, contentAlpha)
@@ -1529,7 +1518,43 @@ Future<_GpuDraw> _compileSoftMaskImage(
   final maskTint = spec.mask.isStencil
       ? _premul(spec.mask.stencilColor, spec.mask.alpha)
       : <double>[0, 0, 0, spec.mask.alpha.clamp(0.0, 1.0)];
-  final maskClip = spec.maskClip ??
+  final info = _softMaskInfo(
+    context,
+    maskTransform: spec.mask.transform,
+    contentTint: contentTint,
+    maskTint: maskTint,
+    contentStencil: spec.content.isStencil,
+    maskStencil: spec.mask.isStencil,
+    luminosity: spec.luminosity,
+    backdropLuminance: spec.backdropLuminance,
+    transferScale: spec.transferScale,
+    transferOffset: spec.transferOffset,
+    maskClip: spec.maskClip,
+  );
+  return _SoftMaskDraw(
+    geometry.add(vertices.bytes, vertices.length ~/ 4),
+    contentResource.texture,
+    maskResource.texture,
+    info,
+  );
+}
+
+gpu.BufferView _softMaskInfo(
+  gpu.GpuContext context, {
+  required PdfMatrix maskTransform,
+  required List<double> contentTint,
+  required List<double> maskTint,
+  required bool contentStencil,
+  required bool maskStencil,
+  required bool luminosity,
+  required double backdropLuminance,
+  required double transferScale,
+  required double transferOffset,
+  PdfRect? maskClip,
+}) {
+  final inverse = maskTransform.inverted();
+  if (inverse == null) throw StateError('singular soft-mask image transform');
+  final clip = maskClip ??
       const PdfRect(-1000000000, -1000000000, 1000000000, 1000000000);
   final values = Float32List(36)
     ..setRange(0, 16, <double>[
@@ -1553,32 +1578,27 @@ Future<_GpuDraw> _compileSoftMaskImage(
     ..setRange(16, 20, contentTint)
     ..setRange(20, 24, maskTint)
     ..setRange(24, 28, <double>[
-      spec.content.isStencil ? 1 : 0,
-      spec.mask.isStencil ? 1 : 0,
-      spec.luminosity ? 1 : 0,
-      spec.luminosity ? spec.backdropLuminance : 0,
+      contentStencil ? 1 : 0,
+      maskStencil ? 1 : 0,
+      luminosity ? 1 : 0,
+      luminosity ? backdropLuminance : 0,
     ])
     ..setRange(28, 32, <double>[
-      spec.transferScale,
-      spec.transferOffset,
+      transferScale,
+      transferOffset,
       0,
       0,
     ])
     ..setRange(32, 36, <double>[
-      maskClip.left,
-      maskClip.bottom,
-      maskClip.right,
-      maskClip.top,
+      clip.left,
+      clip.bottom,
+      clip.right,
+      clip.top,
     ]);
-  return _SoftMaskDraw(
-    geometry.add(vertices.bytes, vertices.length ~/ 4),
-    contentResource.texture,
-    maskResource.texture,
-    gpu.BufferView(
-      context.createDeviceBufferWithCopy(ByteData.sublistView(values)),
-      offsetInBytes: 0,
-      lengthInBytes: values.lengthInBytes,
-    ),
+  return gpu.BufferView(
+    context.createDeviceBufferWithCopy(ByteData.sublistView(values)),
+    offsetInBytes: 0,
+    lengthInBytes: values.lengthInBytes,
   );
 }
 
@@ -1591,6 +1611,8 @@ class _GpuImageTexture {
   int leases = 0;
   bool cacheable = true;
 }
+
+enum _GpuTexturePlane { deferredSoftMask }
 
 class _GpuTextureKey {
   const _GpuTextureKey(
@@ -1634,12 +1656,27 @@ class _GpuImageCache {
   final Set<_GpuImageTexture> _detached = Set.identity();
   int _bytes = 0;
 
-  Future<_GpuImageTexture> acquire(gpu.GpuContext context,
-      PdfImageRequest request, ui.Image image, FlutterGpuTileBackendStats stats,
-      {required bool mipmapped}) async {
+  Future<_GpuImageTexture> acquire(
+          gpu.GpuContext context,
+          PdfImageRequest request,
+          ui.Image image,
+          FlutterGpuTileBackendStats stats,
+          {required bool mipmapped}) =>
+      acquireSurface(
+        context,
+        pdfImageContentKey(request),
+        image,
+        stats,
+        decoded: request.decoded,
+        mipmapped: mipmapped,
+      );
+
+  Future<_GpuImageTexture> acquireSurface(gpu.GpuContext context,
+      Object content, ui.Image image, FlutterGpuTileBackendStats stats,
+      {PdfDecodedPixels? decoded, required bool mipmapped}) async {
     final key = _GpuTextureKey(
       context,
-      pdfImageContentKey(request),
+      content,
       image.width,
       image.height,
       mipmapped,
@@ -1666,7 +1703,7 @@ class _GpuImageCache {
       context,
       image,
       stats,
-      decoded: request.decoded,
+      decoded: decoded,
       mipLevelCount: mipLevelCount,
     )
       ..leases = 1;
@@ -1943,6 +1980,7 @@ Future<_GpuDraw> _compileImageCommand(
     List<_GpuImageTexture> textureLeases,
     {required bool mipmapImages}) async {
   final image = scene.imageFor(request)!;
+  final maskImage = pdfGpuSoftMaskOf(image);
   final resource = await imageCache.acquire(
     context,
     request,
@@ -1955,6 +1993,36 @@ Future<_GpuDraw> _compileImageCommand(
   final tint = request.isStencil
       ? _premul(request.stencilColor, request.alpha)
       : <double>[0, 0, 0, request.alpha];
+  if (maskImage != null) {
+    final maskResource = await imageCache.acquireSurface(
+      context,
+      (pdfImageContentKey(request), _GpuTexturePlane.deferredSoftMask),
+      maskImage,
+      stats,
+      mipmapped: mipmapImages,
+    );
+    textureLeases.add(maskResource);
+    // Platform-codec `/SMask` companions are opaque grayscale surfaces. The
+    // PDF alpha is their gray sample (Canvas applies red-to-alpha), so the
+    // luminosity branch of the existing soft-mask shader is the exact match.
+    return _SoftMaskDraw(
+      geometry.add(vertices.bytes, 6),
+      resource.texture,
+      maskResource.texture,
+      _softMaskInfo(
+        context,
+        maskTransform: request.transform,
+        contentTint: tint,
+        maskTint: const [0, 0, 0, 1],
+        contentStencil: request.isStencil,
+        maskStencil: false,
+        luminosity: true,
+        backdropLuminance: 0,
+        transferScale: 1,
+        transferOffset: 0,
+      ),
+    );
+  }
   final info = Float32List(8)
     ..setRange(0, 4, tint)
     ..[4] = request.isStencil ? 1 : 0;
@@ -2802,6 +2870,7 @@ class _GpuEncoder {
     final sampler = gpu.SamplerOptions(
       minFilter: gpu.MinMagFilter.linear,
       magFilter: gpu.MinMagFilter.linear,
+      mipFilter: gpu.MipFilter.linear,
     );
     pass
       ..setColorBlendEquation(_srcOver)

@@ -1025,7 +1025,7 @@ void main() {
     });
   });
 
-  testWidgets('an image whose /SMask stayed a companion surface falls back',
+  testWidgets('an image whose /SMask stayed a companion surface renders',
       (tester) async {
     await tester.runAsync(() async {
       if (!_gpuAvailable()) {
@@ -1033,10 +1033,10 @@ void main() {
         return;
       }
       // A non-CMYK JPEG decodes through the platform codec, which keeps a
-      // simple grayscale /SMask as a companion `ui.Image` that only
-      // CanvasPdfDevice knows how to compose. This backend uploads one texture
-      // per image, so it must decline the scene rather than paint the base
-      // opaque - the JPEG's masked-out area is solid black (#675).
+      // simple grayscale /SMask as a companion `ui.Image`. The GPU backend
+      // keeps both surfaces as separate cached textures and combines them in
+      // one shader pass; painting only the base would leave the JPEG opaque
+      // and regress the black-rectangle failure from #675.
       final page = PdfDocument.open(buildClassicPdf()).page(0);
       final scene = await PdfRetainedScene.fromCommands(page, [
         PdfDrawImageCommand(PdfImageRequest(
@@ -1046,8 +1046,24 @@ void main() {
       ]);
       addTearDown(scene.dispose);
       final backend = FlutterGpuTileRasterBackend();
-      expect(backend.createSession(scene), isNull);
-      expect(backend.stats.lastRejection, contains('soft mask'));
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      const region = Rect.fromLTWH(0, 0, 200, 200);
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var i = 0; i < a.length; i++) {
+        difference += (a[i] - b[i]).abs();
+      }
+      expect(difference / a.length, lessThan(2));
+      expect(backend.stats.texturesUploaded, 2);
+      expect(backend.stats.textureBytes, 8192,
+          reason: '32x32 RGBA base plus its 32x32 RGBA mask');
     });
   });
 }

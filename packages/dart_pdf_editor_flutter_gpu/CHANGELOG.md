@@ -2,6 +2,8 @@
 
 ## Next
 
+- Render platform-decoded images with deferred `/SMask` companion surfaces on
+  the GPU by caching both textures and combining them in the soft-mask shader.
 - Render tiled stencil images exactly using scene-scoped, hand-built mipmaps.
   Mip levels participate in the shared texture budget and cache identity, and
   worker-reconstructed tiling cells retain their decoded images.

@@ -60,7 +60,9 @@ The current exact subset is solid paths and strokes, embedded-outline text,
 decoded images/image masks, Gouraud meshes, axial gradients, nested-circle
 radial gradients, vector and stencil-image tiling cells, normal blending,
 rectangular and arbitrary path clips, and the common isolated single-image
-soft-mask group.
+soft-mask group. Platform-decoded JPEGs whose `/SMask` remains a companion GPU
+surface also keep their base and mask as separate cached textures and combine
+them in the same shader path.
 Rectangles use hardware scissors; other clip stacks compile once into retained
 stencil geometry and preserve nonzero/even-odd plus save/restore semantics. The
 mask case keeps the base and mask as two GPU textures and combines them during
