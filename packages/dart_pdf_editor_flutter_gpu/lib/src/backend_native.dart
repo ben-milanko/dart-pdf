@@ -2191,6 +2191,7 @@ class _GpuPipelines {
   }
 
   static Future<gpu.ShaderLibrary> _loadLibrary() async {
+    final failures = <String, Object>{};
     for (final asset in const [
       'packages/dart_pdf_editor_flutter_gpu/assets/shaders/pdf_tile_gpu.shaderbundle',
       'assets/shaders/pdf_tile_gpu.shaderbundle',
@@ -2202,11 +2203,18 @@ class _GpuPipelines {
           gpu.ShaderLibrary.fromAsset(asset),
         );
         if (library != null) return library;
-      } catch (_) {
+      } catch (error) {
         // Package-prefixed in an app, bare while this package is the test root.
+        // Keep the actual loader error: an incompatible shader bundle must not
+        // be collapsed into the same terminal message as a missing asset.
+        failures[asset] = error;
       }
     }
-    throw StateError('pdf_tile_gpu.shaderbundle asset not found');
+    final detail = failures.entries
+        .map((entry) => '${entry.key}: ${entry.value}')
+        .join('; ');
+    throw StateError('pdf_tile_gpu.shaderbundle failed to load'
+        '${detail.isEmpty ? '' : ': $detail'}');
   }
 
   final gpu.RenderPipeline stencil;
