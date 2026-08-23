@@ -879,6 +879,76 @@ void main() {
     });
   });
 
+  testWidgets('single vector fills use an image soft mask directly',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final mask = _decodedImage(
+        Uint8List.fromList([
+          0,
+          0,
+          0,
+          255,
+          255,
+          255,
+          255,
+          255,
+          0,
+          0,
+          0,
+          255,
+          255,
+          255,
+          255,
+          255,
+        ]),
+        const PdfMatrix(180, 0, 0, 180, 50, 100),
+        'vector-mask',
+      );
+      final scene = await PdfRetainedScene.fromCommands(
+        page,
+        [
+          const PdfBeginSoftMaskedCommand(),
+          PdfFillPathCommand(
+            _rect(50, 100, 230, 280),
+            const PdfColor(0.1, 0.7, 0.25),
+            PdfFillRule.nonzero,
+            0.8,
+          ),
+          PdfEndSoftMaskedCommand(
+            luminosity: true,
+            backdrop: page.cropBox,
+            maskCommands: [mask],
+          ),
+        ],
+        retainDecodedPixels: true,
+      );
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+      const region = Rect.fromLTWH(40, 90, 200, 200);
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var i = 0; i < a.length; i++) {
+        difference += (a[i] - b[i]).abs();
+      }
+      expect(difference / a.length, lessThan(8));
+      expect(backend.stats.texturesUploaded, 1);
+      expect(backend.stats.textureDirectUploads, 1);
+      expect(mask.request.decoded, isNull);
+    });
+  });
+
   testWidgets('unsupported pages are rejected instead of approximated',
       (tester) async {
     await tester.runAsync(() async {

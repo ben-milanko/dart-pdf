@@ -239,9 +239,16 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
       }
       final composite = unit.composite;
       if (composite != null) {
-        if (scene.imageFor(composite.content) == null ||
-            scene.imageFor(composite.mask) == null) {
-          return 'missing soft-mask image pixels';
+        switch (composite) {
+          case _SoftMaskImageSpec():
+            if (scene.imageFor(composite.content) == null ||
+                scene.imageFor(composite.mask) == null) {
+              return 'missing soft-mask image pixels';
+            }
+          case _SoftMaskFillSpec():
+            if (scene.imageFor(composite.mask) == null) {
+              return 'missing soft-mask image pixels';
+            }
         }
         continue;
       }
@@ -350,7 +357,7 @@ class _GpuUnit {
   final bool fillOverprint;
   final bool strokeOverprint;
   final bool darken;
-  final _SoftMaskImageSpec? composite;
+  final _SoftMaskSpec? composite;
 }
 
 /// One immutable graphics-state clip. Rectangles only narrow [scissor]; every
@@ -393,7 +400,12 @@ class _CompositeCapture {
   PdfRect? bounds;
 }
 
-class _SoftMaskImageSpec {
+sealed class _SoftMaskSpec {
+  const _SoftMaskSpec();
+  PdfRect? get contentClip;
+}
+
+class _SoftMaskImageSpec extends _SoftMaskSpec {
   const _SoftMaskImageSpec({
     required this.content,
     required this.mask,
@@ -409,6 +421,30 @@ class _SoftMaskImageSpec {
   final PdfImageRequest content;
   final PdfImageRequest mask;
   final double groupAlpha;
+  @override
+  final PdfRect? contentClip;
+  final PdfRect? maskClip;
+  final bool luminosity;
+  final double backdropLuminance;
+  final double transferScale;
+  final double transferOffset;
+}
+
+class _SoftMaskFillSpec extends _SoftMaskSpec {
+  const _SoftMaskFillSpec({
+    required this.content,
+    required this.mask,
+    required this.contentClip,
+    required this.maskClip,
+    required this.luminosity,
+    required this.backdropLuminance,
+    required this.transferScale,
+    required this.transferOffset,
+  });
+
+  final PdfFillPathCommand content;
+  final PdfImageRequest mask;
+  @override
   final PdfRect? contentClip;
   final PdfRect? maskClip;
   final bool luminosity;
@@ -669,7 +705,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
       : _GpuClipState(narrowed, state.node);
 }
 
-(_SoftMaskImageSpec?, String?) _parseSoftMaskImage(
+(_SoftMaskSpec?, String?) _parseSoftMaskImage(
   List<PdfRenderCommand> commands,
   int start,
   int end, {
@@ -746,6 +782,76 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
         backdropLuminance: softEnd.backdropLuminance,
         transferScale: softEnd.transferScale,
         transferOffset: softEnd.transferOffset,
+      ),
+      null,
+    );
+  }
+  final endCommand = commands[end];
+  if (commands[start] is PdfBeginSoftMaskedCommand &&
+      endCommand is PdfEndSoftMaskedCommand) {
+    final maskCommands = endCommand.maskCommands;
+    final luminosity = endCommand.luminosity;
+    final backdropLuminance = endCommand.backdropLuminance;
+    final transferScale = endCommand.transferScale;
+    final transferOffset = endCommand.transferOffset;
+    PdfFillPathCommand? content;
+    PdfRect? clip = initialClip;
+    PdfRect? contentClip;
+    final saved = <PdfRect?>[];
+    for (var i = start + 1; i < end; i++) {
+      final command = commands[i];
+      switch (command) {
+        case PdfSaveCommand():
+          saved.add(clip);
+        case PdfRestoreCommand():
+          if (saved.isEmpty) return (null, 'unbalanced soft-mask fill state');
+          clip = saved.removeLast();
+        case PdfClipPathCommand(:final path):
+          if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) {
+            return (null, 'non-rectangular soft-mask fill clip');
+          }
+          clip = _pdfIntersection(clip, pdfRenderPathBounds(path));
+        case PdfFillPathCommand():
+          if (content != null) {
+            return (null, 'soft-mask group has multiple vector fills');
+          }
+          content = command;
+          contentClip = clip;
+        case PdfSetBlendModeCommand(:final mode):
+          if (mode != PdfBlendMode.normal) {
+            return (null, 'soft-mask fill blend mode ${mode.name}');
+          }
+        case PdfSetOverprintCommand(:final fill, :final stroke):
+          if (fill || stroke) return (null, 'soft-mask fill overprint');
+        default:
+          if (pdfRenderCommandBounds(command) != null) {
+            return (null, 'soft-mask fill contains ${command.runtimeType}');
+          }
+      }
+    }
+    if (saved.isNotEmpty || content == null) {
+      return (null, 'unsupported soft-mask fill group');
+    }
+    final maskState = _singleMaskImage(maskCommands);
+    final mask = maskState.$1;
+    if (mask == null) return (null, maskState.$3);
+    if (mask.request.isStencil) {
+      return (null, 'stencil soft-mask fill image');
+    }
+    final maskDictionary = mask.request.stream.dictionary;
+    if (maskDictionary['SMask'] != null || maskDictionary['Mask'] != null) {
+      return (null, 'transparent soft-mask fill image');
+    }
+    return (
+      _SoftMaskFillSpec(
+        content: content,
+        mask: mask.request,
+        contentClip: contentClip,
+        maskClip: maskState.$2,
+        luminosity: luminosity,
+        backdropLuminance: backdropLuminance,
+        transferScale: transferScale,
+        transferOffset: transferOffset,
       ),
       null,
     );
@@ -1160,16 +1266,28 @@ class _CompiledScene {
           );
           draw = pending is Future<_GpuDraw?> ? await pending : pending;
         } else {
-          draw = await _compileSoftMaskImage(
-            context,
-            geometry,
-            scene,
-            unit.composite!,
-            stats,
-            imageCache,
-            textureLeases,
-            mipmapImages: mipmapImages,
-          );
+          draw = switch (unit.composite!) {
+            _SoftMaskImageSpec spec => await _compileSoftMaskImage(
+                context,
+                geometry,
+                scene,
+                spec,
+                stats,
+                imageCache,
+                textureLeases,
+                mipmapImages: mipmapImages,
+              ),
+            _SoftMaskFillSpec spec => await _compileSoftMaskFill(
+                context,
+                geometry,
+                scene,
+                spec,
+                stats,
+                imageCache,
+                textureLeases,
+                mipmapImages: mipmapImages,
+              ),
+          };
         }
         if (draw != null) draws[unit.commandIndex] = draw;
       }
@@ -1536,6 +1654,61 @@ Future<_GpuDraw> _compileSoftMaskImage(
     contentResource.texture,
     maskResource.texture,
     info,
+  );
+}
+
+Future<_GpuDraw> _compileSoftMaskFill(
+    gpu.GpuContext context,
+    _GpuGeometryArena geometry,
+    PdfRetainedScene scene,
+    _SoftMaskFillSpec spec,
+    FlutterGpuTileBackendStats stats,
+    _GpuImageCache imageCache,
+    List<_GpuImageTexture> textureLeases,
+    {required bool mipmapImages}) async {
+  final maskImage = scene.imageFor(spec.mask)!;
+  final maskResource = await imageCache.acquire(
+    context,
+    spec.mask,
+    maskImage,
+    stats,
+    mipmapped: mipmapImages,
+  );
+  textureLeases.add(maskResource);
+  final subpaths = flattenPath(
+    spec.content.path,
+    PdfMatrix.identity,
+    tolerance: 0.01,
+  );
+  final stencil = _stencilGeometry(geometry, subpaths);
+  if (stencil == null) throw StateError('empty soft-mask fill path');
+  final bounds = stencil.$2;
+  final cover = _imageVertices(PdfMatrix(
+    bounds.right - bounds.left,
+    0,
+    0,
+    bounds.top - bounds.bottom,
+    bounds.left,
+    bounds.bottom,
+  ));
+  return _SoftMaskFillDraw(
+    stencil.$1,
+    geometry.add(cover.bytes, cover.length ~/ 4),
+    spec.content.rule,
+    maskResource.texture,
+    _softMaskInfo(
+      context,
+      maskTransform: spec.mask.transform,
+      contentTint: _premul(spec.content.color, spec.content.alpha),
+      maskTint: <double>[0, 0, 0, spec.mask.alpha.clamp(0.0, 1.0)],
+      contentStencil: true,
+      maskStencil: false,
+      luminosity: spec.luminosity,
+      backdropLuminance: spec.backdropLuminance,
+      transferScale: spec.transferScale,
+      transferOffset: spec.transferOffset,
+      maskClip: spec.maskClip,
+    ),
   );
 }
 
@@ -2601,6 +2774,20 @@ class _SoftMaskDraw implements _GpuDraw {
       encoder.softMask(vertices, contentTexture, maskTexture, info);
 }
 
+class _SoftMaskFillDraw implements _GpuDraw {
+  const _SoftMaskFillDraw(
+      this.fan, this.cover, this.rule, this.maskTexture, this.info);
+  final _GpuBuffer fan;
+  final _GpuBuffer cover;
+  final PdfFillRule rule;
+  final gpu.Texture maskTexture;
+  final gpu.BufferView info;
+
+  @override
+  void encode(_GpuEncoder encoder) =>
+      encoder.softMaskFill(fan, cover, rule, maskTexture, info);
+}
+
 class _GpuEncoder {
   _GpuEncoder({
     required this.pass,
@@ -2883,6 +3070,44 @@ class _GpuEncoder {
           sampler: sampler);
     _drawBuffer(vertices);
     pass.clearBindings();
+  }
+
+  void softMaskFill(_GpuBuffer fan, _GpuBuffer cover, PdfFillRule rule,
+      gpu.Texture maskTexture, gpu.BufferView info) {
+    _accumulateStencil(
+      fan,
+      rule: rule,
+      union: false,
+      requiredClipBit: _activeClipBit,
+    );
+    final sampler = gpu.SamplerOptions(
+      minFilter: gpu.MinMagFilter.linear,
+      magFilter: gpu.MinMagFilter.linear,
+      mipFilter: gpu.MipFilter.linear,
+    );
+    pass
+      ..setStencilReference(0)
+      ..setColorBlendEquation(_srcOver)
+      ..setStencilConfig(gpu.StencilConfig(
+        compareFunction: gpu.CompareFunction.notEqual,
+        depthStencilPassOperation: gpu.StencilOperation.zero,
+        stencilFailureOperation: gpu.StencilOperation.keep,
+        readMask: _pathMask,
+        writeMask: _pathMask,
+      ))
+      ..bindPipeline(pipelines.softMask)
+      ..bindUniform(pipelines.softMaskTransform, transform)
+      ..bindUniform(pipelines.softMaskInfo, info)
+      // The normal grayscale mask texture has opaque alpha. Binding it as the
+      // content sample too lets contentStencil supply the solid fill color,
+      // while the second lookup still evaluates the PDF mask luminance/alpha.
+      ..bindTexture(pipelines.softMaskContentSampler, maskTexture,
+          sampler: sampler)
+      ..bindTexture(pipelines.softMaskMaskSampler, maskTexture,
+          sampler: sampler);
+    _drawBuffer(cover);
+    pass.clearBindings();
+    _clearStencil(_pathMask);
   }
 
   // flutter_gpu is experimental. Flutter 3.47 split vertex count out of
