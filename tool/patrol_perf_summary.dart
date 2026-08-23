@@ -380,8 +380,14 @@ class PatrolPerfTrace {
   String toHeadlineMarkdown({String label = 'web'}) {
     final heading =
         label.toLowerCase() == 'web' ? '### Headline' : '### $label headline';
-    final buffer = StringBuffer()
-      ..writeln(heading)
+    final speedup = _gpuTileSpeedupHeadline(toJson());
+    final buffer = StringBuffer()..writeln(heading);
+    if (speedup != null) {
+      buffer
+        ..writeln()
+        ..writeln(speedup);
+    }
+    buffer
       ..writeln()
       ..writeln(
         lines.isEmpty
@@ -570,8 +576,14 @@ class PatrolPerfComparison {
     final heading = label == null || label.toLowerCase() == 'web'
         ? '### Headline comparison with `main`'
         : '### $label comparison with `main`';
-    final buffer = StringBuffer()
-      ..writeln(heading)
+    final speedup = _gpuTileSpeedupHeadline(current, baseline: baseline);
+    final buffer = StringBuffer()..writeln(heading);
+    if (speedup != null) {
+      buffer
+        ..writeln()
+        ..writeln(speedup);
+    }
+    buffer
       ..writeln()
       ..writeln(
         'Lower timing is better. Structural counts should stay stable unless '
@@ -1315,6 +1327,65 @@ Set<String> _jsonMapKeys(Object? root, List<String> path) {
   return value is Map
       ? value.keys.map((key) => key.toString()).toSet()
       : const {};
+}
+
+typedef _GpuTileSpeedup = ({double firstTileMs, double canvasTileMs});
+
+Map<String, _GpuTileSpeedup> _gpuTileSpeedups(Object? trace) {
+  const suffix = '-first-tile';
+  final result = <String, _GpuTileSpeedup>{};
+  final scenarios = _jsonMapKeys(trace, const ['scenarioMetrics']).toList()
+    ..sort();
+  for (final scenario in scenarios) {
+    if (!scenario.startsWith('gpu-') || !scenario.endsWith(suffix)) continue;
+    final prefix = scenario.substring(0, scenario.length - suffix.length);
+    final firstTile = _jsonNumber(
+      trace,
+      ['scenarioMetrics', scenario, 'elapsedMs', 'p50'],
+    );
+    final canvasTile = _jsonNumber(
+      trace,
+      ['scenarioMetrics', '$prefix-canvas-tile', 'elapsedMs', 'p50'],
+    );
+    if (firstTile == null || canvasTile == null || firstTile <= 0) continue;
+    result[prefix.substring('gpu-'.length).replaceAll('-', ' ')] = (
+      firstTileMs: firstTile.toDouble(),
+      canvasTileMs: canvasTile.toDouble(),
+    );
+  }
+  return result;
+}
+
+String? _gpuTileSpeedupHeadline(
+  Object? current, {
+  Object? baseline,
+}) {
+  final before = baseline == null
+      ? const <String, _GpuTileSpeedup>{}
+      : _gpuTileSpeedups(baseline);
+  final after = _gpuTileSpeedups(current);
+  final workloads = <String>{...before.keys, ...after.keys}.toList()..sort();
+  if (workloads.isEmpty) return null;
+
+  String speedup(_GpuTileSpeedup? value) => value == null
+      ? 'n/a'
+      : '${(value.canvasTileMs / value.firstTileMs).toStringAsFixed(1)}×';
+
+  if (baseline != null) {
+    final values = workloads.map(
+        (workload) => '${_code(workload)} **${speedup(before[workload])} → '
+            '${speedup(after[workload])}**');
+    return '**GPU first tile vs Canvas (p50, main → PR):** '
+        '${values.join('; ')}.';
+  }
+
+  final values = workloads.map((workload) {
+    final value = after[workload]!;
+    return '${_code(workload)} **${speedup(value)}** '
+        '(${_formatMs(value.firstTileMs)} vs '
+        '${_formatMs(value.canvasTileMs)})';
+  });
+  return '**GPU first tile vs Canvas (p50):** ${values.join('; ')}.';
 }
 
 bool _sameMapKeys(Map<String, int> a, Map<String, int> b) =>

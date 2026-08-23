@@ -428,6 +428,9 @@ void main() {
     '[perf 206] scenario name=gpu-tiling-page-0-first-tile phase=start',
     '[perf 211] raster page=0 kind=gpu-tiling-page-0-first-tile ms=5.0',
     '[perf 212] scenario name=gpu-tiling-page-0-first-tile phase=validated',
+    '[perf 213] scenario name=gpu-tiling-page-0-canvas-tile phase=start',
+    '[perf 562] raster page=0 kind=gpu-tiling-page-0-canvas-tile ms=349.0',
+    '[perf 563] scenario name=gpu-tiling-page-0-canvas-tile phase=validated',
     '[perf 0] build commit=gpu-test-2',
     '[perf 1] scenario name=gpu-tiling-pipeline-warm phase=start',
     '[perf 209] raster page=- kind=gpu-tiling-pipeline-warm ms=208.0',
@@ -435,6 +438,9 @@ void main() {
     '[perf 212] scenario name=gpu-tiling-page-0-first-tile phase=start',
     '[perf 218] raster page=0 kind=gpu-tiling-page-0-first-tile ms=6.0',
     '[perf 219] scenario name=gpu-tiling-page-0-first-tile phase=validated',
+    '[perf 220] scenario name=gpu-tiling-page-0-canvas-tile phase=start',
+    '[perf 579] raster page=0 kind=gpu-tiling-page-0-canvas-tile ms=359.0',
+    '[perf 580] scenario name=gpu-tiling-page-0-canvas-tile phase=validated',
     '[perf 0] build commit=gpu-test-3',
     '[perf 1] scenario name=gpu-tiling-pipeline-warm phase=start',
     '[perf 199] raster page=- kind=gpu-tiling-pipeline-warm ms=198.0',
@@ -442,6 +448,9 @@ void main() {
     '[perf 202] scenario name=gpu-tiling-page-0-first-tile phase=start',
     '[perf 207] raster page=0 kind=gpu-tiling-page-0-first-tile ms=5.0',
     '[perf 208] scenario name=gpu-tiling-page-0-first-tile phase=validated',
+    '[perf 209] scenario name=gpu-tiling-page-0-canvas-tile phase=start',
+    '[perf 548] raster page=0 kind=gpu-tiling-page-0-canvas-tile ms=339.0',
+    '[perf 549] scenario name=gpu-tiling-page-0-canvas-tile phase=validated',
   ]);
   final gpuJson = gpuTrace.toJson();
   final gpuScenarios = _map(gpuJson, 'scenarioMetrics');
@@ -467,6 +476,21 @@ void main() {
     gpuTrace.toHeadlineMarkdown(label: 'macOS Metal GPU'),
     'Scenario `gpu-tiling-page-0-first-tile` elapsed p50 (3 runs)',
     'GPU first-tile result reaches the PR headline',
+  );
+  _expectContains(
+    gpuTrace.toHeadlineMarkdown(label: 'macOS Metal GPU'),
+    '**GPU first tile vs Canvas (p50):** `tiling page 0` **58.3×** '
+        '(6.0 ms vs 350.0 ms).',
+    'GPU speedup leads the PR headline',
+  );
+  _expectContains(
+    summary.PatrolPerfComparison(
+      baseline: gpuJson,
+      current: gpuJson,
+    ).toHeadlineMarkdown(label: 'macOS Metal GPU'),
+    '**GPU first tile vs Canvas (p50, main → PR):** '
+        '`tiling page 0` **58.3× → 58.3×**.',
+    'GPU main comparison leads the PR headline',
   );
 
   print('Patrol performance summarizer tests passed');
