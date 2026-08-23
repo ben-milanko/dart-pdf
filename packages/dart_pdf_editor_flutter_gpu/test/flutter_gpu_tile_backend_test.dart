@@ -341,6 +341,55 @@ void main() {
     });
   });
 
+  testWidgets('nested radial gradients use bounded ring geometry',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        PdfFillPathGradientCommand(
+          _rect(35, 90, 560, 610),
+          PdfFillRule.nonzero,
+          const PdfGradient(
+            isRadial: true,
+            coords: [150, 220, 18, 205, 250, 190],
+            colors: [
+              PdfColor(1, 0.9, 0.1),
+              PdfColor(0.9, 0.1, 0.2),
+              PdfColor(0.05, 0.15, 0.8),
+            ],
+            stops: [0, 0.45, 1],
+            transform: PdfMatrix(1.15, 0.12, -0.08, 1.05, 35, 20),
+            extendStart: true,
+            extendEnd: true,
+          ),
+          0.8,
+        ),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      const region = Rect.fromLTWH(10, 70, 580, 570);
+      final canvas = await scene.rasterizeRegion(region, pixelRatio: 1);
+      final accelerated = await session.rasterizeRegion(region, pixelRatio: 1);
+      addTearDown(canvas.dispose);
+      addTearDown(accelerated.dispose);
+      final expected = await _pixels(canvas);
+      final actual = await _pixels(accelerated);
+      var difference = 0;
+      for (var i = 0; i < expected.length; i++) {
+        difference += (expected[i] - actual[i]).abs();
+      }
+      expect(difference / expected.length, lessThan(12));
+    });
+  });
+
   testWidgets('nested arbitrary clips and restored ancestors match Canvas',
       (tester) async {
     await tester.runAsync(() async {
@@ -788,7 +837,7 @@ void main() {
           PdfFillRule.nonzero,
           const PdfGradient(
             isRadial: true,
-            coords: [100, 100, 0, 100, 100, 120],
+            coords: [80, 100, 50, 260, 100, 60],
             colors: [PdfColor(1, 0, 0), PdfColor(0, 0, 1)],
             stops: [0, 1],
             transform: PdfMatrix.identity,
@@ -798,7 +847,8 @@ void main() {
       ]);
       addTearDown(radial.dispose);
       expect(backend.createSession(radial), isNull);
-      expect(backend.stats.lastRejection, 'unsupported radial gradient');
+      expect(backend.stats.lastRejection,
+          'unsupported non-nested radial gradient');
 
       final stencilSource = _decodedImage(
         Uint8List.fromList([

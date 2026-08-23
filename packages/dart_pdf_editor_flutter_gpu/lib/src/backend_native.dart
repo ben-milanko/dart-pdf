@@ -27,9 +27,9 @@ import 'backend_stats.dart';
 /// by the tile shader. Ordinary PDF clip paths are retained as exact stencil
 /// masks (with rectangular clips additionally using the hardware scissor).
 /// Other isolated groups, non-normal blend modes, complex clips *inside* the
-/// special soft-mask-image shortcut, radial gradients, substituted/stroked
-/// text, stencil-image tiling cells, unsafe overprint, or missing image pixels
-/// reject the whole scene.
+/// special soft-mask-image shortcut, non-nested radial gradients,
+/// substituted/stroked text, stencil-image tiling cells, unsafe overprint, or
+/// missing image pixels reject the whole scene.
 /// dart_pdf_editor then permanently uses its Canvas session for that scene.
 class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   FlutterGpuTileRasterBackend({
@@ -811,9 +811,7 @@ String? _unsafeOverprint(_GpuUnit unit, PdfRenderCommand command) {
 }
 
 String? _gradientUnsupportedReason(PdfGradient gradient, double alpha) {
-  if (gradient.isRadial) return 'unsupported radial gradient';
-  if (gradient.coords.length < 4 ||
-      gradient.colors.length < 2 ||
+  if (gradient.colors.length < 2 ||
       gradient.colors.length != gradient.stops.length ||
       gradient.transform.inverted() == null ||
       !alpha.isFinite ||
@@ -827,6 +825,25 @@ String? _gradientUnsupportedReason(PdfGradient gradient, double alpha) {
       ].every((value) => value.isFinite)) {
     return 'invalid axial gradient';
   }
+  if (gradient.isRadial) {
+    if (gradient.coords.length < 6) return 'invalid radial gradient';
+    final x0 = gradient.coords[0], y0 = gradient.coords[1];
+    final r0 = gradient.coords[2];
+    final x1 = gradient.coords[3], y1 = gradient.coords[4];
+    final r1 = gradient.coords[5];
+    final dx = x1 - x0, dy = y1 - y0, dr = r1 - r0;
+    final centerDistance = math.sqrt(dx * dx + dy * dy);
+    if (![x0, y0, r0, x1, y1, r1].every((value) => value.isFinite) ||
+        r0 < 0 ||
+        r1 < 0 ||
+        dr.abs() <= 1e-9 ||
+        centerDistance > dr.abs() + 1e-6) {
+      return 'unsupported non-nested radial gradient';
+    }
+  } else if (gradient.coords.length < 4) {
+    return 'invalid axial gradient';
+  }
+  if (gradient.isRadial) return null;
   final dx = gradient.coords[2] - gradient.coords[0];
   final dy = gradient.coords[3] - gradient.coords[1];
   if (!dx.isFinite || !dy.isFinite || dx * dx + dy * dy <= 1e-12) {
@@ -1627,7 +1644,7 @@ FutureOr<_GpuDraw?> _compileCommand(
         :final gradient,
         :final alpha,
       ):
-      return _compileAxialGradient(
+      return _compileGradient(
         geometry,
         path,
         rule,
@@ -1683,7 +1700,7 @@ FutureOr<_GpuDraw?> _compileCommand(
       }
       final gradient = run.gradient;
       if (gradient != null) {
-        return _compileAxialGradientSubpaths(
+        return _compileGradientSubpaths(
           geometry,
           subs,
           PdfFillRule.nonzero,
@@ -1753,7 +1770,7 @@ Future<_GpuDraw> _compileImageCommand(
   );
 }
 
-_GradientDraw? _compileAxialGradient(
+_GradientDraw? _compileGradient(
   _GpuGeometryArena geometry,
   PdfPath path,
   PdfFillRule rule,
@@ -1764,7 +1781,7 @@ _GradientDraw? _compileAxialGradient(
     return null;
   }
   final subpaths = flattenPath(path, PdfMatrix.identity, tolerance: 0.01);
-  return _compileAxialGradientSubpaths(
+  return _compileGradientSubpaths(
     geometry,
     subpaths,
     rule,
@@ -1773,7 +1790,7 @@ _GradientDraw? _compileAxialGradient(
   );
 }
 
-_GradientDraw? _compileAxialGradientSubpaths(
+_GradientDraw? _compileGradientSubpaths(
   _GpuGeometryArena geometry,
   List<FlatSubpath> subpaths,
   PdfFillRule rule,
@@ -1781,6 +1798,15 @@ _GradientDraw? _compileAxialGradientSubpaths(
   double alpha,
 ) {
   if (alpha <= 0) return null;
+  if (gradient.isRadial) {
+    return _compileRadialGradientSubpaths(
+      geometry,
+      subpaths,
+      rule,
+      gradient,
+      alpha,
+    );
+  }
   final stencil = _stencilGeometry(geometry, subpaths);
   if (stencil == null) return null;
   final bounds = stencil.$2;
@@ -1883,6 +1909,130 @@ _GradientDraw? _compileAxialGradientSubpaths(
         color[2],
         color[3],
       );
+    }
+  }
+  if (vertices.isEmpty) return null;
+  return _GradientDraw(
+    stencil.$1,
+    geometry.add(vertices.bytes, vertices.length ~/ 6),
+    rule,
+  );
+}
+
+_GradientDraw? _compileRadialGradientSubpaths(
+  _GpuGeometryArena geometry,
+  List<FlatSubpath> subpaths,
+  PdfFillRule rule,
+  PdfGradient gradient,
+  double alpha,
+) {
+  final stencil = _stencilGeometry(geometry, subpaths);
+  if (stencil == null) return null;
+  final bounds = stencil.$2;
+  final inverse = gradient.transform.inverted()!;
+  final x0 = gradient.coords[0], y0 = gradient.coords[1];
+  final r0 = gradient.coords[2];
+  final x1 = gradient.coords[3], y1 = gradient.coords[4];
+  final r1 = gradient.coords[5];
+  final dx = x1 - x0, dy = y1 - y0, dr = r1 - r0;
+
+  // Bound the extended, growing side by the fill path. The extra radii and
+  // centre travel are deliberately conservative; the path stencil discards
+  // the excess, while a too-small outer ring would leave a clipped corner
+  // transparent when /Extend asks for the terminal colour.
+  var reach = (math.sqrt(dx * dx + dy * dy) + r0 + r1) * 4 + 1;
+  for (final (px, py) in <(double, double)>[
+    (bounds.left, bounds.bottom),
+    (bounds.right, bounds.bottom),
+    (bounds.right, bounds.top),
+    (bounds.left, bounds.top),
+  ]) {
+    final x = inverse.transformX(px, py), y = inverse.transformY(px, py);
+    final d0 = math.sqrt((x - x0) * (x - x0) + (y - y0) * (y - y0));
+    final d1 = math.sqrt((x - x1) * (x - x1) + (y - y1) * (y - y1));
+    reach = math.max(reach, math.max(d0, d1) + r0 + r1);
+  }
+  if (!reach.isFinite) return null;
+
+  final double tLo;
+  final double tHi;
+  if (dr > 0) {
+    tLo = gradient.extendStart ? -r0 / dr : 0;
+    tHi = gradient.extendEnd ? (reach - r0) / dr : 1;
+  } else {
+    tLo = gradient.extendStart ? (reach - r0) / dr : 0;
+    tHi = gradient.extendEnd ? -r0 / dr : 1;
+  }
+  if (!tLo.isFinite || !tHi.isFinite || tLo >= tHi) return null;
+
+  final cuts = <double>{tLo, tHi};
+  for (final stop in <double>[0, ...gradient.stops, 1]) {
+    if (stop > tLo && stop < tHi) cuts.add(stop);
+  }
+  final ordered = cuts.toList()..sort();
+  const angular = 96;
+  final vertices =
+      FloatBuilder(math.max(angular * 36, (ordered.length - 1) * angular * 36));
+  final commandAlpha = alpha.clamp(0.0, 1.0);
+
+  List<double> colorAt(double t) {
+    final sample = t.clamp(0.0, 1.0);
+    var upper = 1;
+    while (upper < gradient.stops.length && gradient.stops[upper] < sample) {
+      upper++;
+    }
+    if (upper >= gradient.stops.length) {
+      return _premul(gradient.colors.last, commandAlpha);
+    }
+    final lower = upper - 1;
+    final lo = gradient.stops[lower], hi = gradient.stops[upper];
+    final mix = ((sample - lo) / (hi - lo)).clamp(0.0, 1.0);
+    final a = gradient.colors[lower], b = gradient.colors[upper];
+    return _premul(
+      PdfColor(
+        a.red + (b.red - a.red) * mix,
+        a.green + (b.green - a.green) * mix,
+        a.blue + (b.blue - a.blue) * mix,
+      ),
+      commandAlpha,
+    );
+  }
+
+  (double, double) point(double t, int step) {
+    final angle = 2 * math.pi * step / angular;
+    final radius = math.max(0.0, r0 + dr * t);
+    final x = x0 + dx * t + radius * math.cos(angle);
+    final y = y0 + dy * t + radius * math.sin(angle);
+    return (
+      gradient.transform.transformX(x, y),
+      gradient.transform.transformY(x, y),
+    );
+  }
+
+  for (var i = 0; i + 1 < ordered.length; i++) {
+    final a = ordered[i], b = ordered[i + 1];
+    if (b - a <= 1e-12) continue;
+    final ca = colorAt(a), cb = colorAt(b);
+    for (var j = 0; j < angular; j++) {
+      final p00 = point(a, j), p01 = point(a, j + 1);
+      final p10 = point(b, j), p11 = point(b, j + 1);
+      for (final (point, color) in <((double, double), List<double>)>[
+        (p00, ca),
+        (p10, cb),
+        (p11, cb),
+        (p00, ca),
+        (p11, cb),
+        (p01, ca),
+      ]) {
+        vertices.add6(
+          point.$1,
+          point.$2,
+          color[0],
+          color[1],
+          color[2],
+          color[3],
+        );
+      }
     }
   }
   if (vertices.isEmpty) return null;
