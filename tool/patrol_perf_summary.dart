@@ -12,7 +12,7 @@ void main(List<String> arguments) {
     stdout.writeln(
       'Usage: dart tool/patrol_perf_summary.dart <patrol-log> '
       '--output <directory> [--markdown <file>] [--baseline <json>] '
-      '[--label <platform>]',
+      '[--label <platform>] [--require-scenario-runs <name>=<count>]',
     );
     exit(arguments.contains('--help') ? 0 : 64);
   }
@@ -22,6 +22,7 @@ void main(List<String> arguments) {
   String? markdownOutput;
   String? baselineInput;
   var label = 'web';
+  final requiredScenarioRuns = <String, int>{};
   for (var i = 1; i < arguments.length; i++) {
     switch (arguments[i]) {
       case '--output':
@@ -32,6 +33,19 @@ void main(List<String> arguments) {
         baselineInput = _nextArgument(arguments, ++i, '--baseline');
       case '--label':
         label = _nextArgument(arguments, ++i, '--label');
+      case '--require-scenario-runs':
+        final raw = _nextArgument(arguments, ++i, '--require-scenario-runs');
+        final separator = raw.lastIndexOf('=');
+        final name = separator < 0 ? '' : raw.substring(0, separator);
+        final count =
+            separator < 0 ? null : int.tryParse(raw.substring(separator + 1));
+        if (name.isEmpty || count == null || count < 1) {
+          stderr.writeln(
+            '--require-scenario-runs expects <name>=<positive-count>: $raw',
+          );
+          exit(64);
+        }
+        requiredScenarioRuns[name] = count;
       default:
         stderr.writeln('Unknown argument: ${arguments[i]}');
         exit(64);
@@ -83,9 +97,45 @@ void main(List<String> arguments) {
     File(markdownOutput).writeAsStringSync(markdown, mode: FileMode.append);
   }
 
+  final shortfalls = patrolPerfScenarioRunShortfalls(
+    current,
+    requiredScenarioRuns,
+  );
+  if (shortfalls.isNotEmpty) {
+    for (final entry in shortfalls.entries) {
+      stderr.writeln(
+        'Scenario ${entry.key} produced ${entry.value} complete run(s); '
+        'required ${requiredScenarioRuns[entry.key]}.',
+      );
+    }
+    exit(65);
+  }
+
   stdout.writeln(
     'Collected ${trace.lines.length} Patrol perf events in ${directory.path}',
   );
+}
+
+/// Returns the observed run count for every required scenario that did not
+/// produce enough complete start/end pairs.
+///
+/// CI uses this after writing the report artifacts: a flaky Patrol invocation
+/// remains diagnosable, but cannot silently turn a three-sample comparison
+/// into a one- or two-sample result.
+Map<String, int> patrolPerfScenarioRunShortfalls(
+  Map<String, Object?> trace,
+  Map<String, int> required,
+) {
+  final shortfalls = <String, int>{};
+  for (final entry in required.entries) {
+    final actual = _jsonNumber(
+          trace,
+          ['scenarioMetrics', entry.key, 'runs'],
+        )?.round() ??
+        0;
+    if (actual < entry.value) shortfalls[entry.key] = actual;
+  }
+  return shortfalls;
 }
 
 String _nextArgument(List<String> arguments, int index, String option) {

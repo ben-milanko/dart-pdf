@@ -51,6 +51,9 @@ compare the JSON with a recent `main` run from the same hosted-runner lane. CI
 runs each dedicated performance target three times. Scenario headlines compare
 the median (`p50`) across those repetitions, while the detailed report retains
 `p95` tail timings and warns when either artifact has fewer than three samples.
+The collection step fails if the current run produces fewer than all three
+complete scenario samples; iOS retries a passed Patrol invocation when its
+Flutter performance markers are missing from the captured native log.
 The summary keeps global aggregates for continuity and a scenario breakdown for
 elapsed time, jank, reconciliation, raster work, worker phases, decoded-image
 cache pressure and per-request hit/miss deltas, and worker outcomes, so a slow

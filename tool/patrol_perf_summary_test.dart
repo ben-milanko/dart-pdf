@@ -403,6 +403,22 @@ void main() {
     'fewer than three samples',
     'repetition transition remains provisional',
   );
+  _expectEqual(
+    summary.patrolPerfScenarioRunShortfalls(
+      repeatedJson,
+      const {'repeatable': 3},
+    ),
+    const <String, int>{},
+    'complete repetitions satisfy the CI requirement',
+  );
+  _expectEqual(
+    summary.patrolPerfScenarioRunShortfalls(
+      repeatedJson,
+      const {'repeatable': 4, 'missing': 3},
+    ),
+    const {'repeatable': 3, 'missing': 0},
+    'incomplete repetitions fail the CI requirement',
+  );
 
   print('Patrol performance summarizer tests passed');
 }

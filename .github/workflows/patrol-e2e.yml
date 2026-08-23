@@ -91,6 +91,11 @@ jobs:
           "$RUNNER_TEMP/patrol-web.log"
           --output test-results/perf
           --markdown "$GITHUB_STEP_SUMMARY"
+          --require-scenario-runs "cad-image-deep-zoom=$PATROL_PERF_REPETITIONS"
+          --require-scenario-runs "heavy-document=$PATROL_PERF_REPETITIONS"
+          --require-scenario-runs "jpeg-consumer-decode=$PATROL_PERF_REPETITIONS"
+          --require-scenario-runs "rounded-rung-pressure=$PATROL_PERF_REPETITIONS"
+          --require-scenario-runs "web-worker=$PATROL_PERF_REPETITIONS"
       - name: Upload Patrol web results
         if: always()
         uses: actions/upload-artifact@v7
@@ -183,6 +188,7 @@ jobs:
             --output test-results/perf/android
             --markdown "$GITHUB_STEP_SUMMARY"
             --label Android
+            --require-scenario-runs "native-mobile-tiles=$PATROL_PERF_REPETITIONS"
           )
           baseline="${{ steps.patrol-baseline.outputs.json }}"
           if [[ -f "$baseline" ]]; then
@@ -240,8 +246,13 @@ jobs:
             --show-flutter-logs \
             --verbose \
             2>&1 | tee "$RUNNER_TEMP/patrol-ios.log"
-          for ((iteration = 1; iteration <= PATROL_PERF_REPETITIONS; iteration++)); do
-            echo "::group::Patrol native performance repetition $iteration/$PATROL_PERF_REPETITIONS"
+          completed=0
+          attempt=0
+          max_attempts=$((PATROL_PERF_REPETITIONS + 2))
+          while ((completed < PATROL_PERF_REPETITIONS && attempt < max_attempts)); do
+            attempt=$((attempt + 1))
+            attempt_log="$RUNNER_TEMP/patrol-ios-perf-$attempt.log"
+            echo "::group::Patrol native performance attempt $attempt/$max_attempts"
             patrol test \
               --device "${{ steps.simulator.outputs.device_id }}" \
               --target patrol_test/native_perf_e2e_test.dart \
@@ -249,9 +260,23 @@ jobs:
               --dart-define PDF_BUILD_COMMIT=${{ env.PDF_PATROL_BUILD_COMMIT }} \
               --show-flutter-logs \
               --verbose \
-              2>&1 | tee -a "$RUNNER_TEMP/patrol-ios.log"
+              2>&1 | tee "$attempt_log"
             echo "::endgroup::"
+            if dart ../../../tool/patrol_perf_summary.dart \
+              "$attempt_log" \
+              --output "$RUNNER_TEMP/patrol-ios-perf-${attempt}-summary" \
+              --require-scenario-runs native-mobile-tiles=1 \
+              >/dev/null 2>&1; then
+              tee -a "$RUNNER_TEMP/patrol-ios.log" < "$attempt_log" >/dev/null
+              completed=$((completed + 1))
+            else
+              echo "::warning::iOS Patrol attempt $attempt returned without a complete performance marker; retrying"
+            fi
           done
+          if ((completed < PATROL_PERF_REPETITIONS)); then
+            echo "::error::iOS Patrol produced $completed/$PATROL_PERF_REPETITIONS complete performance repetitions"
+            exit 1
+          fi
       - name: Download latest main Patrol iOS baseline
         id: patrol-baseline
         if: always() && github.event_name == 'pull_request'
@@ -292,6 +317,7 @@ jobs:
             --output test-results/perf/ios
             --markdown "$GITHUB_STEP_SUMMARY"
             --label "iOS Simulator"
+            --require-scenario-runs "native-mobile-tiles=$PATROL_PERF_REPETITIONS"
           )
           baseline="${{ steps.patrol-baseline.outputs.json }}"
           if [[ -f "$baseline" ]]; then

@@ -156,6 +156,11 @@ jobs:
             "$RUNNER_TEMP/patrol-web.log"
             --output test-results/perf
             --markdown "$GITHUB_STEP_SUMMARY"
+            --require-scenario-runs "cad-image-deep-zoom=$PATROL_PERF_REPETITIONS"
+            --require-scenario-runs "heavy-document=$PATROL_PERF_REPETITIONS"
+            --require-scenario-runs "jpeg-consumer-decode=$PATROL_PERF_REPETITIONS"
+            --require-scenario-runs "rounded-rung-pressure=$PATROL_PERF_REPETITIONS"
+            --require-scenario-runs "web-worker=$PATROL_PERF_REPETITIONS"
           )
           baseline="${{ steps.patrol-baseline.outputs.json }}"
           if [[ -f "$baseline" ]]; then
