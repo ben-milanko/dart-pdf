@@ -839,10 +839,33 @@ _CommandImage? _decodeImageForCommand(
     }
   }
   if (predecoded != null) {
-    final decoded = maxImageRatio == null
-        ? predecoded
-        : _capImageResolution(
-            predecoded, request.transform, maxImageRatio, budgetScale);
+    // A producer may attach pixels that are already capped to this exact
+    // display/page budget (the web worker's browser-native Flate path does).
+    // Derive the final target from the source stream, not from the attached
+    // plane: treating that smaller plane as native applies [budgetScale] a
+    // second time, paying for another downsample and shipping blurry pixels.
+    final target = maxImageRatio == null
+        ? null
+        : _targetDecodedSize(
+            document,
+            request,
+            maxImageRatio,
+            budgetScale,
+          );
+    final targetWidth = target == null
+        ? predecoded.width
+        : math.min(predecoded.width, target.$1);
+    final targetHeight = target == null
+        ? predecoded.height
+        : math.min(predecoded.height, target.$2);
+    final decoded =
+        targetWidth == predecoded.width && targetHeight == predecoded.height
+            ? predecoded
+            : downsamplePdfDecodedPixels(
+                predecoded,
+                targetWidth,
+                targetHeight,
+              );
     return _CommandImage(_copyImageRequest(request, decoded: decoded), decoded);
   }
   if (maxImageRatio != null) {
