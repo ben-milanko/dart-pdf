@@ -241,6 +241,70 @@ void main() {
     });
   });
 
+  testWidgets('axial gradients use exact path stencil and stop geometry',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      const path = PdfPath([
+        PdfMoveTo(45, 120),
+        PdfLineTo(520, 120),
+        PdfLineTo(520, 510),
+        PdfLineTo(45, 510),
+        PdfClosePath(),
+        PdfMoveTo(210, 245),
+        PdfLineTo(355, 245),
+        PdfLineTo(355, 390),
+        PdfLineTo(210, 390),
+        PdfClosePath(),
+      ]);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        const PdfFillPathGradientCommand(
+          path,
+          PdfFillRule.evenOdd,
+          PdfGradient(
+            isRadial: false,
+            coords: [0, 0, 180, 0],
+            colors: [
+              PdfColor(0.9, 0.05, 0.1),
+              PdfColor(0.1, 0.75, 0.2),
+              PdfColor(0.05, 0.2, 0.95),
+            ],
+            stops: [0, 0.38, 1],
+            transform: PdfMatrix(2.1, 0.35, -0.2, 1.6, 90, 170),
+            extendStart: false,
+            extendEnd: false,
+          ),
+          0.72,
+        ),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      const region = Rect.fromLTWH(20, 90, 540, 450);
+      final canvas = await scene.rasterizeRegion(region, pixelRatio: 1.25);
+      final accelerated =
+          await session.rasterizeRegion(region, pixelRatio: 1.25);
+      addTearDown(canvas.dispose);
+      addTearDown(accelerated.dispose);
+      final expected = await _pixels(canvas);
+      final actual = await _pixels(accelerated);
+      var difference = 0;
+      for (var i = 0; i < expected.length; i++) {
+        difference += (expected[i] - actual[i]).abs();
+      }
+      expect(difference / expected.length, lessThan(8),
+          reason: 'translucent gradient and stencil AA must stay within the '
+              'GPU corpus parity budget');
+    });
+  });
+
   testWidgets('nested arbitrary clips and restored ancestors match Canvas',
       (tester) async {
     await tester.runAsync(() async {
@@ -681,6 +745,24 @@ void main() {
       expect(backend.createSession(substituted), isNull);
       expect(backend.stats.lastRejection,
           'unsupported text: missing glyph outlines');
+
+      final radial = await PdfRetainedScene.fromCommands(page, [
+        PdfFillPathGradientCommand(
+          _rect(40, 40, 300, 300),
+          PdfFillRule.nonzero,
+          const PdfGradient(
+            isRadial: true,
+            coords: [100, 100, 0, 100, 100, 120],
+            colors: [PdfColor(1, 0, 0), PdfColor(0, 0, 1)],
+            stops: [0, 1],
+            transform: PdfMatrix.identity,
+          ),
+          1,
+        ),
+      ]);
+      addTearDown(radial.dispose);
+      expect(backend.createSession(radial), isNull);
+      expect(backend.stats.lastRejection, 'unsupported radial gradient');
 
       final stencilSource = _decodedImage(
         Uint8List.fromList([

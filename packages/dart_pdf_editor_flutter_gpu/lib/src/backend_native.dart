@@ -27,9 +27,9 @@ import 'backend_stats.dart';
 /// by the tile shader. Ordinary PDF clip paths are retained as exact stencil
 /// masks (with rectangular clips additionally using the hardware scissor).
 /// Other isolated groups, non-normal blend modes, complex clips *inside* the
-/// special soft-mask-image shortcut, gradients, substituted/stroked text,
-/// tiling cells, unsafe overprint, or missing image pixels reject the whole
-/// scene.
+/// special soft-mask-image shortcut, radial gradients, substituted/stroked
+/// text, stencil-image tiling cells, unsafe overprint, or missing image pixels
+/// reject the whole scene.
 /// dart_pdf_editor then permanently uses its Canvas session for that scene.
 class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   FlutterGpuTileRasterBackend({
@@ -227,7 +227,8 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
             return 'unsupported text: ${textReasons.join(', ')}';
           }
         case PdfFillPathGradientCommand():
-          return 'unsupported ${command.runtimeType}';
+          final reason = _gradientUnsupportedReason(command);
+          if (reason != null) return reason;
         default:
           return 'unsupported ${command.runtimeType}';
       }
@@ -243,8 +244,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
         case PdfBeginGroupCommand() ||
               PdfEndGroupCommand() ||
               PdfBeginSoftMaskedCommand() ||
-              PdfEndSoftMaskedCommand() ||
-              PdfFillPathGradientCommand():
+              PdfEndSoftMaskedCommand():
           if (covered.contains(i)) break;
           return 'unsafe ${command.runtimeType}';
         case PdfSetBlendModeCommand(:final mode):
@@ -792,10 +792,43 @@ String? _unsafeOverprint(_GpuUnit unit, PdfRenderCommand command) {
   switch (command) {
     case PdfFillMeshCommand():
       if (unit.fillOverprint) return 'mesh overprint';
+    case PdfFillPathGradientCommand():
+      if (unit.fillOverprint) return 'gradient overprint';
     default:
       // Images do not use CanvasPdfDevice's overprint approximation; the
       // interpreter has already resolved any image-adjacent colorant work.
       break;
+  }
+  return null;
+}
+
+String? _gradientUnsupportedReason(PdfFillPathGradientCommand command) {
+  final gradient = command.gradient;
+  if (gradient.isRadial) return 'unsupported radial gradient';
+  if (gradient.coords.length < 4 ||
+      gradient.colors.length < 2 ||
+      gradient.colors.length != gradient.stops.length ||
+      gradient.transform.inverted() == null ||
+      !command.alpha.isFinite ||
+      ![
+        gradient.transform.a,
+        gradient.transform.b,
+        gradient.transform.c,
+        gradient.transform.d,
+        gradient.transform.e,
+        gradient.transform.f,
+      ].every((value) => value.isFinite)) {
+    return 'invalid axial gradient';
+  }
+  final dx = gradient.coords[2] - gradient.coords[0];
+  final dy = gradient.coords[3] - gradient.coords[1];
+  if (!dx.isFinite || !dy.isFinite || dx * dx + dy * dy <= 1e-12) {
+    return 'invalid axial gradient';
+  }
+  var previous = double.negativeInfinity;
+  for (final stop in gradient.stops) {
+    if (!stop.isFinite || stop <= previous) return 'invalid axial gradient';
+    previous = stop;
   }
   return null;
 }
@@ -1581,6 +1614,19 @@ FutureOr<_GpuDraw?> _compileCommand(
       ):
       final subs = flattenPath(path, PdfMatrix.identity, tolerance: 0.01);
       return _stencilDraw(geometry, subs, color, alpha, rule, false);
+    case PdfFillPathGradientCommand(
+        :final path,
+        :final rule,
+        :final gradient,
+        :final alpha,
+      ):
+      return _compileAxialGradient(
+        geometry,
+        path,
+        rule,
+        gradient,
+        alpha,
+      );
     case PdfStrokePathCommand(
         :final path,
         :final color,
@@ -1687,6 +1733,132 @@ Future<_GpuDraw> _compileImageCommand(
       offsetInBytes: 0,
       lengthInBytes: info.lengthInBytes,
     ),
+  );
+}
+
+_GradientDraw? _compileAxialGradient(
+  _GpuGeometryArena geometry,
+  PdfPath path,
+  PdfFillRule rule,
+  PdfGradient gradient,
+  double alpha,
+) {
+  if (alpha <= 0 ||
+      _gradientUnsupportedReason(
+              PdfFillPathGradientCommand(path, rule, gradient, alpha)) !=
+          null) {
+    return null;
+  }
+  final subpaths = flattenPath(path, PdfMatrix.identity, tolerance: 0.01);
+  final stencil = _stencilGeometry(geometry, subpaths);
+  if (stencil == null) return null;
+  final bounds = stencil.$2;
+  final inverse = gradient.transform.inverted()!;
+  final x0 = gradient.coords[0], y0 = gradient.coords[1];
+  final dx = gradient.coords[2] - x0, dy = gradient.coords[3] - y0;
+  final length2 = dx * dx + dy * dy;
+  final nx = -dy, ny = dx;
+  var minT = double.infinity, maxT = double.negativeInfinity;
+  var minU = double.infinity, maxU = double.negativeInfinity;
+  for (final (px, py) in <(double, double)>[
+    (bounds.left, bounds.bottom),
+    (bounds.right, bounds.bottom),
+    (bounds.right, bounds.top),
+    (bounds.left, bounds.top),
+  ]) {
+    final x = inverse.transformX(px, py), y = inverse.transformY(px, py);
+    final gx = x - x0, gy = y - y0;
+    final t = (gx * dx + gy * dy) / length2;
+    final u = (gx * nx + gy * ny) / length2;
+    minT = math.min(minT, t);
+    maxT = math.max(maxT, t);
+    minU = math.min(minU, u);
+    maxU = math.max(maxU, u);
+  }
+  if (![minT, maxT, minU, maxU].every((value) => value.isFinite) ||
+      minT >= maxT ||
+      minU >= maxU) {
+    return null;
+  }
+
+  final cuts = <double>{minT, maxT};
+  for (final stop in <double>[0, ...gradient.stops, 1]) {
+    if (stop > minT && stop < maxT) cuts.add(stop);
+  }
+  final ordered = cuts.toList()..sort();
+  final vertices = FloatBuilder(math.max(36, (ordered.length - 1) * 36));
+  final commandAlpha = alpha.clamp(0.0, 1.0);
+
+  List<double> colorAt(double t) {
+    final sample = t.clamp(0.0, 1.0);
+    var upper = 1;
+    while (upper < gradient.stops.length && gradient.stops[upper] < sample) {
+      upper++;
+    }
+    if (upper >= gradient.stops.length) {
+      return _premul(gradient.colors.last, commandAlpha);
+    }
+    final lower = upper - 1;
+    final lo = gradient.stops[lower], hi = gradient.stops[upper];
+    final mix = hi <= lo ? 1.0 : ((sample - lo) / (hi - lo)).clamp(0.0, 1.0);
+    final a = gradient.colors[lower], b = gradient.colors[upper];
+    return _premul(
+      PdfColor(
+        a.red + (b.red - a.red) * mix,
+        a.green + (b.green - a.green) * mix,
+        a.blue + (b.blue - a.blue) * mix,
+      ),
+      commandAlpha,
+    );
+  }
+
+  (double, double) point(double t, double u) {
+    final x = x0 + dx * t + nx * u;
+    final y = y0 + dy * t + ny * u;
+    return (
+      gradient.transform.transformX(x, y),
+      gradient.transform.transformY(x, y),
+    );
+  }
+
+  for (var i = 0; i + 1 < ordered.length; i++) {
+    final a = ordered[i], b = ordered[i + 1];
+    if (b - a <= 1e-12) continue;
+    final outsideStart = b <= 0;
+    final outsideEnd = a >= 1;
+    final ca = outsideStart && !gradient.extendStart ||
+            outsideEnd && !gradient.extendEnd
+        ? const <double>[0, 0, 0, 0]
+        : colorAt(a);
+    final cb = outsideStart && !gradient.extendStart ||
+            outsideEnd && !gradient.extendEnd
+        ? const <double>[0, 0, 0, 0]
+        : colorAt(b);
+    final p00 = point(a, minU), p01 = point(a, maxU);
+    final p10 = point(b, minU), p11 = point(b, maxU);
+    for (final (point, color) in <((double, double), List<double>)>[
+      (p00, ca),
+      (p10, cb),
+      (p11, cb),
+      (p00, ca),
+      (p11, cb),
+      (p01, ca),
+    ]) {
+      vertices.add6(
+        point.$1,
+        point.$2,
+        color[0],
+        color[1],
+        color[2],
+        color[3],
+      );
+    }
+  }
+  if (vertices.isEmpty) return null;
+  return _GradientDraw(
+    stencil.$1,
+    geometry.add(vertices.bytes, vertices.length ~/ 6),
+    rule,
   );
 }
 
@@ -1939,6 +2111,17 @@ class _StencilDraw implements _GpuDraw {
       encoder.stencil(fan, cover, rule: rule, union: union);
 }
 
+class _GradientDraw implements _GpuDraw {
+  const _GradientDraw(this.fan, this.mesh, this.rule);
+
+  final _GpuBuffer fan;
+  final _GpuBuffer mesh;
+  final PdfFillRule rule;
+
+  @override
+  void encode(_GpuEncoder encoder) => encoder.gradient(fan, mesh, rule);
+}
+
 class _GpuClipDraw {
   const _GpuClipDraw(this.fan, this.cover, this.rule);
 
@@ -2129,6 +2312,32 @@ class _GpuEncoder {
       ..bindPipeline(pipelines.solid)
       ..bindUniform(pipelines.solidTransform, transform);
     _drawBuffer(cover);
+  }
+
+  void gradient(_GpuBuffer fan, _GpuBuffer mesh, PdfFillRule rule) {
+    _accumulateStencil(
+      fan,
+      rule: rule,
+      union: false,
+      requiredClipBit: _activeClipBit,
+    );
+    pass
+      ..setStencilReference(0)
+      ..setColorBlendEquation(_srcOver)
+      ..setStencilConfig(gpu.StencilConfig(
+        compareFunction: gpu.CompareFunction.notEqual,
+        depthStencilPassOperation: gpu.StencilOperation.zero,
+        stencilFailureOperation: gpu.StencilOperation.keep,
+        readMask: _pathMask,
+        writeMask: _pathMask,
+      ))
+      ..bindPipeline(pipelines.solid)
+      ..bindUniform(pipelines.solidTransform, transform);
+    _drawBuffer(mesh);
+    // The gradient mesh conservatively covers the path bounds, but clearing
+    // the scratch bits explicitly keeps a malformed transform or degenerate
+    // interval from leaking winding state into the next draw.
+    _clearStencil(_pathMask);
   }
 
   void _accumulateStencil(
