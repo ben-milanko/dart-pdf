@@ -913,47 +913,6 @@ void main() {
       expect(backend.stats.lastRejection,
           'unsupported non-nested radial gradient');
 
-      final stencilSource = _decodedImage(
-        Uint8List.fromList([
-          0,
-          0,
-          0,
-          255,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          255,
-        ]),
-        const PdfMatrix(40, 0, 0, 40, 100, 100),
-        'tiled-stencil',
-      ).request;
-      final tiledStencil = await PdfRetainedScene.fromCommands(page, [
-        PdfDrawTiledCellCommand(
-          [
-            PdfDrawImageCommand(PdfImageRequest(
-              stream: stencilSource.stream,
-              transform: stencilSource.transform,
-              isStencil: true,
-              stencilColor: const PdfColor(0.1, 0.2, 0.8),
-              decoded: stencilSource.decoded,
-            )),
-          ],
-          Float64List.fromList([0]),
-          Float64List.fromList([0]),
-        ),
-      ]);
-      addTearDown(tiledStencil.dispose);
-      expect(backend.createSession(tiledStencil), isNull);
-      expect(backend.stats.lastRejection, 'unsupported tiled stencil image');
-
       final nonRectClip = await PdfRetainedScene.fromCommands(page, [
         const PdfSaveCommand(),
         PdfClipPathCommand(
@@ -987,6 +946,82 @@ void main() {
       }
       expect(difference / a.length, lessThan(3),
           reason: 'arbitrary PDF clips should use the exact stencil route');
+    });
+  });
+
+  testWidgets('tiled stencil images use scene-wide mipmaps', (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      const sourceSize = 64;
+      final pixels = Uint8List(sourceSize * sourceSize * 4);
+      for (var y = 0; y < sourceSize; y++) {
+        for (var x = 0; x < sourceSize; x++) {
+          final offset = 4 * (y * sourceSize + x);
+          final on = ((x ~/ 2 + y ~/ 2).isEven) ? 255 : 0;
+          pixels[offset] = on;
+          pixels[offset + 1] = on;
+          pixels[offset + 2] = on;
+          pixels[offset + 3] = on;
+        }
+      }
+      final stream = CosStream(
+        CosDictionary({
+          'Identity': CosString.fromText('minified-tiled-stencil'),
+          'Width': const CosInteger(sourceSize),
+          'Height': const CosInteger(sourceSize),
+        }),
+        Uint8List(0),
+      );
+      final origins = Float64List.fromList([
+        for (var y = 0; y < 10; y++)
+          for (var x = 0; x < 10; x++) x * 9.0,
+      ]);
+      final originsY = Float64List.fromList([
+        for (var y = 0; y < 10; y++)
+          for (var x = 0; x < 10; x++) y * 9.0,
+      ]);
+      final scene = await PdfRetainedScene.fromCommands(
+        page,
+        [
+          PdfDrawTiledCellCommand(
+            [
+              PdfDrawImageCommand(PdfImageRequest(
+                stream: stream,
+                transform: const PdfMatrix(8, 0, 0, 8, 10, 10),
+                isStencil: true,
+                stencilColor: const PdfColor(0.1, 0.2, 0.8),
+                decoded: PdfDecodedPixels(pixels, sourceSize, sourceSize),
+              )),
+            ],
+            origins,
+            originsY,
+          ),
+        ],
+        retainDecodedPixels: true,
+      );
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      const region = Rect.fromLTWH(0, 0, 110, 110);
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var i = 0; i < a.length; i++) {
+        difference += (a[i] - b[i]).abs();
+      }
+      expect(difference / a.length, lessThan(16));
+      expect(backend.stats.textureBytes, 21840,
+          reason: '64x64 RGBA plus every mip level flutter_gpu supports');
     });
   });
 

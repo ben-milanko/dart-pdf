@@ -2,6 +2,9 @@
 
 ## Next
 
+- Render tiled stencil images exactly using scene-scoped, hand-built mipmaps.
+  Mip levels participate in the shared texture budget and cache identity, and
+  worker-reconstructed tiling cells retain their decoded images.
 - Warm every tile shader with a one-pixel idle submission, shared per Impeller
   context and MSAA mode, then compile and submit each live page's retained
   scene at one-pixel scale. Both passes wait for useful pixels plus a 750 ms

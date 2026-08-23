@@ -58,8 +58,9 @@ compile-time stub and therefore preserves the all-platform host surface.
 
 The current exact subset is solid paths and strokes, embedded-outline text,
 decoded images/image masks, Gouraud meshes, axial gradients, nested-circle
-radial gradients, vector tiling cells, normal blending, rectangular and
-arbitrary path clips, and the common isolated single-image soft-mask group.
+radial gradients, vector and stencil-image tiling cells, normal blending,
+rectangular and arbitrary path clips, and the common isolated single-image
+soft-mask group.
 Rectangles use hardware scissors; other clip stacks compile once into retained
 stencil geometry and preserve nonzero/even-odd plus save/restore semantics. The
 mask case keeps the base and mask as two GPU textures and combines them during
@@ -108,10 +109,10 @@ instance alive when comparing pages so those counters and cross-page caches
 describe the real workload rather than one page at a time.
 
 Pages with other transparency groups or soft masks, non-normal blends,
-non-nested radial gradients, gradient overprint, stencil-image tiling cells,
-unsafe overprint, complex clips nested inside the single-image soft-mask
-shortcut, substituted/stroked text, hairlines, or missing image pixels are
-rejected as a whole rather than approximated.
+non-nested radial gradients, gradient overprint, unsafe overprint, complex
+clips nested inside the single-image soft-mask shortcut, substituted/stroked
+text, hairlines, or missing image pixels are rejected as a whole rather than
+approximated.
 `allowOverprintApproximation` exists only for controlled experiments and
 defaults to false.
 

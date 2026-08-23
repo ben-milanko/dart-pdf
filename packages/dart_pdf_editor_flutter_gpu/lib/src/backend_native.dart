@@ -30,8 +30,8 @@ import 'backend_stats.dart';
 /// masks (with rectangular clips additionally using the hardware scissor).
 /// Other isolated groups, non-normal blend modes, complex clips *inside* the
 /// special soft-mask-image shortcut, non-nested radial gradients,
-/// substituted/stroked text, stencil-image tiling cells, unsafe overprint, or
-/// missing image pixels reject the whole scene.
+/// substituted/stroked text, unsafe overprint, or missing image pixels reject
+/// the whole scene.
 /// dart_pdf_editor then permanently uses its Canvas session for that scene.
 class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   FlutterGpuTileRasterBackend({
@@ -209,6 +209,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
       return _FlutterGpuTileSession(
         scene: scene,
         commands: commands,
+        mipmapImages: commandBuild.mipmapImages,
         context: context,
         pipelines: _GpuPipelines.instance(context),
         units: units,
@@ -426,10 +427,15 @@ class _SoftMaskImageSpec {
 }
 
 class _GpuCommandBuild {
-  const _GpuCommandBuild(this.commands, this.rejection);
+  const _GpuCommandBuild(
+    this.commands,
+    this.rejection, {
+    required this.mipmapImages,
+  });
 
   final List<PdfRenderCommand>? commands;
   final String? rejection;
+  final bool mipmapImages;
 }
 
 /// Expands retained tiling cells once for the GPU scene.
@@ -444,7 +450,7 @@ class _GpuCommandBuild {
 _GpuCommandBuild _buildGpuCommands(List<PdfRenderCommand> source) {
   const maxExpandedCommands = 1000000;
   var hasTiledCell = false;
-  String? tiledRejection;
+  var mipmapImages = false;
 
   int count(List<PdfRenderCommand> commands, Set<Object> active,
       {bool inTiledCell = false}) {
@@ -470,11 +476,11 @@ _GpuCommandBuild _buildGpuCommands(List<PdfRenderCommand> source) {
         if (inTiledCell &&
             command is PdfDrawImageCommand &&
             command.request.isStencil) {
-          // Type 3 bitmap glyphs are retained as one-repeat tiling cells.
-          // Linear texture sampling does not yet match Canvas closely enough
-          // on the Ghent font grid, so do not let flattening accidentally
-          // promote those pages into the exact GPU subset.
-          tiledRejection ??= 'unsupported tiled stencil image';
+          // Canvas uses FilterQuality.medium for every image on the page.
+          // Once a retained bitmap-font cell needs minification, match that
+          // sampling mode for the whole GPU scene; mixing base-only and
+          // mipmapped images on the same Ghent page is measurably less exact.
+          mipmapImages = true;
         }
         total++;
       }
@@ -488,14 +494,14 @@ _GpuCommandBuild _buildGpuCommands(List<PdfRenderCommand> source) {
   }
 
   final expandedCount = count(source, Set<Object>.identity());
-  if (!hasTiledCell) return _GpuCommandBuild(source, null);
-  if (tiledRejection != null) {
-    return _GpuCommandBuild(null, tiledRejection);
+  if (!hasTiledCell) {
+    return _GpuCommandBuild(source, null, mipmapImages: false);
   }
   if (expandedCount > maxExpandedCommands) {
     return const _GpuCommandBuild(
       null,
       'expanded tiling cells exceed GPU command cap',
+      mipmapImages: false,
     );
   }
 
@@ -526,9 +532,14 @@ _GpuCommandBuild _buildGpuCommands(List<PdfRenderCommand> source) {
     return const _GpuCommandBuild(
       null,
       'expanded tiling cells exceed GPU command cap',
+      mipmapImages: false,
     );
   }
-  return _GpuCommandBuild(List.unmodifiable(expanded), null);
+  return _GpuCommandBuild(
+    List.unmodifiable(expanded),
+    null,
+    mipmapImages: mipmapImages,
+  );
 }
 
 _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
@@ -939,6 +950,7 @@ class _FlutterGpuTileSession
   _FlutterGpuTileSession({
     required this.scene,
     required this.commands,
+    required this.mipmapImages,
     required this.context,
     required this.pipelines,
     required this.units,
@@ -951,6 +963,7 @@ class _FlutterGpuTileSession
   @override
   final PdfRetainedScene scene;
   final List<PdfRenderCommand> commands;
+  final bool mipmapImages;
 
   // This backend already returns a final GPU texture for every raster call.
   // Slab splitting would queue another texture-to-texture copy per tile; those
@@ -985,6 +998,7 @@ class _FlutterGpuTileSession
         stats,
         imageCache,
         geometryPool,
+        mipmapImages: mipmapImages,
       ).then((compiled) {
         if (_disposed) {
           compiled.dispose();
@@ -1119,14 +1133,14 @@ class _CompiledScene {
   });
 
   static Future<_CompiledScene> build(
-    PdfRetainedScene scene,
-    List<PdfRenderCommand> commands,
-    gpu.GpuContext context,
-    List<_GpuUnit> units,
-    FlutterGpuTileBackendStats stats,
-    _GpuImageCache imageCache,
-    _GpuGeometryPool geometryPool,
-  ) async {
+      PdfRetainedScene scene,
+      List<PdfRenderCommand> commands,
+      gpu.GpuContext context,
+      List<_GpuUnit> units,
+      FlutterGpuTileBackendStats stats,
+      _GpuImageCache imageCache,
+      _GpuGeometryPool geometryPool,
+      {required bool mipmapImages}) async {
     final clock = Stopwatch()..start();
     final draws = <int, _GpuDraw>{};
     final clipDraws = Map<_GpuClipNode, _GpuClipDraw>.identity();
@@ -1151,6 +1165,7 @@ class _CompiledScene {
             stats,
             imageCache,
             textureLeases,
+            mipmapImages: mipmapImages,
           );
           draw = pending is Future<_GpuDraw?> ? await pending : pending;
         } else {
@@ -1162,6 +1177,7 @@ class _CompiledScene {
             stats,
             imageCache,
             textureLeases,
+            mipmapImages: mipmapImages,
           );
         }
         if (draw != null) draws[unit.commandIndex] = draw;
@@ -1477,21 +1493,31 @@ _SolidDraw _paperDraw(_GpuGeometryArena geometry, PdfRetainedScene scene) {
 }
 
 Future<_GpuDraw> _compileSoftMaskImage(
-  gpu.GpuContext context,
-  _GpuGeometryArena geometry,
-  PdfRetainedScene scene,
-  _SoftMaskImageSpec spec,
-  FlutterGpuTileBackendStats stats,
-  _GpuImageCache imageCache,
-  List<_GpuImageTexture> textureLeases,
-) async {
+    gpu.GpuContext context,
+    _GpuGeometryArena geometry,
+    PdfRetainedScene scene,
+    _SoftMaskImageSpec spec,
+    FlutterGpuTileBackendStats stats,
+    _GpuImageCache imageCache,
+    List<_GpuImageTexture> textureLeases,
+    {required bool mipmapImages}) async {
   final contentImage = scene.imageFor(spec.content)!;
   final maskImage = scene.imageFor(spec.mask)!;
-  final contentResource =
-      await imageCache.acquire(context, spec.content, contentImage, stats);
+  final contentResource = await imageCache.acquire(
+    context,
+    spec.content,
+    contentImage,
+    stats,
+    mipmapped: mipmapImages,
+  );
   textureLeases.add(contentResource);
-  final maskResource =
-      await imageCache.acquire(context, spec.mask, maskImage, stats);
+  final maskResource = await imageCache.acquire(
+    context,
+    spec.mask,
+    maskImage,
+    stats,
+    mipmapped: mipmapImages,
+  );
   textureLeases.add(maskResource);
   final vertices = _imageVertices(spec.content.transform);
   final inverse = spec.mask.transform.inverted();
@@ -1557,21 +1583,28 @@ Future<_GpuDraw> _compileSoftMaskImage(
 }
 
 class _GpuImageTexture {
-  _GpuImageTexture(this.texture, this.width, this.height);
+  _GpuImageTexture(this.texture, this.width, this.height, this.bytes);
   final gpu.Texture texture;
   final int width;
   final int height;
+  final int bytes;
   int leases = 0;
   bool cacheable = true;
-  int get bytes => width * height * 4;
 }
 
 class _GpuTextureKey {
-  const _GpuTextureKey(this.context, this.content, this.width, this.height);
+  const _GpuTextureKey(
+    this.context,
+    this.content,
+    this.width,
+    this.height,
+    this.mipmapped,
+  );
   final gpu.GpuContext context;
   final Object content;
   final int width;
   final int height;
+  final bool mipmapped;
 
   @override
   bool operator ==(Object other) =>
@@ -1579,11 +1612,17 @@ class _GpuTextureKey {
       identical(other.context, context) &&
       other.content == content &&
       other.width == width &&
-      other.height == height;
+      other.height == height &&
+      other.mipmapped == mipmapped;
 
   @override
-  int get hashCode =>
-      Object.hash(identityHashCode(context), content, width, height);
+  int get hashCode => Object.hash(
+        identityHashCode(context),
+        content,
+        width,
+        height,
+        mipmapped,
+      );
 }
 
 class _GpuImageCache {
@@ -1595,14 +1634,16 @@ class _GpuImageCache {
   final Set<_GpuImageTexture> _detached = Set.identity();
   int _bytes = 0;
 
-  Future<_GpuImageTexture> acquire(
-    gpu.GpuContext context,
-    PdfImageRequest request,
-    ui.Image image,
-    FlutterGpuTileBackendStats stats,
-  ) async {
+  Future<_GpuImageTexture> acquire(gpu.GpuContext context,
+      PdfImageRequest request, ui.Image image, FlutterGpuTileBackendStats stats,
+      {required bool mipmapped}) async {
     final key = _GpuTextureKey(
-        context, pdfImageContentKey(request), image.width, image.height);
+      context,
+      pdfImageContentKey(request),
+      image.width,
+      image.height,
+      mipmapped,
+    );
     final hit = _entries.remove(key);
     if (hit != null) {
       _entries[key] = hit;
@@ -1613,7 +1654,9 @@ class _GpuImageCache {
       return hit;
     }
     stats.textureCacheMisses++;
-    final bytes = image.width * image.height * 4;
+    final mipLevelCount =
+        mipmapped ? gpu.Texture.fullMipCount(image.width, image.height) : 1;
+    final bytes = _textureBytes(image.width, image.height, mipLevelCount);
     if (maxBytes > 0 && !_makeRoom(bytes, stats)) {
       stats.textureBudgetFallbacks++;
       throw StateError('GPU texture budget exceeded: need $bytes bytes, '
@@ -1624,6 +1667,7 @@ class _GpuImageCache {
       image,
       stats,
       decoded: request.decoded,
+      mipLevelCount: mipLevelCount,
     )
       ..leases = 1;
     _bytes += uploaded.bytes;
@@ -1706,7 +1750,7 @@ FloatBuilder _imageVertices(PdfMatrix transform) {
 
 Future<_GpuImageTexture> _uploadImageTexture(
     gpu.GpuContext context, ui.Image image, FlutterGpuTileBackendStats stats,
-    {PdfDecodedPixels? decoded}) async {
+    {PdfDecodedPixels? decoded, required int mipLevelCount}) async {
   final ByteData bytes;
   if (decoded != null &&
       decoded.width == image.width &&
@@ -1726,21 +1770,57 @@ Future<_GpuImageTexture> _uploadImageTexture(
     image.width,
     image.height,
     format: gpu.PixelFormat.r8g8b8a8UNormInt,
+    mipLevelCount: mipLevelCount,
   );
   texture.overwrite(bytes);
+  var width = image.width;
+  var height = image.height;
+  var level =
+      bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes);
+  for (var mip = 1; mip < mipLevelCount; mip++) {
+    level = _downsampleRgba(level, width, height);
+    width = math.max(1, width ~/ 2);
+    height = math.max(1, height ~/ 2);
+    texture.overwrite(ByteData.sublistView(level), mipLevel: mip);
+  }
   stats.texturesUploaded++;
-  return _GpuImageTexture(texture, image.width, image.height);
+  return _GpuImageTexture(
+    texture,
+    image.width,
+    image.height,
+    _textureBytes(image.width, image.height, mipLevelCount),
+  );
+}
+
+int _textureBytes(int width, int height, int mipLevelCount) {
+  var bytes = 0;
+  for (var mip = 0; mip < mipLevelCount; mip++) {
+    bytes += width * height * 4;
+    width = math.max(1, width ~/ 2);
+    height = math.max(1, height ~/ 2);
+  }
+  return bytes;
+}
+
+Uint8List _downsampleRgba(Uint8List source, int width, int height) {
+  final nextWidth = math.max(1, width ~/ 2);
+  final nextHeight = math.max(1, height ~/ 2);
+  return downsamplePdfDecodedPixels(
+    PdfDecodedPixels(source, width, height),
+    nextWidth,
+    nextHeight,
+  ).rgba;
 }
 
 FutureOr<_GpuDraw?> _compileCommand(
-  gpu.GpuContext context,
-  _GpuGeometryArena geometry,
-  PdfRetainedScene scene,
-  PdfRenderCommand command,
-  FlutterGpuTileBackendStats stats,
-  _GpuImageCache imageCache,
-  List<_GpuImageTexture> textureLeases,
-) async {
+    gpu.GpuContext context,
+    _GpuGeometryArena geometry,
+    PdfRetainedScene scene,
+    PdfRenderCommand command,
+    FlutterGpuTileBackendStats stats,
+    _GpuImageCache imageCache,
+    List<_GpuImageTexture> textureLeases,
+    {required bool mipmapImages}) async {
   switch (command) {
     case PdfFillPathCommand(
         :final path,
@@ -1846,6 +1926,7 @@ FutureOr<_GpuDraw?> _compileCommand(
         stats,
         imageCache,
         textureLeases,
+        mipmapImages: mipmapImages,
       );
     default:
       return null;
@@ -1853,16 +1934,22 @@ FutureOr<_GpuDraw?> _compileCommand(
 }
 
 Future<_GpuDraw> _compileImageCommand(
-  gpu.GpuContext context,
-  _GpuGeometryArena geometry,
-  PdfRetainedScene scene,
-  PdfImageRequest request,
-  FlutterGpuTileBackendStats stats,
-  _GpuImageCache imageCache,
-  List<_GpuImageTexture> textureLeases,
-) async {
+    gpu.GpuContext context,
+    _GpuGeometryArena geometry,
+    PdfRetainedScene scene,
+    PdfImageRequest request,
+    FlutterGpuTileBackendStats stats,
+    _GpuImageCache imageCache,
+    List<_GpuImageTexture> textureLeases,
+    {required bool mipmapImages}) async {
   final image = scene.imageFor(request)!;
-  final resource = await imageCache.acquire(context, request, image, stats);
+  final resource = await imageCache.acquire(
+    context,
+    request,
+    image,
+    stats,
+    mipmapped: mipmapImages,
+  );
   textureLeases.add(resource);
   final vertices = _imageVertices(request.transform);
   final tint = request.isStencil
@@ -2702,6 +2789,7 @@ class _GpuEncoder {
         sampler: gpu.SamplerOptions(
           minFilter: gpu.MinMagFilter.linear,
           magFilter: gpu.MinMagFilter.linear,
+          mipFilter: gpu.MipFilter.linear,
         ),
       );
     _drawBuffer(vertices);

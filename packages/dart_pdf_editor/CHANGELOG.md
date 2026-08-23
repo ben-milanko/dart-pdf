@@ -2,6 +2,9 @@
 
 ## Next
 
+- Collect worker-decoded images inside retained tiling cells, so bitmap Type 3
+  glyphs keep their image pixels when a command buffer is rebuilt on the UI
+  isolate.
 - Let optional tile backends prepare view-scoped resources and live-page scene
   sessions after first useful pixels and a 750 ms quiet window. Foreground
   rendering cancels and restarts the delay, keeping first paint and immediate
