@@ -9,6 +9,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
     this.allowOverprintApproximation = false,
     this.maxTextureBytes = 256 << 20,
     this.maxGeometryBytes = 256 << 20,
+    this.enableProactiveWarmUp,
     FlutterGpuTileBackendStats? stats,
   }) : stats = stats ?? FlutterGpuTileBackendStats();
 
@@ -16,6 +17,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   final bool allowOverprintApproximation;
   final int maxTextureBytes;
   final int maxGeometryBytes;
+  final bool? enableProactiveWarmUp;
   final FlutterGpuTileBackendStats stats;
   String? _lastSessionRejection;
 

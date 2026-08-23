@@ -1,7 +1,34 @@
 import 'package:dart_pdf_editor_flutter_gpu/dart_pdf_editor_flutter_gpu.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('proactive warm-up defaults to desktop and remains opt-in on mobile',
+      () {
+    final previous = debugDefaultTargetPlatformOverride;
+    try {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final mobile = FlutterGpuTileRasterBackend();
+      expect(mobile.supportsWarmUp, isFalse);
+      expect(mobile.supportsSessionWarmUp, isFalse);
+
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      final desktop = FlutterGpuTileRasterBackend();
+      expect(desktop.supportsWarmUp, isTrue);
+      expect(desktop.supportsSessionWarmUp, isTrue);
+
+      final optedIn = FlutterGpuTileRasterBackend(enableProactiveWarmUp: true);
+      expect(optedIn.supportsWarmUp, isTrue);
+      expect(optedIn.supportsSessionWarmUp, isTrue);
+      final optedOut =
+          FlutterGpuTileRasterBackend(enableProactiveWarmUp: false);
+      expect(optedOut.supportsWarmUp, isFalse);
+      expect(optedOut.supportsSessionWarmUp, isFalse);
+    } finally {
+      debugDefaultTargetPlatformOverride = previous;
+    }
+  });
+
   test('JSON snapshot includes outcomes and reset preserves live gauges', () {
     final stats = FlutterGpuTileBackendStats()
       ..sessionsCreated = 4

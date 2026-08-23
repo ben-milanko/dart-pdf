@@ -6,7 +6,9 @@
   context and MSAA mode, then compile and submit each live page's retained
   scene at one-pixel scale. Both passes wait for useful pixels plus a 750 ms
   quiet window, so first-use driver, geometry, and upload work does not land on
-  the first deep-zoom tile or contend with immediate navigation.
+  the first deep-zoom tile or contend with immediate navigation. Proactive
+  warm-up defaults to desktop; mobile stays on-demand unless the host opts in,
+  avoiding a large idle context allocation on memory-constrained devices.
 - Benchmark tiling-pattern and radial-shading pipeline warm-up, scene warm-up,
   first GPU tiles, and Canvas parity three times on the designated macOS
   Metal CI lane. PRs receive a main comparison with details collapsed beneath

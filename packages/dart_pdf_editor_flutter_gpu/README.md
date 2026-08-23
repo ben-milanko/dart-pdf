@@ -84,6 +84,13 @@ first deep-zoom interaction without delaying initial document paint or
 competing with an immediate scroll. This work is coalesced per native view and
 MSAA mode, even when several readers share the same process.
 
+Proactive warm-up defaults on for macOS, Windows, and Linux. Android and iOS
+stay on-demand by default because merely creating an Impeller GPU context can
+reserve significant memory before a page is known to be GPU-compatible. A host
+that has validated its mobile device range can opt in with
+`enableProactiveWarmUp: true`; normal on-demand GPU tiles remain available when
+the option is false.
+
 The same idle gate then prepares the live page's retained tile session: scene
 geometry and decoded-image uploads are compiled once and every scene pipeline
 is submitted at one-pixel page scale. The real first tile reuses those retained

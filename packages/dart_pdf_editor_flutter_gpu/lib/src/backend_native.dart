@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/painting.dart' show Offset, Rect;
 import 'package:flutter_gpu/gpu.dart' as gpu;
 import 'package:pdf_document/pdf_document.dart';
@@ -37,6 +39,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
     this.allowOverprintApproximation = false,
     this.maxTextureBytes = 256 << 20,
     this.maxGeometryBytes = 256 << 20,
+    this.enableProactiveWarmUp,
     FlutterGpuTileBackendStats? stats,
   })  : stats = stats ?? FlutterGpuTileBackendStats(),
         _imageCache = _GpuImageCache(maxTextureBytes),
@@ -69,6 +72,14 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   /// buffer has completed. A scene that cannot fit falls back to Canvas.
   final int maxGeometryBytes;
 
+  /// Whether the viewer should prepare GPU pipelines and live scenes at idle.
+  ///
+  /// Null (the default) enables proactive work on desktop and leaves mobile
+  /// on-demand. Mobile Impeller contexts can reserve substantial additional
+  /// memory even for a page that later falls back to Canvas; validated hosts
+  /// can opt in explicitly.
+  final bool? enableProactiveWarmUp;
+
   final FlutterGpuTileBackendStats stats;
   final _GpuImageCache _imageCache;
   final _GpuGeometryPool _geometryPool;
@@ -90,11 +101,21 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   /// reports that runtime reason through [stats].
   bool get isPlatformSupported => true;
 
-  @override
-  bool get supportsWarmUp => true;
+  bool get _proactiveWarmUpEnabled =>
+      enableProactiveWarmUp ??
+      switch (defaultTargetPlatform) {
+        TargetPlatform.macOS ||
+        TargetPlatform.windows ||
+        TargetPlatform.linux =>
+          true,
+        _ => false,
+      };
 
   @override
-  bool get supportsSessionWarmUp => true;
+  bool get supportsWarmUp => _proactiveWarmUpEnabled;
+
+  @override
+  bool get supportsSessionWarmUp => _proactiveWarmUpEnabled;
 
   /// Drops reusable texture ownership. Active compiled scenes retain the
   /// resources they are currently drawing.
