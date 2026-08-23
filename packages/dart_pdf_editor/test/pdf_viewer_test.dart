@@ -1015,6 +1015,49 @@ void main() {
     );
   });
 
+  testWidgets('controller viewport commands coalesce before releasing renders',
+      (tester) async {
+    final controller = await pumpViewer(tester, pages: 1);
+    final before =
+        tester.widget<PdfPageView>(find.byType(PdfPageView)).settleGeneration;
+    controller.setZoom(4);
+    final viewport = controller.captureViewport()!;
+    controller.restoreViewport(PdfViewport(
+      page: 0,
+      left: 0.02,
+      zoom: viewport.zoom,
+    ));
+
+    expect(
+      controller.debugRenderHold,
+      isTrue,
+      reason: 'the page still has the old settle generation until the next '
+          'build, so granting work here would immediately make it stale',
+    );
+    expect(
+      tester.widget<PdfPageView>(find.byType(PdfPageView)).settleGeneration,
+      before,
+    );
+
+    await tester.pump();
+
+    final settled =
+        tester.widget<PdfPageView>(find.byType(PdfPageView)).settleGeneration;
+    expect(
+      settled,
+      greaterThan(before),
+    );
+    expect(controller.debugRenderHold, isFalse);
+
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(
+      tester.widget<PdfPageView>(find.byType(PdfPageView)).settleGeneration,
+      settled,
+      reason: 'restoring the final viewport is one discrete command, not a '
+          'second gesture settle after detail work has started',
+    );
+  });
+
   testWidgets('tapping a URI link surfaces the action', (tester) async {
     // The default launcher only opens well-known external schemes, so the
     // fixture's app:// link falls through to onAction unchanged.

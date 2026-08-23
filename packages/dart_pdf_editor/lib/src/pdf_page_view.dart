@@ -1202,6 +1202,15 @@ class _PdfPageViewState extends State<PdfPageView>
     } else if (settleChanged) {
       _cancelTilePanAhead();
     }
+    if (settleChanged) {
+      // The transform has reached the page as a settled generation. A live
+      // transform's 50 ms speculation timer may still be waiting behind a
+      // busy browser frame; if it fires now it cancels the exact foreground
+      // detail request that this update is about to schedule, then computes
+      // the same geometry as unused speculation. Already-started speculation
+      // remains available through [_speculativeStripDetail].
+      _speculateTimer?.cancel();
+    }
     final transition = _renderSession.update(_renderIntent(widget));
     if (transition.scheduleRender ||
         oldWidget.previewIndex != widget.previewIndex ||

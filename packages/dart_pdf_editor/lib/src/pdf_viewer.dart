@@ -2088,6 +2088,24 @@ class _PdfViewerState extends State<PdfViewer>
     _renderScheduler.parked = !widget.active;
   }
 
+  /// Releases settled render work only after this frame has rebuilt the page
+  /// widgets with the new settle generation.
+  ///
+  /// Releasing synchronously from a settle timer lets the scheduler grant a
+  /// queued page before [setState] has propagated its generation to that page.
+  /// The page then rebuilds a few milliseconds later, invalidates the job that
+  /// just started, and repeats the same visible-region render. A dense CAD
+  /// trace paid this race on every initial deep zoom: one ~8 MB worker detail
+  /// result was discarded before the identical request ran again.
+  void _releaseSettledRenderHoldAfterBuild() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _settleRenderHold();
+      _schedulePreviewPrerender();
+      _scheduleRasterWarm();
+    });
+  }
+
   void _beginMotionRenderHold() {
     _cancelPreviewPrerenderSchedule();
     _motionHoldReleaseTimer?.cancel();
@@ -2533,12 +2551,18 @@ class _PdfViewerState extends State<PdfViewer>
     // internal layout/transform machinery works in fit-width multiples
     final target = _fitScale <= 0 ? scale : scale / _fitScale;
     _zoomTo(target, Offset(_viewWidth / 2, _viewHeight / 2));
-    // A controller call is one complete, discrete zoom command, not a stream
-    // of gesture updates. `_zoomTo` synchronously notifies the transform
-    // listener and arms its 200 ms motion debounce; settle that work now so a
-    // toolbar/API zoom starts its sharp visible-region render immediately.
-    // Wheel, pinch, double-tap animation, and trackpad paths still use the
-    // debounce and continue to coalesce their many intermediate transforms.
+    _settleControllerViewportCommand();
+  }
+
+  /// Settles one complete controller-driven zoom/viewport command now.
+  ///
+  /// Controller calls are discrete, not a stream of gesture updates. Their
+  /// transform and scroll listeners still arm the 200/500 ms gesture
+  /// debounces, which would otherwise invalidate work already started for the
+  /// final controller geometry. Wheel, pinch, double-tap animation, and
+  /// trackpad paths do not call this and continue to coalesce intermediate
+  /// transforms through those quiet windows.
+  void _settleControllerViewportCommand() {
     if (_settleTimer != null) _settleTransformChange();
     // Zooming below fit changes the page layout and preserves the focal point
     // with a ScrollPosition jump. That jump arms the separate 500 ms
@@ -2628,8 +2652,6 @@ class _PdfViewerState extends State<PdfViewer>
     _settleTimer?.cancel();
     _settleTimer = null;
     if (!mounted) return;
-    // stay held while the viewer is paused (a view overlays it)
-    _settleRenderHold();
     final target = math.max(1.0, _transform.value.getMaxScaleOnAxis());
     // wheel zoom never fires onInteractionEnd, so the pan flag also settles
     // here
@@ -2646,9 +2668,7 @@ class _PdfViewerState extends State<PdfViewer>
       // any settled transform change moves the deep-zoom detail patch
       _settleGeneration++;
     });
-    // the background prerender yields while the hold is up; pick it back up
-    _schedulePreviewPrerender();
-    _scheduleRasterWarm();
+    _releaseSettledRenderHoldAfterBuild();
   }
 
   /// Debounced scroll-settle: scrolling moves pages under a deep-zoom detail
@@ -2695,12 +2715,8 @@ class _PdfViewerState extends State<PdfViewer>
           'ready=${_rasteredPages.contains(jumpFocus)} '
           'retained=${_jumpFocusPage != null}');
     }
-    // stay held while the viewer is paused (a view overlays it)
-    _settleRenderHold();
     if (mounted) setState(() => _settleGeneration++);
-    // the prerender pauses while the user scrolls; pick it back up
-    _schedulePreviewPrerender();
-    _scheduleRasterWarm();
+    _releaseSettledRenderHoldAfterBuild();
   }
 
   /// Warms the next likely navigation targets without replaying or
@@ -5125,6 +5141,7 @@ class _PdfViewerState extends State<PdfViewer>
       setState(() => _zoomed = scale > 1.01);
     }
     _controller._bumpViewport();
+    _settleControllerViewportCommand();
   }
 
   /// Frames [rect] (page space on page [index]): centers it in the
@@ -9283,8 +9300,7 @@ class _PdfViewerPageState extends State<_PdfViewerPage> {
                                 zoom: zoom,
                                 predictStrokes: widget.predictStrokes,
                                 contextMenuEnabled: widget.contextMenuEnabled,
-                                showSelectionChip:
-                                    widget.showSelectionChip,
+                                showSelectionChip: widget.showSelectionChip,
                               ),
                             ),
                           );
