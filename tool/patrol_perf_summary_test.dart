@@ -373,6 +373,36 @@ void main() {
     'fewer than three samples',
     'repeated comparison is not sparse',
   );
+  final repetitionTransitionComparison = summary.PatrolPerfComparison(
+    baseline: const {
+      'scenarios': {
+        'repeatable:start': 1,
+        'repeatable:validated': 1,
+      },
+      'scenarioMetrics': {
+        'repeatable': {
+          'runs': 1,
+          'elapsedMs': {'p50': 200.0, 'p95': 200.0},
+        },
+      },
+    },
+    current: repeatedJson,
+  ).toHeadlineMarkdown();
+  _expectNotContains(
+    repetitionTransitionComparison,
+    'Scenario coverage differs',
+    'repetition count does not change scenario coverage',
+  );
+  _expectContains(
+    repetitionTransitionComparison,
+    'Samples (main / PR): `repeatable` 1 / 3.',
+    'repetition transition reports sample counts',
+  );
+  _expectContains(
+    repetitionTransitionComparison,
+    'fewer than three samples',
+    'repetition transition remains provisional',
+  );
 
   print('Patrol performance summarizer tests passed');
 }

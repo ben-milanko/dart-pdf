@@ -511,7 +511,7 @@ class PatrolPerfComparison {
   String toHeadlineMarkdown({String? label}) {
     final baselineScenarios = _jsonCountMap(baseline, const ['scenarios']);
     final currentScenarios = _jsonCountMap(current, const ['scenarios']);
-    final sameCoverage = _sameCountMap(baselineScenarios, currentScenarios);
+    final sameCoverage = _sameMapKeys(baselineScenarios, currentScenarios);
     final measuredScenarios = <String>{
       ..._jsonMapKeys(baseline, const ['scenarioMetrics']),
       ..._jsonMapKeys(current, const ['scenarioMetrics']),
@@ -635,7 +635,7 @@ class PatrolPerfComparison {
   String toMarkdown({String? label}) {
     final baselineScenarios = _jsonCountMap(baseline, const ['scenarios']);
     final currentScenarios = _jsonCountMap(current, const ['scenarios']);
-    final sameCoverage = _sameCountMap(baselineScenarios, currentScenarios);
+    final sameCoverage = _sameMapKeys(baselineScenarios, currentScenarios);
     final measuredScenarios = <String>{
       ..._jsonMapKeys(baseline, const ['scenarioMetrics']),
       ..._jsonMapKeys(current, const ['scenarioMetrics']),
@@ -1267,9 +1267,8 @@ Set<String> _jsonMapKeys(Object? root, List<String> path) {
       : const {};
 }
 
-bool _sameCountMap(Map<String, int> a, Map<String, int> b) =>
-    a.length == b.length &&
-    a.entries.every((entry) => b[entry.key] == entry.value);
+bool _sameMapKeys(Map<String, int> a, Map<String, int> b) =>
+    a.length == b.length && a.keys.every(b.containsKey);
 
 String _mapComparisonRow(
   String label,
