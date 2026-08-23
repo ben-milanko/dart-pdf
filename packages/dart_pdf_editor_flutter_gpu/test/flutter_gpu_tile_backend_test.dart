@@ -280,6 +280,42 @@ void main() {
           ),
           0.72,
         ),
+        const PdfDrawTextCommand(PdfTextRun(
+          text: 'H',
+          transform: PdfMatrix(150, 12, 8, 165, 185, 185),
+          color: PdfColor.black,
+          width: 1,
+          fontName: 'EmbeddedGradient',
+          fontSize: 1,
+          fillAlpha: 0.68,
+          glyphs: [
+            PdfGlyphPlacement(
+              offset: 0,
+              outline: PdfPath([
+                PdfMoveTo(0, 0),
+                PdfLineTo(0.18, 0),
+                PdfLineTo(0.18, 0.42),
+                PdfLineTo(0.62, 0.42),
+                PdfLineTo(0.62, 0),
+                PdfLineTo(0.8, 0),
+                PdfLineTo(0.8, 1),
+                PdfLineTo(0.62, 1),
+                PdfLineTo(0.62, 0.6),
+                PdfLineTo(0.18, 0.6),
+                PdfLineTo(0.18, 1),
+                PdfLineTo(0, 1),
+                PdfClosePath(),
+              ]),
+            ),
+          ],
+          gradient: PdfGradient(
+            isRadial: false,
+            coords: [170, 180, 330, 360],
+            colors: [PdfColor(1, 0.5, 0), PdfColor(0.4, 0, 0.9)],
+            stops: [0, 1],
+            transform: PdfMatrix.identity,
+          ),
+        )),
       ]);
       addTearDown(scene.dispose);
       final backend = FlutterGpuTileRasterBackend();

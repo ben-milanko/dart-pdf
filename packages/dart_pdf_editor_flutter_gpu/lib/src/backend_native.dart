@@ -217,17 +217,21 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
           }
         case PdfDrawTextCommand(:final run):
           if (run.invisible) continue;
+          final gradientReason = run.gradient == null
+              ? null
+              : _gradientUnsupportedReason(run.gradient!, run.fillAlpha);
           final textReasons = <String>[
             if (run.glyphs == null) 'missing glyph outlines',
             if (!run.fill) 'fill disabled',
-            if (run.gradient != null) 'gradient fill',
+            if (gradientReason != null) gradientReason,
             if (run.strokeColor != null) 'stroke',
           ];
           if (textReasons.isNotEmpty) {
             return 'unsupported text: ${textReasons.join(', ')}';
           }
         case PdfFillPathGradientCommand():
-          final reason = _gradientUnsupportedReason(command);
+          final reason =
+              _gradientUnsupportedReason(command.gradient, command.alpha);
           if (reason != null) return reason;
         default:
           return 'unsupported ${command.runtimeType}';
@@ -794,6 +798,10 @@ String? _unsafeOverprint(_GpuUnit unit, PdfRenderCommand command) {
       if (unit.fillOverprint) return 'mesh overprint';
     case PdfFillPathGradientCommand():
       if (unit.fillOverprint) return 'gradient overprint';
+    case PdfDrawTextCommand(:final run):
+      if (unit.fillOverprint && run.gradient != null) {
+        return 'gradient text overprint';
+      }
     default:
       // Images do not use CanvasPdfDevice's overprint approximation; the
       // interpreter has already resolved any image-adjacent colorant work.
@@ -802,14 +810,13 @@ String? _unsafeOverprint(_GpuUnit unit, PdfRenderCommand command) {
   return null;
 }
 
-String? _gradientUnsupportedReason(PdfFillPathGradientCommand command) {
-  final gradient = command.gradient;
+String? _gradientUnsupportedReason(PdfGradient gradient, double alpha) {
   if (gradient.isRadial) return 'unsupported radial gradient';
   if (gradient.coords.length < 4 ||
       gradient.colors.length < 2 ||
       gradient.colors.length != gradient.stops.length ||
       gradient.transform.inverted() == null ||
-      !command.alpha.isFinite ||
+      !alpha.isFinite ||
       ![
         gradient.transform.a,
         gradient.transform.b,
@@ -1674,8 +1681,18 @@ FutureOr<_GpuDraw?> _compileCommand(
           subs.add(FlatSubpath(mapped, closed: sub.closed));
         }
       }
+      final gradient = run.gradient;
+      if (gradient != null) {
+        return _compileAxialGradientSubpaths(
+          geometry,
+          subs,
+          PdfFillRule.nonzero,
+          gradient,
+          run.fillAlpha,
+        );
+      }
       return _stencilDraw(
-          geometry, subs, run.color, 1, PdfFillRule.nonzero, false);
+          geometry, subs, run.color, run.fillAlpha, PdfFillRule.nonzero, false);
     case PdfFillMeshCommand(:final mesh, :final alpha):
       if (mesh.triangles.isEmpty) return null;
       final vertices = FloatBuilder(mesh.triangles.length * 6);
@@ -1743,13 +1760,27 @@ _GradientDraw? _compileAxialGradient(
   PdfGradient gradient,
   double alpha,
 ) {
-  if (alpha <= 0 ||
-      _gradientUnsupportedReason(
-              PdfFillPathGradientCommand(path, rule, gradient, alpha)) !=
-          null) {
+  if (alpha <= 0 || _gradientUnsupportedReason(gradient, alpha) != null) {
     return null;
   }
   final subpaths = flattenPath(path, PdfMatrix.identity, tolerance: 0.01);
+  return _compileAxialGradientSubpaths(
+    geometry,
+    subpaths,
+    rule,
+    gradient,
+    alpha,
+  );
+}
+
+_GradientDraw? _compileAxialGradientSubpaths(
+  _GpuGeometryArena geometry,
+  List<FlatSubpath> subpaths,
+  PdfFillRule rule,
+  PdfGradient gradient,
+  double alpha,
+) {
+  if (alpha <= 0) return null;
   final stencil = _stencilGeometry(geometry, subpaths);
   if (stencil == null) return null;
   final bounds = stencil.$2;
