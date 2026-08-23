@@ -115,7 +115,16 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
       }
       _lastContext = context;
       stats.lastContextIdentity = identityHashCode(context);
-      final unitBuild = _buildGpuUnits(scene.commands);
+      final commandBuild = _buildGpuCommands(scene.commands);
+      final commands = commandBuild.commands;
+      if (commands == null) {
+        _lastSessionRejection = commandBuild.rejection;
+        stats.lastRejection = commandBuild.rejection;
+        stats.lastTileRoute = 'canvas-fallback';
+        stats.sessionsRejected++;
+        return null;
+      }
+      final unitBuild = _buildGpuUnits(commands);
       final units = unitBuild.units;
       if (units == null) {
         _lastSessionRejection = unitBuild.rejection;
@@ -124,8 +133,8 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
         stats.sessionsRejected++;
         return null;
       }
-      final rejection =
-          _unsupportedReason(scene, units, allowOverprintApproximation);
+      final rejection = _unsupportedReason(
+          scene, commands, units, allowOverprintApproximation);
       if (rejection != null) {
         _lastSessionRejection = rejection;
         stats.lastRejection = rejection;
@@ -143,6 +152,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
           math.max(stats.peakActiveSessions, stats.activeSessions);
       return _FlutterGpuTileSession(
         scene: scene,
+        commands: commands,
         context: context,
         pipelines: _GpuPipelines.instance(context),
         units: units,
@@ -160,8 +170,11 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
     }
   }
 
-  static String? _unsupportedReason(PdfRetainedScene scene,
-      List<_GpuUnit> units, bool allowOverprintApproximation) {
+  static String? _unsupportedReason(
+      PdfRetainedScene scene,
+      List<PdfRenderCommand> commands,
+      List<_GpuUnit> units,
+      bool allowOverprintApproximation) {
     for (final unit in units) {
       if (unit.blendMode != PdfBlendMode.normal) {
         return 'blend mode ${unit.blendMode.name}';
@@ -174,7 +187,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
         }
         continue;
       }
-      final command = scene.commands[unit.commandIndex];
+      final command = commands[unit.commandIndex];
       final overprint = _unsafeOverprint(unit, command);
       if (overprint != null) return overprint;
       if (unit.darken && !allowOverprintApproximation) {
@@ -213,7 +226,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
           if (textReasons.isNotEmpty) {
             return 'unsupported text: ${textReasons.join(', ')}';
           }
-        case PdfFillPathGradientCommand() || PdfDrawTiledCellCommand():
+        case PdfFillPathGradientCommand():
           return 'unsupported ${command.runtimeType}';
         default:
           return 'unsupported ${command.runtimeType}';
@@ -224,15 +237,14 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
         if (unit.endCommandIndex > unit.commandIndex)
           for (var i = unit.commandIndex; i <= unit.endCommandIndex; i++) i,
     };
-    for (var i = 0; i < scene.commands.length; i++) {
-      final command = scene.commands[i];
+    for (var i = 0; i < commands.length; i++) {
+      final command = commands[i];
       switch (command) {
         case PdfBeginGroupCommand() ||
               PdfEndGroupCommand() ||
               PdfBeginSoftMaskedCommand() ||
               PdfEndSoftMaskedCommand() ||
-              PdfFillPathGradientCommand() ||
-              PdfDrawTiledCellCommand():
+              PdfFillPathGradientCommand():
           if (covered.contains(i)) break;
           return 'unsafe ${command.runtimeType}';
         case PdfSetBlendModeCommand(:final mode):
@@ -351,6 +363,112 @@ class _SoftMaskImageSpec {
   final double backdropLuminance;
   final double transferScale;
   final double transferOffset;
+}
+
+class _GpuCommandBuild {
+  const _GpuCommandBuild(this.commands, this.rejection);
+
+  final List<PdfRenderCommand>? commands;
+  final String? rejection;
+}
+
+/// Expands retained tiling cells once for the GPU scene.
+///
+/// Canvas can stamp a vector sub-picture for every repeat. flutter_gpu does
+/// not expose a retained sub-pass transform, so keeping the nested command
+/// would otherwise require rebuilding the cell for every tile. Flattening it
+/// here preserves exact tile-major painter order while still compiling the
+/// resulting page-space geometry only once. The hard cap keeps pathological
+/// hatch grids on the existing Canvas sub-picture path instead of trading a
+/// compact transcript for unbounded GPU geometry.
+_GpuCommandBuild _buildGpuCommands(List<PdfRenderCommand> source) {
+  const maxExpandedCommands = 1000000;
+  var hasTiledCell = false;
+  String? tiledRejection;
+
+  int count(List<PdfRenderCommand> commands, Set<Object> active,
+      {bool inTiledCell = false}) {
+    if (!active.add(commands)) return maxExpandedCommands + 1;
+    var total = 0;
+    for (final command in commands) {
+      if (command
+          case PdfDrawTiledCellCommand(
+            :final cellCommands,
+            :final originsX,
+          )) {
+        hasTiledCell = true;
+        final cellCount = count(cellCommands, active, inTiledCell: true);
+        if (cellCount > maxExpandedCommands ||
+            originsX.length > maxExpandedCommands ||
+            (cellCount != 0 &&
+                originsX.length > maxExpandedCommands ~/ cellCount)) {
+          active.remove(commands);
+          return maxExpandedCommands + 1;
+        }
+        total += cellCount * originsX.length;
+      } else {
+        if (inTiledCell &&
+            command is PdfDrawImageCommand &&
+            command.request.isStencil) {
+          // Type 3 bitmap glyphs are retained as one-repeat tiling cells.
+          // Linear texture sampling does not yet match Canvas closely enough
+          // on the Ghent font grid, so do not let flattening accidentally
+          // promote those pages into the exact GPU subset.
+          tiledRejection ??= 'unsupported tiled stencil image';
+        }
+        total++;
+      }
+      if (total > maxExpandedCommands) {
+        active.remove(commands);
+        return total;
+      }
+    }
+    active.remove(commands);
+    return total;
+  }
+
+  final expandedCount = count(source, Set<Object>.identity());
+  if (!hasTiledCell) return _GpuCommandBuild(source, null);
+  if (tiledRejection != null) {
+    return _GpuCommandBuild(null, tiledRejection);
+  }
+  if (expandedCount > maxExpandedCommands) {
+    return const _GpuCommandBuild(
+      null,
+      'expanded tiling cells exceed GPU command cap',
+    );
+  }
+
+  final expanded = <PdfRenderCommand>[];
+  for (final command in source) {
+    if (command
+        case PdfDrawTiledCellCommand(
+          :final cellCommands,
+          :final originsX,
+          :final originsY,
+        )) {
+      final recorder = RecordingPdfDevice();
+      for (var i = 0; i < originsX.length; i++) {
+        // TranslatingPdfDevice intentionally does not implement the native
+        // tiled-cell capability. The generic replay path therefore expands
+        // nested cells too and composes their origins into page-space.
+        replayCommands(
+          cellCommands,
+          TranslatingPdfDevice(recorder, originsX[i], originsY[i]),
+        );
+      }
+      expanded.addAll(recorder.commands);
+    } else {
+      expanded.add(command);
+    }
+  }
+  if (expanded.length > maxExpandedCommands) {
+    return const _GpuCommandBuild(
+      null,
+      'expanded tiling cells exceed GPU command cap',
+    );
+  }
+  return _GpuCommandBuild(List.unmodifiable(expanded), null);
 }
 
 _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
@@ -704,6 +822,7 @@ class _FlutterGpuTileSession
     implements PdfTileRasterSession, PdfTileRasterScheduling {
   _FlutterGpuTileSession({
     required this.scene,
+    required this.commands,
     required this.context,
     required this.pipelines,
     required this.units,
@@ -715,6 +834,7 @@ class _FlutterGpuTileSession
 
   @override
   final PdfRetainedScene scene;
+  final List<PdfRenderCommand> commands;
 
   // This backend already returns a final GPU texture for every raster call.
   // Slab splitting would queue another texture-to-texture copy per tile; those
@@ -742,6 +862,7 @@ class _FlutterGpuTileSession
 
   Future<_CompiledScene> _compile() => _compiled ??= _CompiledScene.build(
         scene,
+        commands,
         context,
         units,
         stats,
@@ -830,6 +951,7 @@ class _CompiledScene {
 
   static Future<_CompiledScene> build(
     PdfRetainedScene scene,
+    List<PdfRenderCommand> commands,
     gpu.GpuContext context,
     List<_GpuUnit> units,
     FlutterGpuTileBackendStats stats,
@@ -856,7 +978,7 @@ class _CompiledScene {
             context,
             geometry,
             scene,
-            scene.commands[unit.commandIndex],
+            commands[unit.commandIndex],
             stats,
             imageCache,
             textureLeases,

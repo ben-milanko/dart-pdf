@@ -178,6 +178,69 @@ void main() {
     });
   });
 
+  testWidgets('tiling cells expand once and preserve painter order',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        PdfDrawTiledCellCommand(
+          [
+            PdfFillPathCommand(
+              _rect(80, 180, 170, 300),
+              const PdfColor(0.9, 0.1, 0.15),
+              PdfFillRule.nonzero,
+              0.55,
+            ),
+            PdfFillPathCommand(
+              _rect(135, 225, 225, 345),
+              const PdfColor(0.05, 0.25, 0.9),
+              PdfFillRule.nonzero,
+              0.55,
+            ),
+            PdfDrawTiledCellCommand(
+              [
+                PdfFillPathCommand(
+                  _rect(112, 205, 128, 221),
+                  const PdfColor(0.1, 0.75, 0.25),
+                  PdfFillRule.nonzero,
+                  0.8,
+                ),
+              ],
+              Float64List.fromList([0, 24]),
+              Float64List.fromList([0, 18]),
+            ),
+          ],
+          Float64List.fromList([0, 55, 110, 165]),
+          Float64List.fromList([0, 35, 70, 105]),
+        ),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      const region = Rect.fromLTWH(50, 120, 430, 420);
+      final canvas = await scene.rasterizeRegion(region, pixelRatio: 1.25);
+      final accelerated =
+          await session.rasterizeRegion(region, pixelRatio: 1.25);
+      addTearDown(canvas.dispose);
+      addTearDown(accelerated.dispose);
+      final expected = await _pixels(canvas);
+      final actual = await _pixels(accelerated);
+      var difference = 0;
+      for (var i = 0; i < expected.length; i++) {
+        difference += (expected[i] - actual[i]).abs();
+      }
+      expect(difference / expected.length, lessThan(4),
+          reason: 'overlapping cell repeats must retain tile-major order');
+    });
+  });
+
   testWidgets('nested arbitrary clips and restored ancestors match Canvas',
       (tester) async {
     await tester.runAsync(() async {
@@ -618,6 +681,47 @@ void main() {
       expect(backend.createSession(substituted), isNull);
       expect(backend.stats.lastRejection,
           'unsupported text: missing glyph outlines');
+
+      final stencilSource = _decodedImage(
+        Uint8List.fromList([
+          0,
+          0,
+          0,
+          255,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          255,
+        ]),
+        const PdfMatrix(40, 0, 0, 40, 100, 100),
+        'tiled-stencil',
+      ).request;
+      final tiledStencil = await PdfRetainedScene.fromCommands(page, [
+        PdfDrawTiledCellCommand(
+          [
+            PdfDrawImageCommand(PdfImageRequest(
+              stream: stencilSource.stream,
+              transform: stencilSource.transform,
+              isStencil: true,
+              stencilColor: const PdfColor(0.1, 0.2, 0.8),
+              decoded: stencilSource.decoded,
+            )),
+          ],
+          Float64List.fromList([0]),
+          Float64List.fromList([0]),
+        ),
+      ]);
+      addTearDown(tiledStencil.dispose);
+      expect(backend.createSession(tiledStencil), isNull);
+      expect(backend.stats.lastRejection, 'unsupported tiled stencil image');
 
       final nonRectClip = await PdfRetainedScene.fromCommands(page, [
         const PdfSaveCommand(),
