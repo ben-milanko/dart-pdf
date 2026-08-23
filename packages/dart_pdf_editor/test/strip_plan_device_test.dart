@@ -320,7 +320,7 @@ void main() {
 
     await tester.pumpWidget(at(1, 0));
     await router.settleRaster(tester, 612);
-    await tester.pumpWidget(at(16, 1));
+    await tester.pumpWidget(at(4, 1));
     const detailKey = ValueKey('pdf-page-detail-image');
     for (var i = 0; i < 100 && find.byKey(detailKey).evaluate().isEmpty; i++) {
       await tester.runAsync(
@@ -338,6 +338,24 @@ void main() {
     );
     expect(detail.width * detail.height, greaterThan(1 << 20),
         reason: 'the quick patch should still materially sharpen the base');
+    final tileLayer = find.byKey(const ValueKey('pdf-page-tile-layer'));
+    for (var i = 0; i < 100 && tileLayer.evaluate().isEmpty; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+      await tester.pump();
+    }
+    final tilePaint = tester.widget<CustomPaint>(
+      tileLayer,
+    );
+    expect(
+      (tilePaint.painter as dynamic).maxNewTilesPerPaint,
+      PdfPageView.stripTileMaxNewTilesPerPaint,
+      reason: 'strip-routed exact tiles must bound the first slab instead of '
+          'reading back a sparse viewport-sized box',
+    );
+    expect((tilePaint.painter as dynamic).maxInFlightTiles, 8,
+        reason: 'two bounded strip batches may overlap across repaints');
   });
 
   // Speculative binning: while the gesture quiesces (the live transformScale

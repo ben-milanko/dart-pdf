@@ -705,6 +705,14 @@ class PdfPageView extends StatefulWidget {
   /// the full requested density once the complete rung is resident.
   static int denseQuickDetailMaxPixels = 1 << 21;
 
+  /// Maximum exact-rung tiles a strip-routed scene admits in one paint.
+  ///
+  /// Eight center-out misses can sparsely span a 4x3 tile box; slab batching
+  /// then reads back all twelve cells before any tile becomes visible. Four
+  /// keeps the cold batch near a 2x2 box while preserving the fixed-overhead
+  /// win of batching adjacent tiles.
+  static const int stripTileMaxNewTilesPerPaint = 4;
+
   /// Settles that consumed a speculatively-binned worker strip plan (the
   /// [transformScale]-driven pre-request matched the settle's geometry
   /// exactly and resolved to a plan). Test telemetry, following the
@@ -5030,22 +5038,22 @@ class _PdfPageViewState extends State<PdfPageView>
     final scheduling = session is PdfTileRasterScheduling
         ? session as PdfTileRasterScheduling
         : null;
+    final tileDetailScene = _tileDetailScene;
     final sessionCap = scheduling?.maxNewTilesPerPaint;
     final sceneCap = scene.regionIndexBuildIsHeavy ? 1 : null;
-    final maxNewTiles = sessionCap == null
-        ? sceneCap
-        : sceneCap == null
-            ? sessionCap
-            : math.min(sessionCap, sceneCap);
+    final stripCap = _stripReplayScene(tileDetailScene ?? scene)
+        ? PdfPageView.stripTileMaxNewTilesPerPaint
+        : null;
+    final caps = [sessionCap, sceneCap, stripCap].whereType<int>();
+    final maxNewTiles = caps.isEmpty ? null : caps.reduce(math.min);
     // Per-paint admission alone is not a queue bound: any unrelated frame can
-    // paint the layer again before the first raster lands. Ordinary scenes get
-    // one eight-tile slab; dense/session-paced scenes keep two of their smaller
-    // admission windows live. Either way a subsequent pan is never trapped
-    // behind the 30-35 tile submissions seen in the field trace.
+    // paint the layer again before the first raster lands. Ordinary unpaced
+    // scenes get one eight-tile slab; strip/grid/session-paced scenes keep two
+    // of their smaller admission windows live. Either way a subsequent pan is
+    // never trapped behind the 30-35 tile submissions seen in the field trace.
     final maxInFlightTiles =
         maxNewTiles == null ? 8 : math.max(2, maxNewTiles * 2);
     final fallbackOcclusion = _fallbackOcclusionFraction(store, desired);
-    final tileDetailScene = _tileDetailScene;
     return Positioned.fill(
       key: foreground ? const ValueKey('pdf-page-sharp-tile-foreground') : null,
       child: PdfTileLayer(
@@ -5073,12 +5081,11 @@ class _PdfPageViewState extends State<PdfPageView>
         canRasterize: _tileRegionRasterizable,
         batchRasters: scheduling?.batchAdjacentTiles,
         // A grid-indexed CAD scene can select tens of thousands of commands
-        // across one viewport slab. replayRegion records those commands
-        // synchronously before toImage yields, so batching every missing tile
-        // made the whole slab one UI-frame stall (271ms in the field trace).
-        // Admit one tile per paint instead. A tile completion repaints the
-        // layer and advances the center-out fill; ordinary scenes retain the
-        // lower-overhead batched path.
+        // across one viewport slab, so it admits one tile per paint. A
+        // strip-routed scene keeps a four-tile batch: eight center-out misses
+        // formed a sparse 4x3 slab and made its oversized readback one UI-frame
+        // stall. Tile completion repaints advance both paths center-out;
+        // ordinary scenes retain the lower-overhead eight-tile batch.
         maxNewTilesPerPaint: maxNewTiles,
         maxInFlightTiles: maxInFlightTiles,
         // A scale-changing settle sharpens the exact visible patch first. Only
