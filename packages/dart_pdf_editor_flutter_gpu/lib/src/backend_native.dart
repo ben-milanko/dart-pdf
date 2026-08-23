@@ -1,4 +1,4 @@
-import 'dart:async' show FutureOr;
+import 'dart:async' show Completer, FutureOr;
 import 'dart:collection';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -93,6 +93,35 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   /// Drops reusable texture ownership. Active compiled scenes retain the
   /// resources they are currently drawing.
   void clearImageCache() => _imageCache.clear(stats);
+
+  /// Compiles this view's tile pipelines with a one-pixel GPU submission.
+  ///
+  /// The driver otherwise compiles the pipelines on the first deep-zoom tile,
+  /// which can leave the coarse page visible for hundreds of milliseconds.
+  /// This is safe to call repeatedly: work is shared per Impeller context and
+  /// MSAA mode, including between backend instances.
+  @override
+  Future<void> warmUp() async {
+    final clock = Stopwatch()..start();
+    stats.warmUpRequests++;
+    try {
+      final context = gpu.gpuContext;
+      final pipelines = await _GpuPipelines.instance(context);
+      final submitted = await pipelines.warmUp(
+        context,
+        useMsaa: msaa && context.doesSupportOffscreenMSAA,
+      );
+      if (submitted) stats.warmUpSubmissions++;
+      stats.warmUpCompletions++;
+    } catch (error) {
+      stats
+        ..warmUpFailures += 1
+        ..lastWarmUpError = error.toString();
+      rethrow;
+    } finally {
+      stats.warmUpMicros += clock.elapsedMicroseconds;
+    }
+  }
 
   @override
   String get debugLabel => 'flutter_gpu';
@@ -2703,6 +2732,256 @@ class _GpuPipelines {
     return _instances[context] = _loadLibrary().then(
       (library) => _GpuPipelines._(context, library),
     );
+  }
+
+  final Map<bool, Future<void>> _warmUps = {};
+
+  Future<bool> warmUp(gpu.GpuContext context, {required bool useMsaa}) async {
+    final existing = _warmUps[useMsaa];
+    if (existing != null) {
+      await existing;
+      return false;
+    }
+    final future = _submitWarmUp(context, useMsaa: useMsaa);
+    _warmUps[useMsaa] = future;
+    try {
+      await future;
+      return true;
+    } catch (_) {
+      if (identical(_warmUps[useMsaa], future)) _warmUps.remove(useMsaa);
+      rethrow;
+    }
+  }
+
+  Future<void> _submitWarmUp(
+    gpu.GpuContext context, {
+    required bool useMsaa,
+  }) {
+    final resolve = context.createTexture(
+      gpu.StorageMode.devicePrivate,
+      1,
+      1,
+      format: context.defaultColorFormat,
+    );
+    final color = useMsaa
+        ? context.createTexture(
+            gpu.StorageMode.deviceTransient,
+            1,
+            1,
+            format: context.defaultColorFormat,
+            sampleCount: 4,
+          )
+        : resolve;
+    final stencilTexture = context.createTexture(
+      gpu.StorageMode.deviceTransient,
+      1,
+      1,
+      format: context.defaultStencilFormat,
+      sampleCount: useMsaa ? 4 : 1,
+    );
+    final sample = context.createTexture(
+      gpu.StorageMode.hostVisible,
+      1,
+      1,
+      format: gpu.PixelFormat.r8g8b8a8UNormInt,
+    );
+    sample.overwrite(ByteData.sublistView(Uint8List.fromList(
+      const [255, 255, 255, 255],
+    )));
+
+    final transient = context.createHostBuffer();
+    final transform =
+        transient.emplace(ByteData.sublistView(Float32List.fromList(
+      const [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+      ],
+    )));
+    final stencilVertices = transient.emplace(ByteData.sublistView(
+      Float32List.fromList(const [-1, -1, 3, -1, -1, 3]),
+    ));
+    final solidVertices = transient.emplace(ByteData.sublistView(
+      Float32List.fromList(const [
+        -1,
+        -1,
+        1,
+        1,
+        1,
+        1,
+        3,
+        -1,
+        1,
+        1,
+        1,
+        1,
+        -1,
+        3,
+        1,
+        1,
+        1,
+        1,
+      ]),
+    ));
+    final textureVertices = transient.emplace(ByteData.sublistView(
+      Float32List.fromList(const [
+        -1,
+        -1,
+        0,
+        0,
+        3,
+        -1,
+        1,
+        0,
+        -1,
+        3,
+        0,
+        1,
+      ]),
+    ));
+    final textureInfo = transient.emplace(ByteData.sublistView(
+      Float32List.fromList(const [1, 1, 1, 1, 0, 0, 0, 0]),
+    ));
+    final softMaskInfo = Float32List(36)
+      ..setRange(0, 16, const [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+      ])
+      ..setRange(16, 20, const [1, 1, 1, 1])
+      ..setRange(20, 24, const [1, 1, 1, 1])
+      ..setRange(24, 28, const [0, 0, 0, 1])
+      ..setRange(28, 32, const [1, 0, 0, 0])
+      ..setRange(32, 36, const [-1, -1, 1, 1]);
+    final softMaskUniform =
+        transient.emplace(ByteData.sublistView(softMaskInfo));
+
+    final commandBuffer = context.createCommandBuffer();
+    final pass = commandBuffer.createRenderPass(gpu.RenderTarget(
+      colorAttachments: [
+        gpu.ColorAttachment(
+          texture: color,
+          resolveTexture: useMsaa ? resolve : null,
+          clearValue: vm.Vector4.zero(),
+          storeAction: useMsaa
+              ? gpu.StoreAction.multisampleResolve
+              : gpu.StoreAction.store,
+        ),
+      ],
+      depthStencilAttachment: gpu.DepthStencilAttachment(
+        texture: stencilTexture,
+        stencilClearValue: 0,
+      ),
+    ));
+    pass
+      ..setCullMode(gpu.CullMode.none)
+      ..setWindingOrder(gpu.WindingOrder.counterClockwise)
+      ..setPrimitiveType(gpu.PrimitiveType.triangle)
+      ..setColorBlendEnable(true)
+      ..setStencilReference(0)
+      ..setColorBlendEquation(_GpuEncoder._noWrite)
+      ..setStencilConfig(gpu.StencilConfig(
+        compareFunction: gpu.CompareFunction.always,
+        depthStencilPassOperation: gpu.StencilOperation.incrementWrap,
+        readMask: 0,
+        writeMask: _GpuEncoder._pathMask,
+      ))
+      ..bindPipeline(stencil)
+      ..bindUniform(stencilTransform, transform);
+    _warmUpDraw(pass, stencilVertices, 3);
+    pass
+      ..setColorBlendEquation(_GpuEncoder._srcOver)
+      ..setStencilConfig(gpu.StencilConfig(
+        compareFunction: gpu.CompareFunction.always,
+        depthStencilPassOperation: gpu.StencilOperation.keep,
+        readMask: 0,
+        writeMask: 0,
+      ))
+      ..bindPipeline(solid)
+      ..bindUniform(solidTransform, transform);
+    _warmUpDraw(pass, solidVertices, 3);
+    pass
+      ..bindPipeline(texture)
+      ..bindUniform(textureTransform, transform)
+      ..bindUniform(this.textureInfo, textureInfo)
+      ..bindTexture(textureSampler, sample);
+    _warmUpDraw(pass, textureVertices, 3);
+    pass
+      ..clearBindings()
+      ..bindPipeline(softMask)
+      ..bindUniform(softMaskTransform, transform)
+      ..bindUniform(this.softMaskInfo, softMaskUniform)
+      ..bindTexture(softMaskContentSampler, sample)
+      ..bindTexture(softMaskMaskSampler, sample);
+    _warmUpDraw(pass, textureVertices, 3);
+    pass.clearBindings();
+
+    final completer = Completer<void>();
+    // Keep every command-buffer resource strongly reachable until Impeller's
+    // completion fence fires. The callback itself is the lifetime owner.
+    final resources = <Object>[
+      resolve,
+      color,
+      stencilTexture,
+      sample,
+      transient,
+      commandBuffer,
+      pass,
+    ];
+    try {
+      commandBuffer.submit(completionCallback: (success) {
+        if (resources.isEmpty) return;
+        if (success) {
+          completer.complete();
+        } else {
+          completer.completeError(StateError('GPU pipeline warm-up failed'));
+        }
+      });
+    } catch (error, stack) {
+      completer.completeError(error, stack);
+    }
+    return completer.future;
+  }
+
+  static void _warmUpDraw(
+    gpu.RenderPass pass,
+    gpu.BufferView vertices,
+    int count,
+  ) {
+    final dynamic dynamicPass = pass;
+    try {
+      dynamicPass.bindVertexBuffer(vertices);
+      dynamicPass.draw(count);
+    } on NoSuchMethodError {
+      dynamicPass.bindVertexBuffer(vertices, count);
+      dynamicPass.draw();
+    }
   }
 
   static Future<gpu.ShaderLibrary> _loadLibrary() async {

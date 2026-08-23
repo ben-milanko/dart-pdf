@@ -70,6 +70,35 @@ void main() {
     });
   });
 
+  testWidgets('pipeline warm-up is shared by the Impeller context',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final first = FlutterGpuTileRasterBackend();
+      await first.warmUp();
+      expect(first.stats.warmUpRequests, 1);
+      expect(first.stats.warmUpSubmissions, 1);
+      expect(first.stats.warmUpCompletions, 1);
+      expect(first.stats.warmUpFailures, 0);
+      expect(first.stats.warmUpMicros, greaterThan(0));
+
+      await first.warmUp();
+      expect(first.stats.warmUpRequests, 2);
+      expect(first.stats.warmUpSubmissions, 1,
+          reason: 'the same backend reuses the completed context warm-up');
+
+      final second = FlutterGpuTileRasterBackend();
+      await second.warmUp();
+      expect(second.stats.warmUpRequests, 1);
+      expect(second.stats.warmUpSubmissions, 0,
+          reason: 'backend instances share context-owned pipeline work');
+      expect(second.stats.warmUpCompletions, 1);
+    });
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
   testWidgets('compiles once and replays retained buffers across tiles',
       (tester) async {
     await tester.runAsync(() async {

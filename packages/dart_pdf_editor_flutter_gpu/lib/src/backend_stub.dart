@@ -28,6 +28,9 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   void clearImageCache() {}
 
   @override
+  Future<void> warmUp() async {}
+
+  @override
   String get debugLabel => 'flutter_gpu-unavailable';
 
   @override

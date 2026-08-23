@@ -43,13 +43,22 @@ abstract class PdfTileRasterBackend {
   /// [PdfRetainedScene.releaseDecodedImagePixels].
   bool get prefersDirectDecodedImageUploads => false;
 
+  /// Prepares process- or view-scoped resources before the first tile.
+  ///
+  /// [PdfViewer] calls this after its first frame, never while constructing
+  /// the initial page. Backends can use the idle lead time to load shaders or
+  /// issue a bounded compilation pass. Calls may repeat after a backend or
+  /// native view changes, so implementations must coalesce their own work.
+  /// The default Canvas implementation has nothing to prepare.
+  Future<void> warmUp() => Future<void>.value();
+
   /// Creates a lightweight owner for resources retained across tile renders.
   ///
   /// This is called lazily, when the tile path first needs pixels—not while
-  /// the page's initial raster is being prepared. Expensive initialization
-  /// should itself be deferred by the returned session until
-  /// [PdfTileRasterSession.rasterizeRegion], so enabling an experimental
-  /// backend cannot delay first paint.
+  /// the page's initial raster is being prepared. Scene-specific work should
+  /// itself be deferred by the returned session until
+  /// [PdfTileRasterSession.rasterizeRegion]; only view-scoped work belongs in
+  /// [warmUp], after first paint.
   PdfTileRasterSession? createSession(PdfRetainedScene scene);
 }
 

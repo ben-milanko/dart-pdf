@@ -11,6 +11,10 @@ void main() {
       ..lastContextIdentity = 1234
       ..contextsSeen = 2
       ..contextSwitches = 3
+      ..warmUpRequests = 2
+      ..warmUpSubmissions = 1
+      ..warmUpCompletions = 2
+      ..warmUpMicros = 12000
       ..activeSessions = 3
       ..peakActiveSessions = 4
       ..activeTextureLeases = 5
@@ -37,6 +41,8 @@ void main() {
     expect(stats.toJson(), containsPair('lastContextIdentity', 1234));
     expect(stats.toJson(), containsPair('contextsSeen', 2));
     expect(stats.toJson(), containsPair('contextSwitches', 3));
+    expect(stats.toJson(), containsPair('warmUpSubmissions', 1));
+    expect(stats.toJson(), containsPair('warmUpMicros', 12000));
 
     stats.reset();
     expect(stats.sessionsCreated, 0);
@@ -44,6 +50,10 @@ void main() {
     expect(stats.lastContextIdentity, 1234);
     expect(stats.contextsSeen, 2);
     expect(stats.contextSwitches, 0);
+    expect(stats.warmUpRequests, 0);
+    expect(stats.warmUpSubmissions, 0);
+    expect(stats.warmUpCompletions, 0);
+    expect(stats.warmUpMicros, 0);
     expect(stats.lastRejection, isNull);
     expect(stats.lastTileRoute, isNull);
     expect(stats.activeSessions, 3);

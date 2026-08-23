@@ -1,5 +1,11 @@
 # Changelog
 
+## Next
+
+- Let optional tile backends prepare view-scoped resources after the viewer's
+  first frame, keeping first paint unchanged while avoiding cold setup during
+  the first deep-zoom interaction.
+
 ## 3.8.0
 
 - Let annotations extend beyond the page edge while remaining selectable,

@@ -1,5 +1,14 @@
 # Changelog
 
+## Next
+
+- Warm every tile shader with a one-pixel post-first-frame submission, shared
+  per Impeller context and MSAA mode, so first-use driver compilation does not
+  land on the first deep-zoom tile.
+- Accelerate exact vector tiling cells, axial gradients (including embedded
+  outline text), and nested-circle radial gradients while retaining explicit
+  Canvas fallback for unsafe variants.
+
 ## 0.1.6
 
 - Align the experimental Flutter GPU backend with the 3.8.0 package suite. No

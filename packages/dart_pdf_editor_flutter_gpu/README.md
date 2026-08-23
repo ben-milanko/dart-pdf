@@ -57,7 +57,8 @@ PDF features return to the Canvas tile backend automatically. Web gets a
 compile-time stub and therefore preserves the all-platform host surface.
 
 The current exact subset is solid paths and strokes, embedded-outline text,
-decoded images/image masks, Gouraud meshes, normal blending, rectangular and
+decoded images/image masks, Gouraud meshes, axial gradients, nested-circle
+radial gradients, vector tiling cells, normal blending, rectangular and
 arbitrary path clips, and the common isolated single-image soft-mask group.
 Rectangles use hardware scissors; other clip stacks compile once into retained
 stencil geometry and preserve nonzero/even-odd plus save/restore semantics. The
@@ -76,6 +77,12 @@ after their scene is disposed and every submitted command buffer completes.
 This keeps command-heavy CAD navigation bounded without relying on delayed
 native finalizers; a scene that cannot lease enough geometry also falls back.
 
+The viewer asks the backend to warm its context after the first page frame.
+The backend submits one transparent pixel through each tile pipeline, moving
+Impeller/driver compilation out of the first deep-zoom interaction without
+delaying initial document paint. This work is coalesced per native view and
+MSAA mode, even when several readers share the same process.
+
 `backend.stats` reports accepted/rejected/active sessions, the latest actual
 tile route, runtime fallback reasons, scene compile and tile-submit time,
 spatially selected command counts, upload/readback paths, cache hits and
@@ -86,9 +93,10 @@ instance alive when comparing pages so those counters and cross-page caches
 describe the real workload rather than one page at a time.
 
 Pages with other transparency groups or soft masks, non-normal blends,
-gradients, tiling cells, unsafe overprint, complex clips nested inside the
-single-image soft-mask shortcut, substituted/stroked text, hairlines, or
-missing image pixels are rejected as a whole rather than approximated.
+non-nested radial gradients, gradient overprint, stencil-image tiling cells,
+unsafe overprint, complex clips nested inside the single-image soft-mask
+shortcut, substituted/stroked text, hairlines, or missing image pixels are
+rejected as a whole rather than approximated.
 `allowOverprintApproximation` exists only for controlled experiments and
 defaults to false.
 
@@ -139,6 +147,8 @@ settle, Canvas parity, upload/cache counters, and RSS. It is opt-in via
 `PDF_GPU_BENCHMARK_PAGES`. Set `PDF_GPU_BENCHMARK_OUT` to a directory to save
 the center 512 px GPU and Canvas tiles for visual comparison, or
 `PDF_GPU_BENCHMARK_MSAA=0` to isolate multisample antialiasing differences.
+Set `PDF_GPU_BENCHMARK_WARMUP=1` to measure the viewer's pipeline warm-up before
+the first real tile.
 Set `PDF_GPU_BENCHMARK_OVERPRINT=0` to exercise the production-default exact
 fallback policy; the benchmark otherwise enables its documented source-over
 approximation so more of a corpus can be measured on the GPU.

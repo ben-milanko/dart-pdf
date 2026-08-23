@@ -84,6 +84,12 @@ void main() {
         msaa: msaa,
         allowOverprintApproximation: approximateOverprint,
       );
+      if (Platform.environment['PDF_GPU_BENCHMARK_WARMUP'] == '1') {
+        final warmUp = Stopwatch()..start();
+        await backend.warmUp();
+        // ignore: avoid_print
+        print('REAL_GPU_BENCHMARK warmUpUs=${warmUp.elapsedMicroseconds}');
+      }
       final output = Platform.environment['PDF_GPU_BENCHMARK_OUT'];
       if (output != null) Directory(output).createSync(recursive: true);
       final rssStart = ProcessInfo.currentRss;
