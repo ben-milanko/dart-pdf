@@ -204,11 +204,14 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
           }
         case PdfDrawTextCommand(:final run):
           if (run.invisible) continue;
-          if (run.glyphs == null ||
-              !run.fill ||
-              run.gradient != null ||
-              run.strokeColor != null) {
-            return 'unsupported text rendering mode';
+          final textReasons = <String>[
+            if (run.glyphs == null) 'missing glyph outlines',
+            if (!run.fill) 'fill disabled',
+            if (run.gradient != null) 'gradient fill',
+            if (run.strokeColor != null) 'stroke',
+          ];
+          if (textReasons.isNotEmpty) {
+            return 'unsupported text: ${textReasons.join(', ')}';
           }
         case PdfFillPathGradientCommand() || PdfDrawTiledCellCommand():
           return 'unsupported ${command.runtimeType}';

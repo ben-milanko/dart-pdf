@@ -7,6 +7,7 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor_flutter_gpu/dart_pdf_editor_flutter_gpu.dart';
 import 'package:flutter_gpu/gpu.dart' as gpu;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_graphics/pdf_graphics.dart';
 
 const _passwords = {
   'issue6010_1.pdf': 'abc',
@@ -106,6 +107,8 @@ void _corpus(
 
   var accepted = 0;
   var rejected = 0;
+  final rejectionReasons = <String, int>{};
+  final missingOutlineFonts = <String, int>{};
   for (final file in files) {
     final name = file.uri.pathSegments.last;
     testWidgets('$suite/$name', (tester) async {
@@ -122,6 +125,19 @@ void _corpus(
             final session = backend.createSession(scene);
             if (session == null) {
               rejected++;
+              final reason = backend.lastSessionRejection ?? 'unspecified';
+              rejectionReasons.update(reason, (count) => count + 1,
+                  ifAbsent: () => 1);
+              final fonts = <String>{
+                for (final command in scene.commands)
+                  if (command case PdfDrawTextCommand(:final run))
+                    if (!run.invisible && run.glyphs == null)
+                      run.fontName ?? '<unnamed>',
+              };
+              for (final font in fonts) {
+                missingOutlineFonts.update(font, (count) => count + 1,
+                    ifAbsent: () => 1);
+              }
               continue;
             }
             accepted++;
@@ -166,6 +182,28 @@ void _corpus(
   tearDownAll(() {
     // ignore: avoid_print
     print('$suite flutter_gpu corpus: accepted=$accepted rejected=$rejected');
+    final grouped = rejectionReasons.entries.toList()
+      ..sort((a, b) {
+        final count = b.value.compareTo(a.value);
+        return count != 0 ? count : a.key.compareTo(b.key);
+      });
+    // Keep the grouped surface machine-readable in CI logs without requiring
+    // a separate artifact parser. This is the prioritization input for adding
+    // exact GPU coverage: frequent conservative fallbacks come first.
+    // ignore: avoid_print
+    print('$suite flutter_gpu rejection reasons: '
+        '${{for (final entry in grouped) entry.key: entry.value}}');
+    final fonts = missingOutlineFonts.entries.toList()
+      ..sort((a, b) {
+        final count = b.value.compareTo(a.value);
+        return count != 0 ? count : a.key.compareTo(b.key);
+      });
+    // One count per rejected page containing that substituted font, rather
+    // than per text run, so a dense drawing title block cannot swamp the
+    // prioritization signal.
+    // ignore: avoid_print
+    print('$suite flutter_gpu missing-outline fonts: '
+        '${{for (final entry in fonts) entry.key: entry.value}}');
     expect(accepted + rejected, greaterThan(0));
     // A zero acceptance rate would make the optional backend inert even if
     // all conservative-fallback tests passed.

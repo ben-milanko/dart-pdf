@@ -616,7 +616,8 @@ void main() {
       addTearDown(substituted.dispose);
       final backend = FlutterGpuTileRasterBackend();
       expect(backend.createSession(substituted), isNull);
-      expect(backend.stats.lastRejection, contains('text'));
+      expect(backend.stats.lastRejection,
+          'unsupported text: missing glyph outlines');
 
       final nonRectClip = await PdfRetainedScene.fromCommands(page, [
         const PdfSaveCommand(),
