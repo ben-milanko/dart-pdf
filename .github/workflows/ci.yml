@@ -169,6 +169,9 @@ jobs:
   # create a session and render a tile, and the pixels must agree with Canvas.
   flutter-gpu-smoke:
     runs-on: macos-latest
+    permissions:
+      actions: read
+      contents: read
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
@@ -183,6 +186,204 @@ jobs:
           flutter test --enable-impeller --enable-flutter-gpu
           --dart-define PDF_GPU_CI_SMOKE=true
           test/gpu_ci_smoke_test.dart --reporter expanded
+
+      - name: Download latest main Flutter GPU performance baseline
+        id: gpu-baseline
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for baseline_run in $(gh run list \
+            --workflow ci.yml \
+            --branch main \
+            --event push \
+            --limit 10 \
+            --json databaseId \
+            --jq '.[].databaseId'); do
+            destination="$RUNNER_TEMP/flutter-gpu-baseline/$baseline_run"
+            if gh run download "$baseline_run" \
+              --name flutter-gpu-performance \
+              --dir "$destination"; then
+              json="$(find "$destination" -name patrol-perf.json -print -quit)"
+              if [[ -n "$json" && -f "$json" ]]; then
+                echo "json=$json" >> "$GITHUB_OUTPUT"
+                echo "Using Flutter GPU baseline from run $baseline_run"
+                exit 0
+              fi
+            fi
+          done
+          echo "::notice::No usable main Flutter GPU artifact is available yet"
+
+      - name: Measure Flutter GPU warm-up and first-tile performance
+        id: gpu-performance
+        working-directory: packages/dart_pdf_editor_flutter_gpu
+        shell: bash
+        env:
+          PERF_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/flutter-gpu-performance.log"
+          : > "$log"
+          for iteration in 1 2 3; do
+            while read -r label pdf; do
+              echo "::group::Flutter GPU $label repetition $iteration/3"
+              env \
+                PDF_GPU_BENCHMARK_PDF="$pdf" \
+                PDF_GPU_BENCHMARK_PAGES=0 \
+                PDF_GPU_BENCHMARK_WARMUP=1 \
+                PDF_GPU_BENCHMARK_SCENE_WARMUP=1 \
+                PDF_GPU_BENCHMARK_OVERPRINT=0 \
+                PDF_GPU_BENCHMARK_SCENARIO="$label" \
+                flutter test \
+                  --enable-impeller \
+                  --enable-flutter-gpu \
+                  --dart-define PDF_PERF_LOG=true \
+                  --dart-define "PDF_BUILD_COMMIT=$PERF_COMMIT" \
+                  test/real_document_benchmark_test.dart \
+                  --reporter expanded \
+                  2>&1 | tee -a "$log"
+              echo "::endgroup::"
+            done <<'SCENARIOS'
+          tiling ../../test_corpora/pdfjs/tiling-pattern-box.pdf
+          radial ../../test_corpora/ghent/1-CMYK/GWG060_Shading_x1a.pdf
+          SCENARIOS
+          done
+          echo "log=$log" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize Flutter GPU performance
+        if: always()
+        working-directory: packages/dart_pdf_editor_flutter_gpu
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="${{ steps.gpu-performance.outputs.log }}"
+          if [[ -z "$log" || ! -f "$log" ]]; then
+            log="$RUNNER_TEMP/flutter-gpu-performance.log"
+            touch "$log"
+          fi
+          arguments=(
+            "$log"
+            --output test-results/gpu
+            --markdown "$GITHUB_STEP_SUMMARY"
+            --label "macOS Metal GPU"
+            --require-scenario-runs gpu-tiling-pipeline-warm=3
+            --require-scenario-runs gpu-tiling-page-0-scene-warm=3
+            --require-scenario-runs gpu-tiling-page-0-first-tile=3
+            --require-scenario-runs gpu-tiling-page-0-canvas-tile=3
+            --require-scenario-runs gpu-radial-pipeline-warm=3
+            --require-scenario-runs gpu-radial-page-0-scene-warm=3
+            --require-scenario-runs gpu-radial-page-0-first-tile=3
+            --require-scenario-runs gpu-radial-page-0-canvas-tile=3
+          )
+          baseline="${{ steps.gpu-baseline.outputs.json }}"
+          if [[ -n "$baseline" && -f "$baseline" ]]; then
+            arguments+=(--baseline "$baseline")
+          fi
+          dart ../../../tool/patrol_perf_summary.dart "${arguments[@]}"
+
+      - name: Upload Flutter GPU performance report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: flutter-gpu-performance
+          path: packages/dart_pdf_editor_flutter_gpu/test-results/gpu
+          if-no-files-found: error
+
+  flutter-gpu-performance-report:
+    name: Flutter GPU performance report
+    if: >-
+      always() &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
+    needs: [flutter-gpu-smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Download Flutter GPU performance report
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: flutter-gpu-performance
+          path: flutter-gpu-performance
+
+      - name: Comment Flutter GPU performance report
+        if: always()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        env:
+          GPU_PERF_MARKER: dart-pdf-flutter-gpu-performance
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const marker = `<!-- ${process.env.GPU_PERF_MARKER} -->`;
+            const find = (root, name) => {
+              if (!fs.existsSync(root)) return null;
+              for (const entry of fs.readdirSync(root, {withFileTypes: true})) {
+                const candidate = path.join(root, entry.name);
+                if (entry.isDirectory()) {
+                  const nested = find(candidate, name);
+                  if (nested) return nested;
+                } else if (entry.name === name) {
+                  return candidate;
+                }
+              }
+              return null;
+            };
+            const headlinePath = find('flutter-gpu-performance', 'patrol-perf-headline.md');
+            const reportPath = find('flutter-gpu-performance', 'patrol-perf.md');
+            const headline = headlinePath
+              ? fs.readFileSync(headlinePath, 'utf8').trim()
+              : 'No headline Flutter GPU performance summary was produced.';
+            const report = reportPath
+              ? fs.readFileSync(reportPath, 'utf8').trim()
+              : 'No Flutter GPU performance artifact was produced. Open the workflow run for the failing step and raw logs.';
+            const sha = context.payload.pull_request.head.sha.slice(0, 7);
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              marker,
+              '## Flutter GPU performance',
+              '',
+              `Automated on macOS Metal for commit \`${sha}\` · [workflow run and downloadable traces](${runUrl})`,
+              '',
+              headline,
+              '',
+              '<details>',
+              '<summary>View Flutter GPU performance details</summary>',
+              '',
+              report,
+              '',
+              '</details>',
+            ].join('\n');
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find((comment) =>
+              comment.user?.type === 'Bot' && comment.body?.includes(marker)
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
 
   # The real bundled web render worker
   # (`packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js`) is a

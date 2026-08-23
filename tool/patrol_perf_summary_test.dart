@@ -420,6 +420,55 @@ void main() {
     'incomplete repetitions fail the CI requirement',
   );
 
+  final gpuTrace = summary.PatrolPerfTrace.parse(const [
+    '[perf 0] build commit=gpu-test-1',
+    '[perf 1] scenario name=gpu-tiling-pipeline-warm phase=start',
+    '[perf 203] raster page=- kind=gpu-tiling-pipeline-warm ms=202.0',
+    '[perf 205] scenario name=gpu-tiling-pipeline-warm phase=validated',
+    '[perf 206] scenario name=gpu-tiling-page-0-first-tile phase=start',
+    '[perf 211] raster page=0 kind=gpu-tiling-page-0-first-tile ms=5.0',
+    '[perf 212] scenario name=gpu-tiling-page-0-first-tile phase=validated',
+    '[perf 0] build commit=gpu-test-2',
+    '[perf 1] scenario name=gpu-tiling-pipeline-warm phase=start',
+    '[perf 209] raster page=- kind=gpu-tiling-pipeline-warm ms=208.0',
+    '[perf 211] scenario name=gpu-tiling-pipeline-warm phase=validated',
+    '[perf 212] scenario name=gpu-tiling-page-0-first-tile phase=start',
+    '[perf 218] raster page=0 kind=gpu-tiling-page-0-first-tile ms=6.0',
+    '[perf 219] scenario name=gpu-tiling-page-0-first-tile phase=validated',
+    '[perf 0] build commit=gpu-test-3',
+    '[perf 1] scenario name=gpu-tiling-pipeline-warm phase=start',
+    '[perf 199] raster page=- kind=gpu-tiling-pipeline-warm ms=198.0',
+    '[perf 201] scenario name=gpu-tiling-pipeline-warm phase=validated',
+    '[perf 202] scenario name=gpu-tiling-page-0-first-tile phase=start',
+    '[perf 207] raster page=0 kind=gpu-tiling-page-0-first-tile ms=5.0',
+    '[perf 208] scenario name=gpu-tiling-page-0-first-tile phase=validated',
+  ]);
+  final gpuJson = gpuTrace.toJson();
+  final gpuScenarios = _map(gpuJson, 'scenarioMetrics');
+  final gpuPipeline = _map(gpuScenarios, 'gpu-tiling-pipeline-warm');
+  _expectEqual(gpuPipeline['runs'], 3, 'GPU pipeline sample count');
+  _expectEqual(
+    _map(gpuPipeline, 'elapsedMs')['p50'],
+    204.0,
+    'GPU pipeline median',
+  );
+  _expectEqual(
+    summary.patrolPerfScenarioRunShortfalls(
+      gpuJson,
+      const {
+        'gpu-tiling-pipeline-warm': 3,
+        'gpu-tiling-page-0-first-tile': 3,
+      },
+    ),
+    const <String, int>{},
+    'GPU scenarios satisfy the three-run CI contract',
+  );
+  _expectContains(
+    gpuTrace.toHeadlineMarkdown(label: 'macOS Metal GPU'),
+    'Scenario `gpu-tiling-page-0-first-tile` elapsed p50 (3 runs)',
+    'GPU first-tile result reaches the PR headline',
+  );
+
   print('Patrol performance summarizer tests passed');
 }
 

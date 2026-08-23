@@ -7,6 +7,10 @@
   scene at one-pixel scale. Both passes wait for useful pixels plus a 750 ms
   quiet window, so first-use driver, geometry, and upload work does not land on
   the first deep-zoom tile or contend with immediate navigation.
+- Benchmark tiling-pattern and radial-shading pipeline warm-up, scene warm-up,
+  first GPU tiles, and Canvas parity three times on the designated macOS
+  Metal CI lane. PRs receive a main comparison with details collapsed beneath
+  the headline, and retain the normalized trace as a downloadable artifact.
 - Accelerate exact vector tiling cells, axial gradients (including embedded
   outline text), and nested-circle radial gradients while retaining explicit
   Canvas fallback for unsafe variants.

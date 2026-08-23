@@ -159,6 +159,11 @@ Set `PDF_GPU_BENCHMARK_WARMUP=1` to measure the viewer's pipeline warm-up before
 the first real tile.
 Set `PDF_GPU_BENCHMARK_SCENE_WARMUP=1` to additionally compile and submit the
 retained scene before measuring that tile.
+Set `PDF_GPU_BENCHMARK_SCENARIO` to emit normalized `PdfPerfLog` scenario
+markers for each pipeline/scene/tile phase. CI uses those markers to run the
+checked-in tiling-pattern and radial-shading pages three times on macOS Metal,
+compare PR medians with the latest `main` artifact, and publish both a concise
+PR headline and a collapsed detailed trace.
 Set `PDF_GPU_BENCHMARK_OVERPRINT=0` to exercise the production-default exact
 fallback policy; the benchmark otherwise enables its documented source-over
 approximation so more of a corpus can be measured on the GPU.
