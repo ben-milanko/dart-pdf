@@ -281,7 +281,7 @@ jobs:
           if [[ -n "$baseline" && -f "$baseline" ]]; then
             arguments+=(--baseline "$baseline")
           fi
-          dart ../../../tool/patrol_perf_summary.dart "${arguments[@]}"
+          dart ../../tool/patrol_perf_summary.dart "${arguments[@]}"
 
       - name: Upload Flutter GPU performance report
         if: always()
