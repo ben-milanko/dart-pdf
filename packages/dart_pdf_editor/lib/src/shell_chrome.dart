@@ -11,6 +11,7 @@ import 'editing/editing_preferences.dart';
 import 'editing/tool_shortcuts.dart';
 import 'l10n/pdf_l10n.dart';
 import 'pdf_viewer.dart';
+import 'scrollbar.dart';
 import 'search_field_style.dart';
 
 /// Shared header chrome for the drop-in shells (PdfReader and
@@ -131,13 +132,21 @@ class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
       PdfPanelDock.top => Positioned(left: 0, right: 0, top: 0, child: toolbar),
       PdfPanelDock.bottom =>
         Positioned(left: 0, right: 0, bottom: 0, child: toolbar),
-      PdfPanelDock.left || PdfPanelDock.right => Positioned.fill(
+      PdfPanelDock.left => Positioned.fill(
           child: Align(
-            alignment: widget.floatingToolbarDock == PdfPanelDock.left
-                ? Alignment.centerLeft
-                : Alignment.centerRight,
+            alignment: Alignment.centerLeft,
             child: toolbar,
           ),
+        ),
+      // The viewer's vertical scrollbar owns this right-edge hit gutter.
+      // Keep the toolbar visually docked beside it without intercepting
+      // scrollbar hover, taps, or drags.
+      PdfPanelDock.right => Positioned(
+          left: 0,
+          right: PdfScrollbar.hitExtent,
+          top: 0,
+          bottom: 0,
+          child: Align(alignment: Alignment.centerRight, child: toolbar),
         ),
     };
   }

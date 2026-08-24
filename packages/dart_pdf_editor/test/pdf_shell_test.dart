@@ -1437,6 +1437,13 @@ void main() {
         tester.getRect(card).right,
         lessThanOrEqualTo(tester.getRect(annotations).left + 0.5),
       );
+      final viewerRect = tester.getRect(
+        find.byKey(const ValueKey('pdf-shell-viewer')),
+      );
+      expect(
+        viewerRect.right - tester.getRect(card).right,
+        greaterThanOrEqualTo(PdfScrollbar.hitExtent - 0.5),
+      );
 
       final markup =
           tester.getCenter(find.byKey(const ValueKey('pdf-group-markup')));
