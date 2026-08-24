@@ -229,13 +229,27 @@ jobs:
             local destination_log="$3"
             local cohort="$4"
             local label="$5"
-            local pdf="$6"
-            local repetition="$7"
+            local source_kind="$6"
+            local source="$7"
+            local repetition="$8"
+            local source_env
+            case "$source_kind" in
+              pdf)
+                source_env="PDF_GPU_BENCHMARK_PDF=$source"
+                ;;
+              fixture)
+                source_env="PDF_GPU_BENCHMARK_FIXTURE=$source"
+                ;;
+              *)
+                echo "Unknown Flutter GPU benchmark source kind: $source_kind" >&2
+                return 2
+                ;;
+            esac
             echo "::group::Flutter GPU $cohort $label $repetition"
             (
               cd "$workspace/packages/dart_pdf_editor_flutter_gpu"
               env \
-                PDF_GPU_BENCHMARK_PDF="$pdf" \
+                "$source_env" \
                 PDF_GPU_BENCHMARK_PAGES=0 \
                 PDF_GPU_BENCHMARK_WARMUP=1 \
                 PDF_GPU_BENCHMARK_SCENE_WARMUP=1 \
@@ -254,49 +268,51 @@ jobs:
 
           if [[ -n "$BASE_WORKSPACE" ]]; then
             prime_index=0
-            while read -r label pdf; do
+            while read -r label source_kind source; do
               # The PR worktree already ran gpu_ci_smoke_test.dart. Prime both
               # worktrees here so compilation and Metal driver caches cannot
               # systematically favour the candidate measurements.
               if (( prime_index % 2 == 0 )); then
                 run_case "$BASE_WORKSPACE" "$BASE_COMMIT" /dev/null \
-                  main "$label" "$pdf" "unmeasured warm-up"
+                  main "$label" "$source_kind" "$source" "unmeasured warm-up"
                 run_case "$GITHUB_WORKSPACE" "$PERF_COMMIT" /dev/null \
-                  pr "$label" "$pdf" "unmeasured warm-up"
+                  pr "$label" "$source_kind" "$source" "unmeasured warm-up"
               else
                 run_case "$GITHUB_WORKSPACE" "$PERF_COMMIT" /dev/null \
-                  pr "$label" "$pdf" "unmeasured warm-up"
+                  pr "$label" "$source_kind" "$source" "unmeasured warm-up"
                 run_case "$BASE_WORKSPACE" "$BASE_COMMIT" /dev/null \
-                  main "$label" "$pdf" "unmeasured warm-up"
+                  main "$label" "$source_kind" "$source" "unmeasured warm-up"
               fi
               prime_index=$((prime_index + 1))
             done <<'SCENARIOS'
-          tiling ../../test_corpora/pdfjs/tiling-pattern-box.pdf
-          radial ../../test_corpora/ghent/1-CMYK/GWG060_Shading_x1a.pdf
+          tiling pdf ../../test_corpora/pdfjs/tiling-pattern-box.pdf
+          radial pdf ../../test_corpora/ghent/1-CMYK/GWG060_Shading_x1a.pdf
+          deferred-mask fixture deferred-mask
           SCENARIOS
           fi
 
           for iteration in 1 2 3 4 5 6; do
-            while read -r label pdf; do
+            while read -r label source_kind source; do
               # Even repetitions run PR first, odd repetitions run main first:
               # each cohort inherits the warmer state exactly three times.
               if [[ -n "$BASE_WORKSPACE" && $((iteration % 2)) == 0 ]]; then
                 run_case "$GITHUB_WORKSPACE" "$PERF_COMMIT" "$log" \
-                  pr "$label" "$pdf" "repetition $iteration/6"
+                  pr "$label" "$source_kind" "$source" "repetition $iteration/6"
                 run_case "$BASE_WORKSPACE" "$BASE_COMMIT" "$baseline_log" \
-                  main "$label" "$pdf" "repetition $iteration/6"
+                  main "$label" "$source_kind" "$source" "repetition $iteration/6"
               elif [[ -n "$BASE_WORKSPACE" ]]; then
                 run_case "$BASE_WORKSPACE" "$BASE_COMMIT" "$baseline_log" \
-                  main "$label" "$pdf" "repetition $iteration/6"
+                  main "$label" "$source_kind" "$source" "repetition $iteration/6"
                 run_case "$GITHUB_WORKSPACE" "$PERF_COMMIT" "$log" \
-                  pr "$label" "$pdf" "repetition $iteration/6"
+                  pr "$label" "$source_kind" "$source" "repetition $iteration/6"
               else
                 run_case "$GITHUB_WORKSPACE" "$PERF_COMMIT" "$log" \
-                  current "$label" "$pdf" "repetition $iteration/6"
+                  current "$label" "$source_kind" "$source" "repetition $iteration/6"
               fi
             done <<'SCENARIOS'
-          tiling ../../test_corpora/pdfjs/tiling-pattern-box.pdf
-          radial ../../test_corpora/ghent/1-CMYK/GWG060_Shading_x1a.pdf
+          tiling pdf ../../test_corpora/pdfjs/tiling-pattern-box.pdf
+          radial pdf ../../test_corpora/ghent/1-CMYK/GWG060_Shading_x1a.pdf
+          deferred-mask fixture deferred-mask
           SCENARIOS
           done
           echo "log=$log" >> "$GITHUB_OUTPUT"
@@ -324,6 +340,8 @@ jobs:
             --require-scenario-runs gpu-radial-page-0-scene-warm=6
             --require-scenario-runs gpu-radial-page-0-first-tile=6
             --require-scenario-runs gpu-radial-page-0-canvas-tile=6
+            --require-scenario-runs gpu-deferred-mask-page-0-first-tile=6
+            --require-scenario-runs gpu-deferred-mask-page-0-canvas-tile=6
           )
           arguments=(
             "$log"
