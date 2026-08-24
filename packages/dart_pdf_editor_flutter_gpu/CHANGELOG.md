@@ -5,7 +5,12 @@
 - Render platform-decoded images with deferred `/SMask` companion surfaces on
   the GPU by caching both textures and combining them in the soft-mask shader.
 - Combine a single vector fill with one opaque grayscale image soft mask in a
-  retained stencil pass, while rejecting nested transparency and blend modes.
+  retained stencil pass. Rectangular vector-mask fills, including alpha or
+  luminosity `/BC` and linearized `/TR`, stay entirely in retained geometry.
+- Render Multiply and Screen exactly with fixed-function blending over the
+  backend's opaque page surface; other blend modes still fall back to Canvas.
+- Warm the nonzero stencil-cover render state used by retained fills, moving
+  its first-use Metal compilation into the existing idle pipeline phase.
 - Render tiled stencil images exactly using scene-scoped, hand-built mipmaps.
   Mip levels participate in the shared texture budget and cache identity, and
   worker-reconstructed tiling cells retain their decoded images.

@@ -29,8 +29,8 @@ import 'backend_stats.dart';
 /// content and mask stay as separate scene-lifetime textures and are combined
 /// by the tile shader. Ordinary PDF clip paths are retained as exact stencil
 /// masks (with rectangular clips additionally using the hardware scissor).
-/// Other isolated groups, non-normal blend modes, complex clips *inside* the
-/// special soft-mask-image shortcut, non-nested radial gradients,
+/// Other isolated groups, blend modes beyond Multiply/Screen, complex clips
+/// *inside* the special soft-mask shortcuts, non-nested radial gradients,
 /// substituted/stroked text, unsafe overprint, or missing image pixels reject
 /// the whole scene.
 /// dart_pdf_editor then permanently uses its Canvas session for that scene.
@@ -234,7 +234,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
       List<_GpuUnit> units,
       bool allowOverprintApproximation) {
     for (final unit in units) {
-      if (unit.blendMode != PdfBlendMode.normal) {
+      if (!_isGpuBlendMode(unit.blendMode)) {
         return 'blend mode ${unit.blendMode.name}';
       }
       final composite = unit.composite;
@@ -249,6 +249,8 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
             if (scene.imageFor(composite.mask) == null) {
               return 'missing soft-mask image pixels';
             }
+          case _SoftMaskVectorFillSpec():
+            break;
         }
         continue;
       }
@@ -307,7 +309,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
           if (covered.contains(i)) break;
           return 'unsafe ${command.runtimeType}';
         case PdfSetBlendModeCommand(:final mode):
-          if (mode != PdfBlendMode.normal) return 'blend mode ${mode.name}';
+          if (!_isGpuBlendMode(mode)) return 'blend mode ${mode.name}';
         case PdfSetOverprintCommand(:final fill, :final stroke):
           // Paint units capture their active overprint state above. State
           // changes by themselves do not render anything.
@@ -318,6 +320,11 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
     }
     return null;
   }
+
+  static bool _isGpuBlendMode(PdfBlendMode mode) =>
+      mode == PdfBlendMode.normal ||
+      mode == PdfBlendMode.multiply ||
+      mode == PdfBlendMode.screen;
 
   static bool _isAxisAlignedRect(PdfPath path) {
     final subs = flattenPath(path, PdfMatrix.identity);
@@ -451,6 +458,35 @@ class _SoftMaskFillSpec extends _SoftMaskSpec {
   final double backdropLuminance;
   final double transferScale;
   final double transferOffset;
+}
+
+class _SoftMaskVectorFillSpec extends _SoftMaskSpec {
+  const _SoftMaskVectorFillSpec({
+    required this.content,
+    required this.maskFills,
+    required this.contentClip,
+    required this.luminosity,
+    required this.backdropLuminance,
+    required this.transferScale,
+    required this.transferOffset,
+  });
+
+  final PdfFillPathCommand content;
+  final List<_VectorMaskFill> maskFills;
+  @override
+  final PdfRect? contentClip;
+  final bool luminosity;
+  final double backdropLuminance;
+  final double transferScale;
+  final double transferOffset;
+}
+
+class _VectorMaskFill {
+  const _VectorMaskFill(this.rect, this.color, this.alpha);
+
+  final PdfRect rect;
+  final PdfColor color;
+  final double alpha;
 }
 
 class _GpuCommandBuild {
@@ -817,12 +853,19 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           }
           content = command;
           contentClip = clip;
-        case PdfSetBlendModeCommand(:final mode):
-          if (mode != PdfBlendMode.normal) {
-            return (null, 'soft-mask fill blend mode ${mode.name}');
-          }
-        case PdfSetOverprintCommand(:final fill, :final stroke):
-          if (fill || stroke) return (null, 'soft-mask fill overprint');
+        case PdfSetBlendModeCommand():
+          // This shortcut accepts exactly one painted element in the isolated
+          // soft-mask capture. Every PDF blend function reduces to the source
+          // when the backdrop alpha is zero, so the active blend mode cannot
+          // affect that element's captured pixels. The completed masked layer
+          // is then composited normally, matching CanvasPdfDevice's two-layer
+          // beginSoftMasked/endSoftMasked sequence.
+          break;
+        case PdfSetOverprintCommand():
+          // Like blend modes above, overprint has no backdrop colorants to
+          // preserve inside this isolated, initially transparent capture.
+          // With one painted fill it therefore reduces to the same source.
+          break;
         default:
           if (pdfRenderCommandBounds(command) != null) {
             return (null, 'soft-mask fill contains ${command.runtimeType}');
@@ -834,7 +877,27 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
     }
     final maskState = _singleMaskImage(maskCommands);
     final mask = maskState.$1;
-    if (mask == null) return (null, maskState.$3);
+    if (mask == null) {
+      final vectorMask = _vectorMaskFills(maskCommands);
+      final maskFills = vectorMask.$1;
+      if (maskFills == null) return (null, vectorMask.$2 ?? maskState.$3);
+      if (![backdropLuminance, transferScale, transferOffset]
+          .every((value) => value.isFinite)) {
+        return (null, 'invalid vector soft-mask transfer');
+      }
+      return (
+        _SoftMaskVectorFillSpec(
+          content: content,
+          maskFills: maskFills,
+          contentClip: contentClip,
+          luminosity: luminosity,
+          backdropLuminance: backdropLuminance,
+          transferScale: transferScale,
+          transferOffset: transferOffset,
+        ),
+        null,
+      );
+    }
     if (mask.request.isStencil) {
       return (null, 'stencil soft-mask fill image');
     }
@@ -894,6 +957,64 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
   if (saved.isNotEmpty) return (null, null, 'unbalanced mask image state');
   if (image == null) return (null, null, 'mask has no image');
   return (image, clip, null);
+}
+
+(List<_VectorMaskFill>?, String?) _vectorMaskFills(
+    List<PdfRenderCommand> commands) {
+  const maxFills = 32;
+  final fills = <_VectorMaskFill>[];
+  PdfRect? clip;
+  var clipEmpty = false;
+  final saved = <(PdfRect?, bool)>[];
+  for (final command in commands) {
+    switch (command) {
+      case PdfSaveCommand():
+        saved.add((clip, clipEmpty));
+      case PdfRestoreCommand():
+        if (saved.isEmpty) return (null, 'unbalanced vector mask state');
+        final restored = saved.removeLast();
+        clip = restored.$1;
+        clipEmpty = restored.$2;
+      case PdfClipPathCommand(:final path):
+        if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) {
+          return (null, 'non-rectangular vector mask clip');
+        }
+        if (clipEmpty) continue;
+        final narrowed = _pdfIntersection(clip, pdfRenderPathBounds(path));
+        if (narrowed == null) {
+          clipEmpty = true;
+        } else {
+          clip = narrowed;
+        }
+      case PdfFillPathCommand(
+          :final path,
+          :final color,
+          :final alpha,
+        ):
+        if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) {
+          return (null, 'non-rectangular vector mask fill');
+        }
+        if (clipEmpty) continue;
+        final rect = _pdfIntersection(clip, pdfRenderPathBounds(path));
+        if (rect != null) fills.add(_VectorMaskFill(rect, color, alpha));
+        if (fills.length > maxFills) {
+          return (null, 'vector mask fill count exceeds GPU cap');
+        }
+      case PdfSetBlendModeCommand(:final mode):
+        if (mode != PdfBlendMode.normal) {
+          return (null, 'vector mask blend mode ${mode.name}');
+        }
+      case PdfSetOverprintCommand(:final fill, :final stroke):
+        if (fill || stroke) return (null, 'vector mask overprint');
+      default:
+        if (pdfRenderCommandBounds(command) != null) {
+          return (null, 'vector mask contains ${command.runtimeType}');
+        }
+    }
+  }
+  if (saved.isNotEmpty) return (null, 'unbalanced vector mask state');
+  if (fills.isEmpty) return (null, 'vector mask has no fills');
+  return (List.unmodifiable(fills), null);
 }
 
 List<_GpuUnit> _selectGpuUnits(
@@ -1287,6 +1408,8 @@ class _CompiledScene {
                 textureLeases,
                 mipmapImages: mipmapImages,
               ),
+            _SoftMaskVectorFillSpec spec =>
+              _compileSoftMaskVectorFill(geometry, spec),
           };
         }
         if (draw != null) draws[unit.commandIndex] = draw;
@@ -1492,7 +1615,9 @@ class _CompiledScene {
     for (final unit in selected) {
       final draw = draws[unit.commandIndex];
       if (draw == null) continue;
-      encoder.setClip(unit.clip);
+      encoder
+        ..setClip(unit.clip)
+        ..setBlendMode(unit.blendMode);
       draw.encode(encoder);
     }
     stats.clipMaskRebuilds += encoder.clipMaskRebuilds;
@@ -1710,6 +1835,99 @@ Future<_GpuDraw> _compileSoftMaskFill(
       maskClip: spec.maskClip,
     ),
   );
+}
+
+_GpuDraw? _compileSoftMaskVectorFill(
+    _GpuGeometryArena geometry, _SoftMaskVectorFillSpec spec) {
+  final subpaths = flattenPath(
+    spec.content.path,
+    PdfMatrix.identity,
+    tolerance: 0.01,
+  );
+  final stencil = _stencilGeometry(geometry, subpaths);
+  if (stencil == null) return null;
+  final pathBounds = stencil.$2;
+  final bounds = _pdfIntersection(
+    PdfRect(
+      pathBounds.left,
+      pathBounds.bottom,
+      pathBounds.right,
+      pathBounds.top,
+    ),
+    spec.contentClip,
+  );
+  if (bounds == null) return null;
+
+  final xs = <double>{bounds.left, bounds.right};
+  final ys = <double>{bounds.bottom, bounds.top};
+  for (final fill in spec.maskFills) {
+    final rect = _pdfIntersection(bounds, fill.rect);
+    if (rect == null) continue;
+    xs
+      ..add(rect.left)
+      ..add(rect.right);
+    ys
+      ..add(rect.bottom)
+      ..add(rect.top);
+  }
+  final orderedX = xs.toList()..sort();
+  final orderedY = ys.toList()..sort();
+  final cells = (orderedX.length - 1) * (orderedY.length - 1);
+  final cover = FloatBuilder(math.max(36, cells * 36));
+  for (var yi = 0; yi + 1 < orderedY.length; yi++) {
+    final bottom = orderedY[yi], top = orderedY[yi + 1];
+    if (top <= bottom) continue;
+    for (var xi = 0; xi + 1 < orderedX.length; xi++) {
+      final left = orderedX[xi], right = orderedX[xi + 1];
+      if (right <= left) continue;
+      final mask = _vectorMaskValue(
+        spec,
+        (left + right) / 2,
+        (bottom + top) / 2,
+      );
+      final color = _premul(
+        spec.content.color,
+        (spec.content.alpha * mask).clamp(0.0, 1.0),
+      );
+      for (final (x, y) in <(double, double)>[
+        (left, bottom),
+        (right, bottom),
+        (right, top),
+        (left, bottom),
+        (right, top),
+        (left, top),
+      ]) {
+        cover.add6(x, y, color[0], color[1], color[2], color[3]);
+      }
+    }
+  }
+  return _StencilDraw(
+    stencil.$1,
+    geometry.add(cover.bytes, cover.length ~/ 6),
+    spec.content.rule,
+    false,
+  );
+}
+
+double _vectorMaskValue(_SoftMaskVectorFillSpec spec, double x, double y) {
+  var alpha = spec.luminosity ? 1.0 : 0.0;
+  var red = spec.luminosity ? spec.backdropLuminance : 0.0;
+  var green = red, blue = red;
+  for (final fill in spec.maskFills) {
+    final rect = fill.rect;
+    if (x < rect.left || x > rect.right || y < rect.bottom || y > rect.top) {
+      continue;
+    }
+    final sourceAlpha = fill.alpha.clamp(0.0, 1.0);
+    final inverse = 1 - sourceAlpha;
+    red = fill.color.red * sourceAlpha + red * inverse;
+    green = fill.color.green * sourceAlpha + green * inverse;
+    blue = fill.color.blue * sourceAlpha + blue * inverse;
+    alpha = sourceAlpha + alpha * inverse;
+  }
+  final value =
+      spec.luminosity ? 0.2126 * red + 0.7152 * green + 0.0722 * blue : alpha;
+  return (value * spec.transferScale + spec.transferOffset).clamp(0.0, 1.0);
 }
 
 gpu.BufferView _softMaskInfo(
@@ -2826,10 +3044,26 @@ class _GpuEncoder {
   int _activeClipBit = 0;
   int clipMaskRebuilds = 0;
   bool? _separateVertexCountApi;
+  gpu.ColorBlendEquation _paintBlend = _srcOver;
 
   static final _srcOver = gpu.ColorBlendEquation(
     sourceColorBlendFactor: gpu.BlendFactor.one,
     destinationColorBlendFactor: gpu.BlendFactor.oneMinusSourceAlpha,
+    sourceAlphaBlendFactor: gpu.BlendFactor.one,
+    destinationAlphaBlendFactor: gpu.BlendFactor.oneMinusSourceAlpha,
+  );
+  // The page paper makes the destination beneath every supported primitive
+  // opaque. Under that invariant PDF Multiply and Screen each reduce to one
+  // exact fixed-function equation, with no destination-texture readback.
+  static final _multiply = gpu.ColorBlendEquation(
+    sourceColorBlendFactor: gpu.BlendFactor.destinationColor,
+    destinationColorBlendFactor: gpu.BlendFactor.oneMinusSourceAlpha,
+    sourceAlphaBlendFactor: gpu.BlendFactor.one,
+    destinationAlphaBlendFactor: gpu.BlendFactor.oneMinusSourceAlpha,
+  );
+  static final _screen = gpu.ColorBlendEquation(
+    sourceColorBlendFactor: gpu.BlendFactor.oneMinusDestinationColor,
+    destinationColorBlendFactor: gpu.BlendFactor.one,
     sourceAlphaBlendFactor: gpu.BlendFactor.one,
     destinationAlphaBlendFactor: gpu.BlendFactor.oneMinusSourceAlpha,
   );
@@ -2839,6 +3073,14 @@ class _GpuEncoder {
     sourceAlphaBlendFactor: gpu.BlendFactor.zero,
     destinationAlphaBlendFactor: gpu.BlendFactor.one,
   );
+
+  void setBlendMode(PdfBlendMode mode) {
+    _paintBlend = switch (mode) {
+      PdfBlendMode.multiply => _multiply,
+      PdfBlendMode.screen => _screen,
+      _ => _srcOver,
+    };
+  }
 
   void setClip(_GpuClipState clip) {
     if (identical(_clipState, clip)) return;
@@ -2924,7 +3166,7 @@ class _GpuEncoder {
   void solid(_GpuBuffer vertices) {
     _defaultStencil();
     pass
-      ..setColorBlendEquation(_srcOver)
+      ..setColorBlendEquation(_paintBlend)
       ..bindPipeline(pipelines.solid)
       ..bindUniform(pipelines.solidTransform, transform);
     _drawBuffer(vertices);
@@ -2936,7 +3178,7 @@ class _GpuEncoder {
         rule: rule, union: union, requiredClipBit: _activeClipBit);
     pass
       ..setStencilReference(0)
-      ..setColorBlendEquation(_srcOver)
+      ..setColorBlendEquation(_paintBlend)
       ..setStencilConfig(gpu.StencilConfig(
         compareFunction: gpu.CompareFunction.notEqual,
         depthStencilPassOperation: gpu.StencilOperation.zero,
@@ -2958,7 +3200,7 @@ class _GpuEncoder {
     );
     pass
       ..setStencilReference(0)
-      ..setColorBlendEquation(_srcOver)
+      ..setColorBlendEquation(_paintBlend)
       ..setStencilConfig(gpu.StencilConfig(
         compareFunction: gpu.CompareFunction.notEqual,
         depthStencilPassOperation: gpu.StencilOperation.zero,
@@ -3034,7 +3276,7 @@ class _GpuEncoder {
   void texture(_GpuBuffer vertices, gpu.Texture texture, gpu.BufferView info) {
     _defaultStencil();
     pass
-      ..setColorBlendEquation(_srcOver)
+      ..setColorBlendEquation(_paintBlend)
       ..bindPipeline(pipelines.texture)
       ..bindUniform(pipelines.textureTransform, transform)
       ..bindUniform(pipelines.textureInfo, info)
@@ -3060,7 +3302,7 @@ class _GpuEncoder {
       mipFilter: gpu.MipFilter.linear,
     );
     pass
-      ..setColorBlendEquation(_srcOver)
+      ..setColorBlendEquation(_paintBlend)
       ..bindPipeline(pipelines.softMask)
       ..bindUniform(pipelines.softMaskTransform, transform)
       ..bindUniform(pipelines.softMaskInfo, info)
@@ -3087,7 +3329,7 @@ class _GpuEncoder {
     );
     pass
       ..setStencilReference(0)
-      ..setColorBlendEquation(_srcOver)
+      ..setColorBlendEquation(_paintBlend)
       ..setStencilConfig(gpu.StencilConfig(
         compareFunction: gpu.CompareFunction.notEqual,
         depthStencilPassOperation: gpu.StencilOperation.zero,
@@ -3371,15 +3613,36 @@ class _GpuPipelines {
       ..setColorBlendEnable(true)
       ..setStencilReference(0)
       ..setColorBlendEquation(_GpuEncoder._noWrite)
-      ..setStencilConfig(gpu.StencilConfig(
-        compareFunction: gpu.CompareFunction.always,
-        depthStencilPassOperation: gpu.StencilOperation.incrementWrap,
-        readMask: 0,
-        writeMask: _GpuEncoder._pathMask,
-      ))
+      ..setStencilConfig(
+          gpu.StencilConfig(
+            compareFunction: gpu.CompareFunction.always,
+            depthStencilPassOperation: gpu.StencilOperation.incrementWrap,
+            readMask: 0,
+            writeMask: _GpuEncoder._pathMask,
+          ),
+          targetFace: gpu.StencilFace.front)
+      ..setStencilConfig(
+          gpu.StencilConfig(
+            compareFunction: gpu.CompareFunction.always,
+            depthStencilPassOperation: gpu.StencilOperation.decrementWrap,
+            readMask: 0,
+            writeMask: _GpuEncoder._pathMask,
+          ),
+          targetFace: gpu.StencilFace.back)
       ..bindPipeline(stencil)
       ..bindUniform(stencilTransform, transform);
     _warmUpDraw(pass, stencilVertices, 3);
+    pass
+      ..setStencilConfig(gpu.StencilConfig(
+        compareFunction: gpu.CompareFunction.notEqual,
+        depthStencilPassOperation: gpu.StencilOperation.zero,
+        readMask: _GpuEncoder._pathMask,
+        writeMask: _GpuEncoder._pathMask,
+      ))
+      ..bindPipeline(solid)
+      ..bindUniform(solidTransform, transform)
+      ..setColorBlendEquation(_GpuEncoder._srcOver);
+    _warmUpDraw(pass, solidVertices, 3);
     pass
       ..setColorBlendEquation(_GpuEncoder._srcOver)
       ..setStencilConfig(gpu.StencilConfig(
@@ -3387,9 +3650,7 @@ class _GpuPipelines {
         depthStencilPassOperation: gpu.StencilOperation.keep,
         readMask: 0,
         writeMask: 0,
-      ))
-      ..bindPipeline(solid)
-      ..bindUniform(solidTransform, transform);
+      ));
     _warmUpDraw(pass, solidVertices, 3);
     pass
       ..bindPipeline(texture)

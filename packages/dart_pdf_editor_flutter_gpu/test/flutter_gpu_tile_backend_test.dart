@@ -241,6 +241,59 @@ void main() {
     });
   });
 
+  testWidgets('Multiply and Screen use exact opaque-page blend equations',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      for (final mode in [PdfBlendMode.multiply, PdfBlendMode.screen]) {
+        final scene = await PdfRetainedScene.fromCommands(page, [
+          PdfFillPathCommand(
+            _rect(50, 100, 350, 400),
+            const PdfColor(0.16, 0.52, 0.82),
+            PdfFillRule.nonzero,
+            1,
+          ),
+          PdfSetBlendModeCommand(mode),
+          PdfFillPathCommand(
+            _rect(140, 180, 310, 350),
+            const PdfColor(0.88, 0.26, 0.12),
+            PdfFillRule.nonzero,
+            0.63,
+          ),
+          const PdfSetBlendModeCommand(PdfBlendMode.normal),
+        ]);
+        final backend = FlutterGpuTileRasterBackend();
+        final session = backend.createSession(scene);
+        expect(session, isNotNull,
+            reason: '${mode.name}: ${backend.stats.lastRejection}');
+        const region = Rect.fromLTWH(40, 90, 320, 320);
+        final expected = await scene.rasterizeRegion(region, pixelRatio: 1.5);
+        final actual = await session!.rasterizeRegion(
+          region,
+          pixelRatio: 1.5,
+        );
+        try {
+          final a = await _pixels(expected), b = await _pixels(actual);
+          var difference = 0;
+          for (var i = 0; i < a.length; i++) {
+            difference += (a[i] - b[i]).abs();
+          }
+          expect(difference / a.length, lessThan(3),
+              reason: '${mode.name} must agree with Canvas');
+        } finally {
+          expected.dispose();
+          actual.dispose();
+          session.dispose();
+          scene.dispose();
+        }
+      }
+    });
+  });
+
   testWidgets('tiling cells expand once and preserve painter order',
       (tester) async {
     await tester.runAsync(() async {
@@ -913,6 +966,8 @@ void main() {
         page,
         [
           const PdfBeginSoftMaskedCommand(),
+          const PdfSetBlendModeCommand(PdfBlendMode.multiply),
+          const PdfSetOverprintCommand(fill: true, stroke: true, mode: 1),
           PdfFillPathCommand(
             _rect(50, 100, 230, 280),
             const PdfColor(0.1, 0.7, 0.25),
@@ -946,6 +1001,95 @@ void main() {
       expect(backend.stats.texturesUploaded, 1);
       expect(backend.stats.textureDirectUploads, 1);
       expect(mask.request.decoded, isNull);
+    });
+  });
+
+  testWidgets('rectangular vector masks retain backdrop and transfer values',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final cases = <({bool luminosity, List<PdfRenderCommand> mask})>[
+        (
+          luminosity: false,
+          mask: [
+            PdfClipPathCommand(
+              _rect(90, 150, 240, 300),
+              PdfFillRule.nonzero,
+            ),
+            PdfFillPathCommand(
+              _rect(60, 120, 270, 330),
+              const PdfColor(1, 1, 1),
+              PdfFillRule.nonzero,
+              1,
+            ),
+          ],
+        ),
+        (
+          luminosity: true,
+          mask: [
+            PdfFillPathCommand(
+              _rect(90, 150, 165, 300),
+              const PdfColor(0, 0, 0),
+              PdfFillRule.nonzero,
+              1,
+            ),
+            PdfFillPathCommand(
+              _rect(165, 150, 240, 300),
+              const PdfColor(1, 1, 1),
+              PdfFillRule.nonzero,
+              1,
+            ),
+          ],
+        ),
+      ];
+      for (final testCase in cases) {
+        final scene = await PdfRetainedScene.fromCommands(page, [
+          const PdfBeginSoftMaskedCommand(),
+          PdfFillPathCommand(
+            _rect(50, 100, 280, 350),
+            const PdfColor(0.2, 0.6, 0.9),
+            PdfFillRule.nonzero,
+            0.85,
+          ),
+          PdfEndSoftMaskedCommand(
+            luminosity: testCase.luminosity,
+            backdrop: page.cropBox,
+            maskCommands: testCase.mask,
+            backdropLuminance: 0.6,
+            transferScale: 0.5,
+            transferOffset: 0.25,
+          ),
+        ]);
+        final backend = FlutterGpuTileRasterBackend();
+        final session = backend.createSession(scene);
+        expect(session, isNotNull, reason: backend.stats.lastRejection);
+        const region = Rect.fromLTWH(40, 90, 250, 270);
+        final expected = await scene.rasterizeRegion(region, pixelRatio: 1.5);
+        final actual = await session!.rasterizeRegion(
+          region,
+          pixelRatio: 1.5,
+        );
+        try {
+          final a = await _pixels(expected), b = await _pixels(actual);
+          var difference = 0;
+          for (var i = 0; i < a.length; i++) {
+            difference += (a[i] - b[i]).abs();
+          }
+          expect(difference / a.length, lessThan(4),
+              reason: testCase.luminosity ? 'luminosity mask' : 'alpha mask');
+          expect(backend.stats.texturesUploaded, 0,
+              reason: 'solid vector masks need no retained image surface');
+        } finally {
+          expected.dispose();
+          actual.dispose();
+          session.dispose();
+          scene.dispose();
+        }
+      }
     });
   });
 

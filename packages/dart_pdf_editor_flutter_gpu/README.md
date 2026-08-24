@@ -58,12 +58,16 @@ compile-time stub and therefore preserves the all-platform host surface.
 
 The current exact subset is solid paths and strokes, embedded-outline text,
 decoded images/image masks, Gouraud meshes, axial gradients, nested-circle
-radial gradients, vector and stencil-image tiling cells, normal blending,
+radial gradients, vector and stencil-image tiling cells, normal/Multiply/Screen
+blending,
 rectangular and arbitrary path clips, and the common isolated single-image
 soft-mask group. Platform-decoded JPEGs whose `/SMask` remains a companion GPU
 surface also keep their base and mask as separate cached textures and combine
 them in the same shader path. A single vector fill can use one opaque grayscale
-image soft mask directly through retained stencil geometry.
+image soft mask directly through retained stencil geometry. Rectangular vector
+soft-mask fills, including alpha or luminosity backdrops and linearized
+transfer functions, are partitioned into constant-mask stencil cover cells and
+need no intermediate texture.
 Rectangles use hardware scissors; other clip stacks compile once into retained
 stencil geometry and preserve nonzero/even-odd plus save/restore semantics. The
 mask case keeps the base and mask as two GPU textures and combines them during
@@ -83,10 +87,11 @@ native finalizers; a scene that cannot lease enough geometry also falls back.
 
 After useful page pixels land and foreground work stays quiet for 750 ms, the
 viewer asks the backend to warm its context. The backend submits one transparent
-pixel through each tile pipeline, moving Impeller/driver compilation out of the
-first deep-zoom interaction without delaying initial document paint or
-competing with an immediate scroll. This work is coalesced per native view and
-MSAA mode, even when several readers share the same process.
+pixel through each tile pipeline and the nonzero stencil-cover state used by
+retained fills, moving Impeller/driver compilation out of the first deep-zoom
+interaction without delaying initial document paint or competing with an
+immediate scroll. This work is coalesced per native view and MSAA mode, even
+when several readers share the same process.
 
 Proactive warm-up defaults on for macOS, Windows, and Linux. Android and iOS
 stay on-demand by default because merely creating an Impeller GPU context can
@@ -111,7 +116,8 @@ Clip diagnostics separately report paths compiled and tile-mask rebuilds.
 instance alive when comparing pages so those counters and cross-page caches
 describe the real workload rather than one page at a time.
 
-Pages with other transparency groups or soft masks, non-normal blends,
+Pages with other transparency groups or soft masks, blend modes other than
+Multiply and Screen,
 non-nested radial gradients, gradient overprint, unsafe overprint, complex
 clips nested inside the single-image soft-mask shortcut, substituted/stroked
 text, hairlines, or missing image pixels are rejected as a whole rather than
@@ -185,6 +191,9 @@ suppressed for this production-route fixture; the warm-up itself still runs.
 An unmeasured Canvas pass immediately before the Canvas control keeps that
 reference warm on both the accepted and fallback routes without warming the
 cold first-tile measurement.
+Set `PDF_GPU_BENCHMARK_ROUTE_CHANGE=1` for the same normalization when a PDF
+path, rather than the built-in fixture, changes from Canvas fallback to direct
+GPU. CI uses it for the checked-in vector-mask transfer page.
 Set `PDF_GPU_BENCHMARK_OVERPRINT=0` to exercise the production-default exact
 fallback policy; the benchmark otherwise enables its documented source-over
 approximation so more of a corpus can be measured on the GPU.

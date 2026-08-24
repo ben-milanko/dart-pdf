@@ -159,7 +159,8 @@ void main() {
       final document = PdfDocument.open(
         _benchmarkDocumentBytes(path, fixtureName),
       );
-      final productionRoute = fixtureName == _deferredMaskFixture;
+      final productionRoute = fixtureName == _deferredMaskFixture ||
+          Platform.environment['PDF_GPU_BENCHMARK_ROUTE_CHANGE'] == '1';
       final configuredPages =
           Platform.environment['PDF_GPU_BENCHMARK_PAGES']?.trim();
       final scenarioLabel =

@@ -233,6 +233,10 @@ jobs:
             local source="$7"
             local repetition="$8"
             local source_env
+            local route_change=0
+            if [[ "$label" == "vector-mask" ]]; then
+              route_change=1
+            fi
             case "$source_kind" in
               pdf)
                 source_env="PDF_GPU_BENCHMARK_PDF=$source"
@@ -254,6 +258,7 @@ jobs:
                 PDF_GPU_BENCHMARK_WARMUP=1 \
                 PDF_GPU_BENCHMARK_SCENE_WARMUP=1 \
                 PDF_GPU_BENCHMARK_OVERPRINT=0 \
+                PDF_GPU_BENCHMARK_ROUTE_CHANGE="$route_change" \
                 PDF_GPU_BENCHMARK_SCENARIO="$label" \
                 flutter test \
                   --enable-impeller \
@@ -288,6 +293,7 @@ jobs:
           tiling pdf ../../test_corpora/pdfjs/tiling-pattern-box.pdf
           radial pdf ../../test_corpora/ghent/1-CMYK/GWG060_Shading_x1a.pdf
           deferred-mask fixture deferred-mask
+          vector-mask pdf ../../test_corpora/pdfjs/smask_luminosity_oob_transfer.pdf
           SCENARIOS
           fi
 
@@ -313,6 +319,7 @@ jobs:
           tiling pdf ../../test_corpora/pdfjs/tiling-pattern-box.pdf
           radial pdf ../../test_corpora/ghent/1-CMYK/GWG060_Shading_x1a.pdf
           deferred-mask fixture deferred-mask
+          vector-mask pdf ../../test_corpora/pdfjs/smask_luminosity_oob_transfer.pdf
           SCENARIOS
           done
           echo "log=$log" >> "$GITHUB_OUTPUT"
@@ -342,6 +349,8 @@ jobs:
             --require-scenario-runs gpu-radial-page-0-canvas-tile=6
             --require-scenario-runs gpu-deferred-mask-page-0-first-tile=6
             --require-scenario-runs gpu-deferred-mask-page-0-canvas-tile=6
+            --require-scenario-runs gpu-vector-mask-page-0-first-tile=6
+            --require-scenario-runs gpu-vector-mask-page-0-canvas-tile=6
           )
           arguments=(
             "$log"
