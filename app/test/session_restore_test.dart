@@ -17,6 +17,8 @@ import 'package:dart_pdf_editor_app/session_store.dart';
 import 'package:dart_pdf_editor_app/unsaved_changes.dart';
 import 'package:dart_pdf_editor_app/welcome_screen.dart';
 
+import 'test_finders.dart';
+
 class _FakeFileSelector extends fs.FileSelectorPlatform {
   _FakeFileSelector(this.files);
 
@@ -85,7 +87,7 @@ void main() {
 
   Finder tabTitle(String name) => find.descendant(
         of: find.byKey(const ValueKey('tab-strip')),
-        matching: find.text(name),
+        matching: findMiddleEllipsisText(name),
       );
 
   // The editor never settles (it keeps rasterizing), and restore performs real
@@ -347,9 +349,14 @@ void main() {
     expect(tester.getCenter(tabTitle('b.pdf')).dx,
         lessThan(tester.getCenter(tabTitle('clicked.pdf')).dx));
     // ...and stays the document on screen.
-    expect(tester.widget<Text>(tabTitle('clicked.pdf')).style?.fontWeight,
+    expect(
+        tester
+            .widget<MiddleEllipsisText>(tabTitle('clicked.pdf'))
+            .style
+            ?.fontWeight,
         FontWeight.w600);
-    expect(tester.widget<Text>(tabTitle('b.pdf')).style?.fontWeight,
+    expect(
+        tester.widget<MiddleEllipsisText>(tabTitle('b.pdf')).style?.fontWeight,
         FontWeight.normal);
   });
 
@@ -373,7 +380,8 @@ void main() {
     expect(find.byTooltip('Close tab'), findsNWidgets(2)); // no duplicate tab
     expect(tester.getCenter(tabTitle('b.pdf')).dx,
         lessThan(tester.getCenter(tabTitle('a.pdf')).dx));
-    expect(tester.widget<Text>(tabTitle('a.pdf')).style?.fontWeight,
+    expect(
+        tester.widget<MiddleEllipsisText>(tabTitle('a.pdf')).style?.fontWeight,
         FontWeight.w600);
   });
 }

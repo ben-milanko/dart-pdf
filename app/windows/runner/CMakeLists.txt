@@ -14,6 +14,7 @@ add_executable(${BINARY_NAME} WIN32
   "native_print.cpp"
   "platform_channels.cpp"
   "utils.cpp"
+  "windows_drop.cpp"
   "win32_window.cpp"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
   "Runner.rc"

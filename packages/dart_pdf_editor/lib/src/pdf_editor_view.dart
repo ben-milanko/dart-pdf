@@ -133,7 +133,7 @@ class PdfEditorFeatures {
   /// The annotation properties panel and its toggle.
   final bool propertiesPanel;
 
-  /// The bottom editing toolbar.
+  /// The floating, edge-dockable editing toolbar.
   final bool toolbar;
 
   /// The toolbar's text-markup buttons (highlight, underline...).
@@ -224,6 +224,8 @@ class PdfEditorView extends StatefulWidget {
     this.onSave,
     this.onSaveAs,
     this.showSaveButton = true,
+    this.saveButtonIcon = Icons.save_alt,
+    this.saveButtonLabel,
     this.alwaysAllowSave = false,
     this.onDocumentChanged,
     this.onPickPdfToInsert,
@@ -315,6 +317,8 @@ class PdfEditorView extends StatefulWidget {
     this.onSave,
     this.onSaveAs,
     this.showSaveButton = true,
+    this.saveButtonIcon = Icons.save_alt,
+    this.saveButtonLabel,
     this.alwaysAllowSave = false,
     this.onDocumentChanged,
     this.onPickPdfToInsert,
@@ -459,6 +463,13 @@ class PdfEditorView extends StatefulWidget {
   /// save affordance while still keeping [onSave] and the keyboard
   /// shortcut active.
   final bool showSaveButton;
+
+  /// Icon used by the stock save affordance. A mobile host whose save flow
+  /// opens the platform share sheet can pass [Icons.share_outlined].
+  final IconData saveButtonIcon;
+
+  /// Optional replacement for the localized stock "Save" label.
+  final String? saveButtonLabel;
 
   /// Keeps Save (the button and ⌘S / Ctrl+S) enabled even when the
   /// document has no unsaved edits. Hosts set this for a document that has
@@ -762,6 +773,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
         onSave: complete ? widget.onSave : null,
         onSaveAs: complete ? widget.onSaveAs : null,
         showSaveButton: widget.showSaveButton,
+        saveButtonIcon: widget.saveButtonIcon,
+        saveButtonLabel: widget.saveButtonLabel,
         alwaysAllowSave: complete && widget.alwaysAllowSave,
         onDocumentChanged: complete ? widget.onDocumentChanged : null,
         onPickPdfToInsert: complete ? widget.onPickPdfToInsert : null,
@@ -1225,7 +1238,19 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     showStyle: features.styleControls,
                     showFlatten: features.flatten,
                     showColorProcessing: features.colorProcessing,
-                    leading: widget.toolbarLeading,
+                    cardAlignment: switch (prefs.toolbarDock) {
+                      PdfPanelDock.left => Alignment.centerLeft,
+                      PdfPanelDock.right => Alignment.centerRight,
+                      PdfPanelDock.top ||
+                      PdfPanelDock.bottom =>
+                        Alignment.center,
+                    },
+                    leading: [
+                      if (!dockToolbar)
+                        (context, controller, viewer) =>
+                            const PdfToolbarMoveHandle(),
+                      ...widget.toolbarLeading,
+                    ],
                     trailing: widget.toolbarTrailing,
                   );
           final viewOptionsControl = PdfShellControlItem(
@@ -1373,8 +1398,9 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         visualDensity: VisualDensity.compact,
                         padding: const EdgeInsets.symmetric(horizontal: 12),
                       ),
-                      icon: const Icon(Icons.save_alt, size: 18),
-                      label: Text(pdfL10n(context).save),
+                      icon: Icon(widget.saveButtonIcon, size: 18),
+                      label:
+                          Text(widget.saveButtonLabel ?? pdfL10n(context).save),
                       onPressed: _canSave ? _save : null,
                     ),
                 ],
@@ -1395,8 +1421,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                   if (widget.onSave != null && widget.showSaveButton)
                     PdfShellControlItem(
                       key: const ValueKey('pdf-shell-save'),
-                      icon: Icons.save_alt,
-                      label: pdfL10n(context).save,
+                      icon: widget.saveButtonIcon,
+                      label: widget.saveButtonLabel ?? pdfL10n(context).save,
                       enabled: _canSave,
                       onPressed: _save,
                     ),
@@ -1492,7 +1518,11 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 // (see dockToolbar) so its solid bar never hides the page
                 floatingToolbar:
                     toolbar != null && !dockToolbar ? toolbar : null,
+                floatingToolbarDock: prefs.toolbarDock,
                 dockedToolbar: toolbar != null && dockToolbar ? toolbar : null,
+                onToolbarDock: toolbar != null && !dockToolbar
+                    ? (dock) => prefs.toolbarDock = dock
+                    : null,
               ),
             ),
           ]);

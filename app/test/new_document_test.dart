@@ -5,6 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 
+import 'test_finders.dart';
+
 void main() {
   late PdfEditingPreferences prefs;
 
@@ -63,7 +65,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('new-document-create')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Untitled.pdf'), findsWidgets);
+    expect(findMiddleEllipsisText('Untitled.pdf'), findsWidgets);
     final view = tester.widget<PdfEditorView>(find.byType(PdfEditorView));
     final page = view.controller!.document.page(0);
     expect(page.mediaBox.width, 792);
@@ -84,7 +86,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('new-document-create')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Untitled.pdf'), findsOneWidget);
-    expect(find.text('Untitled 2.pdf'), findsOneWidget);
+    expect(findMiddleEllipsisText('Untitled.pdf'), findsOneWidget);
+    expect(findMiddleEllipsisText('Untitled 2.pdf'), findsOneWidget);
   });
 }

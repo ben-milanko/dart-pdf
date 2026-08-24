@@ -28,6 +28,7 @@ import 'incoming_file.dart';
 import 'keyless_identity_cache.dart';
 import 'keyless_signing.dart';
 import 'l10n/app_l10n.dart';
+import 'middle_ellipsis_text.dart';
 import 'new_document.dart';
 import 'ocr.dart';
 import 'ocr_status_label.dart';
@@ -49,6 +50,7 @@ import 'update_platform.dart';
 import 'web_launch.dart';
 import 'welcome_screen.dart';
 import 'window_support.dart';
+import 'windows_drop_target.dart';
 
 /// Height of the AppBar's browser-style tab strip.
 const double _tabStripHeight = 42;
@@ -2851,6 +2853,13 @@ class _EditorScreenState extends State<EditorScreen>
         _ => false,
       };
 
+  bool get _usesMobileShare =>
+      !kIsWeb &&
+      switch (defaultTargetPlatform) {
+        TargetPlatform.android || TargetPlatform.iOS => true,
+        _ => false,
+      };
+
   double _appMenuItemHeight({bool twoLine = false}) => !_usesCompactAppMenu
       ? kMinInteractiveDimension
       : twoLine
@@ -2879,10 +2888,13 @@ class _EditorScreenState extends State<EditorScreen>
     Widget? trailing,
     Widget? subtitle,
     TextOverflow? overflow,
+    bool middleEllipsis = false,
   }) =>
       ListTile(
         leading: Icon(icon),
-        title: Text(title, overflow: overflow),
+        title: middleEllipsis
+            ? MiddleEllipsisText(title)
+            : Text(title, overflow: overflow),
         subtitle: subtitle,
         trailing: trailing ??
             (shortcut == null
@@ -2970,14 +2982,10 @@ class _EditorScreenState extends State<EditorScreen>
                     title: entry.title.isEmpty
                         ? appL10n(context).editorUntitled
                         : entry.title,
-                    overflow: TextOverflow.ellipsis,
+                    middleEllipsis: true,
                     subtitle: entry.path == null
                         ? null
-                        : Text(
-                            entry.path!,
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 1,
-                          ),
+                        : MiddleEllipsisText(entry.path!),
                   ),
                 ),
               const PopupMenuDivider(),
@@ -3060,9 +3068,14 @@ class _EditorScreenState extends State<EditorScreen>
             height: _appMenuItemHeight(),
             value: () => _save(tab!, saveAs: true),
             child: _appMenuTile(
-              icon: Icons.save_as_outlined,
-              title: appL10n(context).editorMenuSaveAs,
-              shortcut: _menuShortcut('S', shift: true),
+              icon: _usesMobileShare
+                  ? Icons.share_outlined
+                  : Icons.save_as_outlined,
+              title: _usesMobileShare
+                  ? WidgetsLocalizations.of(context).shareButtonLabel
+                  : appL10n(context).editorMenuSaveAs,
+              shortcut:
+                  _usesMobileShare ? null : _menuShortcut('S', shift: true),
             ),
           ),
           if (_canScan && !_readOnly)
@@ -3176,6 +3189,37 @@ class _EditorScreenState extends State<EditorScreen>
 
   // --- build ---------------------------------------------------------------
 
+  Widget _buildFileDropTarget(Widget child) {
+    void dragDone(DropDoneDetails detail) {
+      setState(() {
+        _dragging = false;
+        _draggingOverThumbnails = false;
+      });
+      unawaited(_onFilesDropped(detail));
+    }
+
+    final handle = _nativeWindowHandle;
+    if (!kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.windows &&
+        handle != null) {
+      return WindowsDropTarget(
+        windowHandle: handle,
+        onDragEntered: (detail) => _onDragMoved(detail.globalPosition),
+        onDragUpdated: (detail) => _onDragMoved(detail.globalPosition),
+        onDragExited: (_) => _onDragEnded(),
+        onDragDone: dragDone,
+        child: child,
+      );
+    }
+    return DropTarget(
+      onDragEntered: (detail) => _onDragMoved(detail.globalPosition),
+      onDragUpdated: (detail) => _onDragMoved(detail.globalPosition),
+      onDragExited: (_) => _onDragEnded(),
+      onDragDone: dragDone,
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final tab = _active;
@@ -3216,72 +3260,60 @@ class _EditorScreenState extends State<EditorScreen>
           const SingleActivator(LogicalKeyboardKey.keyO,
               control: true, shift: true): _openMostRecent,
         },
-        child: DropTarget(
-          onDragEntered: (detail) => _onDragMoved(detail.globalPosition),
-          onDragUpdated: (detail) => _onDragMoved(detail.globalPosition),
-          onDragExited: (_) => _onDragEnded(),
-          onDragDone: (detail) {
-            setState(() {
-              _dragging = false;
-              _draggingOverThumbnails = false;
-            });
-            _onFilesDropped(detail);
-          },
-          child: Builder(builder: (context) {
-            final compactDevTools = _isCompactWidth(context);
-            return Stack(
-              children: [
-                // On wide screens the devtools panel docks beside the body
-                // (like the editor's own sidebars), so the viewer relays out
-                // narrower instead of being overlaid - zoom and scroll
-                // gestures keep their space. On phones there is no room for a
-                // side dock, so it rides up as a bottom sheet instead (below).
-                Positioned.fill(
-                  child: Row(
-                    children: [
-                      Expanded(child: _buildBodyWithDevTools(tab)),
-                      if (_devToolsOpen && kDevToolsEnabled && !compactDevTools)
-                        DevToolsPanel(
-                          onClose: _toggleDevTools,
-                          session: tab?.session,
-                          viewerController: tab?.viewer,
-                          documentTitle: tab?.title,
-                        ),
-                    ],
-                  ),
-                ),
-                // The full-window hint yields to the thumbnails' own
-                // insertion marker once the drag is over a page panel - the
-                // marker already says exactly where the pages will land.
-                if (_dragging && !_draggingOverThumbnails)
-                  Positioned.fill(
-                    child: _DropOverlay(
-                      canInsert: tab?.session != null && !_readOnly,
-                    ),
-                  ),
-                // Phone devtools: a bottom sheet over the viewer. Scrim-less,
-                // so the page underneath still takes gestures (matching the
-                // docked panel, which never blocked the viewer either).
-                if (_devToolsOpen && kDevToolsEnabled && compactDevTools)
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: SafeArea(
-                      top: false,
-                      child: DevToolsPanel(
+        child: _buildFileDropTarget(Builder(builder: (context) {
+          final compactDevTools = _isCompactWidth(context);
+          return Stack(
+            children: [
+              // On wide screens the devtools panel docks beside the body
+              // (like the editor's own sidebars), so the viewer relays out
+              // narrower instead of being overlaid - zoom and scroll
+              // gestures keep their space. On phones there is no room for a
+              // side dock, so it rides up as a bottom sheet instead (below).
+              Positioned.fill(
+                child: Row(
+                  children: [
+                    Expanded(child: _buildBodyWithDevTools(tab)),
+                    if (_devToolsOpen && kDevToolsEnabled && !compactDevTools)
+                      DevToolsPanel(
                         onClose: _toggleDevTools,
                         session: tab?.session,
                         viewerController: tab?.viewer,
                         documentTitle: tab?.title,
-                        bottomSheet: true,
                       ),
+                  ],
+                ),
+              ),
+              // The full-window hint yields to the thumbnails' own
+              // insertion marker once the drag is over a page panel - the
+              // marker already says exactly where the pages will land.
+              if (_dragging && !_draggingOverThumbnails)
+                Positioned.fill(
+                  child: _DropOverlay(
+                    canInsert: tab?.session != null && !_readOnly,
+                  ),
+                ),
+              // Phone devtools: a bottom sheet over the viewer. Scrim-less,
+              // so the page underneath still takes gestures (matching the
+              // docked panel, which never blocked the viewer either).
+              if (_devToolsOpen && kDevToolsEnabled && compactDevTools)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: SafeArea(
+                    top: false,
+                    child: DevToolsPanel(
+                      onClose: _toggleDevTools,
+                      session: tab?.session,
+                      viewerController: tab?.viewer,
+                      documentTitle: tab?.title,
+                      bottomSheet: true,
                     ),
                   ),
-              ],
-            );
-          }),
-        ),
+                ),
+            ],
+          );
+        })),
       ),
     );
   }
@@ -3398,6 +3430,10 @@ class _EditorScreenState extends State<EditorScreen>
       onSave: (_) => unawaited(_save(tab)),
       onSaveAs: (_) => unawaited(_save(tab, saveAs: true)),
       showSaveButton: !compact,
+      saveButtonIcon: _usesMobileShare ? Icons.share_outlined : Icons.save_alt,
+      saveButtonLabel: _usesMobileShare
+          ? WidgetsLocalizations.of(context).shareButtonLabel
+          : null,
       // The shell enables Save off its *own* session history, which misses two
       // cases the app knows about. A brand-new untitled document has no on-disk
       // origin yet, so Save (button + Ctrl/⌘+S) stays live even before the
@@ -3480,8 +3516,13 @@ class _EditorScreenState extends State<EditorScreen>
               visualDensity: VisualDensity.compact,
               padding: const EdgeInsets.symmetric(horizontal: 12),
             ),
-            icon: const Icon(Icons.save_alt, size: 18),
-            label: Text(appL10n(context).save),
+            icon: Icon(
+              _usesMobileShare ? Icons.share_outlined : Icons.save_alt,
+              size: 18,
+            ),
+            label: Text(_usesMobileShare
+                ? WidgetsLocalizations.of(context).shareButtonLabel
+                : appL10n(context).save),
             onPressed: () => unawaited(_save(tab!)),
           ),
         ),
@@ -3505,9 +3546,8 @@ class _EditorScreenState extends State<EditorScreen>
   Widget _buildTabsTitle() {
     if (!_isCompactWidth(context)) return _buildTabStrip();
     final tab = _active;
-    Widget title = Text(
+    Widget title = MiddleEllipsisText(
       tab?.title.isEmpty ?? true ? appL10n(context).editorUntitled : tab!.title,
-      overflow: TextOverflow.ellipsis,
     );
     if (_nativeTabDragging && tab?.session != null) {
       title = _buildNativeTabDragSource(tab!, title);
@@ -3964,9 +4004,8 @@ class _EditorScreenState extends State<EditorScreen>
     // so the label keeps room; the active tab always keeps it.
     final showClose = selected || width >= _tabCloseHideWidth;
     Widget label() {
-      final text = Text(
+      final text = MiddleEllipsisText(
         tab.title.isEmpty ? appL10n(context).editorUntitled : tab.title,
-        overflow: TextOverflow.ellipsis,
         style: TextStyle(
           fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
           color:
@@ -4169,10 +4208,8 @@ class _EditorScreenState extends State<EditorScreen>
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    MiddleEllipsisText(
                       tab.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: overStrip
                             ? scheme.onPrimaryContainer
@@ -4496,13 +4533,11 @@ class _DesktopTabPreviewCard extends StatelessWidget {
                     child: Icon(Icons.circle, size: 8, color: scheme.primary),
                   ),
                 Expanded(
-                  child: Text(
+                  child: MiddleEllipsisText(
                     tab.title.isEmpty
                         ? appL10n(context).editorUntitled
                         : tab.title,
                     key: const ValueKey('tab-hover-preview-title'),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.labelLarge,
                   ),
                 ),
@@ -4742,12 +4777,10 @@ class _MobileTabTile extends StatelessWidget {
                       child: Icon(Icons.circle, size: 8, color: scheme.primary),
                     ),
                   Expanded(
-                    child: Text(
+                    child: MiddleEllipsisText(
                       tab.title.isEmpty
                           ? appL10n(context).editorUntitled
                           : tab.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontWeight:
                             selected ? FontWeight.w600 : FontWeight.normal,

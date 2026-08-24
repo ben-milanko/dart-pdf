@@ -18,6 +18,8 @@ import 'package:dart_pdf_editor_app/devtools.dart';
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/incoming_file.dart';
 
+import 'test_finders.dart';
+
 void main() {
   late PdfEditingPreferences prefs;
   late Directory tempDir;
@@ -42,7 +44,7 @@ void main() {
 
   Finder tabTitle(String name) => find.descendant(
         of: find.byKey(const ValueKey('tab-strip')),
-        matching: find.text(name),
+        matching: findMiddleEllipsisText(name),
       );
 
   Future<void> pump(WidgetTester tester, Future<void> Function() action) async {

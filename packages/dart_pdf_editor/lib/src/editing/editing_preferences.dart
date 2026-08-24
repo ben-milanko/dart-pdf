@@ -104,6 +104,7 @@ class PdfEditingPreferences extends ChangeNotifier {
   PdfPanelDock _bookmarkSidebarDock = PdfPanelDock.left;
   PdfPanelDock _annotationSidebarDock = PdfPanelDock.right;
   PdfPanelDock _propertiesPanelDock = PdfPanelDock.right;
+  PdfPanelDock _toolbarDock = PdfPanelDock.bottom;
   // Tab-group membership: panels sharing the same dock AND the same group id
   // render as one tabbed panel; a panel alone in its group is a standalone
   // side-by-side panel. The default id is each panel's own enum index, so
@@ -290,6 +291,7 @@ class PdfEditingPreferences extends ChangeNotifier {
           _readDock(store, 'annotationSidebarDock', _annotationSidebarDock);
       _propertiesPanelDock =
           _readDock(store, 'propertiesPanelDock', _propertiesPanelDock);
+      _toolbarDock = _readDock(store, 'toolbarDock', _toolbarDock);
       for (final p in PdfDockablePanel.values) {
         _panelGroups[p] =
             store.getInt('${_prefix}panelGroup.${p.name}') ?? _panelGroups[p]!;
@@ -1261,6 +1263,17 @@ class PdfEditingPreferences extends ChangeNotifier {
     if (value == _propertiesPanelDock) return;
     _propertiesPanelDock = value;
     _setDock('propertiesPanelDock', value);
+  }
+
+  /// Which edge the floating editing toolbar is attached to. Persisted so a
+  /// dragged toolbar returns to the same edge in later sessions. Compact
+  /// layouts still use their fixed bottom bar regardless of this preference.
+  PdfPanelDock get toolbarDock => _toolbarDock;
+
+  set toolbarDock(PdfPanelDock value) {
+    if (value == _toolbarDock) return;
+    _toolbarDock = value;
+    _setDock('toolbarDock', value);
   }
 
   /// The dock a specific [panel] is attached to, keyed by identity - the

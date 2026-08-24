@@ -87,6 +87,7 @@ class PdfEditingToolbar extends StatefulWidget {
     this.showStyle = true,
     this.showFlatten = true,
     this.showColorProcessing = true,
+    this.cardAlignment = Alignment.center,
     this.leading = const [],
     this.trailing = const [],
   });
@@ -190,6 +191,11 @@ class PdfEditingToolbar extends StatefulWidget {
 
   /// Whether the Edit group includes the colour-processing action.
   final bool showColorProcessing;
+
+  /// Alignment of the floating desktop cards within the width supplied by
+  /// the host. The drop-in editor uses this when the toolbar is docked to the
+  /// left or right edge. Compact/mobile mode ignores it.
+  final AlignmentGeometry cardAlignment;
 
   /// Custom widgets shown before the stock dock controls. Builders run
   /// inside the toolbar's listenable rebuild, so they can reflect
@@ -1356,6 +1362,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   }) {
     return LayoutBuilder(
       builder: (context, constraints) => Align(
+        alignment: widget.cardAlignment,
         child: Container(
           key: const ValueKey('pdf-editing-toolbar-card'),
           constraints: BoxConstraints(maxWidth: constraints.maxWidth),

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import 'app_info.dart';
 import 'l10n/app_l10n.dart';
+import 'middle_ellipsis_text.dart';
 import 'recent_thumbnails.dart';
 import 'recents.dart';
 
@@ -401,10 +402,9 @@ class _RecentsList extends StatelessWidget {
             width: 48,
             height: 62,
           ),
-          title:
-              Text(entry.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+          title: MiddleEllipsisText(entry.title),
           subtitle: entry.path != null
-              ? Text(entry.path!, maxLines: 1, overflow: TextOverflow.ellipsis)
+              ? MiddleEllipsisText(entry.path!)
               : entry.isReopenable
                   // Mobile: reopens from a private snapshot, so no path to
                   // show and no re-pick needed.
@@ -550,10 +550,8 @@ class _RecentGridTile extends StatelessWidget {
             height: _twoLineHeight(context, theme.textTheme.bodySmall),
             child: Align(
               alignment: Alignment.bottomCenter,
-              child: Text(
+              child: MiddleEllipsisText(
                 entry.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodySmall,
               ),

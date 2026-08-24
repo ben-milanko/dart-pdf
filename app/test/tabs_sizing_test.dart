@@ -9,6 +9,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/incoming_file.dart';
 
+import 'test_finders.dart';
+
 /// Chrome-style tab sizing: tabs share the strip equally and shrink as more
 /// open, and closing while the pointer is over the strip holds the surviving
 /// tabs' width until the pointer leaves.
@@ -47,7 +49,7 @@ void main() {
 
   Finder tabTitle(String name) => find.descendant(
         of: find.byKey(const ValueKey('tab-strip')),
-        matching: find.text(name),
+        matching: findMiddleEllipsisText(name),
       );
 
   // The tab's coloured Material (nearest Material ancestor of its title); its

@@ -11,6 +11,8 @@ import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/tab_drag.dart';
 import 'package:dart_pdf_editor_app/window_support.dart';
 
+import 'test_finders.dart';
+
 class _FakeLocator implements TabDropLocator {
   TabDropLocation? location;
   Object? failure;
@@ -92,6 +94,11 @@ DocumentHandoff _handoff([String title = 'dragged.pdf']) {
 }
 
 void main() {
+  Finder tabLabel(String title) => find.descendant(
+        of: find.byKey(const ValueKey('tab-strip')),
+        matching: findMiddleEllipsisText(title),
+      );
+
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('native locator sends window handles and decodes the local point',
@@ -169,10 +176,7 @@ void main() {
     await tester.pump();
 
     expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('tab-strip')),
-        matching: find.text('dragged.pdf'),
-      ),
+      tabLabel('dragged.pdf'),
       findsOneWidget,
     );
     expect(source.tabs, isEmpty);
@@ -204,10 +208,7 @@ void main() {
     );
     await tester.pump();
     expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('tab-strip')),
-        matching: find.text('compact.pdf'),
-      ),
+      tabLabel('compact.pdf'),
       findsOneWidget,
     );
     expect(compactSource.tabs, isEmpty);
@@ -220,10 +221,7 @@ void main() {
         DocumentTab.error(title: 'incoming.pdf', error: 'fixture');
     incomingSource.tabs.add(incomingTab);
     coordinator.register(incomingSource);
-    final firstTabBefore = tester.getCenter(find.descendant(
-      of: find.byKey(const ValueKey('tab-strip')),
-      matching: find.text('dragged.pdf'),
-    ));
+    final firstTabBefore = tester.getCenter(tabLabel('dragged.pdf'));
     final targetListRect =
         tester.getRect(find.byKey(const ValueKey('tab-strip')));
     locator.location = TabDropLocation(
@@ -256,12 +254,7 @@ void main() {
     expect(tester.getTopLeft(destinationFeedback).dx,
         greaterThan(feedbackLeft + 20));
     expect(
-      tester
-          .getCenter(find.descendant(
-            of: find.byKey(const ValueKey('tab-strip')),
-            matching: find.text('dragged.pdf'),
-          ))
-          .dx,
+      tester.getCenter(tabLabel('dragged.pdf')).dx,
       greaterThan(firstTabBefore.dx + 100),
     );
     coordinator.cancel(incomingToken);
@@ -276,14 +269,8 @@ void main() {
     // the coordinator. Dragging the second tab before the first is the
     // regression for replacing the ReorderableListView handle with a plain
     // Draggable without restoring same-strip routing.
-    final compactLabel = find.descendant(
-      of: find.byKey(const ValueKey('tab-strip')),
-      matching: find.text('compact.pdf'),
-    );
-    final draggedLabel = find.descendant(
-      of: find.byKey(const ValueKey('tab-strip')),
-      matching: find.text('dragged.pdf'),
-    );
+    final compactLabel = tabLabel('compact.pdf');
+    final draggedLabel = tabLabel('dragged.pdf');
     final firstRect = tester.getRect(draggedLabel);
     final firstCenterBeforeReorder = tester.getCenter(draggedLabel);
     final tabListRect = tester.getRect(find.byKey(const ValueKey('tab-strip')));
@@ -350,10 +337,7 @@ void main() {
       localPoint: Offset(40, 20),
     );
     for (final title in ['compact.pdf', 'dragged.pdf']) {
-      final label = find.descendant(
-        of: find.byKey(const ValueKey('tab-strip')),
-        matching: find.text(title),
-      );
+      final label = tabLabel(title);
       final move = await tester.startGesture(
         tester.getCenter(label),
         kind: PointerDeviceKind.mouse,

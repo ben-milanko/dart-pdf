@@ -11,6 +11,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/incoming_file.dart';
 
+import 'test_finders.dart';
+
 // These tests exercise the *branching* a drop takes - show the open/insert
 // dialog when a document is open, and route to the right action - by driving
 // the desktop_drop channel directly. They deliberately do not read real files:
@@ -83,7 +85,7 @@ void main() {
 
   Finder tabTitle(String name) => find.descendant(
         of: find.byKey(const ValueKey('tab-strip')),
-        matching: find.text(name),
+        matching: findMiddleEllipsisText(name),
       );
 
   testWidgets('dropping onto an open document offers open or insert',

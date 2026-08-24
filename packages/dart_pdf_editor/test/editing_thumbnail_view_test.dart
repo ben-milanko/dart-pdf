@@ -123,6 +123,23 @@ void main() {
       await drain(tester);
     });
 
+    testWidgets('Ctrl+A selects every page in the grid', (tester) async {
+      wideScreen(tester);
+      final refs = await pumpGrid(tester, pages: 5);
+
+      await tester.tap(find.text('Page 2'));
+      await tester.pump();
+      expect(refs.editing.selectedPages, [1]);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+
+      expect(refs.editing.selectedPages, [0, 1, 2, 3, 4]);
+      await drain(tester);
+    });
+
     testWidgets('the size slider changes the tile-width preference',
         (tester) async {
       wideScreen(tester);

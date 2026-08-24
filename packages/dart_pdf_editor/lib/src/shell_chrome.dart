@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
@@ -62,8 +63,10 @@ class PdfShellPanelLayout extends StatefulWidget {
     this.bottomSheets = const [],
     this.overlays = const [],
     this.floatingToolbar,
+    this.floatingToolbarDock = PdfPanelDock.bottom,
     this.dockedToolbar,
     this.onPanelDock,
+    this.onToolbarDock,
   });
 
   /// The page viewer, reflow view, or other primary document surface.
@@ -91,12 +94,20 @@ class PdfShellPanelLayout extends StatefulWidget {
   /// A toolbar that floats over the content area.
   final Widget? floatingToolbar;
 
+  /// The edge the floating toolbar is attached to. Top/bottom use the full
+  /// width; left/right use a centred shelf aligned to that side.
+  final PdfPanelDock floatingToolbarDock;
+
   /// A toolbar that consumes layout space below the content area.
   final Widget? dockedToolbar;
 
   /// Redocks the given panel to the dropped-on edge. Null disables the
   /// drag-to-redock affordance (panels then show no move handle).
   final void Function(PdfDockablePanel panel, PdfPanelDock dock)? onPanelDock;
+
+  /// Redocks the floating editing toolbar to the dropped-on edge. Null keeps
+  /// the toolbar fixed and hides its edge drop zones.
+  final ValueChanged<PdfPanelDock>? onToolbarDock;
 
   @override
   State<PdfShellPanelLayout> createState() => _PdfShellPanelLayoutState();
@@ -108,6 +119,26 @@ class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
   void _setDragging(bool value) {
     if (_dragging == value) return;
     setState(() => _dragging = value);
+  }
+
+  Widget _floatingToolbarOverlay() {
+    final toolbar = widget.floatingToolbar!;
+    return switch (widget.floatingToolbarDock) {
+      PdfPanelDock.top => Positioned(left: 0, right: 0, top: 0, child: toolbar),
+      PdfPanelDock.bottom =>
+        Positioned(left: 0, right: 0, bottom: 0, child: toolbar),
+      PdfPanelDock.left || PdfPanelDock.right => Positioned.fill(
+          child: LayoutBuilder(builder: (context, constraints) {
+            final width = math.min(constraints.maxWidth, 900.0);
+            return Align(
+              alignment: widget.floatingToolbarDock == PdfPanelDock.left
+                  ? Alignment.centerLeft
+                  : Alignment.centerRight,
+              child: SizedBox(width: width, child: toolbar),
+            );
+          }),
+        ),
+    };
   }
 
   @override
@@ -128,21 +159,19 @@ class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
     final content = Stack(children: [
       Positioned.fill(child: stacked),
       ...widget.overlays,
-      if (widget.floatingToolbar != null)
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: widget.floatingToolbar!,
-        ),
+      if (widget.floatingToolbar != null) _floatingToolbarOverlay(),
       if (widget.bottomSheets.isNotEmpty)
         pdfShellBottomSheets(widget.bottomSheets),
       // the redock drop zones sit above everything while a panel is being
       // dragged, so a panel can be dropped onto any edge - even over the
       // toolbar or another panel
-      if (widget.onPanelDock != null && _dragging)
+      if ((widget.onPanelDock != null || widget.onToolbarDock != null) &&
+          _dragging)
         Positioned.fill(
-          child: _PanelDropZones(onPanelDock: widget.onPanelDock!),
+          child: _PanelDropZones(
+            onPanelDock: widget.onPanelDock,
+            onToolbarDock: widget.onToolbarDock,
+          ),
         ),
     ]);
 
@@ -159,6 +188,13 @@ class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
         child: result,
       );
     }
+    if (widget.onToolbarDock != null) {
+      result = PdfToolbarDragScope(
+        onDragStarted: () => _setDragging(true),
+        onDragEnded: () => _setDragging(false),
+        child: result,
+      );
+    }
     return result;
   }
 }
@@ -166,9 +202,10 @@ class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
 /// The four edge drop targets shown while a panel is being dragged. Dropping
 /// the panel onto one redocks it to that edge.
 class _PanelDropZones extends StatelessWidget {
-  const _PanelDropZones({required this.onPanelDock});
+  const _PanelDropZones({this.onPanelDock, this.onToolbarDock});
 
-  final void Function(PdfDockablePanel panel, PdfPanelDock dock) onPanelDock;
+  final void Function(PdfDockablePanel panel, PdfPanelDock dock)? onPanelDock;
+  final ValueChanged<PdfPanelDock>? onToolbarDock;
 
   @override
   Widget build(BuildContext context) {
@@ -185,15 +222,22 @@ class _PanelDropZones extends StatelessWidget {
           top: 0,
           bottom: 0,
           width: bandW,
-          child: _DropTarget(dock: PdfPanelDock.left, onPanelDock: onPanelDock),
+          child: _DropTarget(
+            dock: PdfPanelDock.left,
+            onPanelDock: onPanelDock,
+            onToolbarDock: onToolbarDock,
+          ),
         ),
         Positioned(
           right: 0,
           top: 0,
           bottom: 0,
           width: bandW,
-          child:
-              _DropTarget(dock: PdfPanelDock.right, onPanelDock: onPanelDock),
+          child: _DropTarget(
+            dock: PdfPanelDock.right,
+            onPanelDock: onPanelDock,
+            onToolbarDock: onToolbarDock,
+          ),
         ),
         // top/bottom bands inset horizontally so they never overlap the
         // left/right bands at the corners
@@ -202,15 +246,22 @@ class _PanelDropZones extends StatelessWidget {
           right: bandW,
           top: 0,
           height: bandH,
-          child: _DropTarget(dock: PdfPanelDock.top, onPanelDock: onPanelDock),
+          child: _DropTarget(
+            dock: PdfPanelDock.top,
+            onPanelDock: onPanelDock,
+            onToolbarDock: onToolbarDock,
+          ),
         ),
         Positioned(
           left: bandW,
           right: bandW,
           bottom: 0,
           height: bandH,
-          child:
-              _DropTarget(dock: PdfPanelDock.bottom, onPanelDock: onPanelDock),
+          child: _DropTarget(
+            dock: PdfPanelDock.bottom,
+            onPanelDock: onPanelDock,
+            onToolbarDock: onToolbarDock,
+          ),
         ),
       ]);
     });
@@ -218,10 +269,15 @@ class _PanelDropZones extends StatelessWidget {
 }
 
 class _DropTarget extends StatelessWidget {
-  const _DropTarget({required this.dock, required this.onPanelDock});
+  const _DropTarget({
+    required this.dock,
+    this.onPanelDock,
+    this.onToolbarDock,
+  });
 
   final PdfPanelDock dock;
-  final void Function(PdfDockablePanel panel, PdfPanelDock dock) onPanelDock;
+  final void Function(PdfDockablePanel panel, PdfPanelDock dock)? onPanelDock;
+  final ValueChanged<PdfPanelDock>? onToolbarDock;
 
   IconData get _icon => switch (dock) {
         PdfPanelDock.left => Icons.west,
@@ -233,9 +289,20 @@ class _DropTarget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return DragTarget<PdfDockablePanel>(
-      onWillAcceptWithDetails: (_) => true,
-      onAcceptWithDetails: (details) => onPanelDock(details.data, dock),
+    return DragTarget<Object>(
+      onWillAcceptWithDetails: (details) => switch (details.data) {
+        PdfDockablePanel() => onPanelDock != null,
+        PdfToolbarDragData() => onToolbarDock != null,
+        _ => false,
+      },
+      onAcceptWithDetails: (details) {
+        switch (details.data) {
+          case final PdfDockablePanel panel:
+            onPanelDock?.call(panel, dock);
+          case PdfToolbarDragData():
+            onToolbarDock?.call(dock);
+        }
+      },
       builder: (context, candidate, rejected) {
         final active = candidate.isNotEmpty;
         return AnimatedContainer(
@@ -262,6 +329,86 @@ class _DropTarget extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// Drag payload for the floating editing toolbar's move handle.
+class PdfToolbarDragData {
+  const PdfToolbarDragData();
+}
+
+/// Ambient wiring used by [PdfToolbarMoveHandle] to reveal the shell's edge
+/// drop zones while the floating toolbar is being moved.
+class PdfToolbarDragScope extends InheritedWidget {
+  const PdfToolbarDragScope({
+    super.key,
+    required this.onDragStarted,
+    required this.onDragEnded,
+    required super.child,
+  });
+
+  final VoidCallback onDragStarted;
+  final VoidCallback onDragEnded;
+
+  static PdfToolbarDragScope? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<PdfToolbarDragScope>();
+
+  @override
+  bool updateShouldNotify(PdfToolbarDragScope oldWidget) => false;
+}
+
+/// Compact grab handle injected into the stock floating editing toolbar.
+class PdfToolbarMoveHandle extends StatelessWidget {
+  const PdfToolbarMoveHandle({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final scope = PdfToolbarDragScope.maybeOf(context);
+    if (scope == null) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    final handle = MouseRegion(
+      cursor: SystemMouseCursors.move,
+      child: Tooltip(
+        message: pdfL10n(context).panelDragToMovePanel,
+        child: SizedBox.square(
+          dimension: 40,
+          child: Icon(
+            Icons.drag_indicator,
+            size: 18,
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+    );
+    return Draggable<Object>(
+      key: const ValueKey('pdf-toolbar-move'),
+      data: const PdfToolbarDragData(),
+      dragAnchorStrategy: pointerDragAnchorStrategy,
+      onDragStarted: scope.onDragStarted,
+      onDragEnd: (_) => scope.onDragEnded(),
+      onDraggableCanceled: (_, __) => scope.onDragEnded(),
+      feedback: Material(
+        color: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: scheme.primaryContainer,
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.2),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Icon(Icons.build_outlined,
+              size: 18, color: scheme.onPrimaryContainer),
+        ),
+      ),
+      childWhenDragging: Opacity(opacity: 0.3, child: handle),
+      child: handle,
     );
   }
 }

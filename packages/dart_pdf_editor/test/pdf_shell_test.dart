@@ -1309,6 +1309,43 @@ void main() {
       expect(viewer.pageColor, const Color(0xFFEEF7EE));
     });
 
+    testWidgets('floating toolbar can be dragged to another edge',
+        (tester) async {
+      tester.view.physicalSize = const Size(1200, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      await pump(
+        tester,
+        PdfEditorView(
+          bytes: buildMultiPagePdf(1),
+          preferences: prefs,
+        ),
+      );
+
+      expect(prefs.toolbarDock, PdfPanelDock.bottom);
+      final handle = find.byKey(const ValueKey('pdf-toolbar-move'));
+      expect(handle, findsOneWidget);
+      final gesture = await tester.startGesture(
+        tester.getCenter(handle),
+        kind: PointerDeviceKind.mouse,
+      );
+      await gesture.moveBy(const Offset(12, 0));
+      await tester.pump();
+
+      final top = find.byKey(const ValueKey('pdf-shell-dropzone-top'));
+      expect(top, findsOneWidget);
+      await gesture.moveTo(tester.getCenter(top));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(prefs.toolbarDock, PdfPanelDock.top);
+      final card = find.byKey(const ValueKey('pdf-editing-toolbar-card'));
+      expect(tester.getTopLeft(card).dy, lessThan(140));
+    });
+
     testWidgets('view options show page color hex and current author',
         (tester) async {
       final prefs = PdfEditingPreferences();

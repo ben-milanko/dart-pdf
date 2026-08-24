@@ -11,6 +11,8 @@ import 'package:dart_pdf_editor_app/recent_thumbnails.dart';
 import 'package:dart_pdf_editor_app/recents.dart';
 import 'package:dart_pdf_editor_app/welcome_screen.dart';
 
+import 'test_finders.dart';
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
@@ -339,8 +341,8 @@ void main() {
     expect(lThumb.center.dy, moreOrLessEquals(pThumb.center.dy, epsilon: 0.5));
 
     // The titles share one bottom baseline despite the differing thumbnails.
-    final pTitle = tester.getRect(find.text('portrait.pdf'));
-    final lTitle = tester.getRect(find.text('landscape.pdf'));
+    final pTitle = tester.getRect(findMiddleEllipsisText('portrait.pdf'));
+    final lTitle = tester.getRect(findMiddleEllipsisText('landscape.pdf'));
     expect(lTitle.bottom, moreOrLessEquals(pTitle.bottom, epsilon: 0.5));
   });
 

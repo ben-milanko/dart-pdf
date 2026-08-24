@@ -20,6 +20,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 
+import 'test_finders.dart';
+
 void main() {
   late PdfEditingPreferences prefs;
 
@@ -72,7 +74,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // A brand-new untitled tab now holds the scan.
-    expect(find.text('Untitled.pdf'), findsOneWidget);
+    expect(findMiddleEllipsisText('Untitled.pdf'), findsOneWidget);
   });
 
   testWidgets('no Insert scan entry without a document open', (tester) async {
@@ -131,7 +133,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // No document was created; the welcome screen is still up.
-    expect(find.text('Untitled.pdf'), findsNothing);
+    expect(findMiddleEllipsisText('Untitled.pdf'), findsNothing);
     expect(find.byType(PdfEditorView), findsNothing);
   });
 
@@ -157,7 +159,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.textContaining('scanner unavailable'), findsOneWidget);
-    expect(find.text('Untitled.pdf'), findsNothing);
+    expect(findMiddleEllipsisText('Untitled.pdf'), findsNothing);
   });
 
   testWidgets('a failing Insert scan toasts instead of throwing',

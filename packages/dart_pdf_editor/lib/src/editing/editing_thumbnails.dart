@@ -336,6 +336,10 @@ class _PdfThumbnailSidebarState extends State<PdfThumbnailSidebar> {
   }
 
   Map<ShortcutActivator, VoidCallback> get _keyboardShortcuts => {
+        const SingleActivator(LogicalKeyboardKey.keyA, meta: true):
+            widget.controller.selectAllPages,
+        const SingleActivator(LogicalKeyboardKey.keyA, control: true):
+            widget.controller.selectAllPages,
         const SingleActivator(LogicalKeyboardKey.arrowUp): () =>
             _moveKeyboardSelection(-1),
         const SingleActivator(LogicalKeyboardKey.arrowDown): () =>
@@ -1492,6 +1496,10 @@ class _PdfThumbnailViewState extends State<PdfThumbnailView> {
   }
 
   Map<ShortcutActivator, VoidCallback> _keyboardShortcuts(int columns) => {
+        const SingleActivator(LogicalKeyboardKey.keyA, meta: true):
+            widget.controller.selectAllPages,
+        const SingleActivator(LogicalKeyboardKey.keyA, control: true):
+            widget.controller.selectAllPages,
         const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
             _moveKeyboardSelection(-1),
         const SingleActivator(LogicalKeyboardKey.arrowRight): () =>

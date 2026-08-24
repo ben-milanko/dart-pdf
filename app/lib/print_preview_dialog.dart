@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'l10n/app_l10n.dart';
+import 'middle_ellipsis_text.dart';
 import 'l10n/app_localizations.dart';
 
 /// Which pages a print job covers, as chosen in the preview.
@@ -157,8 +158,8 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
   void _step(int delta) {
     final pages = _pages;
     if (pages.isEmpty) return;
-    setState(() =>
-        _previewSlot = (_previewSlot + delta).clamp(0, pages.length - 1));
+    setState(
+        () => _previewSlot = (_previewSlot + delta).clamp(0, pages.length - 1));
   }
 
   void _print() {
@@ -175,9 +176,8 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
     final l10n = appL10n(context);
     final theme = Theme.of(context);
     final pages = _pages;
-    final previewPage = pages.isEmpty
-        ? null
-        : pages[_previewSlot.clamp(0, pages.length - 1)];
+    final previewPage =
+        pages.isEmpty ? null : pages[_previewSlot.clamp(0, pages.length - 1)];
 
     // The dialog is desktop-first (it only opens where the OS print flow has
     // no preview of its own), but stay inside a small window rather than
@@ -194,11 +194,9 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(l10n.printPreviewTitle),
-          Text(
+          MiddleEllipsisText(
             widget.title,
             style: theme.textTheme.bodySmall,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
@@ -386,9 +384,8 @@ class _PagePreviewState extends State<_PagePreview> {
         // Annotations print (the vector encoder keeps them), so preview them.
         final image = await PdfPageRenderer.renderImage(
           page,
-          pixelRatio: size.width <= 0
-              ? 1.0
-              : (pixelWidth / size.width).clamp(0.2, 4.0),
+          pixelRatio:
+              size.width <= 0 ? 1.0 : (pixelWidth / size.width).clamp(0.2, 4.0),
         );
         if (!mounted || token != _token) {
           image.dispose();
@@ -437,9 +434,8 @@ class _PagePreviewState extends State<_PagePreview> {
       }
       return Center(
         child: AspectRatio(
-          aspectRatio: _pageSize.height <= 0
-              ? 1
-              : _pageSize.width / _pageSize.height,
+          aspectRatio:
+              _pageSize.height <= 0 ? 1 : _pageSize.width / _pageSize.height,
           child: DecoratedBox(
             decoration: BoxDecoration(
               color: const Color(0xFFFFFFFF),

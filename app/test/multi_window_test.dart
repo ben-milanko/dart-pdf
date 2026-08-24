@@ -21,6 +21,8 @@ import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/incoming_file.dart';
 import 'package:dart_pdf_editor_app/window_support.dart';
 
+import 'test_finders.dart';
+
 // flutter_test cannot create real desktop windows. These tests pin the public
 // app-side seam instead: feature visibility, shortcuts, lossless handoff,
 // failure safety, process-service isolation, and the native close handshake.
@@ -62,7 +64,7 @@ void main() {
 
   Finder tabTitle(String name) => find.descendant(
         of: find.byKey(const ValueKey('tab-strip')),
-        matching: find.text(name),
+        matching: findMiddleEllipsisText(name),
       );
 
   Future<void> rightClickTab(WidgetTester tester, String name) async {
