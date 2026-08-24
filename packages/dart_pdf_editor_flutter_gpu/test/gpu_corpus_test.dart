@@ -144,18 +144,6 @@ void _corpus(
               }
               continue;
             }
-            accepted++;
-            if (Platform.environment['GPU_CORPUS_VERBOSE'] == '1') {
-              final modes = scene.commands
-                  .whereType<PdfSetBlendModeCommand>()
-                  .map((command) => command.mode.name)
-                  .where((mode) => mode != PdfBlendMode.normal.name)
-                  .toSet();
-              if (modes.isNotEmpty) {
-                // ignore: avoid_print
-                print('$suite/$name page=$pageIndex gpu modes=$modes');
-              }
-            }
             try {
               final region = Offset.zero & scene.pageSize;
               final ratio = math.min(
@@ -177,11 +165,34 @@ void _corpus(
                       suite, name, pageIndex, canvas, accelerated, mean);
                 }
                 expect(mean, lessThan(16),
-                    reason: '$suite/$name page $pageIndex: GPU accepted the '
-                        'scene, so it must agree with Canvas (mean=$mean)');
+                    reason: '$suite/$name page $pageIndex: the retained '
+                        'session must agree with Canvas (mean=$mean)');
               } finally {
                 canvas.dispose();
                 accelerated.dispose();
+              }
+              if (backend.stats.destinationBlendTileFallbacks != 0) {
+                rejected++;
+                const reason = 'destination blend tile bound';
+                rejectionReasons.update(reason, (count) => count + 1,
+                    ifAbsent: () => 1);
+                if (Platform.environment['GPU_CORPUS_VERBOSE'] == '1') {
+                  // ignore: avoid_print
+                  print('$suite/$name page=$pageIndex fallback=$reason');
+                }
+              } else {
+                accepted++;
+                if (Platform.environment['GPU_CORPUS_VERBOSE'] == '1') {
+                  final modes = scene.commands
+                      .whereType<PdfSetBlendModeCommand>()
+                      .map((command) => command.mode.name)
+                      .where((mode) => mode != PdfBlendMode.normal.name)
+                      .toSet();
+                  if (modes.isNotEmpty) {
+                    // ignore: avoid_print
+                    print('$suite/$name page=$pageIndex gpu modes=$modes');
+                  }
+                }
               }
             } finally {
               session.dispose();
