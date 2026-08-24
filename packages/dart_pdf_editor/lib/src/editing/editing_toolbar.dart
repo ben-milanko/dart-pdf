@@ -26,6 +26,7 @@ import 'editing_fonts.dart';
 import 'editing_form_style.dart';
 import 'editing_value_field.dart';
 import 'editing_measure.dart';
+import 'editing_panel.dart';
 import 'editing_takeoff.dart';
 import 'line_style.dart';
 import 'editing_signature.dart';
@@ -87,6 +88,8 @@ class PdfEditingToolbar extends StatefulWidget {
     this.showStyle = true,
     this.showFlatten = true,
     this.showColorProcessing = true,
+    this.dock = PdfPanelDock.bottom,
+    this.compact,
     this.cardAlignment = Alignment.center,
     this.leading = const [],
     this.trailing = const [],
@@ -191,6 +194,21 @@ class PdfEditingToolbar extends StatefulWidget {
 
   /// Whether the Edit group includes the colour-processing action.
   final bool showColorProcessing;
+
+  /// The edge this toolbar is docked to.
+  ///
+  /// Left and right docks render the primary controls as a vertical rail,
+  /// with any contextual strip opening inward. Top and bottom docks retain
+  /// the standard horizontal layout. Compact/mobile mode remains horizontal.
+  final PdfPanelDock dock;
+
+  /// Overrides the width-based compact/mobile layout decision.
+  ///
+  /// Drop-in shells set this from the whole window width so docked panels
+  /// cannot accidentally turn a desktop toolbar into the phone bar by
+  /// narrowing only the viewer region. Null keeps the standalone toolbar's
+  /// automatic behavior.
+  final bool? compact;
 
   /// Alignment of the floating desktop cards within the width supplied by
   /// the host. The drop-in editor uses this when the toolbar is docked to the
@@ -1310,10 +1328,15 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         child: ListenableBuilder(
           listenable: Listenable.merge([controller, viewerController]),
           builder: (context, _) => LayoutBuilder(
-            builder: (context, constraints) =>
-                constraints.maxWidth < PdfEditingToolbar.mobileBreakpoint
-                    ? _buildMobile(context, width: constraints.maxWidth)
-                    : _buildDesktop(context),
+            builder: (context, constraints) {
+              final compact = widget.compact ??
+                  (!widget.dock.isHorizontal &&
+                      constraints.maxWidth <
+                          PdfEditingToolbar.mobileBreakpoint);
+              return compact
+                  ? _buildMobile(context, width: constraints.maxWidth)
+                  : _buildDesktop(context);
+            },
           ),
         ),
       ),
@@ -1324,6 +1347,28 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
 
   Widget _buildDesktop(BuildContext context) {
     final strip = _desktopStrip(context);
+    if (widget.dock.isHorizontal) {
+      final rail = _dock(context);
+      final children = <Widget>[
+        if (widget.dock == PdfPanelDock.right && strip != null) ...[
+          Flexible(child: strip),
+          const SizedBox(width: 8),
+        ],
+        rail,
+        if (widget.dock == PdfPanelDock.left && strip != null) ...[
+          const SizedBox(width: 8),
+          Flexible(child: strip),
+        ],
+      ];
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(8, 14, 8, 14),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: children,
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
       child: Column(
@@ -1359,17 +1404,20 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     BuildContext context, {
     required Widget child,
     EdgeInsetsGeometry padding = const EdgeInsets.all(8),
+    Axis scrollDirection = Axis.horizontal,
   }) {
     return LayoutBuilder(
       builder: (context, constraints) => Align(
         alignment: widget.cardAlignment,
         child: Container(
           key: const ValueKey('pdf-editing-toolbar-card'),
-          constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+          constraints: scrollDirection == Axis.horizontal
+              ? BoxConstraints(maxWidth: constraints.maxWidth)
+              : BoxConstraints(maxHeight: constraints.maxHeight),
           decoration: _cardDecoration(context),
           clipBehavior: Clip.antiAlias,
           child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
+            scrollDirection: scrollDirection,
             child: Padding(
               padding: padding,
               child: child,
@@ -1404,75 +1452,84 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   }
 
   Widget _dock(BuildContext context) {
+    final axis = widget.dock.isHorizontal ? Axis.vertical : Axis.horizontal;
     final groups = _visibleGroups;
     final showNavigationModes = groups.any((group) => group.id == 'select');
     final editingGroups =
         groups.where((group) => group.id != 'select').toList(growable: false);
-    final row = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (final builder in widget.leading)
-          builder(context, controller, viewerController),
-        if (widget.leading.isNotEmpty) const _DockDivider(),
-        if (widget.showUndoRedo) ...[
-          IconButton(
-            key: const ValueKey('pdf-undo'),
-            icon: const Icon(Icons.undo),
-            tooltip: pdfL10n(context).tbUndoShortcut,
-            onPressed: controller.canUndo ? controller.undo : null,
-          ),
-          IconButton(
-            key: const ValueKey('pdf-redo'),
-            icon: const Icon(Icons.redo),
-            tooltip: pdfL10n(context).tbRedoShortcut,
-            onPressed: controller.canRedo ? controller.redo : null,
-          ),
-          const _DockDivider(),
-        ],
-        if (showNavigationModes) ...[
-          _NavigationModeGroup(
-            handLabel: pdfL10n(context).tbNameHand,
-            selectLabel: _entryTip(context, _groups.first.tools.single),
-            handActive: controller.isHandMode,
-            selectActive: controller.tool == PdfEditTool.select,
-            onHand: _activateHandMode,
-            onSelect: _activateSelectMode,
-          ),
-          if (editingGroups.isNotEmpty ||
-              widget.onSave != null ||
-              widget.trailing.isNotEmpty)
-            const _DockDivider(),
-        ],
-        for (final group in editingGroups)
-          _GroupChip(
-            key: ValueKey('pdf-group-${group.id}'),
-            group: group,
-            active: _openGroup?.id == group.id,
-            onTap: () => _openGroupTap(group),
-          ),
-        // Flatten now lives in the Edit group's strip, not the dock.
-        // Save stays available for standalone hosts, but the drop-in
-        // shells hide it here and surface it in their header (near Open).
-        if (widget.onSave != null) ...[
-          const _DockDivider(),
-          IconButton(
-            icon: const Icon(Icons.save_alt),
-            tooltip: pdfL10n(context).tbSaveShortcut,
-            // disabled while the document matches what was opened - there's
-            // nothing to write until an edit bumps the revision cursor
-            onPressed: controller.isModified
-                ? () => widget.onSave!(controller.bytes)
-                : null,
-          ),
-        ],
-        if (widget.trailing.isNotEmpty) ...[
-          const _DockDivider(),
-          for (final builder in widget.trailing)
-            builder(context, controller, viewerController),
-        ],
+    final children = <Widget>[
+      for (final builder in widget.leading)
+        builder(context, controller, viewerController),
+      if (widget.leading.isNotEmpty) _DockDivider(axis: axis),
+      if (widget.showUndoRedo) ...[
+        IconButton(
+          key: const ValueKey('pdf-undo'),
+          icon: const Icon(Icons.undo),
+          tooltip: pdfL10n(context).tbUndoShortcut,
+          onPressed: controller.canUndo ? controller.undo : null,
+        ),
+        IconButton(
+          key: const ValueKey('pdf-redo'),
+          icon: const Icon(Icons.redo),
+          tooltip: pdfL10n(context).tbRedoShortcut,
+          onPressed: controller.canRedo ? controller.redo : null,
+        ),
+        _DockDivider(axis: axis),
       ],
+      if (showNavigationModes) ...[
+        _NavigationModeGroup(
+          axis: axis,
+          handLabel: pdfL10n(context).tbNameHand,
+          selectLabel: _entryTip(context, _groups.first.tools.single),
+          handActive: controller.isHandMode,
+          selectActive: controller.tool == PdfEditTool.select,
+          onHand: _activateHandMode,
+          onSelect: _activateSelectMode,
+        ),
+        if (editingGroups.isNotEmpty ||
+            widget.onSave != null ||
+            widget.trailing.isNotEmpty)
+          _DockDivider(axis: axis),
+      ],
+      for (final group in editingGroups)
+        _GroupChip(
+          key: ValueKey('pdf-group-${group.id}'),
+          group: group,
+          active: _openGroup?.id == group.id,
+          vertical: axis == Axis.vertical,
+          onTap: () => _openGroupTap(group),
+        ),
+      // Flatten now lives in the Edit group's strip, not the dock.
+      // Save stays available for standalone hosts, but the drop-in
+      // shells hide it here and surface it in their header (near Open).
+      if (widget.onSave != null) ...[
+        _DockDivider(axis: axis),
+        IconButton(
+          icon: const Icon(Icons.save_alt),
+          tooltip: pdfL10n(context).tbSaveShortcut,
+          // disabled while the document matches what was opened - there's
+          // nothing to write until an edit bumps the revision cursor
+          onPressed: controller.isModified
+              ? () => widget.onSave!(controller.bytes)
+              : null,
+        ),
+      ],
+      if (widget.trailing.isNotEmpty) ...[
+        _DockDivider(axis: axis),
+        for (final builder in widget.trailing)
+          builder(context, controller, viewerController),
+      ],
+    ];
+    final dock = Flex(
+      direction: axis,
+      mainAxisSize: MainAxisSize.min,
+      children: children,
     );
-    return _centeredCard(context, child: row);
+    return _centeredCard(
+      context,
+      child: dock,
+      scrollDirection: axis,
+    );
   }
 
   /// The tools-left / settings-right card for an open [group].
@@ -2892,23 +2949,36 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   }
 }
 
-/// A thin vertical divider between dock clusters.
+/// A thin divider between dock clusters, perpendicular to the dock [axis].
 class _DockDivider extends StatelessWidget {
-  const _DockDivider();
+  const _DockDivider({this.axis = Axis.horizontal});
+
+  final Axis axis;
 
   @override
-  Widget build(BuildContext context) => Container(
-        width: 1,
-        height: 26,
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        color: Theme.of(context).colorScheme.outlineVariant,
-      );
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.outlineVariant;
+    return axis == Axis.horizontal
+        ? Container(
+            width: 1,
+            height: 26,
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+            color: color,
+          )
+        : Container(
+            width: 26,
+            height: 1,
+            margin: const EdgeInsets.symmetric(vertical: 4),
+            color: color,
+          );
+  }
 }
 
 /// The two mutually exclusive navigation modes, kept in one compact control
 /// so they read differently from the editing-tool group chips beside them.
 class _NavigationModeGroup extends StatelessWidget {
   const _NavigationModeGroup({
+    this.axis = Axis.horizontal,
     required this.handLabel,
     required this.selectLabel,
     required this.handActive,
@@ -2917,6 +2987,7 @@ class _NavigationModeGroup extends StatelessWidget {
     required this.onSelect,
   });
 
+  final Axis axis;
   final String handLabel;
   final String selectLabel;
   final bool handActive;
@@ -2932,7 +3003,7 @@ class _NavigationModeGroup extends StatelessWidget {
       color: Colors.transparent,
       shape: StadiumBorder(side: BorderSide(color: scheme.outline)),
       clipBehavior: Clip.antiAlias,
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
+      child: Flex(direction: axis, mainAxisSize: MainAxisSize.min, children: [
         _button(
           key: const ValueKey('pdf-mode-hand'),
           icon: Icons.pan_tool_alt,
@@ -2941,7 +3012,9 @@ class _NavigationModeGroup extends StatelessWidget {
           onPressed: onHand,
           scheme: scheme,
         ),
-        Container(width: 1, height: 24, color: scheme.outlineVariant),
+        axis == Axis.horizontal
+            ? Container(width: 1, height: 24, color: scheme.outlineVariant)
+            : Container(width: 24, height: 1, color: scheme.outlineVariant),
         _button(
           // Preserve the established key for host and package widget tests.
           key: const ValueKey('pdf-group-select'),
@@ -3099,6 +3172,7 @@ class _GroupChip extends StatelessWidget {
     required this.group,
     required this.active,
     required this.onTap,
+    this.vertical = false,
   })  : _toolsHandle = false,
         _compact = false;
 
@@ -3109,13 +3183,15 @@ class _GroupChip extends StatelessWidget {
   })  : group = null,
         active = true,
         _toolsHandle = true,
-        _compact = compact;
+        _compact = compact,
+        vertical = false;
 
   final _ToolGroup? group;
   final bool active;
   final VoidCallback onTap;
   final bool _toolsHandle;
   final bool _compact;
+  final bool vertical;
 
   @override
   Widget build(BuildContext context) {
@@ -3125,48 +3201,52 @@ class _GroupChip extends StatelessWidget {
     final label =
         _toolsHandle ? pdfL10n(context).tbTools : group!.label(context);
     final icon = _toolsHandle ? Icons.keyboard_arrow_up : group!.icon;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 3),
-      child: Material(
-        color: on ? scheme.primary.withValues(alpha: 0.15) : Colors.transparent,
-        shape: StadiumBorder(
-          side: BorderSide(
-            color: on ? scheme.primary.withValues(alpha: 0.55) : scheme.outline,
-          ),
+    final chip = Material(
+      color: on ? scheme.primary.withValues(alpha: 0.15) : Colors.transparent,
+      shape: StadiumBorder(
+        side: BorderSide(
+          color: on ? scheme.primary.withValues(alpha: 0.55) : scheme.outline,
         ),
-        child: InkWell(
-          customBorder: const StadiumBorder(),
-          onTap: onTap,
-          child: SizedBox(
-            height: 40,
-            child: Padding(
-              padding: _compact
-                  ? const EdgeInsets.symmetric(horizontal: 10)
-                  : const EdgeInsets.fromLTRB(12, 0, 14, 0),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                if (_toolsHandle && !_compact) ...[
-                  Text(label,
-                      style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                          color: fg)),
-                  const SizedBox(width: 6),
-                  Icon(icon, size: 18, color: fg),
-                ] else if (!_toolsHandle) ...[
-                  Icon(icon, size: 19, color: fg),
-                  const SizedBox(width: 8),
-                  Text(label,
-                      style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                          color: fg)),
-                ] else
-                  Icon(icon, size: 18, color: fg, semanticLabel: label),
-              ]),
-            ),
+      ),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: SizedBox(
+          width: vertical ? 40 : null,
+          height: 40,
+          child: Padding(
+            padding: vertical
+                ? EdgeInsets.zero
+                : _compact
+                    ? const EdgeInsets.symmetric(horizontal: 10)
+                    : const EdgeInsets.fromLTRB(12, 0, 14, 0),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              if (vertical)
+                Icon(icon, size: 19, color: fg, semanticLabel: label)
+              else if (_toolsHandle && !_compact) ...[
+                Text(label,
+                    style: TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 14, color: fg)),
+                const SizedBox(width: 6),
+                Icon(icon, size: 18, color: fg),
+              ] else if (!_toolsHandle) ...[
+                Icon(icon, size: 19, color: fg),
+                const SizedBox(width: 8),
+                Text(label,
+                    style: TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 14, color: fg)),
+              ] else
+                Icon(icon, size: 18, color: fg, semanticLabel: label),
+            ]),
           ),
         ),
       ),
+    );
+    return Padding(
+      padding: vertical
+          ? const EdgeInsets.symmetric(vertical: 3)
+          : const EdgeInsets.symmetric(horizontal: 3),
+      child: vertical ? Tooltip(message: label, child: chip) : chip,
     );
   }
 }

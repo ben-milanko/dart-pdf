@@ -1238,6 +1238,8 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     showStyle: features.styleControls,
                     showFlatten: features.flatten,
                     showColorProcessing: features.colorProcessing,
+                    dock: prefs.toolbarDock,
+                    compact: dockToolbar,
                     cardAlignment: switch (prefs.toolbarDock) {
                       PdfPanelDock.left => Alignment.centerLeft,
                       PdfPanelDock.right => Alignment.centerRight,
@@ -1477,7 +1479,11 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                         // contextual strip, so the last page can move fully
                         // clear of the controls instead of being trapped
                         // underneath them.
-                        trailingPadding: showToolbar && !dockToolbar ? 144 : 0,
+                        trailingPadding: showToolbar &&
+                                !dockToolbar &&
+                                prefs.toolbarDock == PdfPanelDock.bottom
+                            ? 144
+                            : 0,
                         pageLayout: widget.pageLayout,
                         initialFit: widget.initialFit,
                         toolShortcuts: _toolShortcuts,

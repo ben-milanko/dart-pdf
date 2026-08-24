@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
-
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -94,8 +92,8 @@ class PdfShellPanelLayout extends StatefulWidget {
   /// A toolbar that floats over the content area.
   final Widget? floatingToolbar;
 
-  /// The edge the floating toolbar is attached to. Top/bottom use the full
-  /// width; left/right use a centred shelf aligned to that side.
+  /// The edge the floating toolbar is attached to, within the viewer region.
+  /// The toolbar therefore stays inward of any docked panels.
   final PdfPanelDock floatingToolbarDock;
 
   /// A toolbar that consumes layout space below the content area.
@@ -128,26 +126,30 @@ class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
       PdfPanelDock.bottom =>
         Positioned(left: 0, right: 0, bottom: 0, child: toolbar),
       PdfPanelDock.left || PdfPanelDock.right => Positioned.fill(
-          child: LayoutBuilder(builder: (context, constraints) {
-            final width = math.min(constraints.maxWidth, 900.0);
-            return Align(
-              alignment: widget.floatingToolbarDock == PdfPanelDock.left
-                  ? Alignment.centerLeft
-                  : Alignment.centerRight,
-              child: SizedBox(width: width, child: toolbar),
-            );
-          }),
+          child: Align(
+            alignment: widget.floatingToolbarDock == PdfPanelDock.left
+                ? Alignment.centerLeft
+                : Alignment.centerRight,
+            child: toolbar,
+          ),
         ),
     };
   }
 
   @override
   Widget build(BuildContext context) {
+    final viewer = Stack(
+      fit: StackFit.expand,
+      children: [
+        widget.viewer,
+        if (widget.floatingToolbar != null) _floatingToolbarOverlay(),
+      ],
+    );
     final row = Row(children: [
       ...widget.leadingPanels,
       Expanded(
         key: const ValueKey('pdf-shell-viewer'),
-        child: widget.viewer,
+        child: viewer,
       ),
       ...widget.trailingPanels,
     ]);
@@ -159,7 +161,6 @@ class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
     final content = Stack(children: [
       Positioned.fill(child: stacked),
       ...widget.overlays,
-      if (widget.floatingToolbar != null) _floatingToolbarOverlay(),
       if (widget.bottomSheets.isNotEmpty)
         pdfShellBottomSheets(widget.bottomSheets),
       // the redock drop zones sit above everything while a panel is being
