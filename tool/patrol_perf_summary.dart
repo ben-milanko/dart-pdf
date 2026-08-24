@@ -1466,13 +1466,13 @@ String? _gpuTileSpeedupHeadline(
 
   String speedup(_GpuTileSpeedup? value) => value == null
       ? 'n/a'
-      : '${(value.pairedSpeedup ?? value.canvasTileMs / value.firstTileMs).toStringAsFixed(1)}×';
+      : '${_ratioText(value.pairedSpeedup ?? value.canvasTileMs / value.firstTileMs)}×';
 
   if (baseline != null) {
     final values = workloads.map(
         (workload) => '${_code(workload)} **${speedup(before[workload])} → '
             '${speedup(after[workload])}**');
-    return '**GPU first tile vs Canvas (p50, main → PR):** '
+    return '**First tile vs Canvas (p50, main → PR):** '
         '${values.join('; ')}.';
   }
 
@@ -1482,8 +1482,11 @@ String? _gpuTileSpeedupHeadline(
         '(${_formatMs(value.firstTileMs)} vs '
         '${_formatMs(value.canvasTileMs)})';
   });
-  return '**GPU first tile vs Canvas (p50):** ${values.join('; ')}.';
+  return '**First tile vs Canvas (p50):** ${values.join('; ')}.';
 }
+
+String _ratioText(double value) =>
+    value < 1 ? value.toStringAsFixed(2) : value.toStringAsFixed(1);
 
 bool _sameMapKeys(Map<String, int> a, Map<String, int> b) =>
     a.length == b.length && a.keys.every(b.containsKey);

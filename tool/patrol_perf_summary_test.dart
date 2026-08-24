@@ -528,7 +528,7 @@ void main() {
   );
   _expectContains(
     gpuTrace.toHeadlineMarkdown(label: 'macOS Metal GPU'),
-    '**GPU first tile vs Canvas (p50):** `tiling page 0` **56.7×** '
+    '**First tile vs Canvas (p50):** `tiling page 0` **56.7×** '
         '(6.0 ms vs 350.0 ms).',
     'GPU speedup leads the PR headline',
   );
@@ -537,9 +537,32 @@ void main() {
       baseline: gpuJson,
       current: gpuJson,
     ).toHeadlineMarkdown(label: 'macOS Metal GPU'),
-    '**GPU first tile vs Canvas (p50, main → PR):** '
+    '**First tile vs Canvas (p50, main → PR):** '
         '`tiling page 0` **56.7× → 56.7×**.',
     'GPU main comparison leads the PR headline',
+  );
+  final fallbackGpuJson = <String, Object?>{
+    'scenarios': <String, int>{},
+    'scenarioMetrics': <String, Object?>{
+      'gpu-masked-page-0-first-tile': {
+        'runs': 4,
+        'elapsedMs': {'p50': 200.0},
+        'elapsedSamplesMs': [200.0, 200.0, 200.0, 200.0],
+      },
+      'gpu-masked-page-0-canvas-tile': {
+        'runs': 4,
+        'elapsedMs': {'p50': 20.0},
+        'elapsedSamplesMs': [20.0, 20.0, 20.0, 20.0],
+      },
+    },
+  };
+  _expectContains(
+    summary.PatrolPerfComparison(
+      baseline: fallbackGpuJson,
+      current: fallbackGpuJson,
+    ).toHeadlineMarkdown(label: 'macOS Metal GPU'),
+    '`masked page 0` **0.10× → 0.10×**',
+    'sub-one first-tile ratios keep enough precision',
   );
 
   print('Patrol performance summarizer tests passed');

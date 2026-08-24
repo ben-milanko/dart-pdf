@@ -8,9 +8,13 @@ import 'package:dart_pdf_editor_flutter_gpu/dart_pdf_editor_flutter_gpu.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_gpu/gpu.dart' as gpu;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
+import 'package:pdf_graphics/pdf_graphics.dart';
+import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 const _defaultPages = [27, 30, 29, 32, 31, 34, 37, 39, 28];
 const _buildCommit = String.fromEnvironment('PDF_BUILD_COMMIT');
+const _deferredMaskFixture = 'deferred-mask';
 
 bool _gpuAvailable() {
   try {
@@ -83,13 +87,67 @@ double _meanDiff(ByteData a, ByteData b) {
   return total / aa.length;
 }
 
+Uint8List _deferredMaskDocument() {
+  const width = 1024, height = 768;
+  final source = img.Image(width: width, height: height, numChannels: 3);
+  img.fill(source, color: img.ColorRgb8(38, 112, 168));
+  final jpeg = Uint8List.fromList(img.encodeJpg(source, quality: 82));
+  return buildSyntheticRasterUnderlaySheet(
+    underlays: [
+      PdfUnderlaySpec(width: width, height: height, payload: jpeg),
+    ],
+    layers: 4,
+    ops: 200,
+    pageW: 612,
+    pageH: 792,
+  );
+}
+
+Uint8List _benchmarkDocumentBytes(String? path, String? fixture) {
+  if (path != null && fixture != null) {
+    throw ArgumentError(
+      'Set either PDF_GPU_BENCHMARK_PDF or PDF_GPU_BENCHMARK_FIXTURE, not both',
+    );
+  }
+  if (path != null) return File(path).readAsBytesSync();
+  return switch (fixture) {
+    _deferredMaskFixture => _deferredMaskDocument(),
+    null => throw ArgumentError(
+        'Set PDF_GPU_BENCHMARK_PDF or PDF_GPU_BENCHMARK_FIXTURE',
+      ),
+    _ => throw ArgumentError('Unknown PDF_GPU_BENCHMARK_FIXTURE: $fixture'),
+  };
+}
+
 void main() {
   if (_buildCommit.isNotEmpty) PdfPerfLog.buildTag = 'commit=$_buildCommit';
 
+  testWidgets('deferred-mask fixture keeps its companion image surface',
+      (tester) async {
+    await tester.runAsync(() async {
+      final document = PdfDocument.open(_deferredMaskDocument());
+      final scene = await PdfRetainedScene.record(document.page(0));
+      try {
+        final request = scene.commands
+            .whereType<PdfDrawImageCommand>()
+            .map((command) => command.request)
+            .single;
+        final image = scene.imageFor(request);
+        expect(image, isNotNull);
+        expect(pdfGpuSoftMaskOf(image!), isNotNull);
+      } finally {
+        scene.dispose();
+      }
+    });
+  });
+
   testWidgets('real document: cold scene plus two 512px LoDs', (tester) async {
     final path = Platform.environment['PDF_GPU_BENCHMARK_PDF'];
-    if (path == null) {
-      markTestSkipped('set PDF_GPU_BENCHMARK_PDF');
+    final fixture = Platform.environment['PDF_GPU_BENCHMARK_FIXTURE']?.trim();
+    if (path == null && (fixture == null || fixture.isEmpty)) {
+      markTestSkipped(
+        'set PDF_GPU_BENCHMARK_PDF or PDF_GPU_BENCHMARK_FIXTURE',
+      );
       return;
     }
     await tester.runAsync(() async {
@@ -97,7 +155,11 @@ void main() {
         markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
         return;
       }
-      final document = PdfDocument.open(File(path).readAsBytesSync());
+      final fixtureName = fixture == null || fixture.isEmpty ? null : fixture;
+      final document = PdfDocument.open(
+        _benchmarkDocumentBytes(path, fixtureName),
+      );
+      final productionRoute = fixtureName == _deferredMaskFixture;
       final configuredPages =
           Platform.environment['PDF_GPU_BENCHMARK_PAGES']?.trim();
       final scenarioLabel =
@@ -120,7 +182,9 @@ void main() {
         allowOverprintApproximation: approximateOverprint,
       );
       if (Platform.environment['PDF_GPU_BENCHMARK_WARMUP'] == '1') {
-        final scenario = _scenarioName(scenarioLabel, 'pipeline-warm');
+        final scenario = productionRoute
+            ? null
+            : _scenarioName(scenarioLabel, 'pipeline-warm');
         _startScenario(scenario);
         final warmUp = Stopwatch()..start();
         await backend.warmUp();
@@ -145,16 +209,62 @@ void main() {
         );
         record.stop();
         try {
+          final size = scene.pageSize;
+          final center = Offset(size.width / 2, size.height / 2);
+          const lod1 = 1.0;
+          final region1 = Rect.fromCenter(
+            center: center,
+            width: math.min(size.width, 512 / lod1),
+            height: math.min(size.height, 512 / lod1),
+          );
           final session = backend.createSession(scene);
           if (session == null) {
+            final firstScenario = _scenarioName(
+              scenarioLabel,
+              'first-tile',
+              page: pageIndex,
+            );
+            _startScenario(firstScenario);
+            final fallback = await _render(
+              () => scene.rasterizeRegion(region1, pixelRatio: lod1),
+              pngPath: output == null
+                  ? null
+                  : '$output/page-$pageIndex-fallback.png',
+            );
+            _finishScenario(firstScenario, fallback.$1, page: pageIndex);
+            if (productionRoute) {
+              // The fallback itself warmed Canvas. Repeat the unmeasured pass
+              // so both routes take one explicit warm-up immediately before
+              // the measured Canvas control below.
+              await _render(
+                () => scene.rasterizeRegion(region1, pixelRatio: lod1),
+              );
+            }
+            final canvasScenario = _scenarioName(
+              scenarioLabel,
+              'canvas-tile',
+              page: pageIndex,
+            );
+            _startScenario(canvasScenario);
+            final canvas = await _render(
+              () => scene.rasterizeRegion(region1, pixelRatio: lod1),
+              pngPath:
+                  output == null ? null : '$output/page-$pageIndex-canvas.png',
+            );
+            _finishScenario(canvasScenario, canvas.$1, page: pageIndex);
+            peakRss = math.max(peakRss, ProcessInfo.currentRss);
             rows.add('page=$pageIndex recordUs=${record.elapsedMicroseconds} '
                 'decodeUs=${(timing.decodeMs * 1000).round()} '
                 'gpu=rejected reason=${backend.stats.lastRejection} '
+                'firstRoute=canvas-fallback firstUs=${fallback.$1} '
+                'canvasUs=${canvas.$1} '
+                'meanDiff=${_meanDiff(fallback.$2, canvas.$2).toStringAsFixed(3)} '
                 'commands=${scene.commands.length}');
             continue;
           }
           try {
             if (Platform.environment['PDF_GPU_BENCHMARK_SCENE_WARMUP'] == '1' &&
+                !productionRoute &&
                 session is PdfTileRasterWarmUp) {
               final scenario = _scenarioName(
                 scenarioLabel,
@@ -169,14 +279,6 @@ void main() {
               print('REAL_GPU_BENCHMARK sceneWarmUpUs=$elapsedUs');
               _finishScenario(scenario, elapsedUs, page: pageIndex);
             }
-            final size = scene.pageSize;
-            final center = Offset(size.width / 2, size.height / 2);
-            final lod1 = 1.0;
-            final region1 = Rect.fromCenter(
-              center: center,
-              width: math.min(size.width, 512 / lod1),
-              height: math.min(size.height, 512 / lod1),
-            );
             try {
               final coldScenario = _scenarioName(
                 scenarioLabel,
@@ -190,6 +292,14 @@ void main() {
                     output == null ? null : '$output/page-$pageIndex-gpu.png',
               );
               _finishScenario(coldScenario, coldGpu.$1, page: pageIndex);
+              if (productionRoute) {
+                // A GPU first tile does not warm Canvas. Keep the reference
+                // control comparable with the fallback route without moving
+                // this work into the cold production-settle scenario.
+                await _render(
+                  () => scene.rasterizeRegion(region1, pixelRatio: lod1),
+                );
+              }
               final canvasScenario = _scenarioName(
                 scenarioLabel,
                 'canvas-tile',
@@ -219,6 +329,7 @@ void main() {
               peakRss = math.max(peakRss, ProcessInfo.currentRss);
               rows.add('page=$pageIndex recordUs=${record.elapsedMicroseconds} '
                   'decodeUs=${(timing.decodeMs * 1000).round()} '
+                  'firstRoute=flutter_gpu '
                   'gpuColdUs=${coldGpu.$1} gpuWarmUs=${warmGpu.$1} '
                   'canvasUs=${warmCanvas.$1} '
                   'meanDiff=${_meanDiff(coldGpu.$2, warmCanvas.$2).toStringAsFixed(3)}');
