@@ -187,34 +187,26 @@ jobs:
           --dart-define PDF_GPU_CI_SMOKE=true
           test/gpu_ci_smoke_test.dart --reporter expanded
 
-      - name: Download latest main Flutter GPU performance baseline
+      - name: Prepare same-host main Flutter GPU baseline
         id: gpu-baseline
         if: github.event_name == 'pull_request'
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          for baseline_run in $(gh run list \
-            --workflow ci.yml \
-            --branch main \
-            --event push \
-            --limit 10 \
-            --json databaseId \
-            --jq '.[].databaseId'); do
-            destination="$RUNNER_TEMP/flutter-gpu-baseline/$baseline_run"
-            if gh run download "$baseline_run" \
-              --name flutter-gpu-performance \
-              --dir "$destination"; then
-              json="$(find "$destination" -name patrol-perf.json -print -quit)"
-              if [[ -n "$json" && -f "$json" ]]; then
-                echo "json=$json" >> "$GITHUB_OUTPUT"
-                echo "Using Flutter GPU baseline from run $baseline_run"
-                exit 0
-              fi
-            fi
-          done
-          echo "::notice::No usable main Flutter GPU artifact is available yet"
+          # A separate workflow artifact can come from a materially faster or
+          # slower macOS host. Keep the exact base revision on this runner so
+          # the comparison isolates code instead of fleet variance.
+          destination="$RUNNER_TEMP/flutter-gpu-main"
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git worktree add --detach "$destination" "$BASE_SHA"
+          (
+            cd "$destination"
+            flutter pub get
+          )
+          echo "dir=$destination" >> "$GITHUB_OUTPUT"
+          echo "commit=$BASE_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Measure Flutter GPU warm-up and first-tile performance
         id: gpu-performance
@@ -222,13 +214,26 @@ jobs:
         shell: bash
         env:
           PERF_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_COMMIT: ${{ steps.gpu-baseline.outputs.commit }}
+          BASE_WORKSPACE: ${{ steps.gpu-baseline.outputs.dir }}
         run: |
           set -euo pipefail
           log="$RUNNER_TEMP/flutter-gpu-performance.log"
+          baseline_log="$RUNNER_TEMP/flutter-gpu-main-performance.log"
           : > "$log"
-          for iteration in 1 2 3; do
-            while read -r label pdf; do
-              echo "::group::Flutter GPU $label repetition $iteration/3"
+          : > "$baseline_log"
+
+          run_case() {
+            local workspace="$1"
+            local commit="$2"
+            local destination_log="$3"
+            local cohort="$4"
+            local label="$5"
+            local pdf="$6"
+            local iteration="$7"
+            echo "::group::Flutter GPU $cohort $label repetition $iteration/3"
+            (
+              cd "$workspace/packages/dart_pdf_editor_flutter_gpu"
               env \
                 PDF_GPU_BENCHMARK_PDF="$pdf" \
                 PDF_GPU_BENCHMARK_PAGES=0 \
@@ -240,17 +245,40 @@ jobs:
                   --enable-impeller \
                   --enable-flutter-gpu \
                   --dart-define PDF_PERF_LOG=true \
-                  --dart-define "PDF_BUILD_COMMIT=$PERF_COMMIT" \
+                  --dart-define "PDF_BUILD_COMMIT=$commit" \
                   test/real_document_benchmark_test.dart \
-                  --reporter expanded \
-                  2>&1 | tee -a "$log"
-              echo "::endgroup::"
+                  --reporter expanded
+            ) 2>&1 | tee -a "$destination_log"
+            echo "::endgroup::"
+          }
+
+          for iteration in 1 2 3; do
+            while read -r label pdf; do
+              # Reverse the order for the middle repetition so neither cohort
+              # always inherits the warmer filesystem/GPU state.
+              if [[ -n "$BASE_WORKSPACE" && "$iteration" == 2 ]]; then
+                run_case "$GITHUB_WORKSPACE" "$PERF_COMMIT" "$log" \
+                  pr "$label" "$pdf" "$iteration"
+                run_case "$BASE_WORKSPACE" "$BASE_COMMIT" "$baseline_log" \
+                  main "$label" "$pdf" "$iteration"
+              elif [[ -n "$BASE_WORKSPACE" ]]; then
+                run_case "$BASE_WORKSPACE" "$BASE_COMMIT" "$baseline_log" \
+                  main "$label" "$pdf" "$iteration"
+                run_case "$GITHUB_WORKSPACE" "$PERF_COMMIT" "$log" \
+                  pr "$label" "$pdf" "$iteration"
+              else
+                run_case "$GITHUB_WORKSPACE" "$PERF_COMMIT" "$log" \
+                  current "$label" "$pdf" "$iteration"
+              fi
             done <<'SCENARIOS'
           tiling ../../test_corpora/pdfjs/tiling-pattern-box.pdf
           radial ../../test_corpora/ghent/1-CMYK/GWG060_Shading_x1a.pdf
           SCENARIOS
           done
           echo "log=$log" >> "$GITHUB_OUTPUT"
+          if [[ -n "$BASE_WORKSPACE" ]]; then
+            echo "baseline_log=$baseline_log" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Summarize Flutter GPU performance
         if: always()
@@ -263,11 +291,7 @@ jobs:
             log="$RUNNER_TEMP/flutter-gpu-performance.log"
             touch "$log"
           fi
-          arguments=(
-            "$log"
-            --output test-results/gpu
-            --markdown "$GITHUB_STEP_SUMMARY"
-            --label "macOS Metal GPU"
+          requirements=(
             --require-scenario-runs gpu-tiling-pipeline-warm=3
             --require-scenario-runs gpu-tiling-page-0-scene-warm=3
             --require-scenario-runs gpu-tiling-page-0-first-tile=3
@@ -277,8 +301,23 @@ jobs:
             --require-scenario-runs gpu-radial-page-0-first-tile=3
             --require-scenario-runs gpu-radial-page-0-canvas-tile=3
           )
-          baseline="${{ steps.gpu-baseline.outputs.json }}"
-          if [[ -n "$baseline" && -f "$baseline" ]]; then
+          arguments=(
+            "$log"
+            --output test-results/gpu
+            --markdown "$GITHUB_STEP_SUMMARY"
+            --label "macOS Metal GPU"
+            "${requirements[@]}"
+          )
+          baseline_log="${{ steps.gpu-performance.outputs.baseline_log }}"
+          if [[ -n "$baseline_log" && -f "$baseline_log" ]]; then
+            baseline_output="$RUNNER_TEMP/flutter-gpu-main-summary"
+            dart ../../tool/patrol_perf_summary.dart \
+              "$baseline_log" \
+              --output "$baseline_output" \
+              --markdown "$RUNNER_TEMP/flutter-gpu-main.md" \
+              --label "same-host main" \
+              "${requirements[@]}"
+            baseline="$baseline_output/patrol-perf.json"
             arguments+=(--baseline "$baseline")
           fi
           dart ../../tool/patrol_perf_summary.dart "${arguments[@]}"
@@ -345,12 +384,14 @@ jobs:
               ? fs.readFileSync(reportPath, 'utf8').trim()
               : 'No Flutter GPU performance artifact was produced. Open the workflow run for the failing step and raw logs.';
             const sha = context.payload.pull_request.head.sha.slice(0, 7);
+            const baseSha = context.payload.pull_request.base.sha.slice(0, 7);
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const body = [
               marker,
               '## Flutter GPU performance',
               '',
               `Automated on macOS Metal for commit \`${sha}\` · [workflow run and downloadable traces](${runUrl})`,
+              `Same-host A/B: base \`${baseSha}\` and PR were alternated on one GitHub runner.`,
               '',
               headline,
               '',
