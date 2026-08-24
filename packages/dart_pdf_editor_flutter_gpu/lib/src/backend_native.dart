@@ -31,12 +31,14 @@ import 'backend_stats.dart';
 /// content and mask stay as separate scene-lifetime textures and are combined
 /// by the tile shader. Ordinary PDF clip paths are retained as exact stencil
 /// masks (with rectangular clips additionally using the hardware scissor).
-/// Other isolated groups, blend modes beyond Multiply/Screen, complex clips
-/// *inside* the special soft-mask shortcuts, non-nested radial gradients,
-/// substituted/stroked text, unsafe overprint, or missing image pixels reject
-/// the whole scene. Zero-width PDF hairlines are expanded at tile submission
-/// time so they remain exactly one device pixel at every level of detail.
-/// dart_pdf_editor then permanently uses its Canvas session for that scene.
+/// Destination-dependent PDF blend modes use ordered shader-readable tile
+/// passes; Multiply and Screen keep their cheaper fixed-function equations.
+/// Other isolated groups, complex clips *inside* the special soft-mask
+/// shortcuts, non-nested radial gradients, substituted/stroked text, unsafe
+/// overprint, or missing image pixels reject the whole scene. Zero-width PDF
+/// hairlines are expanded at tile submission time so they remain exactly one
+/// device pixel at every level of detail. dart_pdf_editor then permanently
+/// uses its Canvas session for that scene.
 class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   FlutterGpuTileRasterBackend({
     this.msaa = true,
@@ -328,10 +330,25 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
     return null;
   }
 
-  static bool _isGpuBlendMode(PdfBlendMode mode) =>
-      mode == PdfBlendMode.normal ||
-      mode == PdfBlendMode.multiply ||
-      mode == PdfBlendMode.screen;
+  static bool _isGpuBlendMode(PdfBlendMode mode) => switch (mode) {
+        PdfBlendMode.normal ||
+        PdfBlendMode.multiply ||
+        PdfBlendMode.screen ||
+        PdfBlendMode.overlay ||
+        PdfBlendMode.darken ||
+        PdfBlendMode.lighten ||
+        PdfBlendMode.colorDodge ||
+        PdfBlendMode.colorBurn ||
+        PdfBlendMode.hardLight ||
+        PdfBlendMode.softLight ||
+        PdfBlendMode.difference ||
+        PdfBlendMode.exclusion ||
+        PdfBlendMode.hue ||
+        PdfBlendMode.saturation ||
+        PdfBlendMode.color ||
+        PdfBlendMode.luminosity =>
+          true,
+      };
 
   static bool _isAxisAlignedRect(PdfPath path) {
     final subs = flattenPath(path, PdfMatrix.identity);
@@ -1197,6 +1214,31 @@ double _pageDeviceScale(PdfMatrix pageToRaster, double pixelRatio) {
   return math.max(1e-12, math.sqrt(determinant.abs()) * pixelRatio);
 }
 
+bool _usesDestinationBlend(PdfBlendMode mode) =>
+    mode != PdfBlendMode.normal &&
+    mode != PdfBlendMode.multiply &&
+    mode != PdfBlendMode.screen;
+
+ByteData _destinationBlendVertices() => ByteData.sublistView(
+      Float32List.fromList(const [
+        -1, -1, 0, 1, //
+        1, -1, 1, 1, //
+        1, 1, 1, 0, //
+        -1, -1, 0, 1, //
+        1, 1, 1, 0, //
+        -1, 1, 0, 0, //
+      ]),
+    );
+
+ByteData _destinationBlendInfo(PdfBlendMode? mode) => ByteData.sublistView(
+      Float32List.fromList([
+        mode?.index.toDouble() ?? -1,
+        0,
+        0,
+        0,
+      ]),
+    );
+
 PdfRect? _pdfIntersection(PdfRect? a, PdfRect? b) {
   if (a == null) return b;
   if (b == null) return a;
@@ -1690,6 +1732,18 @@ class _CompiledScene {
   }) {
     final width = (region.width * pixelRatio).ceil().clamp(1, 1 << 14);
     final height = (region.height * pixelRatio).ceil().clamp(1, 1 << 14);
+    if (selected.any((unit) => _usesDestinationBlend(unit.blendMode))) {
+      return _renderDestinationBlends(
+        selected,
+        region: region,
+        pixelRatio: pixelRatio,
+        pipelines: pipelines,
+        useMsaa: useMsaa,
+        width: width,
+        height: height,
+        tracePage: tracePage,
+      );
+    }
     return _renderSimple(
       selected,
       region: region,
@@ -1823,6 +1877,304 @@ class _CompiledScene {
     return resolve.asImage();
   }
 
+  ui.Image _renderDestinationBlends(
+    List<_GpuUnit> selected, {
+    required Rect region,
+    required double pixelRatio,
+    required _GpuPipelines pipelines,
+    required bool useMsaa,
+    required int width,
+    required int height,
+    int? tracePage,
+  }) {
+    final issue = Stopwatch()..start();
+    // Keep every write-then-sample dependency in a separately submitted
+    // command buffer. Stable Flutter 3.47 Metal can segfault when a later
+    // render pass samples a texture written by an earlier pass in the same
+    // command buffer; ordered queue submissions preserve the dependency
+    // without a CPU fence.
+    final multisampled = useMsaa && context.doesSupportOffscreenMSAA;
+    final targets = <gpu.Texture>[
+      for (var i = 0; i < 2; i++)
+        context.createTexture(
+          gpu.StorageMode.devicePrivate,
+          width,
+          height,
+          format: context.defaultColorFormat,
+          enableRenderTargetUsage: true,
+          enableShaderReadUsage: true,
+        ),
+    ];
+    final source = context.createTexture(
+      gpu.StorageMode.devicePrivate,
+      width,
+      height,
+      format: context.defaultColorFormat,
+      enableRenderTargetUsage: true,
+      enableShaderReadUsage: true,
+    );
+    final msaaColor = multisampled
+        ? context.createTexture(
+            gpu.StorageMode.deviceTransient,
+            width,
+            height,
+            format: context.defaultColorFormat,
+            sampleCount: 4,
+          )
+        : null;
+    final stencil = context.createTexture(
+      gpu.StorageMode.deviceTransient,
+      width,
+      height,
+      format: context.defaultStencilFormat,
+      sampleCount: multisampled ? 4 : 1,
+    );
+    final resident = <Object>[
+      ...targets,
+      source,
+      if (msaaColor != null) msaaColor,
+      stencil,
+    ];
+
+    void submit(
+      gpu.CommandBuffer commandBuffer,
+      gpu.RenderPass pass,
+      gpu.HostBuffer transient,
+      int commandCount,
+    ) {
+      final submitClock = Stopwatch()..start();
+      final completion = Stopwatch()..start();
+      final resources = <Object>[
+        ...resident,
+        commandBuffer,
+        pass,
+        transient,
+      ];
+      _inFlight++;
+      stats
+        ..inFlightSubmissions += 1
+        ..peakInFlightSubmissions = math.max(
+          stats.peakInFlightSubmissions,
+          stats.inFlightSubmissions,
+        );
+      try {
+        commandBuffer.submit(completionCallback: (success) {
+          if (resources.isEmpty) return;
+          _completeSubmission(
+            success,
+            completion,
+            tracePage,
+            width,
+            height,
+            commandCount,
+          );
+        });
+      } catch (_) {
+        _inFlight--;
+        stats
+          ..inFlightSubmissions = math.max(0, stats.inFlightSubmissions - 1)
+          ..failedSubmissions += 1;
+        _releaseResourcesIfReady();
+        rethrow;
+      } finally {
+        stats.submitMicros += submitClock.elapsedMicroseconds;
+      }
+    }
+
+    gpu.RenderPass drawPass(
+      gpu.CommandBuffer commandBuffer,
+      gpu.Texture target,
+    ) {
+      return commandBuffer.createRenderPass(gpu.RenderTarget(
+        colorAttachments: [
+          gpu.ColorAttachment(
+            texture: multisampled ? msaaColor! : target,
+            resolveTexture: multisampled ? target : null,
+            loadAction: gpu.LoadAction.clear,
+            clearValue: vm.Vector4.zero(),
+            storeAction: multisampled
+                ? gpu.StoreAction.multisampleResolve
+                : gpu.StoreAction.store,
+          ),
+        ],
+        depthStencilAttachment: gpu.DepthStencilAttachment(
+          texture: stencil,
+          stencilClearValue: 0,
+        ),
+      ));
+    }
+
+    void renderUnits(
+      List<_GpuUnit> units,
+      gpu.Texture target, {
+      required bool includePaper,
+      gpu.Texture? copyFrom,
+    }) {
+      final commandBuffer = context.createCommandBuffer();
+      final pass = drawPass(commandBuffer, target);
+      pass
+        ..setCullMode(gpu.CullMode.none)
+        ..setWindingOrder(gpu.WindingOrder.counterClockwise)
+        ..setPrimitiveType(gpu.PrimitiveType.triangle)
+        ..setStencilReference(0)
+        ..setColorBlendEnable(true);
+      final transient = context.createHostBuffer();
+      if (copyFrom != null) {
+        // Do not replace this draw with copyTextureToTexture followed by an
+        // attachment load. On Flutter 3.47 Metal, a shader-readable offscreen
+        // target is not preserved by that load sequence (including without
+        // MSAA), which blanks the accumulated tile. Copying through this pass
+        // is the stable path and also seeds every MSAA sample exactly once.
+        _encodeDestinationBlend(
+          pass,
+          pipelines,
+          transient,
+          destination: copyFrom,
+          source: source,
+        );
+        pass.setColorBlendEnable(true);
+      }
+      final transform = transient.emplace(
+        _tileTransform(pageToRaster, region, pixelRatio, width, height),
+      );
+      final encoder = _GpuEncoder(
+        pass: pass,
+        pipelines: pipelines,
+        transform: transform,
+        pageToRaster: pageToRaster,
+        region: region,
+        pixelRatio: pixelRatio,
+        width: width,
+        height: height,
+        clipDraws: clipDraws,
+        stencilClear: paper.vertices,
+        emplaceTransient: transient.emplace,
+      );
+      if (includePaper) {
+        encoder
+          ..setClip(_rootGpuClip)
+          ..solid(paper.vertices);
+      }
+      for (final unit in units) {
+        final draw = draws[unit.commandIndex];
+        if (draw == null) continue;
+        encoder
+          ..setClip(unit.clip)
+          ..setBlendMode(unit.blendMode);
+        draw.encode(encoder);
+      }
+      stats.clipMaskRebuilds += encoder.clipMaskRebuilds;
+      submit(commandBuffer, pass, transient, units.length);
+    }
+
+    void renderSource(_GpuUnit unit) {
+      final commandBuffer = context.createCommandBuffer();
+      final pass = drawPass(commandBuffer, source);
+      pass
+        ..setCullMode(gpu.CullMode.none)
+        ..setWindingOrder(gpu.WindingOrder.counterClockwise)
+        ..setPrimitiveType(gpu.PrimitiveType.triangle)
+        ..setStencilReference(0)
+        ..setColorBlendEnable(true);
+      final transient = context.createHostBuffer();
+      final transform = transient.emplace(
+        _tileTransform(pageToRaster, region, pixelRatio, width, height),
+      );
+      final encoder = _GpuEncoder(
+        pass: pass,
+        pipelines: pipelines,
+        transform: transform,
+        pageToRaster: pageToRaster,
+        region: region,
+        pixelRatio: pixelRatio,
+        width: width,
+        height: height,
+        clipDraws: clipDraws,
+        stencilClear: paper.vertices,
+        emplaceTransient: transient.emplace,
+      );
+      final draw = draws[unit.commandIndex];
+      if (draw != null) {
+        encoder
+          ..setClip(unit.clip)
+          ..setBlendMode(PdfBlendMode.normal);
+        draw.encode(encoder);
+      }
+      stats.clipMaskRebuilds += encoder.clipMaskRebuilds;
+      submit(commandBuffer, pass, transient, 1);
+    }
+
+    void composite(
+      gpu.Texture destination,
+      gpu.Texture output,
+      PdfBlendMode mode,
+    ) {
+      final commandBuffer = context.createCommandBuffer();
+      final pass = commandBuffer.createRenderPass(
+        gpu.RenderTarget.singleColor(gpu.ColorAttachment(
+          texture: output,
+          clearValue: vm.Vector4.zero(),
+          storeAction: gpu.StoreAction.store,
+        )),
+      );
+      pass
+        ..setCullMode(gpu.CullMode.none)
+        ..setWindingOrder(gpu.WindingOrder.counterClockwise)
+        ..setPrimitiveType(gpu.PrimitiveType.triangle)
+        ..setColorBlendEnable(false);
+      final transient = context.createHostBuffer();
+      _encodeDestinationBlend(
+        pass,
+        pipelines,
+        transient,
+        destination: destination,
+        source: source,
+        mode: mode,
+      );
+      submit(commandBuffer, pass, transient, 1);
+    }
+
+    var current = 0;
+    var initialized = false;
+    final ordinary = <_GpuUnit>[];
+    void flushOrdinary() {
+      if (initialized && ordinary.isEmpty) return;
+      if (!initialized) {
+        renderUnits(
+          ordinary,
+          targets[current],
+          includePaper: true,
+        );
+        initialized = true;
+      } else {
+        final next = 1 - current;
+        renderUnits(
+          ordinary,
+          targets[next],
+          includePaper: false,
+          copyFrom: targets[current],
+        );
+        current = next;
+      }
+      ordinary.clear();
+    }
+
+    for (final unit in selected) {
+      if (!_usesDestinationBlend(unit.blendMode)) {
+        ordinary.add(unit);
+        continue;
+      }
+      flushOrdinary();
+      renderSource(unit);
+      final next = 1 - current;
+      composite(targets[current], targets[next], unit.blendMode);
+      current = next;
+    }
+    flushOrdinary();
+    stats.issueMicros += issue.elapsedMicroseconds;
+    return targets[current].asImage();
+  }
+
   static ByteData _tileTransform(
     PdfMatrix pageToRaster,
     Rect region,
@@ -1852,6 +2204,45 @@ class _CompiledScene {
     ]);
     return ByteData.sublistView(m);
   }
+}
+
+void _encodeDestinationBlend(
+  gpu.RenderPass pass,
+  _GpuPipelines pipelines,
+  gpu.HostBuffer transient, {
+  required gpu.Texture destination,
+  required gpu.Texture source,
+  PdfBlendMode? mode,
+}) {
+  final vertices = transient.emplace(_destinationBlendVertices());
+  final info = transient.emplace(_destinationBlendInfo(mode));
+  final sampler = gpu.SamplerOptions(
+    minFilter: gpu.MinMagFilter.nearest,
+    magFilter: gpu.MinMagFilter.nearest,
+  );
+  pass
+    ..setColorBlendEnable(false)
+    ..bindPipeline(pipelines.destinationBlend)
+    ..bindUniform(pipelines.destinationBlendInfo, info)
+    ..bindTexture(
+      pipelines.destinationBlendDestination,
+      destination,
+      sampler: sampler,
+    )
+    ..bindTexture(
+      pipelines.destinationBlendSource,
+      source,
+      sampler: sampler,
+    );
+  final dynamic dynamicPass = pass;
+  try {
+    dynamicPass.bindVertexBuffer(vertices);
+    dynamicPass.draw(6);
+  } on NoSuchMethodError {
+    dynamicPass.bindVertexBuffer(vertices, 6);
+    dynamicPass.draw();
+  }
+  pass.clearBindings();
 }
 
 _GpuClipDraw _compileClip(_GpuGeometryArena geometry, _GpuClipNode node) {
@@ -3750,6 +4141,9 @@ class _GpuPipelines {
         softMask = context.createRenderPipeline(
             library['PdfTileSoftMaskVertex']!,
             library['PdfTileSoftMaskFragment']!),
+        destinationBlend = context.createRenderPipeline(
+            library['PdfTileDestinationBlendVertex']!,
+            library['PdfTileDestinationBlendFragment']!),
         stencilTransform =
             library['PdfTileStencilVertex']!.getUniformSlot('VertInfo'),
         solidTransform =
@@ -3767,7 +4161,14 @@ class _GpuPipelines {
         softMaskContentSampler =
             library['PdfTileSoftMaskFragment']!.getUniformSlot('content_tex'),
         softMaskMaskSampler =
-            library['PdfTileSoftMaskFragment']!.getUniformSlot('mask_tex');
+            library['PdfTileSoftMaskFragment']!.getUniformSlot('mask_tex'),
+        destinationBlendInfo = library['PdfTileDestinationBlendFragment']!
+            .getUniformSlot('BlendInfo'),
+        destinationBlendDestination =
+            library['PdfTileDestinationBlendFragment']!
+                .getUniformSlot('destination_tex'),
+        destinationBlendSource = library['PdfTileDestinationBlendFragment']!
+            .getUniformSlot('source_tex');
 
   // Native multi-window builds can expose a distinct Impeller context per
   // Flutter view. Pipelines are context-owned; reusing the first window's
@@ -3934,6 +4335,9 @@ class _GpuPipelines {
       ..setRange(32, 36, const [-1, -1, 1, 1]);
     final softMaskUniform =
         transient.emplace(ByteData.sublistView(softMaskInfo));
+    final destinationBlendUniform = transient.emplace(
+      _destinationBlendInfo(PdfBlendMode.colorBurn),
+    );
 
     final commandBuffer = context.createCommandBuffer();
     final pass = commandBuffer.createRenderPass(gpu.RenderTarget(
@@ -4012,6 +4416,13 @@ class _GpuPipelines {
       ..bindTexture(softMaskContentSampler, sample)
       ..bindTexture(softMaskMaskSampler, sample);
     _warmUpDraw(pass, textureVertices, 3);
+    pass
+      ..clearBindings()
+      ..bindPipeline(destinationBlend)
+      ..bindUniform(destinationBlendInfo, destinationBlendUniform)
+      ..bindTexture(destinationBlendDestination, sample)
+      ..bindTexture(destinationBlendSource, sample);
+    _warmUpDraw(pass, textureVertices, 3);
     pass.clearBindings();
 
     final completer = Completer<void>();
@@ -4087,6 +4498,7 @@ class _GpuPipelines {
   final gpu.RenderPipeline solid;
   final gpu.RenderPipeline texture;
   final gpu.RenderPipeline softMask;
+  final gpu.RenderPipeline destinationBlend;
   final gpu.UniformSlot stencilTransform;
   final gpu.UniformSlot solidTransform;
   final gpu.UniformSlot textureTransform;
@@ -4096,4 +4508,7 @@ class _GpuPipelines {
   final gpu.UniformSlot softMaskInfo;
   final gpu.UniformSlot softMaskContentSampler;
   final gpu.UniformSlot softMaskMaskSampler;
+  final gpu.UniformSlot destinationBlendInfo;
+  final gpu.UniformSlot destinationBlendDestination;
+  final gpu.UniformSlot destinationBlendSource;
 }

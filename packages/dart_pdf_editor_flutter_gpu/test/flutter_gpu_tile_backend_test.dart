@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io' show ZLibCodec;
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -624,6 +625,109 @@ void main() {
           actual.dispose();
           session.dispose();
           scene.dispose();
+        }
+      }
+    });
+  });
+
+  testWidgets('destination-dependent blend modes match Canvas in painter order',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      const modes = <PdfBlendMode>[
+        PdfBlendMode.overlay,
+        PdfBlendMode.darken,
+        PdfBlendMode.lighten,
+        PdfBlendMode.colorDodge,
+        PdfBlendMode.colorBurn,
+        PdfBlendMode.hardLight,
+        PdfBlendMode.softLight,
+        PdfBlendMode.difference,
+        PdfBlendMode.exclusion,
+        PdfBlendMode.hue,
+        PdfBlendMode.saturation,
+        PdfBlendMode.color,
+        PdfBlendMode.luminosity,
+      ];
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final commands = <PdfRenderCommand>[];
+      for (var i = 0; i < modes.length; i++) {
+        final x = 24.0 + (i % 4) * 145;
+        final y = 95.0 + (i ~/ 4) * 160;
+        commands
+          ..add(const PdfSetBlendModeCommand(PdfBlendMode.normal))
+          ..add(PdfFillPathCommand(
+            _rect(x, y, x + 112, y + 112),
+            const PdfColor(0.72, 0.35, 0.18),
+            PdfFillRule.nonzero,
+            1,
+          ))
+          ..add(PdfSetBlendModeCommand(modes[i]))
+          ..add(PdfFillPathCommand(
+            _rect(x + 24, y + 22, x + 104, y + 102),
+            const PdfColor(0.62, 0.78, 0.27),
+            PdfFillRule.nonzero,
+            0.65,
+          ));
+      }
+      commands.add(const PdfSetBlendModeCommand(PdfBlendMode.normal));
+      final scene = await PdfRetainedScene.fromCommands(page, commands);
+      addTearDown(scene.dispose);
+      final region = Offset.zero & scene.pageSize;
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1);
+      addTearDown(expected.dispose);
+      final a = await _pixels(expected);
+      for (final msaa in [false, true]) {
+        final backend = FlutterGpuTileRasterBackend(msaa: msaa);
+        final session = backend.createSession(scene);
+        expect(session, isNotNull, reason: backend.stats.lastRejection);
+        final actual = await session!.rasterizeRegion(region, pixelRatio: 1);
+        try {
+          final b = await _pixels(actual);
+          var difference = 0;
+          for (var i = 0; i < a.length; i++) {
+            difference += (a[i] - b[i]).abs();
+          }
+          expect(difference / a.length, lessThan(2),
+              reason: 'all advanced PDF blend functions must agree with '
+                  'Canvas (msaa=$msaa)');
+          final interiorDifferences = <String, int>{};
+          final interiorValues = <String, String>{};
+          for (var i = 0; i < modes.length; i++) {
+            final x = (24 + (i % 4) * 145 + 64).round();
+            final pageY = (95 + (i ~/ 4) * 160 + 62).round();
+            final y = expected.height - pageY - 1;
+            final offset = (y * expected.width + x) * 4;
+            var maximum = 0;
+            for (var channel = 0; channel < 4; channel++) {
+              maximum = math.max(
+                maximum,
+                (b[offset + channel] - a[offset + channel]).abs(),
+              );
+            }
+            interiorDifferences[modes[i].name] = maximum;
+            interiorValues[modes[i].name] =
+                '${a.sublist(offset, offset + 4)} -> '
+                '${b.sublist(offset, offset + 4)}';
+          }
+          expect(
+            interiorDifferences.values.every((difference) => difference <= 12),
+            isTrue,
+            reason: 'msaa=$msaa interior channel differences: '
+                '$interiorDifferences; values: $interiorValues',
+          );
+          expect(
+            backend.stats.completedSubmissions,
+            greaterThan(modes.length * 2),
+            reason: 'normal spans and blend sources use ordered GPU passes',
+          );
+          expect(backend.stats.lastTileRoute, 'flutter_gpu');
+        } finally {
+          actual.dispose();
+          session.dispose();
         }
       }
     });

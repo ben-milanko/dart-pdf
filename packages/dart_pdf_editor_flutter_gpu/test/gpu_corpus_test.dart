@@ -126,6 +126,10 @@ void _corpus(
             if (session == null) {
               rejected++;
               final reason = backend.lastSessionRejection ?? 'unspecified';
+              if (Platform.environment['GPU_CORPUS_VERBOSE'] == '1') {
+                // ignore: avoid_print
+                print('$suite/$name page=$pageIndex fallback=$reason');
+              }
               rejectionReasons.update(reason, (count) => count + 1,
                   ifAbsent: () => 1);
               final fonts = <String>{
@@ -141,6 +145,17 @@ void _corpus(
               continue;
             }
             accepted++;
+            if (Platform.environment['GPU_CORPUS_VERBOSE'] == '1') {
+              final modes = scene.commands
+                  .whereType<PdfSetBlendModeCommand>()
+                  .map((command) => command.mode.name)
+                  .where((mode) => mode != PdfBlendMode.normal.name)
+                  .toSet();
+              if (modes.isNotEmpty) {
+                // ignore: avoid_print
+                print('$suite/$name page=$pageIndex gpu modes=$modes');
+              }
+            }
             try {
               final region = Offset.zero & scene.pageSize;
               final ratio = math.min(

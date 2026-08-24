@@ -234,12 +234,15 @@ jobs:
             local repetition="$8"
             local source_env
             local route_change=0
-            if [[ "$label" == "vector-mask" || "$label" == "hairline" ]]; then
+            if [[ "$label" == "vector-mask" || "$label" == "hairline" || "$label" == "destination-blend" ]]; then
               route_change=1
             fi
             case "$source_kind" in
               pdf)
                 source_env="PDF_GPU_BENCHMARK_PDF=$source"
+                ;;
+              head-pdf)
+                source_env="PDF_GPU_BENCHMARK_PDF=$GITHUB_WORKSPACE/$source"
                 ;;
               fixture)
                 source_env="PDF_GPU_BENCHMARK_FIXTURE=$source"
@@ -295,6 +298,7 @@ jobs:
           deferred-mask fixture deferred-mask
           vector-mask pdf ../../test_corpora/pdfjs/smask_luminosity_oob_transfer.pdf
           hairline pdf ../../test_corpora/pdfjs/issue3458.pdf
+          destination-blend head-pdf packages/dart_pdf_editor_flutter_gpu/test/fixtures/destination_blend.pdf
           SCENARIOS
           fi
 
@@ -322,6 +326,7 @@ jobs:
           deferred-mask fixture deferred-mask
           vector-mask pdf ../../test_corpora/pdfjs/smask_luminosity_oob_transfer.pdf
           hairline pdf ../../test_corpora/pdfjs/issue3458.pdf
+          destination-blend head-pdf packages/dart_pdf_editor_flutter_gpu/test/fixtures/destination_blend.pdf
           SCENARIOS
           done
           echo "log=$log" >> "$GITHUB_OUTPUT"
@@ -355,6 +360,8 @@ jobs:
             --require-scenario-runs gpu-vector-mask-page-0-canvas-tile=6
             --require-scenario-runs gpu-hairline-page-0-first-tile=6
             --require-scenario-runs gpu-hairline-page-0-canvas-tile=6
+            --require-scenario-runs gpu-destination-blend-page-0-first-tile=6
+            --require-scenario-runs gpu-destination-blend-page-0-canvas-tile=6
           )
           arguments=(
             "$log"
