@@ -680,8 +680,37 @@ void main() {
       final expected = await scene.rasterizeRegion(region, pixelRatio: 1);
       addTearDown(expected.dispose);
       final a = await _pixels(expected);
+      final boundedBackend = FlutterGpuTileRasterBackend();
+      final boundedSession = boundedBackend.createSession(scene);
+      expect(
+        boundedSession,
+        isNotNull,
+        reason: boundedBackend.stats.lastRejection,
+      );
+      await (boundedSession! as PdfTileRasterWarmUp).warmUp();
+      expect(boundedBackend.stats.sceneWarmUpCompletions, 1);
+      expect(boundedBackend.stats.scenesCompiled, 0);
+      final bounded = await boundedSession.rasterizeRegion(
+        region,
+        pixelRatio: 1,
+      );
+      try {
+        expect(await _pixels(bounded), orderedEquals(a));
+        expect(boundedBackend.stats.destinationBlendTileFallbacks, 1);
+        expect(boundedBackend.stats.completedSubmissions, 0);
+        expect(
+          boundedBackend.stats.lastTileRoute,
+          'canvas-destination-blend-bound',
+        );
+      } finally {
+        bounded.dispose();
+        boundedSession.dispose();
+      }
       for (final msaa in [false, true]) {
-        final backend = FlutterGpuTileRasterBackend(msaa: msaa);
+        final backend = FlutterGpuTileRasterBackend(
+          msaa: msaa,
+          maxDestinationBlendUnitsPerTile: modes.length,
+        );
         final session = backend.createSession(scene);
         expect(session, isNotNull, reason: backend.stats.lastRejection);
         final actual = await session!.rasterizeRegion(region, pixelRatio: 1);

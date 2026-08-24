@@ -35,6 +35,7 @@ void main() {
       ..sessionsRejected = 2
       ..sessionsDisposed = 1
       ..rasterFallbacks = 1
+      ..destinationBlendTileFallbacks = 2
       ..lastContextIdentity = 1234
       ..contextsSeen = 2
       ..contextSwitches = 3
@@ -67,6 +68,10 @@ void main() {
       ..lastRejection = 'test fallback';
 
     expect(stats.toJson(), containsPair('rasterFallbacks', 1));
+    expect(
+      stats.toJson(),
+      containsPair('destinationBlendTileFallbacks', 2),
+    );
     expect(stats.toJson(), containsPair('lastRejection', 'test fallback'));
     expect(stats.toJson(), containsPair('lastTileRoute', 'canvas-fallback'));
     expect(stats.toJson(), containsPair('completedSubmissions', 8));
@@ -85,6 +90,7 @@ void main() {
     stats.reset();
     expect(stats.sessionsCreated, 0);
     expect(stats.rasterFallbacks, 0);
+    expect(stats.destinationBlendTileFallbacks, 0);
     expect(stats.lastContextIdentity, 1234);
     expect(stats.contextsSeen, 2);
     expect(stats.contextSwitches, 0);

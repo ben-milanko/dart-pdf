@@ -33,6 +33,8 @@ import 'backend_stats.dart';
 /// masks (with rectangular clips additionally using the hardware scissor).
 /// Destination-dependent PDF blend modes use ordered shader-readable tile
 /// passes; Multiply and Screen keep their cheaper fixed-function equations.
+/// Tiles containing more than [maxDestinationBlendUnitsPerTile] destination
+/// paints replay through Canvas to keep ordered submissions bounded.
 /// Other isolated groups, complex clips *inside* the special soft-mask
 /// shortcuts, non-nested radial gradients, substituted/stroked text, unsafe
 /// overprint, or missing image pixels reject the whole scene. Zero-width PDF
@@ -43,11 +45,13 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   FlutterGpuTileRasterBackend({
     this.msaa = true,
     this.allowOverprintApproximation = false,
+    this.maxDestinationBlendUnitsPerTile = 3,
     this.maxTextureBytes = 256 << 20,
     this.maxGeometryBytes = 256 << 20,
     this.enableProactiveWarmUp,
     FlutterGpuTileBackendStats? stats,
-  })  : stats = stats ?? FlutterGpuTileBackendStats(),
+  })  : assert(maxDestinationBlendUnitsPerTile >= 0),
+        stats = stats ?? FlutterGpuTileBackendStats(),
         _imageCache = _GpuImageCache(maxTextureBytes),
         _geometryPool = _GpuGeometryPool(maxGeometryBytes);
 
@@ -61,6 +65,16 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   /// controlled benchmarking only; ordinary clients get the exact Canvas
   /// fallback instead.
   final bool allowOverprintApproximation;
+
+  /// Maximum destination-dependent paints submitted for one GPU tile.
+  ///
+  /// Each such paint needs an ordered source pass plus a composite pass, and
+  /// ordinary painter-order spans may need additional copy passes. Dense
+  /// tiles therefore become slower than Canvas long before geometry itself is
+  /// expensive. Tiles above this bound replay through Canvas while sparse
+  /// tiles from the same retained page can still use the GPU. Set this higher
+  /// only after benchmarking the target Impeller backend.
+  final int maxDestinationBlendUnitsPerTile;
 
   /// Byte budget for decoded image textures shared by every scene/session
   /// created from this backend instance. Cached and active scene leases both
@@ -220,6 +234,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
         pipelines: _GpuPipelines.instance(context),
         units: units,
         msaa: msaa,
+        maxDestinationBlendUnitsPerTile: maxDestinationBlendUnitsPerTile,
         stats: stats,
         imageCache: _imageCache,
         geometryPool: _geometryPool,
@@ -1378,6 +1393,7 @@ class _FlutterGpuTileSession
     required this.pipelines,
     required this.units,
     required this.msaa,
+    required this.maxDestinationBlendUnitsPerTile,
     required this.stats,
     required this.imageCache,
     required this.geometryPool,
@@ -1403,9 +1419,17 @@ class _FlutterGpuTileSession
   final Future<_GpuPipelines> pipelines;
   final List<_GpuUnit> units;
   final bool msaa;
+  final int maxDestinationBlendUnitsPerTile;
   final FlutterGpuTileBackendStats stats;
   final _GpuImageCache imageCache;
   final _GpuGeometryPool geometryPool;
+  late final PdfMatrix _pageToRaster = PdfPageRenderer.pageToDeviceMatrix(
+    scene.page,
+    scene.pageSize,
+    scene.page.cropBox,
+    rotation: scene.plan.rotation,
+    pixelRatio: 1,
+  );
 
   Future<_CompiledScene>? _compiled;
   _CompiledScene? _ready;
@@ -1439,6 +1463,16 @@ class _FlutterGpuTileSession
     stats.sceneWarmUpRequests++;
     ui.Image? image;
     try {
+      final destinationBlendUnits =
+          units.where((unit) => _usesDestinationBlend(unit.blendMode)).length;
+      if (destinationBlendUnits > maxDestinationBlendUnitsPerTile) {
+        stats.sceneWarmUpCompletions++;
+        PdfPerfLog.log(
+          'tile gpu scene warm skipped destinationBlends='
+          '$destinationBlendUnits limit=$maxDestinationBlendUnitsPerTile',
+        );
+        return;
+      }
       final compiled = await _compile();
       final gpuPipelines = await pipelines;
       await gpuPipelines.warmUp(
@@ -1490,13 +1524,33 @@ class _FlutterGpuTileSession
     try {
       final prewarm = _prewarm;
       if (prewarm != null) await prewarm;
-      final compiled = await _compile();
-      final gpuPipelines = await pipelines;
       if (_disposed) throw StateError('flutter_gpu tile session disposed');
       final issue = Stopwatch()..start();
       final selected =
-          _selectGpuUnits(units, compiled.pageToRaster, region, pixelRatio);
+          _selectGpuUnits(units, _pageToRaster, region, pixelRatio);
       stats.selectedCommands += selected.length;
+      final destinationBlendUnits = selected
+          .where((unit) => _usesDestinationBlend(unit.blendMode))
+          .length;
+      if (destinationBlendUnits > maxDestinationBlendUnitsPerTile) {
+        stats
+          ..destinationBlendTileFallbacks += 1
+          ..lastTileRoute = 'canvas-destination-blend-bound';
+        PdfPerfLog.log(
+          'tile gpu bounded fallback page=${tracePage ?? '-'} '
+          'destinationBlends=$destinationBlendUnits '
+          'limit=$maxDestinationBlendUnitsPerTile '
+          'selected=${selected.length}/${units.length}',
+        );
+        return await scene.rasterizeRegion(
+          region,
+          pixelRatio: pixelRatio,
+          tracePage: tracePage,
+        );
+      }
+      final compiled = await _compile();
+      final gpuPipelines = await pipelines;
+      if (_disposed) throw StateError('flutter_gpu tile session disposed');
       final image = compiled.render(
         selected,
         region: region,

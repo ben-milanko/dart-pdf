@@ -21,6 +21,7 @@ class FlutterGpuTileBackendStats {
   int sessionsRejected = 0;
   int sessionsDisposed = 0;
   int rasterFallbacks = 0;
+  int destinationBlendTileFallbacks = 0;
   int activeSessions = 0;
   int peakActiveSessions = 0;
   int overprintApproximationSessions = 0;
@@ -78,6 +79,7 @@ class FlutterGpuTileBackendStats {
         'sessionsRejected': sessionsRejected,
         'sessionsDisposed': sessionsDisposed,
         'rasterFallbacks': rasterFallbacks,
+        'destinationBlendTileFallbacks': destinationBlendTileFallbacks,
         'activeSessions': activeSessions,
         'peakActiveSessions': peakActiveSessions,
         'overprintApproximationSessions': overprintApproximationSessions,
@@ -123,6 +125,7 @@ class FlutterGpuTileBackendStats {
     sessionsRejected = 0;
     sessionsDisposed = 0;
     rasterFallbacks = 0;
+    destinationBlendTileFallbacks = 0;
     contextSwitches = 0;
     warmUpRequests = 0;
     warmUpSubmissions = 0;
@@ -169,6 +172,7 @@ class FlutterGpuTileBackendStats {
   @override
   String toString() => 'sessions=$sessionsCreated rejected=$sessionsRejected '
       'disposed=$sessionsDisposed rasterFallbacks=$rasterFallbacks '
+      'destinationBlendTileFallbacks=$destinationBlendTileFallbacks '
       'contexts=$contextsSeen contextSwitches=$contextSwitches '
       'warmUpRequests=$warmUpRequests warmUpSubmissions=$warmUpSubmissions '
       'warmUpCompletions=$warmUpCompletions warmUpFailures=$warmUpFailures '
