@@ -207,6 +207,14 @@ class StripPlanBinner extends StripBinningDevice {
   @override
   void delegateBeginGroup(double alpha, {required bool knockout}) {}
   @override
+  void delegateBeginTransparencyGroup(
+    double alpha, {
+    required bool knockout,
+    required bool isolated,
+    bounds,
+    backdropColor,
+  }) {}
+  @override
   void delegateEndGroup() {}
   @override
   void delegateBeginSoftMasked() {}

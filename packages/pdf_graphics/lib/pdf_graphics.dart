@@ -4,6 +4,7 @@
 library;
 
 export 'src/color.dart';
+export 'src/color_context.dart';
 export 'src/color_space.dart';
 export 'src/colorants.dart';
 export 'src/overprint_compositor.dart';

@@ -2361,6 +2361,7 @@ PdfImageRequest _withDecodedPixels(
       isStencil: request.isStencil,
       stencilColor: request.stencilColor,
       isInline: request.isInline,
+      isLuminosityMask: request.isLuminosityMask,
       decoded: decoded,
       sourceReference: request.sourceReference,
     );

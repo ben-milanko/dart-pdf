@@ -350,6 +350,22 @@ class StripPdfDevice extends StripBinningDevice {
       _state((d) => d.beginGroup(alpha, knockout: knockout));
 
   @override
+  void delegateBeginTransparencyGroup(
+    double alpha, {
+    required bool knockout,
+    required bool isolated,
+    PdfRect? bounds,
+    PdfColor? backdropColor,
+  }) =>
+      _state((d) => d.beginTransparencyGroup(
+            alpha,
+            knockout: knockout,
+            isolated: isolated,
+            bounds: bounds,
+            backdropColor: backdropColor,
+          ));
+
+  @override
   void delegateEndGroup() => _state((d) => d.endGroup());
 
   @override

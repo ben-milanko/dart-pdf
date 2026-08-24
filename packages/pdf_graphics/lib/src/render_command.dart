@@ -114,9 +114,18 @@ class PdfSetOverprintCommand extends PdfRenderCommand {
 
 /// [PdfDevice.beginGroup].
 class PdfBeginGroupCommand extends PdfRenderCommand {
-  const PdfBeginGroupCommand(this.alpha, {this.knockout = false});
+  const PdfBeginGroupCommand(
+    this.alpha, {
+    this.knockout = false,
+    this.isolated = false,
+    this.bounds,
+    this.backdropColor,
+  });
   final double alpha;
   final bool knockout;
+  final bool isolated;
+  final PdfRect? bounds;
+  final PdfColor? backdropColor;
 }
 
 /// [PdfDevice.endGroup].
@@ -245,8 +254,24 @@ void replayCommands(List<PdfRenderCommand> commands, PdfDevice device,
         device.setBlendMode(mode);
       case PdfSetOverprintCommand(:final fill, :final stroke, :final mode):
         device.setOverprint(fill: fill, stroke: stroke, mode: mode);
-      case PdfBeginGroupCommand(:final alpha, :final knockout):
-        device.beginGroup(alpha, knockout: knockout);
+      case PdfBeginGroupCommand(
+          :final alpha,
+          :final knockout,
+          :final isolated,
+          :final bounds,
+          :final backdropColor
+        ):
+        if (device is PdfTransparencyGroupDevice) {
+          (device as PdfTransparencyGroupDevice).beginTransparencyGroup(
+            alpha,
+            knockout: knockout,
+            isolated: isolated,
+            bounds: bounds,
+            backdropColor: backdropColor,
+          );
+        } else {
+          device.beginGroup(alpha, knockout: knockout);
+        }
       case PdfEndGroupCommand():
         device.endGroup();
       case PdfBeginSoftMaskedCommand():

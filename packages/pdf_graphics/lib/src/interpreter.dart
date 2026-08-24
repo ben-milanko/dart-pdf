@@ -7,6 +7,7 @@ import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
 
 import 'color.dart';
+import 'color_context.dart';
 import 'color_space.dart';
 import 'colorants.dart';
 import 'device.dart';
@@ -24,20 +25,30 @@ import 'translating_device.dart';
 /// What an image draw resolves to once overprint has been applied: the stream
 /// the device should draw, and the colour a stencil paints through its mask
 /// (issue #604).
-typedef PdfImageDraw = ({CosStream stream, PdfColor stencilColor});
+typedef PdfImageDraw = ({
+  CosStream stream,
+  PdfColor stencilColor,
+  bool overprint,
+});
 
 /// Graphics state, mirroring §8.4. Text state parameters live here too
 /// because `Tf`, `Tc` etc. are saved and restored by `q`/`Q`.
 class _GraphicsState {
-  _GraphicsState()
+  _GraphicsState([PdfColorContext? colorContext])
       : ctm = PdfMatrix.identity,
         fillColor = PdfColor.black,
         strokeColor = PdfColor.black,
         fillAlpha = 1,
         strokeAlpha = 1,
         stroke = const PdfStroke(),
-        fillSpace = PdfColorSpace.deviceGray,
-        strokeSpace = PdfColorSpace.deviceGray,
+        fillSpace = colorContext == null
+            ? PdfColorSpace.deviceGray
+            : _deviceGraySpace(colorContext),
+        strokeSpace = colorContext == null
+            ? PdfColorSpace.deviceGray
+            : _deviceGraySpace(colorContext),
+        fillOperands = null,
+        strokeOperands = null,
         fillPattern = null,
         fillPatternComponents = const [],
         font = null,
@@ -52,8 +63,14 @@ class _GraphicsState {
         fillOverprint = false,
         strokeOverprint = false,
         overprintMode = 0,
+        renderingIntent = PdfRenderingIntent.relativeColorimetric,
         fillInk = null,
-        strokeInk = null;
+        strokeInk = null,
+        fillBlendInk = null,
+        strokeBlendInk = null;
+
+  static PdfColorSpace _deviceGraySpace(PdfColorContext colorContext) =>
+      _ContextGraySpace(colorContext);
 
   _GraphicsState.from(_GraphicsState other)
       : ctm = other.ctm,
@@ -64,6 +81,8 @@ class _GraphicsState {
         stroke = other.stroke,
         fillSpace = other.fillSpace,
         strokeSpace = other.strokeSpace,
+        fillOperands = other.fillOperands,
+        strokeOperands = other.strokeOperands,
         fillPattern = other.fillPattern,
         fillPatternComponents = other.fillPatternComponents,
         softMask = other.softMask,
@@ -80,8 +99,11 @@ class _GraphicsState {
         fillOverprint = other.fillOverprint,
         strokeOverprint = other.strokeOverprint,
         overprintMode = other.overprintMode,
+        renderingIntent = other.renderingIntent,
         fillInk = other.fillInk,
-        strokeInk = other.strokeInk;
+        strokeInk = other.strokeInk,
+        fillBlendInk = other.fillBlendInk,
+        strokeBlendInk = other.strokeBlendInk;
 
   PdfMatrix ctm;
   PdfColor fillColor;
@@ -93,6 +115,15 @@ class _GraphicsState {
   /// Active fill/stroke color spaces for bare `sc`/`scn` operands.
   PdfColorSpace fillSpace;
   PdfColorSpace strokeSpace;
+
+  /// Numeric operands that selected the current generic `sc[n]`/`SC[N]`
+  /// colour. They remain in the source colour space so a later `ri` can
+  /// re-run a CIE→device conversion before the colour is painted. PDF stores
+  /// the source colour in graphics state; eager conversion at `sc` time made
+  /// `60 0 0 sc /Perceptual ri ... f` use the preceding intent (GWG221).
+  /// Null for device shorthand colours and patterns, which need no refresh.
+  List<CosObject>? fillOperands;
+  List<CosObject>? strokeOperands;
 
   /// The active fill pattern (stream for tiling, dictionary for shading)
   /// when the fill space is /Pattern, plus the underlying color components
@@ -121,6 +152,7 @@ class _GraphicsState {
   bool fillOverprint;
   bool strokeOverprint;
   int overprintMode;
+  PdfRenderingIntent renderingIntent;
 
   /// The device colorants the current fill/stroke colour writes (§8.6.7), or
   /// null when its colour space has no colorant reading (DeviceRGB, ICCBased,
@@ -129,20 +161,54 @@ class _GraphicsState {
   /// painting device's approximation in charge.
   PdfInkColorants? fillInk;
   PdfInkColorants? strokeInk;
+  PdfInkColorants? fillBlendInk;
+  PdfInkColorants? strokeBlendInk;
+}
+
+/// Initial DeviceGray bound to the document output condition. Named device
+/// spaces selected later go through [PdfColorSpace.parse].
+class _ContextGraySpace extends PdfColorSpace {
+  const _ContextGraySpace(this.context);
+
+  final PdfColorContext context;
+
+  @override
+  int get channels => 1;
+
+  @override
+  String get family => 'DeviceGray';
+
+  @override
+  PdfColor toSrgb(List<double> values) =>
+      context.deviceGray(values.isEmpty ? 0 : values[0]);
+
+  @override
+  PdfColor toSrgbIntent(List<double> values, PdfRenderingIntent intent) =>
+      context.deviceGray(values.isEmpty ? 0 : values[0], intent: intent);
+
+  @override
+  PdfInkColorants inkColorants(List<double> values) =>
+      PdfInkColorants.deviceGray(values.isEmpty ? 0 : values[0]);
 }
 
 /// Reads `sc`/`scn` numeric operands as a plain device colour by count -
 /// the fallback when the operand count does not match the selected space's
 /// channels (lenient on malformed content). Pattern or unsupported counts
 /// keep [current].
-PdfColor _colorFromValues(List<double> values, PdfColor current) {
+PdfColor _colorFromValues(List<double> values, PdfColor current,
+    [PdfColorContext? colorContext,
+    PdfRenderingIntent intent = PdfRenderingIntent.relativeColorimetric]) {
   switch (values.length) {
     case 1:
-      return PdfColor.gray(values[0]);
+      return colorContext?.deviceGray(values[0], intent: intent) ??
+          PdfColor.gray(values[0]);
     case 3:
       return PdfColor(values[0], values[1], values[2]);
     case 4:
-      return PdfColor.cmyk(values[0], values[1], values[2], values[3]);
+      return colorContext?.deviceCmyk(
+              values[0], values[1], values[2], values[3],
+              intent: intent) ??
+          PdfColor.cmyk(values[0], values[1], values[2], values[3]);
   }
   // pattern or unsupported: keep something visible
   return current;
@@ -209,9 +275,14 @@ class PdfInterpreter {
       this.collectCharOffsets = false,
       this.cancellation})
       : _scanImagesOnly = scanImagesOnly,
-        _scanImages = scanImagesOnly;
+        _scanImages = scanImagesOnly,
+        _colorContext = PdfColorContext.forDocument(cos) {
+    _state = _GraphicsState(_colorContext);
+  }
 
   final CosDocument cos;
+
+  final PdfColorContext _colorContext;
 
   /// The render target. Mutable only for the record-once/replay-per-tile
   /// path (#524), which briefly redirects the walk into a
@@ -339,7 +410,7 @@ class PdfInterpreter {
   // for the page being interpreted.
   final bool _scanImagesOnly;
 
-  var _state = _GraphicsState();
+  late _GraphicsState _state;
   final List<_GraphicsState> _stateStack = [];
   // Parsed content operations keyed by stream identity, so a form XObject,
   // annotation appearance, soft-mask group, tiling pattern, or Type3 CharProc
@@ -351,6 +422,7 @@ class PdfInterpreter {
   /// Memoises parsed ICC profiles across `cs`/`CS` selections so a colour
   /// space chosen repeatedly parses its profile only once.
   final Map<CosStream, IccProfile?> _iccCache = {};
+  bool _paintingLuminosityMask = false;
   final List<bool> _visibilityStack = [];
   // Marked-content id stack, kept in lockstep with [_visibilityStack]: one
   // entry per BDC/BMC, holding that sequence's /MCID (null when it declares
@@ -416,7 +488,7 @@ class PdfInterpreter {
   /// that deliberately interpret the same page more than once should parse a
   /// list once and use [drawPageOperations] for each pass instead.
   void drawPageContent(PdfPage page, Uint8List content, {int? operationLimit}) {
-    _state = _GraphicsState();
+    _state = _GraphicsState(_colorContext);
     _visibilityStack.clear();
     _mcidStack.clear();
     _pageBox = page.mediaBox;
@@ -441,7 +513,7 @@ class PdfInterpreter {
   /// pass and the paint pass in PdfPageRenderer.renderPicture - parses the
   /// content once and feeds the same [operations] to both passes.
   void drawPageOperations(PdfPage page, List<ContentOperation> operations) {
-    _state = _GraphicsState();
+    _state = _GraphicsState(_colorContext);
     _visibilityStack.clear();
     _mcidStack.clear();
     _pageBox = page.mediaBox;
@@ -472,7 +544,7 @@ class PdfInterpreter {
     if (yieldInterval <= 0) {
       throw ArgumentError.value(yieldInterval, 'yieldInterval', 'must be > 0');
     }
-    _state = _GraphicsState();
+    _state = _GraphicsState(_colorContext);
     _visibilityStack.clear();
     _mcidStack.clear();
     _pageBox = page.mediaBox;
@@ -520,7 +592,7 @@ class PdfInterpreter {
   /// `device.restore()` always happens.
   PdfPageContentWalk beginPageContent(PdfPage page, Uint8List content,
       {int? operationLimit}) {
-    _state = _GraphicsState();
+    _state = _GraphicsState(_colorContext);
     _visibilityStack.clear();
     _mcidStack.clear();
     _pageBox = page.mediaBox;
@@ -1274,7 +1346,7 @@ class PdfInterpreter {
     _overprint?.save();
     device.save();
     try {
-      _state = _GraphicsState()..ctm = ctm;
+      _state = _GraphicsState(_colorContext)..ctm = ctm;
       if (bbox.length >= 4) _clipToBox(bbox);
       final resources = cos.resolve(dict['Resources']);
       _run(
@@ -1599,37 +1671,92 @@ class PdfInterpreter {
         );
       case 'gs':
         _applyExtGState(_dictResource(resources, 'ExtGState', o));
-      case 'ri' || 'i':
+      case 'ri':
+        if (o.isNotEmpty && o[0] is CosName) {
+          _state.renderingIntent = switch ((o[0] as CosName).value) {
+            'Perceptual' => PdfRenderingIntent.perceptual,
+            'Saturation' => PdfRenderingIntent.saturation,
+            'AbsoluteColorimetric' => PdfRenderingIntent.absoluteColorimetric,
+            _ => PdfRenderingIntent.relativeColorimetric,
+          };
+          _refreshColorsForIntent();
+        }
+      case 'i':
         break;
 
       // --- color ---
       case 'g':
-        _state.fillColor = PdfColor.gray(_num(o, 0));
+        _state.fillOperands = null;
+        _state.fillSpace = PdfColorSpace.parse(cos, const CosName('DeviceGray'),
+            colorContext: _colorContext);
+        _state.fillColor = _paintingLuminosityMask
+            ? PdfColor.gray(_num(o, 0))
+            : _colorContext.deviceGray(_num(o, 0),
+                intent: _state.renderingIntent);
         _state.fillInk = _overprint == null ? null : _grayInk(_num(o, 0));
+        _state.fillBlendInk = _state.fillInk;
         _state.fillPattern = null;
       case 'G':
-        _state.strokeColor = PdfColor.gray(_num(o, 0));
+        _state.strokeOperands = null;
+        _state.strokeSpace = PdfColorSpace.parse(
+            cos, const CosName('DeviceGray'),
+            colorContext: _colorContext);
+        _state.strokeColor = _paintingLuminosityMask
+            ? PdfColor.gray(_num(o, 0))
+            : _colorContext.deviceGray(_num(o, 0),
+                intent: _state.renderingIntent);
         _state.strokeInk = _overprint == null ? null : _grayInk(_num(o, 0));
+        _state.strokeBlendInk = _state.strokeInk;
       case 'rg':
-        _state.fillColor = PdfColor(_num(o, 0), _num(o, 1), _num(o, 2));
+        _state.fillOperands = null;
+        _state.fillSpace = PdfColorSpace.parse(cos, const CosName('DeviceRGB'),
+            colorContext: _colorContext);
+        final fillRgb = [_num(o, 0), _num(o, 1), _num(o, 2)];
+        _state.fillColor = _maskColorFromValues(
+            fillRgb, PdfColor(fillRgb[0], fillRgb[1], fillRgb[2]));
         _state.fillInk = null;
+        _state.fillBlendInk = null;
         _state.fillPattern = null;
       case 'RG':
-        _state.strokeColor = PdfColor(_num(o, 0), _num(o, 1), _num(o, 2));
+        _state.strokeOperands = null;
+        _state.strokeSpace = PdfColorSpace.parse(
+            cos, const CosName('DeviceRGB'),
+            colorContext: _colorContext);
+        final strokeRgb = [_num(o, 0), _num(o, 1), _num(o, 2)];
+        _state.strokeColor = _maskColorFromValues(
+            strokeRgb, PdfColor(strokeRgb[0], strokeRgb[1], strokeRgb[2]));
         _state.strokeInk = null;
+        _state.strokeBlendInk = null;
       case 'k':
-        _state.fillColor =
-            PdfColor.cmyk(_num(o, 0), _num(o, 1), _num(o, 2), _num(o, 3));
+        _state.fillOperands = null;
+        _state.fillSpace = PdfColorSpace.parse(cos, const CosName('DeviceCMYK'),
+            colorContext: _colorContext);
+        final fillCmyk = [_num(o, 0), _num(o, 1), _num(o, 2), _num(o, 3)];
+        _state.fillColor = _maskColorFromValues(
+            fillCmyk,
+            _colorContext.deviceCmyk(
+                fillCmyk[0], fillCmyk[1], fillCmyk[2], fillCmyk[3],
+                intent: _state.renderingIntent));
         _state.fillInk = _overprint == null
             ? null
             : _cmykInk(_num(o, 0), _num(o, 1), _num(o, 2), _num(o, 3));
+        _state.fillBlendInk = _state.fillInk;
         _state.fillPattern = null;
       case 'K':
-        _state.strokeColor =
-            PdfColor.cmyk(_num(o, 0), _num(o, 1), _num(o, 2), _num(o, 3));
+        _state.strokeOperands = null;
+        _state.strokeSpace = PdfColorSpace.parse(
+            cos, const CosName('DeviceCMYK'),
+            colorContext: _colorContext);
+        final strokeCmyk = [_num(o, 0), _num(o, 1), _num(o, 2), _num(o, 3)];
+        _state.strokeColor = _maskColorFromValues(
+            strokeCmyk,
+            _colorContext.deviceCmyk(
+                strokeCmyk[0], strokeCmyk[1], strokeCmyk[2], strokeCmyk[3],
+                intent: _state.renderingIntent));
         _state.strokeInk = _overprint == null
             ? null
             : _cmykInk(_num(o, 0), _num(o, 1), _num(o, 2), _num(o, 3));
+        _state.strokeBlendInk = _state.strokeInk;
       case 'cs':
         // Selecting a fill space clears the pattern (tracked while scanning);
         // the space's tint/ICC machinery only matters for resolving colours,
@@ -1640,11 +1767,15 @@ class PdfInterpreter {
         // but not yet given components must not keep the previous space's
         // colorant reading (a stale one would overprint the wrong channels).
         _state.fillInk = null;
+        _state.fillBlendInk = null;
+        _state.fillOperands = null;
         _state.fillSpace = PdfColorSpace.parse(cos, o.isEmpty ? null : o[0],
             resources: resources, iccCache: _iccCache);
       case 'CS':
         if (_scanImages) break;
         _state.strokeInk = null;
+        _state.strokeBlendInk = null;
+        _state.strokeOperands = null;
         _state.strokeSpace = PdfColorSpace.parse(cos, o.isEmpty ? null : o[0],
             resources: resources, iccCache: _iccCache);
       case 'sc' || 'scn':
@@ -1653,6 +1784,7 @@ class PdfInterpreter {
         // fill colour, though, is never needed when only collecting images.
         _state.fillPattern = null;
         if (o.isNotEmpty && o.last is CosName) {
+          _state.fillOperands = null;
           _state.fillPattern =
               _resource(resources, 'Pattern', o.last as CosName);
           _state.fillPatternComponents = [
@@ -1660,27 +1792,38 @@ class PdfInterpreter {
               if (v is CosInteger || v is CosReal) _numOf(v),
           ];
           _state.fillInk = null;
+          _state.fillBlendInk = null;
         } else if (!_scanImages) {
+          _state.fillOperands = List<CosObject>.unmodifiable(o);
           _state.fillColor = _resolveScn(_state.fillSpace, o, _state.fillColor);
           _state.fillInk = _overprint == null
               ? null
               : _resolveInk(_state.fillSpace, o, _state.fillInk);
+          _state.fillBlendInk = _overprint == null
+              ? null
+              : _resolveBlendInk(_state.fillSpace, o, _state.fillBlendInk);
         }
       case 'SC' || 'SCN':
         // Stroke colour never affects which images are drawn.
         if (_scanImages) break;
         if (o.isNotEmpty && o.last is CosName) {
+          _state.strokeOperands = null;
           // stroke patterns: approximate with the pattern's average color
           final color = _patternAverageColor(
               _resource(resources, 'Pattern', o.last as CosName));
           if (color != null) _state.strokeColor = color;
           _state.strokeInk = null;
+          _state.strokeBlendInk = null;
         } else {
+          _state.strokeOperands = List<CosObject>.unmodifiable(o);
           _state.strokeColor =
               _resolveScn(_state.strokeSpace, o, _state.strokeColor);
           _state.strokeInk = _overprint == null
               ? null
               : _resolveInk(_state.strokeSpace, o, _state.strokeInk);
+          _state.strokeBlendInk = _overprint == null
+              ? null
+              : _resolveBlendInk(_state.strokeSpace, o, _state.strokeBlendInk);
         }
 
       // --- text ---
@@ -2044,14 +2187,16 @@ class PdfInterpreter {
     _overprint = null;
     _scanImages = _scanImagesOnly;
     if (!resolveOverprint || !debugResolveOverprint) return;
-    // Building the buffer is only worth it on a page that actually enables
-    // overprint - a scan of the resource tree's ExtGStates, which is cheap
-    // next to interpreting the page and keeps every other page at exactly the
-    // cost it had before.
+    // Building the buffer is only worth it on a page that enables overprint
+    // or declares a DeviceCMYK transparency blending space. The latter needs
+    // the same process-color raster even when /OP is never set: ICCBased
+    // source colours must be converted and blended in that CMYK space before
+    // display (GWG161/164).
     if (!_declaresOverprint(page.resources, 0, {})) return;
     final box = page.cropBox;
     _overprint = PdfOverprintCompositor.forPageBox(
-        box.left, box.bottom, box.right, box.top);
+        box.left, box.bottom, box.right, box.top,
+        colorContext: _colorContext);
     // The buffer needs paths, clips and colours, none of which the scan-only
     // walk builds - and the substitute streams it produces have to be the ones
     // the collect pass decodes. So a page that opens a buffer is walked in
@@ -2085,6 +2230,17 @@ class PdfInterpreter {
       for (final value in entries.entries.values) {
         final entry = cos.resolve(value);
         if (entry is! CosStream) continue;
+        final transparency = cos.resolve(entry.dictionary['Group']);
+        if (transparency is CosDictionary) {
+          final subtype = cos.resolve(transparency['S']);
+          final blendSpace = cos.resolve(transparency['CS']);
+          if (subtype is CosName &&
+              subtype.value == 'Transparency' &&
+              blendSpace is CosName &&
+              blendSpace.value == 'DeviceCMYK') {
+            return true;
+          }
+        }
         final nested = cos.resolve(entry.dictionary['Resources']);
         if (nested is CosDictionary &&
             _declaresOverprint(nested, depth + 1, seen)) {
@@ -2167,13 +2323,32 @@ class PdfInterpreter {
         } else {
           final resolved = overprint?.fill(
               path, fill, _state.fillColor, _state.fillInk,
+              blendInk: _state.fillBlendInk,
               overprint: _state.fillOverprint,
               mode: _state.overprintMode,
               opaque: _opaquePaint(_state.fillAlpha));
-          _deliverOverprint(_state.fillOverprint && resolved == null,
-              _state.strokeOverprint, _state.overprintMode);
-          device.fillPath(
-              path, resolved ?? _state.fillColor, fill, _state.fillAlpha);
+          final skip = overprint?.takeSkipPaint() ?? false;
+          final spatial = overprint?.takeSpatialPaint();
+          _deliverOverprint(
+              _state.fillOverprint &&
+                  (overprint == null || _state.fillInk != null) &&
+                  resolved == null &&
+                  !skip &&
+                  spatial == null,
+              _state.strokeOverprint,
+              _state.overprintMode);
+          if (spatial != null) {
+            device.save();
+            device.clipPath(path, fill);
+            for (final region in spatial) {
+              device.fillPath(region.path, region.color, PdfFillRule.nonzero,
+                  _state.fillAlpha);
+            }
+            device.restore();
+          } else if (!skip) {
+            device.fillPath(
+                path, resolved ?? _state.fillColor, fill, _state.fillAlpha);
+          }
         }
       }
       if (stroke) {
@@ -2190,11 +2365,16 @@ class PdfInterpreter {
             dashPhase: _state.stroke.dashPhase * k);
         final resolved = overprint?.strokeShape(
             path, scaled, _state.strokeColor, _state.strokeInk,
+            blendInk: _state.strokeBlendInk,
             overprint: _state.strokeOverprint,
             mode: _state.overprintMode,
             opaque: _opaquePaint(_state.strokeAlpha));
-        _deliverOverprint(_state.fillOverprint,
-            _state.strokeOverprint && resolved == null, _state.overprintMode);
+        _deliverOverprint(
+            _state.fillOverprint,
+            _state.strokeOverprint &&
+                (overprint == null || _state.strokeInk != null) &&
+                resolved == null,
+            _state.overprintMode);
         device.strokePath(
             path, resolved ?? _state.strokeColor, scaled, _state.strokeAlpha);
       }
@@ -2368,10 +2548,12 @@ class PdfInterpreter {
     _overprint?.beginMaskCapture();
     final savedState = _state;
     final savedStackDepth = _stateStack.length;
+    final savedLuminosityMask = _paintingLuminosityMask;
     _overprint?.save();
     device.save();
     try {
-      _state = _GraphicsState()..ctm = mask.matrix;
+      _paintingLuminosityMask = mask.luminosity;
+      _state = _GraphicsState(_colorContext)..ctm = mask.matrix;
       final matrix = cos.resolve(mask.form.dictionary['Matrix']);
       if (matrix is CosArray && matrix.length >= 6) {
         _state.ctm = _matrixFrom(matrix.items).concat(_state.ctm);
@@ -2394,6 +2576,7 @@ class PdfInterpreter {
       }
       _restoreDeviceBlend(savedState);
       _state = savedState;
+      _paintingLuminosityMask = savedLuminosityMask;
       _overprint?.restore();
       _overprint?.endMaskCapture();
       device.restore();
@@ -2586,18 +2769,17 @@ class PdfInterpreter {
         final fillText = mode == 0 || mode == 2 || mode == 4 || mode == 6;
         final strokeText = mode == 1 || mode == 2 || mode == 5 || mode == 6;
         final pattern = fillText ? _state.fillPattern : null;
+        final glyphPath =
+            glyphs == null ? null : _glyphOutlinePath(glyphs, transform);
         // A tiling pattern can't be flattened to a gradient (shading patterns
         // can - see _gradientOfPattern). Paint it through the glyph outlines as
         // a clip, then emit the run invisibly so it stays selectable without
         // the solid fill colour showing through. Needs embedded outlines; a
         // substituted font falls back to the solid fill colour.
         var paintedAsTiling = false;
-        if (fillText && glyphs != null && _isTilingPattern(pattern)) {
-          final glyphPath = _glyphOutlinePath(glyphs, transform);
-          if (glyphPath != null) {
-            _fillWithPattern(glyphPath, PdfFillRule.nonzero, pattern!);
-            paintedAsTiling = true;
-          }
+        if (fillText && glyphPath != null && _isTilingPattern(pattern)) {
+          _fillWithPattern(glyphPath, PdfFillRule.nonzero, pattern!);
+          paintedAsTiling = true;
         }
         // Embedded outlines keep the historical fill-only rendering: the
         // device has the real glyph shapes and stroke modes on embedded fonts
@@ -2622,15 +2804,60 @@ class PdfInterpreter {
           }
         }
         final k = _state.ctm.scaleFactor;
+        // Embedded fonts expose their real outlines, so resolve and record
+        // them in the colorant buffer just like any other vector path. This
+        // is essential for print overprint tests: marking the whole em box as
+        // unknown makes the RGB fallback preserve or reveal the fail marker
+        // according to screen colour instead of the PDF colorants. A
+        // substituted font has no PDF outline here and keeps the conservative
+        // em-box fallback.
+        var deliveredFill = _state.fillOverprint;
+        var deliveredStroke = _state.strokeOverprint;
+        var runFill = embedded && (mode == 1 || mode == 5)
+            ? _state.strokeColor
+            : textFill;
         if (mode != 3 && mode != 7 && !paintedAsTiling) {
-          _markTextUnknown(transform, advance, emScale);
+          final overprint = _overprint;
+          if (overprint != null && glyphPath != null && pattern == null) {
+            // Embedded stroke-only text is historically rendered by filling
+            // the glyph outline with the stroking colour. Resolve the same
+            // geometry using the stroking overprint tuple, then deliver that
+            // tuple as a fill because that is the primitive the device sees.
+            final strokeOnly = mode == 1 || mode == 5;
+            final ink = strokeOnly ? _state.strokeInk : _state.fillInk;
+            final blendInk =
+                strokeOnly ? _state.strokeBlendInk : _state.fillBlendInk;
+            final isOverprint =
+                strokeOnly ? _state.strokeOverprint : _state.fillOverprint;
+            final alpha = strokeOnly ? _state.strokeAlpha : _state.fillAlpha;
+            final resolved = overprint.fill(
+              glyphPath,
+              PdfFillRule.nonzero,
+              runFill,
+              ink,
+              blendInk: blendInk,
+              overprint: isOverprint,
+              mode: _state.overprintMode,
+              opaque: _opaquePaint(alpha),
+            );
+            if (resolved != null) runFill = resolved;
+            deliveredFill = isOverprint && ink != null && resolved == null;
+            deliveredStroke = false;
+          } else {
+            _markTextUnknown(transform, advance, emScale);
+            // ICCBased/RGB text has no device-colorant reading and must never
+            // inherit an overprint approximation merely because /op is true.
+            if (_overprint != null) {
+              if (_state.fillInk == null) deliveredFill = false;
+              if (_state.strokeInk == null) deliveredStroke = false;
+            }
+          }
         }
+        _deliverOverprint(deliveredFill, deliveredStroke, _state.overprintMode);
         device.drawText(PdfTextRun(
           text: text,
           transform: transform,
-          color: embedded && (mode == 1 || mode == 5)
-              ? _state.strokeColor
-              : textFill,
+          color: runFill,
           fill: embedded ? true : doFill,
           strokeColor: !embedded && strokeText ? _state.strokeColor : null,
           strokeWidth: _state.stroke.width * k, // see strokePath: 0 stays 0
@@ -2730,18 +2957,35 @@ class PdfInterpreter {
       CosStream stream, CosDictionary? resources, bool isStencil) {
     final overprint = _overprint;
     final stencilColor = _state.fillColor;
-    if (overprint == null) return (stream: stream, stencilColor: stencilColor);
+    if (overprint == null) {
+      return (
+        stream: stream,
+        stencilColor: stencilColor,
+        overprint: _state.fillOverprint,
+      );
+    }
     final quad = _imageQuad(_state.ctm);
     if (isStencil) {
       final resolved = overprint.stencil(quad, stencilColor, _state.fillInk,
           overprint: _state.fillOverprint,
           mode: _state.overprintMode,
           opaque: _opaquePaint(_state.fillAlpha));
-      return (stream: stream, stencilColor: resolved ?? stencilColor);
+      return (
+        stream: stream,
+        stencilColor: resolved ?? stencilColor,
+        overprint:
+            _state.fillOverprint && _state.fillInk != null && resolved == null,
+      );
     }
     final reading = pdfImageColorants(cos, stream, resources: resources);
+    final imageWidth = _numOf(cos.resolve(stream.dictionary['Width'])).round();
+    final imageHeight =
+        _numOf(cos.resolve(stream.dictionary['Height'])).round();
     final resolved = overprint.image<CosStream>(
       quad,
+      transform: _state.ctm,
+      width: imageWidth,
+      height: imageHeight,
       ink: reading?.backdropInk,
       color: reading?.uniformColor ?? PdfColor.black,
       hasColorants: reading != null,
@@ -2756,9 +3000,23 @@ class PdfInterpreter {
         backdropColor: backdropColor,
         mode: _state.overprintMode,
         spotEquivalents: overprint.spotEquivalents,
+        colorContext: _colorContext,
+      ),
+      resolveSpatial: (backdrop) => pdfImageOverprintStream(
+        cos,
+        stream,
+        resources: resources,
+        spatialBackdrop: backdrop,
+        mode: _state.overprintMode,
+        spotEquivalents: overprint.spotEquivalents,
+        colorContext: _colorContext,
       ),
     );
-    return (stream: resolved ?? stream, stencilColor: stencilColor);
+    return (
+      stream: resolved ?? stream,
+      stencilColor: stencilColor,
+      overprint: _state.fillOverprint && reading != null && resolved == null,
+    );
   }
 
   /// Executes a Type3 glyph procedure: a tiny content stream in glyph space,
@@ -3225,7 +3483,7 @@ class PdfInterpreter {
       double xStep,
       double yStep,
       {PdfColor? patternColor}) {
-    _state = _GraphicsState()
+    _state = _GraphicsState(_colorContext)
       ..ctm = PdfMatrix.translation(i * xStep, j * yStep).concat(matrix);
     if (patternColor != null) {
       _state.fillColor = patternColor;
@@ -3276,7 +3534,6 @@ class PdfInterpreter {
     }
     // paint across the page; the active canvas clip bounds it
     final box = _pageBox ?? const PdfRect(-1e5, -1e5, 1e5, 1e5);
-    _markShadingUnknown();
     final area = PdfPath([
       PdfMoveTo(box.left, box.bottom),
       PdfLineTo(box.right, box.bottom),
@@ -3284,8 +3541,32 @@ class PdfInterpreter {
       PdfLineTo(box.left, box.top),
       const PdfClosePath(),
     ]);
+    final recorded = _overprint?.gradient(
+          area,
+          gradient,
+          overprint: _state.fillOverprint,
+          mode: _state.overprintMode,
+          opaque: _opaquePaint(_state.fillAlpha),
+        ) ??
+        false;
+    if (!recorded) _markShadingUnknown();
+    // When colorants were recorded, paint the smooth source gradient as the
+    // knockout base. Any overprint-preserved backdrop colorants are replayed
+    // immediately afterward as exact precomposited regions. Leaving /op on
+    // here would darken the whole gradient in RGB and reveal GWG080's Xs.
+    if (recorded) {
+      _deliverOverprint(false, _state.strokeOverprint, _state.overprintMode);
+    }
+    final substitute = _overprint?.takeGradientSubstitute();
     device.fillPathGradient(
-        area, PdfFillRule.nonzero, gradient, _state.fillAlpha);
+        area, PdfFillRule.nonzero, substitute ?? gradient, _state.fillAlpha);
+    final spatial = _overprint?.takeGradientSpatialPaint();
+    if (spatial != null) {
+      for (final region in spatial) {
+        device.fillPath(
+            region.path, region.color, PdfFillRule.nonzero, _state.fillAlpha);
+      }
+    }
   }
 
   /// A bare `sh` paints across the whole clip in colours with no colorant
@@ -3358,12 +3639,15 @@ class PdfInterpreter {
       final isStencil = cos.resolve(xobject.dictionary['ImageMask']) ==
           const CosBoolean(true);
       final draw = _imageDrawFor(xobject, resources, isStencil);
+      _deliverOverprint(
+          draw.overprint, _state.strokeOverprint, _state.overprintMode);
       device.drawImage(PdfImageRequest(
         stream: draw.stream,
         transform: _state.ctm,
         alpha: _state.fillAlpha,
         isStencil: isStencil,
         stencilColor: draw.stencilColor,
+        isLuminosityMask: _paintingLuminosityMask,
       ));
       return;
     }
@@ -3376,6 +3660,8 @@ class PdfInterpreter {
     final groupBlend = _state.blendMode;
     final groupDict = cos.resolve(xobject.dictionary['Group']);
     final isGroup = groupDict is CosDictionary;
+    final isolated =
+        isGroup && cos.resolve(groupDict['I']) == const CosBoolean(true);
     // A knockout group (/K true, §11.4.5) needs its own layer so each
     // element can composite against the group's initial backdrop, even when
     // the group itself paints at full alpha.
@@ -3388,18 +3674,65 @@ class PdfInterpreter {
     // the outer blend is lost: an opaque white flourish drawn under /Multiply
     // then paints as a solid white box instead of multiplying into the page.
     final blended = groupBlend != PdfBlendMode.normal;
-    final groupLayer = isGroup && (groupAlpha < 1 || knockout || blended);
+    final groupLayer =
+        isGroup && (groupAlpha < 1 || knockout || isolated || blended);
 
+    final matrix = cos.resolve(xobject.dictionary['Matrix']);
+    final formCtm = matrix is CosArray && matrix.length >= 6
+        ? _matrixFrom(matrix.items).concat(_state.ctm)
+        : _state.ctm;
+    final bbox = cos.resolve(xobject.dictionary['BBox']);
+    PdfPath? groupPath;
+    PdfRect? groupBounds;
+    if (bbox is CosArray && bbox.length >= 4) {
+      final values = [for (var i = 0; i < 4; i++) _numOf(cos.resolve(bbox[i]))];
+      groupPath = PdfPath([
+        PdfMoveTo(formCtm.transformX(values[0], values[1]),
+            formCtm.transformY(values[0], values[1])),
+        PdfLineTo(formCtm.transformX(values[2], values[1]),
+            formCtm.transformY(values[2], values[1])),
+        PdfLineTo(formCtm.transformX(values[2], values[3]),
+            formCtm.transformY(values[2], values[3])),
+        PdfLineTo(formCtm.transformX(values[0], values[3]),
+            formCtm.transformY(values[0], values[3])),
+        const PdfClosePath(),
+      ]);
+      groupBounds = _pathBounds(groupPath);
+    }
+    final groupBackdrop = !isolated && groupPath != null
+        ? _overprint?.uniformBackdrop(groupPath)
+        : null;
     final outerMask = _state.softMask;
+    final colorantPrecomposited = isGroup &&
+        (_overprint?.beginTransparencyGroup(
+              blendMode: groupBlend,
+              isolated: isolated,
+              knockout: knockout,
+              opaque: groupAlpha >= 1 && outerMask == null,
+            ) ??
+            false);
+
     _stateStack.add(_GraphicsState.from(_state));
     _overprint?.save();
     device.save();
-    if (groupLayer) {
+    final deviceGroupLayer = groupLayer && !colorantPrecomposited;
+    if (deviceGroupLayer) {
       // device.beginGroup snapshots the current blend mode into the layer's
       // compositing paint, so the blend must already be set (the `gs` that
       // selected it ran before this Do).
-      device.beginGroup(groupAlpha, knockout: knockout);
-      _overprint?.beginIsolated();
+      if (device case PdfTransparencyGroupDevice advanced) {
+        advanced.beginTransparencyGroup(
+          groupAlpha,
+          knockout: knockout,
+          isolated: isolated,
+          bounds: groupBounds,
+          backdropColor: groupBackdrop,
+        );
+      } else {
+        device.beginGroup(groupAlpha, knockout: knockout);
+      }
+    }
+    if (groupLayer) {
       _state.fillAlpha = 1;
       _state.strokeAlpha = 1;
       if (blended) {
@@ -3408,11 +3741,9 @@ class PdfInterpreter {
       }
     }
     try {
-      final matrix = cos.resolve(xobject.dictionary['Matrix']);
       if (matrix is CosArray && matrix.length >= 6) {
         _state.ctm = _matrixFrom(matrix.items).concat(_state.ctm);
       }
-      final bbox = cos.resolve(xobject.dictionary['BBox']);
       if (bbox is CosArray && bbox.length >= 4) {
         _clipToBox([for (var i = 0; i < 4; i++) _numOf(cos.resolve(bbox[i]))]);
       }
@@ -3430,10 +3761,10 @@ class PdfInterpreter {
       if (mask != null && !identical(mask, outerMask)) {
         _finalizeSoftMask(mask);
       }
-      if (groupLayer) {
+      if (deviceGroupLayer) {
         device.endGroup();
-        _overprint?.endIsolated();
       }
+      if (isGroup) _overprint?.endTransparencyGroup();
       final restored = _stateStack.removeLast();
       _restoreDeviceBlend(restored);
       _state = restored;
@@ -3532,6 +3863,8 @@ class PdfInterpreter {
     // exactly as the original does.
     final draw = _imageDrawFor(
         CosStream(dict, (o[1] as CosString).bytes), resources, isStencil);
+    _deliverOverprint(
+        draw.overprint, _state.strokeOverprint, _state.overprintMode);
     device.drawImage(PdfImageRequest(
       stream: draw.stream,
       transform: _state.ctm,
@@ -3539,6 +3872,7 @@ class PdfInterpreter {
       isStencil: isStencil,
       stencilColor: draw.stencilColor,
       isInline: true,
+      isLuminosityMask: _paintingLuminosityMask,
     ));
   }
 
@@ -3593,21 +3927,98 @@ class PdfInterpreter {
     };
   }
 
+  /// Re-evaluates generic source colours after `ri` changes.
+  ///
+  /// Device colours have null operand snapshots because rendering intent does
+  /// not alter native device components. CIE-based, Indexed and tint spaces
+  /// retain their numeric source values and are converted with the intent in
+  /// force when the eventual paint occurs (§10.3 and §11.7.5.3).
+  void _refreshColorsForIntent() {
+    final fill = _state.fillOperands;
+    if (fill != null && _state.fillPattern == null) {
+      _state.fillColor = _resolveScn(_state.fillSpace, fill, _state.fillColor);
+      _state.fillInk = _overprint == null
+          ? null
+          : _resolveInk(_state.fillSpace, fill, _state.fillInk);
+      _state.fillBlendInk = _overprint == null
+          ? null
+          : _resolveBlendInk(_state.fillSpace, fill, _state.fillBlendInk);
+    }
+    final stroke = _state.strokeOperands;
+    if (stroke != null) {
+      _state.strokeColor =
+          _resolveScn(_state.strokeSpace, stroke, _state.strokeColor);
+      _state.strokeInk = _overprint == null
+          ? null
+          : _resolveInk(_state.strokeSpace, stroke, _state.strokeInk);
+      _state.strokeBlendInk = _overprint == null
+          ? null
+          : _resolveBlendInk(_state.strokeSpace, stroke, _state.strokeBlendInk);
+    }
+  }
+
+  /// Transparency-blending-space counterpart of [_resolveInk]. ICCBased
+  /// colours can have a destination-process reading here without becoming
+  /// overprinting source inks.
+  PdfInkColorants? _resolveBlendInk(
+      PdfColorSpace space, List<CosObject> operands, PdfInkColorants? current) {
+    final values = [
+      for (final item in operands)
+        if (item is CosInteger || item is CosReal) _numOf(item),
+    ];
+    if (space.channels > 0 && values.length == space.channels) {
+      return space.blendColorants(values, intent: _state.renderingIntent);
+    }
+    return switch (values.length) {
+      1 => PdfInkColorants.deviceGray(values[0].clamp(0.0, 1.0).toDouble()),
+      3 => null,
+      4 => PdfInkColorants.deviceCmyk(
+          values[0].clamp(0.0, 1.0).toDouble(),
+          values[1].clamp(0.0, 1.0).toDouble(),
+          values[2].clamp(0.0, 1.0).toDouble(),
+          values[3].clamp(0.0, 1.0).toDouble()),
+      _ => current,
+    };
+  }
+
   /// Resolves bare `sc`/`scn` (or `SC`/`SCN`) numeric operands through
   /// [space]. When the operand count matches the space's channels the space
   /// converts them; a mismatch (or a Pattern space with no colorants) falls
   /// back to a device reading by count, keeping [current] for anything
   /// unsupported - matching the historical leniency on malformed content.
-  static PdfColor _resolveScn(
+  PdfColor _resolveScn(
       PdfColorSpace space, List<CosObject> operands, PdfColor current) {
     final values = [
       for (final item in operands)
         if (item is CosInteger || item is CosReal) _numOf(item),
     ];
     if (space.channels > 0 && values.length == space.channels) {
-      return space.toSrgb(values);
+      final color = space.toSrgbIntent(values, _state.renderingIntent);
+      return _maskColorFromValues(values, color);
     }
-    return _colorFromValues(values, current);
+    final color = _colorFromValues(
+        values, current, _colorContext, _state.renderingIntent);
+    return _maskColorFromValues(values, color);
+  }
+
+  PdfColor _maskColorFromValues(List<double> values, PdfColor color) {
+    if (!_paintingLuminosityMask) return color;
+    final normalized = values.every((value) => value >= 0 && value <= 1);
+    final luminance = normalized
+        ? switch (values.length) {
+            1 => values[0],
+            3 => 0.3 * values[0] + 0.59 * values[1] + 0.11 * values[2],
+            4 => 1 -
+                math.min(
+                    1,
+                    0.3 * values[0] +
+                        0.59 * values[1] +
+                        0.11 * values[2] +
+                        values[3]),
+            _ => 0.3 * color.red + 0.59 * color.green + 0.11 * color.blue,
+          }
+        : 0.3 * color.red + 0.59 * color.green + 0.11 * color.blue;
+    return PdfColor.gray(luminance.clamp(0.0, 1.0).toDouble());
   }
 
   static double _num(List<CosObject> operands, int index) =>

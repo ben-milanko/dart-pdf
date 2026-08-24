@@ -43,9 +43,11 @@ Object pdfImageKey(PdfImageRequest request) {
 /// This is the base the shared cache's key is built on - see [decodeImages],
 /// which qualifies it with the size the image actually ends up at so every
 /// path addressing the same pixels agrees on one entry.
-Object pdfImageContentKey(PdfImageRequest request) =>
-    request.sourceReference ??
-    (request.isInline ? PdfInlineImageKey(request.stream) : request.stream);
+Object pdfImageContentKey(PdfImageRequest request) {
+  final content = request.sourceReference ??
+      (request.isInline ? PdfInlineImageKey(request.stream) : request.stream);
+  return request.isLuminosityMask ? (content, true) : content;
+}
 
 /// A content key qualified by a decoded resolution - see [pdfImageKey].
 ///
@@ -412,6 +414,7 @@ Future<Map<Object, ui.Image>> decodeImages(
           image = await _decodeOne(cos, p.request.stream,
               targetWidth: p.target?.$1,
               targetHeight: p.target?.$2,
+              luminosityMask: p.request.isLuminosityMask,
               deferSimpleDctSoftMask: p.deferSimpleDctSoftMask,
               grayDctImages: grayDctImages);
         }
@@ -458,6 +461,7 @@ PdfImageRequest _resolveReferencedImage(
     isStencil: request.isStencil,
     stencilColor: request.stencilColor,
     isInline: false,
+    isLuminosityMask: request.isLuminosityMask,
     decoded: request.decoded,
     sourceReference: reference,
   );
@@ -617,6 +621,7 @@ int? _intOrNull(CosObject? o) => o is CosInteger ? o.value : null;
 Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream,
     {int? targetWidth,
     int? targetHeight,
+    bool luminosityMask = false,
     bool deferSimpleDctSoftMask = true,
     _DctGrayBatchCache? grayDctImages}) async {
   final scaled = targetWidth != null && targetHeight != null;
@@ -637,8 +642,10 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream,
       ? null
       : scaled
           ? decodePdfImage(cos, stream,
-              targetWidth: targetWidth, targetHeight: targetHeight)
-          : decodePdfImagePixels(cos, stream);
+              targetWidth: targetWidth,
+              targetHeight: targetHeight,
+              luminosityMask: luminosityMask)
+          : decodePdfImagePixels(cos, stream, luminosityMask: luminosityMask);
   if (pixels != null) {
     final decodeMs =
         pureClock == null ? null : pureClock.elapsedMicroseconds / 1000.0;
@@ -666,6 +673,7 @@ Future<ui.Image?> _decodeOne(CosDocument cos, CosStream stream,
     stream,
     targetWidth: targetWidth,
     targetHeight: targetHeight,
+    luminosityMask: luminosityMask,
   );
   if (baseClock != null) {
     PdfPerfLog.log('softmask base '

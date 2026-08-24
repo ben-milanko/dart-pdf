@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -41,7 +42,12 @@ const _redToAlpha = <double>[
 /// fonts, horizontally scaled to the PDF's own metrics, until the font
 /// engine produces real glyph outlines. Images must be pre-decoded into
 /// [images] (painting is synchronous).
-class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
+class CanvasPdfDevice
+    implements
+        PdfDevice,
+        PdfTiledCellSink,
+        PdfTextBatchSink,
+        PdfTransparencyGroupDevice {
   CanvasPdfDevice(this.canvas, {this.images = const {}, this.pixelRatio = 1});
 
   final Canvas canvas;
@@ -242,6 +248,9 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
   /// knockout group (§11.4.5). q/Q (save/restore) don't push here, so the
   /// top entry tracks the group directly enclosing the next paint call.
   final _knockout = <bool>[];
+  final _groupLayerCounts = <int>[];
+  final _groupBackdrops = <PdfColor?>[];
+  final _softMaskBlends = <BlendMode>[];
 
   /// True when the next paint call is a top-level element of a knockout
   /// group, so it must replace rather than blend over the group result.
@@ -406,17 +415,92 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
         ..blendMode = _blend,
     );
     _knockout.add(knockout);
+    _groupLayerCounts.add(1);
+    _groupBackdrops.add(null);
+  }
+
+  @override
+  void beginTransparencyGroup(
+    double alpha, {
+    required bool knockout,
+    required bool isolated,
+    PdfRect? bounds,
+    PdfColor? backdropColor,
+  }) {
+    final rect = bounds == null
+        ? null
+        : Rect.fromLTRB(
+            math.min(bounds.left, bounds.right),
+            math.min(bounds.bottom, bounds.top),
+            math.max(bounds.left, bounds.right),
+            math.max(bounds.bottom, bounds.top),
+          );
+    // A top-level object of a knockout group always composites against that
+    // group's initial backdrop, not against siblings already accumulated.
+    final inherited = _knockoutActive && _groupBackdrops.isNotEmpty
+        ? _groupBackdrops.last
+        : backdropColor;
+    final seed = isolated ? null : inherited;
+    if (seed != null && rect != null) {
+      // saveLayer's bounds are only an allocation hint in Skia; BlendMode.src
+      // would otherwise replace the page with transparent pixels outside the
+      // group's BBox when the layer is restored. Clip before opening it so the
+      // replacement is confined to the form's actual group bounds.
+      canvas.clipRect(rect);
+      // Outer replacement layer: it will carry an already-backdrop-composited
+      // non-isolated result, so replace rather than blend it a second time.
+      canvas.saveLayer(rect, Paint()..blendMode = BlendMode.src);
+      canvas.drawRect(
+          rect,
+          Paint()
+            ..color = Color.from(
+                alpha: 1, red: seed.red, green: seed.green, blue: seed.blue));
+      // Inner source layer: the group's current blend and alpha apply to its
+      // composite as one object against the seeded initial backdrop.
+      canvas.saveLayer(
+        rect,
+        Paint()
+          ..color =
+              Color.from(alpha: alpha.clamp(0, 1), red: 0, green: 0, blue: 0)
+          ..blendMode = _blend,
+      );
+      _groupLayerCounts.add(2);
+    } else {
+      canvas.saveLayer(
+        rect,
+        Paint()
+          ..color =
+              Color.from(alpha: alpha.clamp(0, 1), red: 0, green: 0, blue: 0)
+          ..blendMode = _blend,
+      );
+      _groupLayerCounts.add(1);
+    }
+    _knockout.add(knockout);
+    _groupBackdrops.add(seed);
   }
 
   @override
   void endGroup() {
     _knockout.removeLast();
-    canvas.restore();
+    _groupBackdrops.removeLast();
+    final layers = _groupLayerCounts.removeLast();
+    for (var i = 0; i < layers; i++) {
+      canvas.restore();
+    }
   }
 
   @override
   void beginSoftMasked() {
-    canvas.saveLayer(null, Paint());
+    // A soft mask modifies the source object's shape/opacity before that
+    // object is composited with the backdrop (§11.6.5). Applying the object's
+    // blend mode to primitives drawn into this initially-transparent layer is
+    // observably different: Multiply can disappear and Screen can become an
+    // unmasked white source. Capture the source normally, then apply its blend
+    // mode when the completed masked source is restored onto the backdrop.
+    final compositeBlend = _blend;
+    canvas.saveLayer(null, Paint()..blendMode = compositeBlend);
+    _softMaskBlends.add(compositeBlend);
+    _blend = BlendMode.srcOver;
     // The mask group's content composites as one element of any enclosing
     // knockout group, through this layer — not element by element.
     _knockout.add(false);
@@ -493,8 +577,13 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
   /// Second half of [endSoftMasked]'s compositing: composites the mask into
   /// the captured content (dstIn) and the masked content into the page.
   void finishSoftMaskComposite() {
+    // Mask interpretation can leave the device in one of the mask form's
+    // blend modes. Neither layer restoration should inherit that state: the
+    // content layer's restore paint already carries the source object's mode.
+    _blend = BlendMode.srcOver;
     canvas.restore(); // composite the mask into the content (dstIn)
     canvas.restore(); // composite the masked content into the page
+    _blend = _softMaskBlends.removeLast();
     _knockout.removeLast();
   }
 
@@ -723,16 +812,18 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
 
   @override
   void clipPath(PdfPath path, PdfFillRule rule) {
-    // Rectangular clips (the `re W n` idiom) must not antialias: writers
-    // tile big images as abutting clipped strips, and soft clip edges
-    // composite to <100% coverage at every shared boundary — visible as
-    // hairline seams of the backdrop. Hard edges keep abutting strips
-    // pixel-exact; irregular clips keep antialiasing for quality.
+    // Clip geometry is a coverage constraint, not another paint operation.
+    // Antialiasing it independently multiplies edge coverage when the same
+    // path was painted below the clipped object: a coverage `a` becomes
+    // `a * (1 - a)` and leaves a visible seam. GWG173 constructs exactly that
+    // case around its JBIG2 images. Keep clips hard and let the actual painted
+    // geometry/image sampling provide edge antialiasing. This also preserves
+    // the established no-seam behavior for abutting rectangular image tiles.
     final rect = _rectOf(path);
     if (rect != null) {
       canvas.clipRect(rect, doAntiAlias: false);
     } else {
-      canvas.clipPath(_toUiPath(path, rule));
+      canvas.clipPath(_toUiPath(path, rule), doAntiAlias: false);
     }
   }
 
@@ -1426,7 +1517,7 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
     final path = ui.Path();
     _appendGlyphOutlines(path, run);
     if (run.fill) {
-      final paint = Paint()..blendMode = _elementBlend;
+      final paint = Paint()..blendMode = _fillElementBlend;
       final gradient = run.gradient;
       if (gradient != null) {
         paint.shader = _shaderFor(gradient);
@@ -1447,7 +1538,7 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
           ..style = PaintingStyle.stroke
           ..strokeWidth = run.strokeWidth
           ..color = _toColor(run.strokeColor!, run.strokeAlpha)
-          ..blendMode = _elementBlend,
+          ..blendMode = _strokeElementBlend,
       );
     }
   }
@@ -1521,7 +1612,7 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
     final paint = Paint()
       ..filterQuality = FilterQuality.medium
       ..isAntiAlias = false
-      ..blendMode = softMask == null ? _elementBlend : BlendMode.srcOver;
+      ..blendMode = softMask == null ? _fillElementBlend : BlendMode.srcOver;
     if (request.isStencil) {
       // stencil masks paint the fill color through the mask's alpha
       paint.colorFilter = ColorFilter.mode(
@@ -1540,7 +1631,7 @@ class CanvasPdfDevice implements PdfDevice, PdfTiledCellSink, PdfTextBatchSink {
       // The mask JPEG is grayscale, so its red sample is the specified alpha.
       canvas.saveLayer(
         const Rect.fromLTWH(0, 0, 1, 1),
-        Paint()..blendMode = _elementBlend,
+        Paint()..blendMode = _fillElementBlend,
       );
     }
     canvas.drawImageRect(

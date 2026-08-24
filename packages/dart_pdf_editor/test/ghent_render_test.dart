@@ -35,80 +35,8 @@ import 'render_smoke_test.dart' show loadSystemFonts;
 
 const _pixelRatio = 2.0;
 
-/// Patches whose baseline pixel-diff is a known, accepted deviation: their
-/// colour handling (overprint simulation, DeviceN/spot separations, ICC v4
-/// CMYK, 16-bit images) is not reproduced pixel-for-pixel by this renderer,
-/// as documented in CLAUDE.md (the baselines pin current behavior, not GWG
-/// conformance). They are still rendered and asserted non-blank - only the
-/// baseline comparison is skipped, so crashes and blank-render regressions
-/// are still caught. Accept an intentional change to any of these with
-/// GHENT_UPDATE=1 after removing it from this set.
-///
-/// The two `GWG08x_DeviceN-Support` spot pages deliberately stay OUT of this
-/// set: their images are /Indexed over a Separation/DeviceN base, and the
-/// tolerance here was broad enough to hide those images failing to draw at all
-/// (issue #430 - the pages self-grade with a ✗ that the missing images left
-/// exposed). Pixel-enforcing them against fresh baselines catches a future
-/// total image-loss instead of tolerating it as a colour deviation.
-///
-/// `GWG170_JPEG2000...DeviceCMYK` likewise stays OUT: its JPEG2000 image is
-/// /Indexed over DeviceCMYK with a single-entry palette (hival 0), and once
-/// that palette is honoured (issue #431) the image and the page's fail-marker
-/// "X" are the same DeviceCMYK colour, so the X vanishes and the page grades
-/// itself as passing - it is pixel-enforced to keep it that way. Its ICC
-/// sibling `GWG172_JPEG2000...ICCBasedRGB` below stays IN the set: the same
-/// fix makes its image draw (it was solid black), but the square is DeviceCMYK
-/// green while the image is ICCBased-RGB green, and those two greens are not
-/// colour-managed to match here, so a faint X remains as a genuine colour
-/// deviation. The dedicated JPX decode guard (pdf_graphics
-/// ghent_jpx_indexed_test.dart) pins both images to their palette colour so a
-/// regression back to the black square cannot hide behind this tolerance.
-///
-/// `GWG030_Gray_K_black_OP_X1` used to be here and is now pixel-enforced: the
-/// CMYK/spot colorant buffer (issue #502) makes overprint subtractive, so all
-/// twelve of its self-grading patches come out uniform - including the three
-/// where a neutral ink must knock a DeviceCMYK backdrop's process colorants out
-/// to grey while a spot backdrop of the same RGB colour survives, which no RGB
-/// compositor could separate. `overprint_render_test.dart` pins the per-patch
-/// result platform-independently.
-///
-/// The three `GWG19x_DeviceN_Overprint` pages left the set with issue #604,
-/// which gave a decoded raster the same colorant reading vector paint has: an
-/// overprinting image is now drawn as a substitute raster whose samples are the
-/// subtractive composite, so all four patches on each page (two vector, two
-/// image) come out uniform. `overprint_render_test.dart` pins those per patch
-/// too, alongside GWG031 - whose whole subject is an overprinting grayscale
-/// raster over a spot green, and which now matches its own "Correct" thumbnail
-/// rather than its "Wrong" one.
-///
-/// `GWG010_CMYK_OP` (never in this set) moved with the same change and was
-/// re-seeded: its "mask" patch draws an /Indexed-over-DeviceCMYK 50%-magenta
-/// raster over a rich-black X, and under OPM 1 that raster's zero components
-/// leave the backdrop's C/Y/K standing - so the X now shows through in the
-/// OPM-1 row and is still knocked out to flat pink in the OPM-0 row, which is
-/// the contrast the page exists to draw. (Its "image" patch straddles two
-/// backdrops at once and still declines; see the dev log.)
-///
-/// `GWG020_CMYKSpot_OP` stays in the set but was re-seeded: six more of its ten
-/// self-grading patches now pass - the two image and two shading patches (a
-/// uniform raster is a backdrop the buffer can composite against) and the two
-/// /ImageMask "mask" patches (a stencil paints the fill colour through its own
-/// alpha, so only that colour needs resolving). Its two *font* patches still
-/// show their marker, because the buffer marks a text run by its em box rather
-/// than its glyph outlines - issue #502's deliberate cost trade - so the page
-/// remains a tolerated deviation.
-const _knownBaselineDeviations = <String>{
-  '1-CMYK/Ghent_PDF-Output-Test-V50_CMYK_X4.pdf',
-  '2-SPOT/Ghent_PDF-Output-Test-V50_SPOT_X4.pdf',
-  '2-SPOT/GWG020_CMYKSpot_OP_x1a.pdf',
-  '3-ICC-CMS/Ghent_PDF-Output-Test-V50_ICC-CMS_X4.pdf',
-  '3-ICC-CMS/GWG172_JPEG2000_compression_ICCBasedRGB_x4.pdf',
-  '3-ICC-CMS/GWG182_16Bit_Images_ICCbasedGray_x4.pdf',
-  '3-ICC-CMS/GWG184_16Bit_Images_ICCbasedCMYK_x4.pdf',
-  '3-ICC-CMS/GWG205_ICC-V4-CMYK-Image_x4.pdf',
-  '3-ICC-CMS/GWG221_OutputIntentChangeIndicator_x4.pdf',
-  '3-ICC-CMS/GWG230_Four_different Grays_x1a.pdf',
-};
+// There are deliberately no per-document exclusions. The suite enforces all
+// 54 PDFs / 57 pages, including the three composite overview pages.
 
 /// Per-channel difference below this is treated as identical.
 const _channelTolerance = 8;
@@ -145,10 +73,6 @@ void main() {
 
   for (final file in files) {
     final name = file.path.substring(root.path.length + 1);
-    // a baseline diff here is an accepted colour-fidelity deviation: render
-    // and assert non-blank, but don't enforce the pixel match (and surface
-    // the test as skipped). GHENT_UPDATE always re-seeds, even these.
-    final knownDeviation = _knownBaselineDeviations.contains(name) && !update;
     testWidgets(name, (tester) async {
       await tester.runAsync(() async {
         await loadSystemFonts();
@@ -167,7 +91,7 @@ void main() {
             expect(_inkFraction(pixels), greaterThan(0.0005),
                 reason: '$name page $i rendered (nearly) blank');
 
-            if (compare && !knownDeviation) {
+            if (compare) {
               await _checkBaseline(
                 root: root,
                 name: name,
@@ -188,11 +112,6 @@ void main() {
           } finally {
             image.dispose();
           }
-        }
-        if (knownDeviation) {
-          markTestSkipped('$name: known baseline deviation - colour handling '
-              '(overprint/DeviceN/spot/ICC-v4/16-bit) is not pixel-exact; '
-              'still asserted to render non-blank. GHENT_UPDATE=1 to re-baseline.');
         }
       });
     }, timeout: const Timeout(Duration(minutes: 3)));

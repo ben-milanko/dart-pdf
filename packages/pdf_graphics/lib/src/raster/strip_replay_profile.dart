@@ -129,6 +129,14 @@ class _StripReplayProfiler extends StripBinningDevice {
   @override
   void delegateBeginGroup(double alpha, {required bool knockout}) {}
   @override
+  void delegateBeginTransparencyGroup(
+    double alpha, {
+    required bool knockout,
+    required bool isolated,
+    PdfRect? bounds,
+    PdfColor? backdropColor,
+  }) {}
+  @override
   void delegateEndGroup() {}
   @override
   void delegateBeginSoftMasked() {}

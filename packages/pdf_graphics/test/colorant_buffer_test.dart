@@ -104,8 +104,10 @@ void main() {
 
     test('/All writes every colorant the device has, /None writes nothing', () {
       final all = separation('All', const [0, 0, 0, 1]).inkColorants([0.4])!;
-      expect(all.over(spotGreen, 0),
-          PdfColorants(0.4, 0.4, 0.4, 0.4, spots: const ['GWG Green'], tints: const [0.4]));
+      expect(
+          all.over(spotGreen, 0),
+          PdfColorants(0.4, 0.4, 0.4, 0.4,
+              spots: const ['GWG Green'], tints: const [0.4]));
       final none = separation('None', const [0, 0, 0, 1]).inkColorants([0.7])!;
       expect(none.writesNothing, isTrue);
     });
@@ -154,17 +156,20 @@ void main() {
     });
 
     test('overlapping inks accumulate and clamp at full ink', () {
-      final vector = PdfColorants(0.7, 0, 0, 0,
-          spots: const ['Spot'], tints: const [1.0]);
-      expect(colorantsToSrgb(vector, {'Spot': const [0.8, 0, 0, 0]}),
+      final vector =
+          PdfColorants(0.7, 0, 0, 0, spots: const ['Spot'], tints: const [1.0]);
+      expect(
+          colorantsToSrgb(vector, {
+            'Spot': const [0.8, 0, 0, 0]
+          }),
           PdfColor.cmyk(1, 0, 0, 0));
     });
 
     test('a spot with no known equivalent contributes nothing', () {
       // A composite can name a spot whose space never reached this compositor
       // (it came from the backdrop). Dropping it is the honest fallback.
-      final vector =
-          PdfColorants(0, 0, 0, 0.4, spots: const ['Unknown'], tints: const [1]);
+      final vector = PdfColorants(0, 0, 0, 0.4,
+          spots: const ['Unknown'], tints: const [1]);
       expect(colorantsToSrgb(vector, const {}), PdfColor.cmyk(0, 0, 0, 0.4));
     });
   });
@@ -177,13 +182,12 @@ void main() {
           isNull);
       expect(
           PdfColorSpace.parse(
-                  cos,
-                  CosArray([
-                    const CosName('ICCBased'),
-                    CosStream(CosDictionary({'N': const CosInteger(4)}),
-                        Uint8List(0)),
-                  ]))
-              .inkColorants(const [0, 0, 0, 1]),
+              cos,
+              CosArray([
+                const CosName('ICCBased'),
+                CosStream(
+                    CosDictionary({'N': const CosInteger(4)}), Uint8List(0)),
+              ])).inkColorants(const [0, 0, 0, 1]),
           isNull,
           reason: 'an ICC colour is managed, not a colorant list');
     });
@@ -198,11 +202,15 @@ void main() {
             exponential(const [0, 0, 0, 1]),
           ]));
       final ink = space.inkColorants(const [0.5, 1])!;
-      expect(ink.colorants,
-          PdfColorants(0, 0, 0, 0.5, spots: const ['GWG Green'], tints: const [1.0]));
+      expect(
+          ink.colorants,
+          PdfColorants(0, 0, 0, 0.5,
+              spots: const ['GWG Green'], tints: const [1.0]));
       // Only Black is a process colorant here, so C/M/Y stay the backdrop's.
-      expect(ink.over(PdfColorants(0.5, 0, 1, 0.2), 0),
-          PdfColorants(0.5, 0, 1, 0.5, spots: const ['GWG Green'], tints: const [1.0]));
+      expect(
+          ink.over(PdfColorants(0.5, 0, 1, 0.2), 0),
+          PdfColorants(0.5, 0, 1, 0.5,
+              spots: const ['GWG Green'], tints: const [1.0]));
     });
 
     test('spot names are sorted so equal colorants compare equal', () {
@@ -212,12 +220,10 @@ void main() {
             const CosName('DeviceCMYK'),
             exponential(const [0, 0, 0, 1]),
           ]);
-      final ab =
-          PdfColorSpace.parse(cos, deviceN(['Spot A', 'Spot B'])).inkColorants(
-              const [0.25, 0.75])!;
-      final ba =
-          PdfColorSpace.parse(cos, deviceN(['Spot B', 'Spot A'])).inkColorants(
-              const [0.75, 0.25])!;
+      final ab = PdfColorSpace.parse(cos, deviceN(['Spot A', 'Spot B']))
+          .inkColorants(const [0.25, 0.75])!;
+      final ba = PdfColorSpace.parse(cos, deviceN(['Spot B', 'Spot A']))
+          .inkColorants(const [0.75, 0.25])!;
       expect(ab.colorants, ba.colorants);
     });
   });
@@ -236,8 +242,7 @@ void main() {
         ]);
 
     PdfColor? fill(PdfOverprintCompositor c, PdfPath path, PdfColor color,
-            PdfInkColorants? ink,
-            {bool overprint = false, int mode = 0}) =>
+            PdfInkColorants? ink, {bool overprint = false, int mode = 0}) =>
         c.fill(path, PdfFillRule.nonzero, color, ink,
             overprint: overprint, mode: mode, opaque: true);
 
@@ -257,8 +262,11 @@ void main() {
       // 50% K overprinting the spot green writes only colorants it already
       // carries, so the result must be the backdrop's own rendered colour -
       // not a re-conversion that would land a shade away and show as a marker.
-      final resolved = fill(c, rect(20, 20, 80, 80),
-          const PdfColor(0.6, 0.6, 0.63), PdfInkColorants.deviceCmyk(0, 0, 0, 0.5),
+      final resolved = fill(
+          c,
+          rect(20, 20, 80, 80),
+          const PdfColor(0.6, 0.6, 0.63),
+          PdfInkColorants.deviceCmyk(0, 0, 0, 0.5),
           overprint: true);
       expect(resolved, backdropColor);
     });
@@ -269,8 +277,8 @@ void main() {
       fill(c, rect(0, 0, 100, 100), const PdfColor(0.31, 0.45, 0.13),
           PdfInkColorants.deviceCmyk(0.5, 0, 1, 0.5));
       const inkColor = PdfColor(0.5, 0.5, 0.5);
-      final resolved = fill(c, rect(20, 20, 80, 80), inkColor,
-          PdfInkColorants.deviceGray(0.5),
+      final resolved = fill(
+          c, rect(20, 20, 80, 80), inkColor, PdfInkColorants.deviceGray(0.5),
           overprint: true);
       expect(resolved, inkColor);
     });
@@ -344,6 +352,66 @@ void main() {
               PdfInkColorants.deviceGray(0.5),
               overprint: true),
           inkColor);
+    });
+
+    test('a non-rectangular clip keeps its full scanline extent', () {
+      final c = buffer();
+      // In raster order the first scanline is the triangle's narrow tip. A
+      // clip bound derived from that first run alone collapses the mask to a
+      // one-cell strip and loses the wide body (GWG020's X exposed this).
+      final triangle = PdfPath([
+        const PdfMoveTo(50, 100),
+        const PdfLineTo(100, 0),
+        const PdfLineTo(0, 0),
+        const PdfClosePath(),
+      ]);
+      const backdrop = PdfColor(0.31, 0.45, 0.13);
+      c.save();
+      c.clipPath(triangle, PdfFillRule.nonzero);
+      fill(c, rect(0, 0, 100, 100), backdrop,
+          PdfInkColorants.deviceCmyk(0.5, 0, 1, 0));
+      c.restore();
+
+      // This box is well inside the wide lower body but far outside the
+      // first scanline's tip. OPM 1 white preserves the recorded backdrop.
+      expect(
+          fill(c, rect(20, 10, 30, 20), const PdfColor(1, 1, 1),
+              PdfInkColorants.deviceCmyk(0, 0, 0, 0),
+              overprint: true, mode: 1),
+          backdrop);
+    });
+
+    test('a gradient over one backdrop is precomposited smoothly', () {
+      final c = buffer();
+      const backdrop = PdfColor(0.31, 0.45, 0.13);
+      fill(c, rect(0, 0, 100, 100), backdrop,
+          PdfInkColorants.deviceCmyk(0.5, 0, 1, 0));
+      final gradient = PdfGradient(
+        isRadial: false,
+        coords: const [0, 0, 100, 0],
+        colors: const [PdfColor(1, 1, 1), PdfColor(0.99, 0.99, 0.98)],
+        stops: const [0, 1],
+        transform: PdfMatrix.identity,
+        inkAt: (t) => PdfInkColorants(
+          colorants: PdfColorants(0, 0, 0, 0,
+              spots: const ['Spot'], tints: [0.01 + 0.01 * t]),
+          processMask: 0,
+          overprintModeApplies: false,
+          spotEquivalents: const [
+            [0.5, 0, 1, 0]
+          ],
+        ),
+      );
+      expect(
+          c.gradient(rect(0, 0, 100, 100), gradient,
+              overprint: true, mode: 1, opaque: true),
+          isTrue);
+      final substitute = c.takeGradientSubstitute();
+      expect(substitute, isNotNull);
+      expect(substitute!.colors, hasLength(2));
+      expect(substitute.colors.first, isNot(const PdfColor(1, 1, 1)));
+      expect(c.takeGradientSpatialPaint(), isNull,
+          reason: 'a uniform backdrop needs no cell-sized correction paths');
     });
 
     test('a spot backdrop and a process backdrop of one colour diverge', () {

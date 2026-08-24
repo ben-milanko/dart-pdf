@@ -62,7 +62,9 @@ class PdfColorants {
     }
     if (other.spots.length != spots.length) return false;
     for (var i = 0; i < spots.length; i++) {
-      if (other.spots[i] != spots[i] || other.tints[i] != tints[i]) return false;
+      if (other.spots[i] != spots[i] || other.tints[i] != tints[i]) {
+        return false;
+      }
     }
     return true;
   }
@@ -83,6 +85,90 @@ class PdfColorants {
       b.write(', ${spots[i]}=${tints[i]}');
     }
     return (b..write(')')).toString();
+  }
+}
+
+/// Per-pixel colorant backdrop for an overprinting image.
+///
+/// The page colorant buffer normally resolves a vector or image against one
+/// uniform backdrop. GWG's DeviceN support patches deliberately put different
+/// process/spot vectors underneath one indexed image, so the image must read
+/// the backdrop at every source pixel. Entries are palette-indexed to keep the
+/// map compact and value-comparable across the renderer's collect and paint
+/// walks; palette entry 0 means the backdrop is unknown.
+class PdfColorantBackdropMap {
+  PdfColorantBackdropMap({
+    required this.width,
+    required this.height,
+    required this.indices,
+    required this.colorants,
+    required this.colors,
+  }) : _hashCode = _hash(width, height, indices, colorants, colors);
+
+  final int width;
+  final int height;
+  final Uint16List indices;
+
+  /// Entry 0 is always null (unknown); all later entries are real vectors.
+  final List<PdfColorants?> colorants;
+
+  /// Display colours parallel to [colorants]. Entry 0 is arbitrary.
+  final List<PdfColor> colors;
+
+  final int _hashCode;
+
+  ({PdfColorants colorants, PdfColor color})? at(int x, int y) {
+    if (x < 0 || y < 0 || x >= width || y >= height) return null;
+    final index = indices[y * width + x];
+    if (index == 0 || index >= colorants.length || index >= colors.length) {
+      return null;
+    }
+    final value = colorants[index];
+    return value == null ? null : (colorants: value, color: colors[index]);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! PdfColorantBackdropMap ||
+        other.width != width ||
+        other.height != height ||
+        other._hashCode != _hashCode ||
+        other.indices.length != indices.length ||
+        other.colorants.length != colorants.length ||
+        other.colors.length != colors.length) {
+      return false;
+    }
+    for (var i = 0; i < indices.length; i++) {
+      if (other.indices[i] != indices[i]) return false;
+    }
+    for (var i = 0; i < colorants.length; i++) {
+      if (other.colorants[i] != colorants[i] || other.colors[i] != colors[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  @override
+  int get hashCode => _hashCode;
+
+  static int _hash(int width, int height, Uint16List indices,
+      List<PdfColorants?> colorants, List<PdfColor> colors) {
+    var hash = Object.hash(width, height);
+    for (final value in colorants) {
+      hash = Object.hash(hash, value);
+    }
+    for (final color in colors) {
+      hash = Object.hash(hash, color);
+    }
+    // Sample every entry into the rolling hash. The maps are bounded by the
+    // image-overprint pixel cap and are constructed only for a non-uniform
+    // backdrop, so this cost is paid beside an unavoidable per-pixel build.
+    for (final index in indices) {
+      hash = Object.hash(hash, index);
+    }
+    return hash;
   }
 }
 
@@ -164,8 +250,8 @@ class PdfInkColorants {
       final tint = colorants.k;
       return PdfColorants(tint, tint, tint, tint,
           spots: backdrop.spots,
-          tints: Float64List(backdrop.spots.length)..fillRange(
-              0, backdrop.spots.length, tint));
+          tints: Float64List(backdrop.spots.length)
+            ..fillRange(0, backdrop.spots.length, tint));
     }
     var mask = processMask;
     final suppressZero = overprintModeApplies && mode == 1;
@@ -227,7 +313,10 @@ class PdfInkColorants {
 /// own sRGB when the composite equals one of them, so the common cases keep
 /// their exact rendered colour.
 PdfColor colorantsToSrgb(
-    PdfColorants v, Map<String, List<double>> spotEquivalents) {
+  PdfColorants v,
+  Map<String, List<double>> spotEquivalents, {
+  PdfColor Function(double c, double m, double y, double k)? cmykToSrgb,
+}) {
   var c = v.c, m = v.m, y = v.y, k = v.k;
   for (var i = 0; i < v.spots.length; i++) {
     final equivalent = spotEquivalents[v.spots[i]];
@@ -238,6 +327,10 @@ PdfColor colorantsToSrgb(
     y += equivalent[2] * t;
     k += equivalent[3] * t;
   }
-  return PdfColor.cmyk(
-      c.clamp(0.0, 1.0), m.clamp(0.0, 1.0), y.clamp(0.0, 1.0), k.clamp(0.0, 1.0));
+  final cyan = c.clamp(0.0, 1.0).toDouble();
+  final magenta = m.clamp(0.0, 1.0).toDouble();
+  final yellow = y.clamp(0.0, 1.0).toDouble();
+  final black = k.clamp(0.0, 1.0).toDouble();
+  return cmykToSrgb?.call(cyan, magenta, yellow, black) ??
+      PdfColor.cmyk(cyan, magenta, yellow, black);
 }

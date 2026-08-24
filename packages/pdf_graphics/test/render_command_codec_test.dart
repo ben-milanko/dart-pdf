@@ -1078,7 +1078,8 @@ void main() {
           expect(images.length, originals.length,
               reason: '$name page $i image count diverged');
           for (var k = 0; k < originals.length; k++) {
-            final expected = decodePdfImagePixels(doc.cos, originals[k].stream);
+            final expected = decodePdfImagePixels(doc.cos, originals[k].stream,
+                luminosityMask: originals[k].isLuminosityMask);
             final got = images[k].request.decoded;
             if (expected == null) {
               expect(got, isNull,
