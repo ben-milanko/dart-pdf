@@ -34,7 +34,9 @@ bundle=$(cat <<EOF
   "PdfTileTextureVertex":  {"type":"vertex",   "file":"$src/pdf_tile_texture.vert"},
   "PdfTileTextureFragment":{"type":"fragment", "file":"$src/pdf_tile_texture.frag"},
   "PdfTileSoftMaskVertex":  {"type":"vertex",   "file":"$src/pdf_tile_soft_mask.vert"},
-  "PdfTileSoftMaskFragment":{"type":"fragment", "file":"$src/pdf_tile_soft_mask.frag"}
+  "PdfTileSoftMaskFragment":{"type":"fragment", "file":"$src/pdf_tile_soft_mask.frag"},
+  "PdfTileDestinationBlendVertex":  {"type":"vertex",   "file":"$src/pdf_tile_destination_blend.vert"},
+  "PdfTileDestinationBlendFragment":{"type":"fragment", "file":"$src/pdf_tile_destination_blend.frag"}
 }
 EOF
 )

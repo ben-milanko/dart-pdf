@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show ZLibCodec;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -11,6 +12,7 @@ import 'package:image/image.dart' as img;
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
+import 'package:vector_math/vector_math.dart' as vm;
 
 bool _gpuAvailable() {
   try {
@@ -53,7 +55,276 @@ PdfDrawImageCommand _decodedImage(
   ));
 }
 
+Future<ui.Image> _renderDestinationBlendProbe({
+  required List<double> destination,
+  required List<double> source,
+  required bool hardLight,
+}) async {
+  final context = gpu.gpuContext;
+  final library = await Future<gpu.ShaderLibrary?>.value(
+    gpu.ShaderLibrary.fromAsset(
+      'assets/shaders/pdf_tile_gpu.shaderbundle',
+    ),
+  );
+  if (library == null) {
+    throw StateError('destination blend shader bundle failed to load');
+  }
+  final vertex = library['PdfTileDestinationBlendVertex']!;
+  final fragment = library['PdfTileDestinationBlendFragment']!;
+  final pipeline = context.createRenderPipeline(vertex, fragment);
+  final destinationTexture = context.createTexture(
+    gpu.StorageMode.devicePrivate,
+    8,
+    8,
+    format: context.defaultColorFormat,
+    enableRenderTargetUsage: true,
+    enableShaderReadUsage: true,
+  );
+  final sourceTexture = context.createTexture(
+    gpu.StorageMode.devicePrivate,
+    8,
+    8,
+    format: context.defaultColorFormat,
+    enableRenderTargetUsage: true,
+    enableShaderReadUsage: true,
+  );
+  final outputTexture = context.createTexture(
+    gpu.StorageMode.devicePrivate,
+    8,
+    8,
+    format: context.defaultColorFormat,
+    enableRenderTargetUsage: true,
+    enableShaderReadUsage: true,
+  );
+  final transient = context.createHostBuffer();
+  final vertices = transient.emplace(ByteData.sublistView(
+    Float32List.fromList(const [
+      -1,
+      -1,
+      0,
+      1,
+      1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      -1,
+      -1,
+      0,
+      1,
+      1,
+      1,
+      1,
+      0,
+      -1,
+      1,
+      0,
+      0,
+    ]),
+  ));
+  final blendInfo = transient.emplace(ByteData.sublistView(
+    Float32List.fromList([
+      (hardLight ? PdfBlendMode.hardLight.index : PdfBlendMode.colorBurn.index)
+          .toDouble(),
+      0,
+      0,
+      0,
+    ]),
+  ));
+
+  final destinationCommandBuffer = context.createCommandBuffer();
+  final destinationPass =
+      destinationCommandBuffer.createRenderPass(gpu.RenderTarget.singleColor(
+    gpu.ColorAttachment(
+      texture: destinationTexture,
+      clearValue: vm.Vector4(
+        destination[0],
+        destination[1],
+        destination[2],
+        destination[3],
+      ),
+      storeAction: gpu.StoreAction.store,
+    ),
+  ));
+  final destinationCompleter = Completer<void>();
+  final destinationResources = <Object>[
+    destinationTexture,
+    destinationCommandBuffer,
+    destinationPass,
+  ];
+  destinationCommandBuffer.submit(completionCallback: (success) {
+    if (destinationResources.isEmpty) return;
+    if (success) {
+      destinationCompleter.complete();
+    } else {
+      destinationCompleter.completeError(
+        StateError('destination blend backdrop submission failed'),
+      );
+    }
+  });
+
+  final sourceCommandBuffer = context.createCommandBuffer();
+  final sourcePass =
+      sourceCommandBuffer.createRenderPass(gpu.RenderTarget.singleColor(
+    gpu.ColorAttachment(
+      texture: sourceTexture,
+      clearValue: vm.Vector4(
+        source[0] * source[3],
+        source[1] * source[3],
+        source[2] * source[3],
+        source[3],
+      ),
+      storeAction: gpu.StoreAction.store,
+    ),
+  ));
+  final sourceCompleter = Completer<void>();
+  final sourceResources = <Object>[
+    sourceTexture,
+    sourceCommandBuffer,
+    sourcePass,
+  ];
+  sourceCommandBuffer.submit(completionCallback: (success) {
+    if (sourceResources.isEmpty) return;
+    if (success) {
+      sourceCompleter.complete();
+    } else {
+      sourceCompleter.completeError(
+        StateError('destination blend source submission failed'),
+      );
+    }
+  });
+  final blendCommandBuffer = context.createCommandBuffer();
+  final blendPass =
+      blendCommandBuffer.createRenderPass(gpu.RenderTarget.singleColor(
+    gpu.ColorAttachment(
+      texture: outputTexture,
+      clearValue: vm.Vector4.zero(),
+      storeAction: gpu.StoreAction.store,
+    ),
+  ));
+  blendPass
+    ..setCullMode(gpu.CullMode.none)
+    ..setWindingOrder(gpu.WindingOrder.counterClockwise)
+    ..setPrimitiveType(gpu.PrimitiveType.triangle)
+    ..setColorBlendEnable(false)
+    ..bindPipeline(pipeline)
+    ..bindUniform(fragment.getUniformSlot('BlendInfo'), blendInfo)
+    ..bindTexture(
+      fragment.getUniformSlot('destination_tex'),
+      destinationTexture,
+      sampler: gpu.SamplerOptions(
+        minFilter: gpu.MinMagFilter.nearest,
+        magFilter: gpu.MinMagFilter.nearest,
+      ),
+    )
+    ..bindTexture(
+      fragment.getUniformSlot('source_tex'),
+      sourceTexture,
+      sampler: gpu.SamplerOptions(
+        minFilter: gpu.MinMagFilter.nearest,
+        magFilter: gpu.MinMagFilter.nearest,
+      ),
+    )
+    ..bindVertexBuffer(vertices)
+    ..draw(6);
+
+  final blendCompleter = Completer<void>();
+  final resources = <Object>[
+    library,
+    pipeline,
+    destinationTexture,
+    sourceTexture,
+    outputTexture,
+    transient,
+    blendCommandBuffer,
+    blendPass,
+  ];
+  blendCommandBuffer.submit(completionCallback: (success) {
+    if (resources.isEmpty) return;
+    if (success) {
+      blendCompleter.complete();
+    } else {
+      blendCompleter.completeError(
+        StateError('destination blend probe submission failed'),
+      );
+    }
+  });
+  await Future.wait([
+    destinationCompleter.future,
+    sourceCompleter.future,
+    blendCompleter.future,
+  ]);
+  return outputTexture.asImage();
+}
+
+List<int> _destinationBlendExpected({
+  required List<double> destination,
+  required List<double> source,
+  required bool hardLight,
+}) {
+  double blend(double backdrop, double foreground) {
+    if (hardLight) {
+      return foreground <= 0.5
+          ? 2 * foreground * backdrop
+          : 1 - 2 * (1 - foreground) * (1 - backdrop);
+    }
+    return foreground <= 0
+        ? 0
+        : 1 - (1 - backdrop) / foreground.clamp(0.0, 1.0);
+  }
+
+  final alpha = source[3].clamp(0.0, 1.0);
+  return <int>[
+    for (var channel = 0; channel < 3; channel++)
+      ((destination[channel] * (1 - alpha) +
+                  blend(destination[channel], source[channel]).clamp(0.0, 1.0) *
+                      alpha) *
+              255)
+          .round(),
+    ((alpha + destination[3] * (1 - alpha)) * 255).round(),
+  ];
+}
+
 void main() {
+  testWidgets('shader-readable render targets preserve destination blends',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      const destination = <double>[0.72, 0.35, 0.18, 1];
+      const source = <double>[0.62, 0.78, 0.27, 0.65];
+      for (final hardLight in [false, true]) {
+        final image = await _renderDestinationBlendProbe(
+          destination: destination,
+          source: source,
+          hardLight: hardLight,
+        );
+        addTearDown(image.dispose);
+        final pixels = await _pixels(image);
+        final offset = (4 * 8 + 4) * 4;
+        final actual = pixels.sublist(offset, offset + 4);
+        final expected = _destinationBlendExpected(
+          destination: destination,
+          source: source,
+          hardLight: hardLight,
+        );
+        for (var channel = 0; channel < 4; channel++) {
+          expect(
+            actual[channel],
+            closeTo(expected[channel], 2),
+            reason: '${hardLight ? 'HardLight' : 'ColorBurn'} channel '
+                '$channel sampled the first render target',
+          );
+        }
+      }
+    });
+  });
+
   testWidgets('unavailable context declines without affecting the host',
       (tester) async {
     if (_gpuAvailable()) {
