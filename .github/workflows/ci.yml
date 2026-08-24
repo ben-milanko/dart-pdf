@@ -234,7 +234,7 @@ jobs:
             local repetition="$8"
             local source_env
             local route_change=0
-            if [[ "$label" == "vector-mask" ]]; then
+            if [[ "$label" == "vector-mask" || "$label" == "hairline" ]]; then
               route_change=1
             fi
             case "$source_kind" in
@@ -294,6 +294,7 @@ jobs:
           radial pdf ../../test_corpora/ghent/1-CMYK/GWG060_Shading_x1a.pdf
           deferred-mask fixture deferred-mask
           vector-mask pdf ../../test_corpora/pdfjs/smask_luminosity_oob_transfer.pdf
+          hairline pdf ../../test_corpora/pdfjs/issue3458.pdf
           SCENARIOS
           fi
 
@@ -320,6 +321,7 @@ jobs:
           radial pdf ../../test_corpora/ghent/1-CMYK/GWG060_Shading_x1a.pdf
           deferred-mask fixture deferred-mask
           vector-mask pdf ../../test_corpora/pdfjs/smask_luminosity_oob_transfer.pdf
+          hairline pdf ../../test_corpora/pdfjs/issue3458.pdf
           SCENARIOS
           done
           echo "log=$log" >> "$GITHUB_OUTPUT"
@@ -351,6 +353,8 @@ jobs:
             --require-scenario-runs gpu-deferred-mask-page-0-canvas-tile=6
             --require-scenario-runs gpu-vector-mask-page-0-first-tile=6
             --require-scenario-runs gpu-vector-mask-page-0-canvas-tile=6
+            --require-scenario-runs gpu-hairline-page-0-first-tile=6
+            --require-scenario-runs gpu-hairline-page-0-canvas-tile=6
           )
           arguments=(
             "$log"

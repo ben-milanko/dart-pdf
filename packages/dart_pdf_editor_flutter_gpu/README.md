@@ -56,12 +56,19 @@ as a package asset. Unsupported platforms, disabled contexts, and unsupported
 PDF features return to the Canvas tile backend automatically. Web gets a
 compile-time stub and therefore preserves the all-platform host surface.
 
-The current exact subset is solid paths and strokes, embedded-outline text,
+The current exact subset is solid paths and strokes (including zero-width PDF
+hairlines that stay one device pixel at every LoD), embedded-outline text,
 decoded images/image masks, Gouraud meshes, axial gradients, nested-circle
 radial gradients, vector and stencil-image tiling cells, normal/Multiply/Screen
 blending,
 rectangular and arbitrary path clips, and the common isolated single-image
-soft-mask group. Platform-decoded JPEGs whose `/SMask` remains a companion GPU
+soft-mask group. Isolated transparency groups containing a single vector fill
+or stroke also stay on the GPU: their group alpha and page blend mode are folded
+into retained stencil geometry. One-element knockout groups are included
+because there are no sibling elements for knockout to change. Alpha-one,
+normal-blend non-knockout groups may contain multiple ordered fills and strokes
+because source-over is associative, so their isolation layer is an identity
+operation. Platform-decoded JPEGs whose `/SMask` remains a companion GPU
 surface also keep their base and mask as separate cached textures and combine
 them in the same shader path. A single vector fill can use one opaque grayscale
 image soft mask directly through retained stencil geometry. Rectangular vector
@@ -120,7 +127,7 @@ Pages with other transparency groups or soft masks, blend modes other than
 Multiply and Screen,
 non-nested radial gradients, gradient overprint, unsafe overprint, complex
 clips nested inside the single-image soft-mask shortcut, substituted/stroked
-text, hairlines, or missing image pixels are rejected as a whole rather than
+text, or missing image pixels are rejected as a whole rather than
 approximated.
 `allowOverprintApproximation` exists only for controlled experiments and
 defaults to false.

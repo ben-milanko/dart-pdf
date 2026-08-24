@@ -21,8 +21,10 @@ import 'backend_stats.dart';
 /// The first tile lazily compiles supported retained commands into page-space
 /// GPU buffers and uploads every decoded image once. Later tiles only query the
 /// retained region index, bind those buffers with a page-to-tile transform and
-/// submit a render pass. No PDF interpretation, path tessellation, image
-/// decode, texture upload, or CPU pixel readback occurs per tile.
+/// submit a render pass. No PDF interpretation, image decode, texture upload,
+/// or CPU pixel readback occurs per tile. Fixed-width paths are tessellated
+/// once; zero-width hairlines alone expand their retained polyline for the
+/// current device scale.
 ///
 /// The exact subset includes a common isolated single-image soft-mask group
 /// and decoded images whose `/SMask` stayed as a companion GPU surface:
@@ -32,7 +34,8 @@ import 'backend_stats.dart';
 /// Other isolated groups, blend modes beyond Multiply/Screen, complex clips
 /// *inside* the special soft-mask shortcuts, non-nested radial gradients,
 /// substituted/stroked text, unsafe overprint, or missing image pixels reject
-/// the whole scene.
+/// the whole scene. Zero-width PDF hairlines are expanded at tile submission
+/// time so they remain exactly one device pixel at every level of detail.
 /// dart_pdf_editor then permanently uses its Canvas session for that scene.
 class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   FlutterGpuTileRasterBackend({
@@ -251,6 +254,12 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
             }
           case _SoftMaskVectorFillSpec():
             break;
+          case _GroupFillSpec():
+            break;
+          case _GroupStrokeSpec():
+            break;
+          case _GroupPaintSpec():
+            break;
         }
         continue;
       }
@@ -263,10 +272,8 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
       switch (command) {
         case PdfFillPathCommand():
           break;
-        case PdfStrokePathCommand(:final stroke):
-          // A PDF hairline is device-scale-dependent, so it cannot be baked
-          // into scene-lifetime geometry without changing semantics by LoD.
-          if (stroke.width <= 0) return 'device-scale hairline';
+        case PdfStrokePathCommand():
+          break;
         case PdfFillMeshCommand():
           break;
         case PdfDrawImageCommand(:final request):
@@ -353,6 +360,7 @@ class _GpuUnit {
     required this.fillOverprint,
     required this.strokeOverprint,
     required this.darken,
+    this.hairline = false,
     this.composite,
   });
 
@@ -364,7 +372,8 @@ class _GpuUnit {
   final bool fillOverprint;
   final bool strokeOverprint;
   final bool darken;
-  final _SoftMaskSpec? composite;
+  final bool hairline;
+  final _GpuCompositeSpec? composite;
 }
 
 /// One immutable graphics-state clip. Rectangles only narrow [scissor]; every
@@ -407,12 +416,49 @@ class _CompositeCapture {
   PdfRect? bounds;
 }
 
-sealed class _SoftMaskSpec {
-  const _SoftMaskSpec();
+sealed class _GpuCompositeSpec {
+  const _GpuCompositeSpec();
   PdfRect? get contentClip;
 }
 
-class _SoftMaskImageSpec extends _SoftMaskSpec {
+class _GroupFillSpec extends _GpuCompositeSpec {
+  const _GroupFillSpec({
+    required this.content,
+    required this.groupAlpha,
+    required this.contentClip,
+  });
+
+  final PdfFillPathCommand content;
+  final double groupAlpha;
+  @override
+  final PdfRect? contentClip;
+}
+
+class _GroupStrokeSpec extends _GpuCompositeSpec {
+  const _GroupStrokeSpec({
+    required this.content,
+    required this.groupAlpha,
+    required this.contentClip,
+  });
+
+  final PdfStrokePathCommand content;
+  final double groupAlpha;
+  @override
+  final PdfRect? contentClip;
+}
+
+class _GroupPaintSpec extends _GpuCompositeSpec {
+  const _GroupPaintSpec({
+    required this.commands,
+    required this.contentClip,
+  });
+
+  final List<PdfRenderCommand> commands;
+  @override
+  final PdfRect? contentClip;
+}
+
+class _SoftMaskImageSpec extends _GpuCompositeSpec {
   const _SoftMaskImageSpec({
     required this.content,
     required this.mask,
@@ -437,7 +483,7 @@ class _SoftMaskImageSpec extends _SoftMaskSpec {
   final double transferOffset;
 }
 
-class _SoftMaskFillSpec extends _SoftMaskSpec {
+class _SoftMaskFillSpec extends _GpuCompositeSpec {
   const _SoftMaskFillSpec({
     required this.content,
     required this.mask,
@@ -460,7 +506,7 @@ class _SoftMaskFillSpec extends _SoftMaskSpec {
   final double transferOffset;
 }
 
-class _SoftMaskVectorFillSpec extends _SoftMaskSpec {
+class _SoftMaskVectorFillSpec extends _GpuCompositeSpec {
   const _SoftMaskVectorFillSpec({
     required this.content,
     required this.maskFills,
@@ -649,11 +695,14 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
         }
         capture.depth--;
         if (capture.depth == 0) {
-          final parsed = _parseSoftMaskImage(
+          final parsed = _parseComposite(
             commands,
             capture.start,
             i,
             initialClip: capture.clip.scissor,
+            initialFillOverprint: capture.fillOverprint,
+            initialStrokeOverprint: capture.strokeOverprint,
+            initialBlend: capture.blendMode,
           );
           if (parsed.$1 == null) return _GpuUnitBuild(null, parsed.$2);
           final bounds = capture.bounds;
@@ -693,6 +742,8 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
             strokeOverprint: strokeOverprint,
             darken:
                 _commandNeedsDarken(command, fillOverprint, strokeOverprint),
+            hairline:
+                command is PdfStrokePathCommand && command.stroke.width <= 0,
           ));
         }
     }
@@ -741,38 +792,57 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
       : _GpuClipState(narrowed, state.node);
 }
 
-(_SoftMaskSpec?, String?) _parseSoftMaskImage(
+(_GpuCompositeSpec?, String?) _parseComposite(
   List<PdfRenderCommand> commands,
   int start,
   int end, {
   PdfRect? initialClip,
+  bool initialFillOverprint = false,
+  bool initialStrokeOverprint = false,
+  PdfBlendMode initialBlend = PdfBlendMode.normal,
 }) {
   if (commands[start]
       case PdfBeginGroupCommand(:final alpha, :final knockout)) {
-    if (knockout) return (null, 'knockout soft-mask image group');
     if (commands[end] is! PdfEndGroupCommand) {
       return (null, 'unsupported composite nesting');
     }
+    // Knockout only changes how multiple sibling elements interact inside a
+    // group. A one-element group is therefore identical either way. The
+    // multi-paint path below is deliberately narrower: alpha-one, normal
+    // source-over, non-knockout groups whose isolation layer is an identity.
     PdfDrawImageCommand? content;
+    final paints = <(PdfRenderCommand, PdfRect?, PdfBlendMode, bool)>[];
     PdfEndSoftMaskedCommand? softEnd;
     var softDepth = 0;
     var softCount = 0;
     PdfRect? clip = initialClip;
     PdfRect? contentClip;
-    final saved = <PdfRect?>[];
+    var fillOverprint = initialFillOverprint;
+    var strokeOverprint = initialStrokeOverprint;
+    var blend = initialBlend;
+    final saved = <(PdfRect?, bool, bool, PdfBlendMode)>[];
     for (var i = start + 1; i < end; i++) {
       final command = commands[i];
       switch (command) {
         case PdfSaveCommand():
-          saved.add(clip);
+          saved.add((clip, fillOverprint, strokeOverprint, blend));
         case PdfRestoreCommand():
           if (saved.isEmpty) return (null, 'unbalanced soft-mask image state');
-          clip = saved.removeLast();
+          final restored = saved.removeLast();
+          clip = restored.$1;
+          fillOverprint = restored.$2;
+          strokeOverprint = restored.$3;
+          blend = restored.$4;
         case PdfClipPathCommand(:final path):
           if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) {
             return (null, 'non-rectangular soft-mask image clip');
           }
-          clip = _pdfIntersection(clip, pdfRenderPathBounds(path));
+          final pathBounds = pdfRenderPathBounds(path);
+          final narrowed = _pdfIntersection(clip, pathBounds);
+          if (clip != null && pathBounds != null && narrowed == null) {
+            return (null, 'empty transparency group clip');
+          }
+          clip = narrowed;
         case PdfBeginSoftMaskedCommand():
           softDepth++;
           softCount++;
@@ -785,12 +855,26 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           }
           content = command;
           contentClip = clip;
-        case PdfSetBlendModeCommand(:final mode):
-          if (mode != PdfBlendMode.normal) {
-            return (null, 'soft-mask image blend mode ${mode.name}');
+        case PdfFillPathCommand():
+          if (softDepth != 0 || content != null) {
+            return (null, 'soft-mask group contains PdfFillPathCommand');
           }
-        case PdfSetOverprintCommand():
-          break;
+          paints.add((command, clip, blend, fillOverprint));
+          contentClip = clip;
+        case PdfStrokePathCommand():
+          if (softDepth != 0 || content != null) {
+            return (null, 'soft-mask group contains PdfStrokePathCommand');
+          }
+          paints.add((command, clip, blend, strokeOverprint));
+          contentClip = clip;
+        case PdfSetBlendModeCommand(:final mode):
+          // A one-element group may use any internal blend: with a transparent
+          // group backdrop every PDF blend function reduces to the source.
+          // The multi-paint identity path validates Normal below.
+          blend = mode;
+        case PdfSetOverprintCommand(:final fill, :final stroke):
+          fillOverprint = fill;
+          strokeOverprint = stroke;
         case PdfBeginGroupCommand() || PdfEndGroupCommand():
           return (null, 'nested image group');
         default:
@@ -799,8 +883,61 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           }
       }
     }
+    if (saved.isNotEmpty) {
+      return (null, 'unbalanced transparency group state');
+    }
+    if (softCount == 0 && softDepth == 0 && paints.length == 1) {
+      final paint = paints.single;
+      if (paint.$4) {
+        return (
+          null,
+          paint.$1 is PdfStrokePathCommand
+              ? 'transparency-group stroke overprint'
+              : 'transparency-group fill overprint',
+        );
+      }
+      return switch (paint.$1) {
+        PdfFillPathCommand content => (
+            _GroupFillSpec(
+              content: content,
+              groupAlpha: alpha,
+              contentClip: paint.$2,
+            ),
+            null,
+          ),
+        PdfStrokePathCommand content => (
+            _GroupStrokeSpec(
+              content: content,
+              groupAlpha: alpha,
+              contentClip: paint.$2,
+            ),
+            null,
+          ),
+        _ => (null, 'unsupported transparency-group paint'),
+      };
+    }
+    if (softCount == 0 && softDepth == 0 && paints.length > 1) {
+      final commonClip = paints.first.$2;
+      if (alpha != 1 ||
+          knockout ||
+          initialBlend != PdfBlendMode.normal ||
+          paints.any((paint) =>
+              paint.$3 != PdfBlendMode.normal ||
+              paint.$4 ||
+              !_samePdfRect(paint.$2, commonClip))) {
+        return (null, 'non-identity multi-paint transparency group');
+      }
+      return (
+        _GroupPaintSpec(
+          commands: List.unmodifiable([for (final paint in paints) paint.$1]),
+          contentClip: commonClip,
+        ),
+        null,
+      );
+    }
     if (softCount != 1 ||
         softDepth != 0 ||
+        paints.isNotEmpty ||
         content == null ||
         softEnd == null) {
       return (null, 'unsupported soft-mask image group');
@@ -1017,8 +1154,8 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
   return (List.unmodifiable(fills), null);
 }
 
-List<_GpuUnit> _selectGpuUnits(
-    List<_GpuUnit> units, PdfMatrix pageToRaster, Rect rasterRegion) {
+List<_GpuUnit> _selectGpuUnits(List<_GpuUnit> units, PdfMatrix pageToRaster,
+    Rect rasterRegion, double pixelRatio) {
   final inverse = pageToRaster.inverted();
   if (inverse == null) return const [];
   final points = <(double, double)>[
@@ -1037,10 +1174,27 @@ List<_GpuUnit> _selectGpuUnits(
     if (py > top) top = py;
   }
   final page = PdfRect(left, bottom, right, top);
+  final scale = _pageDeviceScale(pageToRaster, pixelRatio);
+  // Unit bounds already carry a 2pt safety pad. At very low LoD a one-pixel
+  // hairline can be wider than that in page space, so expand its query bounds
+  // by the remainder. This keeps a line just outside a tile from being
+  // incorrectly culled when its device footprint still reaches the tile.
+  final hairlinePadding = math.max(0.0, 0.5 / scale - 2);
   return [
     for (final unit in units)
-      if (_pdfIntersects(unit.bounds, page)) unit
+      if (_pdfIntersects(
+          unit.hairline && hairlinePadding > 0
+              ? _inflatePdf(unit.bounds, hairlinePadding)
+              : unit.bounds,
+          page))
+        unit
   ];
+}
+
+double _pageDeviceScale(PdfMatrix pageToRaster, double pixelRatio) {
+  final determinant =
+      pageToRaster.a * pageToRaster.d - pageToRaster.b * pageToRaster.c;
+  return math.max(1e-12, math.sqrt(determinant.abs()) * pixelRatio);
 }
 
 PdfRect? _pdfIntersection(PdfRect? a, PdfRect? b) {
@@ -1054,6 +1208,15 @@ PdfRect? _pdfIntersection(PdfRect? a, PdfRect? b) {
       ? PdfRect(left, bottom, right, top)
       : null;
 }
+
+bool _samePdfRect(PdfRect? a, PdfRect? b) =>
+    identical(a, b) ||
+    (a != null &&
+        b != null &&
+        a.left == b.left &&
+        a.bottom == b.bottom &&
+        a.right == b.right &&
+        a.top == b.top);
 
 PdfRect _pdfUnion(PdfRect? a, PdfRect b) => a == null
     ? b
@@ -1289,7 +1452,8 @@ class _FlutterGpuTileSession
       final gpuPipelines = await pipelines;
       if (_disposed) throw StateError('flutter_gpu tile session disposed');
       final issue = Stopwatch()..start();
-      final selected = _selectGpuUnits(units, compiled.pageToRaster, region);
+      final selected =
+          _selectGpuUnits(units, compiled.pageToRaster, region, pixelRatio);
       stats.selectedCommands += selected.length;
       final image = compiled.render(
         selected,
@@ -1388,6 +1552,9 @@ class _CompiledScene {
           draw = pending is Future<_GpuDraw?> ? await pending : pending;
         } else {
           draw = switch (unit.composite!) {
+            _GroupFillSpec spec => _compileGroupFill(geometry, spec),
+            _GroupStrokeSpec spec => _compileGroupStroke(geometry, spec),
+            _GroupPaintSpec spec => _compileGroupPaint(geometry, spec),
             _SoftMaskImageSpec spec => await _compileSoftMaskImage(
                 context,
                 geometry,
@@ -1608,6 +1775,7 @@ class _CompiledScene {
       height: height,
       clipDraws: clipDraws,
       stencilClear: paper.vertices,
+      emplaceTransient: transient.emplace,
     );
     encoder
       ..setClip(_rootGpuClip)
@@ -1780,6 +1948,57 @@ Future<_GpuDraw> _compileSoftMaskImage(
     maskResource.texture,
     info,
   );
+}
+
+_GpuDraw? _compileGroupFill(_GpuGeometryArena geometry, _GroupFillSpec spec) {
+  final content = spec.content;
+  final subpaths = flattenPath(
+    content.path,
+    PdfMatrix.identity,
+    tolerance: 0.01,
+  );
+  return _stencilDraw(
+    geometry,
+    subpaths,
+    content.color,
+    (content.alpha * spec.groupAlpha).clamp(0.0, 1.0),
+    content.rule,
+    false,
+  );
+}
+
+_GpuDraw? _compileGroupStroke(
+        _GpuGeometryArena geometry, _GroupStrokeSpec spec) =>
+    _compileStroke(
+      geometry,
+      spec.content,
+      alphaScale: spec.groupAlpha,
+    );
+
+_GpuDraw? _compileGroupPaint(_GpuGeometryArena geometry, _GroupPaintSpec spec) {
+  final draws = <_GpuDraw>[];
+  for (final command in spec.commands) {
+    final draw = switch (command) {
+      PdfFillPathCommand(
+        :final path,
+        :final color,
+        :final rule,
+        :final alpha,
+      ) =>
+        _stencilDraw(
+          geometry,
+          flattenPath(path, PdfMatrix.identity, tolerance: 0.01),
+          color,
+          alpha,
+          rule,
+          false,
+        ),
+      PdfStrokePathCommand() => _compileStroke(geometry, command),
+      _ => null,
+    };
+    if (draw != null) draws.add(draw);
+  }
+  return draws.isEmpty ? null : _SequenceDraw(List.unmodifiable(draws));
 }
 
 Future<_GpuDraw> _compileSoftMaskFill(
@@ -2240,6 +2459,49 @@ Uint8List _downsampleRgba(Uint8List source, int width, int height) {
   ).rgba;
 }
 
+_GpuDraw? _compileStroke(
+  _GpuGeometryArena geometry,
+  PdfStrokePathCommand command, {
+  double alphaScale = 1,
+}) {
+  final path = command.path;
+  final color = command.color;
+  final stroke = command.stroke;
+  final alpha = (command.alpha * alphaScale).clamp(0.0, 1.0);
+  var subpaths = flattenPath(path, PdfMatrix.identity, tolerance: 0.01);
+  if (stroke.dashArray.any((value) => value > 0)) {
+    subpaths = dashSubpaths(subpaths, stroke.dashArray, stroke.dashPhase);
+  }
+  if (stroke.width <= 0) {
+    return alpha <= 0
+        ? null
+        : _HairlineDraw(
+            List.unmodifiable(subpaths),
+            color,
+            stroke,
+            alpha,
+          );
+  }
+  final contours = StrokeContours();
+  strokeToContours(
+    subpaths,
+    width: stroke.width,
+    cap: stroke.cap,
+    join: stroke.join,
+    miterLimit: stroke.miterLimit,
+    out: contours,
+  );
+  final rings = <FlatSubpath>[];
+  for (var i = 0; i < contours.ringCount; i++) {
+    rings.add(FlatSubpath(
+      Float64List.sublistView(
+          contours.points.view, contours.ringStart(i), contours.ringEnd(i)),
+      closed: true,
+    ));
+  }
+  return _stencilDraw(geometry, rings, color, alpha, PdfFillRule.nonzero, true);
+}
+
 FutureOr<_GpuDraw?> _compileCommand(
     gpu.GpuContext context,
     _GpuGeometryArena geometry,
@@ -2271,35 +2533,8 @@ FutureOr<_GpuDraw?> _compileCommand(
         gradient,
         alpha,
       );
-    case PdfStrokePathCommand(
-        :final path,
-        :final color,
-        :final stroke,
-        :final alpha
-      ):
-      var subs = flattenPath(path, PdfMatrix.identity, tolerance: 0.01);
-      if (stroke.dashArray.any((value) => value > 0)) {
-        subs = dashSubpaths(subs, stroke.dashArray, stroke.dashPhase);
-      }
-      final contours = StrokeContours();
-      strokeToContours(
-        subs,
-        width: stroke.width,
-        cap: stroke.cap,
-        join: stroke.join,
-        miterLimit: stroke.miterLimit,
-        out: contours,
-      );
-      final rings = <FlatSubpath>[];
-      for (var i = 0; i < contours.ringCount; i++) {
-        rings.add(FlatSubpath(
-          Float64List.sublistView(
-              contours.points.view, contours.ringStart(i), contours.ringEnd(i)),
-          closed: true,
-        ));
-      }
-      return _stencilDraw(
-          geometry, rings, color, alpha, PdfFillRule.nonzero, true);
+    case PdfStrokePathCommand():
+      return _compileStroke(geometry, command);
     case PdfDrawTextCommand(:final run):
       if (run.invisible) return null;
       final subs = <FlatSubpath>[];
@@ -2930,6 +3165,18 @@ sealed class _GpuDraw {
   void encode(_GpuEncoder encoder);
 }
 
+class _SequenceDraw implements _GpuDraw {
+  const _SequenceDraw(this.draws);
+  final List<_GpuDraw> draws;
+
+  @override
+  void encode(_GpuEncoder encoder) {
+    for (final draw in draws) {
+      draw.encode(encoder);
+    }
+  }
+}
+
 class _SolidDraw implements _GpuDraw {
   const _SolidDraw(this.vertices);
   final _GpuBuffer vertices;
@@ -2948,6 +3195,22 @@ class _StencilDraw implements _GpuDraw {
   @override
   void encode(_GpuEncoder encoder) =>
       encoder.stencil(fan, cover, rule: rule, union: union);
+}
+
+/// A PDF zero-width stroke. Its source polyline is retained with the scene,
+/// but its contour is expanded for the current tile LoD because the PDF
+/// definition is one device pixel rather than a fixed page-space width.
+class _HairlineDraw implements _GpuDraw {
+  const _HairlineDraw(this.subpaths, this.color, this.stroke, this.alpha);
+
+  final List<FlatSubpath> subpaths;
+  final PdfColor color;
+  final PdfStroke stroke;
+  final double alpha;
+
+  @override
+  void encode(_GpuEncoder encoder) =>
+      encoder.hairline(subpaths, color, stroke, alpha);
 }
 
 class _GradientDraw implements _GpuDraw {
@@ -3018,6 +3281,7 @@ class _GpuEncoder {
     required this.height,
     required this.clipDraws,
     required this.stencilClear,
+    required this.emplaceTransient,
   });
 
   final gpu.RenderPass pass;
@@ -3030,6 +3294,7 @@ class _GpuEncoder {
   final int height;
   final Map<_GpuClipNode, _GpuClipDraw> clipDraws;
   final _GpuBuffer stencilClear;
+  final gpu.BufferView Function(ByteData) emplaceTransient;
 
   // The upper two stencil bits hold alternating clip intersections. The lower
   // six hold temporary winding/parity values for clip construction and normal
@@ -3176,6 +3441,68 @@ class _GpuEncoder {
       {required PdfFillRule rule, required bool union}) {
     _accumulateStencil(fan,
         rule: rule, union: union, requiredClipBit: _activeClipBit);
+    _paintStencilCover(cover.view, cover.vertices);
+  }
+
+  void hairline(List<FlatSubpath> subpaths, PdfColor color, PdfStroke stroke,
+      double alpha) {
+    final contours = StrokeContours();
+    strokeToContours(
+      subpaths,
+      width: 1 / _pageDeviceScale(pageToRaster, pixelRatio),
+      cap: stroke.cap,
+      join: stroke.join,
+      miterLimit: stroke.miterLimit,
+      out: contours,
+    );
+    final rings = <FlatSubpath>[
+      for (var i = 0; i < contours.ringCount; i++)
+        FlatSubpath(
+          Float64List.sublistView(
+            contours.points.view,
+            contours.ringStart(i),
+            contours.ringEnd(i),
+          ),
+          closed: true,
+        ),
+    ];
+    final bounds = FlatBounds.of(rings);
+    if (bounds == null) return;
+    final fan = FloatBuilder(1024);
+    for (final sub in rings) {
+      final points = sub.points;
+      final count = points.length ~/ 2;
+      for (var i = 1; i + 1 < count; i++) {
+        fan
+          ..add2(points[0], points[1])
+          ..add2(points[2 * i], points[2 * i + 1])
+          ..add2(points[2 * i + 2], points[2 * i + 3]);
+      }
+    }
+    if (fan.isEmpty) return;
+    final rgba = _premul(color, alpha);
+    final cover = FloatBuilder(36);
+    for (final (x, y) in <(double, double)>[
+      (bounds.left, bounds.bottom),
+      (bounds.right, bounds.bottom),
+      (bounds.right, bounds.top),
+      (bounds.left, bounds.bottom),
+      (bounds.right, bounds.top),
+      (bounds.left, bounds.top),
+    ]) {
+      cover.add6(x, y, rgba[0], rgba[1], rgba[2], rgba[3]);
+    }
+    _accumulateStencilView(
+      emplaceTransient(fan.bytes),
+      fan.length ~/ 2,
+      rule: PdfFillRule.nonzero,
+      union: true,
+      requiredClipBit: _activeClipBit,
+    );
+    _paintStencilCover(emplaceTransient(cover.bytes), 6);
+  }
+
+  void _paintStencilCover(gpu.BufferView cover, int vertices) {
     pass
       ..setStencilReference(0)
       ..setColorBlendEquation(_paintBlend)
@@ -3188,7 +3515,7 @@ class _GpuEncoder {
       ))
       ..bindPipeline(pipelines.solid)
       ..bindUniform(pipelines.solidTransform, transform);
-    _drawBuffer(cover);
+    _drawView(cover, vertices);
   }
 
   void gradient(_GpuBuffer fan, _GpuBuffer mesh, PdfFillRule rule) {
@@ -3219,6 +3546,21 @@ class _GpuEncoder {
 
   void _accumulateStencil(
     _GpuBuffer fan, {
+    required PdfFillRule rule,
+    required bool union,
+    required int requiredClipBit,
+  }) =>
+      _accumulateStencilView(
+        fan.view,
+        fan.vertices,
+        rule: rule,
+        union: union,
+        requiredClipBit: requiredClipBit,
+      );
+
+  void _accumulateStencilView(
+    gpu.BufferView fan,
+    int vertices, {
     required PdfFillRule rule,
     required bool union,
     required int requiredClipBit,
@@ -3254,7 +3596,7 @@ class _GpuEncoder {
           targetFace: gpu.StencilFace.back,
         );
     }
-    _drawBuffer(fan);
+    _drawView(fan, vertices);
   }
 
   void _clearStencil(int mask) {
@@ -3357,24 +3699,28 @@ class _GpuEncoder {
   // package usable across both stable SDKs without exposing that churn to
   // callers. The one-time dynamic probe is cached for every render pass.
   void _drawBuffer(_GpuBuffer buffer) {
+    _drawView(buffer.view, buffer.vertices);
+  }
+
+  void _drawView(gpu.BufferView view, int vertices) {
     final dynamic dynamicPass = pass;
     if (_separateVertexCountApi == true) {
-      dynamicPass.bindVertexBuffer(buffer.view);
-      dynamicPass.draw(buffer.vertices);
+      dynamicPass.bindVertexBuffer(view);
+      dynamicPass.draw(vertices);
       return;
     }
     if (_separateVertexCountApi == false) {
-      dynamicPass.bindVertexBuffer(buffer.view, buffer.vertices);
+      dynamicPass.bindVertexBuffer(view, vertices);
       dynamicPass.draw();
       return;
     }
     try {
-      dynamicPass.bindVertexBuffer(buffer.view);
+      dynamicPass.bindVertexBuffer(view);
       _separateVertexCountApi = true;
-      dynamicPass.draw(buffer.vertices);
+      dynamicPass.draw(vertices);
     } on NoSuchMethodError {
       _separateVertexCountApi = false;
-      dynamicPass.bindVertexBuffer(buffer.view, buffer.vertices);
+      dynamicPass.bindVertexBuffer(view, vertices);
       dynamicPass.draw();
     }
   }

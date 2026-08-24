@@ -2,6 +2,14 @@
 
 ## Next
 
+- Render zero-width PDF hairlines as exact one-device-pixel contours generated
+  for each tile LoD, while retaining the flattened source path with the scene.
+- Collapse isolated transparency groups containing one clipped vector fill or
+  stroke into retained stencil geometry, preserving group alpha and the
+  group's page blend mode without an intermediate texture; one-element
+  knockout groups use the same exact path because they have no sibling elements
+  to knock out. Alpha-one, normal-blend non-knockout groups can retain multiple
+  ordered fills and strokes because source-over is associative.
 - Render platform-decoded images with deferred `/SMask` companion surfaces on
   the GPU by caching both textures and combining them in the soft-mask shader.
 - Combine a single vector fill with one opaque grayscale image soft mask in a
