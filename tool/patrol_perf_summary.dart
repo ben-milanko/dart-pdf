@@ -120,8 +120,8 @@ void main(List<String> arguments) {
 /// produce enough complete start/end pairs.
 ///
 /// CI uses this after writing the report artifacts: a flaky Patrol invocation
-/// remains diagnosable, but cannot silently turn a three-sample comparison
-/// into a one- or two-sample result.
+/// remains diagnosable, but cannot silently reduce a repeated comparison to a
+/// sparse result.
 Map<String, int> patrolPerfScenarioRunShortfalls(
   Map<String, Object?> trace,
   Map<String, int> required,
@@ -333,7 +333,7 @@ class PatrolPerfTrace {
   final Map<String, _ScenarioMetrics> _scenarioMetrics;
 
   Map<String, Object?> toJson() => {
-        'schema': 8,
+        'schema': 9,
         'build': buildTag,
         'events': lines.length,
         'journeys': journeys,
@@ -618,6 +618,12 @@ class PatrolPerfComparison {
         ..writeln(
           'Scenario elapsed uses p50 across repeated runs; phase and tail '
           'signals remain p95. Samples (main / PR): $samples.',
+        )
+        ..writeln()
+        ..writeln(
+          'When both cohorts have at least four samples, overlapping '
+          'interquartile ranges are labelled `within run spread` instead '
+          'of showing a misleading percentage.',
         );
       if (sparseSamples) {
         buffer
@@ -661,10 +667,13 @@ class PatrolPerfComparison {
     }
 
     for (final scenario in measuredScenarios) {
-      timingRow(
-        'Scenario ${_code(scenario)} elapsed p50',
-        ['scenarioMetrics', scenario, 'elapsedMs', 'p50'],
-      );
+      final path = ['scenarioMetrics', scenario, 'elapsedMs', 'p50'];
+      final before = _jsonNumber(baseline, path);
+      final after = _jsonNumber(current, path);
+      if (before == null && after == null) continue;
+      buffer.writeln('| Scenario ${_code(scenario)} elapsed p50 | '
+          '${_timingText(before)} | ${_timingText(after)} | '
+          '${_scenarioElapsedDelta(baseline, current, scenario)} |');
     }
     timingRow('Jank total p95', const ['jank', 'totalMs', 'p95']);
     timingRow('Reconcile p95', const ['reconciliation', 'elapsedMs', 'p95']);
@@ -713,6 +722,12 @@ class PatrolPerfComparison {
         'Advisory only: timing changes do not fail CI. The baseline is the '
         'newest usable $artifactKind artifact from `Patrol E2E` on `main`.',
       )
+      ..writeln()
+      ..writeln(
+        'Scenario elapsed p50 changes are labelled `within run spread` when '
+        'both cohorts have at least four samples and their interquartile '
+        'ranges overlap.',
+      )
       ..write(
         sameCoverage
             ? ''
@@ -734,11 +749,16 @@ class PatrolPerfComparison {
           '${_numberText(after)} | ${_countDelta(before, after)} |');
     }
 
-    void timingRow(String label, List<String> path) {
+    void timingRow(
+      String label,
+      List<String> path, {
+      String? change,
+    }) {
       final before = _jsonNumber(baseline, path);
       final after = _jsonNumber(current, path);
       buffer.writeln('| $label | ${_timingText(before)} | '
-          '${_timingText(after)} | ${_percentDelta(before, after)} |');
+          '${_timingText(after)} | '
+          '${change ?? _percentDelta(before, after)} |');
     }
 
     countRow('Journey segments', const ['journeys']);
@@ -802,6 +822,7 @@ class PatrolPerfComparison {
       timingRow(
         'Scenario $scenario elapsed p50',
         ['scenarioMetrics', scenario, 'elapsedMs', 'p50'],
+        change: _scenarioElapsedDelta(baseline, current, scenario),
       );
       timingRow(
         'Scenario $scenario elapsed p95',
@@ -935,6 +956,9 @@ class _ScenarioMetrics {
   Map<String, Object?> toJson() => {
         'runs': elapsedMs.length,
         'elapsedMs': _distribution(elapsedMs),
+        // Retain the small per-scenario sample set so PR comparisons can
+        // distinguish a shifted distribution from overlapping runner noise.
+        'elapsedSamplesMs': List<double>.unmodifiable(elapsedMs),
         'jank': {
           'count': jankTotalMs.length,
           'totalMs': _distribution(jankTotalMs),
@@ -1329,7 +1353,62 @@ Set<String> _jsonMapKeys(Object? root, List<String> path) {
       : const {};
 }
 
-typedef _GpuTileSpeedup = ({double firstTileMs, double canvasTileMs});
+List<double> _jsonNumberList(Object? root, List<String> path) {
+  Object? value = root;
+  for (final part in path) {
+    if (value is! Map || !value.containsKey(part)) return const [];
+    value = value[part];
+  }
+  if (value is! List) return const [];
+  return [
+    for (final item in value)
+      if (item is num) item.toDouble(),
+  ];
+}
+
+String _scenarioElapsedDelta(
+  Object? baseline,
+  Object? current,
+  String scenario,
+) {
+  final before = _jsonNumber(
+    baseline,
+    ['scenarioMetrics', scenario, 'elapsedMs', 'p50'],
+  );
+  final after = _jsonNumber(
+    current,
+    ['scenarioMetrics', scenario, 'elapsedMs', 'p50'],
+  );
+  final beforeSamples = _jsonNumberList(
+    baseline,
+    ['scenarioMetrics', scenario, 'elapsedSamplesMs'],
+  );
+  final afterSamples = _jsonNumberList(
+    current,
+    ['scenarioMetrics', scenario, 'elapsedSamplesMs'],
+  );
+  if (_interquartileRangesOverlap(beforeSamples, afterSamples)) {
+    return 'within run spread';
+  }
+  return _percentDelta(before, after);
+}
+
+bool _interquartileRangesOverlap(List<double> a, List<double> b) {
+  if (a.length < 4 || b.length < 4) return false;
+  final sortedA = List<double>.of(a)..sort();
+  final sortedB = List<double>.of(b)..sort();
+  final aLow = _percentile(sortedA, 0.25);
+  final aHigh = _percentile(sortedA, 0.75);
+  final bLow = _percentile(sortedB, 0.25);
+  final bHigh = _percentile(sortedB, 0.75);
+  return aLow <= bHigh && bLow <= aHigh;
+}
+
+typedef _GpuTileSpeedup = ({
+  double firstTileMs,
+  double canvasTileMs,
+  double? pairedSpeedup,
+});
 
 Map<String, _GpuTileSpeedup> _gpuTileSpeedups(Object? trace) {
   const suffix = '-first-tile';
@@ -1348,9 +1427,27 @@ Map<String, _GpuTileSpeedup> _gpuTileSpeedups(Object? trace) {
       ['scenarioMetrics', '$prefix-canvas-tile', 'elapsedMs', 'p50'],
     );
     if (firstTile == null || canvasTile == null || firstTile <= 0) continue;
+    final firstTileSamples = _jsonNumberList(
+      trace,
+      ['scenarioMetrics', scenario, 'elapsedSamplesMs'],
+    );
+    final canvasTileSamples = _jsonNumberList(
+      trace,
+      ['scenarioMetrics', '$prefix-canvas-tile', 'elapsedSamplesMs'],
+    );
+    final pairedRatios = <double>[];
+    if (firstTileSamples.length == canvasTileSamples.length) {
+      for (var i = 0; i < firstTileSamples.length; i++) {
+        final first = firstTileSamples[i];
+        if (first > 0) pairedRatios.add(canvasTileSamples[i] / first);
+      }
+    }
+    final sortedRatios = List<double>.of(pairedRatios)..sort();
     result[prefix.substring('gpu-'.length).replaceAll('-', ' ')] = (
       firstTileMs: firstTile.toDouble(),
       canvasTileMs: canvasTile.toDouble(),
+      pairedSpeedup:
+          sortedRatios.isEmpty ? null : _percentile(sortedRatios, 0.50),
     );
   }
   return result;
@@ -1369,7 +1466,7 @@ String? _gpuTileSpeedupHeadline(
 
   String speedup(_GpuTileSpeedup? value) => value == null
       ? 'n/a'
-      : '${(value.canvasTileMs / value.firstTileMs).toStringAsFixed(1)}×';
+      : '${(value.pairedSpeedup ?? value.canvasTileMs / value.firstTileMs).toStringAsFixed(1)}×';
 
   if (baseline != null) {
     final values = workloads.map(

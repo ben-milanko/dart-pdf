@@ -37,7 +37,7 @@ void main() {
     '[perf 90] scenario name=heavy-document phase=validated',
   ]);
   final json = trace.toJson();
-  _expectEqual(json['schema'], 8, 'schema');
+  _expectEqual(json['schema'], 9, 'schema');
 
   final workerPhases = _map(_map(json, 'webWorker'), 'phases');
   _expectEqual(workerPhases['count'], 2, 'worker phase count');
@@ -354,6 +354,11 @@ void main() {
     const {'p50': 200.0, 'p95': 300.0, 'max': 300.0},
     'repeated scenario distribution',
   );
+  _expectEqual(
+    (repeatedScenario['elapsedSamplesMs'] as List).join(', '),
+    '100.0, 300.0, 200.0',
+    'repeated scenario raw sample order',
+  );
   _expectContains(
     repeatedTrace.toHeadlineMarkdown(),
     '| Scenario `repeatable` elapsed p50 (3 runs) | 200.0 ms |',
@@ -372,6 +377,50 @@ void main() {
     repeatedComparison,
     'fewer than three samples',
     'repeated comparison is not sparse',
+  );
+  final overlapBaseline = summary.PatrolPerfTrace.parse(const [
+    '[perf 0] build commit=overlap-base-1',
+    '[perf 10] scenario name=overlap phase=start',
+    '[perf 110] scenario name=overlap phase=validated',
+    '[perf 0] build commit=overlap-base-2',
+    '[perf 10] scenario name=overlap phase=start',
+    '[perf 120] scenario name=overlap phase=validated',
+    '[perf 0] build commit=overlap-base-3',
+    '[perf 10] scenario name=overlap phase=start',
+    '[perf 130] scenario name=overlap phase=validated',
+    '[perf 0] build commit=overlap-base-4',
+    '[perf 10] scenario name=overlap phase=start',
+    '[perf 140] scenario name=overlap phase=validated',
+  ]).toJson();
+  final overlapCurrent = summary.PatrolPerfTrace.parse(const [
+    '[perf 0] build commit=overlap-current-1',
+    '[perf 10] scenario name=overlap phase=start',
+    '[perf 115] scenario name=overlap phase=validated',
+    '[perf 0] build commit=overlap-current-2',
+    '[perf 10] scenario name=overlap phase=start',
+    '[perf 125] scenario name=overlap phase=validated',
+    '[perf 0] build commit=overlap-current-3',
+    '[perf 10] scenario name=overlap phase=start',
+    '[perf 135] scenario name=overlap phase=validated',
+    '[perf 0] build commit=overlap-current-4',
+    '[perf 10] scenario name=overlap phase=start',
+    '[perf 145] scenario name=overlap phase=validated',
+  ]).toJson();
+  final overlapComparison = summary.PatrolPerfComparison(
+    baseline: overlapBaseline,
+    current: overlapCurrent,
+  );
+  _expectContains(
+    overlapComparison.toHeadlineMarkdown(),
+    '| Scenario `overlap` elapsed p50 | 120.0 ms | 125.0 ms | '
+        'within run spread |',
+    'overlapping scenario distributions are not presented as a regression',
+  );
+  _expectContains(
+    overlapComparison.toMarkdown(),
+    '| Scenario overlap elapsed p50 | 120.0 ms | 125.0 ms | '
+        'within run spread |',
+    'detailed comparison uses the same noise label',
   );
   final repetitionTransitionComparison = summary.PatrolPerfComparison(
     baseline: const {
@@ -479,7 +528,7 @@ void main() {
   );
   _expectContains(
     gpuTrace.toHeadlineMarkdown(label: 'macOS Metal GPU'),
-    '**GPU first tile vs Canvas (p50):** `tiling page 0` **58.3×** '
+    '**GPU first tile vs Canvas (p50):** `tiling page 0` **56.7×** '
         '(6.0 ms vs 350.0 ms).',
     'GPU speedup leads the PR headline',
   );
@@ -489,7 +538,7 @@ void main() {
       current: gpuJson,
     ).toHeadlineMarkdown(label: 'macOS Metal GPU'),
     '**GPU first tile vs Canvas (p50, main → PR):** '
-        '`tiling page 0` **58.3× → 58.3×**.',
+        '`tiling page 0` **56.7× → 56.7×**.',
     'GPU main comparison leads the PR headline',
   );
 
