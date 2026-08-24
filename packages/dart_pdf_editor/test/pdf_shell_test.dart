@@ -1336,6 +1336,19 @@ void main() {
 
       final top = find.byKey(const ValueKey('pdf-shell-dropzone-top'));
       expect(top, findsOneWidget);
+      final viewerRect = tester.getRect(
+        find.byKey(const ValueKey('pdf-shell-viewer')),
+      );
+      final leftTarget = tester.getRect(
+        find.byKey(const ValueKey('pdf-shell-dropzone-left')),
+      );
+      final rightTarget = tester.getRect(
+        find.byKey(const ValueKey('pdf-shell-dropzone-right')),
+      );
+      expect(viewerRect.left, greaterThan(100));
+      expect(leftTarget.left, greaterThanOrEqualTo(viewerRect.left));
+      expect(rightTarget.right, lessThanOrEqualTo(viewerRect.right));
+      expect(tester.getRect(top).top, greaterThanOrEqualTo(viewerRect.top));
       await gesture.moveTo(tester.getCenter(top));
       await tester.pump();
       await gesture.up();
@@ -1378,6 +1391,11 @@ void main() {
           tester.getCenter(find.byKey(const ValueKey('pdf-group-draw')));
       expect((markup.dx - draw.dx).abs(), lessThan(0.5));
       expect(draw.dy, greaterThan(markup.dy));
+      final markupIcon = tester.getCenter(find.descendant(
+        of: find.byKey(const ValueKey('pdf-group-markup')),
+        matching: find.byIcon(Icons.edit_note),
+      ));
+      expect(markupIcon.dx, closeTo(markup.dx, 0.1));
 
       await tester.tap(find.byKey(const ValueKey('pdf-group-markup')),
           kind: PointerDeviceKind.mouse);

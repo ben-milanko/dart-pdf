@@ -3220,24 +3220,33 @@ class _GroupChip extends StatelessWidget {
                 : _compact
                     ? const EdgeInsets.symmetric(horizontal: 10)
                     : const EdgeInsets.fromLTRB(12, 0, 14, 0),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              if (vertical)
-                Icon(icon, size: 19, color: fg, semanticLabel: label)
-              else if (_toolsHandle && !_compact) ...[
-                Text(label,
-                    style: TextStyle(
-                        fontWeight: FontWeight.w600, fontSize: 14, color: fg)),
-                const SizedBox(width: 6),
-                Icon(icon, size: 18, color: fg),
-              ] else if (!_toolsHandle) ...[
-                Icon(icon, size: 19, color: fg),
-                const SizedBox(width: 8),
-                Text(label,
-                    style: TextStyle(
-                        fontWeight: FontWeight.w600, fontSize: 14, color: fg)),
-              ] else
-                Icon(icon, size: 18, color: fg, semanticLabel: label),
-            ]),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment:
+                  vertical ? MainAxisAlignment.center : MainAxisAlignment.start,
+              children: [
+                if (vertical)
+                  Icon(icon, size: 19, color: fg, semanticLabel: label)
+                else if (_toolsHandle && !_compact) ...[
+                  Text(label,
+                      style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                          color: fg)),
+                  const SizedBox(width: 6),
+                  Icon(icon, size: 18, color: fg),
+                ] else if (!_toolsHandle) ...[
+                  Icon(icon, size: 19, color: fg),
+                  const SizedBox(width: 8),
+                  Text(label,
+                      style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                          color: fg)),
+                ] else
+                  Icon(icon, size: 18, color: fg, semanticLabel: label),
+              ],
+            ),
           ),
         ),
       ),

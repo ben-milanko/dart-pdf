@@ -112,11 +112,17 @@ class PdfShellPanelLayout extends StatefulWidget {
 }
 
 class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
-  bool _dragging = false;
+  bool _draggingPanel = false;
+  bool _draggingToolbar = false;
 
-  void _setDragging(bool value) {
-    if (_dragging == value) return;
-    setState(() => _dragging = value);
+  void _setPanelDragging(bool value) {
+    if (_draggingPanel == value) return;
+    setState(() => _draggingPanel = value);
+  }
+
+  void _setToolbarDragging(bool value) {
+    if (_draggingToolbar == value) return;
+    setState(() => _draggingToolbar = value);
   }
 
   Widget _floatingToolbarOverlay() {
@@ -143,6 +149,13 @@ class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
       children: [
         widget.viewer,
         if (widget.floatingToolbar != null) _floatingToolbarOverlay(),
+        // The toolbar itself docks to the viewer, inward of any panels. Its
+        // drag targets use that exact same rectangle so the preview and the
+        // eventual dock location cannot disagree.
+        if (widget.onToolbarDock != null && _draggingToolbar)
+          Positioned.fill(
+            child: _PanelDropZones(onToolbarDock: widget.onToolbarDock),
+          ),
       ],
     );
     final row = Row(children: [
@@ -163,15 +176,13 @@ class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
       ...widget.overlays,
       if (widget.bottomSheets.isNotEmpty)
         pdfShellBottomSheets(widget.bottomSheets),
-      // the redock drop zones sit above everything while a panel is being
-      // dragged, so a panel can be dropped onto any edge - even over the
-      // toolbar or another panel
-      if ((widget.onPanelDock != null || widget.onToolbarDock != null) &&
-          _dragging)
+      // Panel targets stay shell-relative: panels really do dock outside the
+      // viewer and may be dropped over another panel. Toolbar targets are
+      // instead mounted in the viewer Stack above.
+      if (widget.onPanelDock != null && _draggingPanel)
         Positioned.fill(
           child: _PanelDropZones(
             onPanelDock: widget.onPanelDock,
-            onToolbarDock: widget.onToolbarDock,
           ),
         ),
     ]);
@@ -184,15 +195,15 @@ class _PdfShellPanelLayoutState extends State<PdfShellPanelLayout> {
       // the panels below read this to drive the drag: their move handles
       // toggle the drop zones on and off.
       result = PdfPanelDragScope(
-        onDragStarted: () => _setDragging(true),
-        onDragEnded: () => _setDragging(false),
+        onDragStarted: () => _setPanelDragging(true),
+        onDragEnded: () => _setPanelDragging(false),
         child: result,
       );
     }
     if (widget.onToolbarDock != null) {
       result = PdfToolbarDragScope(
-        onDragStarted: () => _setDragging(true),
-        onDragEnded: () => _setDragging(false),
+        onDragStarted: () => _setToolbarDragging(true),
+        onDragEnded: () => _setToolbarDragging(false),
         child: result,
       );
     }
