@@ -52,6 +52,10 @@ class FlutterGpuTileBackendStats {
   int activeGeometryLeases = 0;
   int geometryBytes = 0;
   int peakGeometryBytes = 0;
+  int transientBuffers = 0;
+  int transientEmplacedBytes = 0;
+  int transientAllocatedBytes = 0;
+  int peakTransientTileBytes = 0;
   int texturesUploaded = 0;
   int textureDirectUploads = 0;
   int textureReadbacks = 0;
@@ -127,6 +131,10 @@ class FlutterGpuTileBackendStats {
         'activeGeometryLeases': activeGeometryLeases,
         'geometryBytes': geometryBytes,
         'peakGeometryBytes': peakGeometryBytes,
+        'transientBuffers': transientBuffers,
+        'transientEmplacedBytes': transientEmplacedBytes,
+        'transientAllocatedBytes': transientAllocatedBytes,
+        'peakTransientTileBytes': peakTransientTileBytes,
         'texturesUploaded': texturesUploaded,
         'textureDirectUploads': textureDirectUploads,
         'textureReadbacks': textureReadbacks,
@@ -199,6 +207,10 @@ class FlutterGpuTileBackendStats {
     offscreenGroupBudgetFallbacks = 0;
     geometryBudgetFallbacks = 0;
     peakGeometryBytes = geometryBytes;
+    transientBuffers = 0;
+    transientEmplacedBytes = 0;
+    transientAllocatedBytes = 0;
+    peakTransientTileBytes = 0;
     texturesUploaded = 0;
     textureDirectUploads = 0;
     textureReadbacks = 0;
@@ -257,6 +269,10 @@ class FlutterGpuTileBackendStats {
       'geometryBudgetFallbacks=$geometryBudgetFallbacks '
       'activeGeometryLeases=$activeGeometryLeases '
       'geometryBytes=$geometryBytes peakGeometryBytes=$peakGeometryBytes '
+      'transientBuffers=$transientBuffers '
+      'transientEmplacedBytes=$transientEmplacedBytes '
+      'transientAllocatedBytes=$transientAllocatedBytes '
+      'peakTransientTileBytes=$peakTransientTileBytes '
       'uploads=$texturesUploaded directUploads=$textureDirectUploads '
       'readbacks=$textureReadbacks textureHits=$textureCacheHits '
       'textureMisses=$textureCacheMisses evictions=$textureEvictions '

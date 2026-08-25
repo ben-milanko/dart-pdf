@@ -3552,7 +3552,7 @@ class _CompiledScene {
     required _GpuPipelines pipelines,
     required int width,
     required int height,
-    required gpu.HostBuffer transient,
+    required _GpuTransientArena transient,
     int maxBytes = 256 << 20,
   }) {
     Rect groupRegionFor(_GpuUnit unit, _OffscreenGroupDraw draw) {
@@ -3677,6 +3677,7 @@ class _CompiledScene {
         groupPass,
         transient,
       ];
+      transient.flush();
       groupCommandBuffer.submit(completionCallback: (_) {
         // The page completion owns the textures on the success path. This
         // independent capture also fences every submitted group resource if a
@@ -3805,7 +3806,7 @@ class _CompiledScene {
             sampleCount: multisampled ? 4 : 1,
           )
         : stencil;
-    final transient = context.createHostBuffer();
+    final transient = _GpuTransientArena(context, stats);
     final groups = _renderOffscreenGroups(
       selected,
       region: region,
@@ -4148,6 +4149,7 @@ class _CompiledScene {
         stats.peakInFlightSubmissions,
         stats.inFlightSubmissions,
       );
+    transient.flush();
     try {
       for (var i = 0; i < commandBuffers.length; i++) {
         final last = i == commandBuffers.length - 1;
@@ -4213,7 +4215,7 @@ class _CompiledScene {
       format: context.defaultStencilFormat,
       sampleCount: multisampled ? 4 : 1,
     );
-    final transient = context.createHostBuffer();
+    final transient = _GpuTransientArena(context, stats);
 
     gpu.RenderPass createPass(
       gpu.CommandBuffer commandBuffer,
@@ -4319,6 +4321,16 @@ class _CompiledScene {
       }
     }
     stats.clipMaskRebuilds += encoder.clipMaskRebuilds;
+    transient.flush();
+    final retained = <Object>[
+      resolve,
+      color,
+      stencil,
+      transient,
+      ...retainedGroupTextures,
+      commandBuffer,
+      pass,
+    ];
     final submit = Stopwatch()..start();
     final completion = Stopwatch()..start();
     _inFlight++;
@@ -4333,7 +4345,7 @@ class _CompiledScene {
         completionCallback: (success) {
           // Keep every intermediate attachment alive until the command buffer
           // has finished sampling it into the page target.
-          retainedGroupTextures.length;
+          retained.length;
           _completeSubmission(
             success,
             completion,
@@ -6076,6 +6088,103 @@ class _GpuGeometryArena {
   }
 }
 
+/// Single-submission bump arena for transient uniforms and dynamic vertices.
+///
+/// Flutter 3.47's HostBuffer reserves four 1,024,000-byte frame blocks even
+/// though the tile renderer creates a fresh allocator for every submission.
+/// Its rollover check also ignores the incoming emplacement length, so a
+/// dense sequence of individually small CAD hairlines can cross the active
+/// block boundary and fail the upload. This arena owns only the buffers used
+/// by one tile, tests the complete aligned range before every write, and is
+/// retained until the command-buffer completion fence fires.
+class _GpuTransientArena {
+  _GpuTransientArena(this.context, [this.stats]);
+
+  static const _firstBlockBytes = 64 << 10;
+  static const _secondBlockBytes = 256 << 10;
+  static const _maximumBlockBytes = 1 << 20;
+
+  final gpu.GpuContext context;
+  final FlutterGpuTileBackendStats? stats;
+  final List<_GpuTransientBlock> _blocks = [];
+  _GpuTransientBlock? _active;
+  var _allocatedBytes = 0;
+  var _nextBlockBytes = _secondBlockBytes;
+
+  gpu.BufferView emplace(ByteData bytes) {
+    final length = bytes.lengthInBytes;
+    if (length <= 0) {
+      throw ArgumentError.value(length, 'bytes.lengthInBytes');
+    }
+    final alignment = math.max(1, context.minimumUniformByteAlignment);
+    var block = _active;
+    var offset = block == null ? 0 : _align(block.usedBytes, alignment);
+    if (block == null || offset + length > block.capacity) {
+      final minimum = _align(length, alignment);
+      final first = _blocks.isEmpty;
+      final base = first ? _firstBlockBytes : _nextBlockBytes;
+      final capacity = math.max(base, minimum);
+      block = _GpuTransientBlock(
+        context.createDeviceBuffer(gpu.StorageMode.hostVisible, capacity),
+        capacity,
+      );
+      _blocks.add(block);
+      _active = block;
+      _allocatedBytes += capacity;
+      if (!first) {
+        _nextBlockBytes = math.min(
+          _maximumBlockBytes,
+          math.max(_nextBlockBytes * 2, capacity),
+        );
+      }
+      stats
+        ?..transientBuffers += 1
+        ..transientAllocatedBytes += capacity
+        ..peakTransientTileBytes = math.max(
+          stats!.peakTransientTileBytes,
+          _allocatedBytes,
+        );
+      offset = 0;
+    }
+    if (!block.buffer.overwrite(bytes, destinationOffsetInBytes: offset)) {
+      throw StateError(
+        'GPU transient upload failed: offset=$offset length=$length '
+        'capacity=${block.capacity}',
+      );
+    }
+    block.usedBytes = offset + length;
+    stats?.transientEmplacedBytes += length;
+    return gpu.BufferView(
+      block.buffer,
+      offsetInBytes: offset,
+      lengthInBytes: length,
+    );
+  }
+
+  void flush() {
+    for (final block in _blocks) {
+      if (block.flushedBytes == block.usedBytes) continue;
+      block.buffer.flush(
+        offsetInBytes: block.flushedBytes,
+        lengthInBytes: block.usedBytes - block.flushedBytes,
+      );
+      block.flushedBytes = block.usedBytes;
+    }
+  }
+
+  static int _align(int value, int alignment) =>
+      ((value + alignment - 1) ~/ alignment) * alignment;
+}
+
+class _GpuTransientBlock {
+  _GpuTransientBlock(this.buffer, this.capacity);
+
+  final gpu.DeviceBuffer buffer;
+  final int capacity;
+  var usedBytes = 0;
+  var flushedBytes = 0;
+}
+
 class _GpuGeometryPool {
   _GpuGeometryPool(this.maxBytes);
 
@@ -7112,7 +7221,7 @@ class _GpuPipelines {
       const [255, 255, 255, 255],
     )));
 
-    final transient = context.createHostBuffer();
+    final transient = _GpuTransientArena(context);
     final transform =
         transient.emplace(ByteData.sublistView(Float32List.fromList(
       const [
@@ -7399,6 +7508,7 @@ class _GpuPipelines {
       pass,
       blendPass,
     ];
+    transient.flush();
     try {
       var completed = 0;
       var succeeded = true;

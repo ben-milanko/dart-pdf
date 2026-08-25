@@ -9,6 +9,12 @@
   directly to the folded paper color. This avoids stencil, MSAA, host-buffer,
   and pipeline work when spatial selection proves that no retained command can
   affect the tile, while boundary tiles keep the exact antialiased paper path.
+- Replace Flutter's four-frame `HostBuffer` in tile submissions with a
+  completion-fenced single-submission arena. It starts at 64 KiB, grows from
+  256 KiB to 1 MiB only for dense dynamic geometry, validates the full aligned
+  emplacement before every write, and fixes CAD hairline pages that could
+  cross Flutter 3.47's 1,024,000-byte block boundary and throw. An ordinary
+  tile now reserves 64 KiB instead of 4,096,000 bytes.
 - Discard exactly transparent advanced-blend source texels before sampling the
   backdrop or evaluating the PDF blend equation. The destination is already a
   native copy of that backdrop, so sparse sources avoid redundant fragment

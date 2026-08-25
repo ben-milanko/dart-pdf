@@ -451,6 +451,57 @@ void main() {
     });
   });
 
+  testWidgets('dense hairlines roll transient buffers without crossing blocks',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      PdfPath densePath(int points, double baseline) => PdfPath([
+            PdfMoveTo(35, baseline),
+            for (var index = 1; index < points; index++)
+              PdfLineTo(
+                35 + (index % 520),
+                baseline + (index.isEven ? 2 : -2),
+              ),
+          ]);
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        for (final (points, baseline) in const [(6200, 240.0), (4200, 300.0)])
+          PdfStrokePathCommand(
+            densePath(points, baseline),
+            const PdfColor(0.05, 0.12, 0.3),
+            const PdfStroke(width: 0, cap: 1, join: 1),
+            1,
+          ),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend(msaa: false);
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      final image = await session.rasterizeRegion(
+        const Rect.fromLTWH(0, 400, 612, 220),
+        pixelRatio: 0.5,
+      );
+      addTearDown(image.dispose);
+      final pixels = await _pixels(image);
+      expect(
+        pixels.indexed.any((item) => item.$1 % 4 != 3 && item.$2 < 240),
+        isTrue,
+      );
+      expect(
+        backend.stats.transientEmplacedBytes,
+        greaterThan(1024000),
+        reason: 'the regression must cross Flutter HostBuffer\'s old block',
+      );
+      expect(backend.stats.transientBuffers, greaterThan(1));
+      expect(backend.stats.peakTransientTileBytes, lessThan(4 << 20));
+    });
+  });
+
   testWidgets('filled, stroked, and hairline text retain exact GPU outlines',
       (tester) async {
     await tester.runAsync(() async {

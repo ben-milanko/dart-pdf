@@ -202,6 +202,9 @@ evictions, budget fallbacks, retained bytes, and live resource leases.
 Clip diagnostics separately report paths compiled and tile-mask rebuilds.
 Paper diagnostics report how many tiles used the exact interior clear path and
 how many of those were content-free color-only submissions.
+Transient-buffer diagnostics report emplaced bytes, allocated buffers/bytes,
+and the peak allocation for one tile, making dense dynamic hairline workloads
+and ordinary 64 KiB submissions separately visible.
 Advanced-blend diagnostics report destination-sampling passes, destination
 blits, cropped-source selections, allocated and peak temporary bytes, and
 budget fallbacks.

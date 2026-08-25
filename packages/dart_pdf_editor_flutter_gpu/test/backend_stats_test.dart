@@ -57,6 +57,10 @@ void main() {
       ..geometryBuffers = 3
       ..geometryBytes = 32 << 20
       ..peakGeometryBytes = 48 << 20
+      ..transientBuffers = 5
+      ..transientEmplacedBytes = 768 << 10
+      ..transientAllocatedBytes = 1 << 20
+      ..peakTransientTileBytes = 896 << 10
       ..analyticTextRuns = 7
       ..analyticGlyphQuads = 18
       ..analyticGlyphSlots = 4
@@ -96,6 +100,10 @@ void main() {
     expect(stats.toJson(), containsPair('sceneWarmUpCancellations', 1));
     expect(stats.toJson(), containsPair('sceneWarmUpMicros', 18000));
     expect(stats.toJson(), containsPair('analyticTextRuns', 7));
+    expect(stats.toJson(), containsPair('transientBuffers', 5));
+    expect(stats.toJson(), containsPair('transientEmplacedBytes', 768 << 10));
+    expect(stats.toJson(), containsPair('transientAllocatedBytes', 1 << 20));
+    expect(stats.toJson(), containsPair('peakTransientTileBytes', 896 << 10));
     expect(stats.toJson(), containsPair('analyticGlyphQuads', 18));
     expect(stats.toJson(), containsPair('analyticGlyphSlots', 4));
     expect(stats.toJson(), containsPair('analyticAtlasBytes', 4096));
@@ -137,6 +145,10 @@ void main() {
     expect(stats.geometryBuffers, 3);
     expect(stats.geometryBytes, 32 << 20);
     expect(stats.peakGeometryBytes, 32 << 20);
+    expect(stats.transientBuffers, 0);
+    expect(stats.transientEmplacedBytes, 0);
+    expect(stats.transientAllocatedBytes, 0);
+    expect(stats.peakTransientTileBytes, 0);
     expect(stats.analyticTextRuns, 0);
     expect(stats.analyticGlyphQuads, 0);
     expect(stats.analyticGlyphSlots, 0);
