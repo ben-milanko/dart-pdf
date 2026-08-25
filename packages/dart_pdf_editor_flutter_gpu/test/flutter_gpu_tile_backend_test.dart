@@ -1006,6 +1006,67 @@ void main() {
     });
   });
 
+  testWidgets('empty clipped transparency groups remain no-ops',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        PdfFillPathCommand(
+          _rect(20, 80, 180, 240),
+          const PdfColor(0.1, 0.7, 0.25),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfBeginGroupCommand(1),
+        PdfClipPathCommand(_rect(80, 100, 80, 220), PdfFillRule.nonzero),
+        const PdfEndGroupCommand(),
+        PdfFillPathCommand(
+          _rect(210, 80, 370, 240),
+          const PdfColor(0.75, 0.2, 0.15),
+          PdfFillRule.nonzero,
+          1,
+        ),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+      const region = Rect.fromLTWH(0, 60, 400, 200);
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var i = 0; i < a.length; i++) {
+        difference += (a[i] - b[i]).abs();
+      }
+      expect(difference / a.length, lessThan(1));
+      expect(backend.stats.lastTileRoute, 'flutter_gpu');
+
+      final painted = await PdfRetainedScene.fromCommands(page, [
+        const PdfBeginGroupCommand(1),
+        PdfClipPathCommand(_rect(80, 100, 80, 220), PdfFillRule.nonzero),
+        PdfFillPathCommand(
+          _rect(60, 90, 100, 230),
+          const PdfColor(0.8, 0.2, 0.1),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfEndGroupCommand(),
+      ]);
+      addTearDown(painted.dispose);
+      final conservative = FlutterGpuTileRasterBackend();
+      expect(conservative.createSession(painted), isNull);
+      expect(conservative.stats.lastRejection, contains('contains paint'));
+    });
+  });
+
   testWidgets('isolated single-fill groups preserve clip blend and alpha',
       (tester) async {
     await tester.runAsync(() async {
@@ -1034,6 +1095,12 @@ void main() {
         ),
         const PdfRestoreCommand(),
         const PdfEndGroupCommand(),
+        PdfFillPathCommand(
+          _rect(175, 120, 215, 220),
+          const PdfColor(0.85, 0.65, 0.2),
+          PdfFillRule.nonzero,
+          0.75,
+        ),
         const PdfSetBlendModeCommand(PdfBlendMode.normal),
       ]);
       addTearDown(scene.dispose);
@@ -1155,6 +1222,88 @@ void main() {
         difference += (a[i] - b[i]).abs();
       }
       expect(difference / a.length, lessThan(4));
+    });
+  });
+
+  testWidgets('disjoint group paints retain their outer blend and clips',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        PdfFillPathCommand(
+          _rect(20, 80, 380, 260),
+          const PdfColor(0.35, 0.65, 0.85),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.multiply),
+        const PdfBeginGroupCommand(1),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+        const PdfSaveCommand(),
+        PdfClipPathCommand(_rect(40, 100, 170, 240), PdfFillRule.nonzero),
+        PdfFillPathCommand(
+          _rect(30, 90, 180, 250),
+          const PdfColor(0.9, 0.3, 0.2),
+          PdfFillRule.nonzero,
+          0.8,
+        ),
+        const PdfRestoreCommand(),
+        const PdfSaveCommand(),
+        PdfClipPathCommand(_rect(220, 100, 350, 240), PdfFillRule.nonzero),
+        PdfFillPathCommand(
+          _rect(210, 90, 360, 250),
+          const PdfColor(0.25, 0.85, 0.35),
+          PdfFillRule.nonzero,
+          0.7,
+        ),
+        const PdfRestoreCommand(),
+        const PdfEndGroupCommand(),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+      final region = Offset.zero & scene.pageSize;
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 0.75);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 0.75);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var i = 0; i < a.length; i++) {
+        difference += (a[i] - b[i]).abs();
+      }
+      expect(difference / a.length, lessThan(2));
+      expect(backend.stats.lastTileRoute, 'flutter_gpu');
+
+      final overlapping = await PdfRetainedScene.fromCommands(page, [
+        const PdfSetBlendModeCommand(PdfBlendMode.multiply),
+        const PdfBeginGroupCommand(1),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+        PdfFillPathCommand(
+          _rect(40, 100, 220, 260),
+          const PdfColor(0.9, 0.3, 0.2),
+          PdfFillRule.nonzero,
+          0.8,
+        ),
+        PdfFillPathCommand(
+          _rect(160, 120, 340, 280),
+          const PdfColor(0.25, 0.85, 0.35),
+          PdfFillRule.nonzero,
+          0.7,
+        ),
+        const PdfEndGroupCommand(),
+      ]);
+      addTearDown(overlapping.dispose);
+      final conservative = FlutterGpuTileRasterBackend();
+      expect(conservative.createSession(overlapping), isNull);
+      expect(conservative.stats.lastRejection, contains('non-identity'));
     });
   });
 

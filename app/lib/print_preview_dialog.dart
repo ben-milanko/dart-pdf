@@ -196,6 +196,7 @@ class _PrintPreviewDialogState extends State<PrintPreviewDialog> {
           Text(l10n.printPreviewTitle),
           MiddleEllipsisText(
             widget.title,
+            hidePdfExtension: true,
             style: theme.textTheme.bodySmall,
           ),
         ],

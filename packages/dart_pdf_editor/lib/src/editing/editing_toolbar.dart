@@ -1345,6 +1345,22 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
 
   // ---- desktop: dock + contextual strip -----------------------------------
 
+  /// The contextual toolbar follows the primary dock: a side dock stacks
+  /// controls vertically, while a top/bottom dock keeps the familiar row.
+  Axis get _stripAxis =>
+      widget.dock.isHorizontal ? Axis.vertical : Axis.horizontal;
+
+  Widget _stripFlex(List<Widget> children) => Flex(
+        direction: _stripAxis,
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: children,
+      );
+
+  Widget _intrinsicStrip(Widget child) => _stripAxis == Axis.horizontal
+      ? IntrinsicHeight(child: child)
+      : IntrinsicWidth(child: child);
+
   Widget _buildDesktop(BuildContext context) {
     final strip = _desktopStrip(context);
     if (widget.dock.isHorizontal) {
@@ -1397,9 +1413,9 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     return _groupStrip(context, group);
   }
 
-  /// A horizontally-centred floating card. When the controls overflow, the
-  /// controls scroll inside the card so the rounded card edge never gets
-  /// clipped by the viewer or scrollbar gutter.
+  /// A dock-aligned floating card. When the controls overflow, they scroll
+  /// along the toolbar's axis so the rounded card edge never gets clipped by
+  /// the viewer or scrollbar gutter.
   Widget _centeredCard(
     BuildContext context, {
     required Widget child,
@@ -1594,102 +1610,113 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
       toolButtons.add(_takeoffButton(context));
     }
 
-    final settings = _groupSettings(context, group);
-    final row = IntrinsicHeight(
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 7, 10, 7),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              _StripLabel(
-                group.label(context),
-                hint: group.id == 'markup' &&
-                        !hasTextSelection &&
-                        controller.markupTool == null
-                    ? pdfL10n(context).tbSelectTextForMarkup
-                    : null,
-              ),
-              ...toolButtons,
-            ]),
-          ),
-          if (settings.isNotEmpty) ...[
-            const _StripDivider(),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 7, 12, 7),
-              child: Row(mainAxisSize: MainAxisSize.min, children: settings),
+    final settings = _groupSettings(context, group, axis: _stripAxis);
+    final strip = _intrinsicStrip(
+      _stripFlex([
+        Padding(
+          padding: _stripAxis == Axis.horizontal
+              ? const EdgeInsets.fromLTRB(12, 7, 10, 7)
+              : const EdgeInsets.fromLTRB(7, 12, 7, 10),
+          child: _stripFlex([
+            _StripLabel(
+              group.label(context),
+              axis: _stripAxis,
+              hint: group.id == 'markup' &&
+                      !hasTextSelection &&
+                      controller.markupTool == null
+                  ? pdfL10n(context).tbSelectTextForMarkup
+                  : null,
             ),
-          ],
+            ...toolButtons,
+          ]),
+        ),
+        if (settings.isNotEmpty) ...[
+          _StripDivider(axis: _stripAxis),
+          Padding(
+            padding: _stripAxis == Axis.horizontal
+                ? const EdgeInsets.fromLTRB(10, 7, 12, 7)
+                : const EdgeInsets.fromLTRB(7, 10, 7, 12),
+            child: _stripFlex(settings),
+          ),
         ],
-      ),
+      ]),
     );
-    return _centeredCard(context, padding: EdgeInsets.zero, child: row);
+    return _centeredCard(
+      context,
+      padding: EdgeInsets.zero,
+      scrollDirection: _stripAxis,
+      child: strip,
+    );
   }
 
   /// The settings cluster for the active tool of [group].
-  List<Widget> _groupSettings(BuildContext context, _ToolGroup group) {
+  List<Widget> _groupSettings(
+    BuildContext context,
+    _ToolGroup group, {
+    Axis axis = Axis.horizontal,
+  }) {
     final tool = controller.tool;
     final fields = _groupStyleFields(group);
     switch (group.id) {
       case 'markup':
         return [
           ..._colorCluster(context),
-          if (widget.showColor && widget.showStyle) const _MiniDivider(),
+          if (widget.showColor && widget.showStyle) _MiniDivider(axis: axis),
           _opacitySlider(context),
-          ..._tuneTrailing(context, fields),
+          ..._tuneTrailing(context, fields, axis: axis),
         ];
       case 'draw':
         if (tool == null && viewerController.hasSelection) {
           return [
             ..._colorCluster(context),
-            if (widget.showColor && widget.showStyle) const _MiniDivider(),
+            if (widget.showColor && widget.showStyle) _MiniDivider(axis: axis),
             _opacitySlider(context),
-            ..._tuneTrailing(context, fields),
+            ..._tuneTrailing(context, fields, axis: axis),
           ];
         }
         if (tool == PdfEditTool.eraser) {
           return [
             ..._drawToolExtras(context),
-            ..._tuneTrailing(context, fields),
+            ..._tuneTrailing(context, fields, axis: axis),
           ];
         }
         return [
           ..._colorCluster(context),
-          if (widget.showColor) const _MiniDivider(),
+          if (widget.showColor) _MiniDivider(axis: axis),
           _strokePresets(context),
-          const _MiniDivider(),
+          _MiniDivider(axis: axis),
           _opacitySlider(context),
           ..._drawToolExtras(context),
-          ..._tuneTrailing(context, fields),
+          ..._tuneTrailing(context, fields, axis: axis),
         ];
       case 'shapes':
         return [
           ..._colorCluster(context),
-          if (widget.showColor) const _MiniDivider(),
+          if (widget.showColor) _MiniDivider(axis: axis),
           _strokePresets(context),
-          const _MiniDivider(),
+          _MiniDivider(axis: axis),
           _opacitySlider(context),
-          ..._tuneTrailing(context, fields),
+          ..._tuneTrailing(context, fields, axis: axis),
         ];
       case 'insert':
         return [
           ..._colorCluster(context),
-          if (widget.showColor) const _MiniDivider(),
+          if (widget.showColor) _MiniDivider(axis: axis),
           _opacitySlider(context),
           ..._insertToolExtras(context),
-          ..._tuneTrailing(context, fields),
+          ..._tuneTrailing(context, fields, axis: axis),
         ];
       case 'measure':
         return [
           ..._colorCluster(context),
-          if (widget.showColor) const _MiniDivider(),
+          if (widget.showColor) _MiniDivider(axis: axis),
           _strokePresets(context),
-          const _MiniDivider(),
+          _MiniDivider(axis: axis),
           _scaleChip(context),
-          ..._tuneTrailing(context, fields),
+          ..._tuneTrailing(context, fields, axis: axis),
         ];
       case 'edit':
-        return _editToolExtras(context);
+        return _editToolExtras(context, axis: axis);
       default:
         return const [];
     }
@@ -1754,7 +1781,10 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   /// and the redaction apply button (each shows only with its tool armed),
   /// plus the document-wide Flatten action (which moved here from the
   /// dock, gated by [PdfEditingToolbar.showFlatten]).
-  List<Widget> _editToolExtras(BuildContext context) {
+  List<Widget> _editToolExtras(
+    BuildContext context, {
+    Axis axis = Axis.horizontal,
+  }) {
     final tool = controller.tool;
     final flatten = widget.showFlatten
         ? _LabeledToolButton(
@@ -1767,7 +1797,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
         : null;
     if (tool == PdfEditTool.form) {
       return [
-        if (flatten != null) ...[flatten, const _MiniDivider()],
+        if (flatten != null) ...[flatten, _MiniDivider(axis: axis)],
         PopupMenuButton<PdfFormFieldKind>(
           key: const ValueKey('pdf-form-field-type'),
           tooltip: pdfL10n(context).tbNewFieldType,
@@ -1809,7 +1839,7 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     }
     if (tool == PdfEditTool.redact) {
       return [
-        if (flatten != null) ...[flatten, const _MiniDivider()],
+        if (flatten != null) ...[flatten, _MiniDivider(axis: axis)],
         IconButton(
           key: const ValueKey('pdf-apply-redactions'),
           icon: const Icon(Icons.check),
@@ -1833,70 +1863,83 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     final settings = <Widget>[
       if (widget.showColor && canRestyle) ..._colorCluster(context),
       if (widget.showColor && canRestyle && widget.showStyle)
-        const _MiniDivider(),
+        _MiniDivider(axis: _stripAxis),
       if (canRestyle) _opacitySlider(context),
-      ..._tuneTrailing(context, _selectionStyleFields()),
+      ..._tuneTrailing(
+        context,
+        _selectionStyleFields(),
+        axis: _stripAxis,
+      ),
     ];
-    final row = IntrinsicHeight(
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 7, 10, 7),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              _StripLabel(selectedFieldName == null
+    final strip = _intrinsicStrip(
+      _stripFlex([
+        Padding(
+          padding: _stripAxis == Axis.horizontal
+              ? const EdgeInsets.fromLTRB(12, 7, 10, 7)
+              : const EdgeInsets.fromLTRB(7, 12, 7, 10),
+          child: _stripFlex([
+            _StripLabel(
+              selectedFieldName == null
                   ? pdfL10n(context).tbSelectionCount(
                       controller.selectedAnnotationSlots.length)
-                  : pdfL10n(context).tbFieldNamed(selectedFieldName)),
-              if (selectedFieldName != null)
-                ..._selectedFormFieldActions(context)
-              else
-                IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  tooltip: pdfL10n(context).tbDeleteAnnotations(
-                      controller.selectedAnnotationSlots.length),
-                  onPressed: controller.deleteSelected,
-                ),
-              if (controller.canCropSelected)
-                IconButton(
-                  key: const ValueKey('pdf-crop-image'),
-                  icon: const Icon(Icons.crop),
-                  tooltip: pdfL10n(context).tbCropImage,
-                  onPressed: controller.beginImageCrop,
-                ),
-              if (controller.canEditSelectedText)
-                IconButton(
-                  key: const ValueKey('pdf-edit-selected-text'),
-                  icon: const Icon(Icons.edit),
-                  tooltip: pdfL10n(context).tbEditAnnotationText,
-                  onPressed: () => _editSelectedText(context),
-                ),
-              if (controller.canRestyleSelectedText)
-                IconButton(
-                  icon: const Icon(Icons.fit_screen),
-                  tooltip: pdfL10n(context).tbAutosizeTextBox,
-                  onPressed: controller.autosizeSelectedTextBox,
-                ),
-            ]),
+                  : pdfL10n(context).tbFieldNamed(selectedFieldName),
+              axis: _stripAxis,
+            ),
+            if (selectedFieldName != null)
+              ..._selectedFormFieldActions(context)
+            else
+              IconButton(
+                icon: const Icon(Icons.delete_outline),
+                tooltip: pdfL10n(context).tbDeleteAnnotations(
+                    controller.selectedAnnotationSlots.length),
+                onPressed: controller.deleteSelected,
+              ),
+            if (controller.canCropSelected)
+              IconButton(
+                key: const ValueKey('pdf-crop-image'),
+                icon: const Icon(Icons.crop),
+                tooltip: pdfL10n(context).tbCropImage,
+                onPressed: controller.beginImageCrop,
+              ),
+            if (controller.canEditSelectedText)
+              IconButton(
+                key: const ValueKey('pdf-edit-selected-text'),
+                icon: const Icon(Icons.edit),
+                tooltip: pdfL10n(context).tbEditAnnotationText,
+                onPressed: () => _editSelectedText(context),
+              ),
+            if (controller.canRestyleSelectedText)
+              IconButton(
+                icon: const Icon(Icons.fit_screen),
+                tooltip: pdfL10n(context).tbAutosizeTextBox,
+                onPressed: controller.autosizeSelectedTextBox,
+              ),
+          ]),
+        ),
+        if (controller.canAlignSelected) ...[
+          _StripDivider(axis: _stripAxis),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
+            child: _alignmentCluster(context, axis: _stripAxis),
           ),
-          if (controller.canAlignSelected) ...[
-            const _StripDivider(),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
-              child: _alignmentCluster(context),
-            ),
-          ],
-          if (settings.isNotEmpty) ...[
-            const _StripDivider(),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 7, 12, 7),
-              child: Row(mainAxisSize: MainAxisSize.min, children: settings),
-            ),
-          ],
         ],
-      ),
+        if (settings.isNotEmpty) ...[
+          _StripDivider(axis: _stripAxis),
+          Padding(
+            padding: _stripAxis == Axis.horizontal
+                ? const EdgeInsets.fromLTRB(10, 7, 12, 7)
+                : const EdgeInsets.fromLTRB(7, 10, 7, 12),
+            child: _stripFlex(settings),
+          ),
+        ],
+      ]),
     );
-    return _centeredCard(context, padding: EdgeInsets.zero, child: row);
+    return _centeredCard(
+      context,
+      padding: EdgeInsets.zero,
+      scrollDirection: _stripAxis,
+      child: strip,
+    );
   }
 
   /// The toolbar shown while the interactive image-crop tool is armed: a
@@ -1906,71 +1949,78 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
   Widget _cropStrip(BuildContext context) {
     final l10n = pdfL10n(context);
     final hasCrop = controller.selectedAnnotation?.imageStampCrop != null;
-    final row = IntrinsicHeight(
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 7, 4, 7),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              _StripLabel(l10n.tbCroppingImage),
-              if (hasCrop)
-                IconButton(
-                  key: const ValueKey('pdf-crop-reset'),
-                  icon: const Icon(Icons.restart_alt),
-                  tooltip: l10n.tbCropReset,
-                  onPressed: () {
-                    controller.cancelImageCrop();
-                    controller.resetSelectedImageCrop();
-                  },
-                ),
-            ]),
-          ),
-          const _StripDivider(),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
+    final strip = _intrinsicStrip(
+      _stripFlex([
+        Padding(
+          padding: _stripAxis == Axis.horizontal
+              ? const EdgeInsets.fromLTRB(12, 7, 4, 7)
+              : const EdgeInsets.fromLTRB(7, 12, 7, 4),
+          child: _stripFlex([
+            _StripLabel(l10n.tbCroppingImage, axis: _stripAxis),
+            if (hasCrop)
               IconButton(
-                key: const ValueKey('pdf-crop-cancel-toolbar'),
-                icon: const Icon(Icons.close),
-                tooltip: l10n.tbCropCancel,
-                onPressed: controller.cancelImageCrop,
+                key: const ValueKey('pdf-crop-reset'),
+                icon: const Icon(Icons.restart_alt),
+                tooltip: l10n.tbCropReset,
+                onPressed: () {
+                  controller.cancelImageCrop();
+                  controller.resetSelectedImageCrop();
+                },
               ),
-              IconButton(
-                key: const ValueKey('pdf-crop-apply-toolbar'),
-                icon: const Icon(Icons.check),
-                tooltip: l10n.tbCropApply,
-                onPressed: controller.commitImageCrop,
-              ),
-            ]),
-          ),
-        ],
-      ),
+          ]),
+        ),
+        _StripDivider(axis: _stripAxis),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
+          child: _stripFlex([
+            IconButton(
+              key: const ValueKey('pdf-crop-cancel-toolbar'),
+              icon: const Icon(Icons.close),
+              tooltip: l10n.tbCropCancel,
+              onPressed: controller.cancelImageCrop,
+            ),
+            IconButton(
+              key: const ValueKey('pdf-crop-apply-toolbar'),
+              icon: const Icon(Icons.check),
+              tooltip: l10n.tbCropApply,
+              onPressed: controller.commitImageCrop,
+            ),
+          ]),
+        ),
+      ]),
     );
-    return _centeredCard(context, padding: EdgeInsets.zero, child: row);
+    return _centeredCard(
+      context,
+      padding: EdgeInsets.zero,
+      scrollDirection: _stripAxis,
+      child: strip,
+    );
   }
 
   /// The align/distribute buttons shown while two or more annotations are
   /// selected: edge + centre alignment, then even-spacing distribution
   /// (which needs three, so those disable below that). Each button defers
   /// to [PdfEditingController.alignSelected].
-  Widget _alignmentCluster(BuildContext context) {
+  Widget _alignmentCluster(
+    BuildContext context, {
+    Axis axis = Axis.horizontal,
+  }) {
     final canDistribute = controller.canDistributeSelected;
-    return Row(mainAxisSize: MainAxisSize.min, children: [
+    return Flex(direction: axis, mainAxisSize: MainAxisSize.min, children: [
       _alignButton(PdfAlignment.left, Icons.align_horizontal_left,
           pdfL10n(context).tbAlignLeft),
       _alignButton(PdfAlignment.horizontalCenter, Icons.align_horizontal_center,
           pdfL10n(context).tbAlignHorizontalCenters),
       _alignButton(PdfAlignment.right, Icons.align_horizontal_right,
           pdfL10n(context).tbAlignRight),
-      const _MiniDivider(),
+      _MiniDivider(axis: axis),
       _alignButton(PdfAlignment.top, Icons.align_vertical_top,
           pdfL10n(context).tbAlignTop),
       _alignButton(PdfAlignment.verticalCenter, Icons.align_vertical_center,
           pdfL10n(context).tbAlignVerticalCenters),
       _alignButton(PdfAlignment.bottom, Icons.align_vertical_bottom,
           pdfL10n(context).tbAlignBottom),
-      const _MiniDivider(),
+      _MiniDivider(axis: axis),
       _alignButton(
           PdfAlignment.distributeHorizontal,
           Icons.horizontal_distribute,
@@ -1997,8 +2047,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
 
   /// The strip shown while a page-content element is selected.
   Widget _elementStrip(BuildContext context) {
-    final row = Row(mainAxisSize: MainAxisSize.min, children: [
-      _StripLabel(pdfL10n(context).tbElement),
+    final strip = _stripFlex([
+      _StripLabel(pdfL10n(context).tbElement, axis: _stripAxis),
       IconButton(
         icon: const Icon(Icons.delete_outline),
         tooltip: pdfL10n(context).tbDeleteElement,
@@ -2058,7 +2108,8 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     return _centeredCard(
       context,
       padding: const EdgeInsets.fromLTRB(12, 7, 12, 7),
-      child: row,
+      scrollDirection: _stripAxis,
+      child: strip,
     );
   }
 
@@ -2278,10 +2329,11 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
     BuildContext context,
     _StyleFields fields, {
     bool compactTrigger = false,
+    Axis axis = Axis.horizontal,
   }) {
     if (!widget.showStyle || fields.isEmpty) return const [];
     return [
-      if (fields.font) const _MiniDivider(),
+      if (fields.font) _MiniDivider(axis: axis),
       _StyleMenu(
         controller: controller,
         palette: widget.palette,
@@ -3058,41 +3110,71 @@ class _NavigationModeGroup extends StatelessWidget {
 
 /// The full-height divider between a strip's tools and settings segments.
 class _StripDivider extends StatelessWidget {
-  const _StripDivider();
+  const _StripDivider({this.axis = Axis.horizontal});
+
+  final Axis axis;
 
   @override
-  Widget build(BuildContext context) => Container(
-        width: 1,
-        margin: const EdgeInsets.symmetric(vertical: 8),
-        color: Theme.of(context).colorScheme.outlineVariant,
-      );
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.outlineVariant;
+    return axis == Axis.horizontal
+        ? Container(
+            width: 1,
+            margin: const EdgeInsets.symmetric(vertical: 8),
+            color: color,
+          )
+        : Container(
+            height: 1,
+            margin: const EdgeInsets.symmetric(horizontal: 8),
+            color: color,
+          );
+  }
 }
 
-/// A short vertical divider between setting clusters within a strip.
+/// A short divider between setting clusters within a strip.
 class _MiniDivider extends StatelessWidget {
-  const _MiniDivider();
+  const _MiniDivider({this.axis = Axis.horizontal});
+
+  final Axis axis;
 
   @override
-  Widget build(BuildContext context) => Container(
-        width: 1,
-        height: 24,
-        margin: const EdgeInsets.symmetric(horizontal: 6),
-        color: Theme.of(context).colorScheme.outlineVariant,
-      );
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.outlineVariant;
+    return axis == Axis.horizontal
+        ? Container(
+            width: 1,
+            height: 24,
+            margin: const EdgeInsets.symmetric(horizontal: 6),
+            color: color,
+          )
+        : Container(
+            width: 24,
+            height: 1,
+            margin: const EdgeInsets.symmetric(vertical: 6),
+            color: color,
+          );
+  }
 }
 
 /// The uppercase group/context label at the left of a contextual strip.
 class _StripLabel extends StatelessWidget {
-  const _StripLabel(this.text, {this.hint});
+  const _StripLabel(
+    this.text, {
+    this.hint,
+    this.axis = Axis.horizontal,
+  });
 
   final String text;
   final String? hint;
+  final Axis axis;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsetsDirectional.only(end: 8, start: 2),
+      padding: axis == Axis.horizontal
+          ? const EdgeInsetsDirectional.only(end: 8, start: 2)
+          : const EdgeInsets.only(bottom: 8, top: 2),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,

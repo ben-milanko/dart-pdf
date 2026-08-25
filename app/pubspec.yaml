@@ -65,7 +65,7 @@ dependencies:
   path_provider: ^2.1.6
   # Content-addresses those snapshots so reopening the same PDF reuses one file.
   crypto: ^3.0.0
-  desktop_drop: ^0.7.0
+  desktop_drop: ^0.8.0
   # Polls GitHub Releases for a newer build (in-app update checker). Works on
   # the web build too, though the updater skips the check there.
   http: ^1.2.0
@@ -80,7 +80,7 @@ dependencies:
   # Re-encodes a camera capture whose EXIF says it is rotated: PDF embeds JPEG
   # bytes verbatim and has no orientation tag, so the rotation has to be baked
   # into the pixels (lib/camera_capture.dart).
-  image: ^4.9.1
+  image: ^4.9.2
 
 dev_dependencies:
   flutter_test:
