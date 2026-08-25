@@ -9,6 +9,7 @@ import 'package:flutter_gpu/gpu.dart' as gpu;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:pdf_cos/pdf_cos.dart';
+import 'package:pdf_document/pdf_document.dart' show PdfRect;
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
@@ -1107,6 +1108,37 @@ void main() {
     });
   });
 
+  testWidgets('single-paint groups with a seeded backdrop keep Canvas',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        const PdfBeginGroupCommand(
+          0.8,
+          backdropColor: PdfColor(0.2, 0.3, 0.4),
+        ),
+        PdfFillPathCommand(
+          _rect(70, 120, 280, 340),
+          const PdfColor(0.85, 0.18, 0.3),
+          PdfFillRule.nonzero,
+          0.7,
+        ),
+        const PdfEndGroupCommand(),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      expect(backend.createSession(scene), isNull);
+      expect(
+        backend.stats.lastRejection,
+        'non-identity single-paint transparency group',
+      );
+    });
+  });
+
   testWidgets('identity groups retain ordered fill and stroke paints',
       (tester) async {
     await tester.runAsync(() async {
@@ -1174,7 +1206,7 @@ void main() {
           1,
         ),
         const PdfSetBlendModeCommand(PdfBlendMode.multiply),
-        const PdfBeginGroupCommand(1, isolated: true),
+        const PdfBeginGroupCommand(1),
         const PdfSetBlendModeCommand(PdfBlendMode.normal),
         PdfClipPathCommand(_rect(50, 110, 290, 350), PdfFillRule.nonzero),
         PdfFillPathCommand(
@@ -1212,6 +1244,121 @@ void main() {
     });
   });
 
+  testWidgets('isolated overlapping paints composite through an offscreen tile',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        PdfFillPathCommand(
+          _rect(30, 90, 310, 370),
+          const PdfColor(0.45, 0.55, 0.7),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.multiply),
+        const PdfBeginGroupCommand(
+          0.62,
+          isolated: true,
+          bounds: PdfRect(50, 110, 290, 350),
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+        PdfClipPathCommand(_rect(50, 110, 290, 350), PdfFillRule.nonzero),
+        PdfFillPathCommand(
+          _rect(70, 140, 230, 310),
+          const PdfColor(0.95, 0.7, 0.2),
+          PdfFillRule.nonzero,
+          0.8,
+        ),
+        PdfStrokePathCommand(
+          _rect(150, 160, 270, 325),
+          const PdfColor(0.2, 0.8, 0.85),
+          const PdfStroke(width: 12, join: 1),
+          0.75,
+        ),
+        const PdfEndGroupCommand(),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      const region = Rect.fromLTWH(20, 410, 310, 310);
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1.5);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1.5);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var i = 0; i < a.length; i++) {
+        difference += (a[i] - b[i]).abs();
+      }
+      expect(difference / a.length, lessThan(4));
+      expect(backend.stats.offscreenGroupPasses, 1);
+      expect(backend.stats.offscreenGroupAllocatedBytes, greaterThan(0));
+      expect(
+        backend.stats.peakOffscreenGroupBytes,
+        backend.stats.offscreenGroupAllocatedBytes,
+      );
+    });
+  });
+
+  testWidgets('offscreen group budget rejects before submitting group passes',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final commands = <PdfRenderCommand>[];
+      for (var index = 0; index < 27; index++) {
+        commands.addAll([
+          const PdfBeginGroupCommand(
+            0.8,
+            isolated: true,
+            bounds: PdfRect(0, 0, 612, 792),
+          ),
+          PdfFillPathCommand(
+            _rect(0, 0, 612, 792),
+            const PdfColor(0.8, 0.2, 0.1),
+            PdfFillRule.nonzero,
+            1,
+          ),
+          PdfFillPathCommand(
+            _rect(0, 0, 612, 792),
+            const PdfColor(0.1, 0.3, 0.8),
+            PdfFillRule.nonzero,
+            1,
+          ),
+          const PdfEndGroupCommand(),
+        ]);
+      }
+      final scene = await PdfRetainedScene.fromCommands(page, commands);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      await expectLater(
+        session.rasterizeRegion(
+          const Rect.fromLTWH(0, 0, 512, 512),
+          pixelRatio: 1,
+        ),
+        throwsA(isA<StateError>()),
+      );
+      expect(backend.stats.offscreenGroupBudgetFallbacks, 1);
+      expect(backend.stats.offscreenGroupPasses, 0);
+      expect(backend.stats.offscreenGroupAllocatedBytes, 0);
+    });
+  });
+
   testWidgets('overlapping fills keep non-normal groups on Canvas',
       (tester) async {
     await tester.runAsync(() async {
@@ -1222,7 +1369,7 @@ void main() {
       final page = PdfDocument.open(buildClassicPdf()).page(0);
       final scene = await PdfRetainedScene.fromCommands(page, [
         const PdfSetBlendModeCommand(PdfBlendMode.multiply),
-        const PdfBeginGroupCommand(1, isolated: true),
+        const PdfBeginGroupCommand(1),
         const PdfSetBlendModeCommand(PdfBlendMode.normal),
         PdfFillPathCommand(
           _rect(70, 140, 220, 310),
@@ -1245,6 +1392,76 @@ void main() {
         backend.stats.lastRejection,
         'non-identity multi-paint transparency group',
       );
+    });
+  });
+
+  testWidgets('zero-alpha and degenerate groups are exact no-ops',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        PdfFillPathCommand(
+          _rect(40, 100, 300, 360),
+          const PdfColor(0.2, 0.65, 0.8),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfBeginGroupCommand(
+          1,
+          isolated: true,
+          bounds: PdfRect(170, 100, 170, 360),
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.overlay),
+        PdfFillPathCommand(
+          _rect(70, 130, 270, 330),
+          const PdfColor(0.95, 0.15, 0.35),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfBeginGroupCommand(0.5, knockout: true),
+        PdfStrokePathCommand(
+          _rect(80, 140, 260, 320),
+          const PdfColor(0.2, 0.9, 0.25),
+          const PdfStroke(width: 8),
+          1,
+        ),
+        const PdfEndGroupCommand(),
+        const PdfEndGroupCommand(),
+        const PdfBeginGroupCommand(
+          0,
+          isolated: false,
+          bounds: PdfRect(60, 120, 280, 340),
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.colorBurn),
+        PdfFillPathCommand(
+          _rect(70, 130, 270, 330),
+          const PdfColor(0.9, 0.25, 0.1),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfEndGroupCommand(),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      const region = Rect.fromLTWH(30, 420, 290, 290);
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1.5);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1.5);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var i = 0; i < a.length; i++) {
+        difference += (a[i] - b[i]).abs();
+      }
+      expect(difference / a.length, lessThan(2));
     });
   });
 
