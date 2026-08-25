@@ -408,6 +408,7 @@
   "tbApplyRedactionsTitle": "रिडैक्शन लागू करें?",
   "tbApplyRedactionsTooltip": "रिडैक्शन लागू करें (अपरिवर्तनीय)",
   "tbAutosizeTextBox": "टेक्स्ट बॉक्स स्वतः-आकार दें (Alt+Z)",
+  "tbAutosizeTextFont": "फ़ॉन्ट को टेक्स्ट बॉक्स में फ़िट करें",
   "tbCalibrateScaleHint": "स्केल कैलिब्रेट करने के लिए ज्ञात लंबाई की एक रेखा खींचें।",
   "tbCharSpacing": "अक्षर अंतराल",
   "tbCheckBoxOption": "चेक बॉक्स",

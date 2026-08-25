@@ -1,5 +1,27 @@
 # Changelog
 
+## 4.0.0
+
+- **Breaking:** classes that `implements PdfTileRasterBackend` must add
+  `supportsWarmUp`, `supportsSessionWarmUp`, and `warmUp()`. Extending the base
+  class keeps the default no-op implementations.
+
+- Fit a free-text font to its existing box from the selection toolbar, tighten
+  Alt+Z box autosizing to the font's real vertical metrics, and add selected
+  annotation flattening to the right-click menu.
+- Add compact docked editing controls and horizontal thumbnail layouts, with
+  steadier panel sizing, scrolling, selection, and recent-document previews.
+- Collect worker-decoded images inside retained tiling cells, so bitmap Type 3
+  glyphs keep their image pixels when a command buffer is rebuilt on the UI
+  isolate.
+- Let optional tile backends prepare view-scoped resources and live-page scene
+  sessions after first useful pixels and a 750 ms quiet window. Foreground
+  rendering cancels and restarts the delay, keeping first paint and immediate
+  navigation uncontended while avoiding cold setup during deep zoom.
+- Carry exact output-intent colour, overprint, transparency, soft-mask, and
+  high-bit-depth image rendering through Canvas, retained, worker, and tile
+  paths.
+
 ## 3.8.0
 
 - Let annotations extend beyond the page edge while remaining selectable,

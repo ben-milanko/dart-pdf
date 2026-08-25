@@ -408,6 +408,7 @@
   "tbApplyRedactionsTitle": "Aplicar tarjas?",
   "tbApplyRedactionsTooltip": "Aplicar tarjas (irreversível)",
   "tbAutosizeTextBox": "Ajustar caixa de texto automaticamente (Alt+Z)",
+  "tbAutosizeTextFont": "Ajustar fonte à caixa de texto",
   "tbCalibrateScaleHint": "Desenhe uma linha de comprimento conhecido para calibrar a escala.",
   "tbCharSpacing": "Espaçamento entre caracteres",
   "tbCheckBoxOption": "Caixa de seleção",

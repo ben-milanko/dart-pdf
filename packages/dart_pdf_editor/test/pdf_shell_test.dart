@@ -1309,6 +1309,180 @@ void main() {
       expect(viewer.pageColor, const Color(0xFFEEF7EE));
     });
 
+    testWidgets('floating toolbar can be dragged to another edge',
+        (tester) async {
+      tester.view.physicalSize = const Size(1200, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      await pump(
+        tester,
+        PdfEditorView(
+          bytes: buildMultiPagePdf(1),
+          preferences: prefs,
+        ),
+      );
+
+      expect(prefs.toolbarDock, PdfPanelDock.bottom);
+      final handle = find.byKey(const ValueKey('pdf-toolbar-move'));
+      expect(handle, findsOneWidget);
+      final gesture = await tester.startGesture(
+        tester.getCenter(handle),
+        kind: PointerDeviceKind.mouse,
+      );
+      await gesture.moveBy(const Offset(12, 0));
+      await tester.pump();
+
+      final top = find.byKey(const ValueKey('pdf-shell-dropzone-top'));
+      expect(top, findsOneWidget);
+      final viewerRect = tester.getRect(
+        find.byKey(const ValueKey('pdf-shell-viewer')),
+      );
+      final leftTarget = tester.getRect(
+        find.byKey(const ValueKey('pdf-shell-dropzone-left')),
+      );
+      final rightTarget = tester.getRect(
+        find.byKey(const ValueKey('pdf-shell-dropzone-right')),
+      );
+      expect(viewerRect.left, greaterThan(100));
+      expect(leftTarget.left, greaterThanOrEqualTo(viewerRect.left));
+      expect(rightTarget.right, lessThanOrEqualTo(viewerRect.right));
+      expect(tester.getRect(top).top, greaterThanOrEqualTo(viewerRect.top));
+      await gesture.moveTo(tester.getCenter(top));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(prefs.toolbarDock, PdfPanelDock.top);
+      final card = find.byKey(const ValueKey('pdf-editing-toolbar-card'));
+      expect(tester.getTopLeft(card).dy, lessThan(140));
+    });
+
+    testWidgets('left toolbar is a vertical rail inside docked panels',
+        (tester) async {
+      tester.view.physicalSize = const Size(1200, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      prefs.toolbarDock = PdfPanelDock.left;
+
+      await pump(
+        tester,
+        PdfEditorView(
+          bytes: buildMultiPagePdf(1),
+          preferences: prefs,
+        ),
+      );
+
+      final card = find.byKey(const ValueKey('pdf-editing-toolbar-card'));
+      final pages = find.byType(PdfThumbnailSidebar);
+      expect(card, findsOneWidget);
+      expect(pages, findsOneWidget);
+      expect(
+        tester.getRect(card).left,
+        greaterThanOrEqualTo(tester.getRect(pages).right - 0.5),
+      );
+
+      final markup =
+          tester.getCenter(find.byKey(const ValueKey('pdf-group-markup')));
+      final draw =
+          tester.getCenter(find.byKey(const ValueKey('pdf-group-draw')));
+      expect((markup.dx - draw.dx).abs(), lessThan(0.5));
+      expect(draw.dy, greaterThan(markup.dy));
+      final markupIcon = tester.getCenter(find.descendant(
+        of: find.byKey(const ValueKey('pdf-group-markup')),
+        matching: find.byIcon(Icons.edit_note),
+      ));
+      expect(markupIcon.dx, closeTo(markup.dx, 0.1));
+
+      await tester.tap(find.byKey(const ValueKey('pdf-group-markup')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      final openCards = find.byKey(const ValueKey('pdf-editing-toolbar-card'));
+      expect(openCards, findsNWidgets(2));
+      final openRects = [
+        for (final element in openCards.evaluate())
+          tester.getRect(find.byElementPredicate((e) => identical(e, element))),
+      ]..sort((a, b) => a.left.compareTo(b.left));
+      expect(openRects.last.left, greaterThan(openRects.first.right));
+      expect(openRects.first.width, lessThan(openRects.last.width));
+
+      // The contextual (second) toolbar follows the rail instead of opening
+      // as the old horizontal row beside it.
+      final highlight =
+          tester.getCenter(find.byKey(const ValueKey('pdf-markup-highlight')));
+      final underline =
+          tester.getCenter(find.byKey(const ValueKey('pdf-markup-underline')));
+      expect(highlight.dx, closeTo(underline.dx, 0.5));
+      expect(underline.dy, greaterThan(highlight.dy));
+      final contextualScroll = tester.widget<SingleChildScrollView>(
+        find
+            .ancestor(
+              of: find.byKey(const ValueKey('pdf-markup-highlight')),
+              matching: find.byType(SingleChildScrollView),
+            )
+            .first,
+      );
+      expect(contextualScroll.scrollDirection, Axis.vertical);
+    });
+
+    testWidgets('right toolbar is a vertical rail inside docked panels',
+        (tester) async {
+      tester.view.physicalSize = const Size(1200, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final prefs = PdfEditingPreferences();
+      addTearDown(prefs.dispose);
+      prefs.showThumbnailSidebar = false;
+      prefs.showAnnotationSidebar = true;
+      prefs.toolbarDock = PdfPanelDock.right;
+
+      await pump(
+        tester,
+        PdfEditorView(
+          bytes: buildMultiPagePdf(1),
+          preferences: prefs,
+        ),
+      );
+
+      final card = find.byKey(const ValueKey('pdf-editing-toolbar-card'));
+      final annotations = find.byType(PdfAnnotationSidebar);
+      expect(card, findsOneWidget);
+      expect(annotations, findsOneWidget);
+      expect(
+        tester.getRect(card).right,
+        lessThanOrEqualTo(tester.getRect(annotations).left + 0.5),
+      );
+      final viewerRect = tester.getRect(
+        find.byKey(const ValueKey('pdf-shell-viewer')),
+      );
+      expect(
+        viewerRect.right - tester.getRect(card).right,
+        greaterThanOrEqualTo(PdfScrollbar.hitExtent - 0.5),
+      );
+
+      final markup =
+          tester.getCenter(find.byKey(const ValueKey('pdf-group-markup')));
+      final draw =
+          tester.getCenter(find.byKey(const ValueKey('pdf-group-draw')));
+      expect((markup.dx - draw.dx).abs(), lessThan(0.5));
+      expect(draw.dy, greaterThan(markup.dy));
+
+      await tester.tap(find.byKey(const ValueKey('pdf-group-markup')),
+          kind: PointerDeviceKind.mouse);
+      await tester.pump();
+      final openCards = find.byKey(const ValueKey('pdf-editing-toolbar-card'));
+      expect(openCards, findsNWidgets(2));
+      final openRects = [
+        for (final element in openCards.evaluate())
+          tester.getRect(find.byElementPredicate((e) => identical(e, element))),
+      ]..sort((a, b) => a.left.compareTo(b.left));
+      expect(openRects.first.right, lessThan(openRects.last.left));
+      expect(openRects.last.width, lessThan(openRects.first.width));
+    });
+
     testWidgets('view options show page color hex and current author',
         (tester) async {
       final prefs = PdfEditingPreferences();

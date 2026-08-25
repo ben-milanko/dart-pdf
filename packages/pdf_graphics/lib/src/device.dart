@@ -207,6 +207,7 @@ class PdfImageRequest {
     this.isStencil = false,
     this.stencilColor = PdfColor.black,
     this.isInline = false,
+    this.isLuminosityMask = false,
     PdfDecodedPixels? decoded,
     this.sourceReference,
   })  : _decoded = decoded,
@@ -258,6 +259,13 @@ class PdfImageRequest {
   /// synthesized fresh on every interpretation pass, so consumers that
   /// cache decoded pixels must key them by value, not stream identity.
   final bool isInline;
+
+  /// True when this image is being painted into a luminosity soft-mask
+  /// group. Device samples must then retain their native mask luminance
+  /// instead of being colour-managed for page preview. In particular,
+  /// DeviceGray 0/1 must remain exact black/white even when the document has
+  /// a CMYK OutputIntent.
+  final bool isLuminosityMask;
 
   /// Maps the unit square (image space, y-up) to page space.
   final PdfMatrix transform;
@@ -368,5 +376,22 @@ abstract interface class PdfDevice {
     double backdropLuminance = 0,
     double transferScale = 1,
     double transferOffset = 0,
+  });
+}
+
+/// Optional richer transparency-group entry used by painting/recording
+/// devices that can model isolated and non-isolated group backdrops.
+///
+/// Basic devices continue to receive [PdfDevice.beginGroup]. [bounds] and a
+/// uniform [backdropColor] let a canvas backend seed a non-isolated offscreen
+/// layer with the group's initial backdrop; [isolated] explicitly requests a
+/// transparent initial backdrop (§11.4.6).
+abstract interface class PdfTransparencyGroupDevice {
+  void beginTransparencyGroup(
+    double alpha, {
+    required bool knockout,
+    required bool isolated,
+    PdfRect? bounds,
+    PdfColor? backdropColor,
   });
 }

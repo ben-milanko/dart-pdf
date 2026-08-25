@@ -408,6 +408,7 @@
   "tbApplyRedactionsTitle": "Zastosować wymazania?",
   "tbApplyRedactionsTooltip": "Zastosuj wymazania (nieodwracalne)",
   "tbAutosizeTextBox": "Automatyczny rozmiar pola tekstowego (Alt+Z)",
+  "tbAutosizeTextFont": "Dopasuj czcionkę do pola tekstowego",
   "tbCalibrateScaleHint": "Narysuj linię o znanej długości, aby skalibrować skalę.",
   "tbCharSpacing": "Odstęp znaków",
   "tbCheckBoxOption": "Pole wyboru",

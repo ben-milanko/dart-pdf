@@ -234,7 +234,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
   /// decline their session and transparently keep using the Canvas backend.
   /// Keeping one instance also makes its diagnostics meaningful app-wide.
   late final FlutterGpuTileRasterBackend _tileRasterBackend =
-      FlutterGpuTileRasterBackend();
+      FlutterGpuTileRasterBackend(systemTextOutlines: true);
 
   /// App-wide on-disk caches sharing one persistent backend (filesystem on
   /// native, IndexedDB on web - see persistent_cache.dart). The raster

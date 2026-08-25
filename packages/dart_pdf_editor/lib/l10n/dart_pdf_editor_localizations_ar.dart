@@ -1388,6 +1388,9 @@ class DartPdfEditorLocalizationsAr extends DartPdfEditorLocalizations {
   String get tbAutosizeTextBox => 'تحجيم مربع النص تلقائيًا (Alt+Z)';
 
   @override
+  String get tbAutosizeTextFont => 'ملاءمة الخط لمربع النص';
+
+  @override
   String get tbCalibrateScaleHint => 'ارسم خطًا بطول معلوم لمعايرة المقياس.';
 
   @override

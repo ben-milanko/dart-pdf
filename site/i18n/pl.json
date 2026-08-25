@@ -131,7 +131,7 @@
   "sp_faq2": "<strong>Jak otworzyć plik PDF?</strong> Otwórz DartPDF i wybierz plik, otwórz plik PDF z aplikacji Pliki, wyślij go do DartPDF z arkusza udostępniania innej aplikacji lub przeciągnij i upuść plik na okno.",
   "sp_faq3": "<strong>Czy mogę otwierać pliki PDF chronione hasłem?</strong> Tak. DartPDF prosi o hasło i otwiera zaszyfrowane pliki do przeglądania i edycji.",
   "sp_faq4": "<strong>Jak działa OCR?</strong> Optyczne rozpoznawanie znaków działa w całości na Twoim urządzeniu. Przy pierwszym użyciu aplikacja pobiera model rozpoznawania, a następnie całe przetwarzanie odbywa się lokalnie - Twoje strony nigdy nie są wysyłane na serwer.",
-  "sp_faq5": "<strong>Czy moje dane są prywatne?</strong> Tak. DartPDF nie ma analityki, reklam, kont ani serwerów. Szczegóły znajdziesz w <a href=\"privacy.html\">polityce prywatności</a>.",
+  "sp_faq5": "<strong>Czy moje dane są prywatne?</strong> Tak. DartPDF nie ma analityki, reklam, kont ani serwerów. Szczegóły znajdziesz w <a href=\"/privacy\">polityce prywatności</a>.",
   "sp_stuckH2": "Nadal masz problem?",
   "sp_stuck_p": "Napisz na <a href=\"mailto:ben.milanko@protonmail.com?subject=DartPDF%20support\">ben.milanko@protonmail.com</a> i opisz, co próbowałeś zrobić. Czytamy każdą wiadomość.",
 

@@ -408,6 +408,7 @@
   "tbApplyRedactionsTitle": "¿Aplicar censuras?",
   "tbApplyRedactionsTooltip": "Aplicar censuras (irreversible)",
   "tbAutosizeTextBox": "Autoajustar cuadro de texto (Alt+Z)",
+  "tbAutosizeTextFont": "Ajustar fuente al cuadro de texto",
   "tbCalibrateScaleHint": "Dibuja una línea de longitud conocida para calibrar la escala.",
   "tbCharSpacing": "Espaciado entre caracteres",
   "tbCheckBoxOption": "Casilla",

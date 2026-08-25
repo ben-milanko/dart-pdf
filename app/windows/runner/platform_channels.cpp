@@ -12,6 +12,7 @@
 #include "file_dialogs.h"
 #include "image_clipboard.h"
 #include "utils.h"
+#include "windows_drop.h"
 
 namespace {
 
@@ -143,6 +144,8 @@ DartPdfPlatformChannels::DartPdfPlatformChannels(
 DartPdfPlatformChannels::~DartPdfPlatformChannels() = default;
 
 void DartPdfPlatformChannels::Register(flutter::BinaryMessenger* messenger) {
+  windows_drop_service_ =
+      std::make_unique<DartPdfWindowsDropService>(messenger);
   incoming_channel_ =
       std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
           messenger, kIncomingChannelName,

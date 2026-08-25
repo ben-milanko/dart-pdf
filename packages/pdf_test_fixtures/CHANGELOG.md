@@ -1,5 +1,10 @@
 # Changelog
 
+## 4.0.0
+
+- Lockstep major release for the dart-pdf 4.0.0 package suite. No public
+  fixture API changes since 3.8.0.
+
 ## 3.8.0
 
 - Add the public `buildCadImageStripPdf` fixture for benchmarking and testing

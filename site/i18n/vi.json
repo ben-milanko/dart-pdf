@@ -131,7 +131,7 @@
   "sp_faq2": "<strong>Làm cách nào để mở một tệp PDF?</strong> Mở DartPDF và chọn một tệp, mở một tệp PDF từ ứng dụng Tệp, gửi một tệp đến DartPDF từ trình chia sẻ của ứng dụng khác, hoặc kéo và thả một tệp vào cửa sổ.",
   "sp_faq3": "<strong>Tôi có thể mở tệp PDF được bảo vệ bằng mật khẩu không?</strong> Có. DartPDF nhắc nhập mật khẩu và mở các tệp được mã hóa để xem và chỉnh sửa.",
   "sp_faq4": "<strong>OCR hoạt động như thế nào?</strong> Nhận dạng ký tự quang học chạy hoàn toàn trên thiết bị của bạn. Trong lần dùng đầu tiên, ứng dụng tải xuống mô hình nhận dạng, sau đó mọi xử lý diễn ra cục bộ - các trang của bạn không bao giờ được gửi đến máy chủ.",
-  "sp_faq5": "<strong>Dữ liệu của tôi có riêng tư không?</strong> Có. DartPDF không có phân tích, không quảng cáo, không tài khoản và không máy chủ. Xem <a href=\"privacy.html\">chính sách quyền riêng tư</a> để biết chi tiết.",
+  "sp_faq5": "<strong>Dữ liệu của tôi có riêng tư không?</strong> Có. DartPDF không có phân tích, không quảng cáo, không tài khoản và không máy chủ. Xem <a href=\"/privacy\">chính sách quyền riêng tư</a> để biết chi tiết.",
   "sp_stuckH2": "Vẫn gặp khó khăn?",
   "sp_stuck_p": "Gửi email đến <a href=\"mailto:ben.milanko@protonmail.com?subject=DartPDF%20support\">ben.milanko@protonmail.com</a> và mô tả điều bạn đang cố làm. Chúng tôi đọc mọi tin nhắn.",
 

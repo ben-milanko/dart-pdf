@@ -1361,6 +1361,9 @@ class DartPdfEditorLocalizationsTr extends DartPdfEditorLocalizations {
   String get tbAutosizeTextBox => 'Metin kutusunu otomatik boyutlandır (Alt+Z)';
 
   @override
+  String get tbAutosizeTextFont => 'Yazı tipini metin kutusuna sığdır';
+
+  @override
   String get tbCalibrateScaleHint =>
       'Ölçeği kalibre etmek için bilinen uzunlukta bir çizgi çizin.';
 

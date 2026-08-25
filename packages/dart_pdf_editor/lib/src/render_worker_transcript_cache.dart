@@ -120,6 +120,7 @@ List<PdfRenderCommand>? compactTranscriptSourceCommands(
           isStencil: wire.isStencil,
           stencilColor: wire.stencilColor,
           isInline: original.isInline,
+          isLuminosityMask: original.isLuminosityMask,
           decoded: original.decoded,
           sourceReference: original.sourceReference,
         ));

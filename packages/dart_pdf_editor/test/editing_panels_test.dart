@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_document/pdf_document.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -106,6 +107,33 @@ void main() {
       }
       expect(PdfThumbnailSidebar.debugRasterizations, target);
     }
+
+    testWidgets('Ctrl+A selects every page in the sidebar', (tester) async {
+      final editing = PdfEditingController(buildMultiPagePdf(4));
+      final viewer = PdfViewerController();
+      addTearDown(editing.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Row(children: [
+            PdfThumbnailSidebar(controller: editing, viewerController: viewer),
+            const Expanded(child: SizedBox()),
+          ]),
+        ),
+      ));
+
+      await tester.tap(find.text('Page 2'));
+      await tester.pump();
+      expect(editing.selectedPages, [1]);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+
+      expect(editing.selectedPages, [0, 1, 2, 3]);
+      await tester.pump(const Duration(seconds: 2));
+    });
 
     testWidgets('an edit re-renders only the page it touched', (tester) async {
       final editing = PdfEditingController(buildMultiPagePdf(3));

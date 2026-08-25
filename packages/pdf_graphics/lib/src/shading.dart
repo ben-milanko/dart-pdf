@@ -6,6 +6,7 @@ import 'package:pdf_document/pdf_document.dart';
 
 import 'color.dart';
 import 'color_space.dart';
+import 'colorants.dart';
 import 'function.dart';
 import 'mesh.dart';
 
@@ -20,6 +21,7 @@ class PdfGradient {
     required this.transform,
     this.extendStart = true,
     this.extendEnd = true,
+    this.inkAt,
   });
 
   final bool isRadial;
@@ -37,6 +39,35 @@ class PdfGradient {
   /// an unextended end paints nothing beyond the gradient geometry.
   final bool extendStart;
   final bool extendEnd;
+
+  /// Device-colorant reading at normalized shading parameter `0..1`.
+  ///
+  /// Kept on the interpreter-side gradient only; render-command codecs may
+  /// omit it because painting devices consume [colors], while the page
+  /// overprint compositor consumes this before the device sees the gradient.
+  final PdfInkColorants? Function(double parameter)? inkAt;
+
+  /// The same piecewise-linear colour interpolation a painting device applies
+  /// to the pre-sampled stops.
+  PdfColor colorAt(double parameter) {
+    if (colors.isEmpty) return PdfColor.black;
+    if (colors.length == 1 || stops.length < 2) return colors.first;
+    final t = parameter.clamp(0.0, 1.0).toDouble();
+    var hi = 1;
+    while (hi < stops.length && stops[hi] < t) {
+      hi++;
+    }
+    if (hi >= stops.length || hi >= colors.length) return colors.last;
+    final lo = hi - 1;
+    final span = stops[hi] - stops[lo];
+    final f = span == 0 ? 0.0 : (t - stops[lo]) / span;
+    final a = colors[lo], b = colors[hi];
+    return PdfColor(
+      a.red + (b.red - a.red) * f,
+      a.green + (b.green - a.green) * f,
+      a.blue + (b.blue - a.blue) * f,
+    );
+  }
 
   PdfColor get averageColor {
     var r = 0.0, g = 0.0, b = 0.0;
@@ -58,6 +89,7 @@ class PdfShading {
     required this.function,
     required this.components,
     required this.toColor,
+    required this.toInk,
     required this.domain,
     required this.extendStart,
     required this.extendEnd,
@@ -79,6 +111,7 @@ class PdfShading {
   /// transform into the alternate space (§8.6.6.4); for ICCBased/Cal*/Lab
   /// it applies the calibrated conversion.
   final PdfColor Function(List<double>) toColor;
+  final PdfInkColorants? Function(List<double>) toInk;
   final List<double> domain;
   final bool extendStart;
   final bool extendEnd;
@@ -125,6 +158,7 @@ class PdfShading {
       function: PdfFunction.parse(cos, dict['Function']),
       components: colorSpace.channels,
       toColor: colorSpace.toSrgb,
+      toInk: colorSpace.inkColorants,
       domain: domain.length >= 2 ? domain : const [0, 1],
       extendStart: extend is CosArray &&
           extend.length > 0 &&
@@ -394,6 +428,10 @@ class PdfShading {
       transform: transform,
       extendStart: extendStart,
       extendEnd: extendEnd,
+      inkAt: (s) {
+        final t = domain[0] + s.clamp(0.0, 1.0) * (domain[1] - domain[0]);
+        return toInk(fn.evaluate(t));
+      },
     );
   }
 

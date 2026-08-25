@@ -163,6 +163,387 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
+  # The broad GPU suite above deliberately self-skips on Linux runners without
+  # an Impeller context. This designated Metal lane is the non-optional proof:
+  # the checked-in Flutter-3.47 shader bundle must load, an accepted scene must
+  # create a session and render a tile, and the pixels must agree with Canvas.
+  flutter-gpu-smoke:
+    runs-on: macos-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.0
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Require a real flutter_gpu tile
+        working-directory: packages/dart_pdf_editor_flutter_gpu
+        run: >-
+          flutter test --enable-impeller --enable-flutter-gpu
+          --dart-define PDF_GPU_CI_SMOKE=true
+          test/gpu_ci_smoke_test.dart --reporter expanded
+
+      - name: Validate native system-font GPU corpus parity
+        working-directory: packages/dart_pdf_editor_flutter_gpu
+        env:
+          GPU_CORPUS_SYSTEM_TEXT: 1
+          GPU_CORPUS_REGISTER_SYSTEM_FONTS: 1
+        run: >-
+          flutter test --enable-impeller --enable-flutter-gpu
+          test/gpu_corpus_test.dart --reporter expanded
+
+      - name: Prepare same-host main Flutter GPU baseline
+        id: gpu-baseline
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          # A separate workflow artifact can come from a materially faster or
+          # slower macOS host. Keep the exact base revision on this runner so
+          # the comparison isolates code instead of fleet variance.
+          destination="$RUNNER_TEMP/flutter-gpu-main"
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git worktree add --detach "$destination" "$BASE_SHA"
+          (
+            cd "$destination"
+            flutter pub get
+          )
+          echo "dir=$destination" >> "$GITHUB_OUTPUT"
+          echo "commit=$BASE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Measure Flutter GPU warm-up and first-tile performance
+        id: gpu-performance
+        working-directory: packages/dart_pdf_editor_flutter_gpu
+        shell: bash
+        env:
+          PERF_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_COMMIT: ${{ steps.gpu-baseline.outputs.commit }}
+          BASE_WORKSPACE: ${{ steps.gpu-baseline.outputs.dir }}
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/flutter-gpu-performance.log"
+          baseline_log="$RUNNER_TEMP/flutter-gpu-main-performance.log"
+          : > "$log"
+          : > "$baseline_log"
+
+          run_case() {
+            local workspace="$1"
+            local commit="$2"
+            local destination_log="$3"
+            local cohort="$4"
+            local label="$5"
+            local source_kind="$6"
+            local source="$7"
+            local repetition="$8"
+            local source_env
+            local route_change=0
+            if [[ "$label" == "vector-mask" ||
+                  "$label" == "vector-stack-1" ||
+                  "$label" == "vector-stack-2" ||
+                  "$label" == "text-mask-1" ||
+                  "$label" == "text-mask-2" ||
+                  "$label" == "system-text" ||
+                  "$label" == "cjk-text" ||
+                  "$label" == "advanced-blend" ||
+                  "$label" == "knockout-mask" ||
+                  "$label" == "knockout-overlap" ||
+                  "$label" == "hairline" ]]; then
+              route_change=1
+            fi
+            local system_text=0
+            if [[ "$label" == "system-text" ||
+                  "$label" == "cjk-text" ||
+                  "$label" == "advanced-blend" ]]; then
+              system_text=1
+            fi
+            case "$source_kind" in
+              pdf)
+                source_env="PDF_GPU_BENCHMARK_PDF=$source"
+                ;;
+              fixture)
+                source_env="PDF_GPU_BENCHMARK_FIXTURE=$source"
+                ;;
+              *)
+                echo "Unknown Flutter GPU benchmark source kind: $source_kind" >&2
+                return 2
+                ;;
+            esac
+            echo "::group::Flutter GPU $cohort $label $repetition"
+            (
+              cd "$workspace/packages/dart_pdf_editor_flutter_gpu"
+              env \
+                "$source_env" \
+                PDF_GPU_BENCHMARK_PAGES=0 \
+                PDF_GPU_BENCHMARK_WARMUP=1 \
+                PDF_GPU_BENCHMARK_SCENE_WARMUP=1 \
+                PDF_GPU_BENCHMARK_OVERPRINT=0 \
+                PDF_GPU_BENCHMARK_ROUTE_CHANGE="$route_change" \
+                PDF_GPU_BENCHMARK_SYSTEM_TEXT="$system_text" \
+                PDF_GPU_BENCHMARK_REGISTER_SYSTEM_FONTS="$system_text" \
+                PDF_GPU_BENCHMARK_SCENARIO="$label" \
+                flutter test \
+                  --enable-impeller \
+                  --enable-flutter-gpu \
+                  --dart-define PDF_PERF_LOG=true \
+                  --dart-define "PDF_BUILD_COMMIT=$commit" \
+                  test/real_document_benchmark_test.dart \
+                  --reporter expanded
+            ) 2>&1 | tee -a "$destination_log"
+            echo "::endgroup::"
+          }
+
+          if [[ -n "$BASE_WORKSPACE" ]]; then
+            prime_index=0
+            while read -r label source_kind source; do
+              # The PR worktree already ran gpu_ci_smoke_test.dart. Prime both
+              # worktrees here so compilation and Metal driver caches cannot
+              # systematically favour the candidate measurements.
+              if (( prime_index % 2 == 0 )); then
+                run_case "$BASE_WORKSPACE" "$BASE_COMMIT" /dev/null \
+                  main "$label" "$source_kind" "$source" "unmeasured warm-up"
+                run_case "$GITHUB_WORKSPACE" "$PERF_COMMIT" /dev/null \
+                  pr "$label" "$source_kind" "$source" "unmeasured warm-up"
+              else
+                run_case "$GITHUB_WORKSPACE" "$PERF_COMMIT" /dev/null \
+                  pr "$label" "$source_kind" "$source" "unmeasured warm-up"
+                run_case "$BASE_WORKSPACE" "$BASE_COMMIT" /dev/null \
+                  main "$label" "$source_kind" "$source" "unmeasured warm-up"
+              fi
+              prime_index=$((prime_index + 1))
+            done <<'SCENARIOS'
+          tiling pdf ../../test_corpora/pdfjs/tiling-pattern-box.pdf
+          radial pdf ../../test_corpora/ghent/1-CMYK/GWG060_Shading_x1a.pdf
+          deferred-mask fixture deferred-mask
+          vector-mask pdf ../../test_corpora/pdfjs/smask_luminosity_oob_transfer.pdf
+          vector-stack-1 pdf ../../test_corpora/ghent/1-CMYK/GWG168_Softmasks_Vector_part1_X4.pdf
+          vector-stack-2 pdf ../../test_corpora/ghent/1-CMYK/GWG169_Softmasks_Vector_part2_X4.pdf
+          text-mask-1 pdf ../../test_corpora/ghent/1-CMYK/GWG1610_Softmasks_Text_part1_X4.pdf
+          text-mask-2 pdf ../../test_corpora/ghent/1-CMYK/GWG1611_Softmasks_Text_part2_X4.pdf
+          system-text pdf ../../test_corpora/pdfjs/hello_world_rotated.pdf
+          cjk-text pdf ../../test_corpora/pdfjs/SimFang-variant.pdf
+          advanced-blend pdf ../../test_corpora/pdfjs/blendmode.pdf
+          knockout-mask pdf ../../test_corpora/pdfjs/knockout_smask.pdf
+          knockout-overlap pdf ../../test_corpora/pdfjs/knockout_isolated_overlap.pdf
+          hairline pdf ../../test_corpora/pdfjs/issue3458.pdf
+          SCENARIOS
+          fi
+
+          for iteration in 1 2 3 4 5 6; do
+            while read -r label source_kind source; do
+              # Even repetitions run PR first, odd repetitions run main first:
+              # each cohort inherits the warmer state exactly three times.
+              if [[ -n "$BASE_WORKSPACE" && $((iteration % 2)) == 0 ]]; then
+                run_case "$GITHUB_WORKSPACE" "$PERF_COMMIT" "$log" \
+                  pr "$label" "$source_kind" "$source" "repetition $iteration/6"
+                run_case "$BASE_WORKSPACE" "$BASE_COMMIT" "$baseline_log" \
+                  main "$label" "$source_kind" "$source" "repetition $iteration/6"
+              elif [[ -n "$BASE_WORKSPACE" ]]; then
+                run_case "$BASE_WORKSPACE" "$BASE_COMMIT" "$baseline_log" \
+                  main "$label" "$source_kind" "$source" "repetition $iteration/6"
+                run_case "$GITHUB_WORKSPACE" "$PERF_COMMIT" "$log" \
+                  pr "$label" "$source_kind" "$source" "repetition $iteration/6"
+              else
+                run_case "$GITHUB_WORKSPACE" "$PERF_COMMIT" "$log" \
+                  current "$label" "$source_kind" "$source" "repetition $iteration/6"
+              fi
+            done <<'SCENARIOS'
+          tiling pdf ../../test_corpora/pdfjs/tiling-pattern-box.pdf
+          radial pdf ../../test_corpora/ghent/1-CMYK/GWG060_Shading_x1a.pdf
+          deferred-mask fixture deferred-mask
+          vector-mask pdf ../../test_corpora/pdfjs/smask_luminosity_oob_transfer.pdf
+          vector-stack-1 pdf ../../test_corpora/ghent/1-CMYK/GWG168_Softmasks_Vector_part1_X4.pdf
+          vector-stack-2 pdf ../../test_corpora/ghent/1-CMYK/GWG169_Softmasks_Vector_part2_X4.pdf
+          text-mask-1 pdf ../../test_corpora/ghent/1-CMYK/GWG1610_Softmasks_Text_part1_X4.pdf
+          text-mask-2 pdf ../../test_corpora/ghent/1-CMYK/GWG1611_Softmasks_Text_part2_X4.pdf
+          system-text pdf ../../test_corpora/pdfjs/hello_world_rotated.pdf
+          cjk-text pdf ../../test_corpora/pdfjs/SimFang-variant.pdf
+          advanced-blend pdf ../../test_corpora/pdfjs/blendmode.pdf
+          knockout-mask pdf ../../test_corpora/pdfjs/knockout_smask.pdf
+          knockout-overlap pdf ../../test_corpora/pdfjs/knockout_isolated_overlap.pdf
+          hairline pdf ../../test_corpora/pdfjs/issue3458.pdf
+          SCENARIOS
+          done
+          echo "log=$log" >> "$GITHUB_OUTPUT"
+          if [[ -n "$BASE_WORKSPACE" ]]; then
+            echo "baseline_log=$baseline_log" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Summarize Flutter GPU performance
+        if: always()
+        working-directory: packages/dart_pdf_editor_flutter_gpu
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="${{ steps.gpu-performance.outputs.log }}"
+          if [[ -z "$log" || ! -f "$log" ]]; then
+            log="$RUNNER_TEMP/flutter-gpu-performance.log"
+            touch "$log"
+          fi
+          requirements=(
+            --require-scenario-runs gpu-tiling-pipeline-warm=6
+            --require-scenario-runs gpu-tiling-page-0-scene-warm=6
+            --require-scenario-runs gpu-tiling-page-0-first-tile=6
+            --require-scenario-runs gpu-tiling-page-0-canvas-tile=6
+            --require-scenario-runs gpu-radial-pipeline-warm=6
+            --require-scenario-runs gpu-radial-page-0-scene-warm=6
+            --require-scenario-runs gpu-radial-page-0-first-tile=6
+            --require-scenario-runs gpu-radial-page-0-canvas-tile=6
+            --require-scenario-runs gpu-deferred-mask-page-0-first-tile=6
+            --require-scenario-runs gpu-deferred-mask-page-0-canvas-tile=6
+            --require-scenario-runs gpu-vector-mask-page-0-first-tile=6
+            --require-scenario-runs gpu-vector-mask-page-0-canvas-tile=6
+            --require-scenario-runs gpu-vector-stack-1-page-0-first-tile=6
+            --require-scenario-runs gpu-vector-stack-1-page-0-canvas-tile=6
+            --require-scenario-runs gpu-vector-stack-2-page-0-first-tile=6
+            --require-scenario-runs gpu-vector-stack-2-page-0-canvas-tile=6
+            --require-scenario-runs gpu-text-mask-1-page-0-first-tile=6
+            --require-scenario-runs gpu-text-mask-1-page-0-canvas-tile=6
+            --require-scenario-runs gpu-text-mask-2-page-0-first-tile=6
+            --require-scenario-runs gpu-text-mask-2-page-0-canvas-tile=6
+            --require-scenario-runs gpu-system-text-page-0-first-tile=6
+            --require-scenario-runs gpu-system-text-page-0-canvas-tile=6
+            --require-scenario-runs gpu-cjk-text-page-0-first-tile=6
+            --require-scenario-runs gpu-cjk-text-page-0-canvas-tile=6
+            --require-scenario-runs gpu-advanced-blend-page-0-first-tile=6
+            --require-scenario-runs gpu-advanced-blend-page-0-canvas-tile=6
+            --require-scenario-runs gpu-knockout-mask-page-0-first-tile=6
+            --require-scenario-runs gpu-knockout-mask-page-0-canvas-tile=6
+            --require-scenario-runs gpu-knockout-overlap-page-0-first-tile=6
+            --require-scenario-runs gpu-knockout-overlap-page-0-canvas-tile=6
+            --require-scenario-runs gpu-hairline-page-0-first-tile=6
+            --require-scenario-runs gpu-hairline-page-0-canvas-tile=6
+          )
+          arguments=(
+            "$log"
+            --output test-results/gpu
+            --markdown "$GITHUB_STEP_SUMMARY"
+            --label "macOS Metal GPU"
+            "${requirements[@]}"
+          )
+          baseline_log="${{ steps.gpu-performance.outputs.baseline_log }}"
+          if [[ -n "$baseline_log" && -f "$baseline_log" ]]; then
+            baseline_output="$RUNNER_TEMP/flutter-gpu-main-summary"
+            dart ../../tool/patrol_perf_summary.dart \
+              "$baseline_log" \
+              --output "$baseline_output" \
+              --markdown "$RUNNER_TEMP/flutter-gpu-main.md" \
+              --label "same-host main" \
+              "${requirements[@]}"
+            baseline="$baseline_output/patrol-perf.json"
+            arguments+=(--baseline "$baseline")
+          fi
+          dart ../../tool/patrol_perf_summary.dart "${arguments[@]}"
+
+      - name: Upload Flutter GPU performance report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: flutter-gpu-performance
+          path: packages/dart_pdf_editor_flutter_gpu/test-results/gpu
+          if-no-files-found: error
+
+  flutter-gpu-performance-report:
+    name: Flutter GPU performance report
+    if: >-
+      always() &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
+    needs: [flutter-gpu-smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Download Flutter GPU performance report
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: flutter-gpu-performance
+          path: flutter-gpu-performance
+
+      - name: Comment Flutter GPU performance report
+        if: always()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        env:
+          GPU_PERF_MARKER: dart-pdf-flutter-gpu-performance
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const marker = `<!-- ${process.env.GPU_PERF_MARKER} -->`;
+            const find = (root, name) => {
+              if (!fs.existsSync(root)) return null;
+              for (const entry of fs.readdirSync(root, {withFileTypes: true})) {
+                const candidate = path.join(root, entry.name);
+                if (entry.isDirectory()) {
+                  const nested = find(candidate, name);
+                  if (nested) return nested;
+                } else if (entry.name === name) {
+                  return candidate;
+                }
+              }
+              return null;
+            };
+            const headlinePath = find('flutter-gpu-performance', 'patrol-perf-headline.md');
+            const reportPath = find('flutter-gpu-performance', 'patrol-perf.md');
+            const headline = headlinePath
+              ? fs.readFileSync(headlinePath, 'utf8').trim()
+              : 'No headline Flutter GPU performance summary was produced.';
+            const report = reportPath
+              ? fs.readFileSync(reportPath, 'utf8').trim()
+              : 'No Flutter GPU performance artifact was produced. Open the workflow run for the failing step and raw logs.';
+            const sha = context.payload.pull_request.head.sha.slice(0, 7);
+            const baseSha = context.payload.pull_request.base.sha.slice(0, 7);
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              marker,
+              '## Flutter GPU performance',
+              '',
+              `Automated on macOS Metal for commit \`${sha}\` · [workflow run and downloadable traces](${runUrl})`,
+              `Same-host A/B: base \`${baseSha}\` and PR were alternated on one GitHub runner.`,
+              '',
+              headline,
+              '',
+              '<details>',
+              '<summary>View Flutter GPU performance details</summary>',
+              '',
+              report,
+              '',
+              '</details>',
+            ].join('\n');
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find((comment) =>
+              comment.user?.type === 'Bot' && comment.body?.includes(marker)
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
   # The real bundled web render worker
   # (`packages/dart_pdf_editor_assets/assets/web/pdf_render_worker.dart.js`) is a
   # ~1 MB `dart compile js` artifact that is NO LONGER committed (issue #582):

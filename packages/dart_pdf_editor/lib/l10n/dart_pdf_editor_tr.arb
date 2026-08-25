@@ -408,6 +408,7 @@
   "tbApplyRedactionsTitle": "Karartmalar uygulansın mı?",
   "tbApplyRedactionsTooltip": "Karartmaları uygula (geri alınamaz)",
   "tbAutosizeTextBox": "Metin kutusunu otomatik boyutlandır (Alt+Z)",
+  "tbAutosizeTextFont": "Yazı tipini metin kutusuna sığdır",
   "tbCalibrateScaleHint": "Ölçeği kalibre etmek için bilinen uzunlukta bir çizgi çizin.",
   "tbCharSpacing": "Karakter aralığı",
   "tbCheckBoxOption": "Onay kutusu",

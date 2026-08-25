@@ -120,6 +120,7 @@ class TranslatingPdfDevice implements PdfDevice {
         isStencil: request.isStencil,
         stencilColor: request.stencilColor,
         isInline: request.isInline,
+        isLuminosityMask: request.isLuminosityMask,
         decoded: request.decoded,
         sourceReference: request.sourceReference,
       ));

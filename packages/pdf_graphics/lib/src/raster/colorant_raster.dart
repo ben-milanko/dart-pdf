@@ -79,7 +79,11 @@ class PdfColorantRaster {
   final List<Uint8List?> _clipMaskStack = [];
 
   void save() {
-    _clipStack..add(_clipX0)..add(_clipY0)..add(_clipX1)..add(_clipY1);
+    _clipStack
+      ..add(_clipX0)
+      ..add(_clipY0)
+      ..add(_clipX1)
+      ..add(_clipY1);
     _clipMaskStack.add(_clipMask);
   }
 
@@ -99,7 +103,15 @@ class PdfColorantRaster {
       _clipY1 = _clipY0;
       return;
     }
-    final x0 = spans.startAt(0), x1 = spans.endAt(0);
+    // A non-rectangular clip's first scanline may be its narrowest (a
+    // triangle tip, or either diagonal arm of GWG020's X). Its coarse bounds
+    // must cover every scanline; using only the first run silently reduced
+    // the active clip to that one column before the mask was even consulted.
+    var x0 = spans.startAt(0), x1 = spans.endAt(0);
+    for (var i = 1; i < spans.length; i++) {
+      if (spans.startAt(i) < x0) x0 = spans.startAt(i);
+      if (spans.endAt(i) > x1) x1 = spans.endAt(i);
+    }
     final y0 = spans.yAt(0), y1 = spans.yAt(spans.length - 1) + 1;
     var isRect = spans.length == y1 - y0;
     for (var i = 0; isRect && i < spans.length; i++) {
@@ -148,7 +160,8 @@ class PdfColorantRaster {
   /// Returns null when [spans] covers no cell inside the clip, or when more
   /// than [limit] distinct vectors survive - a backdrop that varied that much
   /// is one the caller should not try to resolve to a single colour.
-  List<int>? backdropUnder(ColorantSpans spans, {int limit = 8}) {
+  List<int>? backdropUnder(ColorantSpans spans,
+      {int limit = 8, double bleedFraction = _bleedFraction}) {
     if (spans.isEmpty) return null;
     final found = _found..clear();
     final counts = _counts..clear();
@@ -177,7 +190,7 @@ class PdfColorantRaster {
       }
     }
     if (total == 0) return null;
-    final floor = total * _bleedFraction;
+    final floor = total * bleedFraction;
     final kept = <int>[];
     for (var i = 0; i < found.length; i++) {
       if (counts[i] >= floor) kept.add(found[i]);
@@ -192,6 +205,26 @@ class PdfColorantRaster {
 
   final List<int> _found = [];
   final List<int> _counts = [];
+
+  /// Palette index at page-space point ([x], [y]), respecting the active
+  /// clip, or null outside the raster/clip. Used only by the spatial image
+  /// overprint path; ordinary shapes stay on the much cheaper span API.
+  int? paletteAtPage(double x, double y) {
+    final mappedX = mapping.matrix.transformX(x, y);
+    final mappedY = mapping.matrix.transformY(x, y);
+    final cellX = _cellFrom(mappedX);
+    final cellY = _cellFrom(mappedY);
+    if (cellX < _clipX0 ||
+        cellX >= _clipX1 ||
+        cellY < _clipY0 ||
+        cellY >= _clipY1) {
+      return null;
+    }
+    final index = cellY * width + cellX;
+    final mask = _clipMask;
+    if (mask != null && mask[index] == 0) return null;
+    return cells[index];
+  }
 
   /// Writes the result of a draw into the buffer. [resultFor] maps the
   /// backdrop index of each covered cell to the index the draw leaves behind.
@@ -234,6 +267,172 @@ class PdfColorantRaster {
     }
   }
 
+  /// Marks every clipped cell covered by [spans] in [mask].
+  ///
+  /// Transparency-group compositing uses this alongside the colorant cells to
+  /// distinguish an unpainted (transparent) part of a group from a painted
+  /// pixel whose result happens to equal the group's initial backdrop. The
+  /// latter distinction is essential for knockout groups: an object that
+  /// paints the initial-backdrop colour must still replace an earlier sibling.
+  void markCovered(ColorantSpans spans, Uint8List mask) {
+    if (mask.length != cells.length) return;
+    final clip = _clipMask;
+    for (var i = 0; i < spans.length; i++) {
+      final y = spans.yAt(i);
+      if (y < _clipY0 || y >= _clipY1) continue;
+      final row = y * width;
+      var from = spans.startAt(i), to = spans.endAt(i);
+      if (from < _clipX0) from = _clipX0;
+      if (to > _clipX1) to = _clipX1;
+      if (clip == null) {
+        mask.fillRange(row + from, row + to, 1);
+        continue;
+      }
+      for (var x = from; x < to; x++) {
+        final index = row + x;
+        if (clip[index] != 0) mask[index] = 1;
+      }
+    }
+  }
+
+  /// Paints [spans] while exposing each covered cell's page-space centre.
+  ///
+  /// Variable-color shadings need this slower path: their DeviceN/Separation
+  /// tint is a function of position, so one palette entry cannot describe the
+  /// whole draw. Ordinary paths and images stay on [paint]/[paintFlat].
+  void paintSampled(ColorantSpans spans,
+      int Function(double pageX, double pageY, int backdrop) resultFor) {
+    final inverse = mapping.matrix.inverted();
+    if (inverse == null) return;
+    final mask = _clipMask;
+    for (var i = 0; i < spans.length; i++) {
+      final y = spans.yAt(i);
+      if (y < _clipY0 || y >= _clipY1) continue;
+      final row = y * width;
+      var from = spans.startAt(i), to = spans.endAt(i);
+      if (from < _clipX0) from = _clipX0;
+      if (to > _clipX1) to = _clipX1;
+      final cellY = y + 0.5;
+      for (var x = from; x < to; x++) {
+        final index = row + x;
+        if (mask != null && mask[index] == 0) continue;
+        final cellX = x + 0.5;
+        final pageX = inverse.transformX(cellX, cellY);
+        final pageY = inverse.transformY(cellX, cellY);
+        cells[index] = resultFor(pageX, pageY, cells[index]);
+      }
+    }
+  }
+
+  /// Page-space run regions for the result [resultFor] would produce over the
+  /// current cells covered by [spans]. Adjacent cells of one result are joined
+  /// horizontally; callers still clip these coarse internal regions through
+  /// the original vector path, so only backdrop boundaries are quantized.
+  Map<int, PdfPath> resultRegions(
+      ColorantSpans spans, int Function(int backdrop) resultFor) {
+    final inverse = mapping.matrix.inverted();
+    if (inverse == null) return const {};
+    final byResult = <int, List<PdfPathSegment>>{};
+    final mask = _clipMask;
+
+    void addRun(int result, int x0, int x1, int y) {
+      if (x1 <= x0) return;
+      final segments = byResult.putIfAbsent(result, () => []);
+      final left = x0.toDouble(), right = x1.toDouble();
+      final top = y.toDouble(), bottom = (y + 1).toDouble();
+      segments
+        ..add(PdfMoveTo(
+            inverse.transformX(left, top), inverse.transformY(left, top)))
+        ..add(PdfLineTo(
+            inverse.transformX(right, top), inverse.transformY(right, top)))
+        ..add(PdfLineTo(inverse.transformX(right, bottom),
+            inverse.transformY(right, bottom)))
+        ..add(PdfLineTo(
+            inverse.transformX(left, bottom), inverse.transformY(left, bottom)))
+        ..add(const PdfClosePath());
+    }
+
+    for (var i = 0; i < spans.length; i++) {
+      final y = spans.yAt(i);
+      if (y < _clipY0 || y >= _clipY1) continue;
+      var from = spans.startAt(i), to = spans.endAt(i);
+      if (from < _clipX0) from = _clipX0;
+      if (to > _clipX1) to = _clipX1;
+      final row = y * width;
+      int? current;
+      var runStart = from;
+      for (var x = from; x < to; x++) {
+        final index = row + x;
+        final result =
+            mask != null && mask[index] == 0 ? null : resultFor(cells[index]);
+        if (result == current) continue;
+        if (current != null) addRun(current, runStart, x, y);
+        current = result;
+        runStart = x;
+      }
+      if (current != null) addRun(current, runStart, to, y);
+    }
+    return {
+      for (final entry in byResult.entries) entry.key: PdfPath(entry.value),
+    };
+  }
+
+  /// Spatial counterpart of [resultRegions]. [resultAt] may omit a cell by
+  /// returning null; otherwise adjacent equal results are joined per row.
+  Map<int, PdfPath> sampledResultRegions(ColorantSpans spans,
+      int? Function(double pageX, double pageY, int current) resultAt) {
+    final inverse = mapping.matrix.inverted();
+    if (inverse == null) return const {};
+    final byResult = <int, List<PdfPathSegment>>{};
+    final mask = _clipMask;
+
+    void addRun(int result, int x0, int x1, int y) {
+      if (x1 <= x0) return;
+      final segments = byResult.putIfAbsent(result, () => []);
+      final left = x0.toDouble(), right = x1.toDouble();
+      final top = y.toDouble(), bottom = (y + 1).toDouble();
+      segments
+        ..add(PdfMoveTo(
+            inverse.transformX(left, top), inverse.transformY(left, top)))
+        ..add(PdfLineTo(
+            inverse.transformX(right, top), inverse.transformY(right, top)))
+        ..add(PdfLineTo(inverse.transformX(right, bottom),
+            inverse.transformY(right, bottom)))
+        ..add(PdfLineTo(
+            inverse.transformX(left, bottom), inverse.transformY(left, bottom)))
+        ..add(const PdfClosePath());
+    }
+
+    for (var i = 0; i < spans.length; i++) {
+      final y = spans.yAt(i);
+      if (y < _clipY0 || y >= _clipY1) continue;
+      var from = spans.startAt(i), to = spans.endAt(i);
+      if (from < _clipX0) from = _clipX0;
+      if (to > _clipX1) to = _clipX1;
+      final row = y * width;
+      final cellY = y + 0.5;
+      int? current;
+      var runStart = from;
+      for (var x = from; x < to; x++) {
+        final index = row + x;
+        int? result;
+        if (mask == null || mask[index] != 0) {
+          final cellX = x + 0.5;
+          result = resultAt(inverse.transformX(cellX, cellY),
+              inverse.transformY(cellX, cellY), cells[index]);
+        }
+        if (result == current) continue;
+        if (current != null) addRun(current, runStart, x, y);
+        current = result;
+        runStart = x;
+      }
+      if (current != null) addRun(current, runStart, to, y);
+    }
+    return {
+      for (final entry in byResult.entries) entry.key: PdfPath(entry.value),
+    };
+  }
+
   /// Spans covered by filling [path] (page space) under the given rule.
   ColorantSpans fillSpans(PdfPath path, {required bool evenOdd}) {
     // Axis-aligned rectangles are most of what a page fills and almost all of
@@ -273,7 +472,8 @@ class PdfColorantRaster {
           // down the slow path.
           final px = xs.last, py = ys.last;
           final endX = segment.x3, endY = segment.y3;
-          final firstOnEnd = (x1 == px && y1 == py) || (x1 == endX && y1 == endY);
+          final firstOnEnd =
+              (x1 == px && y1 == py) || (x1 == endX && y1 == endY);
           final secondOnEnd =
               (x2 == px && y2 == py) || (x2 == endX && y2 == endY);
           if (!firstOnEnd || !secondOnEnd) return null;

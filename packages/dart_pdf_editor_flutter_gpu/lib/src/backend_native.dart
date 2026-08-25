@@ -1,10 +1,12 @@
-import 'dart:async' show FutureOr;
+import 'dart:async' show Completer, FutureOr;
 import 'dart:collection';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/painting.dart' show Offset, Rect;
 import 'package:flutter_gpu/gpu.dart' as gpu;
 import 'package:pdf_document/pdf_document.dart';
@@ -13,23 +15,30 @@ import 'package:pdf_graphics/raster.dart';
 import 'package:vector_math/vector_math.dart' as vm;
 
 import 'backend_stats.dart';
+import 'system_text_outliner_native.dart';
+import 'text_outliner.dart';
 
 /// Scene-retained flutter_gpu backend for final LoD tile textures.
 ///
 /// The first tile lazily compiles supported retained commands into page-space
 /// GPU buffers and uploads every decoded image once. Later tiles only query the
 /// retained region index, bind those buffers with a page-to-tile transform and
-/// submit a render pass. No PDF interpretation, path tessellation, image
-/// decode, texture upload, or CPU pixel readback occurs per tile.
+/// submit a render pass. No PDF interpretation, image decode, texture upload,
+/// or CPU pixel readback occurs per tile. Fixed-width paths are tessellated
+/// once; zero-width hairlines alone expand their retained polyline for the
+/// current device scale.
 ///
-/// The exact subset includes a common isolated single-image soft-mask group:
+/// The exact subset includes a common isolated single-image soft-mask group
+/// and decoded images whose `/SMask` stayed as a companion GPU surface:
 /// content and mask stay as separate scene-lifetime textures and are combined
 /// by the tile shader. Ordinary PDF clip paths are retained as exact stencil
 /// masks (with rectangular clips additionally using the hardware scissor).
-/// Other isolated groups, non-normal blend modes, complex clips *inside* the
-/// special soft-mask-image shortcut, gradients, substituted/stroked text,
-/// tiling cells, unsafe overprint, or missing image pixels reject the whole
-/// scene.
+/// Knockout/non-isolated groups, isolated groups with non-Normal internal
+/// paints, blend modes beyond Multiply/Screen, complex clips *inside* the
+/// special soft-mask shortcuts, non-nested radial gradients, unresolved
+/// substituted text, unsafe overprint, or missing image pixels reject the
+/// whole scene. Zero-width PDF hairlines are expanded at tile submission time
+/// so they remain exactly one device pixel at every level of detail.
 /// dart_pdf_editor then permanently uses its Canvas session for that scene.
 class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   FlutterGpuTileRasterBackend({
@@ -37,8 +46,16 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
     this.allowOverprintApproximation = false,
     this.maxTextureBytes = 256 << 20,
     this.maxGeometryBytes = 256 << 20,
+    this.enableProactiveWarmUp,
+    this.analyticText = true,
+    FlutterGpuTextOutliner? textOutliner,
+    this.systemTextOutlines = false,
     FlutterGpuTileBackendStats? stats,
   })  : stats = stats ?? FlutterGpuTileBackendStats(),
+        textOutliner = textOutliner ??
+            (systemTextOutlines
+                ? FlutterGpuSystemTextOutliner.tryCreate()
+                : null),
         _imageCache = _GpuImageCache(maxTextureBytes),
         _geometryPool = _GpuGeometryPool(maxGeometryBytes);
 
@@ -69,6 +86,33 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   /// buffer has completed. A scene that cannot fit falls back to Canvas.
   final int maxGeometryBytes;
 
+  /// Whether the viewer should prepare GPU pipelines and live scenes at idle.
+  ///
+  /// Null (the default) enables proactive work on desktop and leaves mobile
+  /// on-demand. Mobile Impeller contexts can reserve substantial additional
+  /// memory even for a page that later falls back to Canvas; validated hosts
+  /// can opt in explicitly.
+  final bool? enableProactiveWarmUp;
+
+  /// Evaluates ordinary filled glyph outlines directly from a retained curve
+  /// atlas instead of tessellating every glyph into page-space stencil fans.
+  ///
+  /// Unsupported glyphs and gradient or soft-masked text keep the exact
+  /// stencil path. The atlas is independent of tile scale, so later LoD tiles
+  /// reuse both its outline streams and the six-vertex glyph quads.
+  final bool analyticText;
+
+  /// Optional exact vector outlines for unembedded/substituted text.
+  ///
+  /// Null preserves the conservative Canvas fallback. Set
+  /// `systemTextOutlines: true` to probe the native fonts Canvas normally
+  /// selects, or pass a host outliner built from the exact registered bytes.
+  final FlutterGpuTextOutliner? textOutliner;
+
+  /// Whether the backend was asked to probe the current platform's native
+  /// substitution faces when no explicit [textOutliner] was supplied.
+  final bool systemTextOutlines;
+
   final FlutterGpuTileBackendStats stats;
   final _GpuImageCache _imageCache;
   final _GpuGeometryPool _geometryPool;
@@ -90,9 +134,54 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   /// reports that runtime reason through [stats].
   bool get isPlatformSupported => true;
 
+  bool get _proactiveWarmUpEnabled =>
+      enableProactiveWarmUp ??
+      switch (defaultTargetPlatform) {
+        TargetPlatform.macOS ||
+        TargetPlatform.windows ||
+        TargetPlatform.linux =>
+          true,
+        _ => false,
+      };
+
+  @override
+  bool get supportsWarmUp => _proactiveWarmUpEnabled;
+
+  @override
+  bool get supportsSessionWarmUp => _proactiveWarmUpEnabled;
+
   /// Drops reusable texture ownership. Active compiled scenes retain the
   /// resources they are currently drawing.
   void clearImageCache() => _imageCache.clear(stats);
+
+  /// Compiles this view's tile pipelines with a one-pixel GPU submission.
+  ///
+  /// The driver otherwise compiles the pipelines on the first deep-zoom tile,
+  /// which can leave the coarse page visible for hundreds of milliseconds.
+  /// This is safe to call repeatedly: work is shared per Impeller context and
+  /// MSAA mode, including between backend instances.
+  @override
+  Future<void> warmUp() async {
+    final clock = Stopwatch()..start();
+    stats.warmUpRequests++;
+    try {
+      final context = gpu.gpuContext;
+      final pipelines = await _GpuPipelines.instance(context);
+      final submitted = await pipelines.warmUp(
+        context,
+        useMsaa: msaa && context.doesSupportOffscreenMSAA,
+      );
+      if (submitted) stats.warmUpSubmissions++;
+      stats.warmUpCompletions++;
+    } catch (error) {
+      stats
+        ..warmUpFailures += 1
+        ..lastWarmUpError = error.toString();
+      rethrow;
+    } finally {
+      stats.warmUpMicros += clock.elapsedMicroseconds;
+    }
+  }
 
   @override
   String get debugLabel => 'flutter_gpu';
@@ -115,7 +204,19 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
       }
       _lastContext = context;
       stats.lastContextIdentity = identityHashCode(context);
-      final unitBuild = _buildGpuUnits(scene.commands);
+      final outlinedCommands = textOutliner == null
+          ? scene.commands
+          : _outlineGpuTextCommands(scene.commands, textOutliner!);
+      final commandBuild = _buildGpuCommands(outlinedCommands);
+      final commands = commandBuild.commands;
+      if (commands == null) {
+        _lastSessionRejection = commandBuild.rejection;
+        stats.lastRejection = commandBuild.rejection;
+        stats.lastTileRoute = 'canvas-fallback';
+        stats.sessionsRejected++;
+        return null;
+      }
+      final unitBuild = _buildGpuUnits(commands);
       final units = unitBuild.units;
       if (units == null) {
         _lastSessionRejection = unitBuild.rejection;
@@ -124,8 +225,8 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
         stats.sessionsRejected++;
         return null;
       }
-      final rejection =
-          _unsupportedReason(scene, units, allowOverprintApproximation);
+      final rejection = _unsupportedReason(
+          scene, commands, units, allowOverprintApproximation);
       if (rejection != null) {
         _lastSessionRejection = rejection;
         stats.lastRejection = rejection;
@@ -143,6 +244,8 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
           math.max(stats.peakActiveSessions, stats.activeSessions);
       return _FlutterGpuTileSession(
         scene: scene,
+        commands: commands,
+        mipmapImages: commandBuild.mipmapImages,
         context: context,
         pipelines: _GpuPipelines.instance(context),
         units: units,
@@ -150,6 +253,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
         stats: stats,
         imageCache: _imageCache,
         geometryPool: _geometryPool,
+        analyticText: analyticText,
       );
     } catch (error) {
       _lastSessionRejection = 'initialization failed: $error';
@@ -160,21 +264,85 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
     }
   }
 
-  static String? _unsupportedReason(PdfRetainedScene scene,
-      List<_GpuUnit> units, bool allowOverprintApproximation) {
+  static String? _unsupportedReason(
+      PdfRetainedScene scene,
+      List<PdfRenderCommand> commands,
+      List<_GpuUnit> units,
+      bool allowOverprintApproximation) {
+    final hasAdvancedBlend =
+        units.any((unit) => !_isFixedFunctionBlendMode(unit.blendMode));
+    if (hasAdvancedBlend &&
+        units.any((unit) => switch (unit.composite) {
+              _GroupPaintSpec(:final offscreen) => offscreen,
+              _KnockoutSoftMaskFillSpec() => true,
+              _ => false,
+            })) {
+      return 'advanced blend with offscreen transparency group';
+    }
     for (final unit in units) {
-      if (unit.blendMode != PdfBlendMode.normal) {
+      if (!_isGpuBlendMode(unit.blendMode)) {
         return 'blend mode ${unit.blendMode.name}';
       }
       final composite = unit.composite;
       if (composite != null) {
-        if (scene.imageFor(composite.content) == null ||
-            scene.imageFor(composite.mask) == null) {
-          return 'missing soft-mask image pixels';
+        switch (composite) {
+          case _SoftMaskImageSpec():
+            if (scene.imageFor(composite.content) == null ||
+                scene.imageFor(composite.mask) == null) {
+              return 'missing soft-mask image pixels';
+            }
+          case _SoftMaskFillSpec():
+            if (scene.imageFor(composite.mask) == null) {
+              return 'missing soft-mask image pixels';
+            }
+          case _SoftMaskVectorFillSpec():
+            break;
+          case _SoftMaskGradientFillSpec():
+            break;
+          case _SoftMaskTextSpec():
+            if (scene.imageFor(composite.mask) == null) {
+              return 'missing soft-mask image pixels';
+            }
+            final reason = _unsupportedTextReason(composite.content.run);
+            if (reason != null) return reason;
+          case _SoftMaskGradientTextSpec():
+            final reason = _unsupportedTextReason(composite.content.run);
+            if (reason != null) return reason;
+          case _GroupFillSpec():
+            break;
+          case _GroupStrokeSpec():
+            break;
+          case _GroupTextSpec():
+            final reason = _unsupportedTextReason(composite.content.run);
+            if (reason != null) return reason;
+          case _GroupPaintSpec():
+            for (final command in composite.commands) {
+              switch (command) {
+                case PdfDrawTextCommand(:final run):
+                  final reason = _unsupportedTextReason(run);
+                  if (reason != null) return reason;
+                case PdfDrawImageCommand(:final request):
+                  if (scene.imageFor(request) == null &&
+                      !scene.imageDecodingAttempted) {
+                    return 'missing transparency-group image pixels';
+                  }
+                default:
+                  break;
+              }
+            }
+            break;
+          case _KnockoutSoftMaskFillSpec():
+            break;
+          case _FlattenSoftMaskSpec():
+            break;
+          case _FlattenGroupSpec():
+            break;
+          case _EmptyGroupSpec():
+            break;
         }
         continue;
       }
-      final command = scene.commands[unit.commandIndex];
+      final command = commands[unit.commandIndex];
       final overprint = _unsafeOverprint(unit, command);
       if (overprint != null) return overprint;
       if (unit.darken && !allowOverprintApproximation) {
@@ -183,35 +351,23 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
       switch (command) {
         case PdfFillPathCommand():
           break;
-        case PdfStrokePathCommand(:final stroke):
-          // A PDF hairline is device-scale-dependent, so it cannot be baked
-          // into scene-lifetime geometry without changing semantics by LoD.
-          if (stroke.width <= 0) return 'device-scale hairline';
+        case PdfStrokePathCommand():
+          break;
         case PdfFillMeshCommand():
           break;
         case PdfDrawImageCommand(:final request):
           final image = scene.imageFor(request);
-          if (image == null) return 'missing image pixels';
-          // A platform-codec base keeps its /SMask as a companion GPU surface
-          // that only CanvasPdfDevice knows how to compose (dstIn over the
-          // base). This backend uploads one texture per image, so drawing it
-          // here would paint the base opaque - the JPEG's masked-out area is
-          // usually solid black, so a cut-out sticker renders as a black
-          // rectangle (#675). Hand the scene to Canvas until the mask is
-          // uploaded as its own texture.
-          if (pdfGpuSoftMaskOf(image) != null) {
-            return 'deferred image soft mask';
+          if (image == null && !scene.imageDecodingAttempted) {
+            return 'missing image pixels';
           }
         case PdfDrawTextCommand(:final run):
           if (run.invisible) continue;
-          if (run.glyphs == null ||
-              !run.fill ||
-              run.gradient != null ||
-              run.strokeColor != null) {
-            return 'unsupported text rendering mode';
-          }
-        case PdfFillPathGradientCommand() || PdfDrawTiledCellCommand():
-          return 'unsupported ${command.runtimeType}';
+          final reason = _unsupportedTextReason(run);
+          if (reason != null) return reason;
+        case PdfFillPathGradientCommand():
+          final reason =
+              _gradientUnsupportedReason(command.gradient, command.alpha);
+          if (reason != null) return reason;
         default:
           return 'unsupported ${command.runtimeType}';
       }
@@ -221,19 +377,17 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
         if (unit.endCommandIndex > unit.commandIndex)
           for (var i = unit.commandIndex; i <= unit.endCommandIndex; i++) i,
     };
-    for (var i = 0; i < scene.commands.length; i++) {
-      final command = scene.commands[i];
+    for (var i = 0; i < commands.length; i++) {
+      final command = commands[i];
       switch (command) {
         case PdfBeginGroupCommand() ||
               PdfEndGroupCommand() ||
               PdfBeginSoftMaskedCommand() ||
-              PdfEndSoftMaskedCommand() ||
-              PdfFillPathGradientCommand() ||
-              PdfDrawTiledCellCommand():
+              PdfEndSoftMaskedCommand():
           if (covered.contains(i)) break;
           return 'unsafe ${command.runtimeType}';
         case PdfSetBlendModeCommand(:final mode):
-          if (mode != PdfBlendMode.normal) return 'blend mode ${mode.name}';
+          if (!_isGpuBlendMode(mode)) return 'blend mode ${mode.name}';
         case PdfSetOverprintCommand(:final fill, :final stroke):
           // Paint units capture their active overprint state above. State
           // changes by themselves do not render anything.
@@ -244,6 +398,31 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
     }
     return null;
   }
+
+  static bool _isGpuBlendMode(PdfBlendMode mode) => switch (mode) {
+        PdfBlendMode.normal ||
+        PdfBlendMode.multiply ||
+        PdfBlendMode.screen ||
+        PdfBlendMode.overlay ||
+        PdfBlendMode.darken ||
+        PdfBlendMode.lighten ||
+        PdfBlendMode.colorDodge ||
+        PdfBlendMode.colorBurn ||
+        PdfBlendMode.hardLight ||
+        PdfBlendMode.softLight ||
+        PdfBlendMode.difference ||
+        PdfBlendMode.exclusion ||
+        PdfBlendMode.hue ||
+        PdfBlendMode.saturation ||
+        PdfBlendMode.color ||
+        PdfBlendMode.luminosity =>
+          true,
+      };
+
+  static bool _isFixedFunctionBlendMode(PdfBlendMode mode) =>
+      mode == PdfBlendMode.normal ||
+      mode == PdfBlendMode.multiply ||
+      mode == PdfBlendMode.screen;
 
   static bool _isAxisAlignedRect(PdfPath path) {
     final subs = flattenPath(path, PdfMatrix.identity);
@@ -272,6 +451,7 @@ class _GpuUnit {
     required this.fillOverprint,
     required this.strokeOverprint,
     required this.darken,
+    this.hairline = false,
     this.composite,
   });
 
@@ -283,7 +463,8 @@ class _GpuUnit {
   final bool fillOverprint;
   final bool strokeOverprint;
   final bool darken;
-  final _SoftMaskImageSpec? composite;
+  final bool hairline;
+  final _GpuCompositeSpec? composite;
 }
 
 /// One immutable graphics-state clip. Rectangles only narrow [scissor]; every
@@ -326,7 +507,136 @@ class _CompositeCapture {
   PdfRect? bounds;
 }
 
-class _SoftMaskImageSpec {
+sealed class _GpuCompositeSpec {
+  const _GpuCompositeSpec();
+  PdfRect? get contentClip;
+}
+
+class _GroupFillSpec extends _GpuCompositeSpec {
+  const _GroupFillSpec({
+    required this.content,
+    required this.groupAlpha,
+    required this.contentClip,
+  });
+
+  final PdfFillPathCommand content;
+  final double groupAlpha;
+  @override
+  final PdfRect? contentClip;
+}
+
+class _GroupStrokeSpec extends _GpuCompositeSpec {
+  const _GroupStrokeSpec({
+    required this.content,
+    required this.groupAlpha,
+    required this.contentClip,
+  });
+
+  final PdfStrokePathCommand content;
+  final double groupAlpha;
+  @override
+  final PdfRect? contentClip;
+}
+
+class _GroupTextSpec extends _GpuCompositeSpec {
+  const _GroupTextSpec({
+    required this.content,
+    required this.groupAlpha,
+    required this.contentClip,
+  });
+
+  final PdfDrawTextCommand content;
+  final double groupAlpha;
+  @override
+  final PdfRect? contentClip;
+}
+
+class _GroupPaintSpec extends _GpuCompositeSpec {
+  const _GroupPaintSpec({
+    required this.commands,
+    required this.paintClips,
+    required this.paintBlends,
+    required this.contentClip,
+    this.groupAlpha = 1,
+    this.offscreen = false,
+    this.knockout = false,
+  });
+
+  final List<PdfRenderCommand> commands;
+  final List<PdfRect?> paintClips;
+  final List<PdfBlendMode> paintBlends;
+  final double groupAlpha;
+  final bool offscreen;
+  final bool knockout;
+  @override
+  final PdfRect? contentClip;
+}
+
+class _KnockoutSoftMaskFillSpec extends _GpuCompositeSpec {
+  const _KnockoutSoftMaskFillSpec({
+    required this.base,
+    required this.baseClip,
+    required this.masked,
+    required this.groupAlpha,
+  });
+
+  final PdfFillPathCommand base;
+  final PdfRect? baseClip;
+  final _SoftMaskVectorFillSpec masked;
+  final double groupAlpha;
+
+  @override
+  PdfRect? get contentClip => null;
+}
+
+class _FlattenSoftMaskSpec extends _GpuCompositeSpec {
+  const _FlattenSoftMaskSpec(this.paints);
+
+  final List<_FlattenSoftMaskPaint> paints;
+
+  @override
+  PdfRect? get contentClip => null;
+}
+
+class _FlattenSoftMaskPaint {
+  const _FlattenSoftMaskPaint({
+    required this.commandIndex,
+    required this.endCommandIndex,
+    required this.bounds,
+    required this.clip,
+    required this.blendMode,
+    this.composite,
+    this.pathClip,
+  });
+
+  final int commandIndex;
+  final int endCommandIndex;
+  final PdfRect bounds;
+  final PdfRect clip;
+  final PdfBlendMode blendMode;
+  final _GpuCompositeSpec? composite;
+  final PdfPath? pathClip;
+}
+
+class _FlattenGroupSpec extends _GpuCompositeSpec {
+  const _FlattenGroupSpec(this.paints);
+
+  final List<({int commandIndex, PdfRect? clip})> paints;
+
+  @override
+  PdfRect? get contentClip => null;
+}
+
+class _EmptyGroupSpec extends _GpuCompositeSpec {
+  const _EmptyGroupSpec(this.bounds);
+
+  final PdfRect bounds;
+
+  @override
+  PdfRect? get contentClip => null;
+}
+
+class _SoftMaskImageSpec extends _GpuCompositeSpec {
   const _SoftMaskImageSpec({
     required this.content,
     required this.mask,
@@ -342,12 +652,340 @@ class _SoftMaskImageSpec {
   final PdfImageRequest content;
   final PdfImageRequest mask;
   final double groupAlpha;
+  @override
   final PdfRect? contentClip;
   final PdfRect? maskClip;
   final bool luminosity;
   final double backdropLuminance;
   final double transferScale;
   final double transferOffset;
+}
+
+class _SoftMaskFillSpec extends _GpuCompositeSpec {
+  const _SoftMaskFillSpec({
+    required this.content,
+    required this.mask,
+    required this.contentClip,
+    required this.maskClip,
+    required this.luminosity,
+    required this.backdropLuminance,
+    required this.transferScale,
+    required this.transferOffset,
+  });
+
+  final PdfFillPathCommand content;
+  final PdfImageRequest mask;
+  @override
+  final PdfRect? contentClip;
+  final PdfRect? maskClip;
+  final bool luminosity;
+  final double backdropLuminance;
+  final double transferScale;
+  final double transferOffset;
+}
+
+class _SoftMaskVectorFillSpec extends _GpuCompositeSpec {
+  const _SoftMaskVectorFillSpec({
+    required this.content,
+    required this.maskFills,
+    required this.contentClip,
+    required this.luminosity,
+    required this.backdropLuminance,
+    required this.transferScale,
+    required this.transferOffset,
+  });
+
+  final PdfFillPathCommand content;
+  final List<_VectorMaskFill> maskFills;
+  @override
+  final PdfRect? contentClip;
+  final bool luminosity;
+  final double backdropLuminance;
+  final double transferScale;
+  final double transferOffset;
+}
+
+class _SoftMaskGradientFillSpec extends _GpuCompositeSpec {
+  const _SoftMaskGradientFillSpec({
+    required this.content,
+    required this.mask,
+    required this.contentClip,
+    required this.luminosity,
+  });
+
+  final PdfFillPathCommand content;
+  final PdfFillPathGradientCommand mask;
+  @override
+  final PdfRect? contentClip;
+  final bool luminosity;
+}
+
+class _SoftMaskTextSpec extends _GpuCompositeSpec {
+  const _SoftMaskTextSpec({
+    required this.content,
+    required this.mask,
+    required this.contentClip,
+    required this.maskClip,
+    required this.luminosity,
+    required this.backdropLuminance,
+    required this.transferScale,
+    required this.transferOffset,
+  });
+
+  final PdfDrawTextCommand content;
+  final PdfImageRequest mask;
+  @override
+  final PdfRect? contentClip;
+  final PdfRect? maskClip;
+  final bool luminosity;
+  final double backdropLuminance;
+  final double transferScale;
+  final double transferOffset;
+}
+
+class _SoftMaskGradientTextSpec extends _GpuCompositeSpec {
+  const _SoftMaskGradientTextSpec({
+    required this.content,
+    required this.mask,
+    required this.contentClip,
+    required this.luminosity,
+  });
+
+  final PdfDrawTextCommand content;
+  final PdfFillPathGradientCommand mask;
+  @override
+  final PdfRect? contentClip;
+  final bool luminosity;
+}
+
+class _VectorMaskFill {
+  const _VectorMaskFill(this.rect, this.color, this.alpha);
+
+  final PdfRect rect;
+  final PdfColor color;
+  final double alpha;
+}
+
+class _GpuCommandBuild {
+  const _GpuCommandBuild(
+    this.commands,
+    this.rejection, {
+    required this.mipmapImages,
+  });
+
+  final List<PdfRenderCommand>? commands;
+  final String? rejection;
+  final bool mipmapImages;
+}
+
+/// Resolves host-supplied substitute outlines before tiled cells expand.
+///
+/// Keeping the rewrite above [_buildGpuCommands] means a repeated Type3/pattern
+/// cell resolves each text run once, then [TranslatingPdfDevice] shares the
+/// resulting glyph paths across every translated occurrence. Soft-mask tapes
+/// are nested command lists and must follow the same rule.
+List<PdfRenderCommand> _outlineGpuTextCommands(
+  List<PdfRenderCommand> source,
+  FlutterGpuTextOutliner outliner,
+) {
+  List<PdfRenderCommand>? rewritten;
+  for (var i = 0; i < source.length; i++) {
+    final command = source[i];
+    final PdfRenderCommand replacement;
+    switch (command) {
+      case PdfDrawTextCommand(:final run) when run.glyphs == null:
+        final outlined = _tryOutlineGpuText(outliner, run);
+        replacement = outlined == null || identical(outlined, run)
+            ? command
+            : PdfDrawTextCommand(outlined);
+      case PdfEndSoftMaskedCommand():
+        final mask = _outlineGpuTextCommands(command.maskCommands, outliner);
+        replacement = identical(mask, command.maskCommands)
+            ? command
+            : PdfEndSoftMaskedCommand(
+                luminosity: command.luminosity,
+                backdrop: command.backdrop,
+                maskCommands: mask,
+                backdropLuminance: command.backdropLuminance,
+                transferScale: command.transferScale,
+                transferOffset: command.transferOffset,
+              );
+      case PdfDrawTiledCellCommand():
+        final cell = _outlineGpuTextCommands(command.cellCommands, outliner);
+        replacement = identical(cell, command.cellCommands)
+            ? command
+            : PdfDrawTiledCellCommand(
+                cell,
+                command.originsX,
+                command.originsY,
+              );
+      default:
+        replacement = command;
+    }
+    if (!identical(replacement, command)) {
+      rewritten ??= List<PdfRenderCommand>.of(source);
+      rewritten[i] = replacement;
+    }
+  }
+  return rewritten == null ? source : List.unmodifiable(rewritten);
+}
+
+PdfTextRun? _tryOutlineGpuText(
+  FlutterGpuTextOutliner outliner,
+  PdfTextRun run,
+) {
+  try {
+    return outliner.outline(run);
+  } on Object {
+    // A host resolver must never turn the exact Canvas fallback into a scene
+    // creation failure. Leaving the original run in place makes the ordinary
+    // unsupported-text audit reject it conservatively.
+    return null;
+  }
+}
+
+/// Expands retained tiling cells once for the GPU scene.
+///
+/// Canvas can stamp a vector sub-picture for every repeat. flutter_gpu does
+/// not expose a retained sub-pass transform, so keeping the nested command
+/// would otherwise require rebuilding the cell for every tile. Flattening it
+/// here preserves exact tile-major painter order while still compiling the
+/// resulting page-space geometry only once. The hard cap keeps pathological
+/// hatch grids on the existing Canvas sub-picture path instead of trading a
+/// compact transcript for unbounded GPU geometry.
+_GpuCommandBuild _buildGpuCommands(List<PdfRenderCommand> source) {
+  const maxExpandedCommands = 1000000;
+  source = _dropInvisibleGroups(source);
+  var hasTiledCell = false;
+  var mipmapImages = false;
+
+  int count(List<PdfRenderCommand> commands, Set<Object> active,
+      {bool inTiledCell = false}) {
+    if (!active.add(commands)) return maxExpandedCommands + 1;
+    var total = 0;
+    for (final command in commands) {
+      if (command
+          case PdfDrawTiledCellCommand(
+            :final cellCommands,
+            :final originsX,
+          )) {
+        hasTiledCell = true;
+        final cellCount = count(cellCommands, active, inTiledCell: true);
+        if (cellCount > maxExpandedCommands ||
+            originsX.length > maxExpandedCommands ||
+            (cellCount != 0 &&
+                originsX.length > maxExpandedCommands ~/ cellCount)) {
+          active.remove(commands);
+          return maxExpandedCommands + 1;
+        }
+        total += cellCount * originsX.length;
+      } else {
+        if (inTiledCell &&
+            command is PdfDrawImageCommand &&
+            command.request.isStencil) {
+          // Canvas uses FilterQuality.medium for every image on the page.
+          // Once a retained bitmap-font cell needs minification, match that
+          // sampling mode for the whole GPU scene; mixing base-only and
+          // mipmapped images on the same Ghent page is measurably less exact.
+          mipmapImages = true;
+        }
+        total++;
+      }
+      if (total > maxExpandedCommands) {
+        active.remove(commands);
+        return total;
+      }
+    }
+    active.remove(commands);
+    return total;
+  }
+
+  final expandedCount = count(source, Set<Object>.identity());
+  if (!hasTiledCell) {
+    return _GpuCommandBuild(source, null, mipmapImages: false);
+  }
+  if (expandedCount > maxExpandedCommands) {
+    return const _GpuCommandBuild(
+      null,
+      'expanded tiling cells exceed GPU command cap',
+      mipmapImages: false,
+    );
+  }
+
+  final expanded = <PdfRenderCommand>[];
+  for (final command in source) {
+    if (command
+        case PdfDrawTiledCellCommand(
+          :final cellCommands,
+          :final originsX,
+          :final originsY,
+        )) {
+      final recorder = RecordingPdfDevice();
+      for (var i = 0; i < originsX.length; i++) {
+        // TranslatingPdfDevice intentionally does not implement the native
+        // tiled-cell capability. The generic replay path therefore expands
+        // nested cells too and composes their origins into page-space.
+        replayCommands(
+          cellCommands,
+          TranslatingPdfDevice(recorder, originsX[i], originsY[i]),
+        );
+      }
+      expanded.addAll(recorder.commands);
+    } else {
+      expanded.add(command);
+    }
+  }
+  if (expanded.length > maxExpandedCommands) {
+    return const _GpuCommandBuild(
+      null,
+      'expanded tiling cells exceed GPU command cap',
+      mipmapImages: false,
+    );
+  }
+  return _GpuCommandBuild(
+    List.unmodifiable(expanded),
+    null,
+    mipmapImages: mipmapImages,
+  );
+}
+
+/// Removes transparency groups whose alpha is zero or whose declared
+/// device-space bounds have no area.
+///
+/// A form group is clipped to its BBox before any content paints. A collapsed
+/// BBox therefore contributes no samples regardless of nested commands,
+/// blend modes, masks, or overprint state; group alpha zero has the same
+/// result after compositing. Dropping the balanced transcript is exact and
+/// avoids rejecting an otherwise GPU-safe page for unreachable content.
+List<PdfRenderCommand> _dropInvisibleGroups(List<PdfRenderCommand> commands) {
+  List<PdfRenderCommand>? rewritten;
+  for (var index = 0; index < commands.length; index++) {
+    final command = commands[index];
+    if (command case PdfBeginGroupCommand(:final alpha, :final bounds)
+        when alpha <= 0 ||
+            (bounds != null &&
+                (bounds.right <= bounds.left || bounds.top <= bounds.bottom))) {
+      var depth = 1;
+      var end = index + 1;
+      for (; end < commands.length && depth > 0; end++) {
+        switch (commands[end]) {
+          case PdfBeginGroupCommand():
+            depth++;
+          case PdfEndGroupCommand():
+            depth--;
+          default:
+            break;
+        }
+      }
+      if (depth == 0) {
+        rewritten ??= List<PdfRenderCommand>.of(commands.take(index));
+        index = end - 1;
+        continue;
+      }
+    }
+    rewritten?.add(command);
+  }
+  return rewritten == null ? commands : List.unmodifiable(rewritten);
 }
 
 _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
@@ -394,27 +1032,120 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
         }
         capture.depth--;
         if (capture.depth == 0) {
-          final parsed = _parseSoftMaskImage(
+          final parsed = _parseComposite(
             commands,
             capture.start,
             i,
             initialClip: capture.clip.scissor,
+            initialFillOverprint: capture.fillOverprint,
+            initialStrokeOverprint: capture.strokeOverprint,
+            initialBlend: capture.blendMode,
           );
           if (parsed.$1 == null) return _GpuUnitBuild(null, parsed.$2);
-          final bounds = capture.bounds;
-          if (bounds != null) {
-            units.add(_GpuUnit(
-              commandIndex: capture.start,
-              endCommandIndex: i,
-              bounds: _inflatePdf(bounds, 2),
-              clip: _withGpuRectClip(capture.clip, parsed.$1!.contentClip),
-              blendMode: capture.blendMode,
-              fillOverprint: capture.fillOverprint,
-              strokeOverprint: capture.strokeOverprint,
-              darken: false,
-              composite: parsed.$1,
-            ));
+          final spec = parsed.$1!;
+          if (spec is _FlattenSoftMaskSpec) {
+            for (final paint in spec.paints) {
+              var paintClip = _withGpuRectClip(capture.clip, paint.clip);
+              final pathClip = paint.pathClip;
+              if (pathClip != null) {
+                paintClip = _pushGpuClip(
+                  paintClip,
+                  pathClip,
+                  PdfFillRule.nonzero,
+                );
+              }
+              units.add(_GpuUnit(
+                commandIndex: paint.commandIndex,
+                endCommandIndex: paint.endCommandIndex,
+                bounds: _inflatePdf(paint.bounds, 2),
+                clip: paintClip,
+                blendMode: paint.blendMode,
+                fillOverprint: false,
+                strokeOverprint: false,
+                darken: false,
+                composite: paint.composite,
+              ));
+            }
+            final bounds = capture.bounds;
+            if (bounds != null) {
+              // Covers the outer Begin/End pair for the unsupported-command
+              // audit. Its paints compile above in their original order;
+              // this structural marker intentionally emits no draw.
+              units.add(_GpuUnit(
+                commandIndex: capture.start,
+                endCommandIndex: i,
+                bounds: _inflatePdf(bounds, 2),
+                clip: capture.clip,
+                blendMode: PdfBlendMode.normal,
+                fillOverprint: false,
+                strokeOverprint: false,
+                darken: false,
+                composite: spec,
+              ));
+            }
+          } else if (spec is _FlattenGroupSpec) {
+            for (final paint in spec.paints) {
+              final paintCommand = commands[paint.commandIndex];
+              final paintClip = _withGpuRectClip(capture.clip, paint.clip);
+              final paintBounds = pdfRenderCommandBounds(paintCommand);
+              final clipped = paintBounds == null || paintClip.empty
+                  ? null
+                  : paintClip.scissor == null
+                      ? paintBounds
+                      : _pdfIntersection(paintClip.scissor, paintBounds);
+              if (clipped == null) continue;
+              units.add(_GpuUnit(
+                commandIndex: paint.commandIndex,
+                endCommandIndex: paint.commandIndex,
+                bounds: _inflatePdf(clipped, 2),
+                clip: paintClip,
+                blendMode: capture.blendMode,
+                fillOverprint: false,
+                strokeOverprint: false,
+                darken: false,
+                hairline: paintCommand is PdfStrokePathCommand &&
+                    paintCommand.stroke.width <= 0,
+              ));
+            }
+            final groupBounds = capture.bounds;
+            if (groupBounds != null) {
+              // Keep the structural Begin/End pair covered for the final
+              // unsupported-command audit. The real paints above retain
+              // their own command indices and clips; this marker compiles to
+              // no draw.
+              units.add(_GpuUnit(
+                commandIndex: capture.start,
+                endCommandIndex: i,
+                bounds: _inflatePdf(groupBounds, 2),
+                clip: capture.clip,
+                blendMode: PdfBlendMode.normal,
+                fillOverprint: false,
+                strokeOverprint: false,
+                darken: false,
+                composite: spec,
+              ));
+            }
+          } else {
+            final bounds =
+                spec is _EmptyGroupSpec ? spec.bounds : capture.bounds;
+            if (bounds != null) {
+              units.add(_GpuUnit(
+                commandIndex: capture.start,
+                endCommandIndex: i,
+                bounds: _inflatePdf(bounds, 2),
+                clip: _withGpuRectClip(capture.clip, spec.contentClip),
+                blendMode: capture.blendMode,
+                fillOverprint: capture.fillOverprint,
+                strokeOverprint: capture.strokeOverprint,
+                darken: false,
+                composite: spec,
+              ));
+            }
           }
+          clip = capture.clip;
+          blend = capture.blendMode;
+          fillOverprint = capture.fillOverprint;
+          strokeOverprint = capture.strokeOverprint;
           composite = null;
         }
       default:
@@ -438,6 +1169,8 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
             strokeOverprint: strokeOverprint,
             darken:
                 _commandNeedsDarken(command, fillOverprint, strokeOverprint),
+            hairline:
+                command is PdfStrokePathCommand && command.stroke.width <= 0,
           ));
         }
     }
@@ -486,38 +1219,93 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
       : _GpuClipState(narrowed, state.node);
 }
 
-(_SoftMaskImageSpec?, String?) _parseSoftMaskImage(
+(_GpuCompositeSpec?, String?) _parseComposite(
   List<PdfRenderCommand> commands,
   int start,
   int end, {
   PdfRect? initialClip,
+  bool initialFillOverprint = false,
+  bool initialStrokeOverprint = false,
+  PdfBlendMode initialBlend = PdfBlendMode.normal,
 }) {
   if (commands[start]
-      case PdfBeginGroupCommand(:final alpha, :final knockout)) {
-    if (knockout) return (null, 'knockout soft-mask image group');
+      case PdfBeginGroupCommand(
+        :final alpha,
+        :final knockout,
+        :final isolated,
+        :final backdropColor,
+      )) {
     if (commands[end] is! PdfEndGroupCommand) {
       return (null, 'unsupported composite nesting');
     }
+    if (isolated && knockout && backdropColor == null) {
+      final knockoutFill = _parseKnockoutSoftMaskFill(
+        commands,
+        start,
+        end,
+        groupAlpha: alpha,
+        initialClip: initialClip,
+        initialFillOverprint: initialFillOverprint,
+        initialStrokeOverprint: initialStrokeOverprint,
+        initialBlend: initialBlend,
+      );
+      if (knockoutFill != null) return (knockoutFill, null);
+    }
+    // Knockout only changes how multiple sibling elements interact inside a
+    // group. A one-element group is therefore identical either way. The
+    // multi-paint path below is deliberately narrower: alpha-one, normal
+    // source-over, non-knockout groups whose isolation layer is an identity.
     PdfDrawImageCommand? content;
+    final paints = <(int?, PdfRenderCommand, PdfRect?, PdfBlendMode, bool)>[];
     PdfEndSoftMaskedCommand? softEnd;
     var softDepth = 0;
     var softCount = 0;
     PdfRect? clip = initialClip;
     PdfRect? contentClip;
-    final saved = <PdfRect?>[];
+    var emptyClipOnly = false;
+    var fillOverprint = initialFillOverprint;
+    var strokeOverprint = initialStrokeOverprint;
+    var blend = initialBlend;
+    var invisibleGroupDepth = 0;
+    final saved = <(PdfRect?, bool, bool, PdfBlendMode)>[];
     for (var i = start + 1; i < end; i++) {
       final command = commands[i];
+      if (invisibleGroupDepth != 0) {
+        if (command is PdfBeginGroupCommand) invisibleGroupDepth++;
+        if (command is PdfEndGroupCommand) invisibleGroupDepth--;
+        continue;
+      }
+      if (command case PdfBeginGroupCommand(alpha: final groupAlpha)
+          when groupAlpha <= 0) {
+        invisibleGroupDepth = 1;
+        continue;
+      }
       switch (command) {
         case PdfSaveCommand():
-          saved.add(clip);
+          saved.add((clip, fillOverprint, strokeOverprint, blend));
         case PdfRestoreCommand():
           if (saved.isEmpty) return (null, 'unbalanced soft-mask image state');
-          clip = saved.removeLast();
+          final restored = saved.removeLast();
+          clip = restored.$1;
+          fillOverprint = restored.$2;
+          strokeOverprint = restored.$3;
+          blend = restored.$4;
         case PdfClipPathCommand(:final path):
           if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) {
             return (null, 'non-rectangular soft-mask image clip');
           }
-          clip = _pdfIntersection(clip, pdfRenderPathBounds(path));
+          final pathBounds = pdfRenderPathBounds(path);
+          final narrowed = _pdfIntersection(clip, pathBounds);
+          final degenerate = pathBounds != null &&
+              (pathBounds.right <= pathBounds.left ||
+                  pathBounds.top <= pathBounds.bottom);
+          if (degenerate ||
+              (clip != null && pathBounds != null && narrowed == null)) {
+            emptyClipOnly = true;
+            clip = pathBounds;
+            break;
+          }
+          clip = narrowed;
         case PdfBeginSoftMaskedCommand():
           softDepth++;
           softCount++;
@@ -525,18 +1313,129 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           softDepth--;
           softEnd = command;
         case PdfDrawImageCommand():
-          if (softDepth != 1 || content != null) {
+          if (emptyClipOnly) {
+            return (null, 'empty transparency group contains paint');
+          }
+          if (softDepth == 0 && content == null) {
+            paints.add((i, command, clip, blend, false));
+            contentClip = clip;
+            break;
+          }
+          if (softDepth != 1 || content != null || paints.isNotEmpty) {
             return (null, 'soft-mask group is not a single image');
           }
           content = command;
           contentClip = clip;
-        case PdfSetBlendModeCommand(:final mode):
-          if (mode != PdfBlendMode.normal) {
-            return (null, 'soft-mask image blend mode ${mode.name}');
+        case PdfFillPathCommand():
+          if (emptyClipOnly) {
+            return (null, 'empty transparency group contains paint');
           }
-        case PdfSetOverprintCommand():
-          break;
-        case PdfBeginGroupCommand() || PdfEndGroupCommand():
+          if (softDepth != 0 || content != null) {
+            return (null, 'soft-mask group contains PdfFillPathCommand');
+          }
+          paints.add((i, command, clip, blend, fillOverprint));
+          contentClip = clip;
+        case PdfStrokePathCommand():
+          if (emptyClipOnly) {
+            return (null, 'empty transparency group contains paint');
+          }
+          if (softDepth != 0 || content != null) {
+            return (null, 'soft-mask group contains PdfStrokePathCommand');
+          }
+          paints.add((i, command, clip, blend, strokeOverprint));
+          contentClip = clip;
+        case PdfDrawTextCommand(:final run):
+          if (emptyClipOnly) {
+            return (null, 'empty transparency group contains paint');
+          }
+          if (softDepth != 0 || content != null) {
+            return (null, 'soft-mask group contains PdfDrawTextCommand');
+          }
+          paints.add((
+            i,
+            command,
+            clip,
+            blend,
+            (run.fill && fillOverprint) ||
+                (run.strokeColor != null && strokeOverprint),
+          ));
+          contentClip = clip;
+        case PdfSetBlendModeCommand(:final mode):
+          // A one-element group may use any internal blend: with a transparent
+          // group backdrop every PDF blend function reduces to the source.
+          // The multi-paint identity path validates Normal below.
+          blend = mode;
+        case PdfSetOverprintCommand(:final fill, :final stroke):
+          fillOverprint = fill;
+          strokeOverprint = stroke;
+        case PdfBeginGroupCommand(:final backdropColor):
+          if (blend != PdfBlendMode.normal ||
+              fillOverprint ||
+              strokeOverprint ||
+              backdropColor != null) {
+            return (null, 'nested image group');
+          }
+          final nestedEnd = _matchingGroupEnd(commands, i, end);
+          if (nestedEnd == null) return (null, 'nested image group');
+          final nested = _parseComposite(
+            commands,
+            i,
+            nestedEnd,
+            initialClip: clip,
+            initialFillOverprint: false,
+            initialStrokeOverprint: false,
+            initialBlend: PdfBlendMode.normal,
+          );
+          final nestedSpec = nested.$1;
+          switch (nestedSpec) {
+            case _GroupFillSpec(:final content, :final groupAlpha):
+              paints.add((
+                null,
+                PdfFillPathCommand(
+                  content.path,
+                  content.color,
+                  content.rule,
+                  (content.alpha * groupAlpha).clamp(0.0, 1.0),
+                ),
+                nestedSpec.contentClip,
+                PdfBlendMode.normal,
+                false,
+              ));
+            case _GroupStrokeSpec(:final content, :final groupAlpha):
+              paints.add((
+                null,
+                PdfStrokePathCommand(
+                  content.path,
+                  content.color,
+                  content.stroke,
+                  (content.alpha * groupAlpha).clamp(0.0, 1.0),
+                ),
+                nestedSpec.contentClip,
+                PdfBlendMode.normal,
+                false,
+              ));
+            case _GroupPaintSpec(
+                  :final commands,
+                  :final paintClips,
+                  :final paintBlends,
+                )
+                when !nestedSpec.offscreen:
+              for (var nestedIndex = 0;
+                  nestedIndex < commands.length;
+                  nestedIndex++) {
+                paints.add((
+                  null,
+                  commands[nestedIndex],
+                  paintClips[nestedIndex],
+                  paintBlends[nestedIndex],
+                  false,
+                ));
+              }
+            default:
+              return (null, nested.$2 ?? 'nested image group');
+          }
+          i = nestedEnd;
+        case PdfEndGroupCommand():
           return (null, 'nested image group');
         default:
           if (pdfRenderCommandBounds(command) != null) {
@@ -544,8 +1443,135 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           }
       }
     }
+    if (saved.isNotEmpty) {
+      return (null, 'unbalanced transparency group state');
+    }
+    if (invisibleGroupDepth != 0) {
+      return (null, 'unbalanced invisible transparency group');
+    }
+    if (emptyClipOnly && softCount == 0 && paints.isEmpty && content == null) {
+      return (_EmptyGroupSpec(clip!), null);
+    }
+    if (softCount == 0 && softDepth == 0 && paints.length == 1) {
+      final paint = paints.single;
+      if (paint.$5) {
+        return (
+          null,
+          paint.$2 is PdfStrokePathCommand
+              ? 'transparency-group stroke overprint'
+              : 'transparency-group fill overprint',
+        );
+      }
+      if (backdropColor != null) {
+        return (null, 'non-identity single-paint transparency group');
+      }
+      return switch (paint.$2) {
+        PdfFillPathCommand content => (
+            _GroupFillSpec(
+              content: content,
+              groupAlpha: alpha,
+              contentClip: paint.$3,
+            ),
+            null,
+          ),
+        PdfStrokePathCommand content => (
+            _GroupStrokeSpec(
+              content: content,
+              groupAlpha: alpha,
+              contentClip: paint.$3,
+            ),
+            null,
+          ),
+        PdfDrawTextCommand content => (
+            _GroupTextSpec(
+              content: content,
+              groupAlpha: alpha,
+              contentClip: paint.$3,
+            ),
+            null,
+          ),
+        PdfDrawImageCommand content => (
+            _GroupPaintSpec(
+              commands: [content],
+              paintClips: [paint.$3],
+              paintBlends: const [PdfBlendMode.normal],
+              contentClip: paint.$3,
+              groupAlpha: alpha,
+              offscreen: alpha != 1,
+            ),
+            null,
+          ),
+        _ => (null, 'unsupported transparency-group paint'),
+      };
+    }
+    if (softCount == 0 && softDepth == 0 && paints.length > 1) {
+      final commonClip = paints.first.$3;
+      final normalPaints =
+          paints.every((paint) => paint.$4 == PdfBlendMode.normal && !paint.$5);
+      final fixedFunctionPaints = paints.every((paint) =>
+          FlutterGpuTileRasterBackend._isFixedFunctionBlendMode(paint.$4) &&
+          !paint.$5);
+      final commonPaintClip =
+          paints.every((paint) => _samePdfRect(paint.$3, commonClip));
+      final disjointOuterBlend = initialBlend != PdfBlendMode.normal &&
+          _areDisjointFills([
+            for (final paint in paints)
+              (paint.$2, paint.$3, paint.$4, paint.$5),
+          ]);
+      final canFlatten = alpha == 1 &&
+          !knockout &&
+          backdropColor == null &&
+          normalPaints &&
+          (initialBlend == PdfBlendMode.normal || disjointOuterBlend);
+      final canRenderKnockout = isolated &&
+          knockout &&
+          backdropColor == null &&
+          normalPaints &&
+          paints.every((paint) => paint.$2 is PdfFillPathCommand);
+      final canRenderOffscreen = (isolated &&
+              !knockout &&
+              backdropColor == null &&
+              fixedFunctionPaints) ||
+          canRenderKnockout;
+      if (!canFlatten && !canRenderOffscreen) {
+        return (null, 'non-identity multi-paint transparency group');
+      }
+      if (canFlatten &&
+          !commonPaintClip &&
+          paints.every((paint) => paint.$1 != null)) {
+        return (
+          _FlattenGroupSpec(List.unmodifiable([
+            for (final paint in paints)
+              (commandIndex: paint.$1!, clip: paint.$3),
+          ])),
+          null,
+        );
+      }
+      // Synthesized paints from a nested group no longer have source command
+      // indices, so they cannot use [_FlattenGroupSpec]'s per-command clips.
+      // Retaining those clips in an offscreen pass is exact only for an
+      // isolated group; an unisolated group must keep seeing the page
+      // backdrop between paints.
+      if (canFlatten && !commonPaintClip && !canRenderOffscreen) {
+        return (null, 'nested group has distinct paint clips');
+      }
+      return (
+        _GroupPaintSpec(
+          commands: List.unmodifiable([for (final paint in paints) paint.$2]),
+          paintClips: List.unmodifiable([for (final paint in paints) paint.$3]),
+          paintBlends:
+              List.unmodifiable([for (final paint in paints) paint.$4]),
+          contentClip: canFlatten && commonPaintClip ? commonClip : null,
+          groupAlpha: alpha,
+          offscreen: !canFlatten || !commonPaintClip,
+          knockout: canRenderKnockout,
+        ),
+        null,
+      );
+    }
     if (softCount != 1 ||
         softDepth != 0 ||
+        paints.isNotEmpty ||
         content == null ||
         softEnd == null) {
       return (null, 'unsupported soft-mask image group');
@@ -567,21 +1593,737 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
       null,
     );
   }
+  final endCommand = commands[end];
+  if (commands[start] is PdfBeginSoftMaskedCommand &&
+      endCommand is PdfEndSoftMaskedCommand) {
+    final flattened = _parseOpaqueVectorMaskStack(
+      commands,
+      start,
+      end,
+      endCommand,
+      initialClip: initialClip,
+      initialFillOverprint: initialFillOverprint,
+      initialStrokeOverprint: initialStrokeOverprint,
+      initialBlend: initialBlend,
+    );
+    if (flattened != null) return (flattened, null);
+    final textStack = _parseOpaqueTextMaskStack(
+      commands,
+      start,
+      end,
+      endCommand,
+      initialClip: initialClip,
+      initialFillOverprint: initialFillOverprint,
+      initialStrokeOverprint: initialStrokeOverprint,
+      initialBlend: initialBlend,
+    );
+    if (textStack != null) return (textStack, null);
+    final maskCommands = endCommand.maskCommands;
+    final luminosity = endCommand.luminosity;
+    final backdropLuminance = endCommand.backdropLuminance;
+    final transferScale = endCommand.transferScale;
+    final transferOffset = endCommand.transferOffset;
+    PdfRenderCommand? content;
+    PdfRect? clip = initialClip;
+    PdfRect? contentClip;
+    final saved = <PdfRect?>[];
+    for (var i = start + 1; i < end; i++) {
+      final command = commands[i];
+      switch (command) {
+        case PdfSaveCommand():
+          saved.add(clip);
+        case PdfRestoreCommand():
+          if (saved.isEmpty) return (null, 'unbalanced soft-mask fill state');
+          clip = saved.removeLast();
+        case PdfClipPathCommand(:final path):
+          if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) {
+            return (null, 'non-rectangular soft-mask fill clip');
+          }
+          clip = _pdfIntersection(clip, pdfRenderPathBounds(path));
+        case PdfFillPathCommand() || PdfDrawTextCommand():
+          if (content != null) {
+            return (null, 'soft-mask group has multiple paints');
+          }
+          content = command;
+          contentClip = clip;
+        case PdfSetBlendModeCommand():
+          // This shortcut accepts exactly one painted element in the isolated
+          // soft-mask capture. Every PDF blend function reduces to the source
+          // when the backdrop alpha is zero, so the active blend mode cannot
+          // affect that element's captured pixels. The completed masked layer
+          // is then composited normally, matching CanvasPdfDevice's two-layer
+          // beginSoftMasked/endSoftMasked sequence.
+          break;
+        case PdfSetOverprintCommand():
+          // Like blend modes above, overprint has no backdrop colorants to
+          // preserve inside this isolated, initially transparent capture.
+          // With one painted fill it therefore reduces to the same source.
+          break;
+        default:
+          if (pdfRenderCommandBounds(command) != null) {
+            return (null, 'soft-mask fill contains ${command.runtimeType}');
+          }
+      }
+    }
+    if (saved.isNotEmpty || content == null) {
+      return (null, 'unsupported soft-mask fill group');
+    }
+    final maskState = _singleMaskImage(maskCommands);
+    final mask = maskState.$1;
+    if (mask == null) {
+      final gradientState = _singleMaskGradient(maskCommands);
+      final gradient = gradientState.$1;
+      if (gradient != null &&
+          !gradient.gradient.isRadial &&
+          backdropLuminance == 0 &&
+          transferScale == 1 &&
+          transferOffset == 0 &&
+          _gradientUnsupportedReason(gradient.gradient, gradient.alpha) ==
+              null) {
+        final contentBounds = _pdfIntersection(
+          contentClip,
+          pdfRenderCommandBounds(content),
+        );
+        final maskBounds = gradientState.$2;
+        if (contentBounds != null &&
+            maskBounds != null &&
+            _pdfContains(maskBounds, contentBounds)) {
+          return switch (content) {
+            PdfFillPathCommand fill => (
+                _SoftMaskGradientFillSpec(
+                  content: fill,
+                  mask: gradient,
+                  contentClip: contentClip,
+                  luminosity: luminosity,
+                ),
+                null,
+              ),
+            PdfDrawTextCommand text => (
+                _SoftMaskGradientTextSpec(
+                  content: text,
+                  mask: gradient,
+                  contentClip: contentClip,
+                  luminosity: luminosity,
+                ),
+                null,
+              ),
+            _ => (null, 'unsupported gradient soft-mask content'),
+          };
+        }
+      }
+      final vectorMask = _vectorMaskFills(maskCommands);
+      final maskFills = vectorMask.$1;
+      if (maskFills == null) return (null, vectorMask.$2 ?? maskState.$3);
+      if (![backdropLuminance, transferScale, transferOffset]
+          .every((value) => value.isFinite)) {
+        return (null, 'invalid vector soft-mask transfer');
+      }
+      if (content is! PdfFillPathCommand) {
+        return (null, 'unsupported vector soft-mask text');
+      }
+      return (
+        _SoftMaskVectorFillSpec(
+          content: content,
+          maskFills: maskFills,
+          contentClip: contentClip,
+          luminosity: luminosity,
+          backdropLuminance: backdropLuminance,
+          transferScale: transferScale,
+          transferOffset: transferOffset,
+        ),
+        null,
+      );
+    }
+    if (mask.request.isStencil) {
+      return (null, 'stencil soft-mask fill image');
+    }
+    final maskDictionary = mask.request.stream.dictionary;
+    if (maskDictionary['SMask'] != null || maskDictionary['Mask'] != null) {
+      return (null, 'transparent soft-mask fill image');
+    }
+    return switch (content) {
+      PdfFillPathCommand fill => (
+          _SoftMaskFillSpec(
+            content: fill,
+            mask: mask.request,
+            contentClip: contentClip,
+            maskClip: maskState.$2,
+            luminosity: luminosity,
+            backdropLuminance: backdropLuminance,
+            transferScale: transferScale,
+            transferOffset: transferOffset,
+          ),
+          null,
+        ),
+      PdfDrawTextCommand text => (
+          _SoftMaskTextSpec(
+            content: text,
+            mask: mask.request,
+            contentClip: contentClip,
+            maskClip: maskState.$2,
+            luminosity: luminosity,
+            backdropLuminance: backdropLuminance,
+            transferScale: transferScale,
+            transferOffset: transferOffset,
+          ),
+          null,
+        ),
+      _ => (null, 'unsupported image soft-mask content'),
+    };
+  }
   return (null, 'unsupported composite ${commands[start].runtimeType}');
 }
+
+/// Recognizes the exact isolated-knockout shape emitted by PDF.js's
+/// `knockout_smask.pdf`: one ordinary base fill followed by one
+/// vector-soft-masked fill. The masked source remains one captured object (its
+/// mask is not applied to sibling paints), then the completed transparent
+/// group applies its alpha and outer blend once.
+_KnockoutSoftMaskFillSpec? _parseKnockoutSoftMaskFill(
+  List<PdfRenderCommand> commands,
+  int start,
+  int end, {
+  required double groupAlpha,
+  required PdfRect? initialClip,
+  required bool initialFillOverprint,
+  required bool initialStrokeOverprint,
+  required PdfBlendMode initialBlend,
+}) {
+  var clip = initialClip;
+  var blend = initialBlend;
+  var fillOverprint = initialFillOverprint;
+  var strokeOverprint = initialStrokeOverprint;
+  final saved = <(PdfRect?, PdfBlendMode, bool, bool)>[];
+  PdfFillPathCommand? base;
+  PdfRect? baseClip;
+  _SoftMaskVectorFillSpec? masked;
+
+  int? nestedEnd(int nestedStart) {
+    var depth = 1;
+    for (var index = nestedStart + 1; index < end; index++) {
+      switch (commands[index]) {
+        case PdfBeginSoftMaskedCommand():
+          depth++;
+        case PdfEndSoftMaskedCommand():
+          depth--;
+          if (depth == 0) return index;
+        case PdfBeginGroupCommand() || PdfEndGroupCommand():
+          return null;
+        default:
+          break;
+      }
+    }
+    return null;
+  }
+
+  for (var index = start + 1; index < end; index++) {
+    final command = commands[index];
+    switch (command) {
+      case PdfSaveCommand():
+        saved.add((clip, blend, fillOverprint, strokeOverprint));
+      case PdfRestoreCommand():
+        if (saved.isEmpty) return null;
+        final restored = saved.removeLast();
+        clip = restored.$1;
+        blend = restored.$2;
+        fillOverprint = restored.$3;
+        strokeOverprint = restored.$4;
+      case PdfClipPathCommand(:final path):
+        if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) return null;
+        clip = _pdfIntersection(clip, pdfRenderPathBounds(path));
+        if (clip == null) return null;
+      case PdfSetBlendModeCommand(:final mode):
+        blend = mode;
+      case PdfSetOverprintCommand(:final fill, :final stroke):
+        fillOverprint = fill;
+        strokeOverprint = stroke;
+      case PdfFillPathCommand():
+        if (base != null ||
+            masked != null ||
+            blend != PdfBlendMode.normal ||
+            fillOverprint) {
+          return null;
+        }
+        base = command;
+        baseClip = clip;
+      case PdfBeginSoftMaskedCommand():
+        if (base == null || masked != null) return null;
+        final nestedStop = nestedEnd(index);
+        if (nestedStop == null) return null;
+        final parsed = _parseComposite(
+          commands,
+          index,
+          nestedStop,
+          initialClip: clip,
+          initialFillOverprint: fillOverprint,
+          initialStrokeOverprint: strokeOverprint,
+          initialBlend: blend,
+        ).$1;
+        if (parsed is! _SoftMaskVectorFillSpec) return null;
+        masked = parsed;
+        index = nestedStop;
+      case PdfBeginGroupCommand() ||
+            PdfEndGroupCommand() ||
+            PdfEndSoftMaskedCommand():
+        return null;
+      default:
+        if (pdfRenderCommandBounds(command) != null) return null;
+    }
+  }
+  if (saved.isNotEmpty || base == null || masked == null) return null;
+  return _KnockoutSoftMaskFillSpec(
+    base: base,
+    baseClip: baseClip,
+    masked: masked,
+    groupAlpha: groupAlpha,
+  );
+}
+
+/// Whether a multi-paint group can apply its outer blend per paint without
+/// changing the result.
+///
+/// Disjoint fills never contribute to the same destination sample, so
+/// compositing their transparent group once is identical to compositing each
+/// fill directly. The two-point padding is deliberately conservative around
+/// antialiased path edges; overlapping, touching, stroked, or unbounded paints
+/// stay on the exact Canvas layer path.
+bool _areDisjointFills(
+  List<(PdfRenderCommand, PdfRect?, PdfBlendMode, bool)> paints,
+) {
+  final bounds = <PdfRect>[];
+  for (final paint in paints) {
+    if (paint.$1 is! PdfFillPathCommand) return false;
+    final commandBounds = pdfRenderCommandBounds(paint.$1);
+    final clipped = _pdfIntersection(commandBounds, paint.$2);
+    if (clipped == null) return false;
+    final padded = _inflatePdf(clipped, 2);
+    if (bounds.any((other) => _pdfIntersection(other, padded) != null)) {
+      return false;
+    }
+    bounds.add(padded);
+  }
+  return true;
+}
+
+int? _matchingGroupEnd(
+  List<PdfRenderCommand> commands,
+  int start,
+  int outerEnd,
+) {
+  var depth = 1;
+  for (var index = start + 1; index < outerEnd; index++) {
+    switch (commands[index]) {
+      case PdfBeginGroupCommand():
+        depth++;
+      case PdfEndGroupCommand():
+        depth--;
+        if (depth == 0) return index;
+      default:
+        break;
+    }
+  }
+  return null;
+}
+
+/// Flattens one narrow nested-mask shape without allocating an offscreen
+/// group: an opaque Normal base covering a binary white vector mask, followed
+/// by image-masked fills blended onto that base. Because the base is opaque,
+/// each nested blend sees exactly the same backdrop whether it is evaluated
+/// inside the isolated source layer or directly after the base. The outer
+/// mask then reduces to a retained path stencil (a rectangle stays a cheap
+/// scissor).
+///
+/// Every condition below is part of that proof. General nested masks, partial
+/// bases, non-binary masks, and non-Normal outer composites continue through
+/// the existing conservative Canvas fallback.
+_FlattenSoftMaskSpec? _parseOpaqueVectorMaskStack(
+  List<PdfRenderCommand> commands,
+  int start,
+  int end,
+  PdfEndSoftMaskedCommand outerEnd, {
+  required PdfRect? initialClip,
+  required bool initialFillOverprint,
+  required bool initialStrokeOverprint,
+  required PdfBlendMode initialBlend,
+}) {
+  if (initialBlend != PdfBlendMode.normal ||
+      outerEnd.backdropLuminance != 0 ||
+      outerEnd.transferScale != 1 ||
+      outerEnd.transferOffset != 0) {
+    return null;
+  }
+  final maskState = _singleMaskPath(outerEnd.maskCommands);
+  final mask = maskState.$1;
+  if (mask == null) return null;
+  final maskIsOpaque = mask.alpha == 1 &&
+      (!outerEnd.luminosity ||
+          (mask.color.red == 1 &&
+              mask.color.green == 1 &&
+              mask.color.blue == 1));
+  if (!maskIsOpaque) return null;
+  final maskBounds = pdfRenderCommandBounds(mask);
+  var visibleMask = _pdfIntersection(initialClip, maskState.$2);
+  visibleMask = _pdfIntersection(visibleMask, maskBounds);
+  if (visibleMask == null) return null;
+  final rectangularMask =
+      FlutterGpuTileRasterBackend._isAxisAlignedRect(mask.path);
+  if (!rectangularMask && mask.rule != PdfFillRule.nonzero) return null;
+  final pathClip = rectangularMask ? null : mask.path;
+
+  var clip = initialClip;
+  var blend = initialBlend;
+  var fillOverprint = initialFillOverprint;
+  var strokeOverprint = initialStrokeOverprint;
+  final saved = <(PdfRect?, PdfBlendMode, bool, bool)>[];
+  final paints = <_FlattenSoftMaskPaint>[];
+  var hasOpaqueBase = false;
+  var nestedMasks = 0;
+
+  int? nestedEnd(int nestedStart) {
+    var depth = 1;
+    for (var i = nestedStart + 1; i < end; i++) {
+      switch (commands[i]) {
+        case PdfBeginSoftMaskedCommand():
+          depth++;
+        case PdfEndSoftMaskedCommand():
+          depth--;
+          if (depth == 0) return i;
+        case PdfBeginGroupCommand() || PdfEndGroupCommand():
+          return null;
+        default:
+          break;
+      }
+    }
+    return null;
+  }
+
+  for (var i = start + 1; i < end; i++) {
+    final command = commands[i];
+    switch (command) {
+      case PdfSaveCommand():
+        saved.add((clip, blend, fillOverprint, strokeOverprint));
+      case PdfRestoreCommand():
+        if (saved.isEmpty) return null;
+        final restored = saved.removeLast();
+        clip = restored.$1;
+        blend = restored.$2;
+        fillOverprint = restored.$3;
+        strokeOverprint = restored.$4;
+      case PdfClipPathCommand(:final path):
+        if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) return null;
+        clip = _pdfIntersection(clip, pdfRenderPathBounds(path));
+        if (clip == null) return null;
+      case PdfSetBlendModeCommand(:final mode):
+        blend = mode;
+      case PdfSetOverprintCommand(:final fill, :final stroke):
+        fillOverprint = fill;
+        strokeOverprint = stroke;
+      case PdfFillPathCommand(:final path, :final rule, :final alpha):
+        if (hasOpaqueBase || alpha != 1 || blend != PdfBlendMode.normal) {
+          return null;
+        }
+        final bounds = _pdfIntersection(clip, pdfRenderPathBounds(path));
+        final matchingMask = rectangularMask
+            ? bounds != null && _pdfContains(bounds, visibleMask)
+            : rule == mask.rule && _samePathGeometry(path, mask.path);
+        if (bounds == null || !matchingMask) {
+          return null;
+        }
+        hasOpaqueBase = true;
+        paints.add(_FlattenSoftMaskPaint(
+          commandIndex: i,
+          endCommandIndex: i,
+          bounds: visibleMask,
+          clip: visibleMask,
+          blendMode: PdfBlendMode.normal,
+          pathClip: pathClip,
+        ));
+      case PdfBeginSoftMaskedCommand():
+        if (!hasOpaqueBase) return null;
+        final nestedStop = nestedEnd(i);
+        if (nestedStop == null ||
+            commands[nestedStop] is! PdfEndSoftMaskedCommand) {
+          return null;
+        }
+        final parsed = _parseComposite(
+          commands,
+          i,
+          nestedStop,
+          initialClip: clip,
+          initialFillOverprint: fillOverprint,
+          initialStrokeOverprint: strokeOverprint,
+          initialBlend: blend,
+        ).$1;
+        if (parsed is! _SoftMaskFillSpec) return null;
+        final contentBounds = pdfRenderCommandBounds(parsed.content);
+        final contentClip = _pdfIntersection(clip, parsed.contentClip);
+        final paintClip = _pdfIntersection(visibleMask, contentClip);
+        final bounds = _pdfIntersection(paintClip, contentBounds);
+        if (bounds != null) {
+          paints.add(_FlattenSoftMaskPaint(
+            commandIndex: i,
+            endCommandIndex: nestedStop,
+            bounds: bounds,
+            clip: paintClip!,
+            blendMode: blend,
+            composite: parsed,
+            pathClip: pathClip,
+          ));
+        }
+        nestedMasks++;
+        // CanvasPdfDevice restores the blend captured by beginSoftMasked
+        // after compositing the nested layer. State-only commands inside the
+        // layer therefore do not leak into the next sibling.
+        i = nestedStop;
+      case PdfBeginGroupCommand() || PdfEndGroupCommand():
+        return null;
+      default:
+        if (pdfRenderCommandBounds(command) != null) return null;
+    }
+  }
+  if (saved.isNotEmpty || !hasOpaqueBase || nestedMasks == 0) return null;
+  return _FlattenSoftMaskSpec(List.unmodifiable(paints));
+}
+
+/// Text inner-shadow/glow effects in the GWG suite use the same exact shape
+/// as the vector stack above: an opaque text base, one image-masked fill, then
+/// an opaque white copy of the same text as the outer luminosity mask. The
+/// common text outline is an exact retained stencil, so no offscreen group or
+/// rasterized glyph mask is needed.
+_FlattenSoftMaskSpec? _parseOpaqueTextMaskStack(
+  List<PdfRenderCommand> commands,
+  int start,
+  int end,
+  PdfEndSoftMaskedCommand outerEnd, {
+  required PdfRect? initialClip,
+  required bool initialFillOverprint,
+  required bool initialStrokeOverprint,
+  required PdfBlendMode initialBlend,
+}) {
+  if (!outerEnd.luminosity ||
+      initialBlend != PdfBlendMode.normal ||
+      outerEnd.backdropLuminance != 0 ||
+      outerEnd.transferScale != 1 ||
+      outerEnd.transferOffset != 0) {
+    return null;
+  }
+  final maskState = _singleMaskText(outerEnd.maskCommands);
+  final mask = maskState.$1;
+  if (mask == null ||
+      mask.run.color.red != 1 ||
+      mask.run.color.green != 1 ||
+      mask.run.color.blue != 1 ||
+      mask.run.fillAlpha != 1 ||
+      _unsupportedTextReason(mask.run) != null) {
+    return null;
+  }
+  final maskPath = _textPath(mask.run);
+  final maskBounds = pdfRenderCommandBounds(mask);
+  var visibleMask = _pdfIntersection(initialClip, maskState.$2);
+  visibleMask = _pdfIntersection(visibleMask, maskBounds);
+  if (maskPath == null || visibleMask == null) return null;
+
+  var clip = initialClip;
+  var blend = initialBlend;
+  var fillOverprint = initialFillOverprint;
+  var strokeOverprint = initialStrokeOverprint;
+  final saved = <(PdfRect?, PdfBlendMode, bool, bool)>[];
+  final paints = <_FlattenSoftMaskPaint>[];
+  PdfDrawTextCommand? base;
+  var nestedMasks = 0;
+
+  int? nestedEnd(int nestedStart) {
+    var depth = 1;
+    for (var i = nestedStart + 1; i < end; i++) {
+      switch (commands[i]) {
+        case PdfBeginSoftMaskedCommand():
+          depth++;
+        case PdfEndSoftMaskedCommand():
+          depth--;
+          if (depth == 0) return i;
+        case PdfBeginGroupCommand() || PdfEndGroupCommand():
+          return null;
+        default:
+          break;
+      }
+    }
+    return null;
+  }
+
+  for (var i = start + 1; i < end; i++) {
+    final command = commands[i];
+    switch (command) {
+      case PdfSaveCommand():
+        saved.add((clip, blend, fillOverprint, strokeOverprint));
+      case PdfRestoreCommand():
+        if (saved.isEmpty) return null;
+        final restored = saved.removeLast();
+        clip = restored.$1;
+        blend = restored.$2;
+        fillOverprint = restored.$3;
+        strokeOverprint = restored.$4;
+      case PdfClipPathCommand(:final path):
+        if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) return null;
+        clip = _pdfIntersection(clip, pdfRenderPathBounds(path));
+        if (clip == null) return null;
+      case PdfSetBlendModeCommand(:final mode):
+        blend = mode;
+      case PdfSetOverprintCommand(:final fill, :final stroke):
+        fillOverprint = fill;
+        strokeOverprint = stroke;
+      case PdfDrawTextCommand():
+        if (base != null ||
+            blend != PdfBlendMode.normal ||
+            command.run.fillAlpha != 1 ||
+            _unsupportedTextReason(command.run) != null ||
+            !_sameTextGeometry(command, mask)) {
+          return null;
+        }
+        final bounds = _pdfIntersection(
+          _pdfIntersection(clip, visibleMask),
+          pdfRenderCommandBounds(command),
+        );
+        if (bounds == null) return null;
+        base = command;
+        paints.add(_FlattenSoftMaskPaint(
+          commandIndex: i,
+          endCommandIndex: i,
+          bounds: bounds,
+          clip: visibleMask,
+          blendMode: PdfBlendMode.normal,
+          pathClip: maskPath,
+        ));
+      case PdfBeginSoftMaskedCommand():
+        if (base == null) return null;
+        final nestedStop = nestedEnd(i);
+        if (nestedStop == null ||
+            commands[nestedStop] is! PdfEndSoftMaskedCommand) {
+          return null;
+        }
+        final parsed = _parseComposite(
+          commands,
+          i,
+          nestedStop,
+          initialClip: clip,
+          initialFillOverprint: fillOverprint,
+          initialStrokeOverprint: strokeOverprint,
+          initialBlend: blend,
+        ).$1;
+        if (parsed is! _SoftMaskFillSpec) return null;
+        final bounds = _pdfIntersection(
+          _pdfIntersection(
+            _pdfIntersection(clip, parsed.contentClip),
+            visibleMask,
+          ),
+          pdfRenderCommandBounds(parsed.content),
+        );
+        if (bounds != null) {
+          paints.add(_FlattenSoftMaskPaint(
+            commandIndex: i,
+            endCommandIndex: nestedStop,
+            bounds: bounds,
+            clip: visibleMask,
+            blendMode: blend,
+            composite: parsed,
+            pathClip: maskPath,
+          ));
+        }
+        nestedMasks++;
+        i = nestedStop;
+      case PdfBeginGroupCommand() || PdfEndGroupCommand():
+        return null;
+      default:
+        if (pdfRenderCommandBounds(command) != null) return null;
+    }
+  }
+  if (saved.isNotEmpty || base == null || nestedMasks != 1) return null;
+  return _FlattenSoftMaskSpec(List.unmodifiable(paints));
+}
+
+bool _sameTextGeometry(PdfDrawTextCommand a, PdfDrawTextCommand b) {
+  final left = _textSubpaths(a.run), right = _textSubpaths(b.run);
+  return left != null && right != null && _sameSubpaths(left, right);
+}
+
+bool _samePathGeometry(PdfPath a, PdfPath b) => _sameSubpaths(
+      flattenPath(a, PdfMatrix.identity, tolerance: 0.01),
+      flattenPath(b, PdfMatrix.identity, tolerance: 0.01),
+    );
+
+bool _sameSubpaths(List<FlatSubpath> left, List<FlatSubpath> right) {
+  if (left.length != right.length) return false;
+  for (var i = 0; i < left.length; i++) {
+    final l = left[i], r = right[i];
+    if (l.closed != r.closed || l.points.length != r.points.length) {
+      return false;
+    }
+    for (var j = 0; j < l.points.length; j++) {
+      if ((l.points[j] - r.points[j]).abs() > 0.001) return false;
+    }
+  }
+  return true;
+}
+
+PdfPath? _textPath(PdfTextRun run) {
+  final glyphs = run.glyphs;
+  if (glyphs == null) return null;
+  final segments = <PdfPathSegment>[];
+  for (final glyph in glyphs) {
+    final outline = glyph.outline;
+    if (outline == null) continue;
+    final transform = PdfMatrix.translation(glyph.offset, glyph.offsetY)
+        .concat(run.transform);
+    final cursor = outline.cursor();
+    while (cursor.moveNext()) {
+      segments.add(switch (cursor.verb) {
+        PdfPathVerb.moveTo => PdfMoveTo(
+            transform.transformX(cursor.x1, cursor.y1),
+            transform.transformY(cursor.x1, cursor.y1),
+          ),
+        PdfPathVerb.lineTo => PdfLineTo(
+            transform.transformX(cursor.x1, cursor.y1),
+            transform.transformY(cursor.x1, cursor.y1),
+          ),
+        PdfPathVerb.cubicTo => PdfCubicTo(
+            transform.transformX(cursor.x1, cursor.y1),
+            transform.transformY(cursor.x1, cursor.y1),
+            transform.transformX(cursor.x2, cursor.y2),
+            transform.transformY(cursor.x2, cursor.y2),
+            transform.transformX(cursor.x3, cursor.y3),
+            transform.transformY(cursor.x3, cursor.y3),
+          ),
+        PdfPathVerb.close => const PdfClosePath(),
+      });
+    }
+  }
+  return segments.isEmpty ? null : PdfPath(List.unmodifiable(segments));
+}
+
+// Adjacent form transforms in real PDFs can serialize the same intended edge
+// a few millionths of a point apart. The retained stencil still uses the
+// original geometry; this tolerance only recognizes coincident coverage.
+bool _pdfContains(PdfRect outer, PdfRect inner) =>
+    outer.left <= inner.left + 0.001 &&
+    outer.bottom <= inner.bottom + 0.001 &&
+    outer.right + 0.001 >= inner.right &&
+    outer.top + 0.001 >= inner.top;
 
 (PdfDrawImageCommand?, PdfRect?, String?) _singleMaskImage(
     List<PdfRenderCommand> commands) {
   PdfDrawImageCommand? image;
+  PdfRect? imageClip;
   PdfRect? clip;
-  final saved = <PdfRect?>[];
+  var blend = PdfBlendMode.normal;
+  final saved = <(PdfRect?, PdfBlendMode)>[];
   for (final command in commands) {
     switch (command) {
       case PdfSaveCommand():
-        saved.add(clip);
+        saved.add((clip, blend));
       case PdfRestoreCommand():
         if (saved.isEmpty) return (null, null, 'unbalanced mask image state');
-        clip = saved.removeLast();
+        final restored = saved.removeLast();
+        clip = restored.$1;
+        blend = restored.$2;
       case PdfClipPathCommand(:final path):
         if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) {
           return (null, null, 'non-rectangular mask image clip');
@@ -589,11 +2331,13 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
         clip = _pdfIntersection(clip, pdfRenderPathBounds(path));
       case PdfDrawImageCommand():
         if (image != null) return (null, null, 'mask contains multiple images');
-        image = command;
-      case PdfSetBlendModeCommand(:final mode):
-        if (mode != PdfBlendMode.normal) {
-          return (null, null, 'mask image blend mode ${mode.name}');
+        if (blend != PdfBlendMode.normal) {
+          return (null, null, 'mask image blend mode ${blend.name}');
         }
+        image = command;
+        imageClip = clip;
+      case PdfSetBlendModeCommand(:final mode):
+        blend = mode;
       case PdfSetOverprintCommand():
         break;
       default:
@@ -604,11 +2348,225 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
   }
   if (saved.isNotEmpty) return (null, null, 'unbalanced mask image state');
   if (image == null) return (null, null, 'mask has no image');
-  return (image, clip, null);
+  return (image, imageClip, null);
 }
 
-List<_GpuUnit> _selectGpuUnits(
-    List<_GpuUnit> units, PdfMatrix pageToRaster, Rect rasterRegion) {
+(PdfFillPathGradientCommand?, PdfRect?, String?) _singleMaskGradient(
+    List<PdfRenderCommand> commands) {
+  PdfFillPathGradientCommand? gradient;
+  PdfRect? clip;
+  PdfRect? bounds;
+  var blend = PdfBlendMode.normal;
+  final saved = <(PdfRect?, PdfBlendMode)>[];
+  for (final command in commands) {
+    switch (command) {
+      case PdfSaveCommand():
+        saved.add((clip, blend));
+      case PdfRestoreCommand():
+        if (saved.isEmpty) {
+          return (null, null, 'unbalanced mask gradient state');
+        }
+        final restored = saved.removeLast();
+        clip = restored.$1;
+        blend = restored.$2;
+      case PdfClipPathCommand(:final path):
+        if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) {
+          return (null, null, 'non-rectangular mask gradient clip');
+        }
+        clip = _pdfIntersection(clip, pdfRenderPathBounds(path));
+      case PdfFillPathGradientCommand(:final path):
+        if (gradient != null) {
+          return (null, null, 'mask contains multiple gradients');
+        }
+        if (blend != PdfBlendMode.normal) {
+          return (null, null, 'mask gradient blend mode ${blend.name}');
+        }
+        if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) {
+          return (null, null, 'non-rectangular mask gradient fill');
+        }
+        gradient = command;
+        bounds = _pdfIntersection(clip, pdfRenderPathBounds(path));
+      case PdfSetBlendModeCommand(:final mode):
+        blend = mode;
+      case PdfSetOverprintCommand():
+        // A single mask element has no prior colorants to preserve.
+        break;
+      default:
+        if (pdfRenderCommandBounds(command) != null) {
+          return (null, null, 'mask contains ${command.runtimeType}');
+        }
+    }
+  }
+  if (saved.isNotEmpty) {
+    return (null, null, 'unbalanced mask gradient state');
+  }
+  if (gradient == null || bounds == null) {
+    return (null, null, 'mask has no gradient');
+  }
+  return (gradient, bounds, null);
+}
+
+(PdfDrawTextCommand?, PdfRect?, String?) _singleMaskText(
+    List<PdfRenderCommand> commands) {
+  PdfDrawTextCommand? text;
+  PdfRect? textClip;
+  PdfRect? clip;
+  var blend = PdfBlendMode.normal;
+  final saved = <(PdfRect?, PdfBlendMode)>[];
+  for (final command in commands) {
+    switch (command) {
+      case PdfSaveCommand():
+        saved.add((clip, blend));
+      case PdfRestoreCommand():
+        if (saved.isEmpty) return (null, null, 'unbalanced mask text state');
+        final restored = saved.removeLast();
+        clip = restored.$1;
+        blend = restored.$2;
+      case PdfClipPathCommand(:final path):
+        if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) {
+          return (null, null, 'non-rectangular mask text clip');
+        }
+        clip = _pdfIntersection(clip, pdfRenderPathBounds(path));
+      case PdfDrawTextCommand():
+        if (text != null) return (null, null, 'mask contains multiple texts');
+        if (blend != PdfBlendMode.normal) {
+          return (null, null, 'mask text blend mode ${blend.name}');
+        }
+        text = command;
+        textClip = clip;
+      case PdfSetBlendModeCommand(:final mode):
+        blend = mode;
+      case PdfSetOverprintCommand():
+        // A single mask element has no prior colorants to preserve.
+        break;
+      default:
+        if (pdfRenderCommandBounds(command) != null) {
+          return (null, null, 'mask contains ${command.runtimeType}');
+        }
+    }
+  }
+  if (saved.isNotEmpty) return (null, null, 'unbalanced mask text state');
+  if (text == null) return (null, null, 'mask has no text');
+  return (text, textClip, null);
+}
+
+(PdfFillPathCommand?, PdfRect?, String?) _singleMaskPath(
+    List<PdfRenderCommand> commands) {
+  PdfFillPathCommand? fill;
+  PdfRect? fillClip;
+  PdfRect? clip;
+  var blend = PdfBlendMode.normal;
+  final saved = <(PdfRect?, PdfBlendMode)>[];
+  for (final command in commands) {
+    switch (command) {
+      case PdfSaveCommand():
+        saved.add((clip, blend));
+      case PdfRestoreCommand():
+        if (saved.isEmpty) return (null, null, 'unbalanced mask path state');
+        final restored = saved.removeLast();
+        clip = restored.$1;
+        blend = restored.$2;
+      case PdfClipPathCommand(:final path):
+        if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) {
+          return (null, null, 'non-rectangular mask path clip');
+        }
+        clip = _pdfIntersection(clip, pdfRenderPathBounds(path));
+      case PdfFillPathCommand():
+        if (fill != null) return (null, null, 'mask contains multiple paths');
+        if (blend != PdfBlendMode.normal) {
+          return (null, null, 'mask path blend mode ${blend.name}');
+        }
+        fill = command;
+        fillClip = clip;
+      case PdfSetBlendModeCommand(:final mode):
+        blend = mode;
+      case PdfSetOverprintCommand():
+        // A single mask element has no prior colorants to preserve.
+        break;
+      default:
+        if (pdfRenderCommandBounds(command) != null) {
+          return (null, null, 'mask contains ${command.runtimeType}');
+        }
+    }
+  }
+  if (saved.isNotEmpty) return (null, null, 'unbalanced mask path state');
+  if (fill == null) return (null, null, 'mask has no path');
+  return (fill, fillClip, null);
+}
+
+(List<_VectorMaskFill>?, String?) _vectorMaskFills(
+    List<PdfRenderCommand> commands) {
+  const maxFills = 32;
+  final fills = <_VectorMaskFill>[];
+  PdfRect? clip;
+  var clipEmpty = false;
+  var fillOverprint = false;
+  var strokeOverprint = false;
+  var overprintedFills = 0;
+  final saved = <(PdfRect?, bool, bool, bool)>[];
+  for (final command in commands) {
+    switch (command) {
+      case PdfSaveCommand():
+        saved.add((clip, clipEmpty, fillOverprint, strokeOverprint));
+      case PdfRestoreCommand():
+        if (saved.isEmpty) return (null, 'unbalanced vector mask state');
+        final restored = saved.removeLast();
+        clip = restored.$1;
+        clipEmpty = restored.$2;
+        fillOverprint = restored.$3;
+        strokeOverprint = restored.$4;
+      case PdfClipPathCommand(:final path):
+        if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) {
+          return (null, 'non-rectangular vector mask clip');
+        }
+        if (clipEmpty) continue;
+        final narrowed = _pdfIntersection(clip, pdfRenderPathBounds(path));
+        if (narrowed == null) {
+          clipEmpty = true;
+        } else {
+          clip = narrowed;
+        }
+      case PdfFillPathCommand(
+          :final path,
+          :final color,
+          :final alpha,
+        ):
+        if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) {
+          return (null, 'non-rectangular vector mask fill');
+        }
+        if (clipEmpty) continue;
+        final rect = _pdfIntersection(clip, pdfRenderPathBounds(path));
+        if (rect != null) fills.add(_VectorMaskFill(rect, color, alpha));
+        if (fillOverprint) overprintedFills++;
+        if (fills.length > maxFills) {
+          return (null, 'vector mask fill count exceeds GPU cap');
+        }
+      case PdfSetBlendModeCommand(:final mode):
+        if (mode != PdfBlendMode.normal) {
+          return (null, 'vector mask blend mode ${mode.name}');
+        }
+      case PdfSetOverprintCommand(:final fill, :final stroke):
+        fillOverprint = fill;
+        strokeOverprint = stroke;
+      default:
+        if (pdfRenderCommandBounds(command) != null) {
+          return (null, 'vector mask contains ${command.runtimeType}');
+        }
+    }
+  }
+  if (saved.isNotEmpty) return (null, 'unbalanced vector mask state');
+  if (fills.isEmpty) return (null, 'vector mask has no fills');
+  // Overprint has nothing to preserve for the only painted element in a
+  // fresh mask group. With multiple fills it can change their interaction,
+  // so that shape remains on Canvas.
+  if (overprintedFills > 0 && fills.length > 1) {
+    return (null, 'multi-fill vector mask overprint');
+  }
+  return (List.unmodifiable(fills), null);
+}
+
+List<_GpuUnit> _selectGpuUnits(List<_GpuUnit> units, PdfMatrix pageToRaster,
+    Rect rasterRegion, double pixelRatio) {
   final inverse = pageToRaster.inverted();
   if (inverse == null) return const [];
   final points = <(double, double)>[
@@ -627,10 +2585,27 @@ List<_GpuUnit> _selectGpuUnits(
     if (py > top) top = py;
   }
   final page = PdfRect(left, bottom, right, top);
+  final scale = _pageDeviceScale(pageToRaster, pixelRatio);
+  // Unit bounds already carry a 2pt safety pad. At very low LoD a one-pixel
+  // hairline can be wider than that in page space, so expand its query bounds
+  // by the remainder. This keeps a line just outside a tile from being
+  // incorrectly culled when its device footprint still reaches the tile.
+  final hairlinePadding = math.max(0.0, 0.5 / scale - 2);
   return [
     for (final unit in units)
-      if (_pdfIntersects(unit.bounds, page)) unit
+      if (_pdfIntersects(
+          unit.hairline && hairlinePadding > 0
+              ? _inflatePdf(unit.bounds, hairlinePadding)
+              : unit.bounds,
+          page))
+        unit
   ];
+}
+
+double _pageDeviceScale(PdfMatrix pageToRaster, double pixelRatio) {
+  final determinant =
+      pageToRaster.a * pageToRaster.d - pageToRaster.b * pageToRaster.c;
+  return math.max(1e-12, math.sqrt(determinant.abs()) * pixelRatio);
 }
 
 PdfRect? _pdfIntersection(PdfRect? a, PdfRect? b) {
@@ -644,6 +2619,15 @@ PdfRect? _pdfIntersection(PdfRect? a, PdfRect? b) {
       ? PdfRect(left, bottom, right, top)
       : null;
 }
+
+bool _samePdfRect(PdfRect? a, PdfRect? b) =>
+    identical(a, b) ||
+    (a != null &&
+        b != null &&
+        a.left == b.left &&
+        a.bottom == b.bottom &&
+        a.right == b.right &&
+        a.top == b.top);
 
 PdfRect _pdfUnion(PdfRect? a, PdfRect b) => a == null
     ? b
@@ -671,12 +2655,77 @@ String? _unsafeOverprint(_GpuUnit unit, PdfRenderCommand command) {
   switch (command) {
     case PdfFillMeshCommand():
       if (unit.fillOverprint) return 'mesh overprint';
+    case PdfFillPathGradientCommand():
+      if (unit.fillOverprint) return 'gradient overprint';
+    case PdfDrawTextCommand(:final run):
+      if (unit.fillOverprint && run.gradient != null) {
+        return 'gradient text overprint';
+      }
     default:
       // Images do not use CanvasPdfDevice's overprint approximation; the
       // interpreter has already resolved any image-adjacent colorant work.
       break;
   }
   return null;
+}
+
+String? _gradientUnsupportedReason(PdfGradient gradient, double alpha) {
+  if (gradient.colors.length < 2 ||
+      gradient.colors.length != gradient.stops.length ||
+      gradient.transform.inverted() == null ||
+      !alpha.isFinite ||
+      ![
+        gradient.transform.a,
+        gradient.transform.b,
+        gradient.transform.c,
+        gradient.transform.d,
+        gradient.transform.e,
+        gradient.transform.f,
+      ].every((value) => value.isFinite)) {
+    return 'invalid axial gradient';
+  }
+  if (gradient.isRadial) {
+    if (gradient.coords.length < 6) return 'invalid radial gradient';
+    final x0 = gradient.coords[0], y0 = gradient.coords[1];
+    final r0 = gradient.coords[2];
+    final x1 = gradient.coords[3], y1 = gradient.coords[4];
+    final r1 = gradient.coords[5];
+    final dx = x1 - x0, dy = y1 - y0, dr = r1 - r0;
+    final centerDistance = math.sqrt(dx * dx + dy * dy);
+    if (![x0, y0, r0, x1, y1, r1].every((value) => value.isFinite) ||
+        r0 < 0 ||
+        r1 < 0 ||
+        dr.abs() <= 1e-9 ||
+        centerDistance > dr.abs() + 1e-6) {
+      return 'unsupported non-nested radial gradient';
+    }
+  } else if (gradient.coords.length < 4) {
+    return 'invalid axial gradient';
+  }
+  if (gradient.isRadial) return null;
+  final dx = gradient.coords[2] - gradient.coords[0];
+  final dy = gradient.coords[3] - gradient.coords[1];
+  if (!dx.isFinite || !dy.isFinite || dx * dx + dy * dy <= 1e-12) {
+    return 'invalid axial gradient';
+  }
+  var previous = double.negativeInfinity;
+  for (final stop in gradient.stops) {
+    if (!stop.isFinite || stop <= previous) return 'invalid axial gradient';
+    previous = stop;
+  }
+  return null;
+}
+
+String? _unsupportedTextReason(PdfTextRun run) {
+  if (run.invisible) return null;
+  final gradientReason = !run.fill || run.gradient == null
+      ? null
+      : _gradientUnsupportedReason(run.gradient!, run.fillAlpha);
+  final reasons = <String>[
+    if (run.glyphs == null) 'missing glyph outlines',
+    if (gradientReason != null) gradientReason,
+  ];
+  return reasons.isEmpty ? null : 'unsupported text: ${reasons.join(', ')}';
 }
 
 bool _commandNeedsDarken(
@@ -698,9 +2747,14 @@ bool _commandNeedsDarken(
 }
 
 class _FlutterGpuTileSession
-    implements PdfTileRasterSession, PdfTileRasterScheduling {
+    implements
+        PdfTileRasterSession,
+        PdfTileRasterScheduling,
+        PdfTileRasterWarmUp {
   _FlutterGpuTileSession({
     required this.scene,
+    required this.commands,
+    required this.mipmapImages,
     required this.context,
     required this.pipelines,
     required this.units,
@@ -708,10 +2762,13 @@ class _FlutterGpuTileSession
     required this.stats,
     required this.imageCache,
     required this.geometryPool,
+    required this.analyticText,
   });
 
   @override
   final PdfRetainedScene scene;
+  final List<PdfRenderCommand> commands;
+  final bool mipmapImages;
 
   // This backend already returns a final GPU texture for every raster call.
   // Slab splitting would queue another texture-to-texture copy per tile; those
@@ -731,19 +2788,24 @@ class _FlutterGpuTileSession
   final FlutterGpuTileBackendStats stats;
   final _GpuImageCache imageCache;
   final _GpuGeometryPool geometryPool;
+  final bool analyticText;
 
   Future<_CompiledScene>? _compiled;
   _CompiledScene? _ready;
+  Future<void>? _prewarm;
   bool _disposed = false;
   bool _failureReported = false;
 
   Future<_CompiledScene> _compile() => _compiled ??= _CompiledScene.build(
         scene,
+        commands,
         context,
         units,
         stats,
         imageCache,
         geometryPool,
+        analyticText: analyticText,
+        mipmapImages: mipmapImages,
       ).then((compiled) {
         if (_disposed) {
           compiled.dispose();
@@ -753,6 +2815,56 @@ class _FlutterGpuTileSession
       }).whenComplete(scene.releaseDecodedImagePixels);
 
   @override
+  Future<void> warmUp() => _prewarm ??= _warmUpScene();
+
+  Future<void> _warmUpScene() async {
+    if (_disposed) return;
+    final clock = Stopwatch()..start();
+    stats.sceneWarmUpRequests++;
+    ui.Image? image;
+    try {
+      final compiled = await _compile();
+      final gpuPipelines = await pipelines;
+      await gpuPipelines.warmUp(
+        context,
+        useMsaa: msaa && context.doesSupportOffscreenMSAA,
+      );
+      if (_disposed) throw StateError('flutter_gpu tile session disposed');
+      final size = scene.pageSize;
+      final ratio = 1 / math.max(1.0, math.max(size.width, size.height));
+      image = compiled.render(
+        units,
+        region: Offset.zero & size,
+        pixelRatio: ratio,
+        pipelines: gpuPipelines,
+        useMsaa: msaa,
+      );
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      if (bytes == null) throw StateError('GPU scene warm-up readback failed');
+      stats.sceneWarmUpCompletions++;
+      PdfPerfLog.log(
+        'tile gpu scene warm commands=${units.length} '
+        'elapsed=${clock.elapsedMilliseconds}ms',
+      );
+    } catch (error) {
+      // A page leaving the cache while this optional idle pass is in flight is
+      // ordinary cancellation, not a backend failure or a reason to report a
+      // Canvas fallback for a scene that no longer has an owner.
+      if (_disposed) {
+        stats.sceneWarmUpCancellations++;
+        return;
+      }
+      stats
+        ..sceneWarmUpFailures += 1
+        ..lastSceneWarmUpError = error.toString();
+      rethrow;
+    } finally {
+      image?.dispose();
+      stats.sceneWarmUpMicros += clock.elapsedMicroseconds;
+    }
+  }
+
+  @override
   Future<ui.Image> rasterizeRegion(
     Rect region, {
     required double pixelRatio,
@@ -760,11 +2872,14 @@ class _FlutterGpuTileSession
   }) async {
     if (_disposed) throw StateError('flutter_gpu tile session disposed');
     try {
+      final prewarm = _prewarm;
+      if (prewarm != null) await prewarm;
       final compiled = await _compile();
       final gpuPipelines = await pipelines;
       if (_disposed) throw StateError('flutter_gpu tile session disposed');
       final issue = Stopwatch()..start();
-      final selected = _selectGpuUnits(units, compiled.pageToRaster, region);
+      final selected =
+          _selectGpuUnits(units, compiled.pageToRaster, region, pixelRatio);
       stats.selectedCommands += selected.length;
       final image = compiled.render(
         selected,
@@ -826,19 +2941,38 @@ class _CompiledScene {
   });
 
   static Future<_CompiledScene> build(
-    PdfRetainedScene scene,
-    gpu.GpuContext context,
-    List<_GpuUnit> units,
-    FlutterGpuTileBackendStats stats,
-    _GpuImageCache imageCache,
-    _GpuGeometryPool geometryPool,
-  ) async {
+      PdfRetainedScene scene,
+      List<PdfRenderCommand> commands,
+      gpu.GpuContext context,
+      List<_GpuUnit> units,
+      FlutterGpuTileBackendStats stats,
+      _GpuImageCache imageCache,
+      _GpuGeometryPool geometryPool,
+      {required bool analyticText,
+      required bool mipmapImages}) async {
     final clock = Stopwatch()..start();
     final draws = <int, _GpuDraw>{};
     final clipDraws = Map<_GpuClipNode, _GpuClipDraw>.identity();
     final textureLeases = <_GpuImageTexture>[];
     final geometry = _GpuGeometryArena(context, stats, geometryPool);
+    final pageToRaster = PdfPageRenderer.pageToDeviceMatrix(
+      scene.page,
+      scene.pageSize,
+      scene.page.cropBox,
+      rotation: scene.plan.rotation,
+      pixelRatio: 1,
+    );
     try {
+      _GpuGlyphAtlas? glyphAtlas;
+      if (analyticText) {
+        try {
+          glyphAtlas = _GpuGlyphAtlas.build(context, commands, units, stats);
+        } catch (_) {
+          // This is a retained-geometry optimization, never a new reason for
+          // an otherwise supported page to abandon the exact GPU route.
+          stats.analyticAtlasFallbacks++;
+        }
+      }
       for (final unit in units) {
         for (_GpuClipNode? node = unit.clip.node;
             node != null;
@@ -853,22 +2987,74 @@ class _CompiledScene {
             context,
             geometry,
             scene,
-            scene.commands[unit.commandIndex],
+            commands[unit.commandIndex],
             stats,
             imageCache,
             textureLeases,
+            glyphAtlas,
+            pageToRaster,
+            mipmapImages: mipmapImages,
           );
           draw = pending is Future<_GpuDraw?> ? await pending : pending;
         } else {
-          draw = await _compileSoftMaskImage(
-            context,
-            geometry,
-            scene,
-            unit.composite!,
-            stats,
-            imageCache,
-            textureLeases,
-          );
+          draw = switch (unit.composite!) {
+            _GroupFillSpec spec => _compileGroupFill(geometry, spec),
+            _GroupStrokeSpec spec => _compileGroupStroke(geometry, spec),
+            _GroupTextSpec spec => _compileGroupText(geometry, spec),
+            _GroupPaintSpec spec => await _compileGroupPaint(
+                context,
+                geometry,
+                scene,
+                spec,
+                stats,
+                imageCache,
+                textureLeases,
+                glyphAtlas,
+                pageToRaster,
+                mipmapImages: mipmapImages,
+              ),
+            _KnockoutSoftMaskFillSpec spec =>
+              _compileKnockoutSoftMaskFill(geometry, spec),
+            _FlattenSoftMaskSpec() => null,
+            _FlattenGroupSpec() => null,
+            _EmptyGroupSpec() => null,
+            _SoftMaskImageSpec spec => await _compileSoftMaskImage(
+                context,
+                geometry,
+                scene,
+                spec,
+                stats,
+                imageCache,
+                textureLeases,
+                mipmapImages: mipmapImages,
+              ),
+            _SoftMaskFillSpec spec => await _compileSoftMaskFill(
+                context,
+                geometry,
+                scene,
+                spec,
+                stats,
+                imageCache,
+                textureLeases,
+                mipmapImages: mipmapImages,
+              ),
+            _SoftMaskVectorFillSpec spec =>
+              _compileSoftMaskVectorFill(geometry, spec),
+            _SoftMaskGradientFillSpec spec =>
+              _compileSoftMaskGradientFill(geometry, spec),
+            _SoftMaskTextSpec spec => await _compileSoftMaskText(
+                context,
+                geometry,
+                scene,
+                spec,
+                stats,
+                imageCache,
+                textureLeases,
+                mipmapImages: mipmapImages,
+              ),
+            _SoftMaskGradientTextSpec spec =>
+              _compileSoftMaskGradientText(geometry, spec),
+          };
         }
         if (draw != null) draws[unit.commandIndex] = draw;
       }
@@ -876,13 +3062,7 @@ class _CompiledScene {
       geometry.finalize();
       final result = _CompiledScene(
         context: context,
-        pageToRaster: PdfPageRenderer.pageToDeviceMatrix(
-          scene.page,
-          scene.pageSize,
-          scene.page.cropBox,
-          rotation: scene.plan.rotation,
-          pixelRatio: 1,
-        ),
+        pageToRaster: pageToRaster,
         paper: paper,
         draws: draws,
         clipDraws: clipDraws,
@@ -981,6 +3161,20 @@ class _CompiledScene {
   }) {
     final width = (region.width * pixelRatio).ceil().clamp(1, 1 << 14);
     final height = (region.height * pixelRatio).ceil().clamp(1, 1 << 14);
+    if (selected.any((unit) =>
+        !FlutterGpuTileRasterBackend._isFixedFunctionBlendMode(
+            unit.blendMode))) {
+      return _renderAdvanced(
+        selected,
+        region: region,
+        pixelRatio: pixelRatio,
+        pipelines: pipelines,
+        useMsaa: useMsaa,
+        width: width,
+        height: height,
+        tracePage: tracePage,
+      );
+    }
     return _renderSimple(
       selected,
       region: region,
@@ -991,6 +3185,310 @@ class _CompiledScene {
       height: height,
       tracePage: tracePage,
     );
+  }
+
+  ui.Image _renderAdvanced(
+    List<_GpuUnit> selected, {
+    required Rect region,
+    required double pixelRatio,
+    required _GpuPipelines pipelines,
+    required bool useMsaa,
+    required int width,
+    required int height,
+    int? tracePage,
+  }) {
+    final issue = Stopwatch()..start();
+    final multisampled = useMsaa && context.doesSupportOffscreenMSAA;
+    // Two page ping-pong targets plus one transparent source consume 12 B/px.
+    // Conservatively allow another 36 B/px for 4x color/stencil attachments;
+    // rejecting an oversized deep-zoom request lets the existing Canvas path
+    // recover instead of turning one unusual tile into a multi-gigabyte GPU
+    // allocation.
+    final estimatedBytes = width * height * (multisampled ? 48 : 16);
+    if (estimatedBytes > (256 << 20)) {
+      stats.advancedBlendBudgetFallbacks++;
+      throw StateError('advanced blend tiles exceed 256 MiB');
+    }
+    stats
+      ..advancedBlendAllocatedBytes += estimatedBytes
+      ..peakAdvancedBlendBytes =
+          math.max(stats.peakAdvancedBlendBytes, estimatedBytes);
+    gpu.Texture pageTexture() => context.createTexture(
+          gpu.StorageMode.devicePrivate,
+          width,
+          height,
+          format: context.defaultColorFormat,
+        );
+
+    final pageA = pageTexture();
+    final pageB = pageTexture();
+    final source = pageTexture();
+    final color = multisampled
+        ? context.createTexture(
+            gpu.StorageMode.deviceTransient,
+            width,
+            height,
+            format: context.defaultColorFormat,
+            sampleCount: 4,
+          )
+        : null;
+    final stencil = context.createTexture(
+      gpu.StorageMode.deviceTransient,
+      width,
+      height,
+      format: context.defaultStencilFormat,
+      sampleCount: multisampled ? 4 : 1,
+    );
+    final transient = context.createHostBuffer();
+    final transform = transient.emplace(_tileTransform(
+      pageToRaster,
+      region,
+      pixelRatio,
+      width,
+      height,
+    ));
+    final commandBuffers = <gpu.CommandBuffer>[];
+    final retained = <Object>[
+      pageA,
+      pageB,
+      source,
+      if (color != null) color,
+      stencil,
+      transient,
+      commandBuffers,
+    ];
+
+    gpu.RenderPass createPaintPass(
+      gpu.CommandBuffer commandBuffer,
+      gpu.Texture resolve,
+    ) {
+      final target = color ?? resolve;
+      final pass = commandBuffer.createRenderPass(gpu.RenderTarget(
+        colorAttachments: [
+          gpu.ColorAttachment(
+            texture: target,
+            resolveTexture: multisampled ? resolve : null,
+            clearValue: vm.Vector4.zero(),
+            storeAction: multisampled
+                ? gpu.StoreAction.multisampleResolve
+                : gpu.StoreAction.store,
+          ),
+        ],
+        depthStencilAttachment: gpu.DepthStencilAttachment(
+          texture: stencil,
+          stencilClearValue: 0,
+        ),
+      ));
+      return pass
+        ..setCullMode(gpu.CullMode.none)
+        ..setWindingOrder(gpu.WindingOrder.counterClockwise)
+        ..setPrimitiveType(gpu.PrimitiveType.triangle)
+        ..setStencilReference(0)
+        ..setColorBlendEnable(true);
+    }
+
+    _GpuEncoder encoderFor(gpu.RenderPass pass) => _GpuEncoder(
+          pass: pass,
+          pipelines: pipelines,
+          transform: transform,
+          pageToRaster: pageToRaster,
+          region: region,
+          pixelRatio: pixelRatio,
+          width: width,
+          height: height,
+          clipDraws: clipDraws,
+          stencilClear: paper.vertices,
+          emplaceTransient: transient.emplace,
+        );
+
+    gpu.Texture? current;
+    gpu.Texture alternate() => identical(current, pageA) ? pageB : pageA;
+
+    void paintSegment(List<_GpuUnit> segment) {
+      final target = alternate();
+      final commandBuffer = context.createCommandBuffer();
+      final encoder = encoderFor(createPaintPass(commandBuffer, target));
+      if (current == null) {
+        encoder
+          ..setClip(_rootGpuClip)
+          ..setSourceBlend()
+          ..solid(paper.vertices);
+      } else {
+        encoder
+          ..setClip(_rootGpuClip)
+          ..setSourceBlend()
+          ..tileTexture(current!, region, 1);
+      }
+      for (final unit in segment) {
+        final draw = draws[unit.commandIndex];
+        if (draw == null) continue;
+        if (draw is _OffscreenGroupDraw) {
+          throw StateError(
+              'advanced blend route received an offscreen group draw');
+        }
+        encoder
+          ..setClip(unit.clip)
+          ..setBlendMode(unit.blendMode);
+        draw.encode(encoder);
+      }
+      stats.clipMaskRebuilds += encoder.clipMaskRebuilds;
+      commandBuffers.add(commandBuffer);
+      retained.add(encoder.pass);
+      current = target;
+    }
+
+    void paintSources(List<_GpuUnit> units) {
+      final sourceCommandBuffer = context.createCommandBuffer();
+      final sourceEncoder =
+          encoderFor(createPaintPass(sourceCommandBuffer, source));
+      for (final unit in units) {
+        final draw = draws[unit.commandIndex];
+        if (draw == null) continue;
+        if (draw is _OffscreenGroupDraw) {
+          throw StateError(
+              'advanced blend route received an offscreen group draw');
+        }
+        sourceEncoder
+          ..setClip(unit.clip)
+          ..setBlendMode(PdfBlendMode.normal);
+        draw.encode(sourceEncoder);
+      }
+      stats.clipMaskRebuilds += sourceEncoder.clipMaskRebuilds;
+      commandBuffers.add(sourceCommandBuffer);
+      retained.add(sourceEncoder.pass);
+    }
+
+    void blendSources(List<(_GpuUnit, PdfRect?)> units) {
+      final target = alternate();
+      final blendCommandBuffer = context.createCommandBuffer();
+      final blendPass = blendCommandBuffer.createRenderPass(
+        gpu.RenderTarget.singleColor(gpu.ColorAttachment(
+          texture: target,
+          clearValue: vm.Vector4.zero(),
+        )),
+      )
+        ..setCullMode(gpu.CullMode.none)
+        ..setWindingOrder(gpu.WindingOrder.counterClockwise)
+        ..setPrimitiveType(gpu.PrimitiveType.triangle)
+        ..setColorBlendEnable(false);
+      final blendEncoder = encoderFor(blendPass)..copyTile(current!);
+      for (final (unit, bounds) in units) {
+        blendEncoder.advancedBlend(
+          current!,
+          source,
+          unit.blendMode,
+          bounds,
+        );
+      }
+      commandBuffers.add(blendCommandBuffer);
+      retained.add(blendPass);
+      current = target;
+      stats.advancedBlendPasses++;
+    }
+
+    bool overlaps(PdfRect a, PdfRect b) =>
+        a.left < b.right &&
+        a.right > b.left &&
+        a.bottom < b.top &&
+        a.top > b.bottom;
+
+    final advanced = <(int, _GpuUnit, PdfRect)>[];
+    for (var i = 0; i < selected.length; i++) {
+      final unit = selected[i];
+      if (!FlutterGpuTileRasterBackend._isFixedFunctionBlendMode(
+          unit.blendMode)) {
+        advanced.add((i, unit, unit.bounds));
+      }
+    }
+    var batchable =
+        advanced.length > 1 && advanced.every((item) => !item.$2.hairline);
+    for (var i = 0; batchable && i < advanced.length; i++) {
+      for (var j = i + 1; j < advanced.length; j++) {
+        if (overlaps(advanced[i].$3, advanced[j].$3)) {
+          batchable = false;
+          break;
+        }
+      }
+      for (var j = advanced[i].$1 + 1; batchable && j < selected.length; j++) {
+        final later = selected[j];
+        if (FlutterGpuTileRasterBackend._isFixedFunctionBlendMode(
+                later.blendMode) &&
+            overlaps(advanced[i].$3, later.bounds)) {
+          batchable = false;
+        }
+      }
+    }
+
+    if (batchable) {
+      paintSegment([
+        for (final unit in selected)
+          if (FlutterGpuTileRasterBackend._isFixedFunctionBlendMode(
+              unit.blendMode))
+            unit,
+      ]);
+      final units = [for (final item in advanced) item.$2];
+      paintSources(units);
+      blendSources([
+        for (final item in advanced) (item.$2, item.$3),
+      ]);
+    } else {
+      var index = 0;
+      while (index < selected.length) {
+        final start = index;
+        while (index < selected.length &&
+            FlutterGpuTileRasterBackend._isFixedFunctionBlendMode(
+                selected[index].blendMode)) {
+          index++;
+        }
+        if (start != index || current == null) {
+          paintSegment(selected.sublist(start, index));
+        }
+        if (index < selected.length) {
+          paintSources([selected[index]]);
+          blendSources([(selected[index], null)]);
+          index++;
+        }
+      }
+    }
+
+    final submit = Stopwatch()..start();
+    final completion = Stopwatch()..start();
+    _inFlight++;
+    stats
+      ..inFlightSubmissions += 1
+      ..peakInFlightSubmissions = math.max(
+        stats.peakInFlightSubmissions,
+        stats.inFlightSubmissions,
+      );
+    try {
+      for (var i = 0; i < commandBuffers.length; i++) {
+        final last = i == commandBuffers.length - 1;
+        commandBuffers[i].submit(completionCallback: (success) {
+          retained.length;
+          if (last) {
+            _completeSubmission(
+              success,
+              completion,
+              tracePage,
+              width,
+              height,
+              selected.length,
+            );
+          }
+        });
+      }
+    } catch (_) {
+      _inFlight--;
+      stats
+        ..inFlightSubmissions = math.max(0, stats.inFlightSubmissions - 1)
+        ..failedSubmissions += 1;
+      _releaseResourcesIfReady();
+      rethrow;
+    }
+    stats
+      ..submitMicros += submit.elapsedMicroseconds
+      ..issueMicros += issue.elapsedMicroseconds;
+    return current!.asImage();
   }
 
   ui.Image _renderSimple(
@@ -1027,45 +3525,219 @@ class _CompiledScene {
       format: context.defaultStencilFormat,
       sampleCount: multisampled ? 4 : 1,
     );
-    final commandBuffer = context.createCommandBuffer();
-    final pass = commandBuffer.createRenderPass(gpu.RenderTarget(
-      colorAttachments: [
-        gpu.ColorAttachment(
-          texture: color,
-          resolveTexture: multisampled ? resolve : null,
-          clearValue: vm.Vector4(0, 0, 0, 0),
-          storeAction: multisampled
-              ? gpu.StoreAction.multisampleResolve
-              : gpu.StoreAction.store,
-        ),
-      ],
-      depthStencilAttachment: gpu.DepthStencilAttachment(
-        texture: stencil,
-        stencilClearValue: 0,
-      ),
-    ));
-    pass
-      ..setCullMode(gpu.CullMode.none)
-      ..setWindingOrder(gpu.WindingOrder.counterClockwise)
-      ..setPrimitiveType(gpu.PrimitiveType.triangle)
-      ..setStencilReference(0)
-      ..setColorBlendEnable(true);
-
     final transient = context.createHostBuffer();
-    final transform = transient.emplace(
-      _tileTransform(pageToRaster, region, pixelRatio, width, height),
+
+    gpu.RenderPass createPass(
+      gpu.CommandBuffer commandBuffer,
+      gpu.Texture target,
+      gpu.Texture stencilTarget, {
+      gpu.Texture? resolveTarget,
+    }) {
+      final pass = commandBuffer.createRenderPass(gpu.RenderTarget(
+        colorAttachments: [
+          gpu.ColorAttachment(
+            texture: target,
+            resolveTexture: resolveTarget,
+            clearValue: vm.Vector4(0, 0, 0, 0),
+            storeAction: resolveTarget == null
+                ? gpu.StoreAction.store
+                : gpu.StoreAction.multisampleResolve,
+          ),
+        ],
+        depthStencilAttachment: gpu.DepthStencilAttachment(
+          texture: stencilTarget,
+          stencilClearValue: 0,
+        ),
+      ));
+      return pass
+        ..setCullMode(gpu.CullMode.none)
+        ..setWindingOrder(gpu.WindingOrder.counterClockwise)
+        ..setPrimitiveType(gpu.PrimitiveType.triangle)
+        ..setStencilReference(0)
+        ..setColorBlendEnable(true);
+    }
+
+    _GpuEncoder encoderFor(
+      gpu.RenderPass pass, {
+      required Rect targetRegion,
+      required int targetWidth,
+      required int targetHeight,
+    }) =>
+        _GpuEncoder(
+          pass: pass,
+          pipelines: pipelines,
+          transform: transient.emplace(_tileTransform(
+            pageToRaster,
+            targetRegion,
+            pixelRatio,
+            targetWidth,
+            targetHeight,
+          )),
+          pageToRaster: pageToRaster,
+          region: targetRegion,
+          pixelRatio: pixelRatio,
+          width: targetWidth,
+          height: targetHeight,
+          clipDraws: clipDraws,
+          stencilClear: paper.vertices,
+          emplaceTransient: transient.emplace,
+        );
+
+    Rect groupRegionFor(_GpuUnit unit, _OffscreenGroupDraw draw) {
+      final hairlinePadding = math.max(
+        0.0,
+        0.5 / _pageDeviceScale(pageToRaster, pixelRatio) - 2,
+      );
+      final extraPadding = math.max(draw.extraPadding, hairlinePadding);
+      final bounds = extraPadding == 0
+          ? unit.bounds
+          : _inflatePdf(unit.bounds, extraPadding);
+      final points = <(double, double)>[
+        (bounds.left, bounds.bottom),
+        (bounds.right, bounds.bottom),
+        (bounds.right, bounds.top),
+        (bounds.left, bounds.top),
+      ];
+      var left = double.infinity, top = double.infinity;
+      var right = double.negativeInfinity, bottom = double.negativeInfinity;
+      for (final (x, y) in points) {
+        final rx = pageToRaster.transformX(x, y);
+        final ry = pageToRaster.transformY(x, y);
+        if (rx < left) left = rx;
+        if (rx > right) right = rx;
+        if (ry < top) top = ry;
+        if (ry > bottom) bottom = ry;
+      }
+      left = math.max(
+          region.left,
+          region.left +
+              (((left - region.left) * pixelRatio).floor() / pixelRatio));
+      top = math.max(
+          region.top,
+          region.top +
+              (((top - region.top) * pixelRatio).floor() / pixelRatio));
+      right = math.min(
+          region.right,
+          region.left +
+              (((right - region.left) * pixelRatio).ceil() / pixelRatio));
+      bottom = math.min(
+          region.bottom,
+          region.top +
+              (((bottom - region.top) * pixelRatio).ceil() / pixelRatio));
+      return Rect.fromLTRB(left, top, right, bottom);
+    }
+
+    final groupPlans = <(_GpuUnit, _OffscreenGroupDraw, Rect, int, int, int)>[];
+    var offscreenBytes = 0;
+    for (final unit in selected) {
+      final draw = draws[unit.commandIndex];
+      if (draw is! _OffscreenGroupDraw) continue;
+      final groupRegion = groupRegionFor(unit, draw);
+      final groupWidth =
+          (groupRegion.width * pixelRatio).ceil().clamp(1, width);
+      final groupHeight =
+          (groupRegion.height * pixelRatio).ceil().clamp(1, height);
+      // Resolve RGBA + stencil is about 8 B/px. A 4x attachment adds four
+      // samples of each; 40 B/px is deliberately conservative across backend
+      // stencil formats. Bound all live intermediates so a pathological page
+      // falls back instead of multiplying a deep-zoom tile into an OOM.
+      final estimatedBytes = groupWidth * groupHeight * (multisampled ? 40 : 8);
+      offscreenBytes += estimatedBytes;
+      if (offscreenBytes > (256 << 20)) {
+        stats.offscreenGroupBudgetFallbacks++;
+        throw StateError('offscreen group tiles exceed 256 MiB');
+      }
+      groupPlans.add((
+        unit,
+        draw,
+        groupRegion,
+        groupWidth,
+        groupHeight,
+        estimatedBytes,
+      ));
+    }
+
+    final groupTextures = <int, (gpu.Texture, Rect)>{};
+    final retainedGroupTextures = <gpu.Texture>[];
+    for (final plan in groupPlans) {
+      final (unit, draw, groupRegion, groupWidth, groupHeight, estimatedBytes) =
+          plan;
+      final groupResolve = context.createTexture(
+        gpu.StorageMode.devicePrivate,
+        groupWidth,
+        groupHeight,
+        format: context.defaultColorFormat,
+      );
+      final groupColor = multisampled
+          ? context.createTexture(
+              gpu.StorageMode.deviceTransient,
+              groupWidth,
+              groupHeight,
+              format: context.defaultColorFormat,
+              sampleCount: 4,
+            )
+          : groupResolve;
+      final groupStencil = context.createTexture(
+        gpu.StorageMode.deviceTransient,
+        groupWidth,
+        groupHeight,
+        format: context.defaultStencilFormat,
+        sampleCount: multisampled ? 4 : 1,
+      );
+      final groupAttachments = <gpu.Texture>[
+        groupResolve,
+        if (multisampled) groupColor,
+        groupStencil,
+      ];
+      retainedGroupTextures.addAll(groupAttachments);
+      final groupCommandBuffer = context.createCommandBuffer();
+      final groupEncoder = encoderFor(
+        createPass(
+          groupCommandBuffer,
+          groupColor,
+          groupStencil,
+          resolveTarget: multisampled ? groupResolve : null,
+        ),
+        targetRegion: groupRegion,
+        targetWidth: groupWidth,
+        targetHeight: groupHeight,
+      );
+      for (final paint in draw.paints) {
+        groupEncoder.setClip(_withGpuRectClip(unit.clip, paint.$2));
+        if (paint.$4) {
+          groupEncoder.setSourceBlend();
+        } else {
+          groupEncoder.setBlendMode(paint.$3);
+        }
+        paint.$1.encode(groupEncoder);
+      }
+      stats.clipMaskRebuilds += groupEncoder.clipMaskRebuilds;
+      groupCommandBuffer.submit(completionCallback: (_) {
+        // The page completion owns the same textures on the success path.
+        // This independent capture also fences them if a later allocation or
+        // the final page submission throws after this pass was queued.
+        groupAttachments.length;
+      });
+      stats
+        ..offscreenGroupPasses += 1
+        ..offscreenGroupAllocatedBytes += estimatedBytes;
+      groupTextures[unit.commandIndex] = (groupResolve, groupRegion);
+    }
+    stats.peakOffscreenGroupBytes =
+        math.max(stats.peakOffscreenGroupBytes, offscreenBytes);
+
+    final commandBuffer = context.createCommandBuffer();
+    final pass = createPass(
+      commandBuffer,
+      color,
+      stencil,
+      resolveTarget: multisampled ? resolve : null,
     );
-    final encoder = _GpuEncoder(
-      pass: pass,
-      pipelines: pipelines,
-      transform: transform,
-      pageToRaster: pageToRaster,
-      region: region,
-      pixelRatio: pixelRatio,
-      width: width,
-      height: height,
-      clipDraws: clipDraws,
-      stencilClear: paper.vertices,
+    final encoder = encoderFor(
+      pass,
+      targetRegion: region,
+      targetWidth: width,
+      targetHeight: height,
     );
     encoder
       ..setClip(_rootGpuClip)
@@ -1073,8 +3745,15 @@ class _CompiledScene {
     for (final unit in selected) {
       final draw = draws[unit.commandIndex];
       if (draw == null) continue;
-      encoder.setClip(unit.clip);
-      draw.encode(encoder);
+      encoder
+        ..setClip(unit.clip)
+        ..setBlendMode(unit.blendMode);
+      if (draw is _OffscreenGroupDraw) {
+        final group = groupTextures[unit.commandIndex]!;
+        encoder.tileTexture(group.$1, group.$2, draw.alpha);
+      } else {
+        draw.encode(encoder);
+      }
     }
     stats.clipMaskRebuilds += encoder.clipMaskRebuilds;
     final submit = Stopwatch()..start();
@@ -1088,14 +3767,19 @@ class _CompiledScene {
       );
     try {
       commandBuffer.submit(
-        completionCallback: (success) => _completeSubmission(
-          success,
-          completion,
-          tracePage,
-          width,
-          height,
-          selected.length,
-        ),
+        completionCallback: (success) {
+          // Keep every intermediate attachment alive until the command buffer
+          // has finished sampling it into the page target.
+          retainedGroupTextures.length;
+          _completeSubmission(
+            success,
+            completion,
+            tracePage,
+            width,
+            height,
+            selected.length,
+          );
+        },
       );
     } catch (_) {
       _inFlight--;
@@ -1183,25 +3867,33 @@ _SolidDraw _paperDraw(_GpuGeometryArena geometry, PdfRetainedScene scene) {
 }
 
 Future<_GpuDraw> _compileSoftMaskImage(
-  gpu.GpuContext context,
-  _GpuGeometryArena geometry,
-  PdfRetainedScene scene,
-  _SoftMaskImageSpec spec,
-  FlutterGpuTileBackendStats stats,
-  _GpuImageCache imageCache,
-  List<_GpuImageTexture> textureLeases,
-) async {
+    gpu.GpuContext context,
+    _GpuGeometryArena geometry,
+    PdfRetainedScene scene,
+    _SoftMaskImageSpec spec,
+    FlutterGpuTileBackendStats stats,
+    _GpuImageCache imageCache,
+    List<_GpuImageTexture> textureLeases,
+    {required bool mipmapImages}) async {
   final contentImage = scene.imageFor(spec.content)!;
   final maskImage = scene.imageFor(spec.mask)!;
-  final contentResource =
-      await imageCache.acquire(context, spec.content, contentImage, stats);
+  final contentResource = await imageCache.acquire(
+    context,
+    spec.content,
+    contentImage,
+    stats,
+    mipmapped: mipmapImages,
+  );
   textureLeases.add(contentResource);
-  final maskResource =
-      await imageCache.acquire(context, spec.mask, maskImage, stats);
+  final maskResource = await imageCache.acquire(
+    context,
+    spec.mask,
+    maskImage,
+    stats,
+    mipmapped: mipmapImages,
+  );
   textureLeases.add(maskResource);
   final vertices = _imageVertices(spec.content.transform);
-  final inverse = spec.mask.transform.inverted();
-  if (inverse == null) throw StateError('singular soft-mask image transform');
   final contentAlpha = (spec.content.alpha * spec.groupAlpha).clamp(0.0, 1.0);
   final contentTint = spec.content.isStencil
       ? _premul(spec.content.stencilColor, contentAlpha)
@@ -1209,7 +3901,457 @@ Future<_GpuDraw> _compileSoftMaskImage(
   final maskTint = spec.mask.isStencil
       ? _premul(spec.mask.stencilColor, spec.mask.alpha)
       : <double>[0, 0, 0, spec.mask.alpha.clamp(0.0, 1.0)];
-  final maskClip = spec.maskClip ??
+  final info = _softMaskInfo(
+    context,
+    maskTransform: spec.mask.transform,
+    contentTint: contentTint,
+    maskTint: maskTint,
+    contentStencil: spec.content.isStencil,
+    maskStencil: spec.mask.isStencil,
+    luminosity: spec.luminosity,
+    backdropLuminance: spec.backdropLuminance,
+    transferScale: spec.transferScale,
+    transferOffset: spec.transferOffset,
+    maskClip: spec.maskClip,
+  );
+  return _SoftMaskDraw(
+    geometry.add(vertices.bytes, vertices.length ~/ 4),
+    contentResource.texture,
+    maskResource.texture,
+    info,
+  );
+}
+
+_GpuDraw? _compileGroupFill(_GpuGeometryArena geometry, _GroupFillSpec spec) {
+  final content = spec.content;
+  final subpaths = flattenPath(
+    content.path,
+    PdfMatrix.identity,
+    tolerance: 0.01,
+  );
+  return _stencilDraw(
+    geometry,
+    subpaths,
+    content.color,
+    (content.alpha * spec.groupAlpha).clamp(0.0, 1.0),
+    content.rule,
+    false,
+  );
+}
+
+_GpuDraw? _compileGroupStroke(
+        _GpuGeometryArena geometry, _GroupStrokeSpec spec) =>
+    _compileStroke(
+      geometry,
+      spec.content,
+      alphaScale: spec.groupAlpha,
+    );
+
+_GpuDraw? _compileGroupText(_GpuGeometryArena geometry, _GroupTextSpec spec) =>
+    _compileGroupTextRun(
+      geometry,
+      spec.content.run,
+      alphaScale: spec.groupAlpha,
+    );
+
+_GpuDraw? _compileGroupTextRun(
+  _GpuGeometryArena geometry,
+  PdfTextRun run, {
+  double alphaScale = 1,
+}) {
+  if (run.invisible) return null;
+  final subpaths = _textSubpaths(run)!;
+  final gradient = run.gradient;
+  final fill = !run.fill
+      ? null
+      : gradient != null
+          ? _compileGradientSubpaths(
+              geometry,
+              subpaths,
+              PdfFillRule.nonzero,
+              gradient,
+              (run.fillAlpha * alphaScale).clamp(0.0, 1.0),
+            )
+          : _stencilDraw(
+              geometry,
+              subpaths,
+              run.color,
+              (run.fillAlpha * alphaScale).clamp(0.0, 1.0),
+              PdfFillRule.nonzero,
+              false,
+            );
+  final strokeColor = run.strokeColor;
+  final stroke = strokeColor == null
+      ? null
+      : _compileStrokeSubpaths(
+          geometry,
+          subpaths,
+          strokeColor,
+          PdfStroke(width: run.strokeWidth, miterLimit: 4),
+          (run.strokeAlpha * alphaScale).clamp(0.0, 1.0),
+        );
+  return switch ((fill, stroke)) {
+    (null, null) => null,
+    (final _GpuDraw draw, null) || (null, final _GpuDraw draw) => draw,
+    (final _GpuDraw fill, final _GpuDraw stroke) =>
+      _SequenceDraw([fill, stroke]),
+  };
+}
+
+Future<_GpuDraw?> _compileGroupPaint(
+  gpu.GpuContext context,
+  _GpuGeometryArena geometry,
+  PdfRetainedScene scene,
+  _GroupPaintSpec spec,
+  FlutterGpuTileBackendStats stats,
+  _GpuImageCache imageCache,
+  List<_GpuImageTexture> textureLeases,
+  _GpuGlyphAtlas? glyphAtlas,
+  PdfMatrix pageToRaster, {
+  required bool mipmapImages,
+}) async {
+  final draws = <(_GpuDraw, PdfRect?, PdfBlendMode, bool)>[];
+  var paintPadding = 2.0;
+  for (var index = 0; index < spec.commands.length; index++) {
+    final command = spec.commands[index];
+    if (command case PdfStrokePathCommand(:final stroke)
+        when stroke.width > 0) {
+      final joinScale = stroke.join == 0 ? stroke.miterLimit : 1.0;
+      paintPadding = math.max(
+        paintPadding,
+        stroke.width * joinScale / 2 + 2,
+      );
+    }
+    final draw = await _compileCommand(
+      context,
+      geometry,
+      scene,
+      command,
+      stats,
+      imageCache,
+      textureLeases,
+      glyphAtlas,
+      pageToRaster,
+      mipmapImages: mipmapImages,
+    );
+    if (draw != null) {
+      draws.add((
+        draw,
+        spec.paintClips[index],
+        spec.paintBlends[index],
+        spec.knockout && index > 0,
+      ));
+    }
+  }
+  if (draws.isEmpty) return null;
+  return spec.offscreen
+      ? _OffscreenGroupDraw(
+          List.unmodifiable(draws),
+          spec.groupAlpha,
+          math.max(0, paintPadding - 2),
+        )
+      : _SequenceDraw(List.unmodifiable([for (final draw in draws) draw.$1]));
+}
+
+_GpuDraw? _compileKnockoutSoftMaskFill(
+  _GpuGeometryArena geometry,
+  _KnockoutSoftMaskFillSpec spec,
+) {
+  final base = spec.base;
+  final baseDraw = _stencilDraw(
+    geometry,
+    flattenPath(base.path, PdfMatrix.identity, tolerance: 0.01),
+    base.color,
+    base.alpha,
+    base.rule,
+    false,
+  );
+  final maskedDraw = _compileSoftMaskVectorFill(geometry, spec.masked);
+  final paints = <(_GpuDraw, PdfRect?, PdfBlendMode, bool)>[
+    if (baseDraw != null) (baseDraw, spec.baseClip, PdfBlendMode.normal, false),
+    if (maskedDraw != null)
+      (maskedDraw, spec.masked.contentClip, PdfBlendMode.normal, false),
+  ];
+  if (paints.isEmpty) return null;
+  return _OffscreenGroupDraw(
+    paints,
+    spec.groupAlpha,
+    0,
+  );
+}
+
+Future<_GpuDraw> _compileSoftMaskFill(
+    gpu.GpuContext context,
+    _GpuGeometryArena geometry,
+    PdfRetainedScene scene,
+    _SoftMaskFillSpec spec,
+    FlutterGpuTileBackendStats stats,
+    _GpuImageCache imageCache,
+    List<_GpuImageTexture> textureLeases,
+    {required bool mipmapImages}) async {
+  final maskImage = scene.imageFor(spec.mask)!;
+  final maskResource = await imageCache.acquire(
+    context,
+    spec.mask,
+    maskImage,
+    stats,
+    mipmapped: mipmapImages,
+  );
+  textureLeases.add(maskResource);
+  final subpaths = flattenPath(
+    spec.content.path,
+    PdfMatrix.identity,
+    tolerance: 0.01,
+  );
+  final stencil = _stencilGeometry(geometry, subpaths);
+  if (stencil == null) throw StateError('empty soft-mask fill path');
+  final bounds = stencil.$2;
+  final cover = _imageVertices(PdfMatrix(
+    bounds.right - bounds.left,
+    0,
+    0,
+    bounds.top - bounds.bottom,
+    bounds.left,
+    bounds.bottom,
+  ));
+  return _SoftMaskFillDraw(
+    stencil.$1,
+    geometry.add(cover.bytes, cover.length ~/ 4),
+    spec.content.rule,
+    maskResource.texture,
+    _softMaskInfo(
+      context,
+      maskTransform: spec.mask.transform,
+      contentTint: _premul(spec.content.color, spec.content.alpha),
+      maskTint: <double>[0, 0, 0, spec.mask.alpha.clamp(0.0, 1.0)],
+      contentStencil: true,
+      maskStencil: false,
+      luminosity: spec.luminosity,
+      backdropLuminance: spec.backdropLuminance,
+      transferScale: spec.transferScale,
+      transferOffset: spec.transferOffset,
+      maskClip: spec.maskClip,
+    ),
+  );
+}
+
+Future<_GpuDraw> _compileSoftMaskText(
+    gpu.GpuContext context,
+    _GpuGeometryArena geometry,
+    PdfRetainedScene scene,
+    _SoftMaskTextSpec spec,
+    FlutterGpuTileBackendStats stats,
+    _GpuImageCache imageCache,
+    List<_GpuImageTexture> textureLeases,
+    {required bool mipmapImages}) async {
+  final maskImage = scene.imageFor(spec.mask)!;
+  final maskResource = await imageCache.acquire(
+    context,
+    spec.mask,
+    maskImage,
+    stats,
+    mipmapped: mipmapImages,
+  );
+  textureLeases.add(maskResource);
+  final subpaths = _textSubpaths(spec.content.run)!;
+  final stencil = _stencilGeometry(geometry, subpaths);
+  if (stencil == null) throw StateError('empty soft-mask text outline');
+  final bounds = stencil.$2;
+  final cover = _imageVertices(PdfMatrix(
+    bounds.right - bounds.left,
+    0,
+    0,
+    bounds.top - bounds.bottom,
+    bounds.left,
+    bounds.bottom,
+  ));
+  return _SoftMaskFillDraw(
+    stencil.$1,
+    geometry.add(cover.bytes, cover.length ~/ 4),
+    PdfFillRule.nonzero,
+    maskResource.texture,
+    _softMaskInfo(
+      context,
+      maskTransform: spec.mask.transform,
+      contentTint: _premul(spec.content.run.color, spec.content.run.fillAlpha),
+      maskTint: <double>[0, 0, 0, spec.mask.alpha.clamp(0.0, 1.0)],
+      contentStencil: true,
+      maskStencil: false,
+      luminosity: spec.luminosity,
+      backdropLuminance: spec.backdropLuminance,
+      transferScale: spec.transferScale,
+      transferOffset: spec.transferOffset,
+      maskClip: spec.maskClip,
+    ),
+  );
+}
+
+_GpuDraw? _compileSoftMaskGradientFill(
+  _GpuGeometryArena geometry,
+  _SoftMaskGradientFillSpec spec,
+) {
+  final subpaths = flattenPath(
+    spec.content.path,
+    PdfMatrix.identity,
+    tolerance: 0.01,
+  );
+  final maskAlpha = spec.mask.alpha.clamp(0.0, 1.0);
+  return _compileGradientSubpaths(
+    geometry,
+    subpaths,
+    spec.content.rule,
+    spec.mask.gradient,
+    1,
+    vertexColor: (maskColor) {
+      final mask = spec.luminosity
+          ? (0.2126 * maskColor.red +
+                  0.7152 * maskColor.green +
+                  0.0722 * maskColor.blue) *
+              maskAlpha
+          : maskAlpha;
+      return _premul(
+        spec.content.color,
+        (spec.content.alpha * mask).clamp(0.0, 1.0),
+      );
+    },
+  );
+}
+
+_GpuDraw? _compileSoftMaskGradientText(
+  _GpuGeometryArena geometry,
+  _SoftMaskGradientTextSpec spec,
+) {
+  final maskAlpha = spec.mask.alpha.clamp(0.0, 1.0);
+  return _compileGradientSubpaths(
+    geometry,
+    _textSubpaths(spec.content.run)!,
+    PdfFillRule.nonzero,
+    spec.mask.gradient,
+    1,
+    vertexColor: (maskColor) {
+      final mask = spec.luminosity
+          ? (0.2126 * maskColor.red +
+                  0.7152 * maskColor.green +
+                  0.0722 * maskColor.blue) *
+              maskAlpha
+          : maskAlpha;
+      return _premul(
+        spec.content.run.color,
+        (spec.content.run.fillAlpha * mask).clamp(0.0, 1.0),
+      );
+    },
+  );
+}
+
+_GpuDraw? _compileSoftMaskVectorFill(
+    _GpuGeometryArena geometry, _SoftMaskVectorFillSpec spec) {
+  final subpaths = flattenPath(
+    spec.content.path,
+    PdfMatrix.identity,
+    tolerance: 0.01,
+  );
+  final stencil = _stencilGeometry(geometry, subpaths);
+  if (stencil == null) return null;
+  final pathBounds = stencil.$2;
+  final bounds = _pdfIntersection(
+    PdfRect(
+      pathBounds.left,
+      pathBounds.top,
+      pathBounds.right,
+      pathBounds.bottom,
+    ),
+    spec.contentClip,
+  );
+  if (bounds == null) return null;
+
+  final xs = <double>{bounds.left, bounds.right};
+  final ys = <double>{bounds.bottom, bounds.top};
+  for (final fill in spec.maskFills) {
+    final rect = _pdfIntersection(bounds, fill.rect);
+    if (rect == null) continue;
+    xs
+      ..add(rect.left)
+      ..add(rect.right);
+    ys
+      ..add(rect.bottom)
+      ..add(rect.top);
+  }
+  final orderedX = xs.toList()..sort();
+  final orderedY = ys.toList()..sort();
+  final cells = (orderedX.length - 1) * (orderedY.length - 1);
+  final cover = FloatBuilder(math.max(36, cells * 36));
+  for (var yi = 0; yi + 1 < orderedY.length; yi++) {
+    final bottom = orderedY[yi], top = orderedY[yi + 1];
+    if (top <= bottom) continue;
+    for (var xi = 0; xi + 1 < orderedX.length; xi++) {
+      final left = orderedX[xi], right = orderedX[xi + 1];
+      if (right <= left) continue;
+      final mask = _vectorMaskValue(
+        spec,
+        (left + right) / 2,
+        (bottom + top) / 2,
+      );
+      final color = _premul(
+        spec.content.color,
+        (spec.content.alpha * mask).clamp(0.0, 1.0),
+      );
+      for (final (x, y) in <(double, double)>[
+        (left, bottom),
+        (right, bottom),
+        (right, top),
+        (left, bottom),
+        (right, top),
+        (left, top),
+      ]) {
+        cover.add6(x, y, color[0], color[1], color[2], color[3]);
+      }
+    }
+  }
+  return _StencilDraw(
+    stencil.$1,
+    geometry.add(cover.bytes, cover.length ~/ 6),
+    spec.content.rule,
+    false,
+  );
+}
+
+double _vectorMaskValue(_SoftMaskVectorFillSpec spec, double x, double y) {
+  var alpha = spec.luminosity ? 1.0 : 0.0;
+  var red = spec.luminosity ? spec.backdropLuminance : 0.0;
+  var green = red, blue = red;
+  for (final fill in spec.maskFills) {
+    final rect = fill.rect;
+    if (x < rect.left || x > rect.right || y < rect.bottom || y > rect.top) {
+      continue;
+    }
+    final sourceAlpha = fill.alpha.clamp(0.0, 1.0);
+    final inverse = 1 - sourceAlpha;
+    red = fill.color.red * sourceAlpha + red * inverse;
+    green = fill.color.green * sourceAlpha + green * inverse;
+    blue = fill.color.blue * sourceAlpha + blue * inverse;
+    alpha = sourceAlpha + alpha * inverse;
+  }
+  final value =
+      spec.luminosity ? 0.2126 * red + 0.7152 * green + 0.0722 * blue : alpha;
+  return (value * spec.transferScale + spec.transferOffset).clamp(0.0, 1.0);
+}
+
+gpu.BufferView _softMaskInfo(
+  gpu.GpuContext context, {
+  required PdfMatrix maskTransform,
+  required List<double> contentTint,
+  required List<double> maskTint,
+  required bool contentStencil,
+  required bool maskStencil,
+  required bool luminosity,
+  required double backdropLuminance,
+  required double transferScale,
+  required double transferOffset,
+  PdfRect? maskClip,
+}) {
+  final inverse = maskTransform.inverted();
+  if (inverse == null) throw StateError('singular soft-mask image transform');
+  final clip = maskClip ??
       const PdfRect(-1000000000, -1000000000, 1000000000, 1000000000);
   final values = Float32List(36)
     ..setRange(0, 16, <double>[
@@ -1233,51 +4375,148 @@ Future<_GpuDraw> _compileSoftMaskImage(
     ..setRange(16, 20, contentTint)
     ..setRange(20, 24, maskTint)
     ..setRange(24, 28, <double>[
-      spec.content.isStencil ? 1 : 0,
-      spec.mask.isStencil ? 1 : 0,
-      spec.luminosity ? 1 : 0,
-      spec.luminosity ? spec.backdropLuminance : 0,
+      contentStencil ? 1 : 0,
+      maskStencil ? 1 : 0,
+      luminosity ? 1 : 0,
+      luminosity ? backdropLuminance : 0,
     ])
     ..setRange(28, 32, <double>[
-      spec.transferScale,
-      spec.transferOffset,
+      transferScale,
+      transferOffset,
       0,
       0,
     ])
     ..setRange(32, 36, <double>[
-      maskClip.left,
-      maskClip.bottom,
-      maskClip.right,
-      maskClip.top,
+      clip.left,
+      clip.bottom,
+      clip.right,
+      clip.top,
     ]);
-  return _SoftMaskDraw(
-    geometry.add(vertices.bytes, vertices.length ~/ 4),
-    contentResource.texture,
-    maskResource.texture,
-    gpu.BufferView(
-      context.createDeviceBufferWithCopy(ByteData.sublistView(values)),
-      offsetInBytes: 0,
-      lengthInBytes: values.lengthInBytes,
-    ),
+  return gpu.BufferView(
+    context.createDeviceBufferWithCopy(ByteData.sublistView(values)),
+    offsetInBytes: 0,
+    lengthInBytes: values.lengthInBytes,
   );
 }
 
+class _GpuGlyphAtlas {
+  _GpuGlyphAtlas(this.texture, this.info, this.slots);
+
+  static _GpuGlyphAtlas? build(
+    gpu.GpuContext context,
+    List<PdfRenderCommand> commands,
+    List<_GpuUnit> units,
+    FlutterGpuTileBackendStats stats,
+  ) {
+    final slots = Map<PdfPath, int>.identity();
+    final data = <SlugGlyphData>[];
+    for (final unit in units) {
+      if (unit.composite != null) continue;
+      final command = commands[unit.commandIndex];
+      if (command case PdfDrawTextCommand(:final run)
+          when !run.invisible && run.fill && run.gradient == null) {
+        for (final glyph in run.glyphs ?? const <PdfGlyphPlacement>[]) {
+          final outline = glyph.outline;
+          if (outline == null || slots.containsKey(outline)) continue;
+          final glyphData = SlugGlyphData.of(outline);
+          if (glyphData.overflow ||
+              glyphData.maxX - glyphData.minX <= 1e-9 ||
+              glyphData.maxY - glyphData.minY <= 1e-9) {
+            continue;
+          }
+          slots[outline] = data.length;
+          data.add(glyphData);
+        }
+      }
+    }
+    if (data.isEmpty) return null;
+
+    var texels = data.length * 4;
+    final bases = Uint32List(data.length);
+    for (var i = 0; i < data.length; i++) {
+      bases[i] = texels;
+      texels += data[i].texelCount;
+    }
+    final height = math.max(1, (texels + slugAtlasWidth - 1) ~/ slugAtlasWidth);
+    if (height > 4096) {
+      stats.analyticAtlasFallbacks++;
+      return null;
+    }
+    final pixels = Uint8List(slugAtlasWidth * height * 4);
+    final pairs = ByteData.sublistView(pixels);
+    void put(int texel, int low, int high) {
+      pairs
+        ..setUint16(texel * 4, low, Endian.little)
+        ..setUint16(texel * 4 + 2, high, Endian.little);
+    }
+
+    for (var i = 0; i < data.length; i++) {
+      final glyph = data[i];
+      final base = bases[i];
+      put(i * 4, base & 0xffff, base >> 16);
+      put(i * 4 + 1, emToFixed(glyph.minY),
+          emToFixed((glyph.maxY - glyph.minY) / glyph.bandCount));
+      put(i * 4 + 2, emToFixed(glyph.minX),
+          emToFixed((glyph.maxX - glyph.minX) / glyph.bandCount));
+      put(i * 4 + 3, 0, 0);
+      pixels.setRange(
+        base * 4,
+        base * 4 + glyph.stream!.length,
+        glyph.stream!,
+      );
+    }
+
+    final texture = context.createTexture(
+      gpu.StorageMode.hostVisible,
+      slugAtlasWidth,
+      height,
+      format: gpu.PixelFormat.r8g8b8a8UNormInt,
+    );
+    texture.overwrite(ByteData.sublistView(pixels));
+    final dimensions = Float32List.fromList(
+      <double>[slugAtlasWidth.toDouble(), height.toDouble()],
+    );
+    final info = gpu.BufferView(
+      context.createDeviceBufferWithCopy(ByteData.sublistView(dimensions)),
+      offsetInBytes: 0,
+      lengthInBytes: dimensions.lengthInBytes,
+    );
+    stats
+      ..analyticGlyphSlots += data.length
+      ..analyticAtlasBytes += pixels.length;
+    return _GpuGlyphAtlas(texture, info, slots);
+  }
+
+  final gpu.Texture texture;
+  final gpu.BufferView info;
+  final Map<PdfPath, int> slots;
+}
+
 class _GpuImageTexture {
-  _GpuImageTexture(this.texture, this.width, this.height);
+  _GpuImageTexture(this.texture, this.width, this.height, this.bytes);
   final gpu.Texture texture;
   final int width;
   final int height;
+  final int bytes;
   int leases = 0;
   bool cacheable = true;
-  int get bytes => width * height * 4;
 }
 
+enum _GpuTexturePlane { deferredSoftMask }
+
 class _GpuTextureKey {
-  const _GpuTextureKey(this.context, this.content, this.width, this.height);
+  const _GpuTextureKey(
+    this.context,
+    this.content,
+    this.width,
+    this.height,
+    this.mipmapped,
+  );
   final gpu.GpuContext context;
   final Object content;
   final int width;
   final int height;
+  final bool mipmapped;
 
   @override
   bool operator ==(Object other) =>
@@ -1285,11 +4524,17 @@ class _GpuTextureKey {
       identical(other.context, context) &&
       other.content == content &&
       other.width == width &&
-      other.height == height;
+      other.height == height &&
+      other.mipmapped == mipmapped;
 
   @override
-  int get hashCode =>
-      Object.hash(identityHashCode(context), content, width, height);
+  int get hashCode => Object.hash(
+        identityHashCode(context),
+        content,
+        width,
+        height,
+        mipmapped,
+      );
 }
 
 class _GpuImageCache {
@@ -1302,13 +4547,30 @@ class _GpuImageCache {
   int _bytes = 0;
 
   Future<_GpuImageTexture> acquire(
-    gpu.GpuContext context,
-    PdfImageRequest request,
-    ui.Image image,
-    FlutterGpuTileBackendStats stats,
-  ) async {
+          gpu.GpuContext context,
+          PdfImageRequest request,
+          ui.Image image,
+          FlutterGpuTileBackendStats stats,
+          {required bool mipmapped}) =>
+      acquireSurface(
+        context,
+        pdfImageContentKey(request),
+        image,
+        stats,
+        decoded: request.decoded,
+        mipmapped: mipmapped,
+      );
+
+  Future<_GpuImageTexture> acquireSurface(gpu.GpuContext context,
+      Object content, ui.Image image, FlutterGpuTileBackendStats stats,
+      {PdfDecodedPixels? decoded, required bool mipmapped}) async {
     final key = _GpuTextureKey(
-        context, pdfImageContentKey(request), image.width, image.height);
+      context,
+      content,
+      image.width,
+      image.height,
+      mipmapped,
+    );
     final hit = _entries.remove(key);
     if (hit != null) {
       _entries[key] = hit;
@@ -1319,7 +4581,9 @@ class _GpuImageCache {
       return hit;
     }
     stats.textureCacheMisses++;
-    final bytes = image.width * image.height * 4;
+    final mipLevelCount =
+        mipmapped ? gpu.Texture.fullMipCount(image.width, image.height) : 1;
+    final bytes = _textureBytes(image.width, image.height, mipLevelCount);
     if (maxBytes > 0 && !_makeRoom(bytes, stats)) {
       stats.textureBudgetFallbacks++;
       throw StateError('GPU texture budget exceeded: need $bytes bytes, '
@@ -1329,7 +4593,8 @@ class _GpuImageCache {
       context,
       image,
       stats,
-      decoded: request.decoded,
+      decoded: decoded,
+      mipLevelCount: mipLevelCount,
     )
       ..leases = 1;
     _bytes += uploaded.bytes;
@@ -1412,7 +4677,7 @@ FloatBuilder _imageVertices(PdfMatrix transform) {
 
 Future<_GpuImageTexture> _uploadImageTexture(
     gpu.GpuContext context, ui.Image image, FlutterGpuTileBackendStats stats,
-    {PdfDecodedPixels? decoded}) async {
+    {PdfDecodedPixels? decoded, required int mipLevelCount}) async {
   final ByteData bytes;
   if (decoded != null &&
       decoded.width == image.width &&
@@ -1432,21 +4697,212 @@ Future<_GpuImageTexture> _uploadImageTexture(
     image.width,
     image.height,
     format: gpu.PixelFormat.r8g8b8a8UNormInt,
+    mipLevelCount: mipLevelCount,
   );
   texture.overwrite(bytes);
+  var width = image.width;
+  var height = image.height;
+  var level =
+      bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes);
+  for (var mip = 1; mip < mipLevelCount; mip++) {
+    level = _downsampleRgba(level, width, height);
+    width = math.max(1, width ~/ 2);
+    height = math.max(1, height ~/ 2);
+    texture.overwrite(ByteData.sublistView(level), mipLevel: mip);
+  }
   stats.texturesUploaded++;
-  return _GpuImageTexture(texture, image.width, image.height);
+  return _GpuImageTexture(
+    texture,
+    image.width,
+    image.height,
+    _textureBytes(image.width, image.height, mipLevelCount),
+  );
+}
+
+int _textureBytes(int width, int height, int mipLevelCount) {
+  var bytes = 0;
+  for (var mip = 0; mip < mipLevelCount; mip++) {
+    bytes += width * height * 4;
+    width = math.max(1, width ~/ 2);
+    height = math.max(1, height ~/ 2);
+  }
+  return bytes;
+}
+
+Uint8List _downsampleRgba(Uint8List source, int width, int height) {
+  final nextWidth = math.max(1, width ~/ 2);
+  final nextHeight = math.max(1, height ~/ 2);
+  return downsamplePdfDecodedPixels(
+    PdfDecodedPixels(source, width, height),
+    nextWidth,
+    nextHeight,
+  ).rgba;
+}
+
+_GpuDraw? _compileStroke(
+  _GpuGeometryArena geometry,
+  PdfStrokePathCommand command, {
+  double alphaScale = 1,
+}) {
+  final alpha = (command.alpha * alphaScale).clamp(0.0, 1.0);
+  final subpaths =
+      flattenPath(command.path, PdfMatrix.identity, tolerance: 0.01);
+  return _compileStrokeSubpaths(
+    geometry,
+    subpaths,
+    command.color,
+    command.stroke,
+    alpha,
+  );
+}
+
+_GpuDraw? _compileStrokeSubpaths(
+  _GpuGeometryArena geometry,
+  List<FlatSubpath> source,
+  PdfColor color,
+  PdfStroke stroke,
+  double alpha,
+) {
+  var subpaths = source;
+  if (stroke.dashArray.any((value) => value > 0)) {
+    subpaths = dashSubpaths(subpaths, stroke.dashArray, stroke.dashPhase);
+  }
+  if (stroke.width <= 0) {
+    return alpha <= 0
+        ? null
+        : _HairlineDraw(
+            List.unmodifiable(subpaths),
+            color,
+            stroke,
+            alpha,
+          );
+  }
+  final contours = StrokeContours();
+  strokeToContours(
+    subpaths,
+    width: stroke.width,
+    cap: stroke.cap,
+    join: stroke.join,
+    miterLimit: stroke.miterLimit,
+    out: contours,
+  );
+  final rings = <FlatSubpath>[];
+  for (var i = 0; i < contours.ringCount; i++) {
+    rings.add(FlatSubpath(
+      Float64List.sublistView(
+          contours.points.view, contours.ringStart(i), contours.ringEnd(i)),
+      closed: true,
+    ));
+  }
+  return _stencilDraw(geometry, rings, color, alpha, PdfFillRule.nonzero, true);
+}
+
+List<FlatSubpath>? _textSubpaths(PdfTextRun run) {
+  final glyphs = run.glyphs;
+  if (glyphs == null) return null;
+  final subpaths = <FlatSubpath>[];
+  for (final glyph in glyphs) {
+    final outline = glyph.outline;
+    if (outline == null) continue;
+    final transform = PdfMatrix.translation(glyph.offset, glyph.offsetY)
+        .concat(run.transform);
+    for (final sub in FlattenedOutline.of(outline).subpaths) {
+      final mapped = Float64List(sub.points.length);
+      for (var i = 0; i < sub.points.length; i += 2) {
+        mapped[i] = transform.transformX(sub.points[i], sub.points[i + 1]);
+        mapped[i + 1] = transform.transformY(sub.points[i], sub.points[i + 1]);
+      }
+      subpaths.add(FlatSubpath(mapped, closed: sub.closed));
+    }
+  }
+  return subpaths;
+}
+
+_AnalyticTextDraw? _compileAnalyticText(
+  _GpuGeometryArena geometry,
+  PdfTextRun run,
+  _GpuGlyphAtlas atlas,
+  PdfMatrix pageToRaster,
+  FlutterGpuTileBackendStats stats,
+) {
+  final glyphs = run.glyphs!;
+  for (final glyph in glyphs) {
+    final outline = glyph.outline;
+    if (outline != null && !atlas.slots.containsKey(outline)) return null;
+  }
+  final rgba = _premul(run.color, run.fillAlpha);
+  final vertices = FloatBuilder(math.max(54, glyphs.length * 54));
+  final deviceTransform = run.transform.concat(pageToRaster);
+  final scaleX = math.sqrt(deviceTransform.a * deviceTransform.a +
+      deviceTransform.b * deviceTransform.b);
+  final scaleY = math.sqrt(deviceTransform.c * deviceTransform.c +
+      deviceTransform.d * deviceTransform.d);
+  if (!scaleX.isFinite ||
+      !scaleY.isFinite ||
+      scaleX <= 1e-9 ||
+      scaleY <= 1e-9) {
+    return null;
+  }
+  // Covers at least one AA pixel at the backend's normal final-tile LoD and
+  // half a pixel down to a 1/3-scale corpus raster without making large text
+  // quads pay a fixed em-space overdraw margin.
+  final paddingX = 1.5 / scaleX;
+  final paddingY = 1.5 / scaleY;
+  var quads = 0;
+  for (final glyph in glyphs) {
+    final outline = glyph.outline;
+    if (outline == null) continue;
+    final data = SlugGlyphData.of(outline);
+    final slot = atlas.slots[outline]!;
+    final left = data.minX - paddingX;
+    final right = data.maxX + paddingX;
+    final bottom = data.minY - paddingY;
+    final top = data.maxY + paddingY;
+    final transform = PdfMatrix.translation(glyph.offset, glyph.offsetY)
+        .concat(run.transform);
+    for (final (x, y) in <(double, double)>[
+      (left, bottom),
+      (right, bottom),
+      (right, top),
+      (left, bottom),
+      (right, top),
+      (left, top),
+    ]) {
+      vertices.add9(
+        transform.transformX(x, y),
+        transform.transformY(x, y),
+        x,
+        y,
+        slot.toDouble(),
+        rgba[0],
+        rgba[1],
+        rgba[2],
+        rgba[3],
+      );
+    }
+    quads++;
+  }
+  if (vertices.isEmpty) return null;
+  stats
+    ..analyticTextRuns += 1
+    ..analyticGlyphQuads += quads;
+  return _AnalyticTextDraw(
+    geometry.add(vertices.bytes, vertices.length ~/ 9),
+    atlas,
+  );
 }
 
 FutureOr<_GpuDraw?> _compileCommand(
-  gpu.GpuContext context,
-  _GpuGeometryArena geometry,
-  PdfRetainedScene scene,
-  PdfRenderCommand command,
-  FlutterGpuTileBackendStats stats,
-  _GpuImageCache imageCache,
-  List<_GpuImageTexture> textureLeases,
-) async {
+    gpu.GpuContext context,
+    _GpuGeometryArena geometry,
+    PdfRetainedScene scene,
+    PdfRenderCommand command,
+    FlutterGpuTileBackendStats stats,
+    _GpuImageCache imageCache,
+    List<_GpuImageTexture> textureLeases,
+    _GpuGlyphAtlas? glyphAtlas,
+    PdfMatrix pageToRaster,
+    {required bool mipmapImages}) async {
   switch (command) {
     case PdfFillPathCommand(
         :final path,
@@ -1456,55 +4912,76 @@ FutureOr<_GpuDraw?> _compileCommand(
       ):
       final subs = flattenPath(path, PdfMatrix.identity, tolerance: 0.01);
       return _stencilDraw(geometry, subs, color, alpha, rule, false);
-    case PdfStrokePathCommand(
+    case PdfFillPathGradientCommand(
         :final path,
-        :final color,
-        :final stroke,
-        :final alpha
+        :final rule,
+        :final gradient,
+        :final alpha,
       ):
-      var subs = flattenPath(path, PdfMatrix.identity, tolerance: 0.01);
-      if (stroke.dashArray.any((value) => value > 0)) {
-        subs = dashSubpaths(subs, stroke.dashArray, stroke.dashPhase);
-      }
-      final contours = StrokeContours();
-      strokeToContours(
-        subs,
-        width: stroke.width,
-        cap: stroke.cap,
-        join: stroke.join,
-        miterLimit: stroke.miterLimit,
-        out: contours,
+      return _compileGradient(
+        geometry,
+        path,
+        rule,
+        gradient,
+        alpha,
       );
-      final rings = <FlatSubpath>[];
-      for (var i = 0; i < contours.ringCount; i++) {
-        rings.add(FlatSubpath(
-          Float64List.sublistView(
-              contours.points.view, contours.ringStart(i), contours.ringEnd(i)),
-          closed: true,
-        ));
-      }
-      return _stencilDraw(
-          geometry, rings, color, alpha, PdfFillRule.nonzero, true);
+    case PdfStrokePathCommand():
+      return _compileStroke(geometry, command);
     case PdfDrawTextCommand(:final run):
       if (run.invisible) return null;
-      final subs = <FlatSubpath>[];
-      for (final glyph in run.glyphs!) {
-        final outline = glyph.outline;
-        if (outline == null) continue;
-        final transform = PdfMatrix.translation(glyph.offset, glyph.offsetY)
-            .concat(run.transform);
-        for (final sub in FlattenedOutline.of(outline).subpaths) {
-          final mapped = Float64List(sub.points.length);
-          for (var i = 0; i < sub.points.length; i += 2) {
-            mapped[i] = transform.transformX(sub.points[i], sub.points[i + 1]);
-            mapped[i + 1] =
-                transform.transformY(sub.points[i], sub.points[i + 1]);
+      List<FlatSubpath>? flattened;
+      List<FlatSubpath> outlines() => flattened ??= _textSubpaths(run)!;
+      _GpuDraw? fill;
+      if (run.fill) {
+        if (glyphAtlas != null && run.gradient == null) {
+          fill = _compileAnalyticText(
+            geometry,
+            run,
+            glyphAtlas,
+            pageToRaster,
+            stats,
+          );
+          if (fill == null &&
+              run.glyphs!.any((glyph) => glyph.outline != null)) {
+            stats.analyticTextFallbackRuns++;
           }
-          subs.add(FlatSubpath(mapped, closed: sub.closed));
+        }
+        if (fill == null) {
+          final gradient = run.gradient;
+          fill = gradient != null
+              ? _compileGradientSubpaths(
+                  geometry,
+                  outlines(),
+                  PdfFillRule.nonzero,
+                  gradient,
+                  run.fillAlpha,
+                )
+              : _stencilDraw(
+                  geometry,
+                  outlines(),
+                  run.color,
+                  run.fillAlpha,
+                  PdfFillRule.nonzero,
+                  false,
+                );
         }
       }
-      return _stencilDraw(
-          geometry, subs, run.color, 1, PdfFillRule.nonzero, false);
+      final strokeColor = run.strokeColor;
+      final stroke = strokeColor == null
+          ? null
+          : _compileStrokeSubpaths(
+              geometry,
+              outlines(),
+              strokeColor,
+              PdfStroke(width: run.strokeWidth, miterLimit: 4),
+              run.strokeAlpha.clamp(0.0, 1.0),
+            );
+      return switch ((fill, stroke)) {
+        (null, null) => null,
+        (final _GpuDraw draw, null) || (null, final _GpuDraw draw) => draw,
+        (final _GpuDraw fill, final _GpuDraw stroke) =>
+          _SequenceDraw([fill, stroke]),
+      };
     case PdfFillMeshCommand(:final mesh, :final alpha):
       if (mesh.triangles.isEmpty) return null;
       final vertices = FloatBuilder(mesh.triangles.length * 6);
@@ -1529,28 +5006,67 @@ FutureOr<_GpuDraw?> _compileCommand(
         stats,
         imageCache,
         textureLeases,
+        mipmapImages: mipmapImages,
       );
     default:
       return null;
   }
 }
 
-Future<_GpuDraw> _compileImageCommand(
-  gpu.GpuContext context,
-  _GpuGeometryArena geometry,
-  PdfRetainedScene scene,
-  PdfImageRequest request,
-  FlutterGpuTileBackendStats stats,
-  _GpuImageCache imageCache,
-  List<_GpuImageTexture> textureLeases,
-) async {
-  final image = scene.imageFor(request)!;
-  final resource = await imageCache.acquire(context, request, image, stats);
+Future<_GpuDraw?> _compileImageCommand(
+    gpu.GpuContext context,
+    _GpuGeometryArena geometry,
+    PdfRetainedScene scene,
+    PdfImageRequest request,
+    FlutterGpuTileBackendStats stats,
+    _GpuImageCache imageCache,
+    List<_GpuImageTexture> textureLeases,
+    {required bool mipmapImages}) async {
+  final image = scene.imageFor(request);
+  if (image == null) return null;
+  final maskImage = pdfGpuSoftMaskOf(image);
+  final resource = await imageCache.acquire(
+    context,
+    request,
+    image,
+    stats,
+    mipmapped: mipmapImages,
+  );
   textureLeases.add(resource);
   final vertices = _imageVertices(request.transform);
   final tint = request.isStencil
       ? _premul(request.stencilColor, request.alpha)
       : <double>[0, 0, 0, request.alpha];
+  if (maskImage != null) {
+    final maskResource = await imageCache.acquireSurface(
+      context,
+      (pdfImageContentKey(request), _GpuTexturePlane.deferredSoftMask),
+      maskImage,
+      stats,
+      mipmapped: mipmapImages,
+    );
+    textureLeases.add(maskResource);
+    // Platform-codec `/SMask` companions are opaque grayscale surfaces. The
+    // PDF alpha is their gray sample (Canvas applies red-to-alpha), so the
+    // luminosity branch of the existing soft-mask shader is the exact match.
+    return _SoftMaskDraw(
+      geometry.add(vertices.bytes, 6),
+      resource.texture,
+      maskResource.texture,
+      _softMaskInfo(
+        context,
+        maskTransform: request.transform,
+        contentTint: tint,
+        maskTint: const [0, 0, 0, 1],
+        contentStencil: request.isStencil,
+        maskStencil: false,
+        luminosity: true,
+        backdropLuminance: 0,
+        transferScale: 1,
+        transferOffset: 0,
+      ),
+    );
+  }
   final info = Float32List(8)
     ..setRange(0, 4, tint)
     ..[4] = request.isStencil ? 1 : 0;
@@ -1562,6 +5078,280 @@ Future<_GpuDraw> _compileImageCommand(
       offsetInBytes: 0,
       lengthInBytes: info.lengthInBytes,
     ),
+  );
+}
+
+_GradientDraw? _compileGradient(
+  _GpuGeometryArena geometry,
+  PdfPath path,
+  PdfFillRule rule,
+  PdfGradient gradient,
+  double alpha,
+) {
+  if (alpha <= 0 || _gradientUnsupportedReason(gradient, alpha) != null) {
+    return null;
+  }
+  final subpaths = flattenPath(path, PdfMatrix.identity, tolerance: 0.01);
+  return _compileGradientSubpaths(
+    geometry,
+    subpaths,
+    rule,
+    gradient,
+    alpha,
+  );
+}
+
+_GradientDraw? _compileGradientSubpaths(
+  _GpuGeometryArena geometry,
+  List<FlatSubpath> subpaths,
+  PdfFillRule rule,
+  PdfGradient gradient,
+  double alpha, {
+  List<double> Function(PdfColor color)? vertexColor,
+}) {
+  if (alpha <= 0) return null;
+  if (gradient.isRadial) {
+    if (vertexColor != null) return null;
+    return _compileRadialGradientSubpaths(
+      geometry,
+      subpaths,
+      rule,
+      gradient,
+      alpha,
+    );
+  }
+  final stencil = _stencilGeometry(geometry, subpaths);
+  if (stencil == null) return null;
+  final bounds = stencil.$2;
+  final inverse = gradient.transform.inverted()!;
+  final x0 = gradient.coords[0], y0 = gradient.coords[1];
+  final dx = gradient.coords[2] - x0, dy = gradient.coords[3] - y0;
+  final length2 = dx * dx + dy * dy;
+  final nx = -dy, ny = dx;
+  var minT = double.infinity, maxT = double.negativeInfinity;
+  var minU = double.infinity, maxU = double.negativeInfinity;
+  for (final (px, py) in <(double, double)>[
+    (bounds.left, bounds.bottom),
+    (bounds.right, bounds.bottom),
+    (bounds.right, bounds.top),
+    (bounds.left, bounds.top),
+  ]) {
+    final x = inverse.transformX(px, py), y = inverse.transformY(px, py);
+    final gx = x - x0, gy = y - y0;
+    final t = (gx * dx + gy * dy) / length2;
+    final u = (gx * nx + gy * ny) / length2;
+    minT = math.min(minT, t);
+    maxT = math.max(maxT, t);
+    minU = math.min(minU, u);
+    maxU = math.max(maxU, u);
+  }
+  if (![minT, maxT, minU, maxU].every((value) => value.isFinite) ||
+      minT >= maxT ||
+      minU >= maxU) {
+    return null;
+  }
+
+  final cuts = <double>{minT, maxT};
+  for (final stop in <double>[0, ...gradient.stops, 1]) {
+    if (stop > minT && stop < maxT) cuts.add(stop);
+  }
+  final ordered = cuts.toList()..sort();
+  final vertices = FloatBuilder(math.max(36, (ordered.length - 1) * 36));
+  final commandAlpha = alpha.clamp(0.0, 1.0);
+
+  List<double> colorAt(double t) {
+    final sample = t.clamp(0.0, 1.0);
+    var upper = 1;
+    while (upper < gradient.stops.length && gradient.stops[upper] < sample) {
+      upper++;
+    }
+    if (upper >= gradient.stops.length) {
+      final color = gradient.colors.last;
+      return vertexColor?.call(color) ?? _premul(color, commandAlpha);
+    }
+    final lower = upper - 1;
+    final lo = gradient.stops[lower], hi = gradient.stops[upper];
+    final mix = hi <= lo ? 1.0 : ((sample - lo) / (hi - lo)).clamp(0.0, 1.0);
+    final a = gradient.colors[lower], b = gradient.colors[upper];
+    final color = PdfColor(
+      a.red + (b.red - a.red) * mix,
+      a.green + (b.green - a.green) * mix,
+      a.blue + (b.blue - a.blue) * mix,
+    );
+    return vertexColor?.call(color) ?? _premul(color, commandAlpha);
+  }
+
+  (double, double) point(double t, double u) {
+    final x = x0 + dx * t + nx * u;
+    final y = y0 + dy * t + ny * u;
+    return (
+      gradient.transform.transformX(x, y),
+      gradient.transform.transformY(x, y),
+    );
+  }
+
+  for (var i = 0; i + 1 < ordered.length; i++) {
+    final a = ordered[i], b = ordered[i + 1];
+    if (b - a <= 1e-12) continue;
+    final outsideStart = b <= 0;
+    final outsideEnd = a >= 1;
+    final ca = outsideStart && !gradient.extendStart ||
+            outsideEnd && !gradient.extendEnd
+        ? const <double>[0, 0, 0, 0]
+        : colorAt(a);
+    final cb = outsideStart && !gradient.extendStart ||
+            outsideEnd && !gradient.extendEnd
+        ? const <double>[0, 0, 0, 0]
+        : colorAt(b);
+    final p00 = point(a, minU), p01 = point(a, maxU);
+    final p10 = point(b, minU), p11 = point(b, maxU);
+    for (final (point, color) in <((double, double), List<double>)>[
+      (p00, ca),
+      (p10, cb),
+      (p11, cb),
+      (p00, ca),
+      (p11, cb),
+      (p01, ca),
+    ]) {
+      vertices.add6(
+        point.$1,
+        point.$2,
+        color[0],
+        color[1],
+        color[2],
+        color[3],
+      );
+    }
+  }
+  if (vertices.isEmpty) return null;
+  return _GradientDraw(
+    stencil.$1,
+    geometry.add(vertices.bytes, vertices.length ~/ 6),
+    rule,
+  );
+}
+
+_GradientDraw? _compileRadialGradientSubpaths(
+  _GpuGeometryArena geometry,
+  List<FlatSubpath> subpaths,
+  PdfFillRule rule,
+  PdfGradient gradient,
+  double alpha,
+) {
+  final stencil = _stencilGeometry(geometry, subpaths);
+  if (stencil == null) return null;
+  final bounds = stencil.$2;
+  final inverse = gradient.transform.inverted()!;
+  final x0 = gradient.coords[0], y0 = gradient.coords[1];
+  final r0 = gradient.coords[2];
+  final x1 = gradient.coords[3], y1 = gradient.coords[4];
+  final r1 = gradient.coords[5];
+  final dx = x1 - x0, dy = y1 - y0, dr = r1 - r0;
+
+  // Bound the extended, growing side by the fill path. The extra radii and
+  // centre travel are deliberately conservative; the path stencil discards
+  // the excess, while a too-small outer ring would leave a clipped corner
+  // transparent when /Extend asks for the terminal colour.
+  var reach = (math.sqrt(dx * dx + dy * dy) + r0 + r1) * 4 + 1;
+  for (final (px, py) in <(double, double)>[
+    (bounds.left, bounds.bottom),
+    (bounds.right, bounds.bottom),
+    (bounds.right, bounds.top),
+    (bounds.left, bounds.top),
+  ]) {
+    final x = inverse.transformX(px, py), y = inverse.transformY(px, py);
+    final d0 = math.sqrt((x - x0) * (x - x0) + (y - y0) * (y - y0));
+    final d1 = math.sqrt((x - x1) * (x - x1) + (y - y1) * (y - y1));
+    reach = math.max(reach, math.max(d0, d1) + r0 + r1);
+  }
+  if (!reach.isFinite) return null;
+
+  final double tLo;
+  final double tHi;
+  if (dr > 0) {
+    tLo = gradient.extendStart ? -r0 / dr : 0;
+    tHi = gradient.extendEnd ? (reach - r0) / dr : 1;
+  } else {
+    tLo = gradient.extendStart ? (reach - r0) / dr : 0;
+    tHi = gradient.extendEnd ? -r0 / dr : 1;
+  }
+  if (!tLo.isFinite || !tHi.isFinite || tLo >= tHi) return null;
+
+  final cuts = <double>{tLo, tHi};
+  for (final stop in <double>[0, ...gradient.stops, 1]) {
+    if (stop > tLo && stop < tHi) cuts.add(stop);
+  }
+  final ordered = cuts.toList()..sort();
+  const angular = 96;
+  final vertices =
+      FloatBuilder(math.max(angular * 36, (ordered.length - 1) * angular * 36));
+  final commandAlpha = alpha.clamp(0.0, 1.0);
+
+  List<double> colorAt(double t) {
+    final sample = t.clamp(0.0, 1.0);
+    var upper = 1;
+    while (upper < gradient.stops.length && gradient.stops[upper] < sample) {
+      upper++;
+    }
+    if (upper >= gradient.stops.length) {
+      return _premul(gradient.colors.last, commandAlpha);
+    }
+    final lower = upper - 1;
+    final lo = gradient.stops[lower], hi = gradient.stops[upper];
+    final mix = ((sample - lo) / (hi - lo)).clamp(0.0, 1.0);
+    final a = gradient.colors[lower], b = gradient.colors[upper];
+    return _premul(
+      PdfColor(
+        a.red + (b.red - a.red) * mix,
+        a.green + (b.green - a.green) * mix,
+        a.blue + (b.blue - a.blue) * mix,
+      ),
+      commandAlpha,
+    );
+  }
+
+  (double, double) point(double t, int step) {
+    final angle = 2 * math.pi * step / angular;
+    final radius = math.max(0.0, r0 + dr * t);
+    final x = x0 + dx * t + radius * math.cos(angle);
+    final y = y0 + dy * t + radius * math.sin(angle);
+    return (
+      gradient.transform.transformX(x, y),
+      gradient.transform.transformY(x, y),
+    );
+  }
+
+  for (var i = 0; i + 1 < ordered.length; i++) {
+    final a = ordered[i], b = ordered[i + 1];
+    if (b - a <= 1e-12) continue;
+    final ca = colorAt(a), cb = colorAt(b);
+    for (var j = 0; j < angular; j++) {
+      final p00 = point(a, j), p01 = point(a, j + 1);
+      final p10 = point(b, j), p11 = point(b, j + 1);
+      for (final (point, color) in <((double, double), List<double>)>[
+        (p00, ca),
+        (p10, cb),
+        (p11, cb),
+        (p00, ca),
+        (p11, cb),
+        (p01, ca),
+      ]) {
+        vertices.add6(
+          point.$1,
+          point.$2,
+          color[0],
+          color[1],
+          color[2],
+          color[3],
+        );
+      }
+    }
+  }
+  if (vertices.isEmpty) return null;
+  return _GradientDraw(
+    stencil.$1,
+    geometry.add(vertices.bytes, vertices.length ~/ 6),
+    rule,
   );
 }
 
@@ -1794,6 +5584,39 @@ sealed class _GpuDraw {
   void encode(_GpuEncoder encoder);
 }
 
+class _SequenceDraw implements _GpuDraw {
+  const _SequenceDraw(this.draws);
+  final List<_GpuDraw> draws;
+
+  @override
+  void encode(_GpuEncoder encoder) {
+    for (final draw in draws) {
+      draw.encode(encoder);
+    }
+  }
+}
+
+/// A retained isolated group whose overlapping paints must first render onto
+/// a transparent tile-sized attachment. [_CompiledScene] encodes [paints]
+/// into that attachment, then samples the completed texture once into the
+/// page pass with [alpha] and the unit's outer blend mode.
+class _OffscreenGroupDraw implements _GpuDraw {
+  const _OffscreenGroupDraw(this.paints, this.alpha, this.extraPadding);
+
+  /// The third field preserves the paint's internal blend. The fourth selects
+  /// shape-limited source replacement for knockout
+  /// siblings. Retained path stencils emit fragments only inside the painted
+  /// shape; masked texture quads keep source-over so transparent pixels beyond
+  /// their source shape cannot erase earlier siblings.
+  final List<(_GpuDraw, PdfRect?, PdfBlendMode, bool)> paints;
+  final double alpha;
+  final double extraPadding;
+
+  @override
+  void encode(_GpuEncoder encoder) =>
+      throw StateError('offscreen group requires a separate render pass');
+}
+
 class _SolidDraw implements _GpuDraw {
   const _SolidDraw(this.vertices);
   final _GpuBuffer vertices;
@@ -1814,6 +5637,33 @@ class _StencilDraw implements _GpuDraw {
       encoder.stencil(fan, cover, rule: rule, union: union);
 }
 
+/// A PDF zero-width stroke. Its source polyline is retained with the scene,
+/// but its contour is expanded for the current tile LoD because the PDF
+/// definition is one device pixel rather than a fixed page-space width.
+class _HairlineDraw implements _GpuDraw {
+  const _HairlineDraw(this.subpaths, this.color, this.stroke, this.alpha);
+
+  final List<FlatSubpath> subpaths;
+  final PdfColor color;
+  final PdfStroke stroke;
+  final double alpha;
+
+  @override
+  void encode(_GpuEncoder encoder) =>
+      encoder.hairline(subpaths, color, stroke, alpha);
+}
+
+class _GradientDraw implements _GpuDraw {
+  const _GradientDraw(this.fan, this.mesh, this.rule);
+
+  final _GpuBuffer fan;
+  final _GpuBuffer mesh;
+  final PdfFillRule rule;
+
+  @override
+  void encode(_GpuEncoder encoder) => encoder.gradient(fan, mesh, rule);
+}
+
 class _GpuClipDraw {
   const _GpuClipDraw(this.fan, this.cover, this.rule);
 
@@ -1832,6 +5682,16 @@ class _TextureDraw implements _GpuDraw {
   void encode(_GpuEncoder encoder) => encoder.texture(vertices, texture, info);
 }
 
+class _AnalyticTextDraw implements _GpuDraw {
+  const _AnalyticTextDraw(this.vertices, this.atlas);
+
+  final _GpuBuffer vertices;
+  final _GpuGlyphAtlas atlas;
+
+  @override
+  void encode(_GpuEncoder encoder) => encoder.glyphs(vertices, atlas);
+}
+
 class _SoftMaskDraw implements _GpuDraw {
   const _SoftMaskDraw(
       this.vertices, this.contentTexture, this.maskTexture, this.info);
@@ -1843,6 +5703,20 @@ class _SoftMaskDraw implements _GpuDraw {
   @override
   void encode(_GpuEncoder encoder) =>
       encoder.softMask(vertices, contentTexture, maskTexture, info);
+}
+
+class _SoftMaskFillDraw implements _GpuDraw {
+  const _SoftMaskFillDraw(
+      this.fan, this.cover, this.rule, this.maskTexture, this.info);
+  final _GpuBuffer fan;
+  final _GpuBuffer cover;
+  final PdfFillRule rule;
+  final gpu.Texture maskTexture;
+  final gpu.BufferView info;
+
+  @override
+  void encode(_GpuEncoder encoder) =>
+      encoder.softMaskFill(fan, cover, rule, maskTexture, info);
 }
 
 class _GpuEncoder {
@@ -1857,6 +5731,7 @@ class _GpuEncoder {
     required this.height,
     required this.clipDraws,
     required this.stencilClear,
+    required this.emplaceTransient,
   });
 
   final gpu.RenderPass pass;
@@ -1869,6 +5744,7 @@ class _GpuEncoder {
   final int height;
   final Map<_GpuClipNode, _GpuClipDraw> clipDraws;
   final _GpuBuffer stencilClear;
+  final gpu.BufferView Function(ByteData) emplaceTransient;
 
   // The upper two stencil bits hold alternating clip intersections. The lower
   // six hold temporary winding/parity values for clip construction and normal
@@ -1883,10 +5759,32 @@ class _GpuEncoder {
   int _activeClipBit = 0;
   int clipMaskRebuilds = 0;
   bool? _separateVertexCountApi;
+  gpu.ColorBlendEquation _paintBlend = _srcOver;
 
   static final _srcOver = gpu.ColorBlendEquation(
     sourceColorBlendFactor: gpu.BlendFactor.one,
     destinationColorBlendFactor: gpu.BlendFactor.oneMinusSourceAlpha,
+    sourceAlphaBlendFactor: gpu.BlendFactor.one,
+    destinationAlphaBlendFactor: gpu.BlendFactor.oneMinusSourceAlpha,
+  );
+  static final _source = gpu.ColorBlendEquation(
+    sourceColorBlendFactor: gpu.BlendFactor.one,
+    destinationColorBlendFactor: gpu.BlendFactor.zero,
+    sourceAlphaBlendFactor: gpu.BlendFactor.one,
+    destinationAlphaBlendFactor: gpu.BlendFactor.zero,
+  );
+  // The page paper makes the destination beneath every supported primitive
+  // opaque. Under that invariant PDF Multiply and Screen each reduce to one
+  // exact fixed-function equation, with no destination-texture readback.
+  static final _multiply = gpu.ColorBlendEquation(
+    sourceColorBlendFactor: gpu.BlendFactor.destinationColor,
+    destinationColorBlendFactor: gpu.BlendFactor.oneMinusSourceAlpha,
+    sourceAlphaBlendFactor: gpu.BlendFactor.one,
+    destinationAlphaBlendFactor: gpu.BlendFactor.oneMinusSourceAlpha,
+  );
+  static final _screen = gpu.ColorBlendEquation(
+    sourceColorBlendFactor: gpu.BlendFactor.oneMinusDestinationColor,
+    destinationColorBlendFactor: gpu.BlendFactor.one,
     sourceAlphaBlendFactor: gpu.BlendFactor.one,
     destinationAlphaBlendFactor: gpu.BlendFactor.oneMinusSourceAlpha,
   );
@@ -1896,6 +5794,16 @@ class _GpuEncoder {
     sourceAlphaBlendFactor: gpu.BlendFactor.zero,
     destinationAlphaBlendFactor: gpu.BlendFactor.one,
   );
+
+  void setBlendMode(PdfBlendMode mode) {
+    _paintBlend = switch (mode) {
+      PdfBlendMode.multiply => _multiply,
+      PdfBlendMode.screen => _screen,
+      _ => _srcOver,
+    };
+  }
+
+  void setSourceBlend() => _paintBlend = _source;
 
   void setClip(_GpuClipState clip) {
     if (identical(_clipState, clip)) return;
@@ -1981,7 +5889,7 @@ class _GpuEncoder {
   void solid(_GpuBuffer vertices) {
     _defaultStencil();
     pass
-      ..setColorBlendEquation(_srcOver)
+      ..setColorBlendEquation(_paintBlend)
       ..bindPipeline(pipelines.solid)
       ..bindUniform(pipelines.solidTransform, transform);
     _drawBuffer(vertices);
@@ -1991,9 +5899,71 @@ class _GpuEncoder {
       {required PdfFillRule rule, required bool union}) {
     _accumulateStencil(fan,
         rule: rule, union: union, requiredClipBit: _activeClipBit);
+    _paintStencilCover(cover.view, cover.vertices);
+  }
+
+  void hairline(List<FlatSubpath> subpaths, PdfColor color, PdfStroke stroke,
+      double alpha) {
+    final contours = StrokeContours();
+    strokeToContours(
+      subpaths,
+      width: 1 / _pageDeviceScale(pageToRaster, pixelRatio),
+      cap: stroke.cap,
+      join: stroke.join,
+      miterLimit: stroke.miterLimit,
+      out: contours,
+    );
+    final rings = <FlatSubpath>[
+      for (var i = 0; i < contours.ringCount; i++)
+        FlatSubpath(
+          Float64List.sublistView(
+            contours.points.view,
+            contours.ringStart(i),
+            contours.ringEnd(i),
+          ),
+          closed: true,
+        ),
+    ];
+    final bounds = FlatBounds.of(rings);
+    if (bounds == null) return;
+    final fan = FloatBuilder(1024);
+    for (final sub in rings) {
+      final points = sub.points;
+      final count = points.length ~/ 2;
+      for (var i = 1; i + 1 < count; i++) {
+        fan
+          ..add2(points[0], points[1])
+          ..add2(points[2 * i], points[2 * i + 1])
+          ..add2(points[2 * i + 2], points[2 * i + 3]);
+      }
+    }
+    if (fan.isEmpty) return;
+    final rgba = _premul(color, alpha);
+    final cover = FloatBuilder(36);
+    for (final (x, y) in <(double, double)>[
+      (bounds.left, bounds.bottom),
+      (bounds.right, bounds.bottom),
+      (bounds.right, bounds.top),
+      (bounds.left, bounds.bottom),
+      (bounds.right, bounds.top),
+      (bounds.left, bounds.top),
+    ]) {
+      cover.add6(x, y, rgba[0], rgba[1], rgba[2], rgba[3]);
+    }
+    _accumulateStencilView(
+      emplaceTransient(fan.bytes),
+      fan.length ~/ 2,
+      rule: PdfFillRule.nonzero,
+      union: true,
+      requiredClipBit: _activeClipBit,
+    );
+    _paintStencilCover(emplaceTransient(cover.bytes), 6);
+  }
+
+  void _paintStencilCover(gpu.BufferView cover, int vertices) {
     pass
       ..setStencilReference(0)
-      ..setColorBlendEquation(_srcOver)
+      ..setColorBlendEquation(_paintBlend)
       ..setStencilConfig(gpu.StencilConfig(
         compareFunction: gpu.CompareFunction.notEqual,
         depthStencilPassOperation: gpu.StencilOperation.zero,
@@ -2003,11 +5973,52 @@ class _GpuEncoder {
       ))
       ..bindPipeline(pipelines.solid)
       ..bindUniform(pipelines.solidTransform, transform);
-    _drawBuffer(cover);
+    _drawView(cover, vertices);
+  }
+
+  void gradient(_GpuBuffer fan, _GpuBuffer mesh, PdfFillRule rule) {
+    _accumulateStencil(
+      fan,
+      rule: rule,
+      union: false,
+      requiredClipBit: _activeClipBit,
+    );
+    pass
+      ..setStencilReference(0)
+      ..setColorBlendEquation(_paintBlend)
+      ..setStencilConfig(gpu.StencilConfig(
+        compareFunction: gpu.CompareFunction.notEqual,
+        depthStencilPassOperation: gpu.StencilOperation.zero,
+        stencilFailureOperation: gpu.StencilOperation.keep,
+        readMask: _pathMask,
+        writeMask: _pathMask,
+      ))
+      ..bindPipeline(pipelines.solid)
+      ..bindUniform(pipelines.solidTransform, transform);
+    _drawBuffer(mesh);
+    // The gradient mesh conservatively covers the path bounds, but clearing
+    // the scratch bits explicitly keeps a malformed transform or degenerate
+    // interval from leaking winding state into the next draw.
+    _clearStencil(_pathMask);
   }
 
   void _accumulateStencil(
     _GpuBuffer fan, {
+    required PdfFillRule rule,
+    required bool union,
+    required int requiredClipBit,
+  }) =>
+      _accumulateStencilView(
+        fan.view,
+        fan.vertices,
+        rule: rule,
+        union: union,
+        requiredClipBit: requiredClipBit,
+      );
+
+  void _accumulateStencilView(
+    gpu.BufferView fan,
+    int vertices, {
     required PdfFillRule rule,
     required bool union,
     required int requiredClipBit,
@@ -2043,7 +6054,7 @@ class _GpuEncoder {
           targetFace: gpu.StencilFace.back,
         );
     }
-    _drawBuffer(fan);
+    _drawView(fan, vertices);
   }
 
   void _clearStencil(int mask) {
@@ -2065,7 +6076,7 @@ class _GpuEncoder {
   void texture(_GpuBuffer vertices, gpu.Texture texture, gpu.BufferView info) {
     _defaultStencil();
     pass
-      ..setColorBlendEquation(_srcOver)
+      ..setColorBlendEquation(_paintBlend)
       ..bindPipeline(pipelines.texture)
       ..bindUniform(pipelines.textureTransform, transform)
       ..bindUniform(pipelines.textureInfo, info)
@@ -2075,6 +6086,167 @@ class _GpuEncoder {
         sampler: gpu.SamplerOptions(
           minFilter: gpu.MinMagFilter.linear,
           magFilter: gpu.MinMagFilter.linear,
+          mipFilter: gpu.MipFilter.linear,
+        ),
+      );
+    _drawBuffer(vertices);
+    pass.clearBindings();
+  }
+
+  /// Samples a tile-sized offscreen group back into the same raster region.
+  /// The texture was produced at this pass's exact dimensions, so nearest
+  /// sampling is a one-to-one texel copy; [alpha] and [_paintBlend] apply to
+  /// the completed group once, as required by PDF transparency semantics.
+  void tileTexture(gpu.Texture texture, Rect textureRegion, double alpha) {
+    final vertices = _tileTextureVertices(textureRegion);
+    final info = Float32List(8)..[3] = alpha.clamp(0.0, 1.0);
+    _defaultStencil();
+    pass
+      ..setColorBlendEquation(_paintBlend)
+      ..bindPipeline(pipelines.texture)
+      ..bindUniform(pipelines.textureTransform, transform)
+      ..bindUniform(
+          pipelines.textureInfo, emplaceTransient(ByteData.sublistView(info)))
+      ..bindTexture(
+        pipelines.textureSampler,
+        texture,
+        sampler: gpu.SamplerOptions(
+          minFilter: gpu.MinMagFilter.nearest,
+          magFilter: gpu.MinMagFilter.nearest,
+        ),
+      );
+    _drawView(emplaceTransient(vertices.bytes), 6);
+    pass.clearBindings();
+  }
+
+  /// Combines one premultiplied source tile with its existing backdrop using
+  /// the PDF blend equations. This runs in a separate pass because Flutter GPU
+  /// deliberately forbids sampling the color attachment being written.
+  void copyTile(gpu.Texture texture) {
+    final vertices = _tileTextureVertices(region);
+    final info = Float32List(8)..[3] = 1;
+    pass
+      ..setScissor(gpu.Scissor(x: 0, y: 0, width: width, height: height))
+      ..bindPipeline(pipelines.texture)
+      ..bindUniform(pipelines.textureTransform, transform)
+      ..bindUniform(
+          pipelines.textureInfo, emplaceTransient(ByteData.sublistView(info)))
+      ..bindTexture(
+        pipelines.textureSampler,
+        texture,
+        sampler: gpu.SamplerOptions(
+          minFilter: gpu.MinMagFilter.nearest,
+          magFilter: gpu.MinMagFilter.nearest,
+        ),
+      );
+    _drawView(emplaceTransient(vertices.bytes), 6);
+    pass.clearBindings();
+  }
+
+  void advancedBlend(
+    gpu.Texture backdrop,
+    gpu.Texture source,
+    PdfBlendMode mode,
+    PdfRect? bounds,
+  ) {
+    final vertices = _tileTextureVertices(region);
+    final info = Float32List(4)..[0] = mode.index.toDouble();
+    pass
+      ..setScissor(bounds == null
+          ? gpu.Scissor(x: 0, y: 0, width: width, height: height)
+          : _scissorForPdfRect(bounds))
+      ..bindPipeline(pipelines.blend)
+      ..bindUniform(pipelines.blendTransform, transform)
+      ..bindUniform(
+          pipelines.blendInfo, emplaceTransient(ByteData.sublistView(info)))
+      ..bindTexture(
+        pipelines.blendBackdropSampler,
+        backdrop,
+        sampler: gpu.SamplerOptions(
+          minFilter: gpu.MinMagFilter.nearest,
+          magFilter: gpu.MinMagFilter.nearest,
+        ),
+      )
+      ..bindTexture(
+        pipelines.blendSourceSampler,
+        source,
+        sampler: gpu.SamplerOptions(
+          minFilter: gpu.MinMagFilter.nearest,
+          magFilter: gpu.MinMagFilter.nearest,
+        ),
+      );
+    _drawView(emplaceTransient(vertices.bytes), 6);
+    pass.clearBindings();
+  }
+
+  gpu.Scissor _scissorForPdfRect(PdfRect rect) {
+    final points = <Offset>[
+      Offset(pageToRaster.transformX(rect.left, rect.bottom),
+          pageToRaster.transformY(rect.left, rect.bottom)),
+      Offset(pageToRaster.transformX(rect.right, rect.bottom),
+          pageToRaster.transformY(rect.right, rect.bottom)),
+      Offset(pageToRaster.transformX(rect.right, rect.top),
+          pageToRaster.transformY(rect.right, rect.top)),
+      Offset(pageToRaster.transformX(rect.left, rect.top),
+          pageToRaster.transformY(rect.left, rect.top)),
+    ];
+    final left = points.map((point) => point.dx).reduce(math.min);
+    final right = points.map((point) => point.dx).reduce(math.max);
+    final top = points.map((point) => point.dy).reduce(math.min);
+    final bottom = points.map((point) => point.dy).reduce(math.max);
+    final x0 = ((left - region.left) * pixelRatio).floor().clamp(0, width);
+    final x1 = ((right - region.left) * pixelRatio).ceil().clamp(0, width);
+    final y0 = ((top - region.top) * pixelRatio).floor().clamp(0, height);
+    final y1 = ((bottom - region.top) * pixelRatio).ceil().clamp(0, height);
+    return gpu.Scissor(
+      x: x0,
+      y: y0,
+      width: math.max(0, x1 - x0),
+      height: math.max(0, y1 - y0),
+    );
+  }
+
+  FloatBuilder _tileTextureVertices(Rect textureRegion) {
+    final inverse = pageToRaster.inverted();
+    if (inverse == null) throw StateError('singular page-to-raster transform');
+    final left = textureRegion.left, right = textureRegion.right;
+    final top = textureRegion.top, bottom = textureRegion.bottom;
+    final bl = (
+      inverse.transformX(left, bottom),
+      inverse.transformY(left, bottom),
+    );
+    final br = (
+      inverse.transformX(right, bottom),
+      inverse.transformY(right, bottom),
+    );
+    final tl = (
+      inverse.transformX(left, top),
+      inverse.transformY(left, top),
+    );
+    return _imageVertices(PdfMatrix(
+      br.$1 - bl.$1,
+      br.$2 - bl.$2,
+      tl.$1 - bl.$1,
+      tl.$2 - bl.$2,
+      bl.$1,
+      bl.$2,
+    ));
+  }
+
+  void glyphs(_GpuBuffer vertices, _GpuGlyphAtlas atlas) {
+    _defaultStencil();
+    pass
+      ..setColorBlendEquation(_paintBlend)
+      ..bindPipeline(pipelines.glyph)
+      ..bindUniform(pipelines.glyphTransform, transform)
+      ..bindUniform(pipelines.glyphInfo, atlas.info)
+      ..bindTexture(
+        pipelines.glyphSampler,
+        atlas.texture,
+        sampler: gpu.SamplerOptions(
+          minFilter: gpu.MinMagFilter.nearest,
+          magFilter: gpu.MinMagFilter.nearest,
+          mipFilter: gpu.MipFilter.nearest,
         ),
       );
     _drawBuffer(vertices);
@@ -2087,9 +6259,10 @@ class _GpuEncoder {
     final sampler = gpu.SamplerOptions(
       minFilter: gpu.MinMagFilter.linear,
       magFilter: gpu.MinMagFilter.linear,
+      mipFilter: gpu.MipFilter.linear,
     );
     pass
-      ..setColorBlendEquation(_srcOver)
+      ..setColorBlendEquation(_paintBlend)
       ..bindPipeline(pipelines.softMask)
       ..bindUniform(pipelines.softMaskTransform, transform)
       ..bindUniform(pipelines.softMaskInfo, info)
@@ -2101,29 +6274,71 @@ class _GpuEncoder {
     pass.clearBindings();
   }
 
+  void softMaskFill(_GpuBuffer fan, _GpuBuffer cover, PdfFillRule rule,
+      gpu.Texture maskTexture, gpu.BufferView info) {
+    _accumulateStencil(
+      fan,
+      rule: rule,
+      union: false,
+      requiredClipBit: _activeClipBit,
+    );
+    final sampler = gpu.SamplerOptions(
+      minFilter: gpu.MinMagFilter.linear,
+      magFilter: gpu.MinMagFilter.linear,
+      mipFilter: gpu.MipFilter.linear,
+    );
+    pass
+      ..setStencilReference(0)
+      ..setColorBlendEquation(_paintBlend)
+      ..setStencilConfig(gpu.StencilConfig(
+        compareFunction: gpu.CompareFunction.notEqual,
+        depthStencilPassOperation: gpu.StencilOperation.zero,
+        stencilFailureOperation: gpu.StencilOperation.keep,
+        readMask: _pathMask,
+        writeMask: _pathMask,
+      ))
+      ..bindPipeline(pipelines.softMask)
+      ..bindUniform(pipelines.softMaskTransform, transform)
+      ..bindUniform(pipelines.softMaskInfo, info)
+      // The normal grayscale mask texture has opaque alpha. Binding it as the
+      // content sample too lets contentStencil supply the solid fill color,
+      // while the second lookup still evaluates the PDF mask luminance/alpha.
+      ..bindTexture(pipelines.softMaskContentSampler, maskTexture,
+          sampler: sampler)
+      ..bindTexture(pipelines.softMaskMaskSampler, maskTexture,
+          sampler: sampler);
+    _drawBuffer(cover);
+    pass.clearBindings();
+    _clearStencil(_pathMask);
+  }
+
   // flutter_gpu is experimental. Flutter 3.47 split vertex count out of
   // bindVertexBuffer and into draw; 3.44 uses the original pair. Keep this
   // package usable across both stable SDKs without exposing that churn to
   // callers. The one-time dynamic probe is cached for every render pass.
   void _drawBuffer(_GpuBuffer buffer) {
+    _drawView(buffer.view, buffer.vertices);
+  }
+
+  void _drawView(gpu.BufferView view, int vertices) {
     final dynamic dynamicPass = pass;
     if (_separateVertexCountApi == true) {
-      dynamicPass.bindVertexBuffer(buffer.view);
-      dynamicPass.draw(buffer.vertices);
+      dynamicPass.bindVertexBuffer(view);
+      dynamicPass.draw(vertices);
       return;
     }
     if (_separateVertexCountApi == false) {
-      dynamicPass.bindVertexBuffer(buffer.view, buffer.vertices);
+      dynamicPass.bindVertexBuffer(view, vertices);
       dynamicPass.draw();
       return;
     }
     try {
-      dynamicPass.bindVertexBuffer(buffer.view);
+      dynamicPass.bindVertexBuffer(view);
       _separateVertexCountApi = true;
-      dynamicPass.draw(buffer.vertices);
+      dynamicPass.draw(vertices);
     } on NoSuchMethodError {
       _separateVertexCountApi = false;
-      dynamicPass.bindVertexBuffer(buffer.view, buffer.vertices);
+      dynamicPass.bindVertexBuffer(view, vertices);
       dynamicPass.draw();
     }
   }
@@ -2150,6 +6365,10 @@ class _GpuPipelines {
             library['PdfTileSolidVertex']!, library['PdfTileSolidFragment']!),
         texture = context.createRenderPipeline(library['PdfTileTextureVertex']!,
             library['PdfTileTextureFragment']!),
+        blend = context.createRenderPipeline(
+            library['PdfTileTextureVertex']!, library['PdfTileBlendFragment']!),
+        glyph = context.createRenderPipeline(
+            library['PdfTileGlyphVertex']!, library['PdfTileGlyphFragment']!),
         softMask = context.createRenderPipeline(
             library['PdfTileSoftMaskVertex']!,
             library['PdfTileSoftMaskFragment']!),
@@ -2163,6 +6382,20 @@ class _GpuPipelines {
             library['PdfTileTextureFragment']!.getUniformSlot('FragInfo'),
         textureSampler =
             library['PdfTileTextureFragment']!.getUniformSlot('tex'),
+        blendTransform =
+            library['PdfTileTextureVertex']!.getUniformSlot('VertInfo'),
+        blendInfo =
+            library['PdfTileBlendFragment']!.getUniformSlot('BlendInfo'),
+        blendBackdropSampler =
+            library['PdfTileBlendFragment']!.getUniformSlot('backdrop_tex'),
+        blendSourceSampler =
+            library['PdfTileBlendFragment']!.getUniformSlot('source_tex'),
+        glyphTransform =
+            library['PdfTileGlyphVertex']!.getUniformSlot('VertInfo'),
+        glyphInfo =
+            library['PdfTileGlyphFragment']!.getUniformSlot('GlyphInfo'),
+        glyphSampler =
+            library['PdfTileGlyphFragment']!.getUniformSlot('glyph_atlas'),
         softMaskTransform =
             library['PdfTileSoftMaskVertex']!.getUniformSlot('VertInfo'),
         softMaskInfo =
@@ -2190,7 +6423,398 @@ class _GpuPipelines {
     );
   }
 
+  final Map<bool, Future<void>> _warmUps = {};
+
+  Future<bool> warmUp(gpu.GpuContext context, {required bool useMsaa}) async {
+    final existing = _warmUps[useMsaa];
+    if (existing != null) {
+      await existing;
+      return false;
+    }
+    final future = _submitWarmUp(context, useMsaa: useMsaa);
+    _warmUps[useMsaa] = future;
+    try {
+      await future;
+      return true;
+    } catch (_) {
+      if (identical(_warmUps[useMsaa], future)) _warmUps.remove(useMsaa);
+      rethrow;
+    }
+  }
+
+  Future<void> _submitWarmUp(
+    gpu.GpuContext context, {
+    required bool useMsaa,
+  }) {
+    final resolve = context.createTexture(
+      gpu.StorageMode.devicePrivate,
+      1,
+      1,
+      format: context.defaultColorFormat,
+    );
+    final color = useMsaa
+        ? context.createTexture(
+            gpu.StorageMode.deviceTransient,
+            1,
+            1,
+            format: context.defaultColorFormat,
+            sampleCount: 4,
+          )
+        : resolve;
+    final stencilTexture = context.createTexture(
+      gpu.StorageMode.deviceTransient,
+      1,
+      1,
+      format: context.defaultStencilFormat,
+      sampleCount: useMsaa ? 4 : 1,
+    );
+    final sample = context.createTexture(
+      gpu.StorageMode.hostVisible,
+      1,
+      1,
+      format: gpu.PixelFormat.r8g8b8a8UNormInt,
+    );
+    final blendTarget = context.createTexture(
+      gpu.StorageMode.devicePrivate,
+      1,
+      1,
+      format: context.defaultColorFormat,
+    );
+    final blendBackdrop = context.createTexture(
+      gpu.StorageMode.devicePrivate,
+      1,
+      1,
+      format: context.defaultColorFormat,
+    );
+    final blendSource = context.createTexture(
+      gpu.StorageMode.devicePrivate,
+      1,
+      1,
+      format: context.defaultColorFormat,
+    );
+    sample.overwrite(ByteData.sublistView(Uint8List.fromList(
+      const [255, 255, 255, 255],
+    )));
+
+    final transient = context.createHostBuffer();
+    final transform =
+        transient.emplace(ByteData.sublistView(Float32List.fromList(
+      const [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+      ],
+    )));
+    final stencilVertices = transient.emplace(ByteData.sublistView(
+      Float32List.fromList(const [-1, -1, 3, -1, -1, 3]),
+    ));
+    final solidVertices = transient.emplace(ByteData.sublistView(
+      Float32List.fromList(const [
+        -1,
+        -1,
+        1,
+        1,
+        1,
+        1,
+        3,
+        -1,
+        1,
+        1,
+        1,
+        1,
+        -1,
+        3,
+        1,
+        1,
+        1,
+        1,
+      ]),
+    ));
+    final textureVertices = transient.emplace(ByteData.sublistView(
+      Float32List.fromList(const [
+        -1,
+        -1,
+        0,
+        0,
+        3,
+        -1,
+        1,
+        0,
+        -1,
+        3,
+        0,
+        1,
+      ]),
+    ));
+    final textureInfo = transient.emplace(ByteData.sublistView(
+      Float32List.fromList(const [1, 1, 1, 1, 0, 0, 0, 0]),
+    ));
+    final glyphVertices = transient.emplace(ByteData.sublistView(
+      Float32List.fromList(const [
+        -1,
+        -1,
+        0,
+        0,
+        0,
+        1,
+        1,
+        1,
+        1,
+        3,
+        -1,
+        1,
+        0,
+        0,
+        1,
+        1,
+        1,
+        1,
+        -1,
+        3,
+        0,
+        1,
+        0,
+        1,
+        1,
+        1,
+        1,
+      ]),
+    ));
+    final glyphInfo = transient.emplace(ByteData.sublistView(
+      Float32List.fromList(const [1, 1]),
+    ));
+    final softMaskInfo = Float32List(36)
+      ..setRange(0, 16, const [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+      ])
+      ..setRange(16, 20, const [1, 1, 1, 1])
+      ..setRange(20, 24, const [1, 1, 1, 1])
+      ..setRange(24, 28, const [0, 0, 0, 1])
+      ..setRange(28, 32, const [1, 0, 0, 0])
+      ..setRange(32, 36, const [-1, -1, 1, 1]);
+    final softMaskUniform =
+        transient.emplace(ByteData.sublistView(softMaskInfo));
+    final blendInfo = transient.emplace(ByteData.sublistView(
+      Float32List.fromList([PdfBlendMode.overlay.index.toDouble(), 0, 0, 0]),
+    ));
+
+    final commandBuffer = context.createCommandBuffer();
+    final pass = commandBuffer.createRenderPass(gpu.RenderTarget(
+      colorAttachments: [
+        gpu.ColorAttachment(
+          texture: color,
+          resolveTexture: useMsaa ? resolve : null,
+          clearValue: vm.Vector4.zero(),
+          storeAction: useMsaa
+              ? gpu.StoreAction.multisampleResolve
+              : gpu.StoreAction.store,
+        ),
+      ],
+      depthStencilAttachment: gpu.DepthStencilAttachment(
+        texture: stencilTexture,
+        stencilClearValue: 0,
+      ),
+    ));
+    pass
+      ..setCullMode(gpu.CullMode.none)
+      ..setWindingOrder(gpu.WindingOrder.counterClockwise)
+      ..setPrimitiveType(gpu.PrimitiveType.triangle)
+      ..setColorBlendEnable(true)
+      ..setStencilReference(0)
+      ..setColorBlendEquation(_GpuEncoder._noWrite)
+      ..setStencilConfig(
+          gpu.StencilConfig(
+            compareFunction: gpu.CompareFunction.always,
+            depthStencilPassOperation: gpu.StencilOperation.incrementWrap,
+            readMask: 0,
+            writeMask: _GpuEncoder._pathMask,
+          ),
+          targetFace: gpu.StencilFace.front)
+      ..setStencilConfig(
+          gpu.StencilConfig(
+            compareFunction: gpu.CompareFunction.always,
+            depthStencilPassOperation: gpu.StencilOperation.decrementWrap,
+            readMask: 0,
+            writeMask: _GpuEncoder._pathMask,
+          ),
+          targetFace: gpu.StencilFace.back)
+      ..bindPipeline(stencil)
+      ..bindUniform(stencilTransform, transform);
+    _warmUpDraw(pass, stencilVertices, 3);
+    pass
+      ..setStencilConfig(gpu.StencilConfig(
+        compareFunction: gpu.CompareFunction.notEqual,
+        depthStencilPassOperation: gpu.StencilOperation.zero,
+        readMask: _GpuEncoder._pathMask,
+        writeMask: _GpuEncoder._pathMask,
+      ))
+      ..bindPipeline(solid)
+      ..bindUniform(solidTransform, transform)
+      ..setColorBlendEquation(_GpuEncoder._srcOver);
+    _warmUpDraw(pass, solidVertices, 3);
+    pass
+      ..setColorBlendEquation(_GpuEncoder._srcOver)
+      ..setStencilConfig(gpu.StencilConfig(
+        compareFunction: gpu.CompareFunction.always,
+        depthStencilPassOperation: gpu.StencilOperation.keep,
+        readMask: 0,
+        writeMask: 0,
+      ));
+    _warmUpDraw(pass, solidVertices, 3);
+    pass
+      ..bindPipeline(texture)
+      ..bindUniform(textureTransform, transform)
+      ..bindUniform(this.textureInfo, textureInfo)
+      ..bindTexture(textureSampler, sample);
+    _warmUpDraw(pass, textureVertices, 3);
+    pass
+      ..clearBindings()
+      ..bindPipeline(glyph)
+      ..bindUniform(glyphTransform, transform)
+      ..bindUniform(this.glyphInfo, glyphInfo)
+      ..bindTexture(
+        glyphSampler,
+        sample,
+        sampler: gpu.SamplerOptions(
+          minFilter: gpu.MinMagFilter.nearest,
+          magFilter: gpu.MinMagFilter.nearest,
+          mipFilter: gpu.MipFilter.nearest,
+        ),
+      );
+    _warmUpDraw(pass, glyphVertices, 3);
+    pass
+      ..clearBindings()
+      ..bindPipeline(softMask)
+      ..bindUniform(softMaskTransform, transform)
+      ..bindUniform(this.softMaskInfo, softMaskUniform)
+      ..bindTexture(softMaskContentSampler, sample)
+      ..bindTexture(softMaskMaskSampler, sample);
+    _warmUpDraw(pass, textureVertices, 3);
+    pass.clearBindings();
+
+    // Destination-sampling blends render without fixed-function blending or
+    // a stencil attachment. Metal keys pipeline state on those attachment and
+    // blend settings, so touching the same shaders in the page pass above does
+    // not compile the variants used by [_CompiledScene._renderAdvanced].
+    // Prime both its page-copy and PDF-blend draws while the viewer is idle;
+    // otherwise the first advanced-blend tile still waits on the driver even
+    // after this general warm-up completed.
+    // Flutter GPU 3.47 cannot safely encode two render passes into this
+    // experimental command-buffer wrapper on Metal. Queue the independent
+    // no-blend variant after the general pass instead; submission order keeps
+    // the completion callback a fence for both.
+    final blendCommandBuffer = context.createCommandBuffer();
+    final blendPass = blendCommandBuffer.createRenderPass(
+      gpu.RenderTarget.singleColor(gpu.ColorAttachment(
+        texture: blendTarget,
+        clearValue: vm.Vector4.zero(),
+      )),
+    )
+      ..setCullMode(gpu.CullMode.none)
+      ..setWindingOrder(gpu.WindingOrder.counterClockwise)
+      ..setPrimitiveType(gpu.PrimitiveType.triangle)
+      ..setColorBlendEnable(false)
+      ..bindPipeline(texture)
+      ..bindUniform(textureTransform, transform)
+      ..bindUniform(this.textureInfo, textureInfo)
+      ..bindTexture(textureSampler, sample);
+    _warmUpDraw(blendPass, textureVertices, 3);
+    blendPass
+      ..clearBindings()
+      ..bindPipeline(blend)
+      ..bindUniform(blendTransform, transform)
+      ..bindUniform(this.blendInfo, blendInfo)
+      ..bindTexture(blendBackdropSampler, blendBackdrop)
+      ..bindTexture(blendSourceSampler, blendSource);
+    _warmUpDraw(blendPass, textureVertices, 3);
+    blendPass.clearBindings();
+
+    final completer = Completer<void>();
+    // Keep every command-buffer resource strongly reachable until Impeller's
+    // completion fence fires. The callback itself is the lifetime owner.
+    final resources = <Object>[
+      resolve,
+      color,
+      stencilTexture,
+      sample,
+      blendTarget,
+      blendBackdrop,
+      blendSource,
+      transient,
+      commandBuffer,
+      blendCommandBuffer,
+      pass,
+      blendPass,
+    ];
+    try {
+      var completed = 0;
+      var succeeded = true;
+      void complete(bool success) {
+        resources.length;
+        if (completer.isCompleted) return;
+        succeeded = succeeded && success;
+        completed++;
+        if (completed != 2) return;
+        if (succeeded) {
+          completer.complete();
+        } else {
+          completer.completeError(StateError('GPU pipeline warm-up failed'));
+        }
+      }
+
+      commandBuffer.submit(completionCallback: complete);
+      blendCommandBuffer.submit(completionCallback: complete);
+    } catch (error, stack) {
+      if (!completer.isCompleted) completer.completeError(error, stack);
+    }
+    return completer.future;
+  }
+
+  static void _warmUpDraw(
+    gpu.RenderPass pass,
+    gpu.BufferView vertices,
+    int count,
+  ) {
+    final dynamic dynamicPass = pass;
+    try {
+      dynamicPass.bindVertexBuffer(vertices);
+      dynamicPass.draw(count);
+    } on NoSuchMethodError {
+      dynamicPass.bindVertexBuffer(vertices, count);
+      dynamicPass.draw();
+    }
+  }
+
   static Future<gpu.ShaderLibrary> _loadLibrary() async {
+    final failures = <String, Object>{};
     for (final asset in const [
       'packages/dart_pdf_editor_flutter_gpu/assets/shaders/pdf_tile_gpu.shaderbundle',
       'assets/shaders/pdf_tile_gpu.shaderbundle',
@@ -2202,22 +6826,38 @@ class _GpuPipelines {
           gpu.ShaderLibrary.fromAsset(asset),
         );
         if (library != null) return library;
-      } catch (_) {
+      } catch (error) {
         // Package-prefixed in an app, bare while this package is the test root.
+        // Keep the actual loader error: an incompatible shader bundle must not
+        // be collapsed into the same terminal message as a missing asset.
+        failures[asset] = error;
       }
     }
-    throw StateError('pdf_tile_gpu.shaderbundle asset not found');
+    final detail = failures.entries
+        .map((entry) => '${entry.key}: ${entry.value}')
+        .join('; ');
+    throw StateError('pdf_tile_gpu.shaderbundle failed to load'
+        '${detail.isEmpty ? '' : ': $detail'}');
   }
 
   final gpu.RenderPipeline stencil;
   final gpu.RenderPipeline solid;
   final gpu.RenderPipeline texture;
+  final gpu.RenderPipeline blend;
+  final gpu.RenderPipeline glyph;
   final gpu.RenderPipeline softMask;
   final gpu.UniformSlot stencilTransform;
   final gpu.UniformSlot solidTransform;
   final gpu.UniformSlot textureTransform;
   final gpu.UniformSlot textureInfo;
   final gpu.UniformSlot textureSampler;
+  final gpu.UniformSlot blendTransform;
+  final gpu.UniformSlot blendInfo;
+  final gpu.UniformSlot blendBackdropSampler;
+  final gpu.UniformSlot blendSourceSampler;
+  final gpu.UniformSlot glyphTransform;
+  final gpu.UniformSlot glyphInfo;
+  final gpu.UniformSlot glyphSampler;
   final gpu.UniformSlot softMaskTransform;
   final gpu.UniformSlot softMaskInfo;
   final gpu.UniformSlot softMaskContentSampler;

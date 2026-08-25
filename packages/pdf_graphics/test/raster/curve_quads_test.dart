@@ -9,7 +9,6 @@ import 'dart:typed_data';
 
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart';
-import 'package:pdf_graphics/src/fonts/truetype.dart';
 import 'package:test/test.dart';
 
 import 'reference_raster.dart';

@@ -408,6 +408,7 @@
   "tbApplyRedactionsTitle": "Áp dụng che thông tin?",
   "tbApplyRedactionsTooltip": "Áp dụng che thông tin (không thể đảo ngược)",
   "tbAutosizeTextBox": "Tự động cỡ hộp văn bản (Alt+Z)",
+  "tbAutosizeTextFont": "Vừa phông chữ với hộp văn bản",
   "tbCalibrateScaleHint": "Vẽ một đường có độ dài đã biết để hiệu chỉnh tỷ lệ.",
   "tbCharSpacing": "Giãn ký tự",
   "tbCheckBoxOption": "Hộp kiểm",

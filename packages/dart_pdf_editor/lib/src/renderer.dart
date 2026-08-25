@@ -469,7 +469,7 @@ class PdfPageRenderer {
   }
 
   /// Gathers every image draw request in [commands], descending into soft-mask
-  /// groups (whose own commands can draw images), in replay order.
+  /// groups and retained tiling cells, in replay order.
   static void collectImageRequests(
       List<PdfRenderCommand> commands, List<PdfImageRequest> out) {
     for (final command in commands) {
@@ -478,6 +478,8 @@ class PdfPageRenderer {
           out.add(request);
         case PdfEndSoftMaskedCommand(:final maskCommands):
           collectImageRequests(maskCommands, out);
+        case PdfDrawTiledCellCommand(:final cellCommands):
+          collectImageRequests(cellCommands, out);
         default:
           break;
       }

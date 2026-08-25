@@ -24,9 +24,30 @@ PdfReader(
   tileRasterBackend: FlutterGpuTileRasterBackend(
     maxTextureBytes: 256 << 20,
     maxGeometryBytes: 256 << 20,
+    // Ordinary filled outlines use a scale-independent curve atlas by
+    // default. Set false only for an A/B against legacy stencil fans.
+    analyticText: true,
+    // Optional: retain simple substituted text using the native faces that
+    // Canvas normally selects. Leave false if the app registers replacements
+    // under these family names.
+    systemTextOutlines: true,
   ),
 )
 ```
+
+Unembedded text remains on the conservative Canvas fallback by default because
+Flutter does not expose the glyph paths selected by `TextPainter`. A host that
+owns its font registrations can pass a `FlutterGpuTrueTypeTextOutliner` whose
+resolver returns `FlutterGpuFontFace` instances built from those exact bytes,
+including `FlutterGpuTrueTypeFontFace` and `FlutterGpuOpenTypeCffFontFace`.
+`systemTextOutlines: true` is the native convenience adapter: it probes
+known Helvetica/Arial, Times, Courier, Symbol, and platform-equivalent font
+files. On macOS it also resolves the exact Songti, Heiti, Hiragino Sans, and
+Hiragino Mincho faces selected by the Canvas CJK substitution stack, including
+OpenType CFF faces inside font collections. It declines a run when the
+requested face, glyph, or simple horizontal placement cannot be proved. It is
+deliberately opt-in because an app may have registered different bytes under
+the same Flutter family name. Web keeps the Canvas path.
 
 Flutter GPU must also be enabled by the host. Add
 `<key>FLTEnableFlutterGPU</key><true/>` to the iOS/macOS Info.plist (and
@@ -56,9 +77,40 @@ as a package asset. Unsupported platforms, disabled contexts, and unsupported
 PDF features return to the Canvas tile backend automatically. Web gets a
 compile-time stub and therefore preserves the all-platform host surface.
 
-The current exact subset is solid paths and strokes, embedded-outline text,
-decoded images/image masks, Gouraud meshes, normal blending, rectangular and
-arbitrary path clips, and the common isolated single-image soft-mask group.
+The current exact subset is solid paths and strokes (including zero-width PDF
+hairlines that stay one device pixel at every LoD), filled and stroked
+embedded-outline text, simple substituted text when an exact
+`FlutterGpuTextOutliner` resolves it,
+decoded images/image masks, Gouraud meshes, axial gradients, nested-circle
+radial gradients, vector and stencil-image tiling cells, normal/Multiply/Screen
+blending, and exact destination-sampling Overlay, Darken, Lighten, ColorDodge,
+ColorBurn, HardLight, SoftLight, Difference, Exclusion, Hue, Saturation, Color,
+and Luminosity blending,
+rectangular and arbitrary path clips, and the common isolated single-image
+soft-mask group. Isolated transparency groups containing a single vector fill,
+stroke, outlined text run, or ordinary image also stay on the GPU: their group
+alpha and page blend mode are retained exactly. One-element knockout groups are
+included
+because there are no sibling elements for knockout to change. Alpha-one,
+normal-blend non-knockout groups may contain multiple ordered fills, strokes,
+outlined text runs, and ordinary images because source-over is associative, so
+their isolation layer is an identity operation. Isolated overlapping groups
+retain those same paint types in the bounded offscreen tile pass before
+applying group alpha and the outer blend once. Normal, Multiply, and Screen
+remain per-paint state inside that attachment rather than being collapsed into
+the group's outer blend. Platform-decoded JPEGs whose
+`/SMask` remains a companion GPU
+surface also keep their base and mask as separate cached textures and combine
+them in the same shader path. A single vector fill can use one opaque grayscale
+image soft mask directly through retained stencil geometry. Rectangular vector
+soft-mask fills, including alpha or luminosity backdrops and linearized
+transfer functions, are partitioned into constant-mask stencil cover cells and
+need no intermediate texture.
+Advanced blend paints use bounded ping-pong tile attachments. Paints whose
+bounds prove they cannot affect one another share one destination-sampling
+pass; overlapping paints replay sequentially to preserve PDF painter order.
+The route rejects before allocating when its temporary attachments would
+exceed 256 MiB.
 Rectangles use hardware scissors; other clip stacks compile once into retained
 stencil geometry and preserve nonzero/even-odd plus save/restore semantics. The
 mask case keeps the base and mask as two GPU textures and combines them during
@@ -76,19 +128,54 @@ after their scene is disposed and every submitted command buffer completes.
 This keeps command-heavy CAD navigation bounded without relying on delayed
 native finalizers; a scene that cannot lease enough geometry also falls back.
 
+Ordinary filled outline text uses retained Slug-style quadratic curve streams:
+one small nearest-sampled atlas stores each distinct page glyph and each draw
+retains only six vertices per placed glyph. The fragment shader derives its
+pixels-per-em from the current tile transform, so the same atlas stays sharp
+across LoDs and rotated text. Gradient and soft-masked text, malformed or
+over-complex outlines, and an atlas over the bounded 8 MiB ceiling retain the
+existing stencil-fan path. Atlas creation failure is likewise an optimization
+fallback, never a reason to reject the page.
+
+After useful page pixels land and foreground work stays quiet for 750 ms, the
+viewer asks the backend to warm its context. The backend submits one transparent
+pixel through each tile pipeline and the nonzero stencil-cover state used by
+retained fills, moving Impeller/driver compilation out of the first deep-zoom
+interaction without delaying initial document paint or competing with an
+immediate scroll. This work is coalesced per native view and MSAA mode, even
+when several readers share the same process.
+
+Proactive warm-up defaults on for macOS, Windows, and Linux. Android and iOS
+stay on-demand by default because merely creating an Impeller GPU context can
+reserve significant memory before a page is known to be GPU-compatible. A host
+that has validated its mobile device range can opt in with
+`enableProactiveWarmUp: true`; normal on-demand GPU tiles remain available when
+the option is false.
+
+The same idle gate then prepares the live page's retained tile session: scene
+geometry and decoded-image uploads are compiled once and every scene pipeline
+is submitted at one-pixel page scale. The real first tile reuses those retained
+resources. Starting new foreground work cancels and restarts both delays; page
+disposal releases the prepared resources through the ordinary scene lifecycle.
+
 `backend.stats` reports accepted/rejected/active sessions, the latest actual
-tile route, runtime fallback reasons, scene compile and tile-submit time,
+tile route, runtime fallback reasons, context and scene warm-up outcomes,
+scene compile and tile-submit time,
 spatially selected command counts, upload/readback paths, cache hits and
 evictions, budget fallbacks, retained bytes, and live resource leases.
 Clip diagnostics separately report paths compiled and tile-mask rebuilds.
+Advanced-blend diagnostics report destination-sampling passes, allocated and
+peak temporary bytes, and budget fallbacks.
 `backend.stats.toJson()` is suitable for benchmark artifacts. Keep the backend
 instance alive when comparing pages so those counters and cross-page caches
 describe the real workload rather than one page at a time.
 
-Pages with other transparency groups or soft masks, non-normal blends,
-gradients, tiling cells, unsafe overprint, complex clips nested inside the
-single-image soft-mask shortcut, substituted/stroked text, hairlines, or
-missing image pixels are rejected as a whole rather than approximated.
+Pages with other transparency groups or soft masks, scenes that combine
+advanced blend paints with offscreen transparency groups, non-nested radial
+gradients, gradient overprint, unsafe overprint, complex
+clips nested inside the single-image soft-mask shortcut, unresolved
+substituted text, or missing image pixels are rejected as a whole rather than
+approximated.
 `allowOverprintApproximation` exists only for controlled experiments and
 defaults to false.
 
@@ -139,6 +226,48 @@ settle, Canvas parity, upload/cache counters, and RSS. It is opt-in via
 `PDF_GPU_BENCHMARK_PAGES`. Set `PDF_GPU_BENCHMARK_OUT` to a directory to save
 the center 512 px GPU and Canvas tiles for visual comparison, or
 `PDF_GPU_BENCHMARK_MSAA=0` to isolate multisample antialiasing differences.
+Set `PDF_GPU_BENCHMARK_WARMUP=1` to measure the viewer's pipeline warm-up before
+the first real tile.
+Set `PDF_GPU_BENCHMARK_SCENE_WARMUP=1` to additionally compile and submit the
+retained scene before measuring that tile.
+Set `PDF_GPU_BENCHMARK_SCENARIO` to emit normalized `PdfPerfLog` scenario
+markers for each pipeline/scene/tile phase. CI uses those markers to run the
+checked-in tiling-pattern, radial-shading, hairline, advanced-blend,
+vector-mask transfer, PDF.js knockout soft-mask and isolated-knockout overlap,
+GWG168/169 vector
+soft-mask, and GWG1610/1611 text soft-mask pages plus the PDF.js Latin and CJK
+system-font outline pages and deterministic deferred-mask fixture six times on
+macOS Metal,
+compare the exact
+PR base and candidate on the same runner with balanced execution order, and
+publish both a concise PR headline and a collapsed detailed trace.
+Set `PDF_GPU_BENCHMARK_FIXTURE=deferred-mask` instead of a PDF path to exercise
+a deterministic 1024x768 JPEG under a Flate grayscale soft mask. This fixture
+emits the same first-tile and Canvas scenarios whether the backend accepts the
+scene or production falls back to Canvas, so a backend-routing change remains
+a like-for-like comparison. Pipeline and scene warm-up scenario markers are
+suppressed for this production-route fixture; the warm-up itself still runs.
+An unmeasured Canvas pass immediately before the Canvas control keeps that
+reference warm on both the accepted and fallback routes without warming the
+cold first-tile measurement.
+Set `PDF_GPU_BENCHMARK_ROUTE_CHANGE=1` for the same normalization when a PDF
+path, rather than the built-in fixture, changes from Canvas fallback to direct
+GPU. Route-change scene warm-up still runs when requested, matching the
+viewer's idle-prepared path, but its unmatched timing marker is omitted because
+the Canvas base has no GPU session to warm. CI uses it for the checked-in
+vector-mask transfer, knockout soft-mask, isolated-knockout overlap, hairline,
+advanced-blend, and GWG vector/text soft-mask pages.
+Set `PDF_GPU_BENCHMARK_SYSTEM_TEXT=1` to enable the native system-font outline
+adapter. For a like-for-like macOS parity control,
+`PDF_GPU_BENCHMARK_REGISTER_SYSTEM_FONTS=1` registers those same font bytes
+under Canvas's substitution-family names; CI combines both settings for the
+system-font and advanced-blend route-change scenarios.
+The corpus equivalents are `GPU_CORPUS_SYSTEM_TEXT=1` and
+`GPU_CORPUS_REGISTER_SYSTEM_FONTS=1`; the designated macOS GPU lane runs that
+full parity matrix on every change.
+Set `PDF_GPU_BENCHMARK_ANALYTIC_TEXT=0` or
+`GPU_CORPUS_ANALYTIC_TEXT=0` for a same-build comparison against the retained
+stencil-fan text path.
 Set `PDF_GPU_BENCHMARK_OVERPRINT=0` to exercise the production-default exact
 fallback policy; the benchmark otherwise enables its documented source-over
 approximation so more of a corpus can be measured on the GPU.

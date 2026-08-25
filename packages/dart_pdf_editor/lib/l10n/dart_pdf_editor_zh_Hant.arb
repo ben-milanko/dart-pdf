@@ -408,6 +408,7 @@
   "tbApplyRedactionsTitle": "套用塗黑？",
   "tbApplyRedactionsTooltip": "套用塗黑（無法復原）",
   "tbAutosizeTextBox": "自動調整文字方塊大小 (Alt+Z)",
+  "tbAutosizeTextFont": "讓字型符合文字方塊",
   "tbCalibrateScaleHint": "繪製一條已知長度的線條以校準比例。",
   "tbCharSpacing": "字元間距",
   "tbCheckBoxOption": "核取方塊",

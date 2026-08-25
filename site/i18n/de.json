@@ -131,7 +131,7 @@
   "sp_faq2": "<strong>Wie öffne ich ein PDF?</strong> Öffnen Sie DartPDF und wählen Sie eine Datei aus, öffnen Sie ein PDF aus der Dateien-App, senden Sie eines aus dem Teilen-Menü einer anderen App an DartPDF oder ziehen Sie eine Datei per Drag & Drop auf das Fenster.",
   "sp_faq3": "<strong>Kann ich passwortgeschützte PDFs öffnen?</strong> Ja. DartPDF fragt nach dem Passwort und öffnet verschlüsselte Dateien zum Ansehen und Bearbeiten.",
   "sp_faq4": "<strong>Wie funktioniert OCR?</strong> Die optische Zeichenerkennung läuft vollständig auf Ihrem Gerät. Bei der ersten Nutzung lädt die App das Erkennungsmodell herunter, danach findet die gesamte Verarbeitung lokal statt - Ihre Seiten werden niemals an einen Server gesendet.",
-  "sp_faq5": "<strong>Sind meine Daten privat?</strong> Ja. DartPDF hat keine Analyse, keine Werbung, keine Konten und keine Server. Details finden Sie in der <a href=\"privacy.html\">Datenschutzrichtlinie</a>.",
+  "sp_faq5": "<strong>Sind meine Daten privat?</strong> Ja. DartPDF hat keine Analyse, keine Werbung, keine Konten und keine Server. Details finden Sie in der <a href=\"/privacy\">Datenschutzrichtlinie</a>.",
   "sp_stuckH2": "Immer noch nicht weiter?",
   "sp_stuck_p": "Schreiben Sie an <a href=\"mailto:ben.milanko@protonmail.com?subject=DartPDF%20support\">ben.milanko@protonmail.com</a> und beschreiben Sie, was Sie tun wollten. Wir lesen jede Nachricht.",
 

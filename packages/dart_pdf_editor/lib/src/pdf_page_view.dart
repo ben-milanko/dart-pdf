@@ -695,6 +695,30 @@ class PdfPageView extends StatefulWidget {
   /// Null (production) asks the engine.
   static bool? debugStripZoomReplayBackendOverride;
 
+  /// Test hook for the web-only quick-patch budget used while a dense tile
+  /// route prepares its exact rung. Null uses [kIsWeb].
+  static bool? debugQuickDetailBackendOverride;
+
+  /// A transient dense-page patch exists to replace a heavily magnified base
+  /// while exact tiles prepare. Bounding it to 2 MP keeps its uncancellable
+  /// `Picture.toImage` readback short; the tile foreground still promotes at
+  /// the full requested density once the complete rung is resident.
+  static int denseQuickDetailMaxPixels = 1 << 21;
+
+  /// Maximum exact-rung tiles a strip-routed scene admits in one paint.
+  ///
+  /// Eight center-out misses can sparsely span a 4x3 tile box; slab batching
+  /// then reads back all twelve cells before any tile becomes visible. Four
+  /// keeps the cold batch near a 2x2 box while preserving the fixed-overhead
+  /// win of batching adjacent tiles.
+  static const int stripTileMaxNewTilesPerPaint = 4;
+
+  /// Quiet time after useful page pixels land before an optional tile session
+  /// prepares scene geometry and uploads. A real idle window prevents a large
+  /// accepted page's one-pixel preparation pass from entering the GPU queue as
+  /// the reader immediately starts scrolling again.
+  static const Duration tileSessionWarmIdleDelay = Duration(milliseconds: 750);
+
   /// Settles that consumed a speculatively-binned worker strip plan (the
   /// [transformScale]-driven pre-request matched the settle's geometry
   /// exactly and resolved to a plan). Test telemetry, following the
@@ -778,6 +802,9 @@ class _PdfPageViewState extends State<PdfPageView>
   /// while the store remains backend-agnostic and document-revision safe.
   final Map<PdfRetainedScene, PdfTileRasterSession> _tileRasterSessions =
       Map.identity();
+  final Set<PdfRetainedScene> _tileWarmAttempts = Set.identity();
+  Timer? _tileWarmTimer;
+  PdfRetainedScene? _tileWarmPendingScene;
 
   PdfRetainedSceneHandle? _sceneHandle;
   ui.Image? _image;
@@ -988,6 +1015,7 @@ class _PdfPageViewState extends State<PdfPageView>
     PdfLiveRasterBudget.instance.register(this);
     _renderSession = PdfPageRenderSession(_renderIntent(widget));
     widget.renderHold?.addListener(_onRenderHoldChanged);
+    widget.renderScheduler?.activity.addListener(_onRenderSchedulerActivity);
     widget.previewCache?.addListener(_onPreviewCacheChanged);
     _liveTransformFor(widget)?.addListener(_onLiveTransformChanged);
     _refreshPreview();
@@ -1023,13 +1051,32 @@ class _PdfPageViewState extends State<PdfPageView>
     // hide the transform-sharp glyphs during pinch/pan. The next settle
     // rebuilds the complete detail composite for image resolution.
     if (_slugPicture != null && _detailImage != null) _dropDetail();
+    _cancelTileSessionWarmUp();
     _speculateTimer?.cancel();
-    _speculateTimer = Timer(_speculateDebounce, _speculateStripPlan);
+    _speculateTimer = Timer(_speculateDebounce, () {
+      _speculateStripPlan();
+      _scheduleTileSessionWarmUp();
+    });
   }
 
   void _onRenderHoldChanged() {
+    if (widget.renderHold?.value ?? false) {
+      _cancelTileSessionWarmUp();
+    } else {
+      _scheduleTileSessionWarmUp();
+    }
     if (widget.renderHold?.value == false && _renderSession.releaseHold()) {
       if (mounted) _render();
+    }
+  }
+
+  void _onRenderSchedulerActivity() {
+    final scheduler = widget.renderScheduler;
+    if (scheduler == null) return;
+    if (scheduler.parked || scheduler.busy) {
+      _cancelTileSessionWarmUp();
+    } else {
+      _scheduleTileSessionWarmUp();
     }
   }
 
@@ -1181,6 +1228,7 @@ class _PdfPageViewState extends State<PdfPageView>
       _deferredOffscreenRasterRefresh = true;
       _awaitingExactDetailPaint = false;
       _cancelTilePanAhead();
+      _cancelTileSessionWarmUp();
       widget.renderScheduler?.cancel(this);
     }
     final enteredDeepForeground = widget.onScreen &&
@@ -1201,6 +1249,15 @@ class _PdfPageViewState extends State<PdfPageView>
       _cancelTilePanAhead();
     } else if (settleChanged) {
       _cancelTilePanAhead();
+    }
+    if (settleChanged) {
+      // The transform has reached the page as a settled generation. A live
+      // transform's 50 ms speculation timer may still be waiting behind a
+      // busy browser frame; if it fires now it cancels the exact foreground
+      // detail request that this update is about to schedule, then computes
+      // the same geometry as unused speculation. Already-started speculation
+      // remains available through [_speculativeStripDetail].
+      _speculateTimer?.cancel();
     }
     final transition = _renderSession.update(_renderIntent(widget));
     if (transition.scheduleRender ||
@@ -1227,13 +1284,20 @@ class _PdfPageViewState extends State<PdfPageView>
       _onRenderHoldChanged();
     }
     if (!identical(oldWidget.renderScheduler, widget.renderScheduler)) {
+      oldWidget.renderScheduler?.activity
+          .removeListener(_onRenderSchedulerActivity);
       oldWidget.renderScheduler?.cancel(this);
+      widget.renderScheduler?.activity.addListener(_onRenderSchedulerActivity);
+      _onRenderSchedulerActivity();
       // the new scheduler picks this page up on its next _render
     }
     if (!identical(oldWidget.tileRasterBackend, widget.tileRasterBackend)) {
       // Cached tiles remain valid because every backend promises the same
       // pixels. Only scene-level resources and future misses change owner.
+      _cancelTileSessionWarmUp();
       _disposeTileRasterSessions();
+      _tileWarmAttempts.clear();
+      _scheduleTileSessionWarmUp();
     }
     final oldLiveTransform = _liveTransformFor(oldWidget);
     final liveTransform = _liveTransformFor(widget);
@@ -1335,6 +1399,7 @@ class _PdfPageViewState extends State<PdfPageView>
     final becameQualityVisible = widget.onScreen &&
         widget.qualityVisible &&
         (!oldWidget.onScreen || !oldWidget.qualityVisible);
+    if (becameQualityVisible) _scheduleTileSessionWarmUp();
     if ((widget.focusDistance < oldWidget.focusDistance &&
             widget.qualityVisible) ||
         becameQualityVisible) {
@@ -1470,8 +1535,10 @@ class _PdfPageViewState extends State<PdfPageView>
     PdfLiveRasterBudget.instance.unregister(this);
     PdfDebugDetailRegions.instance.report(widget.previewIndex, null);
     widget.renderHold?.removeListener(_onRenderHoldChanged);
+    widget.renderScheduler?.activity.removeListener(_onRenderSchedulerActivity);
     _liveTransformFor(widget)?.removeListener(_onLiveTransformChanged);
     _speculateTimer?.cancel();
+    _tileWarmTimer?.cancel();
     _cancelTilePanAhead();
     // any pending speculative bin is reaped by the cancelBinStrips below;
     // its null result resolves into a future nobody awaits any more
@@ -1618,7 +1685,11 @@ class _PdfPageViewState extends State<PdfPageView>
   void _releaseScene() {
     final previous = _scene;
     if (previous != null) {
+      if (identical(_tileWarmPendingScene, previous)) {
+        _cancelTileSessionWarmUp();
+      }
       _disposeTileRasterSession(previous);
+      _tileWarmAttempts.remove(previous);
     }
     final handle = _sceneHandle;
     _sceneHandle = null;
@@ -1658,6 +1729,64 @@ class _PdfPageViewState extends State<PdfPageView>
     // next _workerStripPlan's cancelBinStrips reaps the worker-side job)
     _speculativeStripPlan = null;
     _speculativeStripDetail = null;
+  }
+
+  void _notifyRasterReady() {
+    widget.onRasterReady?.call();
+    _scheduleTileSessionWarmUp();
+  }
+
+  void _scheduleTileSessionWarmUp() {
+    final scene = _scene;
+    final backend = widget.tileRasterBackend;
+    final scheduler = widget.renderScheduler;
+    if (scene == null ||
+        _sceneIsVectorOnly ||
+        !backend.supportsSessionWarmUp ||
+        !widget.onScreen ||
+        !widget.qualityVisible ||
+        (scheduler?.parked ?? false) ||
+        (scheduler?.busy ?? false) ||
+        (widget.renderHold?.value ?? false) ||
+        !_tileWarmAttempts.add(scene)) {
+      return;
+    }
+    _tileWarmTimer?.cancel();
+    _tileWarmPendingScene = scene;
+    _tileWarmTimer = Timer(PdfPageView.tileSessionWarmIdleDelay, () {
+      _tileWarmTimer = null;
+      _tileWarmPendingScene = null;
+      if (!mounted ||
+          !identical(_scene, scene) ||
+          !identical(widget.tileRasterBackend, backend) ||
+          !widget.onScreen ||
+          !widget.qualityVisible ||
+          (widget.renderScheduler?.parked ?? false) ||
+          (widget.renderScheduler?.busy ?? false) ||
+          (widget.renderHold?.value ?? false)) {
+        _tileWarmAttempts.remove(scene);
+        return;
+      }
+      final session = _tileRasterSessionFor(scene);
+      if (session is! PdfTileRasterWarmUp) return;
+      unawaited(
+          (session as PdfTileRasterWarmUp).warmUp().catchError((Object error) {
+        // The fallback adapter retires a failed optional backend itself. This
+        // log preserves the idle failure reason without affecting page pixels.
+        PdfPerfLog.log(
+          'tile session warm-up failed page=${widget.previewIndex} '
+          'backend=${backend.debugLabel} error=$error',
+        );
+      }));
+    });
+  }
+
+  void _cancelTileSessionWarmUp() {
+    _tileWarmTimer?.cancel();
+    _tileWarmTimer = null;
+    final scene = _tileWarmPendingScene;
+    _tileWarmPendingScene = null;
+    if (scene != null) _tileWarmAttempts.remove(scene);
   }
 
   /// Whether [_scene] came from the render worker (see [_setScene]).
@@ -2270,10 +2399,10 @@ class _PdfPageViewState extends State<PdfPageView>
       // _PdfViewerPage records readiness with setState. Calling it from this
       // child's LayoutBuilder would mark the parent dirty during build.
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) widget.onRasterReady?.call();
+        if (mounted) _notifyRasterReady();
       });
     } else {
-      widget.onRasterReady?.call();
+      _notifyRasterReady();
     }
     return true;
   }
@@ -2328,7 +2457,7 @@ class _PdfPageViewState extends State<PdfPageView>
       'preview-promote page=${widget.previewIndex} '
       '${image.width}x${image.height} target=${dimensions.$1}x${dimensions.$2}',
     );
-    widget.onRasterReady?.call();
+    _notifyRasterReady();
     return true;
   }
 
@@ -2404,7 +2533,7 @@ class _PdfPageViewState extends State<PdfPageView>
     PdfPerfLog.log(
       'full-raster disk hit page=$pageIndex ${image.width}x${image.height}',
     );
-    widget.onRasterReady?.call();
+    _notifyRasterReady();
     return true;
   }
 
@@ -2612,7 +2741,7 @@ class _PdfPageViewState extends State<PdfPageView>
     PdfPerfLog.log(
       'web-worker-surface presented page=${widget.previewIndex}',
     );
-    widget.onRasterReady?.call();
+    _notifyRasterReady();
   }
 
   void _webSurfaceRejected() {
@@ -3774,7 +3903,7 @@ class _PdfPageViewState extends State<PdfPageView>
             if (_abandoned(pageIndex) || !identical(_scene, retainedScene)) {
               return;
             }
-            widget.onRasterReady?.call();
+            _notifyRasterReady();
             if (cache != null && _renderedAtFullImageRatio()) {
               _schedulePreviewFeed(cache, picture, generation, pageIndex);
             }
@@ -3828,7 +3957,7 @@ class _PdfPageViewState extends State<PdfPageView>
       await SchedulerBinding.instance.endOfFrame;
       if (!_superseded(generation, pageIndex) &&
           identical(_directPicture, picture)) {
-        widget.onRasterReady?.call();
+        _notifyRasterReady();
       }
       return;
     }
@@ -3934,7 +4063,7 @@ class _PdfPageViewState extends State<PdfPageView>
       }
     }
     final detailReady = await _updateDetail();
-    if (stale && detailReady) widget.onRasterReady?.call();
+    if (stale && detailReady) _notifyRasterReady();
     if (stale && detailReady) _scheduleFocusedImageRefinement();
     if (stale && detailReady && _renderedAtFullImageRatio()) {
       final cache = widget.previewCache;
@@ -4131,6 +4260,9 @@ class _PdfPageViewState extends State<PdfPageView>
       'pass=visible '
       'strip=$stripDetail vectorOnly=$_sceneIsVectorOnly '
       'retainedCovers=$retainedCoversRegion '
+      'ratio=${ratio.toStringAsFixed(2)} '
+      'img=${(region.width * ratio).ceil()}x'
+      '${(region.height * ratio).ceil()} '
       // scene/tiles: why this page does or does not get reusable tiles instead
       // of a fresh full-viewport raster on every pan step.
       'scene=${heldScene != null} tiles=$_tilePathStatus',
@@ -4476,6 +4608,20 @@ class _PdfPageViewState extends State<PdfPageView>
       ratio,
       _maxDimension / math.max(region.width, region.height),
     );
+    final quickDetailBackend =
+        PdfPageView.debugQuickDetailBackendOverride ?? kIsWeb;
+    final scene = _scene;
+    if (_awaitingExactDetailPaint &&
+        quickDetailBackend &&
+        _tilePathStatus == 'active' &&
+        scene != null &&
+        _stripReplayScene(scene)) {
+      ratio = math.min(
+        ratio,
+        math.sqrt(PdfPageView.denseQuickDetailMaxPixels /
+            (region.width * region.height)),
+      );
+    }
     return _DetailGeometry(fraction, visibleFraction, region, ratio);
   }
 
@@ -4994,22 +5140,22 @@ class _PdfPageViewState extends State<PdfPageView>
     final scheduling = session is PdfTileRasterScheduling
         ? session as PdfTileRasterScheduling
         : null;
+    final tileDetailScene = _tileDetailScene;
     final sessionCap = scheduling?.maxNewTilesPerPaint;
     final sceneCap = scene.regionIndexBuildIsHeavy ? 1 : null;
-    final maxNewTiles = sessionCap == null
-        ? sceneCap
-        : sceneCap == null
-            ? sessionCap
-            : math.min(sessionCap, sceneCap);
+    final stripCap = _stripReplayScene(tileDetailScene ?? scene)
+        ? PdfPageView.stripTileMaxNewTilesPerPaint
+        : null;
+    final caps = [sessionCap, sceneCap, stripCap].whereType<int>();
+    final maxNewTiles = caps.isEmpty ? null : caps.reduce(math.min);
     // Per-paint admission alone is not a queue bound: any unrelated frame can
-    // paint the layer again before the first raster lands. Ordinary scenes get
-    // one eight-tile slab; dense/session-paced scenes keep two of their smaller
-    // admission windows live. Either way a subsequent pan is never trapped
-    // behind the 30-35 tile submissions seen in the field trace.
+    // paint the layer again before the first raster lands. Ordinary unpaced
+    // scenes get one eight-tile slab; strip/grid/session-paced scenes keep two
+    // of their smaller admission windows live. Either way a subsequent pan is
+    // never trapped behind the 30-35 tile submissions seen in the field trace.
     final maxInFlightTiles =
         maxNewTiles == null ? 8 : math.max(2, maxNewTiles * 2);
     final fallbackOcclusion = _fallbackOcclusionFraction(store, desired);
-    final tileDetailScene = _tileDetailScene;
     return Positioned.fill(
       key: foreground ? const ValueKey('pdf-page-sharp-tile-foreground') : null,
       child: PdfTileLayer(
@@ -5037,12 +5183,11 @@ class _PdfPageViewState extends State<PdfPageView>
         canRasterize: _tileRegionRasterizable,
         batchRasters: scheduling?.batchAdjacentTiles,
         // A grid-indexed CAD scene can select tens of thousands of commands
-        // across one viewport slab. replayRegion records those commands
-        // synchronously before toImage yields, so batching every missing tile
-        // made the whole slab one UI-frame stall (271ms in the field trace).
-        // Admit one tile per paint instead. A tile completion repaints the
-        // layer and advances the center-out fill; ordinary scenes retain the
-        // lower-overhead batched path.
+        // across one viewport slab, so it admits one tile per paint. A
+        // strip-routed scene keeps a four-tile batch: eight center-out misses
+        // formed a sparse 4x3 slab and made its oversized readback one UI-frame
+        // stall. Tile completion repaints advance both paths center-out;
+        // ordinary scenes retain the lower-overhead eight-tile batch.
         maxNewTilesPerPaint: maxNewTiles,
         maxInFlightTiles: maxInFlightTiles,
         // A scale-changing settle sharpens the exact visible patch first. Only
@@ -5644,22 +5789,38 @@ class _PdfPageViewState extends State<PdfPageView>
       return null;
     }
     _logImageStats(pageIndex, detail.commands);
+    final sceneClock = PdfPerfLog.enabled ? (Stopwatch()..start()) : null;
     final scene = await PdfRetainedScene.fromCommands(
       widget.page,
       detail.commands,
       plan: _renderPlan,
       maxImagePixelRatio: ratio,
     );
+    final sceneMs = sceneClock?.elapsedMicroseconds.toDouble() ?? 0;
     if (_abandoned(pageIndex) || !_acceptsForegroundDetail(generation)) {
       scene.dispose();
       return null;
     }
     try {
-      return await scene.rasterizeRegionStrips(
+      final timing = PdfPerfLog.enabled ? PdfStripRasterTiming() : null;
+      final image = await scene.rasterizeRegionStrips(
         rasterRegion,
         pixelRatio: ratio,
         stripPlan: detail.plan,
+        timing: timing,
       );
+      if (timing != null) {
+        PdfPerfLog.log(
+          'detail strip phases page=$pageIndex '
+          'scene=${(sceneMs / 1000).toStringAsFixed(1)}ms '
+          'picture=${timing.pictureMs.toStringAsFixed(1)}ms '
+          'route=${timing.routeMs.toStringAsFixed(1)}ms '
+          'atlas=${timing.atlasDecodeMs.toStringAsFixed(1)}ms '
+          'tape=${timing.tapeReplayMs.toStringAsFixed(1)}ms '
+          'toImage=${timing.toImageMs.toStringAsFixed(1)}ms',
+        );
+      }
+      return image;
     } finally {
       scene.dispose();
     }
@@ -5924,7 +6085,10 @@ class _PdfPageViewState extends State<PdfPageView>
 /// session stays owned until dispose: another slab may already be in flight,
 /// and the backend contract allows it to finish before resources are freed.
 class _FallbackTileRasterSession
-    implements PdfTileRasterSession, PdfTileRasterScheduling {
+    implements
+        PdfTileRasterSession,
+        PdfTileRasterScheduling,
+        PdfTileRasterWarmUp {
   _FallbackTileRasterSession({
     required PdfTileRasterSession primary,
     required this.fallback,
@@ -5955,6 +6119,21 @@ class _FallbackTileRasterSession
     return active is PdfTileRasterScheduling
         ? (active as PdfTileRasterScheduling).maxNewTilesPerPaint
         : null;
+  }
+
+  @override
+  Future<void> warmUp() async {
+    if (!_primaryEnabled || _primary is! PdfTileRasterWarmUp) return;
+    try {
+      await (_primary as PdfTileRasterWarmUp).warmUp();
+    } catch (error) {
+      if (_primaryEnabled) {
+        _primaryEnabled = false;
+        _disposePrimary();
+        onFallback(error);
+      }
+      rethrow;
+    }
   }
 
   @override

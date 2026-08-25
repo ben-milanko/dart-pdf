@@ -1,5 +1,29 @@
 # Changelog
 
+## 4.0.0
+
+- **Breaking:** `PdfOverprintCompositor.image` now requires the image
+  transform, source dimensions, and a spatial resolver. Custom compositor
+  callers must pass those values so one image can be resolved against several
+  colourant backdrops.
+- Complete the Ghent PDF Output Suite V5 colour and transparency pass with
+  output-intent colour management, rendering intents, black-point
+  compensation, spatial image overprint, 16-bit image handling, and exact
+  isolated/knockout transparency-group composition.
+- Add public `PdfColorContext`, `PdfRenderingIntent`, spatial overprint and
+  transparency-group device interfaces, plus intent-aware colour-space and ICC
+  conversion APIs.
+
+- Export an OpenType CFF face reader that retains Unicode cmap mappings and
+  selects collection entries, allowing native substitution adapters to obtain
+  exact glyph outlines and advances from CFF-flavoured system fonts.
+- Give synthesized FreeText and form-widget fallback text exact Base-14
+  character offsets, keeping Canvas placement, selection geometry, and
+  retained outline backends on the same per-character advances.
+- Export the TrueType outline reader and add indexed TrueType Collection
+  parsing so retained backends can derive exact glyph paths from a host's
+  registered TTF/TTC bytes.
+
 ## 3.8.0
 
 - Cull retained CAD shapes outside the active raster strip before painting,

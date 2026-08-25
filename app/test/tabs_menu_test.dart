@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 import 'package:dart_pdf_editor_app/incoming_file.dart';
+import 'package:dart_pdf_editor_app/middle_ellipsis_text.dart';
 
 void main() {
   late PdfEditingPreferences prefs;
@@ -67,9 +68,13 @@ void main() {
   // The tab title within the strip (scoped to the tab-strip ReorderableListView
   // so it never matches the AppBar's active-document title nor the thumbnail
   // sidebar's own reorderable list in the body).
+  Finder middleText(String name) => find.byWidgetPredicate(
+        (widget) => widget is MiddleEllipsisText && widget.data == name,
+      );
+
   Finder tabTitle(String name) => find.descendant(
         of: find.byKey(const ValueKey('tab-strip')),
-        matching: find.text(name),
+        matching: middleText(name),
       );
 
   // Right-clicks the tab labelled [name] to open its context menu.
@@ -102,7 +107,7 @@ void main() {
   Finder gridTile(String name) => find.ancestor(
         of: find.descendant(
           of: find.byKey(const ValueKey('desktop-tabs-grid')),
-          matching: find.text(name),
+          matching: middleText(name),
         ),
         matching: find.byKey(const ValueKey('mobile-tab-tile')),
       );
@@ -135,7 +140,7 @@ void main() {
     await tester.pump();
 
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    expect(find.text('Opening slow.pdf…'), findsOneWidget);
+    expect(find.text('Opening slow…'), findsOneWidget);
 
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.byType(CircularProgressIndicator), findsNothing);
@@ -162,6 +167,20 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const ValueKey('mobile-app-save')), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('mobile-app-save')),
+        matching: find.text('Share'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('mobile-app-save')),
+        matching: find.byIcon(Icons.share_outlined),
+      ),
+      findsOneWidget,
+    );
     expect(find.byKey(const ValueKey('pdf-shell-save')), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('mobile-tabs-button')));
@@ -173,19 +192,58 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('mobile-tabs-grid')),
-        matching: find.text('alpha.pdf'),
+        matching: middleText('alpha.pdf'),
       ),
       findsOneWidget,
     );
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('mobile-tabs-grid')),
-        matching: find.text('beta.pdf'),
+        matching: middleText('beta.pdf'),
       ),
       findsOneWidget,
     );
     expect(find.byKey(const ValueKey('mobile-tabs-open')), findsOneWidget);
   });
+
+  testWidgets('wide mobile save affordance is labelled Share', (tester) async {
+    setDesktopSize(tester);
+    await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+    await tester.pump();
+    await openTab(tester, 'alpha.pdf');
+
+    final save = find.byKey(const ValueKey('pdf-shell-save'));
+    expect(save, findsOneWidget);
+    expect(
+      find.descendant(of: save, matching: find.text('Share')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: save, matching: find.byIcon(Icons.share_outlined)),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'narrow desktop keeps the Save affordance',
+    (tester) async {
+      await setMobileSize(tester);
+      await tester.pumpWidget(MaterialApp(home: EditorScreen(prefs: prefs)));
+      await tester.pump();
+      await openTab(tester, 'alpha.pdf');
+
+      final save = find.byKey(const ValueKey('mobile-app-save'));
+      expect(
+        find.descendant(of: save, matching: find.text('Save')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: save, matching: find.byIcon(Icons.save_alt)),
+        findsOneWidget,
+      );
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
 
   testWidgets('desktop tab strip opens the preview grid in a dialog',
       (tester) async {
@@ -229,12 +287,16 @@ void main() {
     expect(find.byKey(const ValueKey('desktop-tabs-open')), findsOneWidget);
 
     await tester.tap(
-      find.descendant(of: grid, matching: find.text('alpha.pdf')),
+      find.descendant(of: grid, matching: middleText('alpha.pdf')),
     );
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('desktop-tabs-dialog')), findsNothing);
-    expect(tester.widget<Text>(tabTitle('alpha.pdf')).style?.fontWeight,
+    expect(
+        tester
+            .widget<MiddleEllipsisText>(tabTitle('alpha.pdf'))
+            .style
+            ?.fontWeight,
         FontWeight.w600);
   });
 
@@ -260,7 +322,7 @@ void main() {
     final grid = find.byKey(const ValueKey('desktop-tabs-grid'));
     Finder previewFor(String title) {
       final tile = find.ancestor(
-        of: find.descendant(of: grid, matching: find.text(title)),
+        of: find.descendant(of: grid, matching: middleText(title)),
         matching: find.byKey(const ValueKey('mobile-tab-tile')),
       );
       return find.descendant(
@@ -297,7 +359,7 @@ void main() {
         )
         .first;
     Finder tile(String title) => find.ancestor(
-          of: find.descendant(of: grid, matching: find.text(title)),
+          of: find.descendant(of: grid, matching: middleText(title)),
           matching: find.byKey(const ValueKey('mobile-tab-tile')),
         );
     expect(tester.widget<GridView>(grid).scrollCacheExtent, isNotNull);
@@ -351,16 +413,21 @@ void main() {
       find.byKey(const ValueKey('tab-hover-preview-thumbnail')),
     );
     expect(thumbnailSize.width / thumbnailSize.height, closeTo(792 / 612, .01));
-    expect(
-      tester.widget<Text>(
-        find.byKey(const ValueKey('tab-hover-preview-title')),
-      ).data,
-      'alpha.pdf',
+    final previewTitle = find.byKey(
+      const ValueKey('tab-hover-preview-title'),
     );
+    final previewTitleWidget = tester.widget<MiddleEllipsisText>(previewTitle);
+    expect(previewTitleWidget.data, 'alpha.pdf');
+    expect(previewTitleWidget.hidePdfExtension, isTrue);
+    // ignore: avoid_dynamic_calls
+    expect((tester.renderObject(previewTitle) as dynamic).debugDisplayedText,
+        'alpha');
     expect(
-      tester.widget<Text>(
-        find.byKey(const ValueKey('tab-hover-preview-page')),
-      ).data,
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey('tab-hover-preview-page')),
+          )
+          .data,
       'Page 1',
     );
     await tester.pump();
@@ -519,7 +586,11 @@ void main() {
 
     expect(tabTitle('gamma.pdf'), findsNothing);
     // beta is now the rightmost survivor and becomes active.
-    expect(tester.widget<Text>(tabTitle('beta.pdf')).style?.fontWeight,
+    expect(
+        tester
+            .widget<MiddleEllipsisText>(tabTitle('beta.pdf'))
+            .style
+            ?.fontWeight,
         FontWeight.w600);
   });
 
@@ -531,7 +602,11 @@ void main() {
     await openTab(tester, 'alpha.pdf', path: '/docs/alpha.pdf');
     await openTab(tester, 'beta.pdf', path: '/docs/beta.pdf');
     // beta was opened last, so it is the active tab.
-    expect(tester.widget<Text>(tabTitle('beta.pdf')).style?.fontWeight,
+    expect(
+        tester
+            .widget<MiddleEllipsisText>(tabTitle('beta.pdf'))
+            .style
+            ?.fontWeight,
         FontWeight.w600);
 
     // The OS hands us alpha a second time (another "open with" of the same
@@ -542,9 +617,17 @@ void main() {
     // No duplicate tab, and alpha is now focused rather than re-loaded.
     expect(tabTitle('alpha.pdf'), findsOneWidget);
     expect(find.byTooltip('Close tab'), findsNWidgets(2));
-    expect(tester.widget<Text>(tabTitle('alpha.pdf')).style?.fontWeight,
+    expect(
+        tester
+            .widget<MiddleEllipsisText>(tabTitle('alpha.pdf'))
+            .style
+            ?.fontWeight,
         FontWeight.w600);
-    expect(tester.widget<Text>(tabTitle('beta.pdf')).style?.fontWeight,
+    expect(
+        tester
+            .widget<MiddleEllipsisText>(tabTitle('beta.pdf'))
+            .style
+            ?.fontWeight,
         FontWeight.normal);
   });
 }

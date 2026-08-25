@@ -131,7 +131,7 @@
   "sp_faq2": "<strong>Bagaimana cara membuka PDF?</strong> Buka DartPDF dan pilih berkas, buka PDF dari aplikasi Files, kirim satu ke DartPDF dari lembar berbagi aplikasi lain, atau seret dan lepas berkas ke jendela.",
   "sp_faq3": "<strong>Bisakah saya membuka PDF yang dilindungi kata sandi?</strong> Ya. DartPDF meminta kata sandi dan membuka berkas terenkripsi untuk dilihat dan diedit.",
   "sp_faq4": "<strong>Bagaimana cara kerja OCR?</strong> Pengenalan karakter optik berjalan sepenuhnya di perangkat Anda. Saat pertama kali digunakan, aplikasi mengunduh model pengenalan, lalu semua pemrosesan terjadi secara lokal - halaman Anda tidak pernah dikirim ke server.",
-  "sp_faq5": "<strong>Apakah data saya privat?</strong> Ya. DartPDF tidak memiliki analitik, iklan, akun, maupun server. Lihat <a href=\"privacy.html\">kebijakan privasi</a> untuk detailnya.",
+  "sp_faq5": "<strong>Apakah data saya privat?</strong> Ya. DartPDF tidak memiliki analitik, iklan, akun, maupun server. Lihat <a href=\"/privacy\">kebijakan privasi</a> untuk detailnya.",
   "sp_stuckH2": "Masih terhambat?",
   "sp_stuck_p": "Kirim email ke <a href=\"mailto:ben.milanko@protonmail.com?subject=DartPDF%20support\">ben.milanko@protonmail.com</a> dan jelaskan apa yang sedang Anda coba lakukan. Kami membaca setiap pesan.",
 

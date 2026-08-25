@@ -131,7 +131,7 @@
   "sp_faq2": "<strong>Bir PDF'i nasıl açarım?</strong> DartPDF'i açıp bir dosya seçin, Dosyalar uygulamasından bir PDF açın, başka bir uygulamanın paylaşım sayfasından DartPDF'e bir dosya gönderin veya bir dosyayı pencereye sürükleyip bırakın.",
   "sp_faq3": "<strong>Parola korumalı PDF'leri açabilir miyim?</strong> Evet. DartPDF parolayı ister ve şifreli dosyaları görüntüleme ve düzenleme için açar.",
   "sp_faq4": "<strong>OCR nasıl çalışır?</strong> Optik karakter tanıma tamamen cihazınızda çalışır. İlk kullanımda uygulama tanıma modelini indirir, ardından tüm işlemler yerel olarak gerçekleşir - sayfalarınız asla bir sunucuya gönderilmez.",
-  "sp_faq5": "<strong>Verilerim gizli mi?</strong> Evet. DartPDF'in analizi, reklamı, hesapları ve sunucuları yoktur. Ayrıntılar için <a href=\"privacy.html\">gizlilik politikasına</a> bakın.",
+  "sp_faq5": "<strong>Verilerim gizli mi?</strong> Evet. DartPDF'in analizi, reklamı, hesapları ve sunucuları yoktur. Ayrıntılar için <a href=\"/privacy\">gizlilik politikasına</a> bakın.",
   "sp_stuckH2": "Hâlâ takıldınız mı?",
   "sp_stuck_p": "<a href=\"mailto:ben.milanko@protonmail.com?subject=DartPDF%20support\">ben.milanko@protonmail.com</a> adresine e-posta gönderin ve ne yapmaya çalıştığınızı açıklayın. Her mesajı okuyoruz.",
 

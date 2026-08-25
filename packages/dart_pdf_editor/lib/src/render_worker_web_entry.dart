@@ -1503,8 +1503,12 @@ Future<List<PdfRenderCommand>> _withBrowserDecodedImages(
             // pure-Dart colour conversion as every other decoder. Unsupported
             // image semantics fall through untouched to serializeCommands'
             // general path.
-            final target =
-                _browserFlateTarget(cos, request, maxImagePixelRatio);
+            final target = _browserFlateTarget(
+              cos,
+              request,
+              maxImagePixelRatio,
+              budgetScale: imageBudgetScale,
+            );
             if (target != null) {
               decoded = imageCache.get(
                 request.stream,
@@ -1624,8 +1628,9 @@ bool _axisAlignedImageOutsideRegion(
 (int, int)? _browserFlateTarget(
   CosDocument cos,
   PdfImageRequest request,
-  double ratio,
-) {
+  double ratio, {
+  double budgetScale = 1.0,
+}) {
   if (!globalContext.has('DecompressionStream')) return null;
   final dict = request.stream.dictionary;
   if (dict.containsKey('SMask')) return null;
@@ -1654,18 +1659,22 @@ bool _axisAlignedImageOutsideRegion(
           bits.value == 2 ||
           bits.value == 4 ||
           bits.value == 8)) {
-    return _browserImageTarget(cos, request, ratio);
+    return _browserImageTarget(cos, request, ratio, budgetScale);
   }
 
   // One-bit gray/stencil images use the same direct packed-sample path.
   if (bits.value == 1) {
-    if (isMask) return _browserImageTarget(cos, request, ratio);
+    if (isMask) {
+      return _browserImageTarget(cos, request, ratio, budgetScale);
+    }
     final colorSpace = cos.resolve(dict['ColorSpace']);
     final directGray = family == 'DeviceGray' &&
         colorSpace is CosName &&
         (colorSpace.value == 'DeviceGray' || colorSpace.value == 'G') &&
         supportedMask;
-    return directGray ? _browserImageTarget(cos, request, ratio) : null;
+    return directGray
+        ? _browserImageTarget(cos, request, ratio, budgetScale)
+        : null;
   }
   if (bits.value != 8 || dict.containsKey('Mask')) return null;
   final components = switch (family) {
@@ -1686,7 +1695,7 @@ bool _axisAlignedImageOutsideRegion(
           colorSpace.value != 'RGB')) {
     return null;
   }
-  return _browserImageTarget(cos, request, ratio);
+  return _browserImageTarget(cos, request, ratio, budgetScale);
 }
 
 (int, int)? _browserImageTarget(
@@ -2352,6 +2361,7 @@ PdfImageRequest _withDecodedPixels(
       isStencil: request.isStencil,
       stencilColor: request.stencilColor,
       isInline: request.isInline,
+      isLuminosityMask: request.isLuminosityMask,
       decoded: decoded,
       sourceReference: request.sourceReference,
     );

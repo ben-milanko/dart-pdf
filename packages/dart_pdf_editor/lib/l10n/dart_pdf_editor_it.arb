@@ -408,6 +408,7 @@
   "tbApplyRedactionsTitle": "Applicare gli oscuramenti?",
   "tbApplyRedactionsTooltip": "Applica oscuramenti (irreversibile)",
   "tbAutosizeTextBox": "Adatta casella di testo (Alt+Z)",
+  "tbAutosizeTextFont": "Adatta il carattere alla casella di testo",
   "tbCalibrateScaleHint": "Disegna una linea di lunghezza nota per calibrare la scala.",
   "tbCharSpacing": "Spaziatura caratteri",
   "tbCheckBoxOption": "Casella di controllo",

@@ -408,6 +408,7 @@
   "tbApplyRedactionsTitle": "Appliquer les caviardages ?",
   "tbApplyRedactionsTooltip": "Appliquer les caviardages (irréversible)",
   "tbAutosizeTextBox": "Ajuster automatiquement la zone de texte (Alt+Z)",
+  "tbAutosizeTextFont": "Adapter la police à la zone de texte",
   "tbCalibrateScaleHint": "Tracez une ligne de longueur connue pour calibrer l'échelle.",
   "tbCharSpacing": "Espacement des caractères",
   "tbCheckBoxOption": "Case à cocher",

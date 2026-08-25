@@ -37,7 +37,7 @@ void main() {
     '[perf 90] scenario name=heavy-document phase=validated',
   ]);
   final json = trace.toJson();
-  _expectEqual(json['schema'], 8, 'schema');
+  _expectEqual(json['schema'], 9, 'schema');
 
   final workerPhases = _map(_map(json, 'webWorker'), 'phases');
   _expectEqual(workerPhases['count'], 2, 'worker phase count');
@@ -209,7 +209,7 @@ void main() {
   );
   _expectContains(
     headline,
-    '| Scenario `heavy-document` elapsed p95 | 80.0 ms |',
+    '| Scenario `heavy-document` elapsed p50 (1 run) | 80.0 ms |',
     'headline scenario',
   );
 
@@ -227,7 +227,7 @@ void main() {
       'scenarioMetrics': {
         'heavy-document': {
           'runs': 1,
-          'elapsedMs': {'p95': 100.0},
+          'elapsedMs': {'p50': 100.0, 'p95': 100.0},
           'jank': {
             'totalMs': {'p95': 4.0},
           },
@@ -241,8 +241,13 @@ void main() {
   ).toMarkdown();
   _expectContains(
     comparison,
+    '| Scenario heavy-document elapsed p50 | 100.0 ms | 80.0 ms | -20.0% |',
+    'scenario median comparison',
+  );
+  _expectContains(
+    comparison,
     '| Scenario heavy-document elapsed p95 | 100.0 ms | 80.0 ms | -20.0% |',
-    'scenario comparison',
+    'scenario tail comparison',
   );
   _expectContains(
     comparison,
@@ -268,7 +273,8 @@ void main() {
       },
       'scenarioMetrics': {
         'heavy-document': {
-          'elapsedMs': {'p95': 100.0},
+          'runs': 1,
+          'elapsedMs': {'p50': 100.0, 'p95': 100.0},
         },
       },
     },
@@ -300,8 +306,13 @@ void main() {
   );
   _expectContains(
     comparisonHeadline,
-    '| Scenario `heavy-document` elapsed p95 | 100.0 ms | 80.0 ms | -20.0% |',
+    '| Scenario `heavy-document` elapsed p50 | 100.0 ms | 80.0 ms | -20.0% |',
     'comparison headline scenario',
+  );
+  _expectContains(
+    comparisonHeadline,
+    'fewer than three samples',
+    'sparse comparison warning',
   );
   final sparseHeadline = summary.PatrolPerfComparison(
     baseline: const {'scenarios': <String, Object?>{}},
@@ -322,6 +333,237 @@ void main() {
   final orphan = _map(_map(resetTrace, 'scenarioMetrics'), 'orphan');
   _expectEqual(orphan['runs'], 0, 'cross-process scenario is incomplete');
   _expectEqual(orphan['elapsedMs'], null, 'cross-process elapsed is absent');
+
+  final repeatedTrace = summary.PatrolPerfTrace.parse(const [
+    '[perf 0] build commit=repeated',
+    '[perf 10] scenario name=repeatable phase=start',
+    '[perf 110] scenario name=repeatable phase=validated',
+    '[perf 0] build commit=repeated',
+    '[perf 10] scenario name=repeatable phase=start',
+    '[perf 310] scenario name=repeatable phase=validated',
+    '[perf 0] build commit=repeated',
+    '[perf 10] scenario name=repeatable phase=start',
+    '[perf 210] scenario name=repeatable phase=validated',
+  ]);
+  final repeatedJson = repeatedTrace.toJson();
+  final repeatedScenario =
+      _map(_map(repeatedJson, 'scenarioMetrics'), 'repeatable');
+  _expectEqual(repeatedScenario['runs'], 3, 'repeated scenario runs');
+  _expectEqual(
+    _map(repeatedScenario, 'elapsedMs'),
+    const {'p50': 200.0, 'p95': 300.0, 'max': 300.0},
+    'repeated scenario distribution',
+  );
+  _expectEqual(
+    (repeatedScenario['elapsedSamplesMs'] as List).join(', '),
+    '100.0, 300.0, 200.0',
+    'repeated scenario raw sample order',
+  );
+  _expectContains(
+    repeatedTrace.toHeadlineMarkdown(),
+    '| Scenario `repeatable` elapsed p50 (3 runs) | 200.0 ms |',
+    'repeated headline median',
+  );
+  final repeatedComparison = summary.PatrolPerfComparison(
+    baseline: repeatedJson,
+    current: repeatedJson,
+  ).toHeadlineMarkdown();
+  _expectContains(
+    repeatedComparison,
+    'Samples (main / PR): `repeatable` 3 / 3.',
+    'repeated comparison sample counts',
+  );
+  _expectNotContains(
+    repeatedComparison,
+    'fewer than three samples',
+    'repeated comparison is not sparse',
+  );
+  final overlapBaseline = summary.PatrolPerfTrace.parse(const [
+    '[perf 0] build commit=overlap-base-1',
+    '[perf 10] scenario name=overlap phase=start',
+    '[perf 110] scenario name=overlap phase=validated',
+    '[perf 0] build commit=overlap-base-2',
+    '[perf 10] scenario name=overlap phase=start',
+    '[perf 120] scenario name=overlap phase=validated',
+    '[perf 0] build commit=overlap-base-3',
+    '[perf 10] scenario name=overlap phase=start',
+    '[perf 130] scenario name=overlap phase=validated',
+    '[perf 0] build commit=overlap-base-4',
+    '[perf 10] scenario name=overlap phase=start',
+    '[perf 140] scenario name=overlap phase=validated',
+  ]).toJson();
+  final overlapCurrent = summary.PatrolPerfTrace.parse(const [
+    '[perf 0] build commit=overlap-current-1',
+    '[perf 10] scenario name=overlap phase=start',
+    '[perf 115] scenario name=overlap phase=validated',
+    '[perf 0] build commit=overlap-current-2',
+    '[perf 10] scenario name=overlap phase=start',
+    '[perf 125] scenario name=overlap phase=validated',
+    '[perf 0] build commit=overlap-current-3',
+    '[perf 10] scenario name=overlap phase=start',
+    '[perf 135] scenario name=overlap phase=validated',
+    '[perf 0] build commit=overlap-current-4',
+    '[perf 10] scenario name=overlap phase=start',
+    '[perf 145] scenario name=overlap phase=validated',
+  ]).toJson();
+  final overlapComparison = summary.PatrolPerfComparison(
+    baseline: overlapBaseline,
+    current: overlapCurrent,
+  );
+  _expectContains(
+    overlapComparison.toHeadlineMarkdown(),
+    '| Scenario `overlap` elapsed p50 | 120.0 ms | 125.0 ms | '
+        'within run spread |',
+    'overlapping scenario distributions are not presented as a regression',
+  );
+  _expectContains(
+    overlapComparison.toMarkdown(),
+    '| Scenario overlap elapsed p50 | 120.0 ms | 125.0 ms | '
+        'within run spread |',
+    'detailed comparison uses the same noise label',
+  );
+  final repetitionTransitionComparison = summary.PatrolPerfComparison(
+    baseline: const {
+      'scenarios': {
+        'repeatable:start': 1,
+        'repeatable:validated': 1,
+      },
+      'scenarioMetrics': {
+        'repeatable': {
+          'runs': 1,
+          'elapsedMs': {'p50': 200.0, 'p95': 200.0},
+        },
+      },
+    },
+    current: repeatedJson,
+  ).toHeadlineMarkdown();
+  _expectNotContains(
+    repetitionTransitionComparison,
+    'Scenario coverage differs',
+    'repetition count does not change scenario coverage',
+  );
+  _expectContains(
+    repetitionTransitionComparison,
+    'Samples (main / PR): `repeatable` 1 / 3.',
+    'repetition transition reports sample counts',
+  );
+  _expectContains(
+    repetitionTransitionComparison,
+    'fewer than three samples',
+    'repetition transition remains provisional',
+  );
+  _expectEqual(
+    summary.patrolPerfScenarioRunShortfalls(
+      repeatedJson,
+      const {'repeatable': 3},
+    ),
+    const <String, int>{},
+    'complete repetitions satisfy the CI requirement',
+  );
+  _expectEqual(
+    summary.patrolPerfScenarioRunShortfalls(
+      repeatedJson,
+      const {'repeatable': 4, 'missing': 3},
+    ),
+    const {'repeatable': 3, 'missing': 0},
+    'incomplete repetitions fail the CI requirement',
+  );
+
+  final gpuTrace = summary.PatrolPerfTrace.parse(const [
+    '[perf 0] build commit=gpu-test-1',
+    '[perf 1] scenario name=gpu-tiling-pipeline-warm phase=start',
+    '[perf 203] raster page=- kind=gpu-tiling-pipeline-warm ms=202.0',
+    '[perf 205] scenario name=gpu-tiling-pipeline-warm phase=validated',
+    '[perf 206] scenario name=gpu-tiling-page-0-first-tile phase=start',
+    '[perf 211] raster page=0 kind=gpu-tiling-page-0-first-tile ms=5.0',
+    '[perf 212] scenario name=gpu-tiling-page-0-first-tile phase=validated',
+    '[perf 213] scenario name=gpu-tiling-page-0-canvas-tile phase=start',
+    '[perf 562] raster page=0 kind=gpu-tiling-page-0-canvas-tile ms=349.0',
+    '[perf 563] scenario name=gpu-tiling-page-0-canvas-tile phase=validated',
+    '[perf 0] build commit=gpu-test-2',
+    '[perf 1] scenario name=gpu-tiling-pipeline-warm phase=start',
+    '[perf 209] raster page=- kind=gpu-tiling-pipeline-warm ms=208.0',
+    '[perf 211] scenario name=gpu-tiling-pipeline-warm phase=validated',
+    '[perf 212] scenario name=gpu-tiling-page-0-first-tile phase=start',
+    '[perf 218] raster page=0 kind=gpu-tiling-page-0-first-tile ms=6.0',
+    '[perf 219] scenario name=gpu-tiling-page-0-first-tile phase=validated',
+    '[perf 220] scenario name=gpu-tiling-page-0-canvas-tile phase=start',
+    '[perf 579] raster page=0 kind=gpu-tiling-page-0-canvas-tile ms=359.0',
+    '[perf 580] scenario name=gpu-tiling-page-0-canvas-tile phase=validated',
+    '[perf 0] build commit=gpu-test-3',
+    '[perf 1] scenario name=gpu-tiling-pipeline-warm phase=start',
+    '[perf 199] raster page=- kind=gpu-tiling-pipeline-warm ms=198.0',
+    '[perf 201] scenario name=gpu-tiling-pipeline-warm phase=validated',
+    '[perf 202] scenario name=gpu-tiling-page-0-first-tile phase=start',
+    '[perf 207] raster page=0 kind=gpu-tiling-page-0-first-tile ms=5.0',
+    '[perf 208] scenario name=gpu-tiling-page-0-first-tile phase=validated',
+    '[perf 209] scenario name=gpu-tiling-page-0-canvas-tile phase=start',
+    '[perf 548] raster page=0 kind=gpu-tiling-page-0-canvas-tile ms=339.0',
+    '[perf 549] scenario name=gpu-tiling-page-0-canvas-tile phase=validated',
+  ]);
+  final gpuJson = gpuTrace.toJson();
+  final gpuScenarios = _map(gpuJson, 'scenarioMetrics');
+  final gpuPipeline = _map(gpuScenarios, 'gpu-tiling-pipeline-warm');
+  _expectEqual(gpuPipeline['runs'], 3, 'GPU pipeline sample count');
+  _expectEqual(
+    _map(gpuPipeline, 'elapsedMs')['p50'],
+    204.0,
+    'GPU pipeline median',
+  );
+  _expectEqual(
+    summary.patrolPerfScenarioRunShortfalls(
+      gpuJson,
+      const {
+        'gpu-tiling-pipeline-warm': 3,
+        'gpu-tiling-page-0-first-tile': 3,
+      },
+    ),
+    const <String, int>{},
+    'GPU scenarios satisfy the three-run CI contract',
+  );
+  _expectContains(
+    gpuTrace.toHeadlineMarkdown(label: 'macOS Metal GPU'),
+    'Scenario `gpu-tiling-page-0-first-tile` elapsed p50 (3 runs)',
+    'GPU first-tile result reaches the PR headline',
+  );
+  _expectContains(
+    gpuTrace.toHeadlineMarkdown(label: 'macOS Metal GPU'),
+    '**First tile vs Canvas (p50):** `tiling page 0` **56.7×** '
+        '(6.0 ms vs 350.0 ms).',
+    'GPU speedup leads the PR headline',
+  );
+  _expectContains(
+    summary.PatrolPerfComparison(
+      baseline: gpuJson,
+      current: gpuJson,
+    ).toHeadlineMarkdown(label: 'macOS Metal GPU'),
+    '**First tile vs Canvas (p50, main → PR):** '
+        '`tiling page 0` **56.7× → 56.7×**.',
+    'GPU main comparison leads the PR headline',
+  );
+  final fallbackGpuJson = <String, Object?>{
+    'scenarios': <String, int>{},
+    'scenarioMetrics': <String, Object?>{
+      'gpu-masked-page-0-first-tile': {
+        'runs': 4,
+        'elapsedMs': {'p50': 200.0},
+        'elapsedSamplesMs': [200.0, 200.0, 200.0, 200.0],
+      },
+      'gpu-masked-page-0-canvas-tile': {
+        'runs': 4,
+        'elapsedMs': {'p50': 20.0},
+        'elapsedSamplesMs': [20.0, 20.0, 20.0, 20.0],
+      },
+    },
+  };
+  _expectContains(
+    summary.PatrolPerfComparison(
+      baseline: fallbackGpuJson,
+      current: fallbackGpuJson,
+    ).toHeadlineMarkdown(label: 'macOS Metal GPU'),
+    '`masked page 0` **0.10× → 0.10×**',
+    'sub-one first-tile ratios keep enough precision',
+  );
 
   print('Patrol performance summarizer tests passed');
 }

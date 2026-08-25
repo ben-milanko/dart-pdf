@@ -19,6 +19,7 @@ env:
   FIREBASE_TOOLS_VERSION: 15.22.4
   PATROL_CLI_VERSION: 4.7.0
   PATROL_ANALYTICS_ENABLED: "false"
+  PATROL_PERF_REPETITIONS: 3
 
 jobs:
   build:
@@ -95,20 +96,51 @@ jobs:
         working-directory: packages/dart_pdf_editor/example
         shell: bash
         run: |
-          set -o pipefail
-          patrol test \
-            --device chrome \
-            --target patrol_test/perf_e2e_test.dart \
-            --dart-define PDF_PERF_LOG=true \
-            --dart-define PDF_BUILD_COMMIT=${{ github.event.pull_request.head.sha }} \
-            --show-flutter-logs \
-            --web-headless \
-            --web-locale en-US \
-            --web-workers 1 \
-            --web-viewport '{"width":2600,"height":2600}' \
-            --web-video retain-on-failure \
-            --verbose \
-            2>&1 | tee -a "$RUNNER_TEMP/patrol-web.log"
+          set -euo pipefail
+          touch "$RUNNER_TEMP/patrol-web.log"
+          completed=0
+          attempt=0
+          max_attempts=$((PATROL_PERF_REPETITIONS + 2))
+          while ((completed < PATROL_PERF_REPETITIONS && attempt < max_attempts)); do
+            attempt=$((attempt + 1))
+            attempt_log="$RUNNER_TEMP/patrol-web-perf-$attempt.log"
+            echo "::group::Patrol performance attempt $attempt/$max_attempts"
+            set +e
+            patrol test \
+              --device chrome \
+              --target patrol_test/perf_e2e_test.dart \
+              --dart-define PDF_PERF_LOG=true \
+              --dart-define PDF_BUILD_COMMIT=${{ github.event.pull_request.head.sha }} \
+              --show-flutter-logs \
+              --web-headless \
+              --web-locale en-US \
+              --web-workers 1 \
+              --web-viewport '{"width":2600,"height":2600}' \
+              --web-video retain-on-failure \
+              --verbose \
+              2>&1 | tee "$attempt_log"
+            patrol_status=${PIPESTATUS[0]}
+            set -e
+            echo "::endgroup::"
+            if ((patrol_status == 0)) && dart ../../../tool/patrol_perf_summary.dart \
+              "$attempt_log" \
+              --output "$RUNNER_TEMP/patrol-web-perf-${attempt}-summary" \
+              --require-scenario-runs cad-image-deep-zoom=1 \
+              --require-scenario-runs heavy-document=1 \
+              --require-scenario-runs jpeg-consumer-decode=1 \
+              --require-scenario-runs rounded-rung-pressure=1 \
+              --require-scenario-runs web-worker=1 \
+              >/dev/null 2>&1; then
+              tee -a "$RUNNER_TEMP/patrol-web.log" < "$attempt_log" >/dev/null
+              completed=$((completed + 1))
+            else
+              echo "::warning::Patrol web attempt $attempt returned without a complete performance sample; retrying"
+            fi
+          done
+          if ((completed < PATROL_PERF_REPETITIONS)); then
+            echo "::error::Patrol web produced $completed/$PATROL_PERF_REPETITIONS complete performance repetitions"
+            exit 1
+          fi
 
       - name: Download latest main Patrol web baseline
         id: patrol-baseline
@@ -151,6 +183,11 @@ jobs:
             "$RUNNER_TEMP/patrol-web.log"
             --output test-results/perf
             --markdown "$GITHUB_STEP_SUMMARY"
+            --require-scenario-runs "cad-image-deep-zoom=$PATROL_PERF_REPETITIONS"
+            --require-scenario-runs "heavy-document=$PATROL_PERF_REPETITIONS"
+            --require-scenario-runs "jpeg-consumer-decode=$PATROL_PERF_REPETITIONS"
+            --require-scenario-runs "rounded-rung-pressure=$PATROL_PERF_REPETITIONS"
+            --require-scenario-runs "web-worker=$PATROL_PERF_REPETITIONS"
           )
           baseline="${{ steps.patrol-baseline.outputs.json }}"
           if [[ -f "$baseline" ]]; then

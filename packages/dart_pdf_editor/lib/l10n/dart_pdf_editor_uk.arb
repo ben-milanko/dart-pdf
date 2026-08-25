@@ -408,6 +408,7 @@
   "tbApplyRedactionsTitle": "Застосувати редагування?",
   "tbApplyRedactionsTooltip": "Застосувати редагування (незворотно)",
   "tbAutosizeTextBox": "Автопідбір розміру текстового поля (Alt+Z)",
+  "tbAutosizeTextFont": "Підігнати шрифт до текстового поля",
   "tbCalibrateScaleHint": "Намалюйте лінію відомої довжини, щоб відкалібрувати масштаб.",
   "tbCharSpacing": "Міжсимвольний інтервал",
   "tbCheckBoxOption": "Прапорець",

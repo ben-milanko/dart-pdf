@@ -8,6 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dart_pdf_editor_app/editor_screen.dart';
 
+import 'test_finders.dart';
+
 void main() {
   late PdfEditingPreferences prefs;
 
@@ -86,7 +88,7 @@ void main() {
       await tester.tap(find.text('Open Recent'));
       await tester.pumpAndSettle();
       final recentItemFinder = find.ancestor(
-        of: find.text('alpha.pdf'),
+        of: findMiddleEllipsisText('alpha.pdf'),
         matching: find.byType(PopupMenuItem<VoidCallback>),
       );
       final recentItem = tester.widget<PopupMenuItem<VoidCallback>>(
@@ -141,8 +143,8 @@ void main() {
     await tester.tap(find.text('Open Recent'));
     await tester.pumpAndSettle();
 
-    expect(find.text('alpha.pdf'), findsWidgets);
-    expect(find.text('beta.pdf'), findsWidgets);
+    expect(findMiddleEllipsisText('alpha.pdf'), findsWidgets);
+    expect(findMiddleEllipsisText('beta.pdf'), findsWidgets);
     expect(
       find.byKey(const ValueKey('view-all-recent-files')),
       findsOneWidget,

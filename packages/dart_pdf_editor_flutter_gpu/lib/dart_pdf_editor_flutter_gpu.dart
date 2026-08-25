@@ -7,5 +7,8 @@
 library;
 
 export 'src/backend_stats.dart';
+export 'src/text_outliner.dart';
+export 'src/system_text_outliner_native.dart'
+    if (dart.library.js_interop) 'src/system_text_outliner_stub.dart';
 export 'src/backend_native.dart'
     if (dart.library.js_interop) 'src/backend_stub.dart';

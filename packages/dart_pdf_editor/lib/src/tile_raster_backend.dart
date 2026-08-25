@@ -43,13 +43,34 @@ abstract class PdfTileRasterBackend {
   /// [PdfRetainedScene.releaseDecodedImagePixels].
   bool get prefersDirectDecodedImageUploads => false;
 
+  /// Whether [warmUp] performs useful process- or view-scoped preparation.
+  ///
+  /// False lets the viewer skip its idle timer entirely for Canvas and other
+  /// no-op backends. Implementations that opt in must coalesce repeated calls.
+  bool get supportsWarmUp => false;
+
+  /// Whether sessions returned by [createSession] implement
+  /// [PdfTileRasterWarmUp]. False avoids creating an otherwise-unused session
+  /// for backends that have no scene-specific preparation.
+  bool get supportsSessionWarmUp => false;
+
+  /// Prepares process- or view-scoped resources before the first tile.
+  ///
+  /// [PdfViewer] calls this after useful pixels and a quiet window, never while
+  /// constructing the initial page. Backends can use the idle lead time to
+  /// load shaders or issue a bounded compilation pass. Calls may repeat after
+  /// a backend or native view changes, so implementations must coalesce their
+  /// own work. The default Canvas implementation has nothing to prepare.
+  Future<void> warmUp() => Future<void>.value();
+
   /// Creates a lightweight owner for resources retained across tile renders.
   ///
-  /// This is called lazily, when the tile path first needs pixels—not while
-  /// the page's initial raster is being prepared. Expensive initialization
-  /// should itself be deferred by the returned session until
-  /// [PdfTileRasterSession.rasterizeRegion], so enabling an experimental
-  /// backend cannot delay first paint.
+  /// This is called lazily when the tile path first needs pixels, or by an
+  /// opted-in [PdfTileRasterWarmUp] pass after useful page pixels and a quiet
+  /// window—not while the page's initial raster is being prepared.
+  /// Scene-specific work otherwise stays deferred until
+  /// [PdfTileRasterSession.rasterizeRegion]; only view-scoped work belongs in
+  /// [warmUp].
   PdfTileRasterSession? createSession(PdfRetainedScene scene);
 }
 
@@ -104,6 +125,16 @@ abstract interface class PdfTileRasterScheduling {
   /// to keep command submission and texture allocation within a frame budget
   /// while the base/coarser image remains visible underneath.
   int? get maxNewTilesPerPaint;
+}
+
+/// Optional idle preparation for a scene-scoped tile session.
+///
+/// A page invokes this only after its first useful pixels have landed. The
+/// session stays owned by that page and is disposed through the ordinary
+/// scene lifecycle, so a backend can prepare geometry and uploads without
+/// creating a separate document-wide cache or extending resource lifetimes.
+abstract interface class PdfTileRasterWarmUp {
+  Future<void> warmUp();
 }
 
 /// Bounded, always-on page/tile routing diagnostics for support exports.

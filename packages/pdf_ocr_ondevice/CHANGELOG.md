@@ -1,5 +1,10 @@
 # Changelog
 
+## 4.0.0
+
+- Lockstep major release to align with `dart_pdf_editor` 4.0.0. No public
+  on-device OCR API changes since 3.8.0.
+
 ## 3.8.0
 
 - Lockstep minor release to align with `dart_pdf_editor` 3.8.0. No public

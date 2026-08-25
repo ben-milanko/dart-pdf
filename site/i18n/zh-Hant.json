@@ -131,7 +131,7 @@
   "sp_faq2": "<strong>我要如何開啟 PDF？</strong>開啟 DartPDF 並挑選檔案、從「檔案」應用程式開啟 PDF、從另一個應用程式的分享面板傳送到 DartPDF，或將檔案拖放到視窗上。",
   "sp_faq3": "<strong>我可以開啟有密碼保護的 PDF 嗎？</strong>可以。DartPDF 會提示輸入密碼，並開啟加密檔案供檢視與編輯。",
   "sp_faq4": "<strong>OCR 如何運作？</strong>光學字元辨識完全在您的裝置上執行。首次使用時應用程式會下載辨識模型，之後所有處理都在本機進行 - 您的頁面絕不會被傳送到伺服器。",
-  "sp_faq5": "<strong>我的資料是私密的嗎？</strong>是的。DartPDF 沒有分析、沒有廣告、沒有帳號，也沒有伺服器。詳情請見<a href=\"privacy.html\">隱私政策</a>。",
+  "sp_faq5": "<strong>我的資料是私密的嗎？</strong>是的。DartPDF 沒有分析、沒有廣告、沒有帳號，也沒有伺服器。詳情請見<a href=\"/privacy\">隱私政策</a>。",
   "sp_stuckH2": "還是遇到問題？",
   "sp_stuck_p": "來信 <a href=\"mailto:ben.milanko@protonmail.com?subject=DartPDF%20support\">ben.milanko@protonmail.com</a> 並描述您想要進行的操作。我們會閱讀每一則訊息。",
 

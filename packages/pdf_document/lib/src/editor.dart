@@ -254,7 +254,7 @@ class PdfEditor {
 
   void _markVisual(Iterable<int>? pages) => _impact.add(visual: pages);
 
-  void _markAnnotations(Iterable<int> pages, {bool visual = true}) =>
+  void _markAnnotations(Iterable<int>? pages, {bool visual = true}) =>
       _impact.add(visual: visual ? pages : const <int>[], annotations: pages);
 
   void _markContent(Iterable<int> pages) =>

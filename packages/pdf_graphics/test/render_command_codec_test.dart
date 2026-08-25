@@ -1078,7 +1078,8 @@ void main() {
           expect(images.length, originals.length,
               reason: '$name page $i image count diverged');
           for (var k = 0; k < originals.length; k++) {
-            final expected = decodePdfImagePixels(doc.cos, originals[k].stream);
+            final expected = decodePdfImagePixels(doc.cos, originals[k].stream,
+                luminosityMask: originals[k].isLuminosityMask);
             final got = images[k].request.decoded;
             if (expected == null) {
               expect(got, isNull,
@@ -1316,6 +1317,59 @@ void main() {
       // that floor is #451's, not this one's.
       expect(unbudgeted.length - budgeted.length,
           greaterThanOrEqualTo(4 * (before - after) - 1024));
+    });
+
+    test('does not apply the page budget twice to predecoded pixels', () {
+      // The web worker first decodes simple Flate images asynchronously with
+      // the browser inflater, then hands those already-budgeted pixels to the
+      // command serializer. Recomputing the cap from that smaller plane would
+      // multiply the page scale a second time and blur layered pages.
+      final doc = PdfDocument.open(_layeredImagePdf(draws: 4));
+      final page = doc.page(0);
+      final recorder = RecordingPdfDevice();
+      PdfInterpreter(cos: doc.cos, device: recorder).drawPageOperations(
+          page, ContentStreamParser.parse(page.contentBytes()));
+      final ratio = 256 / page.cropBox.width;
+      final raster = pdfPageRasterPixels(page.cropBox, ratio)!;
+
+      final first = serializeCommands(
+        recorder.commands,
+        cos: doc.cos,
+        decodeImages: true,
+        maxImagePixelRatio: ratio,
+        pageRasterPixels: raster,
+      )!;
+      final firstImages = _imageCommands(deserializeCommands(first));
+      var imageIndex = 0;
+      final predecoded = <PdfRenderCommand>[];
+      for (final command in recorder.commands) {
+        if (command is! PdfDrawImageCommand) {
+          predecoded.add(command);
+          continue;
+        }
+        final request = command.request;
+        predecoded.add(PdfDrawImageCommand(PdfImageRequest(
+          stream: request.stream,
+          transform: request.transform,
+          alpha: request.alpha,
+          isStencil: request.isStencil,
+          stencilColor: request.stencilColor,
+          isInline: request.isInline,
+          decoded: firstImages[imageIndex++].request.decoded,
+          sourceReference: request.sourceReference,
+        )));
+      }
+
+      final second = serializeCommands(
+        predecoded,
+        cos: doc.cos,
+        decodeImages: true,
+        maxImagePixelRatio: ratio,
+        pageRasterPixels: raster,
+      )!;
+      expect(second, first,
+          reason: 'pixels already decoded to the final page budget must pass '
+              'through the command seam byte-for-byte');
     });
 
     test('never scales a lone underlay a page render legitimately wants', () {

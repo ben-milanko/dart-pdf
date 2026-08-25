@@ -3,6 +3,14 @@ import 'dart:typed_data';
 
 import 'color.dart';
 
+/// PDF/ICC rendering intents, in the ICC transform-table order.
+enum PdfRenderingIntent {
+  perceptual,
+  relativeColorimetric,
+  saturation,
+  absoluteColorimetric,
+}
+
 /// An ICC profile reduced to what rendering needs: a transform from
 /// device components to sRGB.
 ///
@@ -11,15 +19,30 @@ import 'color.dart';
 /// and `mAB ` pipelines) with XYZ or Lab PCS - which spans sRGB-like,
 /// wide-gamut RGB, and the common CMYK press profiles. Unsupported
 /// shapes parse to null and callers fall back to device heuristics.
-/// Rendering intents and black-point compensation are not applied.
 class IccProfile {
   IccProfile._(this.channels, this._transform,
-      {this.isSrgb = false, this.rgb8Transform});
+      {this.isSrgb = false,
+      this.rgb8Transform,
+      this.mediaWhitePoint = const [0.9642, 1.0, 0.8249],
+      this.mediaBlackPoint = const [0.0, 0.0, 0.0],
+      List<double> Function(List<double>, PdfRenderingIntent)? pcsTransform,
+      List<double>? Function(List<double>, PdfRenderingIntent)? deviceFromPcs})
+      : _pcsTransform = pcsTransform,
+        _deviceFromPcs = deviceFromPcs;
 
   /// Device channel count (1, 3, or 4).
   final int channels;
 
+  /// ICC `wtpt`, decoded as XYZ. Defaults to the D50 PCS illuminant.
+  final List<double> mediaWhitePoint;
+
+  /// ICC `bkpt`, decoded as XYZ. Defaults to ideal black when omitted.
+  final List<double> mediaBlackPoint;
+
   final PdfColor Function(List<double> values) _transform;
+  final List<double> Function(List<double>, PdfRenderingIntent)? _pcsTransform;
+  final List<double>? Function(List<double>, PdfRenderingIntent)?
+      _deviceFromPcs;
 
   /// True when this profile's transform is the identity at 8-bit precision
   /// (#531, PDFium's DetectSRGB shape, decided behaviourally): applying it
@@ -40,7 +63,51 @@ class IccProfile {
       rgb8Transform;
 
   /// Converts device [values] (each 0..1) to sRGB.
-  PdfColor toSrgb(List<double> values) => _transform(values);
+  PdfColor toSrgb(List<double> values,
+      {PdfRenderingIntent intent = PdfRenderingIntent.perceptual}) {
+    final pcs = _pcsTransform?.call(values, intent);
+    return pcs == null
+        ? _transform(values)
+        : _xyzD50ToSrgb(pcs[0], pcs[1], pcs[2]);
+  }
+
+  /// Converts device components to the profile-connection space, normalized
+  /// here as XYZ D50. Falls back through sRGB for legacy/unsupported profiles.
+  List<double> toPcs(List<double> values,
+      {PdfRenderingIntent intent = PdfRenderingIntent.perceptual}) {
+    final pcs = _pcsTransform?.call(values, intent);
+    if (pcs != null) return pcs;
+    return _srgbToXyzD50(_transform(values));
+  }
+
+  /// Converts XYZ D50 PCS values into this profile's device components using
+  /// its B2A intent table. Null when the profile supplies no usable reverse
+  /// table; callers may use a bounded numerical inverse then.
+  List<double>? fromPcs(List<double> xyz,
+          {PdfRenderingIntent intent = PdfRenderingIntent.perceptual}) =>
+      _deviceFromPcs?.call(xyz, intent);
+
+  /// Source-side black point in the relative XYZ PCS. RGB/gray black is the
+  /// zero device tuple; for subtractive profiles it is the darkest all-ink
+  /// endpoint. This mirrors the endpoint used by ICC BPC black detection.
+  List<double> sourceBlackPoint(
+      {PdfRenderingIntent intent = PdfRenderingIntent.relativeColorimetric}) {
+    final black = List<double>.filled(channels, channels == 4 ? 1.0 : 0.0);
+    return List<double>.unmodifiable(toPcs(black, intent: intent));
+  }
+
+  /// Destination-side printable black in the relative XYZ PCS.
+  ///
+  /// Output profiles define this by round-tripping PCS black through B2A and
+  /// A2B, rather than by trusting the often-absent/zero `bkpt` tag. This is
+  /// the ICC CMM behavior relevant to press profiles.
+  List<double> destinationBlackPoint(
+      {PdfRenderingIntent intent = PdfRenderingIntent.relativeColorimetric}) {
+    final device = fromPcs(const [0.0, 0.0, 0.0], intent: intent);
+    return device == null
+        ? sourceBlackPoint(intent: intent)
+        : List<double>.unmodifiable(toPcs(device, intent: intent));
+  }
 
   static IccProfile? parse(Uint8List bytes) {
     try {
@@ -68,9 +135,19 @@ class IccProfile {
 
     (int, int)? tag(String sig) => tags[sig];
 
-    // LUT pipeline first: it is authoritative when present (CMYK and
-    // v4 perceptual profiles)
-    final a2b = tag('A2B0');
+    final whiteTag = tag('wtpt');
+    final blackTag = tag('bkpt');
+    final whitePoint = whiteTag == null
+        ? const <double>[0.9642, 1.0, 0.8249]
+        : List<double>.unmodifiable(_readXyz(data, whiteTag.$1));
+    final blackPoint = blackTag == null
+        ? const <double>[0.0, 0.0, 0.0]
+        : List<double>.unmodifiable(_readXyz(data, blackTag.$1));
+
+    // LUT pipelines are intent-specific. A2B0/1/2 are respectively
+    // perceptual, colorimetric and saturation; B2A0/1/2 are their reverse
+    // destination transforms. Falling back to table 0 is required for many
+    // v2 profiles that expose only a perceptual transform.
     final channelCount = switch (space) {
       'GRAY' => 1,
       'RGB ' => 3,
@@ -79,17 +156,60 @@ class IccProfile {
     };
     if (channelCount == 0) return null;
 
-    if (a2b != null) {
-      final lut = _Lut.parse(bytes, a2b.$1, pcsIsLab: pcs == 'Lab ');
-      if (lut != null && lut.inChannels == channelCount) {
-        return IccProfile._(channelCount, (values) {
-          final pcsValues = lut.apply(values);
-          final xyz = pcs == 'Lab '
-              ? _labToXyz(pcsValues[0], pcsValues[1], pcsValues[2])
-              : pcsValues;
-          return _xyzD50ToSrgb(xyz[0], xyz[1], xyz[2]);
-        });
+    final a2b = <int, _Lut>{};
+    final b2a = <int, _Lut>{};
+    for (var intent = 0; intent < 3; intent++) {
+      final forward = tag('A2B$intent');
+      if (forward != null) {
+        final lut = _Lut.parse(bytes, forward.$1, pcsIsLab: pcs == 'Lab ');
+        if (lut != null && lut.inChannels == channelCount) a2b[intent] = lut;
       }
+      final reverse = tag('B2A$intent');
+      if (reverse != null) {
+        final lut = _Lut.parse(bytes, reverse.$1,
+            pcsIsLab: false, inputPcsIsLab: pcs == 'Lab ');
+        if (lut != null &&
+            lut.inChannels == 3 &&
+            lut.outChannels == channelCount) {
+          b2a[intent] = lut;
+        }
+      }
+    }
+    if (a2b.isNotEmpty) {
+      int intentIndex(PdfRenderingIntent intent) => switch (intent) {
+            PdfRenderingIntent.perceptual => 0,
+            PdfRenderingIntent.relativeColorimetric ||
+            PdfRenderingIntent.absoluteColorimetric =>
+              1,
+            PdfRenderingIntent.saturation => 2,
+          };
+      _Lut forward(PdfRenderingIntent intent) =>
+          a2b[intentIndex(intent)] ?? a2b[0] ?? a2b.values.first;
+      List<double> toXyz(List<double> values, PdfRenderingIntent intent) {
+        final pcsValues = forward(intent).apply(values);
+        return pcs == 'Lab '
+            ? _labToXyz(pcsValues[0], pcsValues[1], pcsValues[2])
+            : [pcsValues[0], pcsValues[1], pcsValues[2]];
+      }
+
+      List<double>? fromXyz(List<double> xyz, PdfRenderingIntent intent) {
+        final lut = b2a[intentIndex(intent)] ?? b2a[0];
+        if (lut == null) return null;
+        final encoded = pcs == 'Lab ' ? _xyzToLab(xyz[0], xyz[1], xyz[2]) : xyz;
+        return lut.applyDevice(encoded, pcsIsLab: pcs == 'Lab ');
+      }
+
+      return IccProfile._(
+        channelCount,
+        (values) {
+          final xyz = toXyz(values, PdfRenderingIntent.perceptual);
+          return _xyzD50ToSrgb(xyz[0], xyz[1], xyz[2]);
+        },
+        pcsTransform: toXyz,
+        deviceFromPcs: b2a.isEmpty ? null : fromXyz,
+        mediaWhitePoint: whitePoint,
+        mediaBlackPoint: blackPoint,
+      );
     }
 
     if (space == 'GRAY') {
@@ -103,6 +223,12 @@ class IccProfile {
         return PdfColor(v, v, v);
       }
 
+      List<double> pcsTransform(
+          List<double> values, PdfRenderingIntent intent) {
+        final y = trc.apply(values[0].clamp(0.0, 1.0));
+        return [y * 0.9642, y, y * 0.8249];
+      }
+
       // Behavioural identity probe: for a single-channel TRC profile the
       // sampled points are sufficient - if decode+re-encode moves no 8-bit
       // value by more than 1, the transform is a no-op at our precision.
@@ -111,7 +237,11 @@ class IccProfile {
         final out = transform([v / 255]).red * 255;
         if ((out - v).abs() > 1) identity = false;
       }
-      return IccProfile._(1, transform, isSrgb: identity);
+      return IccProfile._(1, transform,
+          isSrgb: identity,
+          pcsTransform: pcsTransform,
+          mediaWhitePoint: whitePoint,
+          mediaBlackPoint: blackPoint);
     }
 
     if (space == 'RGB ') {
@@ -135,6 +265,18 @@ class IccProfile {
           rXyz[1] * lr + gXyz[1] * lg + bXyz[1] * lb,
           rXyz[2] * lr + gXyz[2] * lg + bXyz[2] * lb,
         );
+      }
+
+      List<double> pcsTransform(
+          List<double> values, PdfRenderingIntent intent) {
+        final lr = rTrc.apply(values[0].clamp(0.0, 1.0));
+        final lg = gTrc.apply(values[1].clamp(0.0, 1.0));
+        final lb = bTrc.apply(values[2].clamp(0.0, 1.0));
+        return [
+          rXyz[0] * lr + gXyz[0] * lg + bXyz[0] * lb,
+          rXyz[1] * lr + gXyz[1] * lg + bXyz[1] * lb,
+          rXyz[2] * lr + gXyz[2] * lg + bXyz[2] * lb,
+        ];
       }
 
       // Behavioural identity probe. A matrix/TRC transform is linear between
@@ -192,7 +334,11 @@ class IccProfile {
       }
 
       return IccProfile._(3, transform,
-          isSrgb: identity, rgb8Transform: identity ? null : rgb8);
+          isSrgb: identity,
+          rgb8Transform: identity ? null : rgb8,
+          pcsTransform: pcsTransform,
+          mediaWhitePoint: whitePoint,
+          mediaBlackPoint: blackPoint);
     }
     return null;
   }
@@ -221,6 +367,31 @@ class IccProfile {
         t > 6 / 29 ? t * t * t : 3 * (6 / 29) * (6 / 29) * (t - 4 / 29);
     // D50 white point
     return [f(fx) * 0.9642, f(fy) * 1.0, f(fz) * 0.8249];
+  }
+
+  /// XYZ D50 to PCS Lab (L 0..100, a/b nominally -128..127).
+  static List<double> _xyzToLab(double x, double y, double z) {
+    double f(double t) => t > math.pow(6 / 29, 3)
+        ? math.pow(t, 1 / 3).toDouble()
+        : t / (3 * math.pow(6 / 29, 2)) + 4 / 29;
+    final fx = f(x / 0.9642), fy = f(y), fz = f(z / 0.8249);
+    return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+  }
+
+  /// Gamma-encoded sRGB to the ICC XYZ D50 connection space.
+  static List<double> _srgbToXyzD50(PdfColor color) {
+    double decode(double value) => value <= 0.04045
+        ? value / 12.92
+        : math.pow((value + 0.055) / 1.055, 2.4).toDouble();
+    final r = decode(color.red),
+        g = decode(color.green),
+        b = decode(color.blue);
+    // Inverse of the Bradford-adapted D50→sRGB matrix below.
+    return [
+      0.4360747 * r + 0.3850649 * g + 0.1430804 * b,
+      0.2225045 * r + 0.7168786 * g + 0.0606169 * b,
+      0.0139322 * r + 0.0971045 * g + 0.7141733 * b,
+    ];
   }
 
   /// XYZ relative to D50 (the ICC PCS) to gamma-encoded sRGB.
@@ -274,12 +445,12 @@ class _Curve {
           return _Curve._((x) => math.pow(x, g).toDouble());
         case 1:
           final g = p(0), a = p(1), b = p(2);
-          return _Curve._((x) =>
-              x >= -b / a ? math.pow(a * x + b, g).toDouble() : 0);
+          return _Curve._(
+              (x) => x >= -b / a ? math.pow(a * x + b, g).toDouble() : 0);
         case 2:
           final g = p(0), a = p(1), b = p(2), c = p(3);
-          return _Curve._((x) =>
-              x >= -b / a ? math.pow(a * x + b, g).toDouble() + c : c);
+          return _Curve._(
+              (x) => x >= -b / a ? math.pow(a * x + b, g).toDouble() + c : c);
         case 3:
           final g = p(0), a = p(1), b = p(2), c = p(3), d = p(4);
           return _Curve._(
@@ -287,9 +458,8 @@ class _Curve {
         case 4:
           final g = p(0), a = p(1), b = p(2), c = p(3), d = p(4);
           final e = p(5), f = p(6);
-          return _Curve._((x) => x >= d
-              ? math.pow(a * x + b, g).toDouble() + e
-              : c * x + f);
+          return _Curve._((x) =>
+              x >= d ? math.pow(a * x + b, g).toDouble() + e : c * x + f);
       }
     }
     return null;
@@ -318,6 +488,7 @@ class _Lut {
     required this.outputCurves,
     required this.pcsIsLab,
     required this.legacyLab16,
+    required this.inputLegacyLab16,
   });
 
   final int inChannels;
@@ -331,6 +502,10 @@ class _Lut {
   /// mft2 stores Lab with the legacy 0xFF00 == 100.0 encoding.
   final bool legacyLab16;
 
+  /// A v2 `mft2` B2A table receives PCS Lab in the legacy 0xFF00 encoding,
+  /// even though its output is device components rather than Lab.
+  final bool inputLegacyLab16;
+
   /// Per-call scratch, allocated once per profile rather than per pixel.
   /// [apply] runs on every pixel of an ICC-managed image - a CMYK press
   /// profile made it the single most expensive step in a record serialize
@@ -342,10 +517,13 @@ class _Lut {
   late final Int32List _low = Int32List(inChannels);
   late final Float64List _frac = Float64List(inChannels);
   late final Float64List _out = Float64List(outChannels);
+  late final Float64List _tetraLow = Float64List(outChannels);
+  late final Float64List _tetraHigh = Float64List(outChannels);
   // The Lab branch writes three components regardless of outChannels.
   late final Float64List _pcs = Float64List(math.max(outChannels, 3));
 
-  static _Lut? parse(Uint8List bytes, int offset, {required bool pcsIsLab}) {
+  static _Lut? parse(Uint8List bytes, int offset,
+      {required bool pcsIsLab, bool inputPcsIsLab = false}) {
     final data = ByteData.sublistView(bytes);
     final type = String.fromCharCodes(bytes, offset, offset + 4);
     switch (type) {
@@ -364,9 +542,7 @@ class _Lut {
         if (wide) p = offset + 52;
 
         double readValue() {
-          final v = wide
-              ? data.getUint16(p) / 65535
-              : bytes[p] / 255;
+          final v = wide ? data.getUint16(p) / 65535 : bytes[p] / 255;
           p += wide ? 2 : 1;
           return v;
         }
@@ -393,6 +569,7 @@ class _Lut {
           outputCurves: outputCurves,
           pcsIsLab: pcsIsLab,
           legacyLab16: wide && pcsIsLab,
+          inputLegacyLab16: wide && inputPcsIsLab,
         );
       case 'mAB ':
         return _parseMab(bytes, data, offset, pcsIsLab: pcsIsLab);
@@ -472,6 +649,7 @@ class _Lut {
       outputCurves: bCurves,
       pcsIsLab: pcsIsLab,
       legacyLab16: false,
+      inputLegacyLab16: false,
     );
   }
 
@@ -490,31 +668,26 @@ class _Lut {
       mapped[c] = _Curve._sample(inputCurves[c], values[c].clamp(0.0, 1.0));
     }
 
-    // multilinear interpolation over the 2^n cell corners
-    for (var c = 0; c < inChannels; c++) {
-      final g = gridPoints[c];
-      final position = mapped[c] * (g - 1);
-      low[c] = math.min(position.floor(), g - 2).clamp(0, g - 1);
-      frac[c] = (position - low[c]).clamp(0.0, 1.0);
-    }
-    for (var o = 0; o < outChannels; o++) {
-      out[o] = 0;
-    }
-    final corners = 1 << inChannels;
-    for (var corner = 0; corner < corners; corner++) {
-      var weight = 1.0;
-      var index = 0;
-      for (var c = 0; c < inChannels; c++) {
-        final up = (corner >> c) & 1;
-        final g = gridPoints[c];
-        final coord = math.min(low[c] + up, g - 1);
-        weight *= up == 1 ? frac[c] : 1 - frac[c];
-        index = index * g + coord;
-      }
-      if (weight == 0) continue;
+    // ICC leaves the CLUT interpolation algorithm to the CMM. Use the
+    // de-facto reference shape used by LittleCMS: tetrahedral interpolation
+    // for three inputs, and for CMYK two 3-D tetrahedral slices followed by a
+    // linear interpolation along the first component. Plain 4-D multilinear
+    // interpolation visibly misses the paired source/output colors in GWG130.
+    if (inChannels == 3) {
+      _tetrahedral(mapped, 0, 0, out);
+    } else if (inChannels == 4) {
+      final grid = gridPoints[0];
+      final position = mapped[0] * (grid - 1);
+      final lower = math.min(position.floor(), grid - 2).clamp(0, grid - 1);
+      final upper = math.min(lower + 1, grid - 1);
+      final amount = (position - lower).clamp(0.0, 1.0);
+      _tetrahedral(mapped, 1, lower, _tetraLow);
+      _tetrahedral(mapped, 1, upper, _tetraHigh);
       for (var o = 0; o < outChannels; o++) {
-        out[o] += weight * clut[index * outChannels + o];
+        out[o] = _tetraLow[o] + (_tetraHigh[o] - _tetraLow[o]) * amount;
       }
+    } else {
+      _multilinear(mapped, low, frac, out);
     }
 
     for (var o = 0; o < outChannels; o++) {
@@ -540,5 +713,130 @@ class _Lut {
       pcs[o] = out[o] * 65535 / 32768;
     }
     return pcs;
+  }
+
+  void _multilinear(
+      Float64List mapped, Int32List low, Float64List frac, Float64List out) {
+    for (var c = 0; c < inChannels; c++) {
+      final g = gridPoints[c];
+      final position = mapped[c] * (g - 1);
+      low[c] = math.min(position.floor(), g - 2).clamp(0, g - 1);
+      frac[c] = (position - low[c]).clamp(0.0, 1.0);
+    }
+    for (var o = 0; o < outChannels; o++) {
+      out[o] = 0;
+    }
+    final corners = 1 << inChannels;
+    for (var corner = 0; corner < corners; corner++) {
+      var weight = 1.0;
+      var index = 0;
+      for (var c = 0; c < inChannels; c++) {
+        final up = (corner >> c) & 1;
+        final g = gridPoints[c];
+        final coord = math.min(low[c] + up, g - 1);
+        weight *= up == 1 ? frac[c] : 1 - frac[c];
+        index = index * g + coord;
+      }
+      if (weight == 0) continue;
+      for (var o = 0; o < outChannels; o++) {
+        out[o] += weight * clut[index * outChannels + o];
+      }
+    }
+  }
+
+  /// Tetrahedral interpolation of three adjacent CLUT dimensions. For a
+  /// four-channel table [slice] selects the already-discretized first input;
+  /// for a three-channel table it is ignored.
+  void _tetrahedral(
+      Float64List mapped, int start, int slice, Float64List result) {
+    final gx = gridPoints[start];
+    final gy = gridPoints[start + 1];
+    final gz = gridPoints[start + 2];
+    final px = mapped[start] * (gx - 1);
+    final py = mapped[start + 1] * (gy - 1);
+    final pz = mapped[start + 2] * (gz - 1);
+    final x0 = math.min(px.floor(), gx - 2).clamp(0, gx - 1);
+    final y0 = math.min(py.floor(), gy - 2).clamp(0, gy - 1);
+    final z0 = math.min(pz.floor(), gz - 2).clamp(0, gz - 1);
+    final x1 = math.min(x0 + 1, gx - 1);
+    final y1 = math.min(y0 + 1, gy - 1);
+    final z1 = math.min(z0 + 1, gz - 1);
+    final rx = (px - x0).clamp(0.0, 1.0);
+    final ry = (py - y0).clamp(0.0, 1.0);
+    final rz = (pz - z0).clamp(0.0, 1.0);
+
+    int base(int x, int y, int z) => inChannels == 3
+        ? ((x * gy + y) * gz + z) * outChannels
+        : (((slice * gx + x) * gy + y) * gz + z) * outChannels;
+
+    final i000 = base(x0, y0, z0);
+    final i100 = base(x1, y0, z0);
+    final i010 = base(x0, y1, z0);
+    final i001 = base(x0, y0, z1);
+    final i110 = base(x1, y1, z0);
+    final i101 = base(x1, y0, z1);
+    final i011 = base(x0, y1, z1);
+    final i111 = base(x1, y1, z1);
+
+    for (var o = 0; o < outChannels; o++) {
+      final c0 = clut[i000 + o];
+      late final double c1, c2, c3;
+      if (rx >= ry && ry >= rz) {
+        c1 = clut[i100 + o] - c0;
+        c2 = clut[i110 + o] - clut[i100 + o];
+        c3 = clut[i111 + o] - clut[i110 + o];
+      } else if (rx >= rz && rz >= ry) {
+        c1 = clut[i100 + o] - c0;
+        c2 = clut[i111 + o] - clut[i101 + o];
+        c3 = clut[i101 + o] - clut[i100 + o];
+      } else if (rz >= rx && rx >= ry) {
+        c1 = clut[i101 + o] - clut[i001 + o];
+        c2 = clut[i111 + o] - clut[i101 + o];
+        c3 = clut[i001 + o] - c0;
+      } else if (ry >= rx && rx >= rz) {
+        c1 = clut[i110 + o] - clut[i010 + o];
+        c2 = clut[i010 + o] - c0;
+        c3 = clut[i111 + o] - clut[i110 + o];
+      } else if (ry >= rz && rz >= rx) {
+        c1 = clut[i111 + o] - clut[i011 + o];
+        c2 = clut[i010 + o] - c0;
+        c3 = clut[i011 + o] - clut[i010 + o];
+      } else {
+        c1 = clut[i111 + o] - clut[i011 + o];
+        c2 = clut[i011 + o] - clut[i001 + o];
+        c3 = clut[i001 + o] - c0;
+      }
+      result[o] = c0 + c1 * rx + c2 * ry + c3 * rz;
+    }
+  }
+
+  /// Runs a PCS→device (B2A) LUT. [pcsValues] are decoded Lab or XYZ values;
+  /// the LUT input uses ICC's encoded representation and its output is plain
+  /// normalized device components.
+  List<double> applyDevice(List<double> pcsValues, {required bool pcsIsLab}) {
+    final encoded = pcsIsLab
+        ? inputLegacyLab16
+            ? [
+                (pcsValues[0] * 652.80 / 65535).clamp(0.0, 1.0).toDouble(),
+                ((pcsValues[1] + 128) * 256 / 65535).clamp(0.0, 1.0).toDouble(),
+                ((pcsValues[2] + 128) * 256 / 65535).clamp(0.0, 1.0).toDouble(),
+              ]
+            : [
+                (pcsValues[0] / 100).clamp(0.0, 1.0).toDouble(),
+                ((pcsValues[1] + 128) / 255).clamp(0.0, 1.0).toDouble(),
+                ((pcsValues[2] + 128) / 255).clamp(0.0, 1.0).toDouble(),
+              ]
+        : [
+            for (var i = 0; i < 3; i++)
+              (pcsValues[i] * 32768 / 65535).clamp(0.0, 1.0).toDouble(),
+          ];
+    // B2A LUTs were parsed with pcsIsLab=false so [apply] leaves their device
+    // outputs in the XYZ numeric scaling. Undo that final presentation scale;
+    // the interpolation/curve stages themselves are shared exactly.
+    final scaled = apply(encoded);
+    return [
+      for (var i = 0; i < outChannels; i++)
+        (scaled[i] * 32768 / 65535).clamp(0.0, 1.0).toDouble(),
+    ];
   }
 }

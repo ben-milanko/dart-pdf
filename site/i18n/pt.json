@@ -121,7 +121,7 @@
   "sp_faq2": "<strong>Como abro um PDF?</strong> Abra o DartPDF e escolha um arquivo, abra um PDF pelo app Arquivos, envie um para o DartPDF pela folha de compartilhamento de outro app ou arraste e solte um arquivo na janela.",
   "sp_faq3": "<strong>Posso abrir PDFs protegidos por senha?</strong> Sim. O DartPDF solicita a senha e abre arquivos criptografados para visualização e edição.",
   "sp_faq4": "<strong>Como funciona o OCR?</strong> O reconhecimento óptico de caracteres roda inteiramente no seu dispositivo. No primeiro uso, o app baixa o modelo de reconhecimento e, então, todo o processamento acontece localmente - suas páginas nunca são enviadas a um servidor.",
-  "sp_faq5": "<strong>Meus dados são privados?</strong> Sim. O DartPDF não tem análises, anúncios, contas nem servidores. Consulte a <a href=\"privacy.html\">política de privacidade</a> para saber os detalhes.",
+  "sp_faq5": "<strong>Meus dados são privados?</strong> Sim. O DartPDF não tem análises, anúncios, contas nem servidores. Consulte a <a href=\"/privacy\">política de privacidade</a> para saber os detalhes.",
   "sp_stuckH2": "Ainda com dificuldades?",
   "sp_stuck_p": "Envie um e-mail para <a href=\"mailto:ben.milanko@protonmail.com?subject=DartPDF%20support\">ben.milanko@protonmail.com</a> e descreva o que você estava tentando fazer. Lemos todas as mensagens.",
   "sdk_metaTitle": "Flutter PDF SDK: visualizador, editor e renderizador de PDF em Dart puro | DartPDF",

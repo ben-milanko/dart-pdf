@@ -22,6 +22,7 @@ import 'package:pdf_cos/perf.dart';
 
 import 'calibrated_color.dart';
 import 'color.dart';
+import 'color_context.dart';
 import 'color_space.dart';
 import 'icc.dart';
 
@@ -208,6 +209,7 @@ PdfImageBase? decodePdfImageBase(
   CosStream stream, {
   int? targetWidth,
   int? targetHeight,
+  bool luminosityMask = false,
 }) {
   final dict = stream.dictionary;
   final filters = pdfImageFilters(cos, dict);
@@ -225,7 +227,35 @@ PdfImageBase? decodePdfImageBase(
   if (!isMask && dctName != null) {
     // undo any wrapping filters (e.g. [/FlateDecode /DCTDecode])
     final jpeg = cos.decodeStreamData(stream, stopBeforeFilter: dctName);
-    if (pdfImageColorFamily(cos, dict) != 'DeviceCMYK') {
+    final family = pdfImageColorFamily(cos, dict);
+    // A platform JPEG codec returns display RGB and discards the source gray
+    // sample. That is fine for an unmanaged page, but a PDF/X OutputIntent
+    // defines DeviceGray as the output condition's K-only ramp. Decode the Y
+    // plane portably while that context is active so an 8-bit JPEG reference
+    // and a 16-bit Flate test image take the same colour transform (GWG183).
+    if (family == 'DeviceGray' &&
+        (luminosityMask ||
+            PdfColorContext.forDocument(cos).outputProfile != null)) {
+      final gray = _decodeDctGray(
+        jpeg,
+        targetWidth: targetWidth,
+        targetHeight: targetHeight,
+      );
+      if (gray == null) return null;
+      final rgba = _toRgba(
+        cos,
+        dict,
+        gray.samples,
+        gray.width,
+        gray.height,
+        8,
+        icc: _iccProfileFor(cos, dict),
+        luminosityMask: luminosityMask,
+      );
+      if (rgba == null) return null;
+      return PdfImageBase(rgba, gray.width, gray.height, opaque: !colorKeyed);
+    }
+    if (family != 'DeviceCMYK') {
       return null; // non-CMYK JPEG → platform codec
     }
     final cmyk = _decodeDctCmyk(
@@ -261,7 +291,7 @@ PdfImageBase? decodePdfImageBase(
     // be visible" marker (issue #431).
     final rgba = pdfImageColorFamily(cos, dict) == 'Indexed'
         ? _jpxIndexedToRgba(cos, dict, jpx)
-        : _jpxToRgba(jpx);
+        : _jpxToRgba(cos, jpx, intent: _imageRenderingIntent(cos, dict));
     if (rgba == null) return null;
     // The mappers write alpha 255 throughout (JPX carries no color key).
     return PdfImageBase(rgba, jpx.width, jpx.height, opaque: true);
@@ -319,7 +349,7 @@ PdfImageBase? decodePdfImageBase(
       (isMask
           ? _stencilToRgba(cos, dict, data, width, height)
           : _toRgba(cos, dict, data, width, height, bits,
-              icc: _iccProfileFor(cos, dict)));
+              icc: _iccProfileFor(cos, dict), luminosityMask: luminosityMask));
   PdfPerf.end(PdfPerfPhase.imageColorConvert, colorT0);
   if (rgba == null) return null;
   // An /ImageMask decodes to a stencil with real (0/255) alpha.
@@ -502,11 +532,12 @@ PdfImageBase? decodePdfImageBase(
 /// decoded portably through `package:image`, so a Flate/CMYK base under one can
 /// stay entirely on a render worker. On null the caller falls back to the
 /// `dart:ui` decode path ([decodePdfImageBase] + the codec).
-PdfDecodedPixels? decodePdfImagePixels(CosDocument cos, CosStream stream) {
+PdfDecodedPixels? decodePdfImagePixels(CosDocument cos, CosStream stream,
+    {bool luminosityMask = false}) {
   final dict = stream.dictionary;
   final isStencil = cos.resolve(dict['ImageMask']) == const CosBoolean(true);
 
-  final base = decodePdfImageBase(cos, stream);
+  final base = decodePdfImageBase(cos, stream, luminosityMask: luminosityMask);
   if (base == null) return null;
 
   if (isStencil) {
@@ -576,7 +607,27 @@ PdfDecodedPixels? decodePdfImage(
   int? targetWidth,
   int? targetHeight,
   bool samplesAreDecoded = false,
+  bool luminosityMask = false,
 }) {
+  if (luminosityMask) {
+    final full = decodePdfImagePixels(cos, stream, luminosityMask: true);
+    if (full == null) return null;
+    if (region != null) {
+      return cropDownsamplePdfDecodedPixels(
+        full,
+        region.sourceX,
+        region.sourceY,
+        region.sourceWidth,
+        region.sourceHeight,
+        targetWidth ?? region.sourceWidth,
+        targetHeight ?? region.sourceHeight,
+      );
+    }
+    if (targetWidth != null && targetHeight != null) {
+      return downsamplePdfDecodedPixels(full, targetWidth, targetHeight);
+    }
+    return full;
+  }
   if (region != null) {
     final tw = targetWidth ?? region.sourceWidth;
     final th = targetHeight ?? region.sourceHeight;
@@ -805,7 +856,7 @@ PdfDecodedPixels? _decodeJpxScaled(
       cos.decodeStreamData(stream, stopBeforeFilter: 'JPXDecode'),
       reduceLevels: reduce);
   if (jpx == null) return null;
-  final rgba = _jpxToRgba(jpx);
+  final rgba = _jpxToRgba(cos, jpx, intent: _imageRenderingIntent(cos, dict));
   if (rgba == null) return null;
   // JPX carries no colour key; the mapper writes opaque alpha throughout.
   final decoded = _finish(rgba, jpx.width, jpx.height, hasAlpha: false);
@@ -1155,7 +1206,8 @@ PdfDecodedPixels? _scaledIndexed1Region(
   int targetHeight,
   CosStream? mask,
 ) {
-  final paletteInfo = _indexedPalette(cos, dict);
+  final paletteInfo =
+      _indexedPalette(cos, dict, intent: _imageRenderingIntent(cos, dict));
   if (paletteInfo == null) return null;
   final palette = paletteInfo.$1;
   final paletteCount = paletteInfo.$2;
@@ -1673,7 +1725,8 @@ int _shiftR(int value, int count) => (value >> count).toSigned(32);
 
 /// JPX samples to RGBA by component count (per §7.4.9 the embedded
 /// color description governs; gray, RGB, and CMYK cover PDF practice).
-Uint8List? _jpxToRgba(JpxImage jpx) {
+Uint8List? _jpxToRgba(CosDocument cos, JpxImage jpx,
+    {PdfRenderingIntent intent = PdfRenderingIntent.relativeColorimetric}) {
   final count = jpx.width * jpx.height;
   final out = Uint8List(count * 4);
   final samples = jpx.samples;
@@ -1691,12 +1744,14 @@ Uint8List? _jpxToRgba(JpxImage jpx) {
         out[i * 4 + 3] = 255;
       }
     case 4:
+      final context = PdfColorContext.forDocument(cos);
       for (var i = 0; i < count; i++) {
-        final color = PdfColor.cmyk(
+        final color = context.deviceCmyk(
             samples[i * 4] / 255,
             samples[i * 4 + 1] / 255,
             samples[i * 4 + 2] / 255,
-            samples[i * 4 + 3] / 255);
+            samples[i * 4 + 3] / 255,
+            intent: intent);
         out[i * 4] = (color.red * 255).round();
         out[i * 4 + 1] = (color.green * 255).round();
         out[i * 4 + 2] = (color.blue * 255).round();
@@ -1716,7 +1771,8 @@ Uint8List? _jpxToRgba(JpxImage jpx) {
 Uint8List? _jpxIndexedToRgba(
     CosDocument cos, CosDictionary dict, JpxImage jpx) {
   if (jpx.components != 1) return null;
-  final paletteInfo = _indexedPalette(cos, dict);
+  final paletteInfo =
+      _indexedPalette(cos, dict, intent: _imageRenderingIntent(cos, dict));
   if (paletteInfo == null) return null;
   final palette = paletteInfo.$1;
   final paletteCount = paletteInfo.$2;
@@ -1957,8 +2013,8 @@ PdfImageSoftMask? pdfImageStencilMask(
     final inverted = decode is CosArray &&
         decode.length > 0 &&
         _numOf(cos.resolve(decode[0])) == 1;
-    final samples = _maskSampleData(
-        cos, mask, declaredWidth, declaredHeight, declaredBits);
+    final samples =
+        _maskSampleData(cos, mask, declaredWidth, declaredHeight, declaredBits);
     // A codec that hands back wider samples is not a stencil (§8.9.6.3
     // requires 1 bit per sample), whatever the dictionary declared.
     if (samples == null || samples.bits != 1) return null;
@@ -2312,9 +2368,11 @@ IccProfile? _iccProfileFor(CosDocument cos, CosDictionary dict) {
 
 Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
     int width, int height, int bits,
-    {IccProfile? icc}) {
+    {IccProfile? icc, bool luminosityMask = false}) {
   final count = width * height;
   final out = Uint8List(count * 4);
+  final colorContext = PdfColorContext.forDocument(cos);
+  final renderingIntent = _imageRenderingIntent(cos, dict);
 
   final space = pdfImageColorFamily(cos, dict);
   final alternate = _alternateColorSpaceFor(cos, dict);
@@ -2346,7 +2404,13 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
         final byte = data[y * rowBytes + (x >> 3)];
         final on = (byte >> (7 - (x & 7))) & 1;
         final i = (y * width + x) * 4;
-        out[i] = out[i + 1] = out[i + 2] = values[on];
+        final color = luminosityMask
+            ? PdfColor.gray(values[on] / 255)
+            : colorContext.deviceGray(values[on] / 255,
+                intent: renderingIntent);
+        out[i] = (color.red * 255).round().clamp(0, 255);
+        out[i + 1] = (color.green * 255).round().clamp(0, 255);
+        out[i + 2] = (color.blue * 255).round().clamp(0, 255);
         out[i + 3] =
             key != null && on >= key[0].$1 && on <= key[0].$2 ? 0 : 255;
       }
@@ -2356,6 +2420,22 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
   if (space == 'Indexed') {
     return _indexedToRgba(cos, dict, data, width, height, bits, out,
         colorKey: colorKey);
+  }
+  if (bits == 16) {
+    return _toRgba16(
+      data,
+      width,
+      height,
+      out,
+      space,
+      components,
+      ranges,
+      colorKey,
+      alternate,
+      icc,
+      colorContext,
+      renderingIntent,
+    );
   }
   if (bits != 8) return null;
   if (alternate != null) {
@@ -2375,8 +2455,11 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
       if (data.length < count * 3) return null;
       // An sRGB-equivalent profile is an 8-bit no-op - take the unmanaged
       // path (#531, the single most common ICCBased RGB case).
-      final rgbIcc =
-          icc != null && icc.channels == 3 && !icc.isSrgb ? icc : null;
+      final rgbIcc = icc != null &&
+              icc.channels == 3 &&
+              (!icc.isSrgb || colorContext.outputProfile != null)
+          ? icc
+          : null;
       // Fast path: no colour management, identity /Decode, no color key - the
       // RGB samples copy straight through (the LUTs would be identity and the
       // alpha is a constant 255), with no per-pixel list allocation.
@@ -2396,7 +2479,8 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
       final key = colorKey;
       // Matrix/TRC profiles transform allocation-free straight from bytes
       // (#531); with an identity /Decode the samples pass through untouched.
-      final rgb8 = rgbIcc?.rgb8Transform;
+      final rgb8 =
+          colorContext.outputProfile == null ? rgbIcc?.rgb8Transform : null;
       if (rgb8 != null && ranges == null && key == null) {
         for (var i = 0; i < count; i++) {
           final s = i * 3, o = i * 4;
@@ -2409,8 +2493,9 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
         final s = i * 3, o = i * 4;
         final r = data[s], g = data[s + 1], b = data[s + 2];
         if (rgbIcc != null) {
-          final c =
-              rgbIcc.toSrgb([lut0[r] / 255, lut1[g] / 255, lut2[b] / 255]);
+          final c = colorContext.iccToSrgb(
+              rgbIcc, [lut0[r] / 255, lut1[g] / 255, lut2[b] / 255],
+              intent: renderingIntent);
           out[o] = (c.red * 255).round();
           out[o + 1] = (c.green * 255).round();
           out[o + 2] = (c.blue * 255).round();
@@ -2433,12 +2518,28 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
     case 'DeviceGray':
       if (data.length < count) return null;
       final lut = _lutFor(ranges, 0);
-      final grayIcc =
-          icc != null && icc.channels == 1 && !icc.isSrgb ? icc : null;
+      if (luminosityMask) {
+        final key = colorKey;
+        for (var i = 0; i < count; i++) {
+          final o = i * 4, s = data[i], value = lut[s];
+          out[o] = out[o + 1] = out[o + 2] = value;
+          out[o + 3] =
+              key != null && s >= key[0].$1 && s <= key[0].$2 ? 0 : 255;
+        }
+        return out;
+      }
+      final grayIcc = icc != null &&
+              icc.channels == 1 &&
+              (!icc.isSrgb || colorContext.outputProfile != null)
+          ? icc
+          : null;
       final key = colorKey;
       // Fast path: identity /Decode, no ICC, no color key - replicate the gray
       // sample into RGB with constant 255 alpha, no per-pixel allocation.
-      if (grayIcc == null && ranges == null && key == null) {
+      if (grayIcc == null &&
+          colorContext.outputProfile == null &&
+          ranges == null &&
+          key == null) {
         for (var i = 0; i < count; i++) {
           final o = i * 4, v = data[i];
           out[o] = out[o + 1] = out[o + 2] = v;
@@ -2446,11 +2547,19 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
         }
         return out;
       }
-      final grayLut = grayIcc == null
-          ? null
-          : [
-              for (var v = 0; v < 256; v++) grayIcc.toSrgb([lut[v] / 255])
-            ];
+      final grayLut = grayIcc != null
+          ? [
+              for (var v = 0; v < 256; v++)
+                colorContext.iccToSrgb(grayIcc, [lut[v] / 255],
+                    intent: renderingIntent)
+            ]
+          : colorContext.outputProfile == null
+              ? null
+              : [
+                  for (var v = 0; v < 256; v++)
+                    colorContext.deviceGray(lut[v] / 255,
+                        intent: renderingIntent)
+                ];
       for (var i = 0; i < count; i++) {
         final o = i * 4, s = data[i];
         if (grayLut != null) {
@@ -2471,9 +2580,13 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
           lut2 = _lutFor(ranges, 2),
           lut3 = _lutFor(ranges, 3);
       final cmykIcc = icc != null && icc.channels == 4 ? icc : null;
+      final outputIcc = colorContext.outputProfile?.channels == 4
+          ? colorContext.outputProfile
+          : null;
+      final cmykTransform = cmykIcc ?? outputIcc;
       final key = colorKey;
       final accelerator = pdfDeviceCmykToRgba;
-      if (accelerator != null && cmykIcc == null && key == null) {
+      if (accelerator != null && cmykTransform == null && key == null) {
         try {
           // Stream decoders may legally leave trailing bytes after the image
           // samples. Do not make an otherwise valid fast path fail its output
@@ -2523,7 +2636,7 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
       final memo = _ColorMemo.forPixels(count, 4);
       // Reused across pixels: the ICC transform reads its input and keeps no
       // reference to it, so one buffer serves the whole image.
-      final iccValues = cmykIcc == null ? null : Float64List(4);
+      final iccValues = cmykTransform == null ? null : Float64List(4);
       for (var i = 0; i < count; i++) {
         final base = i * 4;
         final s0 = data[base],
@@ -2532,12 +2645,15 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
             s3 = data[base + 3];
         var rgb = memo == null ? -1 : memo.lookup(data, base);
         if (rgb < 0) {
-          if (cmykIcc != null) {
+          if (cmykTransform != null) {
             iccValues![0] = lut0[s0] / 255;
             iccValues[1] = lut1[s1] / 255;
             iccValues[2] = lut2[s2] / 255;
             iccValues[3] = lut3[s3] / 255;
-            final color = cmykIcc.toSrgb(iccValues);
+            final color = cmykIcc != null
+                ? colorContext.iccToSrgb(cmykIcc, iccValues,
+                    intent: renderingIntent)
+                : cmykTransform.toSrgb(iccValues, intent: renderingIntent);
             rgb = ((color.red * 255).round().clamp(0, 255) << 16) |
                 ((color.green * 255).round().clamp(0, 255) << 8) |
                 (color.blue * 255).round().clamp(0, 255);
@@ -2564,6 +2680,78 @@ Uint8List? _toRgba(CosDocument cos, CosDictionary dict, Uint8List data,
       return out;
   }
   return null;
+}
+
+/// Converts big-endian 16-bit image samples without throwing away their low
+/// byte before colour management. PDF permits 16-bit samples for every image
+/// colour space (§8.9.5); the Ghent 180–184/181 patches pair the same artwork
+/// at 16 and 8 bits specifically to expose renderers that reject this path.
+Uint8List? _toRgba16(
+  Uint8List data,
+  int width,
+  int height,
+  Uint8List out,
+  String space,
+  int components,
+  List<(double, double)>? ranges,
+  List<(int, int)>? colorKey,
+  PdfColorSpace? alternate,
+  IccProfile? icc,
+  PdfColorContext colorContext,
+  PdfRenderingIntent renderingIntent,
+) {
+  final count = width * height;
+  if (components <= 0 || data.length < count * components * 2) return null;
+  final values = Float64List(components);
+  final view = ByteData.sublistView(data);
+  for (var pixel = 0; pixel < count; pixel++) {
+    final sampleBase = pixel * components;
+    var masked = colorKey != null;
+    for (var c = 0; c < components; c++) {
+      final raw = view.getUint16((sampleBase + c) * 2);
+      final range = ranges?[c] ?? (0.0, 1.0);
+      values[c] = (range.$1 + raw / 65535 * (range.$2 - range.$1))
+          .clamp(0.0, 1.0)
+          .toDouble();
+      if (colorKey != null && (raw < colorKey[c].$1 || raw > colorKey[c].$2)) {
+        masked = false;
+      }
+    }
+
+    final PdfColor color;
+    if (alternate != null) {
+      color = alternate.toSrgbIntent(values, renderingIntent);
+    } else if (icc != null && icc.channels == components) {
+      color = colorContext.iccToSrgb(icc, values, intent: renderingIntent);
+    } else {
+      color = switch (space) {
+        'DeviceGray' =>
+          colorContext.deviceGray(values[0], intent: renderingIntent),
+        'DeviceCMYK' => colorContext.deviceCmyk(
+            values[0], values[1], values[2], values[3],
+            intent: renderingIntent),
+        'DeviceRGB' => PdfColor(values[0], values[1], values[2]),
+        _ => colorFromComponents(values, components),
+      };
+    }
+    final output = pixel * 4;
+    out[output] = (color.red * 255).round().clamp(0, 255);
+    out[output + 1] = (color.green * 255).round().clamp(0, 255);
+    out[output + 2] = (color.blue * 255).round().clamp(0, 255);
+    out[output + 3] = masked ? 0 : 255;
+  }
+  return out;
+}
+
+PdfRenderingIntent _imageRenderingIntent(CosDocument cos, CosDictionary dict) {
+  final value = cos.resolve(dict['Intent']);
+  return switch (value) {
+    CosName(value: 'Perceptual') => PdfRenderingIntent.perceptual,
+    CosName(value: 'Saturation') => PdfRenderingIntent.saturation,
+    CosName(value: 'AbsoluteColorimetric') =>
+      PdfRenderingIntent.absoluteColorimetric,
+    _ => PdfRenderingIntent.relativeColorimetric,
+  };
 }
 
 /// The DeviceCMYK polynomial from [PdfColor.cmyk], evaluated directly into
@@ -2854,7 +3042,8 @@ Uint8List _lutFor(List<(double, double)>? ranges, int component) =>
 Uint8List? _indexedToRgba(CosDocument cos, CosDictionary dict, Uint8List data,
     int width, int height, int bits, Uint8List out,
     {List<(int, int)>? colorKey}) {
-  final paletteInfo = _indexedPalette(cos, dict);
+  final paletteInfo =
+      _indexedPalette(cos, dict, intent: _imageRenderingIntent(cos, dict));
   if (paletteInfo == null) return null;
   final palette = paletteInfo.$1;
   final paletteCount = paletteInfo.$2;
@@ -2884,7 +3073,8 @@ Uint8List? _indexedToRgba(CosDocument cos, CosDictionary dict, Uint8List data,
   return out;
 }
 
-(Uint8List, int)? _indexedPalette(CosDocument cos, CosDictionary dict) {
+(Uint8List, int)? _indexedPalette(CosDocument cos, CosDictionary dict,
+    {PdfRenderingIntent intent = PdfRenderingIntent.relativeColorimetric}) {
   final space = cos.resolve(dict['ColorSpace']);
   if (space is! CosArray || space.length < 4) return null;
   // A Lab base palette is decoded through the CIE machinery - without this it
@@ -2909,8 +3099,15 @@ Uint8List? _indexedToRgba(CosDocument cos, CosDictionary dict, Uint8List data,
           (baseFamily.value == 'Separation' || baseFamily.value == 'DeviceN')
       ? PdfColorSpace.parse(cos, baseObj)
       : null;
+  final iccBase = labBase == null &&
+          tintBase == null &&
+          baseFamily is CosName &&
+          baseFamily.value == 'ICCBased'
+      ? PdfColorSpace.parse(cos, baseObj)
+      : null;
   final components = labBase?.components ??
       tintBase?.channels ??
+      iccBase?.channels ??
       switch (_familyOf(cos, space[1])) {
         'DeviceRGB' => 3,
         'DeviceGray' => 1,
@@ -2934,16 +3131,20 @@ Uint8List? _indexedToRgba(CosDocument cos, CosDictionary dict, Uint8List data,
   for (var p = 0; p < paletteCount; p++) {
     final src = p * components;
     if (labBase != null) {
-      final color = labBase.toSrgbFromSamples(
-          [for (var c = 0; c < components; c++) lookup[src + c]]);
+      final samples = [for (var c = 0; c < components; c++) lookup[src + c]];
+      final fallback = labBase.toSrgbFromSamples(samples);
+      final color = PdfColorContext.forDocument(cos).pcsToSrgb(
+          labBase.toPcsFromSamples(samples), fallback,
+          intent: intent);
       palette[p * 3] = (color.red * 255).round().clamp(0, 255);
       palette[p * 3 + 1] = (color.green * 255).round().clamp(0, 255);
       palette[p * 3 + 2] = (color.blue * 255).round().clamp(0, 255);
       continue;
     }
-    if (tintBase != null) {
-      final color = tintBase.toSrgbFromSamples(
-          [for (var c = 0; c < components; c++) lookup[src + c]]);
+    final managedBase = tintBase ?? iccBase;
+    if (managedBase != null) {
+      final color = managedBase.toSrgbFromSamplesIntent(
+          [for (var c = 0; c < components; c++) lookup[src + c]], intent);
       palette[p * 3] = (color.red * 255).round().clamp(0, 255);
       palette[p * 3 + 1] = (color.green * 255).round().clamp(0, 255);
       palette[p * 3 + 2] = (color.blue * 255).round().clamp(0, 255);
@@ -2957,8 +3158,12 @@ Uint8List? _indexedToRgba(CosDocument cos, CosDictionary dict, Uint8List data,
       case 1:
         palette[p * 3] = palette[p * 3 + 1] = palette[p * 3 + 2] = lookup[src];
       case 4:
-        final color = PdfColor.cmyk(lookup[src] / 255, lookup[src + 1] / 255,
-            lookup[src + 2] / 255, lookup[src + 3] / 255);
+        final color = PdfColorContext.forDocument(cos).deviceCmyk(
+            lookup[src] / 255,
+            lookup[src + 1] / 255,
+            lookup[src + 2] / 255,
+            lookup[src + 3] / 255,
+            intent: intent);
         palette[p * 3] = (color.red * 255).round();
         palette[p * 3 + 1] = (color.green * 255).round();
         palette[p * 3 + 2] = (color.blue * 255).round();

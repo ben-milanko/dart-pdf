@@ -91,6 +91,15 @@ void main() {
       expect(editor.impact.annotationPages, isEmpty);
     });
 
+    test('form removal reports widget-list invalidation', () {
+      final editor = PdfEditor(PdfDocument.open(buildAcroFormPdf()));
+      editor.removeField(editor.acroForm!.fieldNamed('name')!);
+
+      expect(editor.impact.visualPages, {0});
+      expect(editor.impact.contentPages, isEmpty);
+      expect(editor.impact.annotationPages, {0});
+    });
+
     test('outline edits report metadata-only impact', () {
       final editor = PdfEditor(PdfDocument.open(buildClassicPdf()))
         ..addOutlineItem('Start', pageIndex: 0);

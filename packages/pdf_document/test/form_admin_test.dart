@@ -49,8 +49,7 @@ void main() {
 
     test('field names must be unique', () {
       final editor = PdfEditor(PdfDocument.open(buildAcroFormPdf()));
-      expect(
-          () => editor.addTextField(0, 'name', const PdfRect(0, 0, 10, 10)),
+      expect(() => editor.addTextField(0, 'name', const PdfRect(0, 0, 10, 10)),
           throwsArgumentError);
     });
   });
@@ -72,8 +71,7 @@ void main() {
       expect(content, contains('40 0 0 40 30 0 cm'));
       expect(content, contains('/Img0 Do'));
       final resources = out.cos.resolve(n.dictionary['Resources']);
-      final xobjects =
-          out.cos.resolve((resources as CosDictionary)['XObject']);
+      final xobjects = out.cos.resolve((resources as CosDictionary)['XObject']);
       final image =
           out.cos.resolve((xobjects as CosDictionary)['Img0']) as CosStream;
       expect(image.dictionary['Width'], const CosInteger(2));
@@ -133,8 +131,8 @@ void main() {
       final editor = PdfEditor(doc);
       final field = editor.acroForm!.fieldNamed('name')!;
       final annots = doc.cos.resolve(doc.page(0).dict['Annots']) as CosArray;
-      annots.items.removeWhere(
-          (item) => identical(doc.cos.resolve(item), field.dict));
+      annots.items
+          .removeWhere((item) => identical(doc.cos.resolve(item), field.dict));
       editor.removeField(field); // must not throw
       // the field is gone and not resurrected: with its widget on no page,
       // orphan-widget reconciliation has nothing to re-adopt.
@@ -143,8 +141,7 @@ void main() {
   });
 
   group('type change', () {
-    test('text becomes an image-capable push button, same name and rect',
-        () {
+    test('text becomes an image-capable push button, same name and rect', () {
       final editor = PdfEditor(PdfDocument.open(buildAcroFormPdf()));
       final rebuilt = editor.changeFieldType(
           editor.acroForm!.fieldNamed('name')!, PdfFieldType.pushButton);
@@ -153,8 +150,7 @@ void main() {
 
       final out = PdfDocument.open(editor.save());
       final form = PdfAcroForm.of(out)!;
-      final info =
-          form.describeFields().firstWhere((i) => i.name == 'name');
+      final info = form.describeFields().firstWhere((i) => i.name == 'name');
       expect(info.type, PdfFieldType.pushButton);
       expect(info.pageIndex, 0);
       expect(info.rect, const PdfRect(72, 700, 300, 724));
@@ -202,6 +198,74 @@ void main() {
       expect(_flattenedContent(out), contains('(Jane) Tj'));
     });
 
+    test('flattenForm also materializes empty field appearances', () {
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+      final field = editor.addTextField(
+        0,
+        'empty',
+        const PdfRect(72, 700, 300, 724),
+      );
+      field.dict['MK'] = CosDictionary({
+        'BG': CosArray([
+          const CosInteger(1),
+          const CosInteger(1),
+          const CosInteger(0),
+        ]),
+        'BC': CosArray([
+          const CosInteger(0),
+          const CosInteger(0),
+          const CosInteger(1),
+        ]),
+      });
+      field.dict['BS'] = CosDictionary({'W': const CosInteger(2)});
+
+      expect(
+        PdfAnnotation.fromDict(editor.document, field.dict).normalAppearance,
+        isNull,
+      );
+      editor.flattenForm();
+
+      final out = PdfDocument.open(editor.save());
+      expect(PdfAcroForm.of(out)!.fields, isEmpty);
+      expect(out.page(0).annotations, isEmpty);
+      final flattened = _flattenedContent(out);
+      expect(flattened, contains('1 1 0 rg'));
+      expect(flattened, contains('0 0 1 RG'));
+    });
+
+    test('flattenForm materializes a missing push-button appearance', () {
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+      final field = editor.addPushButtonField(
+        0,
+        'blank-button',
+        const PdfRect(72, 650, 180, 686),
+      );
+      field.dict
+        ..entries.remove('AP')
+        ..['MK'] = CosDictionary({
+          'BG': CosArray([
+            const CosInteger(0),
+            const CosInteger(1),
+            const CosInteger(0),
+          ]),
+          'BC': CosArray([
+            const CosInteger(1),
+            const CosInteger(0),
+            const CosInteger(0),
+          ]),
+        })
+        ..['BS'] = CosDictionary({'W': const CosInteger(2)});
+
+      editor.flattenForm();
+
+      final out = PdfDocument.open(editor.save());
+      expect(PdfAcroForm.of(out)!.fields, isEmpty);
+      expect(out.page(0).annotations, isEmpty);
+      final flattened = _flattenedContent(out);
+      expect(flattened, contains('0 1 0 rg'));
+      expect(flattened, contains('1 0 0 RG'));
+    });
+
     test('broken widgets cannot derail flattening', () {
       final doc = PdfDocument.open(buildAcroFormPdf());
       // corrupt one widget: junk /Rect and a dangling /AP reference
@@ -222,8 +286,7 @@ void main() {
 /// Concatenated content of every FlatAnnot form XObject on page 0.
 String _flattenedContent(PdfDocument doc) {
   final resources = doc.cos.resolve(doc.page(0).dict['Resources']);
-  final xobjects =
-      doc.cos.resolve((resources as CosDictionary)['XObject']);
+  final xobjects = doc.cos.resolve((resources as CosDictionary)['XObject']);
   final out = StringBuffer();
   for (final entry in (xobjects as CosDictionary).entries.entries) {
     if (!entry.key.startsWith('FlatAnnot')) continue;

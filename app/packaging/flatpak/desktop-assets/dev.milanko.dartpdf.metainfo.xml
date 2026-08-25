@@ -95,6 +95,17 @@
     <!-- Generated from app/fastlane/metadata/android/en-US/changelogs/ and
          app/release-notes/. Newest first; keep the top entry in sync with the
          version the Flatpak/AUR packages pin. -->
+    <release version="4.0.0" date="2026-08-25">
+      <description>
+        <ul>
+          <li>Add dockable, slimmer editor controls and improve page and recent-file navigation.</li>
+          <li>Auto-fit text boxes, flatten selected annotations, and reliably flatten empty form fields.</li>
+          <li>Improve colour, overprint, transparency, soft-mask, high-bit-depth image, and font rendering in demanding PDFs.</li>
+          <li>Accelerate blends, transparency groups, images, hairlines, and exact text through the optional GPU renderer.</li>
+          <li>Improve drag-and-drop, document scanning, file-opening errors, and thumbnail persistence.</li>
+        </ul>
+      </description>
+    </release>
     <release version="3.8.0" date="2026-08-23">
       <description>
         <ul>

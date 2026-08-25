@@ -5,6 +5,18 @@ class FlutterGpuTileBackendStats {
   int? lastContextIdentity;
   int contextsSeen = 0;
   int contextSwitches = 0;
+  int warmUpRequests = 0;
+  int warmUpSubmissions = 0;
+  int warmUpCompletions = 0;
+  int warmUpFailures = 0;
+  int warmUpMicros = 0;
+  String? lastWarmUpError;
+  int sceneWarmUpRequests = 0;
+  int sceneWarmUpCompletions = 0;
+  int sceneWarmUpFailures = 0;
+  int sceneWarmUpCancellations = 0;
+  int sceneWarmUpMicros = 0;
+  String? lastSceneWarmUpError;
   int sessionsCreated = 0;
   int sessionsRejected = 0;
   int sessionsDisposed = 0;
@@ -16,8 +28,22 @@ class FlutterGpuTileBackendStats {
   int compileMicros = 0;
   int geometryBuffers = 0;
   int geometryVertices = 0;
+  int analyticTextRuns = 0;
+  int analyticGlyphQuads = 0;
+  int analyticGlyphSlots = 0;
+  int analyticAtlasBytes = 0;
+  int analyticAtlasFallbacks = 0;
+  int analyticTextFallbackRuns = 0;
   int clipPathsCompiled = 0;
   int clipMaskRebuilds = 0;
+  int advancedBlendPasses = 0;
+  int advancedBlendAllocatedBytes = 0;
+  int peakAdvancedBlendBytes = 0;
+  int advancedBlendBudgetFallbacks = 0;
+  int offscreenGroupPasses = 0;
+  int offscreenGroupAllocatedBytes = 0;
+  int peakOffscreenGroupBytes = 0;
+  int offscreenGroupBudgetFallbacks = 0;
   int geometryBudgetFallbacks = 0;
   int activeGeometryLeases = 0;
   int geometryBytes = 0;
@@ -50,6 +76,18 @@ class FlutterGpuTileBackendStats {
         'lastContextIdentity': lastContextIdentity,
         'contextsSeen': contextsSeen,
         'contextSwitches': contextSwitches,
+        'warmUpRequests': warmUpRequests,
+        'warmUpSubmissions': warmUpSubmissions,
+        'warmUpCompletions': warmUpCompletions,
+        'warmUpFailures': warmUpFailures,
+        'warmUpMicros': warmUpMicros,
+        'lastWarmUpError': lastWarmUpError,
+        'sceneWarmUpRequests': sceneWarmUpRequests,
+        'sceneWarmUpCompletions': sceneWarmUpCompletions,
+        'sceneWarmUpFailures': sceneWarmUpFailures,
+        'sceneWarmUpCancellations': sceneWarmUpCancellations,
+        'sceneWarmUpMicros': sceneWarmUpMicros,
+        'lastSceneWarmUpError': lastSceneWarmUpError,
         'sessionsCreated': sessionsCreated,
         'sessionsRejected': sessionsRejected,
         'sessionsDisposed': sessionsDisposed,
@@ -61,8 +99,22 @@ class FlutterGpuTileBackendStats {
         'compileMicros': compileMicros,
         'geometryBuffers': geometryBuffers,
         'geometryVertices': geometryVertices,
+        'analyticTextRuns': analyticTextRuns,
+        'analyticGlyphQuads': analyticGlyphQuads,
+        'analyticGlyphSlots': analyticGlyphSlots,
+        'analyticAtlasBytes': analyticAtlasBytes,
+        'analyticAtlasFallbacks': analyticAtlasFallbacks,
+        'analyticTextFallbackRuns': analyticTextFallbackRuns,
         'clipPathsCompiled': clipPathsCompiled,
         'clipMaskRebuilds': clipMaskRebuilds,
+        'advancedBlendPasses': advancedBlendPasses,
+        'advancedBlendAllocatedBytes': advancedBlendAllocatedBytes,
+        'peakAdvancedBlendBytes': peakAdvancedBlendBytes,
+        'advancedBlendBudgetFallbacks': advancedBlendBudgetFallbacks,
+        'offscreenGroupPasses': offscreenGroupPasses,
+        'offscreenGroupAllocatedBytes': offscreenGroupAllocatedBytes,
+        'peakOffscreenGroupBytes': peakOffscreenGroupBytes,
+        'offscreenGroupBudgetFallbacks': offscreenGroupBudgetFallbacks,
         'geometryBudgetFallbacks': geometryBudgetFallbacks,
         'activeGeometryLeases': activeGeometryLeases,
         'geometryBytes': geometryBytes,
@@ -100,13 +152,39 @@ class FlutterGpuTileBackendStats {
     sessionsDisposed = 0;
     rasterFallbacks = 0;
     contextSwitches = 0;
+    warmUpRequests = 0;
+    warmUpSubmissions = 0;
+    warmUpCompletions = 0;
+    warmUpFailures = 0;
+    warmUpMicros = 0;
+    lastWarmUpError = null;
+    sceneWarmUpRequests = 0;
+    sceneWarmUpCompletions = 0;
+    sceneWarmUpFailures = 0;
+    sceneWarmUpCancellations = 0;
+    sceneWarmUpMicros = 0;
+    lastSceneWarmUpError = null;
     peakActiveSessions = activeSessions;
     overprintApproximationSessions = 0;
     scenesCompiled = 0;
     compileMicros = 0;
     geometryVertices = 0;
+    analyticTextRuns = 0;
+    analyticGlyphQuads = 0;
+    analyticGlyphSlots = 0;
+    analyticAtlasBytes = 0;
+    analyticAtlasFallbacks = 0;
+    analyticTextFallbackRuns = 0;
     clipPathsCompiled = 0;
     clipMaskRebuilds = 0;
+    advancedBlendPasses = 0;
+    advancedBlendAllocatedBytes = 0;
+    peakAdvancedBlendBytes = 0;
+    advancedBlendBudgetFallbacks = 0;
+    offscreenGroupPasses = 0;
+    offscreenGroupAllocatedBytes = 0;
+    peakOffscreenGroupBytes = 0;
+    offscreenGroupBudgetFallbacks = 0;
     geometryBudgetFallbacks = 0;
     peakGeometryBytes = geometryBytes;
     texturesUploaded = 0;
@@ -134,12 +212,32 @@ class FlutterGpuTileBackendStats {
   String toString() => 'sessions=$sessionsCreated rejected=$sessionsRejected '
       'disposed=$sessionsDisposed rasterFallbacks=$rasterFallbacks '
       'contexts=$contextsSeen contextSwitches=$contextSwitches '
+      'warmUpRequests=$warmUpRequests warmUpSubmissions=$warmUpSubmissions '
+      'warmUpCompletions=$warmUpCompletions warmUpFailures=$warmUpFailures '
+      'warmUpUs=$warmUpMicros '
+      'sceneWarmUpRequests=$sceneWarmUpRequests '
+      'sceneWarmUpCompletions=$sceneWarmUpCompletions '
+      'sceneWarmUpFailures=$sceneWarmUpFailures '
+      'sceneWarmUpCancellations=$sceneWarmUpCancellations '
+      'sceneWarmUpUs=$sceneWarmUpMicros '
       'lastContext=$lastContextIdentity '
       'activeSessions=$activeSessions peakActiveSessions=$peakActiveSessions '
       'overprintApprox=$overprintApproximationSessions '
       'compiled=$scenesCompiled compileUs=$compileMicros '
       'buffers=$geometryBuffers vertices=$geometryVertices '
+      'analyticRuns=$analyticTextRuns analyticQuads=$analyticGlyphQuads '
+      'analyticSlots=$analyticGlyphSlots atlasBytes=$analyticAtlasBytes '
+      'analyticAtlasFallbacks=$analyticAtlasFallbacks '
+      'analyticFallbackRuns=$analyticTextFallbackRuns '
       'clips=$clipPathsCompiled clipRebuilds=$clipMaskRebuilds '
+      'advancedBlendPasses=$advancedBlendPasses '
+      'advancedBlendAllocatedBytes=$advancedBlendAllocatedBytes '
+      'peakAdvancedBlendBytes=$peakAdvancedBlendBytes '
+      'advancedBlendBudgetFallbacks=$advancedBlendBudgetFallbacks '
+      'groupPasses=$offscreenGroupPasses '
+      'groupAllocatedBytes=$offscreenGroupAllocatedBytes '
+      'peakGroupBytes=$peakOffscreenGroupBytes '
+      'groupBudgetFallbacks=$offscreenGroupBudgetFallbacks '
       'geometryBudgetFallbacks=$geometryBudgetFallbacks '
       'activeGeometryLeases=$activeGeometryLeases '
       'geometryBytes=$geometryBytes peakGeometryBytes=$peakGeometryBytes '

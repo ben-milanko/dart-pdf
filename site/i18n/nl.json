@@ -131,7 +131,7 @@
   "sp_faq2": "<strong>Hoe open ik een PDF?</strong> Open DartPDF en kies een bestand, open een PDF vanuit de Bestanden-app, stuur er een naar DartPDF vanuit het deelvenster van een andere app, of sleep een bestand op het venster.",
   "sp_faq3": "<strong>Kan ik met een wachtwoord beveiligde PDF's openen?</strong> Ja. DartPDF vraagt om het wachtwoord en opent versleutelde bestanden voor weergave en bewerking.",
   "sp_faq4": "<strong>Hoe werkt OCR?</strong> Optische tekenherkenning draait volledig op je apparaat. Bij het eerste gebruik downloadt de app het herkenningsmodel, waarna alle verwerking lokaal plaatsvindt - je pagina's worden nooit naar een server verzonden.",
-  "sp_faq5": "<strong>Zijn mijn gegevens privé?</strong> Ja. DartPDF heeft geen analytics, geen advertenties, geen accounts en geen servers. Zie het <a href=\"privacy.html\">privacybeleid</a> voor de details.",
+  "sp_faq5": "<strong>Zijn mijn gegevens privé?</strong> Ja. DartPDF heeft geen analytics, geen advertenties, geen accounts en geen servers. Zie het <a href=\"/privacy\">privacybeleid</a> voor de details.",
   "sp_stuckH2": "Nog steeds vast?",
   "sp_stuck_p": "Stuur een e-mail naar <a href=\"mailto:ben.milanko@protonmail.com?subject=DartPDF%20support\">ben.milanko@protonmail.com</a> en beschrijf wat je probeerde te doen. We lezen elk bericht.",
 

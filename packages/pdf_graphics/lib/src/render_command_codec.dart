@@ -54,7 +54,7 @@ import 'text_extraction.dart';
 /// Format: little notion of versioning beyond a leading byte; the producer and
 /// consumer are the same build, shipped together, so a version mismatch is a
 /// programming error, asserted on read.
-const int _formatVersion = 7;
+const int _formatVersion = 8;
 
 /// Microseconds spent reconstructing worker command buffers on the consuming
 /// isolate. Accumulated for performance probes; this is the UI-thread half of
@@ -718,10 +718,21 @@ void _writeCommand(_Writer w, PdfRenderCommand command, CosDocument? cos,
       w.boolean(fill);
       w.boolean(stroke);
       w.u8(mode);
-    case PdfBeginGroupCommand(:final alpha, :final knockout):
+    case PdfBeginGroupCommand(
+        :final alpha,
+        :final knockout,
+        :final isolated,
+        :final bounds,
+        :final backdropColor
+      ):
       w.u8(_tBeginGroup);
       w.f64(alpha);
       w.boolean(knockout);
+      w.boolean(isolated);
+      w.boolean(bounds != null);
+      if (bounds != null) _writeRect(w, bounds);
+      w.boolean(backdropColor != null);
+      if (backdropColor != null) _writeColor(w, backdropColor);
     case PdfEndGroupCommand():
       w.u8(_tEndGroup);
     case PdfBeginSoftMaskedCommand():
@@ -775,6 +786,7 @@ _CommandImage? _decodeImageForCommand(
   PdfRect? imageDecodeRegion,
   PdfImageDecodeCache? imageCache,
 ) {
+  final decodeCache = request.isLuminosityMask ? null : imageCache;
   final predecoded = request.decoded;
   final regionPlan = imageDecodeRegion == null
       ? null
@@ -803,7 +815,7 @@ _CommandImage? _decodeImageForCommand(
         regionPlan.targetWidth,
         regionPlan.targetHeight,
       );
-    } else if (imageCache != null &&
+    } else if (decodeCache != null &&
         pdfImageDecodeIgnoresRegion(document, request.stream)) {
       // DCT has no region/scaled entropy path: decodePdfImage(region:) already
       // decodes the whole JPEG and then crops it. Retain that native result so
@@ -812,7 +824,7 @@ _CommandImage? _decodeImageForCommand(
       // This is byte-identical to the generic region fallback by definition of
       // pdfImageDecodeIgnoresRegion; formats with true region decoders never
       // enter this branch.
-      final full = imageCache.decode(request.stream, null, null,
+      final full = decodeCache.decode(request.stream, null, null,
           () => decodePdfImagePixels(document, request.stream));
       decoded = full == null
           ? null
@@ -829,7 +841,8 @@ _CommandImage? _decodeImageForCommand(
       decoded = decodePdfImage(document, request.stream,
           region: region,
           targetWidth: regionPlan.targetWidth,
-          targetHeight: regionPlan.targetHeight);
+          targetHeight: regionPlan.targetHeight,
+          luminosityMask: request.isLuminosityMask);
     }
     if (decoded != null) {
       final croppedRequest = _copyImageRequest(request,
@@ -839,10 +852,33 @@ _CommandImage? _decodeImageForCommand(
     }
   }
   if (predecoded != null) {
-    final decoded = maxImageRatio == null
-        ? predecoded
-        : _capImageResolution(
-            predecoded, request.transform, maxImageRatio, budgetScale);
+    // A producer may attach pixels that are already capped to this exact
+    // display/page budget (the web worker's browser-native Flate path does).
+    // Derive the final target from the source stream, not from the attached
+    // plane: treating that smaller plane as native applies [budgetScale] a
+    // second time, paying for another downsample and shipping blurry pixels.
+    final target = maxImageRatio == null
+        ? null
+        : _targetDecodedSize(
+            document,
+            request,
+            maxImageRatio,
+            budgetScale,
+          );
+    final targetWidth = target == null
+        ? predecoded.width
+        : math.min(predecoded.width, target.$1);
+    final targetHeight = target == null
+        ? predecoded.height
+        : math.min(predecoded.height, target.$2);
+    final decoded =
+        targetWidth == predecoded.width && targetHeight == predecoded.height
+            ? predecoded
+            : downsamplePdfDecodedPixels(
+                predecoded,
+                targetWidth,
+                targetHeight,
+              );
     return _CommandImage(_copyImageRequest(request, decoded: decoded), decoded);
   }
   if (maxImageRatio != null) {
@@ -860,17 +896,19 @@ _CommandImage? _decodeImageForCommand(
       // target anyway, retain the native decode and downsample it here, which
       // is precisely what decodePdfImage(target) does internally.
       final PdfDecodedPixels? scaled;
-      if (imageCache == null) {
+      if (decodeCache == null) {
         scaled = decodePdfImage(document, request.stream,
-            targetWidth: target.$1, targetHeight: target.$2);
+            targetWidth: target.$1,
+            targetHeight: target.$2,
+            luminosityMask: request.isLuminosityMask);
       } else if (pdfImageDecodeIgnoresTarget(document, request.stream)) {
-        final full = imageCache.decode(request.stream, null, null,
+        final full = decodeCache.decode(request.stream, null, null,
             () => decodePdfImagePixels(document, request.stream));
         scaled = full == null
             ? null
             : downsamplePdfDecodedPixels(full, target.$1, target.$2);
       } else {
-        scaled = imageCache.decode(
+        scaled = decodeCache.decode(
             request.stream,
             target.$1,
             target.$2,
@@ -883,9 +921,10 @@ _CommandImage? _decodeImageForCommand(
       }
     }
   }
-  final decoded = imageCache == null
-      ? decodePdfImagePixels(document, request.stream)
-      : imageCache.decode(request.stream, null, null,
+  final decoded = decodeCache == null
+      ? decodePdfImagePixels(document, request.stream,
+          luminosityMask: request.isLuminosityMask)
+      : decodeCache.decode(request.stream, null, null,
           () => decodePdfImagePixels(document, request.stream));
   if (decoded == null) return null;
   final capped = maxImageRatio == null
@@ -1068,6 +1107,7 @@ PdfImageRequest _copyImageRequest(
       isStencil: request.isStencil,
       stencilColor: request.stencilColor,
       isInline: request.isInline,
+      isLuminosityMask: request.isLuminosityMask,
       decoded: decoded ?? request.decoded,
       sourceReference: request.sourceReference,
     );
@@ -1124,6 +1164,7 @@ void _writeImageCommand(
   _writeMatrix(w, request.transform);
   w.f64(request.alpha);
   w.boolean(request.isStencil);
+  w.boolean(request.isLuminosityMask);
   _writeColor(w, request.stencilColor);
   w.boolean(sourceReference != null);
   if (sourceReference != null) {
@@ -1185,6 +1226,7 @@ PdfRenderCommand _readCommand(_Reader r) {
       final transform = _readMatrix(r);
       final alpha = r.f64();
       final isStencil = r.boolean();
+      final isLuminosityMask = r.boolean();
       final stencilColor = _readColor(r);
       final hasSourceReference = r.boolean();
       final sourceReference =
@@ -1207,6 +1249,7 @@ PdfRenderCommand _readCommand(_Reader r) {
         transform: transform,
         alpha: alpha,
         isStencil: isStencil,
+        isLuminosityMask: isLuminosityMask,
         stencilColor: stencilColor,
         isInline: !hasSourceReference,
         decoded: decoded,
@@ -1222,7 +1265,14 @@ PdfRenderCommand _readCommand(_Reader r) {
     case _tBeginGroup:
       final alpha = r.f64();
       final knockout = r.boolean();
-      return PdfBeginGroupCommand(alpha, knockout: knockout);
+      final isolated = r.boolean();
+      final bounds = r.boolean() ? _readRect(r) : null;
+      final backdropColor = r.boolean() ? _readColor(r) : null;
+      return PdfBeginGroupCommand(alpha,
+          knockout: knockout,
+          isolated: isolated,
+          bounds: bounds,
+          backdropColor: backdropColor);
     case _tEndGroup:
       return const PdfEndGroupCommand();
     case _tBeginSoftMasked:

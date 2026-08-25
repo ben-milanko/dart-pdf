@@ -2522,10 +2522,10 @@ abstract class DartPdfEditorLocalizations {
   /// **'Align vertical centers'**
   String get tbAlignVerticalCenters;
 
-  /// Snackbar confirming annotations were baked into the page content.
+  /// Snackbar confirming annotations and form fields were baked into the page content.
   ///
   /// In en, this message translates to:
-  /// **'Annotations flattened into the pages'**
+  /// **'Annotations and form fields flattened into the pages'**
   String get tbAnnotationsFlattened;
 
   /// Warning body in the redaction confirmation dialog.
@@ -2551,6 +2551,12 @@ abstract class DartPdfEditorLocalizations {
   /// In en, this message translates to:
   /// **'Autosize text box (Alt+Z)'**
   String get tbAutosizeTextBox;
+
+  /// Tooltip for choosing the largest font size that fits the selected free-text box.
+  ///
+  /// In en, this message translates to:
+  /// **'Fit font to text box'**
+  String get tbAutosizeTextFont;
 
   /// Snackbar guiding the user to draw a reference line when calibrating a measurement scale.
   ///
@@ -2756,10 +2762,10 @@ abstract class DartPdfEditorLocalizations {
   /// **'Finger scrolls (pen draws) - tap so it draws'**
   String get tbFingerScrolls;
 
-  /// Tooltip for the button that bakes annotations into page content.
+  /// Tooltip for the button that bakes annotations and form fields into page content.
   ///
   /// In en, this message translates to:
-  /// **'Flatten annotations into the pages'**
+  /// **'Flatten annotations and form fields into the pages'**
   String get tbFlattenAnnotationsTooltip;
 
   /// Menu item that flattens the form fields into the pages.
@@ -3104,10 +3110,10 @@ abstract class DartPdfEditorLocalizations {
   /// **'New field type - drag on a page to add one'**
   String get tbNewFieldType;
 
-  /// Snackbar shown when the flatten action runs but there are no annotations.
+  /// Snackbar shown when the flatten action runs but there are no annotations or form fields.
   ///
   /// In en, this message translates to:
-  /// **'No annotations to flatten'**
+  /// **'No annotations or form fields to flatten'**
   String get tbNoAnnotationsToFlatten;
 
   /// Placeholder shown in the stamp menu when no custom stamps are saved.

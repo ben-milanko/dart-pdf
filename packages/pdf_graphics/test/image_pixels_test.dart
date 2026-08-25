@@ -65,6 +65,35 @@ void main() {
     expect(pixels.rgba, [100, 100, 100, 255, 200, 200, 200, 255]);
   });
 
+  test('a luminosity-mask image keeps native gray under an OutputIntent', () {
+    final file = File(
+        '../../test_corpora/ghent/1-CMYK/GWG168_Softmasks_Vector_part1_X4.pdf');
+    if (!file.existsSync()) {
+      markTestSkipped('test_corpora/ghent not found');
+      return;
+    }
+    final document = CosDocument.open(file.readAsBytesSync());
+    // Object 27 is the grayscale inner-shadow luminosity mask. Its zero
+    // samples must remain alpha 0. Treating DeviceGray as page colour would
+    // convert zero through the CMYK OutputIntent to its non-zero paper black,
+    // leaving the GWG shadow and bevel masks partially opaque everywhere.
+    final stream = document.getObject(27, 0) as CosStream;
+    final native =
+        decodePdfImagePixels(document, stream, luminosityMask: true)!;
+    final managed = decodePdfImagePixels(document, stream)!;
+
+    final nativeGray = <int>[
+      for (var i = 0; i < native.rgba.length; i += 4) native.rgba[i],
+    ];
+    final managedGray = <int>[
+      for (var i = 0; i < managed.rgba.length; i += 4) managed.rgba[i],
+    ];
+    expect(nativeGray.reduce((a, b) => a < b ? a : b), 0);
+    expect(nativeGray.reduce((a, b) => a > b ? a : b), 255);
+    expect(managedGray.reduce((a, b) => a < b ? a : b), greaterThan(0));
+    expect(native.rgba, isNot(equals(managed.rgba)));
+  });
+
   test('ICCBased 8-bit RGB decodes through the embedded profile', () {
     // The profile stream's /N picks the device family; the parsed AdobeRGB
     // profile is applied per pixel (littleCMS reference in icc_test:
@@ -189,7 +218,10 @@ void main() {
       'BitsPerComponent': const CosInteger(8),
       'ColorSpace': const CosName('DeviceRGB'),
       'Filter': const CosName('JPXDecode'),
-    }, const [0, 0]); // not a codestream at all: the decoder bails
+    }, const [
+      0,
+      0
+    ]); // not a codestream at all: the decoder bails
     expect(pdfImageSoftMask(cos, CosDictionary({'SMask': smask})), isNull);
   });
 

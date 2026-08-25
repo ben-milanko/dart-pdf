@@ -131,7 +131,7 @@
   "sp_faq2": "<strong>PDF는 어떻게 여나요?</strong> DartPDF를 열어 파일을 고르거나, Files 앱에서 PDF를 열거나, 다른 앱의 공유 시트에서 DartPDF로 보내거나, 파일을 창에 끌어다 놓으세요.",
   "sp_faq3": "<strong>암호로 보호된 PDF를 열 수 있나요?</strong> 네. DartPDF는 암호를 입력하도록 안내하고 암호화된 파일을 보기 및 편집용으로 엽니다.",
   "sp_faq4": "<strong>OCR은 어떻게 작동하나요?</strong> 광학 문자 인식은 전적으로 기기에서 실행됩니다. 최초 사용 시 앱이 인식 모델을 다운로드한 뒤 모든 처리가 로컬에서 이루어지며, 페이지는 절대 서버로 전송되지 않습니다.",
-  "sp_faq5": "<strong>내 데이터는 안전한가요?</strong> 네. DartPDF에는 분석, 광고, 계정, 서버가 없습니다. 자세한 내용은 <a href=\"privacy.html\">개인정보 처리방침</a>을 참고하세요.",
+  "sp_faq5": "<strong>내 데이터는 안전한가요?</strong> 네. DartPDF에는 분석, 광고, 계정, 서버가 없습니다. 자세한 내용은 <a href=\"/privacy\">개인정보 처리방침</a>을 참고하세요.",
   "sp_stuckH2": "여전히 해결되지 않나요?",
   "sp_stuck_p": "<a href=\"mailto:ben.milanko@protonmail.com?subject=DartPDF%20support\">ben.milanko@protonmail.com</a>로 무엇을 하려고 했는지 설명해 이메일을 보내주세요. 모든 메시지를 읽습니다.",
 

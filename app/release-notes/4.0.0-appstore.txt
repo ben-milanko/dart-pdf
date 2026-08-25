@@ -1,0 +1,7 @@
+New in 4.0.0
+
+- Use slimmer, dockable editor controls and improved page, panel, and recent-document navigation.
+- Auto-fit free text to its box, flatten only the annotations you select, and reliably flatten empty form fields.
+- View demanding print files more faithfully with improved output-intent colour, overprint, transparency, soft masks, high-bit-depth images, and substituted fonts.
+- Enjoy faster GPU rendering for blends, transparency groups, images, hairlines, and exact text, with background preparation that keeps first use smooth.
+- Get cleaner drag-and-drop, document scanning, file-opening errors, and persistent thumbnails across document sessions.

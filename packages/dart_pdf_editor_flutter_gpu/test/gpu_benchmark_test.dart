@@ -5,6 +5,8 @@ import 'package:dart_pdf_editor_flutter_gpu/dart_pdf_editor_flutter_gpu.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_gpu/gpu.dart' as gpu;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_document/pdf_document.dart' show PdfRect;
+import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 bool _gpuAvailable() {
@@ -31,6 +33,23 @@ Future<int> _timeImage(Future<ui.Image> Function() render) async {
   image.dispose();
   return clock.elapsedMicroseconds;
 }
+
+Future<int> _timeSettledImage(Future<ui.Image> Function() render) async {
+  final clock = Stopwatch()..start();
+  final image = await render();
+  await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+  clock.stop();
+  image.dispose();
+  return clock.elapsedMicroseconds;
+}
+
+PdfPath _rect(double left, double bottom, double right, double top) => PdfPath([
+      PdfMoveTo(left, bottom),
+      PdfLineTo(right, bottom),
+      PdfLineTo(right, top),
+      PdfLineTo(left, top),
+      const PdfClosePath(),
+    ]);
 
 void main() {
   testWidgets('reports cold compile and warm tile replay separately',
@@ -91,6 +110,104 @@ void main() {
       // Keep an always-visible machine-readable-ish line in benchmark runs.
       // ignore: avoid_print
       print(summary);
+    });
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  testWidgets('reports isolated group settle against Canvas', (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+
+      final commands = <PdfRenderCommand>[
+        PdfFillPathCommand(
+          _rect(0, 0, 612, 792),
+          const PdfColor(0.32, 0.4, 0.52),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfBeginGroupCommand(
+          0.72,
+          isolated: true,
+          bounds: PdfRect(40, 80, 572, 730),
+        ),
+      ];
+      for (var index = 0; index < 32; index++) {
+        final offset = index * 11.0;
+        commands.add(PdfFillPathCommand(
+          _rect(
+            45 + offset % 170,
+            90 + offset % 230,
+            355 + offset % 170,
+            430 + offset % 230,
+          ),
+          PdfColor(
+            0.2 + (index % 5) * 0.14,
+            0.18 + (index % 7) * 0.1,
+            0.25 + (index % 4) * 0.16,
+          ),
+          PdfFillRule.nonzero,
+          0.6,
+        ));
+      }
+      commands.add(const PdfEndGroupCommand());
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, commands);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      const region = Rect.fromLTWH(50, 120, 512, 512);
+      final coldGpu = await _timeSettledImage(
+        () => session.rasterizeRegion(region, pixelRatio: 1),
+      );
+      final issueGpu = <int>[];
+      for (var index = 0; index < 7; index++) {
+        issueGpu.add(await _timeImage(
+          () => session.rasterizeRegion(region, pixelRatio: 1),
+        ));
+      }
+      // Wait for the issue-only samples before measuring visual settle.
+      await _timeSettledImage(
+        () => session.rasterizeRegion(region, pixelRatio: 1),
+      );
+
+      final settledGpu = <int>[];
+      final warmCanvas = <int>[];
+      for (var index = 0; index < 7; index++) {
+        if (index.isEven) {
+          settledGpu.add(await _timeSettledImage(
+            () => session.rasterizeRegion(region, pixelRatio: 1),
+          ));
+          warmCanvas.add(await _timeSettledImage(
+            () => scene.rasterizeRegion(region, pixelRatio: 1),
+          ));
+        } else {
+          warmCanvas.add(await _timeSettledImage(
+            () => scene.rasterizeRegion(region, pixelRatio: 1),
+          ));
+          settledGpu.add(await _timeSettledImage(
+            () => session.rasterizeRegion(region, pixelRatio: 1),
+          ));
+        }
+      }
+
+      final issueMedian = _median(issueGpu);
+      final settleMedian = _median(settledGpu);
+      final canvasMedian = _median(warmCanvas);
+      expect(backend.stats.offscreenGroupPasses, 16);
+      expect(backend.stats.offscreenGroupAllocatedBytes, greaterThan(0));
+      // ignore: avoid_print
+      print('flutter_gpu isolated group benchmark: cold=${coldGpu}us '
+          'issueMedian=${issueMedian.toStringAsFixed(0)}us '
+          'settleMedian=${settleMedian.toStringAsFixed(0)}us '
+          'canvasMedian=${canvasMedian.toStringAsFixed(0)}us '
+          'issueVsCanvas=${(issueMedian / canvasMedian).toStringAsFixed(2)}x '
+          'settleVsCanvas=${(settleMedian / canvasMedian).toStringAsFixed(2)}x '
+          '${backend.stats}');
     });
   }, timeout: const Timeout(Duration(minutes: 2)));
 }

@@ -1759,9 +1759,9 @@
   "@tbAlignVerticalCenters": {
     "description": "Tooltip: align selected annotations on their vertical centers."
   },
-  "tbAnnotationsFlattened": "Annotations flattened into the pages",
+  "tbAnnotationsFlattened": "Annotations and form fields flattened into the pages",
   "@tbAnnotationsFlattened": {
-    "description": "Snackbar confirming annotations were baked into the page content."
+    "description": "Snackbar confirming annotations and form fields were baked into the page content."
   },
   "tbApplyRedactionsMessage": "The marked content will be permanently removed from the document. This cannot be undone.",
   "@tbApplyRedactionsMessage": {
@@ -1778,6 +1778,10 @@
   "tbAutosizeTextBox": "Autosize text box (Alt+Z)",
   "@tbAutosizeTextBox": {
     "description": "Tooltip for auto-sizing a free-text box to its content, with keyboard shortcut."
+  },
+  "tbAutosizeTextFont": "Fit font to text box",
+  "@tbAutosizeTextFont": {
+    "description": "Tooltip for choosing the largest font size that fits the selected free-text box."
   },
   "tbCalibrateScaleHint": "Draw a line of known length to calibrate the scale.",
   "@tbCalibrateScaleHint": {
@@ -1930,9 +1934,9 @@
   "@tbFingerScrolls": {
     "description": "Tooltip when finger scrolls and only the pen draws; tapping switches finger to drawing."
   },
-  "tbFlattenAnnotationsTooltip": "Flatten annotations into the pages",
+  "tbFlattenAnnotationsTooltip": "Flatten annotations and form fields into the pages",
   "@tbFlattenAnnotationsTooltip": {
-    "description": "Tooltip for the button that bakes annotations into page content."
+    "description": "Tooltip for the button that bakes annotations and form fields into page content."
   },
   "tbFlattenForm": "Flatten form",
   "@tbFlattenForm": {
@@ -2162,9 +2166,9 @@
   "@tbNewFieldType": {
     "description": "Tooltip for the menu selecting which type of form field a drag will create."
   },
-  "tbNoAnnotationsToFlatten": "No annotations to flatten",
+  "tbNoAnnotationsToFlatten": "No annotations or form fields to flatten",
   "@tbNoAnnotationsToFlatten": {
-    "description": "Snackbar shown when the flatten action runs but there are no annotations."
+    "description": "Snackbar shown when the flatten action runs but there are no annotations or form fields."
   },
   "tbNoCustomStamps": "No custom stamps",
   "@tbNoCustomStamps": {
