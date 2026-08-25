@@ -565,6 +565,7 @@ class _GroupPaintSpec extends _GpuCompositeSpec {
     this.groupAlpha = 1,
     this.offscreen = false,
     this.knockout = false,
+    this.backdropColor,
   });
 
   final List<PdfRenderCommand> commands;
@@ -573,6 +574,7 @@ class _GroupPaintSpec extends _GpuCompositeSpec {
   final double groupAlpha;
   final bool offscreen;
   final bool knockout;
+  final PdfColor? backdropColor;
   @override
   final PdfRect? contentClip;
 }
@@ -1238,6 +1240,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
         :final alpha,
         :final knockout,
         :final isolated,
+        bounds: final groupBounds,
         :final backdropColor,
       )) {
     if (commands[end] is! PdfEndGroupCommand) {
@@ -1492,6 +1495,31 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
         );
       }
       if (backdropColor != null) {
+        final canRenderSeededKnockout = !isolated &&
+            knockout &&
+            alpha == 1 &&
+            initialBlend == PdfBlendMode.normal &&
+            groupBounds != null &&
+            paint.$4 == PdfBlendMode.normal &&
+            switch (paint.$2) {
+              PdfFillPathCommand(:final alpha) => alpha == 1,
+              PdfStrokePathCommand(:final alpha) => alpha == 1,
+              _ => false,
+            };
+        if (canRenderSeededKnockout) {
+          return (
+            _GroupPaintSpec(
+              commands: [paint.$2],
+              paintClips: [paint.$3],
+              paintBlends: [paint.$4],
+              contentClip: groupBounds,
+              offscreen: true,
+              knockout: true,
+              backdropColor: backdropColor,
+            ),
+            null,
+          );
+        }
         return (null, 'non-identity single-paint transparency group');
       }
       return switch (paint.$2) {
@@ -1579,11 +1607,24 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           backdropColor == null &&
           normalPaints &&
           paints.every((paint) => paint.$2 is PdfFillPathCommand);
+      final canRenderSeededKnockout = !isolated &&
+          knockout &&
+          alpha == 1 &&
+          initialBlend == PdfBlendMode.normal &&
+          groupBounds != null &&
+          backdropColor != null &&
+          normalPaints &&
+          paints.every((paint) => switch (paint.$2) {
+                PdfFillPathCommand(:final alpha) => alpha == 1,
+                PdfStrokePathCommand(:final alpha) => alpha == 1,
+                _ => false,
+              });
       final canRenderOffscreen = (isolated &&
               !knockout &&
               backdropColor == null &&
               fixedFunctionPaints) ||
-          canRenderKnockout;
+          canRenderKnockout ||
+          canRenderSeededKnockout;
       if (!canFlatten && !canRenderOffscreen) {
         return (null, 'non-identity multi-paint transparency group');
       }
@@ -1612,10 +1653,15 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           paintClips: List.unmodifiable([for (final paint in paints) paint.$3]),
           paintBlends:
               List.unmodifiable([for (final paint in paints) paint.$4]),
-          contentClip: canFlatten && commonPaintClip ? commonClip : null,
+          contentClip: canRenderSeededKnockout
+              ? groupBounds
+              : canFlatten && commonPaintClip
+                  ? commonClip
+                  : null,
           groupAlpha: alpha,
           offscreen: !canFlatten || !commonPaintClip,
-          knockout: canRenderKnockout,
+          knockout: canRenderKnockout || canRenderSeededKnockout,
+          backdropColor: canRenderSeededKnockout ? backdropColor : null,
         ),
         null,
       );
@@ -3583,13 +3629,14 @@ class _CompiledScene {
       gpu.Texture target,
       gpu.Texture stencilTarget, {
       gpu.Texture? resolveTarget,
+      vm.Vector4? clearValue,
     }) {
       final pass = commandBuffer.createRenderPass(gpu.RenderTarget(
         colorAttachments: [
           gpu.ColorAttachment(
             texture: target,
             resolveTexture: resolveTarget,
-            clearValue: vm.Vector4(0, 0, 0, 0),
+            clearValue: clearValue ?? vm.Vector4.zero(),
             storeAction: resolveTarget == null
                 ? gpu.StoreAction.store
                 : gpu.StoreAction.multisampleResolve,
@@ -3735,11 +3782,20 @@ class _CompiledScene {
       ];
       retainedGroupTextures.addAll(groupAttachments);
       final groupCommandBuffer = context.createCommandBuffer();
+      final backdropColor = draw.backdropColor;
       final groupEncoder = encoderFor(
         createPass(
           groupCommandBuffer,
           groupColor,
           groupStencil,
+          clearValue: backdropColor == null
+              ? null
+              : vm.Vector4(
+                  backdropColor.red,
+                  backdropColor.green,
+                  backdropColor.blue,
+                  1,
+                ),
         ),
         targetRegion: groupRegion,
         targetWidth: groupWidth,
@@ -4092,6 +4148,7 @@ Future<_GpuDraw?> _compileGroupPaint(
           List.unmodifiable(draws),
           spec.groupAlpha,
           math.max(0, paintPadding - 2),
+          backdropColor: spec.backdropColor,
         )
       : _SequenceDraw(List.unmodifiable([for (final draw in draws) draw.$1]));
 }
@@ -5639,12 +5696,17 @@ class _SequenceDraw implements _GpuDraw {
   }
 }
 
-/// A retained isolated group whose overlapping paints must first render onto
-/// a transparent tile-sized attachment. [_CompiledScene] encodes [paints]
+/// A retained group whose overlapping paints must first render onto a bounded
+/// tile-sized attachment. [_CompiledScene] encodes [paints]
 /// into that attachment, then samples the completed texture once into the
 /// page pass with [alpha] and the unit's outer blend mode.
 class _OffscreenGroupDraw implements _GpuDraw {
-  const _OffscreenGroupDraw(this.paints, this.alpha, this.extraPadding);
+  const _OffscreenGroupDraw(
+    this.paints,
+    this.alpha,
+    this.extraPadding, {
+    this.backdropColor,
+  });
 
   /// The third field preserves the paint's internal blend. The fourth selects
   /// shape-limited source replacement for knockout
@@ -5654,6 +5716,7 @@ class _OffscreenGroupDraw implements _GpuDraw {
   final List<(_GpuDraw, PdfRect?, PdfBlendMode, bool)> paints;
   final double alpha;
   final double extraPadding;
+  final PdfColor? backdropColor;
 
   @override
   void encode(_GpuEncoder encoder) =>

@@ -36,6 +36,10 @@
 - Retain isolated knockout groups made entirely from vector fills. Later
   sibling shapes use exact source replacement only inside their retained path,
   while the group's alpha and outer blend remain a single offscreen composite.
+- Retain opaque non-isolated knockout groups whose declared backdrop is one
+  uniform color. The bounded single-sample group target is seeded with that
+  color and clipped to the form BBox, preserving exact Canvas output for
+  ordered vector fills and strokes without admitting unsafe overprint.
 - Retain isolated knockout groups containing a base fill and one
   vector-soft-masked fill, including clipped vector mask bounds.
 - Render overlapping Normal paints in isolated transparency groups into a

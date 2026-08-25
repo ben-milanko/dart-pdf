@@ -98,7 +98,10 @@ associative, so their isolation layer is an identity operation. Nested
 alpha-one identity groups flatten into the same retained parent while keeping
 their distinct per-paint clips. Isolated overlapping groups retain those same
 paint types in the bounded offscreen tile pass before applying group alpha and
-the outer blend once. The intermediate group target stays single-sample while
+the outer blend once. Opaque non-isolated knockout groups with a declared
+uniform backdrop also retain ordered vector fills and strokes: their bounded
+attachment is seeded with that color and clipped to the form BBox. The
+intermediate group target stays single-sample while
 the final page target retains 4x MSAA, avoiding a redundant color/stencil
 raster and resolve. Normal, Multiply, and Screen
 remain per-paint state inside that attachment rather than being collapsed into

@@ -2197,6 +2197,70 @@ void main() {
     });
   });
 
+  testWidgets('opaque knockout groups retain a uniform seeded backdrop',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      const backdrop = PdfColor(0.24, 0.58, 0.72);
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        PdfFillPathCommand(
+          _rect(40, 100, 340, 370),
+          backdrop,
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfBeginGroupCommand(
+          1,
+          knockout: true,
+          bounds: PdfRect(60, 120, 320, 350),
+          backdropColor: backdrop,
+        ),
+        PdfClipPathCommand(_rect(60, 120, 320, 350), PdfFillRule.nonzero),
+        PdfFillPathCommand(
+          _rect(75, 140, 235, 320),
+          const PdfColor(0.95, 0.25, 0.15),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        PdfFillPathCommand(
+          _rect(150, 160, 300, 335),
+          const PdfColor(0.15, 0.42, 0.95),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        PdfStrokePathCommand(
+          _rect(115, 180, 275, 305),
+          const PdfColor(0.2, 0.85, 0.38),
+          const PdfStroke(width: 10),
+          1,
+        ),
+        const PdfEndGroupCommand(),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      const region = Rect.fromLTWH(30, 390, 330, 330);
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1.25);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1.25);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var index = 0; index < a.length; index++) {
+        difference += (a[index] - b[index]).abs();
+      }
+      expect(difference / a.length, lessThan(4));
+      expect(backend.stats.offscreenGroupPasses, 1);
+    });
+  });
+
   testWidgets('isolated knockout groups retain a vector-soft-masked fill',
       (tester) async {
     await tester.runAsync(() async {
