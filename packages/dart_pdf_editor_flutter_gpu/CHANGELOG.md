@@ -2,6 +2,8 @@
 
 ## Next
 
+- Treat C1 controls as non-rendering glyph placements in the exact native
+  outline seam, matching Flutter shaping while preserving their PDF advances.
 - Retain stroke-only and fill-plus-stroke outline text, including page-space
   alpha and zero-width hairlines, by reusing the exact path stroke pipeline.
   Filled glyphs keep the analytic atlas while their stroke overlays in painter
