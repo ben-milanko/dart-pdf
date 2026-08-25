@@ -317,9 +317,17 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
             if (reason != null) return reason;
           case _GroupPaintSpec():
             for (final command in composite.commands) {
-              if (command case PdfDrawTextCommand(:final run)) {
-                final reason = _unsupportedTextReason(run);
-                if (reason != null) return reason;
+              switch (command) {
+                case PdfDrawTextCommand(:final run):
+                  final reason = _unsupportedTextReason(run);
+                  if (reason != null) return reason;
+                case PdfDrawImageCommand(:final request):
+                  if (scene.imageFor(request) == null &&
+                      !scene.imageDecodingAttempted) {
+                    return 'missing transparency-group image pixels';
+                  }
+                default:
+                  break;
               }
             }
             break;
@@ -1306,7 +1314,12 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           if (emptyClipOnly) {
             return (null, 'empty transparency group contains paint');
           }
-          if (softDepth != 1 || content != null) {
+          if (softDepth == 0 && content == null) {
+            paints.add((i, command, clip, blend, false));
+            contentClip = clip;
+            break;
+          }
+          if (softDepth != 1 || content != null || paints.isNotEmpty) {
             return (null, 'soft-mask group is not a single image');
           }
           content = command;
@@ -1468,6 +1481,16 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
               content: content,
               groupAlpha: alpha,
               contentClip: paint.$3,
+            ),
+            null,
+          ),
+        PdfDrawImageCommand content => (
+            _GroupPaintSpec(
+              commands: [content],
+              paintClips: [paint.$3],
+              contentClip: paint.$3,
+              groupAlpha: alpha,
+              offscreen: alpha != 1,
             ),
             null,
           ),
@@ -2966,7 +2989,18 @@ class _CompiledScene {
             _GroupFillSpec spec => _compileGroupFill(geometry, spec),
             _GroupStrokeSpec spec => _compileGroupStroke(geometry, spec),
             _GroupTextSpec spec => _compileGroupText(geometry, spec),
-            _GroupPaintSpec spec => _compileGroupPaint(geometry, spec),
+            _GroupPaintSpec spec => await _compileGroupPaint(
+                context,
+                geometry,
+                scene,
+                spec,
+                stats,
+                imageCache,
+                textureLeases,
+                glyphAtlas,
+                pageToRaster,
+                mipmapImages: mipmapImages,
+              ),
             _KnockoutSoftMaskFillSpec spec =>
               _compileKnockoutSoftMaskFill(geometry, spec),
             _FlattenSoftMaskSpec() => null,
@@ -3952,7 +3986,18 @@ _GpuDraw? _compileGroupTextRun(
   };
 }
 
-_GpuDraw? _compileGroupPaint(_GpuGeometryArena geometry, _GroupPaintSpec spec) {
+Future<_GpuDraw?> _compileGroupPaint(
+  gpu.GpuContext context,
+  _GpuGeometryArena geometry,
+  PdfRetainedScene scene,
+  _GroupPaintSpec spec,
+  FlutterGpuTileBackendStats stats,
+  _GpuImageCache imageCache,
+  List<_GpuImageTexture> textureLeases,
+  _GpuGlyphAtlas? glyphAtlas,
+  PdfMatrix pageToRaster, {
+  required bool mipmapImages,
+}) async {
   final draws = <(_GpuDraw, PdfRect?, bool)>[];
   var paintPadding = 2.0;
   for (var index = 0; index < spec.commands.length; index++) {
@@ -3965,25 +4010,18 @@ _GpuDraw? _compileGroupPaint(_GpuGeometryArena geometry, _GroupPaintSpec spec) {
         stroke.width * joinScale / 2 + 2,
       );
     }
-    final draw = switch (command) {
-      PdfFillPathCommand(
-        :final path,
-        :final color,
-        :final rule,
-        :final alpha,
-      ) =>
-        _stencilDraw(
-          geometry,
-          flattenPath(path, PdfMatrix.identity, tolerance: 0.01),
-          color,
-          alpha,
-          rule,
-          false,
-        ),
-      PdfStrokePathCommand() => _compileStroke(geometry, command),
-      PdfDrawTextCommand(:final run) => _compileGroupTextRun(geometry, run),
-      _ => null,
-    };
+    final draw = await _compileCommand(
+      context,
+      geometry,
+      scene,
+      command,
+      stats,
+      imageCache,
+      textureLeases,
+      glyphAtlas,
+      pageToRaster,
+      mipmapImages: mipmapImages,
+    );
     if (draw != null) {
       draws.add((draw, spec.paintClips[index], spec.knockout && index > 0));
     }
