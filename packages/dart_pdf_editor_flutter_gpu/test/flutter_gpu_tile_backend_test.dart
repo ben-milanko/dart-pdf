@@ -2031,6 +2031,62 @@ void main() {
     });
   });
 
+  testWidgets('failed image decodes are exact no-ops, not progressive gaps',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final request = PdfImageRequest(
+        stream: CosStream(
+          CosDictionary({
+            'Subtype': const CosName('Image'),
+            'Width': const CosInteger(2),
+            'Height': const CosInteger(2),
+            'BitsPerComponent': const CosInteger(8),
+            'ColorSpace': const CosName('DeviceRGB'),
+            'Filter': const CosName('UnsupportedDecode'),
+          }),
+          Uint8List.fromList([1, 2, 3]),
+        ),
+        transform: const PdfMatrix(140, 0, 0, 140, 50, 50),
+      );
+      final command = PdfDrawImageCommand(request);
+      final scene = await PdfRetainedScene.fromCommands(
+        page,
+        [command],
+        retainDecodedPixels: true,
+      );
+      addTearDown(scene.dispose);
+      expect(scene.imageDecodingAttempted, isTrue);
+      expect(scene.imageFor(request), isNull);
+
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+      const region = Rect.fromLTWH(0, 0, 240, 240);
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      expect(await _pixels(actual), await _pixels(expected));
+
+      final progressive = await PdfRetainedScene.fromCommands(
+        page,
+        [command],
+        includeImages: false,
+      );
+      addTearDown(progressive.dispose);
+      expect(progressive.imageDecodingAttempted, isFalse);
+      final conservative = FlutterGpuTileRasterBackend();
+      expect(conservative.createSession(progressive), isNull);
+      expect(conservative.stats.lastRejection, 'missing image pixels');
+    });
+  });
+
   testWidgets('an image whose /SMask stayed a companion surface renders',
       (tester) async {
     await tester.runAsync(() async {

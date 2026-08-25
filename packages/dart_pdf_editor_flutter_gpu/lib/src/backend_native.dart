@@ -291,7 +291,9 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
           break;
         case PdfDrawImageCommand(:final request):
           final image = scene.imageFor(request);
-          if (image == null) return 'missing image pixels';
+          if (image == null && !scene.imageDecodingAttempted) {
+            return 'missing image pixels';
+          }
         case PdfDrawTextCommand(:final run):
           if (run.invisible) continue;
           final reason = _unsupportedTextReason(run);
@@ -3497,7 +3499,7 @@ FutureOr<_GpuDraw?> _compileCommand(
   }
 }
 
-Future<_GpuDraw> _compileImageCommand(
+Future<_GpuDraw?> _compileImageCommand(
     gpu.GpuContext context,
     _GpuGeometryArena geometry,
     PdfRetainedScene scene,
@@ -3506,7 +3508,8 @@ Future<_GpuDraw> _compileImageCommand(
     _GpuImageCache imageCache,
     List<_GpuImageTexture> textureLeases,
     {required bool mipmapImages}) async {
-  final image = scene.imageFor(request)!;
+  final image = scene.imageFor(request);
+  if (image == null) return null;
   final maskImage = pdfGpuSoftMaskOf(image);
   final resource = await imageCache.acquire(
     context,
