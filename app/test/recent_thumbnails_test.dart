@@ -89,15 +89,58 @@ void main() {
     expect(reads, 1);
   });
 
+  testWidgets('persists a thumbnail across cache instances without rereading',
+      (tester) async {
+    final pdf = PdfBlankDocument.create();
+    final stored = <String, Uint8List>{};
+    var sourceReads = 0;
+
+    RecentThumbnailCache buildCache() => RecentThumbnailCache(
+          readBytes: (path, {bookmark}) async {
+            sourceReads++;
+            return pdf;
+          },
+          readStored: (key) async => stored[key],
+          writeStored: (key, bytes) async {
+            stored[key] = Uint8List.fromList(bytes);
+          },
+          pruneStored: (keep) async {
+            stored.removeWhere((key, _) => !keep.contains(key));
+          },
+        );
+
+    final firstCache = buildCache();
+    late RecentThumbnail first;
+    await tester.runAsync(() async {
+      first = (await firstCache.thumbnailFor(entry(path: r'Z:\a.pdf')))!;
+    });
+    firstCache.dispose();
+    expect(sourceReads, 1);
+    expect(stored, hasLength(1));
+
+    final secondCache = buildCache();
+    addTearDown(secondCache.dispose);
+    late RecentThumbnail second;
+    await tester.runAsync(() async {
+      second = (await secondCache.thumbnailFor(entry(path: r'Z:\a.pdf')))!;
+    });
+
+    expect(sourceReads, 1, reason: 'the network source must not be read again');
+    expect(second.aspectRatio, first.aspectRatio);
+    expect(second.pngBytes, first.pngBytes);
+  });
+
   test('serializes thumbnail reads instead of hydrating recents together',
       () async {
     final first = Completer<Uint8List>();
     final second = Completer<Uint8List>();
     final reads = <String>[];
-    final cache = RecentThumbnailCache(readBytes: (path, {bookmark}) {
-      reads.add(path);
-      return path == '/a.pdf' ? first.future : second.future;
-    });
+    final cache = RecentThumbnailCache(
+        readBytes: (path, {bookmark}) {
+          reads.add(path);
+          return path == '/a.pdf' ? first.future : second.future;
+        },
+        readStored: (_) async => null);
     addTearDown(cache.dispose);
 
     final a = cache.thumbnailFor(entry(path: '/a.pdf'));

@@ -15,15 +15,21 @@ class MiddleEllipsisText extends LeafRenderObjectWidget {
     super.key,
     this.style,
     this.textAlign,
+    this.hidePdfExtension = false,
   });
 
   final String data;
   final TextStyle? style;
   final TextAlign? textAlign;
 
+  /// Hides a trailing `.pdf` (case-insensitively) from the rendered and
+  /// semantic label while retaining [data] as the real filename. Paths, save
+  /// names, and document identities therefore remain untouched.
+  final bool hidePdfExtension;
+
   _MiddleEllipsisConfiguration _configuration(BuildContext context) =>
       _MiddleEllipsisConfiguration(
-        data: data,
+        data: hidePdfExtension ? pdfDisplayName(data) : data,
         style: DefaultTextStyle.of(context).style.merge(style),
         textDirection: Directionality.of(context),
         textScaler: MediaQuery.textScalerOf(context),
@@ -43,6 +49,15 @@ class MiddleEllipsisText extends LeafRenderObjectWidget {
     (renderObject as _RenderMiddleEllipsisText).configuration =
         _configuration(context);
   }
+}
+
+/// The user-facing form of a known PDF filename.
+///
+/// Only the final `.pdf` suffix is removed. Names such as `report.pdf.bak`,
+/// paths, and the underlying document title are otherwise unchanged.
+String pdfDisplayName(String value) {
+  if (value.length <= 4 || !value.toLowerCase().endsWith('.pdf')) return value;
+  return value.substring(0, value.length - 4);
 }
 
 @immutable
