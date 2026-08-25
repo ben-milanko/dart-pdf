@@ -291,9 +291,15 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
             if (scene.imageFor(composite.mask) == null) {
               return 'missing soft-mask image pixels';
             }
+          case _SoftMaskStrokeSpec():
+            if (scene.imageFor(composite.mask) == null) {
+              return 'missing soft-mask image pixels';
+            }
           case _SoftMaskVectorFillSpec():
             break;
           case _SoftMaskGradientFillSpec():
+            break;
+          case _SoftMaskGradientStrokeSpec():
             break;
           case _SoftMaskTextSpec():
             if (scene.imageFor(composite.mask) == null) {
@@ -785,6 +791,29 @@ class _SoftMaskFillSpec extends _GpuCompositeSpec {
   final double transferOffset;
 }
 
+class _SoftMaskStrokeSpec extends _GpuCompositeSpec {
+  const _SoftMaskStrokeSpec({
+    required this.content,
+    required this.mask,
+    required this.contentClip,
+    required this.maskClip,
+    required this.luminosity,
+    required this.backdropLuminance,
+    required this.transferScale,
+    required this.transferOffset,
+  });
+
+  final PdfStrokePathCommand content;
+  final PdfImageRequest mask;
+  @override
+  final PdfRect? contentClip;
+  final PdfRect? maskClip;
+  final bool luminosity;
+  final double backdropLuminance;
+  final double transferScale;
+  final double transferOffset;
+}
+
 class _SoftMaskVectorFillSpec extends _GpuCompositeSpec {
   const _SoftMaskVectorFillSpec({
     required this.content,
@@ -815,6 +844,21 @@ class _SoftMaskGradientFillSpec extends _GpuCompositeSpec {
   });
 
   final PdfFillPathCommand content;
+  final PdfFillPathGradientCommand mask;
+  @override
+  final PdfRect? contentClip;
+  final bool luminosity;
+}
+
+class _SoftMaskGradientStrokeSpec extends _GpuCompositeSpec {
+  const _SoftMaskGradientStrokeSpec({
+    required this.content,
+    required this.mask,
+    required this.contentClip,
+    required this.luminosity,
+  });
+
+  final PdfStrokePathCommand content;
   final PdfFillPathGradientCommand mask;
   @override
   final PdfRect? contentClip;
@@ -1865,7 +1909,9 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
             return (null, 'non-rectangular soft-mask fill clip');
           }
           clip = _pdfIntersection(clip, pdfRenderPathBounds(path));
-        case PdfFillPathCommand() || PdfDrawTextCommand():
+        case PdfFillPathCommand() ||
+              PdfStrokePathCommand() ||
+              PdfDrawTextCommand():
           if (content != null) {
             return (null, 'soft-mask group has multiple paints');
           }
@@ -1923,6 +1969,19 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
                 ),
                 null,
               ),
+            PdfStrokePathCommand stroke when stroke.stroke.width > 0 => (
+                _SoftMaskGradientStrokeSpec(
+                  content: stroke,
+                  mask: gradient,
+                  contentClip: contentClip,
+                  luminosity: luminosity,
+                ),
+                null,
+              ),
+            PdfStrokePathCommand() => (
+                null,
+                'gradient soft-mask hairline requires Canvas fallback',
+              ),
             PdfDrawTextCommand text => (
                 _SoftMaskGradientTextSpec(
                   content: text,
@@ -1979,6 +2038,23 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
             transferOffset: transferOffset,
           ),
           null,
+        ),
+      PdfStrokePathCommand stroke when stroke.stroke.width > 0 => (
+          _SoftMaskStrokeSpec(
+            content: stroke,
+            mask: mask.request,
+            contentClip: contentClip,
+            maskClip: maskState.$2,
+            luminosity: luminosity,
+            backdropLuminance: backdropLuminance,
+            transferScale: transferScale,
+            transferOffset: transferOffset,
+          ),
+          null,
+        ),
+      PdfStrokePathCommand() => (
+          null,
+          'image soft-mask hairline requires Canvas fallback'
         ),
       PdfDrawTextCommand text => (
           _SoftMaskTextSpec(
@@ -3361,10 +3437,22 @@ class _CompiledScene {
                 textureLeases,
                 mipmapImages: mipmapImages,
               ),
+            _SoftMaskStrokeSpec spec => await _compileSoftMaskStroke(
+                context,
+                geometry,
+                scene,
+                spec,
+                stats,
+                imageCache,
+                textureLeases,
+                mipmapImages: mipmapImages,
+              ),
             _SoftMaskVectorFillSpec spec =>
               _compileSoftMaskVectorFill(geometry, spec),
             _SoftMaskGradientFillSpec spec =>
               _compileSoftMaskGradientFill(geometry, spec),
+            _SoftMaskGradientStrokeSpec spec =>
+              _compileSoftMaskGradientStroke(geometry, spec),
             _SoftMaskTextSpec spec => await _compileSoftMaskText(
                 context,
                 geometry,
@@ -4800,6 +4888,65 @@ Future<_GpuDraw> _compileSoftMaskFill(
   );
 }
 
+Future<_GpuDraw> _compileSoftMaskStroke(
+    gpu.GpuContext context,
+    _GpuGeometryArena geometry,
+    PdfRetainedScene scene,
+    _SoftMaskStrokeSpec spec,
+    FlutterGpuTileBackendStats stats,
+    _GpuImageCache imageCache,
+    List<_GpuImageTexture> textureLeases,
+    {required bool mipmapImages}) async {
+  final maskImage = scene.imageFor(spec.mask)!;
+  final maskResource = await imageCache.acquire(
+    context,
+    spec.mask,
+    maskImage,
+    stats,
+    mipmapped: mipmapImages,
+  );
+  textureLeases.add(maskResource);
+  final source = flattenPath(
+    spec.content.path,
+    PdfMatrix.identity,
+    tolerance: 0.01,
+  );
+  final subpaths = _prepareStrokeSubpaths(source, spec.content.stroke);
+  final stencil = _stencilGeometry(
+    geometry,
+    _strokeRings(subpaths, spec.content.stroke),
+  );
+  if (stencil == null) throw StateError('empty soft-mask stroke path');
+  final bounds = stencil.$2;
+  final cover = _imageVertices(PdfMatrix(
+    bounds.right - bounds.left,
+    0,
+    0,
+    bounds.top - bounds.bottom,
+    bounds.left,
+    bounds.bottom,
+  ));
+  return _SoftMaskFillDraw(
+    stencil.$1,
+    geometry.add(cover.bytes, cover.length ~/ 4),
+    PdfFillRule.nonzero,
+    maskResource.texture,
+    _softMaskInfo(
+      context,
+      maskTransform: spec.mask.transform,
+      contentTint: _premul(spec.content.color, spec.content.alpha),
+      maskTint: <double>[0, 0, 0, spec.mask.alpha.clamp(0.0, 1.0)],
+      contentStencil: true,
+      maskStencil: false,
+      luminosity: spec.luminosity,
+      backdropLuminance: spec.backdropLuminance,
+      transferScale: spec.transferScale,
+      transferOffset: spec.transferOffset,
+      maskClip: spec.maskClip,
+    ),
+  );
+}
+
 Future<_GpuDraw> _compileSoftMaskText(
     gpu.GpuContext context,
     _GpuGeometryArena geometry,
@@ -4865,6 +5012,38 @@ _GpuDraw? _compileSoftMaskGradientFill(
     geometry,
     subpaths,
     spec.content.rule,
+    spec.mask.gradient,
+    1,
+    vertexColor: (maskColor) {
+      final mask = spec.luminosity
+          ? (0.2126 * maskColor.red +
+                  0.7152 * maskColor.green +
+                  0.0722 * maskColor.blue) *
+              maskAlpha
+          : maskAlpha;
+      return _premul(
+        spec.content.color,
+        (spec.content.alpha * mask).clamp(0.0, 1.0),
+      );
+    },
+  );
+}
+
+_GpuDraw? _compileSoftMaskGradientStroke(
+  _GpuGeometryArena geometry,
+  _SoftMaskGradientStrokeSpec spec,
+) {
+  final source = flattenPath(
+    spec.content.path,
+    PdfMatrix.identity,
+    tolerance: 0.01,
+  );
+  final subpaths = _prepareStrokeSubpaths(source, spec.content.stroke);
+  final maskAlpha = spec.mask.alpha.clamp(0.0, 1.0);
+  return _compileGradientSubpaths(
+    geometry,
+    _strokeRings(subpaths, spec.content.stroke),
+    PdfFillRule.nonzero,
     spec.mask.gradient,
     1,
     vertexColor: (maskColor) {
@@ -5428,10 +5607,7 @@ _GpuDraw? _compileStrokeSubpaths(
   PdfStroke stroke,
   double alpha,
 ) {
-  var subpaths = source;
-  if (stroke.dashArray.any((value) => value > 0)) {
-    subpaths = dashSubpaths(subpaths, stroke.dashArray, stroke.dashPhase);
-  }
+  final subpaths = _prepareStrokeSubpaths(source, stroke);
   if (stroke.width <= 0) {
     return alpha <= 0
         ? null
@@ -5442,6 +5618,23 @@ _GpuDraw? _compileStrokeSubpaths(
             alpha,
           );
   }
+  return _stencilDraw(
+    geometry,
+    _strokeRings(subpaths, stroke),
+    color,
+    alpha,
+    PdfFillRule.nonzero,
+    true,
+  );
+}
+
+List<FlatSubpath> _prepareStrokeSubpaths(
+        List<FlatSubpath> source, PdfStroke stroke) =>
+    stroke.dashArray.any((value) => value > 0)
+        ? dashSubpaths(source, stroke.dashArray, stroke.dashPhase)
+        : source;
+
+List<FlatSubpath> _strokeRings(List<FlatSubpath> subpaths, PdfStroke stroke) {
   final contours = StrokeContours();
   strokeToContours(
     subpaths,
@@ -5459,7 +5652,7 @@ _GpuDraw? _compileStrokeSubpaths(
       closed: true,
     ));
   }
-  return _stencilDraw(geometry, rings, color, alpha, PdfFillRule.nonzero, true);
+  return rings;
 }
 
 List<FlatSubpath>? _textSubpaths(PdfTextRun run) {

@@ -3379,6 +3379,128 @@ void main() {
     });
   });
 
+  testWidgets('positive-width strokes use an image soft mask directly',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      PdfDrawImageCommand mask(String id) => _decodedImage(
+            Uint8List.fromList([
+              0,
+              0,
+              0,
+              255,
+              255,
+              255,
+              255,
+              255,
+              0,
+              0,
+              0,
+              255,
+              255,
+              255,
+              255,
+              255,
+            ]),
+            const PdfMatrix(220, 0, 0, 220, 40, 90),
+            id,
+          );
+      const path = PdfPath([
+        PdfMoveTo(60, 120),
+        PdfLineTo(225, 170),
+        PdfLineTo(75, 285),
+      ]);
+      final maskedStroke = mask('stroke-mask');
+      final scene = await PdfRetainedScene.fromCommands(
+        page,
+        [
+          const PdfBeginSoftMaskedCommand(),
+          const PdfClipPathCommand(
+            PdfPath([
+              PdfMoveTo(50, 100),
+              PdfLineTo(250, 100),
+              PdfLineTo(250, 300),
+              PdfLineTo(50, 300),
+              PdfClosePath(),
+            ]),
+            PdfFillRule.nonzero,
+          ),
+          const PdfStrokePathCommand(
+            path,
+            PdfColor(0.12, 0.38, 0.84),
+            PdfStroke(
+              width: 18,
+              cap: 1,
+              join: 1,
+              dashArray: [32, 13],
+              dashPhase: 5,
+            ),
+            0.8,
+          ),
+          PdfEndSoftMaskedCommand(
+            luminosity: true,
+            backdrop: page.cropBox,
+            maskCommands: [maskedStroke],
+            backdropLuminance: 0.15,
+            transferScale: 0.8,
+            transferOffset: 0.05,
+          ),
+        ],
+        retainDecodedPixels: true,
+      );
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+      const region = Rect.fromLTWH(30, 80, 240, 240);
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1.5);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1.5);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var index = 0; index < a.length; index++) {
+        difference += (a[index] - b[index]).abs();
+      }
+      expect(difference / a.length, lessThan(8));
+      expect(backend.stats.texturesUploaded, 1);
+      expect(backend.stats.textureDirectUploads, 1);
+      expect(maskedStroke.request.decoded, isNull);
+
+      final hairlineMask = mask('hairline-mask');
+      final hairlineScene = await PdfRetainedScene.fromCommands(
+        page,
+        [
+          const PdfBeginSoftMaskedCommand(),
+          const PdfStrokePathCommand(
+            path,
+            PdfColor(0, 0, 0),
+            PdfStroke(width: 0),
+            1,
+          ),
+          PdfEndSoftMaskedCommand(
+            luminosity: false,
+            backdrop: page.cropBox,
+            maskCommands: [hairlineMask],
+          ),
+        ],
+        retainDecodedPixels: true,
+      );
+      addTearDown(hairlineScene.dispose);
+      final hairlineBackend = FlutterGpuTileRasterBackend();
+      expect(hairlineBackend.createSession(hairlineScene), isNull);
+      expect(
+        hairlineBackend.lastSessionRejection,
+        'image soft-mask hairline requires Canvas fallback',
+      );
+    });
+  });
+
   testWidgets('rectangular vector masks retain backdrop and transfer values',
       (tester) async {
     await tester.runAsync(() async {
@@ -3664,6 +3786,73 @@ void main() {
       var difference = 0;
       for (var i = 0; i < a.length; i++) {
         difference += (a[i] - b[i]).abs();
+      }
+      expect(difference / a.length, lessThan(6));
+      expect(backend.stats.lastTileRoute, 'flutter_gpu');
+      expect(backend.stats.texturesUploaded, 0);
+    });
+  });
+
+  testWidgets('axial gradient soft masks tint retained vector strokes',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      const maskGradient = PdfGradient(
+        isRadial: false,
+        coords: [0, 0, 1, 0],
+        colors: [PdfColor(0, 0, 0), PdfColor(1, 1, 1)],
+        stops: [0, 1],
+        transform: PdfMatrix(220, 0, 0, 220, 40, 80),
+      );
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        const PdfBeginSoftMaskedCommand(),
+        const PdfStrokePathCommand(
+          PdfPath([
+            PdfMoveTo(60, 110),
+            PdfLineTo(235, 175),
+            PdfLineTo(70, 280),
+          ]),
+          PdfColor(0.18, 0.62, 0.85),
+          PdfStroke(
+            width: 16,
+            cap: 1,
+            join: 1,
+            dashArray: [27, 11],
+            dashPhase: 4,
+          ),
+          0.75,
+        ),
+        PdfEndSoftMaskedCommand(
+          luminosity: true,
+          backdrop: page.cropBox,
+          maskCommands: [
+            PdfFillPathGradientCommand(
+              _rect(35, 75, 265, 305),
+              PdfFillRule.nonzero,
+              maskGradient,
+              0.9,
+            ),
+          ],
+        ),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+      const region = Rect.fromLTWH(25, 470, 250, 250);
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1.25);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1.25);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var index = 0; index < a.length; index++) {
+        difference += (a[index] - b[index]).abs();
       }
       expect(difference / a.length, lessThan(6));
       expect(backend.stats.lastTileRoute, 'flutter_gpu');

@@ -28,6 +28,9 @@
   resolve below the 0.25 px coverage quantum of 4x MSAA. This prevents dense
   CAD linework from becoming faint or disappearing at low zoom while isolated
   subpixel strokes retain the established GPU parity and routing.
+- Retain positive-width vector strokes under image and axial-gradient soft
+  masks, including dashed caps and joins. Zero-width masked hairlines remain
+  on the exact Canvas fallback because their geometry depends on tile scale.
 - Initialize tiles wholly inside the transformed crop box with the folded
   opaque paper color in the render-pass clear, skipping the transparent clear
   and full-tile paper draw. A one-device-pixel guard keeps rotated and

@@ -114,6 +114,11 @@ image soft mask directly through retained stencil geometry. Rectangular vector
 soft-mask fills, including alpha or luminosity backdrops and linearized
 transfer functions, are partitioned into constant-mask stencil cover cells and
 need no intermediate texture.
+Positive-width vector strokes also retain image and axial-gradient soft masks;
+their dashed caps and joins become the same exact stencil geometry used by
+ordinary retained strokes before the mask is applied. Masked zero-width
+hairlines stay on Canvas because their one-device-pixel geometry is tile-scale
+dependent.
 Tiles that sit at least one device pixel inside the transformed crop box use
 the folded opaque paper color as their render-pass clear, avoiding a separate
 transparent clear and full-tile paper draw. Boundary tiles retain the paper
