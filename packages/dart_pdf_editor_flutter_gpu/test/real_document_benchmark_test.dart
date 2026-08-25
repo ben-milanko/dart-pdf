@@ -431,7 +431,12 @@ void main() {
           'delta=${peakRss - rssStart} stats=${backend.stats}');
       expect(rows, isNotEmpty);
       if (scenarioLabel == _advancedBlendStressScenario) {
-        expect(backend.stats.advancedBlendPasses, greaterThanOrEqualTo(24));
+        final sceneWarmUp =
+            Platform.environment['PDF_GPU_BENCHMARK_SCENE_WARMUP'] == '1';
+        // The two measured LoDs each coalesce the twelve disjoint strokes
+        // into one blend. A one-pixel scene warm-up deliberately stays
+        // conservative because all strokes resolve into the same pixel.
+        expect(backend.stats.advancedBlendPasses, sceneWarmUp ? 14 : 2);
         expect(
           backend.stats.advancedBlendBlits,
           backend.stats.advancedBlendPasses,
