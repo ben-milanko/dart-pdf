@@ -1403,6 +1403,16 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           );
           final nestedSpec = nested.$1;
           switch (nestedSpec) {
+            case _FlattenGroupSpec(paints: final nestedPaints):
+              for (final nestedPaint in nestedPaints) {
+                paints.add((
+                  nestedPaint.commandIndex,
+                  commands[nestedPaint.commandIndex],
+                  nestedPaint.clip,
+                  PdfBlendMode.normal,
+                  false,
+                ));
+              }
             case _GroupFillSpec(:final content, :final groupAlpha):
               paints.add((
                 null,
@@ -1434,7 +1444,9 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
                   :final paintClips,
                   :final paintBlends,
                 )
-                when !nestedSpec.offscreen:
+                when nestedSpec.groupAlpha == 1 &&
+                    !nestedSpec.knockout &&
+                    paintBlends.every((mode) => mode == PdfBlendMode.normal):
               for (var nestedIndex = 0;
                   nestedIndex < commands.length;
                   nestedIndex++) {

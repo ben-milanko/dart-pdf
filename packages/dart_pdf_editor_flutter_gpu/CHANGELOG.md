@@ -5,6 +5,9 @@
 - Require the dart-pdf 4.0.0 suite and its expanded tile-backend warm-up and
   transparency interfaces.
 
+- Flatten nested alpha-one, normal source-over groups into their parent
+  retained group, preserving distinct per-paint clips without a nested render
+  target or Canvas fallback.
 - Run requested scene warm-up for route-change benchmarks, matching the
   viewer's idle-prepared production path while suppressing the unmatched timing
   marker when the Canvas base has no GPU session.

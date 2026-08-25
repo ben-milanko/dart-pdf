@@ -94,10 +94,11 @@ One-element knockout groups are included
 because there are no sibling elements for knockout to change. Alpha-one,
 normal-blend non-knockout groups may contain multiple ordered fills, strokes,
 outlined text runs, images, gradients, and meshes because source-over is
-associative, so their isolation layer is an identity operation. Isolated
-overlapping groups retain those same paint types in the bounded offscreen tile
-pass before applying group alpha and the outer blend once. Normal, Multiply,
-and Screen
+associative, so their isolation layer is an identity operation. Nested
+alpha-one identity groups flatten into the same retained parent while keeping
+their distinct per-paint clips. Isolated overlapping groups retain those same
+paint types in the bounded offscreen tile pass before applying group alpha and
+the outer blend once. Normal, Multiply, and Screen
 remain per-paint state inside that attachment rather than being collapsed into
 the group's outer blend. Platform-decoded JPEGs whose
 `/SMask` remains a companion GPU
