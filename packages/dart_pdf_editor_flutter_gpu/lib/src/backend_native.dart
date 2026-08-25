@@ -47,6 +47,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
     this.maxTextureBytes = 256 << 20,
     this.maxGeometryBytes = 256 << 20,
     this.enableProactiveWarmUp,
+    this.analyticText = true,
     FlutterGpuTextOutliner? textOutliner,
     this.systemTextOutlines = false,
     FlutterGpuTileBackendStats? stats,
@@ -92,6 +93,14 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   /// memory even for a page that later falls back to Canvas; validated hosts
   /// can opt in explicitly.
   final bool? enableProactiveWarmUp;
+
+  /// Evaluates ordinary filled glyph outlines directly from a retained curve
+  /// atlas instead of tessellating every glyph into page-space stencil fans.
+  ///
+  /// Unsupported glyphs and gradient or soft-masked text keep the exact
+  /// stencil path. The atlas is independent of tile scale, so later LoD tiles
+  /// reuse both its outline streams and the six-vertex glyph quads.
+  final bool analyticText;
 
   /// Optional exact vector outlines for unembedded/substituted text.
   ///
@@ -244,6 +253,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
         stats: stats,
         imageCache: _imageCache,
         geometryPool: _geometryPool,
+        analyticText: analyticText,
       );
     } catch (error) {
       _lastSessionRejection = 'initialization failed: $error';
@@ -2202,6 +2212,7 @@ class _FlutterGpuTileSession
     required this.stats,
     required this.imageCache,
     required this.geometryPool,
+    required this.analyticText,
   });
 
   @override
@@ -2227,6 +2238,7 @@ class _FlutterGpuTileSession
   final FlutterGpuTileBackendStats stats;
   final _GpuImageCache imageCache;
   final _GpuGeometryPool geometryPool;
+  final bool analyticText;
 
   Future<_CompiledScene>? _compiled;
   _CompiledScene? _ready;
@@ -2242,6 +2254,7 @@ class _FlutterGpuTileSession
         stats,
         imageCache,
         geometryPool,
+        analyticText: analyticText,
         mipmapImages: mipmapImages,
       ).then((compiled) {
         if (_disposed) {
@@ -2385,13 +2398,31 @@ class _CompiledScene {
       FlutterGpuTileBackendStats stats,
       _GpuImageCache imageCache,
       _GpuGeometryPool geometryPool,
-      {required bool mipmapImages}) async {
+      {required bool analyticText,
+      required bool mipmapImages}) async {
     final clock = Stopwatch()..start();
     final draws = <int, _GpuDraw>{};
     final clipDraws = Map<_GpuClipNode, _GpuClipDraw>.identity();
     final textureLeases = <_GpuImageTexture>[];
     final geometry = _GpuGeometryArena(context, stats, geometryPool);
+    final pageToRaster = PdfPageRenderer.pageToDeviceMatrix(
+      scene.page,
+      scene.pageSize,
+      scene.page.cropBox,
+      rotation: scene.plan.rotation,
+      pixelRatio: 1,
+    );
     try {
+      _GpuGlyphAtlas? glyphAtlas;
+      if (analyticText) {
+        try {
+          glyphAtlas = _GpuGlyphAtlas.build(context, commands, units, stats);
+        } catch (_) {
+          // This is a retained-geometry optimization, never a new reason for
+          // an otherwise supported page to abandon the exact GPU route.
+          stats.analyticAtlasFallbacks++;
+        }
+      }
       for (final unit in units) {
         for (_GpuClipNode? node = unit.clip.node;
             node != null;
@@ -2410,6 +2441,8 @@ class _CompiledScene {
             stats,
             imageCache,
             textureLeases,
+            glyphAtlas,
+            pageToRaster,
             mipmapImages: mipmapImages,
           );
           draw = pending is Future<_GpuDraw?> ? await pending : pending;
@@ -2463,13 +2496,7 @@ class _CompiledScene {
       geometry.finalize();
       final result = _CompiledScene(
         context: context,
-        pageToRaster: PdfPageRenderer.pageToDeviceMatrix(
-          scene.page,
-          scene.pageSize,
-          scene.page.cropBox,
-          rotation: scene.plan.rotation,
-          pixelRatio: 1,
-        ),
+        pageToRaster: pageToRaster,
         paper: paper,
         draws: draws,
         clipDraws: clipDraws,
@@ -3198,6 +3225,99 @@ gpu.BufferView _softMaskInfo(
   );
 }
 
+class _GpuGlyphAtlas {
+  _GpuGlyphAtlas(this.texture, this.info, this.slots);
+
+  static _GpuGlyphAtlas? build(
+    gpu.GpuContext context,
+    List<PdfRenderCommand> commands,
+    List<_GpuUnit> units,
+    FlutterGpuTileBackendStats stats,
+  ) {
+    final slots = Map<PdfPath, int>.identity();
+    final data = <SlugGlyphData>[];
+    for (final unit in units) {
+      if (unit.composite != null) continue;
+      final command = commands[unit.commandIndex];
+      if (command case PdfDrawTextCommand(:final run)
+          when !run.invisible && run.gradient == null) {
+        for (final glyph in run.glyphs ?? const <PdfGlyphPlacement>[]) {
+          final outline = glyph.outline;
+          if (outline == null || slots.containsKey(outline)) continue;
+          final glyphData = SlugGlyphData.of(outline);
+          if (glyphData.overflow ||
+              glyphData.maxX - glyphData.minX <= 1e-9 ||
+              glyphData.maxY - glyphData.minY <= 1e-9) {
+            continue;
+          }
+          slots[outline] = data.length;
+          data.add(glyphData);
+        }
+      }
+    }
+    if (data.isEmpty) return null;
+
+    var texels = data.length * 4;
+    final bases = Uint32List(data.length);
+    for (var i = 0; i < data.length; i++) {
+      bases[i] = texels;
+      texels += data[i].texelCount;
+    }
+    final height = math.max(1, (texels + slugAtlasWidth - 1) ~/ slugAtlasWidth);
+    if (height > 4096) {
+      stats.analyticAtlasFallbacks++;
+      return null;
+    }
+    final pixels = Uint8List(slugAtlasWidth * height * 4);
+    final pairs = ByteData.sublistView(pixels);
+    void put(int texel, int low, int high) {
+      pairs
+        ..setUint16(texel * 4, low, Endian.little)
+        ..setUint16(texel * 4 + 2, high, Endian.little);
+    }
+
+    for (var i = 0; i < data.length; i++) {
+      final glyph = data[i];
+      final base = bases[i];
+      put(i * 4, base & 0xffff, base >> 16);
+      put(i * 4 + 1, emToFixed(glyph.minY),
+          emToFixed((glyph.maxY - glyph.minY) / glyph.bandCount));
+      put(i * 4 + 2, emToFixed(glyph.minX),
+          emToFixed((glyph.maxX - glyph.minX) / glyph.bandCount));
+      put(i * 4 + 3, 0, 0);
+      pixels.setRange(
+        base * 4,
+        base * 4 + glyph.stream!.length,
+        glyph.stream!,
+      );
+    }
+
+    final texture = context.createTexture(
+      gpu.StorageMode.hostVisible,
+      slugAtlasWidth,
+      height,
+      format: gpu.PixelFormat.r8g8b8a8UNormInt,
+    );
+    texture.overwrite(ByteData.sublistView(pixels));
+    final dimensions = Float32List.fromList(
+      <double>[slugAtlasWidth.toDouble(), height.toDouble()],
+    );
+    final info = gpu.BufferView(
+      context.createDeviceBufferWithCopy(ByteData.sublistView(dimensions)),
+      offsetInBytes: 0,
+      lengthInBytes: dimensions.lengthInBytes,
+    );
+    stats
+      ..analyticGlyphSlots += data.length
+      ..analyticAtlasBytes += pixels.length;
+    return _GpuGlyphAtlas(texture, info, slots);
+  }
+
+  final gpu.Texture texture;
+  final gpu.BufferView info;
+  final Map<PdfPath, int> slots;
+}
+
 class _GpuImageTexture {
   _GpuImageTexture(this.texture, this.width, this.height, this.bytes);
   final gpu.Texture texture;
@@ -3509,6 +3629,80 @@ List<FlatSubpath>? _textSubpaths(PdfTextRun run) {
   return subpaths;
 }
 
+_AnalyticTextDraw? _compileAnalyticText(
+  _GpuGeometryArena geometry,
+  PdfTextRun run,
+  _GpuGlyphAtlas atlas,
+  PdfMatrix pageToRaster,
+  FlutterGpuTileBackendStats stats,
+) {
+  final glyphs = run.glyphs!;
+  for (final glyph in glyphs) {
+    final outline = glyph.outline;
+    if (outline != null && !atlas.slots.containsKey(outline)) return null;
+  }
+  final rgba = _premul(run.color, run.fillAlpha);
+  final vertices = FloatBuilder(math.max(54, glyphs.length * 54));
+  final deviceTransform = run.transform.concat(pageToRaster);
+  final scaleX = math.sqrt(deviceTransform.a * deviceTransform.a +
+      deviceTransform.b * deviceTransform.b);
+  final scaleY = math.sqrt(deviceTransform.c * deviceTransform.c +
+      deviceTransform.d * deviceTransform.d);
+  if (!scaleX.isFinite ||
+      !scaleY.isFinite ||
+      scaleX <= 1e-9 ||
+      scaleY <= 1e-9) {
+    return null;
+  }
+  // Covers at least one AA pixel at the backend's normal final-tile LoD and
+  // half a pixel down to a 1/3-scale corpus raster without making large text
+  // quads pay a fixed em-space overdraw margin.
+  final paddingX = 1.5 / scaleX;
+  final paddingY = 1.5 / scaleY;
+  var quads = 0;
+  for (final glyph in glyphs) {
+    final outline = glyph.outline;
+    if (outline == null) continue;
+    final data = SlugGlyphData.of(outline);
+    final slot = atlas.slots[outline]!;
+    final left = data.minX - paddingX;
+    final right = data.maxX + paddingX;
+    final bottom = data.minY - paddingY;
+    final top = data.maxY + paddingY;
+    final transform = PdfMatrix.translation(glyph.offset, glyph.offsetY)
+        .concat(run.transform);
+    for (final (x, y) in <(double, double)>[
+      (left, bottom),
+      (right, bottom),
+      (right, top),
+      (left, bottom),
+      (right, top),
+      (left, top),
+    ]) {
+      vertices.add9(
+        transform.transformX(x, y),
+        transform.transformY(x, y),
+        x,
+        y,
+        slot.toDouble(),
+        rgba[0],
+        rgba[1],
+        rgba[2],
+        rgba[3],
+      );
+    }
+    quads++;
+  }
+  if (vertices.isEmpty) return null;
+  stats
+    ..analyticTextRuns += 1
+    ..analyticGlyphQuads += quads;
+  return _AnalyticTextDraw(
+    geometry.add(vertices.bytes, vertices.length ~/ 9),
+    atlas,
+  );
+}
+
 FutureOr<_GpuDraw?> _compileCommand(
     gpu.GpuContext context,
     _GpuGeometryArena geometry,
@@ -3517,6 +3711,8 @@ FutureOr<_GpuDraw?> _compileCommand(
     FlutterGpuTileBackendStats stats,
     _GpuImageCache imageCache,
     List<_GpuImageTexture> textureLeases,
+    _GpuGlyphAtlas? glyphAtlas,
+    PdfMatrix pageToRaster,
     {required bool mipmapImages}) async {
   switch (command) {
     case PdfFillPathCommand(
@@ -3544,6 +3740,19 @@ FutureOr<_GpuDraw?> _compileCommand(
       return _compileStroke(geometry, command);
     case PdfDrawTextCommand(:final run):
       if (run.invisible) return null;
+      if (glyphAtlas != null && run.gradient == null) {
+        final analytic = _compileAnalyticText(
+          geometry,
+          run,
+          glyphAtlas,
+          pageToRaster,
+          stats,
+        );
+        if (analytic != null) return analytic;
+        if (run.glyphs!.any((glyph) => glyph.outline != null)) {
+          stats.analyticTextFallbackRuns++;
+        }
+      }
       final subs = _textSubpaths(run)!;
       final gradient = run.gradient;
       if (gradient != null) {
@@ -4236,6 +4445,16 @@ class _TextureDraw implements _GpuDraw {
   void encode(_GpuEncoder encoder) => encoder.texture(vertices, texture, info);
 }
 
+class _AnalyticTextDraw implements _GpuDraw {
+  const _AnalyticTextDraw(this.vertices, this.atlas);
+
+  final _GpuBuffer vertices;
+  final _GpuGlyphAtlas atlas;
+
+  @override
+  void encode(_GpuEncoder encoder) => encoder.glyphs(vertices, atlas);
+}
+
 class _SoftMaskDraw implements _GpuDraw {
   const _SoftMaskDraw(
       this.vertices, this.contentTexture, this.maskTexture, this.info);
@@ -4629,6 +4848,26 @@ class _GpuEncoder {
     pass.clearBindings();
   }
 
+  void glyphs(_GpuBuffer vertices, _GpuGlyphAtlas atlas) {
+    _defaultStencil();
+    pass
+      ..setColorBlendEquation(_paintBlend)
+      ..bindPipeline(pipelines.glyph)
+      ..bindUniform(pipelines.glyphTransform, transform)
+      ..bindUniform(pipelines.glyphInfo, atlas.info)
+      ..bindTexture(
+        pipelines.glyphSampler,
+        atlas.texture,
+        sampler: gpu.SamplerOptions(
+          minFilter: gpu.MinMagFilter.nearest,
+          magFilter: gpu.MinMagFilter.nearest,
+          mipFilter: gpu.MipFilter.nearest,
+        ),
+      );
+    _drawBuffer(vertices);
+    pass.clearBindings();
+  }
+
   void softMask(_GpuBuffer vertices, gpu.Texture contentTexture,
       gpu.Texture maskTexture, gpu.BufferView info) {
     _defaultStencil();
@@ -4741,6 +4980,8 @@ class _GpuPipelines {
             library['PdfTileSolidVertex']!, library['PdfTileSolidFragment']!),
         texture = context.createRenderPipeline(library['PdfTileTextureVertex']!,
             library['PdfTileTextureFragment']!),
+        glyph = context.createRenderPipeline(
+            library['PdfTileGlyphVertex']!, library['PdfTileGlyphFragment']!),
         softMask = context.createRenderPipeline(
             library['PdfTileSoftMaskVertex']!,
             library['PdfTileSoftMaskFragment']!),
@@ -4754,6 +4995,12 @@ class _GpuPipelines {
             library['PdfTileTextureFragment']!.getUniformSlot('FragInfo'),
         textureSampler =
             library['PdfTileTextureFragment']!.getUniformSlot('tex'),
+        glyphTransform =
+            library['PdfTileGlyphVertex']!.getUniformSlot('VertInfo'),
+        glyphInfo =
+            library['PdfTileGlyphFragment']!.getUniformSlot('GlyphInfo'),
+        glyphSampler =
+            library['PdfTileGlyphFragment']!.getUniformSlot('glyph_atlas'),
         softMaskTransform =
             library['PdfTileSoftMaskVertex']!.getUniformSlot('VertInfo'),
         softMaskInfo =
@@ -4902,6 +5149,40 @@ class _GpuPipelines {
     final textureInfo = transient.emplace(ByteData.sublistView(
       Float32List.fromList(const [1, 1, 1, 1, 0, 0, 0, 0]),
     ));
+    final glyphVertices = transient.emplace(ByteData.sublistView(
+      Float32List.fromList(const [
+        -1,
+        -1,
+        0,
+        0,
+        0,
+        1,
+        1,
+        1,
+        1,
+        3,
+        -1,
+        1,
+        0,
+        0,
+        1,
+        1,
+        1,
+        1,
+        -1,
+        3,
+        0,
+        1,
+        0,
+        1,
+        1,
+        1,
+        1,
+      ]),
+    ));
+    final glyphInfo = transient.emplace(ByteData.sublistView(
+      Float32List.fromList(const [1, 1]),
+    ));
     final softMaskInfo = Float32List(36)
       ..setRange(0, 16, const [
         1,
@@ -5000,6 +5281,21 @@ class _GpuPipelines {
     _warmUpDraw(pass, textureVertices, 3);
     pass
       ..clearBindings()
+      ..bindPipeline(glyph)
+      ..bindUniform(glyphTransform, transform)
+      ..bindUniform(this.glyphInfo, glyphInfo)
+      ..bindTexture(
+        glyphSampler,
+        sample,
+        sampler: gpu.SamplerOptions(
+          minFilter: gpu.MinMagFilter.nearest,
+          magFilter: gpu.MinMagFilter.nearest,
+          mipFilter: gpu.MipFilter.nearest,
+        ),
+      );
+    _warmUpDraw(pass, glyphVertices, 3);
+    pass
+      ..clearBindings()
       ..bindPipeline(softMask)
       ..bindUniform(softMaskTransform, transform)
       ..bindUniform(this.softMaskInfo, softMaskUniform)
@@ -5080,12 +5376,16 @@ class _GpuPipelines {
   final gpu.RenderPipeline stencil;
   final gpu.RenderPipeline solid;
   final gpu.RenderPipeline texture;
+  final gpu.RenderPipeline glyph;
   final gpu.RenderPipeline softMask;
   final gpu.UniformSlot stencilTransform;
   final gpu.UniformSlot solidTransform;
   final gpu.UniformSlot textureTransform;
   final gpu.UniformSlot textureInfo;
   final gpu.UniformSlot textureSampler;
+  final gpu.UniformSlot glyphTransform;
+  final gpu.UniformSlot glyphInfo;
+  final gpu.UniformSlot glyphSampler;
   final gpu.UniformSlot softMaskTransform;
   final gpu.UniformSlot softMaskInfo;
   final gpu.UniformSlot softMaskContentSampler;

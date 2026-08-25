@@ -199,6 +199,8 @@ void main() {
       final backend = FlutterGpuTileRasterBackend(
         msaa: msaa,
         allowOverprintApproximation: approximateOverprint,
+        analyticText:
+            Platform.environment['PDF_GPU_BENCHMARK_ANALYTIC_TEXT'] != '0',
         systemTextOutlines:
             Platform.environment['PDF_GPU_BENCHMARK_SYSTEM_TEXT'] == '1',
       );

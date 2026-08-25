@@ -28,6 +28,12 @@ class FlutterGpuTileBackendStats {
   int compileMicros = 0;
   int geometryBuffers = 0;
   int geometryVertices = 0;
+  int analyticTextRuns = 0;
+  int analyticGlyphQuads = 0;
+  int analyticGlyphSlots = 0;
+  int analyticAtlasBytes = 0;
+  int analyticAtlasFallbacks = 0;
+  int analyticTextFallbackRuns = 0;
   int clipPathsCompiled = 0;
   int clipMaskRebuilds = 0;
   int geometryBudgetFallbacks = 0;
@@ -85,6 +91,12 @@ class FlutterGpuTileBackendStats {
         'compileMicros': compileMicros,
         'geometryBuffers': geometryBuffers,
         'geometryVertices': geometryVertices,
+        'analyticTextRuns': analyticTextRuns,
+        'analyticGlyphQuads': analyticGlyphQuads,
+        'analyticGlyphSlots': analyticGlyphSlots,
+        'analyticAtlasBytes': analyticAtlasBytes,
+        'analyticAtlasFallbacks': analyticAtlasFallbacks,
+        'analyticTextFallbackRuns': analyticTextFallbackRuns,
         'clipPathsCompiled': clipPathsCompiled,
         'clipMaskRebuilds': clipMaskRebuilds,
         'geometryBudgetFallbacks': geometryBudgetFallbacks,
@@ -141,6 +153,12 @@ class FlutterGpuTileBackendStats {
     scenesCompiled = 0;
     compileMicros = 0;
     geometryVertices = 0;
+    analyticTextRuns = 0;
+    analyticGlyphQuads = 0;
+    analyticGlyphSlots = 0;
+    analyticAtlasBytes = 0;
+    analyticAtlasFallbacks = 0;
+    analyticTextFallbackRuns = 0;
     clipPathsCompiled = 0;
     clipMaskRebuilds = 0;
     geometryBudgetFallbacks = 0;
@@ -183,6 +201,10 @@ class FlutterGpuTileBackendStats {
       'overprintApprox=$overprintApproximationSessions '
       'compiled=$scenesCompiled compileUs=$compileMicros '
       'buffers=$geometryBuffers vertices=$geometryVertices '
+      'analyticRuns=$analyticTextRuns analyticQuads=$analyticGlyphQuads '
+      'analyticSlots=$analyticGlyphSlots atlasBytes=$analyticAtlasBytes '
+      'analyticAtlasFallbacks=$analyticAtlasFallbacks '
+      'analyticFallbackRuns=$analyticTextFallbackRuns '
       'clips=$clipPathsCompiled clipRebuilds=$clipMaskRebuilds '
       'geometryBudgetFallbacks=$geometryBudgetFallbacks '
       'activeGeometryLeases=$activeGeometryLeases '
