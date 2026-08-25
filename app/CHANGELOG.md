@@ -1,5 +1,20 @@
 # Changelog
 
+## 4.0.0
+
+- Add slimmer, dockable editor controls and improve page, panel, and
+  recent-document navigation.
+- Auto-fit free text to its box, flatten selected annotations, and reliably
+  flatten empty form fields.
+- Render demanding print files more faithfully with complete Ghent V5 colour
+  and transparency coverage, including output intents, overprint, soft masks,
+  high-bit-depth images, and substituted fonts.
+- Accelerate more blends, transparency groups, images, hairlines, and exact
+  text through the optional GPU renderer, with idle preparation to keep first
+  use smooth.
+- Improve drag-and-drop, document scanning, file-opening errors, and thumbnail
+  persistence across document sessions.
+
 ## 3.8.0
 
 - Browse recent PDFs with searchable page previews.

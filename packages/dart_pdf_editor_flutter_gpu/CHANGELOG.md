@@ -1,6 +1,9 @@
 # Changelog
 
-## Next
+## 0.2.0
+
+- Require the dart-pdf 4.0.0 suite and its expanded tile-backend warm-up and
+  transparency interfaces.
 
 - Run requested scene warm-up for route-change benchmarks, matching the
   viewer's idle-prepared production path while suppressing the unmatched timing

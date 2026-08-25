@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.0.0
+
+- Decode TIFF Predictor 2 streams with 16-bit samples, preserving carries
+  between bytes and restoring high-bit-depth images correctly.
+- Lockstep major release for the dart-pdf 4.0.0 package suite. The `pdf_cos`
+  public API remains source-compatible with 3.8.0.
+
 ## 3.8.0
 
 - Add the public monotonic `CosDocument.revision`, incremented after every

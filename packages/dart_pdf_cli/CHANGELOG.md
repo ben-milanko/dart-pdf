@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3
+
+- Align the command-line and MCP sidecar with the 4.0.0 package suite. No
+  command, JSON, or MCP protocol changes since 0.1.2.
+
 ## 0.1.2
 
 - Align the command-line and MCP sidecar with the 3.8.0 package suite. No
