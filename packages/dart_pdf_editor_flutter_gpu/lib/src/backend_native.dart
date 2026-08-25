@@ -1479,14 +1479,8 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
     }
     if (softCount == 0 && softDepth == 0 && paints.length == 1) {
       final paint = paints.single;
-      if (paint.$5) {
-        return (
-          null,
-          paint.$2 is PdfStrokePathCommand
-              ? 'transparency-group stroke overprint'
-              : 'transparency-group fill overprint',
-        );
-      }
+      final overprintReason = _compositeOverprintReason(paint.$2, paint.$5);
+      if (overprintReason != null) return (null, overprintReason);
       if (backdropColor != null) {
         final canRenderSeededKnockout = !isolated &&
             knockout &&
@@ -1578,11 +1572,12 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
     }
     if (softCount == 0 && softDepth == 0 && paints.length > 1) {
       final commonClip = paints.first.$3;
-      final normalPaints =
-          paints.every((paint) => paint.$4 == PdfBlendMode.normal && !paint.$5);
+      final normalPaints = paints.every((paint) =>
+          paint.$4 == PdfBlendMode.normal &&
+          _compositeOverprintReason(paint.$2, paint.$5) == null);
       final fixedFunctionPaints = paints.every((paint) =>
           FlutterGpuTileRasterBackend._isFixedFunctionBlendMode(paint.$4) &&
-          !paint.$5);
+          _compositeOverprintReason(paint.$2, paint.$5) == null);
       final commonPaintClip =
           paints.every((paint) => _samePdfRect(paint.$3, commonClip));
       final disjointOuterBlend = initialBlend != PdfBlendMode.normal &&
@@ -1619,6 +1614,10 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           canRenderKnockout ||
           canRenderSeededKnockout;
       if (!canFlatten && !canRenderOffscreen) {
+        for (final paint in paints) {
+          final reason = _compositeOverprintReason(paint.$2, paint.$5);
+          if (reason != null) return (null, reason);
+        }
         return (null, 'non-identity multi-paint transparency group');
       }
       if (canFlatten &&
@@ -2740,6 +2739,22 @@ bool _pdfIntersects(PdfRect a, PdfRect b) =>
     a.right > b.left &&
     a.bottom < b.top &&
     a.top > b.bottom;
+
+String? _compositeOverprintReason(
+  PdfRenderCommand command,
+  bool overprint,
+) {
+  if (!overprint) return null;
+  return switch (command) {
+    PdfFillMeshCommand() => 'mesh overprint',
+    PdfFillPathGradientCommand() => 'gradient overprint',
+    PdfDrawTextCommand(:final run) when run.gradient != null =>
+      'gradient text overprint',
+    _ when _commandNeedsDarken(command, true, true) =>
+      'non-black overprint requires Canvas fallback',
+    _ => null,
+  };
+}
 
 String? _unsafeOverprint(_GpuUnit unit, PdfRenderCommand command) {
   switch (command) {

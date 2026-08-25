@@ -18,6 +18,10 @@
 - Add a deterministic repeated-advanced-blend CI workload whose twelve ordered
   destination-sampling passes provide a higher-signal same-host comparison for
   future blend optimizations.
+- Retain solid-black overprint paints inside single- and multi-paint
+  transparency groups, matching the existing exact top-level path. Unsafe
+  process-color, gradient, and mesh overprint still fall back to Canvas and
+  now report that cause instead of a generic group rejection.
 - Retain axial/radial gradient and Gouraud mesh paints in single-paint and
   mixed offscreen transparency groups.
 - Preserve per-paint Normal, Multiply, and Screen state inside isolated

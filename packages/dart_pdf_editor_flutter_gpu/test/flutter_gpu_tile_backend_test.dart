@@ -1415,6 +1415,102 @@ void main() {
     });
   });
 
+  testWidgets('solid black overprint remains exact inside groups',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        PdfFillPathCommand(
+          _rect(30, 90, 310, 370),
+          const PdfColor(0.35, 0.65, 0.85),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfBeginGroupCommand(1),
+        const PdfSetOverprintCommand(fill: true, stroke: false, mode: 1),
+        PdfFillPathCommand(
+          _rect(65, 125, 145, 325),
+          PdfColor.black,
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfEndGroupCommand(),
+        const PdfBeginGroupCommand(1, isolated: true),
+        const PdfSetOverprintCommand(fill: false, stroke: false, mode: 1),
+        PdfFillPathCommand(
+          _rect(150, 125, 275, 325),
+          const PdfColor(0.9, 0.55, 0.2),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfSetOverprintCommand(fill: true, stroke: false, mode: 1),
+        PdfFillPathCommand(
+          _rect(205, 160, 290, 290),
+          PdfColor.black,
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfEndGroupCommand(),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.lastSessionRejection);
+      addTearDown(session!.dispose);
+
+      const region = Rect.fromLTWH(20, 410, 310, 310);
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1.25);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1.25);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var index = 0; index < a.length; index++) {
+        difference += (a[index] - b[index]).abs();
+      }
+      expect(difference / a.length, lessThan(4));
+    });
+  });
+
+  testWidgets('colored overprint inside a group reports the exact fallback',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        const PdfBeginGroupCommand(1, isolated: true),
+        const PdfSetOverprintCommand(fill: true, stroke: false, mode: 1),
+        PdfFillPathCommand(
+          _rect(70, 140, 220, 310),
+          const PdfColor(0.95, 0.7, 0.2),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        PdfFillPathCommand(
+          _rect(150, 140, 270, 310),
+          const PdfColor(0.2, 0.8, 0.85),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfEndGroupCommand(),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      expect(backend.createSession(scene), isNull);
+      expect(
+        backend.stats.lastRejection,
+        'non-black overprint requires Canvas fallback',
+      );
+    });
+  });
+
   testWidgets('empty clipped transparency groups remain no-ops',
       (tester) async {
     await tester.runAsync(() async {

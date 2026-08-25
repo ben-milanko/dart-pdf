@@ -83,7 +83,8 @@ embedded-outline text, simple substituted text when an exact
 `FlutterGpuTextOutliner` resolves it,
 decoded images/image masks, Gouraud meshes, axial gradients, nested-circle
 radial gradients, vector and stencil-image tiling cells, normal/Multiply/Screen
-blending, and exact destination-sampling Overlay, Darken, Lighten, ColorDodge,
+blending, solid-black overprint (including inside transparency groups), and
+exact destination-sampling Overlay, Darken, Lighten, ColorDodge,
 ColorBurn, HardLight, SoftLight, Difference, Exclusion, Hue, Saturation, Color,
 and Luminosity blending,
 rectangular and arbitrary path clips, and the common isolated single-image
