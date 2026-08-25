@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor_flutter_gpu/dart_pdf_editor_flutter_gpu.dart';
 import 'package:flutter/painting.dart';
+import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter_gpu/gpu.dart' as gpu;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
@@ -119,6 +120,18 @@ Uint8List _benchmarkDocumentBytes(String? path, String? fixture) {
   };
 }
 
+Future<void> _registerMacSystemFonts() async {
+  Future<void> load(String family, String path) async {
+    final bytes = File(path).readAsBytesSync();
+    await (FontLoader(family)
+          ..addFont(Future<ByteData>.value(ByteData.sublistView(bytes))))
+        .load();
+  }
+
+  await load('Helvetica', '/System/Library/Fonts/Helvetica.ttc');
+  await load('Symbol', '/System/Library/Fonts/Symbol.ttf');
+}
+
 void main() {
   if (_buildCommit.isNotEmpty) PdfPerfLog.buildTag = 'commit=$_buildCommit';
 
@@ -155,6 +168,11 @@ void main() {
         markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
         return;
       }
+      if (Platform.isMacOS &&
+          Platform.environment['PDF_GPU_BENCHMARK_REGISTER_SYSTEM_FONTS'] ==
+              '1') {
+        await _registerMacSystemFonts();
+      }
       final fixtureName = fixture == null || fixture.isEmpty ? null : fixture;
       final document = PdfDocument.open(
         _benchmarkDocumentBytes(path, fixtureName),
@@ -181,6 +199,10 @@ void main() {
       final backend = FlutterGpuTileRasterBackend(
         msaa: msaa,
         allowOverprintApproximation: approximateOverprint,
+        analyticText:
+            Platform.environment['PDF_GPU_BENCHMARK_ANALYTIC_TEXT'] != '0',
+        systemTextOutlines:
+            Platform.environment['PDF_GPU_BENCHMARK_SYSTEM_TEXT'] == '1',
       );
       if (Platform.environment['PDF_GPU_BENCHMARK_WARMUP'] == '1') {
         final scenario = productionRoute
@@ -218,7 +240,9 @@ void main() {
             width: math.min(size.width, 512 / lod1),
             height: math.min(size.height, 512 / lod1),
           );
+          final sessionClock = Stopwatch()..start();
           final session = backend.createSession(scene);
+          sessionClock.stop();
           if (session == null) {
             final firstScenario = _scenarioName(
               scenarioLabel,
@@ -256,6 +280,7 @@ void main() {
             peakRss = math.max(peakRss, ProcessInfo.currentRss);
             rows.add('page=$pageIndex recordUs=${record.elapsedMicroseconds} '
                 'decodeUs=${(timing.decodeMs * 1000).round()} '
+                'sessionUs=${sessionClock.elapsedMicroseconds} '
                 'gpu=rejected reason=${backend.stats.lastRejection} '
                 'firstRoute=canvas-fallback firstUs=${fallback.$1} '
                 'canvasUs=${canvas.$1} '
@@ -330,6 +355,7 @@ void main() {
               peakRss = math.max(peakRss, ProcessInfo.currentRss);
               rows.add('page=$pageIndex recordUs=${record.elapsedMicroseconds} '
                   'decodeUs=${(timing.decodeMs * 1000).round()} '
+                  'sessionUs=${sessionClock.elapsedMicroseconds} '
                   'firstRoute=flutter_gpu '
                   'gpuColdUs=${coldGpu.$1} gpuWarmUs=${warmGpu.$1} '
                   'canvasUs=${warmCanvas.$1} '
@@ -340,6 +366,7 @@ void main() {
               peakRss = math.max(peakRss, ProcessInfo.currentRss);
               rows.add('page=$pageIndex recordUs=${record.elapsedMicroseconds} '
                   'decodeUs=${(timing.decodeMs * 1000).round()} '
+                  'sessionUs=${sessionClock.elapsedMicroseconds} '
                   'gpu=fallback canvasUs=${canvas.$1} '
                   'error=${error.toString().replaceAll('\n', ' ')}');
             }

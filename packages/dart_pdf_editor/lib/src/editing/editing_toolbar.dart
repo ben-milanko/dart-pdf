@@ -1912,9 +1912,17 @@ class _PdfEditingToolbarState extends State<PdfEditingToolbar> {
               ),
             if (controller.canRestyleSelectedText)
               IconButton(
+                key: const ValueKey('pdf-autosize-text-box'),
                 icon: const Icon(Icons.fit_screen),
                 tooltip: pdfL10n(context).tbAutosizeTextBox,
                 onPressed: controller.autosizeSelectedTextBox,
+              ),
+            if (controller.canAutosizeSelectedTextFont)
+              IconButton(
+                key: const ValueKey('pdf-autosize-text-font'),
+                icon: const Icon(Icons.format_size),
+                tooltip: pdfL10n(context).tbAutosizeTextFont,
+                onPressed: controller.autosizeSelectedTextFont,
               ),
           ]),
         ),

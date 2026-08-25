@@ -408,6 +408,7 @@
   "tbApplyRedactionsTitle": "ใช้การปิดบังข้อมูลหรือไม่",
   "tbApplyRedactionsTooltip": "ใช้การปิดบังข้อมูล (ไม่สามารถย้อนกลับได้)",
   "tbAutosizeTextBox": "ปรับขนาดกล่องข้อความอัตโนมัติ (Alt+Z)",
+  "tbAutosizeTextFont": "ปรับแบบอักษรให้พอดีกับกล่องข้อความ",
   "tbCalibrateScaleHint": "วาดเส้นที่ทราบความยาวเพื่อปรับเทียบมาตราส่วน",
   "tbCharSpacing": "ระยะห่างอักขระ",
   "tbCheckBoxOption": "ช่องทำเครื่องหมาย",

@@ -28,8 +28,22 @@ class FlutterGpuTileBackendStats {
   int compileMicros = 0;
   int geometryBuffers = 0;
   int geometryVertices = 0;
+  int analyticTextRuns = 0;
+  int analyticGlyphQuads = 0;
+  int analyticGlyphSlots = 0;
+  int analyticAtlasBytes = 0;
+  int analyticAtlasFallbacks = 0;
+  int analyticTextFallbackRuns = 0;
   int clipPathsCompiled = 0;
   int clipMaskRebuilds = 0;
+  int advancedBlendPasses = 0;
+  int advancedBlendAllocatedBytes = 0;
+  int peakAdvancedBlendBytes = 0;
+  int advancedBlendBudgetFallbacks = 0;
+  int offscreenGroupPasses = 0;
+  int offscreenGroupAllocatedBytes = 0;
+  int peakOffscreenGroupBytes = 0;
+  int offscreenGroupBudgetFallbacks = 0;
   int geometryBudgetFallbacks = 0;
   int activeGeometryLeases = 0;
   int geometryBytes = 0;
@@ -85,8 +99,22 @@ class FlutterGpuTileBackendStats {
         'compileMicros': compileMicros,
         'geometryBuffers': geometryBuffers,
         'geometryVertices': geometryVertices,
+        'analyticTextRuns': analyticTextRuns,
+        'analyticGlyphQuads': analyticGlyphQuads,
+        'analyticGlyphSlots': analyticGlyphSlots,
+        'analyticAtlasBytes': analyticAtlasBytes,
+        'analyticAtlasFallbacks': analyticAtlasFallbacks,
+        'analyticTextFallbackRuns': analyticTextFallbackRuns,
         'clipPathsCompiled': clipPathsCompiled,
         'clipMaskRebuilds': clipMaskRebuilds,
+        'advancedBlendPasses': advancedBlendPasses,
+        'advancedBlendAllocatedBytes': advancedBlendAllocatedBytes,
+        'peakAdvancedBlendBytes': peakAdvancedBlendBytes,
+        'advancedBlendBudgetFallbacks': advancedBlendBudgetFallbacks,
+        'offscreenGroupPasses': offscreenGroupPasses,
+        'offscreenGroupAllocatedBytes': offscreenGroupAllocatedBytes,
+        'peakOffscreenGroupBytes': peakOffscreenGroupBytes,
+        'offscreenGroupBudgetFallbacks': offscreenGroupBudgetFallbacks,
         'geometryBudgetFallbacks': geometryBudgetFallbacks,
         'activeGeometryLeases': activeGeometryLeases,
         'geometryBytes': geometryBytes,
@@ -141,8 +169,22 @@ class FlutterGpuTileBackendStats {
     scenesCompiled = 0;
     compileMicros = 0;
     geometryVertices = 0;
+    analyticTextRuns = 0;
+    analyticGlyphQuads = 0;
+    analyticGlyphSlots = 0;
+    analyticAtlasBytes = 0;
+    analyticAtlasFallbacks = 0;
+    analyticTextFallbackRuns = 0;
     clipPathsCompiled = 0;
     clipMaskRebuilds = 0;
+    advancedBlendPasses = 0;
+    advancedBlendAllocatedBytes = 0;
+    peakAdvancedBlendBytes = 0;
+    advancedBlendBudgetFallbacks = 0;
+    offscreenGroupPasses = 0;
+    offscreenGroupAllocatedBytes = 0;
+    peakOffscreenGroupBytes = 0;
+    offscreenGroupBudgetFallbacks = 0;
     geometryBudgetFallbacks = 0;
     peakGeometryBytes = geometryBytes;
     texturesUploaded = 0;
@@ -183,7 +225,19 @@ class FlutterGpuTileBackendStats {
       'overprintApprox=$overprintApproximationSessions '
       'compiled=$scenesCompiled compileUs=$compileMicros '
       'buffers=$geometryBuffers vertices=$geometryVertices '
+      'analyticRuns=$analyticTextRuns analyticQuads=$analyticGlyphQuads '
+      'analyticSlots=$analyticGlyphSlots atlasBytes=$analyticAtlasBytes '
+      'analyticAtlasFallbacks=$analyticAtlasFallbacks '
+      'analyticFallbackRuns=$analyticTextFallbackRuns '
       'clips=$clipPathsCompiled clipRebuilds=$clipMaskRebuilds '
+      'advancedBlendPasses=$advancedBlendPasses '
+      'advancedBlendAllocatedBytes=$advancedBlendAllocatedBytes '
+      'peakAdvancedBlendBytes=$peakAdvancedBlendBytes '
+      'advancedBlendBudgetFallbacks=$advancedBlendBudgetFallbacks '
+      'groupPasses=$offscreenGroupPasses '
+      'groupAllocatedBytes=$offscreenGroupAllocatedBytes '
+      'peakGroupBytes=$peakOffscreenGroupBytes '
+      'groupBudgetFallbacks=$offscreenGroupBudgetFallbacks '
       'geometryBudgetFallbacks=$geometryBudgetFallbacks '
       'activeGeometryLeases=$activeGeometryLeases '
       'geometryBytes=$geometryBytes peakGeometryBytes=$peakGeometryBytes '

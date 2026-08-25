@@ -408,6 +408,7 @@
   "tbApplyRedactionsTitle": "Terapkan redaksi?",
   "tbApplyRedactionsTooltip": "Terapkan redaksi (tidak dapat dibatalkan)",
   "tbAutosizeTextBox": "Ukuran otomatis kotak teks (Alt+Z)",
+  "tbAutosizeTextFont": "Sesuaikan font ke kotak teks",
   "tbCalibrateScaleHint": "Gambar garis dengan panjang yang diketahui untuk mengkalibrasi skala.",
   "tbCharSpacing": "Spasi karakter",
   "tbCheckBoxOption": "Kotak centang",

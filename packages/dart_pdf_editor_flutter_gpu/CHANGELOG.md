@@ -2,6 +2,39 @@
 
 ## Next
 
+- Render every PDF blend mode exactly with retained GPU destination sampling.
+  Advanced modes use bounded ping-pong tile attachments; provably disjoint
+  paints share one blend pass, while overlapping paints retain painter order.
+  Oversized tiles and scenes that combine advanced blends with offscreen
+  transparency groups keep the conservative Canvas fallback.
+- Retain isolated knockout groups made entirely from vector fills. Later
+  sibling shapes use exact source replacement only inside their retained path,
+  while the group's alpha and outer blend remain a single offscreen composite.
+- Retain isolated knockout groups containing a base fill and one
+  vector-soft-masked fill, including clipped vector mask bounds.
+- Render overlapping Normal paints in isolated transparency groups into a
+  shader-readable tile attachment, then apply group alpha and outer blend once
+  when sampling it into the page pass.
+- Elide zero-alpha and zero-area transparency groups before GPU auditing;
+  their composite alpha or form BBox clip makes all nested paints exact
+  no-ops.
+- Retain non-Normal transparency groups whose padded fill bounds are provably
+  disjoint, preserving exact outer blending without an offscreen surface.
+- Treat C1 controls as non-rendering glyph placements in the exact native
+  outline seam, matching Flutter shaping while preserving their PDF advances.
+- Retain stroke-only and fill-plus-stroke outline text, including page-space
+  alpha and zero-width hairlines, by reusing the exact path stroke pipeline.
+  Filled glyphs keep the analytic atlas while their stroke overlays in painter
+  order.
+- Retain ordinary filled text as six-vertex glyph quads backed by a
+  scale-independent analytic curve atlas. The shader derives device scale per
+  tile, eliminating repeated flattened outline fans across LoDs while exact
+  stencil rendering remains the automatic fallback for unsupported glyphs.
+- Add an exact substituted-text outline seam for the retained backend. Hosts
+  can resolve their registered TrueType/TTC bytes directly, while the opt-in
+  native adapter probes the standard platform substitution faces and declines
+  any unavailable, complex-shaped, or unplaceable run. Add the same-host
+  system-font route-change benchmark to the Metal CI matrix.
 - Render zero-width PDF hairlines as exact one-device-pixel contours generated
   for each tile LoD, while retaining the flattened source path with the scene.
 - Collapse isolated transparency groups containing one clipped vector fill or
@@ -16,7 +49,7 @@
   retained stencil pass. Rectangular vector-mask fills, including alpha or
   luminosity `/BC` and linearized `/TR`, stay entirely in retained geometry.
 - Render Multiply and Screen exactly with fixed-function blending over the
-  backend's opaque page surface; other blend modes still fall back to Canvas.
+  backend's opaque page surface.
 - Warm the nonzero stencil-cover render state used by retained fills, moving
   its first-use Metal compilation into the existing idle pipeline phase.
 - Render tiled stencil images exactly using scene-scoped, hand-built mipmaps.

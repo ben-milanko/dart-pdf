@@ -1779,6 +1779,10 @@
   "@tbAutosizeTextBox": {
     "description": "Tooltip for auto-sizing a free-text box to its content, with keyboard shortcut."
   },
+  "tbAutosizeTextFont": "Fit font to text box",
+  "@tbAutosizeTextFont": {
+    "description": "Tooltip for choosing the largest font size that fits the selected free-text box."
+  },
   "tbCalibrateScaleHint": "Draw a line of known length to calibrate the scale.",
   "@tbCalibrateScaleHint": {
     "description": "Snackbar guiding the user to draw a reference line when calibrating a measurement scale."

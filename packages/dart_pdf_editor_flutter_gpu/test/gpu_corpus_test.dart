@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor_flutter_gpu/dart_pdf_editor_flutter_gpu.dart';
 import 'package:flutter_gpu/gpu.dart' as gpu;
+import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 
@@ -60,6 +61,11 @@ void main() {
     test('GPU corpus parity', () {},
         skip: 'run with --enable-impeller --enable-flutter-gpu');
     return;
+  }
+
+  if (Platform.isMacOS &&
+      Platform.environment['GPU_CORPUS_REGISTER_SYSTEM_FONTS'] == '1') {
+    setUpAll(_registerMacSystemFonts);
   }
 
   _corpus(
@@ -121,7 +127,12 @@ void _corpus(
         for (var pageIndex = 0; pageIndex < limit; pageIndex++) {
           final scene = await PdfRetainedScene.record(document.page(pageIndex));
           try {
-            final backend = FlutterGpuTileRasterBackend();
+            final backend = FlutterGpuTileRasterBackend(
+              analyticText:
+                  Platform.environment['GPU_CORPUS_ANALYTIC_TEXT'] != '0',
+              systemTextOutlines:
+                  Platform.environment['GPU_CORPUS_SYSTEM_TEXT'] == '1',
+            );
             final session = backend.createSession(scene);
             if (session == null) {
               rejected++;
@@ -209,6 +220,33 @@ void _corpus(
     // all conservative-fallback tests passed.
     expect(accepted, greaterThan(0));
   });
+}
+
+Future<void> _registerMacSystemFonts() async {
+  Future<void> load(String family, List<String> paths) async {
+    final loader = FontLoader(family);
+    for (final path in paths) {
+      final bytes = File(path).readAsBytesSync();
+      loader.addFont(Future<ByteData>.value(ByteData.sublistView(bytes)));
+    }
+    await loader.load();
+  }
+
+  await load('Helvetica', ['/System/Library/Fonts/Helvetica.ttc']);
+  await load('Times New Roman', [
+    '/System/Library/Fonts/Supplemental/Times New Roman.ttf',
+    '/System/Library/Fonts/Supplemental/Times New Roman Bold.ttf',
+    '/System/Library/Fonts/Supplemental/Times New Roman Italic.ttf',
+    '/System/Library/Fonts/Supplemental/Times New Roman Bold Italic.ttf',
+  ]);
+  await load('Courier', [
+    '/System/Library/Fonts/Supplemental/Courier New.ttf',
+    '/System/Library/Fonts/Supplemental/Courier New Bold.ttf',
+    '/System/Library/Fonts/Supplemental/Courier New Italic.ttf',
+    '/System/Library/Fonts/Supplemental/Courier New Bold Italic.ttf',
+  ]);
+  await load('Symbol', ['/System/Library/Fonts/Symbol.ttf']);
+  await load('Zapf Dingbats', ['/System/Library/Fonts/ZapfDingbats.ttf']);
 }
 
 Future<void> _writeFailure(String suite, String name, int page, ui.Image canvas,

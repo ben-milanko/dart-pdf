@@ -2,6 +2,9 @@
 
 ## Next
 
+- Fit a free-text font to its existing box from the selection toolbar, tighten
+  Alt+Z box autosizing to the font's real vertical metrics, and add selected
+  annotation flattening to the right-click menu.
 - Collect worker-decoded images inside retained tiling cells, so bitmap Type 3
   glyphs keep their image pixels when a command buffer is rebuilt on the UI
   isolate.

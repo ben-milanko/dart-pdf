@@ -408,6 +408,7 @@
   "tbApplyRedactionsTitle": "تطبيق التنقيحات؟",
   "tbApplyRedactionsTooltip": "تطبيق التنقيحات (لا يمكن التراجع)",
   "tbAutosizeTextBox": "تحجيم مربع النص تلقائيًا (Alt+Z)",
+  "tbAutosizeTextFont": "ملاءمة الخط لمربع النص",
   "tbCalibrateScaleHint": "ارسم خطًا بطول معلوم لمعايرة المقياس.",
   "tbCharSpacing": "تباعد الأحرف",
   "tbCheckBoxOption": "مربع اختيار",

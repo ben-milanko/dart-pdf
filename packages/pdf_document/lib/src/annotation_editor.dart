@@ -972,7 +972,8 @@ extension PdfAnnotationEditing on PdfEditor {
     // transparency group and apply the constant alpha to the group at its
     // `Do`, so overlapping round caps composite opaquely inside instead of
     // darkening every join into a dot.
-    final innerRef = _updater.addObject(_form(rect, w, transparencyGroup: true));
+    final innerRef =
+        _updater.addObject(_form(rect, w, transparencyGroup: true));
     return (
       rect,
       ContentWriter()
@@ -2067,8 +2068,7 @@ extension PdfAnnotationEditing on PdfEditor {
     _addAnnotation(
       pageIndex,
       dict,
-      _form(rect, w,
-          resources: _resources(extGState: gs, font: fontResource)),
+      _form(rect, w, resources: _resources(extGState: gs, font: fontResource)),
       name: name,
     );
   }
@@ -2179,8 +2179,7 @@ extension PdfAnnotationEditing on PdfEditor {
     _addAnnotation(
       pageIndex,
       dict,
-      _form(rect, w,
-          resources: _resources(extGState: gs, font: fontResource)),
+      _form(rect, w, resources: _resources(extGState: gs, font: fontResource)),
       name: name,
     );
   }
@@ -3739,10 +3738,8 @@ extension PdfAnnotationEditing on PdfEditor {
   /// private `/DartPdfImageCrop` marker. A full-image crop drops the marker so
   /// an uncropped picture carries none. Read back by [PdfAnnotation.imageStampCrop].
   static void _writeImageCropMarker(CosDictionary dict, PdfRect crop) {
-    final full = crop.left <= 0 &&
-        crop.bottom <= 0 &&
-        crop.right >= 1 &&
-        crop.top >= 1;
+    final full =
+        crop.left <= 0 && crop.bottom <= 0 && crop.right >= 1 && crop.top >= 1;
     if (full) {
       dict.entries.remove('DartPdfImageCrop');
     } else {
@@ -3781,8 +3778,8 @@ extension PdfAnnotationEditing on PdfEditor {
       w.save();
       _orientedCounterRotation(w, rect, pageRotation);
     }
-    final cropped = crop.width < 1 || crop.height < 1 ||
-        crop.left > 0 || crop.bottom > 0;
+    final cropped =
+        crop.width < 1 || crop.height < 1 || crop.left > 0 || crop.bottom > 0;
     w.save();
     if (cropped) {
       // The scaled-up picture overflows the visual box; the box clips it so
@@ -4593,7 +4590,9 @@ extension PdfAnnotationEditing on PdfEditor {
     form.dictionary['Matrix'] =
         CosArray([for (final v in matrix.toList()) CosReal(v)]);
     final bbox = pdfRectFrom(document.cos, form.dictionary['BBox']);
-    if (bbox != null) dict['Rect'] = _rectArray(boundsUnderMatrix(matrix, bbox));
+    if (bbox != null) {
+      dict['Rect'] = _rectArray(boundsUnderMatrix(matrix, bbox));
+    }
 
     (double, double) map(double x, double y) => local.apply(x, y);
     for (final key in const ['QuadPoints', 'L', 'Vertices', 'CL']) {
@@ -5403,14 +5402,28 @@ extension PdfAnnotationEditing on PdfEditor {
     _markAnnotations([pageIndex], visual: visual);
   }
 
-  /// Bakes the page's annotation appearances into its content streams and
-  /// removes those annotations, making them permanent, non-interactive
-  /// page graphics.
+  /// Bakes annotation appearances into the page's content streams and
+  /// removes those annotations, making them permanent, non-interactive page
+  /// graphics. When [annotations] is supplied, only those annotation objects
+  /// are flattened; by default every eligible annotation on the page is.
   ///
   /// Annotations without a paintable appearance - hidden or no-view ones,
   /// popups, and any without /AP - are left in place untouched.
-  void flattenAnnotations(int pageIndex) =>
+  void flattenAnnotations(
+    int pageIndex, {
+    Iterable<PdfAnnotation>? annotations,
+  }) {
+    if (annotations == null) {
       _flattenAnnotations(pageIndex, (_) => true);
+      return;
+    }
+    final selected = <CosDictionary>{}..addAll(
+        annotations.map((annotation) => annotation.dict),
+      );
+    if (selected.isEmpty) return;
+    _flattenAnnotations(
+        pageIndex, (annotation) => selected.contains(annotation.dict));
+  }
 
   /// [flattenAnnotations] restricted to annotations matching [select]
   /// (used by [PdfFormAdmin.flattenForm] to take widgets only).
@@ -5632,8 +5645,7 @@ extension PdfAnnotationEditing on PdfEditor {
       if (cornerRadius > 0) {
         // Pull the radius in with the stroke so the rounded outer edge stays
         // inside /Rect; roundedRect clamps it to half the smaller side.
-        w.roundedRect(x, y, width, height,
-            math.max(0.0, cornerRadius - inset));
+        w.roundedRect(x, y, width, height, math.max(0.0, cornerRadius - inset));
       } else {
         w.rect(x, y, width, height);
       }

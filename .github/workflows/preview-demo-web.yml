@@ -97,8 +97,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for ((iteration = 1; iteration <= PATROL_PERF_REPETITIONS; iteration++)); do
-            echo "::group::Patrol performance repetition $iteration/$PATROL_PERF_REPETITIONS"
+          touch "$RUNNER_TEMP/patrol-web.log"
+          completed=0
+          attempt=0
+          max_attempts=$((PATROL_PERF_REPETITIONS + 2))
+          while ((completed < PATROL_PERF_REPETITIONS && attempt < max_attempts)); do
+            attempt=$((attempt + 1))
+            attempt_log="$RUNNER_TEMP/patrol-web-perf-$attempt.log"
+            echo "::group::Patrol performance attempt $attempt/$max_attempts"
+            set +e
             patrol test \
               --device chrome \
               --target patrol_test/perf_e2e_test.dart \
@@ -111,9 +118,29 @@ jobs:
               --web-viewport '{"width":2600,"height":2600}' \
               --web-video retain-on-failure \
               --verbose \
-              2>&1 | tee -a "$RUNNER_TEMP/patrol-web.log"
+              2>&1 | tee "$attempt_log"
+            patrol_status=${PIPESTATUS[0]}
+            set -e
             echo "::endgroup::"
+            if ((patrol_status == 0)) && dart ../../../tool/patrol_perf_summary.dart \
+              "$attempt_log" \
+              --output "$RUNNER_TEMP/patrol-web-perf-${attempt}-summary" \
+              --require-scenario-runs cad-image-deep-zoom=1 \
+              --require-scenario-runs heavy-document=1 \
+              --require-scenario-runs jpeg-consumer-decode=1 \
+              --require-scenario-runs rounded-rung-pressure=1 \
+              --require-scenario-runs web-worker=1 \
+              >/dev/null 2>&1; then
+              tee -a "$RUNNER_TEMP/patrol-web.log" < "$attempt_log" >/dev/null
+              completed=$((completed + 1))
+            else
+              echo "::warning::Patrol web attempt $attempt returned without a complete performance sample; retrying"
+            fi
           done
+          if ((completed < PATROL_PERF_REPETITIONS)); then
+            echo "::error::Patrol web produced $completed/$PATROL_PERF_REPETITIONS complete performance repetitions"
+            exit 1
+          fi
 
       - name: Download latest main Patrol web baseline
         id: patrol-baseline

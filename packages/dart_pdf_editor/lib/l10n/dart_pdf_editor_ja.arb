@@ -408,6 +408,7 @@
   "tbApplyRedactionsTitle": "墨消しを適用しますか?",
   "tbApplyRedactionsTooltip": "墨消しを適用（元に戻せません）",
   "tbAutosizeTextBox": "テキストボックスを自動サイズ (Alt+Z)",
+  "tbAutosizeTextFont": "フォントをテキストボックスに合わせる",
   "tbCalibrateScaleHint": "既知の長さの線を描いてスケールを校正します。",
   "tbCharSpacing": "文字間隔",
   "tbCheckBoxOption": "チェックボックス",

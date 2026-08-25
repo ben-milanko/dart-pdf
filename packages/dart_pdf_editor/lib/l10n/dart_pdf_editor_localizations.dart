@@ -2552,6 +2552,12 @@ abstract class DartPdfEditorLocalizations {
   /// **'Autosize text box (Alt+Z)'**
   String get tbAutosizeTextBox;
 
+  /// Tooltip for choosing the largest font size that fits the selected free-text box.
+  ///
+  /// In en, this message translates to:
+  /// **'Fit font to text box'**
+  String get tbAutosizeTextFont;
+
   /// Snackbar guiding the user to draw a reference line when calibrating a measurement scale.
   ///
   /// In en, this message translates to:

@@ -1,6 +1,7 @@
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 
 import 'backend_stats.dart';
+import 'text_outliner.dart';
 
 /// Web/unsupported compile-time stub for [FlutterGpuTileRasterBackend].
 class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
@@ -10,6 +11,9 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
     this.maxTextureBytes = 256 << 20,
     this.maxGeometryBytes = 256 << 20,
     this.enableProactiveWarmUp,
+    this.analyticText = true,
+    this.textOutliner,
+    this.systemTextOutlines = false,
     FlutterGpuTileBackendStats? stats,
   }) : stats = stats ?? FlutterGpuTileBackendStats();
 
@@ -18,6 +22,9 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   final int maxTextureBytes;
   final int maxGeometryBytes;
   final bool? enableProactiveWarmUp;
+  final bool analyticText;
+  final FlutterGpuTextOutliner? textOutliner;
+  final bool systemTextOutlines;
   final FlutterGpuTileBackendStats stats;
   String? _lastSessionRejection;
 

@@ -1384,6 +1384,9 @@ class DartPdfEditorLocalizationsPl extends DartPdfEditorLocalizations {
       'Automatyczny rozmiar pola tekstowego (Alt+Z)';
 
   @override
+  String get tbAutosizeTextFont => 'Dopasuj czcionkę do pola tekstowego';
+
+  @override
   String get tbCalibrateScaleHint =>
       'Narysuj linię o znanej długości, aby skalibrować skalę.';
 

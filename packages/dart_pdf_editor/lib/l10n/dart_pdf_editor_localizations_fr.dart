@@ -1368,6 +1368,9 @@ class DartPdfEditorLocalizationsFr extends DartPdfEditorLocalizations {
       'Ajuster automatiquement la zone de texte (Alt+Z)';
 
   @override
+  String get tbAutosizeTextFont => 'Adapter la police à la zone de texte';
+
+  @override
   String get tbCalibrateScaleHint =>
       'Tracez une ligne de longueur connue pour calibrer l\'échelle.';
 

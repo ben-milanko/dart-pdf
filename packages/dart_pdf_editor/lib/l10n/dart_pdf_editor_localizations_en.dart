@@ -1361,6 +1361,9 @@ class DartPdfEditorLocalizationsEn extends DartPdfEditorLocalizations {
   String get tbAutosizeTextBox => 'Autosize text box (Alt+Z)';
 
   @override
+  String get tbAutosizeTextFont => 'Fit font to text box';
+
+  @override
   String get tbCalibrateScaleHint =>
       'Draw a line of known length to calibrate the scale.';
 

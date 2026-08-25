@@ -408,6 +408,7 @@
   "tbApplyRedactionsTitle": "Redacties toepassen?",
   "tbApplyRedactionsTooltip": "Redacties toepassen (onomkeerbaar)",
   "tbAutosizeTextBox": "Tekstvak automatisch aanpassen (Alt+Z)",
+  "tbAutosizeTextFont": "Lettertype passend maken in tekstvak",
   "tbCalibrateScaleHint": "Teken een lijn met bekende lengte om de schaal te kalibreren.",
   "tbCharSpacing": "Tekenafstand",
   "tbCheckBoxOption": "Selectievakje",

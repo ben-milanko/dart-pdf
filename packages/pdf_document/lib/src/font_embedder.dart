@@ -99,6 +99,13 @@ class PdfEmbeddedFont implements PdfTextFont {
   @override
   int get ascent => _ascent;
 
+  /// Descender in thousandths of an em (normally negative).
+  ///
+  /// Exposed beside [ascent] so layout code can fit a text box to the font's
+  /// actual vertical metrics instead of reserving a whole line-height below
+  /// the final baseline.
+  int get descent => _descent;
+
   /// Parses [bytes] as a TrueType (`glyf`) or OpenType/CFF (`OTTO`) font.
   ///
   /// Throws [ArgumentError] for unrecognized data (e.g. WOFF, TrueType
@@ -127,7 +134,8 @@ class PdfEmbeddedFont implements PdfTextFont {
     for (var i = 0; i < numTables; i++) {
       final rec = 12 + i * 16;
       final tag = String.fromCharCodes(bytes, rec, rec + 4);
-      tables[tag] = (offset: data.getUint32(rec + 8), length: data.getUint32(rec + 12));
+      tables[tag] =
+          (offset: data.getUint32(rec + 8), length: data.getUint32(rec + 12));
     }
 
     final head = tables['head'];
@@ -188,8 +196,8 @@ class PdfEmbeddedFont implements PdfTextFont {
     final descent = s(typoDescent ?? hheaDescent);
     final cap = capHeight != null ? s(capHeight) : (ascent * 0.7).round();
 
-    final italic = (fsSelection != null && (fsSelection & 0x01) != 0) ||
-        italicAngle != 0;
+    final italic =
+        (fsSelection != null && (fsSelection & 0x01) != 0) || italicAngle != 0;
     final bold = fsSelection != null && (fsSelection & 0x20) != 0;
     // Nonsymbolic (32) for fonts with a Unicode cmap; add Italic (64),
     // ForceBold (1<<18) and FixedPitch (1) as detected.
@@ -433,7 +441,8 @@ class PdfEmbeddedFont implements PdfTextFont {
   /// Advance width of [gid] in thousandths of an em.
   int advanceForGlyph(int gid) {
     if (_numHMetrics == 0) return 0;
-    final units = gid < _numHMetrics ? _advances[gid] : _advances[_numHMetrics - 1];
+    final units =
+        gid < _numHMetrics ? _advances[gid] : _advances[_numHMetrics - 1];
     return (units * 1000 / _unitsPerEm).round();
   }
 
@@ -609,8 +618,7 @@ class PdfEmbeddedFont implements PdfTextFont {
       final off = storage + data.getUint16(rec + 10);
       if (off + len > data.lengthInBytes) continue;
       final value = platform == 1
-          ? String.fromCharCodes(
-              Uint8List.sublistView(data, off, off + len))
+          ? String.fromCharCodes(Uint8List.sublistView(data, off, off + len))
           : _decodeUtf16Be(data, off, len);
       if (nameId == 1) family = best(family, value, platform);
       if (nameId == 6) postScript = best(postScript, value, platform);
@@ -670,7 +678,8 @@ class _Cmap {
       final format = data.getUint16(off);
       // Score Unicode subtables; prefer full-repertoire format 12.
       var score = -1;
-      if ((platform == 3 && encoding == 10) || (platform == 0 && encoding >= 4)) {
+      if ((platform == 3 && encoding == 10) ||
+          (platform == 0 && encoding >= 4)) {
         score = format == 12 ? 5 : 3;
       } else if ((platform == 3 && encoding == 1) || platform == 0) {
         score = format == 12 ? 4 : 2;
