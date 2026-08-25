@@ -63,6 +63,7 @@ void main() {
       ..analyticAtlasBytes = 4096
       ..analyticAtlasFallbacks = 1
       ..analyticTextFallbackRuns = 2
+      ..advancedBlendBlits = 5
       ..offscreenGroupPasses = 3
       ..offscreenGroupAllocatedBytes = 6 << 20
       ..peakOffscreenGroupBytes = 4 << 20
@@ -97,6 +98,7 @@ void main() {
     expect(stats.toJson(), containsPair('analyticAtlasBytes', 4096));
     expect(stats.toJson(), containsPair('analyticAtlasFallbacks', 1));
     expect(stats.toJson(), containsPair('analyticTextFallbackRuns', 2));
+    expect(stats.toJson(), containsPair('advancedBlendBlits', 5));
     expect(stats.toJson(), containsPair('offscreenGroupPasses', 3));
     expect(
         stats.toJson(), containsPair('offscreenGroupAllocatedBytes', 6 << 20));
@@ -135,6 +137,7 @@ void main() {
     expect(stats.analyticAtlasBytes, 0);
     expect(stats.analyticAtlasFallbacks, 0);
     expect(stats.analyticTextFallbackRuns, 0);
+    expect(stats.advancedBlendBlits, 0);
     expect(stats.offscreenGroupPasses, 0);
     expect(stats.offscreenGroupAllocatedBytes, 0);
     expect(stats.peakOffscreenGroupBytes, 0);

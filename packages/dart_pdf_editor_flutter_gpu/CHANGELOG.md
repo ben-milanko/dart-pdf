@@ -32,6 +32,8 @@
   Advanced modes use bounded ping-pong tile attachments; provably disjoint
   paints share one blend pass, while overlapping paints retain painter order
   and scissor each sequential shader draw to its conservative command bounds.
+  Preserve the untouched ping-pong destination with a byte-exact GPU texture
+  blit instead of a full-tile textured draw before every advanced blend.
   Offscreen groups can now coexist with those destination-sampling paints in
   exact painter order and can use one advanced outer blend themselves;
   oversized tiles keep the conservative Canvas fallback.

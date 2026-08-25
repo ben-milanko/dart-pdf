@@ -117,6 +117,8 @@ Advanced blend paints use bounded ping-pong tile attachments. Paints whose
 bounds prove they cannot affect one another share one destination-sampling
 pass; overlapping paints replay sequentially inside their conservative command
 bounds to preserve PDF painter order without shading unrelated tile pixels.
+Each pass preserves the untouched ping-pong destination with a byte-exact GPU
+texture blit rather than a full-tile fragment draw.
 Offscreen groups can precede or follow those paints in the same exact route:
 each group is prepared once in its bounded single-sample target, then sampled
 into the ping-pong page at its original painter-order position. The completed
@@ -176,8 +178,8 @@ scene compile and tile-submit time,
 spatially selected command counts, upload/readback paths, cache hits and
 evictions, budget fallbacks, retained bytes, and live resource leases.
 Clip diagnostics separately report paths compiled and tile-mask rebuilds.
-Advanced-blend diagnostics report destination-sampling passes, allocated and
-peak temporary bytes, and budget fallbacks.
+Advanced-blend diagnostics report destination-sampling passes, destination
+blits, allocated and peak temporary bytes, and budget fallbacks.
 `backend.stats.toJson()` is suitable for benchmark artifacts. Keep the backend
 instance alive when comparing pages so those counters and cross-page caches
 describe the real workload rather than one page at a time.

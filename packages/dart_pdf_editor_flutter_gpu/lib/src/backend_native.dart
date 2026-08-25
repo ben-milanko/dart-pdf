@@ -3658,17 +3658,26 @@ class _CompiledScene {
     void blendSources(List<(_GpuUnit, PdfRect?)> units) {
       final target = alternate();
       final blendCommandBuffer = context.createCommandBuffer();
+      // Preserve the untouched destination with a native texture copy. The
+      // old full-tile textured draw spent fragment work rewriting every pixel
+      // before the bounded advanced-blend shader could touch its small dirty
+      // region. A blit is byte-exact and leaves the render pass free to load
+      // the copied target and shade only those conservative command bounds.
+      blendCommandBuffer.copyTextureToTexture(
+        gpu.TextureRegion(current!),
+        gpu.TextureDestinationRegion(target),
+      );
       final blendPass = blendCommandBuffer.createRenderPass(
         gpu.RenderTarget.singleColor(gpu.ColorAttachment(
           texture: target,
-          clearValue: vm.Vector4.zero(),
+          loadAction: gpu.LoadAction.load,
         )),
       )
         ..setCullMode(gpu.CullMode.none)
         ..setWindingOrder(gpu.WindingOrder.counterClockwise)
         ..setPrimitiveType(gpu.PrimitiveType.triangle)
         ..setColorBlendEnable(false);
-      final blendEncoder = encoderFor(blendPass)..copyTile(current!);
+      final blendEncoder = encoderFor(blendPass);
       for (final (unit, bounds) in units) {
         blendEncoder.advancedBlend(
           current!,
@@ -3680,7 +3689,9 @@ class _CompiledScene {
       commandBuffers.add(blendCommandBuffer);
       retained.add(blendPass);
       current = target;
-      stats.advancedBlendPasses++;
+      stats
+        ..advancedBlendPasses += 1
+        ..advancedBlendBlits += 1;
     }
 
     bool overlaps(PdfRect a, PdfRect b) =>

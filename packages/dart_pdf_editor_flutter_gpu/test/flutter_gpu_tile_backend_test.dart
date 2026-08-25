@@ -612,6 +612,7 @@ void main() {
       }
       expect(difference / a.length, lessThan(3));
       expect(backend.stats.advancedBlendPasses, 2);
+      expect(backend.stats.advancedBlendBlits, 2);
     });
   });
 
@@ -667,6 +668,7 @@ void main() {
       expect(difference / a.length, lessThan(3));
       expect(minimumAlpha, 255);
       expect(backend.stats.advancedBlendPasses, 8);
+      expect(backend.stats.advancedBlendBlits, 8);
     });
   });
 
