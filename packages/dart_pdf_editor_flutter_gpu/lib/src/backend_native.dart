@@ -326,6 +326,9 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
                       !scene.imageDecodingAttempted) {
                     return 'missing transparency-group image pixels';
                   }
+                case PdfFillPathGradientCommand(:final gradient, :final alpha):
+                  final reason = _gradientUnsupportedReason(gradient, alpha);
+                  if (reason != null) return reason;
                 default:
                   break;
               }
@@ -1335,6 +1338,18 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           }
           paints.add((i, command, clip, blend, fillOverprint));
           contentClip = clip;
+        case PdfFillPathGradientCommand() || PdfFillMeshCommand():
+          if (emptyClipOnly) {
+            return (null, 'empty transparency group contains paint');
+          }
+          if (softDepth != 0 || content != null) {
+            return (
+              null,
+              'soft-mask group contains ${command.runtimeType}',
+            );
+          }
+          paints.add((i, command, clip, blend, fillOverprint));
+          contentClip = clip;
         case PdfStrokePathCommand():
           if (emptyClipOnly) {
             return (null, 'empty transparency group contains paint');
@@ -1491,6 +1506,28 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
             null,
           ),
         PdfDrawImageCommand content => (
+            _GroupPaintSpec(
+              commands: [content],
+              paintClips: [paint.$3],
+              paintBlends: const [PdfBlendMode.normal],
+              contentClip: paint.$3,
+              groupAlpha: alpha,
+              offscreen: alpha != 1,
+            ),
+            null,
+          ),
+        PdfFillPathGradientCommand content => (
+            _GroupPaintSpec(
+              commands: [content],
+              paintClips: [paint.$3],
+              paintBlends: const [PdfBlendMode.normal],
+              contentClip: paint.$3,
+              groupAlpha: alpha,
+              offscreen: alpha != 1,
+            ),
+            null,
+          ),
+        PdfFillMeshCommand content => (
             _GroupPaintSpec(
               commands: [content],
               paintClips: [paint.$3],

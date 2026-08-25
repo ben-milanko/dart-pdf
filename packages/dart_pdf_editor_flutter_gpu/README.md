@@ -88,15 +88,16 @@ ColorBurn, HardLight, SoftLight, Difference, Exclusion, Hue, Saturation, Color,
 and Luminosity blending,
 rectangular and arbitrary path clips, and the common isolated single-image
 soft-mask group. Isolated transparency groups containing a single vector fill,
-stroke, outlined text run, or ordinary image also stay on the GPU: their group
-alpha and page blend mode are retained exactly. One-element knockout groups are
-included
+stroke, outlined text run, ordinary image, gradient, or Gouraud mesh also stay
+on the GPU: their group alpha and page blend mode are retained exactly.
+One-element knockout groups are included
 because there are no sibling elements for knockout to change. Alpha-one,
 normal-blend non-knockout groups may contain multiple ordered fills, strokes,
-outlined text runs, and ordinary images because source-over is associative, so
-their isolation layer is an identity operation. Isolated overlapping groups
-retain those same paint types in the bounded offscreen tile pass before
-applying group alpha and the outer blend once. Normal, Multiply, and Screen
+outlined text runs, images, gradients, and meshes because source-over is
+associative, so their isolation layer is an identity operation. Isolated
+overlapping groups retain those same paint types in the bounded offscreen tile
+pass before applying group alpha and the outer blend once. Normal, Multiply,
+and Screen
 remain per-paint state inside that attachment rather than being collapsed into
 the group's outer blend. Platform-decoded JPEGs whose
 `/SMask` remains a companion GPU

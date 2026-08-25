@@ -5,6 +5,8 @@
 - Run requested scene warm-up for route-change benchmarks, matching the
   viewer's idle-prepared production path while suppressing the unmatched timing
   marker when the Canvas base has no GPU session.
+- Retain axial/radial gradient and Gouraud mesh paints in single-paint and
+  mixed offscreen transparency groups.
 - Preserve per-paint Normal, Multiply, and Screen state inside isolated
   offscreen transparency groups.
 - Retain ordinary images in single-paint and mixed vector/text transparency

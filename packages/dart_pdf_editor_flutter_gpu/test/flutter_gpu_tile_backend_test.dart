@@ -1965,6 +1965,80 @@ void main() {
     });
   });
 
+  testWidgets('offscreen groups retain gradient and mesh paints',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        PdfFillPathCommand(
+          _rect(30, 90, 310, 370),
+          const PdfColor(0.45, 0.55, 0.7),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.multiply),
+        const PdfBeginGroupCommand(
+          0.72,
+          isolated: true,
+          bounds: PdfRect(50, 110, 290, 350),
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+        PdfClipPathCommand(_rect(50, 110, 290, 350), PdfFillRule.nonzero),
+        PdfFillPathGradientCommand(
+          _rect(70, 140, 240, 310),
+          PdfFillRule.nonzero,
+          const PdfGradient(
+            isRadial: false,
+            coords: [70, 140, 240, 310],
+            colors: [
+              PdfColor(0.95, 0.2, 0.1),
+              PdfColor(0.1, 0.8, 0.9),
+            ],
+            stops: [0, 1],
+            transform: PdfMatrix.identity,
+          ),
+          0.8,
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.screen),
+        const PdfFillMeshCommand(
+          PdfMesh(
+            [
+              PdfMeshVertex(125, 150, PdfColor(0.9, 0.1, 0.2)),
+              PdfMeshVertex(275, 170, PdfColor(0.1, 0.9, 0.25)),
+              PdfMeshVertex(205, 325, PdfColor(0.15, 0.25, 0.95)),
+            ],
+            [0, 1, 2],
+          ),
+          0.75,
+        ),
+        const PdfEndGroupCommand(),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      const region = Rect.fromLTWH(20, 410, 310, 310);
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1.5);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1.5);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var i = 0; i < a.length; i++) {
+        difference += (a[i] - b[i]).abs();
+      }
+      expect(difference / a.length, lessThan(4));
+      expect(backend.stats.offscreenGroupPasses, 1);
+    });
+  });
+
   testWidgets('isolated knockout fills replace earlier overlapping shapes',
       (tester) async {
     await tester.runAsync(() async {
