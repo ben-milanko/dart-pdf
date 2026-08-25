@@ -36,6 +36,10 @@ class FlutterGpuTileBackendStats {
   int analyticTextFallbackRuns = 0;
   int clipPathsCompiled = 0;
   int clipMaskRebuilds = 0;
+  int offscreenGroupPasses = 0;
+  int offscreenGroupAllocatedBytes = 0;
+  int peakOffscreenGroupBytes = 0;
+  int offscreenGroupBudgetFallbacks = 0;
   int geometryBudgetFallbacks = 0;
   int activeGeometryLeases = 0;
   int geometryBytes = 0;
@@ -99,6 +103,10 @@ class FlutterGpuTileBackendStats {
         'analyticTextFallbackRuns': analyticTextFallbackRuns,
         'clipPathsCompiled': clipPathsCompiled,
         'clipMaskRebuilds': clipMaskRebuilds,
+        'offscreenGroupPasses': offscreenGroupPasses,
+        'offscreenGroupAllocatedBytes': offscreenGroupAllocatedBytes,
+        'peakOffscreenGroupBytes': peakOffscreenGroupBytes,
+        'offscreenGroupBudgetFallbacks': offscreenGroupBudgetFallbacks,
         'geometryBudgetFallbacks': geometryBudgetFallbacks,
         'activeGeometryLeases': activeGeometryLeases,
         'geometryBytes': geometryBytes,
@@ -161,6 +169,10 @@ class FlutterGpuTileBackendStats {
     analyticTextFallbackRuns = 0;
     clipPathsCompiled = 0;
     clipMaskRebuilds = 0;
+    offscreenGroupPasses = 0;
+    offscreenGroupAllocatedBytes = 0;
+    peakOffscreenGroupBytes = 0;
+    offscreenGroupBudgetFallbacks = 0;
     geometryBudgetFallbacks = 0;
     peakGeometryBytes = geometryBytes;
     texturesUploaded = 0;
@@ -206,6 +218,10 @@ class FlutterGpuTileBackendStats {
       'analyticAtlasFallbacks=$analyticAtlasFallbacks '
       'analyticFallbackRuns=$analyticTextFallbackRuns '
       'clips=$clipPathsCompiled clipRebuilds=$clipMaskRebuilds '
+      'groupPasses=$offscreenGroupPasses '
+      'groupAllocatedBytes=$offscreenGroupAllocatedBytes '
+      'peakGroupBytes=$peakOffscreenGroupBytes '
+      'groupBudgetFallbacks=$offscreenGroupBudgetFallbacks '
       'geometryBudgetFallbacks=$geometryBudgetFallbacks '
       'activeGeometryLeases=$activeGeometryLeases '
       'geometryBytes=$geometryBytes peakGeometryBytes=$peakGeometryBytes '
