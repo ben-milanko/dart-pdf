@@ -1781,11 +1781,9 @@ class _EditorScreenState extends State<EditorScreen>
 
   /// Runs the device scanner. Null means "no pages": cancelled, unavailable, or
   /// failed - a failure has already been logged and toasted by the time this
-  /// returns, so callers just stop.
-  ///
-  /// The toast carries the platform's own reason. "The camera never opened" and
-  /// "the capture couldn't be read back" are different bugs with the same
-  /// symptom, and the message has to say which one happened.
+  /// returns, so callers just stop. Full platform diagnostics stay in DevTools;
+  /// the transient user message never exposes exception types or native error
+  /// plumbing.
   Future<Uint8List?> _runScan() async {
     final scan = _documentScanner;
     if (scan == null || _scanInFlight) return null;
@@ -1795,20 +1793,12 @@ class _EditorScreenState extends State<EditorScreen>
     } catch (e) {
       AppDevTools.instance.addLog('scan failed: $e', level: DevLogLevel.error);
       if (mounted) {
-        _toast(_scanFailureMessage(e), duration: const Duration(seconds: 6));
+        _toast(appL10n(context).editorScanFailed);
       }
       return null;
     } finally {
       _scanInFlight = false;
     }
-  }
-
-  /// The localized "couldn't scan" sentence plus the underlying error, trimmed
-  /// to something a snack bar can hold.
-  String _scanFailureMessage(Object error) {
-    var detail = error.toString();
-    if (detail.length > 140) detail = '${detail.substring(0, 140)}…';
-    return '${appL10n(context).editorScanFailed} $detail';
   }
 
   /// Scans a document with the device camera (mobile/tablet only) and opens
