@@ -80,9 +80,10 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   ///
   /// Stable flutter_gpu does not expose explicit DeviceBuffer disposal, so
   /// relying on native finalizers lets fast CAD navigation outrun collection.
-  /// Buffers are therefore pooled in 16 MiB blocks, leased by compiled scenes,
-  /// and reused only after the scene is disposed and every submitted command
-  /// buffer has completed. A scene that cannot fit falls back to Canvas.
+  /// Buffers are therefore pooled in power-of-two size classes from 64 KiB to
+  /// the arena's 16 MiB chunk size, leased by compiled scenes, and reused only
+  /// after the scene is disposed and every submitted command buffer has
+  /// completed. A scene that cannot fit falls back to Canvas.
   final int maxGeometryBytes;
 
   /// Whether the viewer should prepare GPU pipelines and live scenes at idle.
@@ -6078,6 +6079,7 @@ class _GpuGeometryArena {
 class _GpuGeometryPool {
   _GpuGeometryPool(this.maxBytes);
 
+  static const minimumBytes = 64 << 10;
   static const chunkBytes = 16 << 20;
 
   final int maxBytes;
@@ -6089,8 +6091,7 @@ class _GpuGeometryPool {
     ByteData data,
     FlutterGpuTileBackendStats stats,
   ) {
-    final capacity =
-        ((data.lengthInBytes + chunkBytes - 1) ~/ chunkBytes) * chunkBytes;
+    final capacity = _capacityFor(data.lengthInBytes);
     _GpuGeometryResource? resource;
     for (final candidate in _resources) {
       if (!identical(candidate.context, context) ||
@@ -6129,6 +6130,15 @@ class _GpuGeometryPool {
       ..geometryBytes = _bytes
       ..peakGeometryBytes = math.max(stats.peakGeometryBytes, _bytes);
     return resource;
+  }
+
+  static int _capacityFor(int bytes) {
+    var capacity = minimumBytes;
+    while (capacity < bytes && capacity < chunkBytes) {
+      capacity <<= 1;
+    }
+    if (capacity >= bytes) return capacity;
+    return ((bytes + chunkBytes - 1) ~/ chunkBytes) * chunkBytes;
   }
 
   void releaseAll(

@@ -13,6 +13,10 @@
   backdrop or evaluating the PDF blend equation. The destination is already a
   native copy of that backdrop, so sparse sources avoid redundant fragment
   reads, arithmetic, and writes without changing the resolved pixels.
+- Pool retained geometry in power-of-two size classes starting at 64 KiB
+  instead of rounding every scene up to 16 MiB. Dense scenes still flush at
+  the existing 16 MiB arena boundary and all active buffers remain under the
+  same hard byte budget.
 - Initialize tiles wholly inside the transformed crop box with the folded
   opaque paper color in the render-pass clear, skipping the transparent clear
   and full-tile paper draw. A one-device-pixel guard keeps rotated and

@@ -1559,7 +1559,7 @@ void main() {
     });
   });
 
-  testWidgets('geometry buffers stay bounded and reuse retired scene blocks',
+  testWidgets('geometry buffers stay bounded and reuse retired size classes',
       (tester) async {
     await tester.runAsync(() async {
       if (!_gpuAvailable()) {
@@ -1577,7 +1577,7 @@ void main() {
       ]);
       addTearDown(scene.dispose);
       final backend = FlutterGpuTileRasterBackend(
-        maxGeometryBytes: 16 << 20,
+        maxGeometryBytes: 64 << 10,
       );
       const region = Rect.fromLTWH(0, 0, 320, 320);
 
@@ -1586,7 +1586,7 @@ void main() {
       await _pixels(firstImage);
       firstImage.dispose();
       expect(backend.stats.geometryBuffers, 1);
-      expect(backend.stats.geometryBytes, 16 << 20);
+      expect(backend.stats.geometryBytes, 64 << 10);
       expect(backend.stats.activeGeometryLeases, 1);
 
       final blocked = backend.createSession(scene)!;
@@ -1614,9 +1614,9 @@ void main() {
       secondImage.dispose();
       admitted.dispose();
       expect(backend.stats.geometryBuffers, 1,
-          reason: 'the retired 16 MiB block should be reused');
-      expect(backend.stats.geometryBytes, 16 << 20);
-      expect(backend.stats.peakGeometryBytes, 16 << 20);
+          reason: 'the retired 64 KiB size class should be reused');
+      expect(backend.stats.geometryBytes, 64 << 10);
+      expect(backend.stats.peakGeometryBytes, 64 << 10);
     });
   });
 

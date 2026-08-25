@@ -157,10 +157,12 @@ across scenes, pages, workers, zoom levels, and LoDs.
 Pinned scene textures count toward the same ceiling; if no unpinned entry can
 make room, that scene falls back to Canvas instead of overshooting the budget.
 Compiled vertices share a second strict byte budget. They are packed into
-reusable 16 MiB device-buffer blocks and returned to the backend-wide pool only
-after their scene is disposed and every submitted command buffer completes.
-This keeps command-heavy CAD navigation bounded without relying on delayed
-native finalizers; a scene that cannot lease enough geometry also falls back.
+reusable power-of-two device-buffer size classes from 64 KiB through the 16 MiB
+arena chunk size, and returned to the backend-wide pool only after their scene
+is disposed and every submitted command buffer completes. This keeps sparse
+pages small and command-heavy CAD navigation bounded without relying on
+delayed native finalizers; a scene that cannot lease enough geometry also
+falls back.
 
 Ordinary filled outline text uses retained Slug-style quadratic curve streams:
 one small nearest-sampled atlas stores each distinct page glyph and each draw
