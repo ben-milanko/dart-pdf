@@ -185,10 +185,11 @@ Set `PDF_GPU_BENCHMARK_SCENE_WARMUP=1` to additionally compile and submit the
 retained scene before measuring that tile.
 Set `PDF_GPU_BENCHMARK_SCENARIO` to emit normalized `PdfPerfLog` scenario
 markers for each pipeline/scene/tile phase. CI uses those markers to run the
-checked-in tiling-pattern and radial-shading pages plus the deterministic
-deferred-mask fixture six times on macOS Metal, compare the exact PR base and
-candidate on the same runner with balanced execution order, and publish both a
-concise PR headline and a collapsed detailed trace.
+checked-in tiling-pattern, radial-shading, hairline, vector-mask transfer, and
+GWG168/169 vector soft-mask pages plus the deterministic deferred-mask fixture
+six times on macOS Metal, compare the exact PR base and candidate on the same
+runner with balanced execution order, and publish both a concise PR headline
+and a collapsed detailed trace.
 Set `PDF_GPU_BENCHMARK_FIXTURE=deferred-mask` instead of a PDF path to exercise
 a deterministic 1024x768 JPEG under a Flate grayscale soft mask. This fixture
 emits the same first-tile and Canvas scenarios whether the backend accepts the
@@ -200,7 +201,8 @@ reference warm on both the accepted and fallback routes without warming the
 cold first-tile measurement.
 Set `PDF_GPU_BENCHMARK_ROUTE_CHANGE=1` for the same normalization when a PDF
 path, rather than the built-in fixture, changes from Canvas fallback to direct
-GPU. CI uses it for the checked-in vector-mask transfer page.
+GPU. CI uses it for the checked-in vector-mask transfer, hairline, and GWG
+vector soft-mask pages.
 Set `PDF_GPU_BENCHMARK_OVERPRINT=0` to exercise the production-default exact
 fallback policy; the benchmark otherwise enables its documented source-over
 approximation so more of a corpus can be measured on the GPU.

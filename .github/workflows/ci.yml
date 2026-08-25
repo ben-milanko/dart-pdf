@@ -234,7 +234,10 @@ jobs:
             local repetition="$8"
             local source_env
             local route_change=0
-            if [[ "$label" == "vector-mask" || "$label" == "hairline" ]]; then
+            if [[ "$label" == "vector-mask" ||
+                  "$label" == "vector-stack-1" ||
+                  "$label" == "vector-stack-2" ||
+                  "$label" == "hairline" ]]; then
               route_change=1
             fi
             case "$source_kind" in
@@ -294,6 +297,8 @@ jobs:
           radial pdf ../../test_corpora/ghent/1-CMYK/GWG060_Shading_x1a.pdf
           deferred-mask fixture deferred-mask
           vector-mask pdf ../../test_corpora/pdfjs/smask_luminosity_oob_transfer.pdf
+          vector-stack-1 pdf ../../test_corpora/ghent/1-CMYK/GWG168_Softmasks_Vector_part1_X4.pdf
+          vector-stack-2 pdf ../../test_corpora/ghent/1-CMYK/GWG169_Softmasks_Vector_part2_X4.pdf
           hairline pdf ../../test_corpora/pdfjs/issue3458.pdf
           SCENARIOS
           fi
@@ -321,6 +326,8 @@ jobs:
           radial pdf ../../test_corpora/ghent/1-CMYK/GWG060_Shading_x1a.pdf
           deferred-mask fixture deferred-mask
           vector-mask pdf ../../test_corpora/pdfjs/smask_luminosity_oob_transfer.pdf
+          vector-stack-1 pdf ../../test_corpora/ghent/1-CMYK/GWG168_Softmasks_Vector_part1_X4.pdf
+          vector-stack-2 pdf ../../test_corpora/ghent/1-CMYK/GWG169_Softmasks_Vector_part2_X4.pdf
           hairline pdf ../../test_corpora/pdfjs/issue3458.pdf
           SCENARIOS
           done
@@ -353,6 +360,10 @@ jobs:
             --require-scenario-runs gpu-deferred-mask-page-0-canvas-tile=6
             --require-scenario-runs gpu-vector-mask-page-0-first-tile=6
             --require-scenario-runs gpu-vector-mask-page-0-canvas-tile=6
+            --require-scenario-runs gpu-vector-stack-1-page-0-first-tile=6
+            --require-scenario-runs gpu-vector-stack-1-page-0-canvas-tile=6
+            --require-scenario-runs gpu-vector-stack-2-page-0-first-tile=6
+            --require-scenario-runs gpu-vector-stack-2-page-0-canvas-tile=6
             --require-scenario-runs gpu-hairline-page-0-first-tile=6
             --require-scenario-runs gpu-hairline-page-0-canvas-tile=6
           )

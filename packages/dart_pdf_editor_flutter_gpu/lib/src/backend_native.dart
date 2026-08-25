@@ -254,11 +254,15 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
             }
           case _SoftMaskVectorFillSpec():
             break;
+          case _SoftMaskGradientFillSpec():
+            break;
           case _GroupFillSpec():
             break;
           case _GroupStrokeSpec():
             break;
           case _GroupPaintSpec():
+            break;
+          case _FlattenSoftMaskSpec():
             break;
         }
         continue;
@@ -458,6 +462,33 @@ class _GroupPaintSpec extends _GpuCompositeSpec {
   final PdfRect? contentClip;
 }
 
+class _FlattenSoftMaskSpec extends _GpuCompositeSpec {
+  const _FlattenSoftMaskSpec(this.paints);
+
+  final List<_FlattenSoftMaskPaint> paints;
+
+  @override
+  PdfRect? get contentClip => null;
+}
+
+class _FlattenSoftMaskPaint {
+  const _FlattenSoftMaskPaint({
+    required this.commandIndex,
+    required this.endCommandIndex,
+    required this.bounds,
+    required this.clip,
+    required this.blendMode,
+    this.composite,
+  });
+
+  final int commandIndex;
+  final int endCommandIndex;
+  final PdfRect bounds;
+  final PdfRect clip;
+  final PdfBlendMode blendMode;
+  final _GpuCompositeSpec? composite;
+}
+
 class _SoftMaskImageSpec extends _GpuCompositeSpec {
   const _SoftMaskImageSpec({
     required this.content,
@@ -525,6 +556,21 @@ class _SoftMaskVectorFillSpec extends _GpuCompositeSpec {
   final double backdropLuminance;
   final double transferScale;
   final double transferOffset;
+}
+
+class _SoftMaskGradientFillSpec extends _GpuCompositeSpec {
+  const _SoftMaskGradientFillSpec({
+    required this.content,
+    required this.mask,
+    required this.contentClip,
+    required this.luminosity,
+  });
+
+  final PdfFillPathCommand content;
+  final PdfFillPathGradientCommand mask;
+  @override
+  final PdfRect? contentClip;
+  final bool luminosity;
 }
 
 class _VectorMaskFill {
@@ -705,20 +751,58 @@ _GpuUnitBuild _buildGpuUnits(List<PdfRenderCommand> commands) {
             initialBlend: capture.blendMode,
           );
           if (parsed.$1 == null) return _GpuUnitBuild(null, parsed.$2);
-          final bounds = capture.bounds;
-          if (bounds != null) {
-            units.add(_GpuUnit(
-              commandIndex: capture.start,
-              endCommandIndex: i,
-              bounds: _inflatePdf(bounds, 2),
-              clip: _withGpuRectClip(capture.clip, parsed.$1!.contentClip),
-              blendMode: capture.blendMode,
-              fillOverprint: capture.fillOverprint,
-              strokeOverprint: capture.strokeOverprint,
-              darken: false,
-              composite: parsed.$1,
-            ));
+          final spec = parsed.$1!;
+          if (spec is _FlattenSoftMaskSpec) {
+            for (final paint in spec.paints) {
+              units.add(_GpuUnit(
+                commandIndex: paint.commandIndex,
+                endCommandIndex: paint.endCommandIndex,
+                bounds: _inflatePdf(paint.bounds, 2),
+                clip: _withGpuRectClip(capture.clip, paint.clip),
+                blendMode: paint.blendMode,
+                fillOverprint: false,
+                strokeOverprint: false,
+                darken: false,
+                composite: paint.composite,
+              ));
+            }
+            final bounds = capture.bounds;
+            if (bounds != null) {
+              // Covers the outer Begin/End pair for the unsupported-command
+              // audit. Its paints compile above in their original order;
+              // this structural marker intentionally emits no draw.
+              units.add(_GpuUnit(
+                commandIndex: capture.start,
+                endCommandIndex: i,
+                bounds: _inflatePdf(bounds, 2),
+                clip: capture.clip,
+                blendMode: PdfBlendMode.normal,
+                fillOverprint: false,
+                strokeOverprint: false,
+                darken: false,
+                composite: spec,
+              ));
+            }
+          } else {
+            final bounds = capture.bounds;
+            if (bounds != null) {
+              units.add(_GpuUnit(
+                commandIndex: capture.start,
+                endCommandIndex: i,
+                bounds: _inflatePdf(bounds, 2),
+                clip: _withGpuRectClip(capture.clip, spec.contentClip),
+                blendMode: capture.blendMode,
+                fillOverprint: capture.fillOverprint,
+                strokeOverprint: capture.strokeOverprint,
+                darken: false,
+                composite: spec,
+              ));
+            }
           }
+          clip = capture.clip;
+          blend = capture.blendMode;
+          fillOverprint = capture.fillOverprint;
+          strokeOverprint = capture.strokeOverprint;
           composite = null;
         }
       default:
@@ -962,6 +1046,17 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
   final endCommand = commands[end];
   if (commands[start] is PdfBeginSoftMaskedCommand &&
       endCommand is PdfEndSoftMaskedCommand) {
+    final flattened = _parseOpaqueVectorMaskStack(
+      commands,
+      start,
+      end,
+      endCommand,
+      initialClip: initialClip,
+      initialFillOverprint: initialFillOverprint,
+      initialStrokeOverprint: initialStrokeOverprint,
+      initialBlend: initialBlend,
+    );
+    if (flattened != null) return (flattened, null);
     final maskCommands = endCommand.maskCommands;
     final luminosity = endCommand.luminosity;
     final backdropLuminance = endCommand.backdropLuminance;
@@ -1015,6 +1110,34 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
     final maskState = _singleMaskImage(maskCommands);
     final mask = maskState.$1;
     if (mask == null) {
+      final gradientState = _singleMaskGradient(maskCommands);
+      final gradient = gradientState.$1;
+      if (gradient != null &&
+          !gradient.gradient.isRadial &&
+          backdropLuminance == 0 &&
+          transferScale == 1 &&
+          transferOffset == 0 &&
+          _gradientUnsupportedReason(gradient.gradient, gradient.alpha) ==
+              null) {
+        final contentBounds = _pdfIntersection(
+          contentClip,
+          pdfRenderCommandBounds(content),
+        );
+        final maskBounds = gradientState.$2;
+        if (contentBounds != null &&
+            maskBounds != null &&
+            _pdfContains(maskBounds, contentBounds)) {
+          return (
+            _SoftMaskGradientFillSpec(
+              content: content,
+              mask: gradient,
+              contentClip: contentClip,
+              luminosity: luminosity,
+            ),
+            null,
+          );
+        }
+      }
       final vectorMask = _vectorMaskFills(maskCommands);
       final maskFills = vectorMask.$1;
       if (maskFills == null) return (null, vectorMask.$2 ?? maskState.$3);
@@ -1059,18 +1182,180 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
   return (null, 'unsupported composite ${commands[start].runtimeType}');
 }
 
+/// Flattens one narrow nested-mask shape without allocating an offscreen
+/// group: an opaque Normal base covering a binary white vector mask, followed
+/// by image-masked fills blended onto that base. Because the base is opaque,
+/// each nested blend sees exactly the same backdrop whether it is evaluated
+/// inside the isolated source layer or directly after the base. The outer
+/// mask then reduces to a rectangular clip.
+///
+/// Every condition below is part of that proof. General nested masks, partial
+/// bases, non-binary masks, and non-Normal outer composites continue through
+/// the existing conservative Canvas fallback.
+_FlattenSoftMaskSpec? _parseOpaqueVectorMaskStack(
+  List<PdfRenderCommand> commands,
+  int start,
+  int end,
+  PdfEndSoftMaskedCommand outerEnd, {
+  required PdfRect? initialClip,
+  required bool initialFillOverprint,
+  required bool initialStrokeOverprint,
+  required PdfBlendMode initialBlend,
+}) {
+  if (initialBlend != PdfBlendMode.normal ||
+      outerEnd.backdropLuminance != 0 ||
+      outerEnd.transferScale != 1 ||
+      outerEnd.transferOffset != 0) {
+    return null;
+  }
+  final vectorMask = _vectorMaskFills(outerEnd.maskCommands).$1;
+  if (vectorMask == null || vectorMask.length != 1) return null;
+  final mask = vectorMask.single;
+  final maskIsOpaque = mask.alpha == 1 &&
+      (!outerEnd.luminosity ||
+          (mask.color.red == 1 &&
+              mask.color.green == 1 &&
+              mask.color.blue == 1));
+  if (!maskIsOpaque) return null;
+  final visibleMask = _pdfIntersection(initialClip, mask.rect);
+  if (visibleMask == null) return null;
+
+  var clip = initialClip;
+  var blend = initialBlend;
+  var fillOverprint = initialFillOverprint;
+  var strokeOverprint = initialStrokeOverprint;
+  final saved = <(PdfRect?, PdfBlendMode, bool, bool)>[];
+  final paints = <_FlattenSoftMaskPaint>[];
+  var hasOpaqueBase = false;
+  var nestedMasks = 0;
+
+  int? nestedEnd(int nestedStart) {
+    var depth = 1;
+    for (var i = nestedStart + 1; i < end; i++) {
+      switch (commands[i]) {
+        case PdfBeginSoftMaskedCommand():
+          depth++;
+        case PdfEndSoftMaskedCommand():
+          depth--;
+          if (depth == 0) return i;
+        case PdfBeginGroupCommand() || PdfEndGroupCommand():
+          return null;
+        default:
+          break;
+      }
+    }
+    return null;
+  }
+
+  for (var i = start + 1; i < end; i++) {
+    final command = commands[i];
+    switch (command) {
+      case PdfSaveCommand():
+        saved.add((clip, blend, fillOverprint, strokeOverprint));
+      case PdfRestoreCommand():
+        if (saved.isEmpty) return null;
+        final restored = saved.removeLast();
+        clip = restored.$1;
+        blend = restored.$2;
+        fillOverprint = restored.$3;
+        strokeOverprint = restored.$4;
+      case PdfClipPathCommand(:final path):
+        if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) return null;
+        clip = _pdfIntersection(clip, pdfRenderPathBounds(path));
+        if (clip == null) return null;
+      case PdfSetBlendModeCommand(:final mode):
+        blend = mode;
+      case PdfSetOverprintCommand(:final fill, :final stroke):
+        fillOverprint = fill;
+        strokeOverprint = stroke;
+      case PdfFillPathCommand(:final path, :final alpha):
+        if (hasOpaqueBase ||
+            alpha != 1 ||
+            blend != PdfBlendMode.normal ||
+            !FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) {
+          return null;
+        }
+        final bounds = _pdfIntersection(clip, pdfRenderPathBounds(path));
+        if (bounds == null || !_pdfContains(bounds, visibleMask)) return null;
+        hasOpaqueBase = true;
+        paints.add(_FlattenSoftMaskPaint(
+          commandIndex: i,
+          endCommandIndex: i,
+          bounds: visibleMask,
+          clip: visibleMask,
+          blendMode: PdfBlendMode.normal,
+        ));
+      case PdfBeginSoftMaskedCommand():
+        if (!hasOpaqueBase) return null;
+        final nestedStop = nestedEnd(i);
+        if (nestedStop == null ||
+            commands[nestedStop] is! PdfEndSoftMaskedCommand) {
+          return null;
+        }
+        final parsed = _parseComposite(
+          commands,
+          i,
+          nestedStop,
+          initialClip: clip,
+          initialFillOverprint: fillOverprint,
+          initialStrokeOverprint: strokeOverprint,
+          initialBlend: blend,
+        ).$1;
+        if (parsed is! _SoftMaskFillSpec) return null;
+        final contentBounds = pdfRenderCommandBounds(parsed.content);
+        final contentClip = _pdfIntersection(clip, parsed.contentClip);
+        final paintClip = _pdfIntersection(visibleMask, contentClip);
+        final bounds = _pdfIntersection(paintClip, contentBounds);
+        if (bounds != null) {
+          paints.add(_FlattenSoftMaskPaint(
+            commandIndex: i,
+            endCommandIndex: nestedStop,
+            bounds: bounds,
+            clip: paintClip!,
+            blendMode: blend,
+            composite: parsed,
+          ));
+        }
+        nestedMasks++;
+        // CanvasPdfDevice restores the blend captured by beginSoftMasked
+        // after compositing the nested layer. State-only commands inside the
+        // layer therefore do not leak into the next sibling.
+        i = nestedStop;
+      case PdfBeginGroupCommand() || PdfEndGroupCommand():
+        return null;
+      default:
+        if (pdfRenderCommandBounds(command) != null) return null;
+    }
+  }
+  if (saved.isNotEmpty || !hasOpaqueBase || nestedMasks == 0) return null;
+  return _FlattenSoftMaskSpec(List.unmodifiable(paints));
+}
+
+// Adjacent form transforms in real PDFs can serialize the same intended edge
+// a few millionths of a point apart. The retained stencil still uses the
+// original geometry; this tolerance only recognizes coincident coverage.
+bool _pdfContains(PdfRect outer, PdfRect inner) =>
+    outer.left <= inner.left + 0.001 &&
+    outer.bottom <= inner.bottom + 0.001 &&
+    outer.right + 0.001 >= inner.right &&
+    outer.top + 0.001 >= inner.top;
+
 (PdfDrawImageCommand?, PdfRect?, String?) _singleMaskImage(
     List<PdfRenderCommand> commands) {
   PdfDrawImageCommand? image;
+  PdfRect? imageClip;
   PdfRect? clip;
-  final saved = <PdfRect?>[];
+  var blend = PdfBlendMode.normal;
+  final saved = <(PdfRect?, PdfBlendMode)>[];
   for (final command in commands) {
     switch (command) {
       case PdfSaveCommand():
-        saved.add(clip);
+        saved.add((clip, blend));
       case PdfRestoreCommand():
         if (saved.isEmpty) return (null, null, 'unbalanced mask image state');
-        clip = saved.removeLast();
+        final restored = saved.removeLast();
+        clip = restored.$1;
+        blend = restored.$2;
       case PdfClipPathCommand(:final path):
         if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) {
           return (null, null, 'non-rectangular mask image clip');
@@ -1078,11 +1363,13 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
         clip = _pdfIntersection(clip, pdfRenderPathBounds(path));
       case PdfDrawImageCommand():
         if (image != null) return (null, null, 'mask contains multiple images');
-        image = command;
-      case PdfSetBlendModeCommand(:final mode):
-        if (mode != PdfBlendMode.normal) {
-          return (null, null, 'mask image blend mode ${mode.name}');
+        if (blend != PdfBlendMode.normal) {
+          return (null, null, 'mask image blend mode ${blend.name}');
         }
+        image = command;
+        imageClip = clip;
+      case PdfSetBlendModeCommand(:final mode):
+        blend = mode;
       case PdfSetOverprintCommand():
         break;
       default:
@@ -1093,7 +1380,62 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
   }
   if (saved.isNotEmpty) return (null, null, 'unbalanced mask image state');
   if (image == null) return (null, null, 'mask has no image');
-  return (image, clip, null);
+  return (image, imageClip, null);
+}
+
+(PdfFillPathGradientCommand?, PdfRect?, String?) _singleMaskGradient(
+    List<PdfRenderCommand> commands) {
+  PdfFillPathGradientCommand? gradient;
+  PdfRect? clip;
+  PdfRect? bounds;
+  var blend = PdfBlendMode.normal;
+  final saved = <(PdfRect?, PdfBlendMode)>[];
+  for (final command in commands) {
+    switch (command) {
+      case PdfSaveCommand():
+        saved.add((clip, blend));
+      case PdfRestoreCommand():
+        if (saved.isEmpty) {
+          return (null, null, 'unbalanced mask gradient state');
+        }
+        final restored = saved.removeLast();
+        clip = restored.$1;
+        blend = restored.$2;
+      case PdfClipPathCommand(:final path):
+        if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) {
+          return (null, null, 'non-rectangular mask gradient clip');
+        }
+        clip = _pdfIntersection(clip, pdfRenderPathBounds(path));
+      case PdfFillPathGradientCommand(:final path):
+        if (gradient != null) {
+          return (null, null, 'mask contains multiple gradients');
+        }
+        if (blend != PdfBlendMode.normal) {
+          return (null, null, 'mask gradient blend mode ${blend.name}');
+        }
+        if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) {
+          return (null, null, 'non-rectangular mask gradient fill');
+        }
+        gradient = command;
+        bounds = _pdfIntersection(clip, pdfRenderPathBounds(path));
+      case PdfSetBlendModeCommand(:final mode):
+        blend = mode;
+      case PdfSetOverprintCommand():
+        // A single mask element has no prior colorants to preserve.
+        break;
+      default:
+        if (pdfRenderCommandBounds(command) != null) {
+          return (null, null, 'mask contains ${command.runtimeType}');
+        }
+    }
+  }
+  if (saved.isNotEmpty) {
+    return (null, null, 'unbalanced mask gradient state');
+  }
+  if (gradient == null || bounds == null) {
+    return (null, null, 'mask has no gradient');
+  }
+  return (gradient, bounds, null);
 }
 
 (List<_VectorMaskFill>?, String?) _vectorMaskFills(
@@ -1555,6 +1897,7 @@ class _CompiledScene {
             _GroupFillSpec spec => _compileGroupFill(geometry, spec),
             _GroupStrokeSpec spec => _compileGroupStroke(geometry, spec),
             _GroupPaintSpec spec => _compileGroupPaint(geometry, spec),
+            _FlattenSoftMaskSpec() => null,
             _SoftMaskImageSpec spec => await _compileSoftMaskImage(
                 context,
                 geometry,
@@ -1577,6 +1920,8 @@ class _CompiledScene {
               ),
             _SoftMaskVectorFillSpec spec =>
               _compileSoftMaskVectorFill(geometry, spec),
+            _SoftMaskGradientFillSpec spec =>
+              _compileSoftMaskGradientFill(geometry, spec),
           };
         }
         if (draw != null) draws[unit.commandIndex] = draw;
@@ -2053,6 +2398,37 @@ Future<_GpuDraw> _compileSoftMaskFill(
       transferOffset: spec.transferOffset,
       maskClip: spec.maskClip,
     ),
+  );
+}
+
+_GpuDraw? _compileSoftMaskGradientFill(
+  _GpuGeometryArena geometry,
+  _SoftMaskGradientFillSpec spec,
+) {
+  final subpaths = flattenPath(
+    spec.content.path,
+    PdfMatrix.identity,
+    tolerance: 0.01,
+  );
+  final maskAlpha = spec.mask.alpha.clamp(0.0, 1.0);
+  return _compileGradientSubpaths(
+    geometry,
+    subpaths,
+    spec.content.rule,
+    spec.mask.gradient,
+    1,
+    vertexColor: (maskColor) {
+      final mask = spec.luminosity
+          ? (0.2126 * maskColor.red +
+                  0.7152 * maskColor.green +
+                  0.0722 * maskColor.blue) *
+              maskAlpha
+          : maskAlpha;
+      return _premul(
+        spec.content.color,
+        (spec.content.alpha * mask).clamp(0.0, 1.0),
+      );
+    },
   );
 }
 
@@ -2688,10 +3064,12 @@ _GradientDraw? _compileGradientSubpaths(
   List<FlatSubpath> subpaths,
   PdfFillRule rule,
   PdfGradient gradient,
-  double alpha,
-) {
+  double alpha, {
+  List<double> Function(PdfColor color)? vertexColor,
+}) {
   if (alpha <= 0) return null;
   if (gradient.isRadial) {
+    if (vertexColor != null) return null;
     return _compileRadialGradientSubpaths(
       geometry,
       subpaths,
@@ -2746,20 +3124,19 @@ _GradientDraw? _compileGradientSubpaths(
       upper++;
     }
     if (upper >= gradient.stops.length) {
-      return _premul(gradient.colors.last, commandAlpha);
+      final color = gradient.colors.last;
+      return vertexColor?.call(color) ?? _premul(color, commandAlpha);
     }
     final lower = upper - 1;
     final lo = gradient.stops[lower], hi = gradient.stops[upper];
     final mix = hi <= lo ? 1.0 : ((sample - lo) / (hi - lo)).clamp(0.0, 1.0);
     final a = gradient.colors[lower], b = gradient.colors[upper];
-    return _premul(
-      PdfColor(
-        a.red + (b.red - a.red) * mix,
-        a.green + (b.green - a.green) * mix,
-        a.blue + (b.blue - a.blue) * mix,
-      ),
-      commandAlpha,
+    final color = PdfColor(
+      a.red + (b.red - a.red) * mix,
+      a.green + (b.green - a.green) * mix,
+      a.blue + (b.blue - a.blue) * mix,
     );
+    return vertexColor?.call(color) ?? _premul(color, commandAlpha);
   }
 
   (double, double) point(double t, double u) {
