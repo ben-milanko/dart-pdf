@@ -11,9 +11,37 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_doc_scanner/flutter_doc_scanner.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf_document/pdf_document.dart';
+import 'package:pdf_test_fixtures/pdf_test_fixtures.dart';
 
 import 'package:dart_pdf_editor_app/doc_scan_io.dart';
+
+class _ImageOnlyScanner extends FlutterDocScanner {
+  _ImageOnlyScanner(this.locations);
+
+  final List<String> locations;
+  var imageCalls = 0;
+  var pdfCalls = 0;
+
+  @override
+  Future<ImageScanResult?> getScannedDocumentAsImages({
+    int page = 4,
+    ImageFormat imageFormat = ImageFormat.jpeg,
+    double quality = 0.9,
+    bool useAutomaticSinglePictureProcessing = false,
+  }) async {
+    imageCalls++;
+    return ImageScanResult(images: locations);
+  }
+
+  @override
+  Future<PdfScanResult?> getScannedDocumentAsPdf({int page = 4}) async {
+    pdfCalls++;
+    throw StateError('the plugin PDF route must not be used');
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -57,6 +85,27 @@ void main() {
     // toast, so it has to carry the URI that failed.
     const e = DocumentScanException('content://media/document/1');
     expect(e.toString(), contains('content://media/document/1'));
+  });
+
+  test('scan uses page images once and assembles its own PDF', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    final dir = Directory.systemTemp.createTempSync('doc_scan_images_test');
+    try {
+      final first = File('${dir.path}/first.jpg')
+        ..writeAsBytesSync(buildTestJpeg());
+      final second = File('${dir.path}/second.jpg')
+        ..writeAsBytesSync(buildTestJpeg());
+      final scanner = _ImageOnlyScanner([first.path, second.path]);
+
+      final bytes = await scanDocumentToPdf(scanner: scanner);
+      expect(bytes, isNotNull);
+      expect(PdfDocument.open(bytes!).pageCount, 2);
+      expect(scanner.imageCalls, 1);
+      expect(scanner.pdfCalls, 0);
+    } finally {
+      dir.deleteSync(recursive: true);
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 
   group('readScannedFile', () {
@@ -153,5 +202,19 @@ void main() {
       expect(tokens, isEmpty);
       debugDefaultTargetPlatformOverride = null;
     });
+  });
+
+  test('scannedImagesToPdf reads Android content URIs in page order', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    final tokens = mockReadUri(buildTestJpeg());
+
+    final bytes = await scannedImagesToPdf(
+      const ['content://scan/1', 'content://scan/2'],
+      channel: channel,
+    );
+
+    expect(PdfDocument.open(bytes).pageCount, 2);
+    expect(tokens, ['content://scan/1', 'content://scan/2']);
+    debugDefaultTargetPlatformOverride = null;
   });
 }
