@@ -31,7 +31,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   # Encodes the JPEG fixture whose /SMask stays a companion GPU surface.
-  image: ^4.9.1
+  image: ^4.9.2
   pdf_test_fixtures: '>=1.4.0 <4.0.0'
 
 flutter:

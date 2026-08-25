@@ -34,7 +34,7 @@ dependencies:
   # PDF byte source (PdfHttpByteSource); uses Range requests, no dart:io in our
   # code. See src/http_byte_source.dart.
   http: ^1.2.0
-  image: ^4.9.1
+  image: ^4.9.2
   pdf_cos: ^3.8.0
   pdf_document: ^3.8.0
   pdf_graphics: ^3.8.0
