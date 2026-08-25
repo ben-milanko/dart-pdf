@@ -233,6 +233,39 @@ void main() {
       expect(flattened, contains('0 0 1 RG'));
     });
 
+    test('flattenForm materializes a missing push-button appearance', () {
+      final editor = PdfEditor(PdfDocument.open(buildClassicPdf()));
+      final field = editor.addPushButtonField(
+        0,
+        'blank-button',
+        const PdfRect(72, 650, 180, 686),
+      );
+      field.dict
+        ..entries.remove('AP')
+        ..['MK'] = CosDictionary({
+          'BG': CosArray([
+            const CosInteger(0),
+            const CosInteger(1),
+            const CosInteger(0),
+          ]),
+          'BC': CosArray([
+            const CosInteger(1),
+            const CosInteger(0),
+            const CosInteger(0),
+          ]),
+        })
+        ..['BS'] = CosDictionary({'W': const CosInteger(2)});
+
+      editor.flattenForm();
+
+      final out = PdfDocument.open(editor.save());
+      expect(PdfAcroForm.of(out)!.fields, isEmpty);
+      expect(out.page(0).annotations, isEmpty);
+      final flattened = _flattenedContent(out);
+      expect(flattened, contains('0 1 0 rg'));
+      expect(flattened, contains('1 0 0 RG'));
+    });
+
     test('broken widgets cannot derail flattening', () {
       final doc = PdfDocument.open(buildAcroFormPdf());
       // corrupt one widget: junk /Rect and a dangling /AP reference
