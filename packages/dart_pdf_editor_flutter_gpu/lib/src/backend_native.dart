@@ -498,12 +498,14 @@ class _GroupPaintSpec extends _GpuCompositeSpec {
     required this.contentClip,
     this.groupAlpha = 1,
     this.offscreen = false,
+    this.knockout = false,
   });
 
   final List<PdfRenderCommand> commands;
   final List<PdfRect?> paintClips;
   final double groupAlpha;
   final bool offscreen;
+  final bool knockout;
   @override
   final PdfRect? contentClip;
 }
@@ -1412,8 +1414,16 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           backdropColor == null &&
           compatiblePaints &&
           (initialBlend == PdfBlendMode.normal || disjointOuterBlend);
-      final canRenderOffscreen =
-          isolated && !knockout && backdropColor == null && compatiblePaints;
+      final canRenderKnockout = isolated &&
+          knockout &&
+          backdropColor == null &&
+          compatiblePaints &&
+          paints.every((paint) => paint.$2 is PdfFillPathCommand);
+      final canRenderOffscreen = (isolated &&
+              !knockout &&
+              backdropColor == null &&
+              compatiblePaints) ||
+          canRenderKnockout;
       if (!canFlatten && !canRenderOffscreen) {
         return (null, 'non-identity multi-paint transparency group');
       }
@@ -1443,6 +1453,7 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
           contentClip: canFlatten && commonPaintClip ? commonClip : null,
           groupAlpha: alpha,
           offscreen: !canFlatten || !commonPaintClip,
+          knockout: canRenderKnockout,
         ),
         null,
       );
@@ -3250,9 +3261,13 @@ class _CompiledScene {
         targetWidth: groupWidth,
         targetHeight: groupHeight,
       );
-      groupEncoder.setBlendMode(PdfBlendMode.normal);
       for (final paint in draw.paints) {
         groupEncoder.setClip(_withGpuRectClip(unit.clip, paint.$2));
+        if (paint.$3) {
+          groupEncoder.setSourceBlend();
+        } else {
+          groupEncoder.setBlendMode(PdfBlendMode.normal);
+        }
         paint.$1.encode(groupEncoder);
       }
       stats.clipMaskRebuilds += groupEncoder.clipMaskRebuilds;
@@ -3492,7 +3507,7 @@ _GpuDraw? _compileGroupStroke(
     );
 
 _GpuDraw? _compileGroupPaint(_GpuGeometryArena geometry, _GroupPaintSpec spec) {
-  final draws = <(_GpuDraw, PdfRect?)>[];
+  final draws = <(_GpuDraw, PdfRect?, bool)>[];
   var paintPadding = 2.0;
   for (var index = 0; index < spec.commands.length; index++) {
     final command = spec.commands[index];
@@ -3522,7 +3537,9 @@ _GpuDraw? _compileGroupPaint(_GpuGeometryArena geometry, _GroupPaintSpec spec) {
       PdfStrokePathCommand() => _compileStroke(geometry, command),
       _ => null,
     };
-    if (draw != null) draws.add((draw, spec.paintClips[index]));
+    if (draw != null) {
+      draws.add((draw, spec.paintClips[index], spec.knockout && index > 0));
+    }
   }
   if (draws.isEmpty) return null;
   return spec.offscreen
@@ -3548,9 +3565,9 @@ _GpuDraw? _compileKnockoutSoftMaskFill(
     false,
   );
   final maskedDraw = _compileSoftMaskVectorFill(geometry, spec.masked);
-  final paints = <(_GpuDraw, PdfRect?)>[
-    if (baseDraw != null) (baseDraw, spec.baseClip),
-    if (maskedDraw != null) (maskedDraw, spec.masked.contentClip),
+  final paints = <(_GpuDraw, PdfRect?, bool)>[
+    if (baseDraw != null) (baseDraw, spec.baseClip, false),
+    if (maskedDraw != null) (maskedDraw, spec.masked.contentClip, false),
   ];
   if (paints.isEmpty) return null;
   return _OffscreenGroupDraw(
@@ -5083,7 +5100,11 @@ class _SequenceDraw implements _GpuDraw {
 class _OffscreenGroupDraw implements _GpuDraw {
   const _OffscreenGroupDraw(this.paints, this.alpha, this.extraPadding);
 
-  final List<(_GpuDraw, PdfRect?)> paints;
+  /// The third field selects shape-limited source replacement for knockout
+  /// siblings. Retained path stencils emit fragments only inside the painted
+  /// shape; masked texture quads keep source-over so transparent pixels beyond
+  /// their source shape cannot erase earlier siblings.
+  final List<(_GpuDraw, PdfRect?, bool)> paints;
   final double alpha;
   final double extraPadding;
 
@@ -5242,6 +5263,12 @@ class _GpuEncoder {
     sourceAlphaBlendFactor: gpu.BlendFactor.one,
     destinationAlphaBlendFactor: gpu.BlendFactor.oneMinusSourceAlpha,
   );
+  static final _source = gpu.ColorBlendEquation(
+    sourceColorBlendFactor: gpu.BlendFactor.one,
+    destinationColorBlendFactor: gpu.BlendFactor.zero,
+    sourceAlphaBlendFactor: gpu.BlendFactor.one,
+    destinationAlphaBlendFactor: gpu.BlendFactor.zero,
+  );
   // The page paper makes the destination beneath every supported primitive
   // opaque. Under that invariant PDF Multiply and Screen each reduce to one
   // exact fixed-function equation, with no destination-texture readback.
@@ -5271,6 +5298,8 @@ class _GpuEncoder {
       _ => _srcOver,
     };
   }
+
+  void setSourceBlend() => _paintBlend = _source;
 
   void setClip(_GpuClipState clip) {
     if (identical(_clipState, clip)) return;
