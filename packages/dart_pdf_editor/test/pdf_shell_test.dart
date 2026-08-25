@@ -1408,6 +1408,24 @@ void main() {
       ]..sort((a, b) => a.left.compareTo(b.left));
       expect(openRects.last.left, greaterThan(openRects.first.right));
       expect(openRects.first.width, lessThan(openRects.last.width));
+
+      // The contextual (second) toolbar follows the rail instead of opening
+      // as the old horizontal row beside it.
+      final highlight =
+          tester.getCenter(find.byKey(const ValueKey('pdf-markup-highlight')));
+      final underline =
+          tester.getCenter(find.byKey(const ValueKey('pdf-markup-underline')));
+      expect(highlight.dx, closeTo(underline.dx, 0.5));
+      expect(underline.dy, greaterThan(highlight.dy));
+      final contextualScroll = tester.widget<SingleChildScrollView>(
+        find
+            .ancestor(
+              of: find.byKey(const ValueKey('pdf-markup-highlight')),
+              matching: find.byType(SingleChildScrollView),
+            )
+            .first,
+      );
+      expect(contextualScroll.scrollDirection, Axis.vertical);
     });
 
     testWidgets('right toolbar is a vertical rail inside docked panels',

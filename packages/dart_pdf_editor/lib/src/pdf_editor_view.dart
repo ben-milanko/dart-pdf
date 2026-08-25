@@ -926,7 +926,10 @@ class _PdfEditorViewState extends State<PdfEditorView> {
           // thumbnail tiles' delete-button Tooltips) during the enclosing
           // LayoutBuilder's layout pass, which trips a RenderObject mutation
           // assertion. A fresh mount has no such overlay reactivation.
-          PdfThumbnailSidebar thumbnails({required bool bottomSheet}) =>
+          PdfThumbnailSidebar thumbnails({
+            required bool bottomSheet,
+            Axis? scrollDirection,
+          }) =>
               PdfThumbnailSidebar(
                 key: ValueKey(
                     'pdf-shell-thumbnails-${bottomSheet ? 'sheet' : 'docked'}'),
@@ -936,6 +939,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                 showAnnotations: prefs.showAnnotations,
                 allowPageEditing: features.pageEditing,
                 dock: prefs.thumbnailSidebarDock,
+                scrollDirection: scrollDirection,
                 bottomSheet: bottomSheet,
                 // the sheet chrome carries its own close button
                 onClose: bottomSheet
@@ -1082,8 +1086,12 @@ class _PdfEditorViewState extends State<PdfEditorView> {
           // a chromeless body for use inside a tab group (the group supplies
           // the frame, tab strip, and close buttons); reuses the panels'
           // bottom-sheet content mode
-          Widget tabBody(PdfDockablePanel p) => switch (p) {
-                PdfDockablePanel.thumbnails => thumbnails(bottomSheet: true),
+          Widget tabBody(PdfDockablePanel p, PdfPanelDock dock) => switch (p) {
+                PdfDockablePanel.thumbnails => thumbnails(
+                    bottomSheet: true,
+                    scrollDirection:
+                        dock.isHorizontal ? Axis.vertical : Axis.horizontal,
+                  ),
                 PdfDockablePanel.search => searchResults(bottomSheet: true),
                 PdfDockablePanel.bookmarks => bookmarks(bottomSheet: true),
                 PdfDockablePanel.annotations => annotations(bottomSheet: true),
@@ -1138,7 +1146,7 @@ class _PdfEditorViewState extends State<PdfEditorView> {
                     for (final m in members)
                       PdfPanelTabEntry(
                         panel: m,
-                        body: tabBody(m),
+                        body: tabBody(m, dock),
                         onClose: closePanel(m),
                       ),
                   ],
