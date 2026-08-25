@@ -41,18 +41,19 @@ void main() {
           PdfFillRule.nonzero,
           1,
         )
+        // State left by the captured source must not become the mask form's
+        // initial blend mode.
+        ..setBlendMode(PdfBlendMode.multiply)
         ..endSoftMasked(
           luminosity: true,
           backdrop: const PdfRect(0, 0, 100, 100),
           drawMask: () {
-            device
-              ..setBlendMode(PdfBlendMode.normal)
-              ..fillPath(
-                _rightHalf,
-                const PdfColor.gray(1),
-                PdfFillRule.nonzero,
-                1,
-              );
+            device.fillPath(
+              _rightHalf,
+              const PdfColor.gray(1),
+              PdfFillRule.nonzero,
+              1,
+            );
           },
         );
 

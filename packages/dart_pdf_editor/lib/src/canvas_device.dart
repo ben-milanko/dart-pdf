@@ -536,6 +536,13 @@ class CanvasPdfDevice
       double backdropLuminance = 0,
       double transferScale = 1,
       double transferOffset = 0}) {
+    // A soft-mask's transparency-group form starts with a fresh graphics
+    // state (§11.6.5.2), so its first paint is Normal even when the captured
+    // source ended in Multiply/Screen. The interpreter's mask closure carries
+    // only state changes made *inside* that fresh form; without this reset it
+    // inherited the source layer's last blend and could turn a white
+    // luminosity mask black against the /BC backdrop (GWG168 bevel/emboss).
+    _blend = BlendMode.srcOver;
     final hasTransfer = transferScale != 1 || transferOffset != 0;
     final paint = Paint()..blendMode = BlendMode.dstIn;
     if (luminosity) {
