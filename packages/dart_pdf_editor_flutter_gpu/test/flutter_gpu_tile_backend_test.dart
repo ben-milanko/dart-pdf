@@ -1308,6 +1308,74 @@ void main() {
     });
   });
 
+  testWidgets('isolated knockout groups retain a vector-soft-masked fill',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        const PdfBeginGroupCommand(
+          0.78,
+          isolated: true,
+          knockout: true,
+          bounds: PdfRect(40, 90, 300, 360),
+        ),
+        PdfClipPathCommand(_rect(40, 90, 300, 360), PdfFillRule.nonzero),
+        PdfFillPathCommand(
+          _rect(60, 120, 220, 310),
+          const PdfColor(0.9, 0.25, 0.15),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfBeginSoftMaskedCommand(),
+        PdfFillPathCommand(
+          _rect(140, 140, 280, 330),
+          const PdfColor(0.15, 0.45, 0.9),
+          PdfFillRule.nonzero,
+          0.85,
+        ),
+        PdfEndSoftMaskedCommand(
+          luminosity: true,
+          backdrop: page.cropBox,
+          maskCommands: [
+            PdfClipPathCommand(
+              _rect(40, 90, 300, 360),
+              PdfFillRule.nonzero,
+            ),
+            PdfFillPathCommand(
+              _rect(170, 170, 260, 300),
+              const PdfColor(1, 1, 1),
+              PdfFillRule.nonzero,
+              1,
+            ),
+          ],
+        ),
+        const PdfEndGroupCommand(),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      final region = Offset.zero & scene.pageSize;
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 0.75);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 0.75);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      for (var index = 0; index < a.length; index++) {
+        difference += (a[index] - b[index]).abs();
+      }
+      expect(difference / a.length, lessThan(4));
+      expect(backend.stats.offscreenGroupPasses, 1);
+    });
+  });
+
   testWidgets('offscreen group budget rejects before submitting group passes',
       (tester) async {
     await tester.runAsync(() async {

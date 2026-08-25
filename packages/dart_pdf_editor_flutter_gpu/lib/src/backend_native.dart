@@ -304,6 +304,8 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
             break;
           case _GroupPaintSpec():
             break;
+          case _KnockoutSoftMaskFillSpec():
+            break;
           case _FlattenSoftMaskSpec():
             break;
         }
@@ -500,6 +502,23 @@ class _GroupPaintSpec extends _GpuCompositeSpec {
   final bool offscreen;
   @override
   final PdfRect? contentClip;
+}
+
+class _KnockoutSoftMaskFillSpec extends _GpuCompositeSpec {
+  const _KnockoutSoftMaskFillSpec({
+    required this.base,
+    required this.baseClip,
+    required this.masked,
+    required this.groupAlpha,
+  });
+
+  final PdfFillPathCommand base;
+  final PdfRect? baseClip;
+  final _SoftMaskVectorFillSpec masked;
+  final double groupAlpha;
+
+  @override
+  PdfRect? get contentClip => null;
 }
 
 class _FlattenSoftMaskSpec extends _GpuCompositeSpec {
@@ -1090,6 +1109,19 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
     if (commands[end] is! PdfEndGroupCommand) {
       return (null, 'unsupported composite nesting');
     }
+    if (isolated && knockout && backdropColor == null) {
+      final knockoutFill = _parseKnockoutSoftMaskFill(
+        commands,
+        start,
+        end,
+        groupAlpha: alpha,
+        initialClip: initialClip,
+        initialFillOverprint: initialFillOverprint,
+        initialStrokeOverprint: initialStrokeOverprint,
+        initialBlend: initialBlend,
+      );
+      if (knockoutFill != null) return (knockoutFill, null);
+    }
     // Knockout only changes how multiple sibling elements interact inside a
     // group. A one-element group is therefore identical either way. The
     // multi-paint path below is deliberately narrower: alpha-one, normal
@@ -1496,6 +1528,111 @@ _GpuClipState _withGpuRectClip(_GpuClipState state, PdfRect? rect) {
     };
   }
   return (null, 'unsupported composite ${commands[start].runtimeType}');
+}
+
+/// Recognizes the exact isolated-knockout shape emitted by PDF.js's
+/// `knockout_smask.pdf`: one ordinary base fill followed by one
+/// vector-soft-masked fill. The masked source remains one captured object (its
+/// mask is not applied to sibling paints), then the completed transparent
+/// group applies its alpha and outer blend once.
+_KnockoutSoftMaskFillSpec? _parseKnockoutSoftMaskFill(
+  List<PdfRenderCommand> commands,
+  int start,
+  int end, {
+  required double groupAlpha,
+  required PdfRect? initialClip,
+  required bool initialFillOverprint,
+  required bool initialStrokeOverprint,
+  required PdfBlendMode initialBlend,
+}) {
+  var clip = initialClip;
+  var blend = initialBlend;
+  var fillOverprint = initialFillOverprint;
+  var strokeOverprint = initialStrokeOverprint;
+  final saved = <(PdfRect?, PdfBlendMode, bool, bool)>[];
+  PdfFillPathCommand? base;
+  PdfRect? baseClip;
+  _SoftMaskVectorFillSpec? masked;
+
+  int? nestedEnd(int nestedStart) {
+    var depth = 1;
+    for (var index = nestedStart + 1; index < end; index++) {
+      switch (commands[index]) {
+        case PdfBeginSoftMaskedCommand():
+          depth++;
+        case PdfEndSoftMaskedCommand():
+          depth--;
+          if (depth == 0) return index;
+        case PdfBeginGroupCommand() || PdfEndGroupCommand():
+          return null;
+        default:
+          break;
+      }
+    }
+    return null;
+  }
+
+  for (var index = start + 1; index < end; index++) {
+    final command = commands[index];
+    switch (command) {
+      case PdfSaveCommand():
+        saved.add((clip, blend, fillOverprint, strokeOverprint));
+      case PdfRestoreCommand():
+        if (saved.isEmpty) return null;
+        final restored = saved.removeLast();
+        clip = restored.$1;
+        blend = restored.$2;
+        fillOverprint = restored.$3;
+        strokeOverprint = restored.$4;
+      case PdfClipPathCommand(:final path):
+        if (!FlutterGpuTileRasterBackend._isAxisAlignedRect(path)) return null;
+        clip = _pdfIntersection(clip, pdfRenderPathBounds(path));
+        if (clip == null) return null;
+      case PdfSetBlendModeCommand(:final mode):
+        blend = mode;
+      case PdfSetOverprintCommand(:final fill, :final stroke):
+        fillOverprint = fill;
+        strokeOverprint = stroke;
+      case PdfFillPathCommand():
+        if (base != null ||
+            masked != null ||
+            blend != PdfBlendMode.normal ||
+            fillOverprint) {
+          return null;
+        }
+        base = command;
+        baseClip = clip;
+      case PdfBeginSoftMaskedCommand():
+        if (base == null || masked != null) return null;
+        final nestedStop = nestedEnd(index);
+        if (nestedStop == null) return null;
+        final parsed = _parseComposite(
+          commands,
+          index,
+          nestedStop,
+          initialClip: clip,
+          initialFillOverprint: fillOverprint,
+          initialStrokeOverprint: strokeOverprint,
+          initialBlend: blend,
+        ).$1;
+        if (parsed is! _SoftMaskVectorFillSpec) return null;
+        masked = parsed;
+        index = nestedStop;
+      case PdfBeginGroupCommand() ||
+            PdfEndGroupCommand() ||
+            PdfEndSoftMaskedCommand():
+        return null;
+      default:
+        if (pdfRenderCommandBounds(command) != null) return null;
+    }
+  }
+  if (saved.isNotEmpty || base == null || masked == null) return null;
+  return _KnockoutSoftMaskFillSpec(
+    base: base,
+    baseClip: baseClip,
+    masked: masked,
+    groupAlpha: groupAlpha,
+  );
 }
 
 /// Whether a multi-paint group can apply its outer blend per paint without
@@ -2620,6 +2757,8 @@ class _CompiledScene {
             _GroupFillSpec spec => _compileGroupFill(geometry, spec),
             _GroupStrokeSpec spec => _compileGroupStroke(geometry, spec),
             _GroupPaintSpec spec => _compileGroupPaint(geometry, spec),
+            _KnockoutSoftMaskFillSpec spec =>
+              _compileKnockoutSoftMaskFill(geometry, spec),
             _FlattenSoftMaskSpec() => null,
             _SoftMaskImageSpec spec => await _compileSoftMaskImage(
                 context,
@@ -3271,6 +3410,32 @@ _GpuDraw? _compileGroupPaint(_GpuGeometryArena geometry, _GroupPaintSpec spec) {
       : _SequenceDraw(List.unmodifiable([for (final draw in draws) draw.$1]));
 }
 
+_GpuDraw? _compileKnockoutSoftMaskFill(
+  _GpuGeometryArena geometry,
+  _KnockoutSoftMaskFillSpec spec,
+) {
+  final base = spec.base;
+  final baseDraw = _stencilDraw(
+    geometry,
+    flattenPath(base.path, PdfMatrix.identity, tolerance: 0.01),
+    base.color,
+    base.alpha,
+    base.rule,
+    false,
+  );
+  final maskedDraw = _compileSoftMaskVectorFill(geometry, spec.masked);
+  final paints = <(_GpuDraw, PdfRect?)>[
+    if (baseDraw != null) (baseDraw, spec.baseClip),
+    if (maskedDraw != null) (maskedDraw, spec.masked.contentClip),
+  ];
+  if (paints.isEmpty) return null;
+  return _OffscreenGroupDraw(
+    paints,
+    spec.groupAlpha,
+    0,
+  );
+}
+
 Future<_GpuDraw> _compileSoftMaskFill(
     gpu.GpuContext context,
     _GpuGeometryArena geometry,
@@ -3447,9 +3612,9 @@ _GpuDraw? _compileSoftMaskVectorFill(
   final bounds = _pdfIntersection(
     PdfRect(
       pathBounds.left,
-      pathBounds.bottom,
-      pathBounds.right,
       pathBounds.top,
+      pathBounds.right,
+      pathBounds.bottom,
     ),
     spec.contentClip,
   );
