@@ -201,6 +201,8 @@ void main() {
       expect(editing.selectedAnnotationSlots, [(0, 0)]);
       expect(find.text('Bring to front'), findsOneWidget);
       expect(find.text('Send to back'), findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-annot-menu-flatten')), findsOneWidget);
       expect(find.text('Delete'), findsOneWidget);
 
       await tester.tap(find.text('Bring to front'));
@@ -239,6 +241,22 @@ void main() {
       expect(editing.hasAnnotationSelection, isFalse);
     });
 
+    testWidgets('Flatten from the menu bakes only the right-clicked annotation',
+        (tester) async {
+      final editing = await pumpViewer(tester);
+
+      await rightClick(tester, viewPoint(110, 725));
+      await tester.tap(find.byKey(const ValueKey('pdf-annot-menu-flatten')));
+      await tester.pumpAndSettle();
+
+      final annotations = editing.document.page(0).annotations;
+      expect(annotations, hasLength(1));
+      expect(annotations.single.rect, const PdfRect(200, 700, 300, 750));
+      expect(editing.hasAnnotationSelection, isFalse);
+      editing.undo();
+      expect(editing.document.page(0).annotations, hasLength(2));
+    });
+
     testWidgets('Lock from the menu locks the annotation and clears selection',
         (tester) async {
       final editing = await pumpViewer(tester);
@@ -261,8 +279,7 @@ void main() {
       await rightClick(tester, viewPoint(110, 725));
       expect(editing.hasAnnotationSelection, isFalse);
       expect(find.byKey(const ValueKey('pdf-annot-menu-lock')), findsNothing);
-      expect(
-          find.byKey(const ValueKey('pdf-annot-menu-delete')), findsNothing);
+      expect(find.byKey(const ValueKey('pdf-annot-menu-delete')), findsNothing);
       expect(
           find.byKey(const ValueKey('pdf-annot-menu-unlock')), findsOneWidget);
 
@@ -523,7 +540,8 @@ void main() {
     testWidgets('a text field rules off edit, structure, and delete',
         (tester) async {
       await openMenu(tester, 'name');
-      expect(find.byKey(const ValueKey('pdf-form-menu-rename')), findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('pdf-form-menu-rename')), findsOneWidget);
       expect(
           find.byKey(const ValueKey('pdf-form-menu-flatten')), findsOneWidget);
       // edit (value + style) | rename/convert | delete/flatten

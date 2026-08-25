@@ -1363,6 +1363,9 @@ class DartPdfEditorLocalizationsVi extends DartPdfEditorLocalizations {
   String get tbAutosizeTextBox => 'Tự động cỡ hộp văn bản (Alt+Z)';
 
   @override
+  String get tbAutosizeTextFont => 'Vừa phông chữ với hộp văn bản';
+
+  @override
   String get tbCalibrateScaleHint =>
       'Vẽ một đường có độ dài đã biết để hiệu chỉnh tỷ lệ.';
 

@@ -56,6 +56,24 @@ void main() {
       expect(editing.flattenAllAnnotations(), isTrue);
       expect(editing.document.page(0).annotations, isEmpty);
     });
+
+    test('flattenSelectedAnnotations only bakes the selection', () {
+      final editing = PdfEditingController(buildMultiPagePdf(1))
+        ..addRectangle(0, const PdfRect(100, 100, 200, 150))
+        ..addRectangle(0, const PdfRect(300, 100, 400, 150))
+        ..selectAnnotation(0, 0);
+      addTearDown(editing.dispose);
+
+      expect(editing.canFlattenSelectedAnnotations, isTrue);
+      expect(editing.flattenSelectedAnnotations(), isTrue);
+      expect(editing.document.page(0).annotations, hasLength(1));
+      expect(editing.document.page(0).annotations.single.rect,
+          const PdfRect(300, 100, 400, 150));
+      expect(editing.hasAnnotationSelection, isFalse);
+
+      editing.undo();
+      expect(editing.document.page(0).annotations, hasLength(2));
+    });
   });
 
   group('flatten feedback in the toolbar', () {

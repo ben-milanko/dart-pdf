@@ -1,5 +1,10 @@
 # Changelog
 
+## Next
+
+- Allow `flattenAnnotations` to target a supplied annotation selection and
+  expose embedded-font descent metrics for accurate free-text box fitting.
+
 ## 3.8.0
 
 - Add the lazily materialized `PdfDocument.pages` view and keep document caches

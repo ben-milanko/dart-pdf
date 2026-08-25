@@ -408,6 +408,7 @@
   "tbApplyRedactionsTitle": "应用密文遮盖？",
   "tbApplyRedactionsTooltip": "应用密文遮盖（不可逆）",
   "tbAutosizeTextBox": "自动调整文本框大小 (Alt+Z)",
+  "tbAutosizeTextFont": "使字体适应文本框",
   "tbCalibrateScaleHint": "绘制一条已知长度的线段以校准比例。",
   "tbCharSpacing": "字符间距",
   "tbCheckBoxOption": "复选框",

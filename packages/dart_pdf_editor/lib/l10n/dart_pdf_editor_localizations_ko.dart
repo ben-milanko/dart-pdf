@@ -1356,6 +1356,9 @@ class DartPdfEditorLocalizationsKo extends DartPdfEditorLocalizations {
   String get tbAutosizeTextBox => '텍스트 상자 자동 크기 조정 (Alt+Z)';
 
   @override
+  String get tbAutosizeTextFont => '글꼴을 텍스트 상자에 맞추기';
+
+  @override
   String get tbCalibrateScaleHint => '축척을 보정하려면 알려진 길이의 선을 그리세요.';
 
   @override

@@ -268,6 +268,14 @@ Future<void> showPdfAnnotationMenu({
   final destructive = <PdfAnnotationMenuItem>[
     if (hasSelection) ...[
       PdfAnnotationMenuItem(
+        key: const ValueKey('pdf-annot-menu-flatten'),
+        label: pdfL10n(context).tbFlattenLabel,
+        icon: Icons.layers_clear_outlined,
+        enabled: controller.canFlattenSelectedAnnotations,
+        onSelected: (request) =>
+            request.controller.flattenSelectedAnnotations(),
+      ),
+      PdfAnnotationMenuItem(
         key: const ValueKey('pdf-annot-menu-lock'),
         label: pdfL10n(context).menuLock,
         icon: Icons.lock_outline,

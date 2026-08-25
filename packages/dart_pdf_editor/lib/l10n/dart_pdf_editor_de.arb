@@ -408,6 +408,7 @@
   "tbApplyRedactionsTitle": "Schwärzungen anwenden?",
   "tbApplyRedactionsTooltip": "Schwärzungen anwenden (unwiderruflich)",
   "tbAutosizeTextBox": "Textfeld automatisch anpassen (Alt+Z)",
+  "tbAutosizeTextFont": "Schrift an Textfeld anpassen",
   "tbCalibrateScaleHint": "Zeichnen Sie eine Linie bekannter Länge, um den Maßstab zu kalibrieren.",
   "tbCharSpacing": "Zeichenabstand",
   "tbCheckBoxOption": "Kontrollkästchen",

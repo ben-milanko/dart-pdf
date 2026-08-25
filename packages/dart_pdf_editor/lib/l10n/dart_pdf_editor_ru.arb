@@ -408,6 +408,7 @@
   "tbApplyRedactionsTitle": "Применить вымарывания?",
   "tbApplyRedactionsTooltip": "Применить вымарывания (необратимо)",
   "tbAutosizeTextBox": "Автоподбор размера текстового поля (Alt+Z)",
+  "tbAutosizeTextFont": "Подогнать шрифт под текстовое поле",
   "tbCalibrateScaleHint": "Нарисуйте линию известной длины, чтобы откалибровать масштаб.",
   "tbCharSpacing": "Межбуквенный интервал",
   "tbCheckBoxOption": "Флажок",
