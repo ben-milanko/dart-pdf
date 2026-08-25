@@ -130,7 +130,11 @@ extension PdfFormAdmin on PdfEditor {
         }
       }
     }
-    _markVisual(unknownPage ? null : pages);
+    // Removing a field also rewrites every page's /Annots array. Report that
+    // lane explicitly so viewers discard cached widget rectangles and hit
+    // targets, rather than retaining the interactive highlight over the new
+    // page revision.
+    _markAnnotations(unknownPage ? null : pages);
   }
 
   static bool _isFieldWidget(
