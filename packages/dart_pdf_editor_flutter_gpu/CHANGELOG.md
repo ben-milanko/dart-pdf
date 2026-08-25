@@ -2,6 +2,11 @@
 
 ## Next
 
+- Retain isolated knockout groups made entirely from vector fills. Later
+  sibling shapes use exact source replacement only inside their retained path,
+  while the group's alpha and outer blend remain a single offscreen composite.
+- Retain isolated knockout groups containing a base fill and one
+  vector-soft-masked fill, including clipped vector mask bounds.
 - Render overlapping Normal paints in isolated transparency groups into a
   shader-readable tile attachment, then apply group alpha and outer blend once
   when sampling it into the page pass.
