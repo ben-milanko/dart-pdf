@@ -35,7 +35,17 @@ class FlutterGpuSystemTextOutliner implements FlutterGpuTextOutliner {
   PdfTextRun? outline(PdfTextRun run) => _delegate.outline(run);
 }
 
-enum _Family { sans, serif, mono, symbol, dingbats }
+enum _Family {
+  sans,
+  serif,
+  mono,
+  symbol,
+  dingbats,
+  cjkSong,
+  cjkHeiti,
+  cjkJapaneseSans,
+  cjkJapaneseSerif,
+}
 
 enum _Style { regular, bold, italic, boldItalic }
 
@@ -44,7 +54,7 @@ class _SystemFontCatalogue {
 
   final Map<(_Family, _Style), _FontSpec> specs;
   final Map<String, Uint8List> _byteCache = {};
-  final Map<(_Family, _Style), FlutterGpuTrueTypeFontFace> _faces = {};
+  final Map<(_Family, _Style), FlutterGpuFontFace> _faces = {};
   final Set<(_Family, _Style)> _attempted = {};
 
   static _SystemFontCatalogue? load() {
@@ -62,12 +72,15 @@ class _SystemFontCatalogue {
     return specs.isEmpty ? null : _SystemFontCatalogue(specs);
   }
 
-  FlutterGpuTrueTypeFontFace? resolve(PdfTextRun run) {
+  FlutterGpuFontFace? resolve(PdfTextRun run) {
     final name = run.fontName ?? '';
     final lower = name.toLowerCase();
     // Canvas uses a separately registered TeX Gyre Adventor asset for these.
     // System paths cannot prove they match it.
-    if (_usesAdventor(lower) || _isCjkName(name)) return null;
+    if (_usesAdventor(lower)) return null;
+    final cjkFamily = _cjkFamily(name);
+    if (cjkFamily != null) return _face((cjkFamily, _Style.regular));
+    if (_isCjkName(name)) return null;
     final family = name.contains('ZapfDingbats')
         ? _Family.dingbats
         : name.contains('Symbol')
@@ -94,7 +107,7 @@ class _SystemFontCatalogue {
             : null);
   }
 
-  FlutterGpuTrueTypeFontFace? _face((_Family, _Style) key) {
+  FlutterGpuFontFace? _face((_Family, _Style) key) {
     if (!_attempted.add(key)) return _faces[key];
     final spec = specs[key];
     if (spec == null) return null;
@@ -103,10 +116,17 @@ class _SystemFontCatalogue {
       if (!file.existsSync()) continue;
       try {
         final bytes = _byteCache.putIfAbsent(path, file.readAsBytesSync);
-        return _faces[key] = FlutterGpuTrueTypeFontFace(
-          bytes,
-          collectionIndex: spec.collectionIndex,
-        );
+        try {
+          return _faces[key] = FlutterGpuTrueTypeFontFace(
+            bytes,
+            collectionIndex: spec.collectionIndex,
+          );
+        } on FormatException {
+          return _faces[key] = FlutterGpuOpenTypeCffFontFace(
+            bytes,
+            collectionIndex: spec.collectionIndex,
+          );
+        }
       } on Object {
         // Try the next known location. Failure keeps this face unavailable.
       }
@@ -131,6 +151,29 @@ bool _usesAdventor(String name) =>
     name.contains('tex gyre adventor') ||
     name.contains('urwgothic') ||
     name.contains('urw gothic');
+
+_Family? _cjkFamily(String name) {
+  if (name.contains('ºÚÌå')) return _Family.cjkHeiti; // 黑体
+  if (name.contains('ËÎÌå') ||
+      name.contains('·ÂËÎ') ||
+      name.contains('Ð¡±êËÎ')) {
+    return _Family.cjkSong; // 宋体 / 仿宋 / 小标宋
+  }
+  if (name.contains('Mincho') ||
+      name.contains('HeiseiMin') ||
+      name.contains('Ryumin') ||
+      name.contains('KozMin')) {
+    return _Family.cjkJapaneseSerif;
+  }
+  if (name.contains('HeiseiKakuGo') ||
+      name.contains('GothicBBB') ||
+      name.contains('KozGo') ||
+      name.contains('Kaku') ||
+      name.contains('MS-Gothic')) {
+    return _Family.cjkJapaneseSans;
+  }
+  return null;
+}
 
 bool _isCjkName(String name) =>
     name.contains('ºÚÌå') ||
@@ -192,6 +235,23 @@ const _macFonts = <(_Family, _Style), _FontSpec>{
   ),
   (_Family.dingbats, _Style.regular): _FontSpec(
     ['/System/Library/Fonts/ZapfDingbats.ttf'],
+  ),
+  // These are the exact faces selected by CanvasPdfDevice's CJK family
+  // mapping. Keeping the TTC indices explicit avoids silently outlining with
+  // a neighbouring weight or Traditional-Chinese face.
+  (_Family.cjkSong, _Style.regular): _FontSpec(
+    ['/System/Library/Fonts/Supplemental/Songti.ttc'],
+    collectionIndex: 4,
+  ),
+  (_Family.cjkHeiti, _Style.regular): _FontSpec(
+    ['/System/Library/Fonts/STHeiti Medium.ttc'],
+    collectionIndex: 1,
+  ),
+  (_Family.cjkJapaneseSans, _Style.regular): _FontSpec(
+    ['/System/Library/Fonts/ヒラギノ角ゴシック W4.ttc'],
+  ),
+  (_Family.cjkJapaneseSerif, _Style.regular): _FontSpec(
+    ['/System/Library/Fonts/ヒラギノ明朝 ProN.ttc'],
   ),
 };
 

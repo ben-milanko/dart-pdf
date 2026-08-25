@@ -75,6 +75,22 @@ void main() {
   test('garbage input parses to null', () {
     expect(CffFont.parse(ascii('not a font')), isNull);
   });
+
+  test(
+    'OpenType CFF faces retain their Unicode cmap',
+    () {
+      final bytes = File(
+        '/System/Library/Fonts/ヒラギノ明朝 ProN.ttc',
+      ).readAsBytesSync();
+      final face = OpenTypeCffFont.parse(bytes);
+      expect(face, isNotNull);
+      final glyph = face!.gidForUnicode('日'.codeUnitAt(0));
+      expect(glyph, greaterThan(0));
+      expect(face.outlineForGlyph(glyph), isNotNull);
+      expect(face.advanceForGlyph(glyph), greaterThan(0));
+    },
+    skip: !Platform.isMacOS,
+  );
 }
 
 CffFont _cffFromPageFont(String path, {required String fontName}) {

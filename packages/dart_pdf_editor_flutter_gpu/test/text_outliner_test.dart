@@ -92,7 +92,7 @@ void main() {
   });
 
   test(
-    'macOS system adapter resolves every Helvetica collection face',
+    'macOS system adapter resolves exact Latin and CJK faces',
     () {
       final system = FlutterGpuSystemTextOutliner.tryCreate();
       expect(system, isNotNull);
@@ -120,6 +120,20 @@ void main() {
         ),
         isNull,
       );
+      for (final (name, text) in const [
+        ('ºÚÌå', '中文'),
+        ('·ÂËÎ_GB2312', '中文'),
+        ('HeiseiMin-W3', '日本'),
+        ('MS-Gothic', '日本'),
+      ]) {
+        expect(
+          system.outline(
+            run(text, const [0, 0.8, 1.6], fontName: name),
+          ),
+          isNotNull,
+          reason: name,
+        );
+      }
     },
     skip: !Platform.isMacOS,
   );

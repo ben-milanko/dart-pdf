@@ -247,6 +247,22 @@ Future<void> _registerMacSystemFonts() async {
   ]);
   await load('Symbol', ['/System/Library/Fonts/Symbol.ttf']);
   await load('Zapf Dingbats', ['/System/Library/Fonts/ZapfDingbats.ttf']);
+  await load(
+    'STSong',
+    ['/System/Library/Fonts/Supplemental/Songti.ttc'],
+  );
+  await load(
+    'Heiti SC',
+    ['/System/Library/Fonts/STHeiti Medium.ttc'],
+  );
+  await load(
+    'Hiragino Sans',
+    ['/System/Library/Fonts/ヒラギノ角ゴシック W4.ttc'],
+  );
+  await load(
+    'Hiragino Mincho ProN',
+    ['/System/Library/Fonts/ヒラギノ明朝 ProN.ttc'],
+  );
 }
 
 Future<void> _writeFailure(String suite, String name, int page, ui.Image canvas,

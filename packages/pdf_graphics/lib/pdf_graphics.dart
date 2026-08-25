@@ -15,6 +15,7 @@ export 'package:pdf_cos/pdf_cos.dart'
 export 'src/device.dart';
 export 'src/font_info.dart';
 export 'src/fonts/truetype.dart' show TrueTypeFont;
+export 'src/fonts/cff.dart' show OpenTypeCffFont;
 export 'src/function.dart';
 export 'src/icc.dart';
 export 'src/image_colorants.dart';
