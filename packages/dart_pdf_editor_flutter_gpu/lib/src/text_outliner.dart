@@ -77,7 +77,11 @@ class FlutterGpuTrueTypeTextOutliner implements FlutterGpuTextOutliner {
     for (var index = 0; index < text.length;) {
       final length = _runeLengthAt(text, index);
       final rune = _runeAt(text, index, length);
-      final blank = _isWhitespace(rune);
+      // HarfBuzz treats C1 controls as default-ignorable characters: they
+      // advance through the PDF's own offset table but paint no fallback box.
+      // Keep them as empty placements instead of requiring a cmap glyph that
+      // Canvas never draws.
+      final blank = _isWhitespace(rune) || _isControl(rune);
       final glyphId = face.gidForUnicode(rune);
       PdfPath? outline;
       if (!blank) {
@@ -91,8 +95,9 @@ class FlutterGpuTrueTypeTextOutliner implements FlutterGpuTextOutliner {
       resolved.add(_ResolvedGlyph(index, length, outline));
       index += length;
     }
-    if (naturalAdvance <= 0 || pdfAdvance <= 0) return null;
-    final xScale = pdfAdvance / naturalAdvance;
+    final hasInk = resolved.any((glyph) => glyph.outline != null);
+    if (hasInk && (naturalAdvance <= 0 || pdfAdvance <= 0)) return null;
+    final xScale = hasInk ? pdfAdvance / naturalAdvance : 1.0;
     if (!xScale.isFinite || xScale <= 0) return null;
 
     final glyphs = <PdfGlyphPlacement>[
@@ -171,6 +176,8 @@ bool _isWhitespace(int rune) =>
     rune == 0x3000 ||
     rune == 0xFEFF;
 
+bool _isControl(int rune) => rune >= 0x7F && rune <= 0x9F;
+
 bool _isPlaceableText(String text) {
   for (var i = 0; i < text.length; i++) {
     final code = text.codeUnitAt(i);
@@ -180,7 +187,7 @@ bool _isPlaceableText(String text) {
 }
 
 bool _isPlaceableCodeUnit(int code) =>
-    (code >= 0x20 && code <= 0x2FF && code != 0x7F) ||
+    (code >= 0x20 && code <= 0x2FF) ||
     (code >= 0x370 && code <= 0x482) ||
     (code >= 0x48A && code <= 0x52F) ||
     (code >= 0x2000 && code <= 0x206F) ||
