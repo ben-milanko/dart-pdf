@@ -615,6 +615,146 @@ void main() {
     });
   });
 
+  testWidgets('repeated thin advanced-blend strokes preserve opaque backdrop',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final commands = <PdfRenderCommand>[
+        PdfFillPathCommand(
+          _rect(0, 0, 300, 160),
+          const PdfColor(0.82, 0.68, 0.34),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.darken),
+        for (var index = 0; index < 8; index++)
+          PdfStrokePathCommand(
+            PdfPath([
+              PdfMoveTo(15, 20 + index * 3),
+              PdfLineTo(285, 110 + index * 3),
+            ]),
+            PdfColor(0.12 + index * 0.03, 0.24, 0.72),
+            const PdfStroke(width: 0.4),
+            1,
+          ),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+      ];
+      final scene = await PdfRetainedScene.fromCommands(page, commands);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      final region = Offset.zero & scene.pageSize;
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 0.75);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 0.75);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      var minimumAlpha = 255;
+      for (var index = 0; index < a.length; index++) {
+        difference += (a[index] - b[index]).abs();
+        if (index % 4 == 3 && b[index] < minimumAlpha) {
+          minimumAlpha = b[index];
+        }
+      }
+      expect(difference / a.length, lessThan(3));
+      expect(minimumAlpha, 255);
+      expect(backend.stats.advancedBlendPasses, 8);
+    });
+  });
+
+  testWidgets('advanced blends surrounding offscreen groups stay exact',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      const backdrop = PdfColor(0.24, 0.58, 0.72);
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final commands = <PdfRenderCommand>[
+        PdfFillPathCommand(
+          _rect(0, 0, 300, 160),
+          backdrop,
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.overlay),
+        PdfFillPathCommand(
+          _rect(25, 65, 205, 155),
+          const PdfColor(0.86, 0.64, 0.18),
+          PdfFillRule.nonzero,
+          0.58,
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+        const PdfBeginGroupCommand(
+          1,
+          knockout: true,
+          bounds: PdfRect(55, 75, 175, 150),
+          backdropColor: backdrop,
+        ),
+        PdfClipPathCommand(_rect(55, 75, 175, 150), PdfFillRule.nonzero),
+        PdfFillPathCommand(
+          _rect(65, 85, 145, 140),
+          const PdfColor(0.92, 0.24, 0.16),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        PdfFillPathCommand(
+          _rect(105, 95, 165, 145),
+          const PdfColor(0.14, 0.38, 0.94),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfEndGroupCommand(),
+        const PdfSetBlendModeCommand(PdfBlendMode.darken),
+        for (var index = 0; index < 8; index++)
+          PdfStrokePathCommand(
+            PdfPath([
+              PdfMoveTo(15, 20 + index * 3),
+              PdfLineTo(285, 110 + index * 3),
+            ]),
+            PdfColor(0.12 + index * 0.03, 0.24, 0.72),
+            const PdfStroke(width: 0.4),
+            1,
+          ),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+      ];
+      final scene = await PdfRetainedScene.fromCommands(page, commands);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      final region = Offset.zero & scene.pageSize;
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 0.75);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 0.75);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      var minimumAlpha = 255;
+      for (var index = 0; index < a.length; index++) {
+        difference += (a[index] - b[index]).abs();
+        if (index % 4 == 3 && b[index] < minimumAlpha) {
+          minimumAlpha = b[index];
+        }
+      }
+      expect(difference / a.length, lessThan(3));
+      expect(minimumAlpha, 255);
+      expect(backend.stats.offscreenGroupPasses, 1);
+      expect(backend.stats.advancedBlendPasses, 9);
+    });
+  });
+
   testWidgets('advanced blend budget rejects before allocating ping-pong tiles',
       (tester) async {
     await tester.runAsync(() async {

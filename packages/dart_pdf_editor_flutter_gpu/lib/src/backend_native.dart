@@ -28,17 +28,15 @@ import 'text_outliner.dart';
 /// once; zero-width hairlines alone expand their retained polyline for the
 /// current device scale.
 ///
-/// The exact subset includes a common isolated single-image soft-mask group
-/// and decoded images whose `/SMask` stayed as a companion GPU surface:
-/// content and mask stay as separate scene-lifetime textures and are combined
-/// by the tile shader. Ordinary PDF clip paths are retained as exact stencil
-/// masks (with rectangular clips additionally using the hardware scissor).
-/// Knockout/non-isolated groups, isolated groups with non-Normal internal
-/// paints, blend modes beyond Multiply/Screen, complex clips *inside* the
-/// special soft-mask shortcuts, non-nested radial gradients, unresolved
-/// substituted text, unsafe overprint, or missing image pixels reject the
-/// whole scene. Zero-width PDF hairlines are expanded at tile submission time
-/// so they remain exactly one device pixel at every level of detail.
+/// The exact subset includes retained soft masks, bounded transparency and
+/// knockout groups, every PDF blend mode through destination-sampling passes,
+/// and decoded images whose `/SMask` stays as a companion GPU surface.
+/// Ordinary PDF clip paths remain exact stencil masks (with rectangular clips
+/// additionally using the hardware scissor). Unsupported transparency forms,
+/// complex clips *inside* special soft-mask shortcuts, non-nested radial
+/// gradients, unresolved substituted text, unsafe overprint, or missing image
+/// pixels reject the whole scene. Zero-width PDF hairlines are expanded at
+/// tile submission time so they remain exactly one device pixel at every LoD.
 /// dart_pdf_editor then permanently uses its Canvas session for that scene.
 class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   FlutterGpuTileRasterBackend({
@@ -66,10 +64,9 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
 
   /// Allows non-black overprint paints to use source-over.
   ///
-  /// False by default: stable flutter_gpu cannot sample an offscreen target
-  /// in a later darken pass reliably on every Impeller backend. Keep this for
-  /// controlled benchmarking only; ordinary clients get the exact Canvas
-  /// fallback instead.
+  /// False by default because source-over does not preserve untouched process
+  /// channels as PDF overprint requires. Keep this for controlled benchmarking
+  /// only; ordinary clients get the exact Canvas fallback instead.
   final bool allowOverprintApproximation;
 
   /// Byte budget for decoded image textures shared by every scene/session
@@ -274,12 +271,16 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
     final hasAdvancedBlend =
         units.any((unit) => !_isFixedFunctionBlendMode(unit.blendMode));
     if (hasAdvancedBlend &&
+        units.any((unit) => unit.composite is _KnockoutSoftMaskFillSpec)) {
+      return 'advanced blend with knockout soft mask';
+    }
+    if (hasAdvancedBlend &&
         units.any((unit) => switch (unit.composite) {
-              _GroupPaintSpec(:final offscreen) => offscreen,
-              _KnockoutSoftMaskFillSpec() => true,
+              _GroupPaintSpec(offscreen: true) =>
+                !_isFixedFunctionBlendMode(unit.blendMode),
               _ => false,
             })) {
-      return 'advanced blend with offscreen transparency group';
+      return 'advanced-blended offscreen transparency group';
     }
     for (final unit in units) {
       if (!_isGpuBlendMode(unit.blendMode)) {
@@ -3284,6 +3285,191 @@ class _CompiledScene {
     );
   }
 
+  ({
+    Map<int, (gpu.Texture, Rect)> textures,
+    List<gpu.Texture> retained,
+  }) _renderOffscreenGroups(
+    List<_GpuUnit> selected, {
+    required Rect region,
+    required double pixelRatio,
+    required _GpuPipelines pipelines,
+    required int width,
+    required int height,
+    required gpu.HostBuffer transient,
+    int maxBytes = 256 << 20,
+  }) {
+    Rect groupRegionFor(_GpuUnit unit, _OffscreenGroupDraw draw) {
+      final hairlinePadding = math.max(
+        0.0,
+        0.5 / _pageDeviceScale(pageToRaster, pixelRatio) - 2,
+      );
+      final extraPadding = math.max(draw.extraPadding, hairlinePadding);
+      final bounds = extraPadding == 0
+          ? unit.bounds
+          : _inflatePdf(unit.bounds, extraPadding);
+      final points = <(double, double)>[
+        (bounds.left, bounds.bottom),
+        (bounds.right, bounds.bottom),
+        (bounds.right, bounds.top),
+        (bounds.left, bounds.top),
+      ];
+      var left = double.infinity, top = double.infinity;
+      var right = double.negativeInfinity, bottom = double.negativeInfinity;
+      for (final (x, y) in points) {
+        final rx = pageToRaster.transformX(x, y);
+        final ry = pageToRaster.transformY(x, y);
+        if (rx < left) left = rx;
+        if (rx > right) right = rx;
+        if (ry < top) top = ry;
+        if (ry > bottom) bottom = ry;
+      }
+      left = math.max(
+          region.left,
+          region.left +
+              (((left - region.left) * pixelRatio).floor() / pixelRatio));
+      top = math.max(
+          region.top,
+          region.top +
+              (((top - region.top) * pixelRatio).floor() / pixelRatio));
+      right = math.min(
+          region.right,
+          region.left +
+              (((right - region.left) * pixelRatio).ceil() / pixelRatio));
+      bottom = math.min(
+          region.bottom,
+          region.top +
+              (((bottom - region.top) * pixelRatio).ceil() / pixelRatio));
+      return Rect.fromLTRB(left, top, right, bottom);
+    }
+
+    final groupPlans = <(_GpuUnit, _OffscreenGroupDraw, Rect, int, int, int)>[];
+    var offscreenBytes = 0;
+    for (final unit in selected) {
+      final draw = draws[unit.commandIndex];
+      if (draw is! _OffscreenGroupDraw) continue;
+      final groupRegion = groupRegionFor(unit, draw);
+      final groupWidth =
+          (groupRegion.width * pixelRatio).ceil().clamp(1, width);
+      final groupHeight =
+          (groupRegion.height * pixelRatio).ceil().clamp(1, height);
+      // The resolved RGBA + stencil pair is about 8 B/px. The intermediate
+      // stays single-sample: it is sampled through the final page pass, and a
+      // second 4x color+stencil raster plus resolve makes visual settle slower
+      // than Canvas for ordinary groups. Bound all live intermediates so a
+      // pathological page falls back instead of multiplying a deep-zoom tile
+      // into an OOM.
+      final estimatedBytes = groupWidth * groupHeight * 8;
+      offscreenBytes += estimatedBytes;
+      if (offscreenBytes > maxBytes) {
+        stats.offscreenGroupBudgetFallbacks++;
+        throw StateError('offscreen group tiles exceed the route budget');
+      }
+      groupPlans.add((
+        unit,
+        draw,
+        groupRegion,
+        groupWidth,
+        groupHeight,
+        estimatedBytes,
+      ));
+    }
+
+    final groupTextures = <int, (gpu.Texture, Rect)>{};
+    final retainedGroupTextures = <gpu.Texture>[];
+    for (final plan in groupPlans) {
+      final (unit, draw, groupRegion, groupWidth, groupHeight, estimatedBytes) =
+          plan;
+      final groupResolve = context.createTexture(
+        gpu.StorageMode.devicePrivate,
+        groupWidth,
+        groupHeight,
+        format: context.defaultColorFormat,
+      );
+      final groupStencil = context.createTexture(
+        gpu.StorageMode.deviceTransient,
+        groupWidth,
+        groupHeight,
+        format: context.defaultStencilFormat,
+        sampleCount: 1,
+      );
+      final groupAttachments = <gpu.Texture>[groupResolve, groupStencil];
+      retainedGroupTextures.addAll(groupAttachments);
+      final groupCommandBuffer = context.createCommandBuffer();
+      final backdropColor = draw.backdropColor;
+      final groupPass = groupCommandBuffer.createRenderPass(gpu.RenderTarget(
+        colorAttachments: [
+          gpu.ColorAttachment(
+            texture: groupResolve,
+            clearValue: backdropColor == null
+                ? vm.Vector4.zero()
+                : vm.Vector4(
+                    backdropColor.red,
+                    backdropColor.green,
+                    backdropColor.blue,
+                    1,
+                  ),
+          ),
+        ],
+        depthStencilAttachment: gpu.DepthStencilAttachment(
+          texture: groupStencil,
+          stencilClearValue: 0,
+        ),
+      ))
+        ..setCullMode(gpu.CullMode.none)
+        ..setWindingOrder(gpu.WindingOrder.counterClockwise)
+        ..setPrimitiveType(gpu.PrimitiveType.triangle)
+        ..setStencilReference(0)
+        ..setColorBlendEnable(true);
+      final groupEncoder = _GpuEncoder(
+        pass: groupPass,
+        pipelines: pipelines,
+        transform: transient.emplace(_tileTransform(
+          pageToRaster,
+          groupRegion,
+          pixelRatio,
+          groupWidth,
+          groupHeight,
+        )),
+        pageToRaster: pageToRaster,
+        region: groupRegion,
+        pixelRatio: pixelRatio,
+        width: groupWidth,
+        height: groupHeight,
+        clipDraws: clipDraws,
+        stencilClear: paper.vertices,
+        emplaceTransient: transient.emplace,
+      );
+      for (final paint in draw.paints) {
+        groupEncoder.setClip(_withGpuRectClip(unit.clip, paint.$2));
+        if (paint.$4) {
+          groupEncoder.setSourceBlend();
+        } else {
+          groupEncoder.setBlendMode(paint.$3);
+        }
+        paint.$1.encode(groupEncoder);
+      }
+      stats.clipMaskRebuilds += groupEncoder.clipMaskRebuilds;
+      final groupResources = <Object>[
+        ...groupAttachments,
+        groupPass,
+        transient,
+      ];
+      groupCommandBuffer.submit(completionCallback: (_) {
+        // The page completion owns the textures on the success path. This
+        // independent capture also fences every submitted group resource if a
+        // later allocation or the final page submission throws.
+        groupResources.length;
+      });
+      stats
+        ..offscreenGroupPasses += 1
+        ..offscreenGroupAllocatedBytes += estimatedBytes;
+      groupTextures[unit.commandIndex] = (groupResolve, groupRegion);
+    }
+    stats.peakOffscreenGroupBytes =
+        math.max(stats.peakOffscreenGroupBytes, offscreenBytes);
+    return (textures: groupTextures, retained: retainedGroupTextures);
+  }
+
   ui.Image _renderAdvanced(
     List<_GpuUnit> selected, {
     required Rect region,
@@ -3337,6 +3523,19 @@ class _CompiledScene {
       sampleCount: multisampled ? 4 : 1,
     );
     final transient = context.createHostBuffer();
+    final groups = _renderOffscreenGroups(
+      selected,
+      region: region,
+      pixelRatio: pixelRatio,
+      pipelines: pipelines,
+      width: width,
+      height: height,
+      transient: transient,
+      // Keep page ping-pong and every simultaneously live group attachment
+      // inside one route-wide budget rather than allowing two independent
+      // 256 MiB pools.
+      maxBytes: (256 << 20) - estimatedBytes,
+    );
     final transform = transient.emplace(_tileTransform(
       pageToRaster,
       region,
@@ -3352,6 +3551,7 @@ class _CompiledScene {
       if (color != null) color,
       stencil,
       transient,
+      ...groups.retained,
       commandBuffers,
     ];
 
@@ -3420,8 +3620,12 @@ class _CompiledScene {
         final draw = draws[unit.commandIndex];
         if (draw == null) continue;
         if (draw is _OffscreenGroupDraw) {
-          throw StateError(
-              'advanced blend route received an offscreen group draw');
+          final group = groups.textures[unit.commandIndex]!;
+          encoder
+            ..setClip(unit.clip)
+            ..setBlendMode(unit.blendMode)
+            ..tileTexture(group.$1, group.$2, draw.alpha);
+          continue;
         }
         encoder
           ..setClip(unit.clip)
@@ -3443,7 +3647,7 @@ class _CompiledScene {
         if (draw == null) continue;
         if (draw is _OffscreenGroupDraw) {
           throw StateError(
-              'advanced blend route received an offscreen group draw');
+              'advanced source received an offscreen transparency group');
         }
         sourceEncoder
           ..setClip(unit.clip)
@@ -3542,7 +3746,7 @@ class _CompiledScene {
         }
         if (index < selected.length) {
           paintSources([selected[index]]);
-          blendSources([(selected[index], null)]);
+          blendSources([(selected[index], selected[index].bounds)]);
           index++;
         }
       }
@@ -3681,149 +3885,17 @@ class _CompiledScene {
           emplaceTransient: transient.emplace,
         );
 
-    Rect groupRegionFor(_GpuUnit unit, _OffscreenGroupDraw draw) {
-      final hairlinePadding = math.max(
-        0.0,
-        0.5 / _pageDeviceScale(pageToRaster, pixelRatio) - 2,
-      );
-      final extraPadding = math.max(draw.extraPadding, hairlinePadding);
-      final bounds = extraPadding == 0
-          ? unit.bounds
-          : _inflatePdf(unit.bounds, extraPadding);
-      final points = <(double, double)>[
-        (bounds.left, bounds.bottom),
-        (bounds.right, bounds.bottom),
-        (bounds.right, bounds.top),
-        (bounds.left, bounds.top),
-      ];
-      var left = double.infinity, top = double.infinity;
-      var right = double.negativeInfinity, bottom = double.negativeInfinity;
-      for (final (x, y) in points) {
-        final rx = pageToRaster.transformX(x, y);
-        final ry = pageToRaster.transformY(x, y);
-        if (rx < left) left = rx;
-        if (rx > right) right = rx;
-        if (ry < top) top = ry;
-        if (ry > bottom) bottom = ry;
-      }
-      left = math.max(
-          region.left,
-          region.left +
-              (((left - region.left) * pixelRatio).floor() / pixelRatio));
-      top = math.max(
-          region.top,
-          region.top +
-              (((top - region.top) * pixelRatio).floor() / pixelRatio));
-      right = math.min(
-          region.right,
-          region.left +
-              (((right - region.left) * pixelRatio).ceil() / pixelRatio));
-      bottom = math.min(
-          region.bottom,
-          region.top +
-              (((bottom - region.top) * pixelRatio).ceil() / pixelRatio));
-      return Rect.fromLTRB(left, top, right, bottom);
-    }
-
-    final groupPlans = <(_GpuUnit, _OffscreenGroupDraw, Rect, int, int, int)>[];
-    var offscreenBytes = 0;
-    for (final unit in selected) {
-      final draw = draws[unit.commandIndex];
-      if (draw is! _OffscreenGroupDraw) continue;
-      final groupRegion = groupRegionFor(unit, draw);
-      final groupWidth =
-          (groupRegion.width * pixelRatio).ceil().clamp(1, width);
-      final groupHeight =
-          (groupRegion.height * pixelRatio).ceil().clamp(1, height);
-      // The resolved RGBA + stencil pair is about 8 B/px. The intermediate
-      // stays single-sample: it is sampled through the final multisampled page
-      // pass, and a second 4x color+stencil raster plus resolve makes visual
-      // settle slower than Canvas for ordinary groups. Bound all live
-      // intermediates so a pathological page falls back instead of
-      // multiplying a deep-zoom tile into an OOM.
-      final estimatedBytes = groupWidth * groupHeight * 8;
-      offscreenBytes += estimatedBytes;
-      if (offscreenBytes > (256 << 20)) {
-        stats.offscreenGroupBudgetFallbacks++;
-        throw StateError('offscreen group tiles exceed 256 MiB');
-      }
-      groupPlans.add((
-        unit,
-        draw,
-        groupRegion,
-        groupWidth,
-        groupHeight,
-        estimatedBytes,
-      ));
-    }
-
-    final groupTextures = <int, (gpu.Texture, Rect)>{};
-    final retainedGroupTextures = <gpu.Texture>[];
-    for (final plan in groupPlans) {
-      final (unit, draw, groupRegion, groupWidth, groupHeight, estimatedBytes) =
-          plan;
-      final groupResolve = context.createTexture(
-        gpu.StorageMode.devicePrivate,
-        groupWidth,
-        groupHeight,
-        format: context.defaultColorFormat,
-      );
-      final groupColor = groupResolve;
-      final groupStencil = context.createTexture(
-        gpu.StorageMode.deviceTransient,
-        groupWidth,
-        groupHeight,
-        format: context.defaultStencilFormat,
-        sampleCount: 1,
-      );
-      final groupAttachments = <gpu.Texture>[
-        groupResolve,
-        groupStencil,
-      ];
-      retainedGroupTextures.addAll(groupAttachments);
-      final groupCommandBuffer = context.createCommandBuffer();
-      final backdropColor = draw.backdropColor;
-      final groupEncoder = encoderFor(
-        createPass(
-          groupCommandBuffer,
-          groupColor,
-          groupStencil,
-          clearValue: backdropColor == null
-              ? null
-              : vm.Vector4(
-                  backdropColor.red,
-                  backdropColor.green,
-                  backdropColor.blue,
-                  1,
-                ),
-        ),
-        targetRegion: groupRegion,
-        targetWidth: groupWidth,
-        targetHeight: groupHeight,
-      );
-      for (final paint in draw.paints) {
-        groupEncoder.setClip(_withGpuRectClip(unit.clip, paint.$2));
-        if (paint.$4) {
-          groupEncoder.setSourceBlend();
-        } else {
-          groupEncoder.setBlendMode(paint.$3);
-        }
-        paint.$1.encode(groupEncoder);
-      }
-      stats.clipMaskRebuilds += groupEncoder.clipMaskRebuilds;
-      groupCommandBuffer.submit(completionCallback: (_) {
-        // The page completion owns the same textures on the success path.
-        // This independent capture also fences them if a later allocation or
-        // the final page submission throws after this pass was queued.
-        groupAttachments.length;
-      });
-      stats
-        ..offscreenGroupPasses += 1
-        ..offscreenGroupAllocatedBytes += estimatedBytes;
-      groupTextures[unit.commandIndex] = (groupResolve, groupRegion);
-    }
-    stats.peakOffscreenGroupBytes =
-        math.max(stats.peakOffscreenGroupBytes, offscreenBytes);
+    final groups = _renderOffscreenGroups(
+      selected,
+      region: region,
+      pixelRatio: pixelRatio,
+      pipelines: pipelines,
+      width: width,
+      height: height,
+      transient: transient,
+    );
+    final groupTextures = groups.textures;
+    final retainedGroupTextures = groups.retained;
 
     final commandBuffer = context.createCommandBuffer();
     final pass = createPass(

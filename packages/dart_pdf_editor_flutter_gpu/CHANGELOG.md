@@ -30,9 +30,11 @@
   same-host scenario.
 - Render every PDF blend mode exactly with retained GPU destination sampling.
   Advanced modes use bounded ping-pong tile attachments; provably disjoint
-  paints share one blend pass, while overlapping paints retain painter order.
-  Oversized tiles and scenes that combine advanced blends with offscreen
-  transparency groups keep the conservative Canvas fallback.
+  paints share one blend pass, while overlapping paints retain painter order
+  and scissor each sequential shader draw to its conservative command bounds.
+  Fixed-function offscreen groups can now coexist with those destination-
+  sampling paints in exact painter order; groups whose own outer blend is
+  advanced and oversized tiles keep the conservative Canvas fallback.
 - Retain isolated knockout groups made entirely from vector fills. Later
   sibling shapes use exact source replacement only inside their retained path,
   while the group's alpha and outer blend remain a single offscreen composite.
