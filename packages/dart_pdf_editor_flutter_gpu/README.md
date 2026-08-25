@@ -24,6 +24,9 @@ PdfReader(
   tileRasterBackend: FlutterGpuTileRasterBackend(
     maxTextureBytes: 256 << 20,
     maxGeometryBytes: 256 << 20,
+    // Ordinary filled outlines use a scale-independent curve atlas by
+    // default. Set false only for an A/B against legacy stencil fans.
+    analyticText: true,
     // Optional: retain simple substituted text using the native faces that
     // Canvas normally selects. Leave false if the app registers replacements
     // under these family names.
@@ -107,6 +110,15 @@ reusable 16 MiB device-buffer blocks and returned to the backend-wide pool only
 after their scene is disposed and every submitted command buffer completes.
 This keeps command-heavy CAD navigation bounded without relying on delayed
 native finalizers; a scene that cannot lease enough geometry also falls back.
+
+Ordinary filled outline text uses retained Slug-style quadratic curve streams:
+one small nearest-sampled atlas stores each distinct page glyph and each draw
+retains only six vertices per placed glyph. The fragment shader derives its
+pixels-per-em from the current tile transform, so the same atlas stays sharp
+across LoDs and rotated text. Gradient and soft-masked text, malformed or
+over-complex outlines, and an atlas over the bounded 8 MiB ceiling retain the
+existing stencil-fan path. Atlas creation failure is likewise an optimization
+fallback, never a reason to reject the page.
 
 After useful page pixels land and foreground work stays quiet for 750 ms, the
 viewer asks the backend to warm its context. The backend submits one transparent
@@ -228,6 +240,9 @@ system-font route-change scenario.
 The corpus equivalents are `GPU_CORPUS_SYSTEM_TEXT=1` and
 `GPU_CORPUS_REGISTER_SYSTEM_FONTS=1`; the designated macOS GPU lane runs that
 full parity matrix on every change.
+Set `PDF_GPU_BENCHMARK_ANALYTIC_TEXT=0` or
+`GPU_CORPUS_ANALYTIC_TEXT=0` for a same-build comparison against the retained
+stencil-fan text path.
 Set `PDF_GPU_BENCHMARK_OVERPRINT=0` to exercise the production-default exact
 fallback policy; the benchmark otherwise enables its documented source-over
 approximation so more of a corpus can be measured on the GPU.

@@ -57,6 +57,12 @@ void main() {
       ..geometryBuffers = 3
       ..geometryBytes = 32 << 20
       ..peakGeometryBytes = 48 << 20
+      ..analyticTextRuns = 7
+      ..analyticGlyphQuads = 18
+      ..analyticGlyphSlots = 4
+      ..analyticAtlasBytes = 4096
+      ..analyticAtlasFallbacks = 1
+      ..analyticTextFallbackRuns = 2
       ..completedSubmissions = 8
       ..completionMicros = 32000
       ..maxCompletionMicros = 9000
@@ -81,6 +87,12 @@ void main() {
     expect(stats.toJson(), containsPair('sceneWarmUpFailures', 1));
     expect(stats.toJson(), containsPair('sceneWarmUpCancellations', 1));
     expect(stats.toJson(), containsPair('sceneWarmUpMicros', 18000));
+    expect(stats.toJson(), containsPair('analyticTextRuns', 7));
+    expect(stats.toJson(), containsPair('analyticGlyphQuads', 18));
+    expect(stats.toJson(), containsPair('analyticGlyphSlots', 4));
+    expect(stats.toJson(), containsPair('analyticAtlasBytes', 4096));
+    expect(stats.toJson(), containsPair('analyticAtlasFallbacks', 1));
+    expect(stats.toJson(), containsPair('analyticTextFallbackRuns', 2));
 
     stats.reset();
     expect(stats.sessionsCreated, 0);
@@ -108,6 +120,12 @@ void main() {
     expect(stats.geometryBuffers, 3);
     expect(stats.geometryBytes, 32 << 20);
     expect(stats.peakGeometryBytes, 32 << 20);
+    expect(stats.analyticTextRuns, 0);
+    expect(stats.analyticGlyphQuads, 0);
+    expect(stats.analyticGlyphSlots, 0);
+    expect(stats.analyticAtlasBytes, 0);
+    expect(stats.analyticAtlasFallbacks, 0);
+    expect(stats.analyticTextFallbackRuns, 0);
     expect(stats.completedSubmissions, 0);
     expect(stats.completionMicros, 0);
     expect(stats.inFlightSubmissions, 2);

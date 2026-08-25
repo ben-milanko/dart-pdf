@@ -128,6 +128,8 @@ void _corpus(
           final scene = await PdfRetainedScene.record(document.page(pageIndex));
           try {
             final backend = FlutterGpuTileRasterBackend(
+              analyticText:
+                  Platform.environment['GPU_CORPUS_ANALYTIC_TEXT'] != '0',
               systemTextOutlines:
                   Platform.environment['GPU_CORPUS_SYSTEM_TEXT'] == '1',
             );

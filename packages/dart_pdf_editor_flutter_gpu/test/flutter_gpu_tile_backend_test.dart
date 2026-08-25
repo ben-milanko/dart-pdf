@@ -2102,6 +2102,30 @@ void main() {
         textDifference += (expectedPixels[i] - actualPixels[i]).abs();
       }
       expect(textDifference / expectedPixels.length, lessThan(8));
+      expect(outlineBackend.stats.analyticTextRuns, 1);
+      expect(outlineBackend.stats.analyticGlyphQuads, 2);
+      expect(outlineBackend.stats.analyticGlyphSlots, 2);
+      expect(outlineBackend.stats.analyticAtlasBytes, greaterThan(0));
+      expect(outlineBackend.stats.analyticTextFallbackRuns, 0);
+
+      final flattenedBackend = FlutterGpuTileRasterBackend(
+        textOutliner: outliner,
+        analyticText: false,
+      );
+      final flattenedSession = flattenedBackend.createSession(substituteScene);
+      expect(flattenedSession, isNotNull,
+          reason: flattenedBackend.lastSessionRejection);
+      addTearDown(flattenedSession!.dispose);
+      final flattened = await flattenedSession.rasterizeRegion(
+        textRegion,
+        pixelRatio: 1,
+      );
+      addTearDown(flattened.dispose);
+      expect(
+        outlineBackend.stats.geometryVertices,
+        lessThan(flattenedBackend.stats.geometryVertices),
+        reason: 'retained glyph quads must replace outline stencil fans',
+      );
 
       final radial = await PdfRetainedScene.fromCommands(page, [
         PdfFillPathGradientCommand(

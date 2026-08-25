@@ -2,6 +2,10 @@
 
 ## Next
 
+- Retain ordinary filled text as six-vertex glyph quads backed by a
+  scale-independent analytic curve atlas. The shader derives device scale per
+  tile, eliminating repeated flattened outline fans across LoDs while exact
+  stencil rendering remains the automatic fallback for unsupported glyphs.
 - Add an exact substituted-text outline seam for the retained backend. Hosts
   can resolve their registered TrueType/TTC bytes directly, while the opt-in
   native adapter probes the standard platform substitution faces and declines

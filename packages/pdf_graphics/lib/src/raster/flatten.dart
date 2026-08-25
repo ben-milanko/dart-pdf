@@ -110,6 +110,22 @@ class FloatBuilder {
     length += 6;
   }
 
+  void add9(double a, double b, double c, double d, double e, double f,
+      double g, double h, double i) {
+    _ensure(9);
+    final p = _data, n = length;
+    p[n] = a;
+    p[n + 1] = b;
+    p[n + 2] = c;
+    p[n + 3] = d;
+    p[n + 4] = e;
+    p[n + 5] = f;
+    p[n + 6] = g;
+    p[n + 7] = h;
+    p[n + 8] = i;
+    length += 9;
+  }
+
   /// The filled bytes; hand straight to a texture/buffer upload (which
   /// copies). sublistView bounds are element indices, not bytes.
   ByteData get bytes => ByteData.sublistView(_data, 0, length);
@@ -203,8 +219,7 @@ List<FlatSubpath> flattenPath(PdfPath path, PdfMatrix transform,
         final y3 = transform.transformY(segment.x3, segment.y3);
         final d1 =
             math.max((lastX - 2 * x1 + x2).abs(), (lastY - 2 * y1 + y2).abs());
-        final d2 =
-            math.max((x1 - 2 * x2 + x3).abs(), (y1 - 2 * y2 + y3).abs());
+        final d2 = math.max((x1 - 2 * x2 + x3).abs(), (y1 - 2 * y2 + y3).abs());
         final d = math.max(d1, d2);
         final n = d <= tolerance
             ? 1
@@ -363,8 +378,7 @@ class FlattenedOutline {
   static final Expando<FlattenedOutline> _cache = Expando('FlattenedOutline');
 
   /// The cached flattening of [outline], flattening on first sight.
-  static FlattenedOutline of(PdfPath outline) =>
-      _cache[outline] ??= FlattenedOutline._(flattenPath(
-          outline, PdfMatrix.identity,
+  static FlattenedOutline of(PdfPath outline) => _cache[outline] ??=
+      FlattenedOutline._(flattenPath(outline, PdfMatrix.identity,
           tolerance: glyphFlattenTolerance));
 }

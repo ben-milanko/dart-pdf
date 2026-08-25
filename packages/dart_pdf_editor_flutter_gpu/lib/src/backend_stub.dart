@@ -11,6 +11,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
     this.maxTextureBytes = 256 << 20,
     this.maxGeometryBytes = 256 << 20,
     this.enableProactiveWarmUp,
+    this.analyticText = true,
     this.textOutliner,
     this.systemTextOutlines = false,
     FlutterGpuTileBackendStats? stats,
@@ -21,6 +22,7 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   final int maxTextureBytes;
   final int maxGeometryBytes;
   final bool? enableProactiveWarmUp;
+  final bool analyticText;
   final FlutterGpuTextOutliner? textOutliner;
   final bool systemTextOutlines;
   final FlutterGpuTileBackendStats stats;
