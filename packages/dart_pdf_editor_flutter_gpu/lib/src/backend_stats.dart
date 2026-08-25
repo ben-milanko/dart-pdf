@@ -38,6 +38,7 @@ class FlutterGpuTileBackendStats {
   int clipMaskRebuilds = 0;
   int advancedBlendPasses = 0;
   int advancedBlendBlits = 0;
+  int advancedBlendCroppedSources = 0;
   int advancedBlendAllocatedBytes = 0;
   int peakAdvancedBlendBytes = 0;
   int advancedBlendBudgetFallbacks = 0;
@@ -110,6 +111,7 @@ class FlutterGpuTileBackendStats {
         'clipMaskRebuilds': clipMaskRebuilds,
         'advancedBlendPasses': advancedBlendPasses,
         'advancedBlendBlits': advancedBlendBlits,
+        'advancedBlendCroppedSources': advancedBlendCroppedSources,
         'advancedBlendAllocatedBytes': advancedBlendAllocatedBytes,
         'peakAdvancedBlendBytes': peakAdvancedBlendBytes,
         'advancedBlendBudgetFallbacks': advancedBlendBudgetFallbacks,
@@ -181,6 +183,7 @@ class FlutterGpuTileBackendStats {
     clipMaskRebuilds = 0;
     advancedBlendPasses = 0;
     advancedBlendBlits = 0;
+    advancedBlendCroppedSources = 0;
     advancedBlendAllocatedBytes = 0;
     peakAdvancedBlendBytes = 0;
     advancedBlendBudgetFallbacks = 0;
@@ -235,6 +238,7 @@ class FlutterGpuTileBackendStats {
       'clips=$clipPathsCompiled clipRebuilds=$clipMaskRebuilds '
       'advancedBlendPasses=$advancedBlendPasses '
       'advancedBlendBlits=$advancedBlendBlits '
+      'advancedBlendCroppedSources=$advancedBlendCroppedSources '
       'advancedBlendAllocatedBytes=$advancedBlendAllocatedBytes '
       'peakAdvancedBlendBytes=$peakAdvancedBlendBytes '
       'advancedBlendBudgetFallbacks=$advancedBlendBudgetFallbacks '

@@ -23,6 +23,11 @@
   prove that no resolved pixel can contain both strokes. The mixed group/blend
   benchmark now uses two advanced passes per tile instead of thirteen while
   overlapping strokes retain ordered passes.
+- Rasterize advanced-blend sources into page-pixel-aligned cropped attachments
+  when their conservative union occupies at most half the tile. The full-sized
+  backdrop ping-pong targets remain byte-exact, while the blend shader remaps
+  the bounded source coordinates; padded offscreen groups and low-LoD
+  hairlines stay inside the crop.
 - Retain solid-black overprint paints inside single- and multi-paint
   transparency groups, matching the existing exact top-level path. Unsafe
   process-color, gradient, and mesh overprint still fall back to Canvas and

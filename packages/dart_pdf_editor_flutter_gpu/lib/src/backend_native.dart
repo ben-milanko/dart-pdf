@@ -2832,6 +2832,51 @@ PdfRect _inflatePdf(PdfRect r, double amount) => PdfRect(
       r.top + amount,
     );
 
+Rect _rasterAlignedRegion(
+  PdfRect bounds,
+  PdfMatrix pageToRaster,
+  Rect tileRegion,
+  double pixelRatio,
+) {
+  final points = <(double, double)>[
+    (bounds.left, bounds.bottom),
+    (bounds.right, bounds.bottom),
+    (bounds.right, bounds.top),
+    (bounds.left, bounds.top),
+  ];
+  var left = double.infinity, top = double.infinity;
+  var right = double.negativeInfinity, bottom = double.negativeInfinity;
+  for (final (x, y) in points) {
+    final rx = pageToRaster.transformX(x, y);
+    final ry = pageToRaster.transformY(x, y);
+    if (rx < left) left = rx;
+    if (rx > right) right = rx;
+    if (ry < top) top = ry;
+    if (ry > bottom) bottom = ry;
+  }
+  left = math.max(
+    tileRegion.left,
+    tileRegion.left +
+        (((left - tileRegion.left) * pixelRatio).floor() / pixelRatio),
+  );
+  top = math.max(
+    tileRegion.top,
+    tileRegion.top +
+        (((top - tileRegion.top) * pixelRatio).floor() / pixelRatio),
+  );
+  right = math.min(
+    tileRegion.right,
+    tileRegion.left +
+        (((right - tileRegion.left) * pixelRatio).ceil() / pixelRatio),
+  );
+  bottom = math.min(
+    tileRegion.bottom,
+    tileRegion.top +
+        (((bottom - tileRegion.top) * pixelRatio).ceil() / pixelRatio),
+  );
+  return Rect.fromLTRB(left, top, right, bottom);
+}
+
 bool _pdfIntersects(PdfRect a, PdfRect b) =>
     a.left < b.right &&
     a.right > b.left &&
@@ -3401,6 +3446,25 @@ class _CompiledScene {
     );
   }
 
+  PdfRect _rasterFootprintBounds(
+    _GpuUnit unit,
+    _GpuDraw? draw,
+    double pixelRatio,
+  ) {
+    final hairlinePadding = math.max(
+      0.0,
+      0.5 / _pageDeviceScale(pageToRaster, pixelRatio) - 2,
+    );
+    final extraPadding = draw is _OffscreenGroupDraw
+        ? math.max(draw.extraPadding, hairlinePadding)
+        : unit.hairline
+            ? hairlinePadding
+            : 0.0;
+    return extraPadding == 0
+        ? unit.bounds
+        : _inflatePdf(unit.bounds, extraPadding);
+  }
+
   ({
     Map<int, (gpu.Texture, Rect)> textures,
     List<gpu.Texture> retained,
@@ -3415,47 +3479,13 @@ class _CompiledScene {
     int maxBytes = 256 << 20,
   }) {
     Rect groupRegionFor(_GpuUnit unit, _OffscreenGroupDraw draw) {
-      final hairlinePadding = math.max(
-        0.0,
-        0.5 / _pageDeviceScale(pageToRaster, pixelRatio) - 2,
+      final bounds = _rasterFootprintBounds(unit, draw, pixelRatio);
+      return _rasterAlignedRegion(
+        bounds,
+        pageToRaster,
+        region,
+        pixelRatio,
       );
-      final extraPadding = math.max(draw.extraPadding, hairlinePadding);
-      final bounds = extraPadding == 0
-          ? unit.bounds
-          : _inflatePdf(unit.bounds, extraPadding);
-      final points = <(double, double)>[
-        (bounds.left, bounds.bottom),
-        (bounds.right, bounds.bottom),
-        (bounds.right, bounds.top),
-        (bounds.left, bounds.top),
-      ];
-      var left = double.infinity, top = double.infinity;
-      var right = double.negativeInfinity, bottom = double.negativeInfinity;
-      for (final (x, y) in points) {
-        final rx = pageToRaster.transformX(x, y);
-        final ry = pageToRaster.transformY(x, y);
-        if (rx < left) left = rx;
-        if (rx > right) right = rx;
-        if (ry < top) top = ry;
-        if (ry > bottom) bottom = ry;
-      }
-      left = math.max(
-          region.left,
-          region.left +
-              (((left - region.left) * pixelRatio).floor() / pixelRatio));
-      top = math.max(
-          region.top,
-          region.top +
-              (((top - region.top) * pixelRatio).floor() / pixelRatio));
-      right = math.min(
-          region.right,
-          region.left +
-              (((right - region.left) * pixelRatio).ceil() / pixelRatio));
-      bottom = math.min(
-          region.bottom,
-          region.top +
-              (((bottom - region.top) * pixelRatio).ceil() / pixelRatio));
-      return Rect.fromLTRB(left, top, right, bottom);
     }
 
     final groupPlans = <(_GpuUnit, _OffscreenGroupDraw, Rect, int, int, int)>[];
@@ -3598,30 +3628,72 @@ class _CompiledScene {
   }) {
     final issue = Stopwatch()..start();
     final multisampled = useMsaa && context.doesSupportOffscreenMSAA;
-    // Two page ping-pong targets plus one transparent source consume 12 B/px.
-    // Conservatively allow another 36 B/px for 4x color/stencil attachments;
-    // rejecting an oversized deep-zoom request lets the existing Canvas path
-    // recover instead of turning one unusual tile into a multi-gigabyte GPU
-    // allocation.
-    final estimatedBytes = width * height * (multisampled ? 48 : 16);
+    PdfRect? advancedBounds;
+    for (final unit in selected) {
+      if (!FlutterGpuTileRasterBackend._isFixedFunctionBlendMode(
+          unit.blendMode)) {
+        advancedBounds = _pdfUnion(
+          advancedBounds,
+          _rasterFootprintBounds(
+            unit,
+            draws[unit.commandIndex],
+            pixelRatio,
+          ),
+        );
+      }
+    }
+    final candidateSourceRegion = _rasterAlignedRegion(
+      advancedBounds!,
+      pageToRaster,
+      region,
+      pixelRatio,
+    );
+    final candidateSourceWidth =
+        (candidateSourceRegion.width * pixelRatio).ceil().clamp(1, width);
+    final candidateSourceHeight =
+        (candidateSourceRegion.height * pixelRatio).ceil().clamp(1, height);
+    final tilePixels = width * height;
+    final candidateSourcePixels = candidateSourceWidth * candidateSourceHeight;
+    // A cropped source needs its own color/stencil attachments while page
+    // ping-pong keeps reusing the full-tile pair. Use it only when the bounded
+    // source is at most half the tile, so both allocation and clear/raster
+    // work are lower even after those extra attachments are counted.
+    final cropSource = candidateSourcePixels * 2 <= tilePixels &&
+        (candidateSourceWidth < width || candidateSourceHeight < height);
+    final sourceRegion = cropSource ? candidateSourceRegion : region;
+    final sourceWidth = cropSource ? candidateSourceWidth : width;
+    final sourceHeight = cropSource ? candidateSourceHeight : height;
+    final sourcePixels = sourceWidth * sourceHeight;
+    // Two page ping-pong targets plus their shared color/stencil attachments
+    // are conservatively 32 B/px with 4x MSAA (12 B/px without it). A cropped
+    // source carries its own resolve/color/stencil set at 24 B/px (8 B/px
+    // without MSAA). The full-source path keeps the historical shared
+    // attachment estimate. Reject before allocating so Canvas can recover
+    // from an unusual deep-zoom tile without a multi-gigabyte GPU allocation.
+    final estimatedBytes = cropSource
+        ? tilePixels * (multisampled ? 32 : 12) +
+            sourcePixels * (multisampled ? 24 : 8)
+        : tilePixels * (multisampled ? 48 : 16);
     if (estimatedBytes > (256 << 20)) {
       stats.advancedBlendBudgetFallbacks++;
       throw StateError('advanced blend tiles exceed 256 MiB');
     }
     stats
+      ..advancedBlendCroppedSources += cropSource ? 1 : 0
       ..advancedBlendAllocatedBytes += estimatedBytes
       ..peakAdvancedBlendBytes =
           math.max(stats.peakAdvancedBlendBytes, estimatedBytes);
-    gpu.Texture pageTexture() => context.createTexture(
+    gpu.Texture texture(int textureWidth, int textureHeight) =>
+        context.createTexture(
           gpu.StorageMode.devicePrivate,
-          width,
-          height,
+          textureWidth,
+          textureHeight,
           format: context.defaultColorFormat,
         );
 
-    final pageA = pageTexture();
-    final pageB = pageTexture();
-    final source = pageTexture();
+    final pageA = texture(width, height);
+    final pageB = texture(width, height);
+    final source = texture(sourceWidth, sourceHeight);
     final color = multisampled
         ? context.createTexture(
             gpu.StorageMode.deviceTransient,
@@ -3638,6 +3710,24 @@ class _CompiledScene {
       format: context.defaultStencilFormat,
       sampleCount: multisampled ? 4 : 1,
     );
+    final sourceColor = cropSource && multisampled
+        ? context.createTexture(
+            gpu.StorageMode.deviceTransient,
+            sourceWidth,
+            sourceHeight,
+            format: context.defaultColorFormat,
+            sampleCount: 4,
+          )
+        : color;
+    final sourceStencil = cropSource
+        ? context.createTexture(
+            gpu.StorageMode.deviceTransient,
+            sourceWidth,
+            sourceHeight,
+            format: context.defaultStencilFormat,
+            sampleCount: multisampled ? 4 : 1,
+          )
+        : stencil;
     final transient = context.createHostBuffer();
     final groups = _renderOffscreenGroups(
       selected,
@@ -3652,13 +3742,6 @@ class _CompiledScene {
       // 256 MiB pools.
       maxBytes: (256 << 20) - estimatedBytes,
     );
-    final transform = transient.emplace(_tileTransform(
-      pageToRaster,
-      region,
-      pixelRatio,
-      width,
-      height,
-    ));
     final commandBuffers = <gpu.CommandBuffer>[];
     final retained = <Object>[
       pageA,
@@ -3666,6 +3749,8 @@ class _CompiledScene {
       source,
       if (color != null) color,
       stencil,
+      if (cropSource && sourceColor != null) sourceColor,
+      if (cropSource) sourceStencil,
       transient,
       ...groups.retained,
       commandBuffers,
@@ -3674,8 +3759,10 @@ class _CompiledScene {
     gpu.RenderPass createPaintPass(
       gpu.CommandBuffer commandBuffer,
       gpu.Texture resolve,
+      gpu.Texture? targetColor,
+      gpu.Texture targetStencil,
     ) {
-      final target = color ?? resolve;
+      final target = targetColor ?? resolve;
       final pass = commandBuffer.createRenderPass(gpu.RenderTarget(
         colorAttachments: [
           gpu.ColorAttachment(
@@ -3688,7 +3775,7 @@ class _CompiledScene {
           ),
         ],
         depthStencilAttachment: gpu.DepthStencilAttachment(
-          texture: stencil,
+          texture: targetStencil,
           stencilClearValue: 0,
         ),
       ));
@@ -3700,15 +3787,27 @@ class _CompiledScene {
         ..setColorBlendEnable(true);
     }
 
-    _GpuEncoder encoderFor(gpu.RenderPass pass) => _GpuEncoder(
+    _GpuEncoder encoderFor(
+      gpu.RenderPass pass, {
+      required Rect targetRegion,
+      required int targetWidth,
+      required int targetHeight,
+    }) =>
+        _GpuEncoder(
           pass: pass,
           pipelines: pipelines,
-          transform: transform,
+          transform: transient.emplace(_tileTransform(
+            pageToRaster,
+            targetRegion,
+            pixelRatio,
+            targetWidth,
+            targetHeight,
+          )),
           pageToRaster: pageToRaster,
-          region: region,
+          region: targetRegion,
           pixelRatio: pixelRatio,
-          width: width,
-          height: height,
+          width: targetWidth,
+          height: targetHeight,
           clipDraws: clipDraws,
           stencilClear: paper.vertices,
           emplaceTransient: transient.emplace,
@@ -3720,7 +3819,12 @@ class _CompiledScene {
     void paintSegment(List<_GpuUnit> segment) {
       final target = alternate();
       final commandBuffer = context.createCommandBuffer();
-      final encoder = encoderFor(createPaintPass(commandBuffer, target));
+      final encoder = encoderFor(
+        createPaintPass(commandBuffer, target, color, stencil),
+        targetRegion: region,
+        targetWidth: width,
+        targetHeight: height,
+      );
       if (current == null) {
         encoder
           ..setClip(_rootGpuClip)
@@ -3756,8 +3860,17 @@ class _CompiledScene {
 
     void paintSources(List<_GpuUnit> units) {
       final sourceCommandBuffer = context.createCommandBuffer();
-      final sourceEncoder =
-          encoderFor(createPaintPass(sourceCommandBuffer, source));
+      final sourceEncoder = encoderFor(
+        createPaintPass(
+          sourceCommandBuffer,
+          source,
+          sourceColor,
+          sourceStencil,
+        ),
+        targetRegion: sourceRegion,
+        targetWidth: sourceWidth,
+        targetHeight: sourceHeight,
+      );
       for (final unit in units) {
         final draw = draws[unit.commandIndex];
         if (draw == null) continue;
@@ -3801,11 +3914,17 @@ class _CompiledScene {
         ..setWindingOrder(gpu.WindingOrder.counterClockwise)
         ..setPrimitiveType(gpu.PrimitiveType.triangle)
         ..setColorBlendEnable(false);
-      final blendEncoder = encoderFor(blendPass);
+      final blendEncoder = encoderFor(
+        blendPass,
+        targetRegion: region,
+        targetWidth: width,
+        targetHeight: height,
+      );
       for (final (unit, bounds) in units) {
         blendEncoder.advancedBlend(
           current!,
           source,
+          sourceRegion,
           unit.blendMode,
           bounds,
         );
@@ -6504,11 +6623,17 @@ class _GpuEncoder {
   void advancedBlend(
     gpu.Texture backdrop,
     gpu.Texture source,
+    Rect sourceRegion,
     PdfBlendMode mode,
     PdfRect? bounds,
   ) {
     final vertices = _tileTextureVertices(region);
-    final info = Float32List(4)..[0] = mode.index.toDouble();
+    final info = Float32List(8)
+      ..[0] = mode.index.toDouble()
+      ..[4] = (sourceRegion.left - region.left) / region.width
+      ..[5] = (sourceRegion.top - region.top) / region.height
+      ..[6] = sourceRegion.width / region.width
+      ..[7] = sourceRegion.height / region.height;
     pass
       ..setScissor(bounds == null
           ? gpu.Scissor(x: 0, y: 0, width: width, height: height)
@@ -6981,7 +7106,16 @@ class _GpuPipelines {
     final softMaskUniform =
         transient.emplace(ByteData.sublistView(softMaskInfo));
     final blendInfo = transient.emplace(ByteData.sublistView(
-      Float32List.fromList([PdfBlendMode.overlay.index.toDouble(), 0, 0, 0]),
+      Float32List.fromList([
+        PdfBlendMode.overlay.index.toDouble(),
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        1,
+      ]),
     ));
 
     final commandBuffer = context.createCommandBuffer();

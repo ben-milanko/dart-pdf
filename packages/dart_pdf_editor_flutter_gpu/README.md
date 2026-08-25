@@ -121,6 +121,11 @@ bounds to preserve PDF painter order without shading unrelated tile pixels.
 Consecutive same-mode straight strokes can also share one transparent source
 and one blend when raster-space capsule tests prove that their resolved pixels
 are disjoint, even if their diagonal axis-aligned bounds overlap.
+When the conservative source union occupies at most half the tile, its
+transparent attachment is cropped to page-pixel-aligned bounds and the
+blend shader remaps those texels onto the unchanged full-sized backdrop. Thick
+offscreen strokes and low-LoD hairlines extend the crop before alignment, so
+the optimization cannot trim antialiasing coverage.
 Each pass preserves the untouched ping-pong destination with a byte-exact GPU
 texture blit rather than a full-tile fragment draw.
 Offscreen groups can precede or follow those paints in the same exact route:
@@ -183,7 +188,8 @@ spatially selected command counts, upload/readback paths, cache hits and
 evictions, budget fallbacks, retained bytes, and live resource leases.
 Clip diagnostics separately report paths compiled and tile-mask rebuilds.
 Advanced-blend diagnostics report destination-sampling passes, destination
-blits, allocated and peak temporary bytes, and budget fallbacks.
+blits, cropped-source selections, allocated and peak temporary bytes, and
+budget fallbacks.
 `backend.stats.toJson()` is suitable for benchmark artifacts. Keep the backend
 instance alive when comparing pages so those counters and cross-page caches
 describe the real workload rather than one page at a time.

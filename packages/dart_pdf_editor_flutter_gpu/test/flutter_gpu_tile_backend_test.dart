@@ -475,7 +475,7 @@ void main() {
           ),
           PdfSetBlendModeCommand(mode),
           PdfFillPathCommand(
-            _rect(140, 180, 310, 350),
+            _rect(20, 180, 180, 350),
             sourceColor,
             PdfFillRule.nonzero,
             0.63,
@@ -501,6 +501,11 @@ void main() {
           expect(difference / a.length, lessThan(3),
               reason: '${mode.name} must agree with Canvas');
           expect(backend.stats.advancedBlendPasses, 1);
+          expect(backend.stats.advancedBlendCroppedSources, 1);
+          expect(
+            backend.stats.peakAdvancedBlendBytes,
+            lessThan(480 * 480 * 48),
+          );
         } finally {
           expected.dispose();
           actual.dispose();
@@ -893,6 +898,15 @@ void main() {
           PdfFillRule.nonzero,
           0.55,
         ),
+        PdfStrokePathCommand(
+          PdfPath(const [
+            PdfMoveTo(62, 125),
+            PdfLineTo(278, 338),
+          ]),
+          const PdfColor(0.12, 0.78, 0.32),
+          const PdfStroke(width: 28),
+          0.8,
+        ),
         const PdfEndGroupCommand(),
         const PdfSetBlendModeCommand(PdfBlendMode.normal),
       ]);
@@ -902,9 +916,9 @@ void main() {
       expect(session, isNotNull, reason: backend.stats.lastRejection);
       addTearDown(session!.dispose);
 
-      const region = Rect.fromLTWH(20, 410, 310, 310);
-      final expected = await scene.rasterizeRegion(region, pixelRatio: 1.5);
-      final actual = await session.rasterizeRegion(region, pixelRatio: 1.5);
+      final region = Offset.zero & scene.pageSize;
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1);
       addTearDown(expected.dispose);
       addTearDown(actual.dispose);
       final a = await _pixels(expected), b = await _pixels(actual);
@@ -920,6 +934,7 @@ void main() {
       expect(minimumAlpha, 255);
       expect(backend.stats.offscreenGroupPasses, 1);
       expect(backend.stats.advancedBlendPasses, 1);
+      expect(backend.stats.advancedBlendCroppedSources, 1);
     });
   });
 

@@ -1,5 +1,6 @@
 uniform BlendInfo {
   vec4 modes;
+  vec4 source_uv;
 }
 blend_info;
 
@@ -113,7 +114,9 @@ vec3 blend(vec3 cb, vec3 cs, int mode) {
 
 void main() {
   vec4 backdrop = texture(backdrop_tex, v_uv);
-  vec4 source = texture(source_tex, v_uv);
+  vec2 source_uv =
+    (v_uv - blend_info.source_uv.xy) / blend_info.source_uv.zw;
+  vec4 source = texture(source_tex, source_uv);
   float ab = backdrop.a;
   float as = source.a;
   vec3 cb = ab > 0.0 ? backdrop.rgb / ab : vec3(0.0);
