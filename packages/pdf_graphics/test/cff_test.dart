@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:pdf_cos/pdf_cos.dart';
 import 'package:pdf_document/pdf_document.dart';
@@ -91,7 +92,158 @@ void main() {
     },
     skip: !Platform.isMacOS,
   );
+
+  test('OpenType CFF reads Unicode cmap formats and collections', () {
+    final bytes = _testOpenTypeCff();
+    final face = OpenTypeCffFont.parse(bytes);
+    expect(face, isNotNull);
+    expect(face!.numGlyphs, 2);
+    expect(face.gidForUnicode(0x41), 1, reason: 'format 0');
+    expect(face.gidForUnicode(0x42), 1, reason: 'format 4');
+    expect(face.gidForUnicode(0x400), 1, reason: 'format 6');
+    expect(face.gidForUnicode(0x1F600), 1, reason: 'format 12');
+    expect(face.gidForUnicode(0x43), 0);
+    expect(face.outlineForGlyph(1), isNotNull);
+    expect(face.advanceForGlyph(1), closeTo(0.66, 1e-9));
+
+    final collection = _testOpenTypeCffCollection();
+    expect(OpenTypeCffFont.parse(collection, collectionIndex: 1), isNotNull);
+    expect(OpenTypeCffFont.parse(collection, collectionIndex: -1), isNull);
+    expect(OpenTypeCffFont.parse(collection, collectionIndex: 2), isNull);
+  });
+
+  test('OpenType CFF rejects malformed or incomplete containers', () {
+    final plain = _testOpenTypeCff();
+    expect(OpenTypeCffFont.parse(plain, collectionIndex: 1), isNull);
+    expect(OpenTypeCffFont.parse(ascii('not an sfnt')), isNull);
+
+    final trueType = Uint8List.fromList(plain)
+      ..setRange(0, 4, const [0, 1, 0, 0]);
+    expect(OpenTypeCffFont.parse(trueType), isNull);
+    expect(OpenTypeCffFont.parse(_testOpenTypeCff(cmaps: const [])), isNull);
+  });
 }
+
+Uint8List _testOpenTypeCff({
+  int faceOffset = 0,
+  List<List<int>>? cmaps,
+}) {
+  final cff = buildTestCffFont();
+  final cmap = _cmapTable(cmaps ?? _testCmaps());
+  const directoryLength = 12 + 2 * 16;
+  final cffOffset = faceOffset + directoryLength;
+  final cmapOffset = cffOffset + cff.length;
+  return Uint8List.fromList([
+    ..._u32(0x4F54544F), // OTTO
+    ..._u16(2),
+    ..._u16(0),
+    ..._u16(0),
+    ..._u16(0),
+    ...'CFF '.codeUnits,
+    ..._u32(0),
+    ..._u32(cffOffset),
+    ..._u32(cff.length),
+    ...'cmap'.codeUnits,
+    ..._u32(0),
+    ..._u32(cmapOffset),
+    ..._u32(cmap.length),
+    ...cff,
+    ...cmap,
+  ]);
+}
+
+Uint8List _testOpenTypeCffCollection() {
+  const firstOffset = 20;
+  final first = _testOpenTypeCff(faceOffset: firstOffset);
+  final secondOffset = firstOffset + first.length;
+  final second = _testOpenTypeCff(faceOffset: secondOffset);
+  return Uint8List.fromList([
+    ...'ttcf'.codeUnits,
+    ..._u32(0x00010000),
+    ..._u32(2),
+    ..._u32(firstOffset),
+    ..._u32(secondOffset),
+    ...first,
+    ...second,
+  ]);
+}
+
+List<List<int>> _testCmaps() {
+  final format0Glyphs = List<int>.filled(256, 0)..[0x41] = 1;
+  return [
+    [
+      ..._u16(0),
+      ..._u16(262),
+      ..._u16(0),
+      ...format0Glyphs,
+    ],
+    [
+      ..._u16(4),
+      ..._u16(34),
+      ..._u16(0),
+      ..._u16(4), // two segments
+      ..._u16(4),
+      ..._u16(1),
+      ..._u16(0),
+      ..._u16(0x42),
+      ..._u16(0xFFFF),
+      ..._u16(0),
+      ..._u16(0x42),
+      ..._u16(0xFFFF),
+      ..._u16(0xFFFF), // glyph 2 plus -1 => glyph 1
+      ..._u16(1),
+      ..._u16(4),
+      ..._u16(0),
+      ..._u16(2),
+    ],
+    [
+      ..._u16(6),
+      ..._u16(12),
+      ..._u16(0),
+      ..._u16(0x400),
+      ..._u16(1),
+      ..._u16(1),
+    ],
+    [
+      ..._u16(12),
+      ..._u16(0),
+      ..._u32(28),
+      ..._u32(0),
+      ..._u32(1),
+      ..._u32(0x1F600),
+      ..._u32(0x1F600),
+      ..._u32(1),
+    ],
+  ];
+}
+
+Uint8List _cmapTable(List<List<int>> subtables) {
+  final recordsLength = 4 + subtables.length * 8;
+  var offset = recordsLength;
+  final records = <int>[];
+  for (var index = 0; index < subtables.length; index++) {
+    records
+      ..addAll(_u16(0))
+      ..addAll(_u16(index))
+      ..addAll(_u32(offset));
+    offset += subtables[index].length;
+  }
+  return Uint8List.fromList([
+    ..._u16(0),
+    ..._u16(subtables.length),
+    ...records,
+    for (final subtable in subtables) ...subtable,
+  ]);
+}
+
+List<int> _u16(int value) => [(value >> 8) & 0xFF, value & 0xFF];
+
+List<int> _u32(int value) => [
+      (value >> 24) & 0xFF,
+      (value >> 16) & 0xFF,
+      (value >> 8) & 0xFF,
+      value & 0xFF,
+    ];
 
 CffFont _cffFromPageFont(String path, {required String fontName}) {
   final doc = PdfDocument.open(File(path).readAsBytesSync());
