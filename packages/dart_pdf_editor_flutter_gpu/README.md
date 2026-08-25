@@ -118,6 +118,10 @@ Tiles that sit at least one device pixel inside the transformed crop box use
 the folded opaque paper color as their render-pass clear, avoiding a separate
 transparent clear and full-tile paper draw. Boundary tiles retain the paper
 quad so rotated and translucent page colors keep their exact antialiased edge.
+When spatial selection finds no retained command for one of those interior
+tiles, the backend submits a color-only clear pass. It does not allocate a
+stencil or multisample attachment, create a transient host buffer, or bind a
+draw pipeline; tiles near the crop edge continue through the ordinary path.
 Advanced blend paints use bounded ping-pong tile attachments. Paints whose
 bounds prove they cannot affect one another share one destination-sampling
 pass; overlapping paints replay sequentially inside their conservative command
@@ -191,7 +195,8 @@ scene compile and tile-submit time,
 spatially selected command counts, upload/readback paths, cache hits and
 evictions, budget fallbacks, retained bytes, and live resource leases.
 Clip diagnostics separately report paths compiled and tile-mask rebuilds.
-Paper diagnostics report how many tiles used the exact interior clear path.
+Paper diagnostics report how many tiles used the exact interior clear path and
+how many of those were content-free color-only submissions.
 Advanced-blend diagnostics report destination-sampling passes, destination
 blits, cropped-source selections, allocated and peak temporary bytes, and
 budget fallbacks.

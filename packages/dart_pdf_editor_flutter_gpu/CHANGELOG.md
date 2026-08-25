@@ -5,6 +5,10 @@
 - Require the dart-pdf 4.0.0 suite and its expanded tile-backend warm-up and
   transparency interfaces.
 
+- Render content-free interior tiles with a color-only pass that clears
+  directly to the folded paper color. This avoids stencil, MSAA, host-buffer,
+  and pipeline work when spatial selection proves that no retained command can
+  affect the tile, while boundary tiles keep the exact antialiased paper path.
 - Initialize tiles wholly inside the transformed crop box with the folded
   opaque paper color in the render-pass clear, skipping the transparent clear
   and full-tile paper draw. A one-device-pixel guard keeps rotated and

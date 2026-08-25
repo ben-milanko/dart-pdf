@@ -3420,6 +3420,13 @@ class _CompiledScene {
   }) {
     final width = (region.width * pixelRatio).ceil().clamp(1, 1 << 14);
     final height = (region.height * pixelRatio).ceil().clamp(1, 1 << 14);
+    if (selected.isEmpty && _canClearPaper(region, pixelRatio)) {
+      return _renderPaperOnly(
+        width: width,
+        height: height,
+        tracePage: tracePage,
+      );
+    }
     if (selected.any((unit) =>
         !FlutterGpuTileRasterBackend._isFixedFunctionBlendMode(
             unit.blendMode))) {
@@ -3444,6 +3451,63 @@ class _CompiledScene {
       height: height,
       tracePage: tracePage,
     );
+  }
+
+  ui.Image _renderPaperOnly({
+    required int width,
+    required int height,
+    int? tracePage,
+  }) {
+    final issue = Stopwatch()..start();
+    final texture = context.createTexture(
+      gpu.StorageMode.devicePrivate,
+      width,
+      height,
+      format: context.defaultColorFormat,
+    );
+    final commandBuffer = context.createCommandBuffer();
+    final pass = commandBuffer.createRenderPass(
+      gpu.RenderTarget.singleColor(gpu.ColorAttachment(
+        texture: texture,
+        clearValue: paper.clearColor,
+      )),
+    );
+    final retained = <Object>[texture, commandBuffer, pass];
+    final submit = Stopwatch()..start();
+    final completion = Stopwatch()..start();
+    _inFlight++;
+    stats
+      ..paperClearTiles += 1
+      ..paperOnlyTiles += 1
+      ..inFlightSubmissions += 1
+      ..peakInFlightSubmissions = math.max(
+        stats.peakInFlightSubmissions,
+        stats.inFlightSubmissions,
+      );
+    try {
+      commandBuffer.submit(completionCallback: (success) {
+        retained.length;
+        _completeSubmission(
+          success,
+          completion,
+          tracePage,
+          width,
+          height,
+          0,
+        );
+      });
+    } catch (_) {
+      _inFlight--;
+      stats
+        ..inFlightSubmissions = math.max(0, stats.inFlightSubmissions - 1)
+        ..failedSubmissions += 1;
+      _releaseResourcesIfReady();
+      rethrow;
+    }
+    stats
+      ..submitMicros += submit.elapsedMicroseconds
+      ..issueMicros += issue.elapsedMicroseconds;
+    return texture.asImage();
   }
 
   PdfRect _rasterFootprintBounds(

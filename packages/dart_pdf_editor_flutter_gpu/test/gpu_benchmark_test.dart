@@ -1,4 +1,5 @@
 import 'dart:ui' as ui;
+import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:dart_pdf_editor_flutter_gpu/dart_pdf_editor_flutter_gpu.dart';
@@ -41,6 +42,16 @@ Future<int> _timeSettledImage(Future<ui.Image> Function() render) async {
   clock.stop();
   image.dispose();
   return clock.elapsedMicroseconds;
+}
+
+Future<(int, Uint8List)> _timePixels(Future<ui.Image> Function() render) async {
+  final clock = Stopwatch()..start();
+  final image = await render();
+  final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+  clock.stop();
+  image.dispose();
+  if (data == null) throw StateError('tile readback failed');
+  return (clock.elapsedMicroseconds, Uint8List.sublistView(data));
 }
 
 PdfPath _rect(double left, double bottom, double right, double top) => PdfPath([
@@ -110,6 +121,74 @@ void main() {
       // Keep an always-visible machine-readable-ish line in benchmark runs.
       // ignore: avoid_print
       print(summary);
+    });
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  testWidgets('reports content-free interior tile settle', (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(
+        page,
+        const [],
+        plan: const PdfPageRenderPlan(
+          pageColor: Color(0x8066AA22),
+          rotation: 90,
+        ),
+      );
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      await backend.warmUp();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      final liveSession = session!;
+      addTearDown(liveSession.dispose);
+      if (liveSession is PdfTileRasterWarmUp) {
+        await (liveSession as PdfTileRasterWarmUp).warmUp();
+      }
+
+      const region = Rect.fromLTWH(50, 50, 512, 512);
+      final firstGpu = await _timePixels(
+        () => liveSession.rasterizeRegion(region, pixelRatio: 1),
+      );
+      final firstCanvas = await _timePixels(
+        () => scene.rasterizeRegion(region, pixelRatio: 1),
+      );
+      expect(firstGpu.$2, firstCanvas.$2);
+
+      final warmGpu = <int>[], warmCanvas = <int>[];
+      for (var index = 0; index < 7; index++) {
+        late (int, Uint8List) gpuResult, canvasResult;
+        if (index.isEven) {
+          gpuResult = await _timePixels(
+            () => liveSession.rasterizeRegion(region, pixelRatio: 1),
+          );
+          canvasResult = await _timePixels(
+            () => scene.rasterizeRegion(region, pixelRatio: 1),
+          );
+        } else {
+          canvasResult = await _timePixels(
+            () => scene.rasterizeRegion(region, pixelRatio: 1),
+          );
+          gpuResult = await _timePixels(
+            () => liveSession.rasterizeRegion(region, pixelRatio: 1),
+          );
+        }
+        expect(gpuResult.$2, canvasResult.$2);
+        warmGpu.add(gpuResult.$1);
+        warmCanvas.add(canvasResult.$1);
+      }
+
+      // ignore: avoid_print
+      print('flutter_gpu paper-only benchmark: first=${firstGpu.$1}us '
+          'firstCanvas=${firstCanvas.$1}us '
+          'warmMedian=${_median(warmGpu).toStringAsFixed(0)}us '
+          'canvasMedian=${_median(warmCanvas).toStringAsFixed(0)}us '
+          '${backend.stats}');
     });
   }, timeout: const Timeout(Duration(minutes: 2)));
 

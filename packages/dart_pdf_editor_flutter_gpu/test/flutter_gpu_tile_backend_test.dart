@@ -347,6 +347,46 @@ void main() {
     });
   });
 
+  testWidgets('content-free interior tiles skip raster attachments and draws',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(
+        page,
+        const [],
+        plan: const PdfPageRenderPlan(
+          pageColor: Color(0x8066AA22),
+          rotation: 270,
+        ),
+      );
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      for (final (region, paperOnly) in const [
+        (Rect.fromLTWH(60, 60, 240, 200), 1),
+        (Rect.fromLTWH(0, 0, 240, 200), 1),
+      ]) {
+        final expected = await scene.rasterizeRegion(region, pixelRatio: 1.5);
+        final actual = await session.rasterizeRegion(region, pixelRatio: 1.5);
+        try {
+          final a = await _pixels(expected), b = await _pixels(actual);
+          expect(b, a);
+          expect(backend.stats.paperOnlyTiles, paperOnly);
+        } finally {
+          expected.dispose();
+          actual.dispose();
+        }
+      }
+    });
+  });
+
   testWidgets('zero-width strokes remain one device pixel at every LoD',
       (tester) async {
     await tester.runAsync(() async {
