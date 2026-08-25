@@ -140,7 +140,7 @@ void main() {
     await tester.pump();
 
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    expect(find.text('Opening slow.pdf…'), findsOneWidget);
+    expect(find.text('Opening slow…'), findsOneWidget);
 
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.byType(CircularProgressIndicator), findsNothing);
@@ -413,14 +413,15 @@ void main() {
       find.byKey(const ValueKey('tab-hover-preview-thumbnail')),
     );
     expect(thumbnailSize.width / thumbnailSize.height, closeTo(792 / 612, .01));
-    expect(
-      tester
-          .widget<MiddleEllipsisText>(
-            find.byKey(const ValueKey('tab-hover-preview-title')),
-          )
-          .data,
-      'alpha.pdf',
+    final previewTitle = find.byKey(
+      const ValueKey('tab-hover-preview-title'),
     );
+    final previewTitleWidget = tester.widget<MiddleEllipsisText>(previewTitle);
+    expect(previewTitleWidget.data, 'alpha.pdf');
+    expect(previewTitleWidget.hidePdfExtension, isTrue);
+    // ignore: avoid_dynamic_calls
+    expect((tester.renderObject(previewTitle) as dynamic).debugDisplayedText,
+        'alpha');
     expect(
       tester
           .widget<Text>(

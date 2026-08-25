@@ -32,6 +32,7 @@ import 'middle_ellipsis_text.dart';
 import 'new_document.dart';
 import 'ocr.dart';
 import 'ocr_status_label.dart';
+import 'open_error.dart';
 import 'pdf_cache.dart';
 import 'print_preview_dialog.dart';
 import 'print_progress_dialog.dart';
@@ -839,15 +840,16 @@ class _EditorScreenState extends State<EditorScreen>
     await _session.save(documents);
   }
 
-  /// Deletes cached mobile snapshots that no Recent entry still references, so
-  /// the private store can't grow without bound as entries roll off the list.
-  /// A no-op on desktop/web (nothing is cached there).
+  /// Deletes private PDF snapshots and first-page thumbnails that no Recent
+  /// entry still references, so local caches cannot grow without bound as
+  /// entries roll off the list.
   void _pruneRecentCache() {
     final keep = {
       for (final entry in _recents.items)
         if (entry.cachePath != null) entry.cachePath!,
     };
     unawaited(pruneCachedPdfs(keep));
+    unawaited(_recentThumbnails.retain(_recents.items));
   }
 
   // --- opening -------------------------------------------------------------
@@ -869,6 +871,17 @@ class _EditorScreenState extends State<EditorScreen>
     AppDevTools.instance
         .addLog('open error: $title - $error', level: DevLogLevel.error);
     _addTab(DocumentTab.error(title: title, error: error));
+  }
+
+  String _openFailureDetail(String title, Object error) {
+    AppDevTools.instance.addLog(
+      'open failure: $title - $error',
+      level: DevLogLevel.error,
+    );
+    return appL10n(context).editorCouldNotOpenDetail(
+      pdfDisplayName(title),
+      openErrorSummary(error),
+    );
   }
 
   void _openHandoff(DocumentHandoff handoff) {
@@ -1167,8 +1180,7 @@ class _EditorScreenState extends State<EditorScreen>
         loading,
         DocumentTab.error(
           title: errorTitle ?? title,
-          error: appL10n(context)
-              .editorCouldNotOpenDetail(errorTitle ?? title, '$e'),
+          error: _openFailureDetail(errorTitle ?? title, e),
         ),
       );
     }
@@ -1243,16 +1255,11 @@ class _EditorScreenState extends State<EditorScreen>
         bookmark: tab.originBookmark,
         cachePath: tab.cachePath,
         into: tab,
-        onOpenFailed: (_) {
-          // Session restoration is best-effort. A source that disappeared
-          // since the previous run should vanish quietly rather than leave a
-          // permanent error tab. `_closeTabs` removes synchronously until its
-          // first await for these clean placeholders, so the fallback's later
-          // replacement sees that the tab is already gone.
-          if (mounted && _tabs.contains(tab)) {
-            unawaited(_closeTabs([tab]));
-          }
-        },
+        // Session restoration is best-effort. A source that disappeared since
+        // the previous run should vanish quietly rather than leave a permanent
+        // error tab. The fallback closes this clean placeholder when the
+        // callback reports that it handled the failure.
+        onOpenFailed: (_) => true,
       );
     });
   }
@@ -1320,7 +1327,7 @@ class _EditorScreenState extends State<EditorScreen>
     String? cachePath,
     int? declaredBytes,
     String? provider,
-    void Function(Object error)? onOpenFailed,
+    bool Function(Object error)? onOpenFailed,
     DocumentTab? into,
   }) async {
     assert((path != null) != (token != null),
@@ -1493,8 +1500,7 @@ class _EditorScreenState extends State<EditorScreen>
         if (index == -1) return;
         setState(() => _tabs[index] = DocumentTab.error(
               title: preview.title,
-              error: appL10n(context)
-                  .editorCouldNotOpenDetail(preview.title, '$error2'),
+              error: _openFailureDetail(preview.title, error2),
             ));
         preview.dispose();
       }
@@ -1545,7 +1551,7 @@ class _EditorScreenState extends State<EditorScreen>
     String? bookmark,
     String? token,
     String? cachePath,
-    void Function(Object error)? onOpenFailed,
+    bool Function(Object error)? onOpenFailed,
   }) async {
     try {
       final bytes =
@@ -1576,13 +1582,17 @@ class _EditorScreenState extends State<EditorScreen>
         }
       }
     } catch (error) {
-      onOpenFailed?.call(error);
       if (!mounted) return;
+      final handled = onOpenFailed?.call(error) ?? false;
+      if (handled) {
+        await _closeTabs([loading]);
+        return;
+      }
       _replaceLoadingTab(
         loading,
         DocumentTab.error(
           title: title,
-          error: appL10n(context).editorCouldNotOpenDetail(title, '$error'),
+          error: _openFailureDetail(title, error),
         ),
       );
     }
@@ -1605,8 +1615,8 @@ class _EditorScreenState extends State<EditorScreen>
         // Older runner without the mobile_file channel - fall through to the
         // copy-based picker below.
       } catch (e) {
-        _openError(
-            l10n.editorOpenFailedTitle, l10n.editorCouldNotOpenSelected('$e'));
+        _openError(l10n.editorOpenFailedTitle,
+            l10n.editorCouldNotOpenSelected(openErrorSummary(e)));
         return;
       }
     }
@@ -1646,8 +1656,8 @@ class _EditorScreenState extends State<EditorScreen>
         }
       }
     } catch (e) {
-      _openError(
-          l10n.editorOpenFailedTitle, l10n.editorCouldNotOpenSelected('$e'));
+      _openError(l10n.editorOpenFailedTitle,
+          l10n.editorCouldNotOpenSelected(openErrorSummary(e)));
     }
   }
 
@@ -2085,7 +2095,9 @@ class _EditorScreenState extends State<EditorScreen>
         onOpenFailed: (_) {
           unawaited(_recents.remove(entry.id));
           _pruneRecentCache();
-          _toast(appL10n(context).editorCouldNotReopen(entry.title));
+          _toast(appL10n(context)
+              .editorCouldNotReopen(pdfDisplayName(entry.title)));
+          return true;
         },
       );
       return;
@@ -2122,14 +2134,14 @@ class _EditorScreenState extends State<EditorScreen>
       await _recents.remove(entry.id);
       _pruneRecentCache();
       if (!mounted) return;
-      _replaceLoadingTab(
-        loading,
-        DocumentTab.error(
-          title: entry.title,
-          error: appL10n(context).editorCouldNotOpenDetail(entry.title, '$e'),
-        ),
+      AppDevTools.instance.addLog(
+        'recent open failed: ${entry.title} - $e',
+        level: DevLogLevel.error,
       );
-      _toast(appL10n(context).editorCouldNotReopen(entry.title));
+      await _closeTabs([loading]);
+      if (!mounted) return;
+      _toast(
+          appL10n(context).editorCouldNotReopen(pdfDisplayName(entry.title)));
     }
   }
 
@@ -2196,8 +2208,8 @@ class _EditorScreenState extends State<EditorScreen>
         _activeIndex = _tabs.length - 1;
       });
     } catch (e) {
-      _openError(
-          l10n.editorCompareFailedTitle, l10n.editorCouldNotOpenSecond('$e'));
+      _openError(l10n.editorCompareFailedTitle,
+          l10n.editorCouldNotOpenSecond(openErrorSummary(e)));
     }
   }
 
@@ -2889,11 +2901,15 @@ class _EditorScreenState extends State<EditorScreen>
     Widget? subtitle,
     TextOverflow? overflow,
     bool middleEllipsis = false,
+    bool hidePdfExtension = false,
   }) =>
       ListTile(
         leading: Icon(icon),
         title: middleEllipsis
-            ? MiddleEllipsisText(title)
+            ? MiddleEllipsisText(
+                title,
+                hidePdfExtension: hidePdfExtension,
+              )
             : Text(title, overflow: overflow),
         subtitle: subtitle,
         trailing: trailing ??
@@ -2983,6 +2999,7 @@ class _EditorScreenState extends State<EditorScreen>
                         ? appL10n(context).editorUntitled
                         : entry.title,
                     middleEllipsis: true,
+                    hidePdfExtension: true,
                     subtitle: entry.path == null
                         ? null
                         : MiddleEllipsisText(entry.path!),
@@ -3377,7 +3394,10 @@ class _EditorScreenState extends State<EditorScreen>
       return _OpeningDocument(title: tab.title);
     }
     if (tab.error != null) {
-      return Center(child: Text(tab.error!, textAlign: TextAlign.center));
+      return _OpenErrorDocument(
+        message: tab.error!,
+        onOpen: _pickAndOpen,
+      );
     }
     if (tab.isComparison) {
       return PdfComparisonView(
@@ -3548,6 +3568,7 @@ class _EditorScreenState extends State<EditorScreen>
     final tab = _active;
     Widget title = MiddleEllipsisText(
       tab?.title.isEmpty ?? true ? appL10n(context).editorUntitled : tab!.title,
+      hidePdfExtension: tab?.title.isNotEmpty ?? false,
     );
     if (_nativeTabDragging && tab?.session != null) {
       title = _buildNativeTabDragSource(tab!, title);
@@ -4006,6 +4027,7 @@ class _EditorScreenState extends State<EditorScreen>
     Widget label() {
       final text = MiddleEllipsisText(
         tab.title.isEmpty ? appL10n(context).editorUntitled : tab.title,
+        hidePdfExtension: tab.title.isNotEmpty,
         style: TextStyle(
           fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
           color:
@@ -4210,6 +4232,7 @@ class _EditorScreenState extends State<EditorScreen>
                   children: [
                     MiddleEllipsisText(
                       tab.title,
+                      hidePdfExtension: true,
                       style: TextStyle(
                         color: overStrip
                             ? scheme.onPrimaryContainer
@@ -4243,6 +4266,44 @@ class _EditorScreenState extends State<EditorScreen>
   }
 }
 
+class _OpenErrorDocument extends StatelessWidget {
+  const _OpenErrorDocument({required this.message, required this.onOpen});
+
+  final String message;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.file_open_outlined, size: 48, color: scheme.error),
+              const SizedBox(height: 16),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: onOpen,
+                icon: const Icon(Icons.folder_open),
+                label: Text(appL10n(context).editorOpenPdfNewTab),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _OpeningDocument extends StatelessWidget {
   const _OpeningDocument({required this.title});
 
@@ -4262,7 +4323,7 @@ class _OpeningDocument extends StatelessWidget {
             Text(
               title.isEmpty
                   ? appL10n(context).editorOpeningPdf
-                  : appL10n(context).editorOpeningTitle(title),
+                  : appL10n(context).editorOpeningTitle(pdfDisplayName(title)),
               textAlign: TextAlign.center,
             ),
           ],
@@ -4537,6 +4598,7 @@ class _DesktopTabPreviewCard extends StatelessWidget {
                     tab.title.isEmpty
                         ? appL10n(context).editorUntitled
                         : tab.title,
+                    hidePdfExtension: tab.title.isNotEmpty,
                     key: const ValueKey('tab-hover-preview-title'),
                     style: Theme.of(context).textTheme.labelLarge,
                   ),
@@ -4781,6 +4843,7 @@ class _MobileTabTile extends StatelessWidget {
                       tab.title.isEmpty
                           ? appL10n(context).editorUntitled
                           : tab.title,
+                      hidePdfExtension: tab.title.isNotEmpty,
                       style: TextStyle(
                         fontWeight:
                             selected ? FontWeight.w600 : FontWeight.normal,
