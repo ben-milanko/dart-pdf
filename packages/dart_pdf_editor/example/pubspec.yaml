@@ -30,7 +30,7 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   flutter_test:
     sdk: flutter
-  image: ^4.9.1
+  image: ^4.9.2
   patrol: 4.9.0
   pdf_test_fixtures: ^3.8.0
   shared_preferences: ^2.3.0
