@@ -237,6 +237,8 @@ jobs:
             if [[ "$label" == "vector-mask" ||
                   "$label" == "vector-stack-1" ||
                   "$label" == "vector-stack-2" ||
+                  "$label" == "text-mask-1" ||
+                  "$label" == "text-mask-2" ||
                   "$label" == "hairline" ]]; then
               route_change=1
             fi
@@ -299,6 +301,8 @@ jobs:
           vector-mask pdf ../../test_corpora/pdfjs/smask_luminosity_oob_transfer.pdf
           vector-stack-1 pdf ../../test_corpora/ghent/1-CMYK/GWG168_Softmasks_Vector_part1_X4.pdf
           vector-stack-2 pdf ../../test_corpora/ghent/1-CMYK/GWG169_Softmasks_Vector_part2_X4.pdf
+          text-mask-1 pdf ../../test_corpora/ghent/1-CMYK/GWG1610_Softmasks_Text_part1_X4.pdf
+          text-mask-2 pdf ../../test_corpora/ghent/1-CMYK/GWG1611_Softmasks_Text_part2_X4.pdf
           hairline pdf ../../test_corpora/pdfjs/issue3458.pdf
           SCENARIOS
           fi
@@ -328,6 +332,8 @@ jobs:
           vector-mask pdf ../../test_corpora/pdfjs/smask_luminosity_oob_transfer.pdf
           vector-stack-1 pdf ../../test_corpora/ghent/1-CMYK/GWG168_Softmasks_Vector_part1_X4.pdf
           vector-stack-2 pdf ../../test_corpora/ghent/1-CMYK/GWG169_Softmasks_Vector_part2_X4.pdf
+          text-mask-1 pdf ../../test_corpora/ghent/1-CMYK/GWG1610_Softmasks_Text_part1_X4.pdf
+          text-mask-2 pdf ../../test_corpora/ghent/1-CMYK/GWG1611_Softmasks_Text_part2_X4.pdf
           hairline pdf ../../test_corpora/pdfjs/issue3458.pdf
           SCENARIOS
           done
@@ -364,6 +370,10 @@ jobs:
             --require-scenario-runs gpu-vector-stack-1-page-0-canvas-tile=6
             --require-scenario-runs gpu-vector-stack-2-page-0-first-tile=6
             --require-scenario-runs gpu-vector-stack-2-page-0-canvas-tile=6
+            --require-scenario-runs gpu-text-mask-1-page-0-first-tile=6
+            --require-scenario-runs gpu-text-mask-1-page-0-canvas-tile=6
+            --require-scenario-runs gpu-text-mask-2-page-0-first-tile=6
+            --require-scenario-runs gpu-text-mask-2-page-0-canvas-tile=6
             --require-scenario-runs gpu-hairline-page-0-first-tile=6
             --require-scenario-runs gpu-hairline-page-0-canvas-tile=6
           )
