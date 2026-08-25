@@ -1,5 +1,11 @@
 # Changelog
 
+## Next
+
+- Export the TrueType outline reader and add indexed TrueType Collection
+  parsing so retained backends can derive exact glyph paths from a host's
+  registered TTF/TTC bytes.
+
 ## 3.8.0
 
 - Cull retained CAD shapes outside the active raster strip before painting,

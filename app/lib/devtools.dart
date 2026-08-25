@@ -168,6 +168,7 @@ class AppDevTools extends ChangeNotifier {
         maxTextureBytes: _gpuTextureBytes,
         maxGeometryBytes: _gpuGeometryBytes,
         allowOverprintApproximation: _gpuOverprintApproximation,
+        systemTextOutlines: true,
       );
 
   static const PdfCanvasTileRasterBackend _canvasTileRasterBackend =
@@ -217,6 +218,7 @@ class AppDevTools extends ChangeNotifier {
       maxTextureBytes: textureBytes,
       maxGeometryBytes: geometryBytes,
       allowOverprintApproximation: _gpuOverprintApproximation,
+      systemTextOutlines: true,
     );
     // Unpinned texture ownership can go immediately. Active sessions keep
     // their leases until the viewer rebuild below disposes them.
@@ -245,6 +247,7 @@ class AppDevTools extends ChangeNotifier {
       maxTextureBytes: _gpuTextureBytes,
       maxGeometryBytes: _gpuGeometryBytes,
       allowOverprintApproximation: enabled,
+      systemTextOutlines: true,
     );
     previous?.clearImageCache();
     if (tileRasterBackendMode.value == TileRasterBackendMode.flutterGpu) {

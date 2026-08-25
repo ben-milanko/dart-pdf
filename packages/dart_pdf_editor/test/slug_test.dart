@@ -17,8 +17,6 @@ import 'dart:ui' as ui;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_graphics/pdf_graphics.dart';
 import 'package:pdf_graphics/raster.dart';
-// ignore: implementation_imports
-import 'package:pdf_graphics/src/fonts/truetype.dart';
 import 'package:dart_pdf_editor/strips.dart';
 
 final bool _impeller = Platform.environment['SLUG_IMPELLER'] == '1';

@@ -2,6 +2,11 @@
 
 ## Next
 
+- Add an exact substituted-text outline seam for the retained backend. Hosts
+  can resolve their registered TrueType/TTC bytes directly, while the opt-in
+  native adapter probes the standard platform substitution faces and declines
+  any unavailable, complex-shaped, or unplaceable run. Add the same-host
+  system-font route-change benchmark to the Metal CI matrix.
 - Render zero-width PDF hairlines as exact one-device-pixel contours generated
   for each tile LoD, while retaining the flattened source path with the scene.
 - Collapse isolated transparency groups containing one clipped vector fill or

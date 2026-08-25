@@ -24,9 +24,24 @@ PdfReader(
   tileRasterBackend: FlutterGpuTileRasterBackend(
     maxTextureBytes: 256 << 20,
     maxGeometryBytes: 256 << 20,
+    // Optional: retain simple substituted text using the native faces that
+    // Canvas normally selects. Leave false if the app registers replacements
+    // under these family names.
+    systemTextOutlines: true,
   ),
 )
 ```
+
+Unembedded text remains on the conservative Canvas fallback by default because
+Flutter does not expose the glyph paths selected by `TextPainter`. A host that
+owns its font registrations can pass a `FlutterGpuTrueTypeTextOutliner` whose
+resolver returns `FlutterGpuTrueTypeFontFace` instances built from those exact
+bytes. `systemTextOutlines: true` is the native convenience adapter: it probes
+known Helvetica/Arial, Times, Courier, Symbol, and platform-equivalent font
+files and declines a run when the requested face, glyph, or simple horizontal
+placement cannot be proved. It is deliberately opt-in because an app may have
+registered different bytes under the same Flutter family name. Web keeps the
+Canvas path.
 
 Flutter GPU must also be enabled by the host. Add
 `<key>FLTEnableFlutterGPU</key><true/>` to the iOS/macOS Info.plist (and
@@ -58,6 +73,7 @@ compile-time stub and therefore preserves the all-platform host surface.
 
 The current exact subset is solid paths and strokes (including zero-width PDF
 hairlines that stay one device pixel at every LoD), embedded-outline text,
+simple substituted text when an exact `FlutterGpuTextOutliner` resolves it,
 decoded images/image masks, Gouraud meshes, axial gradients, nested-circle
 radial gradients, vector and stencil-image tiling cells, normal/Multiply/Screen
 blending,
@@ -126,9 +142,9 @@ describe the real workload rather than one page at a time.
 Pages with other transparency groups or soft masks, blend modes other than
 Multiply and Screen,
 non-nested radial gradients, gradient overprint, unsafe overprint, complex
-clips nested inside the single-image soft-mask shortcut, substituted/stroked
-text, or missing image pixels are rejected as a whole rather than
-approximated.
+clips nested inside the single-image soft-mask shortcut, unresolved
+substituted text, stroked text, or missing image pixels are rejected as a whole
+rather than approximated.
 `allowOverprintApproximation` exists only for controlled experiments and
 defaults to false.
 
@@ -187,7 +203,8 @@ Set `PDF_GPU_BENCHMARK_SCENARIO` to emit normalized `PdfPerfLog` scenario
 markers for each pipeline/scene/tile phase. CI uses those markers to run the
 checked-in tiling-pattern, radial-shading, hairline, vector-mask transfer,
 GWG168/169 vector soft-mask, and GWG1610/1611 text soft-mask pages plus the
-deterministic deferred-mask fixture six times on macOS Metal, compare the exact
+PDF.js system-font outline page and deterministic deferred-mask fixture six
+times on macOS Metal, compare the exact
 PR base and candidate on the same runner with balanced execution order, and
 publish both a concise PR headline and a collapsed detailed trace.
 Set `PDF_GPU_BENCHMARK_FIXTURE=deferred-mask` instead of a PDF path to exercise
@@ -203,6 +220,14 @@ Set `PDF_GPU_BENCHMARK_ROUTE_CHANGE=1` for the same normalization when a PDF
 path, rather than the built-in fixture, changes from Canvas fallback to direct
 GPU. CI uses it for the checked-in vector-mask transfer, hairline, and GWG
 vector/text soft-mask pages.
+Set `PDF_GPU_BENCHMARK_SYSTEM_TEXT=1` to enable the native system-font outline
+adapter. For a like-for-like macOS parity control,
+`PDF_GPU_BENCHMARK_REGISTER_SYSTEM_FONTS=1` registers those same font bytes
+under Canvas's substitution-family names; CI combines both settings for the
+system-font route-change scenario.
+The corpus equivalents are `GPU_CORPUS_SYSTEM_TEXT=1` and
+`GPU_CORPUS_REGISTER_SYSTEM_FONTS=1`; the designated macOS GPU lane runs that
+full parity matrix on every change.
 Set `PDF_GPU_BENCHMARK_OVERPRINT=0` to exercise the production-default exact
 fallback policy; the benchmark otherwise enables its documented source-over
 approximation so more of a corpus can be measured on the GPU.

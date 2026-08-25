@@ -14,6 +14,7 @@ export 'package:pdf_cos/pdf_cos.dart'
     show ContentOperation, ContentStreamParser;
 export 'src/device.dart';
 export 'src/font_info.dart';
+export 'src/fonts/truetype.dart' show TrueTypeFont;
 export 'src/function.dart';
 export 'src/icc.dart';
 export 'src/image_colorants.dart';

@@ -15,6 +15,8 @@ import 'package:pdf_graphics/raster.dart';
 import 'package:vector_math/vector_math.dart' as vm;
 
 import 'backend_stats.dart';
+import 'system_text_outliner_native.dart';
+import 'text_outliner.dart';
 
 /// Scene-retained flutter_gpu backend for final LoD tile textures.
 ///
@@ -33,9 +35,10 @@ import 'backend_stats.dart';
 /// masks (with rectangular clips additionally using the hardware scissor).
 /// Other isolated groups, blend modes beyond Multiply/Screen, complex clips
 /// *inside* the special soft-mask shortcuts, non-nested radial gradients,
-/// substituted/stroked text, unsafe overprint, or missing image pixels reject
-/// the whole scene. Zero-width PDF hairlines are expanded at tile submission
-/// time so they remain exactly one device pixel at every level of detail.
+/// unresolved substituted text, stroked text, unsafe overprint, or missing
+/// image pixels reject the whole scene. Zero-width PDF hairlines are expanded
+/// at tile submission time so they remain exactly one device pixel at every
+/// level of detail.
 /// dart_pdf_editor then permanently uses its Canvas session for that scene.
 class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   FlutterGpuTileRasterBackend({
@@ -44,8 +47,14 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
     this.maxTextureBytes = 256 << 20,
     this.maxGeometryBytes = 256 << 20,
     this.enableProactiveWarmUp,
+    FlutterGpuTextOutliner? textOutliner,
+    this.systemTextOutlines = false,
     FlutterGpuTileBackendStats? stats,
   })  : stats = stats ?? FlutterGpuTileBackendStats(),
+        textOutliner = textOutliner ??
+            (systemTextOutlines
+                ? FlutterGpuSystemTextOutliner.tryCreate()
+                : null),
         _imageCache = _GpuImageCache(maxTextureBytes),
         _geometryPool = _GpuGeometryPool(maxGeometryBytes);
 
@@ -83,6 +92,17 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
   /// memory even for a page that later falls back to Canvas; validated hosts
   /// can opt in explicitly.
   final bool? enableProactiveWarmUp;
+
+  /// Optional exact vector outlines for unembedded/substituted text.
+  ///
+  /// Null preserves the conservative Canvas fallback. Set
+  /// `systemTextOutlines: true` to probe the native fonts Canvas normally
+  /// selects, or pass a host outliner built from the exact registered bytes.
+  final FlutterGpuTextOutliner? textOutliner;
+
+  /// Whether the backend was asked to probe the current platform's native
+  /// substitution faces when no explicit [textOutliner] was supplied.
+  final bool systemTextOutlines;
 
   final FlutterGpuTileBackendStats stats;
   final _GpuImageCache _imageCache;
@@ -175,7 +195,10 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
       }
       _lastContext = context;
       stats.lastContextIdentity = identityHashCode(context);
-      final commandBuild = _buildGpuCommands(scene.commands);
+      final outlinedCommands = textOutliner == null
+          ? scene.commands
+          : _outlineGpuTextCommands(scene.commands, textOutliner!);
+      final commandBuild = _buildGpuCommands(outlinedCommands);
       final commands = commandBuild.commands;
       if (commands == null) {
         _lastSessionRejection = commandBuild.rejection;
@@ -632,6 +655,72 @@ class _GpuCommandBuild {
   final List<PdfRenderCommand>? commands;
   final String? rejection;
   final bool mipmapImages;
+}
+
+/// Resolves host-supplied substitute outlines before tiled cells expand.
+///
+/// Keeping the rewrite above [_buildGpuCommands] means a repeated Type3/pattern
+/// cell resolves each text run once, then [TranslatingPdfDevice] shares the
+/// resulting glyph paths across every translated occurrence. Soft-mask tapes
+/// are nested command lists and must follow the same rule.
+List<PdfRenderCommand> _outlineGpuTextCommands(
+  List<PdfRenderCommand> source,
+  FlutterGpuTextOutliner outliner,
+) {
+  List<PdfRenderCommand>? rewritten;
+  for (var i = 0; i < source.length; i++) {
+    final command = source[i];
+    final PdfRenderCommand replacement;
+    switch (command) {
+      case PdfDrawTextCommand(:final run) when run.glyphs == null:
+        final outlined = _tryOutlineGpuText(outliner, run);
+        replacement = outlined == null || identical(outlined, run)
+            ? command
+            : PdfDrawTextCommand(outlined);
+      case PdfEndSoftMaskedCommand():
+        final mask = _outlineGpuTextCommands(command.maskCommands, outliner);
+        replacement = identical(mask, command.maskCommands)
+            ? command
+            : PdfEndSoftMaskedCommand(
+                luminosity: command.luminosity,
+                backdrop: command.backdrop,
+                maskCommands: mask,
+                backdropLuminance: command.backdropLuminance,
+                transferScale: command.transferScale,
+                transferOffset: command.transferOffset,
+              );
+      case PdfDrawTiledCellCommand():
+        final cell = _outlineGpuTextCommands(command.cellCommands, outliner);
+        replacement = identical(cell, command.cellCommands)
+            ? command
+            : PdfDrawTiledCellCommand(
+                cell,
+                command.originsX,
+                command.originsY,
+              );
+      default:
+        replacement = command;
+    }
+    if (!identical(replacement, command)) {
+      rewritten ??= List<PdfRenderCommand>.of(source);
+      rewritten[i] = replacement;
+    }
+  }
+  return rewritten == null ? source : List.unmodifiable(rewritten);
+}
+
+PdfTextRun? _tryOutlineGpuText(
+  FlutterGpuTextOutliner outliner,
+  PdfTextRun run,
+) {
+  try {
+    return outliner.outline(run);
+  } on Object {
+    // A host resolver must never turn the exact Canvas fallback into a scene
+    // creation failure. Leaving the original run in place makes the ordinary
+    // unsupported-text audit reject it conservatively.
+    return null;
+  }
 }
 
 /// Expands retained tiling cells once for the GPU scene.
