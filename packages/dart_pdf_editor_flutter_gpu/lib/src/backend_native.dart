@@ -3315,7 +3315,7 @@ class _CompiledScene {
         }
         if (draw != null) draws[unit.commandIndex] = draw;
       }
-      final paper = _paperDraw(geometry, scene);
+      final paper = _paperDraw(geometry, scene, pageToRaster);
       geometry.finalize();
       final result = _CompiledScene(
         context: context,
@@ -3344,7 +3344,7 @@ class _CompiledScene {
 
   final gpu.GpuContext context;
   final PdfMatrix pageToRaster;
-  final _SolidDraw paper;
+  final _PaperDraw paper;
   final Map<int, _GpuDraw> draws;
   final Map<int, _StraightStrokeFootprint> straightStrokes;
   final Map<_GpuClipNode, _GpuClipDraw> clipDraws;
@@ -3463,6 +3463,15 @@ class _CompiledScene {
     return extraPadding == 0
         ? unit.bounds
         : _inflatePdf(unit.bounds, extraPadding);
+  }
+
+  bool _canClearPaper(Rect region, double pixelRatio) {
+    final margin = 1 / pixelRatio;
+    final bounds = paper.rasterBounds;
+    return region.left >= bounds.left + margin &&
+        region.top >= bounds.top + margin &&
+        region.right <= bounds.right - margin &&
+        region.bottom <= bounds.bottom - margin;
   }
 
   ({
@@ -3757,18 +3766,18 @@ class _CompiledScene {
     ];
 
     gpu.RenderPass createPaintPass(
-      gpu.CommandBuffer commandBuffer,
-      gpu.Texture resolve,
-      gpu.Texture? targetColor,
-      gpu.Texture targetStencil,
-    ) {
+        gpu.CommandBuffer commandBuffer,
+        gpu.Texture resolve,
+        gpu.Texture? targetColor,
+        gpu.Texture targetStencil,
+        {vm.Vector4? clearValue}) {
       final target = targetColor ?? resolve;
       final pass = commandBuffer.createRenderPass(gpu.RenderTarget(
         colorAttachments: [
           gpu.ColorAttachment(
             texture: target,
             resolveTexture: multisampled ? resolve : null,
-            clearValue: vm.Vector4.zero(),
+            clearValue: clearValue ?? vm.Vector4.zero(),
             storeAction: multisampled
                 ? gpu.StoreAction.multisampleResolve
                 : gpu.StoreAction.store,
@@ -3819,17 +3828,27 @@ class _CompiledScene {
     void paintSegment(List<_GpuUnit> segment) {
       final target = alternate();
       final commandBuffer = context.createCommandBuffer();
+      final clearPaper = current == null && _canClearPaper(region, pixelRatio);
+      if (clearPaper) stats.paperClearTiles++;
       final encoder = encoderFor(
-        createPaintPass(commandBuffer, target, color, stencil),
+        createPaintPass(
+          commandBuffer,
+          target,
+          color,
+          stencil,
+          clearValue: clearPaper ? paper.clearColor : null,
+        ),
         targetRegion: region,
         targetWidth: width,
         targetHeight: height,
       );
       if (current == null) {
-        encoder
-          ..setClip(_rootGpuClip)
-          ..setSourceBlend()
-          ..solid(paper.vertices);
+        if (!clearPaper) {
+          encoder
+            ..setClip(_rootGpuClip)
+            ..setSourceBlend()
+            ..solid(paper.vertices);
+        }
       } else {
         encoder
           ..setClip(_rootGpuClip)
@@ -4197,11 +4216,14 @@ class _CompiledScene {
     final retainedGroupTextures = groups.retained;
 
     final commandBuffer = context.createCommandBuffer();
+    final clearPaper = _canClearPaper(region, pixelRatio);
+    if (clearPaper) stats.paperClearTiles++;
     final pass = createPass(
       commandBuffer,
       color,
       stencil,
       resolveTarget: multisampled ? resolve : null,
+      clearValue: clearPaper ? paper.clearColor : null,
     );
     final encoder = encoderFor(
       pass,
@@ -4209,9 +4231,11 @@ class _CompiledScene {
       targetWidth: width,
       targetHeight: height,
     );
-    encoder
-      ..setClip(_rootGpuClip)
-      ..solid(paper.vertices);
+    if (!clearPaper) {
+      encoder
+        ..setClip(_rootGpuClip)
+        ..solid(paper.vertices);
+    }
     for (final unit in selected) {
       final draw = draws[unit.commandIndex];
       if (draw == null) continue;
@@ -4309,7 +4333,11 @@ _GpuClipDraw _compileClip(_GpuGeometryArena geometry, _GpuClipNode node) {
   );
 }
 
-_SolidDraw _paperDraw(_GpuGeometryArena geometry, PdfRetainedScene scene) {
+_PaperDraw _paperDraw(
+  _GpuGeometryArena geometry,
+  PdfRetainedScene scene,
+  PdfMatrix pageToRaster,
+) {
   final box = scene.page.cropBox;
   final color = scene.plan.pageColor;
   final alpha = color.a;
@@ -4333,7 +4361,27 @@ _SolidDraw _paperDraw(_GpuGeometryArena geometry, PdfRetainedScene scene) {
   ]) {
     vertices.add6(x, y, rgba[0], rgba[1], rgba[2], rgba[3]);
   }
-  return _SolidDraw(geometry.add(vertices.bytes, 6));
+  final corners = <(double, double)>[
+    (box.left, box.bottom),
+    (box.right, box.bottom),
+    (box.right, box.top),
+    (box.left, box.top),
+  ];
+  var left = double.infinity, top = double.infinity;
+  var right = double.negativeInfinity, bottom = double.negativeInfinity;
+  for (final (x, y) in corners) {
+    final rx = pageToRaster.transformX(x, y);
+    final ry = pageToRaster.transformY(x, y);
+    if (rx < left) left = rx;
+    if (rx > right) right = rx;
+    if (ry < top) top = ry;
+    if (ry > bottom) bottom = ry;
+  }
+  return _PaperDraw(
+    geometry.add(vertices.bytes, 6),
+    vm.Vector4(rgba[0], rgba[1], rgba[2], rgba[3]),
+    Rect.fromLTRB(left, top, right, bottom),
+  );
 }
 
 Future<_GpuDraw> _compileSoftMaskImage(
@@ -6100,6 +6148,13 @@ class _SolidDraw implements _GpuDraw {
 
   @override
   void encode(_GpuEncoder encoder) => encoder.solid(vertices);
+}
+
+class _PaperDraw extends _SolidDraw {
+  const _PaperDraw(super.vertices, this.clearColor, this.rasterBounds);
+
+  final vm.Vector4 clearColor;
+  final Rect rasterBounds;
 }
 
 class _StencilDraw implements _GpuDraw {

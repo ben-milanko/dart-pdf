@@ -63,6 +63,7 @@ void main() {
       ..analyticAtlasBytes = 4096
       ..analyticAtlasFallbacks = 1
       ..analyticTextFallbackRuns = 2
+      ..paperClearTiles = 6
       ..advancedBlendBlits = 5
       ..advancedBlendCroppedSources = 4
       ..offscreenGroupPasses = 3
@@ -99,6 +100,7 @@ void main() {
     expect(stats.toJson(), containsPair('analyticAtlasBytes', 4096));
     expect(stats.toJson(), containsPair('analyticAtlasFallbacks', 1));
     expect(stats.toJson(), containsPair('analyticTextFallbackRuns', 2));
+    expect(stats.toJson(), containsPair('paperClearTiles', 6));
     expect(stats.toJson(), containsPair('advancedBlendBlits', 5));
     expect(stats.toJson(), containsPair('advancedBlendCroppedSources', 4));
     expect(stats.toJson(), containsPair('offscreenGroupPasses', 3));
@@ -139,6 +141,7 @@ void main() {
     expect(stats.analyticAtlasBytes, 0);
     expect(stats.analyticAtlasFallbacks, 0);
     expect(stats.analyticTextFallbackRuns, 0);
+    expect(stats.paperClearTiles, 0);
     expect(stats.advancedBlendBlits, 0);
     expect(stats.advancedBlendCroppedSources, 0);
     expect(stats.offscreenGroupPasses, 0);

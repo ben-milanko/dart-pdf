@@ -279,6 +279,62 @@ void main() {
     });
   });
 
+  testWidgets('interior paper clears preserve page color and edge coverage',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(
+        page,
+        [
+          PdfFillPathCommand(
+            _rect(240, 300, 320, 380),
+            const PdfColor(0.85, 0.12, 0.28),
+            PdfFillRule.nonzero,
+            0.7,
+          ),
+        ],
+        plan: const PdfPageRenderPlan(
+          pageColor: Color(0x8066AA22),
+          rotation: 90,
+        ),
+      );
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      for (final (region, clears) in const [
+        (Rect.fromLTWH(60, 60, 240, 200), 1),
+        (Rect.fromLTWH(0, 0, 240, 200), 1),
+      ]) {
+        final expected = await scene.rasterizeRegion(region, pixelRatio: 1.5);
+        final actual = await session.rasterizeRegion(region, pixelRatio: 1.5);
+        try {
+          final a = await _pixels(expected), b = await _pixels(actual);
+          var difference = 0;
+          var minimumAlpha = 255;
+          for (var index = 0; index < a.length; index++) {
+            difference += (a[index] - b[index]).abs();
+            if (index % 4 == 3 && b[index] < minimumAlpha) {
+              minimumAlpha = b[index];
+            }
+          }
+          expect(difference / a.length, lessThan(3));
+          expect(minimumAlpha, 255);
+          expect(backend.stats.paperClearTiles, clears);
+        } finally {
+          expected.dispose();
+          actual.dispose();
+        }
+      }
+    });
+  });
+
   testWidgets('zero-width strokes remain one device pixel at every LoD',
       (tester) async {
     await tester.runAsync(() async {
