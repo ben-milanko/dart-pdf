@@ -9,6 +9,10 @@
   directly to the folded paper color. This avoids stencil, MSAA, host-buffer,
   and pipeline work when spatial selection proves that no retained command can
   affect the tile, while boundary tiles keep the exact antialiased paper path.
+- Discard exactly transparent advanced-blend source texels before sampling the
+  backdrop or evaluating the PDF blend equation. The destination is already a
+  native copy of that backdrop, so sparse sources avoid redundant fragment
+  reads, arithmetic, and writes without changing the resolved pixels.
 - Initialize tiles wholly inside the transformed crop box with the folded
   opaque paper color in the render-pass clear, skipping the transparent clear
   and full-tile paper draw. A one-device-pixel guard keeps rotated and

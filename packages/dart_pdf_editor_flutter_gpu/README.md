@@ -134,6 +134,9 @@ transparent attachment is cropped to page-pixel-aligned bounds and the
 blend shader remaps those texels onto the unchanged full-sized backdrop. Thick
 offscreen strokes and low-LoD hairlines extend the crop before alignment, so
 the optimization cannot trim antialiasing coverage.
+Sparse sources also discard exactly transparent texels before the backdrop
+lookup and blend arithmetic. The target already contains a native copy of that
+destination, so skipping the fragment write produces the same PDF composite.
 Each pass preserves the untouched ping-pong destination with a byte-exact GPU
 texture blit rather than a full-tile fragment draw.
 Offscreen groups can precede or follow those paints in the same exact route:

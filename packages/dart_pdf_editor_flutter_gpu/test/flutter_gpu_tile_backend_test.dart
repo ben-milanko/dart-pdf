@@ -916,6 +916,15 @@ void main() {
         difference += (a[index] - b[index]).abs();
       }
       expect(difference / a.length, lessThan(3));
+      // This point lies inside the strokes' overlapping conservative bounds
+      // but outside every thin source contour. The blend target already holds
+      // the copied backdrop, so a transparent-source fragment must leave it
+      // byte-identical.
+      const transparentGap = (200 * 512 + 250) * 4;
+      expect(
+        b.sublist(transparentGap, transparentGap + 4),
+        a.sublist(transparentGap, transparentGap + 4),
+      );
       expect(backend.stats.advancedBlendPasses, 1);
       expect(backend.stats.advancedBlendBlits, 1);
     });
