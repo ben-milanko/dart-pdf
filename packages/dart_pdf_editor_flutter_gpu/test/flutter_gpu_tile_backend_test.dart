@@ -755,6 +755,71 @@ void main() {
     });
   });
 
+  testWidgets('offscreen groups retain an advanced outer blend',
+      (tester) async {
+    await tester.runAsync(() async {
+      if (!_gpuAvailable()) {
+        markTestSkipped('run with --enable-impeller --enable-flutter-gpu');
+        return;
+      }
+      final page = PdfDocument.open(buildClassicPdf()).page(0);
+      final scene = await PdfRetainedScene.fromCommands(page, [
+        PdfFillPathCommand(
+          _rect(30, 90, 310, 370),
+          const PdfColor(0.45, 0.55, 0.7),
+          PdfFillRule.nonzero,
+          1,
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.overlay),
+        const PdfBeginGroupCommand(
+          0.72,
+          isolated: true,
+          bounds: PdfRect(50, 110, 290, 350),
+        ),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+        PdfClipPathCommand(_rect(50, 110, 290, 350), PdfFillRule.nonzero),
+        PdfFillPathCommand(
+          _rect(70, 140, 230, 310),
+          const PdfColor(0.95, 0.25, 0.15),
+          PdfFillRule.nonzero,
+          0.65,
+        ),
+        PdfFillPathCommand(
+          _rect(150, 160, 270, 325),
+          const PdfColor(0.15, 0.45, 0.95),
+          PdfFillRule.nonzero,
+          0.55,
+        ),
+        const PdfEndGroupCommand(),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
+      ]);
+      addTearDown(scene.dispose);
+      final backend = FlutterGpuTileRasterBackend();
+      final session = backend.createSession(scene);
+      expect(session, isNotNull, reason: backend.stats.lastRejection);
+      addTearDown(session!.dispose);
+
+      const region = Rect.fromLTWH(20, 410, 310, 310);
+      final expected = await scene.rasterizeRegion(region, pixelRatio: 1.5);
+      final actual = await session.rasterizeRegion(region, pixelRatio: 1.5);
+      addTearDown(expected.dispose);
+      addTearDown(actual.dispose);
+      final a = await _pixels(expected), b = await _pixels(actual);
+      var difference = 0;
+      var minimumAlpha = 255;
+      for (var index = 0; index < a.length; index++) {
+        difference += (a[index] - b[index]).abs();
+        if (index % 4 == 3 && b[index] < minimumAlpha) {
+          minimumAlpha = b[index];
+        }
+      }
+      expect(difference / a.length, lessThan(3));
+      expect(minimumAlpha, 255);
+      expect(backend.stats.offscreenGroupPasses, 1);
+      expect(backend.stats.advancedBlendPasses, 1);
+    });
+  });
+
   testWidgets('advanced blend budget rejects before allocating ping-pong tiles',
       (tester) async {
     await tester.runAsync(() async {

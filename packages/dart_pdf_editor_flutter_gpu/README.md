@@ -117,9 +117,10 @@ Advanced blend paints use bounded ping-pong tile attachments. Paints whose
 bounds prove they cannot affect one another share one destination-sampling
 pass; overlapping paints replay sequentially inside their conservative command
 bounds to preserve PDF painter order without shading unrelated tile pixels.
-Fixed-function offscreen groups can precede or follow those paints in the same
-exact route: each group is prepared once in its bounded single-sample target,
-then sampled into the ping-pong page at its original painter-order position.
+Offscreen groups can precede or follow those paints in the same exact route:
+each group is prepared once in its bounded single-sample target, then sampled
+into the ping-pong page at its original painter-order position. The completed
+group texture can itself be the source of one advanced outer blend.
 The route rejects before allocating when its temporary attachments would
 exceed 256 MiB.
 Rectangles use hardware scissors; other clip stacks compile once into retained
@@ -181,9 +182,8 @@ peak temporary bytes, and budget fallbacks.
 instance alive when comparing pages so those counters and cross-page caches
 describe the real workload rather than one page at a time.
 
-Pages with other transparency groups or soft masks, offscreen groups whose own
-outer blend is advanced, non-nested radial gradients, gradient overprint,
-unsafe overprint, complex
+Pages with other transparency groups or soft masks, non-nested radial
+gradients, gradient overprint, unsafe overprint, complex
 clips nested inside the single-image soft-mask shortcut, unresolved
 substituted text, or missing image pixels are rejected as a whole rather than
 approximated.

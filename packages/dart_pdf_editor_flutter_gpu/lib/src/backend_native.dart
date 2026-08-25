@@ -274,14 +274,6 @@ class FlutterGpuTileRasterBackend extends PdfTileRasterBackend {
         units.any((unit) => unit.composite is _KnockoutSoftMaskFillSpec)) {
       return 'advanced blend with knockout soft mask';
     }
-    if (hasAdvancedBlend &&
-        units.any((unit) => switch (unit.composite) {
-              _GroupPaintSpec(offscreen: true) =>
-                !_isFixedFunctionBlendMode(unit.blendMode),
-              _ => false,
-            })) {
-      return 'advanced-blended offscreen transparency group';
-    }
     for (final unit in units) {
       if (!_isGpuBlendMode(unit.blendMode)) {
         return 'blend mode ${unit.blendMode.name}';
@@ -3646,8 +3638,12 @@ class _CompiledScene {
         final draw = draws[unit.commandIndex];
         if (draw == null) continue;
         if (draw is _OffscreenGroupDraw) {
-          throw StateError(
-              'advanced source received an offscreen transparency group');
+          final group = groups.textures[unit.commandIndex]!;
+          sourceEncoder
+            ..setClip(unit.clip)
+            ..setBlendMode(PdfBlendMode.normal)
+            ..tileTexture(group.$1, group.$2, draw.alpha);
+          continue;
         }
         sourceEncoder
           ..setClip(unit.clip)

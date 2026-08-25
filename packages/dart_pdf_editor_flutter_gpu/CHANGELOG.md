@@ -32,9 +32,9 @@
   Advanced modes use bounded ping-pong tile attachments; provably disjoint
   paints share one blend pass, while overlapping paints retain painter order
   and scissor each sequential shader draw to its conservative command bounds.
-  Fixed-function offscreen groups can now coexist with those destination-
-  sampling paints in exact painter order; groups whose own outer blend is
-  advanced and oversized tiles keep the conservative Canvas fallback.
+  Offscreen groups can now coexist with those destination-sampling paints in
+  exact painter order and can use one advanced outer blend themselves;
+  oversized tiles keep the conservative Canvas fallback.
 - Retain isolated knockout groups made entirely from vector fills. Later
   sibling shapes use exact source replacement only inside their retained path,
   while the group's alpha and outer blend remain a single offscreen composite.

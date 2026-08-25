@@ -219,20 +219,20 @@ void main() {
         return;
       }
 
-      const backdrop = PdfColor(0.24, 0.58, 0.72);
       final commands = <PdfRenderCommand>[
         PdfFillPathCommand(
           _rect(0, 0, 612, 792),
-          backdrop,
+          const PdfColor(0.24, 0.58, 0.72),
           PdfFillRule.nonzero,
           1,
         ),
+        const PdfSetBlendModeCommand(PdfBlendMode.overlay),
         const PdfBeginGroupCommand(
-          1,
-          knockout: true,
+          0.72,
+          isolated: true,
           bounds: PdfRect(40, 80, 572, 730),
-          backdropColor: backdrop,
         ),
+        const PdfSetBlendModeCommand(PdfBlendMode.normal),
       ];
       for (var index = 0; index < 24; index++) {
         final offset = index * 13.0;
